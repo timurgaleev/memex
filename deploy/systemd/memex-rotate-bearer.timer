@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily rotation of the public memex bearer token at 06:00 Europe/Berlin
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 Europe/Berlin
+# If the EC2 was sleeping (spot interruption rare on t4g but possible
+# on rebalance) and missed the slot, run as soon as it's back.
+Persistent=true
+Unit=memex-rotate-bearer.service
+
+[Install]
+WantedBy=timers.target

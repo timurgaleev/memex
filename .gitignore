@@ -1,0 +1,75 @@
+# Lambda build artifacts
+dist/
+*.zip
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfstate.d/
+*.tfvars
+*.tfvars.json
+# Re-allow the .example file so users can see the schema.
+!*.tfvars.example
+# Partial backend config (per-installation values written by scripts/init.sh).
+terraform/backend.hcl
+!terraform/backend.hcl.example
+
+# Local-only terraform state-migration blocks (never committed).
+terraform/moved.tf
+
+# Optional local overlay for audit / scrub-audit pattern sets — the
+# operator's exact maintainer/client identifiers stay out of git.
+scripts/lib/pii-patterns.local.txt
+scripts/lib/scrub-patterns.local.txt
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+tfplan
+tfplan.*
+tfplan-*
+
+# Secrets — never commit
+*.pem
+*.key
+*.env
+.env*
+# Re-allow .env.example so users can see the schema.
+!.env.example
+secrets/
+# Exception: deploy/secrets/ contains scripts (fetch-secrets.sh), not actual secrets.
+# Actual secrets land in deploy/secrets/.secrets/ which is caught by deploy/.gitignore.
+!deploy/secrets/
+!deploy/secrets/fetch-secrets.sh
+credentials
+
+# Per-installation operational notes (kept out of the public repo).
+OPERATIONS_NOTES.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Superpowers brainstorm sessions (visual companion mockups)
+.superpowers/
+
+# AI-only context (provenance, upstream attribution, working notes)
+.ai-context/
+
+# vibestack scratch (companion-tool brainstorm sessions, not source-of-truth)
+.vibestack/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Claude Code project settings + scheduled task state
+.claude/

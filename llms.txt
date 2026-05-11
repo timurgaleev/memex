@@ -1,0 +1,115 @@
+# memex — llms.txt
+
+> Map of where things live, for AI agents that just cloned the repo.
+> Read CLAUDE.md first (it's loaded automatically), this file second.
+
+## What this repo is
+
+Self-hostable personal AI assistant stack:
+- **memex** — knowledge brain (Bun + PGLite + pgvector, hybrid
+  search, MCP server)
+- **openclaw** — chat agent (npm `openclaw@2026.4.29`, Telegram + web
+  UI via Cloudflare Tunnel)
+- **obsidian-sync** *(deprecated, will be removed in a future release)* —
+  bidirectional sync to a hosted Obsidian vault via a headless client
+- **cloudflared** — public HTTPS ingress for the web UI
+
+All four run as Docker Compose services on a single `t4g.medium` EC2.
+
+## Where to read first
+
+| Want to know... | Read |
+|---|---|
+| Project conventions, gotchas, never-do-X rules | `CLAUDE.md` |
+| Topology + diagrams + resource inventory | `ARCHITECTURE.md` |
+| What changed when, with reasoning | `CHANGELOG.md` |
+| Explicitly deferred work + when to pick it up | `TODO.md` |
+| How to behave inside this repo (build / test / commit) | `AGENTS.md` |
+| memex subsystem deep-dive | `deploy/memex/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
+| Onboarding (`make init` flow) | `README.md` |
+
+## Source code map
+
+```
+deploy/
+├── docker-compose.yml           orchestrator (4 services + internal bridge net)
+├── memex/                    knowledge brain
+│   ├── Dockerfile               oven/bun:1.3.13-alpine
+│   ├── package.json             pinned deps incl. yaml + chokidar + AWS SDK Bedrock + postgres
+│   ├── memex.yml.example     declarative runtime config overlay
+│   ├── templates/               SOUL/USER/ACCESS_POLICY/HEARTBEAT.md.template (seeded by init)
+│   ├── src/
+│   │   ├── cli.ts               argparse + subcommand dispatch
+│   │   ├── commands/            init, serve, index, search, reindex, doctor,
+│   │   │                        integrity, eval, backlinks, extract,
+│   │   │                        reconcile-links, orphans, pages, lint, reports,
+│   │   │                        skillpack
+│   │   └── core/
+│   │       └── engine/          adapter pattern (interface, pglite, postgres, factory)
+│   └── docs/                    subsystem deep-dive (README, ARCHITECTURE, API, OPERATIONS)
+├── openclaw/                    chat surface
+│   ├── Dockerfile               npm `openclaw@2026.4.29` on Alpine
+│   ├── config.template.json     templated by post-onboard.sh
+│   ├── entrypoint.sh            applies env + gateway token at start
+│   └── docs/                    operations notes
+├── cloudflared/                 public ingress sidecar (upstream image, no Dockerfile)
+│   └── docs/
+├── obsidian-sync/               vault sync sidecar (headless Obsidian)
+│   └── docs/
+├── secrets/                     AWS Secrets Manager fetch
+│   ├── fetch-secrets.sh         reads <secrets_prefix>/* into deploy/.secrets/
+│   └── README.md
+├── systemd/                     timers + services for poll / rotation jobs
+└── skills/                      openclaw skills (calendar, telegram-history, etc.)
+
+scripts/
+├── audit.sh                     PII gate
+├── init.sh                      interactive bootstrap (.env, tfvars, backend.hcl)
+├── lib/
+│   ├── pii-patterns.txt         audit input
+│   └── pii-allowlist.txt        files exempt from audit
+├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
+├── post-onboard.sh              one-time openclaw config patches
+├── gcal-poll.sh, gmail-poll.sh  hourly recipe triggers
+├── gcal-oauth-bootstrap.py      local OAuth flow → secret refresh
+├── gmail-oauth-bootstrap.py     same for Gmail
+└── rotate-memex-public-bearer.sh   daily bearer rotation
+
+terraform/
+├── main.tf                      providers + partial backend
+├── variables.tf                 all input vars
+├── *.tf                         per-resource files
+├── terraform.tfvars.example     schema doc (real tfvars is gitignored)
+├── backend.hcl.example          schema doc (real backend.hcl is gitignored)
+└── user_data.sh.tftpl           cloud-init user_data template
+
+tests/
+├── audit.test.sh, init.test.sh  bash unit tests
+└── test_*.py                    pytest suites (memex skeleton, dockerfiles, etc.)
+
+Makefile                         orchestration entry points
+MIGRATION_PII_TABLE.md           substitution spec — drives audit + init
+```
+
+## Conventions you'll want to know
+
+- Every secret is namespaced by `var.secrets_prefix` (default
+  `openclaw`, override via `scripts/init.sh` for fresh installs).
+- The `.env` at repo root is the runtime contract — it's rendered by
+  `scripts/init.sh` (local) or `scripts/bootstrap.sh` (on EC2).
+- `make audit` reads `scripts/lib/pii-patterns.txt` and fails on any
+  maintainer-private identifier — used as a pre-publish gate.
+- AI agents working on this repo MUST honor `CLAUDE.md` — no commits
+  without explicit ask, no destructive terraform without showing plan
+  first, no unrequested infrastructure additions.
+
+## Where to start when implementing a change
+
+1. Skim `ARCHITECTURE.md` to place the change in the topology.
+2. Find the closest existing pattern via grep — `secrets_prefix`,
+   `dynamic "egress"`, `${EFS_MOUNT}`, etc. — match it.
+3. Add tests before code: bash units in `tests/*.test.sh`, pytest in
+   `tests/test_*.py`.
+4. Update `CHANGELOG.md`, `TODO.md`, and `ARCHITECTURE.md` in the same
+   commit if behavior or topology changed.
+5. `make audit && make test && terraform validate` before opening a PR.

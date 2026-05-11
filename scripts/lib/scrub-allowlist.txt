@@ -1,0 +1,40 @@
+# Files / globs exempt from scripts/scrub-audit.sh scanning.
+#
+# Format: one path (or shell glob) per line, relative to repo root.
+# Lines starting with # and blank lines are ignored.
+#
+# The audit already excludes anything matching .gitignore (it scans
+# `git ls-files` output). This file lists *tracked* files that
+# legitimately contain otherwise-flagged content.
+
+# License must keep the copyright holder.
+LICENSE
+
+# The pattern + allowlist files themselves.
+scripts/lib/pii-patterns.txt
+scripts/lib/pii-allowlist.txt
+scripts/lib/scrub-patterns.txt
+scripts/lib/scrub-allowlist.txt
+
+# Operations notes that are gitignored anyway (defensive).
+OPERATIONS_NOTES.md
+
+# Systemd unit files — `Europe/Berlin` is the timer/service default for
+# TZ; the strict `Berlin` HIGH pattern would false-positive on those
+# functional defaults. Operators override TZ via systemd `Environment=`.
+deploy/systemd/*.timer
+deploy/systemd/*.service
+
+# Source-code defaults — `"Europe/Berlin"` literal is allowed as a
+# default value of a configurable quiet-hours zone.
+deploy/memex/src/core/jobs/quiet-hours.ts
+deploy/memex/src/core/throttle.ts
+deploy/memex/src/recipes/cycle.ts
+deploy/memex/src/commands/serve.ts
+
+# Test fixture files — fixed dates and `"Sample"` as a generic name
+# are normal test data (bar B).
+deploy/memex/tests/*.test.ts
+
+# Existing PII fixture suite.
+tests/fixtures/repo-with-pii/**

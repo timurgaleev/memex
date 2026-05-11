@@ -1,0 +1,50 @@
+name: Feature / enhancement
+description: Propose a change to behavior, architecture, or docs.
+title: "[feat] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Big changes get a design discussion before a PR. Open this
+        issue, agree on the shape, then write code.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you solving?
+      description: A concrete user-facing problem, not "would be nice to have".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you'd change. Include diagrams (ASCII OK) for non-trivial shape.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: 1-2 alternative paths and why this one wins.
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Out of scope
+      description: What this proposal explicitly does NOT cover.
+
+  - type: checkboxes
+    id: type
+    attributes:
+      label: This proposal touches...
+      options:
+        - label: terraform / AWS infrastructure
+        - label: docker-compose / container build
+        - label: memex (knowledge brain)
+        - label: openclaw (chat surface)
+        - label: docs / onboarding
+        - label: tests / CI

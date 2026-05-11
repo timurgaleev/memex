@@ -1,0 +1,56 @@
+#!/bin/bash
+# Home Assistant CLI — credentials fetched from Secrets Manager at runtime.
+# Usage:
+#   ha states [filter]
+#   ha get /api/...
+#   ha call <domain> <service> [json]
+#   ha history <entity_id> [hours]
+
+SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id openclaw/home-assistant-token \
+  --region eu-west-1 \
+  --query SecretString \
+  --output text)
+
+HA_URL=$(echo "$SECRET" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['HA_URL'])")
+HA_TOKEN=$(echo "$SECRET" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['HA_TOKEN'])")
+
+AUTH="Authorization: Bearer $HA_TOKEN"
+CT="Content-Type: application/json"
+
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+  get)
+    curl -sf "$HA_URL$1" -H "$AUTH" | python3 -m json.tool
+    ;;
+  states)
+    filter="${1:-}"
+    curl -sf "$HA_URL/api/states" -H "$AUTH" | python3 -c "
+import sys,json,os
+states=json.load(sys.stdin)
+flt=os.environ.get('HA_FILTER','')
+for s in states:
+    if not flt or flt in s['entity_id']:
+        print(s['entity_id'],'=',s['state'])
+" HA_FILTER="$filter"
+    ;;
+  call)
+    domain="$1"; service="$2"; data="${3:-{}}"
+    curl -sf -X POST "$HA_URL/api/services/$domain/$service" -H "$AUTH" -H "$CT" -d "$data" | python3 -m json.tool
+    ;;
+  history)
+    entity="$1"; hours="${2:-1}"
+    start=$(python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta(hours=$hours)).isoformat())")
+    curl -sf "$HA_URL/api/history/period/$start?filter_entity_id=$entity" -H "$AUTH" | python3 -c "
+import sys,json
+data=json.load(sys.stdin)
+if data:
+    for s in data[0][-10:]:
+        print(s.get('last_changed','')[:19], s.get('state',''))
+"
+    ;;
+  *)
+    echo "Usage: ha <states|get|call|history> [args]"
+    ;;
+esac

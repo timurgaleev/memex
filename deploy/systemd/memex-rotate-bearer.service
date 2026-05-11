@@ -1,0 +1,18 @@
+[Unit]
+Description=Rotate the public memex bearer token (daily)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/memex/bin/rotate-memex-public-bearer.sh
+User=root
+# AWS region for the embedded `aws` CLI calls. Instance role provides
+# the credentials; no profile needed.
+Environment=AWS_REGION=eu-west-1
+# Honour Berlin local clock — the timer schedules in Europe/Berlin so
+# DST shifts don't drift the rotation off 06:00.
+Environment=TZ=Europe/Berlin
+StandardOutput=append:/var/log/memex/memex-rotate-bearer.log
+StandardError=append:/var/log/memex/memex-rotate-bearer.log

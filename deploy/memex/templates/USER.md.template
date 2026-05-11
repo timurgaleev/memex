@@ -1,0 +1,34 @@
+---
+title: USER
+created: {{NOW}}
+updated: {{NOW}}
+tags: [user, profile]
+---
+
+# USER
+
+The user's profile from the agent's point of view. Background, working
+style, current focus. Maintained by the agent over time; the user can
+edit too.
+
+## Who
+
+Name, role, location.
+
+## Technical background
+
+What the user knows well, what they're learning.
+
+## Current focus
+
+What's in front of the user right now (replace as it changes — this is
+not a journal, just current state).
+
+## Communication preferences
+
+Length, formality, language(s), what to confirm vs run autonomously.
+
+## Existing systems / tools / habits
+
+Things to remember when proposing solutions (e.g. "uses Obsidian for
+notes", "AWS-only for infra", "no Notion").

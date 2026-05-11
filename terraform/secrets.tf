@@ -1,0 +1,79 @@
+# All secrets are created as empty placeholders.
+# Fill them in AWS Console or CLI after deployment — never in Terraform state.
+# Naming pattern: ${var.secrets_prefix}/<name>. Override secrets_prefix in
+# terraform.tfvars to namespace per-environment (e.g. "stack-staging").
+
+resource "aws_secretsmanager_secret" "telegram_bot_token" {
+  name                    = "${var.secrets_prefix}/telegram-bot-token"
+  description             = "Telegram bot token from BotFather"
+  recovery_window_in_days = 0 # Allow immediate deletion for personal use
+}
+
+resource "aws_secretsmanager_secret" "obsidian_sync" {
+  name                    = "${var.secrets_prefix}/obsidian-sync"
+  description             = "Obsidian Sync credentials for obsidian-headless daemon (JSON: {email, password, totp_secret?})"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret" "home_assistant_token" {
+  name                    = "${var.secrets_prefix}/home-assistant-token"
+  description             = "Home Assistant long-lived access token"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
+  name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
+  description             = "Cloudflare Tunnel token for the chat-UI subdomain"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret" "google_calendar" {
+  name                    = "${var.secrets_prefix}/google-calendar"
+  description             = "Google Calendar OAuth2 credentials (JSON: {client_id, client_secret, refresh_token})"
+  recovery_window_in_days = 0
+}
+
+# Conditional — only when the stack uses the SSH deploy-key flow for a
+# private repo. The default install leaves use_ssh_deploy_key=false and
+# HTTPS-clones a public repo without auth.
+resource "aws_secretsmanager_secret" "github_deploy_key" {
+  count = var.use_ssh_deploy_key ? 1 : 0
+
+  name                    = "${var.secrets_prefix}/github-deploy-key"
+  description             = "SSH private key (passphrase-less) the EC2 uses to git clone a private repo"
+  recovery_window_in_days = 0
+}
+
+# Stable gateway.auth.token used by the openclaw container's entrypoint to
+# pin the dashboard token across restarts. Rotation is manual ("stable, rotate
+# on compromise") rather than per-restart — see deploy/openclaw/entrypoint.sh
+# for the consume path. Value is provisioned out-of-band:
+#   aws secretsmanager put-secret-value \
+#     --secret-id <secrets_prefix>/gateway-token \
+#     --secret-string $(openssl rand -hex 32)
+resource "aws_secretsmanager_secret" "gateway_token" {
+  name                    = "${var.secrets_prefix}/gateway-token"
+  description             = "openclaw gateway.auth.token (stable; rotate manually on compromise)"
+  recovery_window_in_days = 0
+}
+
+# Bearer token for the public Cloudflare Tunnel ingress to memex
+# (brain.<domain>). Read-side only — /index and /friction are blocked
+# from public regardless of bearer; mutating MCP tools are filtered
+# server-side. Generated as a random 48-char string at apply time and
+# stored as the secret value in one shot.
+resource "random_password" "memex_public_bearer" {
+  length  = 48
+  special = false # URL-safe; carried in Authorization header
+}
+
+resource "aws_secretsmanager_secret" "memex_public_bearer" {
+  name                    = "${var.secrets_prefix}/memex-public-bearer"
+  description             = "Bearer token for the public Cloudflare Tunnel ingress to memex (read-only routes)"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
+  secret_id     = aws_secretsmanager_secret.memex_public_bearer.id
+  secret_string = random_password.memex_public_bearer.result
+}

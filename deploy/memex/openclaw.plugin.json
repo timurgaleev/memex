@@ -1,0 +1,64 @@
+{
+  "$schema_note": "openclaw bundled-plugin manifest — declares the memex MCP HTTP server, its skills, and the openclaw plugin-API compat range. Loaded by openclaw / clawhub at startup.",
+  "name": "memex",
+  "version": "0.1.0",
+  "description": "Personal-knowledge brain with PGLite + pgvector hybrid search, Bedrock Titan v2 embeddings, AWS-native (no external API keys).",
+  "family": "bundle-plugin",
+  "configSchema": {
+    "vault_paths": {
+      "type": "array",
+      "required": false,
+      "description": "Filesystem paths to index (Obsidian vault, openclaw memory, etc). Defaults read from ~/.memex/memex.yml or MEMEX_VAULT_PATHS env."
+    },
+    "bedrock_region": {
+      "type": "string",
+      "required": false,
+      "default": "eu-west-1",
+      "description": "AWS region for Bedrock Titan v2 embedding calls. Credentials come from the EC2 IAM role + AWS_PROFILE=default — no static keys."
+    },
+    "mcp_rate_limit_per_minute": {
+      "type": "integer",
+      "required": false,
+      "default": 60,
+      "description": "Token-bucket cap on POST /mcp requests per source IP."
+    }
+  },
+  "mcpServers": {
+    "memex": {
+      "transport": "http",
+      "url": "http://memex:18790/mcp",
+      "description": "JSON-RPC 2.0 MCP transport over HTTP — initialize, tools/list, tools/call. Reachable on the docker-internal network from the openclaw container; not exposed publicly."
+    }
+  },
+  "skills": [
+    "skills/memex",
+    "skills/briefing",
+    "skills/calendar",
+    "skills/frontmatter-guard",
+    "skills/homeassistant",
+    "skills/idea-capture",
+    "skills/obsidian",
+    "skills/signal-detect"
+  ],
+  "shared_deps": [],
+  "excluded_from_install": [],
+  "tools_exposed": [
+    "search",
+    "index",
+    "backlinks",
+    "stats"
+  ],
+  "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.4.0"
+    },
+    "container": {
+      "image": "deploy-memex",
+      "endpoint": "http://memex:18790",
+      "health": {
+        "path": "/health",
+        "expect": "\"ok\":true"
+      }
+    }
+  }
+}

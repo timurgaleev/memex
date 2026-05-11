@@ -1,0 +1,313 @@
+/**
+ * Code chunker — splits a source file into one chunk per top-level
+ * symbol (function / class / method / arrow-const). Returns lightweight
+ * `Symbol` records the indexer can hand to `core/code-entities.ts` for
+ * call-graph extraction.
+ *
+ * Design notes:
+ *   - One pass per file. Walk the AST iteratively (no recursion) so we
+ *     can break early on large generated files without a stack hit.
+ *   - "Top-level symbol" includes:
+ *       * function declarations + `export` wrappers around them
+ *       * arrow functions assigned to top-level `const/let`
+ *       * class declarations (and one chunk per method inside them)
+ *       * Python `def` / `async def` / `class` (including methods)
+ *   - For nested functions inside a top-level function we DO emit
+ *     them as separate chunks (so `code-def innerHelper` resolves),
+ *     with `enclosing` set to the outer symbol's name.
+ *   - On parse error (`tree.rootNode.hasError`) we still return what we
+ *     could extract — partial coverage beats zero coverage. Sweep
+ *     escalates parse errors to a per-file warning.
+ */
+import { getParser, type CodeLanguage } from "./parsers.ts";
+import type { Node as TSNode } from "web-tree-sitter";
+
+export type SymbolKind =
+  | "function"
+  | "class"
+  | "method"
+  | "arrow"
+  | "const"
+  | "module-import";
+
+export interface CodeSymbol {
+  /** Bare identifier name. Lowercased copy lives in entityId(). */
+  name: string;
+  kind: SymbolKind;
+  /** Source slice covering the entire symbol (signature + body). */
+  body: string;
+  /** 1-based start line in the file. */
+  startLine: number;
+  /** 1-based end line in the file. */
+  endLine: number;
+  /** Innermost enclosing function/method/class name; `null` at top level. */
+  enclosing: string | null;
+}
+
+export interface FileLevelImport {
+  /** Imported identifier (`foo` from `import { foo } from …`). */
+  name: string;
+  /** 1-based line where the import appears. */
+  line: number;
+}
+
+export interface CodeChunked {
+  /** Empty placeholder — kept symmetric with `ChunkedDocument`. */
+  frontmatter: Record<string, unknown>;
+  /** Conventional title for code files = the basename. */
+  title: string | null;
+  /** Symbols in document order. */
+  symbols: CodeSymbol[];
+  /** Imports parsed at file scope — they live outside any symbol body. */
+  fileImports: FileLevelImport[];
+  /** True if tree-sitter reported syntax errors anywhere in the tree. */
+  hasParseError: boolean;
+}
+
+/**
+ * Tree-sitter node types that correspond to a "symbol" we want to chunk.
+ * Per language. The keys are tree-sitter grammar node-type strings.
+ */
+const SYMBOL_NODE_TYPES: Record<CodeLanguage, ReadonlyMap<string, SymbolKind>> = {
+  typescript: new Map<string, SymbolKind>([
+    ["function_declaration", "function"],
+    ["function_signature", "function"],
+    ["generator_function_declaration", "function"],
+    ["class_declaration", "class"],
+    ["abstract_class_declaration", "class"],
+    ["method_definition", "method"],
+    ["interface_declaration", "class"],
+    ["type_alias_declaration", "const"],
+    ["enum_declaration", "class"],
+  ]),
+  tsx: new Map<string, SymbolKind>([
+    ["function_declaration", "function"],
+    ["function_signature", "function"],
+    ["generator_function_declaration", "function"],
+    ["class_declaration", "class"],
+    ["abstract_class_declaration", "class"],
+    ["method_definition", "method"],
+    ["interface_declaration", "class"],
+    ["type_alias_declaration", "const"],
+    ["enum_declaration", "class"],
+  ]),
+  python: new Map<string, SymbolKind>([
+    ["function_definition", "function"],
+    ["class_definition", "class"],
+    // Decorated definitions wrap a function_definition / class_definition;
+    // we visit children and pick up the inner node.
+  ]),
+};
+
+/**
+ * Extract a name from a symbol-bearing node. Tree-sitter uses different
+ * field names per language; this normalizes them.
+ */
+function symbolName(node: TSNode, lang: CodeLanguage): string | null {
+  // function_declaration / class_declaration / method_definition all expose
+  // a `name` field in TS and Python grammars.
+  const named = node.childForFieldName("name");
+  if (named) return named.text;
+  // type_alias_declaration uses the unique TS field name as well.
+  if (lang === "typescript" || lang === "tsx") {
+    // Some node types (e.g. variable_declarator inside a const) need
+    // a different field. We fall back to the first identifier child.
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const child = node.namedChild(i);
+      if (child && child.type === "identifier") return child.text;
+    }
+  }
+  return null;
+}
+
+/**
+ * Recognize an arrow-function-assigned-to-const pattern like:
+ *   const foo = (x: number) => x + 1;
+ * Returns the bound name + arrow node, or null if not that shape.
+ */
+function arrowBindingFromLexicalDecl(node: TSNode): { name: string; arrow: TSNode } | null {
+  if (node.type !== "lexical_declaration" && node.type !== "variable_declaration") {
+    return null;
+  }
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const declarator = node.namedChild(i);
+    if (!declarator || declarator.type !== "variable_declarator") continue;
+    const nameNode = declarator.childForFieldName("name");
+    const valueNode = declarator.childForFieldName("value");
+    if (!nameNode || !valueNode) continue;
+    if (
+      valueNode.type === "arrow_function" ||
+      valueNode.type === "function_expression" ||
+      valueNode.type === "function"
+    ) {
+      return { name: nameNode.text, arrow: valueNode };
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk the AST iteratively (BFS via stack) and emit one CodeSymbol per
+ * matching node. Tracks the innermost-enclosing function/method/class so
+ * each emitted symbol records its parent name.
+ */
+function* visitSymbols(
+  root: TSNode,
+  lang: CodeLanguage,
+  source: string,
+): Generator<CodeSymbol> {
+  const symbolTypes = SYMBOL_NODE_TYPES[lang];
+  type Frame = { node: TSNode; enclosing: string | null };
+  const stack: Frame[] = [{ node: root, enclosing: null }];
+
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (!frame) break;
+    const { node, enclosing } = frame;
+
+    let emittedName: string | null = null;
+    let emittedKind: SymbolKind | null = null;
+    let bodyNode: TSNode = node;
+
+    // Plain matches (function_declaration, class_declaration, etc.)
+    const kindMatch = symbolTypes.get(node.type);
+    if (kindMatch) {
+      const name = symbolName(node, lang);
+      if (name) {
+        emittedName = name;
+        emittedKind = kindMatch;
+      }
+    }
+
+    // const foo = () => { ... } pattern (TS only).
+    if (
+      !emittedName &&
+      (lang === "typescript" || lang === "tsx") &&
+      (node.type === "lexical_declaration" || node.type === "variable_declaration")
+    ) {
+      const binding = arrowBindingFromLexicalDecl(node);
+      if (binding) {
+        emittedName = binding.name;
+        emittedKind = "arrow";
+        bodyNode = node; // keep the whole `const foo = …` in the chunk body
+      }
+    }
+
+    if (emittedName && emittedKind) {
+      yield {
+        name: emittedName,
+        kind: emittedKind,
+        body: source.slice(bodyNode.startIndex, bodyNode.endIndex),
+        // tree-sitter rows are 0-based; convert to 1-based for SQL.
+        startLine: bodyNode.startPosition.row + 1,
+        endLine: bodyNode.endPosition.row + 1,
+        enclosing,
+      };
+    }
+
+    // Push children in reverse so document order pops first.
+    const childCount = node.namedChildCount;
+    const nextEnclosing = emittedName ?? enclosing;
+    for (let i = childCount - 1; i >= 0; i--) {
+      const child = node.namedChild(i);
+      if (child) stack.push({ node: child, enclosing: nextEnclosing });
+    }
+  }
+}
+
+const IMPORT_NODE_TYPES_PER_LANG: Record<CodeLanguage, ReadonlySet<string>> = {
+  typescript: new Set(["import_statement"]),
+  tsx: new Set(["import_statement"]),
+  python: new Set(["import_statement", "import_from_statement"]),
+};
+
+/**
+ * Walk only the immediate children of root and return file-level
+ * imports. Nested imports inside functions are intentionally ignored
+ * — their containing symbol's `extractCodeEntities` will pick them up.
+ */
+function* visitFileImports(
+  root: import("web-tree-sitter").Node,
+  language: CodeLanguage,
+): Generator<FileLevelImport> {
+  const importTypes = IMPORT_NODE_TYPES_PER_LANG[language];
+  for (let i = 0; i < root.namedChildCount; i++) {
+    const child = root.namedChild(i);
+    if (!child) continue;
+    if (!importTypes.has(child.type)) continue;
+    const line = child.startPosition.row + 1;
+    // Walk imported identifiers — coarse but safe pass.
+    const stack: import("web-tree-sitter").Node[] = [child];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      if (!cur) break;
+      if (
+        cur.type === "identifier" ||
+        cur.type === "type_identifier" ||
+        cur.type === "import_specifier"
+      ) {
+        // For import_specifier, prefer its `name` field (handles `bar as baz`).
+        if (cur.type === "import_specifier") {
+          const name = cur.childForFieldName("name") ?? cur.namedChild(0);
+          if (name) yield { name: name.text, line };
+          continue;
+        }
+        yield { name: cur.text, line };
+        continue;
+      }
+      if (language === "python" && cur.type === "dotted_name") {
+        const last = cur.namedChild(cur.namedChildCount - 1);
+        if (last) yield { name: last.text, line };
+        continue;
+      }
+      for (let j = 0; j < cur.namedChildCount; j++) {
+        const c = cur.namedChild(j);
+        if (c) stack.push(c);
+      }
+    }
+  }
+}
+
+/**
+ * Parse source code, walk the tree, return one CodeSymbol per top-level
+ * (and nested-function) definition. Throws only if the parser itself
+ * fails to load — syntax errors in the source are surfaced via
+ * `hasParseError` so the caller can log + continue.
+ */
+export async function chunkCode(
+  source: string,
+  filename: string,
+  language: CodeLanguage,
+): Promise<CodeChunked> {
+  const parser = await getParser(language);
+  const tree = parser.parse(source);
+  if (!tree) {
+    throw new Error(
+      `core/chunkers/code: parser returned null tree for ${filename}`,
+    );
+  }
+  const symbols = Array.from(visitSymbols(tree.rootNode, language, source));
+  const fileImports = Array.from(visitFileImports(tree.rootNode, language));
+  // Dedup imports by (name, line).
+  const seen = new Set<string>();
+  const dedup: FileLevelImport[] = [];
+  for (const imp of fileImports) {
+    const k = `${imp.name}:${imp.line}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    dedup.push(imp);
+  }
+  const hasParseError = tree.rootNode.hasError;
+  // Sort by start line so document order is stable regardless of stack push order.
+  symbols.sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+  // Title = basename (no path) — lets `memex search` show a friendly source.
+  const slash = filename.lastIndexOf("/");
+  const title = slash >= 0 ? filename.slice(slash + 1) : filename;
+  return {
+    frontmatter: {},
+    title,
+    symbols,
+    fileImports: dedup,
+    hasParseError,
+  };
+}

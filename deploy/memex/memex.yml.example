@@ -1,0 +1,48 @@
+# memex.yml — declarative runtime configuration overlay.
+#
+# Optional. Place at ~/.memex/memex.yml. Layered ON TOP of the JSON
+# config (~/.memex/config.json) which `memex init` writes — that
+# JSON only carries boot-essentials (database path, embedding provider).
+#
+# Precedence (highest first):
+#   1. process env (MEMEX_*)
+#   2. this file
+#   3. config.json
+#   4. defaults
+
+# ---------------------------------------------------------------------------
+# Vault paths to index. Supports a multi-path layout (synced + local).
+# ---------------------------------------------------------------------------
+# `synced` paths sit inside the Obsidian-Sync'd vault — they are visible to
+# the user across devices and may also be edited from outside this host.
+# `local` paths live only on the host (workspace memory etc.) and never
+# round-trip through Obsidian Sync.
+vault_paths:
+  synced:
+    - /vault
+  local:
+    - /memory
+
+# ---------------------------------------------------------------------------
+# Initial-sweep throttle on small instances.
+# ---------------------------------------------------------------------------
+sweep:
+  per_file_delay_ms: 50    # ~20 docs/sec when sequential
+  max_files: 1000          # safety cap; remove after first full sweep
+
+# ---------------------------------------------------------------------------
+# Dream loop — periodic re-embed of stale chunks.
+# ---------------------------------------------------------------------------
+# `interval_s` < 60 disables the loop. Recommended: 21600 (6h).
+# A quiet-hours window is honoured by default (the morning-briefing cron
+# uses the CPU then); both window bounds and zone are configurable.
+dream:
+  interval_s: 21600
+  stale_days: 30
+
+# ---------------------------------------------------------------------------
+# MCP transport — agents connect to POST /mcp.
+# ---------------------------------------------------------------------------
+mcp:
+  enabled: true
+  rate_limit_per_minute: 60

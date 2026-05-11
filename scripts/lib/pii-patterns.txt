@@ -1,0 +1,42 @@
+# PII patterns for scripts/audit.sh
+# Format: <ERE_pattern>|<severity>|<description>
+# - Lines starting with # and blank lines are ignored.
+# - Patterns are POSIX ERE (passed to `grep -E`); no lookahead syntax.
+# - Use \b word boundaries for identifiers to avoid false positives.
+# - This file is exempt from the audit (see scripts/audit.sh).
+# - tests/fixtures/repo-with-pii/** is also exempt.
+# - LICENSE is exempt — copyright holder name may appear there.
+#
+# These patterns are deliberately GENERIC — they catch the *shape* of
+# common PII categories (email, AWS account id, IPv4, $HOME path, etc.)
+# rather than specific identifiers. To add operator-specific exact
+# matches (your name, your domain, your account id, etc.), create a
+# gitignored sibling file `scripts/lib/pii-patterns.local.txt`. It is
+# auto-loaded by `scripts/audit.sh` when present.
+#
+# Files that legitimately contain placeholders (test fixtures, prompts
+# offering `@yourbot`, etc.) live in scripts/lib/pii-allowlist.txt.
+
+# AWS 12-digit account id appearing standalone.
+\b[0-9]{12}\b|HIGH|Generic AWS account ID (12 digits)
+
+# EC2 / EBS / AMI / SG / subnet / VPC ids.
+\bi-[0-9a-f]{8,17}\b|HIGH|EC2 instance ID
+\bami-[0-9a-f]{8,17}\b|HIGH|AMI ID
+\bvol-[0-9a-f]{8,17}\b|HIGH|EBS volume ID
+
+# AWS access-key / secret-key literals (extreme caution).
+\bAKIA[0-9A-Z]{16}\b|HIGH|AWS access key ID
+\baws_secret_access_key[[:space:]]*=[[:space:]]*[A-Za-z0-9/+=]{40}\b|HIGH|AWS secret access key
+
+# Email addresses anywhere. Placeholders ending in @example.com/.org/.net
+# pass thanks to a regex constraint on the TLD; legitimate fixture
+# files use `you@example.com` style and so won't match.
+\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|org|net|io|dev|app|cloud|edu|co|gov|info|me|sh|xyz)\b|HIGH|Email address with common TLD
+
+# Hardcoded `/Users/<name>/` macOS home paths.
+/Users/[A-Za-z][A-Za-z0-9._-]*/|HIGH|macOS home path /Users/<name>/
+
+# Telegram bot handles (`@xxxbot`). Operators allowlist legitimate
+# placeholders like `@yourbot` per-file.
+@[A-Za-z][A-Za-z0-9_]{3,30}[Bb]ot\b|HIGH|Telegram bot handle (`@xxxbot`)

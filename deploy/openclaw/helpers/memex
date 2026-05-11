@@ -1,0 +1,64 @@
+#!/bin/bash
+# memex — thin client for the memex HTTP daemon, called by the
+# openclaw chat agent. Wraps POST /search and POST /index against the
+# memex container reachable on the docker-internal network at
+# http://memex:18790.
+#
+# Usage:
+#   memex search <query> [limit]      # default limit 5, returns JSON
+#   memex index <path>                # index a markdown file by path
+#   memex health                      # quick liveness check
+#
+# Output is JSON. Pipe through `jq` for human reading. Errors land on
+# stderr with a non-zero exit code.
+set -euo pipefail
+
+BRAIN_URL="${BRAIN_URL:-http://memex:18790}"
+CMD="${1:-}"
+shift || true
+
+case "$CMD" in
+  search)
+    QUERY="${1:-}"
+    LIMIT="${2:-5}"
+    if [ -z "$QUERY" ]; then
+      echo "memex search: <query> required" >&2
+      exit 2
+    fi
+    BODY=$(jq -nc --arg q "$QUERY" --argjson k "$LIMIT" '{q:$q,k:$k}')
+    curl -fsS -X POST -H "Content-Type: application/json" \
+      --data "$BODY" "${BRAIN_URL}/search"
+    echo
+    ;;
+  index)
+    P="${1:-}"
+    if [ -z "$P" ]; then
+      echo "memex index: <path> required" >&2
+      exit 2
+    fi
+    BODY=$(jq -nc --arg path "$P" '{path:$path}')
+    curl -fsS -X POST -H "Content-Type: application/json" \
+      --data "$BODY" "${BRAIN_URL}/index"
+    echo
+    ;;
+  health)
+    curl -fsS "${BRAIN_URL}/health"
+    echo
+    ;;
+  ""|-h|--help|help)
+    cat <<USAGE
+memex — query the personal-knowledge brain.
+
+Commands:
+  search <query> [limit]   hybrid retrieve (default limit 5), prints JSON
+  index <path>             read a markdown file and index it
+  health                   liveness check on the memex daemon
+
+Env: BRAIN_URL  override the daemon endpoint (default http://memex:18790)
+USAGE
+    ;;
+  *)
+    echo "memex: unknown subcommand '$CMD'" >&2
+    exit 2
+    ;;
+esac

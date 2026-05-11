@@ -1,0 +1,6 @@
+[install]
+exact = true
+frozenLockfile = true
+
+[test]
+coverage = false

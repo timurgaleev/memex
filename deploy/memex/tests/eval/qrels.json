@@ -1,0 +1,45 @@
+{
+  "_doc": "Eval ground-truth. Each entry is { id, query, expected_paths, notes? } — `expected_paths` is the set of source_paths whose chunks are 'relevant'. The harness computes recall@k and MRR over this set. Add new entries as the corpus grows.",
+  "_version": 1,
+  "queries": [
+    {
+      "id": "ha-zigbee",
+      "query": "home assistant zigbee setup",
+      "expected_paths": [
+        "/vault/notes/home-assistant/setup.md",
+        "/vault/notes/home-assistant/infra.md"
+      ],
+      "notes": "Loose-match query against the home-assistant notes subtree."
+    },
+    {
+      "id": "model-selection",
+      "query": "bedrock model selection nova",
+      "expected_paths": [
+        "/vault/notes/stack/models.md",
+        "/vault/notes/stack/known-issues.md",
+        "/vault/notes/stack/config-live.md"
+      ]
+    },
+    {
+      "id": "exact-title",
+      "query": "doc-alpha title match",
+      "expected_paths": [
+        "/vault/notes/projects/doc-alpha.md"
+      ],
+      "notes": "Single-doc target — exact title hit."
+    },
+    {
+      "id": "absent-topic",
+      "query": "completely unrelated topic",
+      "expected_paths": [],
+      "notes": "Should return nothing relevant. If hits come back from session memory mentioning the topic in passing, those are acceptable but not required."
+    },
+    {
+      "id": "config-live",
+      "query": "stack config live current state heartbeat",
+      "expected_paths": [
+        "/vault/notes/stack/config-live.md"
+      ]
+    }
+  ]
+}

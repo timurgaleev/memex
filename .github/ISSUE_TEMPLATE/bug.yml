@@ -1,0 +1,61 @@
+name: Bug report
+description: Something broke. Help us reproduce and fix it.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. The maintainer is solo — please be
+        specific so the fix can land without a back-and-forth.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what you observed and what you expected.
+      placeholder: |
+        I ran `make plan` and terraform exited with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. `git clone ...`
+        2. `make init` with values <X, Y, Z>
+        3. `make plan`
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        Output of:
+        - `bash --version`
+        - `terraform version`
+        - `docker compose version`
+        - OS / version
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste error output or log excerpts. Scrub maintainer-private values first.
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Checks
+      options:
+        - label: I scrubbed AWS account IDs, real domains, and personal emails from the report.
+          required: true
+        - label: I checked `OPERATIONS_NOTES.md` (locally) and the latest `CHANGELOG.md` for known issues.
+          required: false

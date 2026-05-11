@@ -1,0 +1,31 @@
+---
+title: ACCESS_POLICY
+created: {{NOW}}
+updated: {{NOW}}
+tags: [access, security]
+---
+
+# ACCESS_POLICY
+
+Who can talk to the agent through which channel, and what each one is
+allowed to do. Referenced by the chat surface (Telegram / web) at
+inbound.
+
+## Channels
+
+| Channel | Identity | Trust level |
+|---|---|---|
+| Telegram DM | (your tg user id) | full |
+| Telegram group | — | denied |
+| Web | (paired device id) | full |
+
+## Trust levels
+
+- **full**: any tool call, any read, any write inside the vault.
+- **read-only**: search / read; no index / mutate / external send.
+- **denied**: bot rejects with a polite refusal.
+
+## Override rules
+
+(Cases where the policy bends — e.g. "during a deploy, the deploy
+channel may write tag updates regardless of normal scope.")

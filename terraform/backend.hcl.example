@@ -1,0 +1,14 @@
+# backend.hcl.example — copy to backend.hcl (gitignored) and fill in,
+# OR run `scripts/init.sh` which generates this file from your prompts.
+#
+# Loaded by:
+#   terraform init -backend-config=backend.hcl
+#
+# The S3 bucket and the DynamoDB lock table (if used) must exist before
+# `terraform init` — bootstrap them by hand the first time.
+
+bucket  = "your-tfstate-bucket-name"
+key     = "memex/terraform.tfstate"
+region  = "eu-central-1"
+encrypt = true
+profile = "default"

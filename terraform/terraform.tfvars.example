@@ -1,0 +1,48 @@
+# terraform.tfvars.example — copy to terraform.tfvars (gitignored) and fill in.
+# `scripts/init.sh` generates terraform.tfvars automatically — this file
+# documents the schema for editors / reviewers / CI.
+#
+# Required values have no default in variables.tf and MUST be set:
+#   - tfstate_bucket       (where terraform state lives — partial backend)
+# Optional values pick up sensible defaults from variables.tf if omitted.
+
+# ---------------------------------------------------------------------------
+# AWS basics
+# ---------------------------------------------------------------------------
+aws_region   = "eu-west-1"
+aws_profile  = "default"        # the [profile-name] in ~/.aws/config
+# tfstate_region   = "eu-central-1"   # only override if your tfstate bucket isn't in eu-central-1
+
+# ---------------------------------------------------------------------------
+# Project naming — drives every AWS resource Name tag
+# ---------------------------------------------------------------------------
+project_name      = "memex"      # short slug, used in resource Name tags
+repo_name         = "memex"
+github_owner      = "your-github-username"
+secrets_prefix    = "memex"      # Secrets Manager namespace: stack/telegram-bot-token, etc.
+
+# ---------------------------------------------------------------------------
+# Public surface
+# ---------------------------------------------------------------------------
+domain            = "example.com"
+subdomain         = "chat"     # → chat.example.com (chat UI)
+memex_subdomain   = "memex"     # → memex.example.com (public MCP)
+
+# ---------------------------------------------------------------------------
+# Repo URL the EC2 user_data clones at first boot. Public-repo HTTPS by default.
+# ---------------------------------------------------------------------------
+repo_url          = "https://github.com/your-github-username/memex.git"
+
+# ---------------------------------------------------------------------------
+# Optional — leave blank to skip the feature
+# ---------------------------------------------------------------------------
+alarm_email       = ""           # CloudWatch alarms → SNS → this email
+ssh_allowed_cidr  = ""           # ingress 22 from this CIDR (use SSM instead!)
+
+ssh_public_key    = ""           # ssh-rsa / ssh-ed25519 key to register as the EC2 key pair
+
+# ---------------------------------------------------------------------------
+# Legacy — only set true while migrating from a private SSH-clone deploy.
+# Public-repo deploys leave this at false.
+# ---------------------------------------------------------------------------
+use_ssh_deploy_key = false

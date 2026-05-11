@@ -1,0 +1,72 @@
+/**
+ * Filesystem walker — recursively yields files matching the given
+ * extensions, skipping directories whose name appears in `ignore`.
+ *
+ * Extracted from sweep.ts so the markdown sweep and the code sweep
+ * (sweep-code.ts) share one walk implementation. The walk is
+ * intentionally synchronous (readdirSync) — vault sizes are O(thousands)
+ * and code repos are O(thousands at most), not O(millions); async
+ * iteration here just adds overhead given that downstream work
+ * (embed roundtrips, tree-sitter parses, DB writes) dominates wall time.
+ */
+import { readdirSync, statSync, type Dirent } from "node:fs";
+import { join } from "node:path";
+
+export interface WalkedFile {
+  /** Absolute path. */
+  path: string;
+  /** mtime in ms since epoch (floor of fs.Stats.mtimeMs). */
+  mtimeMs: number;
+}
+
+export interface WalkOptions {
+  /** Extensions to keep (with dot, lowercased — `.ts`, `.md`). */
+  extensions: readonly string[];
+  /** Directory basenames to skip. */
+  ignore: ReadonlySet<string>;
+}
+
+/**
+ * Recursively yield every file under `root` whose extension is in
+ * `extensions` (case-insensitive). Directory entries whose basename
+ * is in `ignore` are pruned without descending into them.
+ *
+ * Unreadable directories are silently skipped (typical cause: permission
+ * denied on a stray symlink). Unreadable files inside an otherwise
+ * readable directory are also skipped — we'd rather index 99 % of a
+ * vault than abort on one fluke.
+ */
+export function* walkFiles(
+  root: string,
+  opts: WalkOptions,
+): Generator<WalkedFile> {
+  const exts = new Set(opts.extensions.map((e) => e.toLowerCase()));
+  let entries: Dirent[];
+  try {
+    // Bun's readdirSync overload returns Dirent<Buffer> by default; force the
+    // string-name variant we want via the `encoding: "utf8"` option (no-op at
+    // runtime, but keeps the type narrow for the `ent.name` string ops below).
+    entries = readdirSync(root, { withFileTypes: true, encoding: "utf8" }) as Dirent[];
+  } catch {
+    return;
+  }
+  for (const ent of entries) {
+    const name = String(ent.name);
+    if (opts.ignore.has(name)) continue;
+    const full = join(root, name);
+    if (ent.isDirectory()) {
+      yield* walkFiles(full, opts);
+    } else if (ent.isFile()) {
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) continue;
+      const ext = name.slice(dot).toLowerCase();
+      if (!exts.has(ext)) continue;
+      try {
+        const st = statSync(full);
+        yield { path: full, mtimeMs: Math.floor(st.mtimeMs) };
+      } catch {
+        // unreadable, skip
+      }
+    }
+  }
+}

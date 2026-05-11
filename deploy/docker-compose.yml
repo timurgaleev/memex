@@ -1,0 +1,158 @@
+# Stack container compose — Docker Compose v2 (no version: key).
+#
+# Required env (from a `.env` file passed via --env-file):
+#   EFS_MOUNT     host path of the mounted EFS data tree
+#   EFS_REPO      host path of the git checkout for the code chunkers
+#   REPO_DIR      path of the repo checkout on the host (default: /opt/memex)
+#   AWS_REGION    AWS region (default: eu-west-1)
+#   AWS_PROFILE   AWS CLI profile (default: default)
+#
+# Update flow: `git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build`
+
+services:
+
+  memex:
+    build:
+      context: ./memex
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "18790"
+    volumes:
+      # Config + soul templates live on EFS so they survive container
+      # rebuilds. The actual index sits in RDS Postgres (URL injected
+      # via MEMEX_POSTGRES_URL env from .secrets/memex.env).
+      - ${EFS_MOUNT}/memex:/home/bun/.memex
+      # Read-only access to the Obsidian vault — the recipe sweeper
+      # walks it on startup and chokidar watches for live changes.
+      - ${EFS_MOUNT}/vault:/vault:ro
+      # Read-only access to openclaw's persistent session memory so the
+      # agent can search "what we discussed" across past sessions.
+      - ${EFS_MOUNT}/workspace/memory:/memory:ro
+      # Read-only access to the repo checkout for the code chunkers.
+      # bootstrap.sh clones ${EFS_REPO} alongside the EFS mount; if
+      # absent the serve.ts boot WARNs "0 indexable files" and continues
+      # — non-fatal so a missing checkout doesn't take the brain down.
+      - ${EFS_REPO}:/repo-source:ro
+      - /home/ec2-user/.aws:/home/bun/.aws:ro
+    environment:
+      - AWS_REGION=${AWS_REGION:-eu-west-1}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - HOME=/home/bun
+      # Comma-separated list of paths to index (vault + openclaw memory).
+      # Throttling knobs apply to the initial sweep across all paths.
+      - MEMEX_VAULT_PATHS=/vault,/memory
+      - MEMEX_SWEEP_DELAY_MS=50
+      - MEMEX_SWEEP_MAX_FILES=1000
+      # Code chunkers: graph-only call/def/ref index over the stack
+      # repo. Re-swept on container boot (mtime-skip). Add more paths
+      # CSV-style to index sibling repos.
+      - MEMEX_CODE_PATHS=/repo-source
+      - MEMEX_CODE_SWEEP_DELAY_MS=20
+      # 6-phase cycle every 6h. Re-embeds docs older than 30d. The
+      # configured quiet-hours window skips the costly embed-stale
+      # phase so it doesn't fight the morning-briefing cron for CPU.
+      - MEMEX_DREAM_INTERVAL_S=21600
+      - MEMEX_DREAM_STALE_DAYS=30
+    env_file:
+      # MEMEX_POSTGRES_URL (RDS endpoint) and MEMEX_PUBLIC_BEARER
+      # (public-ingress auth) — written by deploy/secrets/fetch-secrets.sh
+      # from <secrets_prefix>/memex-postgres-url and
+      # <secrets_prefix>/memex-public-bearer.
+      - path: .secrets/memex.env
+        required: false
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:18790/health | grep -q '\"ok\":true' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  openclaw:
+    build:
+      context: ./openclaw
+      dockerfile: Dockerfile
+      args:
+        OPENCLAW_VERSION: "2026.4.29"
+    restart: unless-stopped
+    expose:
+      - "18789"
+    volumes:
+      # Mount only the *state* dirs from EFS. Do NOT mount ${EFS_MOUNT}
+      # wholesale — EFS may carry multiple plugin-runtime-deps/openclaw-X
+      # versions and a runtime-mirror lock dir that wedge the chat agent
+      # on container boot. plugin-runtime-deps must live inside the
+      # container so it matches the pinned upstream version.
+      - ${EFS_MOUNT}/cron:/home/openclaw/.openclaw/cron
+      - ${EFS_MOUNT}/devices:/home/openclaw/.openclaw/devices
+      - ${EFS_MOUNT}/tasks:/home/openclaw/.openclaw/tasks
+      - ${EFS_MOUNT}/agents:/home/openclaw/.openclaw/agents
+      - ${EFS_MOUNT}/flows:/home/openclaw/.openclaw/flows
+      - ${EFS_MOUNT}/telegram:/home/openclaw/.openclaw/telegram
+      - ${EFS_MOUNT}/identity:/home/openclaw/.openclaw/identity
+      - ${EFS_MOUNT}/delivery-queue:/home/openclaw/.openclaw/delivery-queue
+      - ${EFS_MOUNT}/credentials:/home/openclaw/.openclaw/credentials
+      - ${EFS_MOUNT}/canvas:/home/openclaw/.openclaw/canvas
+      - ${EFS_MOUNT}/media:/home/openclaw/.openclaw/media
+      - ${EFS_MOUNT}/workspace:/home/openclaw/.openclaw/workspace
+      - ${EFS_MOUNT}/skills:/home/openclaw/.openclaw/skills:ro
+      - ${EFS_MOUNT}/vault:${EFS_MOUNT}/vault
+      - /home/ec2-user/.aws:/home/openclaw/.aws:ro
+      - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
+    environment:
+      - AWS_REGION=${AWS_REGION:-eu-west-1}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - HOME=/home/openclaw
+    networks:
+      - internal
+    depends_on:
+      memex:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    # Uses upstream image directly — no custom Dockerfile needed.
+    # Tag pinned; bump intentionally after a smoke test.
+    image: cloudflare/cloudflared:2025.4.0
+    restart: unless-stopped
+    # cloudflared reads TUNNEL_TOKEN from env when --token is omitted.
+    # We deliberately do NOT use ${...} interpolation in command: because
+    # docker-compose interpolates that at parse time (before env_file is
+    # loaded), which would silently pass --token "" and loop forever.
+    #
+    # --protocol http2: when the EC2 security group only allows TCP egress
+    # on 7844 (the typical default), cloudflared otherwise tries QUIC over
+    # UDP/7844 first and times out repeatedly before falling back. http2
+    # is reliable from minute 1.
+    command: tunnel --no-autoupdate --protocol http2 run
+    env_file:
+      - path: .secrets/cloudflared.env
+        required: false  # absent on local dev; present on EC2 after fetch-secrets.sh
+    networks:
+      - internal
+    depends_on:
+      openclaw:
+        condition: service_healthy
+
+  obsidian-sync:
+    build:
+      context: ./obsidian-sync
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ${EFS_MOUNT}/vault:/vault
+      - ${EFS_MOUNT}/.obsidian-headless-config:/root/.config/obsidian-headless
+      - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
+    environment:
+      - XDG_CONFIG_HOME=/root/.config
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

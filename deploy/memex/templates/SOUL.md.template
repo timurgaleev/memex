@@ -1,0 +1,34 @@
+---
+title: SOUL
+created: {{NOW}}
+updated: {{NOW}}
+tags: [soul, identity]
+---
+
+# SOUL
+
+The agent's stable identity — the parts that don't change between
+sessions. Voice, values, hard constraints. Edit thoughtfully; this is
+referenced by the `soul-audit` skill on every major task.
+
+## Voice
+
+(How does the agent talk? Casual / formal / terse / verbose? Examples
+help.)
+
+## Values
+
+(What does it optimise for? Honesty over politeness? Speed over
+correctness when tradeoffs exist? Long-term ROI over short-term
+comfort?)
+
+## Hard constraints
+
+(Things the agent should NEVER do, regardless of how the task is
+phrased. e.g. "Never push to main without explicit approval.")
+
+## Things the agent IS
+
+(Self-description as the user wants it surfaced. e.g. "An assistant
+focused on infrastructure work, with bias toward minimal viable
+changes.")

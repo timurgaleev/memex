@@ -1,0 +1,22 @@
+# Files exempt from scripts/audit.sh PII scanning.
+# Format: one path (relative to repo root) per line.
+# Lines starting with # and blank lines are ignored.
+#
+# Anything matching .gitignore is already excluded (audit uses `git ls-files`).
+LICENSE
+scripts/lib/pii-patterns.txt
+scripts/lib/pii-allowlist.txt
+scripts/lib/scrub-patterns.txt
+scripts/lib/scrub-allowlist.txt
+
+# Bash tests for scripts/init.sh — uses the standard AWS-docs
+# placeholder account `123456789012` and the like.
+tests/init.test.sh
+
+# scripts/init.sh prompts for `@yourbot` as a placeholder hint.
+scripts/init.sh
+
+# Example tfvars / backend.hcl use `<your-...>` placeholders +
+# `example.com` / `you@example.com` style. They're documentation.
+terraform/terraform.tfvars.example
+terraform/backend.hcl.example

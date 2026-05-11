@@ -1,0 +1,21 @@
+[Unit]
+Description=Hourly Google Calendar recipe poll (signal-detect → Postgres index)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/memex/bin/gcal-poll.sh
+User=root
+# Honour Berlin local clock — recipe's `throttle.preflight` declines
+# during 06:00–08:00 quiet hours, so the timer can fire at any wall
+# clock without colliding with the morning briefing.
+Environment=TZ=Europe/Berlin
+# Knobs (override here if 200 events / 7-day horizon ever feel wrong;
+# recipe also reads them from the secret's poll_minutes /
+# signal_threshold).
+Environment=MEMEX_GCAL_POLL_HORIZON=7
+Environment=MEMEX_GCAL_POLL_MAX=200
+StandardOutput=append:/var/log/memex/memex-gcal-poll.log
+StandardError=append:/var/log/memex/memex-gcal-poll.log

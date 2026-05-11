@@ -1,0 +1,35 @@
+---
+title: HEARTBEAT
+created: {{NOW}}
+updated: {{NOW}}
+tags: [heartbeat, ops]
+---
+
+# HEARTBEAT
+
+Periodic self-check the agent fills in on a schedule (cron / cycle).
+Living dashboard of "is everything OK?" Read by the morning briefing
+skill on its configured schedule.
+
+## Last check
+
+(YYYY-MM-DD HH:MM, last time the cycle ran.)
+
+## Index status
+
+- Documents:
+- Chunks:
+- Embeddings:
+- Stale (>30 d):
+
+## Open friction
+
+(Things where the agent failed or got confused recently. Auto-populated
+from `friction.ts` when that subsystem is wired in; manually maintained
+until then.)
+
+## Pending operator tasks
+
+(Stuff that needs a human eye — broken wikilinks, schema drift, secret
+rotations coming up. Auto-populated from `reports`, `reconcile-links`,
+`integrity`.)

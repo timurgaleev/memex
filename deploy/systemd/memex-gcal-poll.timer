@@ -1,0 +1,18 @@
+[Unit]
+Description=Hourly GCal recipe poll at :30 Europe/Berlin
+
+[Timer]
+# :30 to stagger off the gmail-poll timer (:15) — the two recipes share
+# the Bedrock budget; firing 15 minutes apart keeps Nova Lite latency
+# spikes from compounding. Quiet-hours filtering still happens inside
+# the recipe via throttle.preflight, so 06:30 + 07:30 polls return
+# early with reason="throttle:quiet-hours" — no API cost burned.
+OnCalendar=*-*-* *:30:00 Europe/Berlin
+# If the EC2 was sleeping (spot rebalance, planned maintenance) and
+# missed a slot, run as soon as it's back rather than waiting for
+# the next hour.
+Persistent=true
+Unit=memex-gcal-poll.service
+
+[Install]
+WantedBy=timers.target

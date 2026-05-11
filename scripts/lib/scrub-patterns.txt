@@ -1,0 +1,66 @@
+# scrub-patterns — broader scan than pii-patterns.
+#
+# Format: <ERE_pattern>|<severity>|<category>|<description>
+# - Lines starting with # and blank lines are ignored.
+# - Patterns are POSIX ERE (passed to `grep -E`).
+# - Use \b word boundaries for identifiers to avoid false positives.
+# - This file is self-exempt (see scripts/scrub-audit.sh).
+#
+# Severity HIGH causes scrub-audit to exit non-zero.
+# Severity LOW / INFO is reported but does not fail the gate.
+#
+# These patterns are deliberately GENERIC — they catch shapes
+# (project-history vocabulary, non-ASCII glyphs, narrative voice,
+# generic vault-taxonomy paths, etc.). To add operator-specific exact
+# matches (your real client names, your home city, your internal
+# project predecessors), create a gitignored sibling
+# `scripts/lib/scrub-patterns.local.txt`. scrub-audit auto-loads it.
+
+# ---------------------------------------------------------------------------
+# Category 2 — Geographic narrative
+# (`TZ=Europe/Berlin` defaults are allowlisted by file rules.)
+# ---------------------------------------------------------------------------
+\bin Berlin\b|HIGH|geographic|"in Berlin" reads as a narrative location reference
+
+# ---------------------------------------------------------------------------
+# Category 3 — Non-English content (Cyrillic / German vocabulary)
+# (no allowlist — these must NEVER appear in tracked content)
+# ---------------------------------------------------------------------------
+[А-Яа-я]|HIGH|cyrillic|Cyrillic character in tracked content
+
+# ---------------------------------------------------------------------------
+# Category 4 — Project-history vocabulary
+# ---------------------------------------------------------------------------
+\b(Phase|Slice|phase|slice) [0-9]+\b|HIGH|project-history|Phase/Slice numbering (case-insensitive)
+\bband-[A-Z]\+?|HIGH|project-history|"band-X" project bracket
+\bopenclaw_v[0-9]+|aws_(instance|eip|security_group|key_pair|iam_role|iam_instance_profile|efs_file_system|cloudwatch_log_group|cloudtrail)\.openclaw\b|HIGH|project-history|Legacy terraform addresses (openclaw_v2 etc.)
+\bopenclaw-v[0-9]+|-v[0-9]+ (EC2|container|era)|v2 EC2|on the v2|the v2 EC|v2 instance|v2-eip\b|HIGH|project-history|"v2" / version-history markers
+\b(legacy (EFS|host-mode|plugin-runtime|SSH-clone|private-repo|var|host)|in a fork|renamed in a fork|older dream loop|the rewrite|RED-phase|Task [0-9]+|planned for slice|bump intentionally per slice|containerization refactor)\b|HIGH|project-history|Project-history narrative
+
+# ---------------------------------------------------------------------------
+# Category 7 — Channel-specific IDs
+# (Bare numeric chat ids are flagged generically; operators add their
+# specific ids in scrub-patterns.local.txt if they want stricter checks.)
+# ---------------------------------------------------------------------------
+\btelegram:[0-9]{6,}\b|HIGH|telegram-id|Hardcoded telegram:CHATID reference
+
+# ---------------------------------------------------------------------------
+# Category 8 — Personal narrative voice
+# (Bare fixture-value uses like `"Sample"` are LOW; possessive/sentence
+# uses are HIGH.)
+# ---------------------------------------------------------------------------
+\bSample(?:'s|s')\b|HIGH|narrative|"Sample's …" narrative voice
+\bSample (?:asks|drops|says|wants|prefers|reads|edits|runs|writes|reaches|drops)\b|HIGH|narrative|Narrative verb after "Sample"
+
+# ---------------------------------------------------------------------------
+# Category 11 — Internal predecessor / persona names
+# (Generic placeholder; operators add their specific predecessor names
+# in scrub-patterns.local.txt.)
+# ---------------------------------------------------------------------------
+\bDann\b|HIGH|internal-name|Internal persona name
+
+# ---------------------------------------------------------------------------
+# Category 5 — Specific dates implying timeline (LOW — informational)
+# Test fixture files allowlisted by glob.
+# ---------------------------------------------------------------------------
+\b20[0-9]{2}-0[1-9]-[0-9]{2}\b|LOW|date|Specific date may imply project timeline
