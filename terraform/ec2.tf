@@ -107,6 +107,15 @@ resource "aws_security_group" "memex" {
   tags = {
     Name = "${var.project_name}-sg"
   }
+
+  lifecycle {
+    # AWS treats SG `description` and inline rule `description` fields
+    # as immutable — every cosmetic edit would otherwise force
+    # replacement of the SG, which detaches it from the live EC2 +
+    # resets every in-flight TCP connection (cloudflared tunnel, RDS
+    # pool). Descriptions are documentation; pin them.
+    ignore_changes = [description]
+  }
 }
 
 # Dedicated S3 bucket for stack scripts/install assets (separate from

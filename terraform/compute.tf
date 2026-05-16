@@ -24,9 +24,17 @@ resource "aws_instance" "memex" {
   user_data_replace_on_change = false
 
   metadata_options {
-    http_tokens                 = "required"
-    http_endpoint               = "enabled"
-    http_put_response_hop_limit = 1
+    http_tokens   = "required"
+    http_endpoint = "enabled"
+    # 2 hops is the minimum that still lets Docker containers reach
+    # IMDSv2: container → docker bridge (hop 1) → host → IMDS (hop 2).
+    # Setting this to 1 (the most-restrictive value) breaks every
+    # containerised AWS SDK call (Bedrock invoke, Secrets Manager get)
+    # because the IMDS token request from inside the container exceeds
+    # the TTL. The bare-metal threat model (untrusted local processes
+    # exfiltrating role creds) doesn't apply here — the whole workload
+    # IS containerized.
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {

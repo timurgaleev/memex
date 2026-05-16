@@ -20,6 +20,13 @@ resource "aws_security_group" "efs" {
   tags = {
     Name = "${var.project_name}-efs-sg"
   }
+
+  lifecycle {
+    # AWS treats SG `description` as immutable — every cosmetic edit
+    # would otherwise force replacement of the SG and detach live
+    # mount targets. Description is documentation; pin it.
+    ignore_changes = [description]
+  }
 }
 
 resource "aws_efs_file_system" "memex" {
@@ -29,9 +36,13 @@ resource "aws_efs_file_system" "memex" {
   throughput_mode  = "bursting"
 
   # Move rarely-accessed files to Infrequent Access after 30 days
-  # (lowers storage cost); restore on first access.
+  # (lowers storage cost); restore on first access. AWS rejects the
+  # two policies bundled into one block — must be separate.
   lifecycle_policy {
-    transition_to_ia                    = "AFTER_30_DAYS"
+    transition_to_ia = "AFTER_30_DAYS"
+  }
+
+  lifecycle_policy {
     transition_to_primary_storage_class = "AFTER_1_ACCESS"
   }
 
