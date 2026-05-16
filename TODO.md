@@ -1,8 +1,56 @@
 # TODO — memex-stack
 
 Forward-looking work that is intentionally deferred. Items already
-shipped live in `CHANGELOG.md`; items rejected as out-of-scope live
-under "NOT in scope" in the design docs that introduce them.
+shipped live in [`CHANGELOG.md`](./CHANGELOG.md); items rejected as
+out-of-scope live under "NOT in scope" in the design doc that
+introduces them.
+
+---
+
+## Operator post-install steps
+
+Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
+automate today. Run these once after the first deploy:
+
+- **Install host-side systemd timers** for the daily bearer rotation
+  and the hourly gcal / gmail polls:
+  ```bash
+  sudo install -m 644 deploy/systemd/memex-gcal-poll.{service,timer} \
+                       deploy/systemd/memex-gmail-poll.{service,timer} \
+                       deploy/systemd/memex-rotate-bearer.{service,timer} \
+                       /etc/systemd/system/
+  sudo install -d /var/log/memex
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now \
+       memex-gcal-poll.timer memex-gmail-poll.timer memex-rotate-bearer.timer
+  ```
+  Verify with `systemctl list-timers memex-* --all`.
+- **Seed the EFS skills directory** (the chat agent reads from EFS,
+  not the container image, so skills survive container rebuilds):
+  ```bash
+  sudo cp /opt/<project>/deploy/skills/*.md \
+          /mnt/<project>-efs/<project>/skills/
+  sudo chown -R 1000:1000 /mnt/<project>-efs/<project>/skills/
+  sudo docker compose --env-file .env -f deploy/docker-compose.yml restart openclaw
+  ```
+- **Add the morning-briefing cron** (delivers to whichever Telegram
+  chat the operator last messaged the bot from):
+  ```bash
+  docker exec deploy-openclaw-1 openclaw cron add \
+    --name morning-briefing \
+    --cron "0 7 * * *" --tz Europe/Berlin \
+    --session isolated --channel last --announce \
+    --message "Build today's morning briefing per the briefing skill." \
+    --description "Daily 07:00 Europe/Berlin"
+  ```
+  Approve the gateway scope upgrade if prompted:
+  ```bash
+  docker exec deploy-openclaw-1 openclaw devices
+  docker exec deploy-openclaw-1 openclaw devices approve <request-id>
+  ```
+
+These steps are documented to be folded into `bootstrap.sh` in a
+future release once the chat-agent pairing model is stable.
 
 ---
 
@@ -21,11 +69,15 @@ under "NOT in scope" in the design docs that introduce them.
 
 ## OSS scaffold polish
 
-- Multi-arch CI matrix (amd64 + arm64) — currently arm64 only.
+- Multi-arch CI matrix (amd64 + arm64) — currently arm64-only because
+  the default `var.instance_type` is `t4g.medium`. Track in an issue;
+  not a 1.0 blocker.
 - GHCR image publishing for `memex` and `openclaw` containers — today
-  the images are built on the EC2 host on every deploy.
+  the images are built on the EC2 host on every deploy. Issue first
+  to agree on tag scheme + release cadence.
 - GitHub Pages docs site — `ARCHITECTURE.md` + `deploy/*/docs/` would
-  render as a small Docusaurus / mkdocs site.
+  render as a small Docusaurus / mkdocs site. Out of scope until
+  there's a second deployer.
 - Standalone `memex` npm publish — split the brain out of the stack
   if demand for it standalone materializes.
 
