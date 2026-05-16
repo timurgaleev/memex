@@ -15,6 +15,7 @@ import { readFileSync, statSync } from "node:fs";
 import type { Storage } from "../core/storage.ts";
 import { indexFile } from "../core/indexer.ts";
 import { sweepVault, type SweepResult } from "../core/sweep.ts";
+import { Semaphore } from "../core/concurrency.ts";
 import {
   registerSource,
   backfillDocumentSources,
@@ -133,15 +134,41 @@ export function startObsidianRecipe(
     // if EFS inotify proves flaky we can flip to usePolling: true here.
   });
 
-  const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const inFlight = new Set<Promise<unknown>>();
-  // Backpressure caps — a `git checkout` on a 10k-file branch fires
-  // chokidar events at line-rate; without limits we'd allocate a
-  // timer + Promise for every event and exhaust the single PGLite
-  // connection in transaction. Caps below are deliberately generous
-  // for normal interactive editing but reject the pathological burst.
+  // ---------------------------------------------------------------------
+  // Backpressure design (HIGH defects in the prior version):
+  //   - A `git checkout` on a 10k-file branch fires chokidar events at
+  //     line-rate; without caps we'd allocate a timer + Promise for
+  //     every event and starve PGLite's single connection.
+  //   - The previous fix had a stale-timer race: the timer callback
+  //     deleted the pendingTimers entry IMMEDIATELY then awaited the
+  //     in-flight gate. A new event arriving during the wait saw no
+  //     existing timer and queued a second one, leading to duplicate
+  //     concurrent indexFile() for the same path.
+  //   - Polling `while (inFlight.size >= N) await sleep(50)` was a
+  //     busy-wait with non-deterministic ordering. Replaced with a
+  //     proper FIFO semaphore.
+  //   - stop() used to `pendingTimers.clear()` which dropped every
+  //     in-flight debounce. Now flushes pending edits before closing.
+  // MAX_IN_FLIGHT = 4 cap: PGLite is single-connection so true DB
+  // parallelism is 1, but the embed roundtrip + tree-sitter parse +
+  // entity extract can overlap CPU/network with the DB write. 4
+  // empirically saturates the t4g.medium without thrashing.
+  // ---------------------------------------------------------------------
   const MAX_PENDING_TIMERS = 1000;
   const MAX_IN_FLIGHT = 4;
+
+  // pendingTimers: filePath → { timer, inProgress }. When the timer
+  // fires we mark the entry inProgress=true and DO NOT delete it until
+  // the indexFile() finally settles. A new event for the same path
+  // during that window clears the timer (no-op if already fired) and
+  // resets inProgress=false + schedules a fresh debounce. This kills
+  // the stale-timer race.
+  interface PendingEntry {
+    timer: ReturnType<typeof setTimeout> | null;
+    inProgress: boolean;
+  }
+  const pending = new Map<string, PendingEntry>();
+  const semaphore = new Semaphore(MAX_IN_FLIGHT);
   let dropped = 0;
   let lastDropLog = 0;
 
@@ -155,52 +182,56 @@ export function startObsidianRecipe(
     }
   };
 
+  const doReindex = async (filePath: string): Promise<void> => {
+    const release = await semaphore.acquire();
+    try {
+      // Skip files that were deleted between event and acquisition.
+      try {
+        statSync(filePath);
+      } catch {
+        return;
+      }
+      try {
+        const r = await indexFile(storage, filePath);
+        console.log(
+          `[obsidian] reindexed ${filePath} chunks=${r.chunks} entities=${r.entities}`,
+        );
+      } catch (e) {
+        console.warn(
+          `[obsidian] reindex ${filePath} failed:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    } finally {
+      release();
+      // Only NOW retire the pending entry. If a new event arrived
+      // during this work it will have flipped inProgress=false +
+      // queued a fresh timer; that becomes its own pending entry,
+      // which we mustn't clobber.
+      const cur = pending.get(filePath);
+      if (cur && cur.inProgress) pending.delete(filePath);
+    }
+  };
+
   const onChange = (filePath: string): void => {
     if (!filePath.endsWith(".md")) return;
-    // Coalesce rapid same-file events.
-    const existing = pendingTimers.get(filePath);
-    if (existing) clearTimeout(existing);
-    else if (pendingTimers.size >= MAX_PENDING_TIMERS) {
-      // Drop this new event entirely rather than unbound the queue.
-      // The boot sweep + dream cycle eventually pick the file up.
+    const existing = pending.get(filePath);
+    if (existing && existing.timer) {
+      clearTimeout(existing.timer);
+    } else if (!existing && pending.size >= MAX_PENDING_TIMERS) {
       dropped++;
       logDropMaybe();
       return;
     }
-    const t = setTimeout(() => {
-      pendingTimers.delete(filePath);
-      // Backpressure on indexFile fan-out: wait for an in-flight slot
-      // before kicking off a new reindex.
-      const start = async (): Promise<void> => {
-        while (inFlight.size >= MAX_IN_FLIGHT) {
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        // Skip files that were deleted between the event and the timer.
-        try {
-          statSync(filePath);
-        } catch {
-          return;
-        }
-        const p = indexFile(storage, filePath)
-          .then((r) => {
-            console.log(
-              `[obsidian] reindexed ${filePath} chunks=${r.chunks} entities=${r.entities}`,
-            );
-          })
-          .catch((e) => {
-            console.warn(
-              `[obsidian] reindex ${filePath} failed:`,
-              e instanceof Error ? e.message : e,
-            );
-          })
-          .finally(() => {
-            inFlight.delete(p);
-          });
-        inFlight.add(p);
-      };
-      void start();
+    const entry: PendingEntry = existing ?? { timer: null, inProgress: false };
+    // If existing.inProgress is true we still queue a fresh debounce —
+    // the next reindex will run after the current one releases.
+    entry.timer = setTimeout(() => {
+      entry.timer = null;
+      entry.inProgress = true;
+      void doReindex(filePath);
     }, debounceMs);
-    pendingTimers.set(filePath, t);
+    pending.set(filePath, entry);
   };
 
   watcher.on("add", onChange);
@@ -211,11 +242,26 @@ export function startObsidianRecipe(
   return {
     initialSweep,
     stop: async () => {
-      for (const t of pendingTimers.values()) clearTimeout(t);
-      pendingTimers.clear();
+      // On SIGTERM during an editor save burst we used to drop every
+      // pending debounce on the floor. Now: cancel each timer, then
+      // synchronously fire its reindex so the work isn't lost. The
+      // semaphore still bounds parallelism so we can't blow the DB.
+      const tail: Promise<void>[] = [];
+      for (const [filePath, entry] of pending.entries()) {
+        if (entry.timer) {
+          clearTimeout(entry.timer);
+          entry.timer = null;
+          entry.inProgress = true;
+          tail.push(doReindex(filePath));
+        }
+      }
       await watcher.close();
-      // Wait for any in-flight indexes started just before stop().
-      await Promise.allSettled(inFlight);
+      // Drain the tail + anything already in-flight on the semaphore.
+      await Promise.allSettled(tail);
+      // Spin until the semaphore reports no waiters AND no in-flight.
+      while (semaphore.pending() > 0 || semaphore.inFlight() > 0) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
     },
   };
 }

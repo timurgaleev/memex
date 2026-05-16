@@ -24,6 +24,19 @@ const SERVER_INFO = { name: "memex", version: "0.1.0" };
 
 export interface McpHandlerOptions {
   storage: Storage;
+  /**
+   * Public-traffic limiter (one bucket per Cf-Connecting-Ip). Default
+   * tightens to capacity=30, refill=1/s — chat-equivalent burst.
+   */
+  publicRateLimiter?: RateLimiter;
+  /**
+   * Internal-traffic limiter (a single "internal" bucket). The
+   * openclaw container has legitimate burst behavior (cron-driven
+   * batch indexing) and should not share the per-IP public cap.
+   * Default capacity=300, refill=10/s.
+   */
+  internalRateLimiter?: RateLimiter;
+  /** @deprecated alias for `publicRateLimiter`; kept for tests. */
   rateLimiter?: RateLimiter;
   /** Override the IP key extraction (e.g. for tests). */
   clientKey?: (req: Request) => string;
@@ -82,7 +95,15 @@ function defaultClientKey(req: Request): string {
 }
 
 export function makeMcpHandler(opts: McpHandlerOptions) {
-  const limiter = opts.rateLimiter ?? new RateLimiter();
+  // Public and internal traffic must NOT share a limiter. A flood of
+  // public requests could otherwise starve the internal openclaw
+  // container, and conversely the internal caller's legitimate burst
+  // (cron-driven re-index) would trip a chat-tuned per-IP cap.
+  const publicLimiter =
+    opts.publicRateLimiter ?? opts.rateLimiter ?? new RateLimiter();
+  const internalLimiter =
+    opts.internalRateLimiter ??
+    new RateLimiter({ capacity: 300, refillPerSecond: 10 });
   const keyFn = opts.clientKey ?? defaultClientKey;
   const forbidPublic = opts.forbidPublicTool ?? (() => false);
 
@@ -93,6 +114,7 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     if (req.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
+    const limiter = ctx.isPublic ? publicLimiter : internalLimiter;
     if (!limiter.allow(keyFn(req))) {
       return Response.json(
         rpcError(null, ERR_RATE_LIMITED, "rate limit exceeded"),
