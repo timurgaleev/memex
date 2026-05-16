@@ -25,9 +25,9 @@ if [ -f "${REPO_DIR}/.env" ]; then
   . "${REPO_DIR}/.env"
 fi
 
-AWS_REGION="${AWS_REGION:-eu-west-1}"
+: "${AWS_REGION:?AWS_REGION must be set (sourced from \${REPO_DIR}/.env)}"
 SECRETS_PREFIX="${SECRETS_PREFIX:-memex}"
-MEMEX_HOST="${MEMEX_HOST:-}"
+: "${MEMEX_HOST:?MEMEX_HOST must be set (sourced from \${REPO_DIR}/.env)}"
 ROTATE_TZ="${MEMEX_ROTATE_TZ:-UTC}"
 
 BEARER_SECRET_ID="${SECRETS_PREFIX}/memex-public-bearer"
@@ -88,29 +88,32 @@ if [[ -z "$TG_TOKEN" ]]; then
 fi
 
 NOW="$(TZ="$ROTATE_TZ" date '+%Y-%m-%d %H:%M %Z')"
-MCP_URL="https://${MEMEX_HOST:-brain.example.com}/mcp"
+MCP_URL="https://${MEMEX_HOST}/mcp"
+# Notification payload deliberately omits the token. Telegram messages
+# persist in the chat history (and on Telegram's servers); pasting the
+# bearer there would leak it indefinitely. The token is in Secrets
+# Manager — operator pulls it from there on demand.
 MESSAGE=$(cat <<EOF
 🔑 memex bearer rotated — $NOW
 
 Public MCP: $MCP_URL
-Token (valid until next scheduled rotation):
 
-\`$NEW_TOKEN\`
-
-Paste into ~/.claude.json under
-\`mcpServers.memex.headers.Authorization\` as \`Bearer <token>\`.
+Retrieve the new token from Secrets Manager:
+aws secretsmanager get-secret-value \
+  --secret-id ${BEARER_SECRET_ID} \
+  --region ${AWS_REGION} \
+  --query SecretString --output text
 EOF
 )
 
 if curl -fsSL --max-time 15 \
      -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-     --data-urlencode "parse_mode=Markdown" \
      --data-urlencode "text=${MESSAGE}" \
      >/dev/null; then
-  log "telegram: delivered new token to chat ${TELEGRAM_CHAT_ID}"
+  log "telegram: rotation notification delivered to chat ${TELEGRAM_CHAT_ID}"
 else
-  log "WARN: telegram delivery failed — token NOT delivered (retrieve from Secrets Manager)"
+  log "WARN: telegram delivery failed — token is still in Secrets Manager"
 fi
 
 log "rotation complete"

@@ -120,7 +120,7 @@ docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 
 The boot flow (cold start from a new instance):
 
-1. cloud-init writes `/etc/openclaw-env` from terraform user_data vars.
+1. cloud-init writes `/etc/stack-env` from terraform user_data vars.
 2. cloud-init downloads `scripts/bootstrap.sh` from the scripts S3 bucket.
 3. `bootstrap.sh` installs docker, mounts EFS, clones the repo,
    conditionally fetches the SSH deploy key, renders `/opt/<project>/.env`,

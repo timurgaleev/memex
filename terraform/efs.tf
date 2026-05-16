@@ -14,12 +14,8 @@ resource "aws_security_group" "efs" {
     security_groups = [aws_security_group.memex.id]
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # No egress rules — EFS targets do not initiate outbound traffic; the
+  # default-empty egress set is the safer posture.
 
   tags = {
     Name = "${var.project_name}-efs-sg"
@@ -32,12 +28,10 @@ resource "aws_efs_file_system" "memex" {
   performance_mode = "generalPurpose"
   throughput_mode  = "bursting"
 
-  # Move rarely-accessed files to Infrequent Access after 30 days (lowers storage cost).
+  # Move rarely-accessed files to Infrequent Access after 30 days
+  # (lowers storage cost); restore on first access.
   lifecycle_policy {
-    transition_to_ia = "AFTER_30_DAYS"
-  }
-
-  lifecycle_policy {
+    transition_to_ia                    = "AFTER_30_DAYS"
     transition_to_primary_storage_class = "AFTER_1_ACCESS"
   }
 

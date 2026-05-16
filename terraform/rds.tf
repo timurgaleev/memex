@@ -71,6 +71,12 @@ resource "aws_db_parameter_group" "memex_pg16" {
 resource "random_password" "memex_db" {
   length  = 32
   special = false # avoid characters that need URL-encoding in connection strings
+
+  lifecycle {
+    # Pin the password generator across provider upgrades — a silent
+    # regeneration would force-rotate the DB master password mid-flight.
+    ignore_changes = [length, special]
+  }
 }
 
 resource "aws_db_instance" "memex" {
@@ -96,6 +102,7 @@ resource "aws_db_instance" "memex" {
   final_snapshot_identifier  = "${var.project_name}-memex-final-${formatdate("YYYY-MM-DD", timestamp())}"
   apply_immediately          = false
   auto_minor_version_upgrade = true
+  copy_tags_to_snapshot      = true
 
   lifecycle {
     ignore_changes = [

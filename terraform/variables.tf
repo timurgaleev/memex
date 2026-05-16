@@ -23,15 +23,15 @@ variable "domain" {
 }
 
 variable "subdomain" {
-  description = "Subdomain serving the chat UI (e.g. 'stack' for stack.example.com). Pair with `domain`."
+  description = "Subdomain serving the chat UI (e.g. 'chat' for chat.example.com). Pair with `domain`."
   type        = string
-  default     = "stack"
+  default     = "chat"
 }
 
 variable "memex_subdomain" {
-  description = "Subdomain serving the memex public MCP (e.g. 'memex' for memex.example.com)."
+  description = "Subdomain serving the memex public MCP (e.g. 'brain' for brain.example.com)."
   type        = string
-  default     = "memex"
+  default     = "brain"
 }
 
 variable "github_owner" {
@@ -78,12 +78,6 @@ variable "ssh_public_key" {
   EOT
   type        = string
   default     = ""
-}
-
-variable "aws_region_bedrock" {
-  description = "Bedrock region (keep EU cross-region inference)"
-  type        = string
-  default     = "eu-west-1"
 }
 
 variable "project_name" {

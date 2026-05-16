@@ -9,31 +9,43 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
     name: PII audit
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: make audit
         run: make audit
+      - name: make scrub-audit
+        run: make scrub-audit
 
   bash-tests:
     name: Bash unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: make test
         run: make test
 
   terraform-validate:
-    name: Terraform validate
+    name: Terraform fmt + validate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.6.6"
+      - name: terraform fmt -check
+        working-directory: terraform
+        run: terraform fmt -check -recursive
       - name: terraform init (no backend)
         working-directory: terraform
         run: terraform init -backend=false -input=false
@@ -44,16 +56,18 @@ jobs:
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: lint scripts
-        run: shellcheck scripts/*.sh tests/*.test.sh
+        run: shellcheck scripts/*.sh tests/*.test.sh deploy/openclaw/entrypoint.sh deploy/secrets/fetch-secrets.sh
 
   pytest:
     name: Python tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

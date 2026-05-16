@@ -55,16 +55,20 @@ lost disk data is high.
 ## Conventions
 
 ### AWS model selection
-- The primary chat model is configured via `terraform var.bedrock_model_id`
-  and rendered into `~/.openclaw/openclaw.json` by `scripts/post-onboard.sh`.
+- The chat-side model picker is hardcoded in `scripts/post-onboard.sh`:
+  Nova 2 Lite (primary) with Nova Pro/Lite/Micro fallbacks. The
+  `var.bedrock_model_id` terraform variable surfaces the configured
+  default in `terraform output bedrock_model` but does NOT yet drive
+  post-onboard — keep them aligned manually until they're wired through.
 - The default is Amazon Nova 2 Lite — credit-eligible, multi-turn-safe.
 - Anthropic models (Claude family) are NOT credit-eligible — they cost
-  real money. Set them explicitly via the variable if that's intended.
+  real money. Adding one is an explicit code change in
+  `scripts/post-onboard.sh` AND the IAM policy in `terraform/iam.tf`.
 
 ### Secret naming
-- Every secret is prefixed by `var.secrets_prefix` (default: `openclaw`,
+- Every secret is prefixed by `var.secrets_prefix` (default: `memex`,
   override via `scripts/init.sh` for a new install).
-- The pattern is `<prefix>/<name>` — e.g. `stack/telegram-bot-token`.
+- The pattern is `<prefix>/<name>` — e.g. `memex/telegram-bot-token`.
 
 ### Audit gate
 - `make audit` reads `scripts/lib/pii-patterns.txt` and fails on any

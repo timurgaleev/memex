@@ -6,12 +6,13 @@
 node:22-alpine
 ├── apk: python3, py3-requests, jq, curl, bash, aws-cli, git
 ├── npm: openclaw@2026.4.29 (global)
-├── helpers/{gcal,ha,obsidian,memex} → /opt/memex/bin/
+├── helpers/{gcal,ha,obsidian,memex} → /opt/<project>/bin/
 └── entrypoint.sh
 ```
 
-`git` and `aws-cli` are non-obvious requirements — see
-`~/.claude/projects/.../memory/feedback_openclaw_container_needs_git.md`.
+`git` and `aws-cli` are non-obvious requirements: the openclaw runtime
+shells out to `git` for plugin staging and to `aws` for Secrets
+Manager reads at boot. Removing either breaks the chat surface.
 
 ## Network
 
@@ -52,7 +53,7 @@ wedge the runtime mirror lock:
 | `~/.openclaw/media/` | `media/` | TG attachments etc. |
 | `~/.openclaw/workspace/` | `workspace/` | session memory + `.gateway-token` |
 | `~/.openclaw/skills/` | `skills/` (read-only) | the 9 markdown skills |
-| `/mnt/openclaw-efs/openclaw/vault/` | `vault/` | direct vault access |
+| `/mnt/<project>-efs/<project>/vault/` | `vault/` | direct vault access |
 
 `plugin-runtime-deps/` lives inside the container image and is rebuilt
 per `npm openclaw@<version>` — never on EFS.
@@ -70,11 +71,12 @@ Set in `config.template.json`. Heartbeat is intentionally disabled
 
 ## Auth token rotation
 
-The gateway auth token is generated once at first boot via
-`node -e crypto.randomBytes(20).toString("hex")` and persisted at
-`workspace/.gateway-token` on EFS. Subsequent boots read it back —
-existing paired devices keep working. To rotate, stop the container,
-delete the file, restart; all devices need re-pairing.
+The gateway auth token is sourced from AWS Secrets Manager at
+`<secrets_prefix>/gateway-token` (KMS-encrypted, CloudTrail-audited).
+The entrypoint falls back to an EFS-persisted token at
+`workspace/.gateway-token` only when the secret is absent (legacy
+pre-Secrets-Manager installs). Rotate by `put-secret-value` on the
+secret and restarting the container; all devices need re-pairing.
 
 ## Plugin-version gotcha
 

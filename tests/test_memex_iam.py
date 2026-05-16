@@ -63,11 +63,27 @@ def test_existing_bedrock_invoke_actions_preserved() -> None:
         "Bedrock policy must include bedrock:InvokeModel"
 
 
-def test_existing_nova_resource_pattern_preserved() -> None:
-    """Regression guard: the foundation-model wildcard that currently covers
-    Nova family stays intact."""
+def test_nova_invoke_is_scoped() -> None:
+    """The Nova family invoke ARN must remain present, scoped to the
+    foundation-model namespace (no broad foundation-model/* wildcard)."""
     text = _read()
     assert re.search(
-        r'arn:aws:bedrock:[^"]*::foundation-model/\*',
+        r'arn:aws:bedrock:[^:]*::foundation-model/amazon\.nova-',
         text,
-    ), "existing foundation-model/* wildcard (covers Nova) must be preserved"
+    ), "Bedrock policy must allow invoking the amazon.nova-* family"
+    assert not re.search(
+        r'foundation-model/\*"\s*,?\s*$',
+        text,
+        re.MULTILINE,
+    ), "broad foundation-model/* wildcard must NOT be present"
+
+
+def test_inference_profiles_are_scoped() -> None:
+    """Cross-region inference profile ARNs must be enumerated, not wildcarded."""
+    text = _read()
+    assert not re.search(r'inference-profile/\*"', text), \
+        "inference-profile/* wildcard must NOT be present — enumerate profiles"
+    assert re.search(
+        r'inference-profile/(eu|global)\.amazon\.nova-',
+        text,
+    ), "Nova inference profile ARN must be enumerated"

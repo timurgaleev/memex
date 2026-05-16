@@ -49,16 +49,18 @@ make lint    # shellcheck if installed
 - Update `ARCHITECTURE.md` and `CHANGELOG.md` in the same commit as the
   behavior change, not later.
 - The `make audit` gate refuses commits with maintainer-private
-  identifiers. If you need to reference a value the audit complains
-  about, add a generic placeholder to the spec in `MIGRATION_PII_TABLE.md`
-  and a deletion entry to `OPERATIONS_NOTES.md` (gitignored).
+  identifiers (see `scripts/lib/pii-patterns.txt` for the regex set).
+  Local-only matches go in `scripts/lib/pii-patterns.local.txt`
+  (gitignored, auto-loaded by the audit script).
+- The companion `make scrub-audit` runs a broader pre-publication
+  sweep — categorised report, fails on HIGH-severity hits.
 
 ## Test policy
 
 - Every new bash script gets a `tests/<name>.test.sh` with at least
   happy-path + one edge case + one error path.
-- Terraform changes: `terraform validate` MUST pass; `terraform plan`
-  output reviewed.
+- Terraform changes: `terraform fmt -check`, `terraform validate`, and
+  reviewed `terraform plan` output.
 - Container changes: `docker compose --env-file .env -f
   deploy/docker-compose.yml config` MUST parse without error.
 
@@ -80,7 +82,7 @@ Examples:
 ## Pull request flow
 
 1. Branch from `main`. Naming: `feature/<short>`, `fix/<short>`, etc.
-2. Run `make audit && make test && terraform validate`.
+2. Run `make audit && make scrub-audit && make test && terraform -chdir=terraform validate`.
 3. Open the PR using the template — describe what changed and why,
    include a `Test plan` checklist.
 4. Wait for the maintainer review. No SLA, but no PR is rejected

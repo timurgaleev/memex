@@ -22,13 +22,13 @@ When the user changes their Obsidian password:
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id openclaw/obsidian-sync \
+  --secret-id <secrets_prefix>/obsidian-sync \
   --secret-string '{"email":"...","password":"NEW","totp_secret":"..."}' \
-  --profile bedrock --region eu-west-1
+  --profile <your-profile> --region <your-region>
 
-cd /opt/memex/deploy
-bash secrets/fetch-secrets.sh
-docker compose restart obsidian-sync
+cd /opt/<project>
+bash deploy/secrets/fetch-secrets.sh
+docker compose --env-file .env -f deploy/docker-compose.yml restart obsidian-sync
 ```
 
 The container does NOT need to be re-paired with the remote vault
@@ -41,7 +41,7 @@ session state on EFS.
 docker compose stop obsidian-sync
 
 # Wipe the local headless config
-rm -rf /mnt/openclaw-efs/openclaw/.obsidian-headless-config/*
+rm -rf /mnt/<project>-efs/<project>/.obsidian-headless-config/*
 
 docker compose start obsidian-sync
 ```

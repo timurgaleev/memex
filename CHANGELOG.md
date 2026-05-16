@@ -10,9 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - Initial public release as `memex`.
-- `memex` knowledge brain (Bun + PGLite + pgvector + MCP server) with
-  hybrid search, entity graph, and graph-only code chunkers for TS / Python.
-- `openclaw` chat agent surface (Telegram + web UI via Cloudflare Tunnel).
+- `memex` knowledge brain (Bun + Postgres + pgvector + MCP server,
+  with PGLite available as a dev-only fallback) — hybrid search,
+  entity graph, and graph-only code chunkers for TS / Python.
+- `openclaw@2026.4.29` chat agent surface (Telegram + web UI via
+  Cloudflare Tunnel).
 - `obsidian-sync` sidecar for bidirectional Obsidian vault sync.
 - `cloudflared` sidecar for public HTTPS ingress.
 - Terraform stack (VPC, EFS, RDS Postgres, EC2, Cloudflare Tunnel,

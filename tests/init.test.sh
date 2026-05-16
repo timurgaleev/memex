@@ -20,8 +20,7 @@ pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 # Standard valid answer set, one prompt per line, in the order init.sh asks:
 #   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, DOMAIN, SUBDOMAIN, MEMEX_SUBDOMAIN,
 #   GITHUB_OWNER, REPO_NAME, SECRETS_PREFIX, TFSTATE_BUCKET, TFSTATE_REGION,
-#   SCRIPTS_BUCKET, ALARM_EMAIL, SSH_ALLOWED_CIDR, TELEGRAM_BOT_HANDLE,
-#   USE_SSH_DEPLOY_KEY
+#   ALARM_EMAIL, SSH_ALLOWED_CIDR, TELEGRAM_BOT_HANDLE, USE_SSH_DEPLOY_KEY
 valid_answers() {
   cat <<'EOF'
 123456789012
@@ -35,7 +34,6 @@ test-stack
 stack
 my-tfstate-bucket
 eu-central-1
-my-scripts-bucket
 
 
 
@@ -137,7 +135,7 @@ ec=0; output=$( { printf '%s\n' \
   "abc" \
   "eu-west-1" "default" "example.com" "stack" "brain" \
   "testowner" "test-stack" "stack" "my-tfstate" "eu-central-1" \
-  "my-scripts" "" "" "" "false" \
+  "" "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t8" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 1 ] && echo "$output" | grep -qi "12 digits"; then
   pass "T8 invalid AWS account ID → exit 1"
@@ -149,7 +147,7 @@ fi
 t9=$(new_workspace t9)
 ec=0; output=$( { printf '%s\n' \
   "123456789012" "eu-west-1" "default" "no-dot-domain" \
-  "stack" "brain" "owner" "name" "stack" "buck" "eu-central-1" "buck2" \
+  "stack" "brain" "owner" "name" "stack" "buck" "eu-central-1" \
   "" "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t9" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 1 ] && echo "$output" | grep -q "domain"; then
@@ -166,13 +164,13 @@ ec=0; output=$( { printf '%s\n' \
   "example.com" \
   "" "" \
   "owner" "" \
-  "" "buck" "" "buck2" \
+  "" "buck" "" \
   "" "" "" "" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t10" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 0 ] \
    && grep -q '^AWS_REGION=eu-west-1$' "$t10/.env" \
    && grep -q '^SUBDOMAIN=chat$' "$t10/.env" \
-   && grep -q '^MEMEX_SUBDOMAIN=memex$' "$t10/.env" \
+   && grep -q '^MEMEX_SUBDOMAIN=brain$' "$t10/.env" \
    && grep -q '^REPO_NAME=memex$' "$t10/.env" \
    && grep -q '^USE_SSH_DEPLOY_KEY=false$' "$t10/.env"; then
   pass "T10 defaults applied for empty answers"

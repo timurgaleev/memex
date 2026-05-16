@@ -19,14 +19,14 @@ aws_profile  = "default"        # the [profile-name] in ~/.aws/config
 project_name      = "memex"      # short slug, used in resource Name tags
 repo_name         = "memex"
 github_owner      = "your-github-username"
-secrets_prefix    = "memex"      # Secrets Manager namespace: stack/telegram-bot-token, etc.
+secrets_prefix    = "memex"      # Secrets Manager namespace: memex/telegram-bot-token, etc.
 
 # ---------------------------------------------------------------------------
 # Public surface
 # ---------------------------------------------------------------------------
 domain            = "example.com"
 subdomain         = "chat"     # → chat.example.com (chat UI)
-memex_subdomain   = "memex"     # → memex.example.com (public MCP)
+memex_subdomain   = "brain"     # → brain.example.com (public MCP)
 
 # ---------------------------------------------------------------------------
 # Repo URL the EC2 user_data clones at first boot. Public-repo HTTPS by default.

@@ -35,7 +35,7 @@ Full local up requires the secrets — they're gitignored and only fetched on th
 
 ## Deploy
 
-Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/memex && git pull && docker compose up -d --build` → wait ~3 min for openclaw to stage plugin deps → `curl https://<your-subdomain>.<your-domain>/healthz`.
+Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait ~3 min for openclaw to stage plugin deps → `curl https://<subdomain>.<domain>/healthz`.
 
 Never:
 - `terraform taint aws_instance.memex`
@@ -62,16 +62,17 @@ Never:
 ## Env vars worth knowing
 
 ```
-AWS_REGION=eu-west-1
-AWS_PROFILE=default              # required, not optional
+AWS_REGION=<your-region>          # required
+AWS_PROFILE=default               # required, not optional
+SECRETS_PREFIX=memex              # AWS Secrets Manager namespace
 MEMEX_VAULT_PATHS=/vault,/memory
 MEMEX_SWEEP_DELAY_MS=50
 MEMEX_SWEEP_MAX_FILES=1000
 MEMEX_DREAM_INTERVAL_S=21600
 MEMEX_DREAM_STALE_DAYS=30
-MEMEX_HOST=0.0.0.0               # in the container; loopback off-EC2
+MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
 BRAIN_PORT=18790
-TUNNEL_TOKEN=<cloudflared>       # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
+TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
 
 ## Failure modes to recognise

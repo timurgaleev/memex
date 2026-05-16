@@ -6,6 +6,7 @@ resource "aws_instance" "memex" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.memex.id]
   iam_instance_profile   = aws_iam_instance_profile.memex.name
+  key_name               = length(aws_key_pair.memex) > 0 ? aws_key_pair.memex[0].key_name : null
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     bootstrap_script_url = "s3://${aws_s3_bucket.scripts.id}/scripts/bootstrap.sh"
@@ -23,7 +24,9 @@ resource "aws_instance" "memex" {
   user_data_replace_on_change = false
 
   metadata_options {
-    http_tokens = "required"
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 1
   }
 
   root_block_device {

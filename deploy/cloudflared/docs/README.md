@@ -1,6 +1,6 @@
 # cloudflared — public ingress sidecar
 
-Routes `https://<your-subdomain>.<your-domain>` from the Cloudflare edge to the
+Routes `https://<subdomain>.<domain>` from the Cloudflare edge to the
 internal `openclaw` container. Single-purpose container running the
 upstream `cloudflare/cloudflared:2025.4.0` image — no custom build.
 
@@ -9,10 +9,10 @@ upstream `cloudflare/cloudflared:2025.4.0` image — no custom build.
 - Holds an outbound HTTP/2 connection (4 connections by default,
   one per Cloudflare edge POP) to Cloudflare.
 - Reads `TUNNEL_TOKEN` from `deploy/.secrets/cloudflared.env` (written
-  by `fetch-secrets.sh` from the `openclaw/cloudflared-tunnel-token`
-  AWS secret).
+  by `fetch-secrets.sh` from the
+  `<secrets_prefix>/cloudflared-tunnel-token` AWS secret).
 - Routes traffic per the **dashboard-side ingress rule** (NOT this
-  repo): `<your-subdomain>.<your-domain>` → `http://openclaw:18789`.
+  repo): `<subdomain>.<domain>` → `http://openclaw:18789`.
 
 ## Why this directory exists
 

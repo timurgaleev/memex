@@ -16,6 +16,8 @@ services:
       context: ./memex
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "18790"
     volumes:
@@ -36,8 +38,9 @@ services:
       - ${EFS_REPO}:/repo-source:ro
       - /home/ec2-user/.aws:/home/bun/.aws:ro
     environment:
-      - AWS_REGION=${AWS_REGION:-eu-west-1}
+      - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
       - AWS_PROFILE=${AWS_PROFILE:-default}
+      - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
       - HOME=/home/bun
       # Comma-separated list of paths to index (vault + openclaw memory).
       # Throttling knobs apply to the initial sweep across all paths.
@@ -76,6 +79,8 @@ services:
       args:
         OPENCLAW_VERSION: "2026.4.29"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "18789"
     volumes:
@@ -101,8 +106,9 @@ services:
       - /home/ec2-user/.aws:/home/openclaw/.aws:ro
       - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
     environment:
-      - AWS_REGION=${AWS_REGION:-eu-west-1}
+      - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
       - AWS_PROFILE=${AWS_PROFILE:-default}
+      - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
       - HOME=/home/openclaw
     networks:
       - internal
@@ -120,6 +126,10 @@ services:
     # Tag pinned; bump intentionally after a smoke test.
     image: cloudflare/cloudflared:2025.4.0
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # cloudflared reads TUNNEL_TOKEN from env when --token is omitted.
     # We deliberately do NOT use ${...} interpolation in command: because
     # docker-compose interpolates that at parse time (before env_file is
@@ -144,6 +154,8 @@ services:
       context: ./obsidian-sync
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ${EFS_MOUNT}/vault:/vault
       - ${EFS_MOUNT}/.obsidian-headless-config:/root/.config/obsidian-headless

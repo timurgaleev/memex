@@ -26,13 +26,11 @@ resource "aws_iam_role_policy_attachment" "cloudwatch" {
 }
 
 data "aws_iam_policy_document" "memex_custom" {
-  # Bedrock: invoke any foundation model or inference profile.
-  # Wildcard on models so switching bedrock_model_id variable never requires an IAM change.
-  # Three ARN patterns needed:
-  #   1. Foundation models (no account, any region) — used by Claude + Nova base models
-  #   2. Account-scoped inference profiles (eu. prefix) — EU cross-region Claude profiles
-  #   3. Global inference profiles (global. prefix) — Nova 2 and other global profiles
-  # Bedrock invoke — scoped to model/profile ARNs
+  # Bedrock invoke — limited to the models the stack actually calls
+  # (Titan embed + Nova family + Claude Haiku 4.5). Region-scoped where
+  # possible. Cross-region inference profiles ("eu." / "global.") are
+  # listed explicitly so a compromised instance role cannot invoke
+  # arbitrary paid models.
   statement {
     sid    = "BedrockInvoke"
     effect = "Allow"
@@ -42,16 +40,12 @@ data "aws_iam_policy_document" "memex_custom" {
       "bedrock:GetInferenceProfile",
     ]
     resources = [
-      # Explicit ARNs for audit + self-documentation; the wildcards below
-      # already cover these models, but explicit ARNs survive a future
-      # least-privilege tightening pass.
       "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
-
-      # Wildcards — keep; used by the Nova family fallback chain.
-      "arn:aws:bedrock:*::foundation-model/*",
-      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/*",
-      "arn:aws:bedrock:*:*:inference-profile/*",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova-*",
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-haiku-4-5*",
+      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.amazon.nova-*",
+      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.claude-haiku-4-5*",
+      "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/global.amazon.nova-*",
     ]
   }
 

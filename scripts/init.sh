@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/init.sh — interactive bootstrap for memex.
 #
-# Prompts for every value listed in MIGRATION_PII_TABLE.md and writes:
+# Prompts for the values needed to deploy and writes:
 #   - .env                          (runtime config for compose + scripts)
 #   - terraform/terraform.tfvars    (terraform input vars; gitignored)
 #   - terraform/backend.hcl         (S3 backend partial config; gitignored)
@@ -165,13 +165,12 @@ prompt AWS_REGION        "AWS region"                             "eu-west-1"   
 prompt AWS_PROFILE       "AWS CLI profile"                        "default"      valid_nonempty
 prompt DOMAIN            "Public root domain (e.g. example.com)"  ""             valid_domain
 prompt SUBDOMAIN         "Subdomain for the chat UI"              "chat"        valid_subdomain
-prompt MEMEX_SUBDOMAIN   "Subdomain for the memex public MCP"     "memex"        valid_subdomain
+prompt MEMEX_SUBDOMAIN   "Subdomain for the memex public MCP"     "brain"        valid_subdomain
 prompt GITHUB_OWNER      "GitHub username/org that owns the repo" ""             valid_github_owner
 prompt REPO_NAME         "Public repo name"                       "memex" valid_nonempty
 prompt SECRETS_PREFIX    "AWS Secrets Manager prefix"             "memex"        valid_nonempty
 prompt TFSTATE_BUCKET    "S3 bucket for terraform state"          ""             valid_nonempty
 prompt TFSTATE_REGION    "S3 region of the tfstate bucket"        "eu-central-1" valid_nonempty
-prompt SCRIPTS_BUCKET    "S3 bucket for scripts/install assets"   ""             valid_nonempty
 prompt ALARM_EMAIL       "CloudWatch alarm email (optional)"      ""             valid_email_or_empty
 prompt SSH_ALLOWED_CIDR  "SSH allowed CIDR (optional, e.g. 1.2.3.4/32)" ""       valid_cidr_or_empty
 prompt TELEGRAM_BOT_HANDLE "Telegram bot handle (optional, @yourbot)"   ""        valid_bot_handle_or_empty
@@ -183,14 +182,14 @@ REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
 # Atomic write helpers
 # ---------------------------------------------------------------------------
 write_atomic() {
-  local target="$1" content="$2"
+  local target="$1" content="$2" mode="${3:-0644}"
   local dir
   dir="$(dirname "$target")"
   mkdir -p "$dir"
   local tmp
   tmp="$(mktemp "${target}.XXXXXX")"
   printf '%s' "$content" > "$tmp"
-  chmod 0644 "$tmp"
+  chmod "$mode" "$tmp"
   mv -f "$tmp" "$target"
 }
 
@@ -217,7 +216,6 @@ REPO_URL=${REPO_URL}
 
 SECRETS_PREFIX=${SECRETS_PREFIX}
 TFSTATE_BUCKET=${TFSTATE_BUCKET}
-SCRIPTS_BUCKET=${SCRIPTS_BUCKET}
 
 ALARM_EMAIL=${ALARM_EMAIL}
 SSH_ALLOWED_CIDR=${SSH_ALLOWED_CIDR}
@@ -230,10 +228,12 @@ USE_SSH_DEPLOY_KEY=${USE_SSH_DEPLOY_KEY}
 MEMEX_PUBLIC_WRITE=0
 
 # Default EFS mount path on the host (used by docker-compose volume binds).
-EFS_MOUNT=/mnt/openclaw-efs/openclaw
+EFS_MOUNT=/mnt/${REPO_NAME}-efs/${REPO_NAME}
 "
 
-write_atomic "$ENV_FILE" "$ENV_CONTENT"
+# .env carries AWS account id, alarm email, optional CIDR — keep it
+# private even on shared workstations.
+write_atomic "$ENV_FILE" "$ENV_CONTENT" 0600
 
 # ---------------------------------------------------------------------------
 # Render terraform/terraform.tfvars
@@ -252,7 +252,6 @@ repo_name           = \"${REPO_NAME}\"
 repo_url            = \"${REPO_URL}\"
 
 secrets_prefix      = \"${SECRETS_PREFIX}\"
-scripts_bucket      = \"${SCRIPTS_BUCKET}\"
 
 alarm_email         = \"${ALARM_EMAIL}\"
 ssh_allowed_cidr    = \"${SSH_ALLOWED_CIDR}\"
@@ -260,7 +259,8 @@ ssh_allowed_cidr    = \"${SSH_ALLOWED_CIDR}\"
 use_ssh_deploy_key  = ${USE_SSH_DEPLOY_KEY}
 "
 
-write_atomic "$TFVARS_FILE" "$TFVARS_CONTENT"
+# tfvars carries account-scoped names — keep readable to terraform only.
+write_atomic "$TFVARS_FILE" "$TFVARS_CONTENT" 0600
 
 # ---------------------------------------------------------------------------
 # Render terraform/backend.hcl (S3 partial backend config)

@@ -64,4 +64,5 @@ destroy: ## Terraform destroy (NOT gated by audit — confirm before running!)
 
 deploy: audit ## Rebuild + restart the docker-compose stack on the EC2 host
 	@echo "[deploy] running on the configured EC2 — this is meant to be run via SSM"
-	@cd deploy && docker compose up -d --build
+	@test -f .env || { echo "[deploy] .env missing — run 'make init' or 'scripts/bootstrap.sh' first" >&2; exit 1; }
+	@docker compose --env-file .env -f deploy/docker-compose.yml up -d --build

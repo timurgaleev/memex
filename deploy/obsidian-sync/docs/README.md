@@ -19,7 +19,7 @@ remote vault.
 ## What it does
 
 - Logs into Obsidian Sync once at startup using credentials from
-  `openclaw/obsidian-sync` AWS secret. TOTP supported via
+  the `<secrets_prefix>/obsidian-sync` AWS secret. TOTP supported via
   `oathtool` (subpackage `oath-toolkit-oathtool` on alpine — the
   meta `oath-toolkit` doesn't include the binary).
 - If the local vault isn't yet linked to a remote, runs
@@ -39,7 +39,7 @@ remote vault.
 
 - Sync state (`XDG_CONFIG_HOME/obsidian-headless`) needs persistence
   across container restarts; mounted from EFS at
-  `/mnt/openclaw-efs/openclaw/.obsidian-headless-config/`.
+  `/mnt/<project>-efs/<project>/.obsidian-headless-config/`.
 - The vault directory needs `:rw` to be sync'd both ways — separate
   process boundary so a sync glitch can't corrupt the openclaw
   container's read-only vault view.
