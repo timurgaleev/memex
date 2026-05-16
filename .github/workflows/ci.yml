@@ -79,3 +79,23 @@ jobs:
           pip install pytest pyyaml
       - name: pytest
         run: pytest tests/test_*.py -v
+
+  bun-tests:
+    name: Memex Bun tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/memex
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: bun install (frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: bun test
+        # Run the full memex suite — includes the path_guard / body_limit
+        # / concurrency / rate_limit_eviction tests added this round
+        # plus the pre-existing chunker / search / migrate suites.
+        run: bun test

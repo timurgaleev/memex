@@ -59,6 +59,17 @@ BIN="${MEMEX_BRIEFING_BIN_DIR:-/opt/memex/bin}"
 # string (MEMEX_BRIEFING_MODEL=) to force the static-template path.
 BRIEFING_MODEL="${MEMEX_BRIEFING_MODEL:-global.amazon.nova-2-lite-v1:0}"
 
+# Allowlist: never invoke a model outside the Nova family. An attacker
+# who can edit .env could otherwise redirect us to anthropic.claude-*
+# (paid, not credit-eligible) and run up cost.
+case "$BRIEFING_MODEL" in
+  ''|amazon.nova-*|global.amazon.nova-*|eu.amazon.nova-*) ;;
+  *)
+    echo "[briefing] refusing non-Nova model id: $BRIEFING_MODEL" >&2
+    BRIEFING_MODEL=""
+    ;;
+esac
+
 # Wait briefly for the openclaw container to be ready (the systemd
 # unit runs After=docker.service but docker being up != the container
 # being ready). Give it 30s post-boot.
@@ -176,22 +187,25 @@ MSG_EOF
 # empty.
 # ---------------------------------------------------------------------------
 render_via_bedrock() {
-  # Build the prompt as a single line so the inline JSON stays sane.
-  # We give the model the gathered facts + the format rules from the
-  # briefing skill spec, and constrain length explicitly so the reply
-  # fits Telegram's clipping.
-  local prompt
-  prompt=$(python3 <<PYEOF
-import json
-ctx = {
-    "date": "${DATE}",
-    "temp_c": "${TEMP}",
-    "condition": "${COND}",
-    "vibe_phrase": "${VIBE}",
-    "presence": "${PRESENCE}",
-    "house": "${HOUSE}",
-    "calendar": """${CAL}""",
-}
+  local tmp_in tmp_out tmp_err
+  tmp_in=$(mktemp)
+  tmp_out=$(mktemp)
+  tmp_err=$(mktemp)
+
+  # CRITICAL: every fact must be passed via env, never interpolated
+  # into the Python source. Google Calendar event titles are
+  # attacker-controllable (shared invites) — a title containing
+  # `""")` followed by Python code would otherwise break out of any
+  # triple-quoted string and execute as root.
+  # Heredoc marker is quoted (<<'PYEOF') so bash performs ZERO
+  # expansion on the body; Python reads each fact from os.environ.
+  if ! DATE="$DATE" TEMP="$TEMP" COND="$COND" VIBE="$VIBE" \
+       PRESENCE="$PRESENCE" HOUSE="$HOUSE" CAL="$CAL" \
+       BRIEFING_OUT="$tmp_in" \
+       python3 - <<'PYEOF' 2>>"$tmp_err"
+import json, os
+ctx = {k: os.environ.get(k, "") for k in
+       ("DATE", "TEMP", "COND", "VIBE", "PRESENCE", "HOUSE", "CAL")}
 rules = (
     "Write a 4-line morning briefing in plain text. No markdown, no bold, "
     "no bullets. Line 1: '🗓 ' + the date. Blank line. Line 3: weather "
@@ -200,37 +214,28 @@ rules = (
     "Total max 5 short lines. Be warm and concise — not robotic. "
     "Reuse the operator's existing emoji palette."
 )
-text = (
+prompt = (
     f"{rules}\n\n"
     f"Facts:\n"
-    f"- Date: {ctx['date']}\n"
-    f"- Temp: {ctx['temp_c']}°C, {ctx['condition']} ({ctx['vibe_phrase']})\n"
-    f"- Presence: {ctx['presence']}\n"
-    f"- House: {ctx['house']}\n"
-    f"- Calendar: {ctx['calendar']}\n"
+    f"- Date: {ctx['DATE']}\n"
+    f"- Temp: {ctx['TEMP']}°C, {ctx['COND']} ({ctx['VIBE']})\n"
+    f"- Presence: {ctx['PRESENCE']}\n"
+    f"- House: {ctx['HOUSE']}\n"
+    f"- Calendar: {ctx['CAL']}\n"
 )
-print(json.dumps(text))
-PYEOF
-  )
-
-  local body
-  body=$(python3 <<PYEOF
-import json
-import sys
-prompt = ${prompt}
 payload = {
     "schemaVersion": "messages-v1",
     "messages": [{"role": "user", "content": [{"text": prompt}]}],
     "inferenceConfig": {"maxTokens": 220, "temperature": 0.6, "topP": 0.9},
 }
-print(json.dumps(payload))
+with open(os.environ["BRIEFING_OUT"], "w") as f:
+    json.dump(payload, f)
 PYEOF
-  )
-
-  local tmp_in tmp_out
-  tmp_in=$(mktemp)
-  tmp_out=$(mktemp)
-  printf '%s' "$body" > "$tmp_in"
+  then
+    echo "[briefing] prompt build failed: $(head -1 "$tmp_err")" >&2
+    rm -f "$tmp_in" "$tmp_out" "$tmp_err"
+    return 1
+  fi
 
   if ! aws bedrock-runtime invoke-model \
         --region "$AWS_REGION" \
@@ -239,27 +244,30 @@ PYEOF
         --accept application/json \
         --cli-binary-format raw-in-base64-out \
         --body "fileb://${tmp_in}" \
-        "$tmp_out" >/dev/null 2>&1; then
-    rm -f "$tmp_in" "$tmp_out"
+        "$tmp_out" 2>"$tmp_err" >/dev/null; then
+    echo "[briefing] bedrock invoke error: $(head -1 "$tmp_err")" >&2
+    rm -f "$tmp_in" "$tmp_out" "$tmp_err"
     return 1
   fi
 
   local rendered
-  rendered=$(python3 <<PYEOF
-import json
-with open("${tmp_out}") as f:
+  if ! rendered=$(BRIEFING_IN="$tmp_out" python3 - <<'PYEOF' 2>>"$tmp_err"
+import json, os, sys
+with open(os.environ["BRIEFING_IN"]) as f:
     out = json.load(f)
-try:
-    parts = out["output"]["message"]["content"]
-    text = "".join(p.get("text", "") for p in parts).strip()
-    if not text:
-        raise ValueError("empty rendered text")
-    print(text)
-except Exception as e:
-    raise SystemExit(f"bedrock-render: {e}")
+parts = out["output"]["message"]["content"]
+text = "".join(p.get("text", "") for p in parts).strip()
+if not text:
+    sys.stderr.write("empty rendered text\n")
+    sys.exit(1)
+print(text)
 PYEOF
-  ) || { rm -f "$tmp_in" "$tmp_out"; return 1; }
-  rm -f "$tmp_in" "$tmp_out"
+  ); then
+    echo "[briefing] render parse failed: $(tail -1 "$tmp_err")" >&2
+    rm -f "$tmp_in" "$tmp_out" "$tmp_err"
+    return 1
+  fi
+  rm -f "$tmp_in" "$tmp_out" "$tmp_err"
 
   printf '%s\n' "$rendered"
 }

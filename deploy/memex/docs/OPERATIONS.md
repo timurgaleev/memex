@@ -2,6 +2,61 @@
 
 How to deploy, restart, observe, and recover.
 
+## Morning briefing (scheduled Telegram delivery)
+
+`scripts/morning-briefing.sh` composes a daily briefing from the live
+HA + Google Calendar helpers and delivers it directly via the Telegram
+Bot API. Independent of the openclaw gateway pairing scope so it
+works without an LLM-driven agent in the loop.
+
+Install on a fresh host:
+
+```bash
+sudo install -m 755 /opt/<project>/scripts/morning-briefing.sh \
+                    /opt/<project>/scripts/morning-briefing.sh
+sudo install -m 644 /opt/<project>/deploy/systemd/memex-morning-briefing.{service,timer} \
+                    /etc/systemd/system/
+sudo mkdir -p /etc/systemd/system/memex-morning-briefing.service.d
+sudo tee /etc/systemd/system/memex-morning-briefing.service.d/chat-id.conf <<'EOF'
+[Service]
+Environment=MEMEX_BRIEFING_CHAT_ID=<your-telegram-chat-id>
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now memex-morning-briefing.timer
+```
+
+The timer fires at **07:00 Europe/Berlin** daily. Manually:
+
+```bash
+sudo systemctl start memex-morning-briefing.service
+tail /var/log/memex/memex-morning-briefing.log
+```
+
+LLM rendering: if `MEMEX_BRIEFING_MODEL` is non-empty (default
+`global.amazon.nova-2-lite-v1:0` — credit-eligible), the script
+asks Bedrock to render the gathered facts into conversational prose.
+On ANY Bedrock error the script falls back to the static
+four-line template so the daily delivery never silently misses. To
+force the static path:
+
+```bash
+sudo tee -a /etc/systemd/system/memex-morning-briefing.service.d/chat-id.conf <<'EOF'
+Environment=MEMEX_BRIEFING_MODEL=
+EOF
+sudo systemctl daemon-reload
+```
+
+Troubleshooting:
+
+| Symptom | Cause / fix |
+|---|---|
+| `[briefing] FATAL: cannot fetch telegram-bot-token` | IAM role can't read `<secrets_prefix>/telegram-bot-token`. Confirm `iam.tf` and that `terraform apply` ran. |
+| `[briefing] LLM render failed — falling back` | Either Bedrock IAM denial (check `bedrock:InvokeModel` resource ARNs include `arn:aws:bedrock:*::foundation-model/amazon.nova-*`), the model is throttled, or the response shape changed. Static delivery still happens — investigate when convenient. |
+| Service exits 1 with `MEMEX_BRIEFING_CHAT_ID must be set` | The systemd override above hasn't been installed. |
+| Timer fires at the wrong hour | Check the unit's `OnCalendar=*-*-* 07:00:00 Europe/Berlin` — TZ honoured if the host has `tzdata`. |
+
+
+
 ## Deploy
 
 ```bash
