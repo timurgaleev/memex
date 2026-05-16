@@ -28,6 +28,10 @@ if [ -z "$GATEWAY_TOKEN" ]; then
   GATEWAY_TOKEN=$(tr -d '\n\r' < "$TOKEN_FILE")
 fi
 
+if [ ! -s /run/secrets/telegram-bot-token.txt ]; then
+  echo "FATAL: /run/secrets/telegram-bot-token.txt missing or empty — run deploy/secrets/fetch-secrets.sh on the host" >&2
+  exit 1
+fi
 TELEGRAM_TOKEN=$(tr -d '\n\r' < /run/secrets/telegram-bot-token.txt)
 
 # Patch config from template — jq seeds template defaults + secrets in one

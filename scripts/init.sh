@@ -274,7 +274,9 @@ encrypt = true
 profile = \"${AWS_PROFILE}\"
 "
 
-write_atomic "$BACKEND_FILE" "$BACKEND_CONTENT"
+# backend.hcl carries tfstate bucket + AWS profile — not a secret but
+# consistent with .env/tfvars at 0600.
+write_atomic "$BACKEND_FILE" "$BACKEND_CONTENT" 0600
 
 echo
 echo "[init] wrote:"

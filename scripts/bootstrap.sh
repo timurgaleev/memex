@@ -32,16 +32,35 @@ dnf install -y docker git amazon-efs-utils jq aws-cli unzip
 systemctl enable --now docker
 
 # 1b. Install docker compose v2 plugin (AL2023's docker package doesn't ship it).
+# Binary is downloaded over HTTPS but verified against a pinned sha256
+# checksum — a tampered GitHub release asset or hijacked DNS would
+# otherwise yield a compose binary running as root with full Docker
+# socket access. Bump COMPOSE_VERSION + both SHAs together; the canonical
+# table lives at https://github.com/docker/compose/releases.
 COMPOSE_VERSION="v2.30.3"
+COMPOSE_SHA256_aarch64="8fed7b79b8bd1cb0624142f7d723c3cc67ba747c77ed69abbdefdc77a6d416d1"
+COMPOSE_SHA256_x86_64="fbb4853d3f2148b0f2f0916f8971c9e500784e4e4949324934fc0b7dc2ed5016"
 COMPOSE_PLUGIN_DIR="/usr/libexec/docker/cli-plugins"
 COMPOSE_PLUGIN="${COMPOSE_PLUGIN_DIR}/docker-compose"
 ARCH_DC=$(uname -m)  # aarch64 or x86_64 — both used in compose release names
+case "$ARCH_DC" in
+  aarch64) COMPOSE_SHA256="$COMPOSE_SHA256_aarch64" ;;
+  x86_64)  COMPOSE_SHA256="$COMPOSE_SHA256_x86_64" ;;
+  *) echo "[bootstrap] unsupported arch $ARCH_DC"; exit 1 ;;
+esac
 if [ ! -x "$COMPOSE_PLUGIN" ] || [ "$($COMPOSE_PLUGIN version --short 2>/dev/null || echo)" != "${COMPOSE_VERSION#v}" ]; then
   echo "[bootstrap] installing docker compose ${COMPOSE_VERSION} (${ARCH_DC})"
   mkdir -p "$COMPOSE_PLUGIN_DIR"
+  TMP_COMPOSE="$(mktemp)"
   curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${ARCH_DC}" \
-    -o "$COMPOSE_PLUGIN"
-  chmod 0755 "$COMPOSE_PLUGIN"
+    -o "$TMP_COMPOSE"
+  if ! echo "${COMPOSE_SHA256}  ${TMP_COMPOSE}" | sha256sum -c -; then
+    rm -f "$TMP_COMPOSE"
+    echo "[bootstrap] FATAL: docker-compose sha256 mismatch — refusing to install"
+    exit 1
+  fi
+  install -m 0755 "$TMP_COMPOSE" "$COMPOSE_PLUGIN"
+  rm -f "$TMP_COMPOSE"
   echo "[bootstrap] docker compose: $($COMPOSE_PLUGIN version --short)"
 else
   echo "[bootstrap] docker compose ${COMPOSE_VERSION} already installed"

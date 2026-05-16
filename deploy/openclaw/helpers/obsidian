@@ -114,11 +114,21 @@ def cmd_append(rel: str, content: str | None) -> None:
         target.write_text(body)
 
 
+# 5 MiB per-file cap protects the container from OOM on a stray
+# binary-as-markdown commit or a runaway log; vault notes are
+# typically <100 KiB. Symlinks are skipped to defuse escape-by-symlink.
+_OBSIDIAN_MAX_FILE_BYTES = 5 * 1024 * 1024
+
+
 def cmd_search(query: str, limit: int = 10) -> list[str]:
     results: list[str] = []
     needle = query.lower()
     for path in sorted(VAULT_ROOT.rglob("*.md")):
         try:
+            if path.is_symlink():
+                continue
+            if path.stat().st_size > _OBSIDIAN_MAX_FILE_BYTES:
+                continue
             for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
                 if needle in line.lower():
                     rel = path.relative_to(VAULT_ROOT).as_posix()

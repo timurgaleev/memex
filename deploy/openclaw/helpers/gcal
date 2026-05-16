@@ -85,7 +85,7 @@ def fmt_event(e, show_cal=False):
 
 
 def get_events(token, days=7, query=None):
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     time_min = now.strftime("%Y-%m-%dT00:00:00Z")
     time_max = (now + datetime.timedelta(days=days)).strftime("%Y-%m-%dT23:59:59Z")
     cals = api_get("/users/me/calendarList", token)

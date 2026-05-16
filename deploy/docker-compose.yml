@@ -18,6 +18,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     expose:
       - "18790"
     volumes:
@@ -36,7 +38,6 @@ services:
       # absent the serve.ts boot WARNs "0 indexable files" and continues
       # — non-fatal so a missing checkout doesn't take the brain down.
       - ${EFS_REPO}:/repo-source:ro
-      - /home/ec2-user/.aws:/home/bun/.aws:ro
     environment:
       - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
       - AWS_PROFILE=${AWS_PROFILE:-default}
@@ -81,6 +82,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     expose:
       - "18789"
     volumes:
@@ -103,7 +106,6 @@ services:
       - ${EFS_MOUNT}/workspace:/home/openclaw/.openclaw/workspace
       - ${EFS_MOUNT}/skills:/home/openclaw/.openclaw/skills:ro
       - ${EFS_MOUNT}/vault:${EFS_MOUNT}/vault
-      - /home/ec2-user/.aws:/home/openclaw/.aws:ro
       - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
     environment:
       - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
@@ -162,6 +164,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ${EFS_MOUNT}/vault:/vault
       - ${EFS_MOUNT}/.obsidian-headless-config:/root/.config/obsidian-headless

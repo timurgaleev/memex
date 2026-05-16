@@ -65,6 +65,13 @@ resource "aws_secretsmanager_secret" "gateway_token" {
 resource "random_password" "memex_public_bearer" {
   length  = 48
   special = false # URL-safe; carried in Authorization header
+
+  lifecycle {
+    # Daily rotation is owned by scripts/rotate-memex-public-bearer.sh
+    # via put-secret-value. Terraform must NOT regenerate-on-apply or it
+    # clobbers whatever the rotation timer last wrote.
+    ignore_changes = [length, special]
+  }
 }
 
 resource "aws_secretsmanager_secret" "memex_public_bearer" {
@@ -76,4 +83,10 @@ resource "aws_secretsmanager_secret" "memex_public_bearer" {
 resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
   secret_id     = aws_secretsmanager_secret.memex_public_bearer.id
   secret_string = random_password.memex_public_bearer.result
+
+  lifecycle {
+    # Daily rotation owns secret_string after first apply; never let
+    # terraform drag the value back to the random_password seed.
+    ignore_changes = [secret_string]
+  }
 }
