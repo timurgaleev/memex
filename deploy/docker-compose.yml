@@ -38,6 +38,10 @@ services:
       # absent the serve.ts boot WARNs "0 indexable files" and continues
       # — non-fatal so a missing checkout doesn't take the brain down.
       - ${EFS_REPO}:/repo-source:ro
+      # AWS CLI inside the container needs config + region to resolve;
+      # credentials themselves come from the IMDSv2 EC2 IAM role via
+      # `credential_source = Ec2InstanceMetadata` in the mounted config.
+      - /home/ec2-user/.aws:/home/bun/.aws:ro
     environment:
       - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
       - AWS_PROFILE=${AWS_PROFILE:-default}
@@ -106,6 +110,9 @@ services:
       - ${EFS_MOUNT}/workspace:/home/openclaw/.openclaw/workspace
       - ${EFS_MOUNT}/skills:/home/openclaw/.openclaw/skills:ro
       - ${EFS_MOUNT}/vault:${EFS_MOUNT}/vault
+      # AWS CLI config (region + credential_source = Ec2InstanceMetadata).
+      # Credentials themselves come via IMDSv2 from the EC2 IAM role.
+      - /home/ec2-user/.aws:/home/openclaw/.aws:ro
       - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
     environment:
       - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
