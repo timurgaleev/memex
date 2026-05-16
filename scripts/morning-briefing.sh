@@ -36,6 +36,13 @@ if [ -f "${REPO_DIR}/.env" ]; then
   done < "${REPO_DIR}/.env"
 fi
 
+# .env carries `AWS_PROFILE=default` for the container-side workflow,
+# but the host root user running this systemd unit has no
+# /root/.aws/config — the SDK would then 1/FAILURE with "config
+# profile (default) could not be found". Clear AWS_PROFILE so the
+# AWS SDK falls back to IMDSv2 + the EC2 instance role.
+unset AWS_PROFILE
+
 : "${AWS_REGION:?AWS_REGION must be set}"
 : "${MEMEX_BRIEFING_CHAT_ID:?MEMEX_BRIEFING_CHAT_ID must be set (Telegram chat id)}"
 SECRETS_PREFIX="${SECRETS_PREFIX:-memex}"
