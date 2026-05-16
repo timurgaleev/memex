@@ -110,6 +110,12 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-default}
       - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
       - HOME=/home/openclaw
+      # PUBLIC_HOST is the chat-UI hostname (e.g. chat.example.com). The
+      # gateway needs it baked in so the CLI's local control-UI scope
+      # requests resolve; without it `openclaw cron add` fails with
+      # "scope upgrade pending approval".
+      - PUBLIC_HOST=${PUBLIC_HOST:?PUBLIC_HOST must be set in .env}
+      - MEMEX_HOST=${MEMEX_HOST:-}
     networks:
       - internal
     depends_on:
