@@ -54,6 +54,10 @@ unset AWS_PROFILE
 SECRETS_PREFIX="${SECRETS_PREFIX:-memex}"
 CONTAINER="${MEMEX_BRIEFING_CONTAINER:-deploy-openclaw-1}"
 BIN="${MEMEX_BRIEFING_BIN_DIR:-/opt/memex/bin}"
+# Bedrock model id used to render the briefing into conversational
+# prose. Defaults to the credit-eligible Nova Lite. Set to an empty
+# string (MEMEX_BRIEFING_MODEL=) to force the static-template path.
+BRIEFING_MODEL="${MEMEX_BRIEFING_MODEL:-global.amazon.nova-2-lite-v1:0}"
 
 # Wait briefly for the openclaw container to be ready (the systemd
 # unit runs After=docker.service but docker being up != the container
@@ -151,7 +155,11 @@ fi
 # ---------------------------------------------------------------------------
 # Compose
 # ---------------------------------------------------------------------------
-MSG=$(cat <<MSG_EOF
+# ---------------------------------------------------------------------------
+# The static template — always available as the canonical output and
+# as the fail-back when the Bedrock rendering pass errors.
+# ---------------------------------------------------------------------------
+STATIC_MSG=$(cat <<MSG_EOF
 🗓 ${DATE}
 
 ${ICON} ${TEMP}°C, ${COND} — ${VIBE}.
@@ -159,6 +167,112 @@ ${ICON} ${TEMP}°C, ${COND} — ${VIBE}.
 📅 ${CAL}
 MSG_EOF
 )
+
+# ---------------------------------------------------------------------------
+# Optional Bedrock Nova Lite rendering pass. Composes a more
+# conversational briefing from the same ingredients. Fails CLOSED
+# back to the static template so a Bedrock outage / throttle never
+# costs a daily delivery. Skipped entirely when BRIEFING_MODEL is
+# empty.
+# ---------------------------------------------------------------------------
+render_via_bedrock() {
+  # Build the prompt as a single line so the inline JSON stays sane.
+  # We give the model the gathered facts + the format rules from the
+  # briefing skill spec, and constrain length explicitly so the reply
+  # fits Telegram's clipping.
+  local prompt
+  prompt=$(python3 <<PYEOF
+import json
+ctx = {
+    "date": "${DATE}",
+    "temp_c": "${TEMP}",
+    "condition": "${COND}",
+    "vibe_phrase": "${VIBE}",
+    "presence": "${PRESENCE}",
+    "house": "${HOUSE}",
+    "calendar": """${CAL}""",
+}
+rules = (
+    "Write a 4-line morning briefing in plain text. No markdown, no bold, "
+    "no bullets. Line 1: '🗓 ' + the date. Blank line. Line 3: weather "
+    "emoji + temp + short condition + a short conversational vibe phrase. "
+    "Line 4: 🏠 + presence + house state. Line 5: 📅 + calendar summary. "
+    "Total max 5 short lines. Be warm and concise — not robotic. "
+    "Reuse the operator's existing emoji palette."
+)
+text = (
+    f"{rules}\n\n"
+    f"Facts:\n"
+    f"- Date: {ctx['date']}\n"
+    f"- Temp: {ctx['temp_c']}°C, {ctx['condition']} ({ctx['vibe_phrase']})\n"
+    f"- Presence: {ctx['presence']}\n"
+    f"- House: {ctx['house']}\n"
+    f"- Calendar: {ctx['calendar']}\n"
+)
+print(json.dumps(text))
+PYEOF
+  )
+
+  local body
+  body=$(python3 <<PYEOF
+import json
+import sys
+prompt = ${prompt}
+payload = {
+    "schemaVersion": "messages-v1",
+    "messages": [{"role": "user", "content": [{"text": prompt}]}],
+    "inferenceConfig": {"maxTokens": 220, "temperature": 0.6, "topP": 0.9},
+}
+print(json.dumps(payload))
+PYEOF
+  )
+
+  local tmp_in tmp_out
+  tmp_in=$(mktemp)
+  tmp_out=$(mktemp)
+  printf '%s' "$body" > "$tmp_in"
+
+  if ! aws bedrock-runtime invoke-model \
+        --region "$AWS_REGION" \
+        --model-id "$BRIEFING_MODEL" \
+        --content-type application/json \
+        --accept application/json \
+        --cli-binary-format raw-in-base64-out \
+        --body "fileb://${tmp_in}" \
+        "$tmp_out" >/dev/null 2>&1; then
+    rm -f "$tmp_in" "$tmp_out"
+    return 1
+  fi
+
+  local rendered
+  rendered=$(python3 <<PYEOF
+import json
+with open("${tmp_out}") as f:
+    out = json.load(f)
+try:
+    parts = out["output"]["message"]["content"]
+    text = "".join(p.get("text", "") for p in parts).strip()
+    if not text:
+        raise ValueError("empty rendered text")
+    print(text)
+except Exception as e:
+    raise SystemExit(f"bedrock-render: {e}")
+PYEOF
+  ) || { rm -f "$tmp_in" "$tmp_out"; return 1; }
+  rm -f "$tmp_in" "$tmp_out"
+
+  printf '%s\n' "$rendered"
+}
+
+MSG="$STATIC_MSG"
+if [ -n "$BRIEFING_MODEL" ]; then
+  if RENDERED=$(render_via_bedrock 2>/dev/null) && [ -n "$RENDERED" ]; then
+    MSG="$RENDERED"
+    echo "[briefing] using LLM-rendered text (model=${BRIEFING_MODEL})"
+  else
+    echo "[briefing] LLM render failed — falling back to static template"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Deliver
