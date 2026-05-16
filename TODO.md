@@ -75,9 +75,15 @@ future release once the chat-agent pairing model is stable.
   `secretsmanager put-secret-value`, then SSM the EC2 and run
   `bash /opt/memex/deploy/secrets/fetch-secrets.sh && docker
   compose --env-file .env -f /opt/memex/deploy/docker-compose.yml restart memex`.
-- **Approve openclaw gateway scope** for the chat-CLI from your already-paired
-  browser session, then run the `openclaw cron add morning-briefing ...`
-  command documented earlier in this file.
+- **Approve openclaw gateway scope** for the chat-CLI. The standalone
+  systemd `memex-morning-briefing.timer` now delivers the daily
+  briefing without needing this approval, so it's no longer blocking
+  morning delivery — but `openclaw cron add` from the CLI inside the
+  container still 1008's with "pairing required". To unblock fully:
+  pair a browser session at `https://<chat-subdomain>/`, then approve
+  the pending CLI request via `openclaw devices approve <request-id>`
+  from that paired session. After that the chat surface can also
+  schedule its own LLM-driven briefings via the cron path.
 
 ---
 
