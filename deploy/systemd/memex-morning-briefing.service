@@ -1,0 +1,17 @@
+[Unit]
+Description=Compose and deliver the morning briefing to Telegram (daily)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/memex/scripts/morning-briefing.sh
+User=root
+Environment=AWS_REGION=eu-west-1
+Environment=TZ=Europe/Berlin
+# Chat id is operator-private; the systemd timer enables/disables
+# delivery as a one-line `systemctl edit memex-morning-briefing.service`
+# override (or by exporting MEMEX_BRIEFING_CHAT_ID in the repo .env).
+StandardOutput=append:/var/log/memex/memex-morning-briefing.log
+StandardError=append:/var/log/memex/memex-morning-briefing.log
