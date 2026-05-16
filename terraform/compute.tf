@@ -26,14 +26,15 @@ resource "aws_instance" "memex" {
   metadata_options {
     http_tokens   = "required"
     http_endpoint = "enabled"
-    # 2 hops is the minimum that still lets Docker containers reach
-    # IMDSv2: container → docker bridge (hop 1) → host → IMDS (hop 2).
-    # Setting this to 1 (the most-restrictive value) breaks every
-    # containerised AWS SDK call (Bedrock invoke, Secrets Manager get)
-    # because the IMDS token request from inside the container exceeds
-    # the TTL. The bare-metal threat model (untrusted local processes
-    # exfiltrating role creds) doesn't apply here — the whole workload
-    # IS containerized.
+    # 2 is the minimum hop_limit that still lets Docker containers
+    # reach IMDSv2: container → docker bridge (hop 1) → host → IMDS
+    # (hop 2). At hop_limit=1 the IMDS response packet's IP TTL is
+    # decremented to 0 at the docker bridge and dropped, so every
+    # containerised AWS SDK call (Bedrock invoke, Secrets Manager
+    # get-secret-value) fails with "Unable to locate credentials".
+    # The bare-metal threat model that motivates hop_limit=1 (untrusted
+    # host-side processes exfiltrating role creds) does not apply here:
+    # the whole workload IS containerised.
     http_put_response_hop_limit = 2
   }
 

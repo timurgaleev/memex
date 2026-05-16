@@ -135,36 +135,70 @@ export function startObsidianRecipe(
 
   const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const inFlight = new Set<Promise<unknown>>();
+  // Backpressure caps — a `git checkout` on a 10k-file branch fires
+  // chokidar events at line-rate; without limits we'd allocate a
+  // timer + Promise for every event and exhaust the single PGLite
+  // connection in transaction. Caps below are deliberately generous
+  // for normal interactive editing but reject the pathological burst.
+  const MAX_PENDING_TIMERS = 1000;
+  const MAX_IN_FLIGHT = 4;
+  let dropped = 0;
+  let lastDropLog = 0;
+
+  const logDropMaybe = (): void => {
+    const now = Date.now();
+    if (now - lastDropLog > 30_000) {
+      console.warn(
+        `[obsidian] backpressure: ${dropped} event(s) dropped since startup`,
+      );
+      lastDropLog = now;
+    }
+  };
 
   const onChange = (filePath: string): void => {
     if (!filePath.endsWith(".md")) return;
     // Coalesce rapid same-file events.
     const existing = pendingTimers.get(filePath);
     if (existing) clearTimeout(existing);
+    else if (pendingTimers.size >= MAX_PENDING_TIMERS) {
+      // Drop this new event entirely rather than unbound the queue.
+      // The boot sweep + dream cycle eventually pick the file up.
+      dropped++;
+      logDropMaybe();
+      return;
+    }
     const t = setTimeout(() => {
       pendingTimers.delete(filePath);
-      // Skip files that were deleted between the event and the timer.
-      try {
-        statSync(filePath);
-      } catch {
-        return;
-      }
-      const p = indexFile(storage, filePath)
-        .then((r) => {
-          console.log(
-            `[obsidian] reindexed ${filePath} chunks=${r.chunks} entities=${r.entities}`,
-          );
-        })
-        .catch((e) => {
-          console.warn(
-            `[obsidian] reindex ${filePath} failed:`,
-            e instanceof Error ? e.message : e,
-          );
-        })
-        .finally(() => {
-          inFlight.delete(p);
-        });
-      inFlight.add(p);
+      // Backpressure on indexFile fan-out: wait for an in-flight slot
+      // before kicking off a new reindex.
+      const start = async (): Promise<void> => {
+        while (inFlight.size >= MAX_IN_FLIGHT) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        // Skip files that were deleted between the event and the timer.
+        try {
+          statSync(filePath);
+        } catch {
+          return;
+        }
+        const p = indexFile(storage, filePath)
+          .then((r) => {
+            console.log(
+              `[obsidian] reindexed ${filePath} chunks=${r.chunks} entities=${r.entities}`,
+            );
+          })
+          .catch((e) => {
+            console.warn(
+              `[obsidian] reindex ${filePath} failed:`,
+              e instanceof Error ? e.message : e,
+            );
+          })
+          .finally(() => {
+            inFlight.delete(p);
+          });
+        inFlight.add(p);
+      };
+      void start();
     }, debounceMs);
     pendingTimers.set(filePath, t);
   };

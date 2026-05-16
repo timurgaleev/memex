@@ -102,11 +102,21 @@ export async function runMigrations(
       skipped++;
       continue;
     }
-    await engine.exec(f.sql);
-    await engine.query(
-      "INSERT INTO migrations (id, name) VALUES ($1, $2)",
-      [f.id, f.name],
-    );
+    // Apply the migration SQL and the bookkeeping INSERT inside one
+    // transaction. A crash between the two (process kill, power loss,
+    // pglite I/O error) used to leave the migration physically applied
+    // but unrecorded — on next boot the same SQL re-ran, breaking any
+    // non-idempotent change (column rename, data backfill). With both
+    // in one tx, the migration is either fully applied + recorded or
+    // entirely rolled back; PGLite and postgres-js both support
+    // transactional DDL on the surfaces we use.
+    await engine.transaction(async (tx) => {
+      await tx.exec(f.sql);
+      await tx.query(
+        "INSERT INTO migrations (id, name) VALUES ($1, $2)",
+        [f.id, f.name],
+      );
+    });
     applied.push({ id: f.id, name: f.name });
   }
 

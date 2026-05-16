@@ -18,16 +18,10 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 UNITS = REPO / "deploy" / "systemd"
 
-EXPECTED_SERVICES = (
-    "memex-gcal-poll.service",
-    "memex-gmail-poll.service",
-    "memex-rotate-bearer.service",
-)
-EXPECTED_TIMERS = (
-    "memex-gcal-poll.timer",
-    "memex-gmail-poll.timer",
-    "memex-rotate-bearer.timer",
-)
+# Discover units dynamically so adding `memex-morning-briefing.*` or any
+# future timer automatically gets the static checks — no test edit needed.
+EXPECTED_SERVICES = tuple(sorted(p.name for p in UNITS.glob("*.service")))
+EXPECTED_TIMERS = tuple(sorted(p.name for p in UNITS.glob("*.timer")))
 
 EXEC_START_RE = re.compile(r"^ExecStart=(\S+)", re.MULTILINE)
 ONE_CALENDAR_RE = re.compile(r"^OnCalendar=(.+)$", re.MULTILINE)

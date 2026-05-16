@@ -59,14 +59,26 @@ const ERR_INTERNAL = -32603;
 const ERR_RATE_LIMITED = -32000; // server-defined band
 
 function defaultClientKey(req: Request): string {
-  // Bun's request object exposes the connecting IP via the X-Forwarded-For
-  // header (the cloudflared sidecar sets it) or via a Bun.serve-specific
-  // request.headers.get("X-Real-IP"). Fall back to "anon" for loopback.
-  const xff = req.headers.get("X-Forwarded-For");
-  if (xff) return xff.split(",")[0]!.trim();
-  const real = req.headers.get("X-Real-IP");
-  if (real) return real.trim();
-  return "anon";
+  // Trust hierarchy:
+  //   1. `Cf-Connecting-Ip` — set by the Cloudflare edge for traffic
+  //      that came through the tunnel. This is the only header we
+  //      actually trust to identify a remote caller. CF strips
+  //      attacker-supplied copies of this header.
+  //   2. For requests NOT carrying Cf-Connecting-Ip (internal Docker
+  //      bridge traffic from openclaw → memex), key everyone into a
+  //      single "internal" bucket. X-Forwarded-For / X-Real-IP are
+  //      attacker-controlled when the request is NOT proxied through
+  //      a trust boundary, so using them as a rate-limit key lets a
+  //      caller rotate values freely and defeat per-IP limits.
+  const cfIp = req.headers.get("Cf-Connecting-Ip");
+  if (cfIp) {
+    const trimmed = cfIp.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  // Non-public path — single bucket. The internal caller IS trusted
+  // (it's the openclaw container) but should still be rate-limited as
+  // one entity rather than per-spoofed-XFF.
+  return "internal";
 }
 
 export function makeMcpHandler(opts: McpHandlerOptions) {
