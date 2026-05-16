@@ -5,10 +5,19 @@
 #   ha get /api/...
 #   ha call <domain> <service> [json]
 #   ha history <entity_id> [hours]
+#
+# Env contract:
+#   AWS_REGION       Required.
+#   SECRETS_PREFIX   Namespace; defaults to memex.
+
+set -euo pipefail
+
+: "${AWS_REGION:?AWS_REGION must be set in the container environment}"
+SECRETS_PREFIX="${SECRETS_PREFIX:-memex}"
 
 SECRET=$(aws secretsmanager get-secret-value \
-  --secret-id openclaw/home-assistant-token \
-  --region eu-west-1 \
+  --secret-id "${SECRETS_PREFIX}/home-assistant-token" \
+  --region "$AWS_REGION" \
   --query SecretString \
   --output text)
 
