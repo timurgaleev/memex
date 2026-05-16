@@ -54,6 +54,33 @@ future release once the chat-agent pairing model is stable.
 
 ---
 
+## Operator-only follow-ups (cannot be automated remotely)
+
+- **Re-authorize Gmail OAuth.** Run `scripts/gmail-oauth-bootstrap.sh`
+  from your laptop (needs a browser for Google consent). Current
+  `memex/gmail-oauth` `refresh_token` returns `invalid_grant: Token
+  has been expired or revoked`. After re-auth, the systemd
+  `memex-gmail-poll.timer` will fire green.
+- **Realign terraform state with renamed `memex-*` addresses.** Local
+  `moved.tf` (in your private working copy, gitignored in public)
+  reduces the diff, but the plan still wants to *replace* the EFS
+  and EC2 security groups in place — that recreates the SGs and
+  risks momentary loss of EFS mount + EC2 traffic. Apply ONLY during
+  a planned maintenance window and AFTER confirming the SG-replacement
+  is safe in your environment. Live config is already functionally
+  correct; this is cosmetics on the terraform state.
+- **Rotate `memex/memex-postgres-url` (RDS master password).** Out-of-band
+  via `aws rds modify-db-instance --master-user-password ... --apply-immediately`,
+  then write the new URL to `memex/memex-postgres-url` via
+  `secretsmanager put-secret-value`, then SSM the EC2 and run
+  `bash /opt/memex/deploy/secrets/fetch-secrets.sh && docker
+  compose --env-file .env -f /opt/memex/deploy/docker-compose.yml restart memex`.
+- **Approve openclaw gateway scope** for the chat-CLI from your already-paired
+  browser session, then run the `openclaw cron add morning-briefing ...`
+  command documented earlier in this file.
+
+---
+
 ## Planned removals
 
 - **`obsidian-sync` container** — slated for removal in a future
