@@ -40,9 +40,19 @@ data "aws_iam_policy_document" "memex_custom" {
       "bedrock:GetInferenceProfile",
     ]
     resources = [
+      # Titan embed is region-pinned (no cross-region profile).
       "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.nova-*",
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-haiku-4-5*",
+
+      # Foundation-model ARNs for the cross-region inference profiles.
+      # The `eu.*` profiles dispatch to a foundation model in any EU
+      # region; the `global.*` profiles dispatch globally. Bedrock
+      # authorises the request against the foundation-model ARN
+      # *without* the region segment in both cases, so a region-pinned
+      # policy here would block every profile-routed invocation.
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
+
+      # Cross-region inference profiles — enumerated, no wildcards.
       "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.amazon.nova-*",
       "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.claude-haiku-4-5*",
       "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/global.amazon.nova-*",
