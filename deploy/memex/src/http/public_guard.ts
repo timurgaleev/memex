@@ -24,6 +24,8 @@
  * Operators MUST configure the secret before exposing the route.
  */
 
+import { timingSafeEqual } from "node:crypto";
+
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
   bearerToken?: string;
@@ -122,16 +124,17 @@ export function evaluatePublicGuard(
  * compare so the timing remains uniform.
  */
 function timingSafeEqualStrings(a: string, b: string): boolean {
-  // Lazy require so the helper compiles in non-Node runtimes too;
-  // Bun supports the node:crypto namespace natively.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { timingSafeEqual } = require("node:crypto") as typeof import("node:crypto");
+  // Bearer tokens are ASCII (URL-safe random alphanumerics), so UTF-8
+  // byte length == char count. Buffer.from is constant-time-ish per
+  // input byte; the dummy compare below masks the secret's length.
   const aBuf = Buffer.from(a, "utf8");
   const bBuf = Buffer.from(b, "utf8");
   if (aBuf.length !== bBuf.length) {
-    // Burn the same number of cycles before returning false so a length
-    // mismatch isn't itself a timing oracle for the secret's length.
-    timingSafeEqual(aBuf, aBuf);
+    // Burn cycles against a buffer matching the SECRET's length, not
+    // the attacker's. Attacker can vary their own input length but the
+    // mismatch path's compute is always proportional to |b|.
+    const dummy = Buffer.alloc(bBuf.length);
+    timingSafeEqual(dummy, dummy);
     return false;
   }
   return timingSafeEqual(aBuf, bBuf);

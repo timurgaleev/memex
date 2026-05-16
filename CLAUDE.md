@@ -82,6 +82,44 @@ notes, AWS account-specific lessons) lives in `OPERATIONS_NOTES.md`, which
 is `.gitignored` and never leaves the maintainer's machine. New operational
 findings — especially incident retros — go there, not here.
 
+## Self-review after each implementation (non-negotiable)
+
+After every meaningful batch of changes (security fix, refactor, new
+feature surface, infra change, helper rewrite), dispatch at least one
+review agent before declaring the work done — pick the one whose
+specialty matches what changed:
+
+| Change kind | Reviewer to dispatch |
+|---|---|
+| Security-sensitive code (auth, secrets, ingress) | `security-engineer` |
+| Logic / refactor / general correctness | `code-reviewer` |
+| New tests or coverage claims | `quality-guard` |
+| CI / docker / terraform hygiene | `devops-automator` |
+| AI / MCP / retrieval / engine code | `ai-engineer` |
+| Live deployment claims ("X is now working") | `reality-checker` |
+| Adversarial / "did I miss a bypass" | `bug-hunter` |
+| Docs accuracy | `technical-writer` |
+
+Operating rules:
+
+- Use `run_in_background: true` so multiple reviewers can sweep
+  different facets in parallel. Don't block on a single one.
+- Brief the agent with the **exact file:line changes** under review,
+  not a hand-wavy "look at my diff". The Agent tool's prompt is the
+  agent's only context — make it self-contained.
+- Cap the prompt's response length explicitly ("under 350 words")
+  so review output stays scannable.
+- Act on every CRITICAL / HIGH finding before declaring done. MEDIUM
+  acts during the same session if the fix is one-touch. LOW goes to
+  `TODO.md` as a follow-up.
+- Never silently dismiss a review finding. If a finding is wrong,
+  reply (via SendMessage) and resolve the disagreement explicitly.
+
+This rule fires even for small commits — a one-line fix to a
+secret-handling path still warrants a quick `security-engineer`
+pass. The cost of one extra agent call is cheaper than the cost of
+a regression discovered in production.
+
 ## Public-OSS-only rule (non-negotiable)
 
 This repository is the **single source of truth** for the project and is
@@ -96,10 +134,16 @@ internet — because it is.
 - Never echo a fetched secret value into a doc, a test fixture, a commit
   message, or a comment. Refer to secrets by their `<secrets_prefix>/<name>`
   pointer only.
-- Never sync content from any private mirror into this repo. Information
-  flows in one direction: **public → host**. The host pulls from this
-  repo; any private working copy is a local-only convenience for
-  terraform state and never a commit source.
+- **No file may be `git add`-ed if its content originated from any
+  non-public source** (private repo, vault, ops-notes, mirror,
+  scratchpad), regardless of how it arrived in the working tree —
+  agent-sync, manual `cp`, copy-paste, anything. The audit gates are
+  the safety net, not the policy. The policy is: content provenance
+  from a public source only.
+- Terraform state belongs in the S3 backend (see `backend.hcl.example`),
+  never in a private working copy. A local working dir that holds the
+  filled-in `backend.hcl` + `terraform.tfvars` is fine for running
+  `terraform plan`/`apply`; those files are gitignored.
 - The `*.local.txt` pattern overlays under `scripts/lib/` (gitignored)
   exist for the operator's actual identifiers — extend them locally,
   never commit them.

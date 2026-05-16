@@ -11,7 +11,7 @@
  * the markdown indexer (this file, embeds via Titan) and the code
  * indexer (`core/indexer-code.ts`, graph-only) share one txn shape.
  */
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { embedText } from "./embedding.ts";
@@ -120,19 +120,32 @@ export async function indexFile(
   filePath: string,
   opts: IndexFileOptions = {},
 ): Promise<IndexResult> {
-  // Surface a clearer error than fs.readFileSync's generic ENOENT.
-  let stat;
+  // lstat to detect symlinks BEFORE the size check — a symlink to
+  // /dev/zero would stat as 0 bytes and then hang readFileSync.
+  let lstat;
   try {
-    stat = statSync(filePath);
+    lstat = lstatSync(filePath);
   } catch {
     throw new Error(`indexFile: file not found: ${filePath}`);
   }
-  if (stat.size > MAX_INDEX_FILE_BYTES) {
+  if (lstat.isSymbolicLink()) {
     throw new Error(
-      `indexFile: ${filePath} is ${stat.size} bytes — exceeds ` +
+      `indexFile: ${filePath} is a symlink — refusing to follow ` +
+        `(use the canonical path)`,
+    );
+  }
+  if (!lstat.isFile()) {
+    throw new Error(`indexFile: ${filePath} is not a regular file`);
+  }
+  if (lstat.size > MAX_INDEX_FILE_BYTES) {
+    throw new Error(
+      `indexFile: ${filePath} is ${lstat.size} bytes — exceeds ` +
         `${MAX_INDEX_FILE_BYTES} byte cap (skip via vault config)`,
     );
   }
+  // Re-stat via the regular statSync purely so the IndexResult timestamp
+  // matches what the rest of the codebase computes elsewhere.
+  const stat = statSync(filePath);
   const text = readFileSync(filePath, "utf8");
   return indexDocument(
     storage,

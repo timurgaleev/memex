@@ -15,9 +15,12 @@
  * arbitrary host paths — /etc/passwd, /run/secrets/*, /home/bun/.aws/*
  * — and then read them back via /search.
  */
-import { resolve as resolvePath } from "node:path";
 import type { Storage } from "../core/storage.ts";
 import { indexFile, indexDocument } from "../core/indexer.ts";
+import {
+  isWithinAllowedRoot,
+  PathGuardConfigError,
+} from "../core/path_guard.ts";
 
 interface IndexRequestByPath {
   path: string;
@@ -47,29 +50,6 @@ function isByText(b: unknown): b is IndexRequestByText {
   );
 }
 
-function allowedIndexRoots(): string[] {
-  const parts = [
-    ...(process.env.MEMEX_VAULT_PATHS ?? "").split(","),
-    ...(process.env.MEMEX_CODE_PATHS ?? "").split(","),
-  ]
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .map((p) => resolvePath(p));
-  // Deduplicate while preserving order.
-  return [...new Set(parts)];
-}
-
-function isWithinAllowedRoot(filePath: string): boolean {
-  const resolved = resolvePath(filePath);
-  const roots = allowedIndexRoots();
-  if (roots.length === 0) return false;
-  for (const root of roots) {
-    // Match exact root or path that starts with root + path separator.
-    if (resolved === root || resolved.startsWith(root + "/")) return true;
-  }
-  return false;
-}
-
 export async function handleIndex(
   storage: Storage,
   req: Request,
@@ -87,7 +67,19 @@ export async function handleIndex(
   try {
     let result;
     if (isByPath(body)) {
-      if (!isWithinAllowedRoot(body.path)) {
+      let allowed: boolean;
+      try {
+        allowed = isWithinAllowedRoot(body.path);
+      } catch (e) {
+        if (e instanceof PathGuardConfigError) {
+          return Response.json(
+            { ok: false, error: e.message },
+            { status: 503 },
+          );
+        }
+        throw e;
+      }
+      if (!allowed) {
         return Response.json(
           {
             ok: false,

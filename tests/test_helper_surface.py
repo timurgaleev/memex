@@ -10,6 +10,7 @@ Run: python3 -m pytest tests/test_helper_surface.py -v
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -38,19 +39,33 @@ def test_helper_exists_and_executable(name: str) -> None:
     assert mode & 0o111, f"{p} is not executable (mode={oct(mode)})"
 
 
+_LEGACY_PREFIX_PATTERNS = (
+    # --secret-id openclaw/foo  OR  --secret-id "openclaw/foo"
+    re.compile(r'--secret-id\s+["\']?openclaw/'),
+    # SECRET_ID = "openclaw/foo"
+    re.compile(r'SECRET_ID\s*=\s*["\']openclaw/'),
+    # f"openclaw/foo" or 'openclaw/foo' as a literal (excluding /home/openclaw/...)
+    re.compile(r'(?<![/\w])openclaw/(?!\.)'),
+)
+
+
 @pytest.mark.parametrize("name", SECRET_HELPERS)
 def test_helper_does_not_hardcode_legacy_openclaw_prefix(name: str) -> None:
     """Catches the regression that broke morning briefing after the rename.
 
     Helpers must source the prefix from SECRETS_PREFIX (env-driven), not
     embed the legacy `openclaw/<name>` literal that the new memex-* IAM
-    role can no longer read.
+    role can no longer read. The regex is anchored on usage context so
+    legitimate filesystem paths like `/home/openclaw/.openclaw/...`
+    (the in-container HOME of the openclaw npm package) are not flagged.
     """
     text = _read(name)
-    assert "openclaw/" not in text, (
-        f"{name} hardcodes the legacy openclaw/ Secrets Manager prefix. "
-        f"Use SECRETS_PREFIX env var (default 'memex')."
-    )
+    for pat in _LEGACY_PREFIX_PATTERNS:
+        m = pat.search(text)
+        assert m is None, (
+            f"{name} hardcodes the legacy openclaw/ Secrets Manager prefix "
+            f"(matched {pat.pattern!r}). Use SECRETS_PREFIX env (default 'memex')."
+        )
 
 
 @pytest.mark.parametrize("name", SECRET_HELPERS)
