@@ -8,7 +8,7 @@
  *
  * Flow per poll:
  *   1. throttle.preflight — soft-skip if the system is loaded.
- *   2. Load `openclaw/google-calendar` from Secrets Manager (or env
+ *   2. Load `<SECRETS_PREFIX>/google-calendar` from Secrets Manager (or env
  *      override `MEMEX_GCAL_OAUTH` for tests).
  *   3. Refresh access_token if cache is stale.
  *   4. listCalendars → fan out events.list per calendar with
@@ -97,7 +97,9 @@ export interface PollGcalResult {
   calendarsSeen: number;
 }
 
-const SECRET_ID = process.env.MEMEX_GCAL_SECRET_ID ?? "openclaw/google-calendar";
+const SECRETS_PREFIX = process.env.SECRETS_PREFIX ?? "memex";
+const SECRET_ID =
+  process.env.MEMEX_GCAL_SECRET_ID ?? `${SECRETS_PREFIX}/google-calendar`;
 const REGION = process.env.AWS_REGION ?? "eu-west-1";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REFRESH_GRACE_MS = 60_000;

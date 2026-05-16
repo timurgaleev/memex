@@ -6,7 +6,7 @@
  *
  * Flow per poll:
  *   1. throttle.preflight — soft-skip if the system is loaded.
- *   2. Load `openclaw/gmail-oauth` from Secrets Manager (or env override
+ *   2. Load `<SECRETS_PREFIX>/gmail-oauth` from Secrets Manager (or env override
  *      `MEMEX_GMAIL_OAUTH` for tests).
  *   3. Refresh access_token if cache is stale.
  *   4. messages.list (q=newer_than:Hh, maxResults≤50).
@@ -90,7 +90,9 @@ export interface PollGmailResult {
   reason?: string; // populated when throttle declines
 }
 
-const SECRET_ID = process.env.MEMEX_GMAIL_SECRET_ID ?? "openclaw/gmail-oauth";
+const SECRETS_PREFIX = process.env.SECRETS_PREFIX ?? "memex";
+const SECRET_ID =
+  process.env.MEMEX_GMAIL_SECRET_ID ?? `${SECRETS_PREFIX}/gmail-oauth`;
 const REGION = process.env.AWS_REGION ?? "eu-west-1";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REFRESH_GRACE_MS = 60_000;
