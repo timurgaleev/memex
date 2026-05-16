@@ -31,7 +31,13 @@ if [ -f "${REPO_DIR}/.env" ]; then
   while IFS= read -r line; do
     case "$line" in
       ''|\#*) continue ;;
-      [A-Za-z_][A-Za-z0-9_]*=*) export "$line" ;;
+      [A-Za-z_][A-Za-z0-9_]*=*)
+        # Split on the first `=` so `KEY=value with =signs` parses
+        # correctly. `export KEY=VAL` with a quoted RHS is what we want.
+        key="${line%%=*}"
+        val="${line#*=}"
+        export "${key}=${val}"
+        ;;
     esac
   done < "${REPO_DIR}/.env"
 fi
@@ -66,15 +72,18 @@ ha_get() {
 }
 
 # helper: extract a JSON field via python, with a default on any error.
+# Caller passes (default, python_expr) — the expr runs with `d` bound
+# to the parsed JSON object on stdin.
 json_field() {
-  local default="$1"; shift
+  local default="$1"
+  local expr="$2"
   python3 -c "
 import sys,json
 try:
   d=json.load(sys.stdin)
-  $@
+  ${expr}
 except Exception:
-  print('$default')
+  print('${default}')
 "
 }
 
