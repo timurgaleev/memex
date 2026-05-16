@@ -7,6 +7,7 @@
  * (per MCP spec) instead of a JSON-RPC error envelope. JSON-RPC errors
  * are reserved for protocol-level failures (malformed request etc.).
  */
+import { resolve as resolvePath } from "node:path";
 import type { Storage } from "../core/storage.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
@@ -21,6 +22,26 @@ import { makeCaptureCallback } from "../core/eval-capture.ts";
 export interface ToolCallRequest {
   name: string;
   arguments?: Record<string, unknown>;
+}
+
+// Confine /index path arguments to configured roots. Mirror of the
+// same guard in src/http/index_route.ts — keep them in sync. A future
+// refactor can hoist this to core/.
+function isWithinAllowedRoot(filePath: string): boolean {
+  const resolved = resolvePath(filePath);
+  const parts = [
+    ...(process.env.MEMEX_VAULT_PATHS ?? "").split(","),
+    ...(process.env.MEMEX_CODE_PATHS ?? "").split(","),
+  ]
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .map((p) => resolvePath(p));
+  const roots = [...new Set(parts)];
+  if (roots.length === 0) return false;
+  for (const root of roots) {
+    if (resolved === root || resolved.startsWith(root + "/")) return true;
+  }
+  return false;
 }
 
 export interface ToolContentBlock {
@@ -111,6 +132,12 @@ async function callIndex(
 ): Promise<ToolCallResult> {
   const path = args["path"];
   if (typeof path === "string" && path.length > 0) {
+    if (!isWithinAllowedRoot(path)) {
+      return errResult(
+        "index: path is outside the configured MEMEX_VAULT_PATHS / " +
+          "MEMEX_CODE_PATHS roots — refusing to index",
+      );
+    }
     const r = await indexFile(storage, path);
     return jsonResult({ ok: true, ...r });
   }

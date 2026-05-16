@@ -81,3 +81,32 @@ Anything maintainer-specific (live instance IDs, account-specific incident
 notes, AWS account-specific lessons) lives in `OPERATIONS_NOTES.md`, which
 is `.gitignored` and never leaves the maintainer's machine. New operational
 findings — especially incident retros — go there, not here.
+
+## Public-OSS-only rule (non-negotiable)
+
+This repository is the **single source of truth** for the project and is
+**public open source**. Treat every commit as if it were already on the
+internet — because it is.
+
+- Never commit sensitive values: real AWS account IDs, real domains,
+  real email addresses, real EC2 instance IDs, real IP addresses, real
+  Telegram chat IDs, real client names, real city names, real maintainer
+  PII. The `make audit` and `make scrub-audit` gates exist to catch these
+  — if either fires, do not commit; investigate.
+- Never echo a fetched secret value into a doc, a test fixture, a commit
+  message, or a comment. Refer to secrets by their `<secrets_prefix>/<name>`
+  pointer only.
+- Never sync content from any private mirror into this repo. Information
+  flows in one direction: **public → host**. The host pulls from this
+  repo; any private working copy is a local-only convenience for
+  terraform state and never a commit source.
+- The `*.local.txt` pattern overlays under `scripts/lib/` (gitignored)
+  exist for the operator's actual identifiers — extend them locally,
+  never commit them.
+- If an agent or sub-process needs to operate on the live AWS account,
+  do that via SSM / AWS CLI calls scoped to read-only or explicitly
+  authorized operations. Do **not** check any live config snapshot back
+  into the repo.
+- Same rule for the Obsidian vault: durable notes go to the vault
+  (`$OBSIDIAN_VAULT/20-projects/memex/`), never to this repo's tracked
+  files.

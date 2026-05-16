@@ -109,6 +109,12 @@ export async function indexDocument(
  * Index a file on disk. Reads the file, calls indexDocument with absolute
  * path as sourcePath (or the override).
  */
+// Cap any single document at 5 MiB before reading. A hostile or
+// runaway markdown file (concatenated logs, accidental binary commit)
+// would otherwise OOM the daemon and block the Bun event loop while
+// readFileSync runs synchronously.
+const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
+
 export async function indexFile(
   storage: Storage,
   filePath: string,
@@ -120,6 +126,12 @@ export async function indexFile(
     stat = statSync(filePath);
   } catch {
     throw new Error(`indexFile: file not found: ${filePath}`);
+  }
+  if (stat.size > MAX_INDEX_FILE_BYTES) {
+    throw new Error(
+      `indexFile: ${filePath} is ${stat.size} bytes — exceeds ` +
+        `${MAX_INDEX_FILE_BYTES} byte cap (skip via vault config)`,
+    );
   }
   const text = readFileSync(filePath, "utf8");
   return indexDocument(

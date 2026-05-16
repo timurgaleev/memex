@@ -7,7 +7,15 @@
  *   { sourcePath: string, text: string }
  *
  * Returns: { ok, documentId, chunks, embeddings }
+ *
+ * Path confinement (CRITICAL): `path` must resolve inside one of the
+ * configured vault roots (MEMEX_VAULT_PATHS, default "/vault,/memory")
+ * or the configured code roots (MEMEX_CODE_PATHS, default "/repo-source").
+ * Without this gate, a request with MEMEX_PUBLIC_WRITE=1 could index
+ * arbitrary host paths — /etc/passwd, /run/secrets/*, /home/bun/.aws/*
+ * — and then read them back via /search.
  */
+import { resolve as resolvePath } from "node:path";
 import type { Storage } from "../core/storage.ts";
 import { indexFile, indexDocument } from "../core/indexer.ts";
 
@@ -39,6 +47,29 @@ function isByText(b: unknown): b is IndexRequestByText {
   );
 }
 
+function allowedIndexRoots(): string[] {
+  const parts = [
+    ...(process.env.MEMEX_VAULT_PATHS ?? "").split(","),
+    ...(process.env.MEMEX_CODE_PATHS ?? "").split(","),
+  ]
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .map((p) => resolvePath(p));
+  // Deduplicate while preserving order.
+  return [...new Set(parts)];
+}
+
+function isWithinAllowedRoot(filePath: string): boolean {
+  const resolved = resolvePath(filePath);
+  const roots = allowedIndexRoots();
+  if (roots.length === 0) return false;
+  for (const root of roots) {
+    // Match exact root or path that starts with root + path separator.
+    if (resolved === root || resolved.startsWith(root + "/")) return true;
+  }
+  return false;
+}
+
 export async function handleIndex(
   storage: Storage,
   req: Request,
@@ -56,6 +87,17 @@ export async function handleIndex(
   try {
     let result;
     if (isByPath(body)) {
+      if (!isWithinAllowedRoot(body.path)) {
+        return Response.json(
+          {
+            ok: false,
+            error:
+              "path is outside the configured MEMEX_VAULT_PATHS / " +
+              "MEMEX_CODE_PATHS roots — refusing to index",
+          },
+          { status: 403 },
+        );
+      }
       result = await indexFile(storage, body.path);
     } else if (isByText(body)) {
       result = await indexDocument(storage, {

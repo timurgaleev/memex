@@ -87,3 +87,13 @@ def test_inference_profiles_are_scoped() -> None:
         r'inference-profile/(eu|global)\.amazon\.nova-',
         text,
     ), "Nova inference profile ARN must be enumerated"
+
+
+def test_haiku_inference_profile_is_scoped() -> None:
+    """Claude Haiku 4.5 cross-region inference profile ARN must be
+    enumerated. The IAM policy lists Haiku separately from Nova."""
+    text = _read()
+    assert re.search(
+        r'inference-profile/(eu|us|global)\.anthropic\.claude-haiku-4-5',
+        text,
+    ), "Haiku 4.5 inference profile ARN must be enumerated"

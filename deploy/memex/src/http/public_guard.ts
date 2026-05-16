@@ -102,7 +102,7 @@ export function evaluatePublicGuard(
 
   const auth = req.headers.get("Authorization") ?? "";
   const expected = `Bearer ${opts.bearerToken}`;
-  if (auth !== expected) {
+  if (!timingSafeEqualStrings(auth, expected)) {
     return {
       allow: false,
       status: 401,
@@ -111,6 +111,30 @@ export function evaluatePublicGuard(
   }
 
   return { allow: true, isPublic: true };
+}
+
+/**
+ * Constant-time string comparison. A simple `a !== b` short-circuits on
+ * the first differing byte, leaking the prefix-match length to a
+ * timing-sensitive attacker — relevant because the public bearer is
+ * fronted by Cloudflare. We compare two equal-length Buffers via
+ * Node's timingSafeEqual; if the lengths differ we still do a dummy
+ * compare so the timing remains uniform.
+ */
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  // Lazy require so the helper compiles in non-Node runtimes too;
+  // Bun supports the node:crypto namespace natively.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { timingSafeEqual } = require("node:crypto") as typeof import("node:crypto");
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) {
+    // Burn the same number of cycles before returning false so a length
+    // mismatch isn't itself a timing oracle for the secret's length.
+    timingSafeEqual(aBuf, aBuf);
+    return false;
+  }
+  return timingSafeEqual(aBuf, bBuf);
 }
 
 /**

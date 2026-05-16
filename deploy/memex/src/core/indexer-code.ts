@@ -137,6 +137,11 @@ export async function indexCodeDocument(
 /**
  * Index a code file on disk. Reads the file, calls indexCodeDocument.
  */
+// Same rationale as indexer.ts MAX_INDEX_FILE_BYTES — tree-sitter
+// parsing is synchronous CPU and would block the Bun event loop on a
+// monolithic minified bundle. 5 MiB matches the obsidian + indexer cap.
+const MAX_INDEX_CODE_FILE_BYTES = 5 * 1024 * 1024;
+
 export async function indexCodeFile(
   storage: Storage,
   filePath: string,
@@ -146,6 +151,12 @@ export async function indexCodeFile(
     stat = statSync(filePath);
   } catch {
     throw new Error(`indexCodeFile: file not found: ${filePath}`);
+  }
+  if (stat.size > MAX_INDEX_CODE_FILE_BYTES) {
+    throw new Error(
+      `indexCodeFile: ${filePath} is ${stat.size} bytes — exceeds ` +
+        `${MAX_INDEX_CODE_FILE_BYTES} byte cap (likely a vendored bundle)`,
+    );
   }
   const text = readFileSync(filePath, "utf8");
   return indexCodeDocument(storage, {
