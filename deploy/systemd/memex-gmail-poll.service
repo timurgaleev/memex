@@ -6,7 +6,7 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/memex/bin/gmail-poll.sh
+ExecStart=/opt/memex/scripts/gmail-poll.sh
 User=root
 # Honour Berlin local clock — recipe's `throttle.preflight` declines
 # during 06:00–08:00 quiet hours, so the timer can fire at any wall

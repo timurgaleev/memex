@@ -6,7 +6,7 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/memex/bin/rotate-memex-public-bearer.sh
+ExecStart=/opt/memex/scripts/rotate-memex-public-bearer.sh
 User=root
 # AWS region for the embedded `aws` CLI calls. Instance role provides
 # the credentials; no profile needed.
