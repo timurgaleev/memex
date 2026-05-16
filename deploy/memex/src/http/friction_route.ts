@@ -10,36 +10,27 @@ import type { Storage } from "../core/storage.ts";
 import {
   analyzeFriction,
   logFriction,
+  VALID_FRICTION_KINDS,
   type FrictionKind,
 } from "../core/friction.ts";
+import { parseJsonBody } from "./body_limit.ts";
 
-const VALID_KINDS: ReadonlySet<FrictionKind> = new Set([
-  "search-miss",
-  "wrong-answer",
-  "tool-error",
-  "low-confidence",
-  "other",
-]);
+const VALID_KINDS = VALID_FRICTION_KINDS;
 
 export async function handleFrictionPost(
   storage: Storage,
   req: Request,
 ): Promise<Response> {
-  let body: {
+  type FrictionPostBody = {
     kind?: FrictionKind;
     query?: string;
     reason?: string;
     sourcePath?: string;
     extra?: Record<string, unknown>;
   };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      { ok: false, error: "invalid JSON body" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseJsonBody<FrictionPostBody>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   if (!body.kind || !VALID_KINDS.has(body.kind)) {
     return Response.json(
       {

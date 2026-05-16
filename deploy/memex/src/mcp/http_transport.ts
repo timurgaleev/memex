@@ -17,6 +17,7 @@ import type { Storage } from "../core/storage.ts";
 import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { RateLimiter } from "./rate_limit.ts";
+import { parseJsonBody } from "../http/body_limit.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "memex", version: "0.1.0" };
@@ -87,14 +88,17 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
       );
     }
 
-    let raw: unknown;
-    try {
-      raw = await req.json();
-    } catch {
-      return Response.json(rpcError(null, ERR_PARSE, "parse error"), {
-        status: 400,
-      });
+    const parsedBody = await parseJsonBody<unknown>(req);
+    if (!parsedBody.ok) {
+      // parseJsonBody returns 400 / 413; rewrap as JSON-RPC parse error
+      // so the MCP client sees the standard envelope.
+      const status = parsedBody.response.status;
+      return Response.json(
+        rpcError(null, ERR_PARSE, status === 413 ? "body too large" : "parse error"),
+        { status },
+      );
     }
+    const raw: unknown = parsedBody.body;
 
     if (Array.isArray(raw)) {
       const responses = await Promise.all(

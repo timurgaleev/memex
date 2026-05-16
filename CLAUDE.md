@@ -82,6 +82,36 @@ notes, AWS account-specific lessons) lives in `OPERATIONS_NOTES.md`, which
 is `.gitignored` and never leaves the maintainer's machine. New operational
 findings — especially incident retros — go there, not here.
 
+## Ship workflow (non-negotiable)
+
+A change is not "shipped" until the live EC2 is running it. The full
+loop is: **test → push → deploy → verify**, in that order, every time.
+
+1. **Test locally** (everything that applies to the change):
+   - `make audit` — exit 0
+   - `make scrub-audit` — HIGH:0
+   - `make test` — bash unit tests pass
+   - `python3 -m pytest tests/ -q` — all green
+   - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
+   - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed
+   - The relevant Bun test file under `deploy/memex/tests/*.test.ts` — when memex source changed
+2. **Push** to `github.com/timurgaleev/memex` `main` and **wait for CI green** before continuing (`gh run list --limit 1`).
+3. **Deploy** to the live EC2 via SSM:
+   - `git pull --ff-only` in `/opt/memex/`
+   - `docker compose --env-file .env -f deploy/docker-compose.yml up -d --build <services-that-changed>`
+   - For systemd unit changes: `install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/ && systemctl daemon-reload && systemctl restart <unit>`
+4. **Verify on the live host**:
+   - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)
+   - `/health` endpoints return `ok:true`
+   - For helper changes: `docker exec deploy-openclaw-1 /opt/memex/bin/<helper> <subcommand>` returns real data
+   - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
+   - For terraform changes that drift live state: do NOT silently `apply`; show the plan and use targeted-API calls (`aws ec2 modify-...`) when the apply would destroy-and-recreate.
+
+Skipping deploy because "the change is just docs" is fine; skipping
+verify is not. If a change touches anything other than `*.md`,
+`tests/*`, `.github/*`, or `terraform/*.tfvars.example`, plan a deploy
+and verify the live result.
+
 ## Self-review after each implementation (non-negotiable)
 
 After every meaningful batch of changes (security fix, refactor, new

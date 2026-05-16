@@ -21,6 +21,7 @@ import {
   isWithinAllowedRoot,
   PathGuardConfigError,
 } from "../core/path_guard.ts";
+import { parseJsonBody } from "./body_limit.ts";
 
 interface IndexRequestByPath {
   path: string;
@@ -54,15 +55,9 @@ export async function handleIndex(
   storage: Storage,
   req: Request,
 ): Promise<Response> {
-  let body: IndexRequest;
-  try {
-    body = (await req.json()) as IndexRequest;
-  } catch {
-    return Response.json(
-      { ok: false, error: "request body must be valid JSON" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseJsonBody<IndexRequest>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   try {
     let result;

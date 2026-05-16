@@ -28,6 +28,23 @@ export type FrictionKind =
   | "interrupted";
 
 /**
+ * Canonical set of valid `FrictionKind` values. Both the HTTP route
+ * (src/http/friction_route.ts) and the MCP dispatcher (src/mcp/dispatch.ts)
+ * import this — keeping one truth-table avoids the silent allowlist
+ * drift that previously let some kinds in through MCP but not HTTP.
+ */
+export const VALID_FRICTION_KINDS: ReadonlySet<FrictionKind> = new Set([
+  "search-miss",
+  "wrong-answer",
+  "tool-error",
+  "low-confidence",
+  "other",
+  "delight",
+  "phase-marker",
+  "interrupted",
+]);
+
+/**
  * Optional triage severity. Only meaningful for negative events;
  * `delight` and `phase-marker` rows leave this null. Mirrors the
  * categories the agent already produces in chat retrospectives.

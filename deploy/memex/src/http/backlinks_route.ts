@@ -4,6 +4,7 @@
 import type { Storage } from "../core/storage.ts";
 import { findBacklinks } from "../core/backlinks.ts";
 import type { EntityType } from "../core/entities.ts";
+import { parseJsonBody } from "./body_limit.ts";
 
 interface BacklinksRequest {
   name?: string;
@@ -21,12 +22,9 @@ export async function handleBacklinks(
   storage: Storage,
   req: Request,
 ): Promise<Response> {
-  let body: BacklinksRequest;
-  try {
-    body = (await req.json()) as BacklinksRequest;
-  } catch {
-    return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
-  }
+  const parsed = await parseJsonBody<BacklinksRequest>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   if (!body.name || typeof body.name !== "string") {
     return Response.json(
       { ok: false, error: "`name` is required and must be a string" },

@@ -9,7 +9,7 @@
  * iteration here just adds overhead given that downstream work
  * (embed roundtrips, tree-sitter parses, DB writes) dominates wall time.
  */
-import { readdirSync, statSync, type Dirent } from "node:fs";
+import { readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import { join } from "node:path";
 
 export interface WalkedFile {
@@ -41,6 +41,29 @@ export function* walkFiles(
   opts: WalkOptions,
 ): Generator<WalkedFile> {
   const exts = new Set(opts.extensions.map((e) => e.toLowerCase()));
+  // `seen` tracks the canonical (realpath) of every directory we've
+  // entered, so a symlink that points back into the tree (e.g.
+  // vault/loop → vault/) doesn't trigger infinite recursion. The
+  // closure shares this set across the recursive invocations below.
+  const seen = new Set<string>();
+  yield* walkInner(root, opts, exts, seen);
+}
+
+function* walkInner(
+  root: string,
+  opts: WalkOptions,
+  exts: Set<string>,
+  seen: Set<string>,
+): Generator<WalkedFile> {
+  let canonical: string;
+  try {
+    canonical = realpathSync(root);
+  } catch {
+    return;
+  }
+  if (seen.has(canonical)) return;
+  seen.add(canonical);
+
   let entries: Dirent[];
   try {
     // Bun's readdirSync overload returns Dirent<Buffer> by default; force the
@@ -55,7 +78,7 @@ export function* walkFiles(
     if (opts.ignore.has(name)) continue;
     const full = join(root, name);
     if (ent.isDirectory()) {
-      yield* walkFiles(full, opts);
+      yield* walkInner(full, opts, exts, seen);
     } else if (ent.isFile()) {
       const dot = name.lastIndexOf(".");
       if (dot < 0) continue;

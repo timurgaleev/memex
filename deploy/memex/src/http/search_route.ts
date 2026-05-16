@@ -7,6 +7,7 @@
 import type { Storage } from "../core/storage.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { makeCaptureCallback } from "../core/eval-capture.ts";
+import { parseJsonBody } from "./body_limit.ts";
 
 interface SearchRequest {
   q: string;
@@ -26,15 +27,9 @@ export async function handleSearch(
   storage: Storage,
   req: Request,
 ): Promise<Response> {
-  let body: SearchRequest;
-  try {
-    body = (await req.json()) as SearchRequest;
-  } catch {
-    return Response.json(
-      { ok: false, error: "request body must be valid JSON" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseJsonBody<SearchRequest>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   if (!isSearchReq(body)) {
     return Response.json(
       { ok: false, error: "body must be { q: string, k?: number }" },

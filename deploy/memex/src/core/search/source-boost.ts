@@ -13,6 +13,11 @@
 import type { ChunkScore } from "./dedup.ts";
 import type { SourceKind } from "../sources.ts";
 
+// Default weights cover every value of SourceKind. If a new kind is
+// added to sources.ts without being weighted here, applySourceBoost
+// would multiply by undefined → NaN → unstable ordering. The
+// Record<SourceKind, number> type makes the typechecker fail on that
+// omission at compile time.
 const DEFAULT_WEIGHTS: Record<SourceKind, number> = {
   vault: 1.0,
   memory: 0.7,
@@ -20,6 +25,10 @@ const DEFAULT_WEIGHTS: Record<SourceKind, number> = {
   mailbox: 0.6,
   calendar: 0.6,
   transcript: 0.65,
+  // Code chunkers register their source with `kind: "code"`; without
+  // this entry the multiplier would be NaN and code hits would sort
+  // unpredictably (typically last) after RRF + boost.
+  code: 0.85,
   other: 0.8,
 };
 

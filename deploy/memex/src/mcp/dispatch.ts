@@ -17,6 +17,7 @@ import {
 } from "../core/path_guard.ts";
 import {
   logFriction,
+  VALID_FRICTION_KINDS,
   type FrictionKind,
 } from "../core/friction.ts";
 import type { EntityType } from "../core/entities.ts";
@@ -176,16 +177,7 @@ async function callStats(storage: Storage): Promise<ToolCallResult> {
   return jsonResult({ ok: true, ...stats });
 }
 
-const VALID_FRICTION: ReadonlySet<FrictionKind> = new Set([
-  "search-miss",
-  "wrong-answer",
-  "tool-error",
-  "low-confidence",
-  "other",
-  "delight",
-  "phase-marker",
-  "interrupted",
-]);
+const VALID_FRICTION = VALID_FRICTION_KINDS;
 
 const VALID_SEVERITY: ReadonlySet<string> = new Set([
   "confused",
