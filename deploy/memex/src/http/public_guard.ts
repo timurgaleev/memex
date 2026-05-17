@@ -63,8 +63,57 @@ function publicWriteAllowed(): boolean {
   return v === "1" || v.toLowerCase() === "true";
 }
 
+function publicReadBodiesAllowed(): boolean {
+  const v = (process.env["MEMEX_PUBLIC_READ_BODIES"] ?? "").trim();
+  return v === "1" || v.toLowerCase() === "true";
+}
+
 function isPublicRequest(req: Request): boolean {
+  // Public ingress is detected by Cloudflare's `Cf-Connecting-Ip`
+  // header. An empty value is treated as still-public (a defence
+  // against an attacker setting the header to "" hoping we treat them
+  // as internal); only a missing header counts as internal.
   return req.headers.get("Cf-Connecting-Ip") !== null;
+}
+
+/**
+ * Internal-route auth — requests that the public guard waves through
+ * as "internal" must still carry a matching shared token. Without
+ * this check, any peer on the docker bridge (compromised sibling
+ * container or future host bind on :18790) could write to the index
+ * via POST /index with no auth at all. The shared secret is loaded
+ * from `MEMEX_INTERNAL_TOKEN` env (populated by fetch-secrets.sh
+ * from `<secrets_prefix>/memex-internal-token`).
+ *
+ * Fail-closed: when the token is configured but a request lacks the
+ * matching `Authorization: Bearer <internal-token>` header, the
+ * request is rejected with 401. When the env var is unset the gate
+ * is open (legacy single-node installs); operators are urged to
+ * configure the secret.
+ */
+export interface InternalAuthOptions {
+  internalToken?: string;
+}
+
+export function evaluateInternalAuth(
+  req: Request,
+  opts: InternalAuthOptions,
+): GuardDecision | GuardRejection {
+  if (!opts.internalToken || opts.internalToken.length === 0) {
+    // Legacy fall-through. Loud warning logged once at startup; do
+    // not also log per request (would spam at MCP traffic rates).
+    return { allow: true, isPublic: false };
+  }
+  const auth = req.headers.get("Authorization") ?? "";
+  const expected = `Bearer ${opts.internalToken}`;
+  if (!timingSafeEqualStrings(auth, expected)) {
+    return {
+      allow: false,
+      status: 401,
+      reason: "internal endpoint requires X-Authorization shared token",
+    };
+  }
+  return { allow: true, isPublic: false };
 }
 
 export function evaluatePublicGuard(
@@ -154,4 +203,5 @@ export const PUBLIC_GUARD_INTERNALS = {
   isPublicRequest,
   FORBIDDEN_PATHS_FROM_PUBLIC,
   FORBIDDEN_MCP_TOOLS_FROM_PUBLIC,
+  publicReadBodiesAllowed,
 };

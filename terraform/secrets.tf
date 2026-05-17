@@ -90,3 +90,34 @@ resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
     ignore_changes = [secret_string]
   }
 }
+
+# memex-internal-token — shared secret authenticating peer containers
+# (openclaw, telegram-bridge, any future sidecar) on the internal
+# docker bridge to memex's mutating routes (POST /index, POST /friction).
+# Without it, a compromised sibling container could write to the index
+# with no auth — the route gates auth on `Cf-Connecting-Ip` presence
+# only, which is exactly the header those peers never send. See
+# `deploy/memex/src/http/public_guard.ts:evaluateInternalAuth`.
+resource "random_password" "memex_internal_token" {
+  length  = 48
+  special = false
+
+  lifecycle {
+    ignore_changes = [length, special]
+  }
+}
+
+resource "aws_secretsmanager_secret" "memex_internal_token" {
+  name                    = "${var.secrets_prefix}/memex-internal-token"
+  description             = "Shared bearer authenticating peer containers to memex's internal mutating routes"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "memex_internal_token" {
+  secret_id     = aws_secretsmanager_secret.memex_internal_token.id
+  secret_string = random_password.memex_internal_token.result
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}

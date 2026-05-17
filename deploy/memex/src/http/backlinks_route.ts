@@ -21,6 +21,7 @@ const VALID_TYPES: ReadonlySet<EntityType> = new Set([
 export async function handleBacklinks(
   storage: Storage,
   req: Request,
+  isPublic = false,
 ): Promise<Response> {
   const parsed = await parseJsonBody<BacklinksRequest>(req);
   if (!parsed.ok) return parsed.response;
@@ -56,9 +57,11 @@ export async function handleBacklinks(
     const hits = await findBacklinks(storage, body.name, opts);
     return Response.json({ ok: true, name: body.name, hits });
   } catch (e) {
-    return Response.json(
-      { ok: false, error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
-    );
+    const msg = isPublic
+      ? "backlinks backend error"
+      : e instanceof Error
+        ? e.message
+        : String(e);
+    return Response.json({ ok: false, error: msg }, { status: 500 });
   }
 }

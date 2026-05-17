@@ -26,6 +26,7 @@ import {
 } from "./friction_route.ts";
 import {
   evaluatePublicGuard,
+  evaluateInternalAuth,
   isPublicMcpToolForbidden,
 } from "./public_guard.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
@@ -46,6 +47,16 @@ export interface ServerOptions {
    * request returns 503 — fail-closed.
    */
   publicBearerToken?: string;
+  /**
+   * Shared secret required on internal mutating routes (POST /index,
+   * POST /friction, MCP write tools). Defends the docker-bridge
+   * surface from a compromised sibling container. Wire from
+   * `MEMEX_INTERNAL_TOKEN` env / `<secrets_prefix>/memex-internal-token`.
+   * When unset, internal routes stay open (legacy single-node behaviour)
+   * — a single startup warning is logged; operators should configure
+   * the secret.
+   */
+  internalToken?: string;
 }
 
 export interface ServerHandle {
@@ -70,6 +81,17 @@ export function startServer(opts: ServerOptions): ServerHandle {
 
   const guardOpts: { bearerToken?: string } = {};
   if (opts.publicBearerToken) guardOpts.bearerToken = opts.publicBearerToken;
+  const internalAuthOpts: { internalToken?: string } = {};
+  if (opts.internalToken) {
+    internalAuthOpts.internalToken = opts.internalToken;
+  } else {
+    console.warn(
+      "[memex] WARNING: MEMEX_INTERNAL_TOKEN not configured — internal " +
+        "mutating routes (POST /index, POST /friction) are open to any " +
+        "peer on the docker bridge. Configure the token via " +
+        "<secrets_prefix>/memex-internal-token + fetch-secrets.sh.",
+    );
+  }
 
   const server = Bun.serve({
     hostname: opts.host,
@@ -95,19 +117,36 @@ export function startServer(opts: ServerOptions): ServerHandle {
             { status: 403 },
           );
         }
+        // Internal mutating route — require the shared internal token
+        // so a compromised sibling container on the docker bridge
+        // cannot blindly poison the index.
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
         return handleIndex(opts.storage, req);
       }
       if (url.pathname === "/search" && req.method === "POST") {
-        return handleSearch(opts.storage, req);
+        return handleSearch(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/backlinks" && req.method === "POST") {
-        return handleBacklinks(opts.storage, req);
+        return handleBacklinks(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/friction" && req.method === "POST") {
         if (guard.isPublic) {
           return Response.json(
             { ok: false, error: "/friction is internal-only" },
             { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
           );
         }
         return handleFrictionPost(opts.storage, req);

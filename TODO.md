@@ -117,6 +117,22 @@ future release once the chat-agent pairing model is stable.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
+  path.** The 2026-05-17 internal-auth gate (commit batch following
+  `974b87e`) hardens POST `/index` and POST `/friction` against a
+  compromised peer on the docker bridge — but a peer can still write
+  via JSON-RPC `tools/call name=index` on POST `/mcp` because the
+  MCP transport doesn't enforce the shared token on internal traffic
+  (`mcp/http_transport.ts` + `mcp/dispatch.ts`). Today the only
+  internal MCP caller is the `openclaw` chat container, so trust
+  scope is unchanged from the pre-hardening state — but the kill-chain
+  the bug-hunter identified ("compromised sibling → `tools/call
+  name=index` → poison RAG corpus → exfil via next /ask") is still
+  reachable end-to-end. Fix scope: gate the MCP handler the same way
+  HTTP `/index` is gated, AND update the openclaw plugin config to
+  send the `Authorization: Bearer <internal-token>` header. Needs
+  coordinated openclaw-side change so split into a follow-up.
+
 - **Bedrock prompt no longer passed via `--body` argv.** Today
   `deploy/telegram-bridge/main.py:_bedrock_invoke_once` invokes
   `aws bedrock-runtime invoke-model --body <prompt-json>`. The

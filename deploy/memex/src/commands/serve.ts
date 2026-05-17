@@ -111,6 +111,14 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (publicBearer && publicBearer.length > 0) {
     serverOpts.publicBearerToken = publicBearer;
   }
+  // Shared bearer authenticating peer containers on the docker bridge
+  // to /index and /friction. When unset, the server emits a startup
+  // warning and stays open (legacy single-node behaviour) — operators
+  // are urged to set <secrets_prefix>/memex-internal-token.
+  const internalToken = process.env.MEMEX_INTERNAL_TOKEN;
+  if (internalToken && internalToken.length > 0) {
+    serverOpts.internalToken = internalToken;
+  }
   const server = startServer(serverOpts);
 
   // + 5: spin up an obsidian recipe per configured vault path.

@@ -127,6 +127,16 @@ def _parse_allowed_chat_ids(raw: str) -> frozenset[int]:
         part = part.strip()
         if not part:
             continue
+        # Python's `int()` accepts Arabic-Indic and full-width digits
+        # (`int("١٢٣")` == 123). That's a footgun if the operator
+        # pasted ids from a non-ASCII source — they get an allowlisted
+        # number they did not visually intend. Pin to ASCII digits +
+        # optional leading minus (Telegram group ids are negative).
+        if not part.lstrip("-").isascii() or not part.lstrip("-").isdigit():
+            raise SystemExit(
+                f"FATAL: MEMEX_BRIDGE_ALLOWED_CHAT_IDS contains non-ASCII "
+                f"or non-numeric chat id {part!r}"
+            )
         try:
             ids.add(int(part))
         except ValueError:
@@ -335,7 +345,14 @@ RAG_SYSTEM = (
 )
 
 
-_TAG_RE = re.compile(r"</?(note|user_question)\b[^>]*>", re.IGNORECASE)
+# Role / prompt-injection markers — Nova Lite and other small models
+# treat any of these as boundary tokens. We neutralise the brackets so
+# the model sees the visible glyphs but no instruction effect.
+_TAG_RE = re.compile(
+    r"</?(note|user_question|system|instruction|assistant|user|tool|s)\b[^>]*>",
+    re.IGNORECASE,
+)
+_INST_RE = re.compile(r"\[/?\s*INST\s*\]", re.IGNORECASE)
 
 # Zero-width + BOM + NUL — these can split a tag name from the tokenizer's
 # perspective so `<no​te>` reads as `<note>` to Nova but slips past
@@ -351,10 +368,30 @@ _INVISIBLE_TRANSLATION = {
 
 def _scrub_tags(text: str) -> str:
     """Neutralise any literal `<note>` / `</note>` / `<user_question>`
-    tokens in attacker-controlled content so a malicious note cannot
-    fake a closing tag and inject prose outside our delimiters."""
+    role tokens, plus `[INST]` / `</s>` style markers, in attacker-
+    controlled content so a malicious note cannot fake a closing
+    tag and inject prose outside our delimiters."""
     text = text.translate(_INVISIBLE_TRANSLATION)
-    return _TAG_RE.sub(lambda m: m.group(0).replace("<", "⟨").replace(">", "⟩"), text)
+    text = _TAG_RE.sub(
+        lambda m: m.group(0).replace("<", "⟨").replace(">", "⟩"), text
+    )
+    text = _INST_RE.sub(
+        lambda m: m.group(0).replace("[", "⟦").replace("]", "⟧"), text
+    )
+    return text
+
+
+# RAG-output URL guard. The model may emit URLs sourced from a poisoned
+# note (e.g. a Gmail signature link). Telegram's UI auto-linkifies any
+# `http(s)://...` token; combined with `disable_web_page_preview=True`
+# the operator still sees a tap-able link. Wrap every URL the model
+# emits in backticks so it renders as monospace, breaks autolink, and
+# is visibly distinguishable from prose the operator wrote.
+_URL_RE = re.compile(r"(?<![`\w])https?://\S+", re.IGNORECASE)
+
+
+def _defang_urls(text: str) -> str:
+    return _URL_RE.sub(lambda m: f"`{m.group(0)}`", text)
 
 
 def rag_answer(
@@ -625,7 +662,10 @@ def _handle_rag(cfg: BridgeConfig, question: str) -> str:
     if cfg.llm_enabled:
         answer = rag_answer(cfg.region, cfg.llm_model, question, hits)
         if answer:
-            return answer
+            # Wrap any URL the model emits in backticks so the operator
+            # never accidentally taps a link the LLM hallucinated from
+            # a poisoned note.
+            return _defang_urls(answer)
     # LLM disabled or failed — degrade gracefully to retrieval-only.
     if not hits:
         return "no matches in your notes."
@@ -800,9 +840,13 @@ def _process_update(
     if not isinstance(chat_id, int) or not text:
         return
     if chat_id not in cfg.allowed_chats:
-        LOG.info("ignoring message from unallowed chat id %s", chat_id)
         # A bounded one-shot refusal — see RefusalGate docstring for why.
+        # Log gating: only DEBUG for known refused ids (which we've
+        # already logged once) so a spoofed-id flood can't drag the
+        # bridge into per-message I/O at log-level. The first refusal
+        # per id still logs at INFO so the operator sees probes.
         if _refusal_gate.should_refuse(chat_id):
+            LOG.info("ignoring message from unallowed chat id %s", chat_id)
             try:
                 client.send_message(
                     chat_id,
@@ -811,6 +855,8 @@ def _process_update(
                 )
             except TelegramError as e:
                 LOG.info("refusal-send failed (non-fatal): %s", e)
+        else:
+            LOG.debug("ignoring message from unallowed chat id %s", chat_id)
         return
     LOG.info("chat=%s msg=%s text=%r", chat_id, msg_id, text[:120])
     reply = handle_message(cfg, text)

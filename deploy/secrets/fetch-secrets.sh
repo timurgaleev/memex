@@ -103,6 +103,23 @@ else
   echo "[secrets] memex public bearer not yet provisioned (public ingress disabled)"
 fi
 
+# Internal-route shared token. Defends POST /index and POST /friction
+# on the docker-internal bridge from a compromised sibling container.
+# Both memex and the bridge container read this from MEMEX_INTERNAL_TOKEN
+# at startup; absence falls through to legacy "open internal" behaviour
+# with a startup warning (so existing single-node installs upgrade
+# cleanly even before the operator creates the secret).
+if aws secretsmanager describe-secret \
+  --secret-id "${SECRETS_PREFIX}/memex-internal-token" \
+  --region "$AWS_REGION" >/dev/null 2>&1; then
+  INT_TOKEN=$(sm_text "memex-internal-token")
+  printf 'MEMEX_INTERNAL_TOKEN=%s\n' "$INT_TOKEN" >> "$MEMEX_ENV"
+  unset INT_TOKEN
+  echo "[secrets] memex internal token fetched"
+else
+  echo "[secrets] memex internal token not yet provisioned — internal routes stay open (legacy fallthrough)"
+fi
+
 PUBLIC_WRITE="${MEMEX_PUBLIC_WRITE:-0}"
 printf 'MEMEX_PUBLIC_WRITE=%s\n' "$PUBLIC_WRITE" >> "$MEMEX_ENV"
 if [ "$PUBLIC_WRITE" = "1" ]; then

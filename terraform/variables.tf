@@ -129,6 +129,22 @@ variable "multi_az_subnet_cidrs" {
   }
 }
 
+variable "bedrock_allowed_regions" {
+  description = <<-EOT
+    Regions allowed for direct `bedrock:InvokeModel` calls from the
+    EC2 instance role. The IAM policy applies a Deny statement that
+    blocks any direct invocation outside this list — only
+    profile-routed invocations (via Bedrock's CalledVia identity)
+    can fan out beyond.
+
+    Default covers eu-west-1 (primary), eu-central-1 (Nova Pro v1
+    fallback) and us-east-1 (global.* profiles route through it).
+    Removing entries shrinks blast radius; adding entries widens it.
+  EOT
+  type        = list(string)
+  default     = ["eu-west-1", "eu-central-1", "eu-north-1", "us-east-1"]
+}
+
 variable "bedrock_model_id" {
   description = <<-EOT
     Amazon Bedrock CRIS inference profile ID for the primary model.

@@ -20,3 +20,8 @@ scripts/init.sh
 # `example.com` / `you@example.com` style. They're documentation.
 terraform/terraform.tfvars.example
 terraform/backend.hcl.example
+
+# scripts/bootstrap.sh downloads the `docker/compose` binary from
+# the upstream GitHub releases URL — that's a legitimate third-party
+# fetch, not an operator-identifier reference.
+scripts/bootstrap.sh

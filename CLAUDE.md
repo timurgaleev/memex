@@ -95,7 +95,7 @@ loop is: **test → push → deploy → verify**, in that order, every time.
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
    - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed
    - The relevant Bun test file under `deploy/memex/tests/*.test.ts` — when memex source changed
-2. **Push** to `github.com/timurgaleev/memex` `main` and **wait for CI green** before continuing (`gh run list --limit 1`).
+2. **Push** to the `origin` remote on `main` and **wait for CI green** before continuing (`gh run list --limit 1`).
 3. **Deploy** to the live EC2 via SSM:
    - `git pull --ff-only` in `/opt/memex/`
    - `docker compose --env-file .env -f deploy/docker-compose.yml up -d --build <services-that-changed>`

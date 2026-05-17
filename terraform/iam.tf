@@ -47,8 +47,12 @@ data "aws_iam_policy_document" "memex_custom" {
       # The `eu.*` profiles dispatch to a foundation model in any EU
       # region; the `global.*` profiles dispatch globally. Bedrock
       # authorises the request against the foundation-model ARN
-      # *without* the region segment in both cases, so a region-pinned
-      # policy here would block every profile-routed invocation.
+      # *without* the region segment, so the region must be `*` here.
+      # We compensate with an explicit Deny statement below that
+      # blocks direct `bedrock:InvokeModel` against any region that is
+      # not on the configured allowlist (default: the stack's own
+      # `var.aws_region` plus the EU + US regions backing `eu.*` and
+      # `global.*` inference profiles).
       "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
       "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
 
@@ -57,6 +61,35 @@ data "aws_iam_policy_document" "memex_custom" {
       "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/eu.anthropic.claude-haiku-4-5*",
       "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/global.amazon.nova-*",
     ]
+  }
+
+  # Deny direct Bedrock invocations targeting regions we do not host
+  # in. A compromised container could otherwise call Nova / Haiku
+  # directly in, e.g., us-east-1 and silently burn the operator's
+  # credits on the more expensive model variants. The profile-routed
+  # path is still allowed because it goes through Bedrock's
+  # inference-profile ARN check before fanning out.
+  statement {
+    sid    = "BedrockDenyOffRegion"
+    effect = "Deny"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream",
+    ]
+    resources = ["arn:aws:bedrock:*::foundation-model/*"]
+    condition {
+      test     = "StringNotEqualsIfExists"
+      variable = "aws:RequestedRegion"
+      values   = var.bedrock_allowed_regions
+    }
+    # CalledVia=bedrock.amazonaws.com identifies a profile-routed
+    # invocation (Bedrock service is the actual caller). Skip the deny
+    # in that case so cross-region inference profiles still work.
+    condition {
+      test     = "Null"
+      variable = "aws:CalledVia"
+      values   = ["true"]
+    }
   }
 
   # Bedrock list/discovery — these are account-level actions, require * resource

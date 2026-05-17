@@ -40,3 +40,14 @@
 # Telegram bot handles (`@xxxbot`). Operators allowlist legitimate
 # placeholders like `@yourbot` per-file.
 @[A-Za-z][A-Za-z0-9_]{3,30}[Bb]ot\b|HIGH|Telegram bot handle (`@xxxbot`)
+
+# AWS managed-database / cache hostnames. Account-scoped subdomains
+# leak the live deployment id; legitimate examples use `<your-db>` /
+# `example` style and so don't match the strict 8+-char hex shape.
+\b[a-z][a-z0-9-]+\.[a-z0-9]{12,}\.[a-z0-9-]+\.(rds|elasticache|redshift|cache)\.amazonaws\.com\b|HIGH|RDS/ElastiCache/Redshift hostname
+
+# GitHub user / org references that aren't `github.com` itself or the
+# generic owner placeholder. Wraps owner segment to avoid hits on
+# `github.com/<owner>/<repo>` template strings that use `<owner>` /
+# `OWNER` literals.
+\bgithub\.com/[a-z0-9][a-z0-9-]{2,38}/[a-z0-9._-]+\b|MEDIUM|GitHub <owner>/<repo> reference (verify intent)
