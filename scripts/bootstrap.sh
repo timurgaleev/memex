@@ -206,7 +206,11 @@ cat > /home/ec2-user/.aws/config <<AWSEOF
 region = ${STACK_AWS_REGION}
 credential_source = Ec2InstanceMetadata
 AWSEOF
-chmod 0600 /home/ec2-user/.aws/config
+# 0644: the telegram-bridge container runs as uid 10001 and bind-mounts
+# this file at /home/bridge/.aws/config. The config carries no secret —
+# it just points the AWS SDK at IMDS, where actual credentials come
+# from the EC2 instance role. World-readable is correct.
+chmod 0644 /home/ec2-user/.aws/config
 
 # ---------------------------------------------------------------------------
 # 8. Compose up

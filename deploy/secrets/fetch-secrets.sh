@@ -29,7 +29,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SECRETS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/.secrets"
 umask 077
 mkdir -p "$SECRETS_DIR"
-chmod 0700 "$SECRETS_DIR"
+# 0711: root owns + lists, others may descend into the dir (so non-root
+# container UIDs — e.g. the telegram-bridge running as uid 10001 — can
+# read named files inside). Non-root host users cannot enumerate the
+# dir, which is the actual confidentiality requirement. Individual
+# files keep their own per-secret modes set below.
+chmod 0711 "$SECRETS_DIR"
 
 # Strip the single trailing newline that `aws secretsmanager get-secret-value
 # --output text` always appends. Most consumers (docker compose env_file,
@@ -44,13 +49,17 @@ sm_text() {
 }
 
 fetch_text() {
-  local name="$1" out="$2"
+  local name="$1" out="$2" mode="${3:-0400}"
   sm_text "$name" > "${SECRETS_DIR}/${out}"
-  chmod 0400 "${SECRETS_DIR}/${out}"
+  chmod "$mode" "${SECRETS_DIR}/${out}"
 }
 
-# Plain string secrets
-fetch_text "telegram-bot-token" "telegram-bot-token.txt"
+# Plain string secrets. telegram-bot-token is mode 0444 — the
+# telegram-bridge container reads it as non-root uid 10001. The 0711
+# parent dir already prevents non-root host users from enumerating;
+# only siblings inside this stack (openclaw / memex / bridge) can
+# read by exact name.
+fetch_text "telegram-bot-token" "telegram-bot-token.txt" 0444
 fetch_text "home-assistant-token" "home-assistant-token.txt"
 fetch_text "gateway-token" "gateway-token.txt"
 

@@ -122,6 +122,24 @@ def test_bootstrap_aws_profile_config():
     assert "credential_source = Ec2InstanceMetadata" in content, (
         "Must set credential_source = Ec2InstanceMetadata for IAM instance role"
     )
+    # 0644 (not 0600) — the file carries no secrets and the
+    # telegram-bridge container reads it as uid 10001.
+    assert "chmod 0644 /home/ec2-user/.aws/config" in content, (
+        "AWS config must be 0644 so the non-root bridge container can read it"
+    )
+
+
+def test_bootstrap_seeds_telegram_bridge_efs_dir():
+    """The telegram-bridge persists state.json to EFS as uid 10001 —
+    bootstrap must seed the dir with the right owner so the
+    container can write on first boot."""
+    content = read_bootstrap()
+    assert "telegram-bridge" in content, (
+        "bootstrap.sh must mkdir the EFS state dir for telegram-bridge"
+    )
+    assert "chown 10001:10001" in content, (
+        "the telegram-bridge EFS dir must be owned by uid 10001"
+    )
 
 
 def test_bootstrap_idempotency_guards():

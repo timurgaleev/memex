@@ -69,3 +69,38 @@ def test_every_secret_id_uses_prefix_var() -> None:
         assert "${SECRETS_PREFIX}" in m or "$SECRETS_PREFIX" in m, (
             f"--secret-id argument {m!r} does not use $SECRETS_PREFIX"
         )
+
+
+def test_secrets_dir_mode_allows_non_root_container_descent() -> None:
+    """The telegram-bridge runs as uid 10001 and needs to descend into
+    `.secrets/` to read its token. 0711 (root reads+lists, others
+    descend-only) gives that without exposing the file list to
+    non-root host users."""
+    text = _read()
+    assert re.search(r'chmod\s+0?711\s+"\$SECRETS_DIR"', text), (
+        "fetch-secrets.sh must `chmod 0711 $SECRETS_DIR` so non-root "
+        "container UIDs can descend into the dir"
+    )
+
+
+def test_telegram_bot_token_world_readable_inside_container() -> None:
+    """The bridge container reads telegram-bot-token.txt as uid 10001,
+    so the file must be world-readable (0444). Host confidentiality
+    is preserved by the 0711 dir mode + host dir ownership."""
+    text = _read()
+    assert re.search(
+        r'fetch_text\s+"telegram-bot-token"\s+"telegram-bot-token\.txt"\s+0?444',
+        text,
+    ), (
+        "fetch-secrets.sh must invoke `fetch_text telegram-bot-token "
+        "telegram-bot-token.txt 0444` so the bridge container can read it"
+    )
+
+
+def test_fetch_text_accepts_per_file_mode_arg() -> None:
+    """The helper must accept an optional 3rd arg (mode) so we don't
+    hardcode 0400 for every secret — the bridge case is the exception."""
+    text = _read()
+    assert 'mode="${3:-0400}"' in text, (
+        "fetch_text() must accept an optional mode arg defaulting to 0400"
+    )
