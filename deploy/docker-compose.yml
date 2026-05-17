@@ -125,6 +125,12 @@ services:
       # "scope upgrade pending approval".
       - PUBLIC_HOST=${PUBLIC_HOST:?PUBLIC_HOST must be set in .env}
       - MEMEX_HOST=${MEMEX_HOST:-}
+      # Default: the telegram-bridge container owns the bot's
+      # `getUpdates` long-poll, so openclaw must NOT also try to
+      # connect (Telegram refuses with 409 Conflict if both do).
+      # Override by exporting OPENCLAW_TELEGRAM_DISABLED=0 in .env if
+      # you want openclaw to own Telegram and disable the bridge.
+      - OPENCLAW_TELEGRAM_DISABLED=${OPENCLAW_TELEGRAM_DISABLED:-1}
     networks:
       - internal
     depends_on:
@@ -135,6 +141,78 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  telegram-bridge:
+    # Standalone two-way Telegram surface. Runs independent of openclaw
+    # so the bot keeps replying even when the chat-agent container is
+    # restarting, mid-rebuild, or stuck on a paired-device approval.
+    # See deploy/telegram-bridge/README.md for the design rationale.
+    build:
+      # Context is `./` (the deploy/ tree) so the Dockerfile can COPY
+      # both `telegram-bridge/main.py` and `openclaw/helpers/*` from a
+      # single context. Avoids duplicating the helper sources across
+      # two image trees.
+      context: ./
+      dockerfile: telegram-bridge/Dockerfile
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # /tmp inside the container is a tmpfs — the only writable path the
+    # daemon needs aside from /var/lib/memex-bridge. Keeps the rest of
+    # the filesystem read-only (`read_only: true` below) so a bug in
+    # `aws bedrock-runtime invoke-model` (which writes JSON to /tmp)
+    # can't drop files anywhere else.
+    read_only: true
+    tmpfs:
+      # noexec (default) — the only thing this daemon ever writes to
+      # /tmp is JSON output from `aws bedrock-runtime invoke-model`,
+      # never something we then execute. Dropping `exec` removes the
+      # write-then-run vector if a future bug lets attacker bytes
+      # land in /tmp. mode=0700 + uid pin keeps the dir owner-only.
+      - /tmp:uid=10001,gid=10001,size=16m,mode=1700
+    volumes:
+      # Persist `state.json` (last update id) so a restart doesn't
+      # replay the past 24h of messages. EFS-backed for safety; a host
+      # bind-mount would also work.
+      - ${EFS_MOUNT}/telegram-bridge:/var/lib/memex-bridge
+      # AWS CLI config — bridge runs as uid 10001 (USER bridge), so
+      # the host /home/ec2-user/.aws is mounted at the bridge user's
+      # HOME (/home/bridge/.aws) rather than /root.
+      - /home/ec2-user/.aws:/home/bridge/.aws:ro
+      # Secrets dir holds telegram-bot-token.txt populated by
+      # deploy/secrets/fetch-secrets.sh on the host.
+      - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
+    environment:
+      - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
+      - MEMEX_URL=http://memex:18790
+      # Required: comma-separated numeric Telegram chat ids that may
+      # talk to the bot. Set in `.env` from
+      # `MEMEX_BRIDGE_ALLOWED_CHAT_IDS=...`.
+      - MEMEX_BRIDGE_ALLOWED_CHAT_IDS=${MEMEX_BRIDGE_ALLOWED_CHAT_IDS:?MEMEX_BRIDGE_ALLOWED_CHAT_IDS must be set (comma-separated numeric chat ids)}
+      - MEMEX_BRIDGE_LLM_MODEL=${MEMEX_BRIDGE_LLM_MODEL:-global.amazon.nova-2-lite-v1:0}
+      - MEMEX_BRIDGE_MAX_HITS=${MEMEX_BRIDGE_MAX_HITS:-5}
+      - MEMEX_BRIDGE_LLM_DISABLE=${MEMEX_BRIDGE_LLM_DISABLE:-}
+    networks:
+      - internal
+    depends_on:
+      memex:
+        condition: service_healthy
+    # Healthcheck is positive: the bridge is healthy only while
+    # `main.py` is in the process table. `start_period` covers the
+    # entrypoint's `aws sts get-caller-identity` warm-up.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f /app/main.py >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    # SIGTERM during a 25s long-poll would otherwise exceed docker's
+    # default 10s grace, get SIGKILL'd, and lose the unflushed offset.
+    stop_grace_period: 40s
 
   cloudflared:
     # Uses upstream image directly — no custom Dockerfile needed.

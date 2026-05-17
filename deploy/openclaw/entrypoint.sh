@@ -28,25 +28,50 @@ if [ -z "$GATEWAY_TOKEN" ]; then
   GATEWAY_TOKEN=$(tr -d '\n\r' < "$TOKEN_FILE")
 fi
 
-if [ ! -s /run/secrets/telegram-bot-token.txt ]; then
-  echo "FATAL: /run/secrets/telegram-bot-token.txt missing or empty — run deploy/secrets/fetch-secrets.sh on the host" >&2
-  exit 1
+# Telegram channel ownership:
+# - OPENCLAW_TELEGRAM_DISABLED=1   → drop the channels.telegram block so
+#                                    the `telegram-bridge` container owns
+#                                    the bot's `getUpdates` long-poll
+#                                    exclusively (recommended).
+# - default (legacy)               → openclaw configures the Telegram
+#                                    channel itself; only one of openclaw
+#                                    and the bridge can long-poll at a
+#                                    time (Telegram returns 409 Conflict).
+TELEGRAM_DISABLED="${OPENCLAW_TELEGRAM_DISABLED:-0}"
+
+if [ "$TELEGRAM_DISABLED" != "1" ]; then
+  if [ ! -s /run/secrets/telegram-bot-token.txt ]; then
+    echo "FATAL: /run/secrets/telegram-bot-token.txt missing or empty — run deploy/secrets/fetch-secrets.sh on the host" >&2
+    exit 1
+  fi
+  TELEGRAM_TOKEN=$(tr -d '\n\r' < /run/secrets/telegram-bot-token.txt)
+else
+  TELEGRAM_TOKEN=""
+  echo "[entrypoint] OPENCLAW_TELEGRAM_DISABLED=1 — bridge container owns the bot"
 fi
-TELEGRAM_TOKEN=$(tr -d '\n\r' < /run/secrets/telegram-bot-token.txt)
 
 # Patch config from template — jq seeds template defaults + secrets in one
 # fast pass. HA + GCal credentials are NOT in openclaw.json: the `ha` and
 # `gcal` helper CLIs (mounted at /opt/<project>/bin/) fetch them directly
 # from Secrets Manager via the EC2 IAM role at call time.
-jq \
-  --arg telegram_token "$TELEGRAM_TOKEN" \
-  --arg gateway_token "$GATEWAY_TOKEN" \
-  '.channels.telegram.botToken = $telegram_token | .gateway.auth.token = $gateway_token' \
-  /app/config.template.json > "${HOME}/.openclaw/openclaw.json"
+if [ "$TELEGRAM_DISABLED" = "1" ]; then
+  jq \
+    --arg gateway_token "$GATEWAY_TOKEN" \
+    'del(.channels.telegram) | .gateway.auth.token = $gateway_token' \
+    /app/config.template.json > "${HOME}/.openclaw/openclaw.json"
+else
+  jq \
+    --arg telegram_token "$TELEGRAM_TOKEN" \
+    --arg gateway_token "$GATEWAY_TOKEN" \
+    '.channels.telegram.botToken = $telegram_token | .gateway.auth.token = $gateway_token' \
+    /app/config.template.json > "${HOME}/.openclaw/openclaw.json"
+fi
 
 # Re-stamp every secret-bearing field via openclaw's own writer so the
 # resulting file carries the audit-meta the gateway expects on next boot.
-openclaw config set channels.telegram.botToken "$TELEGRAM_TOKEN" >/dev/null
+if [ "$TELEGRAM_DISABLED" != "1" ]; then
+  openclaw config set channels.telegram.botToken "$TELEGRAM_TOKEN" >/dev/null
+fi
 openclaw config set gateway.auth.token "$GATEWAY_TOKEN" >/dev/null
 
 export BRAIN_URL="http://memex:18790"

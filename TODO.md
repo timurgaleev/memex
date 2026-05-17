@@ -12,6 +12,20 @@ introduces them.
 Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
 automate today. Run these once after the first deploy:
 
+- **Allowlist your Telegram chat id for the bridge.** The
+  `telegram-bridge` container refuses messages from any chat not
+  listed in `MEMEX_BRIDGE_ALLOWED_CHAT_IDS`. Add a comma-separated
+  list of numeric chat ids to `.env` on the host and restart the
+  service:
+  ```bash
+  # find your chat id by sending /start to the bot; the bridge logs
+  # "ignoring message from unallowed chat id <N>"
+  echo "MEMEX_BRIDGE_ALLOWED_CHAT_IDS=<N>" >> /opt/memex/.env
+  docker compose --env-file /opt/memex/.env \
+    -f /opt/memex/deploy/docker-compose.yml \
+    up -d telegram-bridge
+  ```
+
 - **Install host-side systemd timers** for the daily bearer rotation
   and the hourly gcal / gmail polls:
   ```bash
@@ -86,6 +100,18 @@ future release once the chat-agent pairing model is stable.
   schedule its own LLM-driven briefings via the cron path.
 
 ---
+
+## Defence-in-depth hardening (deferred)
+
+- **Bedrock prompt no longer passed via `--body` argv.** Today
+  `deploy/telegram-bridge/main.py:_bedrock_invoke_once` invokes
+  `aws bedrock-runtime invoke-model --body <prompt-json>`. The
+  prompt + retrieved notes briefly appear in `/proc/<pid>/cmdline`
+  of the bridge container. With the bridge running non-root + the
+  read-only filesystem this is low-risk on the single-tenant EC2,
+  but a future co-tenant on the same host would see operator
+  queries. Switch to `--body fileb://<mkstemp-path>` for full
+  defence-in-depth.
 
 ## Planned removals
 

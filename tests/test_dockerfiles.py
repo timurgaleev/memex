@@ -14,6 +14,7 @@ DEPLOY = REPO_ROOT / "deploy"
 DOCKERFILES = {
     "memex": DEPLOY / "memex" / "Dockerfile",
     "openclaw": DEPLOY / "openclaw" / "Dockerfile",
+    "telegram-bridge": DEPLOY / "telegram-bridge" / "Dockerfile",
     "obsidian-sync": DEPLOY / "obsidian-sync" / "Dockerfile",
 }
 
@@ -139,6 +140,53 @@ class TestOpenclawDockerfile:
     def test_helpers_copied_to_bin(self):
         assert "/opt/memex/bin" in self._text, (
             "openclaw Dockerfile must copy helpers to /opt/memex/bin/"
+        )
+
+
+# ---------------------------------------------------------------------------
+# telegram-bridge Dockerfile
+# ---------------------------------------------------------------------------
+
+class TestTelegramBridgeDockerfile:
+    @pytest.fixture(autouse=True)
+    def content(self):
+        self._text = _read(DOCKERFILES["telegram-bridge"])
+
+    def test_from_pinned_tag(self):
+        from_lines = [
+            l for l in self._text.splitlines() if l.strip().upper().startswith("FROM")
+        ]
+        assert from_lines, "telegram-bridge Dockerfile must have a FROM line"
+        assert ":latest" not in from_lines[0], (
+            "telegram-bridge FROM must use a pinned tag, not :latest"
+        )
+        assert "python" in from_lines[0].lower(), (
+            "telegram-bridge must be based on a python image"
+        )
+
+    def test_workdir_declared(self):
+        assert "WORKDIR" in self._text
+
+    def test_no_pip_install(self):
+        """Pure stdlib + aws-cli + helpers — no pip dependencies.
+        Adding pip silently widens the supply chain surface."""
+        assert "pip install" not in self._text, (
+            "telegram-bridge must avoid pip — pure stdlib is the contract"
+        )
+
+    def test_apk_includes_aws_cli(self):
+        assert "aws-cli" in self._text, (
+            "telegram-bridge needs aws-cli to invoke Bedrock + read Secrets Manager"
+        )
+
+    def test_entrypoint_referenced(self):
+        assert "ENTRYPOINT" in self._text
+        assert "entrypoint.sh" in self._text
+
+    def test_helpers_copied_in(self):
+        assert "/opt/memex/bin" in self._text, (
+            "telegram-bridge must copy helpers to /opt/memex/bin/ "
+            "so /today, /weather etc. resolve"
         )
 
 

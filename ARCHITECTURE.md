@@ -10,10 +10,9 @@
                        │                        │
                   Telegram bot          https://<chat>.<domain>
                        │                        │
-                       └────┐         ┌─────────┘
-                            ▼         ▼
-                       cloudflared (sidecar)
-                            │
+                       ▼                        ▼
+              telegram-bridge              cloudflared (sidecar)
+                       │                        │
             ┌────── docker-compose internal bridge ──────┐
             │            │              │                 │
         memex     openclaw     obsidian-sync          ...
@@ -38,7 +37,8 @@ external message broker — the whole runtime fits in `t4g.medium`.
 | Container | Image | Owns |
 |---|---|---|
 | `memex`   | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle |
-| `openclaw`   | built from `deploy/openclaw/` (npm `openclaw@2026.4.29` on Alpine) | Chat agent: Telegram channel, web UI gateway, cron scheduler, skill execution |
+| `openclaw`   | built from `deploy/openclaw/` (npm `openclaw@2026.4.29` on Alpine) | Chat agent: web UI gateway, cron scheduler, skill execution. Telegram channel disabled by default (`OPENCLAW_TELEGRAM_DISABLED=1`) so the bridge owns the bot's long-poll cleanly. |
+| `telegram-bridge` | built from `deploy/telegram-bridge/` (Python 3 stdlib + aws-cli on Alpine) | Always-on two-way Telegram surface. Long-polls the Bot API, routes slash-commands (`/today`, `/week`, `/weather`, `/search`, …) to the `gcal` / `ha` helpers, and answers free text with a RAG pipeline (`memex /search` → Bedrock Nova Lite). Keeps the bot replying even when `openclaw` is restarting or stuck on a paired-device approval. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel) for `<subdomain>.<domain>` and `brain.<domain>` |
 | `obsidian-sync` *(deprecated)* | built from `deploy/obsidian-sync/` (Alpine + headless Obsidian) | Bidirectional sync to a hosted Obsidian vault. **Slated for removal in a future release** — vault sync will become user-provided. |
 
