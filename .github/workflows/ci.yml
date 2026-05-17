@@ -81,9 +81,21 @@ jobs:
         run: pytest tests/test_*.py -v
 
   bun-tests:
-    name: Memex Bun tests
-    runs-on: ubuntu-latest
+    # Production target is t4g.medium (arm64). Local devs are usually
+    # on amd64. Run the bun suite on both so an arm64-only Bun runtime
+    # regression — or a transitive native module that has no arm64
+    # wheel — fails CI before it can quietly break the EC2 deploy.
+    name: Memex Bun tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     defaults:
       run:
         working-directory: deploy/memex

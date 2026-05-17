@@ -488,6 +488,49 @@ def test_state_save_uses_pid_scoped_tmp(bridge_module, tmp_path):
     assert s.load() == 123
 
 
+# ---------------------------------------------------------------------------
+# Defence-in-depth: Bedrock request body must NEVER be passed as argv.
+# ---------------------------------------------------------------------------
+
+
+def test_bedrock_request_body_uses_fileb_not_argv(bridge_module):
+    """`aws bedrock-runtime invoke-model --body <prompt-json>` puts the
+    full prompt + retrieved notes into `/proc/<pid>/cmdline`. The bridge
+    must use `--body fileb://<path>` so argv only carries the path."""
+    src = Path(bridge_module.__file__).read_text()
+    # The argv builder lives inside `_bedrock_invoke_once`.
+    func_src = src.split("def _bedrock_invoke_once")[1].split("\ndef ")[0]
+    # Pin the argv shape: `--body` is followed by a literal fileb://
+    # f-string, never by raw payload JSON. Allow `json.dumps(payload)`
+    # elsewhere in the function (we still serialise once to the tmpfile).
+    assert '"--body",\n                f"fileb://{body_path}"' in func_src, (
+        "Bedrock invoke must pass `fileb://<body_path>` immediately "
+        "after `--body` so the prompt + notes never appear in argv"
+    )
+    # Conversely, make sure no earlier code path snuck a raw JSON
+    # body back into the argv list (regression guard).
+    assert (
+        '"--body",\n                json.dumps(payload)' not in func_src
+    ), (
+        "Bedrock argv must not pass `json.dumps(payload)` directly — "
+        "use the fileb:// tmpfile path instead"
+    )
+
+
+def test_bedrock_cleans_up_both_request_and_response_tmpfiles(
+    bridge_module, monkeypatch
+):
+    """Both the request body file and the response file must be
+    unlinked on every code path, including transient failures."""
+    src = Path(bridge_module.__file__).read_text()
+    func_src = src.split("def _bedrock_invoke_once")[1].split("\ndef ")[0]
+    # Look for the `finally:` cleanup that iterates over both paths.
+    assert "for p in (body_path, out_path):" in func_src, (
+        "Cleanup loop must unlink both the request body and the response "
+        "tmpfiles — leftovers in /tmp leak prompts to anyone who can read it"
+    )
+
+
 def test_allowed_chat_gets_routed_reply(bridge_module, monkeypatch, tmp_path):
     cfg = _make_config(bridge_module, monkeypatch, tmp_path)
     fake = _FakeClient()

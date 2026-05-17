@@ -417,13 +417,29 @@ def _bedrock_invoke_once(
     """Single Bedrock Converse invocation. Returns `(text, is_transient)`
     so the retry decision is local state rather than a function attribute
     (which would not be thread-safe if `serve()` is ever wrapped in a
-    pool)."""
-    # `tempfile.mkstemp` gives a unique path per call. The previous
-    # fixed `/tmp/memex-bridge-bedrock-out.json` would race if any
-    # concurrency were introduced (replicas, threads) and was a
-    # symlink-attack target on a shared `/tmp`.
-    fd, out_path = tempfile.mkstemp(prefix="memex-bedrock-", suffix=".json", dir="/tmp")
-    os.close(fd)
+    pool).
+
+    Both the request body and the response body live in `mkstemp`'d
+    files. The previous design passed the request JSON via `--body
+    <prompt>` argv, which briefly exposed operator queries + retrieved
+    notes in `/proc/<pid>/cmdline` to any uid on the host. Today the
+    bridge runs single-tenant non-root, but `fileb://` removes the
+    exposure under future co-tenancy or sidecar adjacency.
+    """
+    # Request body — argv only carries the path, not the prompt itself.
+    body_fd, body_path = tempfile.mkstemp(
+        prefix="memex-bedrock-in-", suffix=".json", dir="/tmp"
+    )
+    try:
+        os.write(body_fd, json.dumps(payload).encode("utf-8"))
+    finally:
+        os.close(body_fd)
+    # Response body — `aws bedrock-runtime invoke-model` writes to a
+    # caller-supplied path, not stdout, so we hand it a unique target.
+    out_fd, out_path = tempfile.mkstemp(
+        prefix="memex-bedrock-out-", suffix=".json", dir="/tmp"
+    )
+    os.close(out_fd)
     try:
         proc = subprocess.run(
             [
@@ -441,7 +457,7 @@ def _bedrock_invoke_once(
                 "--cli-binary-format",
                 "raw-in-base64-out",
                 "--body",
-                json.dumps(payload),
+                f"fileb://{body_path}",
                 out_path,
             ],
             capture_output=True,
@@ -463,10 +479,11 @@ def _bedrock_invoke_once(
         LOG.warning("bedrock invoke error: %s", e)
         return None, False
     finally:
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
+        for p in (body_path, out_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
     try:
         parts = raw["output"]["message"]["content"]
         text = "".join(p.get("text", "") for p in parts).strip()
