@@ -63,30 +63,30 @@ stays in your AWS account.
                           cloudflared (sidecar)
                                    |
        +------- docker-compose internal bridge -------+
-       |          |               |                   |
-     memex    openclaw      obsidian-sync           ...
        |          |               |
-       |     Bedrock Nova    Obsidian Sync
-       |     Bedrock Titan   (encrypted vault)
+     memex    openclaw      telegram-bridge
+       |          |               |
+       |     Bedrock Nova    Telegram getUpdates
+       |     Bedrock Titan   (long-poll, allowlist)
        |          |
   RDS Postgres   Home Assistant + Google Calendar (helpers)
    + pgvector
        |
-      EFS  (Obsidian vault, runtime state, soul templates)
+      EFS  (container runtime state only — no content)
 ```
 
 Inside the box:
 
 - **memex** — the knowledge brain. Bun + TypeScript runtime, Postgres
-  16 + pgvector, MCP JSON-RPC transport, 6-phase nightly maintenance
-  cycle, graph-only code chunkers for TS / Python.
-- **openclaw** — the chat surface. Telegram + web UI, fronted by
-  Cloudflare Tunnel.
+  16 + pgvector, MCP JSON-RPC transport, multi-phase nightly
+  maintenance cycle, graph-only code chunkers for TS / Python.
+- **openclaw** — the chat surface. Web UI fronted by Cloudflare
+  Tunnel; Telegram input arrives via the `telegram-bridge` HTTP
+  forward.
+- **telegram-bridge** — standalone two-way Telegram surface.
+  Long-polls the Bot API, allowlists by chat id, posts replies.
 - **cloudflared** — public HTTPS ingress without exposing any EC2
   ports.
-- **obsidian-sync** *(deprecated)* — interim bidirectional Obsidian
-  vault sync. Slated for removal once vault sync becomes
-  user-provided (native Obsidian Sync, git-based sync, etc.).
 
 Deep dives: [`ARCHITECTURE.md`](./ARCHITECTURE.md) and the per-subsystem
 docs under `deploy/<subsystem>/docs/`.
@@ -140,9 +140,9 @@ Connecting Claude Code to the MCP server:
 | Subsystem | Path | Docs |
 |---|---|---|
 | **memex** — knowledge brain (search, index, MCP) | `deploy/memex/` | `deploy/memex/docs/` |
-| **openclaw** — chat agent (Telegram + web) | `deploy/openclaw/` | `deploy/openclaw/docs/` |
+| **openclaw** — chat agent (web UI) | `deploy/openclaw/` | `deploy/openclaw/docs/` |
+| **telegram-bridge** — two-way Telegram surface | `deploy/telegram-bridge/` | `deploy/telegram-bridge/README.md` |
 | **cloudflared** — public ingress sidecar | `deploy/cloudflared/` | `deploy/cloudflared/docs/` |
-| **obsidian-sync** — vault sync sidecar *(deprecated)* | `deploy/obsidian-sync/` | `deploy/obsidian-sync/docs/` |
 | **secrets** — AWS Secrets Manager fetch | `deploy/secrets/` | `deploy/secrets/README.md` |
 | **bootstrap.sh** — EC2 first-boot script | `scripts/bootstrap.sh` | inline |
 | **terraform** — all AWS infra | `terraform/` | inline |

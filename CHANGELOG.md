@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+- **`obsidian-sync` container deleted.** Source tree
+  (`deploy/obsidian-sync/`), compose service block, terraform
+  secret (`<secrets_prefix>/obsidian-sync`), docker test class,
+  the `obsidian` helper CLI, and the `deploy/skills/obsidian.md`
+  skill file all gone. memex storage is being redesigned to be
+  database-canonical (Postgres rows as the source of truth, not
+  filesystem files); the bidirectional-Obsidian-sync sidecar no
+  longer fits that direction. The legacy filesystem-watch recipe
+  (`deploy/memex/src/recipes/obsidian.ts`) is kept in source for
+  now and disabled by default (`MEMEX_VAULT_PATHS=/memory`, no
+  external vault mount) — it will be replaced or removed in the
+  next iteration's schema migration.
+- `${EFS_MOUNT}/vault:` bind mounts removed from the `memex` and
+  `openclaw` service definitions in `deploy/docker-compose.yml`.
+  EFS now carries only container runtime state (workspace, cron,
+  devices, recipe-state, telegram-bridge state).
+
+### Changed
+- ARCHITECTURE.md, README.md, AGENTS.md updated to reflect the
+  four-container topology (`memex` + `openclaw` + `telegram-bridge`
+  + `cloudflared`).
+
 ## [1.1.0] — 2026-05-17
 
 ### Added

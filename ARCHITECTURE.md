@@ -14,16 +14,16 @@
               telegram-bridge              cloudflared (sidecar)
                        │                        │
             ┌────── docker-compose internal bridge ──────┐
-            │            │              │                 │
-        memex     openclaw     obsidian-sync          ...
             │            │              │
-            │   ┌────────┴─────┐        │
-            │   │              │        │
-            │  Bedrock        Helpers   Obsidian Sync
-            │  (Nova + Titan) (HA, gcal) (encrypted vault)
+        memex     openclaw                  ...
+            │            │
+            │   ┌────────┴─────┐
+            │   │              │
+            │  Bedrock        Helpers
+            │  (Nova + Titan) (HA, gcal, gmail)
             │
-       RDS Postgres            EFS (Obsidian vault, runtime state,
-       + pgvector              soul templates)
+       RDS Postgres            EFS (container runtime state:
+       + pgvector              workspace, cron, devices, recipe-state)
             │
         AWS Secrets Manager
 ```
@@ -40,7 +40,6 @@ external message broker — the whole runtime fits in `t4g.medium`.
 | `openclaw`   | built from `deploy/openclaw/` (npm `openclaw@2026.4.29` on Alpine) | Chat agent: web UI gateway, cron scheduler, skill execution. Telegram channel disabled by default (`OPENCLAW_TELEGRAM_DISABLED=1`) so the bridge owns the bot's long-poll cleanly. |
 | `telegram-bridge` | built from `deploy/telegram-bridge/` (Python 3 stdlib + aws-cli on Alpine) | Always-on two-way Telegram surface. Long-polls the Bot API, routes slash-commands (`/today`, `/week`, `/weather`, `/search`, …) to the `gcal` / `ha` helpers, and answers free text with a RAG pipeline (`memex /search` → Bedrock Nova Lite). Keeps the bot replying even when `openclaw` is restarting or stuck on a paired-device approval. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel) for `<subdomain>.<domain>` and `brain.<domain>` |
-| `obsidian-sync` *(deprecated)* | built from `deploy/obsidian-sync/` (Alpine + headless Obsidian) | Bidirectional sync to a hosted Obsidian vault. **Slated for removal in a future release** — vault sync will become user-provided. |
 
 Inter-container ports are not exposed to the host. `cloudflared` reaches
 the openclaw gateway over the compose `internal` bridge network on
@@ -98,13 +97,11 @@ unit references a script that exists in the repo.
 
 ```
 /mnt/<project>-efs/<project>/      # EFS mount on the EC2 host
-├── vault/                          # Obsidian vault (mounted by obsidian-sync)
-│   └── <write-allowed-root>/       # operator-chosen write subtree (journal/memory/inbox)
 ├── memex/                          # memex runtime config + soul templates
-├── workspace/                      # openclaw session memory
+├── workspace/                      # openclaw session memory + .gateway-token
 ├── tasks/, agents/, flows/, cron/  # openclaw runtime state
-├── credentials/                    # device pairings + tokens
-└── .obsidian-headless-config/      # headless Obsidian state (survives container)
+├── telegram-bridge/                # bridge state.json (last_update_id)
+└── credentials/                    # device pairings + tokens
 
 /opt/<project>/                     # repo checkout (cloned by bootstrap.sh)
 ├── .env                            # rendered by bootstrap.sh on every boot
@@ -123,7 +120,6 @@ source. `scripts/bootstrap.sh` keeps it in sync on every boot.
 |---|---|---|
 | `telegram-bot-token` | openclaw | Manual: `aws secretsmanager put-secret-value` after creation. |
 | `home-assistant-token` | helpers | Manual. |
-| `obsidian-sync` | obsidian-sync | Manual JSON: `{email,password,totp_secret?}`. |
 | `cloudflared-tunnel-token` | cloudflared | Manual; from Cloudflare Zero Trust dashboard. |
 | `google-calendar` | openclaw helper | Manual; written by `scripts/gcal-oauth-bootstrap.py`. |
 | `gateway-token` | openclaw | Manual; `openssl rand -hex 32`. |

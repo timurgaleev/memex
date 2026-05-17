@@ -15,7 +15,6 @@ DOCKERFILES = {
     "memex": DEPLOY / "memex" / "Dockerfile",
     "openclaw": DEPLOY / "openclaw" / "Dockerfile",
     "telegram-bridge": DEPLOY / "telegram-bridge" / "Dockerfile",
-    "obsidian-sync": DEPLOY / "obsidian-sync" / "Dockerfile",
 }
 
 
@@ -34,10 +33,6 @@ def test_memex_dockerfile_exists():
 
 def test_openclaw_dockerfile_exists():
     assert DOCKERFILES["openclaw"].exists()
-
-
-def test_obsidian_sync_dockerfile_exists():
-    assert DOCKERFILES["obsidian-sync"].exists()
 
 
 def test_cloudflared_no_dockerfile():
@@ -191,40 +186,6 @@ class TestTelegramBridgeDockerfile:
 
 
 # ---------------------------------------------------------------------------
-# obsidian-sync Dockerfile
-# ---------------------------------------------------------------------------
-
-class TestObsidianSyncDockerfile:
-    @pytest.fixture(autouse=True)
-    def content(self):
-        self._text = _read(DOCKERFILES["obsidian-sync"])
-
-    def test_from_pinned_tag(self):
-        from_lines = [l for l in self._text.splitlines() if l.strip().upper().startswith("FROM")]
-        assert from_lines
-        assert ":latest" not in from_lines[0], (
-            "obsidian-sync FROM must use a pinned tag"
-        )
-
-    def test_obsidian_headless_installed(self):
-        assert "obsidian-headless" in self._text, (
-            "obsidian-sync Dockerfile must install obsidian-headless"
-        )
-
-    def test_obsidian_headless_pinned(self):
-        # Must not install @latest
-        assert "obsidian-headless@latest" not in self._text, (
-            "obsidian-headless must be pinned, not @latest"
-        )
-
-    def test_entrypoint_declared(self):
-        assert "ENTRYPOINT" in self._text
-
-    def test_entrypoint_script_referenced(self):
-        assert "entrypoint.sh" in self._text
-
-
-# ---------------------------------------------------------------------------
 # Helper scripts
 # ---------------------------------------------------------------------------
 
@@ -239,20 +200,10 @@ class TestHelperScripts:
         assert p.exists(), "deploy/openclaw/helpers/ha must exist"
         assert p.stat().st_mode & 0o111, "ha must be executable"
 
-    def test_obsidian_exists_and_executable(self):
-        p = DEPLOY / "openclaw" / "helpers" / "obsidian"
-        assert p.exists(), "deploy/openclaw/helpers/obsidian must exist"
-        assert p.stat().st_mode & 0o111, "obsidian must be executable"
-
     def test_gcal_has_python_shebang(self):
         p = DEPLOY / "openclaw" / "helpers" / "gcal"
         first_line = p.read_text().splitlines()[0]
         assert "python" in first_line, f"gcal must have a Python shebang, got: {first_line}"
-
-    def test_obsidian_has_python_shebang(self):
-        p = DEPLOY / "openclaw" / "helpers" / "obsidian"
-        first_line = p.read_text().splitlines()[0]
-        assert "python" in first_line, f"obsidian must have a Python shebang, got: {first_line}"
 
     def test_ha_has_bash_shebang(self):
         p = DEPLOY / "openclaw" / "helpers" / "ha"
@@ -292,20 +243,6 @@ class TestEntrypointScripts:
             "openclaw entrypoint.sh BRAIN_URL must point at memex:18790"
         )
 
-    def test_obsidian_sync_entrypoint_exists_and_executable(self):
-        p = DEPLOY / "obsidian-sync" / "entrypoint.sh"
-        assert p.exists(), "deploy/obsidian-sync/entrypoint.sh must exist"
-        assert p.stat().st_mode & 0o111, "obsidian-sync entrypoint.sh must be executable"
-
-    def test_obsidian_sync_entrypoint_runs_ob_sync(self):
-        p = DEPLOY / "obsidian-sync" / "entrypoint.sh"
-        text = p.read_text()
-        assert "ob sync" in text, (
-            "obsidian-sync entrypoint.sh must call 'ob sync'"
-        )
-        assert "--continuous" in text, (
-            "obsidian-sync entrypoint.sh ob sync must use --continuous flag"
-        )
 
 
 # ---------------------------------------------------------------------------

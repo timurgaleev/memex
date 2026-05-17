@@ -143,19 +143,6 @@ future release once the chat-agent pairing model is stable.
   queries. Switch to `--body fileb://<mkstemp-path>` for full
   defence-in-depth.
 
-## Planned removals
-
-- **`obsidian-sync` container** — slated for removal in a future
-  release. Vault sync will become user-provided (native Obsidian
-  Sync, git-based sync, or any other mechanism that writes into the
-  EFS-mounted vault path). When this lands: delete
-  `deploy/obsidian-sync/`, drop the service from
-  `docker-compose.yml`, remove the related Secrets Manager entry
-  (`<secrets_prefix>/obsidian-sync`) from `terraform/secrets.tf`, and
-  document the migration path for existing deployers.
-
----
-
 ## OSS scaffold polish
 
 - Multi-arch CI matrix (amd64 + arm64) — currently arm64-only because

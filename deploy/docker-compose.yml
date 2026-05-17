@@ -27,9 +27,6 @@ services:
       # rebuilds. The actual index sits in RDS Postgres (URL injected
       # via MEMEX_POSTGRES_URL env from .secrets/memex.env).
       - ${EFS_MOUNT}/memex:/home/bun/.memex
-      # Read-only access to the Obsidian vault — the recipe sweeper
-      # walks it on startup and chokidar watches for live changes.
-      - ${EFS_MOUNT}/vault:/vault:ro
       # Read-only access to openclaw's persistent session memory so the
       # agent can search "what we discussed" across past sessions.
       - ${EFS_MOUNT}/workspace/memory:/memory:ro
@@ -47,9 +44,12 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-default}
       - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
       - HOME=/home/bun
-      # Comma-separated list of paths to index (vault + openclaw memory).
-      # Throttling knobs apply to the initial sweep across all paths.
-      - MEMEX_VAULT_PATHS=/vault,/memory
+      # Filesystem-watch recipes are paused for the DB-canonical
+      # redesign (see ~/.claude memory: memex-master-plan.md Phase 0).
+      # The `openclaw memory` mount above stays read-only for the
+      # session-history search recipe — that's runtime state, not a
+      # primary content store.
+      - MEMEX_VAULT_PATHS=/memory
       - MEMEX_SWEEP_DELAY_MS=50
       - MEMEX_SWEEP_MAX_FILES=1000
       # Code chunkers: graph-only call/def/ref index over the stack
@@ -109,7 +109,6 @@ services:
       - ${EFS_MOUNT}/media:/home/openclaw/.openclaw/media
       - ${EFS_MOUNT}/workspace:/home/openclaw/.openclaw/workspace
       - ${EFS_MOUNT}/skills:/home/openclaw/.openclaw/skills:ro
-      - ${EFS_MOUNT}/vault:${EFS_MOUNT}/vault
       # AWS CLI config (region + credential_source = Ec2InstanceMetadata).
       # Credentials themselves come via IMDSv2 from the EC2 IAM role.
       - /home/ec2-user/.aws:/home/openclaw/.aws:ro
@@ -241,24 +240,6 @@ services:
     depends_on:
       openclaw:
         condition: service_healthy
-
-  obsidian-sync:
-    build:
-      context: ./obsidian-sync
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    volumes:
-      - ${EFS_MOUNT}/vault:/vault
-      - ${EFS_MOUNT}/.obsidian-headless-config:/root/.config/obsidian-headless
-      - ${REPO_DIR:-/opt/memex}/deploy/.secrets:/run/secrets:ro
-    environment:
-      - XDG_CONFIG_HOME=/root/.config
-    networks:
-      - internal
 
 networks:
   internal:

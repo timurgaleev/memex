@@ -16,7 +16,6 @@ EXPECTED_SERVICES = {
     "openclaw",
     "telegram-bridge",
     "cloudflared",
-    "obsidian-sync",
 }
 
 
@@ -158,12 +157,6 @@ def test_openclaw_build_context(compose):
     svc = compose["services"]["openclaw"]
     assert "build" in svc, "openclaw must declare a build: block"
     assert svc["build"]["context"] == "./openclaw"
-
-
-def test_obsidian_sync_build_context(compose):
-    svc = compose["services"]["obsidian-sync"]
-    assert "build" in svc, "obsidian-sync must declare a build: block"
-    assert svc["build"]["context"] == "./obsidian-sync"
 
 
 def test_telegram_bridge_build_context_covers_helpers(compose):

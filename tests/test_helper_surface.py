@@ -19,9 +19,8 @@ REPO = Path(__file__).resolve().parent.parent
 HELPERS = REPO / "deploy" / "openclaw" / "helpers"
 
 SECRET_HELPERS = ("gcal", "ha")
-# `memex` is HTTP-only (no Secrets Manager). `obsidian` reads only the
-# vault path via OBSIDIAN_VAULT — also no Secrets Manager.
-NO_SECRET_HELPERS = ("memex", "obsidian")
+# `memex` is HTTP-only (no Secrets Manager).
+NO_SECRET_HELPERS = ("memex",)
 
 
 def _read(name: str) -> str:
@@ -106,22 +105,7 @@ def test_memex_helper_supports_search_index_health() -> None:
         assert cmd in text, f"memex helper missing `{cmd}` subcommand"
 
 
-def test_obsidian_helper_supports_documented_subcommands() -> None:
-    text = _read("obsidian")
-    for cmd in ("read", "write", "append", "search", "list", "journal-today"):
-        assert cmd in text, f"obsidian helper missing `{cmd}` subcommand"
-
-
 def test_ha_helper_supports_documented_subcommands() -> None:
     text = _read("ha")
     for cmd in ("states", "get", "call", "history"):
         assert cmd in text, f"ha helper missing `{cmd}` subcommand"
-
-
-def test_obsidian_helper_uses_project_path_placeholder() -> None:
-    """Obsidian helper defaults to /mnt/<project>-efs/<project>/vault via
-    STACK_PROJECT env. Hardcoded `memex` or `openclaw` would break forks."""
-    text = _read("obsidian")
-    assert "STACK_PROJECT" in text, (
-        "obsidian helper must resolve vault path via STACK_PROJECT env var"
-    )

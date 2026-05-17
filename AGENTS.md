@@ -26,9 +26,9 @@ The simplest "does my change build" check uses Docker locally (matches the EC2 a
 
 ```bash
 cd deploy
-docker compose build memex      # ~30s on warm cache
-docker compose build openclaw      # ~90s (npm openclaw + aws-cli + git)
-docker compose build obsidian-sync # ~40s
+docker compose build memex            # ~30s on warm cache
+docker compose build openclaw         # ~90s (npm openclaw + aws-cli + git)
+docker compose build telegram-bridge  # ~25s
 ```
 
 Full local up requires the secrets — they're gitignored and only fetched on the EC2. Don't try to bring up the stack on your laptop; smoke-test on EC2.

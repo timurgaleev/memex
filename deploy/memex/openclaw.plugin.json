@@ -8,7 +8,7 @@
     "vault_paths": {
       "type": "array",
       "required": false,
-      "description": "Filesystem paths to index (Obsidian vault, openclaw memory, etc). Defaults read from ~/.memex/memex.yml or MEMEX_VAULT_PATHS env."
+      "description": "Filesystem paths the legacy sweep recipe may scan (e.g. /memory for openclaw session history). The DB-canonical redesign treats memex's Postgres store as the source of truth; this option will move to a per-recipe config in a future release."
     },
     "bedrock_region": {
       "type": "string",
@@ -37,7 +37,6 @@
     "skills/frontmatter-guard",
     "skills/homeassistant",
     "skills/idea-capture",
-    "skills/obsidian",
     "skills/signal-detect"
   ],
   "shared_deps": [],
