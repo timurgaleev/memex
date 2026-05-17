@@ -89,6 +89,20 @@ future release once the chat-agent pairing model is stable.
   `secretsmanager put-secret-value`, then SSM the EC2 and run
   `bash /opt/memex/deploy/secrets/fetch-secrets.sh && docker
   compose --env-file .env -f /opt/memex/deploy/docker-compose.yml restart memex`.
+  **Gotcha:** the password is interpolated into a URL in the
+  `memex/memex-postgres-url` secret. RDS accepts any printable ASCII
+  except `/`, `"`, `@`, space, but the postgres URL parser inside
+  the memex container additionally requires `?`, `#`, `&`, `:`, `=`,
+  `+`, `%` to be percent-encoded. The safe pattern:
+  ```bash
+  RAW=$(aws secretsmanager get-random-password \
+    --password-length 32 \
+    --exclude-characters '/"@ $`'"'"'?#&:=+%' \
+    --region eu-west-1 --query RandomPassword --output text)
+  ```
+  (or URL-encode the raw value via
+  `python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''),end='')" "$RAW"`
+  before assembling the URL).
 - **Approve openclaw gateway scope** for the chat-CLI. The standalone
   systemd `memex-morning-briefing.timer` now delivers the daily
   briefing without needing this approval, so it's no longer blocking
