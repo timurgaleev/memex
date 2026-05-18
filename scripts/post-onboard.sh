@@ -58,9 +58,20 @@ models.setdefault('providers', {})['amazon-bedrock'] = {
     "api": "bedrock-converse-stream",
     "auth": "aws-sdk",
     "models": [
-        # nova-2-lite is PRIMARY — no thinking blocks, correct session replay behavior
+        # claude-haiku-4-5 is PRIMARY — strongest instruction-following on the
+        # credit-or-cash boundary; NOT credit-eligible, costs real $ per turn.
+        # Picked because Nova 2 Lite's weak instruction-following was producing
+        # confused chat output (greeting -> dumps notes; "weather" -> meta-
+        # commentary). Cap is `thinkingDefault: off` from config.template.json
+        # so Claude's extended-thinking blocks don't enter session history.
+        {"id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "name": "Claude Haiku 4.5", "input": ["text","image"], "contextWindow": 200000, "maxTokens": 8192},
+        # nova-2-lite is FALLBACK — credit-eligible, no thinking blocks, safe
+        # for session replay. Used when Haiku is unavailable / rate-limited.
         {"id": "global.amazon.nova-2-lite-v1:0", "name": "Nova 2 Lite", "input": ["text","image"], "contextWindow": 200000, "maxTokens": 8192},
-        # nova-pro is FALLBACK only — generates thinking blocks that corrupt openclaw session history
+        # nova-pro / lite / micro stay in the picker so the operator can A/B
+        # back to them from the openclaw UI without redeploying. Nova Pro
+        # generates thinking blocks that corrupt session history -- do not
+        # promote it to primary.
         {"id": "eu.amazon.nova-pro-v1:0",         "name": "Nova Pro",   "input": ["text","image"], "contextWindow": 200000, "maxTokens": 8192},
         {"id": "eu.amazon.nova-lite-v1:0",         "name": "Nova Lite",  "input": ["text","image"], "contextWindow": 300000, "maxTokens": 5120},
         {"id": "eu.amazon.nova-micro-v1:0",        "name": "Nova Micro", "input": ["text"],         "contextWindow": 128000, "maxTokens": 5120},
@@ -68,15 +79,17 @@ models.setdefault('providers', {})['amazon-bedrock'] = {
 }
 
 agents = cfg.setdefault('agents', {}).setdefault('defaults', {})
-# IMPORTANT: nova-2-lite must be primary. Nova Pro generates thinking blocks that
-# cause "User messages cannot contain reasoning content" errors in openclaw.
+# Haiku 4.5 primary, Nova 2 Lite fallback. Both are safe for session replay
+# because `thinkingDefault: off` (set in the seed config) stops the runtime
+# from requesting extended-thinking blocks the agent loop can't replay.
 agents['model'] = {
-    'primary': 'amazon-bedrock/global.amazon.nova-2-lite-v1:0',
-    'fallbacks': ['amazon-bedrock/eu.amazon.nova-pro-v1:0']
+    'primary': 'amazon-bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0',
+    'fallbacks': ['amazon-bedrock/global.amazon.nova-2-lite-v1:0']
 }
 agents.pop('thinkingDefault', None)
-# Restrict model picker — only 4 models shown, not the full Bedrock catalog
+# Restrict model picker — 5 models shown, not the full Bedrock catalog
 agents['models'] = {
+    'amazon-bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0': {},
     'amazon-bedrock/global.amazon.nova-2-lite-v1:0': {},
     'amazon-bedrock/eu.amazon.nova-pro-v1:0': {},
     'amazon-bedrock/eu.amazon.nova-lite-v1:0': {},
@@ -85,7 +98,7 @@ agents['models'] = {
 
 with open(cfg_path, 'w') as f:
     json.dump(cfg, f, indent=2)
-print('Model provider configured: global.amazon.nova-2-lite-v1:0 (primary), eu.amazon.nova-pro-v1:0 (fallback)')
+print('Model provider configured: eu.anthropic.claude-haiku-4-5-20251001-v1:0 (primary), global.amazon.nova-2-lite-v1:0 (fallback)')
 PYEOF
 
 echo "Active models:"
