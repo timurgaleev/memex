@@ -49,6 +49,8 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
   "/pages/put",
   "/pages/append",
   "/pages/delete",
+  "/graph/link",
+  "/graph/unlink",
 ]);
 
 const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
@@ -57,6 +59,8 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "page_put",
   "page_append",
   "page_delete",
+  "link",
+  "unlink",
 ]);
 
 /**

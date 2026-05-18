@@ -33,6 +33,12 @@ import {
   handlePageVersions,
 } from "./pages_route.ts";
 import {
+  handleGraphLink,
+  handleGraphUnlink,
+  handleGraphNeighbors,
+  handleGraphQuery,
+} from "./graph_route.ts";
+import {
   evaluatePublicGuard,
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
@@ -223,6 +229,47 @@ export function startServer(opts: ServerOptions): ServerHandle {
       }
       if (url.pathname === "/pages/versions" && req.method === "GET") {
         return handlePageVersions(opts.storage, url, guard.isPublic);
+      }
+      // ---------------------------------------------------------------
+      // Graph (typed page-to-page links) — same auth model as /pages.
+      // ---------------------------------------------------------------
+      if (url.pathname === "/graph/link" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/graph/link is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleGraphLink(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/graph/unlink" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/graph/unlink is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleGraphUnlink(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/graph/neighbors" && req.method === "POST") {
+        return handleGraphNeighbors(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/graph/query" && req.method === "POST") {
+        return handleGraphQuery(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         return mcpHandler(req, { isPublic: guard.isPublic });

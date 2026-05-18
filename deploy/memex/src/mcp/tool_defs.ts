@@ -220,4 +220,99 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       additionalProperties: false,
     },
   },
+  // -------------------------------------------------------------------
+  // Graph tools — page-to-page typed relationships (migration 016).
+  // Writes (link, unlink) are in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC.
+  // Reads (graph_neighbors, graph_query) are open under public bearer.
+  // -------------------------------------------------------------------
+  {
+    name: "link",
+    description:
+      "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source_slug: {
+          type: "string",
+          description:
+            "The source page slug. Must reference an existing page (FK constraint).",
+        },
+        target_slug: {
+          type: "string",
+          description:
+            "The target slug (soft reference; the page may or may not yet exist). Loose names like `Alice Smith` are normalised to `alice-smith`.",
+        },
+        type: {
+          type: "string",
+          description:
+            "One of: wikilink, mentions, works_at, attended, founded, advises, invested_in, knows, met, located_at, related_to, supersedes, contradicts. Pass allowAdHocType=true to accept other types.",
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "0..1, default 1.0 for agent-asserted edges. Use <1.0 only for deterministic-extractor outputs whose surface form was ambiguous.",
+        },
+        source_chunk_id: { type: "string" },
+        allowAdHocType: { type: "boolean" },
+      },
+      required: ["source_slug", "target_slug", "type"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "unlink",
+    description:
+      "Remove a typed link. Idempotent — returns removed=0 if no row matched. WRITE — internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source_slug: { type: "string" },
+        target_slug: { type: "string" },
+        type: { type: "string" },
+      },
+      required: ["source_slug", "target_slug", "type"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "graph_neighbors",
+    description:
+      "All links touching `slug` (outbound, inbound, or both), newest-first. Optional `type` filter. Returns the link rows with a per-row `direction` annotation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        type: {
+          type: "string",
+          description: "Filter to a single link type.",
+        },
+        direction: {
+          type: "string",
+          enum: ["outbound", "inbound", "both"],
+          description: "Default `both`.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "graph_query",
+    description:
+      "Typed-relationship query. Requires `type` plus at least one of `source_slug` or `target_slug`. Examples: { type:'works_at', source_slug:'people/alice' } → companies Alice works at; { type:'works_at', target_slug:'companies/acme' } → people who work at Acme.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string" },
+        source_slug: { type: "string" },
+        target_slug: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      required: ["type"],
+      additionalProperties: false,
+    },
+  },
 ];

@@ -34,6 +34,7 @@ import {
   type AppendInput,
   type ListPagesOptions,
 } from "../core/pages.ts";
+import { syncWikilinksForPage } from "../core/links.ts";
 
 const PUBLIC_SAFE_PAGE_FIELDS = new Set([
   "slug",
@@ -101,6 +102,18 @@ export async function handlePagePut(
   }
   try {
     const result = await putPage(storage, parsed.body);
+    if (result.changed) {
+      // Best-effort: keep the page's wikilink edges in sync with the
+      // body. If this throws after the page is already written, the
+      // page write stands and the graph is stale — both writes are
+      // idempotent so a retry (or a future dream-cycle reconcile pass)
+      // heals.
+      await syncWikilinksForPage(
+        storage,
+        result.slug,
+        parsed.body.markdown_body ?? "",
+      );
+    }
     return Response.json({ ok: true, ...result });
   } catch (e) {
     return errResponse(isPublic, e, 400);
@@ -132,6 +145,10 @@ export async function handlePageAppend(
   }
   try {
     const result = await appendPage(storage, parsed.body);
+    if (result.changed) {
+      const fresh = await getPage(storage, result.slug);
+      await syncWikilinksForPage(storage, result.slug, fresh?.markdown_body ?? "");
+    }
     return Response.json({ ok: true, ...result });
   } catch (e) {
     return errResponse(isPublic, e, 400);

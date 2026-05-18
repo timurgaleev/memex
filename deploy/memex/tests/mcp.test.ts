@@ -70,7 +70,10 @@ describe("MCP HTTP transport", () => {
     const names = r.result.tools.map((t: any) => t.name).sort();
     expect(names).toEqual([
       "backlinks",
+      "graph_neighbors",
+      "graph_query",
       "index",
+      "link",
       "log_friction",
       "page_append",
       "page_delete",
@@ -80,6 +83,7 @@ describe("MCP HTTP transport", () => {
       "page_versions",
       "search",
       "stats",
+      "unlink",
     ]);
   });
 

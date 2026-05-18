@@ -143,6 +143,11 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("page_delete")).toBe(true);
   });
 
+  it("blocks graph writes (link, unlink)", () => {
+    expect(isPublicMcpToolForbidden("link")).toBe(true);
+    expect(isPublicMcpToolForbidden("unlink")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
@@ -153,6 +158,11 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("page_get")).toBe(false);
     expect(isPublicMcpToolForbidden("page_list")).toBe(false);
     expect(isPublicMcpToolForbidden("page_versions")).toBe(false);
+  });
+
+  it("allows graph reads (graph_neighbors, graph_query)", () => {
+    expect(isPublicMcpToolForbidden("graph_neighbors")).toBe(false);
+    expect(isPublicMcpToolForbidden("graph_query")).toBe(false);
   });
 });
 

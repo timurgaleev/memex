@@ -31,6 +31,15 @@ import {
   pageVersions,
   type PageInput,
 } from "../core/pages.ts";
+import {
+  addLink,
+  removeLink,
+  graphNeighbors,
+  graphQuery,
+  syncWikilinksForPage,
+  type GraphNeighborsOptions,
+  type GraphQueryOptions,
+} from "../core/links.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -82,6 +91,14 @@ export async function dispatchTool(
         return await callPageList(storage, args);
       case "page_versions":
         return await callPageVersions(storage, args);
+      case "link":
+        return await callLink(storage, args);
+      case "unlink":
+        return await callUnlink(storage, args);
+      case "graph_neighbors":
+        return await callGraphNeighbors(storage, args);
+      case "graph_query":
+        return await callGraphQuery(storage, args);
       default:
         return errResult(`unknown tool: ${req.name}`);
     }
@@ -284,6 +301,9 @@ async function callPagePut(
   const input = asPageInput(args);
   if (typeof input === "string") return errResult(input);
   const r = await putPage(storage, input);
+  if (r.changed) {
+    await syncWikilinksForPage(storage, r.slug, input.markdown_body ?? "");
+  }
   return jsonResult({ ok: true, ...r });
 }
 
@@ -304,6 +324,10 @@ async function callPageAppend(
       ? { written_by: args["written_by"] }
       : {}),
   });
+  if (r.changed) {
+    const fresh = await getPage(storage, r.slug);
+    await syncWikilinksForPage(storage, r.slug, fresh?.markdown_body ?? "");
+  }
   return jsonResult({ ok: true, ...r });
 }
 
@@ -354,4 +378,93 @@ async function callPageVersions(
   const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
   const versions = await pageVersions(storage, args["slug"], limit);
   return jsonResult({ ok: true, versions });
+}
+
+// ---------------------------------------------------------------------------
+// Graph tools — typed page-to-page links. Writes (link, unlink) are
+// in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC; reads (graph_neighbors,
+// graph_query) are open under the public-bearer.
+// ---------------------------------------------------------------------------
+
+async function callLink(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["source_slug"] !== "string")
+    return errResult("link: `source_slug` is required");
+  if (typeof args["target_slug"] !== "string")
+    return errResult("link: `target_slug` is required");
+  if (typeof args["type"] !== "string")
+    return errResult("link: `type` is required");
+  const input: Parameters<typeof addLink>[1] = {
+    source_slug: args["source_slug"],
+    target_slug: args["target_slug"],
+    type: args["type"],
+  };
+  if (typeof args["confidence"] === "number")
+    input.confidence = args["confidence"];
+  if (typeof args["source_chunk_id"] === "string")
+    input.source_chunk_id = args["source_chunk_id"];
+  if (typeof args["allowAdHocType"] === "boolean")
+    input.allowAdHocType = args["allowAdHocType"];
+  const r = await addLink(storage, input);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callUnlink(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["source_slug"] !== "string")
+    return errResult("unlink: `source_slug` is required");
+  if (typeof args["target_slug"] !== "string")
+    return errResult("unlink: `target_slug` is required");
+  if (typeof args["type"] !== "string")
+    return errResult("unlink: `type` is required");
+  const r = await removeLink(storage, {
+    source_slug: args["source_slug"],
+    target_slug: args["target_slug"],
+    type: args["type"],
+  });
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callGraphNeighbors(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string")
+    return errResult("graph_neighbors: `slug` is required");
+  const opts: GraphNeighborsOptions = {};
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (
+    args["direction"] === "outbound" ||
+    args["direction"] === "inbound" ||
+    args["direction"] === "both"
+  )
+    opts.direction = args["direction"] as GraphNeighborsOptions["direction"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const links = await graphNeighbors(storage, args["slug"], opts);
+  return jsonResult({ ok: true, slug: args["slug"], links });
+}
+
+async function callGraphQuery(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["type"] !== "string")
+    return errResult("graph_query: `type` is required");
+  const opts: GraphQueryOptions = { type: args["type"] };
+  if (typeof args["source_slug"] === "string")
+    opts.source_slug = args["source_slug"];
+  if (typeof args["target_slug"] === "string")
+    opts.target_slug = args["target_slug"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (!opts.source_slug && !opts.target_slug) {
+    return errResult(
+      "graph_query: at least one of `source_slug` or `target_slug` is required",
+    );
+  }
+  const links = await graphQuery(storage, opts);
+  return jsonResult({ ok: true, links });
 }

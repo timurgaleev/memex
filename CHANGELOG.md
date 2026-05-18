@@ -7,6 +7,55 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Phase A.2 — typed page-to-page links + graph MCP surface.** New
+  migration `016_links_typed.sql` adds a `links` table keyed on
+  `(source_slug, target_slug, type)` with confidence + optional
+  source_chunk_id + write timestamp. Source has FK CASCADE on
+  `pages.slug`; target is a soft reference (slug text, page may not
+  yet exist). CHECK constraint pins `inferred_confidence` to `[0,1]`.
+  Three indices: source+type, target+type, type.
+- **`deploy/memex/src/core/links.ts`** — typed graph CRUD: `addLink`
+  (idempotent on the unique tuple — re-asserting just updates
+  confidence + chunk_id), `removeLink`, `graphNeighbors`
+  (outbound/inbound/both with optional type filter),
+  `graphQuery` (typed-relationship lookup; requires at least one of
+  `source_slug` / `target_slug` so the table can't be drained in
+  one call). `slugifyTarget` normalises loose names ("Alice Smith")
+  into strict slugs ("alice-smith") with `/` namespace preservation
+  and Unicode→ASCII collapse. `KNOWN_LINK_TYPES` catalogue: wikilink,
+  mentions, works_at, attended, founded, advises, invested_in,
+  knows, met, located_at, related_to, supersedes, contradicts.
+  Application-layer enforced — extensible via `allowAdHocType`.
+- **Deterministic `[[wikilink]]` extractor.** `extractWikilinks(body)`
+  returns the distinct surface forms (`[[Alice|alias]]` → "Alice").
+  `syncWikilinksForPage(slug, body)` replaces the wikilink-typed
+  outbound edge set for `slug` in a single transaction — never
+  touches other types and never touches edges from other sources.
+  Zero LLM calls.
+- **Auto-sync on page writes.** Both the HTTP `POST /pages/put` and
+  `POST /pages/append` routes (and their MCP counterparts) now call
+  `syncWikilinksForPage` after a successful changed write. Self-
+  healing: if the sync throws after the page row is committed, the
+  page write stands and a retry (or a future dream-cycle reconcile
+  pass) rebuilds the edges — both writes are idempotent.
+- **HTTP graph surface** (`deploy/memex/src/http/graph_route.ts`):
+  `POST /graph/link` and `POST /graph/unlink` (internal-only,
+  `MEMEX_INTERNAL_TOKEN`-gated), `POST /graph/neighbors` and
+  `POST /graph/query` (open under the public-bearer).
+- **MCP graph tools.** Four new tools: `link`, `unlink` (WRITE,
+  added to `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`), `graph_neighbors`,
+  `graph_query`. Total registered tool count rises from 11 → 15.
+- **Test coverage.** New bun suite `tests/links.test.ts` (50
+  assertions covering slugify rules, add/remove idempotency,
+  confidence range, direction-filtered neighbors, typed graphQuery,
+  wikilink extractor edge cases — pipes, dedup, malformed brackets,
+  empty body — and the post-write sync semantics: replaces stale
+  wikilink edges without touching other-typed or other-source
+  links). `tests/mcp.test.ts` updated for the 15-tool registered
+  surface. `tests/public_guard.test.ts` extended for the new
+  forbidden list (link, unlink blocked; graph_neighbors,
+  graph_query allowed).
+
 - **Phase A.1 — DB-canonical page store.** New migration
   `015_pages.sql` adds two tables: `pages` (slug PK, type, title,
   `compiled_truth` jsonb, `markdown_body`, content_hash,
