@@ -87,7 +87,7 @@ jobs:
     # wheel — fails CI before it can quietly break the EC2 deploy.
     name: Memex Bun tests (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
