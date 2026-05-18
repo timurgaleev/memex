@@ -170,6 +170,38 @@ future release once the chat-agent pairing model is stable.
   prevent entity-existence enumeration. Documented inline in
   `core/hot_memory.ts` and `core/subagent_ledger.ts` headers.
 
+- **openclaw Dockerfile lacks `USER` directive — runs as root
+  inside the container.** The memex and telegram-bridge containers
+  both drop to a non-root UID; openclaw's `deploy/openclaw/Dockerfile`
+  has no `USER` line, so its entrypoint runs as UID 0. The blast
+  radius is largely mitigated by `docker-compose.yml:88-90` which
+  already applies `cap_drop: ALL` + `security_opt:
+  no-new-privileges:true` — root-without-caps cannot escape the
+  container, install kernel modules, ptrace siblings, or break out
+  of mount namespaces. Residual concrete impact: in-container code
+  can write to writable EFS mounts as UID 0 (chmod/chown skew on
+  shared state with sibling containers that run as UID 10001). Fix
+  is a three-line Dockerfile patch:
+  ```
+  RUN addgroup -S openclaw -g 10001 && adduser -S -u 10001 -G openclaw openclaw \
+      && chown -R openclaw:openclaw /app /home/openclaw 2>/dev/null || true
+  USER openclaw
+  ```
+  Verify EFS mount UIDs match 10001 first; the other two containers
+  already use that UID so it should line up.
+
+- **CI: `hashicorp/setup-terraform@v4` is pinned to a moving tag,
+  not a commit SHA.** `.github/workflows/ci.yml:43`. If hashicorp's
+  GitHub org is ever compromised, an attacker re-tags `v4` to a
+  malicious commit and every CI run silently picks it up. Worst-case
+  impact is bounded: the terraform fmt/validate job has no secrets
+  passed to it, so the realised attack is forging green CI or
+  escalating via subsequent PRs (which need separate approval).
+  Optional defence-in-depth: pin to a 40-char SHA + Renovate/
+  Dependabot to refresh. Same applies to `actions/checkout@v6` and
+  `oven-sh/setup-bun@v2` but those are first-party / owner-canonical
+  publishers and thus lower risk.
+
 
 
 - **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
