@@ -48,7 +48,6 @@ output "secret_arns" {
   value = {
     telegram            = aws_secretsmanager_secret.telegram_bot_token.arn
     home_assistant      = aws_secretsmanager_secret.home_assistant_token.arn
-    obsidian_sync       = aws_secretsmanager_secret.obsidian_sync.arn
     cloudflared         = aws_secretsmanager_secret.cloudflared_tunnel_token.arn
     google_calendar     = aws_secretsmanager_secret.google_calendar.arn
     github_deploy_key   = var.use_ssh_deploy_key ? aws_secretsmanager_secret.github_deploy_key[0].arn : null
