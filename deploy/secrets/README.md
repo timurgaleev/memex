@@ -17,7 +17,6 @@ deploy/.secrets/
 ├── telegram-bot-token.txt    plain string (Telegram Bot API token)
 ├── home-assistant-token.txt  plain long-lived access token
 ├── google-calendar.json      { client_id, client_secret, refresh_token }
-├── obsidian-sync.json        { email, password, totp_secret, vault_id, encryption_password }
 ├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...
 └── memex.env                 MEMEX_POSTGRES_URL=...
 ```
@@ -38,7 +37,6 @@ The default prefix is `<var.secrets_prefix>` (configured in
 | `<prefix>/telegram-bot-token` | string | chat agent `botToken` |
 | `<prefix>/home-assistant-token` | string | `ha` helper |
 | `<prefix>/google-calendar` | JSON | `gcal` helper |
-| `<prefix>/obsidian-sync` | JSON | obsidian-sync container |
 | `<prefix>/cloudflared-tunnel-token` | string | cloudflared |
 | `<prefix>/memex-postgres-url` | string (URL) | memex |
 | `<prefix>/memex-public-bearer` | string | memex HTTP server |

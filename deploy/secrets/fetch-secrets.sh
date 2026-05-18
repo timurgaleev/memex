@@ -65,7 +65,6 @@ fetch_text "gateway-token" "gateway-token.txt"
 
 # JSON secrets — kept as JSON for jq consumption inside containers
 fetch_text "google-calendar" "google-calendar.json"
-fetch_text "obsidian-sync" "obsidian-sync.json"
 
 # Cloudflared tunnel token → .env format for compose env_file.
 TUNNEL_TOKEN=$(sm_text "cloudflared-tunnel-token")
