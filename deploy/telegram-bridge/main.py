@@ -735,7 +735,12 @@ class RefusalGate:
         self._lru: OrderedDict[int, None] = OrderedDict()
         self._lru_max = lru_max
         self._min_interval = min_interval_s
-        self._last_sent_at: float = 0.0
+        # `time.monotonic()` is seconds-since-an-unspecified-epoch,
+        # often boot time on Linux. A 0.0 sentinel makes the first
+        # refusal flake on a runner whose monotonic clock is still
+        # inside the `min_interval` window. -inf guarantees the
+        # first call is unconditionally past the rate gate.
+        self._last_sent_at: float = float("-inf")
 
     def should_refuse(self, chat_id: int) -> bool:
         if chat_id in self._lru:
@@ -759,7 +764,7 @@ class RefusalGate:
     # Test seam.
     def reset(self) -> None:
         self._lru.clear()
-        self._last_sent_at = 0.0
+        self._last_sent_at = float("-inf")
 
 
 _running = True
