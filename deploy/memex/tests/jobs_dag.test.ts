@@ -120,7 +120,7 @@ describe("fan-out", () => {
     await expect(
       submitJob(storage.engine(), {
         kind: "c",
-        parent_job_id: "00000000-0000-0000-0000-000000000000",
+        parent_job_id: "00000000-0000-0000-0000-deadbeefdead",
       }),
     ).rejects.toThrow(/does not exist/);
   });

@@ -7,6 +7,104 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Phase A.5 — hot_memory + subagent durable ledger (schema only).**
+  Lays the persistence rails for two future engines without exposing
+  any MCP surface today: the dream-cycle consolidate phase that
+  promotes short-term observations into `entity_facts`, and the
+  sub-agent runner that crash-recovers an in-flight LLM tool loop
+  from durable storage.
+
+  Schema (migration 020_hot_memory.sql):
+  * `hot_memory` -- short-term fact buffer with supersession.
+    Columns: `entity_slug` (soft ref, no FK so a fact can land
+    before the page does), `fact`, `effective_confidence REAL`
+    bounded by `CHECK [0, 1]`, `session_id`, `source_slug`,
+    `source_chunk_id`, `written_by`, `superseded_by BIGINT` (self
+    ref, ON DELETE SET NULL), `written_at`.
+  * Indexes: `(entity_slug, written_at DESC)` for the entity
+    timeline read; partial `(session_id) WHERE session_id IS NOT
+    NULL` for the per-session sweep; partial
+    `(entity_slug, effective_confidence DESC) WHERE superseded_by
+    IS NULL` -- the hot working set the consolidate phase reads.
+
+  Schema (migration 021_subagent_ledger.sql):
+  * `subagent_messages (id, job_id FK CASCADE, turn_num, role,
+    content jsonb, written_at)` with `UNIQUE(job_id, turn_num)`
+    so a worker retry replays the same INSERT idempotently and
+    the first one wins. `role` constrained to `user | assistant
+    | tool_result | system`.
+  * `subagent_tool_executions (id, job_id FK CASCADE, turn_num,
+    tool_name, input jsonb, output jsonb, status, error,
+    started_at, finished_at)` with `status` constrained to
+    `pending | succeeded | failed | skipped`. Supervisor inserts
+    a `pending` row BEFORE invoking the tool; on crash, the
+    resume sweep finds it via the partial index
+    `(started_at) WHERE status = 'pending'` and decides retry vs
+    skip.
+
+  Core modules (no MCP surface in A.5):
+  * `core/hot_memory.ts` -- `recordHotFact` (per-field length
+    bounds on `fact` (4000), `session_id` / `source_chunk_id` /
+    `written_by` (256) so the schema cannot accept multi-MB
+    free-text rows), `supersedeHotFact` (rejects self-supersede;
+    returns `{updated, superseded_by}` so the losing caller of a
+    concurrent supersede sees the actual winner's id and can
+    reconcile instead of retrying blindly), `listHotFacts`
+    (default `unsuperseded_only: true`; supports `session_id`
+    filter and `limit` 1-1000).
+  * `core/subagent_ledger.ts` -- `appendMessage` (ON CONFLICT DO
+    NOTHING on `(job_id, turn_num)` for replay-safe writes,
+    falling back to a SELECT to return the pre-existing id; now
+    THROWS if the SELECT also misses so callers never see a
+    bogus `id: -1`; `content` capped at ~1 MB pre-`JSON.stringify`),
+    `listMessages` (default LIMIT 1000, max 1000 -- prevents a
+    50k-turn job from returning the whole ledger),
+    `beginToolExecution` (writes the `pending` row; `tool_name`
+    capped at 256 chars; `input` capped at ~1 MB),
+    `finishToolExecution` (UPDATE guarded by `WHERE status =
+    'pending'` so a duplicate finish never rewrites a terminal
+    row; returns `{updated, current_status}` so the loser of a
+    concurrent succeeded/failed race can see which terminal
+    status actually stuck; `output` capped at ~1 MB; `error`
+    truncated to ~1 MB), `listToolExecutions` (default LIMIT
+    1000, max 1000).
+
+  Security note (TODO.md, to be enforced by the A.6 MCP layer):
+  `hot_memory.fact`, `subagent_messages.content`, and
+  `subagent_tool_executions.input/output/error` carry free-text
+  PII / OAuth-bearing tool inputs / model output. Future MCP
+  read tools MUST go in the WRITE-tools allowlist
+  (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`) so the public-bearer never
+  reaches them. Soft-ref `entity_slug` reads must return `404`
+  uniformly on miss to prevent entity-existence enumeration.
+  Crash-recovery sweeps for pending tool rows must bind to a
+  `supervisor_run_id`/`worker_id` and refuse cross-worker
+  retries -- otherwise an internal-token holder who writes a
+  pending row turns the next sweep into a stored-command
+  injection into the agent loop.
+
+  Tests:
+  * `tests/hot_memory.test.ts` -- 12 cases (insert + validation
+    of slug grammar, fact non-empty, confidence range, source_slug
+    grammar; supersede semantics including self-supersede rejection,
+    idempotency, and a third-party race in which the losing caller
+    reads back the winner's id via `superseded_by`; listHotFacts
+    unsuperseded_only default, session_id filter, confidence DESC
+    ordering).
+  * `tests/subagent_ledger.test.ts` -- 9 cases (validation of
+    job_id / turn_num / role; idempotent append on
+    `(job_id, turn_num)`; ordering; `pending -> succeeded`
+    lifecycle exposing `current_status`; refusal to finish a
+    non-pending row with the surviving `current_status` reported
+    back; rejection of `pending` as a finish status; CASCADE
+    delete on `jobs` row removal for both ledger tables).
+
+  Why schema-only: the consolidate behaviour for `hot_memory`
+  and the supervisor runner that fills `subagent_*` both belong
+  in later phases that will also ship their MCP surfaces. The
+  schema lands now so the migration log moves forward in a
+  single commit instead of fragmenting across later phases.
+
 - **Phase A.4 — jobs DAG (fan-out + fan-in + idempotent submit) +
   jobs_* MCP surface.** Lays down the durable async-work substrate
   for future recipe pipelines and dream-cycle phases.

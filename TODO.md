@@ -143,6 +143,33 @@ future release once the chat-agent pairing model is stable.
   switch the cancel txn to `SERIALIZABLE` isolation. PGLite supports
   `SERIALIZABLE` so we can prove it locally before shipping to RDS.
 
+- **A.5 ledger: future supervisor must bind pending tool rows to a
+  worker.** `subagent_tool_executions` records `status = 'pending'`
+  rows BEFORE the tool runs, so a crash-recovery sweep can pick
+  them up. The supervisor that lands in a future phase MUST bind
+  each pending row to a `supervisor_run_id`/`worker_id` and only
+  the originating worker may retry it; cross-worker pending rows
+  must be `skipped`, NOT re-executed. Without this, anyone who can
+  write a pending row (internal-token-gated today) causes the next
+  sweep to invoke the named `tool_name` with their forged `input`
+  -- a stored command injection into the agent loop. Flagged in
+  the doc comment of `beginToolExecution`.
+
+- **A.5 ledger: enforce internal-token-only when A.6 wires MCP.**
+  `subagent_messages.content` carries the raw Bedrock Converse
+  payload (system prompts, tool inputs with OAuth/Bearer tokens),
+  `subagent_tool_executions.input/output/error` carry arbitrary
+  tool payloads, `hot_memory.fact` is the unfiltered observation
+  stream keyed by predictable slugs (`people/<name>`). A.6's
+  forthcoming `subagent_messages`/`subagent_tool_executions`/
+  `hot_list` MCP tools MUST go in the WRITE-tools allowlist
+  (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`) so the public-bearer never
+  reaches them. If a public projection is ever needed it must
+  drop `content` / `input` / `output` / `error` at the SQL layer,
+  not the serializer, and return `404` uniformly on miss to
+  prevent entity-existence enumeration. Documented inline in
+  `core/hot_memory.ts` and `core/subagent_ledger.ts` headers.
+
 
 
 - **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
