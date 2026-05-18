@@ -87,7 +87,12 @@ jobs:
     # wheel — fails CI before it can quietly break the EC2 deploy.
     name: Memex Bun tests (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    # arm64 is the production target (t4g.medium). Free arm64
+    # runners are noticeably slower than amd64 -- a recent run
+    # had amd64 finish in 11:09 while arm64 was still running
+    # at 20:21. 30 minutes keeps both lanes green without
+    # pushing into the per-job-minute cost band.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
