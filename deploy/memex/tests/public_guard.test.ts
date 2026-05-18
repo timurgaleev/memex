@@ -137,10 +137,22 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("log_friction")).toBe(true);
   });
 
+  it("blocks every page write tool (page_put, page_append, page_delete)", () => {
+    expect(isPublicMcpToolForbidden("page_put")).toBe(true);
+    expect(isPublicMcpToolForbidden("page_append")).toBe(true);
+    expect(isPublicMcpToolForbidden("page_delete")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
     expect(isPublicMcpToolForbidden("stats")).toBe(false);
+  });
+
+  it("allows page reads (page_get, page_list, page_versions)", () => {
+    expect(isPublicMcpToolForbidden("page_get")).toBe(false);
+    expect(isPublicMcpToolForbidden("page_list")).toBe(false);
+    expect(isPublicMcpToolForbidden("page_versions")).toBe(false);
   });
 });
 

@@ -72,6 +72,12 @@ describe("MCP HTTP transport", () => {
       "backlinks",
       "index",
       "log_friction",
+      "page_append",
+      "page_delete",
+      "page_get",
+      "page_list",
+      "page_put",
+      "page_versions",
       "search",
       "stats",
     ]);

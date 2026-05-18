@@ -46,11 +46,17 @@ export interface GuardRejection {
 const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
   "/index",
   "/friction",
+  "/pages/put",
+  "/pages/append",
+  "/pages/delete",
 ]);
 
 const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "index",
   "log_friction",
+  "page_put",
+  "page_append",
+  "page_delete",
 ]);
 
 /**

@@ -25,6 +25,14 @@ import {
   handleFrictionPost,
 } from "./friction_route.ts";
 import {
+  handlePagePut,
+  handlePageAppend,
+  handlePageDelete,
+  handlePageGet,
+  handlePageList,
+  handlePageVersions,
+} from "./pages_route.ts";
+import {
   evaluatePublicGuard,
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
@@ -153,6 +161,68 @@ export function startServer(opts: ServerOptions): ServerHandle {
       }
       if (url.pathname === "/friction" && req.method === "GET") {
         return handleFrictionGet(opts.storage);
+      }
+      // ---------------------------------------------------------------
+      // Pages (DB-canonical store) — writes are internal-only and gated
+      // by the shared internal token; reads return redacted shapes on
+      // public ingress unless MEMEX_PUBLIC_READ_BODIES=1.
+      // ---------------------------------------------------------------
+      if (url.pathname === "/pages/put" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/pages/put is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handlePagePut(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/pages/append" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/pages/append is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handlePageAppend(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/pages/delete" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/pages/delete is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handlePageDelete(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/pages/get" && req.method === "GET") {
+        return handlePageGet(opts.storage, url, guard.isPublic);
+      }
+      if (url.pathname === "/pages/list" && req.method === "POST") {
+        return handlePageList(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/pages/versions" && req.method === "GET") {
+        return handlePageVersions(opts.storage, url, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         return mcpHandler(req, { isPublic: guard.isPublic });

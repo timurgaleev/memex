@@ -6,6 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Phase A.1 — DB-canonical page store.** New migration
+  `015_pages.sql` adds two tables: `pages` (slug PK, type, title,
+  `compiled_truth` jsonb, `markdown_body`, content_hash,
+  created_at, updated_at, deleted_at) and `page_versions`
+  (append-only edit history keyed by `(slug, version_n)`). Both
+  are indexed for type filters + updated-desc listing + jsonb
+  GIN search on compiled_truth.
+- **`deploy/memex/src/core/pages.ts`** — CRUD module behind every
+  write: `putPage` (idempotent upsert with auto-versioning),
+  `appendPage`, `getPage`, `listPages`, `pageVersions`,
+  `deletePage` (soft delete with tombstone version row). Strict
+  slug validation (kebab-case + optional `/` namespaces, 1..256
+  chars). Catalogue of well-known page types
+  (`KNOWN_PAGE_TYPES`) with an `allowAdHocType` escape hatch.
+- **HTTP page surface.** `deploy/memex/src/http/pages_route.ts`
+  + new server routes: `POST /pages/put`, `POST /pages/append`,
+  `POST /pages/delete` (all internal-only behind
+  `MEMEX_INTERNAL_TOKEN` like `/index`), `GET /pages/get`,
+  `POST /pages/list`, `GET /pages/versions`. Public-ingress
+  reads return an allowlisted shape (slug/type/title/
+  compiled_truth/content_hash/timestamps) unless
+  `MEMEX_PUBLIC_READ_BODIES=1` — matches the existing `/search`
+  redaction policy.
+- **MCP page tools.** Six new tools exposed via the JSON-RPC
+  MCP transport: `page_put`, `page_append`, `page_delete`,
+  `page_get`, `page_list`, `page_versions`. Writes added to
+  `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` so a public bearer-holder
+  can never mutate the store. Total registered tool count
+  rises from 5 → 11.
+- **Test coverage.** New bun suite `tests/pages.test.ts`
+  (35 assertions covering slug grammar, idempotent put, version
+  history, append semantics, soft delete with tombstone, list
+  filters, type validation, transactional integrity).
+  `tests/public_guard.test.ts` extended for the new
+  forbidden-list (page writes blocked; page reads allowed).
+  `tests/mcp.test.ts` updated for the new tools/list contents.
+
 ### Removed
 - **`obsidian-sync` container deleted.** Source tree
   (`deploy/obsidian-sync/`), compose service block, terraform

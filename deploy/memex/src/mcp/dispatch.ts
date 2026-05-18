@@ -22,6 +22,15 @@ import {
 } from "../core/friction.ts";
 import type { EntityType } from "../core/entities.ts";
 import { makeCaptureCallback } from "../core/eval-capture.ts";
+import {
+  putPage,
+  appendPage,
+  deletePage,
+  getPage,
+  listPages,
+  pageVersions,
+  type PageInput,
+} from "../core/pages.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -61,6 +70,18 @@ export async function dispatchTool(
         return await callStats(storage);
       case "log_friction":
         return await callLogFriction(storage, args);
+      case "page_put":
+        return await callPagePut(storage, args);
+      case "page_append":
+        return await callPageAppend(storage, args);
+      case "page_delete":
+        return await callPageDelete(storage, args);
+      case "page_get":
+        return await callPageGet(storage, args);
+      case "page_list":
+        return await callPageList(storage, args);
+      case "page_versions":
+        return await callPageVersions(storage, args);
       default:
         return errResult(`unknown tool: ${req.name}`);
     }
@@ -223,4 +244,114 @@ async function callLogFriction(
   }
   await logFriction(storage.engine(), input);
   return jsonResult({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Page tools — DB-canonical page store. Writes (page_put, page_append,
+// page_delete) are listed in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC so the
+// public bearer cannot reach them; the HTTP routes additionally require
+// the internal-token. MCP dispatch trusts the transport layer to have
+// already enforced those gates.
+// ---------------------------------------------------------------------------
+
+function asPageInput(args: Record<string, unknown>): PageInput | string {
+  if (typeof args["slug"] !== "string") return "page_put: `slug` is required";
+  if (typeof args["type"] !== "string") return "page_put: `type` is required";
+  const input: PageInput = { slug: args["slug"], type: args["type"] };
+  if (typeof args["title"] === "string") input.title = args["title"];
+  if (
+    typeof args["compiled_truth"] === "object" &&
+    args["compiled_truth"] !== null
+  ) {
+    input.compiled_truth = args["compiled_truth"] as Record<string, unknown>;
+  }
+  if (typeof args["markdown_body"] === "string") {
+    input.markdown_body = args["markdown_body"];
+  }
+  if (typeof args["written_by"] === "string") {
+    input.written_by = args["written_by"];
+  }
+  if (typeof args["allowAdHocType"] === "boolean") {
+    input.allowAdHocType = args["allowAdHocType"];
+  }
+  return input;
+}
+
+async function callPagePut(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const input = asPageInput(args);
+  if (typeof input === "string") return errResult(input);
+  const r = await putPage(storage, input);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callPageAppend(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_append: `slug` is required");
+  }
+  if (typeof args["content"] !== "string" || args["content"].length === 0) {
+    return errResult("page_append: `content` is required");
+  }
+  const r = await appendPage(storage, {
+    slug: args["slug"],
+    content: args["content"],
+    ...(typeof args["written_by"] === "string"
+      ? { written_by: args["written_by"] }
+      : {}),
+  });
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callPageDelete(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_delete: `slug` is required");
+  }
+  const writtenBy =
+    typeof args["written_by"] === "string" ? args["written_by"] : undefined;
+  const r = await deletePage(storage, args["slug"], writtenBy);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callPageGet(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_get: `slug` is required");
+  }
+  const page = await getPage(storage, args["slug"]);
+  if (!page) return errResult(`page not found: ${args["slug"]}`);
+  return jsonResult({ ok: true, page });
+}
+
+async function callPageList(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof listPages>[1] = {};
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const pages = await listPages(storage, opts);
+  return jsonResult({ ok: true, pages });
+}
+
+async function callPageVersions(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_versions: `slug` is required");
+  }
+  const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
+  const versions = await pageVersions(storage, args["slug"], limit);
+  return jsonResult({ ok: true, versions });
 }
