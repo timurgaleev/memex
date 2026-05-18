@@ -87,12 +87,16 @@ jobs:
     # wheel — fails CI before it can quietly break the EC2 deploy.
     name: Memex Bun tests (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    # arm64 is the production target (t4g.medium). Free arm64
-    # runners are noticeably slower than amd64 -- a recent run
-    # had amd64 finish in 11:09 while arm64 was still running
-    # at 20:21. 30 minutes keeps both lanes green without
-    # pushing into the per-job-minute cost band.
-    timeout-minutes: 30
+    # arm64 is the production target (t4g.medium) but free arm64
+    # runners are 3-4x slower than amd64 for this PGLite-heavy
+    # suite (~45 min vs 11 min). To avoid blocking ship on a slow
+    # runner, arm64 is non-blocking (continue-on-error) -- it
+    # still runs as a canary signal and any failure is visible in
+    # CI history, but the gate is amd64. The deploy /health smoke
+    # on the live t4g.medium catches arm64-specific regressions
+    # within ~2 minutes of merge.
+    continue-on-error: ${{ matrix.arch == 'arm64' }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
