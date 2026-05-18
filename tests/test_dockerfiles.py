@@ -258,17 +258,20 @@ class TestSecrets:
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         assert p.stat().st_mode & 0o111, "fetch-secrets.sh must be executable"
 
-    def test_fetch_secrets_sh_writes_five_secrets(self):
+    def test_fetch_secrets_sh_writes_required_secrets(self):
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         text = p.read_text()
         # Should handle: telegram-bot-token, home-assistant-token,
-        # google-calendar, obsidian-sync, cloudflared-tunnel-token
+        # google-calendar, cloudflared-tunnel-token, gateway-token.
+        # `obsidian-sync` was removed in Phase 0 -- attempting to
+        # fetch it errors with `Secrets Manager can't find ...` and
+        # kept the rotate-bearer timer's restart step silently broken.
         for secret_name in [
             "telegram-bot-token",
             "home-assistant-token",
             "google-calendar",
-            "obsidian-sync",
             "cloudflared-tunnel-token",
+            "gateway-token",
         ]:
             assert secret_name in text, (
                 f"fetch-secrets.sh must fetch secret '{secret_name}'"
