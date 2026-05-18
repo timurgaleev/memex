@@ -69,7 +69,12 @@ describe("MCP HTTP transport", () => {
     expect(r.result.tools.length).toBe(TOOL_DEFS.length);
     const names = r.result.tools.map((t: any) => t.name).sort();
     expect(names).toEqual([
+      "add_fact",
+      "add_timeline_event",
       "backlinks",
+      "entity_facts",
+      "entity_recall",
+      "entity_timeline",
       "graph_neighbors",
       "graph_query",
       "index",

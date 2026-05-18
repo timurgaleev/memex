@@ -315,4 +315,115 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       additionalProperties: false,
     },
   },
+  // -------------------------------------------------------------------
+  // Entity facts + timeline (Phase A.3, migrations 017+018).
+  // Writes (add_fact, add_timeline_event) are in
+  // FORBIDDEN_MCP_TOOLS_FROM_PUBLIC. Reads (entity_facts,
+  // entity_timeline, entity_recall) are open under public bearer.
+  // -------------------------------------------------------------------
+  {
+    name: "add_fact",
+    description:
+      "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entity_slug: {
+          type: "string",
+          description:
+            "The entity the fact is about (e.g. `people/alice`). Soft reference — the entity's page need not exist yet.",
+        },
+        fact: { type: "string", description: "Short claim, one sentence." },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+        source_slug: {
+          type: "string",
+          description: "Page the fact was extracted from.",
+        },
+        source_chunk_id: { type: "string" },
+        written_by: { type: "string" },
+      },
+      required: ["entity_slug", "fact"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_timeline_event",
+    description:
+      "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description:
+            "The page the event is attached to. Must reference an existing page (FK CASCADE).",
+        },
+        occurred_at: {
+          type: "string",
+          description:
+            "When the event happened (ISO-8601). Not when it was recorded.",
+        },
+        event: { type: "string" },
+        source_chunk_id: { type: "string" },
+      },
+      required: ["slug", "occurred_at", "event"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "entity_facts",
+    description:
+      "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entity_slug: { type: "string" },
+        since: { type: "string" },
+        source_slug: { type: "string" },
+        order: {
+          type: "string",
+          enum: ["confidence", "recency"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      required: ["entity_slug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "entity_timeline",
+    description:
+      "Chronological event log for a page. Newest-first. Optional `since` / `until` date bounds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "entity_recall",
+    description:
+      "One-shot 'what do I know about X?' aggregator. Returns the entity's page (compiled_truth + body) plus top-confidence facts plus most-recent timeline events in a single call. The page may be null when the entity exists only as a soft-stub (facts + timeline allowed, page not yet promoted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        fact_limit: { type: "integer", minimum: 1, maximum: 200 },
+        timeline_limit: { type: "integer", minimum: 1, maximum: 200 },
+        redact_body: {
+          type: "boolean",
+          description:
+            "When true, strips markdown_body from the page row. The HTTP public-bearer path forces this on by default; internal MCP callers default false.",
+        },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+  },
 ];

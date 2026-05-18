@@ -7,6 +7,69 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Phase A.3 — timeline events + entity facts + entity MCP surface.**
+  Two new append-only ledgers + five new MCP tools that together let
+  the agent answer "what do I know about X?" from a single call.
+
+  Schema (migrations 017 + 018):
+  * `timeline_events` — (id, slug FK→pages CASCADE, occurred_at,
+    event, source_chunk_id, written_at). Two indices (slug+time,
+    occurred_at) plus a partial UNIQUE index on
+    (slug, occurred_at, source_chunk_id) WHERE source_chunk_id IS
+    NOT NULL — chunk-sourced events idempotent, manual events
+    skip dedup deliberately.
+  * `entity_facts` — (id, entity_slug soft-ref, fact, confidence
+    REAL CHECK 0..1, source_slug, source_chunk_id, written_by,
+    written_at). Indices on (entity_slug, written_at desc),
+    (entity_slug, confidence desc), and (source_slug)
+    WHERE source_slug IS NOT NULL. Partial UNIQUE on
+    (entity_slug, fact, source_chunk_id) — same dedup semantics as
+    timeline_events. Entity_slug is a SOFT reference (no FK) so a
+    fact can be recorded about an entity before its page exists —
+    a future dream-cycle "consolidate" phase will auto-stub pages
+    once an entity hits N facts.
+
+  Core modules:
+  * `core/timeline.ts` — `addTimelineEvent` (idempotent with chunk_id,
+    manual entries always insert), `getEntityTimeline` with
+    since/until/limit window filters, ISO-string and Date input
+    normalisation.
+  * `core/facts.ts` — `addFact`, `listFacts` (confidence-desc default,
+    recency-order opt-in, source_slug filter), and the headline
+    aggregator `entityRecall(slug, opts)` that returns the page
+    row + top-confidence facts + most-recent timeline events in
+    parallel. Optional `redact_body` strips `markdown_body` from the
+    returned page (forced on by the public HTTP path).
+
+  HTTP routes (`http/entities_route.ts` + server.ts wiring):
+  * `POST /entities/facts/add` — internal-only (MEMEX_INTERNAL_TOKEN).
+  * `POST /timeline/add` — internal-only.
+  * `POST /entities/facts` — public+bearer (READ).
+  * `POST /entities/timeline` — public+bearer (READ).
+  * `POST /entities/recall` — public+bearer (READ; redacts body on
+    public ingress unless MEMEX_PUBLIC_READ_BODIES=1).
+
+  MCP surface — 5 new tools, total 15 -> 20:
+  * `add_fact`, `add_timeline_event` (WRITE — added to
+    FORBIDDEN_MCP_TOOLS_FROM_PUBLIC).
+  * `entity_facts`, `entity_timeline`, `entity_recall` (READ).
+
+  Test coverage:
+  * `tests/timeline.test.ts` (~25 assertions): FK on slug,
+    ISO/Date normalisation, dedup with vs without chunk_id,
+    since/until/limit windowing, CASCADE on page delete.
+  * `tests/entity_facts.test.ts` (~30 assertions): soft-stub entity
+    facts (no page required), confidence range, source_slug filter,
+    confidence-vs-recency ordering, dedup semantics, entityRecall
+    page=null path, combined page+facts+timeline result, limits,
+    body redaction toggle.
+  * `tests/mcp.test.ts` updated for the 20-tool tools/list contents.
+  * `tests/public_guard.test.ts` extended for the new
+    forbidden/allowed sets.
+
+  Suite: 228 pytest + 523 bun (+29 from Phase A.2) passing, audit +
+  scrub clean.
+
 - **Phase A.2 — typed page-to-page links + graph MCP surface.** New
   migration `016_links_typed.sql` adds a `links` table keyed on
   `(source_slug, target_slug, type)` with confidence + optional

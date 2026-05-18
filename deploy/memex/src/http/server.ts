@@ -39,6 +39,13 @@ import {
   handleGraphQuery,
 } from "./graph_route.ts";
 import {
+  handleAddFact,
+  handleAddTimelineEvent,
+  handleEntityFacts,
+  handleEntityTimeline,
+  handleEntityRecall,
+} from "./entities_route.ts";
+import {
   evaluatePublicGuard,
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
@@ -270,6 +277,51 @@ export function startServer(opts: ServerOptions): ServerHandle {
       }
       if (url.pathname === "/graph/query" && req.method === "POST") {
         return handleGraphQuery(opts.storage, req, guard.isPublic);
+      }
+      // ---------------------------------------------------------------
+      // Entity facts + timeline (Phase A.3). Same auth model as pages
+      // and graph.
+      // ---------------------------------------------------------------
+      if (url.pathname === "/entities/facts/add" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/entities/facts/add is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleAddFact(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/timeline/add" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/timeline/add is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleAddTimelineEvent(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/entities/facts" && req.method === "POST") {
+        return handleEntityFacts(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/entities/timeline" && req.method === "POST") {
+        return handleEntityTimeline(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/entities/recall" && req.method === "POST") {
+        return handleEntityRecall(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         return mcpHandler(req, { isPublic: guard.isPublic });

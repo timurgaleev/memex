@@ -148,6 +148,11 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("unlink")).toBe(true);
   });
 
+  it("blocks entity-fact / timeline writes (add_fact, add_timeline_event)", () => {
+    expect(isPublicMcpToolForbidden("add_fact")).toBe(true);
+    expect(isPublicMcpToolForbidden("add_timeline_event")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
@@ -163,6 +168,12 @@ describe("isPublicMcpToolForbidden", () => {
   it("allows graph reads (graph_neighbors, graph_query)", () => {
     expect(isPublicMcpToolForbidden("graph_neighbors")).toBe(false);
     expect(isPublicMcpToolForbidden("graph_query")).toBe(false);
+  });
+
+  it("allows entity reads (entity_facts, entity_timeline, entity_recall)", () => {
+    expect(isPublicMcpToolForbidden("entity_facts")).toBe(false);
+    expect(isPublicMcpToolForbidden("entity_timeline")).toBe(false);
+    expect(isPublicMcpToolForbidden("entity_recall")).toBe(false);
   });
 });
 

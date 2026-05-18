@@ -40,6 +40,18 @@ import {
   type GraphNeighborsOptions,
   type GraphQueryOptions,
 } from "../core/links.ts";
+import {
+  addTimelineEvent,
+  getEntityTimeline,
+  type ListTimelineOptions,
+} from "../core/timeline.ts";
+import {
+  addFact,
+  listFacts,
+  entityRecall,
+  type ListFactsOptions,
+  type EntityRecallOptions,
+} from "../core/facts.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -99,6 +111,16 @@ export async function dispatchTool(
         return await callGraphNeighbors(storage, args);
       case "graph_query":
         return await callGraphQuery(storage, args);
+      case "add_fact":
+        return await callAddFact(storage, args);
+      case "add_timeline_event":
+        return await callAddTimelineEvent(storage, args);
+      case "entity_facts":
+        return await callEntityFacts(storage, args);
+      case "entity_timeline":
+        return await callEntityTimeline(storage, args);
+      case "entity_recall":
+        return await callEntityRecall(storage, args);
       default:
         return errResult(`unknown tool: ${req.name}`);
     }
@@ -467,4 +489,108 @@ async function callGraphQuery(
   }
   const links = await graphQuery(storage, opts);
   return jsonResult({ ok: true, links });
+}
+
+// ---------------------------------------------------------------------------
+// Entity-facts + timeline tools (Phase A.3). Writes (add_fact,
+// add_timeline_event) are in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC; reads
+// (entity_facts, entity_timeline, entity_recall) are open.
+// ---------------------------------------------------------------------------
+
+async function callAddFact(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["entity_slug"] !== "string")
+    return errResult("add_fact: `entity_slug` is required");
+  if (typeof args["fact"] !== "string" || args["fact"].length === 0)
+    return errResult("add_fact: `fact` is required");
+  const input: Parameters<typeof addFact>[1] = {
+    entity_slug: args["entity_slug"],
+    fact: args["fact"],
+  };
+  if (typeof args["confidence"] === "number")
+    input.confidence = args["confidence"];
+  if (typeof args["source_slug"] === "string")
+    input.source_slug = args["source_slug"];
+  if (typeof args["source_chunk_id"] === "string")
+    input.source_chunk_id = args["source_chunk_id"];
+  if (typeof args["written_by"] === "string")
+    input.written_by = args["written_by"];
+  const r = await addFact(storage, input);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callAddTimelineEvent(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string")
+    return errResult("add_timeline_event: `slug` is required");
+  if (typeof args["occurred_at"] !== "string")
+    return errResult(
+      "add_timeline_event: `occurred_at` is required (ISO-8601 string)",
+    );
+  if (typeof args["event"] !== "string" || args["event"].length === 0)
+    return errResult("add_timeline_event: `event` is required");
+  const input: Parameters<typeof addTimelineEvent>[1] = {
+    slug: args["slug"],
+    occurred_at: args["occurred_at"],
+    event: args["event"],
+  };
+  if (typeof args["source_chunk_id"] === "string")
+    input.source_chunk_id = args["source_chunk_id"];
+  const r = await addTimelineEvent(storage, input);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callEntityFacts(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["entity_slug"] !== "string")
+    return errResult("entity_facts: `entity_slug` is required");
+  const opts: ListFactsOptions = {};
+  if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["source_slug"] === "string")
+    opts.source_slug = args["source_slug"];
+  if (args["order"] === "recency" || args["order"] === "confidence")
+    opts.order = args["order"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const facts = await listFacts(storage, args["entity_slug"], opts);
+  return jsonResult({ ok: true, entity_slug: args["entity_slug"], facts });
+}
+
+async function callEntityTimeline(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string")
+    return errResult("entity_timeline: `slug` is required");
+  const opts: ListTimelineOptions = {};
+  if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["until"] === "string") opts.until = args["until"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const timeline = await getEntityTimeline(storage, args["slug"], opts);
+  return jsonResult({ ok: true, slug: args["slug"], timeline });
+}
+
+async function callEntityRecall(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string")
+    return errResult("entity_recall: `slug` is required");
+  const opts: EntityRecallOptions = {};
+  if (typeof args["fact_limit"] === "number")
+    opts.fact_limit = args["fact_limit"];
+  if (typeof args["timeline_limit"] === "number")
+    opts.timeline_limit = args["timeline_limit"];
+  // MCP callers are internal by default — leave the body in unless
+  // they explicitly opt to redact. The HTTP layer applies its own
+  // redaction policy for public ingress.
+  if (typeof args["redact_body"] === "boolean")
+    opts.redact_body = args["redact_body"];
+  const r = await entityRecall(storage, args["slug"], opts);
+  return jsonResult({ ok: true, ...r });
 }
