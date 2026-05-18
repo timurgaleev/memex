@@ -153,6 +153,11 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("add_timeline_event")).toBe(true);
   });
 
+  it("blocks jobs writes (jobs_submit, jobs_cancel)", () => {
+    expect(isPublicMcpToolForbidden("jobs_submit")).toBe(true);
+    expect(isPublicMcpToolForbidden("jobs_cancel")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
@@ -174,6 +179,12 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("entity_facts")).toBe(false);
     expect(isPublicMcpToolForbidden("entity_timeline")).toBe(false);
     expect(isPublicMcpToolForbidden("entity_recall")).toBe(false);
+  });
+
+  it("allows jobs reads (jobs_list, jobs_get, jobs_logs)", () => {
+    expect(isPublicMcpToolForbidden("jobs_list")).toBe(false);
+    expect(isPublicMcpToolForbidden("jobs_get")).toBe(false);
+    expect(isPublicMcpToolForbidden("jobs_logs")).toBe(false);
   });
 });
 

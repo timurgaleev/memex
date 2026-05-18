@@ -426,4 +426,81 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       additionalProperties: false,
     },
   },
+  // -------------------------------------------------------------------
+  // Jobs DAG (Phase A.4, migration 019). Writes (jobs_submit,
+  // jobs_cancel) are in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC. Reads
+  // (jobs_list, jobs_get, jobs_logs) are open under the public bearer.
+  // -------------------------------------------------------------------
+  {
+    name: "jobs_submit",
+    description:
+      "Submit a durable job. Idempotent when `idempotency_key` is provided (re-submit returns the existing row). Optional `parent_job_id` records a fan-out edge so the parent can detect fan-in via the child-done inbox. WRITE -- internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        payload: { type: "object" },
+        priority: { type: "integer", minimum: 1, maximum: 10 },
+        max_retries: { type: "integer", minimum: 0, maximum: 10 },
+        parent_job_id: { type: "string" },
+        idempotency_key: { type: "string" },
+        not_before: { type: "string" },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jobs_cancel",
+    description:
+      "Cancel a pending job. By default cascades to all pending descendants. WRITE -- internal/MCP-stdio only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        cascade: { type: "boolean" },
+        reason: { type: "string" },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jobs_list",
+    description:
+      "List jobs newest-first. Optional filters: status, kind, parent_job_id, since (ISO timestamp), limit (1..1000, default 100).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string" },
+        kind: { type: "string" },
+        parent_job_id: { type: "string" },
+        since: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 1000 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jobs_get",
+    description:
+      "Get the full detail of a job including payload, result, children, and unread child-done inbox count.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jobs_logs",
+    description:
+      "Compact log view of a job: status, retries, last_error, children count + status breakdown, unread inbox count. Designed to fit in a single chat reply.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
 ];

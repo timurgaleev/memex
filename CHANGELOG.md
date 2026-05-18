@@ -7,6 +7,87 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Phase A.4 — jobs DAG (fan-out + fan-in + idempotent submit) +
+  jobs_* MCP surface.** Lays down the durable async-work substrate
+  for future recipe pipelines and dream-cycle phases.
+
+  Schema (migration 019_jobs_dag.sql):
+  * `jobs` extended with `parent_job_id` (FK to jobs.id ON DELETE
+    SET NULL), `depth INTEGER DEFAULT 0` (capped at 32 to prevent
+    runaway recursion), `idempotency_key TEXT` (partial UNIQUE on
+    `(kind, idempotency_key) WHERE NOT NULL`).
+  * `job_children (parent_id, child_id, created_at)` -- denormalised
+    edge table for fast "what children did I spawn?" lookups.
+  * `child_done_inbox (parent_id, child_id, child_status,
+    result_excerpt, completed_at, notified_at)` -- outbox-style
+    write-once ledger. The parent's handler drains the inbox to
+    detect fan-in completion. Partial index on
+    `(parent_id, completed_at) WHERE notified_at IS NULL` for cheap
+    unread-row lookups.
+
+  Core module `core/jobs/dag.ts`:
+  * `submitJob` -- idempotent on `(kind, idempotency_key)`. Parent
+    -> child fan-out persists the edge in `job_children` and inherits
+    depth+1. Refuses fan-out from a terminal parent (succeeded /
+    failed / cancelled). Depth cap 32 with explicit error message.
+  * `writeChildDoneInbox` -- write-once semantics: ON CONFLICT DO
+    NOTHING so a worker retrying after a crash never overwrites the
+    first observation of a terminal state. Excerpt truncation is
+    UTF-8 byte-bounded (walks back from byte 8192 to the previous
+    UTF-8 lead byte) so multi-byte glyphs at the boundary drop
+    cleanly instead of corrupting into U+FFFD.
+  * `drainDoneInbox` -- atomic read+mark-read with optional
+    `mark_read: false` peek for tests.
+  * `cancelJob` -- cascade BFS over pending descendants. Uses a
+    visited Set so cyclic `job_children` rows (an idempotency-key
+    replay can re-attach an existing job to a new parent) terminate
+    instead of infinite-looping. Hard-capped at 10_000 descendants
+    so a pathological tree fails fast rather than ballooning the
+    `ANY($1::text[])` parameter.
+  * `listJobs`, `getJob` -- read surface. `getJob` returns the row
+    plus its children and unread inbox count.
+
+  HTTP surface (`http/jobs_route.ts` + server.ts):
+  * `POST /jobs/submit` -- internal-only (MEMEX_INTERNAL_TOKEN).
+  * `POST /jobs/cancel` -- internal-only. Reason capped at 512
+    chars.
+  * `POST /jobs/list`, `/jobs/get`, `/jobs/logs` -- public+bearer.
+    Public-ingress responses STRIP `payload`, `result`, and
+    `last_error` (replaced with boolean `has_error` / `has_result`
+    markers). These fields routinely carry sensitive context
+    (URLs, OAuth excerpts, file paths from handler exceptions,
+    Bedrock model IDs) -- internal callers still see them in full.
+  * `/jobs/list` returns 400 on a malformed body so a bad caller
+    cannot silently enumerate everything with an empty filter.
+
+  MCP -- 5 new tools, total 20 -> 25:
+  * `jobs_submit`, `jobs_cancel` (WRITE; added to
+    FORBIDDEN_MCP_TOOLS_FROM_PUBLIC).
+  * `jobs_list`, `jobs_get`, `jobs_logs` (READ).
+
+  Test coverage:
+  * `tests/jobs_dag.test.ts` (~37 assertions): idempotency on
+    `(kind, key)`, fan-out depth inheritance + cap, terminal-parent
+    refusal, inbox round-trip + peek + write-once semantics, UTF-8
+    boundary truncation (4-byte emoji corpus crossing the 8192
+    boundary), cascade cancel + cycle termination + 10k cap.
+  * `tests/mcp.test.ts` updated for the 25-tool tools/list.
+  * `tests/public_guard.test.ts` extended for the new forbidden /
+    allowed sets.
+
+  Self-review acted on across two parallel reviewers (code-reviewer +
+  security-engineer): cycle BFS termination, UTF-8 split, write-once
+  inbox, payload/result/last_error redaction on public reads, list
+  400 on malformed body, reason length cap, depth-32 documentation,
+  result type widened to `unknown` (handlers may legitimately return
+  strings/arrays/numbers). Two MEDIUM findings deferred to TODO.md:
+  CASCADE asymmetry on `parent_job_id` vs `job_children` /
+  `child_done_inbox`; inbox-during-cancel race (needs SERIALIZABLE
+  isolation or `FOR UPDATE` on frontier read).
+
+  Suite: 228 pytest + 549 bun (+26 from Phase A.3) passing, audit +
+  scrub clean.
+
 - **Phase A.3 — timeline events + entity facts + entity MCP surface.**
   Two new append-only ledgers + five new MCP tools that together let
   the agent answer "what do I know about X?" from a single call.

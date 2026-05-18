@@ -53,6 +53,8 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
   "/graph/unlink",
   "/entities/facts/add",
   "/timeline/add",
+  "/jobs/submit",
+  "/jobs/cancel",
 ]);
 
 const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
@@ -65,6 +67,8 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "unlink",
   "add_fact",
   "add_timeline_event",
+  "jobs_submit",
+  "jobs_cancel",
 ]);
 
 /**

@@ -46,6 +46,13 @@ import {
   handleEntityRecall,
 } from "./entities_route.ts";
 import {
+  handleJobsSubmit,
+  handleJobsCancel,
+  handleJobsList,
+  handleJobsGet,
+  handleJobsLogs,
+} from "./jobs_route.ts";
+import {
   evaluatePublicGuard,
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
@@ -322,6 +329,51 @@ export function startServer(opts: ServerOptions): ServerHandle {
       }
       if (url.pathname === "/entities/recall" && req.method === "POST") {
         return handleEntityRecall(opts.storage, req, guard.isPublic);
+      }
+      // ---------------------------------------------------------------
+      // Jobs DAG (Phase A.4). Submits + cancels are internal-only;
+      // reads are open under the public-bearer.
+      // ---------------------------------------------------------------
+      if (url.pathname === "/jobs/submit" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/jobs/submit is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleJobsSubmit(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/jobs/cancel" && req.method === "POST") {
+        if (guard.isPublic) {
+          return Response.json(
+            { ok: false, error: "/jobs/cancel is internal-only" },
+            { status: 403 },
+          );
+        }
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        if (!ia.allow) {
+          return Response.json(
+            { ok: false, error: ia.reason },
+            { status: ia.status },
+          );
+        }
+        return handleJobsCancel(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/jobs/list" && req.method === "POST") {
+        return handleJobsList(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/jobs/get" && req.method === "POST") {
+        return handleJobsGet(opts.storage, req, guard.isPublic);
+      }
+      if (url.pathname === "/jobs/logs" && req.method === "POST") {
+        return handleJobsLogs(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         return mcpHandler(req, { isPublic: guard.isPublic });

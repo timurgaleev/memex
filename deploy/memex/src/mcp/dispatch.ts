@@ -52,6 +52,14 @@ import {
   type ListFactsOptions,
   type EntityRecallOptions,
 } from "../core/facts.ts";
+import {
+  cancelJob,
+  getJob,
+  listJobs,
+  submitJob,
+  type ListJobsOptions,
+  type SubmitJobInput,
+} from "../core/jobs/dag.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -121,6 +129,16 @@ export async function dispatchTool(
         return await callEntityTimeline(storage, args);
       case "entity_recall":
         return await callEntityRecall(storage, args);
+      case "jobs_submit":
+        return await callJobsSubmit(storage, args);
+      case "jobs_list":
+        return await callJobsList(storage, args);
+      case "jobs_get":
+        return await callJobsGet(storage, args);
+      case "jobs_cancel":
+        return await callJobsCancel(storage, args);
+      case "jobs_logs":
+        return await callJobsLogs(storage, args);
       default:
         return errResult(`unknown tool: ${req.name}`);
     }
@@ -593,4 +611,96 @@ async function callEntityRecall(
     opts.redact_body = args["redact_body"];
   const r = await entityRecall(storage, args["slug"], opts);
   return jsonResult({ ok: true, ...r });
+}
+
+// ---------------------------------------------------------------------------
+// Jobs DAG tools (Phase A.4). Writes (jobs_submit, jobs_cancel) are
+// in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC; reads are open.
+// ---------------------------------------------------------------------------
+
+async function callJobsSubmit(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["kind"] !== "string")
+    return errResult("jobs_submit: `kind` is required");
+  const input: SubmitJobInput = { kind: args["kind"] };
+  if (typeof args["payload"] === "object" && args["payload"] !== null)
+    input.payload = args["payload"] as Record<string, unknown>;
+  if (typeof args["priority"] === "number") input.priority = args["priority"];
+  if (typeof args["max_retries"] === "number")
+    input.max_retries = args["max_retries"];
+  if (typeof args["parent_job_id"] === "string")
+    input.parent_job_id = args["parent_job_id"];
+  if (typeof args["idempotency_key"] === "string")
+    input.idempotency_key = args["idempotency_key"];
+  if (typeof args["not_before"] === "string")
+    input.not_before = args["not_before"];
+  const r = await submitJob(storage.engine(), input);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callJobsList(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: ListJobsOptions = {};
+  if (typeof args["status"] === "string") opts.status = args["status"];
+  if (typeof args["kind"] === "string") opts.kind = args["kind"];
+  if (typeof args["parent_job_id"] === "string")
+    opts.parent_job_id = args["parent_job_id"];
+  if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const jobs = await listJobs(storage.engine(), opts);
+  return jsonResult({ ok: true, jobs });
+}
+
+async function callJobsGet(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string")
+    return errResult("jobs_get: `id` is required");
+  const job = await getJob(storage.engine(), args["id"]);
+  if (!job) return errResult(`jobs_get: ${args["id"]} not found`);
+  return jsonResult({ ok: true, job });
+}
+
+async function callJobsCancel(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string")
+    return errResult("jobs_cancel: `id` is required");
+  const opts: { cascade?: boolean; reason?: string } = {};
+  if (typeof args["cascade"] === "boolean") opts.cascade = args["cascade"];
+  if (typeof args["reason"] === "string") opts.reason = args["reason"];
+  const r = await cancelJob(storage.engine(), args["id"], opts);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callJobsLogs(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string")
+    return errResult("jobs_logs: `id` is required");
+  const job = await getJob(storage.engine(), args["id"]);
+  if (!job) return errResult(`jobs_logs: ${args["id"]} not found`);
+  const log = {
+    id: job.id,
+    kind: job.kind,
+    status: job.status,
+    retry_count: job.retry_count,
+    last_error: job.last_error,
+    created_at: job.created_at,
+    updated_at: job.updated_at,
+    started_at: job.started_at,
+    finished_at: job.finished_at,
+    depth: job.depth,
+    parent_job_id: job.parent_job_id,
+    children_count: job.children.length,
+    inbox_unread: job.inbox_unread,
+  };
+  return jsonResult({ ok: true, log });
 }

@@ -117,6 +117,34 @@ future release once the chat-agent pairing model is stable.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Jobs DAG: align FK delete behaviour between `jobs.parent_job_id`
+  and the `job_children` / `child_done_inbox` tables.** Today
+  `parent_job_id REFERENCES jobs(id) ON DELETE SET NULL` keeps the
+  child row alive (with NULL parent) when the parent is purged, but
+  `job_children` and `child_done_inbox` both `ON DELETE CASCADE` —
+  the edge tables vanish while the child's `parent_job_id` column
+  goes to NULL. `listChildren()` / `drainDoneInbox()` then see zero
+  rows even though the children still exist. We have no
+  job-delete endpoint exposed today so this is theoretical, but
+  before we add one we either (a) make all three FKs CASCADE
+  (purging a parent purges the subtree) or (b) explicitly reject
+  deleting a parent that has children. Flagged in the migration
+  comment of `019_jobs_dag.sql`.
+
+- **Jobs DAG: inbox-during-cancel race.** `writeChildDoneInbox` runs
+  with `engine.query` (its own implicit txn), `cancelJob` runs with
+  `engine.transaction`. A child completing concurrently with a
+  cascade-cancel BFS sees a non-snapshot view: a freshly inserted
+  pending child added after the frontier read is missed by cancel,
+  while its `writeChildDoneInbox` lands as an orphan pointing at a
+  job whose status is by then `cancelled`. Mitigation today: the
+  parent's drain logic should ignore inbox rows whose `parent.status`
+  is terminal. Long-term fix: read the frontier with `FOR UPDATE` or
+  switch the cancel txn to `SERIALIZABLE` isolation. PGLite supports
+  `SERIALIZABLE` so we can prove it locally before shipping to RDS.
+
+
+
 - **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
   path.** The 2026-05-17 internal-auth gate (commit batch following
   `974b87e`) hardens POST `/index` and POST `/friction` against a
