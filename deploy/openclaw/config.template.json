@@ -26,6 +26,13 @@
         "auth": "aws-sdk",
         "models": [
           {
+            "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "name": "Claude Haiku 4.5",
+            "input": ["text", "image"],
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          },
+          {
             "id": "global.amazon.nova-2-lite-v1:0",
             "name": "Nova 2 Lite",
             "input": ["text", "image"],
@@ -39,10 +46,11 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "amazon-bedrock/global.amazon.nova-2-lite-v1:0",
-        "fallbacks": []
+        "primary": "amazon-bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "fallbacks": ["amazon-bedrock/global.amazon.nova-2-lite-v1:0"]
       },
       "models": {
+        "amazon-bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0": {},
         "amazon-bedrock/global.amazon.nova-2-lite-v1:0": {}
       },
       "thinkingDefault": "off",
