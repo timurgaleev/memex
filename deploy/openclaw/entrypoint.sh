@@ -28,23 +28,6 @@ if [ -z "$GATEWAY_TOKEN" ]; then
   GATEWAY_TOKEN=$(tr -d '\n\r' < "$TOKEN_FILE")
 fi
 
-# Resolve the public memex bearer so openclaw can register memex as an
-# external MCP server (mcp.servers.memex). The bearer rotates daily at
-# 06:00 Berlin; scripts/rotate-memex-public-bearer.sh restarts this
-# container after each rotation so this fetch always returns the current
-# value. If the secret is missing (fresh install before the bearer is
-# seeded), the entrypoint drops the mcp.servers.memex block via jq so the
-# gateway boots without a half-configured MCP client.
-MEMEX_PUBLIC_BEARER=""
-if aws secretsmanager describe-secret \
-     --secret-id "${SECRETS_PREFIX}/memex-public-bearer" \
-     --region "$AWS_REGION" >/dev/null 2>&1; then
-  MEMEX_PUBLIC_BEARER=$(aws secretsmanager get-secret-value \
-    --secret-id "${SECRETS_PREFIX}/memex-public-bearer" \
-    --region "$AWS_REGION" \
-    --query SecretString --output text | tr -d '\n\r')
-fi
-
 # Telegram channel ownership:
 # - OPENCLAW_TELEGRAM_DISABLED=1   → drop the channels.telegram block so
 #                                    the `telegram-bridge` container owns
@@ -71,32 +54,16 @@ fi
 # fast pass. HA + GCal credentials are NOT in openclaw.json: the `ha` and
 # `gcal` helper CLIs (mounted at /opt/<project>/bin/) fetch them directly
 # from Secrets Manager via the EC2 IAM role at call time.
-#
-# memex MCP wiring: if MEMEX_PUBLIC_BEARER resolved, substitute it into
-# mcp.servers.memex.headers.Authorization. If not (fresh install), drop
-# the mcp.servers.memex block entirely so the gateway doesn't try to
-# connect with a placeholder bearer and spam reconnect errors.
-# shellcheck disable=SC2016
-# $memex_bearer here is a jq variable bound via --arg, not a shell var;
-# single quotes are correct — we want jq to expand it, not the shell.
-MCP_PATCH='if $memex_bearer != "" then
-  .mcp.servers.memex.headers.Authorization = "Bearer " + $memex_bearer
-else
-  del(.mcp.servers.memex)
-end'
-
 if [ "$TELEGRAM_DISABLED" = "1" ]; then
   jq \
     --arg gateway_token "$GATEWAY_TOKEN" \
-    --arg memex_bearer "$MEMEX_PUBLIC_BEARER" \
-    "del(.channels.telegram) | .gateway.auth.token = \$gateway_token | $MCP_PATCH" \
+    'del(.channels.telegram) | .gateway.auth.token = $gateway_token' \
     /app/config.template.json > "${HOME}/.openclaw/openclaw.json"
 else
   jq \
     --arg telegram_token "$TELEGRAM_TOKEN" \
     --arg gateway_token "$GATEWAY_TOKEN" \
-    --arg memex_bearer "$MEMEX_PUBLIC_BEARER" \
-    ".channels.telegram.botToken = \$telegram_token | .gateway.auth.token = \$gateway_token | $MCP_PATCH" \
+    '.channels.telegram.botToken = $telegram_token | .gateway.auth.token = $gateway_token' \
     /app/config.template.json > "${HOME}/.openclaw/openclaw.json"
 fi
 

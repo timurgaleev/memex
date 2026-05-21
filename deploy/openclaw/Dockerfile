@@ -25,8 +25,7 @@ ENV NODE_ENV=production \
     AWS_REGION=eu-west-1 \
     AWS_PROFILE=default \
     NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache \
-    OPENCLAW_NO_RESPAWN=1 \
-    PATH="/opt/memex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    OPENCLAW_NO_RESPAWN=1
 
 EXPOSE 18789
 

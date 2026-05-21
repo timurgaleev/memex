@@ -68,17 +68,17 @@ else
   log "WARN: container $MEMEX_CONTAINER not running — skipping restart"
 fi
 
-# openclaw holds the public bearer in memory as part of its
-# mcp.servers.memex client config. Restart it too so its entrypoint
-# re-fetches the freshly rotated bearer and re-registers the memex
-# MCP server. Without this, openclaw keeps trying to call memex with
-# the old bearer until the next manual restart.
-OPENCLAW_CONTAINER="${MEMEX_ROTATE_OPENCLAW_CONTAINER:-deploy-openclaw-1}"
-if docker ps --format '{{.Names}}' | grep -q "^${OPENCLAW_CONTAINER}$"; then
-  docker restart "$OPENCLAW_CONTAINER" >/dev/null
-  log "docker: restarted $OPENCLAW_CONTAINER (re-fetches public bearer + reconnects to memex MCP)"
+# The telegram-bridge holds the public bearer in memory after startup so
+# its MCP client calls into memex carry the current token. Restart it so
+# its entrypoint re-fetches the freshly rotated bearer. Without this, the
+# bridge would keep calling memex with the previous bearer until the
+# next manual restart and chat replies would silently fail authentication.
+BRIDGE_CONTAINER="${MEMEX_ROTATE_BRIDGE_CONTAINER:-deploy-telegram-bridge-1}"
+if docker ps --format '{{.Names}}' | grep -q "^${BRIDGE_CONTAINER}$"; then
+  docker restart "$BRIDGE_CONTAINER" >/dev/null
+  log "docker: restarted $BRIDGE_CONTAINER (re-fetches public bearer for memex MCP calls)"
 else
-  log "WARN: container $OPENCLAW_CONTAINER not running — skipping restart"
+  log "WARN: container $BRIDGE_CONTAINER not running — skipping restart"
 fi
 
 # 4. Notify via Telegram. Failure here is logged but does not fail the
