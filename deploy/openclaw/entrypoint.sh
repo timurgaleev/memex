@@ -76,6 +76,9 @@ fi
 # mcp.servers.memex.headers.Authorization. If not (fresh install), drop
 # the mcp.servers.memex block entirely so the gateway doesn't try to
 # connect with a placeholder bearer and spam reconnect errors.
+# shellcheck disable=SC2016
+# $memex_bearer here is a jq variable bound via --arg, not a shell var;
+# single quotes are correct — we want jq to expand it, not the shell.
 MCP_PATCH='if $memex_bearer != "" then
   .mcp.servers.memex.headers.Authorization = "Bearer " + $memex_bearer
 else
