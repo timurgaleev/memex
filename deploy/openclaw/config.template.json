@@ -75,6 +75,7 @@
     }
   },
   "tools": {
-    "profile": "messaging"
+    "profile": "messaging",
+    "deny": ["sessions_history", "sessions_list"]
   }
 }
