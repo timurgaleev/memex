@@ -76,6 +76,28 @@
   },
   "tools": {
     "profile": "messaging",
-    "deny": ["sessions_history", "sessions_list"]
+    "alsoAllow": ["exec", "web_search"],
+    "deny": ["sessions_history", "sessions_list"],
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "duckduckgo"
+      }
+    },
+    "exec": {
+      "safeBins": ["ha", "gcal", "gmail"],
+      "safeBinTrustedDirs": ["/opt/memex/bin"],
+      "safeBinProfiles": {
+        "ha":    { "maxPositional": 8 },
+        "gcal":  { "maxPositional": 8 },
+        "gmail": { "maxPositional": 8 }
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "memory-core": { "enabled": false },
+      "duckduckgo":  { "enabled": true }
+    }
   }
 }
