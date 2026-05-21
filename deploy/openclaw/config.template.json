@@ -60,6 +60,9 @@
       },
       "memorySearch": {
         "enabled": false
+      },
+      "tools": {
+        "profile": "messaging"
       }
     }
   },
