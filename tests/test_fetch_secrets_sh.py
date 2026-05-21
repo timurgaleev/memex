@@ -97,6 +97,21 @@ def test_telegram_bot_token_world_readable_inside_container() -> None:
     )
 
 
+def test_memex_public_bearer_world_readable_inside_container() -> None:
+    """The bridge sends `Authorization: Bearer ${memex-public-bearer}` on
+    every memex MCP call. The file lands at /run/secrets/ via the same
+    bind-mount that ships telegram-bot-token.txt — so it must also be
+    0444 to be readable by uid 10001."""
+    text = _read()
+    assert re.search(
+        r'fetch_text\s+"memex-public-bearer"\s+"memex-public-bearer\.txt"\s+0?444',
+        text,
+    ), (
+        "fetch-secrets.sh must invoke `fetch_text memex-public-bearer "
+        "memex-public-bearer.txt 0444` so the bridge can read it as uid 10001"
+    )
+
+
 def test_fetch_text_accepts_per_file_mode_arg() -> None:
     """The helper must accept an optional 3rd arg (mode) so we don't
     hardcode 0400 for every secret — the bridge case is the exception."""

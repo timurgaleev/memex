@@ -262,7 +262,8 @@ class TestSecrets:
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         text = p.read_text()
         # Should handle: telegram-bot-token, home-assistant-token,
-        # google-calendar, cloudflared-tunnel-token, gateway-token.
+        # google-calendar, cloudflared-tunnel-token, gateway-token,
+        # memex-public-bearer (bridge's MCP auth).
         # `obsidian-sync` was removed in Phase 0 -- attempting to
         # fetch it errors with `Secrets Manager can't find ...` and
         # kept the rotate-bearer timer's restart step silently broken.
@@ -272,6 +273,7 @@ class TestSecrets:
             "google-calendar",
             "cloudflared-tunnel-token",
             "gateway-token",
+            "memex-public-bearer",
         ]:
             assert secret_name in text, (
                 f"fetch-secrets.sh must fetch secret '{secret_name}'"

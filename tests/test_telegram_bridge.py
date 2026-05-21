@@ -236,11 +236,16 @@ def _make_config(bridge_module, monkeypatch, tmp_path, **overrides):
         "MEMEX_BRIDGE_HELPER_DIR": str(tmp_path / "bin"),
         "MEMEX_BRIDGE_LLM_DISABLE": "1",
         "TELEGRAM_BOT_TOKEN_FILE": str(tmp_path / "token.txt"),
+        "MEMEX_BRIDGE_BEARER_FILE": str(tmp_path / "bearer.txt"),
     }
     env.update(overrides)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    return bridge_module.BridgeConfig()
+    cfg = bridge_module.BridgeConfig()
+    # Tests bypass serve() so populate the bearer manually — handlers
+    # otherwise call into search_memex with the empty default.
+    cfg.memex_bearer = "test-bearer"
+    return cfg
 
 
 def test_handle_help(bridge_module, monkeypatch, tmp_path):
@@ -269,7 +274,7 @@ def test_handle_search_returns_formatted_hits(bridge_module, monkeypatch, tmp_pa
         {"title": "beta", "content": "beta body"},
     ]
     monkeypatch.setattr(
-        bridge_module, "search_memex", lambda url, q, k: fake_hits
+        bridge_module, "search_memex", lambda url, bearer, q, k: fake_hits
     )
     out = bridge_module.handle_message(cfg, "/search hello")
     assert "alpha" in out and "beta" in out
@@ -282,7 +287,7 @@ def test_handle_free_text_falls_back_to_hits_when_llm_disabled(
     monkeypatch.setattr(
         bridge_module,
         "search_memex",
-        lambda url, q, k: [{"title": "gamma", "content": "gamma body"}],
+        lambda url, bearer, q, k: [{"title": "gamma", "content": "gamma body"}],
     )
     out = bridge_module.handle_message(cfg, "what is gamma?")
     assert "gamma" in out
@@ -291,7 +296,9 @@ def test_handle_free_text_falls_back_to_hits_when_llm_disabled(
 
 def test_handle_free_text_no_hits_no_llm(bridge_module, monkeypatch, tmp_path):
     cfg = _make_config(bridge_module, monkeypatch, tmp_path)
-    monkeypatch.setattr(bridge_module, "search_memex", lambda url, q, k: [])
+    monkeypatch.setattr(
+        bridge_module, "search_memex", lambda url, bearer, q, k: []
+    )
     out = bridge_module.handle_message(cfg, "anything")
     assert "no matches" in out
 
@@ -300,6 +307,114 @@ def test_handle_helper_missing(bridge_module, monkeypatch, tmp_path):
     cfg = _make_config(bridge_module, monkeypatch, tmp_path)
     out = bridge_module.handle_message(cfg, "/today")
     assert "not installed" in out
+
+
+# ---------------------------------------------------------------------------
+# search_memex — MCP JSON-RPC wire format. Catches regressions where
+# someone might be tempted to swap back to a non-MCP path or to forget the
+# Authorization header.
+# ---------------------------------------------------------------------------
+
+
+def _fake_urlopen(captured: dict, payload: dict):
+    """Build a fake urlopen that records the request and replies with the
+    supplied JSON payload."""
+    class _FakeResponse:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+        def read(self) -> bytes:
+            return self._body
+        def __enter__(self):  # pragma: no cover — context-manager glue
+            return self
+        def __exit__(self, *exc):  # pragma: no cover
+            return False
+
+    def _stub(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["headers"] = dict(req.header_items())
+        captured["data"] = req.data
+        captured["method"] = req.get_method()
+        return _FakeResponse(json.dumps(payload).encode("utf-8"))
+
+    return _stub
+
+
+def test_search_memex_targets_mcp_endpoint(bridge_module, monkeypatch):
+    """search_memex must POST to `/mcp`, not to a legacy `/search` HTTP
+    route. The master plan locks memex's external contract to MCP-only."""
+    captured: dict = {}
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps({"hits": [{"title": "X", "content": "x"}]}),
+                }
+            ],
+            "isError": False,
+        },
+    }
+    monkeypatch.setattr(
+        bridge_module.urllib.request,
+        "urlopen",
+        _fake_urlopen(captured, payload),
+    )
+    hits = bridge_module.search_memex(
+        "http://memex:18790", "BEARERX", "what", 3
+    )
+    assert hits == [{"title": "X", "content": "x"}]
+    assert captured["url"] == "http://memex:18790/mcp", (
+        "memex calls must target /mcp — no other route is part of the contract"
+    )
+    assert captured["method"] == "POST"
+    headers = {k.lower(): v for k, v in captured["headers"].items()}
+    assert headers.get("authorization") == "Bearer BEARERX", (
+        "MCP calls must carry the public bearer in Authorization header"
+    )
+    body = json.loads(captured["data"].decode("utf-8"))
+    assert body.get("jsonrpc") == "2.0"
+    assert body.get("method") == "tools/call"
+    params = body.get("params", {})
+    assert params.get("name") == "search"
+    assert params.get("arguments") == {"q": "what", "k": 3}
+
+
+def test_search_memex_handles_error_envelope(bridge_module, monkeypatch):
+    """A JSON-RPC `error` block must produce an empty hit list rather
+    than propagate a server error to the operator's chat."""
+    payload = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "no"}}
+    captured: dict = {}
+    monkeypatch.setattr(
+        bridge_module.urllib.request,
+        "urlopen",
+        _fake_urlopen(captured, payload),
+    )
+    assert bridge_module.search_memex(
+        "http://memex:18790", "x", "q", 5
+    ) == []
+
+
+def test_search_memex_handles_tool_isError(bridge_module, monkeypatch):
+    """A tool-call `isError: true` envelope must also degrade to []."""
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [{"type": "text", "text": "search: `q` is required"}],
+            "isError": True,
+        },
+    }
+    captured: dict = {}
+    monkeypatch.setattr(
+        bridge_module.urllib.request,
+        "urlopen",
+        _fake_urlopen(captured, payload),
+    )
+    assert bridge_module.search_memex(
+        "http://memex:18790", "x", "", 5
+    ) == []
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +631,7 @@ def test_handle_rag_pipes_answer_through_defang(
     monkeypatch.setattr(
         bridge_module,
         "search_memex",
-        lambda url, q, k: [{"title": "x", "content": "x body"}],
+        lambda url, bearer, q, k: [{"title": "x", "content": "x body"}],
     )
     monkeypatch.setattr(
         bridge_module,

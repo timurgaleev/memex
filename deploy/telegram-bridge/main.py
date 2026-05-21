@@ -30,10 +30,11 @@ Env contract:
     MEMEX_BRIDGE_ALLOWED_CHAT_IDS    required — comma-separated numeric ids
     MEMEX_BRIDGE_STATE_DIR           default /var/lib/memex-bridge
     MEMEX_BRIDGE_HELPER_DIR          default /opt/memex/bin
-    MEMEX_BRIDGE_LLM_MODEL           default global.amazon.nova-2-lite-v1:0
+    MEMEX_BRIDGE_LLM_MODEL           default eu.anthropic.claude-haiku-4-5-20251001-v1:0
     MEMEX_BRIDGE_MAX_HITS            default 5
     MEMEX_BRIDGE_LLM_DISABLE         when set to "1", skip Bedrock entirely
     TELEGRAM_BOT_TOKEN_FILE          default /run/secrets/telegram-bot-token.txt
+    MEMEX_BRIDGE_BEARER_FILE         default /run/secrets/memex-public-bearer.txt
 """
 from __future__ import annotations
 
@@ -278,23 +279,71 @@ class TelegramConflict(TelegramError):
 # ---------------------------------------------------------------------------
 
 
-def search_memex(memex_url: str, query: str, k: int) -> list[dict[str, Any]]:
-    """Hit POST /search on the memex daemon. Returns [] on any failure —
-    callers must tolerate a degraded answer."""
-    body = json.dumps({"q": query, "k": k}).encode("utf-8")
+def search_memex(
+    memex_url: str, bearer: str, query: str, k: int
+) -> list[dict[str, Any]]:
+    """Call the `search` tool via memex's MCP JSON-RPC endpoint
+    (`POST /mcp`). memex no longer accepts plain `/search` HTTP — the
+    master plan locks the contract to MCP, so we go through it on the
+    internal Docker network too.
+
+    Returns [] on any failure (transport, auth, malformed payload). The
+    caller is responsible for degrading gracefully so a brain hiccup
+    never freezes the bot."""
+    rpc_body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {"q": query, "k": k},
+        },
+    }
+    body = json.dumps(rpc_body).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        # MCP's HTTP transport advertises both content types — accepting
+        # both keeps us compatible if memex ever upgrades to streaming.
+        "Accept": "application/json, text/event-stream",
+        "Authorization": f"Bearer {bearer}",
+    }
     req = urllib.request.Request(
-        f"{memex_url.rstrip('/')}/search",
+        f"{memex_url.rstrip('/')}/mcp",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError) as e:
-        LOG.warning("memex search failed: %s", e)
+        LOG.warning("memex MCP search failed: %s", e)
         return []
-    hits = payload.get("hits")
+    # JSON-RPC envelope. Server-side errors land in `error`; tool-call
+    # success lands in `result.content[0].text` as a JSON-stringified
+    # payload `{ hits: [...], ... }`.
+    err = payload.get("error")
+    if isinstance(err, dict):
+        LOG.warning("memex MCP search returned error: %s", err.get("message"))
+        return []
+    result = payload.get("result")
+    if not isinstance(result, dict) or result.get("isError"):
+        return []
+    content = result.get("content")
+    if not isinstance(content, list) or not content:
+        return []
+    first = content[0]
+    if not isinstance(first, dict):
+        return []
+    text = first.get("text")
+    if not isinstance(text, str):
+        return []
+    try:
+        decoded = json.loads(text)
+    except ValueError:
+        LOG.warning("memex MCP search returned non-JSON text block")
+        return []
+    hits = decoded.get("hits") if isinstance(decoded, dict) else None
     return hits if isinstance(hits, list) else []
 
 
@@ -606,6 +655,22 @@ class BridgeConfig:
                 "TELEGRAM_BOT_TOKEN_FILE", "/run/secrets/telegram-bot-token.txt"
             )
         )
+        # Public bearer for memex MCP. The bridge loads this once at
+        # startup (the rotation script — scripts/rotate-memex-public-bearer.sh
+        # — restarts this container after each daily rotation, which is the
+        # refresh path). A missing or empty file means the bridge can't
+        # call memex; serve() hard-fails so the misconfiguration is loud
+        # rather than silently turning every RAG reply into "no matches".
+        self.bearer_file = Path(
+            os.environ.get(
+                "MEMEX_BRIDGE_BEARER_FILE",
+                "/run/secrets/memex-public-bearer.txt",
+            )
+        )
+        # Populated by `serve()` at startup from `bearer_file`. Kept as
+        # an instance attribute so tests that bypass `serve()` and call
+        # `handle_message()` directly don't trip an AttributeError.
+        self.memex_bearer: str = ""
 
 
 def split_command(text: str) -> tuple[str, str]:
@@ -649,7 +714,7 @@ def handle_message(
     if cmd == "search":
         if not arg:
             return "usage: /search <query>"
-        hits = search_memex(cfg.memex_url, arg, cfg.max_hits)
+        hits = search_memex(cfg.memex_url, cfg.memex_bearer, arg, cfg.max_hits)
         return format_hits(hits, header=f"top {len(hits)} for {arg!r}:")
     return f"unknown command /{cmd} — send /help"
 
@@ -658,7 +723,7 @@ def _handle_rag(cfg: BridgeConfig, question: str) -> str:
     question = question.strip()
     if not question:
         return "ask me something — e.g. 'what did I work on last week?'"
-    hits = search_memex(cfg.memex_url, question, cfg.max_hits)
+    hits = search_memex(cfg.memex_url, cfg.memex_bearer, question, cfg.max_hits)
     if cfg.llm_enabled:
         answer = rag_answer(cfg.region, cfg.llm_model, question, hits)
         if answer:
@@ -783,6 +848,7 @@ def _install_signal_handlers() -> None:
 
 def serve(cfg: BridgeConfig) -> None:
     token = _read_token(cfg.token_file)
+    cfg.memex_bearer = _read_token(cfg.bearer_file)
     client = TelegramClient(token)
     state = State(cfg.state_dir / "state.json")
     offset = state.load()

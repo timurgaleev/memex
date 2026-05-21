@@ -54,14 +54,26 @@ fetch_text() {
   chmod "$mode" "${SECRETS_DIR}/${out}"
 }
 
-# Plain string secrets. telegram-bot-token is mode 0444 — the
-# telegram-bridge container reads it as non-root uid 10001. The 0711
-# parent dir already prevents non-root host users from enumerating;
-# only siblings inside this stack (openclaw / memex / bridge) can
-# read by exact name.
+# Plain string secrets. telegram-bot-token + memex-public-bearer are mode
+# 0444 — the telegram-bridge container reads both as non-root uid 10001.
+# The 0711 parent dir already prevents non-root host users from
+# enumerating; only siblings inside this stack (openclaw / memex / bridge)
+# can read by exact name.
 fetch_text "telegram-bot-token" "telegram-bot-token.txt" 0444
 fetch_text "home-assistant-token" "home-assistant-token.txt"
 fetch_text "gateway-token" "gateway-token.txt"
+
+# memex-public-bearer is the auth token the bridge sends on its
+# MCP JSON-RPC calls into memex. memex itself reads the same value
+# via $MEMEX_PUBLIC_BEARER in memex.env (mode 0400, root-only) below;
+# this 0444 sibling file is the bridge's read path. Gate on
+# describe-secret so a fresh install (before the bearer is provisioned)
+# still completes without an aws-cli failure.
+if aws secretsmanager describe-secret \
+  --secret-id "${SECRETS_PREFIX}/memex-public-bearer" \
+  --region "$AWS_REGION" >/dev/null 2>&1; then
+  fetch_text "memex-public-bearer" "memex-public-bearer.txt" 0444
+fi
 
 # JSON secrets — kept as JSON for jq consumption inside containers
 fetch_text "google-calendar" "google-calendar.json"
