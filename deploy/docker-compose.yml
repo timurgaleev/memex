@@ -192,7 +192,7 @@ services:
       # talk to the bot. Set in `.env` from
       # `MEMEX_BRIDGE_ALLOWED_CHAT_IDS=...`.
       - MEMEX_BRIDGE_ALLOWED_CHAT_IDS=${MEMEX_BRIDGE_ALLOWED_CHAT_IDS:?MEMEX_BRIDGE_ALLOWED_CHAT_IDS must be set (comma-separated numeric chat ids)}
-      - MEMEX_BRIDGE_LLM_MODEL=${MEMEX_BRIDGE_LLM_MODEL:-global.amazon.nova-2-lite-v1:0}
+      - MEMEX_BRIDGE_LLM_MODEL=${MEMEX_BRIDGE_LLM_MODEL:-eu.anthropic.claude-haiku-4-5-20251001-v1:0}
       - MEMEX_BRIDGE_MAX_HITS=${MEMEX_BRIDGE_MAX_HITS:-5}
       - MEMEX_BRIDGE_LLM_DISABLE=${MEMEX_BRIDGE_LLM_DISABLE:-}
     networks:

@@ -625,9 +625,14 @@ class BridgeConfig:
         self.state_dir = Path(
             os.environ.get("MEMEX_BRIDGE_STATE_DIR", "/var/lib/memex-bridge")
         )
+        # Default chat-side model is Claude Haiku 4.5. Operator decision
+        # 2026-05-21: not credit-eligible (~$22/mo at projected volume) but
+        # reliably follows the system prompt where Nova 2 Lite was too
+        # weak. Override via MEMEX_BRIDGE_LLM_MODEL if you need to roll
+        # back to Nova 2 Lite for cost reasons.
         self.llm_model = (
             os.environ.get("MEMEX_BRIDGE_LLM_MODEL", "")
-            or "global.amazon.nova-2-lite-v1:0"
+            or "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
         )
         raw_hits = os.environ.get("MEMEX_BRIDGE_MAX_HITS", "5")
         try:
