@@ -68,6 +68,19 @@ else
   log "WARN: container $MEMEX_CONTAINER not running — skipping restart"
 fi
 
+# openclaw holds the public bearer in memory as part of its
+# mcp.servers.memex client config. Restart it too so its entrypoint
+# re-fetches the freshly rotated bearer and re-registers the memex
+# MCP server. Without this, openclaw keeps trying to call memex with
+# the old bearer until the next manual restart.
+OPENCLAW_CONTAINER="${MEMEX_ROTATE_OPENCLAW_CONTAINER:-deploy-openclaw-1}"
+if docker ps --format '{{.Names}}' | grep -q "^${OPENCLAW_CONTAINER}$"; then
+  docker restart "$OPENCLAW_CONTAINER" >/dev/null
+  log "docker: restarted $OPENCLAW_CONTAINER (re-fetches public bearer + reconnects to memex MCP)"
+else
+  log "WARN: container $OPENCLAW_CONTAINER not running — skipping restart"
+fi
+
 # 4. Notify via Telegram. Failure here is logged but does not fail the
 # rotation — the secret is already updated. Skip entirely if no chat id
 # was configured.

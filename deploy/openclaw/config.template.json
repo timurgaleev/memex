@@ -62,5 +62,16 @@
         "enabled": false
       }
     }
+  },
+  "mcp": {
+    "servers": {
+      "memex": {
+        "url": "http://memex:18790/mcp",
+        "transport": "streamable-http",
+        "headers": {
+          "Authorization": "Bearer ENTRYPOINT_WILL_REPLACE_THIS"
+        }
+      }
+    }
   }
 }
