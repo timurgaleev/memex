@@ -96,14 +96,35 @@ def test_openclaw_depends_on_memex(compose):
         )
 
 
-def test_cloudflared_depends_on_openclaw(compose):
+def test_cloudflared_depends_on_memex(compose):
+    """Public ingress (brain.<domain>/mcp) terminates at memex, so the
+    tunnel must wait for memex's /health probe to pass before
+    accepting traffic. The legacy dependency on openclaw was dropped
+    when openclaw exited the chat path — depending on it would block
+    boot because openclaw is now profile-gated off by default."""
     svc = compose["services"]["cloudflared"]
     depends = svc.get("depends_on", {})
-    assert "openclaw" in depends, "cloudflared must depend_on openclaw"
-    if isinstance(depends["openclaw"], dict):
-        assert depends["openclaw"].get("condition") == "service_healthy", (
-            "cloudflared depends_on openclaw must use condition: service_healthy"
+    assert "memex" in depends, "cloudflared must depend_on memex"
+    if isinstance(depends["memex"], dict):
+        assert depends["memex"].get("condition") == "service_healthy", (
+            "cloudflared depends_on memex must use condition: service_healthy"
         )
+    assert "openclaw" not in depends, (
+        "cloudflared must NOT depend on openclaw — openclaw is profile-gated "
+        "off; depending on it would block cloudflared from booting"
+    )
+
+
+def test_openclaw_is_profile_gated_off(compose):
+    """The chat agent is OFF by default. The bridge owns the chat path
+    end-to-end. Keep the service definition for future opt-in but
+    don't start it on `docker compose up -d` without a profile."""
+    svc = compose["services"]["openclaw"]
+    profiles = svc.get("profiles") or []
+    assert profiles, (
+        "openclaw must declare `profiles:` so it stays off by default "
+        "(start with --profile <name> if the web UI is needed)"
+    )
 
 
 def test_internal_network_declared(compose):

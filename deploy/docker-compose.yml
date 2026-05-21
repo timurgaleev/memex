@@ -78,6 +78,15 @@ services:
       retries: 3
 
   openclaw:
+    # The chat agent is OFF by default — the telegram-bridge container
+    # owns the chat path end-to-end (memex MCP for retrieval, Bedrock
+    # Converse for synthesis) since the 2026-05-21 architectural pivot.
+    # The service definition is kept so a future operator can opt back
+    # in for the web UI by running:
+    #   docker compose --profile chat-agent up -d openclaw
+    # Stays hardened (cap_drop/no-new-privileges) so the hardening
+    # gate still applies even while disabled.
+    profiles: ["chat-agent"]
     build:
       context: ./openclaw
       dockerfile: Dockerfile
@@ -238,7 +247,11 @@ services:
     networks:
       - internal
     depends_on:
-      openclaw:
+      # Cloudflared's public ingress targets memex (brain.<domain>/mcp).
+      # The openclaw web UI route is OFF by default along with the
+      # openclaw service itself (`profiles: ["chat-agent"]` above) —
+      # depending on it would block cloudflared from booting.
+      memex:
         condition: service_healthy
 
 networks:
