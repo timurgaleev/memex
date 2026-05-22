@@ -1,10 +1,22 @@
 # memex — API Reference
 
 The memex daemon binds `0.0.0.0:18790` inside its container but is
-**reachable only on the Docker `internal` bridge** — only the
-openclaw / cloudflared / obsidian-sync containers can connect, and
-only openclaw uses it in practice (via Docker DNS as
-`http://memex:18790`).
+**reachable only on the Docker `internal` bridge** for in-stack
+callers (telegram-bridge → memex via Docker DNS as
+`http://memex:18790`) and through Cloudflare Tunnel for the public
+MCP surface at `https://brain.<your-domain>/mcp`.
+
+The contract is two routes:
+
+- `GET /health` — operational probe (no auth).
+- `POST /mcp` — JSON-RPC 2.0 entry point (bearer auth on public traffic).
+
+> **Legacy notice.** The routes documented below under "REST routes"
+> (`/index`, `/search`, `/backlinks`, `/friction`, plus
+> `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`, `/jobs/*`
+> shipped in phases A.1-A.4) are scheduled for deletion in Phase A.7.
+> Every behaviour is reachable via `tools/call name=<tool>` on
+> `/mcp`. The bridge already migrated; new code should use MCP only.
 
 All routes (except `/health`) require POST + `Content-Type:
 application/json`.
@@ -221,24 +233,36 @@ Standard JSON-RPC + one server-defined:
 Tool-call errors (a tool throwing) are returned as `result.isError =
 true`, NOT as JSON-RPC errors — that's per the MCP spec.
 
-## Calling from the openclaw container
+## Calling from the bridge
 
-The shell helper at `/opt/memex/bin/memex` wraps these for
-interactive use:
+The `telegram-bridge` container reaches memex on the internal Docker
+bridge. From inside it:
 
 ```bash
-docker exec deploy-openclaw-1 /opt/memex/bin/memex health
-docker exec deploy-openclaw-1 /opt/memex/bin/memex search "your query"
-docker exec deploy-openclaw-1 /opt/memex/bin/memex backlinks "Home Assistant"
+docker exec deploy-telegram-bridge-1 sh -c '
+  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
+  curl -fsS -X POST http://memex:18790/mcp \
+    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
+'
 ```
 
-The agent calls `POST /mcp` directly per the standard MCP plugin
-shape — see `deploy/memex/openclaw.plugin.json`.
+The `/opt/memex/bin/memex` shell helper (`deploy/helpers/memex`)
+remains available for ad-hoc CLI use:
+
+```bash
+docker exec deploy-telegram-bridge-1 /opt/memex/bin/memex health
+```
 
 ## Auth & exposure
 
-- No auth on the internal HTTP surface today. The trust boundary is
-  the Docker bridge — only paired containers can reach 18790.
-- Public MCP HTTPS (a separate Cloudflare Tunnel ingress + bearer
-  token middleware) is gated in `TODO.md`. Don't enable without
-  designing that first.
+- **Internal traffic** keys into a single "internal" rate-limit
+  bucket. The trust boundary is the Docker bridge — only paired
+  containers can reach 18790. Internal callers must still present
+  `Authorization: Bearer <public-bearer>` for tool dispatch.
+- **Public traffic** arrives via Cloudflare Tunnel
+  (`https://brain.<your-domain>/mcp`). Cloudflare injects
+  `Cf-Connecting-Ip`; the per-IP rate limiter keys on that. Same
+  bearer auth; mutating tools are blocked from the public surface
+  via `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in `mcp/dispatch.ts`
+  unless `MEMEX_PUBLIC_WRITE=1`.

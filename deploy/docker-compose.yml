@@ -27,8 +27,9 @@ services:
       # rebuilds. The actual index sits in RDS Postgres (URL injected
       # via MEMEX_POSTGRES_URL env from .secrets/memex.env).
       - ${EFS_MOUNT}/memex:/home/bun/.memex
-      # Read-only access to openclaw's persistent session memory so the
-      # agent can search "what we discussed" across past sessions.
+      # Read-only mount of operator-provided content for the indexer to
+      # sweep (markdown notes, archived conversations, etc.). The bridge
+      # never touches /memory directly — it asks memex via MCP.
       - ${EFS_MOUNT}/workspace/memory:/memory:ro
       # Read-only access to the repo checkout for the code chunkers.
       # bootstrap.sh clones ${EFS_REPO} alongside the EFS mount; if
@@ -46,9 +47,8 @@ services:
       - HOME=/home/bun
       # Filesystem-watch recipes are paused for the DB-canonical
       # redesign (see ~/.claude memory: memex-master-plan.md Phase 0).
-      # The `openclaw memory` mount above stays read-only for the
-      # session-history search recipe — that's runtime state, not a
-      # primary content store.
+      # `/memory` is mounted read-only above so the search recipe can
+      # still see archived content alongside DB-canonical pages.
       - MEMEX_VAULT_PATHS=/memory
       - MEMEX_SWEEP_DELAY_MS=50
       - MEMEX_SWEEP_MAX_FILES=1000
@@ -78,15 +78,14 @@ services:
       retries: 3
 
   telegram-bridge:
-    # Standalone two-way Telegram surface. Runs independent of openclaw
-    # so the bot keeps replying even when the chat-agent container is
-    # restarting, mid-rebuild, or stuck on a paired-device approval.
-    # See deploy/telegram-bridge/README.md for the design rationale.
+    # Two-way Telegram surface and the chat handler. Owns the chat
+    # path end-to-end: long-polls Telegram, dispatches slash commands
+    # to the gcal/ha helpers, and answers free text via memex MCP
+    # + Bedrock Claude Haiku 4.5. See deploy/telegram-bridge/README.md.
     build:
       # Context is `./` (the deploy/ tree) so the Dockerfile can COPY
-      # both `telegram-bridge/main.py` and `openclaw/helpers/*` from a
-      # single context. Avoids duplicating the helper sources across
-      # two image trees.
+      # both `telegram-bridge/main.py` and `helpers/*` from a single
+      # context.
       context: ./
       dockerfile: telegram-bridge/Dockerfile
     restart: unless-stopped
@@ -175,9 +174,6 @@ services:
       - internal
     depends_on:
       # Cloudflared's public ingress targets memex (brain.<domain>/mcp).
-      # The openclaw web UI route is OFF by default along with the
-      # openclaw service itself (`profiles: ["chat-agent"]` above) —
-      # depending on it would block cloudflared from booting.
       memex:
         condition: service_healthy
 

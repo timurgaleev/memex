@@ -1,20 +1,20 @@
 # memex
 
-Personal-knowledge brain — vector + keyword search over the Obsidian
-vault and openclaw session memory. Bun + TypeScript daemon backed by
-RDS Postgres + pgvector. Reachable internally on
-`http://memex:18790` and externally on `https://brain.<your-domain>`
-(read-only, bearer-auth).
+Personal-knowledge brain — hybrid vector + keyword + entity-graph
+search over your notes, calendar, mail, and code. Bun + TypeScript
+daemon backed by RDS Postgres + pgvector. Reachable internally on
+`http://memex:18790/mcp` (called by `telegram-bridge` for RAG
+retrieval) and externally on `https://brain.<your-domain>/mcp`
+(MCP JSON-RPC, bearer-auth, read-only by default).
 
 For all human-readable docs see **`docs/`**:
 
 - [`docs/README.md`](docs/README.md) — start here
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — internals + schema
-- [`docs/API.md`](docs/API.md) — HTTP routes + MCP tool reference
+- [`docs/API.md`](docs/API.md) — MCP tools + the two HTTP routes (`/health`, `/mcp`)
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — deploy, restart, recover
 
-The plugin manifest is `openclaw.plugin.json`; the optional runtime
-config overlay template is `memex.yml.example`.
+The optional runtime config overlay template is `memex.yml.example`.
 
 ## Local development
 

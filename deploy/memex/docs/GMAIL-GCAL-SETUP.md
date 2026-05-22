@@ -202,8 +202,9 @@ Idempotent on re-run.
 ### 3e. Verify
 
 ```bash
-# Helper round-trips against Calendar API:
-docker exec deploy-openclaw-1 /opt/<project>/bin/gcal today
+# Helper round-trips against Calendar API (from the bridge container,
+# which has the helpers mounted at /opt/memex/bin/):
+docker exec deploy-telegram-bridge-1 /opt/memex/bin/gcal today
 
 # Recipe-side dry-run:
 docker exec deploy-memex-1 \

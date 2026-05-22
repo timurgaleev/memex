@@ -2,60 +2,16 @@
 
 How to deploy, restart, observe, and recover.
 
-## Morning briefing (scheduled Telegram delivery)
+## Morning briefing (archived)
 
-`scripts/morning-briefing.sh` composes a daily briefing from the live
-HA + Google Calendar helpers and delivers it directly via the Telegram
-Bot API. Independent of the openclaw gateway pairing scope so it
-works without an LLM-driven agent in the loop.
-
-Install on a fresh host:
-
-```bash
-sudo install -m 755 /opt/<project>/scripts/morning-briefing.sh \
-                    /opt/<project>/scripts/morning-briefing.sh
-sudo install -m 644 /opt/<project>/deploy/systemd/memex-morning-briefing.{service,timer} \
-                    /etc/systemd/system/
-sudo mkdir -p /etc/systemd/system/memex-morning-briefing.service.d
-sudo tee /etc/systemd/system/memex-morning-briefing.service.d/chat-id.conf <<'EOF'
-[Service]
-Environment=MEMEX_BRIEFING_CHAT_ID=<your-telegram-chat-id>
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable --now memex-morning-briefing.timer
-```
-
-The timer fires at **07:00 Europe/Berlin** daily. Manually:
-
-```bash
-sudo systemctl start memex-morning-briefing.service
-tail /var/log/memex/memex-morning-briefing.log
-```
-
-LLM rendering: if `MEMEX_BRIEFING_MODEL` is non-empty (default
-`global.amazon.nova-2-lite-v1:0` — credit-eligible), the script
-asks Bedrock to render the gathered facts into conversational prose.
-On ANY Bedrock error the script falls back to the static
-four-line template so the daily delivery never silently misses. To
-force the static path:
-
-```bash
-sudo tee -a /etc/systemd/system/memex-morning-briefing.service.d/chat-id.conf <<'EOF'
-Environment=MEMEX_BRIEFING_MODEL=
-EOF
-sudo systemctl daemon-reload
-```
-
-Troubleshooting:
-
-| Symptom | Cause / fix |
-|---|---|
-| `[briefing] FATAL: cannot fetch telegram-bot-token` | IAM role can't read `<secrets_prefix>/telegram-bot-token`. Confirm `iam.tf` and that `terraform apply` ran. |
-| `[briefing] LLM render failed — falling back` | Either Bedrock IAM denial (check `bedrock:InvokeModel` resource ARNs include `arn:aws:bedrock:*::foundation-model/amazon.nova-*`), the model is throttled, or the response shape changed. Static delivery still happens — investigate when convenient. |
-| Service exits 1 with `MEMEX_BRIEFING_CHAT_ID must be set` | The systemd override above hasn't been installed. |
-| Timer fires at the wrong hour | Check the unit's `OnCalendar=*-*-* 07:00:00 Europe/Berlin` — TZ honoured if the host has `tzdata`. |
-
-
+The previous morning-briefing flow (`scripts/morning-briefing.sh` +
+`memex-morning-briefing.{service,timer}`) shelled into the (now
+removed) chat-agent container and stopped working at the cutover. The
+script + units are preserved under `archive/morning-briefing/` with
+a README documenting the revival path: rewrite the composer to call
+the helper CLIs at `/opt/memex/bin/` directly, synthesise prose via
+Bedrock Haiku 4.5, deliver via the Telegram Bot API. The host already
+has the IAM grants needed; no new infrastructure required.
 
 ## Deploy
 
@@ -83,17 +39,28 @@ First boot pulls + builds; subsequent rebuilds are ~30 s warm.
 ## Health probes
 
 ```bash
-# from inside any container on the bridge:
-docker exec deploy-openclaw-1 /opt/<project>/bin/memex health
+# operational probe (the only HTTP route besides /mcp):
+docker exec deploy-memex-1 wget -qO- http://127.0.0.1:18790/health
 # → {"ok":true,"db":"postgres","version":"0.1.0",
 #     "stats":{"documents":114,"chunks":244,"embeddings":244}}
+
+# from inside the bridge — same probe, shows the network path works:
+docker exec deploy-telegram-bridge-1 wget -qO- http://memex:18790/health
+
+# MCP search smoke (proves the public-bearer + tool dispatch):
+docker exec deploy-telegram-bridge-1 sh -c '
+  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
+  curl -fsS -X POST http://memex:18790/mcp \
+    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
+'
 
 # self-diagnostics:
 docker exec deploy-memex-1 bun run src/cli.ts doctor
 # → 5/5 checks ok (config / engine / stats / index-spread / vault)
 
 # vault-vs-index drift:
-docker exec deploy-memex-1 bun run src/cli.ts integrity --vault /vault
+docker exec deploy-memex-1 bun run src/cli.ts integrity --vault /memory
 ```
 
 ## Local dev
@@ -172,7 +139,6 @@ docker exec deploy-memex-1 bun -e "
 "
 
 # trigger a full re-sweep
-docker exec deploy-memex-1 bun run src/cli.ts reindex --all --vault /vault
 docker exec deploy-memex-1 bun run src/cli.ts reindex --all --vault /memory
 ```
 
@@ -182,8 +148,8 @@ Time: ~5-10 min on t4g.medium.
 ## Re-build the index after RDS loss
 
 Production storage is **RDS Postgres**. The index is fully derivable
-from the Obsidian vault, so an RDS wipe / restore is recoverable in
-~5-10 minutes:
+from the source content under `/memory`, so an RDS wipe / restore is
+recoverable in ~5-10 minutes:
 
 ```bash
 # wipe the corpus tables in RDS (TRUNCATE cascades to embeddings + mentions)
@@ -195,7 +161,6 @@ docker exec deploy-memex-1 bun -e "
 "
 
 # trigger a full re-sweep
-docker exec deploy-memex-1 bun run src/cli.ts reindex --all --vault /vault
 docker exec deploy-memex-1 bun run src/cli.ts reindex --all --vault /memory
 ```
 
@@ -243,8 +208,7 @@ can resume.
 | t4g.medium on-demand | ~$13/mo |
 | db.t4g.micro RDS Postgres + 20 GiB gp3 + 7-day backup | ~$15/mo |
 | Bedrock Titan v2 embeddings | credit-eligible (≈ $0/mo for our volume) |
-| Bedrock Nova 2 Lite chat / intent / expansion | credit-eligible |
-| Bedrock Haiku 4.5 rerank (opt-in) | $1-3/mo if `MEMEX_RERANK=1` |
+| Bedrock Nova 2 Lite (intent / expansion) | credit-eligible |
+| Bedrock Haiku 4.5 chat-side synthesis | ~$20/mo at projected volume |
 | Cloudflare Tunnel | free (Zero Trust free tier) |
-| Obsidian Sync | $10/mo (operator-provided subscription, optional) |
-| Total stack | **~$28/mo** at light personal use |
+| Total stack | **~$48/mo** at light personal use |

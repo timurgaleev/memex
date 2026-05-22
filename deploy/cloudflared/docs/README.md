@@ -1,8 +1,10 @@
 # cloudflared — public ingress sidecar
 
-Routes `https://<subdomain>.<domain>` from the Cloudflare edge to the
-internal `openclaw` container. Single-purpose container running the
-upstream `cloudflare/cloudflared:2025.4.0` image — no custom build.
+Routes `https://brain.<domain>/mcp` from the Cloudflare edge to the
+internal `memex` container so MCP-compatible AI clients (Claude Code,
+Cursor, Codex) can reach the brain over HTTPS without exposing any
+EC2 port. Single-purpose container running the upstream
+`cloudflare/cloudflared:2025.4.0` image — no custom build.
 
 ## What it does
 
@@ -12,7 +14,7 @@ upstream `cloudflare/cloudflared:2025.4.0` image — no custom build.
   by `fetch-secrets.sh` from the
   `<secrets_prefix>/cloudflared-tunnel-token` AWS secret).
 - Routes traffic per the **dashboard-side ingress rule** (NOT this
-  repo): `<subdomain>.<domain>` → `http://openclaw:18789`.
+  repo): `brain.<domain>` → `http://memex:18790`.
 
 ## Why this directory exists
 

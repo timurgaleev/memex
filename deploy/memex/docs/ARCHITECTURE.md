@@ -32,7 +32,9 @@ deploy/memex/src/
 │   ├── sweep.ts         vault walk + change detection
 │   ├── storage.ts       thin façade over Engine
 │   └── config.ts        JSON + YAML + env layered loader
-├── http/                /health /index /search /backlinks /friction /mcp
+├── http/                two contract routes: /health + /mcp
+│                        (legacy /index /search /backlinks /friction /pages/* /graph/*
+│                        /entities/* /timeline/* /jobs/* scheduled for deletion in A.7)
 ├── mcp/                 JSON-RPC 2.0 transport + dispatch
 ├── recipes/             obsidian (chokidar watcher) + cycle (6h tick)
 └── tests/               120 Bun tests
@@ -196,22 +198,21 @@ via `mcp.rate_limit_per_minute` in `memex.yml`.
 - `ACCESS_POLICY.md` — channel-by-channel capabilities
 - `HEARTBEAT.md` — operational state
 
-Mode `0600`. The `soul-audit` openclaw-side skill documents when to
-read them.
+Mode `0600`. Reserved for future agent-side consumption; the
+telegram-bridge does not read them today.
 
 ## Bedrock model wiring
 
 | Use | Model | Cost |
 |---|---|---|
 | Embeddings | `amazon.titan-embed-text-v2:0` | credit-eligible |
-| Query intent | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
-| Query expansion | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
-| Two-pass rerank | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if enabled) |
+| Query intent (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
+| Query expansion (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
+| Two-pass rerank (opt-in) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if `MEMEX_RERANK=1`) |
+| Chat-side synthesis (bridge) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$20/mo at projected volume) |
 
 Auth: EC2 IAM role + `AWS_PROFILE=default` env + container-mounted
-`~/.aws/config` (`credential_source = Ec2InstanceMetadata`). The
-profile name is required because the chat agent's runtime doesn't
-detect the IAM role alone.
+`~/.aws/config` (`credential_source = Ec2InstanceMetadata`).
 
 ## Configuration layering
 
@@ -231,10 +232,17 @@ the engine from the merged shape.
 
 - memex binds `0.0.0.0:18790` inside its container but the port
   is `expose:` only — never `ports:` — so it's reachable only on the
-  Docker `internal` bridge from the openclaw container.
+  Docker `internal` bridge (the telegram-bridge calls it there) and
+  through Cloudflare Tunnel for the `brain.<domain>/mcp` public
+  surface.
 - All state outside `node_modules` lives on EFS / RDS — container is
   stateless and re-creatable.
 - The Postgres SG only allows ingress 5432 from the stack EC2 SG.
 - Friction events MAY contain user queries; treat the
-  `friction_events` table as private. Public MCP HTTPS exposure is
-  gated in `TODO.md` precisely because of this.
+  `friction_events` table as private. Public-bearer reads are gated
+  on the `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` allowlist in
+  `mcp/dispatch.ts`; the read-tools allowed are: `search`,
+  `backlinks`, `stats`, `page_{get,list,versions}`,
+  `graph_{neighbors,query}`, `entity_{facts,timeline,recall}`,
+  `jobs_{list,get,logs}`. Writes require `MEMEX_INTERNAL_TOKEN`
+  on the internal bridge.

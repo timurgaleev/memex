@@ -30,9 +30,12 @@ bash deploy/secrets/fetch-secrets.sh
 docker compose --env-file .env -f deploy/docker-compose.yml restart cloudflared
 ```
 
-## Change ingress (e.g. add `brain.<your-domain>` for public MCP)
+## Ingress
 
-This is **dashboard-side**, not in this repo:
+The default deploy expects exactly one public hostname:
+`brain.<your-domain>` → `http://memex:18790` (MCP JSON-RPC at `/mcp`).
+
+This rule is **dashboard-side**, not in this repo:
 
 1. Cloudflare → Zero Trust → Networks → Tunnels → `<your-tunnel>`.
 2. Configure → Public Hostnames → Add hostname.
@@ -41,17 +44,18 @@ This is **dashboard-side**, not in this repo:
    ~30 s.
 
 When you add an ingress to a NEW container, also expose its port on
-the `internal` Docker network in `docker-compose.yml` (most already
-do via `expose:`).
+the `internal` Docker network in `docker-compose.yml` (`expose:`,
+not `ports:`).
 
 ## Failure modes
 
 | Symptom | Cause / fix |
 |---|---|
-| 502 / 530 from `https://<subdomain>.<domain>` | cloudflared is up but openclaw container is down — check `docker compose ps openclaw` |
+| 502 / 530 from `https://brain.<your-domain>` | cloudflared is up but `memex` is down — check `docker compose ps memex` + hit `/health` |
+| `401` on `POST /mcp` | bearer mismatch — fetch the current bearer from `<secrets_prefix>/memex-public-bearer` and confirm your client carries `Authorization: Bearer <value>` |
 | Tunnel keeps retrying QUIC, never connects | SG TCP egress on 7844 missing — see `terraform/ec2.tf` |
 | `--token ""` log, won't register | env var name mismatch (must be `TUNNEL_TOKEN`, not `CLOUDFLARE_TUNNEL_TOKEN`) — `fetch-secrets.sh` writes both for safety |
-| `dial tcp: lookup openclaw on 127.0.0.11` | openclaw container exited; container DNS (Docker) doesn't see it. `docker compose up -d openclaw` |
+| `dial tcp: lookup memex on 127.0.0.11` | `memex` container exited; container DNS (Docker) doesn't see it. `docker compose up -d memex` |
 
 ## Image bumps
 
