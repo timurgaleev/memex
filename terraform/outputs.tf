@@ -53,7 +53,6 @@ output "secret_arns" {
     github_deploy_key   = var.use_ssh_deploy_key ? aws_secretsmanager_secret.github_deploy_key[0].arn : null
     memex_postgres_url  = aws_secretsmanager_secret.memex_postgres_url.arn
     memex_public_bearer = aws_secretsmanager_secret.memex_public_bearer.arn
-    gateway_token       = aws_secretsmanager_secret.gateway_token.arn
   }
 }
 

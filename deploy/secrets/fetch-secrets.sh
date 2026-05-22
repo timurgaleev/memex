@@ -61,7 +61,6 @@ fetch_text() {
 # can read by exact name.
 fetch_text "telegram-bot-token" "telegram-bot-token.txt" 0444
 fetch_text "home-assistant-token" "home-assistant-token.txt"
-fetch_text "gateway-token" "gateway-token.txt"
 
 # memex-public-bearer is the auth token the bridge sends on its
 # MCP JSON-RPC calls into memex. memex itself reads the same value

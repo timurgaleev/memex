@@ -38,19 +38,6 @@ resource "aws_secretsmanager_secret" "github_deploy_key" {
   recovery_window_in_days = 0
 }
 
-# Stable gateway.auth.token used by the openclaw container's entrypoint to
-# pin the dashboard token across restarts. Rotation is manual ("stable, rotate
-# on compromise") rather than per-restart — see deploy/openclaw/entrypoint.sh
-# for the consume path. Value is provisioned out-of-band:
-#   aws secretsmanager put-secret-value \
-#     --secret-id <secrets_prefix>/gateway-token \
-#     --secret-string $(openssl rand -hex 32)
-resource "aws_secretsmanager_secret" "gateway_token" {
-  name                    = "${var.secrets_prefix}/gateway-token"
-  description             = "openclaw gateway.auth.token (stable; rotate manually on compromise)"
-  recovery_window_in_days = 0
-}
-
 # Bearer token for the public Cloudflare Tunnel ingress to memex
 # (brain.<domain>). Read-side only — /index and /friction are blocked
 # from public regardless of bearer; mutating MCP tools are filtered
