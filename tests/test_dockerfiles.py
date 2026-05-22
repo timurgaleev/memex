@@ -13,7 +13,6 @@ DEPLOY = REPO_ROOT / "deploy"
 # cloudflared has no Dockerfile — it uses upstream image directly.
 DOCKERFILES = {
     "memex": DEPLOY / "memex" / "Dockerfile",
-    "openclaw": DEPLOY / "openclaw" / "Dockerfile",
     "telegram-bridge": DEPLOY / "telegram-bridge" / "Dockerfile",
 }
 
@@ -29,10 +28,6 @@ def _read(path: Path) -> str:
 
 def test_memex_dockerfile_exists():
     assert DOCKERFILES["memex"].exists()
-
-
-def test_openclaw_dockerfile_exists():
-    assert DOCKERFILES["openclaw"].exists()
 
 
 def test_cloudflared_no_dockerfile():
@@ -94,47 +89,6 @@ class TestMemexDockerfile:
         assert "CMD" in self._text, "memex Dockerfile must declare CMD"
         assert "bun" in self._text.lower(), (
             "memex CMD must use bun to run the service"
-        )
-
-
-# ---------------------------------------------------------------------------
-# openclaw Dockerfile
-# ---------------------------------------------------------------------------
-
-class TestOpenclawDockerfile:
-    @pytest.fixture(autouse=True)
-    def content(self):
-        self._text = _read(DOCKERFILES["openclaw"])
-
-    def test_from_pinned_tag(self):
-        from_lines = [l for l in self._text.splitlines() if l.strip().upper().startswith("FROM")]
-        assert from_lines
-        assert ":latest" not in from_lines[0], "openclaw FROM must use a pinned tag"
-        assert "node" in from_lines[0].lower(), "openclaw must be based on a node image"
-
-    def test_workdir_declared(self):
-        assert "WORKDIR" in self._text
-
-    def test_expose_18789(self):
-        assert "EXPOSE 18789" in self._text, "openclaw must EXPOSE 18789"
-
-    def test_healthcheck_present(self):
-        assert "HEALTHCHECK" in self._text, "openclaw must declare a HEALTHCHECK"
-
-    def test_entrypoint_declared(self):
-        assert "ENTRYPOINT" in self._text, "openclaw must declare ENTRYPOINT"
-        assert "entrypoint.sh" in self._text, (
-            "openclaw ENTRYPOINT must reference entrypoint.sh"
-        )
-
-    def test_openclaw_version_arg(self):
-        assert "ARG OPENCLAW_VERSION" in self._text, (
-            "openclaw Dockerfile must accept OPENCLAW_VERSION build-arg"
-        )
-
-    def test_helpers_copied_to_bin(self):
-        assert "/opt/memex/bin" in self._text, (
-            "openclaw Dockerfile must copy helpers to /opt/memex/bin/"
         )
 
 
@@ -217,34 +171,6 @@ class TestHelperScripts:
 # Entrypoint scripts
 # ---------------------------------------------------------------------------
 
-class TestEntrypointScripts:
-    def test_openclaw_entrypoint_exists_and_executable(self):
-        p = DEPLOY / "openclaw" / "entrypoint.sh"
-        assert p.exists(), "deploy/openclaw/entrypoint.sh must exist"
-        assert p.stat().st_mode & 0o111, "entrypoint.sh must be executable"
-
-    def test_openclaw_entrypoint_patches_config(self):
-        p = DEPLOY / "openclaw" / "entrypoint.sh"
-        text = p.read_text()
-        assert "config.template.json" in text, (
-            "openclaw entrypoint.sh must reference config.template.json"
-        )
-        assert "openclaw.json" in text, (
-            "openclaw entrypoint.sh must write openclaw.json"
-        )
-
-    def test_openclaw_entrypoint_sets_brain_url(self):
-        p = DEPLOY / "openclaw" / "entrypoint.sh"
-        text = p.read_text()
-        assert "BRAIN_URL" in text, (
-            "openclaw entrypoint.sh must export BRAIN_URL pointing at memex"
-        )
-        assert "memex:18790" in text, (
-            "openclaw entrypoint.sh BRAIN_URL must point at memex:18790"
-        )
-
-
-
 # ---------------------------------------------------------------------------
 # Secrets
 # ---------------------------------------------------------------------------
@@ -261,18 +187,15 @@ class TestSecrets:
     def test_fetch_secrets_sh_writes_required_secrets(self):
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         text = p.read_text()
-        # Should handle: telegram-bot-token, home-assistant-token,
-        # google-calendar, cloudflared-tunnel-token, gateway-token,
-        # memex-public-bearer (bridge's MCP auth).
-        # `obsidian-sync` was removed in Phase 0 -- attempting to
-        # fetch it errors with `Secrets Manager can't find ...` and
-        # kept the rotate-bearer timer's restart step silently broken.
+        # Required: telegram-bot-token, home-assistant-token,
+        # google-calendar, cloudflared-tunnel-token, memex-public-bearer
+        # (bridge's MCP auth). `obsidian-sync` was removed in Phase 0 and
+        # `gateway-token` in the 2026-05-22 openclaw removal.
         for secret_name in [
             "telegram-bot-token",
             "home-assistant-token",
             "google-calendar",
             "cloudflared-tunnel-token",
-            "gateway-token",
             "memex-public-bearer",
         ]:
             assert secret_name in text, (
