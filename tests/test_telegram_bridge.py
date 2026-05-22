@@ -54,13 +54,15 @@ def test_dockerfile_pulls_no_pip_packages():
     assert "RUN apk add" in text, "bridge image must declare apk packages"
 
 
-def test_dockerfile_copies_helpers_from_openclaw():
-    """The bridge reuses openclaw's helper CLIs — copying from openclaw/
-    keeps the helpers single-sourced rather than forking duplicates."""
+def test_dockerfile_copies_helpers_from_repo():
+    """The bridge ships the gcal/ha/memex helper CLIs from deploy/helpers/.
+    Helpers used to live under deploy/openclaw/helpers/ when the openclaw
+    container shared them; they moved to deploy/helpers/ when openclaw was
+    removed from the stack."""
     text = (BRIDGE_DIR / "Dockerfile").read_text()
-    assert "COPY openclaw/helpers/" in text, (
-        "Dockerfile must COPY openclaw/helpers/ so the bridge shares the "
-        "same helper surface as the chat-agent container"
+    assert "COPY helpers/" in text and "openclaw" not in text, (
+        "Dockerfile must COPY helpers/ from the deploy build context — "
+        "the legacy openclaw/helpers/ path is gone"
     )
 
 

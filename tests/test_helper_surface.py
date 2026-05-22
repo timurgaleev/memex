@@ -1,10 +1,13 @@
 """
-Static surface checks for the openclaw helper CLIs.
+Static surface checks for the helper CLIs (gcal, ha, memex).
 
-These tests guard against the regression we hit during the OSS rename:
-helpers hardcoding the legacy `openclaw/<secret>` Secrets Manager path
-instead of honouring `SECRETS_PREFIX`, or hardcoding `eu-west-1` instead
-of `AWS_REGION`. Pure-static checks — no AWS calls.
+Helpers live under `deploy/helpers/` and ship into the telegram-bridge
+container at `/opt/memex/bin/`. They fetch their own creds from AWS
+Secrets Manager via the EC2 IAM role — these tests guard against the
+regression we hit during the OSS rename: helpers hardcoding the legacy
+`openclaw/<secret>` Secrets Manager path instead of honouring
+`SECRETS_PREFIX`, or hardcoding `eu-west-1` instead of `AWS_REGION`.
+Pure-static checks — no AWS calls.
 
 Run: python3 -m pytest tests/test_helper_surface.py -v
 """
@@ -16,7 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-HELPERS = REPO / "deploy" / "openclaw" / "helpers"
+HELPERS = REPO / "deploy" / "helpers"
 
 SECRET_HELPERS = ("gcal", "ha")
 # `memex` is HTTP-only (no Secrets Manager).

@@ -3,7 +3,8 @@
 # the existing gcal/ha helpers (used as subprocesses for command surfaces).
 #
 # Build context: deploy/ (so we can COPY both telegram-bridge/* and
-# openclaw/helpers/*). See docker-compose.yml for the build invocation.
+# helpers/* from a single context). See docker-compose.yml for the
+# build invocation.
 FROM python:3.12-alpine
 
 # Runtime deps:
@@ -15,8 +16,10 @@ RUN apk add --no-cache bash curl jq aws-cli py3-requests \
 
 WORKDIR /app
 
-# Helpers shared with openclaw — same path layout, single source.
-COPY openclaw/helpers/ /opt/memex/bin/
+# Helper CLIs used by the bridge's command surface (/today, /weather,
+# etc.). They fetch their own creds from Secrets Manager via the EC2
+# IAM role, so the bridge just shells out.
+COPY helpers/ /opt/memex/bin/
 
 COPY telegram-bridge/main.py /app/main.py
 COPY telegram-bridge/entrypoint.sh /app/entrypoint.sh

@@ -191,22 +191,22 @@ class TestTelegramBridgeDockerfile:
 
 class TestHelperScripts:
     def test_gcal_exists_and_executable(self):
-        p = DEPLOY / "openclaw" / "helpers" / "gcal"
-        assert p.exists(), "deploy/openclaw/helpers/gcal must exist"
+        p = DEPLOY / "helpers" / "gcal"
+        assert p.exists(), "deploy/helpers/gcal must exist"
         assert p.stat().st_mode & 0o111, "gcal must be executable"
 
     def test_ha_exists_and_executable(self):
-        p = DEPLOY / "openclaw" / "helpers" / "ha"
-        assert p.exists(), "deploy/openclaw/helpers/ha must exist"
+        p = DEPLOY / "helpers" / "ha"
+        assert p.exists(), "deploy/helpers/ha must exist"
         assert p.stat().st_mode & 0o111, "ha must be executable"
 
     def test_gcal_has_python_shebang(self):
-        p = DEPLOY / "openclaw" / "helpers" / "gcal"
+        p = DEPLOY / "helpers" / "gcal"
         first_line = p.read_text().splitlines()[0]
         assert "python" in first_line, f"gcal must have a Python shebang, got: {first_line}"
 
     def test_ha_has_bash_shebang(self):
-        p = DEPLOY / "openclaw" / "helpers" / "ha"
+        p = DEPLOY / "helpers" / "ha"
         first_line = p.read_text().splitlines()[0]
         assert "bash" in first_line or "sh" in first_line, (
             f"ha must have a bash shebang, got: {first_line}"
