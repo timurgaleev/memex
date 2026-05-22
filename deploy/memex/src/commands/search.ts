@@ -1,8 +1,9 @@
 /**
  * `memex search <query> [--k N]` — hybrid retrieve from the CLI.
  *
- * Outputs JSON to stdout so it pipes cleanly into jq. wraps this
- * in the openclaw skill so the agent can call it directly.
+ * Outputs JSON to stdout so it pipes cleanly into jq. The shell helper
+ * at deploy/helpers/memex wraps this for ad-hoc use inside the bridge
+ * container.
  */
 import { Storage } from "../core/storage.ts";
 import { hybridSearch } from "../core/search/index.ts";

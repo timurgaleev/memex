@@ -70,7 +70,7 @@ export interface ServerOptions {
   mcpRateLimitPerMinute?: number;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
-   * the `MEMEX_PUBLIC_BEARER` env / `openclaw/memex-public-bearer`
+   * the `MEMEX_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
    * secret. When unset, internal requests still flow but every public
    * request returns 503 — fail-closed.
    */

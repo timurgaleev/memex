@@ -73,7 +73,7 @@ resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
 }
 
 # memex-internal-token — shared secret authenticating peer containers
-# (openclaw, telegram-bridge, any future sidecar) on the internal
+# (telegram-bridge today, any future sidecar) on the internal
 # docker bridge to memex's mutating routes (POST /index, POST /friction).
 # Without it, a compromised sibling container could write to the index
 # with no auth — the route gates auth on `Cf-Connecting-Ip` presence

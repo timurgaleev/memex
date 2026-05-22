@@ -38,7 +38,7 @@ chmod 0711 "$SECRETS_DIR"
 
 # Strip the single trailing newline that `aws secretsmanager get-secret-value
 # --output text` always appends. Most consumers (docker compose env_file,
-# jq) tolerate it, but a few (postgres URL parsers, openclaw config set)
+# jq) tolerate it, but a few (postgres URL parsers, third-party CLIs)
 # do not — be safe by default.
 sm_text() {
   aws secretsmanager get-secret-value \
@@ -57,7 +57,7 @@ fetch_text() {
 # Plain string secrets. telegram-bot-token + memex-public-bearer are mode
 # 0444 — the telegram-bridge container reads both as non-root uid 10001.
 # The 0711 parent dir already prevents non-root host users from
-# enumerating; only siblings inside this stack (openclaw / memex / bridge)
+# enumerating; only siblings inside this stack (memex / telegram-bridge / cloudflared)
 # can read by exact name.
 fetch_text "telegram-bot-token" "telegram-bot-token.txt" 0444
 fetch_text "home-assistant-token" "home-assistant-token.txt"

@@ -1,8 +1,8 @@
 /**
  * Progress events — sequenced status updates for long-running operations
  * (sweep, cycle phases, migrate-engine). Cycle phases emit them today;
- * a future SSE endpoint will stream them to MCP clients (Claude Desktop,
- * openclaw, etc.) for live progress UIs.
+ * a future SSE endpoint will stream them to MCP clients (Claude Code,
+ * Cursor, Codex, etc.) for live progress UIs.
  */
 
 export type ProgressEvent =

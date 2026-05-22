@@ -56,7 +56,7 @@ def test_no_bedrock_action_wildcard() -> None:
 
 
 def test_existing_bedrock_invoke_actions_preserved() -> None:
-    """Regression guard: the openclaw_bedrock invoke statement still has the
+    """Regression guard: the Bedrock invoke statement still has the
     expected action set (InvokeModel + InvokeModelWithResponseStream)."""
     text = _read()
     assert '"bedrock:InvokeModel"' in text or "bedrock:InvokeModel" in text, \

@@ -103,7 +103,7 @@ loop is: **test → push → deploy → verify**, in that order, every time.
 4. **Verify on the live host**:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)
    - `/health` endpoints return `ok:true`
-   - For helper changes: `docker exec deploy-openclaw-1 /opt/memex/bin/<helper> <subcommand>` returns real data
+   - For helper changes: `docker exec deploy-telegram-bridge-1 /opt/memex/bin/<helper> <subcommand>` returns real data
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
    - For terraform changes that drift live state: do NOT silently `apply`; show the plan and use targeted-API calls (`aws ec2 modify-...`) when the apply would destroy-and-recreate.
 

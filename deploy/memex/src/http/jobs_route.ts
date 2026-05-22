@@ -7,8 +7,8 @@
  * carry sensitive content (URLs being fetched, OAuth response
  * excerpts, file paths inside handler errors, Bedrock model IDs).
  * Public-ingress responses strip them by default; full content is
- * available to internal callers (and via MCP for openclaw / Claude
- * Desktop). No `MEMEX_PUBLIC_READ_BODIES` opt-in here -- jobs
+ * available to internal callers (and via MCP for any remote
+ * trusted client). No `MEMEX_PUBLIC_READ_BODIES` opt-in here -- jobs
  * payload semantics are different from page bodies; if a future
  * use case needs raw payload to a public reader, add a dedicated
  * opt-in flag rather than reusing the page flag.

@@ -1,11 +1,13 @@
 /**
- * `memex skillpack [--out PATH]` — bundle the openclaw-side skills
- * directory as a tar.gz so it can be shared / installed elsewhere.
+ * `memex skillpack [--out PATH]` — bundle a `deploy/skills/`
+ * directory as a tar.gz so it can be shared / installed by a
+ * downstream agent that consumes skill packs.
  *
  * Looks at deploy/skills/ in the repo (resolved relative to the
  * memex package). Writes a tarball with an embedded manifest.json
  * naming each skill + a sha256 of its contents (so the receiver can
- * verify).
+ * verify). Today the stack ships no skills under deploy/skills/;
+ * this command stays available for future re-introduction.
  *
  * Implementation uses Bun's child_process spawn of `tar` so we don't
  * pull a tar npm dep; tar is in alpine + AL2023 base image, container

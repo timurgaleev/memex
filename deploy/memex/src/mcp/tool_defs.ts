@@ -3,7 +3,7 @@
  *
  * Each tool maps to a thin wrapper over the existing core functions.
  * `inputSchema` follows JSON-Schema draft 7 — the same shape MCP clients
- * (Claude Desktop, openclaw, etc.) expect from tools/list responses.
+ * (Claude Code, Cursor, Codex, etc.) expect from tools/list responses.
  */
 
 export interface ToolDef {

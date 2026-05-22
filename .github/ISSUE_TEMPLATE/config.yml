@@ -3,6 +3,3 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/<your-github-username>/memex/security/policy
     about: Do NOT open a public issue for security problems. See SECURITY.md.
-  - name: Upstream openclaw package
-    url: https://www.npmjs.com/package/openclaw
-    about: This repo deploys openclaw — bugs in the package itself go upstream.

@@ -45,6 +45,7 @@ body:
         - label: terraform / AWS infrastructure
         - label: docker-compose / container build
         - label: memex (knowledge brain)
-        - label: openclaw (chat surface)
+        - label: telegram-bridge (chat handler)
+        - label: cloudflared (public ingress)
         - label: docs / onboarding
         - label: tests / CI

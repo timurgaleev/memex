@@ -71,8 +71,8 @@ TELEGRAM_MAX_LEN = 4000
 LONG_POLL_TIMEOUT_S = 25
 
 # 409 Conflict from Telegram means another consumer holds the
-# `getUpdates` connection (e.g. an openclaw container also configured
-# for the same bot). Back off with capped exponential delay so a
+# `getUpdates` connection (e.g. a stray instance of this container
+# still long-polling). Back off with capped exponential delay so a
 # misconfigured deployment doesn't hammer the API.
 CONFLICT_BACKOFF_INITIAL_S = 5
 CONFLICT_BACKOFF_MAX_S = 120

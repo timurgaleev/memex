@@ -2,8 +2,8 @@
  * Postgres engine — wraps `postgres` (postgres-js) with TLS + pool.
  *
  * Activated when `database.type === "postgres"` in config. Connection
- * URL is read from the secret `openclaw/memex-postgres-url` (mounted
- * at runtime via fetch-secrets.sh) and exposed as MEMEX_POSTGRES_URL
+ * URL is read from the secret `<secrets_prefix>/memex-postgres-url`
+ * (mounted at runtime via fetch-secrets.sh) and exposed as MEMEX_POSTGRES_URL
  * env. RDS-managed Postgres assumed; pgvector + pg_trgm extensions must
  * be enabled at instance level (see terraform/rds.tf).
  *

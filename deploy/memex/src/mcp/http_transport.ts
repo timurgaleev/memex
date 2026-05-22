@@ -31,8 +31,8 @@ export interface McpHandlerOptions {
   publicRateLimiter?: RateLimiter;
   /**
    * Internal-traffic limiter (a single "internal" bucket). The
-   * openclaw container has legitimate burst behavior (cron-driven
-   * batch indexing) and should not share the per-IP public cap.
+   * internal callers (e.g. the bridge or future recipe workers) may
+   * burst legitimately and should not share the per-IP public cap.
    * Default capacity=300, refill=10/s.
    */
   internalRateLimiter?: RateLimiter;
@@ -78,26 +78,26 @@ function defaultClientKey(req: Request): string {
   //      actually trust to identify a remote caller. CF strips
   //      attacker-supplied copies of this header.
   //   2. For requests NOT carrying Cf-Connecting-Ip (internal Docker
-  //      bridge traffic from openclaw → memex), key everyone into a
-  //      single "internal" bucket. X-Forwarded-For / X-Real-IP are
-  //      attacker-controlled when the request is NOT proxied through
-  //      a trust boundary, so using them as a rate-limit key lets a
-  //      caller rotate values freely and defeat per-IP limits.
+  //      bridge traffic from telegram-bridge → memex), key everyone
+  //      into a single "internal" bucket. X-Forwarded-For / X-Real-IP
+  //      are attacker-controlled when the request is NOT proxied
+  //      through a trust boundary, so using them as a rate-limit key
+  //      lets a caller rotate values freely and defeat per-IP limits.
   const cfIp = req.headers.get("Cf-Connecting-Ip");
   if (cfIp) {
     const trimmed = cfIp.trim();
     if (trimmed.length > 0) return trimmed;
   }
-  // Non-public path — single bucket. The internal caller IS trusted
-  // (it's the openclaw container) but should still be rate-limited as
-  // one entity rather than per-spoofed-XFF.
+  // Non-public path — single bucket. Internal callers are trusted
+  // (today: the telegram-bridge container) but should still be
+  // rate-limited as one entity rather than per-spoofed-XFF.
   return "internal";
 }
 
 export function makeMcpHandler(opts: McpHandlerOptions) {
   // Public and internal traffic must NOT share a limiter. A flood of
-  // public requests could otherwise starve the internal openclaw
-  // container, and conversely the internal caller's legitimate burst
+  // public requests could otherwise starve the internal caller (the
+  // telegram-bridge today), and conversely the internal caller's burst
   // (cron-driven re-index) would trip a chat-tuned per-IP cap.
   const publicLimiter =
     opts.publicRateLimiter ?? opts.rateLimiter ?? new RateLimiter();

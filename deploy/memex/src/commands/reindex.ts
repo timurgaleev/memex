@@ -8,8 +8,8 @@
  *     existing tree (it should, but `--all` exists as a safety net)
  *   - after schema changes that invalidate stored chunks
  *   - debugging
- *   - re-indexing the code corpus after `git pull` on the openclaw
- *     repo bind-mount (`--source code [--all]`)
+ *   - re-indexing the code corpus after `git pull` on the host repo
+ *     bind-mount (`--source code [--all]`)
  *
  * Without `--all`, behaves like the recipe's startup sweep: only
  * re-index files newer than their last_indexed_mtime.

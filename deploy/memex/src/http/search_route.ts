@@ -7,8 +7,7 @@
  * Public-ingress responses redact note bodies by default (a leaked
  * bearer must not exfil the entire vault). Bodies opt back in via
  * `MEMEX_PUBLIC_READ_BODIES=1`. Internal callers always see full
- * bodies — the openclaw container and the telegram-bridge container
- * both need them for RAG.
+ * bodies — the telegram-bridge needs them for RAG synthesis.
  */
 import type { Storage } from "../core/storage.ts";
 import { hybridSearch } from "../core/search/index.ts";

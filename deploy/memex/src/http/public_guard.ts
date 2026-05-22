@@ -4,14 +4,14 @@
  *
  * Detection: a request from the Cloudflare edge carries a
  * `Cf-Connecting-Ip` header (the real client IP). Internal Docker
- * traffic from the openclaw container hits the bridge network
+ * traffic from the telegram-bridge container hits the bridge network
  * directly and never goes through Cloudflare, so it lacks this header.
  *
  * Public-request rules:
  *   1. `/health` GET — open (used by uptime probes).
  *   2. Anything else — requires `Authorization: Bearer <token>`.
  *      Token comes from `MEMEX_PUBLIC_BEARER` env (populated by
- *      fetch-secrets.sh from the `openclaw/memex-public-bearer`
+ *      fetch-secrets.sh from the `<secrets_prefix>/memex-public-bearer`
  *      Secrets Manager entry).
  *   3. **Mutating routes are rejected by default** even with a valid
  *      bearer (POST /index, POST /friction, MCP tools/call

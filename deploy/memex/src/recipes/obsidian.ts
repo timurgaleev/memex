@@ -51,6 +51,9 @@ function defaultSourceFor(vault: string): {
     return { id: "obsidian-vault", kind: "vault", syncPolicy: "synced" };
   }
   if (vault === "/memory" || vault.endsWith("/memory")) {
+    // Legacy source-id retained verbatim: changing the string would
+    // orphan every row in `sources` / `documents` keyed against it.
+    // Treat as data, not narrative.
     return { id: "openclaw-memory", kind: "memory", syncPolicy: "local-only" };
   }
   return {

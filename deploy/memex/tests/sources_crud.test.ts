@@ -70,7 +70,7 @@ describe("registerSource + getSource", () => {
 
   it("admits the new 'code' kind", async () => {
     const row = await registerSource(storage.engine(), {
-      id: "openclaw-code",
+      id: "memex-code",
       kind: "code",
       pathPrefix: "/opt/memex/",
       boostWeight: 1.2,

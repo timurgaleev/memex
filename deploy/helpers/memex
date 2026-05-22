@@ -1,6 +1,7 @@
 #!/bin/bash
-# memex — thin client for the memex HTTP daemon, called by the
-# openclaw chat agent. Wraps POST /search and POST /index against the
+# memex — thin client for the memex HTTP daemon, mounted into the
+# telegram-bridge container for ad-hoc shells. Wraps POST /search and
+# POST /index against the
 # memex container reachable on the docker-internal network at
 # http://memex:18790.
 #

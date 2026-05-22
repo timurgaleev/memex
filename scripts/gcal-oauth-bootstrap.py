@@ -100,7 +100,7 @@ def main() -> int:
     print(f"refresh_token stored in {SECRET_ID}")
     print(
         "next: deploy the GCal recipe (gcal.poll job kind) and verify with "
-        "`docker exec deploy-openclaw-1 /opt/<project>/bin/gcal today`."
+        "`docker exec deploy-telegram-bridge-1 /opt/memex/bin/gcal today`."
     )
     return 0
 
