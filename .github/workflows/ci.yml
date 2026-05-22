@@ -62,7 +62,7 @@ jobs:
       - name: install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: lint scripts
-        run: shellcheck scripts/*.sh tests/*.test.sh deploy/openclaw/entrypoint.sh deploy/telegram-bridge/entrypoint.sh deploy/secrets/fetch-secrets.sh
+        run: shellcheck scripts/*.sh tests/*.test.sh deploy/telegram-bridge/entrypoint.sh deploy/secrets/fetch-secrets.sh
 
   pytest:
     name: Python tests
