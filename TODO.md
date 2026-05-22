@@ -39,50 +39,27 @@ automate today. Run these once after the first deploy:
        memex-gcal-poll.timer memex-gmail-poll.timer memex-rotate-bearer.timer
   ```
   Verify with `systemctl list-timers memex-* --all`.
-- **Seed the EFS skills directory** (the chat agent reads from EFS,
-  not the container image, so skills survive container rebuilds):
-  ```bash
-  sudo cp /opt/<project>/deploy/skills/*.md \
-          /mnt/<project>-efs/<project>/skills/
-  sudo chown -R 1000:1000 /mnt/<project>-efs/<project>/skills/
-  sudo docker compose --env-file .env -f deploy/docker-compose.yml restart openclaw
-  ```
-- **Add the morning-briefing cron** (delivers to whichever Telegram
-  chat the operator last messaged the bot from):
-  ```bash
-  docker exec deploy-openclaw-1 openclaw cron add \
-    --name morning-briefing \
-    --cron "0 7 * * *" --tz Europe/Berlin \
-    --session isolated --channel last --announce \
-    --message "Build today's morning briefing per the briefing skill." \
-    --description "Daily 07:00 Europe/Berlin"
-  ```
-  Approve the gateway scope upgrade if prompted:
-  ```bash
-  docker exec deploy-openclaw-1 openclaw devices
-  docker exec deploy-openclaw-1 openclaw devices approve <request-id>
-  ```
 
 These steps are documented to be folded into `bootstrap.sh` in a
-future release once the chat-agent pairing model is stable.
+future release.
 
 ---
 
 ## Operator-only follow-ups (cannot be automated remotely)
 
 - **Re-authorize Gmail OAuth.** Run `scripts/gmail-oauth-bootstrap.sh`
-  from your laptop (needs a browser for Google consent). Current
+  from your laptop (needs a browser for Google consent). If the
   `memex/gmail-oauth` `refresh_token` returns `invalid_grant: Token
-  has been expired or revoked`. After re-auth, the systemd
-  `memex-gmail-poll.timer` will fire green.
+  has been expired or revoked`, this is the path back. After re-auth,
+  the systemd `memex-gmail-poll.timer` will fire green.
 - **Realign terraform state with renamed `memex-*` addresses.** Local
-  `moved.tf` (in your private working copy, gitignored in public)
-  reduces the diff, but the plan still wants to *replace* the EFS
-  and EC2 security groups in place — that recreates the SGs and
-  risks momentary loss of EFS mount + EC2 traffic. Apply ONLY during
-  a planned maintenance window and AFTER confirming the SG-replacement
-  is safe in your environment. Live config is already functionally
-  correct; this is cosmetics on the terraform state.
+  `moved.tf` (gitignored historical scaffold) reduces the diff, but
+  the plan still wants to *replace* the EFS and EC2 security groups
+  in place — that recreates the SGs and risks momentary loss of EFS
+  mount + EC2 traffic. Apply ONLY during a planned maintenance window
+  and AFTER confirming the SG-replacement is safe in your environment.
+  Live config is already functionally correct; this is cosmetics on
+  the terraform state.
 - **Rotate `memex/memex-postgres-url` (RDS master password).** Out-of-band
   via `aws rds modify-db-instance --master-user-password ... --apply-immediately`,
   then write the new URL to `memex/memex-postgres-url` via
@@ -103,15 +80,49 @@ future release once the chat-agent pairing model is stable.
   (or URL-encode the raw value via
   `python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''),end='')" "$RAW"`
   before assembling the URL).
-- **Approve openclaw gateway scope** for the chat-CLI. The standalone
-  systemd `memex-morning-briefing.timer` now delivers the daily
-  briefing without needing this approval, so it's no longer blocking
-  morning delivery — but `openclaw cron add` from the CLI inside the
-  container still 1008's with "pairing required". To unblock fully:
-  pair a browser session at `https://<chat-subdomain>/`, then approve
-  the pending CLI request via `openclaw devices approve <request-id>`
-  from that paired session. After that the chat surface can also
-  schedule its own LLM-driven briefings via the cron path.
+- **Destroy the orphaned `gateway-token` AWS secret.** The chat-agent
+  removal dropped the resource from `terraform/secrets.tf` but the
+  live secret persists until `terraform apply` runs. Next plan will
+  show `Plan: 0 to add, 0 to change, 1 to destroy`. Roughly $0.40/mo
+  to leave orphaned; cosmetic.
+
+---
+
+## MCP cleanup — Phase A.7
+
+memex's HTTP surface is locked to two routes by design (`GET /health`,
+`POST /mcp`), but the daemon today still exposes the legacy routes
+shipped in phases A.1-A.4 (`/pages/*`, `/graph/*`, `/entities/*`,
+`/timeline/*`, `/jobs/*`, `/search`, `/index`, `/friction`). All of
+their behaviour is reachable via `tools/call` on `/mcp`. Cleanup phase:
+
+- Delete the route handlers under `deploy/memex/src/http/` for the
+  legacy routes and the corresponding tests.
+- Prune the `serve.ts` registrations.
+- Confirm nothing in the bridge / helpers / recipes still hits the
+  legacy paths (the bridge already calls `/mcp`).
+- Update `deploy/memex/docs/API.md` to drop the legacy route docs.
+
+---
+
+## Bridge follow-ups
+
+- **Module refactor.** `deploy/telegram-bridge/main.py` is one ~900-line
+  file. A future split into `handlers.py` / `memex_client.py` /
+  `bedrock_client.py` / `help_text.py` would improve clarity. Tests
+  already pass; this is pure organisation.
+- **Hot bearer refresh.** Today the bridge reads
+  `/run/secrets/memex-public-bearer.txt` once at startup. The daily
+  rotation timer restarts the bridge so it picks up the new value,
+  but a sub-second window exists between memex's restart and the
+  bridge's restart where in-flight calls 401. Self-heals on the next
+  request. A future addition could re-read the bearer on a
+  short-interval timer (e.g. every 60s) to close the window.
+- **Bearer file owner instead of mode 0444.** The bridge container
+  runs as uid 10001 inside `.secrets/` (mode 0711). Switching from
+  world-readable file (`0444`) to owner-readable (`0400` + chown to
+  10001) would shrink the blast radius if the bridge image is ever
+  exploited.
 
 ---
 
@@ -170,28 +181,22 @@ future release once the chat-agent pairing model is stable.
   prevent entity-existence enumeration. Documented inline in
   `core/hot_memory.ts` and `core/subagent_ledger.ts` headers.
 
-- **openclaw Dockerfile lacks `USER` directive — runs as root
-  inside the container.** The memex and telegram-bridge containers
-  both drop to a non-root UID; openclaw's `deploy/openclaw/Dockerfile`
-  has no `USER` line, so its entrypoint runs as UID 0. The blast
-  radius is largely mitigated by `docker-compose.yml:88-90` which
-  already applies `cap_drop: ALL` + `security_opt:
-  no-new-privileges:true` — root-without-caps cannot escape the
-  container, install kernel modules, ptrace siblings, or break out
-  of mount namespaces. Residual concrete impact: in-container code
-  can write to writable EFS mounts as UID 0 (chmod/chown skew on
-  shared state with sibling containers that run as UID 10001). Fix
-  is a three-line Dockerfile patch:
-  ```
-  RUN addgroup -S openclaw -g 10001 && adduser -S -u 10001 -G openclaw openclaw \
-      && chown -R openclaw:openclaw /app /home/openclaw 2>/dev/null || true
-  USER openclaw
-  ```
-  Verify EFS mount UIDs match 10001 first; the other two containers
-  already use that UID so it should line up.
+- **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
+  path.** The internal-auth gate hardens POST `/index` and POST
+  `/friction` against a compromised peer on the docker bridge — but
+  a peer can still write via JSON-RPC `tools/call name=index` on
+  POST `/mcp` because the MCP transport doesn't enforce the shared
+  token on internal traffic (`mcp/http_transport.ts` +
+  `mcp/dispatch.ts`). Today the only internal MCP caller is the
+  telegram-bridge, and it only invokes the read-side `search` tool —
+  so trust scope is unchanged from the pre-hardening state. But the
+  kill-chain ("compromised sibling → `tools/call name=index` →
+  poison RAG corpus → exfil via next `/ask`") is still reachable
+  end-to-end. Fix scope: gate the MCP handler the same way HTTP
+  `/index` is gated.
 
 - **CI: `hashicorp/setup-terraform@v4` is pinned to a moving tag,
-  not a commit SHA.** `.github/workflows/ci.yml:43`. If hashicorp's
+  not a commit SHA.** `.github/workflows/ci.yml`. If hashicorp's
   GitHub org is ever compromised, an attacker re-tags `v4` to a
   malicious commit and every CI run silently picks it up. Worst-case
   impact is bounded: the terraform fmt/validate job has no secrets
@@ -202,42 +207,32 @@ future release once the chat-agent pairing model is stable.
   `oven-sh/setup-bun@v2` but those are first-party / owner-canonical
   publishers and thus lower risk.
 
+---
 
+## Revival projects
 
-- **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
-  path.** The 2026-05-17 internal-auth gate (commit batch following
-  `974b87e`) hardens POST `/index` and POST `/friction` against a
-  compromised peer on the docker bridge — but a peer can still write
-  via JSON-RPC `tools/call name=index` on POST `/mcp` because the
-  MCP transport doesn't enforce the shared token on internal traffic
-  (`mcp/http_transport.ts` + `mcp/dispatch.ts`). Today the only
-  internal MCP caller is the `openclaw` chat container, so trust
-  scope is unchanged from the pre-hardening state — but the kill-chain
-  the bug-hunter identified ("compromised sibling → `tools/call
-  name=index` → poison RAG corpus → exfil via next /ask") is still
-  reachable end-to-end. Fix scope: gate the MCP handler the same way
-  HTTP `/index` is gated, AND update the openclaw plugin config to
-  send the `Authorization: Bearer <internal-token>` header. Needs
-  coordinated openclaw-side change so split into a follow-up.
+These are intentionally archived. Pick them up if and when you want
+the capability back.
 
-- **Bedrock prompt no longer passed via `--body` argv.** Today
-  `deploy/telegram-bridge/main.py:_bedrock_invoke_once` invokes
-  `aws bedrock-runtime invoke-model --body <prompt-json>`. The
-  prompt + retrieved notes briefly appear in `/proc/<pid>/cmdline`
-  of the bridge container. With the bridge running non-root + the
-  read-only filesystem this is low-risk on the single-tenant EC2,
-  but a future co-tenant on the same host would see operator
-  queries. Switch to `--body fileb://<mkstemp-path>` for full
-  defence-in-depth.
+- **Morning briefing.** `archive/morning-briefing/` holds the
+  composer script and the two systemd unit files from the
+  pre-removal layout. They shelled into the (now removed) chat-agent
+  container. `archive/morning-briefing/README.md` documents the path
+  back: host-side composer that calls the helper CLIs at
+  `/opt/memex/bin/` directly + Bedrock Haiku for prose + Telegram
+  Bot API for delivery. New systemd timer at `*-*-* 07:00:00
+  Europe/Berlin`.
+
+---
 
 ## OSS scaffold polish
 
 - Multi-arch CI matrix (amd64 + arm64) — currently arm64-only because
   the default `var.instance_type` is `t4g.medium`. Track in an issue;
   not a 1.0 blocker.
-- GHCR image publishing for `memex` and `openclaw` containers — today
-  the images are built on the EC2 host on every deploy. Issue first
-  to agree on tag scheme + release cadence.
+- GHCR image publishing for `memex` and `telegram-bridge` containers —
+  today the images are built on the EC2 host on every deploy. Issue
+  first to agree on tag scheme + release cadence.
 - GitHub Pages docs site — `ARCHITECTURE.md` + `deploy/*/docs/` would
   render as a small Docusaurus / mkdocs site. Out of scope until
   there's a second deployer.

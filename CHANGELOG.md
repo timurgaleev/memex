@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Chat path simplified — `telegram-bridge` owns it end-to-end.**
+  The `openclaw` chat-agent container is removed from the stack.
+  `telegram-bridge` calls memex over MCP JSON-RPC for retrieval and
+  Bedrock Claude Haiku 4.5 (`eu.anthropic.claude-haiku-4-5-20251001-v1:0`)
+  for synthesis. The bot still exposes the same eight slash commands
+  (`/today`, `/tomorrow`, `/week`, `/weather`, `/search`, `/ask`,
+  `/health`, `/help`); plain text is treated as `/ask`. Bearer auth
+  for the bridge's MCP calls lives at
+  `/run/secrets/memex-public-bearer.txt` (mode `0444`); the daily
+  rotation timer restarts the bridge so it re-reads the new token.
+
+### Removed
+- **`openclaw` chat agent removed entirely.** The container, build
+  context (`deploy/openclaw/`), web-UI config, plugin manifest
+  (`deploy/memex/openclaw.plugin.json`), gateway-token secret, and
+  the 13 markdown skills under `deploy/skills/` are gone. The helper
+  CLIs (`gcal`, `ha`, `memex`) moved from `deploy/openclaw/helpers/`
+  to `deploy/helpers/` and ship into the bridge container instead.
+  `scripts/post-onboard.sh` (entirely `openclaw config set …`) is
+  deleted.
+
+### Archived
+- **Morning briefing** (`scripts/morning-briefing.sh` and
+  `deploy/systemd/memex-morning-briefing.{service,timer}`) moved to
+  `archive/morning-briefing/`. The script shelled into the now-removed
+  chat-agent container, so it stopped working when the container was
+  removed. `archive/morning-briefing/README.md` documents the path
+  back: host-side composer + Bedrock Haiku + Telegram API directly.
+
 ### Added
 - **Phase A.5 — hot_memory + subagent durable ledger (schema only).**
   Lays the persistence rails for two future engines without exposing

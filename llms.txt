@@ -8,13 +8,13 @@
 Self-hostable personal AI assistant stack:
 - **memex** — knowledge brain (Bun + Postgres + pgvector, hybrid
   search, MCP server; PGLite available as a dev-only fallback)
-- **openclaw** — chat agent (npm `openclaw@2026.4.29`, Telegram + web
-  UI via Cloudflare Tunnel)
-- **obsidian-sync** *(deprecated, will be removed in a future release)* —
-  bidirectional sync to a hosted Obsidian vault via a headless client
-- **cloudflared** — public HTTPS ingress for the web UI
+- **telegram-bridge** — chat handler (Python 3 stdlib; calls memex
+  via MCP JSON-RPC and Bedrock Claude Haiku 4.5 via Converse for
+  RAG synthesis)
+- **cloudflared** — public HTTPS ingress for the MCP server
+  (`brain.<domain>/mcp`)
 
-All four run as Docker Compose services on a single `t4g.medium` EC2.
+All three run as Docker Compose services on a single `t4g.medium` EC2.
 
 ## Where to read first
 
@@ -32,11 +32,11 @@ All four run as Docker Compose services on a single `t4g.medium` EC2.
 
 ```
 deploy/
-├── docker-compose.yml           orchestrator (4 services + internal bridge net)
-├── memex/                    knowledge brain
+├── docker-compose.yml           orchestrator (3 services + internal bridge net)
+├── memex/                       knowledge brain
 │   ├── Dockerfile               oven/bun:1.3.13-alpine
 │   ├── package.json             pinned deps incl. yaml + chokidar + AWS SDK Bedrock + postgres
-│   ├── memex.yml.example     declarative runtime config overlay
+│   ├── memex.yml.example        declarative runtime config overlay
 │   ├── templates/               SOUL/USER/ACCESS_POLICY/HEARTBEAT.md.template (seeded by init)
 │   ├── src/
 │   │   ├── cli.ts               argparse + subcommand dispatch
@@ -44,23 +44,30 @@ deploy/
 │   │   │                        integrity, eval, backlinks, extract,
 │   │   │                        reconcile-links, orphans, pages, lint, reports,
 │   │   │                        skillpack
+│   │   ├── http/                two-route HTTP surface (/health + /mcp;
+│   │   │                        legacy /pages/* /graph/* /entities/* /timeline/*
+│   │   │                        /jobs/* /search /index /friction scheduled for
+│   │   │                        removal in Phase A.7)
+│   │   ├── mcp/                 JSON-RPC transport, tool dispatch, rate limiter
 │   │   └── core/
 │   │       └── engine/          adapter pattern (interface, pglite, postgres, factory)
 │   └── docs/                    subsystem deep-dive (README, ARCHITECTURE, API, OPERATIONS)
-├── openclaw/                    chat surface
-│   ├── Dockerfile               npm `openclaw@2026.4.29` on Alpine
-│   ├── config.template.json     templated by post-onboard.sh
-│   ├── entrypoint.sh            applies env + gateway token at start
-│   └── docs/                    operations notes
+├── telegram-bridge/             chat handler
+│   ├── Dockerfile               python:3.12-alpine + aws-cli; build context = ./
+│   │                            (so it can COPY helpers/ alongside its own files)
+│   ├── main.py                  single-file daemon (long-poll, allowlist, dispatch)
+│   ├── entrypoint.sh            sanity-checks token + IAM before exec
+│   └── README.md                command surface + design rationale
+├── helpers/                     gcal / ha / memex CLIs (mounted into the bridge
+│   ├── gcal                     image at /opt/memex/bin/, called via subprocess)
+│   ├── ha
+│   └── memex
 ├── cloudflared/                 public ingress sidecar (upstream image, no Dockerfile)
-│   └── docs/
-├── obsidian-sync/               vault sync sidecar (headless Obsidian)
 │   └── docs/
 ├── secrets/                     AWS Secrets Manager fetch
 │   ├── fetch-secrets.sh         reads <secrets_prefix>/* into deploy/.secrets/
 │   └── README.md
-├── systemd/                     timers + services for poll / rotation jobs
-└── skills/                      openclaw skills (calendar, telegram-history, etc.)
+└── systemd/                     timers + services for poll / rotation jobs
 
 scripts/
 ├── audit.sh                     PII gate
@@ -69,11 +76,15 @@ scripts/
 │   ├── pii-patterns.txt         audit input
 │   └── pii-allowlist.txt        files exempt from audit
 ├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
-├── post-onboard.sh              one-time openclaw config patches
 ├── gcal-poll.sh, gmail-poll.sh  hourly recipe triggers
 ├── gcal-oauth-bootstrap.py      local OAuth flow → secret refresh
 ├── gmail-oauth-bootstrap.py     same for Gmail
-└── rotate-memex-public-bearer.sh   daily bearer rotation
+└── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex + bridge)
+
+archive/
+└── morning-briefing/            preserved-but-inactive work — script + 2 systemd
+                                 units + README documenting why it stopped and
+                                 how to revive without the removed chat agent
 
 terraform/
 ├── main.tf                      providers + partial backend

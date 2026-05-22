@@ -25,8 +25,8 @@ stays in your AWS account.
   and can search across everything you've ever written.
 - **Hybrid retrieval that actually works.** Bedrock Titan embeddings
   for semantic recall, Postgres `tsvector` for keyword precision,
-  Reciprocal Rank Fusion to merge them. Optional Haiku 4.5 rerank
-  when you want the absolute best top-k.
+  Reciprocal Rank Fusion to merge them. Claude Haiku 4.5 composes
+  grounded answers from the retrieved chunks.
 - **Telegram chat surface, day one.** Talk to your brain from your
   phone. No app store, no platform tax.
 - **Production-grade from clone-zero.** Terraform module, partial-S3
@@ -54,23 +54,22 @@ stays in your AWS account.
 ## How it works
 
 ```
-                   +------------- public ------------+
-                   |                                 |
-            Telegram bot               https://<chat>.<domain>
-                   |                                 |
-                   +---------------+-----------------+
-                                   |
-                          cloudflared (sidecar)
-                                   |
-       +------- docker-compose internal bridge -------+
-       |          |               |
-     memex    openclaw      telegram-bridge
-       |          |               |
-       |     Bedrock Nova    Telegram getUpdates
-       |     Bedrock Titan   (long-poll, allowlist)
-       |          |
-  RDS Postgres   Home Assistant + Google Calendar (helpers)
-   + pgvector
+                       +---------- public ----------+
+                       |                            |
+                  Telegram bot           https://brain.<domain>/mcp
+                       |                            |
+                       v                            v
+              telegram-bridge                  cloudflared
+                       |                            |
+       +------- docker-compose internal bridge -----+
+       |                       |
+     memex <----- MCP -------- (search, recall, graph)
+       |                       |
+       |               Bedrock Haiku 4.5  (answer synthesis)
+       |               Bedrock Titan v2   (embeddings)
+       |               Home Assistant + Google Calendar (helpers)
+       |
+  RDS Postgres + pgvector
        |
       EFS  (container runtime state only — no content)
 ```
@@ -80,13 +79,16 @@ Inside the box:
 - **memex** — the knowledge brain. Bun + TypeScript runtime, Postgres
   16 + pgvector, MCP JSON-RPC transport, multi-phase nightly
   maintenance cycle, graph-only code chunkers for TS / Python.
-- **openclaw** — the chat surface. Web UI fronted by Cloudflare
-  Tunnel; Telegram input arrives via the `telegram-bridge` HTTP
-  forward.
-- **telegram-bridge** — standalone two-way Telegram surface.
-  Long-polls the Bot API, allowlists by chat id, posts replies.
+- **telegram-bridge** — the chat handler. A thin Python daemon that
+  long-polls Telegram, dispatches slash commands (`/today`,
+  `/weather`, `/search`, …) to the `gcal` / `ha` helpers, and
+  answers free text with a RAG pipeline that calls memex over MCP
+  for retrieval and Bedrock Claude Haiku 4.5 for synthesis.
+  Allowlists by chat id; never speaks to anyone else.
 - **cloudflared** — public HTTPS ingress without exposing any EC2
-  ports.
+  ports. Routes `brain.<domain>/mcp` to the memex MCP server so
+  MCP-compatible AI clients (Claude Code, Cursor, Codex, ...) can
+  connect from anywhere.
 
 Deep dives: [`ARCHITECTURE.md`](./ARCHITECTURE.md) and the per-subsystem
 docs under `deploy/<subsystem>/docs/`.
@@ -124,9 +126,10 @@ make apply
 
 After `make apply`, the EC2 boots, `scripts/bootstrap.sh` pulls the
 repo into `/opt/<project>`, fetches secrets from AWS Secrets Manager,
-and brings up the four containers via Docker Compose. Cloudflare
-Tunnel routes `<subdomain>.<domain>` to the chat surface and
-`brain.<domain>` to the MCP server.
+and brings up the three containers (`memex`, `telegram-bridge`,
+`cloudflared`) via Docker Compose. Cloudflare Tunnel routes
+`brain.<domain>/mcp` to the memex MCP server so remote AI clients
+can connect.
 
 Full setup walkthrough for the Gmail + Google Calendar recipes:
 [`deploy/memex/docs/GMAIL-GCAL-SETUP.md`](./deploy/memex/docs/GMAIL-GCAL-SETUP.md).
@@ -140,8 +143,8 @@ Connecting Claude Code to the MCP server:
 | Subsystem | Path | Docs |
 |---|---|---|
 | **memex** — knowledge brain (search, index, MCP) | `deploy/memex/` | `deploy/memex/docs/` |
-| **openclaw** — chat agent (web UI) | `deploy/openclaw/` | `deploy/openclaw/docs/` |
-| **telegram-bridge** — two-way Telegram surface | `deploy/telegram-bridge/` | `deploy/telegram-bridge/README.md` |
+| **telegram-bridge** — chat handler (memex MCP + Bedrock RAG) | `deploy/telegram-bridge/` | `deploy/telegram-bridge/README.md` |
+| **helpers** — `gcal`, `ha`, `memex` CLIs the bridge shells out to | `deploy/helpers/` | inline shebangs |
 | **cloudflared** — public ingress sidecar | `deploy/cloudflared/` | `deploy/cloudflared/docs/` |
 | **secrets** — AWS Secrets Manager fetch | `deploy/secrets/` | `deploy/secrets/README.md` |
 | **bootstrap.sh** — EC2 first-boot script | `scripts/bootstrap.sh` | inline |
@@ -150,6 +153,7 @@ Connecting Claude Code to the MCP server:
 | **agent onboarding** | [`llms.txt`](./llms.txt), [`AGENTS.md`](./AGENTS.md) | for AI sessions cloning the repo |
 | **deferred work** | [`TODO.md`](./TODO.md) | open roadmap |
 | **changelog** | [`CHANGELOG.md`](./CHANGELOG.md) | versioned releases |
+| **archive** — work preserved for future re-implementation | `archive/` | per-folder `README.md` |
 
 ---
 

@@ -7,7 +7,8 @@
 - Always confirm before destructive ops (commit, terraform apply, EC2 recreate).
 - TDD where the logic is testable; smoke-test where the network is the test.
 - Containers run on a single EC2; deploy = `git pull && docker compose up -d --build` over SSM.
-- memex's brain index is rebuildable from the Obsidian vault; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
+- memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
+- The chat path is `telegram-bridge` → memex MCP + Bedrock Haiku 4.5. There is no agent framework in the middle.
 
 ## Build & test (memex)
 
@@ -27,7 +28,6 @@ The simplest "does my change build" check uses Docker locally (matches the EC2 a
 ```bash
 cd deploy
 docker compose build memex            # ~30s on warm cache
-docker compose build openclaw         # ~90s (npm openclaw + aws-cli + git)
 docker compose build telegram-bridge  # ~25s
 ```
 
@@ -35,7 +35,18 @@ Full local up requires the secrets — they're gitignored and only fetched on th
 
 ## Deploy
 
-Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait ~3 min for openclaw to stage plugin deps → `curl https://<subdomain>.<domain>/healthz`.
+Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait for `telegram-bridge` to report `Up <N> (healthy)` → smoke-test from inside the bridge:
+
+```bash
+docker exec deploy-telegram-bridge-1 sh -c '
+  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
+  curl -fsS -X POST http://memex:18790/mcp \
+    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
+'
+```
+
+Then send a real message to the bot in Telegram.
 
 Never:
 - `terraform taint aws_instance.memex`
@@ -58,6 +69,7 @@ Never:
 | HTTP routes | `Bun.serve` on port 0, real fetch round-trip |
 | MCP transport | `Bun.serve` on port 0 + JSON-RPC client via fetch |
 | Bedrock-touching paths | Mocked at the embedding boundary; smoke-test live separately |
+| Bridge command dispatch | Load `main.py` in-process; mock `search_memex` + helpers via `monkeypatch.setattr` |
 
 ## Env vars worth knowing
 
@@ -65,13 +77,15 @@ Never:
 AWS_REGION=<your-region>          # required
 AWS_PROFILE=default               # required, not optional
 SECRETS_PREFIX=memex              # AWS Secrets Manager namespace
-MEMEX_VAULT_PATHS=/vault,/memory
+MEMEX_VAULT_PATHS=/memory         # paths memex sweeps for content
 MEMEX_SWEEP_DELAY_MS=50
 MEMEX_SWEEP_MAX_FILES=1000
 MEMEX_DREAM_INTERVAL_S=21600
 MEMEX_DREAM_STALE_DAYS=30
 MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
 BRAIN_PORT=18790
+MEMEX_BRIDGE_ALLOWED_CHAT_IDS=<n> # required for the bridge; comma-separated
+MEMEX_BRIDGE_LLM_MODEL=eu.anthropic.claude-haiku-4-5-20251001-v1:0
 TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
 
@@ -79,12 +93,14 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 
 | Symptom | Likely cause |
 |---|---|
-| Telegram replies are npm error stack traces | `git` missing in openclaw image |
-| `gcal` helpers ENOENT | `aws-cli` missing in openclaw image |
+| Bridge replies "no matches" for everything | Bearer file `/run/secrets/memex-public-bearer.txt` missing or stale; rotation didn't restart the bridge |
+| Bridge replies "helper not installed" | `deploy/helpers/{gcal,ha}` didn't COPY into `/opt/memex/bin/` — check Dockerfile build context |
+| Bridge healthcheck flaps `starting → unhealthy` | `aws sts get-caller-identity` failing in entrypoint — IAM role not assumable from the container |
+| `MEMEX_BRIDGE_ALLOWED_CHAT_IDS` unset → daemon won't boot | The `:?` interpolation in compose is intentional: better to fail boot than open the bot |
 | Cloudflared retries forever, no traffic | `--protocol http2` not set; SG blocks UDP |
-| openclaw won't open port 18789 after boot | Stale `plugin-runtime-deps/openclaw-X` from EFS full-home mount |
-| memex `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root |
+| memex `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root or correct EFS chown |
 | SSM `ConnectionLost`, healthz down | Likely OOM on too-small instance during sweep |
+| MCP returns `401` for tools/call | Bearer in `Authorization: Bearer <token>` header doesn't match `MEMEX_PUBLIC_BEARER` env on the memex container; rotation may have advanced AWSCURRENT |
 
 ## When you don't know what to do
 

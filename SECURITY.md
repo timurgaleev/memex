@@ -31,8 +31,6 @@ scope. Examples:
 ## Out of scope
 
 - Findings that require maintainer-level AWS console access.
-- Findings against the upstream `openclaw` npm package — report those
-  to the upstream project.
 - Findings against Amazon Bedrock, Cloudflare, or any AWS service —
   report those to AWS / Cloudflare.
 
@@ -53,7 +51,9 @@ These are documented choices, not bugs — report only if you've found a
 way to break the assumed envelope.
 
 - A maintainer who deploys with default settings exposes a read-only
-  MCP server at `brain.<domain>`. The bearer token gates access; daily
-  rotation bounds the blast radius of a leaked token.
-- The chat UI at `<subdomain>.<domain>` is reachable from the public
-  internet but requires a one-time device pairing per browser.
+  MCP server at `brain.<domain>/mcp`. The bearer token gates access;
+  daily rotation bounds the blast radius of a leaked token.
+- The Telegram bot is allowlisted by chat id
+  (`MEMEX_BRIDGE_ALLOWED_CHAT_IDS`). Unknown chats receive a single
+  polite refusal and are rate-gated to prevent quota burn from
+  enumeration attacks.
