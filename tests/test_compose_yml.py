@@ -13,7 +13,6 @@ REPO_ROOT = Path(__file__).parent.parent
 COMPOSE_PATH = REPO_ROOT / "deploy" / "docker-compose.yml"
 EXPECTED_SERVICES = {
     "memex",
-    "openclaw",
     "telegram-bridge",
     "cloudflared",
 }
@@ -41,7 +40,7 @@ def test_no_version_key(compose):
     )
 
 
-def test_four_services_declared(compose):
+def test_three_services_declared(compose):
     services = set(compose.get("services", {}).keys())
     assert services == EXPECTED_SERVICES, (
         f"Expected services {EXPECTED_SERVICES}, got {services}"
@@ -75,27 +74,6 @@ def test_memex_has_healthcheck_hitting_health(compose):
     )
 
 
-def test_openclaw_has_healthcheck(compose):
-    svc = compose["services"]["openclaw"]
-    assert "healthcheck" in svc, "openclaw must declare a healthcheck"
-    hc = svc["healthcheck"]
-    test_cmd = " ".join(hc.get("test", []))
-    assert "18789" in test_cmd or "healthz" in test_cmd, (
-        f"openclaw healthcheck must target port 18789 or /healthz, got: {test_cmd}"
-    )
-
-
-def test_openclaw_depends_on_memex(compose):
-    svc = compose["services"]["openclaw"]
-    depends = svc.get("depends_on", {})
-    assert "memex" in depends, "openclaw must depend_on memex"
-    # Condition should be service_healthy
-    if isinstance(depends["memex"], dict):
-        assert depends["memex"].get("condition") == "service_healthy", (
-            "openclaw depends_on memex must use condition: service_healthy"
-        )
-
-
 def test_cloudflared_depends_on_memex(compose):
     """Public ingress (brain.<domain>/mcp) terminates at memex, so the
     tunnel must wait for memex's /health probe to pass before
@@ -110,20 +88,17 @@ def test_cloudflared_depends_on_memex(compose):
             "cloudflared depends_on memex must use condition: service_healthy"
         )
     assert "openclaw" not in depends, (
-        "cloudflared must NOT depend on openclaw — openclaw is profile-gated "
-        "off; depending on it would block cloudflared from booting"
+        "openclaw was removed from the stack — cloudflared must not "
+        "depend on a service that no longer exists"
     )
 
 
-def test_openclaw_is_profile_gated_off(compose):
-    """The chat agent is OFF by default. The bridge owns the chat path
-    end-to-end. Keep the service definition for future opt-in but
-    don't start it on `docker compose up -d` without a profile."""
-    svc = compose["services"]["openclaw"]
-    profiles = svc.get("profiles") or []
-    assert profiles, (
-        "openclaw must declare `profiles:` so it stays off by default "
-        "(start with --profile <name> if the web UI is needed)"
+def test_no_openclaw_service(compose):
+    """The openclaw chat agent was removed when the telegram-bridge took
+    over the chat path. Catch any accidental resurrection."""
+    services = compose.get("services") or {}
+    assert "openclaw" not in services, (
+        "openclaw service must not be defined — the bridge owns the chat path"
     )
 
 
@@ -151,14 +126,6 @@ def test_memex_has_expose(compose):
     )
 
 
-def test_openclaw_has_expose(compose):
-    svc = compose["services"]["openclaw"]
-    assert "expose" in svc, "openclaw must declare expose: [18789]"
-    assert "18789" in [str(p) for p in svc["expose"]], (
-        "openclaw must expose port 18789"
-    )
-
-
 def test_cloudflared_uses_pinned_image(compose):
     svc = compose["services"]["cloudflared"]
     assert "image" in svc, "cloudflared must use upstream image (no build:)"
@@ -174,22 +141,15 @@ def test_memex_build_context(compose):
     assert svc["build"]["context"] == "./memex"
 
 
-def test_openclaw_build_context(compose):
-    svc = compose["services"]["openclaw"]
-    assert "build" in svc, "openclaw must declare a build: block"
-    assert svc["build"]["context"] == "./openclaw"
-
-
 def test_telegram_bridge_build_context_covers_helpers(compose):
-    """The bridge image copies openclaw/helpers/* in, so its build context
-    must be `./` (the deploy/ tree), not `./telegram-bridge`. Catching
-    this regression saves a confusing 'COPY failed: file not found' on
-    first build."""
+    """The bridge image copies helpers/* in from the deploy/ tree, so
+    its build context must be `./` — not `./telegram-bridge`. Catches
+    a confusing 'COPY failed: file not found' on first build."""
     svc = compose["services"]["telegram-bridge"]
     assert "build" in svc, "telegram-bridge must declare a build: block"
     assert svc["build"]["context"] == "./", (
-        "telegram-bridge build context must be ./ so openclaw/helpers/ "
-        "is visible to the Dockerfile COPY"
+        "telegram-bridge build context must be ./ so helpers/ is "
+        "visible to the Dockerfile COPY"
     )
     assert svc["build"]["dockerfile"] == "telegram-bridge/Dockerfile"
 
