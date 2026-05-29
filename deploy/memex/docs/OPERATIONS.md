@@ -2,16 +2,13 @@
 
 How to deploy, restart, observe, and recover.
 
-## Morning briefing (archived)
+## Morning briefing (future)
 
-The previous morning-briefing flow (`scripts/morning-briefing.sh` +
-`memex-morning-briefing.{service,timer}`) shelled into the (now
-removed) chat-agent container and stopped working at the cutover. The
-script + units are preserved under `archive/morning-briefing/` with
-a README documenting the revival path: rewrite the composer to call
-the helper CLIs at `/opt/memex/bin/` directly, synthesise prose via
-Bedrock Haiku 4.5, deliver via the Telegram Bot API. The host already
-has the IAM grants needed; no new infrastructure required.
+A daily morning briefing is a possible future timer: a host-side
+composer that calls the helper CLIs at `/opt/memex/bin/` directly,
+synthesises prose via Bedrock Haiku 4.5, and delivers via the Telegram
+Bot API. Not built today — the host already has the IAM grants needed,
+so no new infrastructure is required.
 
 ## Deploy
 

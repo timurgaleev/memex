@@ -214,14 +214,11 @@ their behaviour is reachable via `tools/call` on `/mcp`. Cleanup phase:
 These are intentionally archived. Pick them up if and when you want
 the capability back.
 
-- **Morning briefing.** `archive/morning-briefing/` holds the
-  composer script and the two systemd unit files from the
-  pre-removal layout. They shelled into the (now removed) chat-agent
-  container. `archive/morning-briefing/README.md` documents the path
-  back: host-side composer that calls the helper CLIs at
-  `/opt/memex/bin/` directly + Bedrock Haiku for prose + Telegram
-  Bot API for delivery. New systemd timer at `*-*-* 07:00:00
-  Europe/Berlin`.
+- **Morning briefing.** A host-side composer that calls the helper
+  CLIs at `/opt/memex/bin/` directly, synthesises prose via Bedrock
+  Haiku, and delivers via the Telegram Bot API, driven by a new
+  systemd timer at `*-*-* 07:00:00 Europe/Berlin`. The IAM grants it
+  needs already exist; no new infrastructure required.
 
 ---
 

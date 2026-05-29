@@ -88,6 +88,24 @@ Examples:
 4. Wait for the maintainer review. No SLA, but no PR is rejected
    without an explanation.
 
+## Required workflow for AI agents
+
+If you are an AI coding agent working in this repo, two steps are
+mandatory for **every** change — not just features:
+
+1. **Run the matching review skill/agent** before declaring work done.
+   Pick the reviewer by what changed (full table in `CLAUDE.md` →
+   "Self-review after each implementation"): e.g. `security-engineer`
+   for secrets/auth, `code-reviewer` for logic, `devops-automator` for
+   CI/docker/terraform, `technical-writer` for docs. Act on every
+   CRITICAL / HIGH finding.
+2. **Follow the ship workflow** in `CLAUDE.md` —
+   **test → push → deploy → verify**. A change is not shipped until the
+   live EC2 runs it and the `/health` + bridge smoke checks pass.
+
+Human contributors run the local gate in step 2 of the PR flow above;
+the maintainer runs the agent review on incoming PRs.
+
 ## Things that will NOT be accepted
 
 - Changes that add unrequested monitoring, dashboards, alarms, or

@@ -8,7 +8,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **Chat path simplified — `telegram-bridge` owns it end-to-end.**
-  The `openclaw` chat-agent container is removed from the stack.
+  The legacy chat-agent container is removed from the stack.
   `telegram-bridge` calls memex over MCP JSON-RPC for retrieval and
   Bedrock Claude Haiku 4.5 (`eu.anthropic.claude-haiku-4-5-20251001-v1:0`)
   for synthesis. The bot still exposes the same eight slash commands
@@ -19,22 +19,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rotation timer restarts the bridge so it re-reads the new token.
 
 ### Removed
-- **`openclaw` chat agent removed entirely.** The container, build
-  context (`deploy/openclaw/`), web-UI config, plugin manifest
-  (`deploy/memex/openclaw.plugin.json`), gateway-token secret, and
-  the 13 markdown skills under `deploy/skills/` are gone. The helper
-  CLIs (`gcal`, `ha`, `memex`) moved from `deploy/openclaw/helpers/`
-  to `deploy/helpers/` and ship into the bridge container instead.
-  `scripts/post-onboard.sh` (entirely `openclaw config set …`) is
-  deleted.
+- **Legacy chat-agent container removed entirely.** The container, its
+  build context, web-UI config, plugin manifest, gateway-token secret,
+  and the 13 markdown skills under `deploy/skills/` are gone. The helper
+  CLIs (`gcal`, `ha`, `memex`) moved into `deploy/helpers/` and ship
+  into the bridge container instead. The chat-agent's post-onboard
+  config script is deleted.
+- **Morning-briefing script + systemd units removed entirely** (the
+  former `archive/morning-briefing/` directory is deleted). They
+  depended on the now-removed chat-agent container and stopped working
+  at the cutover. The capability remains a future TODO (host-side
+  composer → Bedrock Haiku → Telegram Bot API); nothing ships today.
+- **Final chat-agent scrub.** The last narrative references to the
+  removed chat agent are gone from source, tests, docs, and audit
+  patterns. Guard tests were rewritten to assert the expected memex
+  topology positively (e.g. the exact compose service set) instead of
+  naming the removed component; legacy secret-prefix and
+  terraform-address scrub patterns were dropped. One opaque value
+  remains by design — the live RDS source-id key in
+  `recipes/obsidian.ts`, deferred to the memory-store migration.
 
-### Archived
-- **Morning briefing** (`scripts/morning-briefing.sh` and
-  `deploy/systemd/memex-morning-briefing.{service,timer}`) moved to
-  `archive/morning-briefing/`. The script shelled into the now-removed
-  chat-agent container, so it stopped working when the container was
-  removed. `archive/morning-briefing/README.md` documents the path
-  back: host-side composer + Bedrock Haiku + Telegram API directly.
+### Changed (docs)
+- Refreshed `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CLAUDE.md`,
+  `ARCHITECTURE.md`, `TODO.md`, `llms.txt`, `deploy/secrets/README.md`,
+  and `deploy/memex/docs/OPERATIONS.md` to match the current
+  three-container stack. `CLAUDE.md`'s model-selection note now points
+  at the bridge's `MEMEX_BRIDGE_LLM_MODEL` (the deleted post-onboard
+  script is gone). `AGENTS.md` and `CONTRIBUTING.md` now require running
+  the matching review skill/agent and the test→push→deploy→verify ship
+  workflow for every change.
 
 ### Added
 - **Phase A.5 — hot_memory + subagent durable ledger (schema only).**
@@ -379,20 +392,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   external vault mount) — it will be replaced or removed in the
   next iteration's schema migration.
 - `${EFS_MOUNT}/vault:` bind mounts removed from the `memex` and
-  `openclaw` service definitions in `deploy/docker-compose.yml`.
+  chat-agent service definitions in `deploy/docker-compose.yml`.
   EFS now carries only container runtime state (workspace, cron,
   devices, recipe-state, telegram-bridge state).
 
 ### Changed
 - ARCHITECTURE.md, README.md, AGENTS.md updated to reflect the
-  four-container topology (`memex` + `openclaw` + `telegram-bridge`
+  four-container topology (`memex` + chat agent + `telegram-bridge`
   + `cloudflared`).
 
 ## [1.1.0] — 2026-05-17
 
 ### Added
 - **`telegram-bridge` container — always-on two-way Telegram surface.**
-  Long-polls the Bot API independently of openclaw so the bot keeps
+  Long-polls the Bot API independently of the chat agent so the bot keeps
   replying even when the chat-agent is restarting or stuck on a
   paired-device approval. Routes slash-commands (`/today`, `/tomorrow`,
   `/week`, `/weather`, `/search`, `/health`, `/help`, `/ask`) to the
@@ -438,7 +451,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   symlink-attack on a shared `/tmp` is impossible.
 - **Standalone systemd morning-briefing path** (`memex-morning-briefing.timer`)
   that composes the daily briefing from helpers and posts via
-  Telegram Bot API directly. Bypasses the openclaw gateway pairing
+  Telegram Bot API directly. Bypasses the chat-agent gateway pairing
   scope entirely so the 07:00 Europe/Berlin delivery is no longer
   blocked on chat-UI approvals.
 - **multi-arch CI matrix.** `bun-tests` job now runs on both
@@ -470,7 +483,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Combined with `cap_drop: ALL` + `no-new-privileges`, an RCE in
   the Bun process no longer lands as root with full read of the
   host AWS profile dir.
-- **`openclaw` entrypoint accepts `OPENCLAW_TELEGRAM_DISABLED=1`**
+- **Chat-agent entrypoint accepts a Telegram-disable flag**
   (default in compose) and removes the `channels.telegram` block
   before booting. Prevents the 409 Conflict that occurs when two
   consumers race for the same bot's `getUpdates` long-poll — the
@@ -551,7 +564,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `memex` knowledge brain (Bun + Postgres + pgvector + MCP server,
   with PGLite available as a dev-only fallback) — hybrid search,
   entity graph, and graph-only code chunkers for TS / Python.
-- `openclaw@2026.4.29` chat agent surface (Telegram + web UI via
+- Chat-agent surface (Telegram + web UI via
   Cloudflare Tunnel).
 - `obsidian-sync` sidecar for bidirectional Obsidian vault sync.
 - `cloudflared` sidecar for public HTTPS ingress.

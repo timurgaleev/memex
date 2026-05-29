@@ -44,8 +44,8 @@ stays in your AWS account.
   exact note back with cited paths.
 - Have Claude Code pull live context from your Obsidian vault during
   refactors via the MCP server.
-- Schedule a daily briefing: weather + calendar + open inbox items,
-  delivered to your phone before you sit at the keyboard.
+- Pull an on-demand briefing from Telegram — `/today`, `/week`,
+  `/weather` compose calendar + weather from the live helpers.
 - Index Gmail and Google Calendar without a third-party broker — the
   recipes run inside your stack.
 
@@ -153,7 +153,6 @@ Connecting Claude Code to the MCP server:
 | **agent onboarding** | [`llms.txt`](./llms.txt), [`AGENTS.md`](./AGENTS.md) | for AI sessions cloning the repo |
 | **deferred work** | [`TODO.md`](./TODO.md) | open roadmap |
 | **changelog** | [`CHANGELOG.md`](./CHANGELOG.md) | versioned releases |
-| **archive** — work preserved for future re-implementation | `archive/` | per-folder `README.md` |
 
 ---
 

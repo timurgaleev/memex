@@ -55,15 +55,20 @@ lost disk data is high.
 ## Conventions
 
 ### AWS model selection
-- The chat-side model picker is hardcoded in `scripts/post-onboard.sh`:
-  Nova 2 Lite (primary) with Nova Pro/Lite/Micro fallbacks. The
-  `var.bedrock_model_id` terraform variable surfaces the configured
-  default in `terraform output bedrock_model` but does NOT yet drive
-  post-onboard — keep them aligned manually until they're wired through.
-- The default is Amazon Nova 2 Lite — credit-eligible, multi-turn-safe.
-- Anthropic models (Claude family) are NOT credit-eligible — they cost
-  real money. Adding one is an explicit code change in
-  `scripts/post-onboard.sh` AND the IAM policy in `terraform/iam.tf`.
+- The chat-side model is configured on the `telegram-bridge` container
+  via `MEMEX_BRIDGE_LLM_MODEL` (default
+  `eu.anthropic.claude-haiku-4-5-20251001-v1:0`), invoked through the
+  Bedrock Converse API for RAG synthesis. `MEMEX_BRIDGE_LLM_DISABLE=1`
+  falls back to retrieval-only replies with no Bedrock call.
+- Cost note: the default Claude Haiku 4.5 is an Anthropic model and is
+  NOT credit-eligible — it costs real money. For credit-eligible
+  operation, point `MEMEX_BRIDGE_LLM_MODEL` at an Amazon Nova model
+  (e.g. Nova Lite).
+- `var.bedrock_model_id` surfaces a configured default in
+  `terraform output bedrock_model` but does NOT yet drive the bridge —
+  keep them aligned manually until they're wired through.
+- Switching to a new model family also requires widening the Bedrock
+  invoke permissions in `terraform/iam.tf` (region- and model-scoped).
 
 ### Secret naming
 - Every secret is prefixed by `var.secrets_prefix` (default: `memex`,

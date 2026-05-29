@@ -13,19 +13,23 @@ does NOT hold any secrets in tracked content.
 ## Output layout (gitignored, EC2-only)
 
 ```
-deploy/.secrets/
-├── telegram-bot-token.txt    plain string (Telegram Bot API token)
-├── home-assistant-token.txt  plain long-lived access token
-├── google-calendar.json      { client_id, client_secret, refresh_token }
-├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...
-└── memex.env                 MEMEX_POSTGRES_URL=...
+deploy/.secrets/                # dir mode 0711 (non-root descend-only)
+├── telegram-bot-token.txt    Telegram Bot API token                       0444
+├── memex-public-bearer.txt   bridge → memex MCP bearer                    0444
+├── home-assistant-token.txt  long-lived access token                      0400
+├── google-calendar.json      { client_id, client_secret, refresh_token }  0400
+├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...0400
+└── memex.env                 MEMEX_POSTGRES_URL=... + bearer/config        0400
 ```
 
-`.secrets/` is bind-mounted into the chat container at
-`/run/secrets:ro` and into cloudflared / memex via `env_file`.
+`telegram-bot-token.txt` and `memex-public-bearer.txt` are bind-mounted
+into the `telegram-bridge` container at `/run/secrets:ro`; the bridge
+runs as uid 10001, so those two files are world-readable (`0444`).
+`cloudflared.env` and `memex.env` are consumed via `env_file`. The
+directory is `0711` so a non-root container UID can descend into it
+without the host exposing the full file list.
 
-Permissions: directory `0700`, files `0400`. Re-fetched on every
-`bootstrap.sh` run; existing files are overwritten.
+Re-fetched on every `bootstrap.sh` run; existing files are overwritten.
 
 ## Secrets in AWS Secrets Manager
 
@@ -34,13 +38,12 @@ The default prefix is `<var.secrets_prefix>` (configured in
 
 | Name | Format | Used by |
 |---|---|---|
-| `<prefix>/telegram-bot-token` | string | chat agent `botToken` |
+| `<prefix>/telegram-bot-token` | string | `telegram-bridge` bot token |
 | `<prefix>/home-assistant-token` | string | `ha` helper |
 | `<prefix>/google-calendar` | JSON | `gcal` helper |
 | `<prefix>/cloudflared-tunnel-token` | string | cloudflared |
 | `<prefix>/memex-postgres-url` | string (URL) | memex |
-| `<prefix>/memex-public-bearer` | string | memex HTTP server |
-| `<prefix>/gateway-token` | string | chat agent gateway |
+| `<prefix>/memex-public-bearer` | string | memex HTTP server + bridge MCP auth |
 | `<prefix>/github-deploy-key` | OpenSSH private key | `bootstrap.sh` `git clone` (SSH deploy-key mode only) |
 
 When `use_ssh_deploy_key = true`, the deploy key lets the EC2 clone a

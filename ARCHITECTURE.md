@@ -133,11 +133,10 @@ unit references a script that exists in the repo.
 | `memex-gmail-poll.timer` | `*-*-* *:15:00 Europe/Berlin` (hourly) | Gmail recipe poll. |
 | `memex-rotate-bearer.timer` | `*-*-* 06:00:00 Europe/Berlin` (daily) | Rotate `<secrets_prefix>/memex-public-bearer`, restage `.secrets/memex.env` and `.secrets/memex-public-bearer.txt`, restart `memex` + `telegram-bridge` so both re-read the new value. |
 
-A daily Telegram morning briefing previously ran from
-`memex-morning-briefing.timer`. That unit shelled into the (now
-removed) chat-agent container; the script + unit files are preserved
-under `archive/morning-briefing/` for future host-side
-re-implementation. See `archive/morning-briefing/README.md`.
+A daily Telegram morning briefing is a possible future timer unit: a
+host-side composer that calls the helper CLIs at `/opt/memex/bin/`
+directly, synthesises prose via Bedrock, and delivers over the Telegram
+Bot API. Not built today — the IAM grants it needs already exist.
 
 ## Storage layout
 
@@ -151,7 +150,6 @@ re-implementation. See `archive/morning-briefing/README.md`.
 ├── .env                           # rendered by bootstrap.sh on every boot
 ├── deploy/                        # compose + container build contexts
 ├── scripts/                       # bootstrap, init, audit, helpers
-├── archive/                       # preserved-but-inactive work
 └── terraform/                     # infra-as-code
 ```
 
@@ -231,5 +229,5 @@ The boot flow (cold start from a new instance):
   `lifecycle.ignore_changes`).
 - GitHub Pages docs site.
 - Standalone memex publishing (npm package + container image).
-- Morning-briefing revival (script + systemd units archived under
-  `archive/morning-briefing/`).
+- Morning-briefing timer (host-side composer + Bedrock + Telegram Bot
+  API).

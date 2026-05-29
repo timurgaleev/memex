@@ -81,11 +81,6 @@ scripts/
 ├── gmail-oauth-bootstrap.py     same for Gmail
 └── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex + bridge)
 
-archive/
-└── morning-briefing/            preserved-but-inactive work — script + 2 systemd
-                                 units + README documenting why it stopped and
-                                 how to revive without the removed chat agent
-
 terraform/
 ├── main.tf                      providers + partial backend
 ├── variables.tf                 all input vars

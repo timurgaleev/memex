@@ -10,6 +10,28 @@
 - memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
 - The chat path is `telegram-bridge` → memex MCP + Bedrock Haiku 4.5. There is no agent framework in the middle.
 
+## Required workflow — run the skill for every change
+
+No change is "done" until the skills have run. For **every** change —
+features, fixes, refactors, docs, infra — in order:
+
+1. **Self-review skill/agent.** Dispatch the review agent whose
+   specialty matches what you changed (the table in `CLAUDE.md` →
+   "Self-review after each implementation"): `security-engineer` for
+   auth / secrets / ingress, `code-reviewer` for logic / refactor,
+   `quality-guard` for new tests, `devops-automator` for CI / docker /
+   terraform, `ai-engineer` for engine / MCP / retrieval,
+   `reality-checker` for "it's live now" claims, `bug-hunter` for
+   adversarial sweeps, `technical-writer` for docs. Act on every
+   CRITICAL / HIGH finding before declaring done.
+2. **Ship workflow.** Follow `CLAUDE.md` → "Ship workflow":
+   **test → push → deploy → verify**, in that order, every time. A
+   change is not shipped until the live EC2 is running it and `/health`
+   + the bridge smoke-test pass.
+
+Both are non-negotiable and apply even to one-line fixes — the cost of
+one extra skill/agent run is cheaper than a production regression.
+
 ## Build & test (memex)
 
 ```bash
