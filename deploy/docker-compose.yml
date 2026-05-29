@@ -59,7 +59,7 @@ services:
       - MEMEX_CODE_SWEEP_DELAY_MS=20
       # 6-phase cycle every 6h. Re-embeds docs older than 30d. The
       # configured quiet-hours window skips the costly embed-stale
-      # phase so it doesn't fight the morning-briefing cron for CPU.
+      # phase so heavyweight ingest doesn't run during quiet hours.
       - MEMEX_DREAM_INTERVAL_S=21600
       - MEMEX_DREAM_STALE_DAYS=30
     env_file:

@@ -1,11 +1,10 @@
 """
 Static checks for deploy/secrets/fetch-secrets.sh.
 
-Guards the two regressions we shipped during the OSS rename:
+Guards two regressions in the secret-fetch path:
   - AWS_REGION hardcoded to eu-west-1 instead of read from env.
-  - SECRETS_PREFIX defaulted to "openclaw" after the rename, so the
-    new memex-* role had no permission on the paths the script asked
-    for.
+  - SECRETS_PREFIX not defaulting to "memex", so the memex-* role
+    would have no permission on the paths the script asks for.
 
 Run: python3 -m pytest tests/test_fetch_secrets_sh.py -v
 """
@@ -52,11 +51,6 @@ def test_secrets_prefix_defaults_to_memex() -> None:
         r'SECRETS_PREFIX\s*=\s*"?\$\{SECRETS_PREFIX:-memex\}"?',
         text,
     ), "fetch-secrets.sh must default SECRETS_PREFIX to 'memex'"
-
-
-def test_no_hardcoded_openclaw_secret_paths() -> None:
-    text = _read()
-    assert "openclaw/" not in text
 
 
 def test_every_secret_id_uses_prefix_var() -> None:

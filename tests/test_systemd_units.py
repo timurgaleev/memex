@@ -18,8 +18,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 UNITS = REPO / "deploy" / "systemd"
 
-# Discover units dynamically so adding `memex-morning-briefing.*` or any
-# future timer automatically gets the static checks — no test edit needed.
+# Discover units dynamically so any future timer automatically gets the
+# static checks — no test edit needed.
 EXPECTED_SERVICES = tuple(sorted(p.name for p in UNITS.glob("*.service")))
 EXPECTED_TIMERS = tuple(sorted(p.name for p in UNITS.glob("*.timer")))
 

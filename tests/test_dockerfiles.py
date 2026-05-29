@@ -189,8 +189,8 @@ class TestSecrets:
         text = p.read_text()
         # Required: telegram-bot-token, home-assistant-token,
         # google-calendar, cloudflared-tunnel-token, memex-public-bearer
-        # (bridge's MCP auth). `obsidian-sync` was removed in Phase 0 and
-        # `gateway-token` in the 2026-05-22 openclaw removal.
+        # (bridge's MCP auth). `obsidian-sync` and `gateway-token` are
+        # legacy secrets that are no longer fetched.
         for secret_name in [
             "telegram-bot-token",
             "home-assistant-token",

@@ -33,8 +33,7 @@
 # ---------------------------------------------------------------------------
 \b(Phase|Slice|phase|slice) [0-9]+\b|HIGH|project-history|Phase/Slice numbering (case-insensitive)
 \bband-[A-Z]\+?|HIGH|project-history|"band-X" project bracket
-\bopenclaw_v[0-9]+|aws_(instance|eip|security_group|key_pair|iam_role|iam_instance_profile|efs_file_system|cloudwatch_log_group|cloudtrail)\.openclaw\b|HIGH|project-history|Legacy terraform addresses (openclaw_v2 etc.)
-\bopenclaw-v[0-9]+|-v[0-9]+ (EC2|container|era)|v2 EC2|on the v2|the v2 EC|v2 instance|v2-eip\b|HIGH|project-history|"v2" / version-history markers
+-v[0-9]+ (EC2|container|era)|v2 EC2|on the v2|the v2 EC|v2 instance|v2-eip\b|HIGH|project-history|"v2" / version-history markers
 \b(legacy (EFS|host-mode|plugin-runtime|SSH-clone|private-repo|var|host)|in a fork|renamed in a fork|older dream loop|the rewrite|RED-phase|Task [0-9]+|planned for slice|bump intentionally per slice|containerization refactor)\b|HIGH|project-history|Project-history narrative
 
 # ---------------------------------------------------------------------------

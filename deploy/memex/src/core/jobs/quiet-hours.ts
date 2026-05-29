@@ -1,8 +1,8 @@
 /**
  * Quiet-hours check.
  *
- * The configured morning-briefing window is the operator's daily
- * heartbeat. To keep that latency budget predictable, heavyweight
+ * The configured quiet-hours window is the operator's protected
+ * low-activity window. To keep latency predictable there, heavyweight
  * ingest jobs (embed batches, external API polls) skip the
  * configured quiet-hours window when they're flagged
  * `quiet_hours_skip`.

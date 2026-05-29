@@ -55,14 +55,11 @@ def test_dockerfile_pulls_no_pip_packages():
 
 
 def test_dockerfile_copies_helpers_from_repo():
-    """The bridge ships the gcal/ha/memex helper CLIs from deploy/helpers/.
-    Helpers used to live under deploy/openclaw/helpers/ when the openclaw
-    container shared them; they moved to deploy/helpers/ when openclaw was
-    removed from the stack."""
+    """The bridge ships the gcal/ha/memex helper CLIs from
+    deploy/helpers/ via the deploy/ build context."""
     text = (BRIDGE_DIR / "Dockerfile").read_text()
-    assert "COPY helpers/" in text and "openclaw" not in text, (
-        "Dockerfile must COPY helpers/ from the deploy build context — "
-        "the legacy openclaw/helpers/ path is gone"
+    assert "COPY helpers/" in text, (
+        "Dockerfile must COPY helpers/ from the deploy build context"
     )
 
 

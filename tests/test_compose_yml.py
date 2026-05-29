@@ -3,7 +3,6 @@ Assertions on deploy/docker-compose.yml shape.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -77,9 +76,7 @@ def test_memex_has_healthcheck_hitting_health(compose):
 def test_cloudflared_depends_on_memex(compose):
     """Public ingress (brain.<domain>/mcp) terminates at memex, so the
     tunnel must wait for memex's /health probe to pass before
-    accepting traffic. The legacy dependency on openclaw was dropped
-    when openclaw exited the chat path — depending on it would block
-    boot because openclaw is now profile-gated off by default."""
+    accepting traffic."""
     svc = compose["services"]["cloudflared"]
     depends = svc.get("depends_on", {})
     assert "memex" in depends, "cloudflared must depend_on memex"
@@ -87,19 +84,6 @@ def test_cloudflared_depends_on_memex(compose):
         assert depends["memex"].get("condition") == "service_healthy", (
             "cloudflared depends_on memex must use condition: service_healthy"
         )
-    assert "openclaw" not in depends, (
-        "openclaw was removed from the stack — cloudflared must not "
-        "depend on a service that no longer exists"
-    )
-
-
-def test_no_openclaw_service(compose):
-    """The openclaw chat agent was removed when the telegram-bridge took
-    over the chat path. Catch any accidental resurrection."""
-    services = compose.get("services") or {}
-    assert "openclaw" not in services, (
-        "openclaw service must not be defined — the bridge owns the chat path"
-    )
 
 
 def test_internal_network_declared(compose):

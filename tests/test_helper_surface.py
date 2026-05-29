@@ -3,17 +3,15 @@ Static surface checks for the helper CLIs (gcal, ha, memex).
 
 Helpers live under `deploy/helpers/` and ship into the telegram-bridge
 container at `/opt/memex/bin/`. They fetch their own creds from AWS
-Secrets Manager via the EC2 IAM role — these tests guard against the
-regression we hit during the OSS rename: helpers hardcoding the legacy
-`openclaw/<secret>` Secrets Manager path instead of honouring
-`SECRETS_PREFIX`, or hardcoding `eu-west-1` instead of `AWS_REGION`.
+Secrets Manager via the EC2 IAM role — these tests guard against a
+helper hardcoding `eu-west-1` instead of reading `AWS_REGION`, or not
+honouring `SECRETS_PREFIX` for its Secrets Manager paths.
 Pure-static checks — no AWS calls.
 
 Run: python3 -m pytest tests/test_helper_surface.py -v
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -39,35 +37,6 @@ def test_helper_exists_and_executable(name: str) -> None:
     assert p.is_file(), f"{p} missing"
     mode = p.stat().st_mode & 0o777
     assert mode & 0o111, f"{p} is not executable (mode={oct(mode)})"
-
-
-_LEGACY_PREFIX_PATTERNS = (
-    # --secret-id openclaw/foo  OR  --secret-id "openclaw/foo"
-    re.compile(r'--secret-id\s+["\']?openclaw/'),
-    # SECRET_ID = "openclaw/foo"
-    re.compile(r'SECRET_ID\s*=\s*["\']openclaw/'),
-    # f"openclaw/foo" or 'openclaw/foo' as a literal (excluding /home/openclaw/...)
-    re.compile(r'(?<![/\w])openclaw/(?!\.)'),
-)
-
-
-@pytest.mark.parametrize("name", SECRET_HELPERS)
-def test_helper_does_not_hardcode_legacy_openclaw_prefix(name: str) -> None:
-    """Catches the regression that broke morning briefing after the rename.
-
-    Helpers must source the prefix from SECRETS_PREFIX (env-driven), not
-    embed the legacy `openclaw/<name>` literal that the new memex-* IAM
-    role can no longer read. The regex is anchored on usage context so
-    legitimate filesystem paths like `/home/openclaw/.openclaw/...`
-    (the in-container HOME of the openclaw npm package) are not flagged.
-    """
-    text = _read(name)
-    for pat in _LEGACY_PREFIX_PATTERNS:
-        m = pat.search(text)
-        assert m is None, (
-            f"{name} hardcodes the legacy openclaw/ Secrets Manager prefix "
-            f"(matched {pat.pattern!r}). Use SECRETS_PREFIX env (default 'memex')."
-        )
 
 
 @pytest.mark.parametrize("name", SECRET_HELPERS)

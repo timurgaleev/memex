@@ -62,7 +62,7 @@ export function slugify(input: string): string {
 }
 
 /** System prompt — the contract the model must satisfy. */
-const SYSTEM_PROMPT = `You write OpenClaw skill files.
+const SYSTEM_PROMPT = `You write memex skill files.
 
 OUTPUT FORMAT — strictly markdown, NO surrounding code fences, NO commentary:
 

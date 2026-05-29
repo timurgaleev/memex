@@ -16,8 +16,9 @@ Design constraints:
   of spoofed chat ids cannot exhaust memory or burn Telegram quota).
 * Commands shell out to the existing helper CLIs (`gcal`, `ha`) so the
   bridge stays a thin orchestrator. Free text is routed through a RAG
-  pipeline: `memex /search` for retrieval, then Amazon Nova Lite via
-  Bedrock for synthesis. Retrieved notes are isolated inside
+  pipeline: `memex /search` for retrieval, then Bedrock Claude Haiku
+  4.5 (via `MEMEX_BRIDGE_LLM_MODEL`) for synthesis. Retrieved notes
+  are isolated inside
   `<note>` tags so a malicious note cannot hijack the system prompt;
   RAG falls back to a "retrieval only" answer when Bedrock is
   unavailable so the bot never goes silent.
