@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-29
+
 ### Changed
 - **Chat path simplified — `telegram-bridge` owns it end-to-end.**
   The legacy chat-agent container is removed from the stack.

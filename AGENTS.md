@@ -25,9 +25,10 @@ features, fixes, refactors, docs, infra — in order:
    adversarial sweeps, `technical-writer` for docs. Act on every
    CRITICAL / HIGH finding before declaring done.
 2. **Ship workflow.** Follow `CLAUDE.md` → "Ship workflow":
-   **test → push → deploy → verify**, in that order, every time. A
-   change is not shipped until the live EC2 is running it and `/health`
-   + the bridge smoke-test pass.
+   **test → push → deploy → verify → release**, in that order, every
+   time. A change is not shipped until the live EC2 is running it and
+   `/health` + the bridge smoke-test pass; user-facing version bumps
+   end with a SemVer tag + GitHub release (see "Release" below).
 
 Both are non-negotiable and apply even to one-line fixes — the cost of
 one extra skill/agent run is cheaper than a production regression.
@@ -74,6 +75,21 @@ Never:
 - `terraform taint aws_instance.memex`
 - `terraform apply` without showing plan + getting explicit "yes apply"
 - `docker compose down` (it's a no-op for state but cuts traffic; use `restart` instead)
+
+## Release
+
+For a user-facing version bump, after deploy + verify are green:
+
+1. Roll `[Unreleased]` in `CHANGELOG.md` into `## [X.Y.Z] — <date>`
+   (SemVer), leaving an empty `[Unreleased]` on top.
+2. Tag the shipped commit and push it: `git tag vX.Y.Z && git push
+   origin vX.Y.Z`.
+3. Publish the release: `gh release create vX.Y.Z --title vX.Y.Z
+   --notes "<the changelog section>"`.
+
+The tag must point at a CI-green commit that is already live on the
+EC2 — never tag ahead of deploy. `package.json` versions are decoupled
+and are not bumped as part of a release.
 
 ## Commit etiquette
 

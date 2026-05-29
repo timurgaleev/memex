@@ -106,6 +106,21 @@ mandatory for **every** change — not just features:
 Human contributors run the local gate in step 2 of the PR flow above;
 the maintainer runs the agent review on incoming PRs.
 
+## Release process
+
+Releases follow SemVer + Keep a Changelog and ship only after the
+change is live and verified:
+
+1. Roll the `[Unreleased]` changelog entries into a dated
+   `## [X.Y.Z] — <date>` section, leaving an empty `[Unreleased]`.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z` — the tag must point at a
+   CI-green commit that is already deployed to the EC2.
+3. `gh release create vX.Y.Z --title vX.Y.Z --notes "<changelog
+   section>"`.
+
+`package.json` versions are intentionally decoupled from the release
+tag and are not bumped here.
+
 ## Things that will NOT be accepted
 
 - Changes that add unrequested monitoring, dashboards, alarms, or

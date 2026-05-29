@@ -90,7 +90,8 @@ findings — especially incident retros — go there, not here.
 ## Ship workflow (non-negotiable)
 
 A change is not "shipped" until the live EC2 is running it. The full
-loop is: **test → push → deploy → verify**, in that order, every time.
+loop is: **test → push → deploy → verify → release**, in that order,
+every time.
 
 1. **Test locally** (everything that applies to the change):
    - `make audit` — exit 0
@@ -111,6 +112,17 @@ loop is: **test → push → deploy → verify**, in that order, every time.
    - For helper changes: `docker exec deploy-telegram-bridge-1 /opt/memex/bin/<helper> <subcommand>` returns real data
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
    - For terraform changes that drift live state: do NOT silently `apply`; show the plan and use targeted-API calls (`aws ec2 modify-...`) when the apply would destroy-and-recreate.
+5. **Release** (for any user-facing version bump):
+   - Move the `[Unreleased]` CHANGELOG entries under a new
+     `## [X.Y.Z] — <date>` heading (SemVer), leaving an empty
+     `[Unreleased]` on top.
+   - Tag the shipped commit and push the tag:
+     `git tag vX.Y.Z && git push origin vX.Y.Z`.
+   - Publish the GitHub release from that changelog section:
+     `gh release create vX.Y.Z --title vX.Y.Z --notes "<changelog section>"`.
+   - The tag MUST point at a commit whose CI is green and that is
+     already live on the EC2 — never tag ahead of deploy. `package.json`
+     versions are decoupled and not bumped here.
 
 Skipping deploy because "the change is just docs" is fine; skipping
 verify is not. If a change touches anything other than `*.md`,
