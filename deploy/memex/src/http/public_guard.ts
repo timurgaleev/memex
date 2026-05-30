@@ -25,6 +25,9 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
+// Canonical definition lives in core so the MCP layer shares it without
+// importing this http/ module (which would create an import cycle).
+import { publicReadBodiesAllowed } from "../core/public_redaction.ts";
 
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
