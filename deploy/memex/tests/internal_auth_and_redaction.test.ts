@@ -258,3 +258,38 @@ describe("MEMEX_PUBLIC_READ_BODIES opt-in", () => {
     expect(PUBLIC_GUARD_INTERNALS.publicReadBodiesAllowed()).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: dispatchTool must honor isPublic so the MCP ingress
+// (brain.<domain>/mcp) redacts note bodies the same way REST does.
+// Before the fix, dispatchTool ignored isPublic -> full vault exfil.
+// ---------------------------------------------------------------------------
+test("[tools/call page_get] redacts markdown_body on public MCP ingress", async () => {
+  const r = await dispatchTool(
+    storage,
+    { name: "page_get", arguments: { slug: "people/alice" } },
+    { isPublic: true },
+  );
+  const text = r.content[0]?.text ?? "";
+  expect(text).not.toContain("secret body text");
+  expect(text).not.toContain("markdown_body");
+  expect(text).toContain("people/alice");
+});
+
+test("[tools/call page_get] returns full body for internal callers", async () => {
+  const r = await dispatchTool(
+    storage,
+    { name: "page_get", arguments: { slug: "people/alice" } },
+    { isPublic: false },
+  );
+  expect(r.content[0]?.text ?? "").toContain("secret body text");
+});
+
+test("[tools/call entity_recall] omits page body on public MCP ingress", async () => {
+  const r = await dispatchTool(
+    storage,
+    { name: "entity_recall", arguments: { slug: "people/alice" } },
+    { isPublic: true },
+  );
+  expect(r.content[0]?.text ?? "").not.toContain("secret body text");
+});

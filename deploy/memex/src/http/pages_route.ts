@@ -46,7 +46,9 @@ const PUBLIC_SAFE_PAGE_FIELDS = new Set([
   "updated_at",
 ]);
 
-function redactBody<T extends Record<string, unknown>>(row: T): T {
+// Exported so the MCP dispatch layer applies the identical allowlist —
+// one redaction, no drift between the REST and MCP ingress paths.
+export function redactBody<T extends Record<string, unknown>>(row: T): T {
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(row)) {
     if (PUBLIC_SAFE_PAGE_FIELDS.has(k)) out[k] = row[k];
@@ -214,7 +216,9 @@ export async function handlePageGet(
     if (!row) {
       return Response.json({ ok: false, error: "not found" }, { status: 404 });
     }
-    const out = shouldRedactForPublic(isPublic) ? redactBody(row) : row;
+    const out = shouldRedactForPublic(isPublic)
+      ? redactBody(row as unknown as Record<string, unknown>)
+      : row;
     return Response.json({ ok: true, page: out });
   } catch (e) {
     return errResponse(isPublic, e, 400);

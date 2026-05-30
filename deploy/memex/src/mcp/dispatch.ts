@@ -60,6 +60,14 @@ import {
   type ListJobsOptions,
   type SubmitJobInput,
 } from "../core/jobs/dag.ts";
+// Public-ingress body redaction is shared with the REST routes via a
+// neutral core module so neither ingress layer imports the other (an
+// http/ import here created a module cycle).
+import {
+  redactBodies,
+  redactBody,
+  publicReadBodiesAllowed,
+} from "../core/public_redaction.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -82,15 +90,29 @@ const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
   "date",
 ]);
 
+/** Per-call options the transport supplies. */
+export interface DispatchOptions {
+  /** True when the request arrived over the public ingress
+   *  (`brain.<domain>/mcp` via Cloudflare). Read tools then redact note
+   *  bodies unless `MEMEX_PUBLIC_READ_BODIES` is opted-in — identical to
+   *  the REST routes so the two ingress paths cannot diverge. */
+  isPublic?: boolean;
+}
+
 export async function dispatchTool(
   storage: Storage,
   req: ToolCallRequest,
+  opts: DispatchOptions = {},
 ): Promise<ToolCallResult> {
   const args = req.arguments ?? {};
+  // Mirror the REST layer's public-read policy exactly: redact bodies on
+  // public ingress unless the operator opted into MEMEX_PUBLIC_READ_BODIES.
+  const redact =
+    (opts.isPublic ?? false) && !publicReadBodiesAllowed();
   try {
     switch (req.name) {
       case "search":
-        return await callSearch(storage, args);
+        return await callSearch(storage, args, redact);
       case "index":
         return await callIndex(storage, args);
       case "backlinks":
@@ -106,11 +128,11 @@ export async function dispatchTool(
       case "page_delete":
         return await callPageDelete(storage, args);
       case "page_get":
-        return await callPageGet(storage, args);
+        return await callPageGet(storage, args, redact);
       case "page_list":
-        return await callPageList(storage, args);
+        return await callPageList(storage, args, redact);
       case "page_versions":
-        return await callPageVersions(storage, args);
+        return await callPageVersions(storage, args, redact);
       case "link":
         return await callLink(storage, args);
       case "unlink":
@@ -128,7 +150,7 @@ export async function dispatchTool(
       case "entity_timeline":
         return await callEntityTimeline(storage, args);
       case "entity_recall":
-        return await callEntityRecall(storage, args);
+        return await callEntityRecall(storage, args, redact);
       case "jobs_submit":
         return await callJobsSubmit(storage, args);
       case "jobs_list":
@@ -163,6 +185,7 @@ function jsonResult(payload: unknown): ToolCallResult {
 async function callSearch(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -185,7 +208,10 @@ async function callSearch(
     q,
     onCapture ? { k, onCapture } : { k },
   );
-  return jsonResult({ ok: true, hits });
+  const out = redact
+    ? redactBodies(hits as unknown as Record<string, unknown>[])
+    : hits;
+  return jsonResult({ ok: true, hits: out });
 }
 
 async function callIndex(
@@ -387,37 +413,51 @@ async function callPageDelete(
 async function callPageGet(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_get: `slug` is required");
   }
   const page = await getPage(storage, args["slug"]);
   if (!page) return errResult(`page not found: ${args["slug"]}`);
-  return jsonResult({ ok: true, page });
+  return jsonResult({
+    ok: true,
+    page: redact ? redactBody(page as unknown as Record<string, unknown>) : page,
+  });
 }
 
 async function callPageList(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listPages>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   const pages = await listPages(storage, opts);
-  return jsonResult({ ok: true, pages });
+  const out = redact
+    ? pages.map((p) => redactBody(p as unknown as Record<string, unknown>))
+    : pages;
+  return jsonResult({ ok: true, pages: out });
 }
 
 async function callPageVersions(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_versions: `slug` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
   const versions = await pageVersions(storage, args["slug"], limit);
-  return jsonResult({ ok: true, versions });
+  // Version rows carry body snapshots; redact each through the same
+  // page allowlist so public callers see metadata only.
+  const out = redact
+    ? versions.map((v) => redactBody(v as unknown as Record<string, unknown>))
+    : versions;
+  return jsonResult({ ok: true, versions: out });
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +636,7 @@ async function callEntityTimeline(
 async function callEntityRecall(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("entity_recall: `slug` is required");
@@ -604,11 +645,12 @@ async function callEntityRecall(
     opts.fact_limit = args["fact_limit"];
   if (typeof args["timeline_limit"] === "number")
     opts.timeline_limit = args["timeline_limit"];
-  // MCP callers are internal by default — leave the body in unless
-  // they explicitly opt to redact. The HTTP layer applies its own
-  // redaction policy for public ingress.
+  // Public ingress forces body redaction (omits page.markdown_body) via
+  // the recall layer's native flag; an explicit `redact_body` arg still
+  // wins for internal callers who want to override.
   if (typeof args["redact_body"] === "boolean")
     opts.redact_body = args["redact_body"];
+  else if (redact) opts.redact_body = true;
   const r = await entityRecall(storage, args["slug"], opts);
   return jsonResult({ ok: true, ...r });
 }

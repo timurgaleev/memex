@@ -81,10 +81,6 @@ function publicWriteAllowed(): boolean {
   return v === "1" || v.toLowerCase() === "true";
 }
 
-function publicReadBodiesAllowed(): boolean {
-  const v = (process.env["MEMEX_PUBLIC_READ_BODIES"] ?? "").trim();
-  return v === "1" || v.toLowerCase() === "true";
-}
 
 function isPublicRequest(req: Request): boolean {
   // Public ingress is detected by Cloudflare's `Cf-Connecting-Ip`

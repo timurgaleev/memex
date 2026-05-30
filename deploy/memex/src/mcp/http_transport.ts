@@ -195,10 +195,11 @@ async function handleSingle(
         );
       }
       try {
-        const result = await dispatchTool(storage, {
-          name: params.name,
-          arguments: params.arguments,
-        });
+        const result = await dispatchTool(
+          storage,
+          { name: params.name, arguments: params.arguments },
+          { isPublic: ctx.isPublic },
+        );
         return rpcOk(id, result);
       } catch (e) {
         return rpcError(
