@@ -14,6 +14,11 @@ import { hybridSearch } from "../core/search/index.ts";
 import { makeCaptureCallback } from "../core/eval-capture.ts";
 import { parseJsonBody } from "./body_limit.ts";
 import { PUBLIC_GUARD_INTERNALS } from "./public_guard.ts";
+// Body redaction lives in core (shared with the MCP dispatch layer).
+// Imported for local use here and re-exported so existing importers of
+// `redactBodies` from this module (tests, dispatch) keep working.
+import { redactBodies } from "../core/public_redaction.ts";
+export { redactBodies };
 
 interface SearchRequest {
   q: string;
