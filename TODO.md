@@ -7,6 +7,22 @@ introduces them.
 
 ---
 
+## Add MCP-ingress redaction regression test
+
+**Priority: P2.** The v1.2.0 security fix (public `/mcp` `dispatchTool`
+must redact note bodies — `search` / `page_get` / `page_list` /
+`page_versions` / `entity_recall`) is verified live but has **no
+automated unit test**. A draft was removed because it was malformed
+(missing `dispatchTool` import + referenced unseeded data). Write a
+proper one: import `dispatchTool` from `../src/mcp/dispatch.ts`, seed a
+page with a known body via `putPage`, then assert
+`dispatchTool(storage, {name:"page_get",...}, {isPublic:true})` omits the
+body and `{isPublic:false}` keeps it. The REST-path redaction
+(`redactBodies`) is already covered in
+`internal_auth_and_redaction.test.ts`.
+
+---
+
 ## Operator post-install steps
 
 Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
