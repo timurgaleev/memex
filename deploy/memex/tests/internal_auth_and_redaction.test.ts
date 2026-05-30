@@ -15,7 +15,7 @@
  *    `excerpt` / `snippet`; bodies opt back in via
  *    `MEMEX_PUBLIC_READ_BODIES=1`.
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
