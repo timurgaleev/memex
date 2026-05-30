@@ -6,7 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.2.0] — 2026-05-29
+## [1.2.0] — 2026-05-30
+
+### Security
+- **Public MCP ingress no longer leaks note bodies (vault-exfil fix).**
+  The REST routes redacted note bodies for public callers, but the
+  documented public ingress (`brain.<domain>/mcp`) goes through the MCP
+  JSON-RPC layer, where `dispatchTool` ignored the request's public flag
+  — so a holder of the public bearer could read entire note contents via
+  `search` / `page_get` / `page_list` / `page_versions` / `entity_recall`.
+  Redaction now applies on BOTH ingress paths through a shared
+  `core/public_redaction.ts` allowlist (bypassed only with
+  `MEMEX_PUBLIC_READ_BODIES=1`); internal callers are unaffected.
 
 ### Changed
 - **Chat path simplified — `telegram-bridge` owns it end-to-end.**
