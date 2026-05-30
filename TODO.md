@@ -7,6 +7,20 @@ introduces them.
 
 ---
 
+## Flaky: `embedText … Titan` makes a live Bedrock call on CI arm64
+
+**Priority: P2.** `deploy/memex/tests/embedding.test.ts` →
+"embedText returns a 1024-dim vector from Titan" intermittently fails on
+the GitHub Actions **arm64** Bun job with
+`Bedrock InvokeModel failed: The security token included in the request
+is invalid` — i.e. the test reached real Bedrock instead of its mock
+(CI has no AWS creds). The identical suite passes on **amd64** and
+locally. The mock isn't applying deterministically on the arm64 runner
+(test-isolation / module-load order). Fix: ensure the embed mock is
+installed before the module under test is imported (or guard the test
+behind a "live Bedrock" env flag and skip in CI). Not a product bug;
+unrelated to the v1.2.0 security fix.
+
 ## Add MCP-ingress redaction regression test
 
 **Priority: P2.** The v1.2.0 security fix (public `/mcp` `dispatchTool`
