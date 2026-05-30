@@ -7,18 +7,18 @@ introduces them.
 
 ---
 
-## Flaky: `embedText … Titan` makes a live Bedrock call on CI arm64
+## Flaky: PGLite/HTTP tests time out on the CI arm64 runner
 
-**Priority: P2.** `deploy/memex/tests/embedding.test.ts` →
-"embedText returns a 1024-dim vector from Titan" intermittently fails on
-the GitHub Actions **arm64** Bun job with
-`Bedrock InvokeModel failed: The security token included in the request
-is invalid` — i.e. the test reached real Bedrock instead of its mock
-(CI has no AWS creds). The identical suite passes on **amd64** and
-locally. The mock isn't applying deterministically on the arm64 runner
-(test-isolation / module-load order). Fix: ensure the embed mock is
-installed before the module under test is imported (or guard the test
-behind a "live Bedrock" env flag and skip in CI). Not a product bug;
+**Priority: P2.** A handful of PGLite-backed and HTTP tests
+intermittently fail on the GitHub Actions **arm64** Bun job by exceeding
+the per-test timeout (~6s observed): `storage.test.ts` "Storage init is
+idempotent", `templates.test.ts` "init template seeding … idempotent",
+and `health.test.ts` "GET /health", "non-/health routes return 404",
+"HTTP server binds to 127.0.0.1". The identical suite passes on
+**amd64** and locally — slow-runner timeouts (PGLite cold init +
+`Bun.serve` startup on a loaded arm64 host), not logic failures. Fix:
+raise the bun-test timeout for the arm64 matrix leg, or reuse one PGLite
+instance across the idempotency/health cases. Not a product bug;
 unrelated to the v1.2.0 security fix.
 
 ## Add MCP-ingress redaction regression test
