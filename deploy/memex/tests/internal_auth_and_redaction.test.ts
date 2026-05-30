@@ -15,7 +15,7 @@
  *    `excerpt` / `snippet`; bodies opt back in via
  *    `MEMEX_PUBLIC_READ_BODIES=1`.
  */
-import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -253,4 +253,9 @@ describe("MEMEX_PUBLIC_READ_BODIES opt-in", () => {
     if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
     else process.env["MEMEX_PUBLIC_READ_BODIES"] = ORIGINAL;
   });
+
+  it("publicReadBodiesAllowed() flips true when env=1", () => {
+    expect(PUBLIC_GUARD_INTERNALS.publicReadBodiesAllowed()).toBe(true);
+  });
+});
 
