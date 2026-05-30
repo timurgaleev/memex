@@ -34,38 +34,6 @@ function isSearchReq(b: unknown): b is SearchRequest {
   );
 }
 
-// Allowlist of fields safe to return on public ingress. Anything else
-// — including future fields like `raw_text` or `body_md` that don't
-// exist yet — gets stripped by default. Fail-safe rather than
-// fail-open: a new body-ish field added to SearchHit cannot
-// accidentally leak just because we forgot to extend a denylist.
-const PUBLIC_SAFE_FIELDS = new Set([
-  "title",
-  "sourcePath",
-  "score",
-  "documentId",
-  "chunkId",
-  "kind",
-  "rank",
-]);
-
-/**
- * Strip every field from each hit that isn't in `PUBLIC_SAFE_FIELDS`.
- * Exported so unit tests can exercise it without standing up the full
- * Bedrock + Storage stack.
- */
-export function redactBodies<T extends Record<string, unknown>>(hits: readonly T[]): T[] {
-  return hits.map((h) => {
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(h)) {
-      if (PUBLIC_SAFE_FIELDS.has(k)) {
-        out[k] = h[k];
-      }
-    }
-    return out as T;
-  });
-}
-
 export async function handleSearch(
   storage: Storage,
   req: Request,
