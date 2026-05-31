@@ -46,32 +46,9 @@ def test_puts_new_token_into_secrets_manager() -> None:
     )
 
 
-def test_sends_telegram_notification() -> None:
+def test_no_telegram_delivery() -> None:
+    """Telegram was removed — the rotate script must not call the Bot API."""
     text = _read()
-    assert "api.telegram.org" in text, (
-        "rotate script must notify via api.telegram.org"
+    assert "api.telegram.org" not in text, (
+        "rotate script must not deliver via Telegram (integration removed)"
     )
-
-
-def test_telegram_message_does_not_embed_new_token() -> None:
-    """The core safety property — the bearer must stay in Secrets Manager."""
-    text = _read()
-    heredocs = re.findall(r"<<'?(\w+)'?\s*\n(.*?)\n\1\b", text, re.DOTALL)
-    assert heredocs, "expected a heredoc carrying the message body"
-    for marker, body in heredocs:
-        assert "$NEW_TOKEN" not in body and "${NEW_TOKEN}" not in body, (
-            f"heredoc <<{marker} embeds $NEW_TOKEN — would leak the "
-            f"bearer to persistent Telegram chat history"
-        )
-    inline = re.findall(r'--data-urlencode\s+"text=([^"]*)"', text)
-    for snippet in inline:
-        assert "$NEW_TOKEN" not in snippet
-        assert "${NEW_TOKEN}" not in snippet
-
-
-def test_telegram_failure_does_not_fail_rotation() -> None:
-    text = _read()
-    assert (
-        re.search(r'if\s+curl[^{]*api\.telegram\.org', text, re.DOTALL)
-        or re.search(r'curl[^\n]*api\.telegram\.org[^\n]*\|\|\s*(true|:)', text)
-    ), "telegram curl must not be allowed to fail rotation"

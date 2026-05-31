@@ -13,7 +13,6 @@ DEPLOY = REPO_ROOT / "deploy"
 # cloudflared has no Dockerfile — it uses upstream image directly.
 DOCKERFILES = {
     "memex": DEPLOY / "memex" / "Dockerfile",
-    "telegram-bridge": DEPLOY / "telegram-bridge" / "Dockerfile",
 }
 
 
@@ -93,72 +92,6 @@ class TestMemexDockerfile:
 
 
 # ---------------------------------------------------------------------------
-# telegram-bridge Dockerfile
-# ---------------------------------------------------------------------------
-
-class TestTelegramBridgeDockerfile:
-    @pytest.fixture(autouse=True)
-    def content(self):
-        self._text = _read(DOCKERFILES["telegram-bridge"])
-
-    def test_from_pinned_tag(self):
-        from_lines = [
-            l for l in self._text.splitlines() if l.strip().upper().startswith("FROM")
-        ]
-        assert from_lines, "telegram-bridge Dockerfile must have a FROM line"
-        assert ":latest" not in from_lines[0], (
-            "telegram-bridge FROM must use a pinned tag, not :latest"
-        )
-        assert "python" in from_lines[0].lower(), (
-            "telegram-bridge must be based on a python image"
-        )
-
-    def test_workdir_declared(self):
-        assert "WORKDIR" in self._text
-
-    def test_no_pip_install(self):
-        """Pure stdlib + aws-cli + helpers — no pip dependencies.
-        Adding pip silently widens the supply chain surface."""
-        assert "pip install" not in self._text, (
-            "telegram-bridge must avoid pip — pure stdlib is the contract"
-        )
-
-    def test_apk_includes_aws_cli(self):
-        assert "aws-cli" in self._text, (
-            "telegram-bridge needs aws-cli to invoke Bedrock + read Secrets Manager"
-        )
-
-    def test_entrypoint_referenced(self):
-        assert "ENTRYPOINT" in self._text
-        assert "entrypoint.sh" in self._text
-
-    def test_helpers_copied_in(self):
-        assert "/opt/memex/bin" in self._text, (
-            "telegram-bridge must copy the memex helper to /opt/memex/bin/"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Helper scripts
-# ---------------------------------------------------------------------------
-
-class TestHelperScripts:
-    def test_memex_helper_exists_and_executable(self):
-        p = DEPLOY / "helpers" / "memex"
-        assert p.exists(), "deploy/helpers/memex must exist"
-        assert p.stat().st_mode & 0o111, "memex helper must be executable"
-
-    def test_only_memex_helper_remains(self):
-        # The gcal/ha helpers were removed with the life integrations.
-        names = sorted(p.name for p in (DEPLOY / "helpers").iterdir() if p.is_file())
-        assert names == ["memex"], f"unexpected helpers: {names}"
-
-
-# ---------------------------------------------------------------------------
-# Entrypoint scripts
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Secrets
 # ---------------------------------------------------------------------------
 
@@ -174,12 +107,10 @@ class TestSecrets:
     def test_fetch_secrets_sh_writes_required_secrets(self):
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         text = p.read_text()
-        # Required: telegram-bot-token, cloudflared-tunnel-token,
-        # memex-public-bearer (bridge's MCP auth). The home-assistant-token
-        # and google-calendar secrets were removed with the life
-        # integrations; `obsidian-sync` / `gateway-token` are legacy.
+        # Required: cloudflared-tunnel-token, memex-public-bearer (public
+        # MCP auth). telegram-bot-token / home-assistant-token /
+        # google-calendar were removed with the integrations.
         for secret_name in [
-            "telegram-bot-token",
             "cloudflared-tunnel-token",
             "memex-public-bearer",
         ]:

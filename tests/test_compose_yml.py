@@ -12,7 +12,6 @@ REPO_ROOT = Path(__file__).parent.parent
 COMPOSE_PATH = REPO_ROOT / "deploy" / "docker-compose.yml"
 EXPECTED_SERVICES = {
     "memex",
-    "telegram-bridge",
     "cloudflared",
 }
 
@@ -39,7 +38,7 @@ def test_no_version_key(compose):
     )
 
 
-def test_three_services_declared(compose):
+def test_services_declared(compose):
     services = set(compose.get("services", {}).keys())
     assert services == EXPECTED_SERVICES, (
         f"Expected services {EXPECTED_SERVICES}, got {services}"
@@ -123,45 +122,3 @@ def test_memex_build_context(compose):
     svc = compose["services"]["memex"]
     assert "build" in svc, "memex must declare a build: block"
     assert svc["build"]["context"] == "./memex"
-
-
-def test_telegram_bridge_build_context_covers_helpers(compose):
-    """The bridge image copies helpers/* in from the deploy/ tree, so
-    its build context must be `./` — not `./telegram-bridge`. Catches
-    a confusing 'COPY failed: file not found' on first build."""
-    svc = compose["services"]["telegram-bridge"]
-    assert "build" in svc, "telegram-bridge must declare a build: block"
-    assert svc["build"]["context"] == "./", (
-        "telegram-bridge build context must be ./ so helpers/ is "
-        "visible to the Dockerfile COPY"
-    )
-    assert svc["build"]["dockerfile"] == "telegram-bridge/Dockerfile"
-
-
-def test_telegram_bridge_depends_on_memex(compose):
-    svc = compose["services"]["telegram-bridge"]
-    depends = svc.get("depends_on", {})
-    assert "memex" in depends, "telegram-bridge must depend_on memex"
-    if isinstance(depends["memex"], dict):
-        assert depends["memex"].get("condition") == "service_healthy"
-
-
-def test_telegram_bridge_requires_allowed_chat_ids(compose):
-    """Without an allowlist the bot would happily respond to anyone who
-    finds the token. The :? compose interpolation makes a missing var a
-    boot-time failure rather than a silent default to 'no one'."""
-    svc = compose["services"]["telegram-bridge"]
-    env = svc.get("environment", [])
-    # `environment:` is a list of `KEY=VAL` strings here.
-    joined = "\n".join(env if isinstance(env, list) else [])
-    assert "MEMEX_BRIDGE_ALLOWED_CHAT_IDS" in joined
-    assert ":?" in joined, (
-        "MEMEX_BRIDGE_ALLOWED_CHAT_IDS must use ${VAR:?...} so a missing "
-        "allowlist fails compose-up rather than silently opening the bot"
-    )
-
-
-def test_telegram_bridge_has_hardening(compose):
-    svc = compose["services"]["telegram-bridge"]
-    assert svc.get("security_opt") == ["no-new-privileges:true"]
-    assert svc.get("cap_drop") == ["ALL"]

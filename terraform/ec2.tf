@@ -26,7 +26,7 @@ resource "aws_security_group" "memex" {
     }
   }
 
-  # HTTPS outbound: Bedrock, Telegram, WhatsApp, Discord, npm, SSM, Cloudflare
+  # HTTPS outbound: Bedrock, npm, SSM, Cloudflare
   egress {
     description = "HTTPS outbound"
     from_port   = 443

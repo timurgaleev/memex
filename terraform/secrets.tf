@@ -3,12 +3,6 @@
 # Naming pattern: ${var.secrets_prefix}/<name>. Override secrets_prefix in
 # terraform.tfvars to namespace per-environment (e.g. "stack-staging").
 
-resource "aws_secretsmanager_secret" "telegram_bot_token" {
-  name                    = "${var.secrets_prefix}/telegram-bot-token"
-  description             = "Telegram bot token from BotFather"
-  recovery_window_in_days = 0 # Allow immediate deletion for personal use
-}
-
 resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
   name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
   description             = "Cloudflare Tunnel token for the chat-UI subdomain"
@@ -60,12 +54,11 @@ resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
   }
 }
 
-# memex-internal-token — shared secret authenticating peer containers
-# (telegram-bridge today, any future sidecar) on the internal
-# docker bridge to memex's mutating routes (POST /index, POST /friction).
+# memex-internal-token — shared secret authenticating any future peer
+# container on the internal docker bridge to memex's MCP write tools.
 # Without it, a compromised sibling container could write to the index
-# with no auth — the route gates auth on `Cf-Connecting-Ip` presence
-# only, which is exactly the header those peers never send. See
+# with no auth — the gate keys on `Cf-Connecting-Ip` presence only,
+# which is exactly the header those peers never send. See
 # `deploy/memex/src/http/public_guard.ts:evaluateInternalAuth`.
 resource "random_password" "memex_internal_token" {
   length  = 48

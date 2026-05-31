@@ -33,7 +33,7 @@ def _services(compose: dict) -> dict:
 
 @pytest.mark.parametrize(
     "service_name",
-    ["memex", "telegram-bridge", "cloudflared"],
+    ["memex", "cloudflared"],
 )
 def test_service_drops_all_capabilities(compose: dict, service_name: str) -> None:
     svc = _services(compose).get(service_name)
@@ -48,7 +48,7 @@ def test_service_drops_all_capabilities(compose: dict, service_name: str) -> Non
 
 @pytest.mark.parametrize(
     "service_name",
-    ["memex", "telegram-bridge", "cloudflared"],
+    ["memex", "cloudflared"],
 )
 def test_service_blocks_new_privileges(compose: dict, service_name: str) -> None:
     svc = _services(compose).get(service_name)

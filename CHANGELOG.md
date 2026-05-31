@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.8] — 2026-05-31
+
+### Removed
+- **Telegram bridge removed — memex is now reached over MCP only.** The
+  chat surface is gone; memex (the brain) is served at
+  `GET /health` + `POST /mcp` via cloudflared for MCP clients (Claude
+  Code, Cursor, …). Removed:
+  - `deploy/telegram-bridge/` (the whole Python daemon, Dockerfile,
+    entrypoint) and `deploy/helpers/` (the `memex` MCP-client CLI it
+    shipped).
+  - The `telegram-bridge` service from `docker-compose.yml` (only
+    `memex` + `cloudflared` remain).
+  - `telegram-bot-token` from `fetch-secrets.sh`, terraform
+    (`secrets.tf`/`outputs.tf`), and the standalone public-bearer file
+    (the bearer now lives only in `memex.env`, which memex reads to
+    validate incoming MCP bearers).
+  - The bearer-rotation script no longer restarts a bridge or delivers
+    over Telegram — it rotates the secret + restarts memex.
+  - Bridge/telegram tests deleted or updated; compose, dockerfile,
+    fetch-secrets, and rotate test suites adjusted.
+
+  cloudflared + `memex-public-bearer` + daily rotation are kept — that is
+  the brain's authenticated public MCP ingress. The live
+  `telegram-bot-token` secret is deleted out-of-band. (Follow-up:
+  bootstrap/init `.env` telegram knobs + remaining doc references.)
+
 ## [1.2.7] — 2026-05-31
 
 ### Removed

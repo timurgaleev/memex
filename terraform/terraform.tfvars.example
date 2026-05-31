@@ -19,7 +19,7 @@ aws_profile  = "default"        # the [profile-name] in ~/.aws/config
 project_name      = "memex"      # short slug, used in resource Name tags
 repo_name         = "memex"
 github_owner      = "your-github-username"
-secrets_prefix    = "memex"      # Secrets Manager namespace: memex/telegram-bot-token, etc.
+secrets_prefix    = "memex"      # Secrets Manager namespace: memex/memex-public-bearer, etc.
 
 # ---------------------------------------------------------------------------
 # Public surface

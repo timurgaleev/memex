@@ -66,43 +66,13 @@ def test_every_secret_id_uses_prefix_var() -> None:
 
 
 def test_secrets_dir_mode_allows_non_root_container_descent() -> None:
-    """The telegram-bridge runs as uid 10001 and needs to descend into
-    `.secrets/` to read its token. 0711 (root reads+lists, others
-    descend-only) gives that without exposing the file list to
-    non-root host users."""
+    """0711 (root reads+lists, others descend-only) lets a non-root
+    container uid descend into `.secrets/` to read a secret without
+    exposing the file list to non-root host users."""
     text = _read()
     assert re.search(r'chmod\s+0?711\s+"\$SECRETS_DIR"', text), (
         "fetch-secrets.sh must `chmod 0711 $SECRETS_DIR` so non-root "
         "container UIDs can descend into the dir"
-    )
-
-
-def test_telegram_bot_token_world_readable_inside_container() -> None:
-    """The bridge container reads telegram-bot-token.txt as uid 10001,
-    so the file must be world-readable (0444). Host confidentiality
-    is preserved by the 0711 dir mode + host dir ownership."""
-    text = _read()
-    assert re.search(
-        r'fetch_text\s+"telegram-bot-token"\s+"telegram-bot-token\.txt"\s+0?444',
-        text,
-    ), (
-        "fetch-secrets.sh must invoke `fetch_text telegram-bot-token "
-        "telegram-bot-token.txt 0444` so the bridge container can read it"
-    )
-
-
-def test_memex_public_bearer_world_readable_inside_container() -> None:
-    """The bridge sends `Authorization: Bearer ${memex-public-bearer}` on
-    every memex MCP call. The file lands at /run/secrets/ via the same
-    bind-mount that ships telegram-bot-token.txt — so it must also be
-    0444 to be readable by uid 10001."""
-    text = _read()
-    assert re.search(
-        r'fetch_text\s+"memex-public-bearer"\s+"memex-public-bearer\.txt"\s+0?444',
-        text,
-    ), (
-        "fetch-secrets.sh must invoke `fetch_text memex-public-bearer "
-        "memex-public-bearer.txt 0444` so the bridge can read it as uid 10001"
     )
 
 
