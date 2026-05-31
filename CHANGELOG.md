@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-05-31
+
+### Security
+- **Pin `hashicorp/setup-terraform` to a commit SHA** (`dfe3c3f`, v4)
+  instead of the moving `@v4` tag. If hashicorp's org were compromised,
+  a re-tagged `v4` would otherwise flow into CI silently. First-party
+  actions (`actions/checkout`, `actions/setup-python`, `oven-sh/setup-bun`)
+  remain on major tags — lower risk, owner-canonical publishers.
+
 ## [1.2.1] — 2026-05-31
 
 ### Tests

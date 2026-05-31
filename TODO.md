@@ -195,18 +195,6 @@ their behaviour is reachable via `tools/call` on `/mcp`. Cleanup phase:
   end-to-end. Fix scope: gate the MCP handler the same way HTTP
   `/index` is gated.
 
-- **CI: `hashicorp/setup-terraform@v4` is pinned to a moving tag,
-  not a commit SHA.** `.github/workflows/ci.yml`. If hashicorp's
-  GitHub org is ever compromised, an attacker re-tags `v4` to a
-  malicious commit and every CI run silently picks it up. Worst-case
-  impact is bounded: the terraform fmt/validate job has no secrets
-  passed to it, so the realised attack is forging green CI or
-  escalating via subsequent PRs (which need separate approval).
-  Optional defence-in-depth: pin to a 40-char SHA + Renovate/
-  Dependabot to refresh. Same applies to `actions/checkout@v6` and
-  `oven-sh/setup-bun@v2` but those are first-party / owner-canonical
-  publishers and thus lower risk.
-
 ---
 
 ## Revival projects
