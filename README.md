@@ -26,8 +26,9 @@ stays in your AWS account.
   for semantic recall, Postgres `tsvector` for keyword precision,
   Reciprocal Rank Fusion to merge them. Claude Haiku 4.5 composes
   grounded answers from the retrieved chunks.
-- **Telegram chat surface, day one.** Talk to your brain from your
-  phone. No app store, no platform tax.
+- **MCP-only surface.** No chat app, no bot, no bespoke API — the brain
+  speaks Model Context Protocol and nothing else. One contract, one
+  attack surface.
 - **Production-grade from clone-zero.** Terraform module, partial-S3
   backend, CI workflow, secret rotation timer, PII audit gate. Not a
   toy.
@@ -39,29 +40,29 @@ stays in your AWS account.
 
 ## What you can do with it on day one
 
-- Ask "what did I decide last week about X?" in Telegram — get the
-  exact note back with cited paths.
-- Have Claude Code pull live context from your Obsidian vault during
-  refactors via the MCP server.
-- Search across everything you've written from your phone — `/search`
-  and `/ask` answer from the indexed vault over MCP.
+- Have Claude Code (or Cursor / Codex / any MCP client) pull live
+  context from your Obsidian vault during refactors via the MCP server.
+- Ask "what did I decide last week about X?" from your AI agent — get
+  the exact note back with cited paths.
+- Search across everything you've written — hybrid vector + keyword +
+  entity-graph retrieval, exposed as MCP `tools/call`.
 
 ---
 
 ## How it works
 
 ```
-                       +---------- public ----------+
-                       |                            |
-                  Telegram bot           https://brain.<domain>/mcp
-                       |                            |
-                       v                            v
-              telegram-bridge                  cloudflared
-                       |                            |
-       +------- docker-compose internal bridge -----+
-       |                       |
-     memex <----- MCP -------- (search, recall, graph)
-       |                       |
+                        MCP clients (Claude Code, Cursor, Codex)
+                                     |
+                          https://brain.<domain>/mcp
+                                     |
+                                     v
+                                cloudflared
+                                     |
+                 +-- docker-compose internal bridge --+
+                                     |
+     memex  (GET /health · POST /mcp — search, recall, graph)
+       |
        |               Bedrock Haiku 4.5  (answer synthesis)
        |               Bedrock Titan v2   (embeddings)
        |
@@ -74,12 +75,8 @@ Inside the box:
 
 - **memex** — the knowledge brain. Bun + TypeScript runtime, Postgres
   16 + pgvector, MCP JSON-RPC transport, multi-phase nightly
-  maintenance cycle, graph-only code chunkers for TS / Python.
-- **telegram-bridge** — the chat handler. A thin Python daemon that
-  long-polls Telegram and answers every message (`/search`, `/ask`,
-  or plain text) with a RAG pipeline that calls memex over MCP for
-  retrieval and Bedrock Claude Haiku 4.5 for synthesis. Allowlists by
-  chat id; never speaks to anyone else.
+  maintenance cycle, graph-only code chunkers for TS / Python. The
+  whole HTTP surface is two routes: `GET /health` + `POST /mcp`.
 - **cloudflared** — public HTTPS ingress without exposing any EC2
   ports. Routes `brain.<domain>/mcp` to the memex MCP server so
   MCP-compatible AI clients (Claude Code, Cursor, Codex, ...) can
@@ -121,10 +118,9 @@ make apply
 
 After `make apply`, the EC2 boots, `scripts/bootstrap.sh` pulls the
 repo into `/opt/<project>`, fetches secrets from AWS Secrets Manager,
-and brings up the three containers (`memex`, `telegram-bridge`,
-`cloudflared`) via Docker Compose. Cloudflare Tunnel routes
-`brain.<domain>/mcp` to the memex MCP server so remote AI clients
-can connect.
+and brings up the two containers (`memex`, `cloudflared`) via Docker
+Compose. Cloudflare Tunnel routes `brain.<domain>/mcp` to the memex
+MCP server so remote AI clients can connect.
 
 Connecting Claude Code to the MCP server:
 [`deploy/memex/docs/CLAUDE-CODE.md`](./deploy/memex/docs/CLAUDE-CODE.md).
@@ -136,8 +132,6 @@ Connecting Claude Code to the MCP server:
 | Subsystem | Path | Docs |
 |---|---|---|
 | **memex** — knowledge brain (search, index, MCP) | `deploy/memex/` | `deploy/memex/docs/` |
-| **telegram-bridge** — chat handler (memex MCP + Bedrock RAG) | `deploy/telegram-bridge/` | `deploy/telegram-bridge/README.md` |
-| **helpers** — the `memex` MCP client CLI shipped into the bridge | `deploy/helpers/` | inline shebangs |
 | **cloudflared** — public ingress sidecar | `deploy/cloudflared/` | `deploy/cloudflared/docs/` |
 | **secrets** — AWS Secrets Manager fetch | `deploy/secrets/` | `deploy/secrets/README.md` |
 | **bootstrap.sh** — EC2 first-boot script | `scripts/bootstrap.sh` | inline |
