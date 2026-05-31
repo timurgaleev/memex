@@ -7,35 +7,18 @@ introduces them.
 
 ---
 
-## Flaky: PGLite/HTTP tests time out on the CI arm64 runner
+## Cover the MCP `search` redaction wiring
 
-**Priority: P2.** A handful of PGLite-backed and HTTP tests
-intermittently fail on the GitHub Actions **arm64** Bun job by exceeding
-the per-test timeout (~6s observed): `storage.test.ts` "Storage init is
-idempotent", `templates.test.ts` "init template seeding … idempotent",
-and `health.test.ts` "GET /health", "non-/health routes return 404",
-"HTTP server binds to 127.0.0.1". The identical suite passes on
-**amd64** and locally — slow-runner timeouts (PGLite cold init +
-`Bun.serve` startup on a loaded arm64 host), not logic failures. Fix:
-raise the bun-test timeout for the arm64 matrix leg, or reuse one PGLite
-instance across the idempotency/health cases. Not a product bug;
-unrelated to the v1.2.0 security fix.
-
-## Add MCP-ingress redaction regression test
-
-**Priority: P2.** The v1.2.0 security fix (public `/mcp` `dispatchTool`
-must redact note bodies — `search` / `page_get` / `page_list` /
-`page_versions` / `entity_recall`) is verified live but has **no
-automated unit test**. A draft was removed because it was malformed
-(missing `dispatchTool` import + referenced unseeded data). Write a
-proper one: import `dispatchTool` from `../src/mcp/dispatch.ts`, seed a
-page with a known body via `putPage`, then assert
-`dispatchTool(storage, {name:"page_get",...}, {isPublic:true})` omits the
-body and `{isPublic:false}` keeps it. The REST-path redaction
-(`redactBodies`) is already covered in
-`internal_auth_and_redaction.test.ts`.
-
----
+**Priority: P3.** `tests/mcp_redaction.test.ts` exercises the public-ingress
+redaction of `page_get` / `page_list` / `page_versions` / `entity_recall`,
+but not `search`. The shared `redactBodies` allowlist (a different set,
+`PUBLIC_SAFE_FIELDS`) is unit-tested in `internal_auth_and_redaction.test.ts`,
+so the gap is only the MCP-specific wiring at `src/mcp/dispatch.ts:115/211`
+(callSearch applies `redactBodies` when `redact` is true). It's deferred
+because `callSearch` → `hybridSearch` embeds the query via Bedrock, which
+the test suite deliberately avoids. Fix: stub `embedText` (or seed a
+keyword-only path) so an MCP `search` public case can assert hits omit
+`content` / `excerpt` / `snippet`.
 
 ## Operator post-install steps
 

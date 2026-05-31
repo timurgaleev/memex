@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Tests
+- **MCP-ingress redaction regression test** locks the v1.2.0 vault-exfil
+  fix. `tests/mcp_redaction.test.ts` calls `dispatchTool` directly and
+  asserts that public ingress (`isPublic: true`) strips `markdown_body`
+  / `body_snapshot` from `page_get` / `page_list` / `page_versions` /
+  `entity_recall` while internal callers keep them, and that
+  `MEMEX_PUBLIC_READ_BODIES=1` re-enables bodies. Uses a shared,
+  seeded-once PGLite fixture (read-only assertions) so it stays fast.
+
+### CI
+- **arm64 Bun job per-test timeout raised to 30s** (amd64 gate stays at
+  the 5s default). The free arm64 canary runner is 3-4x slower; PGLite
+  cold-init intermittently pushed individual tests past the default,
+  producing false failures. The timeout is now arch-specific via the
+  matrix.
+
 ## [1.2.0] — 2026-05-30
 
 ### Security
