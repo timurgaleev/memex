@@ -27,9 +27,11 @@ let storage: Storage;
 let dispatchTool: typeof import("../src/mcp/dispatch.ts")["dispatchTool"];
 
 beforeAll(async () => {
-  // Stub the only search export dispatch imports. Canned hit carries a body
-  // (`content`) plus a non-allowlisted field (`intent`) so we can prove both
-  // are stripped on public ingress.
+  // Stub the only search export dispatch imports. The canned hit carries:
+  //  - every allowlisted field (title/sourcePath/score/documentId/chunkId/
+  //    kind/rank) so the public `toEqual` is a COMPLETE allowlist contract;
+  //  - a body field (`content`) and two non-allowlisted fields (`intent`,
+  //    `snippet`) so we prove the fail-safe strips bodies AND novel keys.
   mock.module("../src/core/search/index.ts", () => ({
     hybridSearch: async () => [
       {
@@ -37,7 +39,10 @@ beforeAll(async () => {
         documentId: "doc-1",
         sourcePath: "/vault/secret.md",
         title: "Secret",
+        kind: "obsidian",
+        rank: 1,
         content: SECRET,
+        snippet: SECRET,
         score: 0.99,
         intent: "topic",
       },
@@ -76,6 +81,7 @@ describe("dispatchTool search redaction", () => {
     const out = payload(res);
     expect(out.hits.length).toBe(1);
     expect(out.hits[0]).not.toHaveProperty("content");
+    expect(out.hits[0]).not.toHaveProperty("snippet");
     expect(out.hits[0]).not.toHaveProperty("intent");
     expectNoLeak(res);
   });
@@ -93,6 +99,8 @@ describe("dispatchTool search redaction", () => {
       documentId: "doc-1",
       sourcePath: "/vault/secret.md",
       title: "Secret",
+      kind: "obsidian",
+      rank: 1,
       score: 0.99,
     });
   });
