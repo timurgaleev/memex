@@ -79,9 +79,9 @@ services:
 
   telegram-bridge:
     # Two-way Telegram surface and the chat handler. Owns the chat
-    # path end-to-end: long-polls Telegram, dispatches slash commands
-    # to the gcal/ha helpers, and answers free text via memex MCP
-    # + Bedrock Claude Haiku 4.5. See deploy/telegram-bridge/README.md.
+    # path end-to-end: long-polls Telegram and answers every message
+    # via memex MCP + Bedrock Claude Haiku 4.5. See
+    # deploy/telegram-bridge/README.md.
     build:
       # Context is `./` (the deploy/ tree) so the Dockerfile can COPY
       # both `telegram-bridge/main.py` and `helpers/*` from a single

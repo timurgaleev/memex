@@ -80,37 +80,6 @@ sudo systemctl start memex-rotate-bearer.service
 sudo journalctl -u memex-rotate-bearer.service --since '5 min ago'
 ```
 
-### 2b. Install the hourly Gmail poll timer
-
-The Gmail recipe ingests new mail into Postgres (signal-detect via
-Nova Lite, embed via Titan v2). Production polling runs hourly via a
-systemd timer that calls `memex gmail poll` inside the memex
-container.
-
-```bash
-sudo install -m 0755 \
-  scripts/gmail-poll.sh \
-  /opt/<project>/bin/gmail-poll.sh
-
-sudo install -m 0644 \
-  deploy/systemd/memex-gmail-poll.service \
-  /etc/systemd/system/memex-gmail-poll.service
-
-sudo install -m 0644 \
-  deploy/systemd/memex-gmail-poll.timer \
-  /etc/systemd/system/memex-gmail-poll.timer
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now memex-gmail-poll.timer
-```
-
-Verify and fire-once as for the rotation timer.
-
-The recipe's own `throttle.preflight` declines during the configured
-quiet-hours window, so ticks inside that window return early with
-`reason="throttle:quiet-hours"` — no Gmail/Bedrock cost burned during
-the morning briefing.
-
 ### 3. Get the current token
 
 After the first rotation runs, the token arrives in Telegram. Until

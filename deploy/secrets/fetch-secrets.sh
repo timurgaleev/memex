@@ -66,7 +66,6 @@ fetch_text() {
 # enumerating; only siblings inside this stack (memex / telegram-bridge / cloudflared)
 # can read by exact name.
 fetch_text "telegram-bot-token" "telegram-bot-token.txt" 0444
-fetch_text "home-assistant-token" "home-assistant-token.txt"
 
 # memex-public-bearer is the auth token the bridge sends on its
 # MCP JSON-RPC calls into memex. memex itself reads the same value
@@ -79,9 +78,6 @@ if aws secretsmanager describe-secret \
   --region "$AWS_REGION" >/dev/null 2>&1; then
   fetch_text "memex-public-bearer" "memex-public-bearer.txt" 0444
 fi
-
-# JSON secrets — kept as JSON for jq consumption inside containers
-fetch_text "google-calendar" "google-calendar.json"
 
 # Cloudflared tunnel token → .env format for compose env_file.
 TUNNEL_TOKEN=$(sm_text "cloudflared-tunnel-token")

@@ -26,17 +26,13 @@ automate today. Run these once after the first deploy:
     up -d telegram-bridge
   ```
 
-- **Install host-side systemd timers** for the daily bearer rotation
-  and the hourly gcal / gmail polls:
+- **Install the host-side bearer-rotation timer:**
   ```bash
-  sudo install -m 644 deploy/systemd/memex-gcal-poll.{service,timer} \
-                       deploy/systemd/memex-gmail-poll.{service,timer} \
-                       deploy/systemd/memex-rotate-bearer.{service,timer} \
+  sudo install -m 644 deploy/systemd/memex-rotate-bearer.{service,timer} \
                        /etc/systemd/system/
   sudo install -d /var/log/memex
   sudo systemctl daemon-reload
-  sudo systemctl enable --now \
-       memex-gcal-poll.timer memex-gmail-poll.timer memex-rotate-bearer.timer
+  sudo systemctl enable --now memex-rotate-bearer.timer
   ```
   Verify with `systemctl list-timers memex-* --all`.
 
@@ -47,11 +43,6 @@ future release.
 
 ## Operator-only follow-ups (cannot be automated remotely)
 
-- **Re-authorize Gmail OAuth.** Run `scripts/gmail-oauth-bootstrap.sh`
-  from your laptop (needs a browser for Google consent). If the
-  `memex/gmail-oauth` `refresh_token` returns `invalid_grant: Token
-  has been expired or revoked`, this is the path back. After re-auth,
-  the systemd `memex-gmail-poll.timer` will fire green.
 - **Realign terraform state with renamed `memex-*` addresses.** Local
   `moved.tf` (gitignored historical scaffold) reduces the diff, but
   the plan still wants to *replace* the EFS and EC2 security groups

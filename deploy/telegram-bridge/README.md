@@ -1,14 +1,13 @@
 # telegram-bridge
 
 The chat handler for the memex stack. A thin Python 3 daemon (stdlib
-only, no pip) that long-polls the Telegram Bot API, routes slash
-commands to the helper CLIs (`gcal`, `ha`), and answers free text with
-a RAG pipeline (memex MCP `tools/call name=search` for retrieval,
-Bedrock Claude Haiku 4.5 via Converse for synthesis).
+only, no pip) that long-polls the Telegram Bot API and answers every
+message with a RAG pipeline (memex MCP `tools/call name=search` for
+retrieval, Bedrock Claude Haiku 4.5 via Converse for synthesis).
 
 The bridge owns the chat path end-to-end. There is no agent framework
-in the middle — the entire flow is `Telegram → bridge dispatch → (helpers
-or MCP+Bedrock) → reply`.
+in the middle — the entire flow is `Telegram → bridge → MCP+Bedrock →
+reply`.
 
 ## Configuration
 
@@ -22,7 +21,6 @@ or MCP+Bedrock) → reply`.
 | `MEMEX_BRIDGE_MAX_HITS` | no | `5` | Top-k retrieval before synthesis. |
 | `MEMEX_BRIDGE_LLM_DISABLE` | no | unset | Set to `1` to skip Bedrock entirely (retrieval-only replies). |
 | `MEMEX_BRIDGE_STATE_DIR` | no | `/var/lib/memex-bridge` | Where `state.json` (last update id) lives. |
-| `MEMEX_BRIDGE_HELPER_DIR` | no | `/opt/memex/bin` | Where to find the `gcal` / `ha` CLIs. |
 | `TELEGRAM_BOT_TOKEN_FILE` | no | `/run/secrets/telegram-bot-token.txt` | Bot token source — populated by `deploy/secrets/fetch-secrets.sh`. |
 | `MEMEX_BRIDGE_BEARER_FILE` | no | `/run/secrets/memex-public-bearer.txt` | Memex MCP bearer source — populated by `deploy/secrets/fetch-secrets.sh`. |
 
@@ -30,8 +28,6 @@ or MCP+Bedrock) → reply`.
 
 | Command | What it does |
 |---|---|
-| `/today`, `/tomorrow`, `/week` | Calls `gcal <subcmd>` and replies with the events. |
-| `/weather` | Calls `ha states weather` for the home weather entity. |
 | `/search <query>` | Hybrid retrieval over memex — returns top hits with excerpts (no LLM). |
 | `/ask <query>` (or any non-`/` text) | RAG: retrieves top-k hits and synthesises a short answer via Bedrock. |
 | `/health` | Probes `memex /health` and reports liveness + database backend. |
@@ -121,6 +117,5 @@ docker exec deploy-telegram-bridge-1 sh -c '
 | Bridge starts, exits with `FATAL: bot token missing` | `deploy/.secrets/telegram-bot-token.txt` not written | run `bash deploy/secrets/fetch-secrets.sh` on the host |
 | Bridge starts, exits with `FATAL: bot token file missing at /run/secrets/memex-public-bearer.txt` | bearer not provisioned in Secrets Manager (fresh install) | `terraform apply` creates the random_password resource; then re-run `fetch-secrets.sh` |
 | Bot replies "no matches in your notes" to everything | `memex` container down, RDS unreachable, or bearer stale | `docker compose ps memex`, hit `/health`, restart the bridge |
-| Bot replies "(no output)" to `/today` | `gcal` helper not authenticated | re-run `scripts/gcal-oauth-bootstrap.sh` from the operator's laptop |
 | Bot replies with retrieval list but no synthesis | Bedrock invoke failed (IAM, model id, quota) | check `docker logs deploy-telegram-bridge-1 \| grep bedrock` |
 | Bridge logs `409 Conflict` from Telegram | another `getUpdates` consumer holds the same bot token | exactly one consumer per token; if a stray instance exists, kill it |

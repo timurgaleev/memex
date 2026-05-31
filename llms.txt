@@ -58,16 +58,14 @@ deploy/
 │   ├── main.py                  single-file daemon (long-poll, allowlist, dispatch)
 │   ├── entrypoint.sh            sanity-checks token + IAM before exec
 │   └── README.md                command surface + design rationale
-├── helpers/                     gcal / ha / memex CLIs (mounted into the bridge
-│   ├── gcal                     image at /opt/memex/bin/, called via subprocess)
-│   ├── ha
-│   └── memex
+├── helpers/                     memex CLI (mounted into the bridge image
+│   └── memex                    at /opt/memex/bin/; thin MCP client)
 ├── cloudflared/                 public ingress sidecar (upstream image, no Dockerfile)
 │   └── docs/
 ├── secrets/                     AWS Secrets Manager fetch
 │   ├── fetch-secrets.sh         reads <secrets_prefix>/* into deploy/.secrets/
 │   └── README.md
-└── systemd/                     timers + services for poll / rotation jobs
+└── systemd/                     timer + service for the bearer-rotation job
 
 scripts/
 ├── audit.sh                     PII gate
@@ -76,9 +74,6 @@ scripts/
 │   ├── pii-patterns.txt         audit input
 │   └── pii-allowlist.txt        files exempt from audit
 ├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
-├── gcal-poll.sh, gmail-poll.sh  hourly recipe triggers
-├── gcal-oauth-bootstrap.py      local OAuth flow → secret refresh
-├── gmail-oauth-bootstrap.py     same for Gmail
 └── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex + bridge)
 
 terraform/

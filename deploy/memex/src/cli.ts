@@ -20,10 +20,6 @@ import type { JobStatus } from "./core/jobs/types.ts";
 import { runEvalReplay } from "./commands/eval-replay.ts";
 import type { EvalTag } from "./core/eval-replay.ts";
 import { runFriction } from "./commands/friction.ts";
-import { runGmail } from "./commands/gmail.ts";
-import type { GmailCommandOptions } from "./commands/gmail.ts";
-import { runGcal } from "./commands/gcal.ts";
-import type { GcalCommandOptions } from "./commands/gcal.ts";
 import { runEvalExport } from "./commands/eval-export.ts";
 import { runEvalPrune } from "./commands/eval-prune.ts";
 import { runApplyMigrations } from "./commands/apply-migrations.ts";
@@ -143,10 +139,6 @@ function printUsage(): void {
   console.log("                               record a friction event; kinds: search-miss|wrong-answer|tool-error|low-confidence|other|delight|phase-marker|interrupted");
   console.log("  friction propose-fix [--skill S | --top-skills N] [--since H] [--example-limit N]");
   console.log("                               Nova Lite suggests skill-text edits to reduce friction");
-  console.log("  gmail poll [--max N] [--since H] [--dry-run]");
-  console.log("                               manually trigger a Gmail poll (otherwise runs via gmail.poll job)");
-  console.log("  gcal poll [--horizon-days N] [--max N] [--dry-run]");
-  console.log("                               manually trigger a Google Calendar poll (otherwise runs via gcal.poll job)");
   console.log("  orphans                      DB hygiene report + safe deletions");
   console.log("  pages [--limit N] [--filter S] catalogue of known wikilink targets");
   console.log("  lint                         frontmatter conformance check");
@@ -384,60 +376,6 @@ async function main(argv: readonly string[]): Promise<number> {
         }
       }
       await runFriction(opts);
-      return 0;
-    }
-    case "gmail": {
-      const sub = positional[0];
-      if (sub !== "poll") {
-        console.error("memex gmail: subcommand required (poll)");
-        return 1;
-      }
-      const opts: GmailCommandOptions = { sub };
-      const maxStr = values.get("--max");
-      if (maxStr !== undefined) {
-        const n = Number(maxStr);
-        if (!Number.isInteger(n) || n < 1 || n > 500) {
-          throw new Error(`memex gmail poll: invalid --max ${maxStr}`);
-        }
-        opts.max = n;
-      }
-      const sinceStr = values.get("--since");
-      if (sinceStr !== undefined) {
-        const n = Number(sinceStr);
-        if (!Number.isFinite(n) || n < 1 || n > 24 * 30) {
-          throw new Error(`memex gmail poll: invalid --since ${sinceStr}`);
-        }
-        opts.sinceHours = n;
-      }
-      if (flags.has("--dry-run")) opts.dryRun = true;
-      await runGmail(opts);
-      return 0;
-    }
-    case "gcal": {
-      const sub = positional[0];
-      if (sub !== "poll") {
-        console.error("memex gcal: subcommand required (poll)");
-        return 1;
-      }
-      const opts: GcalCommandOptions = { sub };
-      const horizonStr = values.get("--horizon-days");
-      if (horizonStr !== undefined) {
-        const n = Number(horizonStr);
-        if (!Number.isInteger(n) || n < 1 || n > 60) {
-          throw new Error(`memex gcal poll: invalid --horizon-days ${horizonStr}`);
-        }
-        opts.horizonDays = n;
-      }
-      const maxStr = values.get("--max");
-      if (maxStr !== undefined) {
-        const n = Number(maxStr);
-        if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex gcal poll: invalid --max ${maxStr}`);
-        }
-        opts.max = n;
-      }
-      if (flags.has("--dry-run")) opts.dryRun = true;
-      await runGcal(opts);
       return 0;
     }
     case "eval-export": {

@@ -132,7 +132,6 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 | Symptom | Likely cause |
 |---|---|
 | Bridge replies "no matches" for everything | Bearer file `/run/secrets/memex-public-bearer.txt` missing or stale; rotation didn't restart the bridge |
-| Bridge replies "helper not installed" | `deploy/helpers/{gcal,ha}` didn't COPY into `/opt/memex/bin/` — check Dockerfile build context |
 | Bridge healthcheck flaps `starting → unhealthy` | `aws sts get-caller-identity` failing in entrypoint — IAM role not assumable from the container |
 | `MEMEX_BRIDGE_ALLOWED_CHAT_IDS` unset → daemon won't boot | The `:?` interpolation in compose is intentional: better to fail boot than open the bot |
 | Cloudflared retries forever, no traffic | `--protocol http2` not set; SG blocks UDP |

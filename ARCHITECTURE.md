@@ -15,8 +15,8 @@
                        │                        │
             ┌────── docker-compose internal bridge ──────┐
             │                          │
-        helpers + Bedrock              memex
-        (gcal, ha; Haiku 4.5)            │
+          Bedrock RAG                  memex
+          (Haiku 4.5)                    │
             │                            │
             └─── MCP JSON-RPC ──────►    │
             (search, recall, graph)      │
@@ -36,8 +36,8 @@ external message broker — the whole runtime fits in `t4g.medium`.
 
 | Container | Image | Owns |
 |---|---|---|
-| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle. Two HTTP routes only: `GET /health` and `POST /mcp` (legacy `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`, `/jobs/*`, `/search`, `/index`, `/friction` routes are scheduled for removal in a future cleanup — MCP is the contract). |
-| `telegram-bridge` | built from `deploy/telegram-bridge/` (Python 3 stdlib + aws-cli on Alpine) | Always-on two-way Telegram surface and **the chat handler**. Long-polls the Bot API, allowlists by chat id, dispatches slash commands (`/today`, `/tomorrow`, `/week`, `/weather`, `/search`, `/ask`, `/health`, `/help`) to the `gcal` / `ha` helpers, and answers free text with a RAG pipeline (memex MCP `tools/call name=search` → Bedrock Claude Haiku 4.5 via Converse). |
+| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle. Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). |
+| `telegram-bridge` | built from `deploy/telegram-bridge/` (Python 3 stdlib + aws-cli on Alpine) | Always-on two-way Telegram surface and **the chat handler**. Long-polls the Bot API, allowlists by chat id, and answers every message (`/search`, `/ask`, `/health`, `/help`, or plain text) with a RAG pipeline (memex MCP `tools/call name=search` → Bedrock Claude Haiku 4.5 via Converse). |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel). The dashboard routes `brain.<domain>/mcp` to memex on the internal docker bridge. |
 
 Inter-container ports are not exposed to the host. `cloudflared`
@@ -73,9 +73,7 @@ Telegram message
       ▼
    allowlist gate (RefusalGate)
       │
-      ├── slash command? ─► subprocess.run(/opt/memex/bin/{gcal,ha} …)
-      │
-      └── free text / /ask ─► search_memex (MCP)  ──► rag_answer (Bedrock Converse)
+      └── /search · /ask · plain text ─► search_memex (MCP)  ──► rag_answer (Bedrock Converse)
                                   │                       │
                                   │                       └─► Claude Haiku 4.5
                                   │
@@ -129,22 +127,14 @@ unit references a script that exists in the repo.
 
 | Unit | Cadence | Owns |
 |---|---|---|
-| `memex-gcal-poll.timer` | `*-*-* *:30:00 Europe/Berlin` (hourly) | Google Calendar poll → memex signal-detect → index. |
-| `memex-gmail-poll.timer` | `*-*-* *:15:00 Europe/Berlin` (hourly) | Gmail recipe poll. |
 | `memex-rotate-bearer.timer` | `*-*-* 06:00:00 Europe/Berlin` (daily) | Rotate `<secrets_prefix>/memex-public-bearer`, restage `.secrets/memex.env` and `.secrets/memex-public-bearer.txt`, restart `memex` + `telegram-bridge` so both re-read the new value. |
-
-A daily Telegram morning briefing is a possible future timer unit: a
-host-side composer that calls the helper CLIs at `/opt/memex/bin/`
-directly, synthesises prose via Bedrock, and delivers over the Telegram
-Bot API. Not built today — the IAM grants it needs already exist.
 
 ## Storage layout
 
 ```
 /mnt/<project>-efs/<project>/      # EFS mount on the EC2 host
 ├── memex/                         # memex runtime config + soul templates
-├── telegram-bridge/               # bridge state.json (last_update_id)
-└── recipe-state/                  # gcal / gmail recipe checkpoints
+└── telegram-bridge/               # bridge state.json (last_update_id)
 
 /opt/<project>/                    # repo checkout (cloned by bootstrap.sh)
 ├── .env                           # rendered by bootstrap.sh on every boot
@@ -162,9 +152,7 @@ source. `scripts/bootstrap.sh` keeps it in sync on every boot.
 | Secret name (under `<secrets_prefix>/`) | Consumer | Set by |
 |---|---|---|
 | `telegram-bot-token` | telegram-bridge | Manual: `aws secretsmanager put-secret-value` after creating the bot via BotFather. |
-| `home-assistant-token` | `ha` helper | Manual. |
 | `cloudflared-tunnel-token` | cloudflared | Manual; from Cloudflare Zero Trust dashboard. |
-| `google-calendar` | `gcal` helper | Manual; written by `scripts/gcal-oauth-bootstrap.py`. |
 | `memex-postgres-url` | memex | terraform — auto-populated from RDS endpoint. |
 | `memex-public-bearer` | memex + telegram-bridge | terraform — `random_password` resource generates at apply. Rotated daily by `memex-rotate-bearer.timer`. |
 | `memex-internal-token` | memex (internal mutating routes) | Manual; bridge does not call mutating tools. |

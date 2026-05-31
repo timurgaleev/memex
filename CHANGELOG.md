@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.6] — 2026-05-31
+
+### Removed
+- **All external "life" integrations stripped — memex is now a pure
+  knowledge brain (Obsidian vault + code) reachable over MCP + Telegram
+  chat.** Removed Home Assistant, Google Calendar, and Gmail entirely:
+  - **memex**: deleted the `gcal` + `gmail` ingest recipes, their CLI
+    commands (`memex gcal poll` / `memex gmail poll`), the `gmail.poll`/
+    `gcal.poll` job handlers and source registrations in `serve.ts`.
+  - **telegram-bridge**: dropped the `/today`, `/tomorrow`, `/week`,
+    `/weather` commands and the `run_helper` shell-out path; the bot now
+    answers only `/search`, `/ask`, `/health`, `/help`, and plain text
+    via MCP + Bedrock RAG.
+  - **helpers**: deleted `deploy/helpers/gcal` and `deploy/helpers/ha`
+    (only the `memex` MCP client remains).
+  - **host**: deleted the 6 gcal/gmail OAuth + poll scripts and the
+    `memex-gcal-poll` / `memex-gmail-poll` systemd units (only
+    `memex-rotate-bearer` remains).
+  - **secrets**: `fetch-secrets.sh` no longer fetches
+    `home-assistant-token` or `google-calendar`.
+  - **docs**: README / ARCHITECTURE / AGENTS / llms.txt / bridge +
+    secrets READMEs / CLAUDE-CODE updated to the brain-only surface;
+    `GMAIL-GCAL-SETUP.md` deleted; `PRIVACY.md` rewritten (no Google
+    OAuth — the stack reads only the operator's own vault + code).
+
+  Terraform secret/IAM teardown and live AWS secret deletion follow
+  separately (plan-gated).
+
 ## [1.2.5] — 2026-05-31
 
 ### Changed

@@ -4,10 +4,9 @@
 > One repo, one EC2, one weekend to deploy.
 
 **memex** is a self-hostable knowledge brain and personal AI assistant.
-It indexes your Obsidian vault, your chats, your calendar, your code,
-and your inbox into a hybrid vector + keyword + entity-graph index,
-then exposes everything to your favourite AI agent over the Model
-Context Protocol (MCP).
+It indexes your Obsidian vault and your code into a hybrid vector +
+keyword + entity-graph index, then exposes everything to your
+favourite AI agent over the Model Context Protocol (MCP).
 
 Built for one user, one cloud account, one stack. No orchestrator, no
 multi-tenancy, no SaaS dependency for the brain itself. Your data
@@ -44,10 +43,8 @@ stays in your AWS account.
   exact note back with cited paths.
 - Have Claude Code pull live context from your Obsidian vault during
   refactors via the MCP server.
-- Pull an on-demand briefing from Telegram — `/today`, `/week`,
-  `/weather` compose calendar + weather from the live helpers.
-- Index Gmail and Google Calendar without a third-party broker — the
-  recipes run inside your stack.
+- Search across everything you've written from your phone — `/search`
+  and `/ask` answer from the indexed vault over MCP.
 
 ---
 
@@ -67,7 +64,6 @@ stays in your AWS account.
        |                       |
        |               Bedrock Haiku 4.5  (answer synthesis)
        |               Bedrock Titan v2   (embeddings)
-       |               Home Assistant + Google Calendar (helpers)
        |
   RDS Postgres + pgvector
        |
@@ -80,11 +76,10 @@ Inside the box:
   16 + pgvector, MCP JSON-RPC transport, multi-phase nightly
   maintenance cycle, graph-only code chunkers for TS / Python.
 - **telegram-bridge** — the chat handler. A thin Python daemon that
-  long-polls Telegram, dispatches slash commands (`/today`,
-  `/weather`, `/search`, …) to the `gcal` / `ha` helpers, and
-  answers free text with a RAG pipeline that calls memex over MCP
-  for retrieval and Bedrock Claude Haiku 4.5 for synthesis.
-  Allowlists by chat id; never speaks to anyone else.
+  long-polls Telegram and answers every message (`/search`, `/ask`,
+  or plain text) with a RAG pipeline that calls memex over MCP for
+  retrieval and Bedrock Claude Haiku 4.5 for synthesis. Allowlists by
+  chat id; never speaks to anyone else.
 - **cloudflared** — public HTTPS ingress without exposing any EC2
   ports. Routes `brain.<domain>/mcp` to the memex MCP server so
   MCP-compatible AI clients (Claude Code, Cursor, Codex, ...) can
@@ -131,8 +126,6 @@ and brings up the three containers (`memex`, `telegram-bridge`,
 `brain.<domain>/mcp` to the memex MCP server so remote AI clients
 can connect.
 
-Full setup walkthrough for the Gmail + Google Calendar recipes:
-[`deploy/memex/docs/GMAIL-GCAL-SETUP.md`](./deploy/memex/docs/GMAIL-GCAL-SETUP.md).
 Connecting Claude Code to the MCP server:
 [`deploy/memex/docs/CLAUDE-CODE.md`](./deploy/memex/docs/CLAUDE-CODE.md).
 
@@ -144,7 +137,7 @@ Connecting Claude Code to the MCP server:
 |---|---|---|
 | **memex** — knowledge brain (search, index, MCP) | `deploy/memex/` | `deploy/memex/docs/` |
 | **telegram-bridge** — chat handler (memex MCP + Bedrock RAG) | `deploy/telegram-bridge/` | `deploy/telegram-bridge/README.md` |
-| **helpers** — `gcal`, `ha`, `memex` CLIs the bridge shells out to | `deploy/helpers/` | inline shebangs |
+| **helpers** — the `memex` MCP client CLI shipped into the bridge | `deploy/helpers/` | inline shebangs |
 | **cloudflared** — public ingress sidecar | `deploy/cloudflared/` | `deploy/cloudflared/docs/` |
 | **secrets** — AWS Secrets Manager fetch | `deploy/secrets/` | `deploy/secrets/README.md` |
 | **bootstrap.sh** — EC2 first-boot script | `scripts/bootstrap.sh` | inline |

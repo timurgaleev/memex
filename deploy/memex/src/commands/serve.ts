@@ -14,10 +14,7 @@ import {
 import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
-import { registerHandler } from "../core/jobs/handlers.ts";
 import { registerSource } from "../core/sources.ts";
-import { pollGmail } from "../recipes/gmail.ts";
-import { pollGcal } from "../recipes/gcal.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
 import { basename } from "node:path";
 
@@ -155,62 +152,6 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     }
   }
 
-  // Register the gmail source row (idempotent ON CONFLICT). Path
-  // prefix is the `gmail:` scheme the recipe stamps onto every
-  // document's source_path — `resolveSourceForPath` does longest-
-  // matching-prefix LIKE so `gmail:<id>` attributes back to this row.
-  // Run async without awaiting — a transient DB error here shouldn't
-  // kill recipe startup.
-  registerSource(storage.engine(), {
-    id: "gmail",
-    kind: "mailbox",
-    pathPrefix: "gmail:",
-    syncPolicy: "local-only",
-    indexedPolicy: "verbatim",
-    rateLimitPerMinute: 60,
-    respectQuietHours: true,
-    boostWeight: 0.6,
-    description: "Gmail ingest via OAuth + Nova Lite (Postgres-only, no vault file)",
-  }).catch((e) =>
-    console.warn(
-      `[gmail] source registration failed:`,
-      e instanceof Error ? e.message : e,
-    ),
-  );
-
-  // Register the gmail.poll handler. The Worker doesn't pass storage
-  // to handlers; closure captures it here.
-  registerHandler("gmail.poll", async (payload) => {
-    const pollOpts: Parameters<typeof pollGmail>[1] = {};
-    if (typeof payload.maxMessages === "number") pollOpts.maxMessages = payload.maxMessages;
-    if (typeof payload.sinceHours === "number") pollOpts.sinceHours = payload.sinceHours;
-    if (typeof payload.signalThreshold === "number") {
-      pollOpts.signalThreshold = payload.signalThreshold;
-    }
-    return (await pollGmail(storage, pollOpts)) as unknown as Record<string, unknown>;
-  });
-
-  // Register the gcal source row + gcal.poll handler. Path prefix
-  // `gcal:` is what the recipe stamps onto every document's
-  // source_path; `resolveSourceForPath` longest-prefix-matches against
-  // it.
-  registerSource(storage.engine(), {
-    id: "gcal",
-    kind: "calendar",
-    pathPrefix: "gcal:",
-    syncPolicy: "local-only",
-    indexedPolicy: "verbatim",
-    rateLimitPerMinute: 60,
-    respectQuietHours: true,
-    boostWeight: 0.6,
-    description: "Google Calendar ingest via OAuth + Nova Lite (Postgres-only, no vault file)",
-  }).catch((e) =>
-    console.warn(
-      `[gcal] source registration failed:`,
-      e instanceof Error ? e.message : e,
-    ),
-  );
-
   // code chunkers (graph-only, see TODO External-dep roadmap).
   // Register one source row per MEMEX_CODE_PATHS entry, then run a
   // boot sweep. Both are best-effort: registration errors are warned,
@@ -269,19 +210,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     })();
   }
 
-  registerHandler("gcal.poll", async (payload) => {
-    const pollOpts: Parameters<typeof pollGcal>[1] = {};
-    if (typeof payload.horizonDays === "number") pollOpts.horizonDays = payload.horizonDays;
-    if (typeof payload.maxEvents === "number") pollOpts.maxEvents = payload.maxEvents;
-    if (typeof payload.signalThreshold === "number") {
-      pollOpts.signalThreshold = payload.signalThreshold;
-    }
-    return (await pollGcal(storage, pollOpts)) as unknown as Record<string, unknown>;
-  });
-
-  // Start the durable jobs worker. Single-concurrency for v1 — gmail.poll
-  // and gcal.poll are the registered handlers today; both run hourly
-  // on staggered timers (:15 + :30 in the configured zone) so they never overlap.
+  // Start the durable jobs worker. Single-concurrency for v1. (The
+  // gmail/gcal ingest recipes were removed — memex now ingests the
+  // Obsidian vault + code corpus only; jobs remain for future handlers.)
   const worker = new Worker(new Queue(storage.engine()), { intervalMs: 5000 });
   worker.start();
   console.log(`[memex] jobs worker started (intervalMs=5000)`);

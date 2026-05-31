@@ -134,8 +134,7 @@ class TestTelegramBridgeDockerfile:
 
     def test_helpers_copied_in(self):
         assert "/opt/memex/bin" in self._text, (
-            "telegram-bridge must copy helpers to /opt/memex/bin/ "
-            "so /today, /weather etc. resolve"
+            "telegram-bridge must copy the memex helper to /opt/memex/bin/"
         )
 
 
@@ -144,27 +143,15 @@ class TestTelegramBridgeDockerfile:
 # ---------------------------------------------------------------------------
 
 class TestHelperScripts:
-    def test_gcal_exists_and_executable(self):
-        p = DEPLOY / "helpers" / "gcal"
-        assert p.exists(), "deploy/helpers/gcal must exist"
-        assert p.stat().st_mode & 0o111, "gcal must be executable"
+    def test_memex_helper_exists_and_executable(self):
+        p = DEPLOY / "helpers" / "memex"
+        assert p.exists(), "deploy/helpers/memex must exist"
+        assert p.stat().st_mode & 0o111, "memex helper must be executable"
 
-    def test_ha_exists_and_executable(self):
-        p = DEPLOY / "helpers" / "ha"
-        assert p.exists(), "deploy/helpers/ha must exist"
-        assert p.stat().st_mode & 0o111, "ha must be executable"
-
-    def test_gcal_has_python_shebang(self):
-        p = DEPLOY / "helpers" / "gcal"
-        first_line = p.read_text().splitlines()[0]
-        assert "python" in first_line, f"gcal must have a Python shebang, got: {first_line}"
-
-    def test_ha_has_bash_shebang(self):
-        p = DEPLOY / "helpers" / "ha"
-        first_line = p.read_text().splitlines()[0]
-        assert "bash" in first_line or "sh" in first_line, (
-            f"ha must have a bash shebang, got: {first_line}"
-        )
+    def test_only_memex_helper_remains(self):
+        # The gcal/ha helpers were removed with the life integrations.
+        names = sorted(p.name for p in (DEPLOY / "helpers").iterdir() if p.is_file())
+        assert names == ["memex"], f"unexpected helpers: {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -187,14 +174,12 @@ class TestSecrets:
     def test_fetch_secrets_sh_writes_required_secrets(self):
         p = DEPLOY / "secrets" / "fetch-secrets.sh"
         text = p.read_text()
-        # Required: telegram-bot-token, home-assistant-token,
-        # google-calendar, cloudflared-tunnel-token, memex-public-bearer
-        # (bridge's MCP auth). `obsidian-sync` and `gateway-token` are
-        # legacy secrets that are no longer fetched.
+        # Required: telegram-bot-token, cloudflared-tunnel-token,
+        # memex-public-bearer (bridge's MCP auth). The home-assistant-token
+        # and google-calendar secrets were removed with the life
+        # integrations; `obsidian-sync` / `gateway-token` are legacy.
         for secret_name in [
             "telegram-bot-token",
-            "home-assistant-token",
-            "google-calendar",
             "cloudflared-tunnel-token",
             "memex-public-bearer",
         ]:

@@ -14,8 +14,8 @@ Design constraints:
   comma-separated list of numeric ids. Unknown chats receive a single
   polite refusal (bounded with an LRU + global rate-limit so a flood
   of spoofed chat ids cannot exhaust memory or burn Telegram quota).
-* Commands shell out to the existing helper CLIs (`gcal`, `ha`) so the
-  bridge stays a thin orchestrator. Free text is routed through a RAG
+* The bridge is a thin orchestrator over memex's MCP surface. Every
+  message (slash command or free text) is routed through a RAG
   pipeline: `memex /search` for retrieval, then Bedrock Claude Haiku
   4.5 (via `MEMEX_BRIDGE_LLM_MODEL`) for synthesis. Retrieved notes
   are isolated inside
@@ -30,7 +30,6 @@ Env contract:
     MEMEX_URL                        default http://memex:18790
     MEMEX_BRIDGE_ALLOWED_CHAT_IDS    required — comma-separated numeric ids
     MEMEX_BRIDGE_STATE_DIR           default /var/lib/memex-bridge
-    MEMEX_BRIDGE_HELPER_DIR          default /opt/memex/bin
     MEMEX_BRIDGE_LLM_MODEL           default eu.anthropic.claude-haiku-4-5-20251001-v1:0
     MEMEX_BRIDGE_MAX_HITS            default 5
     MEMEX_BRIDGE_LLM_DISABLE         when set to "1", skip Bedrock entirely
@@ -105,10 +104,6 @@ BEDROCK_RETRY_PATTERN = re.compile(
 HELP_TEXT = (
     "memex — your private knowledge bot.\n\n"
     "Commands:\n"
-    "  /today       today's calendar\n"
-    "  /tomorrow    tomorrow's calendar\n"
-    "  /week        next 7 days\n"
-    "  /weather     home weather + presence\n"
     "  /search <q>  hybrid search across the vault\n"
     "  /ask <q>     same as plain text — RAG answer\n"
     "  /health      brain liveness check\n"
@@ -613,34 +608,6 @@ def _bedrock_invoke_once(
 
 
 # ---------------------------------------------------------------------------
-# Helper command shell-outs
-# ---------------------------------------------------------------------------
-
-
-def run_helper(helper_dir: Path, name: str, *args: str, timeout_s: int = 30) -> str:
-    bin_path = helper_dir / name
-    if not bin_path.is_file():
-        return f"helper not installed: {bin_path}"
-    try:
-        proc = subprocess.run(
-            [str(bin_path), *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            check=False,
-        )
-    except subprocess.SubprocessError as e:
-        return f"helper {name} failed: {e}"
-    if proc.returncode != 0:
-        # Surface the first stderr line — helpers print useful error text.
-        err = (proc.stderr or "").strip().splitlines()
-        first = err[0] if err else f"exit {proc.returncode}"
-        return f"helper {name} error: {first}"
-    out = (proc.stdout or "").strip()
-    return out or "(no output)"
-
-
-# ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
 
@@ -651,9 +618,6 @@ class BridgeConfig:
         self.secrets_prefix = os.environ.get("SECRETS_PREFIX", "memex").strip() or "memex"
         self.memex_url = _validate_memex_url(
             os.environ.get("MEMEX_URL", "http://memex:18790").strip()
-        )
-        self.helper_dir = Path(
-            os.environ.get("MEMEX_BRIDGE_HELPER_DIR", "/opt/memex/bin")
         )
         self.state_dir = Path(
             os.environ.get("MEMEX_BRIDGE_STATE_DIR", "/var/lib/memex-bridge")
@@ -738,17 +702,6 @@ def handle_message(
             db = h.get("db") or h.get("database") or "?"
             return f"brain ok — db={db}"
         return f"brain unhealthy: {h.get('error') or h}"
-    if cmd == "today":
-        return run_helper(cfg.helper_dir, "gcal", "today")
-    if cmd == "tomorrow":
-        return run_helper(cfg.helper_dir, "gcal", "tomorrow")
-    if cmd == "week":
-        return run_helper(cfg.helper_dir, "gcal", "week")
-    if cmd == "weather":
-        # The ha helper accepts free-text filters via `states`. We pull
-        # the weather entity if the operator has one; otherwise list
-        # the climate-related entities.
-        return run_helper(cfg.helper_dir, "ha", "states", "weather")
     if cmd == "search":
         if not arg:
             return "usage: /search <query>"
@@ -895,10 +848,9 @@ def serve(cfg: BridgeConfig) -> None:
         # one we successfully acked.
         offset = offset + 1
     LOG.info(
-        "bridge starting — allowed_chats=%s memex_url=%s helper_dir=%s llm=%s",
+        "bridge starting — allowed_chats=%s memex_url=%s llm=%s",
         sorted(cfg.allowed_chats),
         cfg.memex_url,
-        cfg.helper_dir,
         "on" if cfg.llm_enabled else "off",
     )
 

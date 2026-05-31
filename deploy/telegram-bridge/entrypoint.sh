@@ -13,10 +13,10 @@ if [ ! -s "$TOKEN_FILE" ]; then
   exit 1
 fi
 
-# The Bedrock-side helpers (gcal/ha) read from Secrets Manager; verify
-# the IAM role is in fact reachable before we promise the operator
-# anything works. A silent failure here would surface as "bot replies
-# 'helper error'" indefinitely.
+# The bridge needs Bedrock (RAG synthesis) and Secrets Manager (bot
+# token + bearer); verify the IAM role is assumable before handing off.
+# A silent failure here would surface as the bot 401ing or never
+# answering.
 if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
   echo "FATAL: aws sts get-caller-identity failed — IAM role not assumable" >&2
   exit 1

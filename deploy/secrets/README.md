@@ -16,8 +16,6 @@ does NOT hold any secrets in tracked content.
 deploy/.secrets/                # dir mode 0711 (non-root descend-only)
 ├── telegram-bot-token.txt    Telegram Bot API token                       0444
 ├── memex-public-bearer.txt   bridge → memex MCP bearer                    0444
-├── home-assistant-token.txt  long-lived access token                      0400
-├── google-calendar.json      { client_id, client_secret, refresh_token }  0400
 ├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...0400
 └── memex.env                 MEMEX_POSTGRES_URL=... + bearer/config        0400
 ```
@@ -39,8 +37,6 @@ The default prefix is `<var.secrets_prefix>` (configured in
 | Name | Format | Used by |
 |---|---|---|
 | `<prefix>/telegram-bot-token` | string | `telegram-bridge` bot token |
-| `<prefix>/home-assistant-token` | string | `ha` helper |
-| `<prefix>/google-calendar` | JSON | `gcal` helper |
 | `<prefix>/cloudflared-tunnel-token` | string | cloudflared |
 | `<prefix>/memex-postgres-url` | string (URL) | memex |
 | `<prefix>/memex-public-bearer` | string | memex HTTP server + bridge MCP auth |

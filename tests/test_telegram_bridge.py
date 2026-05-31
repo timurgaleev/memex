@@ -55,8 +55,8 @@ def test_dockerfile_pulls_no_pip_packages():
 
 
 def test_dockerfile_copies_helpers_from_repo():
-    """The bridge ships the gcal/ha/memex helper CLIs from
-    deploy/helpers/ via the deploy/ build context."""
+    """The bridge ships the memex helper CLI from deploy/helpers/ via
+    the deploy/ build context."""
     text = (BRIDGE_DIR / "Dockerfile").read_text()
     assert "COPY helpers/" in text, (
         "Dockerfile must COPY helpers/ from the deploy build context"
@@ -71,8 +71,8 @@ def test_dockerfile_copies_helpers_from_repo():
 @pytest.mark.parametrize(
     "text,expected",
     [
-        ("/today", ("today", "")),
-        ("/today extra args", ("today", "extra args")),
+        ("/ask", ("ask", "")),
+        ("/ask extra args", ("ask", "extra args")),
         ("/search hello world", ("search", "hello world")),
         ("/Search Mixed", ("search", "Mixed")),  # lowercased
         ("/start@MyBot extra", ("start", "extra")),  # @suffix stripped
@@ -232,7 +232,6 @@ def _make_config(bridge_module, monkeypatch, tmp_path, **overrides):
         "AWS_REGION": "eu-west-1",
         "MEMEX_BRIDGE_ALLOWED_CHAT_IDS": "1",
         "MEMEX_BRIDGE_STATE_DIR": str(tmp_path / "state"),
-        "MEMEX_BRIDGE_HELPER_DIR": str(tmp_path / "bin"),
         "MEMEX_BRIDGE_LLM_DISABLE": "1",
         "TELEGRAM_BOT_TOKEN_FILE": str(tmp_path / "token.txt"),
         "MEMEX_BRIDGE_BEARER_FILE": str(tmp_path / "bearer.txt"),
@@ -302,10 +301,10 @@ def test_handle_free_text_no_hits_no_llm(bridge_module, monkeypatch, tmp_path):
     assert "no matches" in out
 
 
-def test_handle_helper_missing(bridge_module, monkeypatch, tmp_path):
+def test_handle_unknown_command(bridge_module, monkeypatch, tmp_path):
     cfg = _make_config(bridge_module, monkeypatch, tmp_path)
     out = bridge_module.handle_message(cfg, "/today")
-    assert "not installed" in out
+    assert "unknown command" in out  # /today removed with the life integrations
 
 
 # ---------------------------------------------------------------------------
