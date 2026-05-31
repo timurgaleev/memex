@@ -28,10 +28,9 @@ export type FrictionKind =
   | "interrupted";
 
 /**
- * Canonical set of valid `FrictionKind` values. Both the HTTP route
- * (src/http/friction_route.ts) and the MCP dispatcher (src/mcp/dispatch.ts)
- * import this — keeping one truth-table avoids the silent allowlist
- * drift that previously let some kinds in through MCP but not HTTP.
+ * Canonical set of valid `FrictionKind` values. The MCP dispatcher
+ * (src/mcp/dispatch.ts) imports this — keeping one truth-table avoids
+ * silent allowlist drift across callers.
  */
 export const VALID_FRICTION_KINDS: ReadonlySet<FrictionKind> = new Set([
   "search-miss",

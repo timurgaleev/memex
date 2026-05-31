@@ -1,69 +1,37 @@
 /**
- * Internal-auth gate + public-search body redaction.
+ * Internal-auth gate + public-ingress body redaction — unit coverage.
  *
- * These two regressions were caught by the 2026-05-17 security audit:
+ * History: these guarded the legacy REST routes (POST /index, POST
+ * /search). Those routes were removed in A.7 — all read/write capability
+ * now flows through `POST /mcp`. The HTTP-level enforcement is therefore
+ * exercised against the MCP surface in `mcp_internal_token.test.ts`
+ * (write-tool token gate) and `mcp_redaction.test.ts` /
+ * `mcp_search_redaction.test.ts` (public body redaction). What remains
+ * here is the still-shared pure logic:
  *
- * 1. POST /index, POST /friction, MCP write tools were "internal-only"
- *    purely by way of the public-guard rejecting them with isPublic=true.
- *    A peer on the docker bridge with no `Cf-Connecting-Ip` header
- *    passed as "internal" and could write to the index with no auth.
- *    The new `MEMEX_INTERNAL_TOKEN` requirement closes that.
- *
- * 2. POST /search and POST /backlinks returned note bodies to any
- *    bearer holder over the public ingress. A leaked bearer exfiled
- *    the entire vault. Default response now redacts `content` /
- *    `excerpt` / `snippet`; bodies opt back in via
- *    `MEMEX_PUBLIC_READ_BODIES=1`.
+ * 1. `evaluateInternalAuth` — the token gate the server applies to `/mcp`.
+ * 2. `redactBodies` — the public-search allowlist (now sourced from the
+ *    neutral `core/public_redaction.ts` module).
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Storage } from "../src/core/storage.ts";
-import { startServer, type ServerHandle } from "../src/http/server.ts";
+import { beforeEach, afterEach, describe, expect, it } from "bun:test";
 import {
   evaluateInternalAuth,
   PUBLIC_GUARD_INTERNALS,
 } from "../src/http/public_guard.ts";
-import { redactBodies } from "../src/http/search_route.ts";
+import { redactBodies } from "../src/core/public_redaction.ts";
 
-const PUB_TOKEN = "pub-bearer-xyz789";
 const INT_TOKEN = "internal-shared-token-abcdef";
 
-let tmp: string;
-let storage: Storage;
-let server: ServerHandle;
-let url: string;
-
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-internal-auth-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-  server = startServer({
-    host: "127.0.0.1",
-    port: 0,
-    storage,
-    publicBearerToken: PUB_TOKEN,
-    internalToken: INT_TOKEN,
-  });
-  url = `http://127.0.0.1:${server.port}`;
-});
-
-afterEach(async () => {
-  await server.stop();
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
-
 // ---------------------------------------------------------------------------
-// evaluateInternalAuth unit
+// evaluateInternalAuth unit — the gate the server applies to POST /mcp
+// (and previously to POST /index).
 // ---------------------------------------------------------------------------
 
 describe("evaluateInternalAuth", () => {
   function req(authHeader?: string): Request {
     const headers: Record<string, string> = {};
     if (authHeader !== undefined) headers["Authorization"] = authHeader;
-    return new Request("http://x/index", { method: "POST", headers });
+    return new Request("http://x/mcp", { method: "POST", headers });
   }
 
   it("token unset → open (legacy fallthrough)", () => {
@@ -93,64 +61,10 @@ describe("evaluateInternalAuth", () => {
 });
 
 // ---------------------------------------------------------------------------
-// HTTP server end-to-end — internal /index now requires the shared token
+// redactBodies — public-search allowlist (denylist-free)
 // ---------------------------------------------------------------------------
 
-describe("HTTP /index — internal shared-token gate", () => {
-  it("internal /index POST without token → 401", async () => {
-    const r = await fetch(`${url}/index`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourcePath: "x.md", text: "hi" }),
-    });
-    expect(r.status).toBe(401);
-  });
-
-  it("internal /index POST with correct token → routes past the guard", async () => {
-    const r = await fetch(`${url}/index`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${INT_TOKEN}`,
-      },
-      // Intentionally minimal body — route validation fails, but we
-      // only care that the auth gate let us through (not 401/403).
-      body: JSON.stringify({}),
-    });
-    expect([400, 500].includes(r.status)).toBe(true);
-  });
-
-  it("internal /friction POST without token → 401", async () => {
-    const r = await fetch(`${url}/friction`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "x" }),
-    });
-    expect(r.status).toBe(401);
-  });
-
-  it("public /index still 403s regardless of internal token", async () => {
-    // The public-guard rejects /index with 403 BEFORE the internal
-    // gate runs — internal auth is a defence-in-depth layer for the
-    // internal surface only.
-    const r = await fetch(`${url}/index`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Cf-Connecting-Ip": "1.2.3.4",
-        "Authorization": `Bearer ${PUB_TOKEN}`,
-      },
-      body: JSON.stringify({ sourcePath: "x.md", text: "hi" }),
-    });
-    expect(r.status).toBe(403);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Public /search — note bodies redacted by default
-// ---------------------------------------------------------------------------
-
-describe("redactBodies — allowlist-based public /search filtering", () => {
+describe("redactBodies — allowlist-based public search filtering", () => {
   it("removes any body-ish field (denylist-free)", () => {
     const hits = [
       { title: "a", sourcePath: "/a.md", score: 0.9, content: "secret a" },
@@ -166,9 +80,6 @@ describe("redactBodies — allowlist-based public /search filtering", () => {
   });
 
   it("strips ANY future body-ish field by default (allowlist semantics)", () => {
-    // A future SearchHit shape adding `raw_text` / `body_md` / `embedding`
-    // would silently leak under a denylist. The allowlist closes that
-    // door — only known-safe fields survive.
     const hits = [
       {
         title: "a",
@@ -219,28 +130,13 @@ describe("redactBodies — allowlist-based public /search filtering", () => {
   });
 
   it("does not mutate the input array", () => {
-    const hits = [
-      { title: "a", content: "secret" },
-    ];
+    const hits = [{ title: "a", content: "secret" }];
     redactBodies(hits);
     expect(hits[0]).toHaveProperty("content");
   });
 
   it("handles empty hit lists", () => {
     expect(redactBodies([])).toEqual([]);
-  });
-
-  it("public /search route returns 400 on missing q (validation path unaffected)", async () => {
-    const r = await fetch(`${url}/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Cf-Connecting-Ip": "1.2.3.4",
-        "Authorization": `Bearer ${PUB_TOKEN}`,
-      },
-      body: JSON.stringify({ k: 5 }), // missing q
-    });
-    expect(r.status).toBe(400);
   });
 });
 
@@ -258,4 +154,3 @@ describe("MEMEX_PUBLIC_READ_BODIES opt-in", () => {
     expect(PUBLIC_GUARD_INTERNALS.publicReadBodiesAllowed()).toBe(true);
   });
 });
-

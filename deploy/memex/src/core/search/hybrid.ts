@@ -13,8 +13,8 @@
  *   9. trim to k
  *
  * The exported `hybridSearch(storage, query, k)` API stays compatible
- * with existing callers (commands/search.ts, http/search_route.ts,
- * mcp/dispatch.ts). Internal rewiring only.
+ * with existing callers (commands/search.ts, mcp/dispatch.ts).
+ * Internal rewiring only.
  */
 import type { Storage } from "../storage.ts";
 import type { SourceKind } from "../sources.ts";

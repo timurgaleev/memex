@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.4] — 2026-05-31
+
+### Removed
+- **Legacy REST routes deleted (MCP cleanup, Phase A.7).** The daemon's
+  HTTP surface is now exactly two routes: `GET /health` + `POST /mcp`.
+  The phase A.1–A.4 routes (`/index`, `/search`, `/backlinks`,
+  `/friction`, `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`,
+  `/jobs/*`) and their eight handler modules are gone — every behaviour
+  is reachable via `tools/call` on `/mcp`. The `memex` shell helper now
+  talks to `/mcp` (sending `MEMEX_INTERNAL_TOKEN` for the `index` write
+  tool); the telegram-bridge already used `/mcp`. Docs (`API.md`,
+  `ARCHITECTURE.md`, `README.md`) updated to the two-route contract.
+
 ## [1.2.3] — 2026-05-31
 
 ### Security

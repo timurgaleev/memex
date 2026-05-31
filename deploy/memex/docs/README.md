@@ -29,8 +29,8 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 - Two HTTP routes by contract: `GET /health` + `POST /mcp`. The
   legacy `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`,
   `/jobs/*`, `/search`, `/index`, `/friction` routes shipped during
-  phases A.1-A.4 are scheduled for deletion in Phase A.7 (see
-  `TODO.md`); nothing in the active stack still calls them.
+  phases A.1-A.4 were removed in Phase A.7 — everything is reachable
+  via `tools/call` on `/mcp`.
 
 ## What it isn't
 

@@ -1,15 +1,16 @@
 /**
  * Bun HTTP server — routes requests, owns the Storage instance lifetime.
  *
- * Routes:
+ * The surface is deliberately TWO routes (MCP cleanup, Phase A.7):
  *   GET  /health       — liveness + db stats (open on public ingress)
- *   POST /index        — index a doc (internal-only)
- *   POST /search       — hybrid retrieve { q, k? }
- *   POST /backlinks    — entity-mention reverse lookup
- *   POST /friction     — log "agent confused" event (internal-only)
- *   GET  /friction     — analyse friction events
- *   POST /mcp          — MCP JSON-RPC 2.0 (tools `index` + `log_friction`
- *                        rejected from public; rest open with bearer)
+ *   POST /mcp          — MCP JSON-RPC 2.0; all read/write capability lives
+ *                        here via `tools/call`. Public callers can't
+ *                        discover or invoke the write tools; internal
+ *                        write tools require `MEMEX_INTERNAL_TOKEN`.
+ *
+ * The legacy REST routes (`/index`, `/search`, `/backlinks`, `/friction`,
+ * `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`, `/jobs/*`) were
+ * removed in A.7 — every one of them is reachable through `/mcp`.
  *
  * Public requests are detected via the `Cf-Connecting-Ip` header set by
  * cloudflared. Bearer auth is required for any non-`/health` public
@@ -17,41 +18,6 @@
  */
 import type { Storage } from "../core/storage.ts";
 import { handleHealth } from "./health.ts";
-import { handleIndex } from "./index_route.ts";
-import { handleSearch } from "./search_route.ts";
-import { handleBacklinks } from "./backlinks_route.ts";
-import {
-  handleFrictionGet,
-  handleFrictionPost,
-} from "./friction_route.ts";
-import {
-  handlePagePut,
-  handlePageAppend,
-  handlePageDelete,
-  handlePageGet,
-  handlePageList,
-  handlePageVersions,
-} from "./pages_route.ts";
-import {
-  handleGraphLink,
-  handleGraphUnlink,
-  handleGraphNeighbors,
-  handleGraphQuery,
-} from "./graph_route.ts";
-import {
-  handleAddFact,
-  handleAddTimelineEvent,
-  handleEntityFacts,
-  handleEntityTimeline,
-  handleEntityRecall,
-} from "./entities_route.ts";
-import {
-  handleJobsSubmit,
-  handleJobsCancel,
-  handleJobsList,
-  handleJobsGet,
-  handleJobsLogs,
-} from "./jobs_route.ts";
 import {
   evaluatePublicGuard,
   evaluateInternalAuth,
@@ -76,13 +42,13 @@ export interface ServerOptions {
    */
   publicBearerToken?: string;
   /**
-   * Shared secret required on internal mutating routes (POST /index,
-   * POST /friction, MCP write tools). Defends the docker-bridge
-   * surface from a compromised sibling container. Wire from
-   * `MEMEX_INTERNAL_TOKEN` env / `<secrets_prefix>/memex-internal-token`.
-   * When unset, internal routes stay open (legacy single-node behaviour)
-   * — a single startup warning is logged; operators should configure
-   * the secret.
+   * Shared secret required to call MCP write tools (`index`,
+   * `log_friction`, `page_*`, `link`/`unlink`, `add_*`, `jobs_*`) on the
+   * internal `/mcp` path. Defends the docker-bridge surface from a
+   * compromised sibling container. Wire from `MEMEX_INTERNAL_TOKEN` env /
+   * `<secrets_prefix>/memex-internal-token`. When unset, internal write
+   * tools stay open (legacy single-node behaviour) — a single startup
+   * warning is logged; operators should configure the secret.
    */
   internalToken?: string;
 }
@@ -114,9 +80,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
     internalAuthOpts.internalToken = opts.internalToken;
   } else {
     console.warn(
-      "[memex] WARNING: MEMEX_INTERNAL_TOKEN not configured — internal " +
-        "mutating routes (POST /index, POST /friction) are open to any " +
-        "peer on the docker bridge. Configure the token via " +
+      "[memex] WARNING: MEMEX_INTERNAL_TOKEN not configured — MCP write " +
+        "tools (index, log_friction, page_*, link, add_*, jobs_*) are open " +
+        "to any peer on the docker bridge. Configure the token via " +
         "<secrets_prefix>/memex-internal-token + fetch-secrets.sh.",
     );
   }
@@ -137,243 +103,6 @@ export function startServer(opts: ServerOptions): ServerHandle {
 
       if (url.pathname === "/health" && req.method === "GET") {
         return handleHealth(opts.storage);
-      }
-      if (url.pathname === "/index" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/index is internal-only" },
-            { status: 403 },
-          );
-        }
-        // Internal mutating route — require the shared internal token
-        // so a compromised sibling container on the docker bridge
-        // cannot blindly poison the index.
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleIndex(opts.storage, req);
-      }
-      if (url.pathname === "/search" && req.method === "POST") {
-        return handleSearch(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/backlinks" && req.method === "POST") {
-        return handleBacklinks(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/friction" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/friction is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleFrictionPost(opts.storage, req);
-      }
-      if (url.pathname === "/friction" && req.method === "GET") {
-        return handleFrictionGet(opts.storage);
-      }
-      // ---------------------------------------------------------------
-      // Pages (DB-canonical store) — writes are internal-only and gated
-      // by the shared internal token; reads return redacted shapes on
-      // public ingress unless MEMEX_PUBLIC_READ_BODIES=1.
-      // ---------------------------------------------------------------
-      if (url.pathname === "/pages/put" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/pages/put is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handlePagePut(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/pages/append" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/pages/append is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handlePageAppend(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/pages/delete" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/pages/delete is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handlePageDelete(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/pages/get" && req.method === "GET") {
-        return handlePageGet(opts.storage, url, guard.isPublic);
-      }
-      if (url.pathname === "/pages/list" && req.method === "POST") {
-        return handlePageList(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/pages/versions" && req.method === "GET") {
-        return handlePageVersions(opts.storage, url, guard.isPublic);
-      }
-      // ---------------------------------------------------------------
-      // Graph (typed page-to-page links) — same auth model as /pages.
-      // ---------------------------------------------------------------
-      if (url.pathname === "/graph/link" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/graph/link is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleGraphLink(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/graph/unlink" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/graph/unlink is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleGraphUnlink(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/graph/neighbors" && req.method === "POST") {
-        return handleGraphNeighbors(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/graph/query" && req.method === "POST") {
-        return handleGraphQuery(opts.storage, req, guard.isPublic);
-      }
-      // ---------------------------------------------------------------
-      // Entity facts + timeline (Phase A.3). Same auth model as pages
-      // and graph.
-      // ---------------------------------------------------------------
-      if (url.pathname === "/entities/facts/add" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/entities/facts/add is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleAddFact(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/timeline/add" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/timeline/add is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleAddTimelineEvent(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/entities/facts" && req.method === "POST") {
-        return handleEntityFacts(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/entities/timeline" && req.method === "POST") {
-        return handleEntityTimeline(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/entities/recall" && req.method === "POST") {
-        return handleEntityRecall(opts.storage, req, guard.isPublic);
-      }
-      // ---------------------------------------------------------------
-      // Jobs DAG (Phase A.4). Submits + cancels are internal-only;
-      // reads are open under the public-bearer.
-      // ---------------------------------------------------------------
-      if (url.pathname === "/jobs/submit" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/jobs/submit is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleJobsSubmit(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/jobs/cancel" && req.method === "POST") {
-        if (guard.isPublic) {
-          return Response.json(
-            { ok: false, error: "/jobs/cancel is internal-only" },
-            { status: 403 },
-          );
-        }
-        const ia = evaluateInternalAuth(req, internalAuthOpts);
-        if (!ia.allow) {
-          return Response.json(
-            { ok: false, error: ia.reason },
-            { status: ia.status },
-          );
-        }
-        return handleJobsCancel(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/jobs/list" && req.method === "POST") {
-        return handleJobsList(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/jobs/get" && req.method === "POST") {
-        return handleJobsGet(opts.storage, req, guard.isPublic);
-      }
-      if (url.pathname === "/jobs/logs" && req.method === "POST") {
-        return handleJobsLogs(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         // Evaluate the internal-token gate once per request; the handler

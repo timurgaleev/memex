@@ -33,8 +33,7 @@ deploy/memex/src/
 │   ├── storage.ts       thin façade over Engine
 │   └── config.ts        JSON + YAML + env layered loader
 ├── http/                two contract routes: /health + /mcp
-│                        (legacy /index /search /backlinks /friction /pages/* /graph/*
-│                        /entities/* /timeline/* /jobs/* scheduled for deletion in A.7)
+│                        (legacy REST routes removed in A.7 — all via /mcp)
 ├── mcp/                 JSON-RPC 2.0 transport + dispatch
 ├── recipes/             obsidian (chokidar watcher) + cycle (6h tick)
 └── tests/               120 Bun tests

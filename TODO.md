@@ -88,23 +88,6 @@ future release.
 
 ---
 
-## MCP cleanup — Phase A.7
-
-memex's HTTP surface is locked to two routes by design (`GET /health`,
-`POST /mcp`), but the daemon today still exposes the legacy routes
-shipped in phases A.1-A.4 (`/pages/*`, `/graph/*`, `/entities/*`,
-`/timeline/*`, `/jobs/*`, `/search`, `/index`, `/friction`). All of
-their behaviour is reachable via `tools/call` on `/mcp`. Cleanup phase:
-
-- Delete the route handlers under `deploy/memex/src/http/` for the
-  legacy routes and the corresponding tests.
-- Prune the `serve.ts` registrations.
-- Confirm nothing in the bridge / helpers / recipes still hits the
-  legacy paths (the bridge already calls `/mcp`).
-- Update `deploy/memex/docs/API.md` to drop the legacy route docs.
-
----
-
 ## Bridge follow-ups
 
 - **Module refactor.** `deploy/telegram-bridge/main.py` is one ~900-line

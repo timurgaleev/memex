@@ -221,17 +221,16 @@ describe("HTTP server end-to-end with public guard", () => {
     expect(r.status).toBe(403);
   });
 
-  it("internal /index works (no Cf-Connecting-Ip header)", async () => {
-    // Real index would call Bedrock — we stop at routing-level success
-    // by sending malformed body and checking we got past the guard
-    // (i.e. not 401/403 — got the route's own validation error).
+  it("internal /index is gone (A.7) — passes the guard, then 404s", async () => {
+    // The legacy REST /index route was removed in A.7; indexing now flows
+    // through MCP `tools/call name=index`. An internal request (no
+    // Cf-Connecting-Ip) clears the guard but finds no route → 404.
     const r = await fetch(`${url}/index`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ /* missing both shapes */ }),
+      body: JSON.stringify({}),
     });
-    // Route-level validation rejects; guard would return 401/403.
-    expect([400, 500].includes(r.status)).toBe(true);
+    expect(r.status).toBe(404);
   });
 
   it("public MCP tools/list filters out forbidden tools", async () => {
