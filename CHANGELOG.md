@@ -14,6 +14,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `entity_recall` while internal callers keep them, and that
   `MEMEX_PUBLIC_READ_BODIES=1` re-enables bodies. Uses a shared,
   seeded-once PGLite fixture (read-only assertions) so it stays fast.
+- **MCP `search` redaction wiring test** completes the coverage.
+  `tests/mcp_search_redaction.test.ts` stubs `hybridSearch` (no Bedrock,
+  no pgvector) and asserts public ingress strips `content` and any
+  non-allowlisted field from search hits while internal keeps them, plus
+  the `MEMEX_PUBLIC_READ_BODIES=1` opt-in. All five public read tools are
+  now regression-locked.
 
 ### CI
 - **arm64 Bun job per-test timeout raised to 30s** (amd64 gate stays at

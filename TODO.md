@@ -7,19 +7,6 @@ introduces them.
 
 ---
 
-## Cover the MCP `search` redaction wiring
-
-**Priority: P3.** `tests/mcp_redaction.test.ts` exercises the public-ingress
-redaction of `page_get` / `page_list` / `page_versions` / `entity_recall`,
-but not `search`. The shared `redactBodies` allowlist (a different set,
-`PUBLIC_SAFE_FIELDS`) is unit-tested in `internal_auth_and_redaction.test.ts`,
-so the gap is only the MCP-specific wiring at `src/mcp/dispatch.ts:115/211`
-(callSearch applies `redactBodies` when `redact` is true). It's deferred
-because `callSearch` → `hybridSearch` embeds the query via Bedrock, which
-the test suite deliberately avoids. Fix: stub `embedText` (or seed a
-keyword-only path) so an MCP `search` public case can assert hits omit
-`content` / `excerpt` / `snippet`.
-
 ## Operator post-install steps
 
 Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
