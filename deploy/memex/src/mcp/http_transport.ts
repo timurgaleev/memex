@@ -49,6 +49,16 @@ export interface McpHandlerOptions {
 /** Per-request context the server passes to handleMcp. */
 export interface McpRequestContext {
   isPublic: boolean;
+  /**
+   * Whether the caller satisfied the internal-token gate (the server
+   * evaluates `MEMEX_INTERNAL_TOKEN` and passes the result). Only
+   * consulted for write tools on the internal path — read tools and
+   * public traffic are unaffected. Defaults to authorized when omitted
+   * (e.g. older callers / tests) and when the token is unconfigured, so
+   * this is a no-op until the operator sets the token, mirroring the
+   * legacy fallthrough of the HTTP `/index` gate.
+   */
+  internalAuthOk?: boolean;
 }
 
 interface JsonRpcRequest {
@@ -70,6 +80,7 @@ const ERR_INVALID_REQUEST = -32600;
 const ERR_METHOD_NOT_FOUND = -32601;
 const ERR_INTERNAL = -32603;
 const ERR_RATE_LIMITED = -32000; // server-defined band
+const ERR_UNAUTHORIZED = -32001; // server-defined band — internal token
 
 function defaultClientKey(req: Request): string {
   // Trust hierarchy:
@@ -192,6 +203,22 @@ async function handleSingle(
           id,
           ERR_INVALID_REQUEST,
           `tool ${params.name} is not callable from the public ingress`,
+        );
+      }
+      // Internal path: the write tools (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC)
+      // require the shared internal token, closing the kill-chain where a
+      // compromised sibling on the docker bridge calls `tools/call
+      // name=index` to poison the RAG corpus. Read tools are unaffected,
+      // so the bridge's `search` calls keep working with no token.
+      if (
+        !ctx.isPublic &&
+        forbidPublic(params.name) &&
+        ctx.internalAuthOk === false
+      ) {
+        return rpcError(
+          id,
+          ERR_UNAUTHORIZED,
+          `tool ${params.name} requires the internal token`,
         );
       }
       try {

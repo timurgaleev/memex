@@ -181,20 +181,6 @@ their behaviour is reachable via `tools/call` on `/mcp`. Cleanup phase:
   prevent entity-existence enumeration. Documented inline in
   `core/hot_memory.ts` and `core/subagent_ledger.ts` headers.
 
-- **Extend `MEMEX_INTERNAL_TOKEN` enforcement to the MCP write-tools
-  path.** The internal-auth gate hardens POST `/index` and POST
-  `/friction` against a compromised peer on the docker bridge — but
-  a peer can still write via JSON-RPC `tools/call name=index` on
-  POST `/mcp` because the MCP transport doesn't enforce the shared
-  token on internal traffic (`mcp/http_transport.ts` +
-  `mcp/dispatch.ts`). Today the only internal MCP caller is the
-  telegram-bridge, and it only invokes the read-side `search` tool —
-  so trust scope is unchanged from the pre-hardening state. But the
-  kill-chain ("compromised sibling → `tools/call name=index` →
-  poison RAG corpus → exfil via next `/ask`") is still reachable
-  end-to-end. Fix scope: gate the MCP handler the same way HTTP
-  `/index` is gated.
-
 ---
 
 ## Revival projects

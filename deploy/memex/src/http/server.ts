@@ -376,7 +376,15 @@ export function startServer(opts: ServerOptions): ServerHandle {
         return handleJobsLogs(opts.storage, req, guard.isPublic);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
-        return mcpHandler(req, { isPublic: guard.isPublic });
+        // Evaluate the internal-token gate once per request; the handler
+        // enforces it only for write tools on the internal path (read
+        // tools and public traffic ignore it). `allow` is true when the
+        // token is unconfigured (legacy fallthrough) or correctly sent.
+        const ia = evaluateInternalAuth(req, internalAuthOpts);
+        return mcpHandler(req, {
+          isPublic: guard.isPublic,
+          internalAuthOk: ia.allow,
+        });
       }
       return new Response("Not Found", { status: 404 });
     },

@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.3] — 2026-05-31
+
+### Security
+- **`MEMEX_INTERNAL_TOKEN` now gates MCP write tools too.** The HTTP
+  `/index` route already required the shared internal token, but the MCP
+  JSON-RPC surface (`POST /mcp`) did not — a compromised sibling on the
+  docker bridge could call `tools/call name=index` (or any write tool)
+  with no token and poison the RAG corpus. Write tools
+  (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`) now require the token on the
+  internal path; read tools (the bridge's `search`) and the public
+  ingress are unaffected. No-op until the operator configures the token
+  (legacy fallthrough, matching the HTTP gate). **Takes effect on the
+  next EC2 deploy.**
+
 ## [1.2.2] — 2026-05-31
 
 ### Security
