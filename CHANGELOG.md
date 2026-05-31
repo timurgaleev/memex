@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.7] — 2026-05-31
+
+### Removed
+- **Terraform: dropped the `home_assistant_token` and `google_calendar`
+  Secrets Manager resources** (and their `secret_arns` outputs) — the
+  follow-up to the v1.2.6 life-integration teardown. The IAM read policy
+  is prefix-scoped (`<secrets_prefix>/*`), so no IAM change was needed.
+  The corresponding live secrets (`<prefix>/home-assistant-token`,
+  `<prefix>/google-calendar`, plus the manually-created
+  `<prefix>/gmail-oauth`) are deleted out-of-band; operators running
+  `terraform apply` from an existing state should let the apply reconcile
+  the two managed resources (or `terraform state rm` them).
+
 ## [1.2.6] — 2026-05-31
 
 ### Removed

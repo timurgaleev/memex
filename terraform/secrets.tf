@@ -9,21 +9,9 @@ resource "aws_secretsmanager_secret" "telegram_bot_token" {
   recovery_window_in_days = 0 # Allow immediate deletion for personal use
 }
 
-resource "aws_secretsmanager_secret" "home_assistant_token" {
-  name                    = "${var.secrets_prefix}/home-assistant-token"
-  description             = "Home Assistant long-lived access token"
-  recovery_window_in_days = 0
-}
-
 resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
   name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
   description             = "Cloudflare Tunnel token for the chat-UI subdomain"
-  recovery_window_in_days = 0
-}
-
-resource "aws_secretsmanager_secret" "google_calendar" {
-  name                    = "${var.secrets_prefix}/google-calendar"
-  description             = "Google Calendar OAuth2 credentials (JSON: {client_id, client_secret, refresh_token})"
   recovery_window_in_days = 0
 }
 
