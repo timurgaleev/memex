@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.3.0] — 2026-05-31
+## [1.2.1] — 2026-05-31
 
 ### Tests
 - **MCP-ingress redaction regression test** locks the v1.2.0 vault-exfil
