@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.5] — 2026-05-31
+
+### Changed
+- **telegram-bridge hot-reloads the memex bearer.** The bridge used to
+  read `/run/secrets/memex-public-bearer.txt` once at startup, so the
+  daily rotation left a brief window (between memex's restart and the
+  bridge's) where in-flight calls 401'd. The serve loop now re-reads the
+  bearer every 60s and swaps it in when it changes — non-fatal on a
+  transient empty/missing file mid-rotation (keeps the current value and
+  retries). No restart required to pick up a rotated bearer.
+
 ## [1.2.4] — 2026-05-31
 
 ### Removed

@@ -94,13 +94,6 @@ future release.
   file. A future split into `handlers.py` / `memex_client.py` /
   `bedrock_client.py` / `help_text.py` would improve clarity. Tests
   already pass; this is pure organisation.
-- **Hot bearer refresh.** Today the bridge reads
-  `/run/secrets/memex-public-bearer.txt` once at startup. The daily
-  rotation timer restarts the bridge so it picks up the new value,
-  but a sub-second window exists between memex's restart and the
-  bridge's restart where in-flight calls 401. Self-heals on the next
-  request. A future addition could re-read the bearer on a
-  short-interval timer (e.g. every 60s) to close the window.
 - **Bearer file owner instead of mode 0444.** The bridge container
   runs as uid 10001 inside `.secrets/` (mode 0711). Switching from
   world-readable file (`0444`) to owner-readable (`0400` + chown to

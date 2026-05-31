@@ -71,6 +71,13 @@ TELEGRAM_MAX_LEN = 4000
 # SIGTERM during shutdown doesn't wait forever for the next event.
 LONG_POLL_TIMEOUT_S = 25
 
+# How often the serve loop re-reads the memex public-bearer file. The
+# daily rotation restarts the bridge so the bearer reloads anyway, but a
+# sub-second window exists between memex's restart (new bearer) and the
+# bridge's restart where in-flight calls 401. Re-reading on this cadence
+# closes that window without a restart.
+BEARER_REFRESH_INTERVAL_S = 60.0
+
 # 409 Conflict from Telegram means another consumer holds the
 # `getUpdates` connection (e.g. a stray instance of this container
 # still long-polling). Back off with capped exponential delay so a
@@ -160,6 +167,31 @@ def _read_token(path: Path) -> str:
     if not raw:
         raise SystemExit(f"FATAL: bot token file at {path} is empty")
     return raw
+
+
+def _maybe_refresh_bearer(cfg: "BridgeConfig", last_refresh: float) -> float:
+    """Re-read the memex bearer file if the refresh interval elapsed.
+
+    Non-fatal by design: a transient read error or an empty file (the
+    rotation script briefly truncates/replaces it) keeps the current
+    bearer and is retried next cycle — unlike `_read_token`, which fails
+    fast at startup. Returns the (possibly updated) last-refresh stamp.
+    """
+    now = time.monotonic()
+    if now - last_refresh < BEARER_REFRESH_INTERVAL_S:
+        return last_refresh
+    try:
+        raw = cfg.bearer_file.read_text().strip()
+    except OSError as e:  # noqa: BLE001 — transient FS race during rotation
+        LOG.warning("bearer refresh: read failed (%s) — keeping current", e)
+        return now
+    if not raw:
+        LOG.warning("bearer refresh: file empty — keeping current")
+        return now
+    if raw != cfg.memex_bearer:
+        cfg.memex_bearer = raw
+        LOG.info("bearer refresh: picked up rotated memex bearer")
+    return now
 
 
 def _truncate(text: str, limit: int = TELEGRAM_MAX_LEN) -> str:
@@ -871,7 +903,11 @@ def serve(cfg: BridgeConfig) -> None:
     )
 
     conflict_delay = CONFLICT_BACKOFF_INITIAL_S
+    last_bearer_refresh = time.monotonic()
     while _running:
+        # Hot-reload the bearer so a rotation between memex's restart and
+        # ours doesn't leave us 401ing until the next container restart.
+        last_bearer_refresh = _maybe_refresh_bearer(cfg, last_bearer_refresh)
         try:
             updates = client.get_updates(offset, LONG_POLL_TIMEOUT_S)
             conflict_delay = CONFLICT_BACKOFF_INITIAL_S
