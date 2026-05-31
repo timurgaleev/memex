@@ -17,6 +17,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   transient empty/missing file mid-rotation (keeps the current value and
   retries). No restart required to pick up a rotated bearer.
 
+### Fixed
+- **`fetch-secrets.sh` writes string secrets atomically** (temp file +
+  `mv` rename) instead of an in-place `>` truncate-then-write. Closes the
+  partial-write window the bearer hot-reload would otherwise expose: a
+  reader now always sees a complete old-or-new file, never a truncated
+  one mid-rotation.
+
 ## [1.2.4] — 2026-05-31
 
 ### Removed

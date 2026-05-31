@@ -50,8 +50,14 @@ sm_text() {
 
 fetch_text() {
   local name="$1" out="$2" mode="${3:-0400}"
-  sm_text "$name" > "${SECRETS_DIR}/${out}"
-  chmod "$mode" "${SECRETS_DIR}/${out}"
+  # Write to a temp file in the same dir, then atomically rename into
+  # place. A concurrent reader (e.g. the telegram-bridge hot-reloading
+  # the public bearer) then always sees a complete old-or-new file —
+  # never a truncated/empty one mid-rotation.
+  local dest="${SECRETS_DIR}/${out}" tmp="${SECRETS_DIR}/.${out}.tmp.$$"
+  sm_text "$name" > "$tmp"
+  chmod "$mode" "$tmp"
+  mv -f "$tmp" "$dest"
 }
 
 # Plain string secrets. telegram-bot-token + memex-public-bearer are mode

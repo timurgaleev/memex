@@ -113,3 +113,16 @@ def test_fetch_text_accepts_per_file_mode_arg() -> None:
     assert 'mode="${3:-0400}"' in text, (
         "fetch_text() must accept an optional mode arg defaulting to 0400"
     )
+
+
+def test_fetch_text_writes_atomically() -> None:
+    """fetch_text must stage to a temp file and `mv` into place so a
+    concurrent reader (the bridge hot-reloading the public bearer) never
+    sees a truncated/empty file mid-rotation."""
+    text = _read()
+    assert re.search(r'sm_text "\$name" > "\$tmp"', text), (
+        "fetch_text() must write the secret to a temp file first"
+    )
+    assert re.search(r'mv -f "\$tmp" "\$dest"', text), (
+        "fetch_text() must atomically `mv -f` the temp file into place"
+    )
