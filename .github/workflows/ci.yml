@@ -103,8 +103,19 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-latest
+            # Default bun per-test timeout (5s) — amd64 is the gate, so
+            # keep it tight to catch genuine perf regressions.
+            test_timeout_ms: 5000
           - arch: arm64
             runner: ubuntu-24.04-arm
+            # Free arm64 runners are 3-4x slower; PGLite cold-init +
+            # Bun.serve startup intermittently push individual tests past
+            # the 5s default. Raise the per-test budget for this canary
+            # leg so a slow runner is not misread as a logic failure.
+            # NOTE: 30s is a slow-runner allowance, NOT a latency target —
+            # arm64 is continue-on-error, so do not read its green as a
+            # perf signal.
+            test_timeout_ms: 30000
     defaults:
       run:
         working-directory: deploy/memex
@@ -119,4 +130,6 @@ jobs:
         # Run the full memex suite — includes the path_guard / body_limit
         # / concurrency / rate_limit_eviction tests added this round
         # plus the pre-existing chunker / search / migrate suites.
-        run: bun test
+        # Per-test timeout is arch-specific (see matrix): tight on the
+        # amd64 gate, relaxed on the slow arm64 canary.
+        run: bun test --timeout ${{ matrix.test_timeout_ms }}
