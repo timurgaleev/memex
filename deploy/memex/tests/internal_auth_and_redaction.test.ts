@@ -18,7 +18,11 @@ import {
   evaluateInternalAuth,
   PUBLIC_GUARD_INTERNALS,
 } from "../src/http/public_guard.ts";
-import { redactBodies } from "../src/core/public_redaction.ts";
+import {
+  redactBodies,
+  redactFacts,
+  redactTimeline,
+} from "../src/core/public_redaction.ts";
 
 const INT_TOKEN = "internal-shared-token-abcdef";
 
@@ -137,6 +141,103 @@ describe("redactBodies — allowlist-based public search filtering", () => {
 
   it("handles empty hit lists", () => {
     expect(redactBodies([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactFacts — public allowlist for entity-fact rows (strip `fact` text)
+// ---------------------------------------------------------------------------
+
+describe("redactFacts — allowlist-based public fact filtering", () => {
+  const row = {
+    id: 7,
+    entity_slug: "acme-corp",
+    fact: "Q3 revenue was 4.2M",
+    confidence: 0.9,
+    source_slug: "notes/acme",
+    source_chunk_id: "chunk-1",
+    written_by: "recipe",
+    written_at: "2026-01-01T00:00:00Z",
+  };
+
+  it("strips the free-text `fact` field", () => {
+    const out = redactFacts([row]);
+    expect(out[0]).not.toHaveProperty("fact");
+  });
+
+  it("preserves the allowlisted metadata shape", () => {
+    const out = redactFacts([row]);
+    expect(out[0]).toEqual({
+      id: 7,
+      entity_slug: "acme-corp",
+      confidence: 0.9,
+      source_slug: "notes/acme",
+      source_chunk_id: "chunk-1",
+      written_by: "recipe",
+      written_at: "2026-01-01T00:00:00Z",
+    });
+  });
+
+  it("strips ANY future body-ish field by default (allowlist semantics)", () => {
+    const out = redactFacts([
+      { ...row, raw_statement: "future secret", embedding: [0.1] } as Record<
+        string,
+        unknown
+      >,
+    ]);
+    expect(out[0]).not.toHaveProperty("raw_statement");
+    expect(out[0]).not.toHaveProperty("embedding");
+  });
+
+  it("does not mutate the input array", () => {
+    const hits = [{ ...row }];
+    redactFacts(hits);
+    expect(hits[0]).toHaveProperty("fact");
+  });
+
+  it("handles empty lists", () => {
+    expect(redactFacts([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// redactTimeline — public allowlist for timeline rows (strip `event` text)
+// ---------------------------------------------------------------------------
+
+describe("redactTimeline — allowlist-based public timeline filtering", () => {
+  const row = {
+    id: 3,
+    slug: "acme-corp",
+    occurred_at: "2026-02-01T00:00:00Z",
+    event: "signed a confidential 4.2M contract",
+    source_chunk_id: "chunk-2",
+    written_at: "2026-02-02T00:00:00Z",
+  };
+
+  it("strips the free-text `event` field", () => {
+    const out = redactTimeline([row]);
+    expect(out[0]).not.toHaveProperty("event");
+  });
+
+  it("preserves the allowlisted metadata shape", () => {
+    const out = redactTimeline([row]);
+    expect(out[0]).toEqual({
+      id: 3,
+      slug: "acme-corp",
+      occurred_at: "2026-02-01T00:00:00Z",
+      source_chunk_id: "chunk-2",
+      written_at: "2026-02-02T00:00:00Z",
+    });
+  });
+
+  it("does not mutate the input array", () => {
+    const hits = [{ ...row }];
+    redactTimeline(hits);
+    expect(hits[0]).toHaveProperty("event");
+  });
+
+  it("handles empty lists", () => {
+    expect(redactTimeline([])).toEqual([]);
   });
 });
 

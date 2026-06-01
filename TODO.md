@@ -67,6 +67,37 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Public-ingress read redaction: extend the allowlist to `jobs_*`
+  reads (and re-check `graph_*`).** The 2026-06-01 `/cso` audit fixed
+  the primary gap — `entity_facts` / `entity_timeline` / `entity_recall`
+  now strip `fact` / `event` text on public ingress (see CHANGELOG /
+  `core/public_redaction.ts`). Residual, below the daily gate:
+  `jobs_get` / `jobs_list` return the full job row including `payload`
+  (index-job payloads carry absolute vault file paths) and `last_error`
+  (may embed paths/snippets) to any public-bearer holder. `jobs_logs`
+  is already curated but still surfaces `last_error`. Fix per the
+  established pattern (line ~108): drop `payload` / `last_error` at the
+  SQL/serializer layer on public ingress, or add the `jobs_*` reads to
+  a public-forbidden-READ set distinct from the write allowlist.
+  `graph_neighbors` / `graph_query` return slug-to-slug edges + type;
+  edge metadata is within the existing "slug is safe" envelope (page
+  redaction already exposes `slug`), so lower priority — but the edge
+  `type` can leak relationship semantics between known entities;
+  decide explicitly whether that stays public.
+
+- **CI: SHA-pin the third-party `oven-sh/setup-bun@v2` action.**
+  Mutable tag → supply-chain risk if the tag is moved. Heavily
+  mitigated today (`permissions: contents: read`, no secrets in the
+  workflow, push/PR triggers only — not `pull_request_target`), so
+  blast radius is a read-only token + test-result tampering. Pin to a
+  commit SHA like `hashicorp/setup-terraform` already is. `actions/*`
+  (checkout, setup-python) are first-party, lower priority.
+
+- **terraform: drop stale Gmail egress rules (993 IMAP / 587 SMTP).**
+  Egress-only, no inbound exposure → pure least-privilege hygiene, not
+  a vulnerability. The IMAP/SMTP integrations were removed (memex is
+  MCP-only) but `terraform/ec2.tf` still allows those egress ports.
+
 - **Jobs DAG: align FK delete behaviour between `jobs.parent_job_id`
   and the `job_children` / `child_done_inbox` tables.** Today
   `parent_job_id REFERENCES jobs(id) ON DELETE SET NULL` keeps the

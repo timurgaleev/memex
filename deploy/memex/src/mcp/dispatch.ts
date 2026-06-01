@@ -66,6 +66,8 @@ import {
 import {
   redactBodies,
   redactBody,
+  redactFacts,
+  redactTimeline,
   publicReadBodiesAllowed,
 } from "../core/public_redaction.ts";
 
@@ -146,9 +148,9 @@ export async function dispatchTool(
       case "add_timeline_event":
         return await callAddTimelineEvent(storage, args);
       case "entity_facts":
-        return await callEntityFacts(storage, args);
+        return await callEntityFacts(storage, args, redact);
       case "entity_timeline":
-        return await callEntityTimeline(storage, args);
+        return await callEntityTimeline(storage, args, redact);
       case "entity_recall":
         return await callEntityRecall(storage, args, redact);
       case "jobs_submit":
@@ -605,6 +607,7 @@ async function callAddTimelineEvent(
 async function callEntityFacts(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string")
     return errResult("entity_facts: `entity_slug` is required");
@@ -616,12 +619,18 @@ async function callEntityFacts(
     opts.order = args["order"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   const facts = await listFacts(storage, args["entity_slug"], opts);
-  return jsonResult({ ok: true, entity_slug: args["entity_slug"], facts });
+  // Public ingress: `fact` is note-derived private content — strip it,
+  // mirroring the search/page body redaction policy.
+  const out = redact
+    ? redactFacts(facts as unknown as Record<string, unknown>[])
+    : facts;
+  return jsonResult({ ok: true, entity_slug: args["entity_slug"], facts: out });
 }
 
 async function callEntityTimeline(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("entity_timeline: `slug` is required");
@@ -630,7 +639,11 @@ async function callEntityTimeline(
   if (typeof args["until"] === "string") opts.until = args["until"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   const timeline = await getEntityTimeline(storage, args["slug"], opts);
-  return jsonResult({ ok: true, slug: args["slug"], timeline });
+  // Public ingress: `event` is note-derived private content — strip it.
+  const out = redact
+    ? redactTimeline(timeline as unknown as Record<string, unknown>[])
+    : timeline;
+  return jsonResult({ ok: true, slug: args["slug"], timeline: out });
 }
 
 async function callEntityRecall(
@@ -652,6 +665,19 @@ async function callEntityRecall(
     opts.redact_body = args["redact_body"];
   else if (redact) opts.redact_body = true;
   const r = await entityRecall(storage, args["slug"], opts);
+  // `redact_body` only strips the page body; the facts + timeline arrays
+  // carry note-derived `fact`/`event` text and must be redacted on public
+  // ingress too (mirrors callEntityFacts / callEntityTimeline).
+  if (redact) {
+    return jsonResult({
+      ...r,
+      ok: true,
+      facts: redactFacts(r.facts as unknown as Record<string, unknown>[]),
+      timeline: redactTimeline(
+        r.timeline as unknown as Record<string, unknown>[],
+      ),
+    });
+  }
   return jsonResult({ ok: true, ...r });
 }
 

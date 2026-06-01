@@ -28,9 +28,13 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { dispatchTool, type ToolCallResult } from "../src/mcp/dispatch.ts";
 import { putPage } from "../src/core/pages.ts";
+import { addFact } from "../src/core/facts.ts";
+import { addTimelineEvent } from "../src/core/timeline.ts";
 
 const SLUG = "acme-corp";
 const SECRET_BODY = "Confidential: Q3 revenue was 4.2M and churn hit 12%.";
+const SECRET_FACT = "Acme's undisclosed acquisition target is Globex.";
+const SECRET_EVENT = "Signed the confidential Globex term sheet for 9.1M.";
 
 let tmp: string;
 let storage: Storage;
@@ -48,6 +52,12 @@ beforeAll(async () => {
     title: "Acme Corp",
     markdown_body: SECRET_BODY,
     compiled_truth: { sector: "widgets" },
+  });
+  await addFact(storage, { entity_slug: SLUG, fact: SECRET_FACT });
+  await addTimelineEvent(storage, {
+    slug: SLUG,
+    occurred_at: "2026-02-01T00:00:00Z",
+    event: SECRET_EVENT,
   });
 });
 
@@ -197,6 +207,97 @@ describe("dispatchTool entity_recall redaction", () => {
       }),
     );
     expect(out.page.markdown_body).toBe(SECRET_BODY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// entity_facts / entity_timeline — fact + event text are body-equivalent and
+// must be stripped on public ingress (same leak class as note bodies).
+// ---------------------------------------------------------------------------
+
+describe("dispatchTool entity_facts redaction", () => {
+  it("public ingress omits the free-text `fact`", async () => {
+    const res = await dispatchTool(
+      storage,
+      { name: "entity_facts", arguments: { entity_slug: SLUG } },
+      { isPublic: true },
+    );
+    const out = payload(res);
+    expect(out.facts.length).toBeGreaterThan(0);
+    for (const f of out.facts) expect(f).not.toHaveProperty("fact");
+    expect(res.content[0]!.text).not.toContain(SECRET_FACT);
+  });
+
+  it("public ingress preserves allowlisted metadata", async () => {
+    const out = payload(
+      await dispatchTool(
+        storage,
+        { name: "entity_facts", arguments: { entity_slug: SLUG } },
+        { isPublic: true },
+      ),
+    );
+    expect(out.facts[0]).toHaveProperty("confidence");
+    expect(out.facts[0]).toHaveProperty("written_at");
+  });
+
+  it("internal ingress keeps the full fact text", async () => {
+    const out = payload(
+      await dispatchTool(storage, {
+        name: "entity_facts",
+        arguments: { entity_slug: SLUG },
+      }),
+    );
+    expect(out.facts.some((f: any) => f.fact === SECRET_FACT)).toBe(true);
+  });
+});
+
+describe("dispatchTool entity_timeline redaction", () => {
+  it("public ingress omits the free-text `event`", async () => {
+    const res = await dispatchTool(
+      storage,
+      { name: "entity_timeline", arguments: { slug: SLUG } },
+      { isPublic: true },
+    );
+    const out = payload(res);
+    expect(out.timeline.length).toBeGreaterThan(0);
+    for (const e of out.timeline) expect(e).not.toHaveProperty("event");
+    expect(res.content[0]!.text).not.toContain(SECRET_EVENT);
+  });
+
+  it("internal ingress keeps the full event text", async () => {
+    const out = payload(
+      await dispatchTool(storage, {
+        name: "entity_timeline",
+        arguments: { slug: SLUG },
+      }),
+    );
+    expect(out.timeline.some((e: any) => e.event === SECRET_EVENT)).toBe(true);
+  });
+});
+
+describe("dispatchTool entity_recall facts/timeline redaction", () => {
+  it("public ingress strips fact + event text from the recall arrays", async () => {
+    const res = await dispatchTool(
+      storage,
+      { name: "entity_recall", arguments: { slug: SLUG } },
+      { isPublic: true },
+    );
+    const out = payload(res);
+    for (const f of out.facts) expect(f).not.toHaveProperty("fact");
+    for (const e of out.timeline) expect(e).not.toHaveProperty("event");
+    expect(res.content[0]!.text).not.toContain(SECRET_FACT);
+    expect(res.content[0]!.text).not.toContain(SECRET_EVENT);
+  });
+
+  it("internal ingress keeps fact + event text", async () => {
+    const out = payload(
+      await dispatchTool(storage, {
+        name: "entity_recall",
+        arguments: { slug: SLUG },
+      }),
+    );
+    expect(out.facts.some((f: any) => f.fact === SECRET_FACT)).toBe(true);
+    expect(out.timeline.some((e: any) => e.event === SECRET_EVENT)).toBe(true);
   });
 });
 

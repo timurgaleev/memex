@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Public-ingress redaction now covers entity facts + timeline.** A
+  `/cso` audit found the public MCP read path stripped note bodies from
+  `search` / `page_get` / `page_list` / `page_versions` and
+  `entity_recall`'s page body, but **not** the free-text `fact` and
+  `event` strings returned by `entity_facts`, `entity_timeline`, and
+  `entity_recall`'s `facts[]` / `timeline[]` arrays — note-derived
+  private content reachable by any public-bearer holder, the same leak
+  class as the pre-v1.2.0 vault exposure. Added `redactFacts` /
+  `redactTimeline` allowlists in `core/public_redaction.ts` (keep
+  id/slug/confidence/source/timestamps, drop the `fact`/`event` text)
+  and threaded the `redact` flag through the three entity read tools in
+  `mcp/dispatch.ts`. Internal ingress and the `MEMEX_PUBLIC_READ_BODIES=1`
+  opt-in are unchanged. Regression tests assert the secret text is
+  absent anywhere in a public payload (leak-shaped, rename-proof) and
+  present on the internal path. Residual `jobs_*` / `graph_*` public
+  read exposure tracked in `TODO.md`.
+
 ## [1.2.8] — 2026-05-31
 
 ### Removed

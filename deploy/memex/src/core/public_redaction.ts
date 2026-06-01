@@ -60,3 +60,51 @@ export function redactBody<T extends Record<string, unknown>>(row: T): T {
   }
   return out as T;
 }
+
+// Entity-fact row fields safe to return on public ingress. The free-text
+// `fact` is note-derived private content — body-equivalent — and is omitted.
+const PUBLIC_SAFE_FACT_FIELDS = new Set([
+  "id",
+  "entity_slug",
+  "confidence",
+  "source_slug",
+  "source_chunk_id",
+  "written_by",
+  "written_at",
+]);
+
+/** Strip the `fact` text (and any non-allowlisted field) from fact rows. */
+export function redactFacts<T extends Record<string, unknown>>(
+  rows: readonly T[],
+): T[] {
+  return rows.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(r)) {
+      if (PUBLIC_SAFE_FACT_FIELDS.has(k)) out[k] = r[k];
+    }
+    return out as T;
+  });
+}
+
+// Timeline-event row fields safe to return on public ingress. The free-text
+// `event` is note-derived private content — body-equivalent — and is omitted.
+const PUBLIC_SAFE_TIMELINE_FIELDS = new Set([
+  "id",
+  "slug",
+  "occurred_at",
+  "source_chunk_id",
+  "written_at",
+]);
+
+/** Strip the `event` text (and any non-allowlisted field) from event rows. */
+export function redactTimeline<T extends Record<string, unknown>>(
+  rows: readonly T[],
+): T[] {
+  return rows.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(r)) {
+      if (PUBLIC_SAFE_TIMELINE_FIELDS.has(k)) out[k] = r[k];
+    }
+    return out as T;
+  });
+}
