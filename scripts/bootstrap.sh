@@ -100,13 +100,6 @@ for d in vault memex workspace skills credentials .obsidian-headless-config; do
 done
 chown 1000:1000 "$EFS_DATA" "${SEEDED[@]}" 2>/dev/null || true
 
-# telegram-bridge state directory — owned by the bridge container's
-# non-root user (uid 10001). Created separately because the bridge's
-# uid differs from the rest of the stack (which runs as uid 1000).
-TG_BRIDGE_DIR="${EFS_DATA}/telegram-bridge"
-mkdir -p "$TG_BRIDGE_DIR"
-chown 10001:10001 "$TG_BRIDGE_DIR" 2>/dev/null || true
-
 # ---------------------------------------------------------------------------
 # 4. Clone or update the repo. HTTPS by default (public); SSH only when
 #    STACK_USE_SSH_DEPLOY_KEY=true (SSH deploy-key flow).

@@ -20,7 +20,7 @@ pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 # Standard valid answer set, one prompt per line, in the order init.sh asks:
 #   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, DOMAIN, SUBDOMAIN, MEMEX_SUBDOMAIN,
 #   GITHUB_OWNER, REPO_NAME, SECRETS_PREFIX, TFSTATE_BUCKET, TFSTATE_REGION,
-#   ALARM_EMAIL, SSH_ALLOWED_CIDR, TELEGRAM_BOT_HANDLE, USE_SSH_DEPLOY_KEY
+#   ALARM_EMAIL, SSH_ALLOWED_CIDR, USE_SSH_DEPLOY_KEY
 valid_answers() {
   cat <<'EOF'
 123456789012
@@ -34,7 +34,6 @@ test-stack
 stack
 my-tfstate-bucket
 eu-central-1
-
 
 
 false
@@ -181,8 +180,7 @@ fi
 # T11. Optional fields accept empty strings.
 if [ -f "$t10/.env" ] \
    && grep -q '^ALARM_EMAIL=$' "$t10/.env" \
-   && grep -q '^SSH_ALLOWED_CIDR=$' "$t10/.env" \
-   && grep -q '^TELEGRAM_BOT_HANDLE=$' "$t10/.env"; then
+   && grep -q '^SSH_ALLOWED_CIDR=$' "$t10/.env"; then
   pass "T11 optional fields stay empty"
 else
   die "T11 optional fields wrong: $(cat "$t10/.env" 2>/dev/null)"

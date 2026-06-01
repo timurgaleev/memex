@@ -29,8 +29,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   cloudflared + `memex-public-bearer` + daily rotation are kept — that is
   the brain's authenticated public MCP ingress. The live
-  `telegram-bot-token` secret is deleted out-of-band. (Follow-up:
-  bootstrap/init `.env` telegram knobs + remaining doc references.)
+  `telegram-bot-token` secret is deleted out-of-band.
+- **Telegram swept from bootstrap/init + all docs.** Dropped the
+  `TELEGRAM_BOT_HANDLE` prompt/.env knob (`init.sh`) and the
+  telegram-bridge EFS-dir seed (`bootstrap.sh`); rewrote README,
+  ARCHITECTURE, AGENTS, llms.txt, SECURITY, CLAUDE, and all
+  `deploy/memex/docs/*` + secrets/README to the MCP-only brain
+  (answer synthesis is the MCP client's job, not memex's). Adjusted
+  the init/bootstrap/compose/dockerfile/fetch-secrets/rotate test
+  suites accordingly.
 
 ## [1.2.7] — 2026-05-31
 

@@ -130,13 +130,6 @@ valid_cidr_or_empty() {
   return 1
 }
 
-valid_bot_handle_or_empty() {
-  local v="$1"
-  [ -z "$v" ] && return 0
-  if [[ "$v" =~ ^@[A-Za-z0-9_]{4,32}$ ]]; then return 0; fi
-  echo "  invalid: Telegram handle must start with @ and be 4-32 chars or empty"
-  return 1
-}
 
 valid_bool() {
   local v="$1"
@@ -173,7 +166,6 @@ prompt TFSTATE_BUCKET    "S3 bucket for terraform state"          ""            
 prompt TFSTATE_REGION    "S3 region of the tfstate bucket"        "eu-central-1" valid_nonempty
 prompt ALARM_EMAIL       "CloudWatch alarm email (optional)"      ""             valid_email_or_empty
 prompt SSH_ALLOWED_CIDR  "SSH allowed CIDR (optional, e.g. 1.2.3.4/32)" ""       valid_cidr_or_empty
-prompt TELEGRAM_BOT_HANDLE "Telegram bot handle (optional, @yourbot)"   ""        valid_bot_handle_or_empty
 prompt USE_SSH_DEPLOY_KEY  "Use SSH deploy key (true/false; false for public repo)" "false" valid_bool
 
 REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
@@ -219,7 +211,6 @@ TFSTATE_BUCKET=${TFSTATE_BUCKET}
 
 ALARM_EMAIL=${ALARM_EMAIL}
 SSH_ALLOWED_CIDR=${SSH_ALLOWED_CIDR}
-TELEGRAM_BOT_HANDLE=${TELEGRAM_BOT_HANDLE}
 
 USE_SSH_DEPLOY_KEY=${USE_SSH_DEPLOY_KEY}
 
