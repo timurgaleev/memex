@@ -16,7 +16,7 @@
                             │
                           memex  (GET /health · POST /mcp)
                             │
-                  Bedrock Haiku 4.5 (synthesis) + Titan v2 (embeddings)
+                  Bedrock Titan v2 (embeddings) + Nova Lite (intent)
                             │
                   RDS Postgres + pgvector
                             │
@@ -33,7 +33,7 @@ external message broker — the whole runtime fits in `t4g.medium`.
 
 | Container | Image | Owns |
 |---|---|---|
-| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle. Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Synthesises answers via Bedrock Claude Haiku 4.5 + embeds via Titan v2. |
+| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle. Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Nova Lite (intent/expansion). Answer synthesis is the MCP client's job. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel). The dashboard routes `brain.<domain>/mcp` to memex on the internal docker bridge. |
 
 Inter-container ports are not exposed to the host. `cloudflared`
@@ -68,7 +68,7 @@ MCP client (Claude Code / Cursor / Codex)
 https://brain.<domain>/mcp   →  cloudflared  →  memex:18790  POST /mcp
       │
       └─ tools/call { name: "search", arguments: { q, k } }  → hybrid retrieval
-         (memex synthesises grounded answers via Bedrock Claude Haiku 4.5)
+         (memex returns cited chunks; the MCP client composes the answer)
 ```
 
 Hard guarantees:
@@ -176,9 +176,9 @@ The boot flow (cold start from a new instance):
 - **Cloudflare Tunnel, no public ports.** The EC2 SG opens nothing
   inbound. cloudflared dials out on tcp/7844 only. SSH is opt-in via
   `ssh_allowed_cidr`; SSM Session Manager is the default access path.
-- **Bedrock for inference.** Haiku 4.5 composes grounded answers from
-  retrieved chunks; Titan v2 supplies embeddings; the stack costs
-  ~$25-30/mo even with daily heavy use.
+- **Bedrock for inference.** Titan v2 supplies embeddings; Nova Lite
+  drives intent classification + query expansion; answer synthesis is
+  the MCP client's job. The stack costs ~$25-30/mo even with daily use.
 - **MCP only, no agent framework.** memex speaks plain MCP JSON-RPC and
   nothing else — no chat surface, no bot, no bespoke API. One contract.
 - **Solo-deploy.** No multi-tenancy. The "stack" is one user's brain on

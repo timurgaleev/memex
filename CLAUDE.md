@@ -55,25 +55,19 @@ lost disk data is high.
 ## Conventions
 
 ### AWS model selection
-- The chat-side model is configured on the `telegram-bridge` container
-  via `MEMEX_BRIDGE_LLM_MODEL` (default
-  `eu.anthropic.claude-haiku-4-5-20251001-v1:0`), invoked through the
-  Bedrock Converse API for RAG synthesis. `MEMEX_BRIDGE_LLM_DISABLE=1`
-  falls back to retrieval-only replies with no Bedrock call.
-- Cost note: the default Claude Haiku 4.5 is an Anthropic model and is
-  NOT credit-eligible — it costs real money. For credit-eligible
-  operation, point `MEMEX_BRIDGE_LLM_MODEL` at an Amazon Nova model
-  (e.g. Nova Lite).
+- memex uses Bedrock for embeddings (Amazon Titan Text Embeddings v2)
+  and the Nova Lite calls behind intent classification / query
+  expansion / friction-propose. Answer *synthesis* is the MCP client's
+  job (Claude Code etc.) — memex is a retrieval brain, not a chat agent.
 - `var.bedrock_model_id` surfaces a configured default in
-  `terraform output bedrock_model` but does NOT yet drive the bridge —
-  keep them aligned manually until they're wired through.
-- Switching to a new model family also requires widening the Bedrock
-  invoke permissions in `terraform/iam.tf` (region- and model-scoped).
+  `terraform output bedrock_model`.
+- Switching to a new model family requires widening the Bedrock invoke
+  permissions in `terraform/iam.tf` (region- and model-scoped).
 
 ### Secret naming
 - Every secret is prefixed by `var.secrets_prefix` (default: `memex`,
   override via `scripts/init.sh` for a new install).
-- The pattern is `<prefix>/<name>` — e.g. `memex/telegram-bot-token`.
+- The pattern is `<prefix>/<name>` — e.g. `memex/memex-public-bearer`.
 
 ### Audit gate
 - `make audit` reads `scripts/lib/pii-patterns.txt` and fails on any
@@ -109,7 +103,7 @@ every time.
 4. **Verify on the live host**:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)
    - `/health` endpoints return `ok:true`
-   - For helper changes: `docker exec deploy-telegram-bridge-1 /opt/memex/bin/<helper> <subcommand>` returns real data
+   - For MCP changes: a `tools/call` against `deploy-memex-1` (or `brain.<domain>/mcp` with the bearer) returns real data
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
    - For terraform changes that drift live state: do NOT silently `apply`; show the plan and use targeted-API calls (`aws ec2 modify-...`) when the apply would destroy-and-recreate.
 5. **Release** (for any user-facing version bump):

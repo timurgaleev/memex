@@ -8,7 +8,7 @@
 - TDD where the logic is testable; smoke-test where the network is the test.
 - Containers run on a single EC2; deploy = `git pull && docker compose up -d --build` over SSM.
 - memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
-- The chat path is `telegram-bridge` → memex MCP + Bedrock Haiku 4.5. There is no agent framework in the middle.
+- memex is reached over MCP only (`POST /mcp` via cloudflared). No chat surface, no bot — just MCP clients (Claude Code, Cursor, …).
 
 ## Required workflow — run the skill for every change
 
@@ -27,7 +27,7 @@ features, fixes, refactors, docs, infra — in order:
 2. **Ship workflow.** Follow `CLAUDE.md` → "Ship workflow":
    **test → push → deploy → verify → release**, in that order, every
    time. A change is not shipped until the live EC2 is running it and
-   `/health` + the bridge smoke-test pass; user-facing version bumps
+   `/health` + the MCP smoke-test pass; user-facing version bumps
    end with a SemVer tag + GitHub release (see "Release" below).
 
 Both are non-negotiable and apply even to one-line fixes — the cost of
@@ -51,25 +51,22 @@ The simplest "does my change build" check uses Docker locally (matches the EC2 a
 ```bash
 cd deploy
 docker compose build memex            # ~30s on warm cache
-docker compose build telegram-bridge  # ~25s
 ```
 
 Full local up requires the secrets — they're gitignored and only fetched on the EC2. Don't try to bring up the stack on your laptop; smoke-test on EC2.
 
 ## Deploy
 
-Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait for `telegram-bridge` to report `Up <N> (healthy)` → smoke-test from inside the bridge:
+Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait for `memex` to report `Up <N> (healthy)` → smoke-test the MCP surface from inside the network:
 
 ```bash
-docker exec deploy-telegram-bridge-1 sh -c '
-  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
-  curl -fsS -X POST http://memex:18790/mcp \
-    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
+docker exec deploy-memex-1 sh -c '
+  echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"stats\"}}" \
+    | wget -qO- --post-file=/dev/stdin --header=Content-Type:application/json http://127.0.0.1:18790/mcp
 '
 ```
 
-Then send a real message to the bot in Telegram.
+Then confirm `brain.<domain>/mcp` answers an MCP client (Claude Code).
 
 Never:
 - `terraform taint aws_instance.memex`
@@ -107,7 +104,6 @@ and are not bumped as part of a release.
 | HTTP routes | `Bun.serve` on port 0, real fetch round-trip |
 | MCP transport | `Bun.serve` on port 0 + JSON-RPC client via fetch |
 | Bedrock-touching paths | Mocked at the embedding boundary; smoke-test live separately |
-| Bridge command dispatch | Load `main.py` in-process; mock `search_memex` + helpers via `monkeypatch.setattr` |
 
 ## Env vars worth knowing
 
@@ -122,8 +118,8 @@ MEMEX_DREAM_INTERVAL_S=21600
 MEMEX_DREAM_STALE_DAYS=30
 MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
 BRAIN_PORT=18790
-MEMEX_BRIDGE_ALLOWED_CHAT_IDS=<n> # required for the bridge; comma-separated
-MEMEX_BRIDGE_LLM_MODEL=eu.anthropic.claude-haiku-4-5-20251001-v1:0
+MEMEX_PUBLIC_BEARER=<token>       # validated on public /mcp; rotated daily
+MEMEX_INTERNAL_TOKEN=<token>      # gates MCP write tools on the internal path
 TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
 
@@ -131,9 +127,9 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 
 | Symptom | Likely cause |
 |---|---|
-| Bridge replies "no matches" for everything | Bearer file `/run/secrets/memex-public-bearer.txt` missing or stale; rotation didn't restart the bridge |
-| Bridge healthcheck flaps `starting → unhealthy` | `aws sts get-caller-identity` failing in entrypoint — IAM role not assumable from the container |
-| `MEMEX_BRIDGE_ALLOWED_CHAT_IDS` unset → daemon won't boot | The `:?` interpolation in compose is intentional: better to fail boot than open the bot |
+| Public `/mcp` returns 401 | `MEMEX_PUBLIC_BEARER` missing/stale in `memex.env`; rotation didn't restart memex |
+| memex healthcheck flaps `starting → unhealthy` | PGLite cold-init / RDS unreachable; check `docker logs deploy-memex-1` |
+| MCP write tool returns -32001 on internal path | `MEMEX_INTERNAL_TOKEN` not configured or not sent |
 | Cloudflared retries forever, no traffic | `--protocol http2` not set; SG blocks UDP |
 | memex `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root or correct EFS chown |
 | SSM `ConnectionLost`, healthz down | Likely OOM on too-small instance during sweep |

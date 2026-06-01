@@ -24,8 +24,8 @@ stays in your AWS account.
   and can search across everything you've ever written.
 - **Hybrid retrieval that actually works.** Bedrock Titan embeddings
   for semantic recall, Postgres `tsvector` for keyword precision,
-  Reciprocal Rank Fusion to merge them. Claude Haiku 4.5 composes
-  grounded answers from the retrieved chunks.
+  Reciprocal Rank Fusion to merge them — returned to your MCP client as
+  grounded, cited chunks to compose answers from.
 - **MCP-only surface.** No chat app, no bot, no bespoke API — the brain
   speaks Model Context Protocol and nothing else. One contract, one
   attack surface.
@@ -63,8 +63,9 @@ stays in your AWS account.
                                      |
      memex  (GET /health · POST /mcp — search, recall, graph)
        |
-       |               Bedrock Haiku 4.5  (answer synthesis)
        |               Bedrock Titan v2   (embeddings)
+       |               Bedrock Nova Lite  (intent / expansion)
+       |               (answer synthesis happens in the MCP client)
        |
   RDS Postgres + pgvector
        |

@@ -5,16 +5,14 @@
 
 ## What this repo is
 
-Self-hostable personal AI assistant stack:
+Self-hostable personal knowledge brain, reached over MCP only:
 - **memex** — knowledge brain (Bun + Postgres + pgvector, hybrid
-  search, MCP server; PGLite available as a dev-only fallback)
-- **telegram-bridge** — chat handler (Python 3 stdlib; calls memex
-  via MCP JSON-RPC and Bedrock Claude Haiku 4.5 via Converse for
-  RAG synthesis)
+  search, MCP server; synthesises answers via Bedrock Claude Haiku 4.5;
+  PGLite available as a dev-only fallback)
 - **cloudflared** — public HTTPS ingress for the MCP server
-  (`brain.<domain>/mcp`)
+  (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect
 
-All three run as Docker Compose services on a single `t4g.medium` EC2.
+Both run as Docker Compose services on a single `t4g.medium` EC2.
 
 ## Where to read first
 
@@ -32,7 +30,7 @@ All three run as Docker Compose services on a single `t4g.medium` EC2.
 
 ```
 deploy/
-├── docker-compose.yml           orchestrator (3 services + internal bridge net)
+├── docker-compose.yml           orchestrator (memex + cloudflared + internal net)
 ├── memex/                       knowledge brain
 │   ├── Dockerfile               oven/bun:1.3.13-alpine
 │   ├── package.json             pinned deps incl. yaml + chokidar + AWS SDK Bedrock + postgres
@@ -45,21 +43,11 @@ deploy/
 │   │   │                        reconcile-links, orphans, pages, lint, reports,
 │   │   │                        skillpack
 │   │   ├── http/                two-route HTTP surface (/health + /mcp;
-│   │   │                        legacy /pages/* /graph/* /entities/* /timeline/*
-│   │   │                        /jobs/* /search /index /friction scheduled for
-│   │   │                        removal in Phase A.7)
+│   │   │                        legacy REST routes removed in Phase A.7)
 │   │   ├── mcp/                 JSON-RPC transport, tool dispatch, rate limiter
 │   │   └── core/
 │   │       └── engine/          adapter pattern (interface, pglite, postgres, factory)
 │   └── docs/                    subsystem deep-dive (README, ARCHITECTURE, API, OPERATIONS)
-├── telegram-bridge/             chat handler
-│   ├── Dockerfile               python:3.12-alpine + aws-cli; build context = ./
-│   │                            (so it can COPY helpers/ alongside its own files)
-│   ├── main.py                  single-file daemon (long-poll, allowlist, dispatch)
-│   ├── entrypoint.sh            sanity-checks token + IAM before exec
-│   └── README.md                command surface + design rationale
-├── helpers/                     memex CLI (mounted into the bridge image
-│   └── memex                    at /opt/memex/bin/; thin MCP client)
 ├── cloudflared/                 public ingress sidecar (upstream image, no Dockerfile)
 │   └── docs/
 ├── secrets/                     AWS Secrets Manager fetch
@@ -74,7 +62,7 @@ scripts/
 │   ├── pii-patterns.txt         audit input
 │   └── pii-allowlist.txt        files exempt from audit
 ├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
-└── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex + bridge)
+└── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex)
 
 terraform/
 ├── main.tf                      providers + partial backend

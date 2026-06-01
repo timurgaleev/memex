@@ -53,7 +53,7 @@ way to break the assumed envelope.
 - A maintainer who deploys with default settings exposes a read-only
   MCP server at `brain.<domain>/mcp`. The bearer token gates access;
   daily rotation bounds the blast radius of a leaked token.
-- The Telegram bot is allowlisted by chat id
-  (`MEMEX_BRIDGE_ALLOWED_CHAT_IDS`). Unknown chats receive a single
-  polite refusal and are rate-gated to prevent quota burn from
-  enumeration attacks.
+- Public read tools redact note bodies by default
+  (`MEMEX_PUBLIC_READ_BODIES=1` opts in); write tools are filtered from
+  discovery and rejected from the public surface, and require
+  `MEMEX_INTERNAL_TOKEN` even on the internal path.

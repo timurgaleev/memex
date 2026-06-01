@@ -14,18 +14,14 @@ does NOT hold any secrets in tracked content.
 
 ```
 deploy/.secrets/                # dir mode 0711 (non-root descend-only)
-├── telegram-bot-token.txt    Telegram Bot API token                       0444
-├── memex-public-bearer.txt   bridge → memex MCP bearer                    0444
 ├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...0400
-└── memex.env                 MEMEX_POSTGRES_URL=... + bearer/config        0400
+└── memex.env                 MEMEX_POSTGRES_URL=... + MEMEX_PUBLIC_BEARER + config  0400
 ```
 
-`telegram-bot-token.txt` and `memex-public-bearer.txt` are bind-mounted
-into the `telegram-bridge` container at `/run/secrets:ro`; the bridge
-runs as uid 10001, so those two files are world-readable (`0444`).
-`cloudflared.env` and `memex.env` are consumed via `env_file`. The
-directory is `0711` so a non-root container UID can descend into it
-without the host exposing the full file list.
+`cloudflared.env` and `memex.env` are consumed via `env_file`. memex
+reads `MEMEX_PUBLIC_BEARER` from `memex.env` to validate incoming public
+`/mcp` bearers. The directory is `0711` so a non-root container UID can
+descend into it without the host exposing the full file list.
 
 Re-fetched on every `bootstrap.sh` run; existing files are overwritten.
 
@@ -36,10 +32,9 @@ The default prefix is `<var.secrets_prefix>` (configured in
 
 | Name | Format | Used by |
 |---|---|---|
-| `<prefix>/telegram-bot-token` | string | `telegram-bridge` bot token |
 | `<prefix>/cloudflared-tunnel-token` | string | cloudflared |
 | `<prefix>/memex-postgres-url` | string (URL) | memex |
-| `<prefix>/memex-public-bearer` | string | memex HTTP server + bridge MCP auth |
+| `<prefix>/memex-public-bearer` | string | memex — validates public `/mcp` bearers |
 | `<prefix>/github-deploy-key` | OpenSSH private key | `bootstrap.sh` `git clone` (SSH deploy-key mode only) |
 
 When `use_ssh_deploy_key = true`, the deploy key lets the EC2 clone a
