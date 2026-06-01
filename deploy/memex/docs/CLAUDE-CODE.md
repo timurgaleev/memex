@@ -43,8 +43,8 @@ docker exec deploy-memex-1 printenv MEMEX_PUBLIC_WRITE
 ### 2. Install the daily bearer-rotation timer
 
 The rotation regenerates the public bearer token on its configured
-schedule, restarts memex, and (optionally) delivers the new token via
-Telegram.
+schedule and restarts memex so it validates against the new value. The
+token lives in Secrets Manager — pull it on demand (step 3).
 
 ```bash
 # Run from the repo root on the EC2.
@@ -72,8 +72,7 @@ systemctl status memex-rotate-bearer.timer
 # Active: active (waiting); Trigger: <date> HH:MM:SS
 ```
 
-You can fire a one-off rotation now to confirm Telegram delivery
-works:
+You can fire a one-off rotation now to confirm it works:
 
 ```bash
 sudo systemctl start memex-rotate-bearer.service
@@ -82,8 +81,7 @@ sudo journalctl -u memex-rotate-bearer.service --since '5 min ago'
 
 ### 3. Get the current token
 
-After the first rotation runs, the token arrives in Telegram. Until
-then, fetch it via:
+Fetch it from Secrets Manager any time:
 
 ```bash
 AWS_PROFILE=<your-profile> aws secretsmanager get-secret-value \
@@ -104,27 +102,29 @@ add the MCP server. Claude Code reads on next restart.
       "type": "http",
       "url": "https://brain.<your-domain>/mcp",
       "headers": {
-        "Authorization": "Bearer <token-from-telegram>"
+        "Authorization": "Bearer <token-from-secrets-manager>"
       }
     }
   }
 }
 ```
 
-After restart, Claude Code surfaces five tools under `memex.*`:
-`search`, `backlinks`, `stats`, `index`, `log_friction`.
+After restart, Claude Code surfaces the memex read tools under
+`memex.*` (`search`, `backlinks`, `stats`, `page_{get,list,versions}`,
+`graph_{neighbors,query}`, `entity_{facts,timeline,recall}`,
+`jobs_{list,get,logs}`). Write tools are filtered from the public
+surface unless `MEMEX_PUBLIC_WRITE=1`.
 
 ## Day-to-day flow
 
-When the rotation fires, Telegram pings you (if delivery is
-configured) with the new token. Update `~/.claude.json` with the new
-token after `Bearer `. Restart Claude Code (or just the MCP
-connection — `/mcp` slash command in Claude Code re-loads).
+When the daily rotation fires it swaps the bearer in Secrets Manager
+and restarts memex. Pull the new token (step 3) and update
+`~/.claude.json` after `Bearer `, then reload the MCP connection
+(`/mcp` slash command in Claude Code).
 
-If you're not actively using Claude Code that day, you can ignore the
-Telegram message — the *previous* day's token is invalidated by the
-new `put-secret-value` (Secrets Manager keeps it as `AWSPREVIOUS` for
-one rollback if needed).
+The *previous* day's token is invalidated by the new
+`put-secret-value` (Secrets Manager keeps it as `AWSPREVIOUS` for one
+rollback if needed).
 
 ## Failure modes
 
@@ -133,7 +133,7 @@ one rollback if needed).
 | Claude Code reports `tools/list` empty | Token may be stale — fetch live token from Secrets Manager (step 3 above). |
 | `index` returns 403 from Claude Code | `MEMEX_PUBLIC_WRITE` not set on the container (step 1 verification). |
 | `index` returns 401 | Bearer header malformed or token rotated since last paste. |
-| No Telegram message after rotation | `journalctl -u memex-rotate-bearer.service --since '5 min ago'`. The rotation may have run but Telegram delivery failed. |
+| Token seems stale after rotation | `journalctl -u memex-rotate-bearer.service --since '5 min ago'` to confirm the rotation ran; re-fetch from Secrets Manager (step 3). |
 
 ## Local-only alternative — SSM port-forward
 
@@ -159,10 +159,9 @@ This is the more conservative posture.
 
 ## Security notes
 
-- Telegram messages persist in chat history. If a device with the
-  account gets compromised, every historical token shows up. Each
-  token is short-lived, so blast radius is bounded — but keep the
-  account scoped to trusted devices.
+- The bearer lives only in Secrets Manager (encrypted at rest) and in
+  your local `~/.claude.json`. Each token is short-lived (daily
+  rotation), so the blast radius of a leak is bounded to one day.
 - Cloudflare Tunnel is the public surface. Ingress logs flow into
   CloudWatch via the cloudflared sidecar. Anomalous request patterns
   show up there.

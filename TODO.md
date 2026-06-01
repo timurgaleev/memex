@@ -12,20 +12,6 @@ introduces them.
 Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
 automate today. Run these once after the first deploy:
 
-- **Allowlist your Telegram chat id for the bridge.** The
-  `telegram-bridge` container refuses messages from any chat not
-  listed in `MEMEX_BRIDGE_ALLOWED_CHAT_IDS`. Add a comma-separated
-  list of numeric chat ids to `.env` on the host and restart the
-  service:
-  ```bash
-  # find your chat id by sending /start to the bot; the bridge logs
-  # "ignoring message from unallowed chat id <N>"
-  echo "MEMEX_BRIDGE_ALLOWED_CHAT_IDS=<N>" >> /opt/memex/.env
-  docker compose --env-file /opt/memex/.env \
-    -f /opt/memex/deploy/docker-compose.yml \
-    up -d telegram-bridge
-  ```
-
 - **Install the host-side bearer-rotation timer:**
   ```bash
   sudo install -m 644 deploy/systemd/memex-rotate-bearer.{service,timer} \
@@ -76,20 +62,6 @@ future release.
   live secret persists until `terraform apply` runs. Next plan will
   show `Plan: 0 to add, 0 to change, 1 to destroy`. Roughly $0.40/mo
   to leave orphaned; cosmetic.
-
----
-
-## Bridge follow-ups
-
-- **Module refactor.** `deploy/telegram-bridge/main.py` is one ~900-line
-  file. A future split into `handlers.py` / `memex_client.py` /
-  `bedrock_client.py` / `help_text.py` would improve clarity. Tests
-  already pass; this is pure organisation.
-- **Bearer file owner instead of mode 0444.** The bridge container
-  runs as uid 10001 inside `.secrets/` (mode 0711). Switching from
-  world-readable file (`0444`) to owner-readable (`0400` + chown to
-  10001) would shrink the blast radius if the bridge image is ever
-  exploited.
 
 ---
 
@@ -155,11 +127,8 @@ future release.
 These are intentionally archived. Pick them up if and when you want
 the capability back.
 
-- **Morning briefing.** A host-side composer that calls the helper
-  CLIs at `/opt/memex/bin/` directly, synthesises prose via Bedrock
-  Haiku, and delivers via the Telegram Bot API, driven by a new
-  systemd timer at `*-*-* 07:00:00 Europe/Berlin`. The IAM grants it
-  needs already exist; no new infrastructure required.
+_None currently — the Telegram/chat and life-integration capabilities
+were intentionally removed; memex is a brain reached over MCP only._
 
 ---
 
@@ -168,9 +137,9 @@ the capability back.
 - Multi-arch CI matrix (amd64 + arm64) — currently arm64-only because
   the default `var.instance_type` is `t4g.medium`. Track in an issue;
   not a 1.0 blocker.
-- GHCR image publishing for `memex` and `telegram-bridge` containers —
-  today the images are built on the EC2 host on every deploy. Issue
-  first to agree on tag scheme + release cadence.
+- GHCR image publishing for the `memex` container — today the image is
+  built on the EC2 host on every deploy. Issue first to agree on tag
+  scheme + release cadence.
 - GitHub Pages docs site — `ARCHITECTURE.md` + `deploy/*/docs/` would
   render as a small Docusaurus / mkdocs site. Out of scope until
   there's a second deployer.

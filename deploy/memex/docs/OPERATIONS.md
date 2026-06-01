@@ -2,14 +2,6 @@
 
 How to deploy, restart, observe, and recover.
 
-## Morning briefing (future)
-
-A daily morning briefing is a possible future timer: a host-side
-composer that calls the helper CLIs at `/opt/memex/bin/` directly,
-synthesises prose via Bedrock Haiku 4.5, and delivers via the Telegram
-Bot API. Not built today — the host already has the IAM grants needed,
-so no new infrastructure is required.
-
 ## Deploy
 
 ```bash
@@ -41,15 +33,10 @@ docker exec deploy-memex-1 wget -qO- http://127.0.0.1:18790/health
 # → {"ok":true,"db":"postgres","version":"0.1.0",
 #     "stats":{"documents":114,"chunks":244,"embeddings":244}}
 
-# from inside the bridge — same probe, shows the network path works:
-docker exec deploy-telegram-bridge-1 wget -qO- http://memex:18790/health
-
-# MCP search smoke (proves the public-bearer + tool dispatch):
-docker exec deploy-telegram-bridge-1 sh -c '
-  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
-  curl -fsS -X POST http://memex:18790/mcp \
-    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
+# MCP smoke (proves tool dispatch over /mcp):
+docker exec deploy-memex-1 sh -c '
+  echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"stats\"}}" \
+    | wget -qO- --post-file=/dev/stdin --header=Content-Type:application/json http://127.0.0.1:18790/mcp
 '
 
 # self-diagnostics:

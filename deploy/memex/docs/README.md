@@ -1,10 +1,10 @@
 # memex — Personal-Knowledge Brain
 
-Hybrid vector + keyword + entity-graph search over your notes,
-calendar, mail, and code. Single contract: MCP JSON-RPC at
-`POST /mcp`. The `telegram-bridge` container calls it on the internal
-Docker network; any MCP-compatible client (Claude Code, Cursor, Codex)
-can call the public surface at `https://brain.<your-domain>/mcp`.
+Hybrid vector + keyword + entity-graph search over your Obsidian vault
+and code. Single contract: MCP JSON-RPC at `POST /mcp`. Any
+MCP-compatible client (Claude Code, Cursor, Codex) calls the public
+surface at `https://brain.<your-domain>/mcp`; in-stack callers reach it
+on the internal Docker network.
 
 Bun + TypeScript runtime. Storage: **RDS Postgres 16.13** + pgvector +
 tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
@@ -34,7 +34,7 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 
 ## What it isn't
 
-- Not a public-facing API by default. The internal Docker bridge is
+- Not a public-facing API by default. The internal Docker network is
   the primary route. The optional public MCP HTTPS surface
   (`https://brain.<your-domain>/mcp`, bearer-auth, read-only) is the
   remote AI client path.

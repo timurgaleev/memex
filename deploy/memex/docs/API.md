@@ -1,10 +1,9 @@
 # memex — API Reference
 
 The memex daemon binds `0.0.0.0:18790` inside its container but is
-**reachable only on the Docker `internal` bridge** for in-stack
-callers (telegram-bridge → memex via Docker DNS as
-`http://memex:18790`) and through Cloudflare Tunnel for the public
-MCP surface at `https://brain.<your-domain>/mcp`.
+**reachable only on the Docker `internal` network** for in-stack
+callers (via Docker DNS as `http://memex:18790`) and through Cloudflare
+Tunnel for the public MCP surface at `https://brain.<your-domain>/mcp`.
 
 The contract is exactly two routes:
 
@@ -120,32 +119,30 @@ Standard JSON-RPC + two server-defined:
 Tool-call errors (a tool throwing) are returned as `result.isError =
 true`, NOT as JSON-RPC errors — that's per the MCP spec.
 
-## Calling from the bridge
+## Calling it
 
-The `telegram-bridge` container reaches memex on the internal Docker
-bridge. From inside it:
+From an MCP client over the public surface (the normal path):
 
 ```bash
-docker exec deploy-telegram-bridge-1 sh -c '
-  BEARER=$(cat /run/secrets/memex-public-bearer.txt)
-  curl -fsS -X POST http://memex:18790/mcp \
-    -H "Authorization: Bearer $BEARER" -H "Content-Type: application/json" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"q\":\"hello\",\"k\":1}}}"
-'
+curl -fsS -X POST https://brain.<your-domain>/mcp \
+  -H "Authorization: Bearer <public-bearer>" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"q":"hello","k":1}}}'
 ```
 
-The `/opt/memex/bin/memex` shell helper (`deploy/helpers/memex`) wraps
-this for ad-hoc CLI use (it talks to `/mcp`):
+Or on the EC2 host, directly against the container on the internal
+network:
 
 ```bash
-docker exec deploy-telegram-bridge-1 /opt/memex/bin/memex search "hello" 1
-docker exec deploy-telegram-bridge-1 /opt/memex/bin/memex health
+docker exec deploy-memex-1 sh -c '
+  echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"stats\"}}" \
+    | wget -qO- --post-file=/dev/stdin --header=Content-Type:application/json http://127.0.0.1:18790/mcp
+'
 ```
 
 ## Auth & exposure
 
 - **Internal traffic** (no `Cf-Connecting-Ip`) keys into a single
-  "internal" rate-limit bucket; the trust boundary is the Docker bridge.
+  "internal" rate-limit bucket; the trust boundary is the Docker network.
   Read tools are open. **Write tools require
   `Authorization: Bearer <MEMEX_INTERNAL_TOKEN>`** — without it a write
   `tools/call` returns JSON-RPC `-32001` (closes the compromised-sibling

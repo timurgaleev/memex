@@ -197,8 +197,7 @@ via `mcp.rate_limit_per_minute` in `memex.yml`.
 - `ACCESS_POLICY.md` — channel-by-channel capabilities
 - `HEARTBEAT.md` — operational state
 
-Mode `0600`. Reserved for future agent-side consumption; the
-telegram-bridge does not read them today.
+Mode `0600`. Reserved for future agent-side consumption.
 
 ## Bedrock model wiring
 
@@ -208,7 +207,9 @@ telegram-bridge does not read them today.
 | Query intent (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
 | Query expansion (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
 | Two-pass rerank (opt-in) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if `MEMEX_RERANK=1`) |
-| Chat-side synthesis (bridge) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$20/mo at projected volume) |
+
+Answer synthesis is not performed by memex — the MCP client (Claude
+Code, Cursor, …) composes answers from the cited chunks memex returns.
 
 Auth: EC2 IAM role + `AWS_PROFILE=default` env + container-mounted
 `~/.aws/config` (`credential_source = Ec2InstanceMetadata`).
@@ -231,9 +232,8 @@ the engine from the merged shape.
 
 - memex binds `0.0.0.0:18790` inside its container but the port
   is `expose:` only — never `ports:` — so it's reachable only on the
-  Docker `internal` bridge (the telegram-bridge calls it there) and
-  through Cloudflare Tunnel for the `brain.<domain>/mcp` public
-  surface.
+  Docker `internal` network and through Cloudflare Tunnel for the
+  `brain.<domain>/mcp` public surface.
 - All state outside `node_modules` lives on EFS / RDS — container is
   stateless and re-creatable.
 - The Postgres SG only allows ingress 5432 from the stack EC2 SG.
