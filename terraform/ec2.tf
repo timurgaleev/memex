@@ -53,24 +53,6 @@ resource "aws_security_group" "memex" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # IMAP TLS outbound (Gmail, port 993)
-  egress {
-    description = "IMAP TLS outbound for Gmail"
-    from_port   = 993
-    to_port     = 993
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # SMTP STARTTLS outbound (Gmail, port 587)
-  egress {
-    description = "SMTP STARTTLS outbound for Gmail"
-    from_port   = 587
-    to_port     = 587
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   # NFS outbound for EFS — VPC-internal only
   egress {
     description = "NFS to EFS mount targets"

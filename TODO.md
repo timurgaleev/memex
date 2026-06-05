@@ -36,7 +36,12 @@ future release.
   mount + EC2 traffic. Apply ONLY during a planned maintenance window
   and AFTER confirming the SG-replacement is safe in your environment.
   Live config is already functionally correct; this is cosmetics on
-  the terraform state.
+  the terraform state. **Now also folds in the stale Gmail egress
+  removal** (993 IMAP / 587 SMTP rules deleted from `terraform/ec2.tf`
+  in the v1.2.10 hygiene commit) — `terraform apply` in that same
+  maintenance window drops those two egress rules from the live SG.
+  Egress-only, no inbound exposure, so leaving them until the window is
+  pure least-privilege hygiene, not a live vulnerability.
 - **Rotate `memex/memex-postgres-url` (RDS master password).** Out-of-band
   via `aws rds modify-db-instance --master-user-password ... --apply-immediately`,
   then write the new URL to `memex/memex-postgres-url` via
@@ -67,31 +72,19 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
-- **Public-ingress read redaction: decide the `graph_*` edge-`type`
-  policy.** The primary gaps are now closed: `entity_facts` /
-  `entity_timeline` / `entity_recall` strip `fact` / `event` (v1.2.9,
-  2026-06-01) and `backlinks` + `jobs_get` / `jobs_list` / `jobs_logs`
-  now drop `surfaceForm` / `payload` / `result` / `last_error` /
-  `idempotency_key` via `redactBacklinks` / `redactJob` (v1.2.9,
-  2026-06-05 — see CHANGELOG / `core/public_redaction.ts`). Remaining,
-  below the daily gate: `graph_neighbors` / `graph_query` return
-  slug-to-slug edges + `type`. Edge metadata is within the existing
-  "slug is safe" envelope (page redaction already exposes `slug`), so
-  lower priority — but the edge `type` can leak relationship semantics
-  between known entities; decide explicitly whether that stays public.
-
-- **CI: SHA-pin the third-party `oven-sh/setup-bun@v2` action.**
-  Mutable tag → supply-chain risk if the tag is moved. Heavily
-  mitigated today (`permissions: contents: read`, no secrets in the
-  workflow, push/PR triggers only — not `pull_request_target`), so
-  blast radius is a read-only token + test-result tampering. Pin to a
-  commit SHA like `hashicorp/setup-terraform` already is. `actions/*`
-  (checkout, setup-python) are first-party, lower priority.
-
-- **terraform: drop stale Gmail egress rules (993 IMAP / 587 SMTP).**
-  Egress-only, no inbound exposure → pure least-privilege hygiene, not
-  a vulnerability. The IMAP/SMTP integrations were removed (memex is
-  MCP-only) but `terraform/ec2.tf` still allows those egress ports.
+- **Public-ingress read redaction — COMPLETE.** All body-bearing /
+  free-text read paths now redact on public ingress: `search` /
+  `page_get` / `page_list` / `page_versions` (v1.2.0), `entity_facts` /
+  `entity_timeline` / `entity_recall` (v1.2.9, 2026-06-01), and
+  `backlinks` + `jobs_get` / `jobs_list` / `jobs_logs` (v1.2.9,
+  2026-06-05). **Decision (2026-06-05): `graph_neighbors` /
+  `graph_query` edge `type` STAYS public.** Rationale: the public
+  bearer is single-holder (the operator's own MCP client) and rotated
+  daily; slugs are already public; the edge `type` is a constrained
+  enum (`KNOWN_LINK_TYPES`), not free-text note content; and it is core
+  to graph-recall utility. Redacting it would cripple legitimate use
+  for negligible marginal risk. No code change — behavior is
+  intentional and now documented. Residual closed.
 
 - **Jobs DAG: align FK delete behaviour between `jobs.parent_job_id`
   and the `job_children` / `child_done_inbox` tables.** Today

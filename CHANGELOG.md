@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.10] — 2026-06-05
+
+### Security
+- **Supply-chain: SHA-pin `oven-sh/setup-bun`.** The CI workflow pinned
+  the third-party action to a mutable `@v2` tag; moved to the commit SHA
+  `0c5077e51419868618aeaa5fe8019c62421857d6` (# v2), matching the
+  existing `hashicorp/setup-terraform` pin. Removes the tag-move
+  supply-chain vector (already heavily mitigated by
+  `permissions: contents: read`, no workflow secrets, push/PR-only
+  triggers).
+- **Least-privilege: drop stale Gmail egress rules.** Removed the
+  `993` (IMAP TLS) and `587` (SMTP STARTTLS) egress rules from the EC2
+  security group in `terraform/ec2.tf` — the Gmail/IMAP/SMTP
+  integrations were removed when memex became MCP-only, leaving those
+  outbound ports allowed for no consumer. Egress-only (no inbound
+  exposure), so this is hygiene, not a fix; the live SG drops them on
+  the next operator `terraform apply` (folded into the deferred
+  state-realign maintenance window — see `TODO.md`).
+
+### Changed
+- **Documented the public-read-redaction posture as complete.** Every
+  body-bearing / free-text read tool now redacts on public ingress;
+  the `graph_*` edge-`type` is an explicit, documented *keep* (single-
+  holder daily-rotated bearer; constrained enum, not note text; core to
+  graph recall). Reframed the now-dead `FORBIDDEN_PATHS_FROM_PUBLIC`
+  REST guard in `http/public_guard.ts` as an intentional fail-closed
+  defense-in-depth backstop (the REST routes were removed in A.7; the
+  set guards against accidental re-introduction). No runtime behavior
+  change.
+
 ## [1.2.9] — 2026-06-05
 
 ### Security

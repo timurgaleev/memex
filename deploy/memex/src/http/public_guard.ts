@@ -46,6 +46,15 @@ export interface GuardRejection {
   reason: string;
 }
 
+// Defense-in-depth relic. These REST write routes were removed in A.7 —
+// memex's only HTTP surface today is `GET /health` + `POST /mcp` (see
+// http/server.ts), so none of these paths route to a handler anymore and
+// this set can never match a real request. It is kept (not deleted) as a
+// fail-closed backstop: the north-star forbids re-adding non-`/mcp` HTTP
+// routes, and if that rule is ever violated by accident, a public write to
+// one of these paths is rejected with 403 rather than silently served.
+// MCP write-tool protection lives in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC below,
+// which IS on the live path.
 const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
   "/index",
   "/friction",
