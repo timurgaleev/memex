@@ -61,10 +61,14 @@ resource "aws_db_parameter_group" "memex_pg16" {
   }
 
   # Enforce TLS for every connection — we set sslmode=require client-side
-  # but belt-and-braces.
+  # but belt-and-braces. `rds.force_ssl` is a STATIC parameter (takes
+  # effect only on reboot), so pin apply_method to pending-reboot — the
+  # provider would otherwise default to "immediate" and show perpetual
+  # drift against the live value.
   parameter {
-    name  = "rds.force_ssl"
-    value = "1"
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 }
 
