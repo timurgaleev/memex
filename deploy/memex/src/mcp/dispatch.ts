@@ -68,6 +68,8 @@ import {
   redactBody,
   redactFacts,
   redactTimeline,
+  redactBacklinks,
+  redactJob,
   publicReadBodiesAllowed,
 } from "../core/public_redaction.ts";
 
@@ -118,7 +120,7 @@ export async function dispatchTool(
       case "index":
         return await callIndex(storage, args);
       case "backlinks":
-        return await callBacklinks(storage, args);
+        return await callBacklinks(storage, args, redact);
       case "stats":
         return await callStats(storage);
       case "log_friction":
@@ -156,13 +158,13 @@ export async function dispatchTool(
       case "jobs_submit":
         return await callJobsSubmit(storage, args);
       case "jobs_list":
-        return await callJobsList(storage, args);
+        return await callJobsList(storage, args, redact);
       case "jobs_get":
-        return await callJobsGet(storage, args);
+        return await callJobsGet(storage, args, redact);
       case "jobs_cancel":
         return await callJobsCancel(storage, args);
       case "jobs_logs":
-        return await callJobsLogs(storage, args);
+        return await callJobsLogs(storage, args, redact);
       default:
         return errResult(`unknown tool: ${req.name}`);
     }
@@ -250,6 +252,7 @@ async function callIndex(
 async function callBacklinks(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   const name = args["name"];
   if (typeof name !== "string" || name.length === 0) {
@@ -275,7 +278,12 @@ async function callBacklinks(
     opts.limit = limit as number;
   }
   const hits = await findBacklinks(storage, name, opts);
-  return jsonResult({ ok: true, name, hits });
+  // Public ingress: `surfaceForm` is note-authored free text — strip it,
+  // mirroring the search/page/fact body redaction policy.
+  const out = redact
+    ? redactBacklinks(hits as unknown as Record<string, unknown>[])
+    : hits;
+  return jsonResult({ ok: true, name, hits: out });
 }
 
 async function callStats(storage: Storage): Promise<ToolCallResult> {
@@ -711,6 +719,7 @@ async function callJobsSubmit(
 async function callJobsList(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   const opts: ListJobsOptions = {};
   if (typeof args["status"] === "string") opts.status = args["status"];
@@ -720,18 +729,28 @@ async function callJobsList(
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   const jobs = await listJobs(storage.engine(), opts);
-  return jsonResult({ ok: true, jobs });
+  // Public ingress: drop caller-derived `idempotency_key` (often a path).
+  const out = redact
+    ? jobs.map((j) => redactJob(j as unknown as Record<string, unknown>))
+    : jobs;
+  return jsonResult({ ok: true, jobs: out });
 }
 
 async function callJobsGet(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["id"] !== "string")
     return errResult("jobs_get: `id` is required");
   const job = await getJob(storage.engine(), args["id"]);
   if (!job) return errResult(`jobs_get: ${args["id"]} not found`);
-  return jsonResult({ ok: true, job });
+  // Public ingress: `payload`/`result`/`last_error` carry arbitrary
+  // note-derived free text (vault paths, snippets) — strip them.
+  const out = redact
+    ? redactJob(job as unknown as Record<string, unknown>)
+    : job;
+  return jsonResult({ ok: true, job: out });
 }
 
 async function callJobsCancel(
@@ -750,6 +769,7 @@ async function callJobsCancel(
 async function callJobsLogs(
   storage: Storage,
   args: Record<string, unknown>,
+  redact = false,
 ): Promise<ToolCallResult> {
   if (typeof args["id"] !== "string")
     return errResult("jobs_logs: `id` is required");
@@ -770,5 +790,9 @@ async function callJobsLogs(
     children_count: job.children.length,
     inbox_unread: job.inbox_unread,
   };
-  return jsonResult({ ok: true, log });
+  // Public ingress: `last_error` can echo pgerror text / vault paths.
+  const out = redact
+    ? redactJob(log as unknown as Record<string, unknown>)
+    : log;
+  return jsonResult({ ok: true, log: out });
 }

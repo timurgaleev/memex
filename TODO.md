@@ -67,23 +67,18 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
-- **Public-ingress read redaction: extend the allowlist to `jobs_*`
-  reads (and re-check `graph_*`).** The 2026-06-01 `/cso` audit fixed
-  the primary gap — `entity_facts` / `entity_timeline` / `entity_recall`
-  now strip `fact` / `event` text on public ingress (see CHANGELOG /
-  `core/public_redaction.ts`). Residual, below the daily gate:
-  `jobs_get` / `jobs_list` return the full job row including `payload`
-  (index-job payloads carry absolute vault file paths) and `last_error`
-  (may embed paths/snippets) to any public-bearer holder. `jobs_logs`
-  is already curated but still surfaces `last_error`. Fix per the
-  established pattern (line ~108): drop `payload` / `last_error` at the
-  SQL/serializer layer on public ingress, or add the `jobs_*` reads to
-  a public-forbidden-READ set distinct from the write allowlist.
-  `graph_neighbors` / `graph_query` return slug-to-slug edges + type;
-  edge metadata is within the existing "slug is safe" envelope (page
-  redaction already exposes `slug`), so lower priority — but the edge
-  `type` can leak relationship semantics between known entities;
-  decide explicitly whether that stays public.
+- **Public-ingress read redaction: decide the `graph_*` edge-`type`
+  policy.** The primary gaps are now closed: `entity_facts` /
+  `entity_timeline` / `entity_recall` strip `fact` / `event` (v1.2.9,
+  2026-06-01) and `backlinks` + `jobs_get` / `jobs_list` / `jobs_logs`
+  now drop `surfaceForm` / `payload` / `result` / `last_error` /
+  `idempotency_key` via `redactBacklinks` / `redactJob` (v1.2.9,
+  2026-06-05 — see CHANGELOG / `core/public_redaction.ts`). Remaining,
+  below the daily gate: `graph_neighbors` / `graph_query` return
+  slug-to-slug edges + `type`. Edge metadata is within the existing
+  "slug is safe" envelope (page redaction already exposes `slug`), so
+  lower priority — but the edge `type` can leak relationship semantics
+  between known entities; decide explicitly whether that stays public.
 
 - **CI: SHA-pin the third-party `oven-sh/setup-bun@v2` action.**
   Mutable tag → supply-chain risk if the tag is moved. Heavily

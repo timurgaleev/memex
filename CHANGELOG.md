@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.9] — 2026-06-05
+
 ### Security
 - **Public-ingress redaction now covers entity facts + timeline.** A
   `/cso` audit found the public MCP read path stripped note bodies from
@@ -23,6 +25,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   absent anywhere in a public payload (leak-shaped, rename-proof) and
   present on the internal path. Residual `jobs_*` / `graph_*` public
   read exposure tracked in `TODO.md`.
+- **Public-ingress redaction extended to `backlinks` + the `jobs_*`
+  reads.** A follow-up security review (security-engineer + bug-hunter)
+  found the same leak class still open on read tools that were never
+  threaded through the public allowlist: `backlinks` returned
+  `surfaceForm` (the raw note-authored wikilink display text, e.g.
+  `[[people/jane|Jane's lawyer]]` → `Jane's lawyer`), and `jobs_get` /
+  `jobs_list` / `jobs_logs` returned `payload` / `result` / `last_error`
+  / `idempotency_key` — arbitrary caller JSON plus raw error text that
+  can embed vault paths and note snippets, reachable by any public-bearer
+  holder (job IDs are discoverable via `jobs_list`). Added
+  `redactBacklinks` + `redactJob` allowlists in
+  `core/public_redaction.ts` (keep the operational status/metadata, drop
+  the free-text fields) and threaded the `redact` flag through
+  `callBacklinks`, `callJobsList`, `callJobsGet`, and `callJobsLogs` in
+  `mcp/dispatch.ts`. Internal ingress and the `MEMEX_PUBLIC_READ_BODIES=1`
+  opt-in are unchanged. Leak-shaped regression tests
+  (`mcp_backlinks_jobs_redaction.test.ts`) assert the secret text is
+  absent from public payloads and present on the internal path. Closes
+  the primary `jobs_*` public-read residual previously tracked in
+  `TODO.md`.
 
 ## [1.2.8] — 2026-05-31
 

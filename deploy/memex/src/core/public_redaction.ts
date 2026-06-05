@@ -108,3 +108,62 @@ export function redactTimeline<T extends Record<string, unknown>>(
     return out as T;
   });
 }
+
+// Backlink-hit fields safe to return on public ingress. `surfaceForm` is the
+// raw note-authored wikilink display text (e.g. `[[people/jane|Jane's lawyer]]`
+// → `Jane's lawyer`) — note-derived private content, body-equivalent, omitted.
+// `sourcePath`/`title`/`documentId` already surface via the search/page
+// allowlists, so they stay consistent with the existing public policy.
+const PUBLIC_SAFE_BACKLINK_FIELDS = new Set([
+  "documentId",
+  "sourcePath",
+  "title",
+  "mentionCount",
+]);
+
+/** Strip `surfaceForm` (and any non-allowlisted field) from backlink hits. */
+export function redactBacklinks<T extends Record<string, unknown>>(
+  hits: readonly T[],
+): T[] {
+  return hits.map((h) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(h)) {
+      if (PUBLIC_SAFE_BACKLINK_FIELDS.has(k)) out[k] = h[k];
+    }
+    return out as T;
+  });
+}
+
+// Job-row fields safe to return on public ingress. The job operational
+// status is non-sensitive, but `payload` (arbitrary caller JSON), `result`
+// (handler output), `last_error` (raw error text — can embed vault paths /
+// note snippets) and `idempotency_key` (caller-derived, often a path) are
+// note-derived/free-text and are omitted. Covers JobSummary (jobs_list),
+// JobDetail (jobs_get) and the curated jobs_logs object via one allowlist;
+// `children_count` is kept for the jobs_logs shape. Fail-safe: a new
+// free-text field is dropped by default.
+const PUBLIC_SAFE_JOB_FIELDS = new Set([
+  "id",
+  "kind",
+  "status",
+  "priority",
+  "retry_count",
+  "parent_job_id",
+  "depth",
+  "created_at",
+  "updated_at",
+  "next_attempt_at",
+  "started_at",
+  "finished_at",
+  "inbox_unread",
+  "children_count",
+]);
+
+/** Strip free-text/arbitrary fields from a single job row. */
+export function redactJob<T extends Record<string, unknown>>(row: T): T {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(row)) {
+    if (PUBLIC_SAFE_JOB_FIELDS.has(k)) out[k] = row[k];
+  }
+  return out as T;
+}
