@@ -7,7 +7,8 @@
 
 Self-hostable personal knowledge brain, reached over MCP only:
 - **memex** — knowledge brain (Bun + Postgres + pgvector, hybrid
-  search, MCP server; synthesises answers via Bedrock Claude Haiku 4.5;
+  search, MCP server; retrieval only — Bedrock Titan v2 embeddings +
+  Nova Lite intent/expansion, answer synthesis is the MCP client's job;
   PGLite available as a dev-only fallback)
 - **cloudflared** — public HTTPS ingress for the MCP server
   (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect

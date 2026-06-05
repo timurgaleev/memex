@@ -89,7 +89,7 @@ function defaultClientKey(req: Request): string {
   //      actually trust to identify a remote caller. CF strips
   //      attacker-supplied copies of this header.
   //   2. For requests NOT carrying Cf-Connecting-Ip (internal Docker
-  //      bridge traffic from telegram-bridge → memex), key everyone
+  //      bridge traffic — recipe / worker callers → memex), key everyone
   //      into a single "internal" bucket. X-Forwarded-For / X-Real-IP
   //      are attacker-controlled when the request is NOT proxied
   //      through a trust boundary, so using them as a rate-limit key
@@ -100,16 +100,16 @@ function defaultClientKey(req: Request): string {
     if (trimmed.length > 0) return trimmed;
   }
   // Non-public path — single bucket. Internal callers are trusted
-  // (today: the telegram-bridge container) but should still be
+  // (recipe / worker callers on the docker bridge) but should still be
   // rate-limited as one entity rather than per-spoofed-XFF.
   return "internal";
 }
 
 export function makeMcpHandler(opts: McpHandlerOptions) {
   // Public and internal traffic must NOT share a limiter. A flood of
-  // public requests could otherwise starve the internal caller (the
-  // telegram-bridge today), and conversely the internal caller's burst
-  // (cron-driven re-index) would trip a chat-tuned per-IP cap.
+  // public requests could otherwise starve the internal caller (a
+  // recipe / worker), and conversely the internal caller's burst
+  // (cron-driven re-index) would trip a public-tuned per-IP cap.
   const publicLimiter =
     opts.publicRateLimiter ?? opts.rateLimiter ?? new RateLimiter();
   const internalLimiter =

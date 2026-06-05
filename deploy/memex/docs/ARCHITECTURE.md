@@ -162,7 +162,7 @@ failing doesn't stop the others:
 
 1. **embed-stale** — re-embed chunks whose embeddings are older than
    `staleDays` (default 30). Skipped during the configured quiet
-   hours so it doesn't fight the morning briefing.
+   hours so it doesn't fight interactive MCP recall traffic.
 2. **extract** — re-run the regex entity extractor on every chunk.
    Cheap (no Bedrock).
 3. **reconcile-links** — find `[[wikilinks]]` that don't resolve to

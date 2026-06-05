@@ -9,8 +9,8 @@
  *   - 1-minute load average (Linux/macOS only; Windows reports 0).
  *   - Resident-set-size of the current process.
  *   - In-memory counter of concurrently throttled operations.
- *   - Optional quiet-hours gate (so a sweep doesn't fight the
- *     morning briefing); window is configurable.
+ *   - Optional quiet-hours gate (so a sweep doesn't fight interactive
+ *     MCP recall traffic); window is configurable.
  *
  * Stays in-process: there's no shared state between containers. That's
  * fine for our single-EC2 deployment; if we ever scale out we'd swap

@@ -1,8 +1,8 @@
 /**
  * Friction — log "agent confused" events for triage.
  *
- * The chat surface (or any caller) can append a row when retrieval
- * misses, an answer feels wrong, or a tool errors out. The data flows
+ * Any MCP caller can append a row when retrieval misses, an answer
+ * feels wrong, or a tool errors out. The data flows
  * into reports so we can spot patterns over time.
  *
  * No PII filtering here — caller decides what to log. Default scope:

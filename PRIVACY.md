@@ -32,9 +32,11 @@ configured region:
   in **AWS RDS for PostgreSQL** in a private VPC subnet, encrypted at
   rest.
 - **AWS Bedrock** is used for embeddings (Amazon Titan Text Embeddings
-  v2) and answer synthesis (Anthropic Claude Haiku 4.5). Bedrock
-  requests stay inside AWS; Amazon's standard Bedrock data-handling
-  terms apply (no model training on customer prompts).
+  v2) and lightweight retrieval helpers — intent classification and
+  query expansion (Amazon Nova Lite). memex does **not** synthesize
+  answers; that is the MCP client's job. Bedrock requests stay inside
+  AWS; Amazon's standard Bedrock data-handling terms apply (no model
+  training on customer prompts).
 
 No data leaves AWS. There are no analytics SDKs, no advertising
 trackers, no third-party SaaS observability, and no telemetry beyond

@@ -5,7 +5,7 @@
 
 resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
   name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
-  description             = "Cloudflare Tunnel token for the chat-UI subdomain"
+  description             = "Cloudflare Tunnel token for the MCP brain subdomain (brain.<domain>/mcp)"
   recovery_window_in_days = 0
 }
 

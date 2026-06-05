@@ -41,7 +41,10 @@ future release.
   in the v1.2.10 hygiene commit) — `terraform apply` in that same
   maintenance window drops those two egress rules from the live SG.
   Egress-only, no inbound exposure, so leaving them until the window is
-  pure least-privilege hygiene, not a live vulnerability.
+  pure least-privilege hygiene, not a live vulnerability. Also audit
+  whether `var.subdomain` (the legacy chat-UI slot, still consumed by
+  `compute.tf` bootstrap) can be dropped — the chat UI is gone; the
+  public MCP brain is served via `memex_subdomain`.
 - **Rotate `memex/memex-postgres-url` (RDS master password).** Out-of-band
   via `aws rds modify-db-instance --master-user-password ... --apply-immediately`,
   then write the new URL to `memex/memex-postgres-url` via

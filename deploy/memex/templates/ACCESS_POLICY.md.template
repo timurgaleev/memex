@@ -7,25 +7,26 @@ tags: [access, security]
 
 # ACCESS_POLICY
 
-Who can talk to the agent through which channel, and what each one is
-allowed to do. Referenced by the chat surface (Telegram / web) at
-inbound.
+Who can reach the brain over MCP and what each caller is allowed to do.
+memex's only ingress is `POST /mcp` (plus `GET /health`); access is
+decided by which credential the request presents.
 
-## Channels
+## Credentials
 
-| Channel | Identity | Trust level |
+| Credential | Identity | Trust level |
 |---|---|---|
-| Telegram DM | (your tg user id) | full |
-| Telegram group | — | denied |
-| Web | (paired device id) | full |
+| Public MCP bearer | rotated daily, fronted by Cloudflare | read-only |
+| Internal token (`MEMEX_INTERNAL_TOKEN`) | recipe / worker callers on the docker bridge | full |
 
 ## Trust levels
 
-- **full**: any tool call, any read, any write inside the vault.
-- **read-only**: search / read; no index / mutate / external send.
-- **denied**: bot rejects with a polite refusal.
+- **full**: any MCP tool call — read or write (`page_put`, `index`, …).
+- **read-only**: read tools only; write tools are hidden from
+  `tools/list` and rejected on call, and note-derived free text is
+  redacted on public ingress.
+- **denied**: request rejected (401/403).
 
 ## Override rules
 
-(Cases where the policy bends — e.g. "during a deploy, the deploy
-channel may write tag updates regardless of normal scope.")
+(Cases where the policy bends — e.g. `MEMEX_PUBLIC_WRITE=1` opts the
+public ingress into write access; pair it with daily bearer rotation.)

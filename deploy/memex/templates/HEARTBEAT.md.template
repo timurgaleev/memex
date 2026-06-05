@@ -8,8 +8,8 @@ tags: [heartbeat, ops]
 # HEARTBEAT
 
 Periodic self-check the agent fills in on a schedule (cron / cycle).
-Living dashboard of "is everything OK?" Read by the morning briefing
-skill on its configured schedule.
+Living dashboard of "is everything OK?" Surfaced via the `doctor` /
+`stats` MCP read tools on its configured schedule.
 
 ## Last check
 

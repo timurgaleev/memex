@@ -4,7 +4,7 @@
  *
  * Detection: a request from the Cloudflare edge carries a
  * `Cf-Connecting-Ip` header (the real client IP). Internal Docker
- * traffic from the telegram-bridge container hits the bridge network
+ * traffic (recipe / worker callers) hits the bridge network
  * directly and never goes through Cloudflare, so it lacks this header.
  *
  * Public-request rules:

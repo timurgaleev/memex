@@ -2,10 +2,10 @@
  * Cycle loop recipe — replaces the old dream.ts.
  *
  * Periodically runs `core/cycle/runCycleOnce()` (the 6-phase maintenance
- * pipeline). Honours quiet hours so it doesn't fight the morning briefing
- * for CPU. Skips embed-stale during quiet hours but still runs the cheap
- * read-only phases (reconcile-links, snapshot) — those are useful state
- * even mid-briefing.
+ * pipeline). Honours quiet hours so it doesn't fight interactive MCP
+ * recall traffic for CPU. Skips embed-stale during quiet hours but still
+ * runs the cheap read-only phases (reconcile-links, snapshot) — those are
+ * useful state even during a quiet-hours window.
  */
 import type { Storage } from "../core/storage.ts";
 import {

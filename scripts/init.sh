@@ -157,7 +157,7 @@ prompt AWS_ACCOUNT_ID    "AWS account ID (12 digits)"             ""            
 prompt AWS_REGION        "AWS region"                             "eu-west-1"    valid_nonempty
 prompt AWS_PROFILE       "AWS CLI profile"                        "default"      valid_nonempty
 prompt DOMAIN            "Public root domain (e.g. example.com)"  ""             valid_domain
-prompt SUBDOMAIN         "Subdomain for the chat UI"              "chat"        valid_subdomain
+prompt SUBDOMAIN         "Subdomain (legacy bootstrap slot)"      "chat"        valid_subdomain
 prompt MEMEX_SUBDOMAIN   "Subdomain for the memex public MCP"     "brain"        valid_subdomain
 prompt GITHUB_OWNER      "GitHub username/org that owns the repo" ""             valid_github_owner
 prompt REPO_NAME         "Public repo name"                       "memex" valid_nonempty

@@ -34,8 +34,8 @@ sweep:
 # Dream loop — periodic re-embed of stale chunks.
 # ---------------------------------------------------------------------------
 # `interval_s` < 60 disables the loop. Recommended: 21600 (6h).
-# A quiet-hours window is honoured by default (the morning-briefing cron
-# uses the CPU then); both window bounds and zone are configurable.
+# A quiet-hours window is honoured by default (reserves CPU for
+# interactive MCP traffic then); both window bounds and zone are configurable.
 dream:
   interval_s: 21600
   stale_days: 30
