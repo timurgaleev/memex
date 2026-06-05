@@ -114,7 +114,21 @@ every time.
    - `/health` endpoints return `ok:true`
    - For MCP changes: a `tools/call` against `deploy-memex-1` (or `brain.<domain>/mcp` with the bearer) returns real data
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
-   - For terraform changes that drift live state: do NOT silently `apply`; show the plan and use targeted-API calls (`aws ec2 modify-...`) when the apply would destroy-and-recreate.
+   - For terraform / infrastructure changes: the **S3-backed terraform
+     state is the single source of truth and the ONLY path to change
+     infrastructure.** Run `terraform plan` (show it) then `terraform
+     apply` against that state, from the ops working dir that holds the
+     filled `backend.hcl` + `terraform.tfvars`. **NEVER mutate a
+     terraform-managed resource out-of-band** with the AWS CLI or console
+     (`revoke-security-group-egress`, `delete-secret`, `modify-*`, etc.)
+     — that silently diverges live from state, and the next `apply`
+     fights the hand change. If a `plan` would destroy-and-recreate
+     something risky, STOP and surface it to the operator; do not reach
+     for a CLI shortcut. If live and state ever drift, reconcile through
+     terraform (`apply` / `import` / `terraform state` ops), never by
+     hand. This public-repo checkout is NOT the ops dir — it lacks the
+     gitignored `backend.hcl`/`terraform.tfvars`, so terraform is run
+     from the operator's private working dir, not from here.
 5. **Release** (for any user-facing version bump):
    - Move the `[Unreleased]` CHANGELOG entries under a new
      `## [X.Y.Z] — <date>` heading (SemVer), leaving an empty
@@ -193,7 +207,11 @@ internet — because it is.
 - Terraform state belongs in the S3 backend (see `backend.hcl.example`),
   never in a private working copy. A local working dir that holds the
   filled-in `backend.hcl` + `terraform.tfvars` is fine for running
-  `terraform plan`/`apply`; those files are gitignored.
+  `terraform plan`/`apply`; those files are gitignored. **That S3 state
+  is the single source of truth for ALL infrastructure: every infra
+  change goes through `terraform plan`/`apply` against it. Do NOT change
+  terraform-managed AWS resources with ad-hoc CLI/console calls — they
+  diverge live from state and the next `apply` will fight the drift.**
 - The `*.local.txt` pattern overlays under `scripts/lib/` (gitignored)
   exist for the operator's actual identifiers — extend them locally,
   never commit them.

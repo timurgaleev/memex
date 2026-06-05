@@ -36,40 +36,22 @@ future release.
   mount + EC2 traffic. Apply ONLY during a planned maintenance window
   and AFTER confirming the SG-replacement is safe in your environment.
   Live config is already functionally correct; this is cosmetics on
-  the terraform state. **Now also folds in the stale Gmail egress
-  removal** (993 IMAP / 587 SMTP rules deleted from `terraform/ec2.tf`
-  in the v1.2.10 hygiene commit) — `terraform apply` in that same
-  maintenance window drops those two egress rules from the live SG.
-  Egress-only, no inbound exposure, so leaving them until the window is
-  pure least-privilege hygiene, not a live vulnerability. Also audit
-  whether `var.subdomain` (the legacy chat-UI slot, still consumed by
+  the terraform state. While in the window, also audit whether
+  `var.subdomain` (the legacy chat-UI slot, still consumed by
   `compute.tf` bootstrap) can be dropped — the chat UI is gone; the
   public MCP brain is served via `memex_subdomain`.
-- **Rotate `memex/memex-postgres-url` (RDS master password).** Out-of-band
-  via `aws rds modify-db-instance --master-user-password ... --apply-immediately`,
-  then write the new URL to `memex/memex-postgres-url` via
-  `secretsmanager put-secret-value`, then SSM the EC2 and run
-  `bash /opt/memex/deploy/secrets/fetch-secrets.sh && docker
-  compose --env-file .env -f /opt/memex/deploy/docker-compose.yml restart memex`.
-  **Gotcha:** the password is interpolated into a URL in the
-  `memex/memex-postgres-url` secret. RDS accepts any printable ASCII
-  except `/`, `"`, `@`, space, but the postgres URL parser inside
-  the memex container additionally requires `?`, `#`, `&`, `:`, `=`,
-  `+`, `%` to be percent-encoded. The safe pattern:
-  ```bash
-  RAW=$(aws secretsmanager get-random-password \
-    --password-length 32 \
-    --exclude-characters '/"@ $`'"'"'?#&:=+%' \
-    --region eu-west-1 --query RandomPassword --output text)
-  ```
-  (or URL-encode the raw value via
-  `python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''),end='')" "$RAW"`
-  before assembling the URL).
-- **Destroy the orphaned `gateway-token` AWS secret.** The chat-agent
-  removal dropped the resource from `terraform/secrets.tf` but the
-  live secret persists until `terraform apply` runs. Next plan will
-  show `Plan: 0 to add, 0 to change, 1 to destroy`. Roughly $0.40/mo
-  to leave orphaned; cosmetic.
+- **Reconcile the 2026-06-05 out-of-band changes into terraform state.**
+  Two terraform-managed resources were changed live via the AWS CLI
+  ahead of a proper apply (they already match the committed v1.2.10
+  code, but the S3 state still lists them):
+  1. the `993` / `587` Gmail egress rules were revoked from the live
+     EC2 security group;
+  2. the orphaned `memex/gateway-token` secret was scheduled for
+     deletion (30-day recovery window, restore-able until ~2026-07-05).
+  The next `terraform apply` from the ops dir refreshes and drops both
+  from state with **no live change**. Per CLAUDE.md the S3 state is the
+  single source of truth and infra changes go through terraform — this
+  was a one-off the apply now cleans up; don't repeat the CLI shortcut.
 
 ---
 
