@@ -94,8 +94,17 @@ every time.
    - `python3 -m pytest tests/ -q` — all green
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
    - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed
-   - The relevant Bun test file under `deploy/memex/tests/*.test.ts` — when memex source changed
-2. **Push** to the `origin` remote on `main` and **wait for CI green** before continuing (`gh run list --limit 1`).
+   - When memex source changed, run the **full Bun suite locally**
+     (`env -C deploy/memex bun test`) — not just the touched file. The
+     local suite is the authoritative gate (operator decision: local
+     is faster and is what we trust; see below).
+2. **Push** to the `origin` remote on `main`. **Local tests are the
+   gate — do NOT block deploy on GitHub CI.** Push so CI runs for the
+   record, but proceed to deploy as soon as the local gates in step 1
+   are green. Rationale (operator, 2026-06-05): the local run is
+   faster and authoritative; waiting on remote CI only adds latency.
+   Still glance at `gh run list --limit 1` later and fix any red, but
+   it never gates the ship.
 3. **Deploy** to the live EC2 via SSM:
    - `git pull --ff-only` in `/opt/memex/`
    - `docker compose --env-file .env -f deploy/docker-compose.yml up -d --build <services-that-changed>`
