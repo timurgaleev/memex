@@ -680,6 +680,14 @@ async function callEntityRecall(
     return jsonResult({
       ...r,
       ok: true,
+      // Run the page through the same PUBLIC_SAFE_PAGE_FIELDS allowlist the
+      // other page tools use. The recall layer's redact_body only strips
+      // markdown_body via destructure, which is NOT fail-safe — a new
+      // PageRow field would leak by default here. redactBody keeps recall
+      // consistent with page_get/page_list (e.g. drops deleted_at too).
+      page: r.page
+        ? redactBody(r.page as unknown as Record<string, unknown>)
+        : r.page,
       facts: redactFacts(r.facts as unknown as Record<string, unknown>[]),
       timeline: redactTimeline(
         r.timeline as unknown as Record<string, unknown>[],

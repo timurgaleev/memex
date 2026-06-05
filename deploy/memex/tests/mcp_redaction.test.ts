@@ -197,6 +197,20 @@ describe("dispatchTool entity_recall redaction", () => {
     expect(out.page).not.toHaveProperty("markdown_body");
     expect(out.page.slug).toBe(SLUG);
     expectNoLeak(res);
+    // Fail-safe: the recall page must pass the SAME allowlist as page_get,
+    // not just have markdown_body destructured off. Every returned key must
+    // be in PUBLIC_SAFE_PAGE_FIELDS (so a new PageRow field can't leak here).
+    const allowed = new Set([
+      "slug",
+      "type",
+      "title",
+      "compiled_truth",
+      "content_hash",
+      "created_at",
+      "updated_at",
+    ]);
+    for (const k of Object.keys(out.page)) expect(allowed.has(k)).toBe(true);
+    expect(out.page).not.toHaveProperty("deleted_at");
   });
 
   it("internal ingress keeps page.markdown_body", async () => {

@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.11] — 2026-06-05
+
+### Security
+- **`entity_recall` public page now passes the full field allowlist.** A
+  follow-up `/cso` + bug-hunter pass found the public `entity_recall`
+  returned its `page` object via the recall layer's `redact_body`
+  destructure (which strips only `markdown_body`) instead of the shared
+  `redactBody` / `PUBLIC_SAFE_PAGE_FIELDS` allowlist that `page_get` /
+  `page_list` / `page_versions` use. No free-text body leaked (markdown
+  body was stripped, `compiled_truth` is public by policy), but it
+  returned `deleted_at` and — the real issue — **broke the fail-safe
+  invariant**: a newly added `PageRow` field would have leaked by default
+  on this one path. `mcp/dispatch.ts` `callEntityRecall` now runs the
+  page through `redactBody` on public ingress; regression test asserts
+  every returned page key is allowlisted. Internal ingress unchanged.
+
 ## [1.2.10] — 2026-06-05
 
 ### Security
