@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.12] — 2026-06-06
+
+### Fixed
+- **Daily public-bearer rotation never reached the live container.**
+  `scripts/rotate-memex-public-bearer.sh` wrote the new bearer to Secrets
+  Manager + the on-disk `env_file`, then ran `docker restart` — which does
+  NOT reload a changed `env_file` (container env is baked at *create*
+  time). So after every 04:00 rotation the container kept the previous
+  bearer while SM held the new one, silently breaking public MCP auth for
+  any client using the current SM value until the next `compose up`.
+  Replaced the restart with `docker compose up -d --force-recreate memex`
+  so the freshly-staged `env_file` is actually loaded. Discovered live
+  (SM == on-disk env, but the container's `MEMEX_PUBLIC_BEARER` was
+  stale). Added `MEMEX_ROTATE_SERVICE` knob (default `memex`).
+
 ## [1.2.11] — 2026-06-05
 
 ### Security
