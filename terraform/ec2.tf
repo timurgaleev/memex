@@ -14,17 +14,23 @@ resource "aws_security_group" "memex" {
   description = "Stack EC2 — controlled inbound, HTTPS/email/tunnel outbound"
   vpc_id      = aws_vpc.main.id
 
-  # SSH inbound — only if ssh_allowed_cidr is set. Empty = disabled (use SSM instead)
-  dynamic "ingress" {
-    for_each = var.ssh_allowed_cidr != "" ? [var.ssh_allowed_cidr] : []
-    content {
-      description = "SSH from allowed CIDR"
-      from_port   = 22
-      to_port     = 22
-      protocol    = "tcp"
-      cidr_blocks = [ingress.value]
-    }
-  }
+  # SSH inbound — only if ssh_allowed_cidr is set. Empty = disabled (use SSM
+  # instead). NOTE: this MUST be an explicit `ingress = [...] : []` argument,
+  # not a `dynamic "ingress"` block. A dynamic block that iterates zero times
+  # leaves `ingress` unset (null), which the AWS provider reads as "do not
+  # manage ingress" — so an existing live rule is NEVER removed. An explicit
+  # empty list `[]` means "manage ingress, zero rules" and deletes it.
+  ingress = var.ssh_allowed_cidr != "" ? [{
+    description      = "SSH from allowed CIDR"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = [var.ssh_allowed_cidr]
+    ipv6_cidr_blocks = []
+    prefix_list_ids  = []
+    security_groups  = []
+    self             = false
+  }] : []
 
   # HTTPS outbound: Bedrock, npm, SSM, Cloudflare
   egress {
