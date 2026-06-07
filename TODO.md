@@ -126,6 +126,70 @@ future release.
 
 ---
 
+## Brain capability roadmap (phased, deferred)
+
+A long-horizon plan to grow memex's retrieval brain. memex stays **brain-only**
+— a retrieval service over MCP — and the agent that drives it is the MCP client
+(Claude Code). So this roadmap is about making the brain **sharper at returning
+context**, not about turning it into an agent.
+
+**Phases P0–P9 are brain-internal** (single `/health` + `/mcp` surface,
+retrieval-only, no agent loop). **The near-term target is P0 → P1 → P2**
+(data-model substrate + retrieval-quality core), optionally P3 (durable jobs)
+and P6 (eval gate).
+
+A second tier of capabilities from the broader landscape — public auth/HTTP,
+LLM synthesis, an in-brain agent loop, multimodal/voice, self-upgrade
+automation — is **explicitly out of scope**: it would rebuild what the MCP
+client already provides. Listed at the end only so the boundary is on record.
+
+Build list (brain-internal):
+
+- **P0 — Schema cache substrate.** `pages.generation` + page-generation clock +
+  triggers (cache-invalidation substrate); `tags` / `raw_data` / `config` /
+  `ingest_log` tables; provenance columns on `pages`/`sources`/`links`. Pure
+  DDL; live-RDS index migrations use `CONCURRENTLY`.
+- **P1 — Chunk/code-metadata schema + FTS.** Expand chunks with code metadata +
+  per-chunk `search_vector`; code-edge graph tables; `timeline_entries`;
+  weighted page/chunk TSVECTOR triggers.
+- **P2 — Retrieval quality core** *(highest value)*. Intent-weighted RRF,
+  post-fusion salience/recency/graph signals, contextual retrieval, a
+  cross-encoder reranker abstraction, a semantic query cache keyed off the P0
+  generation clock, and token-budget enforcement.
+- **P3 — Durable job system.** Supervisor (PID + DB lock + wedge detection),
+  child-worker isolation, parent→child DAG fan-in, idempotency, timeout/cancel,
+  budget + rate-lease metering, `pg_notify` job events. Prereq for any fan-out.
+- **P4 — Cycle expansion.** Grow the maintenance cycle with the non-LLM phases:
+  lint, backlinks-materialize, git sync, facts reconcile, symbol-edge resolve,
+  hard purge, weight recompute, schema-suggest.
+- **P5 — Enrichment primitives (LLM-free).** Entity-slug resolution, gazetteer
+  auto-linking, NER typed-link inference, meeting→timeline extraction,
+  completeness scoring, facts-fence format.
+- **P6 — Eval gate.** nDCG/Jaccard + qrels + baselines + a CI correctness gate
+  on retrieval quality (turns capture/replay into a real regression guard).
+- **P7 — Skill catalog over MCP.** Frontmatter parser, trigger-index,
+  `list_skills`/`get_skill`, resolver validation, skillpack installer.
+- **P8 — Ops hardening.** Doctor category taxonomy + cause-ranking, quarantine
+  markers, audit-writer JSONL trail, destructive-guard (soft-delete/restore),
+  source-health metrics.
+- **P9 — MCP/CLI parity.** Request-param redaction for logging, JSON-shaped MCP
+  errors, type-enum validation, and the convenience CLI surface (page CRUD,
+  graph traversal, cache/status dashboards).
+
+Out of scope (rebuilds what the MCP client already does — recorded only to
+mark the boundary, not planned work):
+
+- HTTP/OAuth public auth surface + remote MCP federation.
+- In-brain AI gateway + LLM enrichment pipeline (passive ingest recipes).
+- In-brain agent layer (think pipeline, context engine, subagent runtime).
+- Multimodal/voice/files + the 1024→1536 embedding upgrade.
+- Self-optimization / self-upgrade / automation daemons.
+
+Recommended start: **P0 → P1 → P2**. Each phase is one `/ship` batch
+(local gates → push → SSM deploy → live verify → tag).
+
+---
+
 ## Revival projects
 
 These are intentionally archived. Pick them up if and when you want

@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Schema substrate for retrieval-quality work (internal, no behavior
+  change yet).** A per-page `generation` counter plus a global
+  `page_generation_clock` singleton provide a cheap cache-invalidation
+  signal for a future query cache; new `tags` / `raw_data` / `config` /
+  `ingest_log` metadata tables; and provenance / ranking-signal columns on
+  `pages` / `sources` / `links` (e.g. `emotional_weight`,
+  `last_retrieved_at`, link `context`/`origin`). All additive — the
+  foundation the retrieval-quality phases build on. Migrations 022–024;
+  the generation bump is applied at the application layer inside the
+  existing page-write transaction (memex uses no DB triggers).
+
 ## [1.2.13] — 2026-06-07
 
 ### Security
