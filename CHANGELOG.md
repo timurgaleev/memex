@@ -6,6 +6,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.13] — 2026-06-07
+
+### Security
+- **EC2 security group SSH inbound now actually closes when disabled.**
+  The SSH ingress rule was defined with a `dynamic "ingress"` block whose
+  `for_each` collapsed to an empty list when `ssh_allowed_cidr=""` — but a
+  dynamic block that iterates zero times leaves the `ingress` attribute
+  *unset* (null), which the AWS provider reads as "do not manage ingress",
+  so the live `/32` rule was never removed. Rewrote it as an explicit
+  `ingress = var.ssh_allowed_cidr != "" ? [{…}] : []` argument; the empty
+  list forces the provider to delete all inbound rules. Set
+  `ssh_allowed_cidr=""` and applied — the live SG now has zero inbound
+  (host is reached only via SSM Session Manager).
+
+### Removed
+- **Dropped the legacy `subdomain` slot end-to-end.** `var.subdomain` (the
+  retired chat-UI host) fed `STACK_SUBDOMAIN` → `.env` `SUBDOMAIN`/
+  `PUBLIC_HOST`, none of which any service consumes (compose reads neither).
+  Removed it from `variables.tf`, `compute.tf`, `user_data.sh.tftpl`,
+  `terraform.tfvars.example`, `scripts/bootstrap.sh`, and `scripts/init.sh`,
+  and realigned `tests/init.test.sh` to the new prompt order. The live
+  instance is unaffected (`ignore_changes=[user_data]`; bootstrap runs only
+  on first boot). The public MCP host (`memex_subdomain` → `brain.*`) is
+  untouched.
+
+### Changed
+- **`/ship` is now the mandated entry point for shipping.** Documented in
+  `CLAUDE.md` that every change must ship via the `/ship` skill, with the
+  repo-specific overrides spelled out (ships to `main`, tags + `gh release`
+  instead of a `VERSION` file, operator-only commits with no Claude
+  co-author, SSM deploy, local tests as the gate).
+
 ## [1.2.12] — 2026-06-06
 
 ### Fixed

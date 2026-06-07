@@ -87,6 +87,24 @@ A change is not "shipped" until the live EC2 is running it. The full
 loop is: **test → push → deploy → verify → release**, in that order,
 every time.
 
+**ALWAYS invoke the `/ship` skill when shipping** — never push, tag, or
+release by hand. `/ship` is the single entry point for every change that
+leaves the working tree. This repo overrides the generic skill's defaults
+to match the rules below, and where they conflict the repo rules win:
+- **Ships to `main` directly** (push to `origin main`) — NOT a feature
+  branch + PR. Do not create a `VERSION` file or `package.json` bump;
+  versioning is git **tags** `vX.Y.Z` (3-digit SemVer) + a `gh release`.
+- **Commits carry the operator only** — NEVER add a `Co-Authored-By:
+  Claude` trailer (see the no-coauthor rule).
+- **Deploy is via SSM** to the live EC2, not platform CI. **Local tests
+  are the ship gate** (step 1); GitHub CI never blocks the ship.
+- Terraform/infra changes go through `terraform plan`/`apply` against the
+  S3 state (step 4) — the skill's test/PR machinery does not apply to
+  infra; the live `apply` + verify is the gate.
+
+The numbered loop below is the authoritative procedure `/ship` follows
+for this repo:
+
 1. **Test locally** (everything that applies to the change):
    - `make audit` — exit 0
    - `make scrub-audit` — HIGH:0
