@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Hybrid search now nudges fresher content up the ranking.** A gentle,
+  floor-bounded recency multiplier decays with `documents.updated_at`
+  (half-life ~120 days, never below 0.6× so old-but-relevant hits are
+  nudged, not buried). Operates on the live retrieval model; a
+  missing/unparseable/future timestamp is neutral (1.0×).
 - **Hybrid search now weights keyword vs vector retrieval by query
   intent.** Reciprocal Rank Fusion gained optional per-list weights;
   `exact`/`factual` queries lean on keyword (FTS) matches, `topic`/

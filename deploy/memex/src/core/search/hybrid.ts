@@ -29,6 +29,7 @@ import {
 } from "./source-boost.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
 import { rrfWeightsForLists } from "./intent-weights.ts";
+import { recencyMultiplier } from "./recency.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
 
@@ -77,7 +78,8 @@ export interface SearchHit {
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 
 interface HitPayload extends BoostablePayload, ChunkPayloadForRerank {
-  /* boostable + rerank-able combined */
+  /** Live-model content freshness (documents.updated_at), for recency. */
+  updated_at?: string | null;
 }
 
 export async function hybridSearch(
@@ -147,11 +149,13 @@ export async function hybridSearch(
     title: string | null;
     source_id: string | null;
     source_kind: SourceKind | null;
+    updated_at: string | null;
   }>(
     `SELECT c.id, c.document_id, c.content,
             d.source_path, d.title,
             d.source_id,
-            s.kind AS source_kind
+            s.kind AS source_kind,
+            d.updated_at::text AS updated_at
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = d.source_id
@@ -174,6 +178,7 @@ export async function hybridSearch(
         sourcePath: row.source_path,
         source_id: row.source_id,
         source_kind: row.source_kind,
+        updated_at: row.updated_at,
       },
     });
   }
@@ -181,7 +186,16 @@ export async function hybridSearch(
   // 6. Source-boost.
   scored = applySourceBoost(scored);
 
-  // Re-sort after boost (RRF was already sorted but boosts may flip).
+  // 6b. Recency — gentle freshness multiplier on the LIVE model's
+  //     documents.updated_at (floor-bounded, never buries old hits).
+  //     Immutable like the rest of the pipeline.
+  const nowMs = Date.now();
+  scored = scored.map((s) => ({
+    ...s,
+    score: s.score * recencyMultiplier(s.payload?.updated_at ?? null, nowMs),
+  }));
+
+  // Re-sort after boost + recency (RRF was already sorted but these flip).
   scored.sort((a, b) => b.score - a.score);
 
   // 7. Dedup per doc — skip for `exact` intent.
