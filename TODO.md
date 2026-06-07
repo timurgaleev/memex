@@ -57,6 +57,15 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Any future document-delete / prune path MUST bump
+  `document_generation_clock`.** The live-model cache clock (migration 025)
+  is bumped on document *writes* in `writeDocumentTransaction`. Today
+  nothing hard-deletes a `documents` row (the sweep only adds/updates), so
+  there is no staleness gap. But when a prune/GC path lands, it must call
+  `bumpDocumentClock(tx)` in the same transaction — otherwise a query cache
+  built on this clock would serve results referencing deleted chunks. Add a
+  regression test alongside that path. Flagged by the migration-025 review.
+
 - **Search `token_budget`: token estimate is `chars/4`, not a real
   tokenizer.** Good enough for a context cap, but a multibyte/CJK-heavy or
   code-heavy corpus will over- or under-count. The word-boundary truncation

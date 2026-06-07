@@ -21,6 +21,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   weights are passed.
 
 ### Added
+- **Cache-invalidation clock on the live retrieval model (internal).** A
+  `document_generation_clock` singleton (migration 025) is bumped on every
+  document write from the indexer transaction, giving a cheap corpus-level
+  "did anything change" signal. Substrate for a forthcoming query cache; no
+  behaviour change yet. (The earlier clock from migration 022 sits on the
+  dormant `pages` model; this one is on the live `documents`/`chunks` path.)
 - **`search` gained an optional `token_budget` parameter.** Caps the total
   size of returned context (~chars/4 tokens); hits are kept in rank order,
   the overflowing tail hit is truncated on a word boundary, and the top hit

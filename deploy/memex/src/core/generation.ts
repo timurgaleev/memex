@@ -37,10 +37,31 @@ export async function bumpClock(tx: Engine): Promise<void> {
   );
 }
 
-/** Current global clock value (0 if unset). */
+/** Current global page clock value (0 if unset). */
 export async function currentClock(engine: Engine): Promise<number> {
   const r = await engine.query<{ value: number }>(
     `SELECT value FROM page_generation_clock WHERE id = 1`,
+  );
+  return Number(r.rows[0]?.value ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Live model (documents/chunks) — migration 025.
+// The query cache (forthcoming) keys off this corpus-level clock; bumped on
+// every document write from the indexer transaction.
+// ---------------------------------------------------------------------------
+
+/** Bump the live-model (documents) generation clock, within `tx`. */
+export async function bumpDocumentClock(tx: Engine): Promise<void> {
+  await tx.query(
+    `UPDATE document_generation_clock SET value = value + 1 WHERE id = 1`,
+  );
+}
+
+/** Current live-model (documents) clock value (0 if unset). */
+export async function currentDocumentClock(engine: Engine): Promise<number> {
+  const r = await engine.query<{ value: number }>(
+    `SELECT value FROM document_generation_clock WHERE id = 1`,
   );
   return Number(r.rows[0]?.value ?? 0);
 }

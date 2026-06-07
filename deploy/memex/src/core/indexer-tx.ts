@@ -20,6 +20,7 @@ import {
 } from "./entities.ts";
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
+import { bumpDocumentClock } from "./generation.ts";
 
 export interface ChunkWrite {
   /** Chunk body text (will land in chunks.content). */
@@ -94,6 +95,10 @@ export async function writeDocumentTransaction(
         doc.mtimeMs ?? null,
       ],
     );
+
+    // Bump the live-model generation clock so the query cache knows the
+    // corpus changed (migration 025).
+    await bumpDocumentClock(tx);
 
     // Wipe prior chunks for this document. Cascades to embeddings + entity_mentions
     // via ON DELETE CASCADE on the FK, so reindexing is idempotent.
