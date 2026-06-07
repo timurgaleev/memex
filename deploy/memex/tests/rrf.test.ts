@@ -49,4 +49,29 @@ describe("reciprocalRankFusion", () => {
     ]);
     expect(r.map((x) => x.id)).toEqual(["a", "b"]);
   });
+
+  it("scales a list's contribution by its weight", () => {
+    // Each id is rank-1 in its own list; weighting list 0 higher must win.
+    const r = reciprocalRankFusion([["a"], ["b"]], { weights: [2, 1] });
+    const aScore = r.find((x) => x.id === "a")?.score ?? 0;
+    const bScore = r.find((x) => x.id === "b")?.score ?? 0;
+    expect(aScore).toBeGreaterThan(bScore);
+    expect(r[0]?.id).toBe("a");
+  });
+
+  it("can flip the winner purely via weights", () => {
+    // Equal-weight: 'a' (rank 1 in list 0) ties/leads. Heavier list 1 lifts 'b'.
+    const equal = reciprocalRankFusion([["a"], ["b"]]);
+    expect(equal[0]?.id).toBe("a"); // first-inserted wins the tie
+    const weighted = reciprocalRankFusion([["a"], ["b"]], { weights: [1, 3] });
+    expect(weighted[0]?.id).toBe("b");
+  });
+
+  it("missing or short weights default to 1 (equal-weight RRF)", () => {
+    const base = reciprocalRankFusion([["a", "b"], ["b", "c"]]);
+    const withDefaults = reciprocalRankFusion([["a", "b"], ["b", "c"]], {
+      weights: [1], // list 1 omitted → defaults to 1
+    });
+    expect(withDefaults).toEqual(base);
+  });
 });

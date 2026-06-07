@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Hybrid search now weights keyword vs vector retrieval by query
+  intent.** Reciprocal Rank Fusion gained optional per-list weights;
+  `exact`/`factual` queries lean on keyword (FTS) matches, `topic`/
+  `personal` queries lean on semantic vector matches, `howto` stays
+  balanced. Gentle multipliers (0.7–1.4) nudge ranking without overriding
+  RRF's rank smoothing. Equal-weight behaviour is unchanged when no
+  weights are passed.
+
 ### Added
 - **Schema substrate for retrieval-quality work (internal, no behavior
   change yet).** A per-page `generation` counter plus a global

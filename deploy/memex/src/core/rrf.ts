@@ -13,6 +13,13 @@
 export interface RrfOptions {
   /** Smoothing constant. Higher = lower-ranked items contribute more. */
   k?: number;
+  /**
+   * Per-list multiplier, parallel to `lists`. A list's rank contributions
+   * are scaled by its weight, so a heavier list pulls its items up the
+   * fused ranking. Missing entries (or no `weights` at all) default to 1,
+   * which reproduces the classic equal-weight RRF.
+   */
+  weights?: readonly number[];
 }
 
 export interface RrfResult {
@@ -27,12 +34,14 @@ export function reciprocalRankFusion(
   const k = opts.k ?? 60;
   const acc = new Map<string, number>();
 
-  for (const list of lists) {
+  for (let li = 0; li < lists.length; li++) {
+    const list = lists[li]!;
+    const weight = opts.weights?.[li] ?? 1;
     for (let i = 0; i < list.length; i++) {
       const id = list[i];
       if (!id) continue;
       const rank = i + 1; // ranks are 1-based in the formula
-      const contribution = 1 / (k + rank);
+      const contribution = weight * (1 / (k + rank));
       acc.set(id, (acc.get(id) ?? 0) + contribution);
     }
   }

@@ -28,6 +28,7 @@ import {
   type BoostablePayload,
 } from "./source-boost.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
+import { rrfWeightsForLists } from "./intent-weights.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
 
@@ -127,8 +128,13 @@ export async function hybridSearch(
     }
   }
 
-  // 4. RRF fuse.
-  const fused = reciprocalRankFusion(lists, { k: opts.rrfK }).slice(0, fanout);
+  // 4. RRF fuse — weighted by intent (list order is [vector, keyword,
+  //    ...keywordExpansions], so keyword lists = lists.length - 1).
+  const rrfWeights = rrfWeightsForLists(intent, lists.length - 1);
+  const fused = reciprocalRankFusion(lists, {
+    k: opts.rrfK,
+    weights: rrfWeights,
+  }).slice(0, fanout);
   if (fused.length === 0) return [];
 
   // 5. Hydrate.
