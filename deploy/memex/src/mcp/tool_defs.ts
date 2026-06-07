@@ -27,6 +27,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           maximum: 100,
           description: "Number of hits to return. Default 5.",
         },
+        token_budget: {
+          type: "integer",
+          minimum: 1,
+          maximum: 200000,
+          description:
+            "Optional cap on total returned content size (~chars/4 tokens). Hits are kept in rank order; the overflowing tail hit is truncated. Unset = no cap.",
+        },
       },
       required: ["q"],
       additionalProperties: false,

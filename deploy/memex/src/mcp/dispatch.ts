@@ -8,7 +8,7 @@
  * are reserved for protocol-level failures (malformed request etc.).
  */
 import type { Storage } from "../core/storage.ts";
-import { hybridSearch } from "../core/search/index.ts";
+import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
 import { findBacklinks } from "../core/backlinks.ts";
 import {
@@ -203,15 +203,28 @@ async function callSearch(
     }
     k = kArg as number;
   }
+  const tbArg = args["token_budget"];
+  let tokenBudget: number | undefined;
+  if (tbArg !== undefined) {
+    if (
+      !Number.isInteger(tbArg) ||
+      (tbArg as number) < 1 ||
+      (tbArg as number) > 200000
+    ) {
+      return errResult(
+        "search: `token_budget` must be an integer in [1, 200000]",
+      );
+    }
+    tokenBudget = tbArg as number;
+  }
   const onCapture = makeCaptureCallback(storage.engine(), storage.config(), {
     toolName: "mcp.search",
     remote: true,
   });
-  const hits = await hybridSearch(
-    storage,
-    q,
-    onCapture ? { k, onCapture } : { k },
-  );
+  const searchOpts: SearchOptions = { k };
+  if (onCapture) searchOpts.onCapture = onCapture;
+  if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
+  const hits = await hybridSearch(storage, q, searchOpts);
   const out = redact
     ? redactBodies(hits as unknown as Record<string, unknown>[])
     : hits;

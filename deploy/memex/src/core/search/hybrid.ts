@@ -30,6 +30,7 @@ import {
 import { classifyIntent, type Intent } from "./intent.ts";
 import { rrfWeightsForLists } from "./intent-weights.ts";
 import { recencyMultiplier } from "./recency.ts";
+import { applyTokenBudget } from "./token-budget.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
 
@@ -45,6 +46,13 @@ export interface SearchOptions {
   intent?: Intent;
   /** Skip query expansion. */
   noExpansion?: boolean;
+  /**
+   * Optional cap on the total estimated tokens (chars/4) of returned
+   * `content`, consumed in rank order. The first hit is always kept
+   * (truncated if it alone exceeds the budget); the overflowing tail hit
+   * is truncated and iteration stops. Unset = no cap.
+   */
+  tokenBudget?: number;
   /**
    * Optional side-channel: invoked once after results are computed,
    * with the raw query + result IDs + latency + meta. Used by the
@@ -73,6 +81,8 @@ export interface SearchHit {
   content: string;
   score: number;
   intent: Intent;
+  /** Set when `content` was cut to fit a `tokenBudget` (trailing "…"). */
+  truncated?: boolean;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -211,8 +221,8 @@ export async function hybridSearch(
     ? await rerank(trimmed, deduped.slice(0, k * 2))
     : deduped;
 
-  // 9. Trim.
-  const hits: SearchHit[] = final.slice(0, k).map((h) => ({
+  // 9. Trim to k.
+  let hits: SearchHit[] = final.slice(0, k).map((h) => ({
     chunkId: h.chunkId,
     documentId: h.documentId,
     sourcePath: h.payload?.sourcePath ?? "",
@@ -221,6 +231,11 @@ export async function hybridSearch(
     score: h.score,
     intent,
   }));
+
+  // 9b. Token budget (opt-in) — cap total returned context size.
+  if (opts.tokenBudget !== undefined) {
+    hits = applyTokenBudget(hits, opts.tokenBudget);
+  }
 
   // 10. Side-channel: optional capture hook for eval-capture wiring.
   // Errors here never affect the user-visible result — wrapped in a

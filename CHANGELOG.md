@@ -21,6 +21,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   weights are passed.
 
 ### Added
+- **`search` gained an optional `token_budget` parameter.** Caps the total
+  size of returned context (~chars/4 tokens); hits are kept in rank order,
+  the overflowing tail hit is truncated on a word boundary, and the top hit
+  is always returned. Lets an MCP client ask for right-sized context instead
+  of a fixed `k` chunks. Unset = unchanged behaviour.
 - **Schema substrate for retrieval-quality work (internal, no behavior
   change yet).** A per-page `generation` counter plus a global
   `page_generation_clock` singleton provide a cheap cache-invalidation

@@ -57,6 +57,15 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Search `token_budget`: token estimate is `chars/4`, not a real
+  tokenizer.** Good enough for a context cap, but a multibyte/CJK-heavy or
+  code-heavy corpus will over- or under-count. The word-boundary truncation
+  can also drop up to ~40% of the overflowing tail hit (the cut lands at the
+  last whitespace past 60% of the limit). Acceptable today; revisit with a
+  real tokenizer if budgets get tight. The trimmed hit is flagged
+  `truncated: true` so callers can detect the cut. Surfaced by the P2
+  token-budget review.
+
 - **Migration runner: set `lock_timeout` for live-RDS safety.** `migrate.ts`
   wraps each migration in one transaction (good, transactional DDL) but
   sets no `lock_timeout`/`statement_timeout`. An `ADD COLUMN`/`ALTER` takes
