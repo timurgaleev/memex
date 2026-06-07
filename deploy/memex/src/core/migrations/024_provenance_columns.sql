@@ -8,7 +8,10 @@
 -- feed P4 purge and P8 source-health. P0 only lays the columns.
 
 ALTER TABLE pages
-  ADD COLUMN IF NOT EXISTS emotional_weight NUMERIC(4,3) NOT NULL DEFAULT 0.0,
+  -- emotional_weight is a deterministic 0..1 ranking score (REAL, like the
+  -- recency/salience signals it sits beside); populated later by a cycle
+  -- phase. REAL avoids any numeric-overflow edge if a future writer scales it.
+  ADD COLUMN IF NOT EXISTS emotional_weight REAL NOT NULL DEFAULT 0.0,
   ADD COLUMN IF NOT EXISTS last_retrieved_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS links_extracted_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS contextual_retrieval_mode TEXT;

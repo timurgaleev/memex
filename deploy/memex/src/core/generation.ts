@@ -9,7 +9,16 @@
  */
 import type { Engine } from "./engine/interface.ts";
 
-/** Bump a single page's generation AND the global clock, within `tx`. */
+/**
+ * Bump a single page's generation AND the global clock, within `tx`.
+ *
+ * The per-page UPDATE matches 0 rows if `slug` no longer exists (e.g. a
+ * hypothetical concurrent hard-purge between the page write and this call).
+ * That is acceptable: there is no hard-delete path today (deletes are
+ * soft), callers always run this in the same txn as the write that created
+ * the row, and the global clock still advances so cache invalidation stays
+ * correct even in that edge case.
+ */
 export async function bumpPageGeneration(
   tx: Engine,
   slug: string,

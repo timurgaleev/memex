@@ -57,6 +57,15 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
+- **Migration runner: set `lock_timeout` for live-RDS safety.** `migrate.ts`
+  wraps each migration in one transaction (good, transactional DDL) but
+  sets no `lock_timeout`/`statement_timeout`. An `ADD COLUMN`/`ALTER` takes
+  a brief `ACCESS EXCLUSIVE` lock on `pages`; if a long-running query holds
+  a conflicting lock, the migration would block indefinitely behind it.
+  At memex's write volume this is unlikely, but a `SET LOCAL lock_timeout =
+  '5s'` at the top of each migration tx would fail fast instead of hanging
+  a deploy. Surfaced by the P0 (migrations 022–024) review.
+
 - **Public-ingress read redaction — COMPLETE.** All body-bearing /
   free-text read paths now redact on public ingress: `search` /
   `page_get` / `page_list` / `page_versions` (v1.2.0), `entity_facts` /
