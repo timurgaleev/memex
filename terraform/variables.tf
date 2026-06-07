@@ -22,12 +22,6 @@ variable "domain" {
   default     = ""
 }
 
-variable "subdomain" {
-  description = "Legacy subdomain wired into the EC2 bootstrap (was the chat UI; the public MCP brain is served via `memex_subdomain`). Kept for compatibility — audit for removal. Pair with `domain`."
-  type        = string
-  default     = "chat"
-}
-
 variable "memex_subdomain" {
   description = "Subdomain serving the memex public MCP (e.g. 'brain' for brain.example.com)."
   type        = string

@@ -25,7 +25,6 @@ secrets_prefix    = "memex"      # Secrets Manager namespace: memex/memex-public
 # Public surface
 # ---------------------------------------------------------------------------
 domain            = "example.com"
-subdomain         = "chat"     # legacy bootstrap slot (chat UI removed); audit for removal
 memex_subdomain   = "brain"     # → brain.example.com (public MCP — the live brain ingress)
 
 # ---------------------------------------------------------------------------

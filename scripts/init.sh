@@ -157,7 +157,6 @@ prompt AWS_ACCOUNT_ID    "AWS account ID (12 digits)"             ""            
 prompt AWS_REGION        "AWS region"                             "eu-west-1"    valid_nonempty
 prompt AWS_PROFILE       "AWS CLI profile"                        "default"      valid_nonempty
 prompt DOMAIN            "Public root domain (e.g. example.com)"  ""             valid_domain
-prompt SUBDOMAIN         "Subdomain (legacy bootstrap slot)"      "chat"        valid_subdomain
 prompt MEMEX_SUBDOMAIN   "Subdomain for the memex public MCP"     "brain"        valid_subdomain
 prompt GITHUB_OWNER      "GitHub username/org that owns the repo" ""             valid_github_owner
 prompt REPO_NAME         "Public repo name"                       "memex" valid_nonempty
@@ -197,9 +196,7 @@ AWS_REGION=${AWS_REGION}
 AWS_PROFILE=${AWS_PROFILE}
 
 DOMAIN=${DOMAIN}
-SUBDOMAIN=${SUBDOMAIN}
 MEMEX_SUBDOMAIN=${MEMEX_SUBDOMAIN}
-PUBLIC_HOST=${SUBDOMAIN}.${DOMAIN}
 MEMEX_HOST=${MEMEX_SUBDOMAIN}.${DOMAIN}
 
 GITHUB_OWNER=${GITHUB_OWNER}
@@ -235,7 +232,6 @@ aws_profile         = \"${AWS_PROFILE}\"
 project_name        = \"${REPO_NAME}\"
 
 domain              = \"${DOMAIN}\"
-subdomain           = \"${SUBDOMAIN}\"
 memex_subdomain     = \"${MEMEX_SUBDOMAIN}\"
 
 github_owner        = \"${GITHUB_OWNER}\"

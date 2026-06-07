@@ -18,7 +18,7 @@ die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 
 # Standard valid answer set, one prompt per line, in the order init.sh asks:
-#   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, DOMAIN, SUBDOMAIN, MEMEX_SUBDOMAIN,
+#   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, DOMAIN, MEMEX_SUBDOMAIN,
 #   GITHUB_OWNER, REPO_NAME, SECRETS_PREFIX, TFSTATE_BUCKET, TFSTATE_REGION,
 #   ALARM_EMAIL, SSH_ALLOWED_CIDR, USE_SSH_DEPLOY_KEY
 valid_answers() {
@@ -27,7 +27,6 @@ valid_answers() {
 eu-west-1
 default
 example.com
-stack
 brain
 testowner
 test-stack
@@ -76,7 +75,6 @@ fi
 if [ -f "$t1/.env" ] \
    && grep -q '^AWS_ACCOUNT_ID=123456789012$' "$t1/.env" \
    && grep -q '^DOMAIN=example.com$' "$t1/.env" \
-   && grep -q '^SUBDOMAIN=stack$' "$t1/.env" \
    && grep -q '^GITHUB_OWNER=testowner$' "$t1/.env" \
    && grep -q '^REPO_URL=https://github.com/testowner/test-stack.git$' "$t1/.env"; then
   pass "T2 .env has correct values"
@@ -132,7 +130,7 @@ fi
 t8=$(new_workspace t8)
 ec=0; output=$( { printf '%s\n' \
   "abc" \
-  "eu-west-1" "default" "example.com" "stack" "brain" \
+  "eu-west-1" "default" "example.com" "brain" \
   "testowner" "test-stack" "stack" "my-tfstate" "eu-central-1" \
   "" "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t8" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
@@ -146,7 +144,7 @@ fi
 t9=$(new_workspace t9)
 ec=0; output=$( { printf '%s\n' \
   "123456789012" "eu-west-1" "default" "no-dot-domain" \
-  "stack" "brain" "owner" "name" "stack" "buck" "eu-central-1" \
+  "brain" "owner" "name" "stack" "buck" "eu-central-1" \
   "" "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t9" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 1 ] && echo "$output" | grep -q "domain"; then
@@ -161,14 +159,13 @@ ec=0; output=$( { printf '%s\n' \
   "123456789012" \
   "" "" \
   "example.com" \
-  "" "" \
+  "" \
   "owner" "" \
   "" "buck" "" \
   "" "" "" "" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t10" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 0 ] \
    && grep -q '^AWS_REGION=eu-west-1$' "$t10/.env" \
-   && grep -q '^SUBDOMAIN=chat$' "$t10/.env" \
    && grep -q '^MEMEX_SUBDOMAIN=brain$' "$t10/.env" \
    && grep -q '^REPO_NAME=memex$' "$t10/.env" \
    && grep -q '^USE_SSH_DEPLOY_KEY=false$' "$t10/.env"; then

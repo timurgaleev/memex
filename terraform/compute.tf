@@ -17,7 +17,6 @@ resource "aws_instance" "memex" {
     secrets_prefix       = var.secrets_prefix
     aws_region           = var.aws_region
     domain               = var.domain
-    subdomain            = var.subdomain
     memex_subdomain      = var.memex_subdomain
   })
 
