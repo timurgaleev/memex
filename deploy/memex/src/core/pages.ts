@@ -14,6 +14,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
+import { bumpPageGeneration } from "./generation.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -185,6 +186,7 @@ export async function putPage(
          VALUES ($1, 1, NULL, $2, $3, $4::jsonb, $5)`,
         [input.slug, hashNew, body, truthJson, writtenBy],
       );
+      await bumpPageGeneration(tx, input.slug);
       return {
         slug: input.slug,
         version_n: 1,
@@ -242,6 +244,7 @@ export async function putPage(
         writtenBy,
       ],
     );
+    await bumpPageGeneration(tx, input.slug);
     return {
       slug: input.slug,
       version_n: nextVersion,
@@ -426,6 +429,7 @@ export async function deletePage(
         writtenBy ?? null,
       ],
     );
+    await bumpPageGeneration(tx, slug);
     return { slug, already_deleted: false };
   });
 }
