@@ -27,7 +27,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { submitJob } from "../src/core/jobs/dag.ts";
+import { findBacklinks as _realFindBacklinks } from "../src/core/backlinks.ts";
 import type { ToolCallResult } from "../src/mcp/dispatch.ts";
+
+// Capture the real implementation at file-load time — BEFORE beforeAll's
+// `mock.module` swaps it. `mock.module` is process-global and bun does NOT
+// auto-restore it between test files, so without the afterAll restore below
+// the stub leaks into every later file that imports findBacklinks (e.g.
+// tests/backlinks.test.ts), which then sees the canned doc-1 hit and fails.
+// Order-dependent: bun's full-suite loader hits this file before
+// backlinks.test.ts on Linux CI but after it on macOS — hence green locally,
+// red in CI until this restore was added.
+const realFindBacklinks = _realFindBacklinks;
 
 const SECRET_SURFACE = "Jane's divorce lawyer at Globex";
 const SECRET_PAYLOAD = "/vault/private/acquisition-target-globex.md";
@@ -69,6 +80,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Restore the real backlinks module so the stub cannot leak into later
+  // test files (see the load-time capture comment above).
+  mock.module("../src/core/backlinks.ts", () => ({
+    findBacklinks: realFindBacklinks,
+  }));
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
