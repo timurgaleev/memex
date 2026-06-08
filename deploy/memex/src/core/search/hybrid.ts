@@ -30,6 +30,7 @@ import {
 import { classifyIntent, type Intent } from "./intent.ts";
 import { rrfWeightsForLists } from "./intent-weights.ts";
 import { recencyMultiplier } from "./recency.ts";
+import { salienceMultiplier } from "./salience.ts";
 import { applyTokenBudget } from "./token-budget.ts";
 import {
   getCachedQuery,
@@ -99,6 +100,8 @@ const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 interface HitPayload extends BoostablePayload, ChunkPayloadForRerank {
   /** Live-model content freshness (documents.updated_at), for recency. */
   updated_at?: string | null;
+  /** Document frontmatter (documents.frontmatter), for salience. */
+  frontmatter?: unknown;
 }
 
 /**
@@ -262,12 +265,14 @@ export async function hybridSearch(
     source_id: string | null;
     source_kind: SourceKind | null;
     updated_at: string | null;
+    frontmatter: unknown;
   }>(
     `SELECT c.id, c.document_id, c.content,
             d.source_path, d.title,
             d.source_id,
             s.kind AS source_kind,
-            d.updated_at::text AS updated_at
+            d.updated_at::text AS updated_at,
+            d.frontmatter
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = d.source_id
@@ -291,6 +296,7 @@ export async function hybridSearch(
         source_id: row.source_id,
         source_kind: row.source_kind,
         updated_at: row.updated_at,
+        frontmatter: row.frontmatter,
       },
     });
   }
@@ -298,13 +304,17 @@ export async function hybridSearch(
   // 6. Source-boost.
   scored = applySourceBoost(scored);
 
-  // 6b. Recency — gentle freshness multiplier on the LIVE model's
-  //     documents.updated_at (floor-bounded, never buries old hits).
-  //     Immutable like the rest of the pipeline.
+  // 6b. Recency (documents.updated_at) + salience (frontmatter pinned/weight)
+  //     — gentle post-fusion multipliers on the LIVE model. Immutable like
+  //     the rest of the pipeline; both are neutral (1.0) when their signal
+  //     is absent, so neither can bury a hit that doesn't declare it.
   const nowMs = Date.now();
   scored = scored.map((s) => ({
     ...s,
-    score: s.score * recencyMultiplier(s.payload?.updated_at ?? null, nowMs),
+    score:
+      s.score *
+      recencyMultiplier(s.payload?.updated_at ?? null, nowMs) *
+      salienceMultiplier(s.payload?.frontmatter),
   }));
 
   // Re-sort after boost + recency (RRF was already sorted but these flip).

@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Hybrid search now honours a document's declared importance.** A
+  frontmatter `pinned: true` floors a gentle salience multiplier at 1.3×,
+  and `weight: <n>` sets it explicitly (clamped to 0.5–2.0×). Applied as a
+  post-fusion nudge alongside recency; documents that declare neither are
+  unaffected (1.0×). Lets you pin/weight notes without touching the engine.
 - **Hybrid search now nudges fresher content up the ranking.** A gentle,
   floor-bounded recency multiplier decays with `documents.updated_at`
   (half-life ~120 days, never below 0.6× so old-but-relevant hits are
