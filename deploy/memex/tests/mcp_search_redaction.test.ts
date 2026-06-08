@@ -19,6 +19,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import type { ToolCallResult } from "../src/mcp/dispatch.ts";
+// Capture the real search exports by VALUE at file-load time — BEFORE
+// beforeAll's `mock.module` swaps them. A live `import * as` namespace would
+// point at the mock after the swap; spreading into a plain object here copies
+// the real function references while they are still real. `mock.module` is
+// process-global and bun does NOT auto-restore it between files, so without
+// the afterAll restore the stubbed `hybridSearch` (canned "chunk-1" hit)
+// leaks into every later file that calls the real hybridSearch (e.g.
+// tests/hybrid_cache.test.ts).
+import * as _searchNs from "../src/core/search/index.ts";
+const _realSearchExports = { ..._searchNs };
 
 const SECRET = "Confidential chunk body — Q3 revenue 4.2M, churn 12%.";
 
@@ -56,6 +66,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Restore the real search module so the stub cannot leak into later test
+  // files (see the load-time capture comment on the import above).
+  mock.module("../src/core/search/index.ts", () => _realSearchExports);
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
