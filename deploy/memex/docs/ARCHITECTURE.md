@@ -204,11 +204,22 @@ failing doesn't stop the others:
 
 `POST /mcp` accepts JSON-RPC 2.0. Methods:
 - `initialize` — handshake, returns server info + capabilities
-- `tools/list` — returns the 5 tool defs from `mcp/tool_defs.ts`
+- `tools/list` — returns the 25 tool defs from `mcp/tool_defs.ts`
 - `tools/call` — invokes a tool, returns content blocks
 - `ping` — `{}`
 
-Tools: `search`, `index`, `backlinks`, `stats`, `log_friction`.
+Tools (25), grouped:
+- **Read:** `search` (+ optional `token_budget`), `backlinks`, `stats`,
+  `page_get`, `page_list`, `page_versions`, `graph_neighbors`, `graph_query`,
+  `entity_facts`, `entity_timeline`, `entity_recall`, `jobs_list`, `jobs_get`,
+  `jobs_logs`.
+- **Write** (internal-token only — in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`):
+  `index`, `page_put`, `page_append`, `page_delete`, `link`, `unlink`,
+  `add_fact`, `add_timeline_event`, `jobs_submit`, `jobs_cancel`,
+  `log_friction`.
+
+Public-bearer reads are body-redacted (`core/public_redaction.ts`); the
+internal token returns full content.
 
 Per-IP rate limit (token bucket, default 60 req/min). Configurable
 via `mcp.rate_limit_per_minute` in `memex.yml`.
