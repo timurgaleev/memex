@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-06-08
+
 ### Removed
 - **The Obsidian / markdown auto-watch recipe.** `serve` no longer spins up
   a filesystem watcher + boot-time vault sweep. Markdown still enters the
