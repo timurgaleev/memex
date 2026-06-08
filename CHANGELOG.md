@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-06-08
+
 ### Changed
 - **Hybrid search now honours a document's declared importance.** A
   frontmatter `pinned: true` floors a gentle salience multiplier at 1.3×,
