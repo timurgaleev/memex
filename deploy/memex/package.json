@@ -1,7 +1,7 @@
 {
   "name": "memex",
   "version": "0.1.0",
-  "description": "memex personal-knowledge brain — vector + keyword search over the Obsidian vault and ingested data, with Bedrock Titan embeddings.",
+  "description": "memex personal-knowledge brain — vector + keyword search over your markdown notes and ingested data, with Bedrock Titan embeddings.",
   "type": "module",
   "private": true,
   "bin": {

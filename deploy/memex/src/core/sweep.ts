@@ -16,7 +16,7 @@ export interface SweepOptions {
   /** Filesystem root of the vault. */
   vault: string;
   /** Globs to skip (literal-matched against the relative path). Defaults
-   *  cover Obsidian internals + the memex data dir. */
+   *  cover editor/tooling dotfile dirs + the memex data dir. */
   ignore?: string[];
   /** When true, re-index every file regardless of mtime. */
   force?: boolean;

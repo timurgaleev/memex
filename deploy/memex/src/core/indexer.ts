@@ -4,8 +4,8 @@
  * same source_path replaces all of its chunks (and their embeddings via
  * ON DELETE CASCADE).
  *
- * only ingests in-process strings + filesystem paths.
- * wires this into the Obsidian vault recipe (chokidar watcher + sweep).
+ * Only ingests in-process strings + filesystem paths. Driven on demand by
+ * the `memex reindex` CLI and the MCP `index` tool (no boot-time watcher).
  *
  * The atomic doc+chunks+entities writer lives in `core/indexer-tx.ts` so
  * the markdown indexer (this file, embeds via Titan) and the code

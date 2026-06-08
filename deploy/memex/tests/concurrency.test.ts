@@ -1,5 +1,5 @@
 /**
- * Unit tests for the FIFO Semaphore that gates obsidian recipe
+ * Unit tests for the FIFO Semaphore that gates file-sweep
  * fan-out. Exercises:
  *   - permits are claimed in arrival order (FIFO)
  *   - release wakes exactly one waiter

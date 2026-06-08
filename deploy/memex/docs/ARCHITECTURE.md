@@ -35,7 +35,7 @@ deploy/memex/src/
 ├── http/                two contract routes: /health + /mcp
 │                        (legacy REST routes removed in A.7 — all via /mcp)
 ├── mcp/                 JSON-RPC 2.0 transport + dispatch
-├── recipes/             obsidian (chokidar watcher) + cycle (6h tick)
+├── recipes/             cycle (6h maintenance tick)
 └── tests/               120 Bun tests
 ```
 

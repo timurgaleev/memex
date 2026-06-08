@@ -7,8 +7,8 @@
  *     belonging to it. Used to backfill and to pick the source for a
  *     freshly indexed document.
  *   - sync_policy: how the underlying content moves between disks
- *     (`synced` round-trips through Obsidian Sync, `local-only` never
- *     does, `mirror` is one-way push to a remote).
+ *     (`synced` round-trips through an external file sync, `local-only`
+ *     never does, `mirror` is one-way push to a remote).
  *   - indexed_policy: how much of the content to keep in our index
  *     (`verbatim` chunk text in DB, `hashed-only` privacy mode,
  *     `tombstoned` retains metadata only).

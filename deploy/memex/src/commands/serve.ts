@@ -7,10 +7,6 @@
 import { Storage } from "../core/storage.ts";
 import { startServer } from "../http/server.ts";
 import { loadConfig } from "../core/config.ts";
-import {
-  startObsidianRecipe,
-  type ObsidianRecipeHandle,
-} from "../recipes/obsidian.ts";
 import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
@@ -40,32 +36,6 @@ function codePaths(): string[] {
 function codeSourceId(path: string): string {
   const base = basename(path).toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return `${base || "root"}-code`;
-}
-
-function vaultPaths(config: ReturnType<typeof loadConfig>): string[] {
-  // Precedence (highest first):
-  //   1. MEMEX_VAULT_PATHS env  — comma-separated, container override
-  //   2. MEMEX_VAULT_PATH env   — single, legacy
-  //   3. memex.yml vault_paths.synced + .local concatenated
-  //   4. legacy storage.vault       — JSON config singleton
-  const plural = process.env.MEMEX_VAULT_PATHS;
-  if (plural && plural.length > 0) {
-    return plural
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  const singular = process.env.MEMEX_VAULT_PATH;
-  if (singular && singular.length > 0) return [singular];
-
-  if (config.vault_paths) {
-    const synced = config.vault_paths.synced ?? [];
-    const local = config.vault_paths.local ?? [];
-    const all = [...synced, ...local].filter((s) => s.length > 0);
-    if (all.length > 0) return all;
-  }
-
-  return config.storage.vault ? [config.storage.vault] : [];
 }
 
 function envNum(name: string): number | undefined {
@@ -118,39 +88,10 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   const server = startServer(serverOpts);
 
-  // + 5: spin up an obsidian recipe per configured vault path.
-  // a periodic dream loop that re-embeds stale docs.
-  // Env knobs (all optional):
-  //   MEMEX_SWEEP_DELAY_MS   ms between files in the initial sweep
-  //   MEMEX_SWEEP_MAX_FILES  cap files reindexed per sweep run
-  //   MEMEX_DREAM_INTERVAL_S background maintenance loop period (0 = off)
-  //   MEMEX_DREAM_STALE_DAYS how old an embedding must be to re-embed
-  const recipes: ObsidianRecipeHandle[] = [];
-  const vaults = vaultPaths(config);
-  if (vaults.length === 0) {
-    console.log(
-      "[memex] no vault configured (set MEMEX_VAULT_PATHS, MEMEX_VAULT_PATH, or storage.vault) — recipe disabled",
-    );
-  } else {
-    // Sweep knobs: env > memex.yml > defaults.
-    const delayMs = envNum("MEMEX_SWEEP_DELAY_MS")
-      ?? config.sweep?.per_file_delay_ms;
-    const maxFiles = envNum("MEMEX_SWEEP_MAX_FILES")
-      ?? config.sweep?.max_files;
-    for (const v of vaults) {
-      const recipeOpts: Parameters<typeof startObsidianRecipe>[1] = { vault: v };
-      if (delayMs !== undefined && delayMs > 0) {
-        recipeOpts.sweepPerFileDelayMs = delayMs;
-      }
-      if (maxFiles !== undefined && maxFiles > 0) {
-        recipeOpts.sweepMaxFiles = maxFiles;
-      }
-      console.log(
-        `[memex] starting obsidian recipe on ${v} (delayMs=${recipeOpts.sweepPerFileDelayMs ?? 0}, maxFiles=${recipeOpts.sweepMaxFiles ?? "∞"})`,
-      );
-      recipes.push(startObsidianRecipe(storage, recipeOpts));
-    }
-  }
+  // Markdown ingest is on-demand only: there is no boot-time file watcher.
+  // Content enters the brain via the MCP `index` tool / the `memex reindex`
+  // CLI (both go through core/sweep.ts → indexer), or via MCP `page_put`.
+  // No filesystem vault is watched at startup.
 
   // code chunkers (graph-only, see TODO External-dep roadmap).
   // Register one source row per MEMEX_CODE_PATHS entry, then run a
@@ -211,8 +152,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
 
   // Start the durable jobs worker. Single-concurrency for v1. (The
-  // gmail/gcal ingest recipes were removed — memex now ingests the
-  // Obsidian vault + code corpus only; jobs remain for future handlers.)
+  // gmail/gcal/obsidian ingest recipes were removed — markdown enters via
+  // on-demand reindex / MCP, code via the boot sweep; jobs remain for
+  // future handlers.)
   const worker = new Worker(new Queue(storage.engine()), { intervalMs: 5000 });
   worker.start();
   console.log(`[memex] jobs worker started (intervalMs=5000)`);
@@ -246,7 +188,6 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     console.log(`[memex] received ${signal}, shutting down`);
     await worker.stop();
     if (cycle) await cycle.stop();
-    await Promise.allSettled(recipes.map((r) => r.stop()));
     await server.stop();
     await storage.close();
     process.exit(0);

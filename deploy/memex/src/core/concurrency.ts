@@ -1,5 +1,5 @@
 /**
- * Small FIFO semaphore used by the obsidian recipe to bound the
+ * Small FIFO semaphore used by the file sweep to bound the
  * number of concurrent indexFile() calls. A polling loop (`while
  * (inFlight.size >= N) await sleep(50)`) gives non-deterministic
  * ordering and busy-waits; this gives FIFO + zero latency floor.

@@ -4,15 +4,14 @@
  * Manual sweep trigger.
  *
  * Use cases:
- *   - first-time bootstrap on a new EC2 if the watcher didn't see the
- *     existing tree (it should, but `--all` exists as a safety net)
+ *   - first-time bootstrap of a markdown tree (or a full re-index via `--all`)
  *   - after schema changes that invalidate stored chunks
  *   - debugging
  *   - re-indexing the code corpus after `git pull` on the host repo
  *     bind-mount (`--source code [--all]`)
  *
- * Without `--all`, behaves like the recipe's startup sweep: only
- * re-index files newer than their last_indexed_mtime.
+ * Without `--all`, this is an incremental sweep: only re-index files newer
+ * than their last_indexed_mtime.
  *
  * `--source` defaults to `vault` for backward compatibility. `--paths`
  * (CSV) overrides `MEMEX_CODE_PATHS` for the code sweep.

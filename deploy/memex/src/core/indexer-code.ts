@@ -139,7 +139,7 @@ export async function indexCodeDocument(
  */
 // Same rationale as indexer.ts MAX_INDEX_FILE_BYTES — tree-sitter
 // parsing is synchronous CPU and would block the Bun event loop on a
-// monolithic minified bundle. 5 MiB matches the obsidian + indexer cap.
+// monolithic minified bundle. 5 MiB matches the markdown indexer cap.
 const MAX_INDEX_CODE_FILE_BYTES = 5 * 1024 * 1024;
 
 export async function indexCodeFile(

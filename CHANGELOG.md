@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+- **The Obsidian / markdown auto-watch recipe.** `serve` no longer spins up
+  a filesystem watcher + boot-time vault sweep. Markdown still enters the
+  brain on demand via the `memex reindex` CLI and the MCP `index` tool (and
+  pages via `page_put`) — only the always-on vault recipe + its chokidar
+  watcher are gone (it was already disabled in production). Stale "Obsidian"
+  references across docs and comments were cleaned up; the functional
+  dotfile ignore globs (`.obsidian`, `.git`, …) and the `index`/`reindex`
+  path-guard are unchanged.
+
 ## [1.3.0] — 2026-06-08
 
 ### Changed

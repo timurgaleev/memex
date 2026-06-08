@@ -73,7 +73,7 @@ docker compose logs -f memex | grep -v healthcheck
 
 Notable log lines to look for:
 - `[memex] listening on http://0.0.0.0:18790 (MCP enabled)`
-- `[obsidian] initial sweep: scanned=N reindexed=M skipped=K errors=0`
+- `[code] boot sweep: scanned=N reindexed=M skipped=K parseErrors=0 errors=0`
 - `[memex] starting cycle loop: every Ns, embed-stale at >Md`
 - `[cycle] tick ok=true ...`
 

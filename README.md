@@ -4,7 +4,7 @@
 > One repo, one EC2, one weekend to deploy.
 
 **memex** is a self-hostable knowledge brain and personal AI assistant.
-It indexes your Obsidian vault and your code into a hybrid vector +
+It indexes your markdown notes and your code into a hybrid vector +
 keyword + entity-graph index, then exposes everything to your
 favourite AI agent over the Model Context Protocol (MCP).
 
@@ -41,7 +41,7 @@ stays in your AWS account.
 ## What you can do with it on day one
 
 - Have Claude Code (or Cursor / Codex / any MCP client) pull live
-  context from your Obsidian vault during refactors via the MCP server.
+  context from your notes during refactors via the MCP server.
 - Ask "what did I decide last week about X?" from your AI agent — get
   the exact note back with cited paths.
 - Search across everything you've written — hybrid vector + keyword +

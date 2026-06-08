@@ -1,8 +1,8 @@
 /**
  * `memex index <path>` — read a markdown file from disk and index it.
  *
- * Used in for one-shot ingestion (manual or scripted).
- * adds a watcher + sweep cron driven by the obsidian recipe.
+ * One-shot ingestion (manual or scripted). For a whole tree use
+ * `memex reindex`; there is no boot-time watcher.
  */
 import { Storage } from "../core/storage.ts";
 import { indexFile } from "../core/indexer.ts";

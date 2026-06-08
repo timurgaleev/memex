@@ -16,7 +16,7 @@ infrastructure:
 
 | Source | What we read |
 |---|---|
-| Obsidian vault | Markdown notes the operator places under the configured `MEMEX_VAULT_PATHS`. |
+| Markdown notes | Notes the operator indexes from under the configured `MEMEX_VAULT_PATHS`. |
 | Code corpus | Source files under the configured `MEMEX_CODE_PATHS` (graph-only via tree-sitter). |
 
 There is **no third-party data integration** — no Google, no email, no

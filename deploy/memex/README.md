@@ -1,7 +1,7 @@
 # memex
 
 Personal-knowledge brain — hybrid vector + keyword + entity-graph
-search over your Obsidian vault and code. Bun + TypeScript daemon
+search over your markdown notes and code. Bun + TypeScript daemon
 backed by RDS Postgres + pgvector. Reachable internally on
 `http://memex:18790/mcp` and externally on
 `https://brain.<your-domain>/mcp` (MCP JSON-RPC, bearer-auth,

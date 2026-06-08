@@ -44,7 +44,7 @@ export interface StorageConfig {
 // --- YAML shape (optional runtime knobs) -----------------------------------
 
 export interface VaultPathsConfig {
-  /** Paths backed by a synchronised store (Obsidian Sync). recipe. */
+  /** Paths backed by an external synchronised store. */
   synced?: string[];
   /** Paths NOT synchronised (workspace/memory). multi-path. */
   local?: string[];

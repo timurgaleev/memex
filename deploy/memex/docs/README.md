@@ -1,6 +1,6 @@
 # memex — Personal-Knowledge Brain
 
-Hybrid vector + keyword + entity-graph search over your Obsidian vault
+Hybrid vector + keyword + entity-graph search over your markdown notes
 and code. Single contract: MCP JSON-RPC at `POST /mcp`. Any
 MCP-compatible client (Claude Code, Cursor, Codex) calls the public
 surface at `https://brain.<your-domain>/mcp`; in-stack callers reach it
