@@ -14,7 +14,8 @@ deploy/memex/src/
 ├── core/
 │   ├── engine/          adapter pattern (PGLite + Postgres)
 │   ├── chunkers/        recursive (live), code/semantic stubs
-│   ├── search/          hybrid + 7 sub-modules
+│   ├── search/          hybrid + sub-modules (intent, intent-weights,
+│   │                    recency, salience, token-budget, query-cache, …)
 │   ├── cycle/           6 maintenance phases + orchestrator
 │   ├── output/          progress events + transcripts
 │   ├── resolvers/       wikilink + path resolvers (registry-based)
@@ -131,26 +132,49 @@ Append-only convention: never edit a shipped migration; ship a new one.
 
 ```mermaid
 flowchart TD
-  Q[query string] --> I[classifyIntent — Nova Lite + heuristics]
+  Q[query string] --> C{query cache hit?\ngated on document_generation_clock}
+  C -->|hit| OUT[hydrate cached ids → token_budget → return]
+  C -->|miss| I[classifyIntent — Nova Lite + heuristics]
   I --> E[embedText — Titan v2]
   E --> V[vectorSearch — pgvector cosine]
   Q --> K[keywordSearch — tsvector + ts_rank_cd]
   Q --> X[expandQuery — Nova Lite paraphrase ×3]
   X --> K2[extra keywordSearch passes]
-  V --> R[reciprocalRankFusion]
+  V --> R[intent-weighted reciprocalRankFusion]
   K --> R
   K2 --> R
   R --> H[hydrate from documents JOIN sources]
   H --> B[applySourceBoost]
-  B --> D[dedupByDocument]
+  B --> RS[× recency updated_at  × salience frontmatter]
+  RS --> D[dedupByDocument]
   D --> RR{MEMEX_RERANK?}
   RR -->|yes| TP[Haiku 4.5 two-pass rerank]
-  RR -->|no| OUT[trim to k]
-  TP --> OUT
+  RR -->|no| TK[trim to k]
+  TP --> TK
+  TK --> TB[token_budget cap — opt-in]
+  TB --> W[cache write — fire-and-forget]
 ```
 
-Source-boost weights: `vault=1.0`, `memory=0.7`, `webhook=0.5`,
-`mailbox=0.6`, `calendar=0.6`, `transcript=0.65`, `other=0.8`.
+**Ranking signals** (all gentle, post-fusion, neutral when their input is
+absent — `core/search/`):
+- **intent-weighted RRF** (`intent-weights.ts`): `exact`/`factual` lean
+  keyword, `topic`/`personal` lean vector, `howto` balanced (0.7–1.4×).
+- **recency** (`recency.ts`): floor-bounded decay on `documents.updated_at`
+  (half-life ~120 d, floor 0.6×).
+- **salience** (`salience.ts`): frontmatter `pinned:true` → ≥1.3×,
+  `weight:<n>` → clamped 0.5–2.0×.
+- **source-boost** weights: `vault=1.0`, `memory=0.7`, `webhook=0.5`,
+  `mailbox=0.6`, `calendar=0.6`, `transcript=0.65`, `other=0.8`.
+
+**Query cache** (`query-cache.ts`, migration 026): exact-match, on by default,
+fail-open. Keyed on the live-model `document_generation_clock` (migration 025,
+bumped on every document write), so any ingest invalidates it. Stores chunk
+ids only (re-hydrated from live tables); a hit skips embed/intent/retrieval.
+Disable per-call with `noCache` or globally with `MEMEX_QUERY_CACHE=0`.
+
+**token_budget** (`token-budget.ts`): optional `search` param caps total
+returned context (~chars/4); the overflowing tail hit is truncated and
+flagged `truncated:true`.
 
 Two-pass rerank is opt-in via `MEMEX_RERANK=1` env (Haiku is paid;
 default off keeps cost on Bedrock credit-eligible models).
