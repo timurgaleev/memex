@@ -31,6 +31,13 @@ import { classifyIntent, type Intent } from "./intent.ts";
 import { rrfWeightsForLists } from "./intent-weights.ts";
 import { recencyMultiplier } from "./recency.ts";
 import { applyTokenBudget } from "./token-budget.ts";
+import {
+  getCachedQuery,
+  putCachedQuery,
+  queryCacheKey,
+} from "./query-cache.ts";
+import { currentDocumentClock } from "../generation.ts";
+import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
 
@@ -46,6 +53,8 @@ export interface SearchOptions {
   intent?: Intent;
   /** Skip query expansion. */
   noExpansion?: boolean;
+  /** Disable the exact-match query cache for this call (default: enabled). */
+  noCache?: boolean;
   /**
    * Optional cap on the total estimated tokens (chars/4) of returned
    * `content`, consumed in rank order. The first hit is always kept
@@ -92,6 +101,54 @@ interface HitPayload extends BoostablePayload, ChunkPayloadForRerank {
   updated_at?: string | null;
 }
 
+/**
+ * Hydrate a cached list of chunk ids back into SearchHits, preserving the
+ * cached order. Chunks that no longer exist are silently skipped, so a
+ * cache hit can never resurrect deleted content. Scores are synthetic
+ * (descending by rank) — the ranking decision was already made at cache
+ * write time.
+ */
+async function hydrateByIds(
+  engine: Engine,
+  ids: readonly string[],
+  intent: Intent,
+): Promise<SearchHit[]> {
+  if (ids.length === 0) return [];
+  const rows = await engine.query<{
+    id: string;
+    document_id: string;
+    content: string;
+    source_path: string;
+    title: string | null;
+  }>(
+    `SELECT c.id, c.document_id, c.content, d.source_path, d.title
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+      WHERE c.id = ANY($1::text[])`,
+    [ids],
+  );
+  const byId = new Map(rows.rows.map((r) => [r.id, r]));
+  const out: SearchHit[] = [];
+  let score = ids.length;
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (!row) {
+      score--;
+      continue;
+    }
+    out.push({
+      chunkId: row.id,
+      documentId: row.document_id,
+      sourcePath: row.source_path,
+      title: row.title,
+      content: row.content,
+      score: score--,
+      intent,
+    });
+  }
+  return out;
+}
+
 export async function hybridSearch(
   storage: Storage,
   query: string,
@@ -107,6 +164,51 @@ export async function hybridSearch(
   const k = opts.k ?? 10;
   const fanout = Math.max(20, k * 3);
   const engine = storage.engine();
+
+  // 0. Exact-match query cache (fail-open). A hit skips intent + embed +
+  //    retrieval + fusion entirely. Validity is gated on the live-model
+  //    generation clock, so any document write invalidates it. Any cache
+  //    error falls through to a normal search — the cache is pure
+  //    optimization and must never break retrieval.
+  const rerankWanted = opts.rerank ?? process.env.MEMEX_RERANK === "1";
+  const cacheEnabled = !opts.noCache && process.env.MEMEX_QUERY_CACHE !== "0";
+  let cacheKey = "";
+  let cacheClock = 0;
+  let cacheReady = false;
+  if (cacheEnabled) {
+    try {
+      cacheClock = await currentDocumentClock(engine);
+      cacheKey = queryCacheKey(trimmed, k, opts.sourceIds, rerankWanted);
+      const cached = await getCachedQuery(engine, cacheKey, cacheClock);
+      cacheReady = true;
+      if (cached) {
+        const cachedIntent = (cached.intent as Intent) ?? "topic";
+        const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent);
+        const hits =
+          opts.tokenBudget !== undefined
+            ? applyTokenBudget(hydrated, opts.tokenBudget)
+            : hydrated;
+        if (opts.onCapture) {
+          try {
+            await opts.onCapture({
+              query: trimmed,
+              k,
+              resultDocIds: hits.map((h) => h.documentId),
+              intent: cachedIntent,
+              latencyMs: Date.now() - startedAt,
+              rerank: rerankWanted,
+              expansion: false,
+            });
+          } catch {
+            // capture failures never surface
+          }
+        }
+        return hits;
+      }
+    } catch {
+      cacheReady = false; // fall through to a normal search
+    }
+  }
 
   // 1. Intent (cheap heuristic + Nova Lite). Allow override for tests.
   const intent = opts.intent ?? (await classifyIntent(trimmed));
@@ -215,14 +317,12 @@ export async function hybridSearch(
       : dedupByDocument(scored, { enabled: true, maxPerDoc: 1 });
 
   // 8. Two-pass rerank (opt-in).
-  const rerankOn =
-    opts.rerank ?? process.env.MEMEX_RERANK === "1";
-  const final = rerankOn
+  const final = rerankWanted
     ? await rerank(trimmed, deduped.slice(0, k * 2))
     : deduped;
 
-  // 9. Trim to k.
-  let hits: SearchHit[] = final.slice(0, k).map((h) => ({
+  // 9. Trim to k (the ranked result, pre-token-budget).
+  const ranked: SearchHit[] = final.slice(0, k).map((h) => ({
     chunkId: h.chunkId,
     documentId: h.documentId,
     sourcePath: h.payload?.sourcePath ?? "",
@@ -232,7 +332,23 @@ export async function hybridSearch(
     intent,
   }));
 
+  // 9a. Populate the query cache (fire-and-forget) with the ranked chunk
+  //     ids at the clock value read on entry. A clock that advanced mid-
+  //     search makes this write immediately stale (never read) — harmless.
+  if (cacheReady) {
+    void putCachedQuery(
+      engine,
+      cacheKey,
+      trimmed,
+      k,
+      intent,
+      ranked.map((h) => h.chunkId),
+      cacheClock,
+    ).catch(() => {});
+  }
+
   // 9b. Token budget (opt-in) — cap total returned context size.
+  let hits: SearchHit[] = ranked;
   if (opts.tokenBudget !== undefined) {
     hits = applyTokenBudget(hits, opts.tokenBudget);
   }
@@ -248,7 +364,7 @@ export async function hybridSearch(
         resultDocIds: hits.map((h) => h.documentId),
         intent,
         latencyMs: Date.now() - startedAt,
-        rerank: rerankOn,
+        rerank: rerankWanted,
         expansion: intent !== "exact" && !opts.noExpansion,
       });
     } catch {

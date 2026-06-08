@@ -21,6 +21,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   weights are passed.
 
 ### Added
+- **Exact-match query cache for hybrid search (on by default, fail-open).**
+  An identical repeated query now returns its previously-computed ranking
+  without re-embedding, re-classifying intent, or re-retrieving — saving
+  latency and Bedrock calls. Validity is gated on the live-model generation
+  clock, so any document write invalidates the cache automatically; the
+  cache stores only chunk ids, re-hydrated from live tables so returned
+  content is always current. Any cache error falls through to a normal
+  search (it can never break retrieval). Disable per-call with `noCache` or
+  globally with `MEMEX_QUERY_CACHE=0`. Migration 026.
 - **Cache-invalidation clock on the live retrieval model (internal).** A
   `document_generation_clock` singleton (migration 025) is bumped on every
   document write from the indexer transaction, giving a cheap corpus-level
