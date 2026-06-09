@@ -117,7 +117,7 @@ describe("redactBodies — allowlist-based public search filtering", () => {
         score: 0.9,
         documentId: "doc-1",
         chunkId: "chunk-1",
-        kind: "obsidian",
+        kind: "markdown",
         rank: 1,
         content: "REDACT ME",
       },
@@ -128,7 +128,7 @@ describe("redactBodies — allowlist-based public search filtering", () => {
       score: 0.9,
       documentId: "doc-1",
       chunkId: "chunk-1",
-      kind: "obsidian",
+      kind: "markdown",
       rank: 1,
     });
   });

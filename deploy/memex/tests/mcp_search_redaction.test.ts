@@ -49,7 +49,7 @@ beforeAll(async () => {
         documentId: "doc-1",
         sourcePath: "/vault/secret.md",
         title: "Secret",
-        kind: "obsidian",
+        kind: "markdown",
         rank: 1,
         content: SECRET,
         snippet: SECRET,
@@ -112,7 +112,7 @@ describe("dispatchTool search redaction", () => {
       documentId: "doc-1",
       sourcePath: "/vault/secret.md",
       title: "Secret",
-      kind: "obsidian",
+      kind: "markdown",
       rank: 1,
       score: 0.99,
     });

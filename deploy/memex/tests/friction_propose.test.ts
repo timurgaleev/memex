@@ -58,13 +58,13 @@ describe("findTopFrictionSkills", () => {
     await logFriction(e, {
       kind: "search-miss",
       query: "alpha",
-      extra: { skill: "obsidian" },
+      extra: { skill: "notes-recall" },
     });
     // No skill tag — should be excluded.
     await logFriction(e, { kind: "tool-error", query: "stray" });
 
     const top = await findTopFrictionSkills(e, 5);
-    expect(top.map((t) => t.skill)).toEqual(["brain-recall", "obsidian"]);
+    expect(top.map((t) => t.skill)).toEqual(["brain-recall", "notes-recall"]);
     expect(top[0]?.count).toBe(3);
     expect(top[0]?.examples.length).toBe(3);
     expect(top[1]?.count).toBe(1);

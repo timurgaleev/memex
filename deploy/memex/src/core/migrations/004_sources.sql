@@ -1,8 +1,8 @@
 -- memex schema migration 004: sources as first-class.
 --
--- A `source` is a cluster of documents with shared semantics — Obsidian
+-- A `source` is a cluster of documents with shared semantics — a markdown
 -- vault, an archived chat memory dir, a webhook stream, etc. Each source declares
--- its sync policy (does Obsidian Sync round-trip the file?) and indexed
+-- its sync policy (does an external sync round-trip the file?) and indexed
 -- policy (should the chunk content be retained verbatim, or only its
 -- hash?). Search can boost / filter per source.
 --

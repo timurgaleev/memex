@@ -13,10 +13,10 @@
 # ---------------------------------------------------------------------------
 # Vault paths to index. Supports a multi-path layout (synced + local).
 # ---------------------------------------------------------------------------
-# `synced` paths sit inside the Obsidian-Sync'd vault — they are visible to
-# the user across devices and may also be edited from outside this host.
-# `local` paths live only on the host (workspace memory etc.) and never
-# round-trip through Obsidian Sync.
+# `synced` paths sit inside an externally-synced vault — they may be visible
+# across devices and edited from outside this host. `local` paths live only
+# on the host (workspace memory etc.) and never round-trip through any
+# external sync.
 vault_paths:
   synced:
     - /vault

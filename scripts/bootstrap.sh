@@ -92,7 +92,7 @@ fi
 # we seeded; pre-existing content keeps its existing ownership.
 # ---------------------------------------------------------------------------
 SEEDED=()
-for d in vault memex workspace skills credentials .obsidian-headless-config; do
+for d in vault memex workspace skills credentials; do
   TARGET="${EFS_DATA}/${d}"
   mkdir -p "$TARGET"
   SEEDED+=("$TARGET")

@@ -151,10 +151,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     })();
   }
 
-  // Start the durable jobs worker. Single-concurrency for v1. (The
-  // gmail/gcal/obsidian ingest recipes were removed — markdown enters via
-  // on-demand reindex / MCP, code via the boot sweep; jobs remain for
-  // future handlers.)
+  // Start the durable jobs worker. Single-concurrency for v1. (The legacy
+  // ingest recipes were removed — markdown enters via on-demand reindex /
+  // MCP, code via the boot sweep; jobs remain for future handlers.)
   const worker = new Worker(new Queue(storage.engine()), { intervalMs: 5000 });
   worker.start();
   console.log(`[memex] jobs worker started (intervalMs=5000)`);

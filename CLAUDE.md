@@ -237,6 +237,5 @@ internet — because it is.
   do that via SSM / AWS CLI calls scoped to read-only or explicitly
   authorized operations. Do **not** check any live config snapshot back
   into the repo.
-- Same rule for the Obsidian vault: durable notes go to the vault
-  (`$OBSIDIAN_VAULT/20-projects/memex/`), never to this repo's tracked
-  files.
+- Same rule for the maintainer's private notes vault: durable notes go to
+  that vault (outside this repo), never to this repo's tracked files.
