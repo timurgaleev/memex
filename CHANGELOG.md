@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.7] — 2026-06-09
+
 ### Added
 - **eval-replay now reports run-to-run retrieval stability.** Each replayed
   query that has a promoted baseline gains a `stability` block — `jaccard`
