@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **eval-replay now reports run-to-run retrieval stability.** Each replayed
+  query that has a promoted baseline gains a `stability` block — `jaccard`
+  (top-k set overlap of the current vs baseline result ids) and `top1` (did
+  the rank-1 result stay the same) — with an aggregate `meanJaccard` +
+  `top1StableRate`. Computed by new pure IR-metric primitives
+  (precision/recall/MRR/nDCG/Jaccard/top-1) in `core/search/metrics.ts`, the
+  substrate for the forthcoming retrieval-quality harness + CI correctness
+  gate. No change to the live search path.
+
 ## [1.3.6] — 2026-06-09
 
 ### Changed

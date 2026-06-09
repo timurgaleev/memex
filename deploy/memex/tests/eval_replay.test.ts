@@ -181,6 +181,46 @@ describe("replayAll", () => {
     expect(r.perQuery.find((p) => p.queryId === "q3")?.hit).toBeNull();
   });
 
+  it("computes run-to-run stability (jaccard + top1) vs the promoted baseline", async () => {
+    const e = storage.engine();
+    // Baselines are persisted by --promote only for expected-doc queries, so
+    // stability currently rides on those (broadening to all queries is a TODO).
+    await recordQuery(e, { id: "s1", query: "alpha", tag: "good", k: 3, expectedDocId: "a" });
+
+    // First run promotes the baseline: top-3 = [a, b, c].
+    const baseStub = async () => [
+      { documentId: "a" },
+      { documentId: "b" },
+      { documentId: "c" },
+    ];
+    await replayAll(storage, { searcher: baseStub, promote: true });
+
+    // Second run: rank-1 unchanged (a), one of three swapped (c→x).
+    // jaccard top-3 = |{a,b}| / |{a,b,c,x}| = 2/4 = 0.5; top1 stable.
+    const nextStub = async () => [
+      { documentId: "a" },
+      { documentId: "b" },
+      { documentId: "x" },
+    ];
+    const r = await replayAll(storage, { searcher: nextStub });
+    const pq = r.perQuery.find((p) => p.queryId === "s1");
+    expect(pq?.stability).toEqual({ jaccard: 0.5, top1: true });
+    expect(r.stability).toEqual({
+      scored: 1,
+      meanJaccard: 0.5,
+      top1StableRate: 1,
+    });
+  });
+
+  it("leaves stability null + aggregate absent when there is no baseline", async () => {
+    const e = storage.engine();
+    await recordQuery(e, { id: "nb", query: "alpha", tag: "good" });
+    const stub = async () => [{ documentId: "a" }];
+    const r = await replayAll(storage, { searcher: stub });
+    expect(r.perQuery.find((p) => p.queryId === "nb")?.stability).toBeNull();
+    expect(r.stability).toBeUndefined();
+  });
+
   it("threads searchMode into the searcher dispatch", async () => {
     const e = storage.engine();
     await recordQuery(e, {

@@ -25,6 +25,7 @@ import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { hybridSearch, type SearchOptions } from "./search/hybrid.ts";
 import { keywordSearch } from "./search/keyword.ts";
+import { jaccardAtK, top1Stable } from "./search/metrics.ts";
 
 export type EvalTag = "good" | "bad";
 export type EvalSearchMode = "hybrid" | "keyword";
@@ -72,6 +73,10 @@ export interface RunResult {
     rank: number | null;
     rr: number | null;
   } | null;
+  /** Run-to-run stability vs the persisted baseline (null if no baseline).
+   *  jaccard = top-k set overlap; top1 = same rank-1 doc. Independent of
+   *  expected_doc_id, so it scores every query that has a baseline. */
+  stability: { jaccard: number; top1: boolean } | null;
 }
 
 export interface ReplayReport {
@@ -86,6 +91,12 @@ export interface ReplayReport {
     hitRate: number;
     deltaMeanRR: number;
     deltaHitRate: number;
+  };
+  /** Aggregate run-to-run stability over queries that have a baseline. */
+  stability?: {
+    scored: number;
+    meanJaccard: number;
+    top1StableRate: number;
   };
   perQuery: RunResult[];
 }
@@ -324,6 +335,10 @@ export async function replayAll(
   let baseScored = 0;
   let baseRrSum = 0;
   let baseHits = 0;
+  // Stability aggregates — for every query that has a persisted baseline.
+  let stabScored = 0;
+  let jaccardSum = 0;
+  let top1Stable_ = 0;
 
   for (const q of queries) {
     const t0 = Date.now();
@@ -353,6 +368,15 @@ export async function replayAll(
         };
       }
     }
+    let stability: RunResult["stability"] = null;
+    if (q.baselineDocIds !== null) {
+      const jaccard = jaccardAtK(q.baselineDocIds, ids, q.k);
+      const top1 = top1Stable(q.baselineDocIds, ids);
+      stability = { jaccard: round4(jaccard), top1 };
+      stabScored++;
+      jaccardSum += jaccard;
+      if (top1) top1Stable_++;
+    }
     perQuery.push({
       queryId: q.id,
       query: q.query,
@@ -364,6 +388,7 @@ export async function replayAll(
       rr,
       durationMs: dur,
       delta,
+      stability,
     });
     if (opts.promote && q.expectedDocId) {
       await engine.query(
@@ -398,6 +423,13 @@ export async function replayAll(
       hitRate: round4(baseHitRate),
       deltaMeanRR: round4(meanRR - baseMeanRR),
       deltaHitRate: round4(hitRate - baseHitRate),
+    };
+  }
+  if (stabScored > 0) {
+    report.stability = {
+      scored: stabScored,
+      meanJaccard: round4(jaccardSum / stabScored),
+      top1StableRate: round4(top1Stable_ / stabScored),
     };
   }
   return report;
