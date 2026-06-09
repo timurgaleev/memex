@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.5] — 2026-06-09
+
 ### Security
 - **Graph reads now redact relationship provenance on public ingress.**
   `graph_neighbors` / `graph_query` previously returned raw edge rows to the
