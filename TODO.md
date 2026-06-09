@@ -55,6 +55,19 @@ future release.
 
 ---
 
+## Schema / migration scale (deferred)
+
+- **`CREATE INDEX` in migrations is non-`CONCURRENTLY` and the runner wraps
+  each migration in one transaction.** `CONCURRENTLY` cannot run inside a
+  transaction block, so index-creating migrations (e.g. 027
+  `chunks_symbol_name_idx`) take a brief `SHARE` lock blocking writes for
+  the build. Negligible at current scale (~1.3k chunks) and bounded by the
+  v1.3.2 `lock_timeout`, but a large future `chunks`/`documents` table would
+  stall indexing during the build. When that bites, split index creation
+  out of the transactional runner into a separate `CONCURRENTLY` path (it
+  must run outside a tx and handle the INVALID-index-on-failure case).
+  Surfaced by the P1 chunk-symbol-metadata (migration 027) review.
+
 ## Defence-in-depth hardening (deferred)
 
 - **`publicSafeErrorMessage` logs the raw detail via `console.error`.** Fine

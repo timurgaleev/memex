@@ -97,6 +97,10 @@ export async function indexCodeDocument(
       startLine: symbol.startLine,
       endLine: symbol.endLine,
       embedding: null, // graph-only
+      symbolName: symbol.name,
+      symbolType: symbol.kind,
+      parentSymbol: symbol.enclosing,
+      language,
       entities: merged,
     });
   }
@@ -109,6 +113,7 @@ export async function indexCodeDocument(
       startLine: 1,
       endLine: input.text.split(/\r?\n/).length,
       embedding: null,
+      language, // import-only region: not a symbol, but still this language
       entities: fileImportRefs,
     });
   }

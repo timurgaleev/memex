@@ -108,4 +108,74 @@ function c() {}
     );
     expect(ent.rows.length).toBe(1);
   });
+
+  it("persists per-chunk symbol metadata (name, type, parent, language)", async () => {
+    const r = await indexCodeDocument(storage, {
+      sourcePath: "src/sym.ts",
+      text: `export function topLevel() { return 1; }
+class Widget {
+  render() { return 2; }
+}
+`,
+    });
+    const rows = await storage.raw().query<{
+      symbol_name: string | null;
+      symbol_type: string | null;
+      parent_symbol_path: string | null;
+      language: string | null;
+    }>(
+      `SELECT symbol_name, symbol_type, parent_symbol_path, language
+       FROM chunks WHERE document_id = $1 ORDER BY chunk_index`,
+      [r.documentId],
+    );
+    // Top-level function: named, kind function, no parent, typescript.
+    const top = rows.rows.find((x) => x.symbol_name === "topLevel");
+    expect(top).toBeDefined();
+    expect(top!.symbol_type).toBe("function");
+    expect(top!.parent_symbol_path).toBeNull();
+    expect(top!.language).toBe("typescript");
+    // Method inside the class: enclosing symbol recorded as parent.
+    const method = rows.rows.find((x) => x.symbol_name === "render");
+    expect(method).toBeDefined();
+    expect(method!.symbol_type).toBe("method");
+    expect(method!.parent_symbol_path).toBe("Widget");
+    expect(method!.language).toBe("typescript");
+    // Every code chunk carries its language.
+    expect(rows.rows.every((x) => x.language === "typescript")).toBe(true);
+  });
+
+  it("leaves symbol metadata NULL when a chunk omits the fields (markdown path)", async () => {
+    // The markdown indexer builds ChunkWrites without symbol fields. Assert
+    // the columns default to NULL so the code/markdown split stays clean —
+    // exercised via the shared writer directly (no Bedrock dependency).
+    const { writeDocumentTransaction } = await import(
+      "../src/core/indexer-tx.ts"
+    );
+    const r = await writeDocumentTransaction(
+      storage,
+      {
+        documentId: "doc_md_nullmeta",
+        sourcePath: "notes/plain.md",
+        title: "Title",
+        frontmatter: {},
+      },
+      [{ text: "Some prose with no code symbols.", entities: [] }],
+    );
+    const rows = await storage.raw().query<{
+      symbol_name: string | null;
+      symbol_type: string | null;
+      parent_symbol_path: string | null;
+      language: string | null;
+    }>(
+      `SELECT symbol_name, symbol_type, parent_symbol_path, language
+       FROM chunks WHERE document_id = $1`,
+      [r.documentId],
+    );
+    expect(rows.rows.length).toBe(1);
+    const row = rows.rows[0]!;
+    expect(row.symbol_name).toBeNull();
+    expect(row.symbol_type).toBeNull();
+    expect(row.parent_symbol_path).toBeNull();
+    expect(row.language).toBeNull();
+  });
 });

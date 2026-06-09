@@ -31,6 +31,14 @@ export interface ChunkWrite {
   endLine?: number | null;
   /** Optional embedding vector for this chunk (omit for graph-only sources). */
   embedding?: number[] | null;
+  /** Bare symbol identifier — populated for code chunks, NULL for markdown. */
+  symbolName?: string | null;
+  /** Symbol kind (function/class/method/arrow/const/module-import) — code only. */
+  symbolType?: string | null;
+  /** Enclosing symbol name (NULL at top level) — code only. */
+  parentSymbol?: string | null;
+  /** Source language (typescript/python/…) — code only, NULL for markdown. */
+  language?: string | null;
   /** Entities to attach to this chunk's row in entity_mentions. */
   entities: readonly ExtractedEntity[];
 }
@@ -109,9 +117,22 @@ export async function writeDocumentTransaction(
       if (!ch) continue;
       const cid = `${doc.documentId}_c${i}`;
       await tx.query(
-        `INSERT INTO chunks (id, document_id, chunk_index, content, start_line, end_line)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [cid, doc.documentId, i, ch.text, ch.startLine ?? null, ch.endLine ?? null],
+        `INSERT INTO chunks
+           (id, document_id, chunk_index, content, start_line, end_line,
+            symbol_name, symbol_type, parent_symbol_path, language)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          cid,
+          doc.documentId,
+          i,
+          ch.text,
+          ch.startLine ?? null,
+          ch.endLine ?? null,
+          ch.symbolName ?? null,
+          ch.symbolType ?? null,
+          ch.parentSymbol ?? null,
+          ch.language ?? null,
+        ],
       );
 
       if (ch.embedding) {

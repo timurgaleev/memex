@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Code chunks now carry symbol metadata.** Indexing a source file records
+  each chunk's `symbol_name`, `symbol_type` (function/class/method/arrow/
+  const/module-import), `parent_symbol_path` (enclosing symbol), and
+  `language` on the live `chunks` table (migration 027) — values the
+  tree-sitter chunker already computed but previously discarded. Markdown
+  chunks leave them NULL. This lets `code-callees <path>:<line>` name the
+  covering symbol straight from the chunk row and is the substrate for
+  symbol-aware retrieval. No change to public search output.
+
 ## [1.3.3] — 2026-06-09
 
 ### Security
