@@ -16,8 +16,33 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverMigrations, runMigrations } from "../src/core/migrate.ts";
+import {
+  discoverMigrations,
+  resolveLockTimeout,
+  runMigrations,
+} from "../src/core/migrate.ts";
 import { PGliteEngine } from "../src/core/engine/pglite.ts";
+import type { Engine } from "../src/core/engine/interface.ts";
+
+/**
+ * Wraps a real engine and records every `exec` SQL (including the SQL
+ * run inside transaction callbacks) so a test can assert ordering.
+ */
+function recordingEngine(inner: Engine): { engine: Engine; execLog: string[] } {
+  const execLog: string[] = [];
+  const wrap = (e: Engine): Engine => ({
+    kind: e.kind,
+    ready: () => e.ready(),
+    query: (sql, params) => e.query(sql, params),
+    exec: (sql) => {
+      execLog.push(sql);
+      return e.exec(sql);
+    },
+    close: () => e.close(),
+    transaction: (fn) => e.transaction((tx) => fn(wrap(tx))),
+  });
+  return { engine: wrap(inner), execLog };
+}
 
 let tmp: string;
 
@@ -61,6 +86,28 @@ describe("discoverMigrations", () => {
   });
 });
 
+describe("resolveLockTimeout", () => {
+  it("falls back to the default when unset or empty", () => {
+    expect(resolveLockTimeout(undefined)).toBe("10s");
+    expect(resolveLockTimeout("")).toBe("10s");
+    expect(resolveLockTimeout("   ")).toBe("10s");
+  });
+
+  it("accepts a valid override and trims it", () => {
+    expect(resolveLockTimeout("60s")).toBe("60s");
+    expect(resolveLockTimeout("5min")).toBe("5min");
+    expect(resolveLockTimeout("500ms")).toBe("500ms");
+    expect(resolveLockTimeout(" 30s ")).toBe("30s");
+  });
+
+  it("throws on a malformed override", () => {
+    expect(() => resolveLockTimeout("soon")).toThrow(/malformed/);
+    expect(() => resolveLockTimeout("5secs")).toThrow(/malformed/);
+    expect(() => resolveLockTimeout("-5s")).toThrow(/malformed/);
+    expect(() => resolveLockTimeout("5s; DROP TABLE x")).toThrow(/malformed/);
+  });
+});
+
 describe("runMigrations (PGLite engine)", () => {
   it("applies pending migrations in order, skips on second run", async () => {
     writeFileSync(
@@ -87,6 +134,29 @@ describe("runMigrations (PGLite engine)", () => {
     expect(r2.skipped).toBe(2);
 
     await engine.close();
+  });
+
+  // NOTE: this asserts the SET LOCAL is emitted in the right ORDER, not
+  // that it aborts a contended lock — PGLite is single-connection so
+  // lock_timeout is a no-op locally. The fail-fast behavior only exists
+  // on live Postgres/RDS and is not exercised by the unit suite.
+  it("sets lock_timeout inside the migration tx, before the body", async () => {
+    writeFileSync(join(tmp, "001_init.sql"), "CREATE TABLE t (x INT);\n");
+
+    const inner = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await inner.ready();
+    const { engine, execLog } = recordingEngine(inner);
+
+    await runMigrations(engine, tmp);
+
+    const lockIdx = execLog.findIndex((s) =>
+      /SET LOCAL lock_timeout = '10s';/.test(s),
+    );
+    const bodyIdx = execLog.findIndex((s) => s.includes("CREATE TABLE t"));
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(bodyIdx).toBeGreaterThan(lockIdx);
+
+    await inner.close();
   });
 
   it("records id + name in the migrations table", async () => {

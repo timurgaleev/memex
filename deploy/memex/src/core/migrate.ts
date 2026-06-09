@@ -37,6 +37,46 @@ export interface MigrationResult {
 const FILENAME_RE = /^(\d+)_([A-Za-z0-9_-]+)\.sql$/;
 
 /**
+ * Per-migration lock timeout. A DDL `ALTER`/`ADD COLUMN` takes a brief
+ * `ACCESS EXCLUSIVE` lock; if a long-running query holds a conflicting
+ * lock the migration would otherwise block indefinitely and hang the
+ * deploy. `SET LOCAL` scopes this to the migration transaction (resets
+ * on commit/rollback) so a stuck migration fails fast instead. Harmless
+ * on PGLite (single-connection, no lock contention); the value matters
+ * on live RDS. Surfaced by the P0 migration review.
+ *
+ * Default is forgiving enough to ride out a brief transient lock holder
+ * without breaking the deploy, yet bounded so it can't hang forever.
+ * Override with `MEMEX_MIGRATION_LOCK_TIMEOUT` (e.g. `60s`, `5min`) for a
+ * one-off migration that must wait behind a known long transaction.
+ */
+const DEFAULT_LOCK_TIMEOUT = "10s";
+
+// Postgres `lock_timeout` grammar: a bare integer is milliseconds, or an
+// integer with a time unit. We accept the common units only.
+const LOCK_TIMEOUT_RE = /^\d+\s*(ms|s|min|h|d)?$/;
+
+/**
+ * Resolve the per-migration lock timeout, validating any env override.
+ * Throws on a malformed value rather than silently falling back — a
+ * typo'd timeout should fail the deploy loudly, not mask the operator's
+ * intent (e.g. a misspelled `5min` quietly running at the default).
+ */
+export function resolveLockTimeout(
+  env: string | undefined = process.env.MEMEX_MIGRATION_LOCK_TIMEOUT,
+): string {
+  const v = env?.trim();
+  if (v === undefined || v === "") return DEFAULT_LOCK_TIMEOUT;
+  if (!LOCK_TIMEOUT_RE.test(v)) {
+    throw new Error(
+      `MEMEX_MIGRATION_LOCK_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
+        `(expected e.g. "10s", "500ms", "5min")`,
+    );
+  }
+  return v;
+}
+
+/**
  * Discover migration files in a directory. Returns them sorted by id ascending.
  * Throws if a filename doesn't match the grammar so we never silently skip
  * a typo'd migration.
@@ -94,6 +134,7 @@ export async function runMigrations(
   const seen = new Set(seenRows.rows.map((r) => r.id));
 
   const files = discoverMigrations(dir);
+  const lockTimeout = resolveLockTimeout();
   const applied: { id: number; name: string }[] = [];
   let skipped = 0;
 
@@ -111,6 +152,7 @@ export async function runMigrations(
     // entirely rolled back; PGLite and postgres-js both support
     // transactional DDL on the surfaces we use.
     await engine.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL lock_timeout = '${lockTimeout}';`);
       await tx.exec(f.sql);
       await tx.query(
         "INSERT INTO migrations (id, name) VALUES ($1, $2)",

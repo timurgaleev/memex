@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Migrations now fail fast instead of hanging a deploy.** Each migration
+  transaction sets `lock_timeout` before its DDL, so an `ALTER`/`ADD COLUMN`
+  that can't acquire its `ACCESS EXCLUSIVE` lock (because a long-running
+  query holds a conflicting one on live RDS) aborts and rolls back rather
+  than blocking the deploy indefinitely. Default is `10s`; override with
+  `MEMEX_MIGRATION_LOCK_TIMEOUT` (e.g. `60s`, `5min`) for a one-off
+  migration that must wait behind a known long transaction — a malformed
+  value fails the deploy loudly. No effect on local PGLite
+  (single-connection, no lock contention).
+
 ## [1.3.1] — 2026-06-08
 
 ### Removed
