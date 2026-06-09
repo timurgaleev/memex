@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-06-09
+
 ### Changed
 - **Migrations now fail fast instead of hanging a deploy.** Each migration
   transaction sets `lock_timeout` before its DDL, so an `ALTER`/`ADD COLUMN`
