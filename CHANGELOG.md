@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Recency decay is now per-prefix instead of one global half-life.** The
+  recency multiplier picks its half-life + floor by longest-prefix-match on a
+  hit's path: evergreen tiers (e.g. `concepts/`) stop decaying, time-bound
+  tiers (e.g. `daily/`, `chat/`) decay fast, entity tiers (`people/`,
+  `companies/`) decay slowly. Paths matching no prefix keep the original
+  uniform decay (120-day half-life, 0.6 floor), so existing rankings are
+  unchanged for un-prefixed content (including code chunks under `src/`).
+  Override the map with `MEMEX_RECENCY_DECAY=prefix:halfLifeDays:floor,...`
+  (parsed fail-loud so a typo surfaces at startup).
+
 ## [1.3.5] — 2026-06-09
 
 ### Security

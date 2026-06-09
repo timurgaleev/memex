@@ -29,7 +29,10 @@ import {
 } from "./source-boost.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
 import { rrfWeightsForLists } from "./intent-weights.ts";
-import { recencyMultiplier } from "./recency.ts";
+import {
+  recencyMultiplierForPath,
+  resolveRecencyDecayMap,
+} from "./recency.ts";
 import { salienceMultiplier } from "./salience.ts";
 import { applyTokenBudget } from "./token-budget.ts";
 import {
@@ -41,6 +44,14 @@ import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
+
+// Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
+// Memoized so the env parse + its fail-loud validation runs on the first
+// search, not on every query.
+let _recencyDecayMap: ReturnType<typeof resolveRecencyDecayMap> | null = null;
+function getRecencyDecayMap(): ReturnType<typeof resolveRecencyDecayMap> {
+  return (_recencyDecayMap ??= resolveRecencyDecayMap());
+}
 
 export interface SearchOptions {
   k?: number;
@@ -309,11 +320,21 @@ export async function hybridSearch(
   //     the rest of the pipeline; both are neutral (1.0) when their signal
   //     is absent, so neither can bury a hit that doesn't declare it.
   const nowMs = Date.now();
+  // Per-prefix recency decay (env-overridable); paths matching no prefix
+  // (e.g. code chunks under `src/`) fall back to the original uniform decay.
+  // Memoized: resolved once per process, so the env parse (and its fail-loud
+  // validation) runs on the first search rather than on every query.
+  const recencyMap = getRecencyDecayMap();
   scored = scored.map((s) => ({
     ...s,
     score:
       s.score *
-      recencyMultiplier(s.payload?.updated_at ?? null, nowMs) *
+      recencyMultiplierForPath(
+        s.payload?.updated_at ?? null,
+        nowMs,
+        s.payload?.sourcePath ?? null,
+        recencyMap,
+      ) *
       salienceMultiplier(s.payload?.frontmatter),
   }));
 
