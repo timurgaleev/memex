@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-06-09
+
 ### Security
 - **Raw exception text no longer crosses the public boundary.** The MCP
   tool dispatcher, the JSON-RPC transport, and the unauthenticated
