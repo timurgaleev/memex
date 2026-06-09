@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.4] — 2026-06-09
+
 ### Added
 - **Code chunks now carry symbol metadata.** Indexing a source file records
   each chunk's `symbol_name`, `symbol_type` (function/class/method/arrow/
