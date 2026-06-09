@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`scripts/mcp-refresh.sh` — one-shot client bearer refresh.** Pulls the
+  current public bearer from Secrets Manager and re-registers the memex MCP
+  server in Claude Code, so a client holding yesterday's (rotated) token can
+  recover from 401s without manual steps. Keeps the strong daily rotation;
+  just removes the manual re-register. Token is fetched fresh, never printed,
+  and the `claude mcp add` output is suppressed so it can't echo the header.
+  Env-driven (`MEMEX_MCP_URL`, optional `AWS_PROFILE`/`AWS_REGION`/
+  `MEMEX_SECRETS_PREFIX`); runs on the operator's machine, not the host.
+
 ## [1.3.7] — 2026-06-09
 
 ### Added
