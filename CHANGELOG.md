@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.6] — 2026-06-09
+
 ### Changed
 - **Recency decay is now per-prefix instead of one global half-life.** The
   recency multiplier picks its half-life + floor by longest-prefix-match on a
