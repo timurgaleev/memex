@@ -57,6 +57,40 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
+- **`publicSafeErrorMessage` logs the raw detail via `console.error`.** Fine
+  for an on-host operator log, but the suppressed detail is a single
+  `.message` line that could contain CRLF (cosmetic log-line splitting) or a
+  Postgres error embedding a column value (PII). If the EC2 logs are ever
+  forwarded off-host (CloudWatch shipping, log aggregation), strip CRLF and
+  consider redacting the detail before logging. LOW; surfaced by the
+  2026-06-09 fix review.
+
+- **Public read existence-oracle on `page_get` / `jobs_get` /
+  `page_versions`.** On a public-ingress miss these return `isError:true`
+  echoing the slug/id, while a hit returns `ok:true` — so a public-bearer
+  caller can probe-enumerate which slugs exist even with all bodies
+  redacted (entity facts/timeline/recall already return a uniform empty
+  shape). Rated LOW, not fixed: slugs are operator-chosen and *already
+  public* across the surface (`search`/`backlinks`/`graph` all return
+  paths), so the marginal leak is small, and changing a read tool's
+  public-miss shape to uniform `{ok:true, …:null}` is an API-semantics
+  change the operator's own single-holder client may rely on. If we ever
+  tighten to a strict metadata-only posture, make public misses uniform
+  (no slug echo, no `isError`). Surfaced by the 2026-06-09 security-engineer
+  + bug-hunter audit.
+
+- **`graph_neighbors` / `graph_query` relationship dump — OPERATOR
+  DECISION NEEDED.** These two read tools dispatch with NO `redact` flag,
+  so on public ingress they return raw `source_slug`/`target_slug` pairs —
+  a public-bearer caller can pull the full edge graph (e.g. every
+  `people/*` linked to `companies/acme` via `works_at`). The 2026-06-05
+  decision deliberately kept the *edge `type`* public (constrained enum,
+  single-holder daily-rotated bearer, slugs already public) — but that
+  rationale was about individual slugs, NOT relationship dumps, which leak
+  *who-relates-to-whom* at scale. Decide: (a) accept as consistent with the
+  slugs-are-public posture, or (b) gate `graph_*` behind the internal token
+  / redact slugs on public. Flagged by the 2026-06-09 bug-hunter audit.
+
 - **Any future document-delete / prune path MUST bump
   `document_generation_clock`.** The live-model cache clock (migration 025)
   is bumped on document *writes* in `writeDocumentTransaction`. Today

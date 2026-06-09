@@ -18,6 +18,7 @@ import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
+import { publicSafeErrorMessage } from "../core/public_redaction.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "memex", version: "0.1.0" };
@@ -229,11 +230,9 @@ async function handleSingle(
         );
         return rpcOk(id, result);
       } catch (e) {
-        return rpcError(
-          id,
-          ERR_INTERNAL,
-          e instanceof Error ? e.message : String(e),
-        );
+        // Defensive: dispatchTool already catches + sanitizes, but if it
+        // ever throws, don't echo raw exception text to a public caller.
+        return rpcError(id, ERR_INTERNAL, publicSafeErrorMessage(e, ctx.isPublic));
       }
     }
     case "ping":

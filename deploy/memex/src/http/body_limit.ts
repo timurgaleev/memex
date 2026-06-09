@@ -67,11 +67,14 @@ export async function parseJsonBody<T>(req: Request): Promise<ParseResult<T>> {
       };
     }
     text = new TextDecoder().decode(buf);
-  } catch (e) {
+  } catch {
+    // A stream-read failure carries no info a client needs — return a
+    // constant so the raw error (which could surface internals) never
+    // crosses the boundary, even if a future caller forwards `response`.
     return {
       ok: false,
       response: Response.json(
-        { ok: false, error: e instanceof Error ? e.message : "body read failed" },
+        { ok: false, error: "body read failed" },
         { status: 400 },
       ),
     };

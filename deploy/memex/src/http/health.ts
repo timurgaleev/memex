@@ -6,6 +6,7 @@
  */
 import type { Storage } from "../core/storage.ts";
 import packageJson from "../../package.json" with { type: "json" };
+import { publicSafeErrorMessage } from "../core/public_redaction.ts";
 
 export async function handleHealth(storage: Storage): Promise<Response> {
   try {
@@ -17,10 +18,13 @@ export async function handleHealth(storage: Storage): Promise<Response> {
       stats,
     });
   } catch (e) {
+    // /health is unauthenticated and internet-reachable — never echo the
+    // raw exception (it would leak the DSN host / Postgres internals on a
+    // DB outage). Log the detail server-side; return a generic message.
     return Response.json(
       {
         ok: false,
-        error: e instanceof Error ? e.message : String(e),
+        error: publicSafeErrorMessage(e, true),
       },
       { status: 503 },
     );

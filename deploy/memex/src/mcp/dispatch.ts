@@ -71,6 +71,7 @@ import {
   redactBacklinks,
   redactJob,
   publicReadBodiesAllowed,
+  publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
 
 export interface ToolCallRequest {
@@ -169,7 +170,9 @@ export async function dispatchTool(
         return errResult(`unknown tool: ${req.name}`);
     }
   } catch (e) {
-    return errResult(e instanceof Error ? e.message : String(e));
+    // Don't leak raw exception text (Postgres schema, DSN host, stack
+    // internals) across the public boundary; log it server-side instead.
+    return errResult(publicSafeErrorMessage(e, opts.isPublic ?? false));
   }
 }
 

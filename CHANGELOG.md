@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Raw exception text no longer crosses the public boundary.** The MCP
+  tool dispatcher, the JSON-RPC transport, and the unauthenticated
+  `/health` endpoint previously echoed an exception's message straight to
+  the caller — on a DB fault that could leak Postgres schema/column names
+  or the DSN host. A shared `publicSafeErrorMessage` helper now logs the
+  real detail server-side and returns a generic `"internal error"` on
+  public ingress (and always for `/health`); the internal path keeps the
+  full detail for debugging. Found by an adversarial security audit.
+
 ## [1.3.2] — 2026-06-09
 
 ### Changed

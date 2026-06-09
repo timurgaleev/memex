@@ -17,6 +17,27 @@ export function publicReadBodiesAllowed(): boolean {
   return v === "1" || v.toLowerCase() === "true";
 }
 
+/** Generic text returned across the public boundary in place of a raw
+ *  exception message. */
+export const PUBLIC_ERROR_MESSAGE = "internal error";
+
+/**
+ * Sanitize an error for a response that may cross the public boundary.
+ * A raw exception message can leak Postgres schema/column names, the DSN
+ * host, or stack internals — none of which a public-bearer (or the
+ * unauthenticated `/health`) caller should see. On public ingress we log
+ * the real detail server-side for the operator and return a generic
+ * string; the internal path keeps the detail so debugging is unaffected.
+ */
+export function publicSafeErrorMessage(e: unknown, isPublic: boolean): string {
+  const detail = e instanceof Error ? e.message : String(e);
+  if (isPublic) {
+    console.error("[memex] suppressed error on public ingress:", detail);
+    return PUBLIC_ERROR_MESSAGE;
+  }
+  return detail;
+}
+
 // Search-hit fields safe to return on public ingress.
 const PUBLIC_SAFE_FIELDS = new Set([
   "title",
