@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Graph reads now redact relationship provenance on public ingress.**
+  `graph_neighbors` / `graph_query` previously returned raw edge rows to the
+  public bearer, exposing the full relationship topology *plus* provenance
+  (`source_chunk_id`, `written_at`), the confidence signal, and the internal
+  row id. The public projection now keeps only the slugs + the constrained
+  edge `type` (consistent with the rest of the read surface, where slugs are
+  already public) and drops everything else. Provenance is stripped on **any**
+  public ingress, independent of `MEMEX_PUBLIC_READ_BODIES` (that flag governs
+  note bodies, not graph metadata). Internal ingress is unchanged. Found by a
+  cross-model audit (independent reviewers + a parity diff against the
+  reference implementation).
+
 ## [1.3.4] — 2026-06-09
 
 ### Added

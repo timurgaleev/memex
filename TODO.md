@@ -7,6 +7,167 @@ introduces them.
 
 ---
 
+## Parity gap backlog (vs the reference, 2026-06-09)
+
+Source: a full subsystem-by-subsystem diff of this brain against the
+reference retrieval implementation. memex stays **brain-only** — the
+agent/LLM-synthesis/auth/voice/self-upgrade half is deferred (north-star
+gated), recorded below but not planned. Capabilities are described
+generically (no upstream names).
+
+### Mis-adaptations to verify (highest priority — we adopted it but diverged)
+- [ ] **Per-prefix recency decay** (retrieval, high) — we use a uniform
+  half-life (120d, floor 0.6); the reference supports per-prefix decay
+  (`daily/`=short, `concepts/`=evergreen). Replace uniform with a
+  prefix→half-life map.
+- [ ] **Two-layer cache invalidation** (retrieval, high) — our query-cache
+  gates on the global generation clock only; the reference adds a per-page
+  snapshot gate. We're vulnerable to stale cache on individual page
+  delete/bump (today nothing hard-deletes, so latent).
+- [ ] **Link provenance columns** (schema, high) — our `links` has only
+  `(source_slug, target_slug, type, inferred_confidence)`; missing
+  `context`, `link_kind` (plain/typed_ner), `origin_page_id`,
+  `origin_field`, `resolution_type`. Blocks link reconciliation + NER.
+- [ ] **`parent_symbol_path` is scalar TEXT, should be `TEXT[]`** (chunkers,
+  medium) — migration 027 stored the innermost parent only; the reference
+  keeps the full ancestor chain as an array. Nested Java/Ruby/Python classes
+  lose ancestors. Migrate column to `TEXT[]` (cast existing scalar → 1-elem
+  array) + update the indexer.
+- [ ] **Slug-based page-type inference** (enrichment, high) — we type pages
+  only explicitly at PUT; the reference infers type from path prefixes.
+- [ ] **Tool defs hardcoded, not generated** (mcp, high) — 27 inline
+  JSON-Schema tool defs will drift across CLI/HTTP/stdio; the reference
+  generates from one `Operation[]`. Centralize ParamDef→Schema.
+- [ ] **Param validation inline, not derived** (mcp, high) — hand-validated
+  per tool; derive `validateParams(op, params)` from the operation contract.
+- [ ] **`search` CLI lacks diagnostics** (cli, high) — only `<query> --k`;
+  add `search modes|stats|tune` subcommands.
+- [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our
+  phases are unstructured fns with `{ok:boolean}`; adopt a base class
+  (source-scope + budget + uniform errors) and an `ok/warn/fail` envelope.
+- [ ] **OperationError shape** (mcp, medium) — replace ad-hoc string errors
+  with an error class → `{error, message, suggestion?, docs?}`.
+- [ ] **RateLimiter LRU+TTL bounds** (mcp, medium) — current token-bucket
+  never evicts unrefilled keys (leak under sustained load); add LRU cap +
+  TTL pruning + separate pre-auth IP / post-auth token limiters.
+- [ ] **Structured OperationContext** (mcp, medium) — centralize
+  `buildOperationContext()` instead of ad-hoc per-call options.
+- [ ] **Qrels format** (eval, medium) — ours is path-centric; the reference
+  is slug-centric (`query_id`, `relevant_slugs`, `embedding_dim`). Add an
+  adapter before reusing reference qrels.
+- [ ] **`link_kind` column** (enrichment, medium) — needed so plain +
+  typed-NER links coexist without UNIQUE collision; add before NER links.
+
+### Integrate now (brain-only, safe, in-scope) — prioritized
+- [ ] **Graph read redaction on public** (high) — SHIPPING THIS INCREMENT:
+  strip provenance (`source_chunk_id`/`written_at`/confidence) from
+  `graph_neighbors`/`graph_query` on the public bearer; keep slugs+type
+  (the 2026-06-05 decision). Closes the triple-confirmed relationship-dump
+  leak.
+- [ ] **Chunk weighted FTS** (high) — `search_vector` TSVECTOR + trigger
+  (doc_comment/qualified-symbol weight A, chunk text B) + GIN index.
+- [ ] **`symbol_name_qualified` column** (high) — stable edge-resolution key;
+  extend migration 027, weight A in FTS.
+- [ ] **doc_comment chunk column** (medium) — capture JSDoc/docstring for
+  FTS weight-A.
+- [ ] **Entity slug canonicalization** (high) — 4-stage LLM-free resolver
+  (exact → trgm fuzzy → prefix-expansion by connection_count → slugify).
+- [ ] **Gazetteer auto-link mentions** (high) — entity-typed page gazetteer +
+  maximal-munch body scan with self/cross-source guards + first-mention
+  dedup (today only explicit `[[Foo]]`).
+- [ ] **Slug/page alias resolution** (medium) — `slug_aliases` + `page_aliases`
+  so renamed pages still resolve wikilinks.
+- [ ] **IR metric suite** (high) — nDCG/recall@k/precision@k/Jaccard/
+  top1-stability (today only hit/rank/MRR) + a metric glossary.
+- [ ] **Retrieval-quality harness** (high) — query families
+  (title-substring, alias-synonym, multi-chunk-dilution, …) with per-family
+  Hit@1/Hit@3/MRR/recall gates; replaces the 5 ad-hoc qrels.
+- [ ] **Hermetic CI correctness gate** (high) — env-overridable floors
+  (top1 ≥ 0.80, recall@10 ≥ 0.85) over deterministic basis-vector embeddings.
+- [ ] **Request param redaction for logging** (high) — `summarizeMcpParams`
+  → `{declared_keys, unknown_key_count, approx_bytes}` so slugs/queries/
+  paths don't reach logs.
+- [ ] **Enum/array param validation** (medium) — emit `enum`/`items` in
+  `paramDefToSchema` so invalid enums never reach handlers.
+- [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
+  post-rerank (return 1 when obvious, k when genuinely k answers).
+- [ ] **doctor categorization + cause-ranking** (high) — bucket checks
+  (brain/skill/ops/meta); rank failing checks root-cause-first.
+- [ ] **`cache` CLI** (stats/clear/prune), **`status` dashboard**, **`call
+  <op>` dispatch** (high) — missing brain-facing operational surface.
+- [ ] **per-source health metrics** (medium) — lag_seconds, embed_coverage,
+  queue_depth, failed_jobs_24h.
+- [ ] **JSONL audit-trail writer** (medium) — ISO-week-rotated best-effort
+  append writer with an audit-dir override env.
+- [ ] **extract_facts + recompute_emotional_weight cycle phases** (high,
+  LLM-free) — reconcile DB facts from a `## Facts` fence; score page
+  salience [0..1] from tags/takes.
+- [ ] **resolve_symbol_edges cycle phase** (medium) — batch-resolve code-edge
+  symbols to chunk IDs.
+- [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock
+  cap per job; FNV-1a offset to decorrelate cron jobs.
+- [ ] **Code-chunk wall-clock timeout** (low) — tree-sitter `setTimeoutMicros`
+  so a pathological file can't hang the WASM parser.
+
+### Facts model (in-scope, larger)
+- [ ] **facts-fence markdown binding** (high) — make a `## Facts` fence the
+  system-of-record; parse/strip/render/upsert each cycle (`row_num`,
+  `source_markdown_slug`). Today facts are DB-only and reset-fragile.
+- [ ] **Fact metadata** (high) — `kind`, `notability`, `valid_from`,
+  `valid_until` for categorization / recall ranking / forget-supersede.
+  (`visibility` only if a multi-visibility model is ever adopted — see
+  agent-layer note; single-holder today.)
+- [ ] **Timeline extraction from meetings** (medium, LLM-free) — attendees +
+  body mentions. **Timeline dedup key** — verify it covers
+  `(page_id, date, summary, source)`.
+
+### Schema / code-graph (in-scope, larger)
+- [ ] **`code_edges_chunk` (resolved) + `code_edges_symbol` (unresolved)**
+  (high) — structural call graph; pairs with `resolve_symbol_edges`.
+- [ ] **Language coverage** (high) — 3 → many (grammar WASMs + per-language
+  symbol-type config); **symbol hierarchy** (nested method chunks) + **per-
+  language edge config**.
+
+### Durable jobs (in-scope subset of P3)
+- [ ] Multi-process supervisor + PID-file lock + crash-restart (high);
+  wedge detection + queue-health (medium); lock-renewal heartbeat for long
+  jobs (medium); rate-lease concurrency gates (high); job audit JSONL (medium).
+
+### Enrichment (LLM-free subset)
+- [ ] Typed-NER link inference from context windows (gazetteer + pack regex)
+  (high); schema-pack link-type inference rules (high); ReDoS-guarded regex
+  for user packs (medium); completeness scoring rubrics (medium).
+
+### TODO — agent-layer (DEFERRED, north-star-gated, NOT planned)
+The agent/LLM/auth/voice half. Recorded for completeness; out of brain-only
+scope unless the operator opens the gate.
+- **Auth/tenancy:** OAuth 2.1 scope hierarchy; `source_id` multi-tenancy on
+  pages/links + RLS; request-scoped auth context; per-token source
+  allow-list; token→client lookup. (This is the reference's equivalent of
+  our public-bearer+redaction model — our intentional difference.)
+- **Agent loop:** think (LLM synthesis) CLI; dream-cycle orchestration;
+  brainstorm; recall/forget hot-memory; anomalies.
+- **LLM enrichment:** fact extraction from conversation turns; fact dedup
+  classifier (cosine + LLM); conversation parser; ingestion event daemon.
+- **Cycle (LLM/heavy):** lint `--fix`, backlinks-materialize, filesystem→DB
+  sync phases; budget reservation + spend-tracking; job attachments.
+- **Eval (LLM-judge):** contradiction judge; takes-quality panel; eval-compare
+  significance testing; JSON-repair for judge output; LongMemEval harness.
+- **Ops (agent):** quarantine + content-flag; destructive-guard soft-delete;
+  RemediationStep framework; remote doctor; `doctor --remediate`.
+- **Chunkers (LLM/deep):** receiver-type resolution for call edges; two-pass
+  edge disambiguation; LLM-guided chunking fallback.
+- **Schema (agent):** multimodal/image embedding columns; file attachments +
+  ledger; eval/calibration/dream-verdict tables.
+- **mcp (agent):** request audit log; source-isolation scoping; `_meta`
+  hot-memory injection hook.
+
+### Parity OK (faithful, no action)
+Page generation clock; JSON-RPC error wrapping; per-query result deltas;
+eval-candidates capture; multi-source entity-typing guards (n/a single-source).
+
+---
+
 ## Operator post-install steps
 
 Things `make init` + `terraform apply` + `bootstrap.sh` do NOT

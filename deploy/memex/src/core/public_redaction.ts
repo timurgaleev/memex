@@ -49,6 +49,33 @@ const PUBLIC_SAFE_FIELDS = new Set([
   "rank",
 ]);
 
+// Graph-edge fields safe to return on public ingress. The slugs and the
+// constrained edge `type` enum stay public (consistent with the rest of the
+// read surface, where slugs/paths are already returned); the provenance
+// (`source_chunk_id`, `written_at`), the raw confidence signal, and the
+// internal row `id` are dropped so a public-bearer caller cannot pull the
+// full relationship-provenance bundle. `direction` (graph_neighbors) is a
+// traversal hint, not sensitive.
+const PUBLIC_SAFE_GRAPH_FIELDS = new Set([
+  "source_slug",
+  "target_slug",
+  "type",
+  "direction",
+]);
+
+/** Strip every graph-edge field not in the public allowlist. */
+export function redactGraphLinks<T extends Record<string, unknown>>(
+  links: readonly T[],
+): T[] {
+  return links.map((l) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(l)) {
+      if (PUBLIC_SAFE_GRAPH_FIELDS.has(k)) out[k] = l[k];
+    }
+    return out as T;
+  });
+}
+
 /** Strip every search-hit field not in the public allowlist. */
 export function redactBodies<T extends Record<string, unknown>>(
   hits: readonly T[],

@@ -70,6 +70,7 @@ import {
   redactTimeline,
   redactBacklinks,
   redactJob,
+  redactGraphLinks,
   publicReadBodiesAllowed,
   publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
@@ -114,6 +115,12 @@ export async function dispatchTool(
   // public ingress unless the operator opted into MEMEX_PUBLIC_READ_BODIES.
   const redact =
     (opts.isPublic ?? false) && !publicReadBodiesAllowed();
+  // Graph-edge provenance (source_chunk_id, written_at, confidence, row id)
+  // is structural metadata — NOT a note body — so it is stripped on ANY
+  // public ingress, independent of MEMEX_PUBLIC_READ_BODIES (that flag only
+  // governs free-text bodies). The public graph projection keeps slugs + the
+  // edge type regardless; provenance is never returned publicly.
+  const redactGraph = opts.isPublic ?? false;
   try {
     switch (req.name) {
       case "search":
@@ -143,9 +150,9 @@ export async function dispatchTool(
       case "unlink":
         return await callUnlink(storage, args);
       case "graph_neighbors":
-        return await callGraphNeighbors(storage, args);
+        return await callGraphNeighbors(storage, args, redactGraph);
       case "graph_query":
-        return await callGraphQuery(storage, args);
+        return await callGraphQuery(storage, args, redactGraph);
       case "add_fact":
         return await callAddFact(storage, args);
       case "add_timeline_event":
@@ -489,7 +496,9 @@ async function callPageVersions(
 // ---------------------------------------------------------------------------
 // Graph tools — typed page-to-page links. Writes (link, unlink) are
 // in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC; reads (graph_neighbors,
-// graph_query) are open under the public-bearer.
+// graph_query) are allowed under the public-bearer but redacted: the
+// public projection keeps slugs + the edge type and drops provenance
+// (source_chunk_id / written_at), the confidence signal, and the row id.
 // ---------------------------------------------------------------------------
 
 async function callLink(
@@ -538,6 +547,7 @@ async function callUnlink(
 async function callGraphNeighbors(
   storage: Storage,
   args: Record<string, unknown>,
+  redact: boolean,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("graph_neighbors: `slug` is required");
@@ -551,12 +561,19 @@ async function callGraphNeighbors(
     opts.direction = args["direction"] as GraphNeighborsOptions["direction"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   const links = await graphNeighbors(storage, args["slug"], opts);
-  return jsonResult({ ok: true, slug: args["slug"], links });
+  return jsonResult({
+    ok: true,
+    slug: args["slug"],
+    links: redact
+      ? redactGraphLinks(links as unknown as Record<string, unknown>[])
+      : links,
+  });
 }
 
 async function callGraphQuery(
   storage: Storage,
   args: Record<string, unknown>,
+  redact: boolean,
 ): Promise<ToolCallResult> {
   if (typeof args["type"] !== "string")
     return errResult("graph_query: `type` is required");
@@ -572,7 +589,12 @@ async function callGraphQuery(
     );
   }
   const links = await graphQuery(storage, opts);
-  return jsonResult({ ok: true, links });
+  return jsonResult({
+    ok: true,
+    links: redact
+      ? redactGraphLinks(links as unknown as Record<string, unknown>[])
+      : links,
+  });
 }
 
 // ---------------------------------------------------------------------------
