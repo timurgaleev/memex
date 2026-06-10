@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.12] — 2026-06-10
+
 ### Added
 - **`memex cache` CLI — operator surface for the query cache.** `cache stats`
   reports the query-cache row counts split fresh-vs-stale against the current
