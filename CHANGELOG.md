@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.19] — 2026-06-10
+
 ### Added
 - **Search hits carry `evidence` + `create_safety`.** Every search result is
   now stamped with WHY it matched, not just a score: `evidence` names the
