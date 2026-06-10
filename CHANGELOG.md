@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.16] — 2026-06-10
+
 ### Added
 - **`memex status` — one-shot operational snapshot.** Bundles the three signals
   an operator usually wants at a glance into a single JSON object: index counts
