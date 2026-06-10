@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.11] — 2026-06-10
+
 ### Added
 - **Brain-level health metrics surfaced by `memex doctor`.** A new
   `source-health` check reports embedding coverage (over the chunks that
