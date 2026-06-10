@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.17] — 2026-06-10
+
 ### Added
 - **Opt-in JSONL audit trail for MCP tool calls.** When `MEMEX_AUDIT_DIR` is
   set, each tool call appends one redacted JSON line to an ISO-week-rotated
