@@ -81,6 +81,7 @@ describe("doctor", () => {
       "config",
       "index-spread",
       "pglite",
+      "source-health",
       "stats",
       "vault",
     ]);

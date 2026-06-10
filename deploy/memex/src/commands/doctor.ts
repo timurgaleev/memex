@@ -16,6 +16,7 @@ import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
+import { brainHealthMetrics } from "../core/source-health.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -125,6 +126,32 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     } catch (e) {
       checks.push({
         name: "stats",
+        ok: false,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // 3b. brain health metrics (embed coverage / lag / queue / failed jobs).
+    // Informational by design: a failed job in the last 24h is the only
+    // unambiguous "broken" signal, so that alone gates ok. Coverage / lag /
+    // queue are surfaced in the detail for the operator to judge — a brain can
+    // legitimately run with partial embedding coverage (graph-only sources, a
+    // pending backfill), so the doctor reports it rather than declaring it bad.
+    try {
+      const h = await brainHealthMetrics(storage.raw());
+      checks.push({
+        name: "source-health",
+        ok: h.failed_jobs_24h === 0,
+        detail:
+          `embed_coverage=${(h.embed_coverage_pct * 100).toFixed(1)}% ` +
+          `(${h.embedded_chunks}/${h.embeddable_chunks} embeddable` +
+          `${h.code_chunks > 0 ? `, ${h.code_chunks} code graph-only` : ""}) ` +
+          `lag=${h.lag_seconds === null ? "n/a" : `${h.lag_seconds}s`} ` +
+          `queue=${h.queue_depth} failed_24h=${h.failed_jobs_24h}`,
+      });
+    } catch (e) {
+      checks.push({
+        name: "source-health",
         ok: false,
         detail: e instanceof Error ? e.message : String(e),
       });

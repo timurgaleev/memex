@@ -32,6 +32,7 @@ describe("doctor categorize", () => {
       "config",
       "index-spread",
       "pglite",
+      "source-health",
       "stats",
       "vault",
     ]);

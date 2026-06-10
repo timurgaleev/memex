@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Brain-level health metrics surfaced by `memex doctor`.** A new
+  `source-health` check reports embedding coverage (over the chunks that
+  *should* carry a vector — code chunks are graph-only by design and excluded),
+  ingest staleness `lag_seconds`, pending `queue_depth`, and `failed_jobs_24h`.
+  It is informational by design: only a job that *failed* in the last 24h gates
+  the check (an unambiguous "something broke"); coverage / lag / queue are
+  reported in the detail rather than declaring the brain unhealthy, because a
+  brain can legitimately run with partial coverage (graph-only sources, a
+  pending backfill). New `core/source-health.ts` (`brainHealthMetrics`),
+  categorized `brain`. Read-only aggregation, no Bedrock, no migration.
+
 ## [1.3.10] — 2026-06-10
 
 ### Added

@@ -26,6 +26,7 @@ export type CheckCategory = "brain" | "ops" | "meta";
 export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "stats",
   "index-spread",
+  "source-health",
 ]);
 
 /** Infrastructure / setup — "can the brain run here at all?" */

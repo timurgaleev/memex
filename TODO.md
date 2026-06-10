@@ -113,8 +113,15 @@ generically (no upstream names).
   `core/doctor-cause-rank.ts`.
 - [ ] **`cache` CLI** (stats/clear/prune), **`status` dashboard**, **`call
   <op>` dispatch** (high) — missing brain-facing operational surface.
-- [ ] **per-source health metrics** (medium) — lag_seconds, embed_coverage,
-  queue_depth, failed_jobs_24h.
+- [x] **per-source health metrics** (medium) — DONE v1.3.11. `core/source-health.ts`
+  `brainHealthMetrics` (embed_coverage over non-code chunks, lag_seconds,
+  queue_depth, failed_jobs_24h) surfaced as the `source-health` doctor brain
+  check (informational; only failed_jobs_24h gates ok). Brain-level (memex is
+  single-source), not per-source. **FINDING surfaced: live embed_coverage is
+  ~40% (528/1307 embedded) with 0 code chunks — i.e. ~779 markdown chunks lack
+  a vector. Stable all session (347/1307/528). Operator should confirm whether
+  that's by-design (a backfill/model-migration gap) or a real vector-arm
+  retrieval hole.**
 - [ ] **JSONL audit-trail writer** (medium) — ISO-week-rotated best-effort
   append writer with an audit-dir override env.
 - [ ] **extract_facts + recompute_emotional_weight cycle phases** (high,
