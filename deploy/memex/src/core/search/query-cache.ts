@@ -16,6 +16,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
+import { getTitleBoost } from "./title-match.ts";
 
 export interface CachedQuery {
   intent: string | null;
@@ -23,16 +24,45 @@ export interface CachedQuery {
 }
 
 /**
+ * Post-fusion ranking version. Bump this string whenever the ORDER a search
+ * returns changes for reasons NOT already captured by the cache key (query, k,
+ * scope, rerank) — e.g. a new post-fusion boost. It is folded into the key so a
+ * deploy that changes ranking invalidates stale cached orderings immediately,
+ * instead of serving a pre-change order until the document clock happens to
+ * advance. `2` = the title-phrase boost (v1.3.20).
+ */
+const RANKING_VERSION = "2";
+
+/**
+ * Signature of the ranking inputs that are NOT function arguments, so a change
+ * to any of them re-keys the cache instead of serving a pre-change ordering:
+ *   - `RANKING_VERSION` — code-level ranking changes (bump on a new boost);
+ *   - the live title-boost factor (`MEMEX_TITLE_BOOST`), read through the SAME
+ *     memoized getter the ranking uses, so the key and the order never diverge;
+ *   - the raw `MEMEX_RECENCY_DECAY` env, which also reorders results.
+ * NOTE: time-based recency (a hit ages between writes) still drifts the true
+ * order within a cache lifetime — that is inherent to caching a wall-clock
+ * ranking and is accepted by design (the cache is gated on the document
+ * generation clock, so any document write refreshes it).
+ */
+export function rankingSignature(): string {
+  const recency = process.env["MEMEX_RECENCY_DECAY"] ?? "";
+  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}`;
+}
+
+/**
  * Deterministic cache key. Includes everything that changes the ranking
  * output: normalized query text, k, the (order-independent) source scope,
- * and whether reranking is on. Intent + expansion are derived from the
- * query and therefore already implied by it.
+ * whether reranking is on, and the ranking signature (version + live boost
+ * factor). Intent + expansion are derived from the query and therefore already
+ * implied by it.
  */
 export function queryCacheKey(
   query: string,
   k: number,
   sourceIds: readonly string[] | undefined,
   rerank: boolean,
+  rankingSig: string = rankingSignature(),
 ): string {
   const scope = sourceIds && sourceIds.length > 0
     ? [...sourceIds].map((s) => s.toLowerCase()).sort()
@@ -42,6 +72,7 @@ export function queryCacheKey(
     k,
     scope,
     rerank ? 1 : 0,
+    rankingSig,
   ]);
   return createHash("sha256").update(material).digest("hex");
 }

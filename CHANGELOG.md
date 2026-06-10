@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.20] — 2026-06-10
+
+### Added
+- **Title-phrase boost.** When the query is a contiguous phrase in a page's
+  title (a "name of the thing" query), that hit's score is nudged up by a
+  scale-invariant factor (`MEMEX_TITLE_BOOST`, default `1.25`, ON) so the page
+  surfaces over a weak body chunk that merely mentions the terms. Adapted from
+  the reference's title-superstring matcher: a multiplier is scale-invariant, so
+  unlike the reference's cosine floors it applies cleanly onto memex's RRF
+  score. Matching is deterministic and zero-I/O — a contiguous token-run inside
+  the title (token-boundary, not substring) gated by ≥2 non-stopword content
+  tokens, or an exact full-title match (covers single-word chosen names). Set
+  `MEMEX_TITLE_BOOST` ≤ `1.0` to disable; a fractional value warns (the boost
+  only ever multiplies up). New `core/search/title-match.ts`.
+
+### Changed
+- **`evidence` now recognizes `exact_title_match`, and `exists` is tightened.**
+  A title-phrase hit is stamped `exact_title_match` (→ `create_safety: exists`)
+  at any rank — the strongest, arm-independent signal. The both-arms→
+  `high_vector_match`→`exists` path is now gated on the hit landing in the top
+  rank band (the first 3 results) rather than firing for any both-arms hit:
+  the wide retrieval fanout means co-membership in both arms is not the same as
+  a high rank, so a common token could previously land an irrelevant chunk in
+  both arms and read a false `exists`. A both-arms hit outside the head now
+  reads `keyword_exact` (`probable`) instead. This is more conservative (the
+  worse error — a false `exists` that hides a real page and risks silent data
+  loss — is removed) while the rank band still protects a legitimate page that
+  sits at rank 1–2. Cache-hit results gain `exact_title_match` too (it keys off
+  the hit title, computable without arm membership); everything else keeps the
+  conservative default. Search ordering changes only for title-phrase hits.
+- **Query-cache key folds in a ranking signature.** The exact-match query cache
+  stores an ordered result list; its key now includes a `RANKING_VERSION` tag,
+  the live `MEMEX_TITLE_BOOST` (read through the same memoized getter the
+  ranking uses, so the key and the order can't diverge), and the raw
+  `MEMEX_RECENCY_DECAY` env — so deploying a ranking change or changing either
+  env re-keys the cache immediately instead of serving a pre-change ordering
+  until the document clock next advances. (Time-based recency drift within a
+  cache lifetime remains by design — the cache is gated on the document
+  generation clock, so any write refreshes it.)
+
 ## [1.3.19] — 2026-06-10
 
 ### Added

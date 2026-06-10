@@ -85,12 +85,18 @@ generically (no upstream names).
 - [x] **Evidence + create_safety stamping** (retrieval, high) — DONE v1.3.19.
   `core/search/evidence.ts`; arm-membership adaptation (reference's cosine
   floors are incompatible with memex's RRF score). Pure-additive, no reorder.
-- [ ] **Title-phrase boost** (retrieval, high) — pure post-fusion multiplier
-  for "query is a contiguous phrase in the page title"; feeds evidence's
-  `exact_title_match`. BEHAVIOR-CHANGING (reorders), like recency/salience.
-  ALSO tightens v1.3.19 evidence: gate `high_vector_match`→`exists` on rank or
-  title agreement (not bare both-arms co-membership) so a common token can't
-  produce a false `exists` — the known limitation flagged in `evidence.ts`.
+- [x] **Title-phrase boost** (retrieval, high) — DONE v1.3.20.
+  `core/search/title-match.ts`: post-fusion multiplier (`MEMEX_TITLE_BOOST`,
+  default 1.25) when the query is a contiguous phrase in the page title; feeds
+  evidence's `exact_title_match` (arm-independent, exists at any rank). ALSO
+  tightened v1.3.19 evidence: `high_vector_match`→`exists` now gated on a top
+  rank band (`RANK_BAND=3`) so a common token's both-arms coincidence outside
+  the head reads `keyword_exact`/`probable`, not a false `exists` — the band
+  (vs rank-0-only, codex HIGH) protects a legit page at rank 1–2. Query-cache
+  key folds in `RANKING_VERSION` + the live boost factor so a ranking/env change
+  re-keys the cache (codex MEDIUM). reviews: ai-engineer + code-reviewer CLEAN
+  (no CRIT/HIGH); codex caught both the rank-0 over-tightening and the cache-key
+  staleness — both fixed.
 - [ ] **Multi-layer dedup** (retrieval, med) — add Jaccard near-dup + type-
   diversity as ADDITIVE stages after the existing per-doc dedup (reorders).
 - [ ] **Adaptive return-sizing** (retrieval, med) — intent-driven result cap

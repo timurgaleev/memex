@@ -34,6 +34,7 @@ import {
   resolveRecencyDecayMap,
 } from "./recency.ts";
 import { salienceMultiplier } from "./salience.ts";
+import { isTitlePhraseMatch, getTitleBoost } from "./title-match.ts";
 import { applyTokenBudget } from "./token-budget.ts";
 import {
   stampEvidence,
@@ -58,6 +59,9 @@ let _recencyDecayMap: ReturnType<typeof resolveRecencyDecayMap> | null = null;
 function getRecencyDecayMap(): ReturnType<typeof resolveRecencyDecayMap> {
   return (_recencyDecayMap ??= resolveRecencyDecayMap());
 }
+
+// Title-boost factor: memoized in title-match.ts (single source shared with the
+// query-cache ranking signature) so the key and the ranking can never diverge.
 
 export interface SearchOptions {
   k?: number;
@@ -214,8 +218,10 @@ export async function hybridSearch(
             : hydrated;
         // Cache hits have no arm membership to classify — stamp the
         // conservative default so the evidence contract is uniform (always
-        // present) and never a false `exists`.
-        stampDefaultEvidence(hits);
+        // present) and never a false `exists`. A title-phrase match is still
+        // computable from the hit title, so a cached title hit surfaces
+        // `exact_title_match` rather than a flat `weak_semantic`.
+        stampDefaultEvidence(hits, trimmed);
         if (opts.onCapture) {
           try {
             await opts.onCapture({
@@ -339,6 +345,13 @@ export async function hybridSearch(
   // Memoized: resolved once per process, so the env parse (and its fail-loud
   // validation) runs on the first search rather than on every query.
   const recencyMap = getRecencyDecayMap();
+  // Title-phrase boost: when the query is a contiguous phrase in the page
+  // title, nudge the score up by a scale-invariant factor. A name-of-thing
+  // query should surface the page over a weak body chunk. Neutral (×1) for
+  // every hit whose title doesn't match, so it can never bury a non-matching
+  // hit; inert entirely when MEMEX_TITLE_BOOST <= 1.0.
+  const titleBoost = getTitleBoost();
+  const titleBoostActive = Number.isFinite(titleBoost) && titleBoost > 1.0;
   scored = scored.map((s) => ({
     ...s,
     score:
@@ -349,7 +362,10 @@ export async function hybridSearch(
         s.payload?.sourcePath ?? null,
         recencyMap,
       ) *
-      salienceMultiplier(s.payload?.frontmatter),
+      salienceMultiplier(s.payload?.frontmatter) *
+      (titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title)
+        ? titleBoost
+        : 1),
   }));
 
   // Re-sort after boost + recency (RRF was already sorted but these flip).
@@ -381,7 +397,13 @@ export async function hybridSearch(
   //     it) + a conservative create_safety hint for the agent. Pure-additive:
   //     it does NOT reorder. (The cache-hit short-circuit stamps the
   //     conservative default earlier, so the contract is uniform.)
-  stampEvidence(ranked, new Set(vectorIds), new Set(primaryKeywordIds));
+  //     The arm sets are the PRIMARY (un-expanded) vector + keyword passes by
+  //     design: `keyword_exact` means the original query terms matched, not an
+  //     LLM expansion paraphrase. Do NOT widen these to the expansion keyword
+  //     lists — that would loosen the `exists` gate on paraphrase-only hits.
+  //     A hit surfaced only by an expansion pass classifies weak_semantic
+  //     (conservative, never a false `exists`).
+  stampEvidence(ranked, new Set(vectorIds), new Set(primaryKeywordIds), trimmed);
 
   // 9a. Populate the query cache (fire-and-forget) with the ranked chunk
   //     ids at the clock value read on entry. A clock that advanced mid-

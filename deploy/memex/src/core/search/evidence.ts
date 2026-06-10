@@ -18,10 +18,15 @@
  * never reads as "exists" (the failure the reference's contract was built to
  * fix). Pure + deterministic.
  *
- * `alias_hit` / `exact_title_match` are reserved labels — they only fire once
- * memex grows alias resolution + a title-phrase boost; until then they never
- * surface, and the contract degrades cleanly to the arm-membership signal.
+ * `exact_title_match` fires when the query is a contiguous phrase in the page
+ * title (the title boost). It is arm-independent and the strongest signal here
+ * (an author's own phrasing), so it wins regardless of which arm surfaced the
+ * chunk. `alias_hit` stays reserved until memex grows alias resolution; until
+ * then it never surfaces and the contract degrades cleanly to the title +
+ * arm-membership signals.
  */
+
+import { isTitlePhraseMatch } from "./title-match.ts";
 
 export type Evidence =
   | "alias_hit"
@@ -32,25 +37,58 @@ export type Evidence =
 
 export type CreateSafety = "exists" | "probable" | "unknown";
 
-/** Which retrieval arm(s) surfaced a chunk, before RRF fusion. */
+/**
+ * The both-arms→`high_vector_match`→`exists` path requires the hit to land in
+ * the top RANK_BAND results (not rank-0-only). Rationale: rank-0-exclusive
+ * needlessly regresses a legitimate page that genuinely sits at rank 1–2 when
+ * a few other docs out-rank it (a real "does page X exist?" check would then
+ * read `probable` and risk a duplicate). A small band keeps the tightening
+ * where it matters — the wide retrieval fanout's long tail, where a common
+ * token coincidentally lands junk in both arms — while protecting the head.
+ * A title-phrase match still grants `exists` at ANY rank (it short-circuits
+ * above), so this band only governs the arm-membership path.
+ */
+export const RANK_BAND = 3;
+
+/** Which retrieval arm(s) surfaced a chunk, plus the rank/title gate. */
 export interface ArmMembership {
   inVector: boolean;
   inKeyword: boolean;
+  /** Query is a contiguous phrase in the page title (title boost fired). */
+  titleMatch?: boolean;
+  /**
+   * The chunk is the top-ranked hit after fusion + boosts. Gates the
+   * both-arms→`high_vector_match`→`exists` path: see classifyEvidence.
+   * Defaults to `true` for the pure-signal classification (callers in the
+   * pipeline pass the real rank).
+   */
+  isTopRank?: boolean;
 }
 
 /**
- * Classify the strongest signal that surfaced a chunk (memex arm-membership).
+ * Classify the strongest signal that surfaced a chunk.
  *
- * KNOWN LIMITATION of the both-arms→`high_vector_match`→`exists` path: the
- * retrieval fanout is wide, so co-membership in both arms is not the same as a
- * high rank — a common token can land an irrelevant chunk in the keyword arm
- * while the vector arm surfaces it for unrelated reasons, producing a false
- * `exists`. The deferred title-boost / alias work will tighten `exists` by also
- * requiring rank or title agreement; until then this is a deliberately coarse
- * first signal, and `create_safety` stays advisory (the agent re-checks).
+ * Precedence (strongest wins):
+ *   exact_title_match  — query is a phrase in the page title (arm-independent)
+ *   high_vector_match  — in BOTH arms AND top-ranked
+ *   keyword_exact      — in the keyword arm (exact term match, un-corroborated)
+ *   weak_semantic      — vector-only, or neither arm (low-confidence tail)
+ *
+ * The TOP-RANK gate on `high_vector_match` tightens the prior both-arms→`exists`
+ * path: the retrieval fanout is wide, so co-membership in both arms is NOT the
+ * same as a high rank — a common token can land an irrelevant chunk in the
+ * keyword arm while the vector arm surfaces it for unrelated reasons, producing
+ * a false `exists`. Requiring a top-band rank (or a title match, which
+ * short-circuits above) means a both-arms hit outside the head degrades to
+ * `keyword_exact` (probable) instead of falsely reading `exists`. More
+ * conservative — a downgraded hint only makes the agent look closer. The band
+ * (vs rank-0-only) protects a legitimate page that sits at rank 1–2; see
+ * RANK_BAND.
  */
 export function classifyEvidence(m: ArmMembership): Evidence {
-  if (m.inVector && m.inKeyword) return "high_vector_match";
+  if (m.titleMatch) return "exact_title_match";
+  const isTopRank = m.isTopRank ?? true;
+  if (m.inVector && m.inKeyword && isTopRank) return "high_vector_match";
   if (m.inKeyword) return "keyword_exact";
   return "weak_semantic";
 }
@@ -72,40 +110,54 @@ export function createSafetyFor(evidence: Evidence): CreateSafety {
 /** A hit that can be stamped with the evidence contract. */
 export interface Stampable {
   chunkId: string;
+  title?: string | null;
   evidence?: Evidence;
   create_safety?: CreateSafety;
 }
 
 /**
  * Stamp `evidence` + `create_safety` on every hit in place, from the pre-fusion
- * arm id sets. Idempotent. A chunk in neither set (e.g. injected outside the two
- * arms) classifies as weak_semantic — the safe default.
+ * arm id sets + the post-boost rank order. Idempotent. A chunk in neither arm
+ * set (e.g. injected outside the two arms) classifies as weak_semantic — the
+ * safe default. The first hit (index 0) is the top rank; `query` drives the
+ * arm-independent title-phrase match. Pass `query` so a title hit can surface
+ * `exact_title_match`; omit it to fall back to pure arm membership.
  */
 export function stampEvidence(
   hits: readonly Stampable[],
   vectorIds: ReadonlySet<string>,
   keywordIds: ReadonlySet<string>,
+  query?: string,
 ): void {
-  for (const h of hits) {
+  hits.forEach((h, i) => {
     const evidence = classifyEvidence({
       inVector: vectorIds.has(h.chunkId),
       inKeyword: keywordIds.has(h.chunkId),
+      titleMatch: query ? isTitlePhraseMatch(query, h.title) : false,
+      isTopRank: i < RANK_BAND,
     });
     h.evidence = evidence;
     h.create_safety = createSafetyFor(evidence);
-  }
+  });
 }
 
 /**
- * Stamp the conservative default (`weak_semantic` / `unknown`) on hits that
- * have no arm-membership available — the cache-hit path, which hydrates stored
- * chunk ids without re-running retrieval. Keeps the contract UNIFORM (the
- * fields are always present) and conservative (a cached hit reads "look
- * closer", never a false `exists`).
+ * Stamp evidence on the cache-hit path, which hydrates stored chunk ids without
+ * re-running retrieval — so there is NO arm membership to classify. A title
+ * match IS still computable (it keys off the query + the hit title, not the
+ * arms), so a cached hit on a title-phrase query gets `exact_title_match`;
+ * everything else degrades to the conservative default (`weak_semantic` /
+ * `unknown`). Keeps the contract UNIFORM (fields always present) and never a
+ * false `exists` for an arm-blind hit.
  */
-export function stampDefaultEvidence(hits: readonly Stampable[]): void {
+export function stampDefaultEvidence(
+  hits: readonly Stampable[],
+  query?: string,
+): void {
   for (const h of hits) {
-    h.evidence = "weak_semantic";
-    h.create_safety = "unknown";
+    const titleMatch = query ? isTitlePhraseMatch(query, h.title) : false;
+    const evidence: Evidence = titleMatch ? "exact_title_match" : "weak_semantic";
+    h.evidence = evidence;
+    h.create_safety = createSafetyFor(evidence);
   }
 }
