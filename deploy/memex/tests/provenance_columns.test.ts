@@ -54,7 +54,9 @@ const EXPECTED: Record<string, string[]> = {
   links: [
     "context",
     "link_kind",
-    "origin_page_id",
+    // 024 laid this as `origin_page_id`; migration 029 renamed it to the
+    // slug-keyed `origin_slug` (this brain is slug-keyed, not page-id-keyed).
+    "origin_slug",
     "origin_field",
     "resolution_type",
   ],

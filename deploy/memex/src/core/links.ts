@@ -113,6 +113,11 @@ function normaliseConfidence(c: number | undefined): number {
   return c;
 }
 
+/** Edge derivation kind — see migration 029. */
+export type LinkKind = "plain" | "typed_ner";
+/** Wikilink resolution form — see migration 029. */
+export type ResolutionType = "qualified" | "unqualified";
+
 export interface LinkRow {
   id: number;
   source_slug: string;
@@ -121,6 +126,15 @@ export interface LinkRow {
   inferred_confidence: number;
   source_chunk_id: string | null;
   written_at: string;
+  // Provenance (migration 029) — populated by enrichment passes, NULL/empty
+  // for explicit `link` calls and pre-029 edges. Optional on the type because
+  // the graph-read projections (graphNeighbors / graphQuery) deliberately do
+  // NOT select them — a partial LinkRow omits them entirely.
+  context?: string;
+  link_kind?: LinkKind | null;
+  origin_slug?: string | null;
+  origin_field?: string | null;
+  resolution_type?: ResolutionType | null;
 }
 
 export interface AddLinkInput {
@@ -130,6 +144,36 @@ export interface AddLinkInput {
   confidence?: number;
   source_chunk_id?: string;
   allowAdHocType?: boolean;
+  // Provenance (migration 029) — optional; written by enrichment callers,
+  // omitted by the explicit `link` MCP tool. On an idempotent re-add these
+  // are sticky: an omitted field preserves the previously-stored value.
+  context?: string;
+  link_kind?: LinkKind;
+  origin_slug?: string;
+  origin_field?: string;
+  resolution_type?: ResolutionType;
+}
+
+/** Upper bound on the stored mention-context window (defence vs unbounded writes). */
+const MAX_CONTEXT_LEN = 4000;
+const MAX_ORIGIN_FIELD_LEN = 256;
+
+function normaliseLinkKind(v: string | undefined): LinkKind | null {
+  if (v === undefined) return null;
+  if (v !== "plain" && v !== "typed_ner") {
+    throw new Error(`link_kind must be 'plain' | 'typed_ner' (got ${JSON.stringify(v)})`);
+  }
+  return v;
+}
+
+function normaliseResolutionType(v: string | undefined): ResolutionType | null {
+  if (v === undefined) return null;
+  if (v !== "qualified" && v !== "unqualified") {
+    throw new Error(
+      `resolution_type must be 'qualified' | 'unqualified' (got ${JSON.stringify(v)})`,
+    );
+  }
+  return v;
 }
 
 export interface AddLinkResult {
@@ -158,15 +202,40 @@ export async function addLink(
   const type = normaliseType(input.type, input.allowAdHocType);
   const conf = normaliseConfidence(input.confidence);
   const chunkId = input.source_chunk_id ?? null;
+  // Provenance (migration 029). Validate at the boundary so a bad caller
+  // can't poison the enum/origin columns.
+  const context = (input.context ?? "").slice(0, MAX_CONTEXT_LEN);
+  const linkKind = normaliseLinkKind(input.link_kind);
+  let originSlug: string | null = null;
+  if (input.origin_slug !== undefined) {
+    validateSlug(input.origin_slug);
+    originSlug = input.origin_slug;
+  }
+  const originField =
+    input.origin_field === undefined
+      ? null
+      : input.origin_field.slice(0, MAX_ORIGIN_FIELD_LEN);
+  const resolutionType = normaliseResolutionType(input.resolution_type);
+  // On an idempotent re-add, provenance is STICKY: an omitted field (empty
+  // context / NULL enum) preserves the prior value so a bare `link` re-call
+  // never wipes enrichment-written provenance.
   const r = await storage.engine().query<{ inserted: boolean }>(
     `INSERT INTO links
-       (source_slug, target_slug, type, inferred_confidence, source_chunk_id)
-     VALUES ($1, $2, $3, $4, $5)
+       (source_slug, target_slug, type, inferred_confidence, source_chunk_id,
+        context, link_kind, origin_slug, origin_field, resolution_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (source_slug, target_slug, type) DO UPDATE
        SET inferred_confidence = EXCLUDED.inferred_confidence,
-           source_chunk_id     = EXCLUDED.source_chunk_id
+           source_chunk_id     = EXCLUDED.source_chunk_id,
+           context             = CASE WHEN EXCLUDED.context <> ''
+                                      THEN EXCLUDED.context ELSE links.context END,
+           link_kind           = COALESCE(EXCLUDED.link_kind, links.link_kind),
+           origin_slug         = COALESCE(EXCLUDED.origin_slug, links.origin_slug),
+           origin_field        = COALESCE(EXCLUDED.origin_field, links.origin_field),
+           resolution_type     = COALESCE(EXCLUDED.resolution_type, links.resolution_type)
      RETURNING (xmax = 0) AS inserted`,
-    [input.source_slug, target, type, conf, chunkId],
+    [input.source_slug, target, type, conf, chunkId,
+     context, linkKind, originSlug, originField, resolutionType],
   );
   return {
     source_slug: input.source_slug,

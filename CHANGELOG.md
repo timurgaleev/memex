@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Link-provenance columns on `links` made usable (migration 029).**
+  Migration 024 (P0) had already laid five provenance columns on `links` as
+  bare nullable TEXT stubs (`context`, `link_kind`, `origin_page_id`,
+  `origin_field`, `resolution_type`) but nothing populated or constrained
+  them. Migration 029 turns the stubs into a usable contract so a future
+  LLM-free enrichment pass (gazetteer auto-link, typed-NER) and a reconcile
+  pass can rely on them: `context` becomes `NOT NULL DEFAULT ''` (a missing
+  window is `''`, never NULL — existing NULLs backfilled); `link_kind` gets a
+  CHECK (`plain` | `typed_ner`); `resolution_type` gets a CHECK (`qualified` |
+  `unqualified`); and the mis-named `origin_page_id` (024 copied the
+  reference's integer name, but this brain is slug-keyed) is **renamed to
+  `origin_slug`**, a soft reference consistent with `source_slug` /
+  `target_slug`. `addLink` now accepts + validates these and keeps them
+  **sticky** on an idempotent re-add (a bare `link` re-call never wipes
+  enrichment-written provenance). No public/redaction surface change: the
+  `graph_neighbors` / `graph_query` projections do not select these columns
+  and the public allowlist excludes them — `context` (free-text note content)
+  can never reach a public-bearer caller. The explicit `link` MCP tool
+  contract is unchanged. Every migration step is guarded (idempotent).
+  Unblocks link reconciliation + NER.
+
 ## [1.3.8] — 2026-06-10
 
 ### Changed

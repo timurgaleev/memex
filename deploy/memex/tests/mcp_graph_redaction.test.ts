@@ -37,8 +37,18 @@ beforeAll(async () => {
     type: "works_at",
     confidence: 0.9,
     source_chunk_id: "chunk-secret-provenance",
+    // migration 029 provenance — `context` is free-text note content and must
+    // NEVER reach a public-bearer caller.
+    context: "secret-context-window-from-a-private-note",
+    link_kind: "typed_ner",
+    origin_slug: "people/alice",
+    origin_field: "key_people",
+    resolution_type: "qualified",
   });
 });
+
+// migration 029 provenance fields that must never surface on public ingress.
+const PROVENANCE_029 = ["context", "link_kind", "origin_slug", "origin_field", "resolution_type"];
 
 afterAll(async () => {
   await storage.close();
@@ -56,8 +66,10 @@ describe("graph_query redaction", () => {
     expect(link["target_slug"]).toBe("companies/acme");
     expect(link["type"]).toBe("works_at");
     for (const f of PROVENANCE) expect(link[f]).toBeUndefined();
-    // The secret provenance value must not appear anywhere in the payload.
+    for (const f of PROVENANCE_029) expect(link[f]).toBeUndefined();
+    // No secret provenance value (chunk id OR note-derived context) anywhere.
     expect(JSON.stringify(out)).not.toContain("chunk-secret-provenance");
+    expect(JSON.stringify(out)).not.toContain("secret-context-window");
   });
 
   it("keeps the full row on internal ingress", async () => {
@@ -80,7 +92,9 @@ describe("graph_neighbors redaction", () => {
     expect(link["type"]).toBe("works_at");
     expect(link["direction"]).toBeDefined(); // traversal hint stays
     for (const f of PROVENANCE) expect(link[f]).toBeUndefined();
+    for (const f of PROVENANCE_029) expect(link[f]).toBeUndefined();
     expect(JSON.stringify(out)).not.toContain("chunk-secret-provenance");
+    expect(JSON.stringify(out)).not.toContain("secret-context-window");
   });
 
   it("keeps the full row on internal ingress", async () => {
@@ -107,7 +121,9 @@ describe("graph provenance redaction is independent of MEMEX_PUBLIC_READ_BODIES"
       expect(link["source_slug"]).toBe("people/alice");
       expect(link["type"]).toBe("works_at");
       for (const f of PROVENANCE) expect(link[f]).toBeUndefined();
+      for (const f of PROVENANCE_029) expect(link[f]).toBeUndefined();
       expect(JSON.stringify(out)).not.toContain("chunk-secret-provenance");
+      expect(JSON.stringify(out)).not.toContain("secret-context-window");
     } finally {
       if (prev === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
       else process.env["MEMEX_PUBLIC_READ_BODIES"] = prev;

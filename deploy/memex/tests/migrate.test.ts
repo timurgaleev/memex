@@ -228,3 +228,66 @@ describe("migration 028 — parent_symbol_path scalar→TEXT[] guard", () => {
     await engine.close();
   });
 });
+
+describe("migration 029 — link provenance hardening", () => {
+  const sql029 = readFileSync(
+    join(import.meta.dir, "../src/core/migrations/029_link_provenance.sql"),
+    "utf8",
+  );
+
+  // Migration 024 already laid `context, link_kind, origin_page_id,
+  // origin_field, resolution_type` as bare nullable TEXT stubs. 029 hardens
+  // them: context NOT NULL DEFAULT '' (+ backfill), enum CHECKs, and renames
+  // origin_page_id → origin_slug. Every step is guarded so a re-apply is a
+  // no-op, not an error.
+  it("hardens the 024 stub columns and re-runs cleanly", async () => {
+    const engine = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await engine.ready();
+    // Reproduce the post-024 shape: links with the bare provenance stubs and
+    // a row whose context is still NULL (the pre-029 reality on live).
+    await engine.exec(
+      `CREATE TABLE links (
+         id BIGSERIAL PRIMARY KEY, source_slug TEXT, target_slug TEXT, type TEXT,
+         context TEXT, link_kind TEXT, origin_page_id TEXT,
+         origin_field TEXT, resolution_type TEXT
+       );`,
+    );
+    await engine.exec(
+      "INSERT INTO links (source_slug, target_slug, type) VALUES ('a', 'b', 'works_at');",
+    );
+
+    await engine.exec(sql029);
+
+    // context backfilled NULL → '' and is now NOT NULL.
+    const after1 = await engine.query<{ context: string; link_kind: string | null }>(
+      "SELECT context, link_kind FROM links WHERE source_slug = 'a'",
+    );
+    expect(after1.rows[0]!.context).toBe("");
+    expect(after1.rows[0]!.link_kind).toBeNull();
+
+    // origin_page_id renamed → origin_slug.
+    const cols = await engine.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'links' AND column_name IN ('origin_page_id', 'origin_slug')`,
+    );
+    const names = cols.rows.map((r) => r.column_name).sort();
+    expect(names).toEqual(["origin_slug"]);
+
+    // A NULL context now violates NOT NULL.
+    await expect(
+      engine.exec("INSERT INTO links (source_slug, target_slug, type, context) VALUES ('c','d','works_at',NULL);"),
+    ).rejects.toThrow();
+
+    // Re-apply: guarded steps are no-ops, not errors.
+    await engine.exec(sql029);
+    const after2 = await engine.query<{ n: number }>("SELECT count(*)::int AS n FROM links");
+    expect(after2.rows[0]!.n).toBe(1);
+
+    // The CHECK constraint rejects a bad link_kind.
+    await expect(
+      engine.exec("UPDATE links SET link_kind = 'bogus' WHERE source_slug = 'a';"),
+    ).rejects.toThrow();
+
+    await engine.close();
+  });
+});

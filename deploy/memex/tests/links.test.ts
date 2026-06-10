@@ -182,6 +182,145 @@ describe("addLink", () => {
 });
 
 // ---------------------------------------------------------------------------
+// addLink — provenance columns (migration 029)
+// ---------------------------------------------------------------------------
+
+interface RawLinkRow {
+  context: string;
+  link_kind: string | null;
+  origin_slug: string | null;
+  origin_field: string | null;
+  resolution_type: string | null;
+}
+
+async function readProvenance(
+  src: string,
+  tgt: string,
+  type: string,
+): Promise<RawLinkRow> {
+  const r = await storage.engine().query<RawLinkRow>(
+    `SELECT context, link_kind, origin_slug, origin_field, resolution_type
+       FROM links WHERE source_slug = $1 AND target_slug = $2 AND type = $3`,
+    [src, tgt, type],
+  );
+  return r.rows[0]!;
+}
+
+describe("addLink provenance (migration 029)", () => {
+  it("defaults to empty context + NULL provenance for a bare link", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+    });
+    const row = await readProvenance("people/alice", "companies/acme", "works_at");
+    expect(row.context).toBe("");
+    expect(row.link_kind).toBeNull();
+    expect(row.origin_slug).toBeNull();
+    expect(row.origin_field).toBeNull();
+    expect(row.resolution_type).toBeNull();
+  });
+
+  it("persists provenance when an enrichment caller supplies it", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await putPage(storage, { slug: "notes/standup", type: "note" });
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+      context: "Alice joined Acme as CTO in 2024.",
+      link_kind: "typed_ner",
+      origin_slug: "notes/standup",
+      origin_field: "key_people",
+      resolution_type: "qualified",
+    });
+    const row = await readProvenance("people/alice", "companies/acme", "works_at");
+    expect(row.context).toContain("Acme as CTO");
+    expect(row.link_kind).toBe("typed_ner");
+    expect(row.origin_slug).toBe("notes/standup");
+    expect(row.origin_field).toBe("key_people");
+    expect(row.resolution_type).toBe("qualified");
+  });
+
+  it("keeps provenance sticky on a bare re-add (no wipe)", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+      context: "derived window",
+      link_kind: "plain",
+    });
+    // A bare re-add (e.g. the explicit `link` MCP tool) must NOT clobber it.
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+    });
+    const row = await readProvenance("people/alice", "companies/acme", "works_at");
+    expect(row.context).toBe("derived window");
+    expect(row.link_kind).toBe("plain");
+  });
+
+  it("overwrites context when a non-empty one is re-supplied", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+      context: "old window",
+    });
+    await addLink(storage, {
+      source_slug: "people/alice",
+      target_slug: "companies/acme",
+      type: "works_at",
+      context: "new window",
+    });
+    const row = await readProvenance("people/alice", "companies/acme", "works_at");
+    expect(row.context).toBe("new window");
+  });
+
+  it("rejects an invalid link_kind at the boundary", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await expect(
+      addLink(storage, {
+        source_slug: "people/alice",
+        target_slug: "companies/acme",
+        type: "works_at",
+        // @ts-expect-error — exercising the runtime guard
+        link_kind: "bogus",
+      }),
+    ).rejects.toThrow(/link_kind/);
+  });
+
+  it("rejects an invalid resolution_type at the boundary", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await expect(
+      addLink(storage, {
+        source_slug: "people/alice",
+        target_slug: "companies/acme",
+        type: "works_at",
+        // @ts-expect-error — exercising the runtime guard
+        resolution_type: "fuzzy",
+      }),
+    ).rejects.toThrow(/resolution_type/);
+  });
+
+  it("validates origin_slug grammar", async () => {
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await expect(
+      addLink(storage, {
+        source_slug: "people/alice",
+        target_slug: "companies/acme",
+        type: "works_at",
+        origin_slug: "Not A Slug!",
+      }),
+    ).rejects.toThrow(/slug/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // removeLink
 // ---------------------------------------------------------------------------
 

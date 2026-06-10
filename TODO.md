@@ -24,10 +24,18 @@ generically (no upstream names).
   gates on the global generation clock only; the reference adds a per-page
   snapshot gate. We're vulnerable to stale cache on individual page
   delete/bump (today nothing hard-deletes, so latent).
-- [ ] **Link provenance columns** (schema, high) — our `links` has only
-  `(source_slug, target_slug, type, inferred_confidence)`; missing
-  `context`, `link_kind` (plain/typed_ner), `origin_page_id`,
-  `origin_field`, `resolution_type`. Blocks link reconciliation + NER.
+- [x] **Link provenance columns** (schema, high) — DONE v1.3.9 (migration
+  029). NOTE: the columns already existed as bare nullable stubs from
+  migration 024 (`context`, `link_kind`, `origin_page_id`, `origin_field`,
+  `resolution_type`) — the original backlog claim that `links` was "missing"
+  them was wrong (caught by the codex review). 029 HARDENS the stubs:
+  `context` NOT NULL DEFAULT '' (+ backfill); CHECKs on `link_kind`
+  (plain/typed_ner) + `resolution_type` (qualified/unqualified); renames the
+  mis-named `origin_page_id` → `origin_slug` (slug-keyed model, soft ref).
+  `addLink` validates + sticky-preserves them. No public surface (graph reads
+  don't project them + allowlist excludes them). NER UNIQUE-coexistence
+  (`link_kind` in the unique key) intentionally deferred to the NER increment
+  below — nothing writes `typed_ner` yet, so no collision today.
 - [x] **`parent_symbol_path` is scalar TEXT, should be `TEXT[]`** (chunkers,
   medium) — DONE v1.3.8 (commit 39755ec, migration 028). Chunker emits the
   full ancestor chain outermost-first; indexer writes `TEXT[]`; migration 028
@@ -57,8 +65,12 @@ generically (no upstream names).
 - [ ] **Qrels format** (eval, medium) — ours is path-centric; the reference
   is slug-centric (`query_id`, `relevant_slugs`, `embedding_dim`). Add an
   adapter before reusing reference qrels.
-- [ ] **`link_kind` column** (enrichment, medium) — needed so plain +
-  typed-NER links coexist without UNIQUE collision; add before NER links.
+- [ ] **`link_kind` UNIQUE-coexistence** (enrichment, medium) — the column
+  itself landed in migration 029 (v1.3.9); the remaining piece is widening
+  the `links` UNIQUE key (today `(source_slug, target_slug, type)`) to include
+  `link_kind` (+ `origin_slug`) so a plain body mention and a typed-NER edge
+  between the same pair coexist instead of UPSERT-colliding. Do as part of the
+  NER-link increment, before anything writes `typed_ner`.
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 - [ ] **Graph read redaction on public** (high) — SHIPPING THIS INCREMENT:
@@ -232,6 +244,17 @@ future release.
   Surfaced by the P1 chunk-symbol-metadata (migration 027) review.
 
 ## Defence-in-depth hardening (deferred)
+
+- **`links.source_chunk_id` is non-sticky on a bare re-add** (`core/links.ts`
+  `addLink`). Migration 029 made the new provenance columns sticky
+  (`COALESCE`/`CASE` preserve prior values when a bare `link` re-call omits
+  them), but `source_chunk_id` keeps its original 016 last-writer-wins
+  behavior — an explicit re-`link` that omits it nulls it. Harmless today (the
+  explicit `link` MCP tool callers don't set it, and only enrichment writes
+  it). IF a future enrichment pass writes `source_chunk_id` AND an explicit
+  re-link can follow, give it the same `COALESCE(EXCLUDED.x, links.x)`
+  treatment for consistency. Flagged by the v1.3.9 code-review; left as
+  pre-existing intentional semantics, not changed in that increment.
 
 - **`publicSafeErrorMessage` logs the raw detail via `console.error`.** Fine
   for an on-host operator log, but the suppressed detail is a single
