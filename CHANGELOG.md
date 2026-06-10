@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.18] — 2026-06-10
+
 ### Changed
 - **MCP tool schemas are now generated from one contract.** The 25 inline
   JSON-Schema `inputSchema` blocks (which had to be hand-kept consistent across
