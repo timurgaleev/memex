@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.15] — 2026-06-10
+
 ### Fixed
 - **CLI commands that signal failure via `process.exitCode` now actually exit
   non-zero.** The entrypoint called `process.exit(code)` with the cli case's
