@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Hermetic retrieval-quality CI gate (keyword arm).** A deterministic
+  test seeds a tiny corpus, runs the keyword/FTS search over a set of query
+  families, scores it with the IR-metric primitives (recall@k / MRR /
+  nDCG@k), and asserts floor thresholds — so a change that regresses keyword
+  ranking turns the suite red. No Bedrock, no embeddings. (The vector/hybrid
+  arm needs a deterministic query-embedder injection point — tracked as a
+  follow-up.)
 - **`scripts/mcp-refresh.sh` — one-shot client bearer refresh.** Pulls the
   current public bearer from Secrets Manager and re-registers the memex MCP
   server in Claude Code, so a client holding yesterday's (rotated) token can
