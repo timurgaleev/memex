@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex call <tool> [--args '<json>']` — invoke any MCP tool from the
+  shell.** A convenience for operators and smoke tests: exercise a tool exactly
+  as the MCP transport would, without standing up an MCP client. Dispatch runs
+  on the INTERNAL ingress (same trust as `reindex` / `apply-migrations`), so
+  write tools and full unredacted read output are available — the public-bearer
+  surface is a separate path and is unaffected. `--args` must be a JSON object;
+  the exit code is 1 when the tool returns an error result, so it composes in
+  scripts. New `commands/call.ts`.
+
 ## [1.3.13] — 2026-06-10
 
 ### Added

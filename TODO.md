@@ -105,6 +105,10 @@ generically (no upstream names).
   by default). Slugs/queries/paths never reach logs. Follow-up: a persistent
   JSONL audit-trail writer (ISO-week-rotated) that consumes this summary —
   see the audit-writer item below.
+- [x] **`call <op>` dispatch CLI** — DONE v1.3.14 (`commands/call.ts`:
+  `memex call <tool> [--args '<json>']` → dispatchTool internal ingress, exit 1
+  on tool error). Still TODO from the operational-surface item: **`status`
+  dashboard**.
 - [ ] **Enum/array param validation** (medium) — emit `enum`/`items` in
   `paramDefToSchema` so invalid enums never reach handlers.
 - [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
@@ -261,6 +265,17 @@ future release.
   Surfaced by the P1 chunk-symbol-metadata (migration 027) review.
 
 ## Defence-in-depth hardening (deferred)
+
+- **`memex doctor`'s non-zero exit code never reaches the shell.** `runDoctor`
+  sets `process.exitCode = 1` on a failing check, but the cli `case "doctor"`
+  does `await runDoctor(); return 0`, and the entrypoint calls
+  `process.exit(0)` which OVERRIDES `process.exitCode` — so `memex doctor`
+  exits 0 even when a check fails, breaking its documented "exits 0 on healthy
+  / 1 on any failure" cron/CI contract. Fix: have `runDoctor` RETURN the code
+  and `case "doctor": return await runDoctor()` (the pattern `commands/call.ts`
+  uses as of v1.3.14). MEDIUM — surfaced by the v1.3.14 codex review; the same
+  override would hit any other command that relies on `process.exitCode` +
+  `return 0`.
 
 - **`storage.init()` is called OUTSIDE the `try`/`finally` in most command
   handlers** (`commands/jobs.ts`, `sources.ts`, and siblings follow the same

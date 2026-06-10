@@ -45,6 +45,7 @@ import { runReports } from "./commands/reports.ts";
 import { runSkillpack } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
+import { runCall } from "./commands/call.ts";
 import type { EntityType } from "./core/entities.ts";
 
 interface ParsedArgs {
@@ -111,6 +112,8 @@ function printUsage(): void {
   console.log("  jobs show|retry|cancel <id>  inspect/reset/cancel a single job");
   console.log("  cache stats                  query-cache rows: total/fresh/stale vs the clock");
   console.log("  cache prune|clear            drop only stale rows / drop every row");
+  console.log("  call <tool> [--args '<json>']");
+  console.log("                               invoke an MCP tool locally (internal ingress)");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
   console.log("  eval-replay list [--tag T] [--limit N]");
   console.log("  eval-replay run [--tag T] [--limit N] [--promote]");
@@ -439,6 +442,19 @@ async function main(argv: readonly string[]): Promise<number> {
       }
       await runCache({ sub });
       return 0;
+    }
+    case "call": {
+      const tool = positional[0];
+      if (!tool) {
+        console.error(
+          `memex call: <tool> is required (e.g. memex call search --args '{"q":"..."}')`,
+        );
+        return 1;
+      }
+      const opts: Parameters<typeof runCall>[0] = { tool };
+      const argsJson = values.get("--args");
+      if (argsJson !== undefined) opts.argsJson = argsJson;
+      return await runCall(opts);
     }
     case "sources": {
       const sub = positional[0];
