@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.9] — 2026-06-10
+
 ### Changed
 - **Link-provenance columns on `links` made usable (migration 029).**
   Migration 024 (P0) had already laid five provenance columns on `links` as
