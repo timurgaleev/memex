@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.10] — 2026-06-10
+
 ### Added
 - **`memex doctor` categorizes checks + ranks failures root-cause-first.**
   Each check now carries a `category` (`brain` = data integrity, `ops` =
