@@ -46,6 +46,7 @@ import { runSkillpack } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
 import { runCall } from "./commands/call.ts";
+import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
 interface ParsedArgs {
@@ -768,7 +769,7 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
+  (code) => process.exit(resolveExitCode(code, process.exitCode)),
   (err) => {
     console.error(`[memex] error:`, err instanceof Error ? err.message : err);
     process.exit(1);

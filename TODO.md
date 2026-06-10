@@ -266,17 +266,6 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
-- **`memex doctor`'s non-zero exit code never reaches the shell.** `runDoctor`
-  sets `process.exitCode = 1` on a failing check, but the cli `case "doctor"`
-  does `await runDoctor(); return 0`, and the entrypoint calls
-  `process.exit(0)` which OVERRIDES `process.exitCode` — so `memex doctor`
-  exits 0 even when a check fails, breaking its documented "exits 0 on healthy
-  / 1 on any failure" cron/CI contract. Fix: have `runDoctor` RETURN the code
-  and `case "doctor": return await runDoctor()` (the pattern `commands/call.ts`
-  uses as of v1.3.14). MEDIUM — surfaced by the v1.3.14 codex review; the same
-  override would hit any other command that relies on `process.exitCode` +
-  `return 0`.
-
 - **`storage.init()` is called OUTSIDE the `try`/`finally` in most command
   handlers** (`commands/jobs.ts`, `sources.ts`, and siblings follow the same
   shape). If `init()` throws (failed migration/connect) the `finally`'s

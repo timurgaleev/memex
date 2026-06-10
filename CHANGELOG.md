@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **CLI commands that signal failure via `process.exitCode` now actually exit
+  non-zero.** The entrypoint called `process.exit(code)` with the cli case's
+  return value, and an explicit `0` argument OVERRIDES any `process.exitCode` a
+  command set — so `memex doctor` (and `lint` / `integrity` / `eval` /
+  `check-resolvable` / `sources` / …, which print a report and set
+  `process.exitCode = 1` while returning 0) exited 0 even on failure, silently
+  breaking their documented cron/CI "exits 1 on failure" contract. A new
+  `resolveExitCode` honours an explicit non-zero return first, then falls
+  through to `process.exitCode` — repairing every affected command at once.
+
 ## [1.3.14] — 2026-06-10
 
 ### Added
