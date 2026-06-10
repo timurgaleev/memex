@@ -28,11 +28,13 @@ generically (no upstream names).
   `(source_slug, target_slug, type, inferred_confidence)`; missing
   `context`, `link_kind` (plain/typed_ner), `origin_page_id`,
   `origin_field`, `resolution_type`. Blocks link reconciliation + NER.
-- [ ] **`parent_symbol_path` is scalar TEXT, should be `TEXT[]`** (chunkers,
-  medium) — migration 027 stored the innermost parent only; the reference
-  keeps the full ancestor chain as an array. Nested Java/Ruby/Python classes
-  lose ancestors. Migrate column to `TEXT[]` (cast existing scalar → 1-elem
-  array) + update the indexer.
+- [x] **`parent_symbol_path` is scalar TEXT, should be `TEXT[]`** (chunkers,
+  medium) — DONE v1.3.8 (commit 39755ec, migration 028). Chunker emits the
+  full ancestor chain outermost-first; indexer writes `TEXT[]`; migration 028
+  is catalog-guarded (re-run-safe — codex caught the nesting hazard) and
+  casts existing scalars to 1-element arrays in place. Live-verified on RDS:
+  column `data_type=ARRAY/_text`, 102 rows cast, sample `[["Worker"]]`.
+  Deeper chains fill in on reindex.
 - [ ] **Slug-based page-type inference** (enrichment, high) — we type pages
   only explicitly at PUT; the reference infers type from path prefixes.
 - [ ] **Tool defs hardcoded, not generated** (mcp, high) — 27 inline
