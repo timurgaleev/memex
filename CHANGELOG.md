@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`chunks.parent_symbol_path` widened scalar TEXT → `TEXT[]` — nested code
+  symbols keep their full ancestor chain.** The code chunker (migration 027,
+  v1.3.4) recorded only the innermost enclosing symbol, so a method inside
+  `outer() { class Inner { … } }` stored `"Inner"` and lost `"outer"`. The
+  chunker now emits the whole scope chain outermost-first
+  (`["outer","Inner"]`); the indexer persists it as a `TEXT[]`, and
+  migration 028 casts existing scalar values to 1-element arrays in place
+  (no data loss — the innermost parent is preserved; deeper chains fill in
+  on the next reindex of each file). Markdown chunks stay NULL. The column
+  is not yet surfaced in search output, so there is no public/redaction
+  surface change. Substrate for later symbol-edge / qualified-name
+  resolution.
+
 ### Added
 - **Hermetic retrieval-quality CI gate (keyword arm).** A deterministic
   test seeds a tiny corpus, runs the keyword/FTS search over a set of query

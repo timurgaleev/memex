@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -171,6 +172,59 @@ describe("runMigrations (PGLite engine)", () => {
       "SELECT id, name FROM migrations ORDER BY id",
     );
     expect(rows.rows).toEqual([{ id: 1, name: "initial" }]);
+    await engine.close();
+  });
+});
+
+describe("migration 028 — parent_symbol_path scalar→TEXT[] guard", () => {
+  const sql028 = readFileSync(
+    join(
+      import.meta.dir,
+      "../src/core/migrations/028_chunk_parent_symbol_path_array.sql",
+    ),
+    "utf8",
+  );
+
+  // The catalog-guarded DO block must (a) cast a scalar `text` column to a
+  // 1-element `text[]`, preserving NULL, and (b) be a no-op when re-applied
+  // to the already-`text[]` column — NOT nest it into [['x']]. Locks the
+  // codex-review fix for migration re-run safety.
+  it("casts scalar to 1-element array and re-runs without nesting", async () => {
+    const engine = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await engine.ready();
+    await engine.exec(
+      "CREATE TABLE chunks (id TEXT PRIMARY KEY, parent_symbol_path TEXT);",
+    );
+    await engine.exec(
+      "INSERT INTO chunks (id, parent_symbol_path) VALUES ('a', 'Inner'), ('b', NULL);",
+    );
+
+    // First apply: scalar text → text[].
+    await engine.exec(sql028);
+    const after1 = await engine.query<{
+      id: string;
+      parent_symbol_path: string[] | null;
+    }>("SELECT id, parent_symbol_path FROM chunks ORDER BY id");
+    expect(after1.rows.find((r) => r.id === "a")!.parent_symbol_path).toEqual([
+      "Inner",
+    ]);
+    expect(
+      after1.rows.find((r) => r.id === "b")!.parent_symbol_path,
+    ).toBeNull();
+
+    // Second apply on the already-text[] column: no-op, no nesting.
+    await engine.exec(sql028);
+    const after2 = await engine.query<{
+      id: string;
+      parent_symbol_path: string[] | null;
+    }>("SELECT id, parent_symbol_path FROM chunks ORDER BY id");
+    expect(after2.rows.find((r) => r.id === "a")!.parent_symbol_path).toEqual([
+      "Inner",
+    ]);
+    expect(
+      after2.rows.find((r) => r.id === "b")!.parent_symbol_path,
+    ).toBeNull();
+
     await engine.close();
   });
 });

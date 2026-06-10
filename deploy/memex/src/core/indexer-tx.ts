@@ -35,8 +35,12 @@ export interface ChunkWrite {
   symbolName?: string | null;
   /** Symbol kind (function/class/method/arrow/const/module-import) — code only. */
   symbolType?: string | null;
-  /** Enclosing symbol name (NULL at top level) — code only. */
-  parentSymbol?: string | null;
+  /**
+   * Enclosing scope chain, outermost-first (empty/NULL at top level) — code
+   * only. Persisted to `chunks.parent_symbol_path` (TEXT[]); an empty chain
+   * stores NULL.
+   */
+  parentSymbolPath?: readonly string[] | null;
   /** Source language (typescript/python/…) — code only, NULL for markdown. */
   language?: string | null;
   /** Entities to attach to this chunk's row in entity_mentions. */
@@ -120,7 +124,7 @@ export async function writeDocumentTransaction(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
             symbol_name, symbol_type, parent_symbol_path, language)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10)`,
         [
           cid,
           doc.documentId,
@@ -130,7 +134,12 @@ export async function writeDocumentTransaction(
           ch.endLine ?? null,
           ch.symbolName ?? null,
           ch.symbolType ?? null,
-          ch.parentSymbol ?? null,
+          // Empty / absent chain → NULL (never `{}`), so the column is always
+          // either NULL or a non-empty TEXT[]. Mirrors migration 028, which
+          // preserves NULL and casts existing scalars to 1-element arrays.
+          ch.parentSymbolPath && ch.parentSymbolPath.length > 0
+            ? [...ch.parentSymbolPath]
+            : null,
           ch.language ?? null,
         ],
       );

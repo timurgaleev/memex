@@ -99,7 +99,7 @@ export async function indexCodeDocument(
       embedding: null, // graph-only
       symbolName: symbol.name,
       symbolType: symbol.kind,
-      parentSymbol: symbol.enclosing,
+      parentSymbolPath: symbol.parentSymbolPath,
       language,
       entities: merged,
     });

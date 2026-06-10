@@ -121,7 +121,7 @@ class Widget {
     const rows = await storage.raw().query<{
       symbol_name: string | null;
       symbol_type: string | null;
-      parent_symbol_path: string | null;
+      parent_symbol_path: string[] | null;
       language: string | null;
     }>(
       `SELECT symbol_name, symbol_type, parent_symbol_path, language
@@ -134,11 +134,11 @@ class Widget {
     expect(top!.symbol_type).toBe("function");
     expect(top!.parent_symbol_path).toBeNull();
     expect(top!.language).toBe("typescript");
-    // Method inside the class: enclosing symbol recorded as parent.
+    // Method inside the class: enclosing chain recorded as a TEXT[] array.
     const method = rows.rows.find((x) => x.symbol_name === "render");
     expect(method).toBeDefined();
     expect(method!.symbol_type).toBe("method");
-    expect(method!.parent_symbol_path).toBe("Widget");
+    expect(method!.parent_symbol_path).toEqual(["Widget"]);
     expect(method!.language).toBe("typescript");
     // Every code chunk carries its language.
     expect(rows.rows.every((x) => x.language === "typescript")).toBe(true);
@@ -164,7 +164,7 @@ class Widget {
     const rows = await storage.raw().query<{
       symbol_name: string | null;
       symbol_type: string | null;
-      parent_symbol_path: string | null;
+      parent_symbol_path: string[] | null;
       language: string | null;
     }>(
       `SELECT symbol_name, symbol_type, parent_symbol_path, language

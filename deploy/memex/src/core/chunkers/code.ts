@@ -42,6 +42,14 @@ export interface CodeSymbol {
   endLine: number;
   /** Innermost enclosing function/method/class name; `null` at top level. */
   enclosing: string | null;
+  /**
+   * Full enclosing scope chain, outermost-first — e.g. a method inside
+   * `outer() { class Inner { … } }` carries `["outer", "Inner"]`. Empty at
+   * top level. `enclosing` is the last element (or null). Persisted to
+   * `chunks.parent_symbol_path` (TEXT[]); keeps the nested-class ancestors
+   * that the scalar form dropped.
+   */
+  parentSymbolPath: string[];
 }
 
 export interface FileLevelImport {
@@ -157,13 +165,13 @@ function* visitSymbols(
   source: string,
 ): Generator<CodeSymbol> {
   const symbolTypes = SYMBOL_NODE_TYPES[lang];
-  type Frame = { node: TSNode; enclosing: string | null };
-  const stack: Frame[] = [{ node: root, enclosing: null }];
+  type Frame = { node: TSNode; enclosingPath: string[] };
+  const stack: Frame[] = [{ node: root, enclosingPath: [] }];
 
   while (stack.length > 0) {
     const frame = stack.pop();
     if (!frame) break;
-    const { node, enclosing } = frame;
+    const { node, enclosingPath } = frame;
 
     let emittedName: string | null = null;
     let emittedKind: SymbolKind | null = null;
@@ -201,16 +209,23 @@ function* visitSymbols(
         // tree-sitter rows are 0-based; convert to 1-based for SQL.
         startLine: bodyNode.startPosition.row + 1,
         endLine: bodyNode.endPosition.row + 1,
-        enclosing,
+        enclosing:
+          enclosingPath.length > 0
+            ? enclosingPath[enclosingPath.length - 1]!
+            : null,
+        parentSymbolPath: [...enclosingPath],
       };
     }
 
-    // Push children in reverse so document order pops first.
+    // Push children in reverse so document order pops first. A named symbol
+    // extends the scope chain for everything beneath it.
     const childCount = node.namedChildCount;
-    const nextEnclosing = emittedName ?? enclosing;
+    const nextPath = emittedName
+      ? [...enclosingPath, emittedName]
+      : enclosingPath;
     for (let i = childCount - 1; i >= 0; i--) {
       const child = node.namedChild(i);
-      if (child) stack.push({ node: child, enclosing: nextEnclosing });
+      if (child) stack.push({ node: child, enclosingPath: nextPath });
     }
   }
 }

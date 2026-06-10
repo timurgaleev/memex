@@ -25,6 +25,7 @@ describe("chunkCode (TypeScript)", () => {
     expect(s.startLine).toBe(1);
     expect(s.endLine).toBe(3);
     expect(s.enclosing).toBeNull();
+    expect(s.parentSymbolPath).toEqual([]);
     expect(s.body).toContain("return x + 1");
   });
 
@@ -40,6 +41,27 @@ describe("chunkCode (TypeScript)", () => {
     const bar = r.symbols.find((s) => s.name === "bar")!;
     expect(bar.kind).toBe("method");
     expect(bar.enclosing).toBe("Foo");
+    expect(bar.parentSymbolPath).toEqual(["Foo"]);
+  });
+
+  it("records the full ancestor chain for deeply nested symbols", async () => {
+    // A class nested inside a function exercises a depth-2 scope chain —
+    // the case migration 027's scalar parent_symbol_path dropped.
+    const src = `function outer() {
+  class Inner {
+    deepMethod(): number { return 1; }
+  }
+  return Inner;
+}
+`;
+    const r = await chunkCode(src, "nested.ts", "typescript");
+    const deep = r.symbols.find((s) => s.name === "deepMethod")!;
+    expect(deep).toBeDefined();
+    expect(deep.parentSymbolPath).toEqual(["outer", "Inner"]);
+    // `enclosing` stays the innermost parent (code-entities back-compat).
+    expect(deep.enclosing).toBe("Inner");
+    const inner = r.symbols.find((s) => s.name === "Inner")!;
+    expect(inner.parentSymbolPath).toEqual(["outer"]);
   });
 
   it("extracts arrow-function const bindings", async () => {
@@ -104,6 +126,7 @@ class Beta:
     expect(names).toEqual(["Beta", "alpha", "delta", "gamma"]);
     const gamma = r.symbols.find((s) => s.name === "gamma")!;
     expect(gamma.enclosing).toBe("Beta");
+    expect(gamma.parentSymbolPath).toEqual(["Beta"]);
   });
 
   it("handles async def", async () => {
