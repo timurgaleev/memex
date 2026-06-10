@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDoctor } from "../src/commands/doctor.ts";
+import { KNOWN_CHECK_NAMES } from "../src/core/doctor-categories.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-doctor-test-"));
 const cfgDir = join(tmp, ".memex");
@@ -63,7 +64,11 @@ describe("doctor", () => {
     const parsed = JSON.parse(out) as {
       ok: boolean;
       version: string;
-      checks: { name: string; ok: boolean; detail?: string }[];
+      checks: { name: string; ok: boolean; detail?: string; category: string }[];
+      summary: {
+        by_category: Record<string, { ok: number; fail: number }>;
+        ranked_failures: { name: string; tier: string; downstream_of?: string }[];
+      };
     };
     if (!parsed.ok) {
       // Surface which check failed when the assertion below fires.
@@ -80,5 +85,17 @@ describe("doctor", () => {
       "vault",
     ]);
     expect(process.exitCode).toBe(0);
+
+    // Every check carries a category, and — the DRIFT GUARD — every name the
+    // doctor actually emits is in the categorization single-source-of-truth
+    // (so a future check added without categorizing it fails here).
+    for (const c of parsed.checks) {
+      expect(["brain", "ops", "meta"]).toContain(c.category);
+      expect(KNOWN_CHECK_NAMES.has(c.name)).toBe(true);
+    }
+    // Healthy run → no ranked failures; category rollup present.
+    expect(parsed.summary.ranked_failures).toEqual([]);
+    expect(parsed.summary.by_category.brain).toBeDefined();
+    expect(parsed.summary.by_category.ops.ok).toBeGreaterThan(0);
   });
 });

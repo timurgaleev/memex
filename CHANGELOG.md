@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex doctor` categorizes checks + ranks failures root-cause-first.**
+  Each check now carries a `category` (`brain` = data integrity, `ops` =
+  infra/setup, `meta` = the doctor itself; the agent-only `skill` category is
+  intentionally absent — memex is brain-only), and the report gains a
+  `summary` with a per-category ok/fail rollup and a `ranked_failures` list
+  ordered root-cause-first. Ordering carries an explicit honesty contract: a
+  failure is only annotated `downstream_of` a root when that root is *also*
+  failing — co-failure is never treated as proof of causation. A drift guard
+  (`tests/doctor_categories.test.ts` + the doctor end-to-end test) fails CI if
+  a future check ships without a category. No behavior change to exit codes or
+  the existing `checks` array. New `core/doctor-categories.ts` +
+  `core/doctor-cause-rank.ts`.
+
 ## [1.3.9] — 2026-06-10
 
 ### Changed

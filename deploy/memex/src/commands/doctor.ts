@@ -14,12 +14,19 @@
 import { existsSync, statSync } from "node:fs";
 import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
+import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
+import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
   name: string;
   ok: boolean;
   detail?: string;
+}
+
+/** A check as rendered: the raw check plus its category. */
+interface CategorizedCheck extends Check {
+  category: CheckCategory;
 }
 
 export interface DoctorOptions {
@@ -159,12 +166,36 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   }
 
   const pass = checks.every((c) => c.ok);
+
+  // Categorize each check (brain / ops / meta) and roll up per-category
+  // pass/fail counts so the report shows signal-to-noise on the question the
+  // operator is asking, not one flat equal-weight list.
+  const categorized: CategorizedCheck[] = checks.map((c) => ({
+    ...c,
+    category: categorize(c.name),
+  }));
+  const byCategory: Record<CheckCategory, { ok: number; fail: number }> = {
+    brain: { ok: 0, fail: 0 },
+    ops: { ok: 0, fail: 0 },
+    meta: { ok: 0, fail: 0 },
+  };
+  for (const c of categorized) {
+    byCategory[c.category][c.ok ? "ok" : "fail"]++;
+  }
+  // Root-cause-first ordering of the failures (ordering only — see
+  // doctor-cause-rank.ts honesty contract).
+  const rankedFailures: RankedIssue[] = rankIssues(checks);
+
   console.log(
     JSON.stringify(
       {
         ok: pass,
         version: packageJson.version,
-        checks,
+        checks: categorized,
+        summary: {
+          by_category: byCategory,
+          ranked_failures: rankedFailures,
+        },
       },
       null,
       2,

@@ -105,8 +105,12 @@ generically (no upstream names).
   `paramDefToSchema` so invalid enums never reach handlers.
 - [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
   post-rerank (return 1 when obvious, k when genuinely k answers).
-- [ ] **doctor categorization + cause-ranking** (high) — bucket checks
-  (brain/skill/ops/meta); rank failing checks root-cause-first.
+- [x] **doctor categorization + cause-ranking** (high) — DONE v1.3.10.
+  Checks bucketed brain/ops/meta (no `skill` — agent-only, N/A to brain-only);
+  `summary.ranked_failures` orders root-cause-first with a downstream_of
+  honesty contract (only annotated when the root is also failing). Drift guard
+  fails CI on an uncategorized check. `core/doctor-categories.ts` +
+  `core/doctor-cause-rank.ts`.
 - [ ] **`cache` CLI** (stats/clear/prune), **`status` dashboard**, **`call
   <op>` dispatch** (high) — missing brain-facing operational surface.
 - [ ] **per-source health metrics** (medium) — lag_seconds, embed_coverage,
