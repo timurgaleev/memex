@@ -38,7 +38,10 @@ export function publicSafeErrorMessage(e: unknown, isPublic: boolean): string {
   return detail;
 }
 
-// Search-hit fields safe to return on public ingress.
+// Search-hit fields safe to return on public ingress. `evidence` /
+// `create_safety` are constrained enum labels (the match-strength signal +
+// don't-duplicate hint), NOT note content — safe to surface so the agent can
+// read the same retrieval contract on public + internal ingress.
 const PUBLIC_SAFE_FIELDS = new Set([
   "title",
   "sourcePath",
@@ -47,6 +50,8 @@ const PUBLIC_SAFE_FIELDS = new Set([
   "chunkId",
   "kind",
   "rank",
+  "evidence",
+  "create_safety",
 ]);
 
 // Graph-edge fields safe to return on public ingress. The slugs and the

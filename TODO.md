@@ -80,6 +80,36 @@ generically (no upstream names).
   NER-link increment, before anything writes `typed_ner`.
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
+
+#### From the 2026-06-10 reference comparison (4-agent subsystem diff)
+- [x] **Evidence + create_safety stamping** (retrieval, high) — DONE v1.3.19.
+  `core/search/evidence.ts`; arm-membership adaptation (reference's cosine
+  floors are incompatible with memex's RRF score). Pure-additive, no reorder.
+- [ ] **Title-phrase boost** (retrieval, high) — pure post-fusion multiplier
+  for "query is a contiguous phrase in the page title"; feeds evidence's
+  `exact_title_match`. BEHAVIOR-CHANGING (reorders), like recency/salience.
+  ALSO tightens v1.3.19 evidence: gate `high_vector_match`→`exists` on rank or
+  title agreement (not bare both-arms co-membership) so a common token can't
+  produce a false `exists` — the known limitation flagged in `evidence.ts`.
+- [ ] **Multi-layer dedup** (retrieval, med) — add Jaccard near-dup + type-
+  diversity as ADDITIVE stages after the existing per-doc dedup (reorders).
+- [ ] **Adaptive return-sizing** (retrieval, med) — intent-driven result cap
+  (entity→2, other→6), opt-in/default-OFF; a cap not a cliff (autocut stays
+  rejected).
+- [ ] **`sanitizeQueryForPrompt`/`sanitizeExpansionOutput`** (security, med) —
+  prompt-injection guards on the Nova-Lite query-expansion call (memex lacks).
+- [ ] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — A=doc_comment/qualified-symbol, B=body; CHANGES the keyword read path (swap the
+  un-weighted `ts` for `search_vector`) + migration. symbol/doc cols already
+  populated (027/028) so it bites day-one.
+- [ ] **Contract-derived `validateParams(op, params)`** (mcp, high) — now that
+  the OPERATIONS contract exists (v1.3.18), enforce enum/min/max the schema
+  already advertises. BEHAVIOR-CHANGING (rejects params handlers currently
+  accept) → keep the manual guards, snapshot parity, ship as a deliberate pass.
+- [ ] **`OperationError {error,message,suggestion?,docs?}`** (mcp, med) —
+  structured error envelope; migrate handlers opt-in, keep the string wrapper.
+- [ ] **Facts-fence parser/renderer** (cycle, med, LLM-free) — pure `## Facts`
+  fence round-trip; INERT until the `extract_facts` phase consumes it.
+
 - [ ] **Graph read redaction on public** (high) — SHIPPING THIS INCREMENT:
   strip provenance (`source_chunk_id`/`written_at`/confidence) from
   `graph_neighbors`/`graph_query` on the public bearer; keep slugs+type

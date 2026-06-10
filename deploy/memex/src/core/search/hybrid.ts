@@ -36,6 +36,12 @@ import {
 import { salienceMultiplier } from "./salience.ts";
 import { applyTokenBudget } from "./token-budget.ts";
 import {
+  stampEvidence,
+  stampDefaultEvidence,
+  type Evidence,
+  type CreateSafety,
+} from "./evidence.ts";
+import {
   getCachedQuery,
   putCachedQuery,
   queryCacheKey,
@@ -104,6 +110,10 @@ export interface SearchHit {
   intent: Intent;
   /** Set when `content` was cut to fit a `tokenBudget` (trailing "…"). */
   truncated?: boolean;
+  /** Why this hit matched (arm-membership signal) — see evidence.ts. */
+  evidence?: Evidence;
+  /** Derived don't-duplicate hint for the agent — see evidence.ts. */
+  create_safety?: CreateSafety;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -202,6 +212,10 @@ export async function hybridSearch(
           opts.tokenBudget !== undefined
             ? applyTokenBudget(hydrated, opts.tokenBudget)
             : hydrated;
+        // Cache hits have no arm membership to classify — stamp the
+        // conservative default so the evidence contract is uniform (always
+        // present) and never a false `exists`.
+        stampDefaultEvidence(hits);
         if (opts.onCapture) {
           try {
             await opts.onCapture({
@@ -362,6 +376,12 @@ export async function hybridSearch(
     score: h.score,
     intent,
   }));
+
+  // 9·evidence — stamp WHY each hit matched (which retrieval arm(s) surfaced
+  //     it) + a conservative create_safety hint for the agent. Pure-additive:
+  //     it does NOT reorder. (The cache-hit short-circuit stamps the
+  //     conservative default earlier, so the contract is uniform.)
+  stampEvidence(ranked, new Set(vectorIds), new Set(primaryKeywordIds));
 
   // 9a. Populate the query cache (fire-and-forget) with the ranked chunk
   //     ids at the clock value read on entry. A clock that advanced mid-

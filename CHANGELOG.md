@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Search hits carry `evidence` + `create_safety`.** Every search result is
+  now stamped with WHY it matched, not just a score: `evidence` names the
+  strongest signal that surfaced the chunk (`high_vector_match` when both the
+  vector AND keyword arms found it, `keyword_exact` for a keyword-only match,
+  `weak_semantic` otherwise) and `create_safety` (`exists` / `probable` /
+  `unknown`) is the derived "is this page already here?" hint an agent can key
+  its don't-duplicate decision off instead of a raw score. Adapted from the
+  reference's contract to memex's score model: the reference keys off a
+  calibrated 0..1 cosine, but memex's hybrid score is RRF-fused (rank-based),
+  so the signal is which retrieval ARM(s) surfaced the chunk, not a cosine
+  floor — conservative by design, so a soft signal never reads as `exists`.
+  Pure-additive: it does not reorder results. The two labels are constrained
+  enums (no note content), so they surface on both internal and public ingress.
+  Cache-hit results (which hydrate stored chunk ids without re-running
+  retrieval) get the conservative default `weak_semantic` / `unknown`, so the
+  contract is always present and never a false `exists`. New
+  `core/search/evidence.ts`.
+
 ## [1.3.18] — 2026-06-10
 
 ### Changed
