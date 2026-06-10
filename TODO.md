@@ -45,11 +45,18 @@ generically (no upstream names).
   Deeper chains fill in on reindex.
 - [ ] **Slug-based page-type inference** (enrichment, high) — we type pages
   only explicitly at PUT; the reference infers type from path prefixes.
-- [ ] **Tool defs hardcoded, not generated** (mcp, high) — 27 inline
-  JSON-Schema tool defs will drift across CLI/HTTP/stdio; the reference
-  generates from one `Operation[]`. Centralize ParamDef→Schema.
+- [x] **Tool defs hardcoded, not generated** (mcp, high) — DONE v1.3.18.
+  All 25 tool `inputSchema`s now DERIVE from one `OPERATIONS` contract
+  (`mcp/operations.ts`: `ParamDef` + `paramDefToSchema` + `operationInputSchema`);
+  `tool_defs.ts` is `OPERATIONS.map(...)`. A snapshot-equivalence test
+  (`tests/tool_defs_contract.test.ts` vs `fixtures/tool_defs.snapshot.json`)
+  pins the generated output to the original hand-written defs — proven
+  zero-behavior change. Unblocks the derived param-validation item below.
 - [ ] **Param validation inline, not derived** (mcp, high) — hand-validated
-  per tool; derive `validateParams(op, params)` from the operation contract.
+  per tool; derive `validateParams(op, params)` from the `OPERATIONS` contract
+  (now exists, v1.3.18). NOTE: this CHANGES validation behavior (would reject
+  params the per-tool handlers currently accept), so it needs its own careful
+  increment + a compatibility pass over every handler — not a free follow-on.
 - [ ] **`search` CLI lacks diagnostics** (cli, high) — only `<query> --k`;
   add `search modes|stats|tune` subcommands.
 - [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our

@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **MCP tool schemas are now generated from one contract.** The 25 inline
+  JSON-Schema `inputSchema` blocks (which had to be hand-kept consistent across
+  the HTTP and stdio surfaces) are replaced by a single `OPERATIONS` contract
+  (`mcp/operations.ts`): each tool declares its params as typed `ParamDef`s and
+  the schema is derived by `operationInputSchema` / `paramDefToSchema`. The
+  defs MCP clients receive are byte-for-byte identical — a snapshot-equivalence
+  test pins the generated output against the original hand-written defs, so
+  this is a proven zero-behavior refactor. It removes the drift risk and gives
+  a typed surface to build derived param validation on next.
+
 ## [1.3.17] — 2026-06-10
 
 ### Added
