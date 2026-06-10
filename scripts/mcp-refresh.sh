@@ -14,15 +14,15 @@
 #
 # Env contract:
 #   MEMEX_MCP_URL        required — the brain MCP endpoint (e.g. https://<host>/mcp)
+#   AWS_REGION           required — region the stack's secrets live in
 # Optional knobs:
 #   MEMEX_SECRETS_PREFIX secret prefix (default: memex) → <prefix>/memex-public-bearer
 #   MEMEX_MCP_NAME       MCP server name to register (default: memex)
 #   MEMEX_MCP_SCOPE      registration scope (default: user — all projects)
 #   AWS_PROFILE          passed to aws if set
-#   AWS_REGION           passed to aws if set
 #
-# Suggested alias (add to ~/.zshrc, set the URL to your brain endpoint):
-#   alias mcpr='MEMEX_MCP_URL="https://<your-brain-host>/mcp" AWS_PROFILE=<profile> ~/path/to/memex/scripts/mcp-refresh.sh'
+# Suggested alias (add to ~/.zshrc, set URL/region/profile to your deploy):
+#   alias mcpr='MEMEX_MCP_URL="https://<your-brain-host>/mcp" AWS_REGION=<region> AWS_PROFILE=<profile> ~/path/to/memex/scripts/mcp-refresh.sh'
 
 set -euo pipefail
 
@@ -44,10 +44,18 @@ for bin in aws claude; do
   command -v "$bin" >/dev/null 2>&1 || { log "ERROR: '$bin' not found on PATH."; exit 2; }
 done
 
+# The secret lives in ONE region (where the stack is deployed). Without an
+# explicit region the AWS CLI falls back to the profile default, which on a
+# multi-region account silently looks in the wrong region and reports
+# ResourceNotFoundException. Require it up front instead.
+if [ -z "${AWS_REGION:-}" ]; then
+  log "ERROR: AWS_REGION is not set (the region the stack's secrets live in)."
+  exit 2
+fi
+
 # Build optional aws flags without leaking empties.
-AWS_FLAGS=()
+AWS_FLAGS=(--region "$AWS_REGION")
 [ -n "${AWS_PROFILE:-}" ] && AWS_FLAGS+=(--profile "$AWS_PROFILE")
-[ -n "${AWS_REGION:-}" ] && AWS_FLAGS+=(--region "$AWS_REGION")
 
 log "fetching current bearer from Secrets Manager (${SECRET_ID})…"
 # Capture into a variable so the token never hits disk or the process table
