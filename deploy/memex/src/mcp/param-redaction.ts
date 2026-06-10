@@ -16,6 +16,7 @@
  * `1`/`true`. Even then it writes only the redacted summary.
  */
 import { TOOL_DEFS } from "./tool_defs.ts";
+import { auditDir, appendAudit } from "../core/audit-week-file.ts";
 
 export interface ParamSummary {
   redacted: true;
@@ -102,9 +103,11 @@ export function isKnownTool(toolName: string): boolean {
 }
 
 /**
- * Emit a single redacted log line for one tool call — no-op unless
- * `MEMEX_LOG_REQUESTS` is set. The line carries the tool name, the ingress
- * class, the ok flag, and the param SUMMARY (never raw params).
+ * Record one redacted entry for a tool call. Two independent, both opt-in
+ * sinks: a console line when `MEMEX_LOG_REQUESTS` is set, and an appended line
+ * in the ISO-week audit file when `MEMEX_AUDIT_DIR` is set. No-op when neither
+ * is configured. The entry carries the tool name, ingress class, ok flag, and
+ * the param SUMMARY (never raw params).
  *
  * Self-protecting: it runs on the request path AFTER the tool already
  * completed, so a logging failure must never turn a successful call into an
@@ -116,22 +119,27 @@ export function logToolCall(
   params: unknown,
   ok: boolean,
 ): void {
-  if (!requestLoggingEnabled()) return;
+  const loggingOn = requestLoggingEnabled();
+  const dir = auditDir();
+  if (!loggingOn && !dir) return;
   try {
     // An UNKNOWN tool name is caller-controlled input — never echo it raw
     // (log-injection / value-smuggling). Only declared tool names pass through.
     const known = isKnownTool(toolName);
-    console.log(
-      JSON.stringify({
-        mcp_request: {
-          tool: known ? toolName : "unknown",
-          known_tool: known,
-          ingress: isPublic ? "public" : "internal",
-          ok,
-          params: summarizeMcpParams(toolName, params),
-        },
-      }),
-    );
+    const record = {
+      tool: known ? toolName : "unknown",
+      known_tool: known,
+      ingress: isPublic ? "public" : "internal",
+      ok,
+      params: summarizeMcpParams(toolName, params),
+    };
+    if (loggingOn) console.log(JSON.stringify({ mcp_request: record }));
+    if (dir) {
+      // One clock for both the timestamp and the week-file key, so a record
+      // can never land in the adjacent week's file at an ISO-week boundary.
+      const now = new Date();
+      appendAudit(dir, { ts: now.toISOString(), ...record }, now);
+    }
   } catch {
     /* logging is best-effort; never break request handling */
   }

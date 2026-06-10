@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Opt-in JSONL audit trail for MCP tool calls.** When `MEMEX_AUDIT_DIR` is
+  set, each tool call appends one redacted JSON line to an ISO-week-rotated
+  file (`<dir>/audit-<YYYY-Www>.jsonl`) — the same redacted summary the console
+  logger uses (tool name, ingress, ok, declared param key names + counts +
+  bucketed size; never a value). The two sinks are independent (`MEMEX_AUDIT_DIR`
+  for the file, `MEMEX_LOG_REQUESTS` for stdout), both off by default. The
+  writer is best-effort: an unwritable dir or full disk is swallowed so the
+  audit trail can never break the request it records. New
+  `core/audit-week-file.ts`.
+
 ## [1.3.16] — 2026-06-10
 
 ### Added

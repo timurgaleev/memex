@@ -133,8 +133,12 @@ generically (no upstream names).
   a vector. Stable all session (347/1307/528). Operator should confirm whether
   that's by-design (a backfill/model-migration gap) or a real vector-arm
   retrieval hole.**
-- [ ] **JSONL audit-trail writer** (medium) — ISO-week-rotated best-effort
-  append writer with an audit-dir override env.
+- [x] **JSONL audit-trail writer** (medium) — DONE v1.3.17.
+  `core/audit-week-file.ts` (`isoWeekKey`/`auditFilePath`/`appendAudit`,
+  best-effort, ISO-week-rotated, `MEMEX_AUDIT_DIR` env). `logToolCall` appends
+  the redacted request summary (from `summarizeMcpParams`) when the dir is set
+  — independent of the `MEMEX_LOG_REQUESTS` console sink, off by default. No
+  param values in the trail.
 - [ ] **extract_facts + recompute_emotional_weight cycle phases** (high,
   LLM-free) — reconcile DB facts from a `## Facts` fence; score page
   salience [0..1] from tags/takes.

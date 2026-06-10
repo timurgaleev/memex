@@ -4,16 +4,23 @@
  * request log emits nothing unless MEMEX_LOG_REQUESTS is set.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   summarizeMcpParams,
   logToolCall,
   requestLoggingEnabled,
 } from "../src/mcp/param-redaction.ts";
+import { auditFilePath } from "../src/core/audit-week-file.ts";
 
-const savedEnv = process.env["MEMEX_LOG_REQUESTS"];
+const savedLog = process.env["MEMEX_LOG_REQUESTS"];
+const savedAudit = process.env["MEMEX_AUDIT_DIR"];
 afterEach(() => {
-  if (savedEnv === undefined) delete process.env["MEMEX_LOG_REQUESTS"];
-  else process.env["MEMEX_LOG_REQUESTS"] = savedEnv;
+  if (savedLog === undefined) delete process.env["MEMEX_LOG_REQUESTS"];
+  else process.env["MEMEX_LOG_REQUESTS"] = savedLog;
+  if (savedAudit === undefined) delete process.env["MEMEX_AUDIT_DIR"];
+  else process.env["MEMEX_AUDIT_DIR"] = savedAudit;
 });
 
 describe("summarizeMcpParams", () => {
@@ -107,5 +114,47 @@ describe("logToolCall", () => {
     expect(parsed.mcp_request.tool).toBe("unknown");
     expect(parsed.mcp_request.known_tool).toBe(false);
     expect(lines[0]).not.toContain("exfil-SECRET");
+  });
+});
+
+describe("logToolCall — audit file (MEMEX_AUDIT_DIR)", () => {
+  it("appends a redacted record to the week file, independent of console logging", () => {
+    const dir = mkdtempSync(join(tmpdir(), "memex-pr-audit-"));
+    delete process.env["MEMEX_LOG_REQUESTS"]; // console off
+    process.env["MEMEX_AUDIT_DIR"] = dir; // audit on
+    try {
+      logToolCall("search", false, { q: "secret-q", k: 3 }, true);
+      const file = auditFilePath(dir, new Date());
+      expect(existsSync(file)).toBe(true);
+      const line = readFileSync(file, "utf8").trim();
+      const rec = JSON.parse(line) as {
+        ts: string;
+        tool: string;
+        ok: boolean;
+        params: { declared_keys?: string[] };
+      };
+      expect(rec.tool).toBe("search");
+      expect(rec.ok).toBe(true);
+      expect(rec.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(rec.params.declared_keys).toContain("q");
+      // The audit line must NOT carry any param value.
+      expect(line).not.toContain("secret-q");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does nothing when neither MEMEX_LOG_REQUESTS nor MEMEX_AUDIT_DIR is set", () => {
+    delete process.env["MEMEX_LOG_REQUESTS"];
+    delete process.env["MEMEX_AUDIT_DIR"];
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+    try {
+      logToolCall("search", true, { q: "x" }, true);
+    } finally {
+      console.log = orig;
+    }
+    expect(lines.length).toBe(0);
   });
 });
