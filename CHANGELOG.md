@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.8] — 2026-06-10
+
 ### Changed
 - **`chunks.parent_symbol_path` widened scalar TEXT → `TEXT[]` — nested code
   symbols keep their full ancestor chain.** The code chunker (migration 027,
