@@ -107,8 +107,9 @@ generically (no upstream names).
   see the audit-writer item below.
 - [x] **`call <op>` dispatch CLI** — DONE v1.3.14 (`commands/call.ts`:
   `memex call <tool> [--args '<json>']` → dispatchTool internal ingress, exit 1
-  on tool error). Still TODO from the operational-surface item: **`status`
-  dashboard**.
+  on tool error). The **`status` snapshot** also shipped (v1.3.16,
+  `commands/status.ts` — stats + brainHealthMetrics + cacheStats) — the
+  brain-facing operational surface (cache + call + status) is now complete.
 - [ ] **Enum/array param validation** (medium) — emit `enum`/`items` in
   `paramDefToSchema` so invalid enums never reach handlers.
 - [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
@@ -121,8 +122,8 @@ generically (no upstream names).
   `core/doctor-cause-rank.ts`.
 - [x] **`cache` CLI** (stats/clear/prune) — DONE v1.3.12 (`commands/cache.ts` +
   `cacheStats`/`pruneCache`/`clearCache`; fresh-vs-stale vs the doc clock).
-  Still TODO: **`status` dashboard** + **`call <op>` dispatch** (brain-facing
-  operational surface).
+  The sibling **`status` dashboard** (v1.3.16) + **`call <op>` dispatch**
+  (v1.3.14) also shipped — operational surface complete.
 - [x] **per-source health metrics** (medium) — DONE v1.3.11. `core/source-health.ts`
   `brainHealthMetrics` (embed_coverage over non-code chunks, lag_seconds,
   queue_depth, failed_jobs_24h) surfaced as the `source-health` doctor brain

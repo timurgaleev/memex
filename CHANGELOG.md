@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex status` — one-shot operational snapshot.** Bundles the three signals
+  an operator usually wants at a glance into a single JSON object: index counts
+  (`stats`), data/ingest health (embedding coverage, staleness lag, job queue,
+  failed jobs — from `brainHealthMetrics`), and the query-cache state
+  (total / fresh / stale vs the clock). Read-only and judgement-free — unlike
+  `doctor` it sets no exit code; it just reports the numbers, reusing the same
+  primitives `doctor` and `cache` use. New `commands/status.ts`.
+
 ## [1.3.15] — 2026-06-10
 
 ### Fixed

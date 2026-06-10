@@ -46,6 +46,7 @@ import { runSkillpack } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
 import { runCall } from "./commands/call.ts";
+import { runStatus } from "./commands/status.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
@@ -115,6 +116,7 @@ function printUsage(): void {
   console.log("  cache prune|clear            drop only stale rows / drop every row");
   console.log("  call <tool> [--args '<json>']");
   console.log("                               invoke an MCP tool locally (internal ingress)");
+  console.log("  status                       one-shot snapshot: counts + health + cache");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
   console.log("  eval-replay list [--tag T] [--limit N]");
   console.log("  eval-replay run [--tag T] [--limit N] [--promote]");
@@ -232,6 +234,10 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "doctor": {
       await runDoctor();
+      return 0;
+    }
+    case "status": {
+      await runStatus();
       return 0;
     }
     case "integrity": {
