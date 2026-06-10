@@ -111,8 +111,10 @@ generically (no upstream names).
   honesty contract (only annotated when the root is also failing). Drift guard
   fails CI on an uncategorized check. `core/doctor-categories.ts` +
   `core/doctor-cause-rank.ts`.
-- [ ] **`cache` CLI** (stats/clear/prune), **`status` dashboard**, **`call
-  <op>` dispatch** (high) — missing brain-facing operational surface.
+- [x] **`cache` CLI** (stats/clear/prune) — DONE v1.3.12 (`commands/cache.ts` +
+  `cacheStats`/`pruneCache`/`clearCache`; fresh-vs-stale vs the doc clock).
+  Still TODO: **`status` dashboard** + **`call <op>` dispatch** (brain-facing
+  operational surface).
 - [x] **per-source health metrics** (medium) — DONE v1.3.11. `core/source-health.ts`
   `brainHealthMetrics` (embed_coverage over non-code chunks, lag_seconds,
   queue_depth, failed_jobs_24h) surfaced as the `source-health` doctor brain
@@ -255,6 +257,14 @@ future release.
   Surfaced by the P1 chunk-symbol-metadata (migration 027) review.
 
 ## Defence-in-depth hardening (deferred)
+
+- **`storage.init()` is called OUTSIDE the `try`/`finally` in most command
+  handlers** (`commands/jobs.ts`, `sources.ts`, and siblings follow the same
+  shape). If `init()` throws (failed migration/connect) the `finally`'s
+  `storage.close()` never runs → a leaked engine/pool. `commands/cache.ts`
+  (v1.3.12) moved `init()` INSIDE the try as the correct pattern; the
+  pre-existing handlers should be swept to match. LOW (init failure is rare +
+  the process usually exits anyway). Flagged by the v1.3.12 codex review.
 
 - **`links.source_chunk_id` is non-sticky on a bare re-add** (`core/links.ts`
   `addLink`). Migration 029 made the new provenance columns sticky

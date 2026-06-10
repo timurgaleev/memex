@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex cache` CLI — operator surface for the query cache.** `cache stats`
+  reports the query-cache row counts split fresh-vs-stale against the current
+  document-generation clock (plus distinct intents and created-at span);
+  `cache prune` drops only the stale rows (those a doc write has already
+  invalidated — never served, just taking space); `cache clear` drops every
+  row. Neither prune nor clear can change search correctness — a miss simply
+  recomputes from the live tables. New `core/search/query-cache.ts`
+  `cacheStats` / `pruneCache` / `clearCache` + `commands/cache.ts`. Read-only
+  for `stats`; no migration.
+
 ## [1.3.11] — 2026-06-10
 
 ### Added

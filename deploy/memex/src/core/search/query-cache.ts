@@ -67,6 +67,87 @@ export async function getCachedQuery(
   return { intent: row.intent, resultIds: ids };
 }
 
+export interface CacheStats {
+  /** Total cached rows. */
+  total: number;
+  /** Rows whose clock matches the current document clock (still servable). */
+  fresh: number;
+  /** Rows stranded behind an older clock (a doc write has since invalidated them). */
+  stale: number;
+  /** The current document-generation clock the stats were taken against. */
+  current_clock: number;
+  /** Distinct intent labels present in the cache. */
+  distinct_intents: number;
+  oldest_created_at: string | null;
+  newest_created_at: string | null;
+}
+
+/** Read-only cache health: total / fresh / stale relative to the current clock. */
+export async function cacheStats(
+  engine: Engine,
+  currentClock: number,
+): Promise<CacheStats> {
+  const r = await engine.query<{
+    total: number | string;
+    fresh: number | string;
+    stale: number | string;
+    distinct_intents: number | string;
+    oldest: string | null;
+    newest: string | null;
+  }>(
+    `SELECT
+       COUNT(*)::int                                  AS total,
+       COUNT(*) FILTER (WHERE clock_value = $1)::int  AS fresh,
+       COUNT(*) FILTER (WHERE clock_value <> $1)::int AS stale,
+       COUNT(DISTINCT intent)::int                    AS distinct_intents,
+       MIN(created_at)::text                          AS oldest,
+       MAX(created_at)::text                          AS newest
+     FROM query_cache`,
+    [currentClock],
+  );
+  const row = r.rows[0];
+  const toInt = (v: unknown): number => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  };
+  return {
+    total: toInt(row?.total),
+    fresh: toInt(row?.fresh),
+    stale: toInt(row?.stale),
+    current_clock: currentClock,
+    distinct_intents: toInt(row?.distinct_intents),
+    oldest_created_at: row?.oldest ?? null,
+    newest_created_at: row?.newest ?? null,
+  };
+}
+
+/** Delete every cached row. Returns the number removed. */
+export async function clearCache(engine: Engine): Promise<number> {
+  const r = await engine.query<{ n: number | string }>(
+    `WITH d AS (DELETE FROM query_cache RETURNING 1) SELECT COUNT(*)::int AS n FROM d`,
+  );
+  const n = r.rows[0]?.n;
+  return typeof n === "number" ? n : Number(n) || 0;
+}
+
+/**
+ * Delete only the stale rows (clock_value <> the current clock). Frees space
+ * without dropping rows that are still servable. Returns the number removed.
+ */
+export async function pruneCache(
+  engine: Engine,
+  currentClock: number,
+): Promise<number> {
+  const r = await engine.query<{ n: number | string }>(
+    `WITH d AS (
+       DELETE FROM query_cache WHERE clock_value <> $1 RETURNING 1
+     ) SELECT COUNT(*)::int AS n FROM d`,
+    [currentClock],
+  );
+  const n = r.rows[0]?.n;
+  return typeof n === "number" ? n : Number(n) || 0;
+}
+
 /** Upsert a ranking into the cache, stamped with the current clock. */
 export async function putCachedQuery(
   engine: Engine,

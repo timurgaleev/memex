@@ -44,6 +44,7 @@ import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
 import { runSkillpack } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
+import { runCache } from "./commands/cache.ts";
 import type { EntityType } from "./core/entities.ts";
 
 interface ParsedArgs {
@@ -108,6 +109,8 @@ function printUsage(): void {
   console.log("  jobs list [--status S] [--kind K] [--limit N]");
   console.log("  jobs stats                   counts grouped by status");
   console.log("  jobs show|retry|cancel <id>  inspect/reset/cancel a single job");
+  console.log("  cache stats                  query-cache rows: total/fresh/stale vs the clock");
+  console.log("  cache prune|clear            drop only stale rows / drop every row");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
   console.log("  eval-replay list [--tag T] [--limit N]");
   console.log("  eval-replay run [--tag T] [--limit N] [--promote]");
@@ -426,6 +429,15 @@ async function main(argv: readonly string[]): Promise<number> {
       const opts: Parameters<typeof runApplyMigrations>[0] = {};
       if (flags.has("--dry-run")) opts.dryRun = true;
       await runApplyMigrations(opts);
+      return 0;
+    }
+    case "cache": {
+      const sub = positional[0];
+      if (sub !== "stats" && sub !== "prune" && sub !== "clear") {
+        console.error("memex cache: subcommand required (stats|prune|clear)");
+        return 1;
+      }
+      await runCache({ sub });
       return 0;
     }
     case "sources": {
