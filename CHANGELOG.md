@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.13] — 2026-06-10
+
 ### Added
 - **Redacted MCP request logging (opt-in).** `summarizeMcpParams` turns a tool
   call's params into a log-safe summary — which *declared* parameter names were
