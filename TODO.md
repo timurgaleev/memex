@@ -98,9 +98,13 @@ generically (no upstream names).
   Hit@1/Hit@3/MRR/recall gates; replaces the 5 ad-hoc qrels.
 - [ ] **Hermetic CI correctness gate** (high) — env-overridable floors
   (top1 ≥ 0.80, recall@10 ≥ 0.85) over deterministic basis-vector embeddings.
-- [ ] **Request param redaction for logging** (high) — `summarizeMcpParams`
-  → `{declared_keys, unknown_key_count, approx_bytes}` so slugs/queries/
-  paths don't reach logs.
+- [x] **Request param redaction for logging** (high) — DONE v1.3.13.
+  `mcp/param-redaction.ts` `summarizeMcpParams` → `{declared_keys,
+  unknown_key_count, approx_bytes (1 KB-bucketed, side-channel-safe)}` + a
+  `logToolCall` hook in the HTTP transport (opt-in `MEMEX_LOG_REQUESTS=1`, off
+  by default). Slugs/queries/paths never reach logs. Follow-up: a persistent
+  JSONL audit-trail writer (ISO-week-rotated) that consumes this summary —
+  see the audit-writer item below.
 - [ ] **Enum/array param validation** (medium) — emit `enum`/`items` in
   `paramDefToSchema` so invalid enums never reach handlers.
 - [ ] **Score-cliff autocut** (medium) — score-discontinuity detection

@@ -16,6 +16,7 @@
 import type { Storage } from "../core/storage.ts";
 import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
+import { logToolCall } from "./param-redaction.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
@@ -228,6 +229,9 @@ async function handleSingle(
           { name: params.name, arguments: params.arguments },
           { isPublic: ctx.isPublic },
         );
+        // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
+        // Names + counts + coarse size only — never raw param values.
+        logToolCall(params.name, ctx.isPublic, params.arguments, !result.isError);
         return rpcOk(id, result);
       } catch (e) {
         // Defensive: dispatchTool already catches + sanitizes, but if it

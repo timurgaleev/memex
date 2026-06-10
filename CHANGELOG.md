@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Redacted MCP request logging (opt-in).** `summarizeMcpParams` turns a tool
+  call's params into a log-safe summary — which *declared* parameter names were
+  present (from the tool's schema), how many *unknown* keys came along, and a
+  coarse byte size — and never a single value (a search `q`, a `page_put` body,
+  a slug, a path all stay out of the logs). Size is bucketed UP to the nearest
+  1 KB so the exact length can't be binary-searched via repeated probes (a
+  content-length side channel). A new `logToolCall` hook in the MCP HTTP
+  transport writes one such redacted line per tool call **only when
+  `MEMEX_LOG_REQUESTS=1`** — off by default, so there is no behavior change
+  until an operator opts in. New `mcp/param-redaction.ts`.
+
 ## [1.3.12] — 2026-06-10
 
 ### Added
