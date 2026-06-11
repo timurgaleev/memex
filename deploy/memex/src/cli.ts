@@ -47,6 +47,7 @@ import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
 import { runCall } from "./commands/call.ts";
 import { runStatus } from "./commands/status.ts";
+import { runEmbed } from "./commands/embed.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
@@ -117,6 +118,8 @@ function printUsage(): void {
   console.log("  call <tool> [--args '<json>']");
   console.log("                               invoke an MCP tool locally (internal ingress)");
   console.log("  status                       one-shot snapshot: counts + health + cache");
+  console.log("  embed [--limit N] [--dry-run]");
+  console.log("                               backfill embeddings for non-code chunks missing a vector");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
   console.log("  eval-replay list [--tag T] [--limit N]");
   console.log("  eval-replay run [--tag T] [--limit N] [--promote]");
@@ -449,6 +452,26 @@ async function main(argv: readonly string[]): Promise<number> {
       }
       await runCache({ sub });
       return 0;
+    }
+    case "embed": {
+      // `--limit` with no value parses as a bare flag — reject it rather than
+      // silently running an uncapped backfill (which would defeat the cost cap).
+      if (flags.has("--limit")) {
+        console.error("memex embed: --limit requires a positive integer value");
+        return 1;
+      }
+      const limitStr = values.get("--limit");
+      const opts: Parameters<typeof runEmbed>[0] = {};
+      if (limitStr !== undefined) {
+        const n = Number(limitStr);
+        if (!Number.isInteger(n) || n <= 0) {
+          console.error("memex embed: --limit must be a positive integer");
+          return 1;
+        }
+        opts.limit = n;
+      }
+      if (flags.has("--dry-run")) opts.dryRun = true;
+      return await runEmbed(opts);
     }
     case "call": {
       const tool = positional[0];

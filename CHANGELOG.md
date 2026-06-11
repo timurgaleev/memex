@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex embed [--limit N] [--dry-run]` — embedding backfill.** Re-embeds
+  non-code chunks that have no row in the `embeddings` table — the operator
+  remedy when `memex status` / `memex doctor` (source-health) report
+  `embed_coverage` below 100%. Such chunks (indexed before embedding was wired,
+  left behind by a dropped embedding-dimension migration, or skipped by a
+  transient Bedrock failure mid-index) are invisible to the vector arm of
+  hybrid search — only the keyword arm can reach them — so a silent retrieval
+  hole opens. The command walks the missing chunks and computes their Titan
+  vectors. Code chunks are graph-only by design and stay excluded (the
+  candidate filter matches source-health's `embeddable` definition). Idempotent
+  (`ON CONFLICT DO NOTHING` + an `IS NULL` anti-join, so a re-run only embeds
+  what is still missing); per-chunk failures are counted, not fatal; `--dry-run`
+  counts without any Bedrock call; `--limit N` caps cost per run. A successful
+  backfill bumps the document-generation clock so the exact-match query cache
+  is invalidated — a ranking cached before the repair no longer bypasses the
+  freshly-embedded chunks. The recorded model id is sourced from the same
+  constant `embedText` defaults to, so a backfilled row never drifts from the
+  embedder that produced it.
+
 ## [1.3.26] — 2026-06-11
 
 ### Added

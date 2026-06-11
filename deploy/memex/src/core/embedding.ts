@@ -11,7 +11,9 @@ import {
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
-const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
+/** Canonical Titan v2 model id — the default for `embedText` and the model
+ *  recorded by the embedding backfill, so the two never drift apart. */
+export const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
 const DEFAULT_DIMENSIONS = 1024;
 const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
 

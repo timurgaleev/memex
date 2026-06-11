@@ -130,6 +130,16 @@ generically (no upstream names).
   cap / dedupe / count cap). Defense-in-depth — variants only become tsquery
   terms. security-engineer + code-reviewer CLEAN (1 MEDIUM log-only fix:
   all-keyword query → empty → warn + skip). codex hung (unavailable today).
+- [x] **Embedding backfill CLI (`memex embed`)** (retrieval, high) — DONE.
+  Addresses the live ~40% embed-coverage finding: re-embeds non-code chunks
+  missing an `embeddings` row (invisible to the vector arm). `core/embed-backfill.ts`
+  + `commands/embed.ts` + `--limit`/`--dry-run`; idempotent (`IS NULL` anti-join
+  + `ON CONFLICT DO NOTHING`); code chunks excluded (matches source-health's
+  `embeddable`); model id sourced from `DEFAULT_MODEL_ID` (no drift). ai-engineer
+  + code-reviewer CLEAN (model-id-from-config + `--limit` Number-parse fixes
+  applied). The actual live re-embed is operator-triggered (Bedrock cost).
+  FOLLOW-UP (deferred): a small concurrency pool (3–5) would cut wall-time ~4×
+  for a large unattended backfill; serial is fine for the one-shot today.
 - [x] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — DONE
   (migration 030). Weight A = symbol identity that EXISTS in memex
   (`symbol_name` + `parent_symbol_path`, populated by 027/028); B = body. The
