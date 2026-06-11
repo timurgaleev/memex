@@ -97,8 +97,18 @@ generically (no upstream names).
   re-keys the cache (codex MEDIUM). reviews: ai-engineer + code-reviewer CLEAN
   (no CRIT/HIGH); codex caught both the rank-0 over-tightening and the cache-key
   staleness — both fixed.
-- [ ] **Multi-layer dedup** (retrieval, med) — add Jaccard near-dup + type-
-  diversity as ADDITIVE stages after the existing per-doc dedup (reorders).
+- [x] **Multi-layer dedup** (retrieval, med) — DONE v1.3.25 (Jaccard near-dup
+  layer). `dedupByTextSimilarity` in `core/search/dedup.ts`: additive stage
+  after per-doc dedup, drops a hit with word-set Jaccard > `MEMEX_NEARDUP_JACCARD`
+  (0.85) vs a higher-ranked kept hit; min-12-token floor protects short distinct
+  chunks; applied AFTER rerank (so rerank decides which twin survives — ai-eng
+  HIGH); skipped for `exact` intent; threshold folded into the cache ranking
+  signature. Type-diversity + compiled-truth layers NOT ported (no page-type
+  taxonomy / no LLM cycle in memex). ai-engineer + code-reviewer reviewed (HIGH
+  rerank-placement + MEDIUM short-chunk-floor both fixed). codex hung (7×).
+  Type-diversity sub-layer stays DEFERRED — memex has no page-type taxonomy
+  (single vault), so it would be a no-op or harmful; revisit only if a real
+  type axis appears.
 - [x] **Adaptive return-sizing** (retrieval, med) — DONE v1.3.22.
   `core/search/return-policy.ts` + `SearchOptions.adaptiveReturn` (per-call,
   default-OFF). single-answer intents (factual/exact)→entityMax(2), broad

@@ -22,7 +22,12 @@ import { embedText } from "../embedding.ts";
 import { reciprocalRankFusion } from "../rrf.ts";
 import { vectorSearch } from "./vector.ts";
 import { keywordSearch } from "./keyword.ts";
-import { dedupByDocument, type ChunkScore } from "./dedup.ts";
+import {
+  dedupByDocument,
+  dedupByTextSimilarity,
+  getNearDupThreshold,
+  type ChunkScore,
+} from "./dedup.ts";
 import {
   applySourceBoost,
   type BoostablePayload,
@@ -401,16 +406,30 @@ export async function hybridSearch(
   // Re-sort after boost + recency (RRF was already sorted but these flip).
   scored.sort((a, b) => b.score - a.score);
 
-  // 7. Dedup per doc — skip for `exact` intent.
-  const deduped =
+  // 7. Per-document dedup (one chunk per document) — skip for `exact` intent
+  //    ("show me everything about this note").
+  const perDoc =
     intent === "exact"
       ? scored
       : dedupByDocument(scored, { enabled: true, maxPerDoc: 1 });
 
-  // 8. Two-pass rerank (opt-in).
-  const final = rerankWanted
-    ? await rerank(trimmed, deduped.slice(0, k * 2))
-    : deduped;
+  // 8. Two-pass rerank (opt-in) — runs BEFORE near-dup so the reranker sees
+  //    both near-identical twins and decides their order; near-dup then drops
+  //    the now-lower-ranked one (the reranker can't undo a drop, so it must
+  //    come first).
+  const reranked = rerankWanted
+    ? await rerank(trimmed, perDoc.slice(0, k * 2))
+    : perDoc;
+
+  // 8b. Near-dup dedup across documents (Jaccard on text) — two DIFFERENT docs
+  //     can still carry near-identical text (a note + its `.bak`); drop the
+  //     lower-ranked twin. Applied AFTER rerank, skipped for `exact` intent or
+  //     when MEMEX_NEARDUP_JACCARD > 1.0.
+  let final = reranked;
+  if (intent !== "exact") {
+    const ndThreshold = getNearDupThreshold();
+    if (ndThreshold <= 1.0) final = dedupByTextSimilarity(reranked, ndThreshold);
+  }
 
   // 9. Trim to k (the ranked result, pre-token-budget).
   const ranked: SearchHit[] = final.slice(0, k).map((h) => ({

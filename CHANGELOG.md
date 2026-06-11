@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.25] — 2026-06-11
+
+### Added
+- **Near-duplicate dedup (Jaccard text similarity).** After the existing
+  per-document dedup, a new stage drops a hit whose text is too similar
+  (word-set Jaccard > `MEMEX_NEARDUP_JACCARD`, default `0.85`) to a
+  higher-ranked already-kept hit. Per-doc dedup keeps one chunk per document,
+  but two DIFFERENT documents can still carry near-identical text (a note and
+  its `.bak` copy); this collapses them to the higher-ranked twin. Greedy and
+  rank-order-preserving; an empty/contentless hit is never dropped. Skipped for
+  `exact` intent ("show me everything") and disabled entirely when the threshold
+  is set `> 1.0`. Adapted from the reference's Layer-2 text-similarity dedup; the
+  reference's type-diversity layer (needs a page-type taxonomy memex lacks) and
+  compiled-truth guarantee (an LLM-cycle artifact memex lacks) are intentionally
+  not ported. The threshold is folded into the query-cache ranking signature, so
+  changing it re-keys the cache. New `dedupByTextSimilarity` in
+  `core/search/dedup.ts`.
+
 ## [1.3.24] — 2026-06-11
 
 ### Fixed

@@ -42,6 +42,17 @@ const CORPUS: { id: string; content: string }[] = [
   // Vector-arm probe: its terms (car/maintenance) are reachable from a query's
   // synonyms (automobile/servicing) ONLY through the embedder, never via FTS.
   { id: "doc_vehicle", content: "car maintenance schedule oil change log" },
+  // Near-dup pair (a note and its `.bak`): nearly identical text in two
+  // DIFFERENT docs (>= the 12-token near-dup floor) → the Jaccard near-dup
+  // stage must keep only one.
+  {
+    id: "doc_widget",
+    content: "widget calibration procedure alpha bravo charlie delta echo foxtrot golf hotel india juliet",
+  },
+  {
+    id: "doc_widget_bak",
+    content: "widget calibration procedure alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo",
+  },
   { id: "doc_noise", content: "unrelated lorem ipsum filler placeholder prose" },
 ];
 
@@ -162,5 +173,31 @@ describe("retrieval-quality gate (full hybrid, hermetic)", () => {
     });
     expect(result.length).toBeGreaterThan(0);
     expect(toDocId(result[0]!.chunkId)).toBe("doc_vehicle");
+  });
+
+  it("near-dup stage collapses two near-identical documents to one", async () => {
+    const result = await hybridSearch(storage, "widget calibration procedure", {
+      k: K,
+      intent: "topic",
+      noExpansion: true,
+      noCache: true,
+      embedQuery: deterministicEmbedQuery,
+    });
+    const widgets = result.map((h) => toDocId(h.chunkId)).filter((d) => d.startsWith("doc_widget"));
+    // Both doc_widget and doc_widget_bak match strongly, but the Jaccard
+    // near-dup stage keeps only the higher-ranked twin.
+    expect(widgets.length).toBe(1);
+  });
+
+  it("exact intent keeps BOTH near-dup twins (no dedup at all)", async () => {
+    const result = await hybridSearch(storage, "widget calibration procedure", {
+      k: K,
+      intent: "exact", // exact intent skips per-doc AND near-dup dedup
+      noExpansion: true,
+      noCache: true,
+      embedQuery: deterministicEmbedQuery,
+    });
+    const widgets = result.map((h) => toDocId(h.chunkId)).filter((d) => d.startsWith("doc_widget"));
+    expect(widgets.length).toBe(2);
   });
 });
