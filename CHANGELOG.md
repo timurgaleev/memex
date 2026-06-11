@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.30] — 2026-06-11
+
 ### Added
 - **Per-family retrieval eval gate (test-only).** A new hermetic gate groups
   the retrieval qrels into named query FAMILIES — `body_term` (a control),
