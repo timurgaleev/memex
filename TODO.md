@@ -16,10 +16,15 @@ gated), recorded below but not planned. Capabilities are described
 generically (no upstream names).
 
 ### Mis-adaptations to verify (highest priority — we adopted it but diverged)
-- [ ] **Per-prefix recency decay** (retrieval, high) — we use a uniform
-  half-life (120d, floor 0.6); the reference supports per-prefix decay
-  (`daily/`=short, `concepts/`=evergreen). Replace uniform with a
-  prefix→half-life map.
+- [x] **Per-prefix recency decay** (retrieval, high) — DONE (already shipped;
+  TODO was stale). `core/search/recency.ts` has `DEFAULT_RECENCY_DECAY`
+  (prefix→half-life map: `concepts/`=evergreen, `daily/`=14d, …),
+  `parseRecencyDecayEnv` (`MEMEX_RECENCY_DECAY` override, fails loud),
+  `resolveRecencyConfig` (longest-prefix-match), `recencyMultiplierForPath`.
+  Wired into `hybrid.ts` (memoized `getRecencyDecayMap()`, applied per-hit at
+  the recency step) and folded into the query-cache ranking signature. Paths
+  matching no prefix use the original uniform default (120d/0.6) — backward
+  compatible.
 - [ ] **Two-layer cache invalidation** (retrieval, high) — our query-cache
   gates on the global generation clock only; the reference adds a per-page
   snapshot gate. We're vulnerable to stale cache on individual page
@@ -125,9 +130,18 @@ generically (no upstream names).
   cap / dedupe / count cap). Defense-in-depth — variants only become tsquery
   terms. security-engineer + code-reviewer CLEAN (1 MEDIUM log-only fix:
   all-keyword query → empty → warn + skip). codex hung (unavailable today).
-- [ ] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — A=doc_comment/qualified-symbol, B=body; CHANGES the keyword read path (swap the
-  un-weighted `ts` for `search_vector`) + migration. symbol/doc cols already
-  populated (027/028) so it bites day-one.
+- [x] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — DONE
+  (migration 030). Weight A = symbol identity that EXISTS in memex
+  (`symbol_name` + `parent_symbol_path`, populated by 027/028); B = body. The
+  reference's `doc_comment`/`symbol_name_qualified` weight-A inputs don't exist
+  here yet (separate items) — fold them in when they land. A BEFORE
+  INSERT/UPDATE trigger (NOT a generated column: `array_to_string` of the scope
+  array is not immutable); existing rows backfilled in the migration. keyword.ts
+  swapped off `ts` onto `search_vector`; config stays `simple` so markdown
+  matched-set + order are unchanged (RRF is rank-based; D→B is a uniform scale).
+  ai-engineer + code-reviewer reviewed (ai-eng HIGH: order-preservation depends
+  on the flagless `ts_rank_cd` call → guardrail comment added; MEDIUM: code-chunk
+  scope match is a recall change → wording tightened; code-reviewer all-PASS).
 - [ ] **Contract-derived `validateParams(op, params)`** (mcp, high) — now that
   the OPERATIONS contract exists (v1.3.18), enforce enum/min/max the schema
   already advertises. BEHAVIOR-CHANGING (rejects params handlers currently
@@ -142,8 +156,9 @@ generically (no upstream names).
   `graph_neighbors`/`graph_query` on the public bearer; keep slugs+type
   (the 2026-06-05 decision). Closes the triple-confirmed relationship-dump
   leak.
-- [ ] **Chunk weighted FTS** (high) — `search_vector` TSVECTOR + trigger
-  (doc_comment/qualified-symbol weight A, chunk text B) + GIN index.
+- [x] **Chunk weighted FTS** (high) — DONE (migration 030; see the weighted
+  `search_vector` item above). Weight A = `symbol_name` + `parent_symbol_path`,
+  B = chunk text; `doc_comment`/`symbol_name_qualified` fold in when added.
 - [ ] **`symbol_name_qualified` column** (high) — stable edge-resolution key;
   extend migration 027, weight A in FTS.
 - [ ] **doc_comment chunk column** (medium) — capture JSDoc/docstring for
@@ -350,6 +365,17 @@ future release.
   out of the transactional runner into a separate `CONCURRENTLY` path (it
   must run outside a tx and handle the INVALID-index-on-failure case).
   Surfaced by the P1 chunk-symbol-metadata (migration 027) review.
+
+## Cleanup (deferred)
+
+- **Drop the now-unused `chunks.ts` generated column + `chunks_ts_idx`.**
+  Migration 030 moved the keyword read path onto `search_vector`; the old `ts`
+  column (migration 001, `to_tsvector('simple', content)` STORED GENERATED) is
+  no longer read for ranking, but is left in place because dropping a generated
+  column forces a table rewrite. Before dropping, grep `src/` for `\bts\b` /
+  `chunks_ts` to confirm no diagnostic still references it (e.g. `doctor`,
+  `snapshot`, eval), then drop the column + its GIN index in a single migration
+  during a quiet window. Flagged by the v1.3.26 code-review.
 
 ## Defence-in-depth hardening (deferred)
 

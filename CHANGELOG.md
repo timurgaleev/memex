@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Weighted chunk FTS (`search_vector`).** The keyword search arm now ranks
+  against a new weighted `chunks.search_vector` (migration 030) instead of the
+  flat `ts` column. A chunk's symbol identity — `symbol_name` plus its
+  `parent_symbol_path` scope, populated for code chunks by migrations 027/028 —
+  sits at FTS weight `A`, above the body text at weight `B`, so a query that
+  names a function/class (or its enclosing scope) ranks that symbol's chunk
+  above chunks that only mention the term in prose. Markdown chunks have no
+  symbol columns, so their lexemes all fall to weight `B` — a uniform shift
+  from the old default `D` that scales `ts_rank_cd` identically and leaves
+  their relative order (and the rank-based RRF contribution) unchanged; only
+  symbol-bearing chunks gain the differential boost. The tokenizer config is
+  unchanged (`simple`), so the matched set for markdown chunks is identical to
+  the old `ts`. For code chunks it is also a small recall gain — a query naming
+  an enclosing scope now reaches a nested chunk whose body omits it. Computed by a `BEFORE INSERT OR UPDATE` trigger (the
+  `array_to_string` fold of the scope array is not immutable, so a generated
+  column was not possible); existing rows are backfilled in the migration.
+  Adapted from the reference's weighted chunk FTS — its `doc_comment` /
+  `symbol_name_qualified` weight-`A` inputs do not exist in memex yet and fold
+  in when those columns land.
+
 ## [1.3.25] — 2026-06-11
 
 ### Added
