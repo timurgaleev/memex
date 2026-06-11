@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.21] — 2026-06-11
+
+### Security
+- **Query-expansion prompt-injection guards.** The query-expansion step asks
+  Nova Lite (Bedrock Converse) for paraphrase variants of the user query. Both
+  sides of that call are now sanitized: `sanitizeQueryForPrompt` neutralizes the
+  query before it reaches the model (caps length, strips code fences + HTML-ish
+  tags, drops a leading instruction-override preamble such as
+  `ignore:`/`system:`, collapses whitespace, and warns — without echoing the
+  content — when it changes anything), and `sanitizeExpansionOutput` validates
+  the untrusted model output (strips control characters, drops empties, caps
+  length, dedupes, caps the count). Defense-in-depth: the query already travels
+  in the user turn and the variants only become additional keyword (tsquery)
+  search passes — never code, never re-fed to an LLM — so this hardens the trust
+  boundary without changing results for a normal query. New exports in
+  `core/search/expansion.ts`.
+
 ## [1.3.20] — 2026-06-10
 
 ### Added

@@ -102,8 +102,13 @@ generically (no upstream names).
 - [ ] **Adaptive return-sizing** (retrieval, med) — intent-driven result cap
   (entity→2, other→6), opt-in/default-OFF; a cap not a cliff (autocut stays
   rejected).
-- [ ] **`sanitizeQueryForPrompt`/`sanitizeExpansionOutput`** (security, med) —
-  prompt-injection guards on the Nova-Lite query-expansion call (memex lacks).
+- [x] **`sanitizeQueryForPrompt`/`sanitizeExpansionOutput`** (security, med) —
+  DONE v1.3.21. Both sides of the Nova-Lite query-expansion call sanitized
+  (`core/search/expansion.ts`): input neutralized (cap/fence/tag/leading-
+  injection-preamble strip + warn), output validated (control-char strip /
+  cap / dedupe / count cap). Defense-in-depth — variants only become tsquery
+  terms. security-engineer + code-reviewer CLEAN (1 MEDIUM log-only fix:
+  all-keyword query → empty → warn + skip). codex hung (unavailable today).
 - [ ] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — A=doc_comment/qualified-symbol, B=body; CHANGES the keyword read path (swap the
   un-weighted `ts` for `search_vector`) + migration. symbol/doc cols already
   populated (027/028) so it bites day-one.
