@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.26] — 2026-06-11
+
 ### Added
 - **Weighted chunk FTS (`search_vector`).** The keyword search arm now ranks
   against a new weighted `chunks.search_vector` (migration 030) instead of the
