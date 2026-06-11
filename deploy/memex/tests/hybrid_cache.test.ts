@@ -68,6 +68,33 @@ describe("hybridSearch query cache (hit path, no Bedrock)", () => {
     expect(hits[0]!.intent).toBe("topic");
   });
 
+  it("adaptive return-sizing trims the view without poisoning the cache", async () => {
+    const clock = await currentDocumentClock(storage.engine());
+    const key = queryCacheKey("cap me", 5, undefined, false);
+    // Cached full order: beta, then alpha. Intent "factual" = single-answer.
+    await putCachedQuery(
+      storage.engine(),
+      key,
+      "cap me",
+      5,
+      "factual",
+      ["doc_b_c0", "doc_a_c0"],
+      clock,
+    );
+
+    // Adaptive ON (entityMax 1) → the returned VIEW is trimmed to 1.
+    const capped = await hybridSearch(storage, "cap me", {
+      k: 5,
+      adaptiveReturn: { enabled: true, entityMax: 1 },
+    });
+    expect(capped.map((h) => h.chunkId)).toEqual(["doc_b_c0"]);
+
+    // Same query, adaptive OFF → the cache still holds the FULL ordered set:
+    // the cap never wrote back, so there is no poisoning across calls.
+    const full = await hybridSearch(storage, "cap me", { k: 5 });
+    expect(full.map((h) => h.chunkId)).toEqual(["doc_b_c0", "doc_a_c0"]);
+  });
+
   it("invalidates the entry hybridSearch would read once the clock advances", async () => {
     const clock = await currentDocumentClock(storage.engine());
     const key = queryCacheKey("stale q", 5, undefined, false);

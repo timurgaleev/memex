@@ -99,9 +99,15 @@ generically (no upstream names).
   staleness — both fixed.
 - [ ] **Multi-layer dedup** (retrieval, med) — add Jaccard near-dup + type-
   diversity as ADDITIVE stages after the existing per-doc dedup (reorders).
-- [ ] **Adaptive return-sizing** (retrieval, med) — intent-driven result cap
-  (entity→2, other→6), opt-in/default-OFF; a cap not a cliff (autocut stays
-  rejected).
+- [x] **Adaptive return-sizing** (retrieval, med) — DONE v1.3.22.
+  `core/search/return-policy.ts` + `SearchOptions.adaptiveReturn` (per-call,
+  default-OFF). single-answer intents (factual/exact)→entityMax(2), broad
+  (topic/howto/personal)→otherMax(6), minKeep failsafe; a cap not a cliff
+  (autocut stays rejected). Applied as the FINAL return-view, after the cache
+  write + eval-capture, so it never poisons the cache or shrinks the eval
+  window. ai-engineer + code-reviewer CLEAN (ai-engineer MEDIUM: onCapture saw
+  capped ids → moved cap after capture; howto-wide is a documented judgment
+  call). codex hung (unavailable).
 - [x] **`sanitizeQueryForPrompt`/`sanitizeExpansionOutput`** (security, med) —
   DONE v1.3.21. Both sides of the Nova-Lite query-expansion call sanitized
   (`core/search/expansion.ts`): input neutralized (cap/fence/tag/leading-

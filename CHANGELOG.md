@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.22] — 2026-06-11
+
+### Added
+- **Adaptive return-sizing (opt-in, default OFF).** A new per-call
+  `adaptiveReturn` search option trims the returned hit list to an
+  intent-driven cap instead of always returning the full top-K: single-answer
+  intents (`factual` / `exact`) get a tight cap (default 2), broad intents
+  (`topic` / `howto` / `personal`) get a recall-preserving cap (default 6), with
+  an at-least-`minKeep` failsafe so a caller never gets a silent blank when
+  candidates exist. `true` enables the defaults; a partial object overrides the
+  caps. Adapted from the reference (whose intent union differs) to memex's own
+  `Intent` values, and — because memex's hybrid score is RRF-fused (no
+  trustworthy cliff) — the mechanism is a cap, not a score-cut. Applied as the
+  FINAL view, after the query cache stores the full ranked set and after the
+  eval-capture hook records it, so it never poisons the cache and never shrinks
+  the eval window. Default OFF → identical results for every existing caller.
+  New `core/search/return-policy.ts`.
+
 ## [1.3.21] — 2026-06-11
 
 ### Security

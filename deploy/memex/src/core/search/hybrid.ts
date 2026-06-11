@@ -35,6 +35,11 @@ import {
 } from "./recency.ts";
 import { salienceMultiplier } from "./salience.ts";
 import { isTitlePhraseMatch, getTitleBoost } from "./title-match.ts";
+import {
+  resolveAdaptiveReturn,
+  applyAdaptiveReturn,
+  type AdaptiveReturnInput,
+} from "./return-policy.ts";
 import { applyTokenBudget } from "./token-budget.ts";
 import {
   stampEvidence,
@@ -84,6 +89,14 @@ export interface SearchOptions {
    * is truncated and iteration stops. Unset = no cap.
    */
   tokenBudget?: number;
+  /**
+   * Opt-in adaptive return-sizing (default OFF): trim the returned list to an
+   * intent-driven cap. `true` enables the defaults; a partial object overrides
+   * the caps. Applied as the final view AFTER the query cache has stored the
+   * full ranked set, so it never poisons a later adaptive-off lookup. See
+   * return-policy.ts.
+   */
+  adaptiveReturn?: AdaptiveReturnInput;
   /**
    * Optional side-channel: invoked once after results are computed,
    * with the raw query + result IDs + latency + meta. Used by the
@@ -192,6 +205,9 @@ export async function hybridSearch(
   const k = opts.k ?? 10;
   const fanout = Math.max(20, k * 3);
   const engine = storage.engine();
+  // Adaptive return-sizing (opt-in, default OFF). Resolved once; applied as the
+  // final view on BOTH return paths, after the cache has stored the full set.
+  const adaptiveCfg = resolveAdaptiveReturn(opts.adaptiveReturn);
 
   // 0. Exact-match query cache (fail-open). A hit skips intent + embed +
   //    retrieval + fusion entirely. Validity is gated on the live-model
@@ -237,7 +253,10 @@ export async function hybridSearch(
             // capture failures never surface
           }
         }
-        return hits;
+        // Adaptive return-sizing (opt-in, default OFF) — the FINAL view, applied
+        // after the cache read served the full stored set and after capture saw
+        // it, so the cap never poisons the cache or shrinks the eval window.
+        return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
       }
     } catch {
       cacheReady = false; // fall through to a normal search
@@ -446,5 +465,10 @@ export async function hybridSearch(
     }
   }
 
-  return hits;
+  // 11. Adaptive return-sizing (opt-in, default OFF) — the FINAL step. Applied
+  //     after the cache write (9a stored the full `ranked` set) AND after the
+  //     eval-capture hook (which records the full returned candidate set), so
+  //     the cap is a pure view on the returned value: it never poisons the
+  //     cache and never shrinks the eval window. Default OFF → `hits` unchanged.
+  return applyAdaptiveReturn(hits, intent, adaptiveCfg).kept;
 }
