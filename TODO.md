@@ -145,13 +145,28 @@ generically (no upstream names).
   dedup (today only explicit `[[Foo]]`).
 - [ ] **Slug/page alias resolution** (medium) — `slug_aliases` + `page_aliases`
   so renamed pages still resolve wikilinks.
-- [ ] **IR metric suite** (high) — nDCG/recall@k/precision@k/Jaccard/
-  top1-stability (today only hit/rank/MRR) + a metric glossary.
-- [ ] **Retrieval-quality harness** (high) — query families
-  (title-substring, alias-synonym, multi-chunk-dilution, …) with per-family
-  Hit@1/Hit@3/MRR/recall gates; replaces the 5 ad-hoc qrels.
-- [ ] **Hermetic CI correctness gate** (high) — env-overridable floors
-  (top1 ≥ 0.80, recall@10 ≥ 0.85) over deterministic basis-vector embeddings.
+- [x] **IR metric suite** (high) — already present in `core/search/metrics.ts`
+  (precisionAtK/recallAtK/MRR/ndcgAtK/jaccardAtK/top1Stable/binaryGrades) +
+  `metrics.test.ts`. The old "today only hit/rank/MRR" note was stale.
+- [x] **Hermetic CI correctness gate — HYBRID** (high) — DONE v1.3.23.
+  `tests/retrieval_quality_hybrid.test.ts` gates the FULL vector+keyword+RRF
+  path with env-overridable floors (hit/MRR/nDCG), via a deterministic
+  basis-vector embedder (`tests/det-embed.ts`, FNV-1a BoW + a small synonym
+  table so the vector arm carries a keyword-blind query) injected through the
+  new test-only `SearchOptions.embedQuery` seam. Complements the pre-existing
+  keyword-only gate (`retrieval_quality.test.ts`). ai-engineer + quality-guard
+  CLEAN (their MEDIUM "gate would pass with a broken vector arm" fixed by the
+  synonym-bridge probe). codex unavailable.
+- [ ] **Query-family harness expansion** (med) — grow the qrels into named
+  families (title-substring, alias-synonym, multi-chunk-dilution) with
+  per-family Hit@1/Hit@3 gates; the two hermetic gates are the foundation.
+- [ ] **Deterministic tiebreak in vector/keyword arms** (med, PROD) —
+  `vector.ts:25` + `keyword.ts:25` `ORDER BY <dist/rank>` have NO secondary
+  key, so equal-score ties resolve in unspecified PGLite row order →
+  RRF + re-sort propagate it (latent CI flakiness: green local / red Linux,
+  cf. the mock-leak incident). Add `, chunk_id` as a stable tiebreak. Touches
+  the LIVE search path (changes order only for exactly-tied scores) → its own
+  increment, ideally with codex. Flagged by quality-guard 2026-06-11.
 - [x] **Request param redaction for logging** (high) — DONE v1.3.13.
   `mcp/param-redaction.ts` `summarizeMcpParams` → `{declared_keys,
   unknown_key_count, approx_bytes (1 KB-bucketed, side-channel-safe)}` + a

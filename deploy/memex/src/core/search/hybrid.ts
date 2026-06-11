@@ -71,6 +71,12 @@ function getRecencyDecayMap(): ReturnType<typeof resolveRecencyDecayMap> {
 export interface SearchOptions {
   k?: number;
   embeddingModel?: string;
+  /**
+   * Optional query-embedder injection. Defaults to the real Titan embedder;
+   * set ONLY by hermetic tests to drive the vector arm with deterministic
+   * vectors (no Bedrock). Production never passes this.
+   */
+  embedQuery?: (text: string) => Promise<number[]>;
   rrfK?: number;
   /** Restrict to specific sources by id. */
   sourceIds?: readonly string[];
@@ -267,10 +273,15 @@ export async function hybridSearch(
   const intent = opts.intent ?? (await classifyIntent(trimmed));
 
   // 2. Embed + parallel retrieval. Keyword needs the original query;
-  //    expansion produces additional keyword passes.
-  const queryVector = await embedText(trimmed, {
-    modelId: opts.embeddingModel ?? EMBED_MODEL,
-  });
+  //    expansion produces additional keyword passes. `embedQuery` is an
+  //    optional injection seam: when set it replaces the Bedrock embedder,
+  //    letting a hermetic test drive the vector arm with deterministic vectors.
+  //    Unset (the only production path) → the real Titan embedder, unchanged.
+  const queryVector = opts.embedQuery
+    ? await opts.embedQuery(trimmed)
+    : await embedText(trimmed, {
+        modelId: opts.embeddingModel ?? EMBED_MODEL,
+      });
 
   const [vectorIds, primaryKeywordIds] = await Promise.all([
     vectorSearch(engine, queryVector, fanout, {

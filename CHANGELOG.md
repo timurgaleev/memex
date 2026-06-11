@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.23] — 2026-06-11
+
+### Added
+- **Hermetic retrieval-quality gate over the full hybrid path.** The CI
+  correctness gate now covers vector + keyword + RRF fusion (previously only the
+  keyword arm), with NO Bedrock: a deterministic basis-vector embedder
+  (`tests/det-embed.ts` — FNV-1a token hash → 1024-dim L2-normalized
+  bag-of-words) seeds chunk vectors and is injected into the query side through
+  a new `SearchOptions.embedQuery` seam, while intent override + `noExpansion` +
+  `noCache` strip the remaining LLM calls. A change that regresses hybrid
+  ranking below the floors (hit-rate, MRR, nDCG — env-overridable) now turns the
+  suite red. The `embedQuery` option defaults to the real Titan embedder, so it
+  is a test-only injection with zero production behavior change.
+
 ## [1.3.22] — 2026-06-11
 
 ### Added
