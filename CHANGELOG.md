@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-family retrieval eval gate (test-only).** A new hermetic gate groups
+  the retrieval qrels into named query FAMILIES — `body_term` (a control),
+  `alias_synonym` (reachable only through the embedder's synonym bridge), and
+  `multi_chunk_dilution` (the relevant phrase lives in one chunk of a 3-chunk
+  document, competing with a partial-match distractor) — and asserts each
+  family's Hit@3 independently. Aggregate metrics can stay green while a single
+  retrieval MODE silently regresses; per-family gating catches that. Includes a
+  differential probe proving the `alias_synonym` family is a true vector-arm
+  sentinel (the keyword arm alone provably cannot satisfy it), so a dead vector
+  arm fails the gate. Complements the aggregate hybrid gate; no production code
+  changes. `tests/retrieval_quality_families.test.ts`.
+
 ## [1.3.29] — 2026-06-11
 
 ### Added

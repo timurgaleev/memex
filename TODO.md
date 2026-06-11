@@ -207,9 +207,19 @@ generically (no upstream names).
   keyword-only gate (`retrieval_quality.test.ts`). ai-engineer + quality-guard
   CLEAN (their MEDIUM "gate would pass with a broken vector arm" fixed by the
   synonym-bridge probe). codex unavailable.
-- [ ] **Query-family harness expansion** (med) — grow the qrels into named
-  families (title-substring, alias-synonym, multi-chunk-dilution) with
-  per-family Hit@1/Hit@3 gates; the two hermetic gates are the foundation.
+- [x] **Query-family harness expansion** (med) — DONE.
+  `tests/retrieval_quality_families.test.ts`: named families (`body_term`
+  control, `alias_synonym`, `multi_chunk_dilution`) with per-family Hit@3 gates
+  over the hermetic hybrid path. alias_synonym carries a differential probe
+  (keyword arm alone provably fails it → true vector-arm sentinel);
+  multi_chunk_dilution competes a focused chunk against a partial-match
+  distractor. quality-guard + ai-engineer reviewed (HIGH "could pass with a
+  dead vector arm" → fixed with the differential probe; MEDIUM body-overlap +
+  weak-dilution → both hardened). The `title-substring` family was intentionally
+  dropped: the title boost only re-ranks already-retrieved hits (title isn't in
+  the chunk vector/FTS), so a clean non-flaky title-only family needs more
+  scaffolding than it's worth — the v1.3.20 title-match unit tests already cover
+  the boost mechanics.
 - [x] **Deterministic tiebreak in the keyword arm** (med, PROD) — DONE v1.3.24.
   `keyword.ts` ORDER BY gains `, id COLLATE "C" ASC` (byte-order, identical on
   PGLite + RDS regardless of default collation — a bare `id ASC` would inherit
