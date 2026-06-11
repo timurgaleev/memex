@@ -118,7 +118,12 @@ describe("MCP HTTP transport", () => {
       params: { name: "no-such-tool" },
     });
     expect(r.result.isError).toBe(true);
-    expect(r.result.content[0].text).toMatch(/unknown tool/);
+    // The stable contract is the structured `error` code, not the prose — this
+    // request is internal ingress (no bearer) so the message is also present,
+    // but assert on the code so the test survives the public message-drop.
+    const env = JSON.parse(r.result.content[0].text);
+    expect(env.error).toBe("not_found");
+    expect(env.message).toMatch(/unknown tool/);
   });
 
   it("unknown method returns -32601", async () => {

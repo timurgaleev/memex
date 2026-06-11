@@ -74,6 +74,7 @@ import {
   publicReadBodiesAllowed,
   publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
+import { OperationError, isOperationError } from "../core/operation-error.ts";
 
 export interface ToolCallRequest {
   name: string;
@@ -174,11 +175,23 @@ export async function dispatchTool(
       case "jobs_logs":
         return await callJobsLogs(storage, args, redact);
       default:
-        return errResult(`unknown tool: ${req.name}`);
+        throw new OperationError(
+          "not_found",
+          `unknown tool: ${req.name}`,
+          "Call tools/list for the available tools.",
+        );
     }
   } catch (e) {
-    // Don't leak raw exception text (Postgres schema, DSN host, stack
-    // internals) across the public boundary; log it server-side instead.
+    // A KNOWN, validated failure carries a structured envelope: the agent gets
+    // a machine code + recovery hint instead of a bare string. On public
+    // ingress `toEnvelope` withholds the free-text `message` (see
+    // operation-error.ts), so only the constrained code + static suggestion/
+    // docs cross the boundary.
+    if (isOperationError(e)) {
+      return errResult(JSON.stringify(e.toEnvelope(opts.isPublic ?? false)));
+    }
+    // A raw exception (Postgres schema, DSN host, stack internals) must NOT
+    // leak across the public boundary; fully redact it there, log server-side.
     return errResult(publicSafeErrorMessage(e, opts.isPublic ?? false));
   }
 }
@@ -203,13 +216,21 @@ async function callSearch(
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
-    return errResult("search: `q` is required");
+    throw new OperationError(
+      "invalid_params",
+      "search: `q` is required",
+      "Pass a non-empty `q` string.",
+    );
   }
   const kArg = args["k"];
   let k = 5;
   if (kArg !== undefined) {
     if (!Number.isInteger(kArg) || (kArg as number) < 1 || (kArg as number) > 100) {
-      return errResult("search: `k` must be an integer in [1, 100]");
+      throw new OperationError(
+        "invalid_params",
+        "search: `k` must be an integer in [1, 100]",
+        "Pass `k` as an integer between 1 and 100.",
+      );
     }
     k = kArg as number;
   }
@@ -221,8 +242,10 @@ async function callSearch(
       (tbArg as number) < 1 ||
       (tbArg as number) > 200000
     ) {
-      return errResult(
+      throw new OperationError(
+        "invalid_params",
         "search: `token_budget` must be an integer in [1, 200000]",
+        "Pass `token_budget` as an integer between 1 and 200000.",
       );
     }
     tokenBudget = tbArg as number;

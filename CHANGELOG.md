@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Structured `OperationError` envelope for known MCP failures.** A known,
+  validated failure (bad params, unknown tool) now returns a machine-readable
+  envelope — `{error: <code>, message, suggestion?, docs?}` — instead of a bare
+  string, so the calling agent can branch on a stable code and act on the
+  recovery hint. On PUBLIC ingress the free-text `message` is withheld (the
+  only field that could carry runtime detail); the constrained `error` code and
+  author-static `suggestion`/`docs` pass through, a net improvement over the
+  previous single generic public string. Raw exceptions stay on the
+  fully-redacted path unchanged. The `search` param validations (`q`, `k`,
+  `token_budget`) and the unknown-tool path now throw it. Reviewed by
+  security-engineer (ship — message-drop is a structural control, no
+  enumeration/XSS/prototype-pollution) + code-reviewer. Adapted from the
+  reference's `OperationError`, with memex's public message-redaction contract
+  added. New `core/operation-error.ts`.
+
 ## [1.3.28] — 2026-06-11
 
 ### Changed

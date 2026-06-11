@@ -67,8 +67,16 @@ generically (no upstream names).
 - [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our
   phases are unstructured fns with `{ok:boolean}`; adopt a base class
   (source-scope + budget + uniform errors) and an `ok/warn/fail` envelope.
-- [ ] **OperationError shape** (mcp, medium) — replace ad-hoc string errors
-  with an error class → `{error, message, suggestion?, docs?}`.
+- [x] **OperationError shape** (mcp, medium) — DONE. `core/operation-error.ts`:
+  `OperationError {code, message, suggestion?, docs?}` → `toEnvelope(isPublic)`
+  (public WITHHOLDS the free-text `message`, keeps code + static suggestion/docs;
+  internal keeps all). Dispatch catch renders it; raw exceptions stay on the
+  fully-redacted `publicSafeErrorMessage` path. 4 validation sites migrated
+  (search q/k/token_budget + unknown-tool). security-engineer SHIP (message-drop
+  is a structural control, no enumeration/XSS) + code-reviewer CLEAN.
+  PARTIAL MIGRATION (deferred): the other ~26 `errResult(string)` sites still
+  emit plain strings — the envelope/string duality is intentional for now;
+  migrate the rest opt-in if a full structured surface is wanted.
 - [x] **RateLimiter LRU+TTL bounds** (mcp, medium) — DONE. The limiter already
   had a `maxKeys` cap + idle (fully-refilled) sweep + separate public/internal
   limiters, so the catastrophic leak was already bounded. The real residual was
