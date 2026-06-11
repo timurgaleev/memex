@@ -75,6 +75,10 @@ import {
   publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
 import { OperationError, isOperationError } from "../core/operation-error.ts";
+import { OPERATIONS, validateParams } from "./operations.ts";
+
+// Operation lookup by tool name, built once (the contract is static).
+const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
 
 export interface ToolCallRequest {
   name: string;
@@ -123,6 +127,12 @@ export async function dispatchTool(
   // edge type regardless; provenance is never returned publicly.
   const redactGraph = opts.isPublic ?? false;
   try {
+    // Enforce the declared param contract (type / enum / min-max of present
+    // params) before dispatch. Known tools only — an unknown name falls through
+    // to the switch default. Throws OperationError('invalid_params'), rendered
+    // by the catch below.
+    const op = OP_BY_NAME.get(req.name);
+    if (op) validateParams(op, args);
     switch (req.name) {
       case "search":
         return await callSearch(storage, args, redact);

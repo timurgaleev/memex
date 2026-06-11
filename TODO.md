@@ -57,11 +57,17 @@ generically (no upstream names).
   (`tests/tool_defs_contract.test.ts` vs `fixtures/tool_defs.snapshot.json`)
   pins the generated output to the original hand-written defs — proven
   zero-behavior change. Unblocks the derived param-validation item below.
-- [ ] **Param validation inline, not derived** (mcp, high) — hand-validated
-  per tool; derive `validateParams(op, params)` from the `OPERATIONS` contract
-  (now exists, v1.3.18). NOTE: this CHANGES validation behavior (would reject
-  params the per-tool handlers currently accept), so it needs its own careful
-  increment + a compatibility pass over every handler — not a free follow-on.
+- [x] **Param validation inline, not derived** (mcp, high) — DONE.
+  `validateParams(op, params)` in `mcp/operations.ts` enforces declared
+  type/enum/min-max for present params (throws `OperationError('invalid_params')`);
+  wired as a pre-dispatch check in `dispatch.ts`. Required-presence stays with
+  the handlers; unknown params not rejected. Safe by construction (client derives
+  params from the same contract → a per-op parity test proves no well-formed call
+  is rejected). One tightening: `object` params reject arrays. security-engineer
+  SHIP + code-reviewer CLEAN + codex. FOLLOW-UP (deferred): the redundant inline
+  `k`/`token_budget`/`limit` range guards in the handlers are now belt-and-
+  suspenders — fold them out once validateParams is trusted (still cover the
+  CLI-direct call path).
 - [ ] **`search` CLI lacks diagnostics** (cli, high) — only `<query> --k`;
   add `search modes|stats|tune` subcommands.
 - [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our

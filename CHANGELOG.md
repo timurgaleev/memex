@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Contract-derived param validation at the MCP boundary.** Every tool call is
+  now checked against the `OPERATIONS` contract before dispatch: a present param
+  must match its declared type, enum membership, and numeric min/max, else the
+  call returns a structured `invalid_params` `OperationError`. This enforces, in
+  one place, the constraints the advertised `inputSchema` already declares but
+  individual handlers checked unevenly. Safe by construction: the MCP client
+  derives its params from the same contract, so a well-formed call can never be
+  rejected (a per-operation parity test pins this) — only a malformed one, which
+  a handler would have rejected anyway. Required-presence is still owned by the
+  handlers (their messages are richer); unknown/undeclared params are not
+  rejected. One real tightening: an `object`-typed param now rejects a JSON
+  ARRAY (arrays were previously accepted by the `typeof === "object"` handler
+  guards), matching the schema's `type:"object"` for the loose write-tool fields
+  (`compiled_truth` / `payload` / `extra`). Reviewed by security-engineer (ship
+  — no new oracle, no injection, no DoS) + code-reviewer. `validateParams` in
+  `mcp/operations.ts`.
+
 ## [1.3.30] — 2026-06-11
 
 ### Added

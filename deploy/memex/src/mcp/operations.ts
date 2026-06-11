@@ -18,6 +18,8 @@
 // `format`, `oneOf`, nested `properties`) is the escape hatch — hand-write that
 // tool's def in tool_defs.ts instead of routing it through the generator, so a
 // constraint is never silently dropped expecting the generator to carry it.
+import { OperationError } from "../core/operation-error.ts";
+
 export type ParamType = "string" | "integer" | "number" | "boolean" | "object";
 
 export interface ParamDef {
@@ -62,6 +64,98 @@ export function operationInputSchema(op: Operation): Record<string, unknown> {
   if (required.length > 0) schema.required = required;
   schema.additionalProperties = false;
   return schema;
+}
+
+/**
+ * Enforce the declared param contract for one operation: a PRESENT param must
+ * match its declared type, enum membership, and numeric bounds. Throws
+ * `OperationError('invalid_params')` so the dispatch catch renders the
+ * structured envelope.
+ *
+ * Scope decisions:
+ *   - Required-PRESENCE is left to the per-handler guards — they carry richer,
+ *     tool-specific messages (e.g. `search: \`q\` is required`); duplicating it
+ *     here would shadow those. This validates only what's present.
+ *   - Unknown params are NOT rejected: a handler may read an undeclared field,
+ *     and the JSON-Schema `additionalProperties:false` already documents the
+ *     surface for clients. Tightening to reject unknowns is a separate, riskier
+ *     decision.
+ *
+ * Safe to enforce uniformly: the MCP client derives its params FROM this same
+ * contract (the ParamDefs generate the advertised inputSchema), so a
+ * well-formed call can never be rejected here — only a malformed one, which the
+ * handler would have rejected anyway. Catches the constraints the schema
+ * already advertises but individual handlers may not all check by hand.
+ */
+export function validateParams(
+  op: Operation,
+  params: Record<string, unknown>,
+): void {
+  const fail = (key: string, reason: string, suggestion: string): never => {
+    throw new OperationError(
+      "invalid_params",
+      `${op.name}: \`${key}\` ${reason}`,
+      suggestion,
+    );
+  };
+  for (const [key, def] of Object.entries(op.params)) {
+    const v = params[key];
+    // Skip ONLY absent params (presence is the handler's job). A present `null`
+    // is NOT skipped: the contract's declared types are non-nullable
+    // (paramDefToSchema emits a bare `type`, never `["t","null"]`), so an
+    // explicit null is a malformed value and must fail the type check below
+    // rather than slip through to a handler's `?? default`.
+    if (v === undefined) continue;
+
+    switch (def.type) {
+      case "integer":
+        if (typeof v !== "number" || !Number.isInteger(v)) {
+          fail(key, "must be an integer", `Pass \`${key}\` as a whole number.`);
+        }
+        break;
+      case "number":
+        if (typeof v !== "number" || !Number.isFinite(v)) {
+          fail(key, "must be a finite number", `Pass \`${key}\` as a number.`);
+        }
+        break;
+      case "boolean":
+        if (typeof v !== "boolean") {
+          fail(key, "must be a boolean", `Pass \`${key}\` as true or false.`);
+        }
+        break;
+      case "string":
+        if (typeof v !== "string") {
+          fail(key, "must be a string", `Pass \`${key}\` as a string.`);
+        }
+        break;
+      case "object":
+        // typeof null === "object", so null must be rejected explicitly; an
+        // array is an object too but not a valid JSON object value here.
+        if (typeof v !== "object" || v === null || Array.isArray(v)) {
+          fail(key, "must be an object", `Pass \`${key}\` as a JSON object.`);
+        }
+        break;
+    }
+
+    if (def.enum && !(typeof v === "string" && def.enum.includes(v))) {
+      fail(
+        key,
+        `must be one of: ${def.enum.join(", ")}`,
+        `Pass \`${key}\` as one of: ${def.enum.join(", ")}.`,
+      );
+    }
+    if (
+      (def.type === "integer" || def.type === "number") &&
+      typeof v === "number"
+    ) {
+      if (def.minimum !== undefined && v < def.minimum) {
+        fail(key, `must be >= ${def.minimum}`, `Pass \`${key}\` >= ${def.minimum}.`);
+      }
+      if (def.maximum !== undefined && v > def.maximum) {
+        fail(key, `must be <= ${def.maximum}`, `Pass \`${key}\` <= ${def.maximum}.`);
+      }
+    }
+  }
 }
 
 // --- helpers to keep the contract terse + matching the original defs --------
