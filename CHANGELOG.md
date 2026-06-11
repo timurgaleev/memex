@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.27] — 2026-06-11
+
 ### Added
 - **`memex embed [--limit N] [--dry-run]` — embedding backfill.** Re-embeds
   non-code chunks that have no row in the `embeddings` table — the operator
