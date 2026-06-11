@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.29] — 2026-06-11
+
 ### Added
 - **Structured `OperationError` envelope for known MCP failures.** A known,
   validated failure (bad params, unknown tool) now returns a machine-readable
