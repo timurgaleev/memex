@@ -160,13 +160,16 @@ generically (no upstream names).
 - [ ] **Query-family harness expansion** (med) — grow the qrels into named
   families (title-substring, alias-synonym, multi-chunk-dilution) with
   per-family Hit@1/Hit@3 gates; the two hermetic gates are the foundation.
-- [ ] **Deterministic tiebreak in vector/keyword arms** (med, PROD) —
-  `vector.ts:25` + `keyword.ts:25` `ORDER BY <dist/rank>` have NO secondary
-  key, so equal-score ties resolve in unspecified PGLite row order →
-  RRF + re-sort propagate it (latent CI flakiness: green local / red Linux,
-  cf. the mock-leak incident). Add `, chunk_id` as a stable tiebreak. Touches
-  the LIVE search path (changes order only for exactly-tied scores) → its own
-  increment, ideally with codex. Flagged by quality-guard 2026-06-11.
+- [x] **Deterministic tiebreak in the keyword arm** (med, PROD) — DONE v1.3.24.
+  `keyword.ts` ORDER BY gains `, id COLLATE "C" ASC` (byte-order, identical on
+  PGLite + RDS regardless of default collation — a bare `id ASC` would inherit
+  divergent collations). `ts_rank_cd` is a computed expression (already sorted)
+  so the tiebreak is free — no plan/ranking change. The VECTOR arm is left
+  untied ON PURPOSE: a secondary key on `vector <=>` can defeat the HNSW index
+  (mig 001), and exact cosine ties on real embeddings are vanishingly rare;
+  HNSW order is deterministic per index. `tests/tiebreak_determinism.test.ts`
+  proves it. code-reviewer CLEAN (its collation MEDIUM is exactly the
+  COLLATE "C" applied). codex unavailable.
 - [x] **Request param redaction for logging** (high) — DONE v1.3.13.
   `mcp/param-redaction.ts` `summarizeMcpParams` → `{declared_keys,
   unknown_key_count, approx_bytes (1 KB-bucketed, side-channel-safe)}` + a

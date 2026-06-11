@@ -22,7 +22,7 @@ export async function keywordSearch(
     const r = await engine.query<{ id: string }>(
       `SELECT id FROM chunks
        WHERE ts @@ plainto_tsquery('simple', $1)
-       ORDER BY ts_rank_cd(ts, plainto_tsquery('simple', $1)) DESC
+       ORDER BY ts_rank_cd(ts, plainto_tsquery('simple', $1)) DESC, id COLLATE "C" ASC
        LIMIT $2`,
       [query, limit],
     );
@@ -33,7 +33,7 @@ export async function keywordSearch(
      JOIN documents d ON d.id = c.document_id
      WHERE c.ts @@ plainto_tsquery('simple', $1)
        AND d.source_id = ANY($2::text[])
-     ORDER BY ts_rank_cd(c.ts, plainto_tsquery('simple', $1)) DESC
+     ORDER BY ts_rank_cd(c.ts, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
      LIMIT $3`,
     [query, sourceIds, limit],
   );

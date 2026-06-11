@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.24] — 2026-06-11
+
+### Fixed
+- **Deterministic tie-break in the keyword search arm.** `keywordSearch` ordered
+  by `ts_rank_cd` alone, so equal-rank ties — common when several chunks share
+  the query terms — resolved in the storage engine's unspecified order, a latent
+  source of green-local / red-Linux divergence (the same flakiness class as the
+  mock-leak incident). Both keyword queries now append `, id COLLATE "C" ASC`: a
+  byte-order secondary key that is identical on PGLite and live RDS regardless of
+  their default collations. `ts_rank_cd` is a computed expression (always sorted,
+  never index-backed), so the tie-break is free — no plan change, no ranking
+  change, only the previously-unspecified tie order is now stable. The vector arm
+  is deliberately left untouched: a secondary key on a pgvector `<=>` ORDER BY
+  can defeat the HNSW index, and exact cosine ties on real embeddings are
+  vanishingly rare.
+
 ## [1.3.23] — 2026-06-11
 
 ### Added
