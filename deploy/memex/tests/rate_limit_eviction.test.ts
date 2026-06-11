@@ -1,8 +1,10 @@
 /**
  * Eviction tests for the rate limiter — the in-memory bucket map
- * previously leaked one entry per unique source IP forever. New
- * design: periodic sweep of idle (fully-refilled) buckets + a hard
- * maxKeys cap that fails closed on capacity rather than OOMing.
+ * previously leaked one entry per unique source IP forever. Design:
+ * a periodic sweep of idle (fully-refilled) + stale (TTL-expired)
+ * buckets, a hard maxKeys cap, and — at the cap — LRU eviction so a
+ * new key is always admitted (never fail-closed) while memory stays
+ * bounded.
  */
 import { describe, expect, test } from "bun:test";
 import { RateLimiter } from "../src/mcp/rate_limit.ts";
@@ -46,16 +48,49 @@ describe("RateLimiter eviction", () => {
     expect(r.size()).toBe(2); // hot survives, trigger added
   });
 
-  test("maxKeys cap rejects new keys when full", () => {
+  test("at the cap, a new key evicts the LRU bucket and is admitted (never fail-closed)", () => {
     const r = new RateLimiter({ capacity: 5, refillPerSecond: 1, maxKeys: 3 });
     const t0 = 1000;
     expect(r.allow("a", t0)).toBe(true);
     expect(r.allow("b", t0)).toBe(true);
     expect(r.allow("c", t0)).toBe(true);
-    // Fourth key — at the cap, no idle buckets to evict (we hit
-    // each only once so they're each capacity - 1 ≈ active).
-    expect(r.allow("d", t0)).toBe(false);
+    // Fourth key — at the cap, all three are active (each capacity-1, no idle
+    // to sweep). The new key must still be admitted by evicting the LRU ("a",
+    // the oldest-touched), keeping memory bounded at maxKeys.
+    expect(r.allow("d", t0)).toBe(true);
     expect(r.size()).toBe(3);
+    expect(r.has("a")).toBe(false); // LRU evicted
+    expect(r.has("b")).toBe(true);
+    expect(r.has("c")).toBe(true);
+    expect(r.has("d")).toBe(true);
+  });
+
+  test("touching a key makes it MRU so a later eviction drops a different one", () => {
+    const r = new RateLimiter({ capacity: 5, refillPerSecond: 1, maxKeys: 2 });
+    const t0 = 1000;
+    expect(r.allow("a", t0)).toBe(true);
+    expect(r.allow("b", t0)).toBe(true);
+    // Re-touch "a" → it becomes the most-recently-used, so "b" is now the LRU.
+    expect(r.allow("a", t0 + 10)).toBe(true);
+    // New key "c" at the cap evicts the LRU = "b", not "a".
+    expect(r.allow("c", t0 + 20)).toBe(true);
+    expect(r.size()).toBe(2);
+    expect(r.has("a")).toBe(true); // survived — was touched most recently
+    expect(r.has("b")).toBe(false); // evicted — least recently used
+    expect(r.has("c")).toBe(true);
+  });
+
+  test("stale (TTL-expired) buckets are swept even if never refilled", () => {
+    // refillPerSecond:0 → a drained bucket NEVER refills, so the idle rule can
+    // never drop it. Only the TTL/stale rule can — isolating that branch.
+    const r = new RateLimiter({ capacity: 100, refillPerSecond: 0, ttlMs: 5_000 });
+    const t0 = 1000;
+    // Drain "slow" to 0; with zero refill it stays at 0 (never idle-droppable).
+    for (let i = 0; i < 100; i++) expect(r.allow("slow", t0)).toBe(true);
+    expect(r.has("slow")).toBe(true);
+    // Past the 60s sweep interval AND past the 5s TTL since last access.
+    r.allow("trigger", t0 + 61_000);
+    expect(r.has("slow")).toBe(false); // dropped by the TTL rule alone
   });
 
   test("maxKeys eviction runs at capacity to make room", () => {

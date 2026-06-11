@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Rate limiter: LRU eviction + TTL instead of fail-closed at capacity.** The
+  per-IP token-bucket limiter used to refuse all new keys once its `maxKeys`
+  cap (10 000) filled — so a flood of distinct source IPs could lock out every
+  new legitimate caller (a trivial denial of service). It now evicts the
+  least-recently-used bucket to admit a new key, so a new caller is always
+  admitted while memory stays bounded; per-key throttling is unchanged, and an
+  active caller is self-healing (each request re-marks it most-recently-used,
+  out of eviction range). A TTL sweep (`ttlMs`, default 15 min) now drops
+  buckets untouched past the window alongside the existing idle
+  (fully-refilled) sweep. Reviewed by security-engineer (ship, net improvement
+  over fail-closed) + code-reviewer.
+
 ## [1.3.27] — 2026-06-11
 
 ### Added

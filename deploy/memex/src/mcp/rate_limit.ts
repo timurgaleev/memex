@@ -5,6 +5,17 @@
  * boot don't accumulate. The bucket fills up to `capacity` and refills
  * `refillPerSecond` tokens per second.
  *
+ * Memory is bounded three ways so a long-running daemon never accumulates
+ * an entry per unique source IP forever:
+ *   1. a periodic sweep drops idle (fully-refilled) AND stale (untouched
+ *      past `ttlMs`) buckets;
+ *   2. a hard `maxKeys` cap;
+ *   3. at the cap, the LEAST-RECENTLY-USED bucket is evicted to admit a new
+ *      key — never fail-closed. Fail-closing on capacity would let a flood of
+ *      distinct keys (e.g. a spray of source IPs) lock out every *new*
+ *      legitimate caller once the table fills; LRU eviction keeps the active
+ *      callers and recycles the stalest slot instead.
+ *
  * Thread-safety: Bun's HTTP handler is single-threaded JS so we don't
  * need locking around bucket reads/writes.
  */
@@ -16,45 +27,63 @@ export interface RateLimiterOptions {
   refillPerSecond?: number;
   /** Hard cap on number of distinct keys held in memory. Default 10_000. */
   maxKeys?: number;
+  /**
+   * Drop a bucket untouched for this long, even if not yet fully refilled.
+   * Bounds memory under a slow trickle of one-shot keys. Default 15 min.
+   */
+  ttlMs?: number;
 }
 
 interface Bucket {
   tokens: number;
   lastRefillMs: number;
+  lastAccessMs: number;
 }
 
 export class RateLimiter {
+  // Map insertion order is the recency order: the first entry is the
+  // least-recently-used, the last is the most-recently-used. `allow()`
+  // re-inserts a touched key to move it to the MRU end.
   private buckets = new Map<string, Bucket>();
   private capacity: number;
   private refillPerSecond: number;
   private maxKeys: number;
+  private ttlMs: number;
   private lastSweepMs = 0;
 
   constructor(opts: RateLimiterOptions = {}) {
     this.capacity = opts.capacity ?? 30;
     this.refillPerSecond = opts.refillPerSecond ?? 1;
     this.maxKeys = opts.maxKeys ?? 10_000;
+    this.ttlMs = opts.ttlMs ?? 900_000;
   }
 
   /** Returns true if the request is allowed (and consumes 1 token). */
   allow(key: string, nowMs: number = Date.now()): boolean {
-    // Periodic eviction: every 60s, drop fully-refilled (idle) buckets
-    // so a long-running daemon doesn't accumulate an entry per unique
-    // source IP forever (memory leak under public-CFip variety).
+    // Periodic eviction every 60s: drop idle + stale buckets.
     if (nowMs - this.lastSweepMs > 60_000) {
-      this.evictIdle(nowMs);
+      this.evictStale(nowMs);
       this.lastSweepMs = nowMs;
     }
+
     let b = this.buckets.get(key);
-    if (!b) {
-      // If we're at the key cap, evict aggressively before adding.
-      if (this.buckets.size >= this.maxKeys) this.evictIdle(nowMs);
-      // If still at cap (very busy daemon), refuse new keys — better
-      // to fail-closed on capacity than to OOM the process.
-      if (this.buckets.size >= this.maxKeys) return false;
-      b = { tokens: this.capacity, lastRefillMs: nowMs };
+    if (b) {
+      // Touch: move to the MRU end so the LRU eviction order stays accurate.
+      this.buckets.delete(key);
+      this.buckets.set(key, b);
+    } else {
+      // New key. Make room if we're at the cap: a targeted sweep first, then
+      // — if still full — evict the least-recently-used bucket. A new key is
+      // ALWAYS admitted (never fail-closed), while memory stays bounded.
+      if (this.buckets.size >= this.maxKeys) {
+        this.evictStale(nowMs);
+        if (this.buckets.size >= this.maxKeys) this.evictLru();
+      }
+      b = { tokens: this.capacity, lastRefillMs: nowMs, lastAccessMs: nowMs };
       this.buckets.set(key, b);
     }
+
+    b.lastAccessMs = nowMs;
     const elapsed = (nowMs - b.lastRefillMs) / 1000;
     b.tokens = Math.min(this.capacity, b.tokens + elapsed * this.refillPerSecond);
     b.lastRefillMs = nowMs;
@@ -64,20 +93,34 @@ export class RateLimiter {
   }
 
   /**
-   * Drop buckets whose tokens have refilled to capacity — they hold no
-   * state worth keeping. Conservative: only evicts where the bucket
-   * has been fully replenished, so an active limiter is never wiped.
+   * Drop buckets that are either fully refilled (idle — hold no state worth
+   * keeping) or untouched past `ttlMs` (stale). Conservative on the idle
+   * front: only evicts a fully-replenished bucket, so an actively-throttled
+   * limiter is never wiped by the idle rule.
    */
-  private evictIdle(nowMs: number): void {
+  private evictStale(nowMs: number): void {
     for (const [k, b] of this.buckets) {
       const elapsed = (nowMs - b.lastRefillMs) / 1000;
       const refilled = b.tokens + elapsed * this.refillPerSecond;
-      if (refilled >= this.capacity) this.buckets.delete(k);
+      const idle = refilled >= this.capacity;
+      const stale = nowMs - b.lastAccessMs > this.ttlMs;
+      if (idle || stale) this.buckets.delete(k);
     }
+  }
+
+  /** Evict the single least-recently-used bucket (the first map entry). */
+  private evictLru(): void {
+    const oldest = this.buckets.keys().next().value;
+    if (oldest !== undefined) this.buckets.delete(oldest);
   }
 
   /** For diagnostics / tests. */
   size(): number {
     return this.buckets.size;
+  }
+
+  /** For diagnostics / tests: is this key currently tracked? */
+  has(key: string): boolean {
+    return this.buckets.has(key);
   }
 }

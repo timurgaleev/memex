@@ -69,9 +69,16 @@ generically (no upstream names).
   (source-scope + budget + uniform errors) and an `ok/warn/fail` envelope.
 - [ ] **OperationError shape** (mcp, medium) — replace ad-hoc string errors
   with an error class → `{error, message, suggestion?, docs?}`.
-- [ ] **RateLimiter LRU+TTL bounds** (mcp, medium) — current token-bucket
-  never evicts unrefilled keys (leak under sustained load); add LRU cap +
-  TTL pruning + separate pre-auth IP / post-auth token limiters.
+- [x] **RateLimiter LRU+TTL bounds** (mcp, medium) — DONE. The limiter already
+  had a `maxKeys` cap + idle (fully-refilled) sweep + separate public/internal
+  limiters, so the catastrophic leak was already bounded. The real residual was
+  that at the cap it FAILED CLOSED (locked out new legit keys under a
+  distinct-IP flood). Now it LRU-evicts the least-recently-used bucket to admit
+  a new key (never fail-closed), plus a `ttlMs` (15 min) stale sweep alongside
+  the idle sweep. `src/mcp/rate_limit.ts`. security-engineer SHIP (net
+  improvement, self-healing, no amplification) + code-reviewer CLEAN (TTL test
+  isolation tightened). The "separate pre-auth IP / post-auth token limiters"
+  part already exists (public vs internal RateLimiter instances).
 - [ ] **Structured OperationContext** (mcp, medium) — centralize
   `buildOperationContext()` instead of ad-hoc per-call options.
 - [ ] **Qrels format** (eval, medium) — ours is path-centric; the reference
