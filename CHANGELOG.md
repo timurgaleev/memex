@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.28] — 2026-06-11
+
 ### Changed
 - **Rate limiter: LRU eviction + TTL instead of fail-closed at capacity.** The
   per-IP token-bucket limiter used to refuse all new keys once its `maxKeys`
