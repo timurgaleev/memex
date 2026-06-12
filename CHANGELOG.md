@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.40] — 2026-06-12
+
 ### Added
 - **Warn-state envelope for cycle phases.** A maintenance-cycle phase result was
   binary `ok: boolean` — a phase that COMPLETED but with non-fatal issues (e.g.
