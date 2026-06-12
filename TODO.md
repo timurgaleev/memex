@@ -244,8 +244,17 @@ generically (no upstream names).
   B = chunk text; `doc_comment`/`symbol_name_qualified` fold in when added.
 - [ ] **`symbol_name_qualified` column** (high) — stable edge-resolution key;
   extend migration 027, weight A in FTS.
-- [ ] **doc_comment chunk column** (medium) — capture JSDoc/docstring for
-  FTS weight-A.
+- [x] **doc_comment chunk column** (medium) — DONE (migration 032). The code
+  chunker (`core/chunkers/code.ts`) extracts a symbol's doc comment — JSDoc/`//`
+  block above a JS/TS symbol (climbs `export` wrappers + leading decorators,
+  rejects trailing comments + file-level license headers) or a Python docstring
+  (rejects f-strings) — into `chunks.doc_comment`, folded into the migration-030
+  weighted-FTS trigger at weight A. NULL/markdown-safe; 2000-char cap; config
+  stays `simple`. ai-engineer + code-reviewer + codex reviewed (codex caught
+  decorated-method/trailing-comment/f-string extraction bugs → all fixed).
+  Follow-up (LOW, deferred): Python adjacent-literal docstrings (`"a" "b"` parse
+  as `concatenated_string`, not `string`) are missed — null-safe, rare; add if
+  a corpus needs it.
 - [ ] **Entity slug canonicalization** (high) — 4-stage LLM-free resolver
   (exact → trgm fuzzy → prefix-expansion by connection_count → slugify).
 - [ ] **Gazetteer auto-link mentions** (high) — entity-typed page gazetteer +

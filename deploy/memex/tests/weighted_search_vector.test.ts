@@ -25,6 +25,9 @@ import { keywordSearch } from "../src/core/search/keyword.ts";
 // body hit, so ts_rank_cd ranks it first.
 const TERM = "paymentprocessor";
 const BODY = `the ${TERM} appears once here in otherwise ordinary prose`;
+// Term that lives ONLY in a code chunk's doc comment (weight A, migration 032)
+// vs only in a markdown chunk's body (weight B).
+const DOCTERM = "frobnicationengine";
 
 let tmp: string;
 let storage: Storage;
@@ -56,6 +59,29 @@ beforeAll(async () => {
       },
     ],
   );
+
+  // Code chunk: DOCTERM appears ONLY in its doc comment (weight A), never in
+  // the body — proves doc_comment is folded into the FTS.
+  await writeDocumentTransaction(
+    storage,
+    { documentId: "doc_dc", sourcePath: "/dc.ts", title: "dc", frontmatter: {}, embeddingModel: "det" },
+    [
+      {
+        text: "function helper() { return computeTotal(); }",
+        entities: [],
+        symbolName: "helper",
+        symbolType: "function",
+        docComment: `Drives the ${DOCTERM} for invoice settlement.`,
+        language: "typescript",
+      },
+    ],
+  );
+  // Markdown chunk: DOCTERM in body only (weight B).
+  await writeDocumentTransaction(
+    storage,
+    { documentId: "doc_dcprose", sourcePath: "/dcprose.md", title: "dcprose", frontmatter: {} },
+    [{ text: `some prose mentioning ${DOCTERM} exactly once`, entities: [] }],
+  );
 });
 
 afterAll(async () => {
@@ -82,5 +108,13 @@ describe("weighted chunk search_vector", () => {
     // "Billing" is in parent_symbol_path (weight A) but NOT in either body.
     const ids = await keywordSearch(storage.engine(), "Billing", 10);
     expect(ids).toEqual(["doc_code_c0"]);
+  });
+
+  it("ranks a code chunk above prose for a term that appears only in its doc comment (weight A)", async () => {
+    const ids = await keywordSearch(storage.engine(), DOCTERM, 10);
+    expect(ids).toContain("doc_dc_c0"); // matched via the doc comment alone
+    expect(ids).toContain("doc_dcprose_c0");
+    // Weight-A doc-comment hit pushes the code chunk above the body-only prose.
+    expect(ids.indexOf("doc_dc_c0")).toBeLessThan(ids.indexOf("doc_dcprose_c0"));
   });
 });

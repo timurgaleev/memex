@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Code doc-comment extraction + weighted FTS (migration 032).** The code
+  chunker now extracts a symbol's documentation comment — the JSDoc/`//` block
+  immediately above a JS/TS function/class/method (climbing past an `export`
+  wrapper, capturing only a contiguous run of comments adjacent to the symbol so
+  a file-level license header is not mistaken for a doc) or the leading
+  docstring of a Python `def`/`class`. It is stored in a new `chunks.doc_comment`
+  column and folded into the chunk FTS at weight `A` (migration 032 extends the
+  migration-030 `search_vector` trigger), so a query that uses a function's DOC
+  vocabulary — not its identifier — ranks that function's chunk above chunks
+  that only mention the term incidentally in prose. NULL-safe and markdown-safe:
+  markdown chunks and symbols without a doc comment leave `doc_comment` NULL, so
+  their weight-`A` segment is empty and their matched set + relative order (and
+  thus the rank-based RRF contribution) are unchanged — only code chunks with a
+  doc comment gain the differential boost. The extraction is length-capped
+  (2000 chars) so a long doc can't dominate ranking. Config stays `simple` for
+  tokenization parity with the existing keyword read path. This completes the
+  forward note left in migration 030 ("when doc_comment lands, fold it into the
+  'A' segment"). Reviewed by ai-engineer + code-reviewer + codex.
+
 ## [1.3.35] — 2026-06-12
 
 ### Added

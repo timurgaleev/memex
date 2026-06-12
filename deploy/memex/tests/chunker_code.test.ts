@@ -110,6 +110,106 @@ describe("chunkCode (TSX)", () => {
   });
 });
 
+describe("chunkCode doc comments", () => {
+  it("captures a JSDoc block above a TS function", async () => {
+    const src = `/** Greets a user by name. */
+export function greet(name: string): string {
+  return "hi " + name;
+}
+`;
+    const r = await chunkCode(src, "g.ts", "typescript");
+    expect(r.symbols[0]!.docComment).toBe("/** Greets a user by name. */");
+  });
+
+  it("captures a contiguous // line-comment block above a TS function", async () => {
+    const src = `// line one
+// line two
+function alpha() { return 1; }
+`;
+    const r = await chunkCode(src, "a.ts", "typescript");
+    expect(r.symbols[0]!.docComment).toBe("// line one\n// line two");
+  });
+
+  it("captures a comment above a method", async () => {
+    const src = `class Foo {
+  // bar does a thing
+  bar(): number { return 1; }
+}
+`;
+    const r = await chunkCode(src, "foo.ts", "typescript");
+    const bar = r.symbols.find((s) => s.name === "bar")!;
+    expect(bar.docComment).toBe("// bar does a thing");
+  });
+
+  it("is null when there is no comment", async () => {
+    const r = await chunkCode("export function x() { return 1; }", "x.ts", "typescript");
+    expect(r.symbols[0]!.docComment).toBeNull();
+  });
+
+  it("does not attach a file-level license header separated by a blank line", async () => {
+    const src = `// Copyright 2026 Example Corp.
+
+import { z } from "zod";
+
+export function alpha() { return 1; }
+`;
+    const r = await chunkCode(src, "lic.ts", "typescript");
+    // The header is separated from alpha by an import + blank lines → not its doc.
+    expect(r.symbols.find((s) => s.name === "alpha")!.docComment).toBeNull();
+  });
+
+  it("captures a comment above a decorated method (skips the decorator)", async () => {
+    const src = `class Foo {
+  /** bar via decorator */
+  @logged
+  bar(): number { return 1; }
+}
+`;
+    const r = await chunkCode(src, "dec.ts", "typescript");
+    const bar = r.symbols.find((s) => s.name === "bar")!;
+    expect(bar.docComment).toBe("/** bar via decorator */");
+  });
+
+  it("does NOT attach a trailing comment from the previous statement", async () => {
+    const src = `const x = 1; // belongs to x
+function f() { return x; }
+`;
+    const r = await chunkCode(src, "trail.ts", "typescript");
+    expect(r.symbols.find((s) => s.name === "f")!.docComment).toBeNull();
+  });
+
+  it("does not treat a Python f-string as a docstring", async () => {
+    const src = `def f(name):
+    f"hello {name}"
+    return name
+`;
+    const r = await chunkCode(src, "fstr.py", "python");
+    expect(r.symbols[0]!.docComment).toBeNull();
+  });
+
+  it("captures a Python docstring as the doc comment", async () => {
+    const src = `def alpha(x):
+    """Return x incremented by one."""
+    return x + 1
+`;
+    const r = await chunkCode(src, "p.py", "python");
+    expect(r.symbols[0]!.docComment).toBe("Return x incremented by one.");
+  });
+
+  it("captures a class docstring and is null for a method without one", async () => {
+    const src = `class Beta:
+    """Beta does beta things."""
+    def gamma(self):
+        return 1
+`;
+    const r = await chunkCode(src, "b.py", "python");
+    expect(r.symbols.find((s) => s.name === "Beta")!.docComment).toBe(
+      "Beta does beta things.",
+    );
+    expect(r.symbols.find((s) => s.name === "gamma")!.docComment).toBeNull();
+  });
+});
+
 describe("chunkCode (Python)", () => {
   it("extracts top-level def + class with methods", async () => {
     const src = `def alpha(x):

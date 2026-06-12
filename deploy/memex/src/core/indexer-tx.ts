@@ -42,6 +42,12 @@ export interface ChunkWrite {
    * stores NULL.
    */
   parentSymbolPath?: readonly string[] | null;
+  /**
+   * Extracted doc comment (JSDoc / `//` block / Python docstring) — code only,
+   * NULL for markdown and for symbols with none. Persisted to
+   * `chunks.doc_comment` and weighted 'A' in the chunk FTS (migration 032).
+   */
+  docComment?: string | null;
   /** Source language (typescript/python/…) — code only, NULL for markdown. */
   language?: string | null;
   /** Entities to attach to this chunk's row in entity_mentions. */
@@ -132,8 +138,8 @@ export async function writeDocumentTransaction(
       await tx.query(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
-            symbol_name, symbol_type, parent_symbol_path, language)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10)`,
+            symbol_name, symbol_type, parent_symbol_path, doc_comment, language)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11)`,
         [
           cid,
           doc.documentId,
@@ -149,6 +155,7 @@ export async function writeDocumentTransaction(
           ch.parentSymbolPath && ch.parentSymbolPath.length > 0
             ? [...ch.parentSymbolPath]
             : null,
+          ch.docComment ?? null,
           ch.language ?? null,
         ],
       );

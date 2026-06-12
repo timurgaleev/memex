@@ -100,6 +100,7 @@ export async function indexCodeDocument(
       symbolName: symbol.name,
       symbolType: symbol.kind,
       parentSymbolPath: symbol.parentSymbolPath,
+      docComment: symbol.docComment,
       language,
       entities: merged,
     });

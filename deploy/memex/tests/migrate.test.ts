@@ -337,3 +337,51 @@ describe("migration 031 — two-layer query cache columns", () => {
     await engine.close();
   });
 });
+
+describe("migration 032 — chunk doc_comment + weighted FTS fold", () => {
+  const sql030 = readFileSync(
+    join(import.meta.dir, "../src/core/migrations/030_chunk_weighted_search_vector.sql"),
+    "utf8",
+  );
+  const sql032 = readFileSync(
+    join(import.meta.dir, "../src/core/migrations/032_chunk_doc_comment.sql"),
+    "utf8",
+  );
+
+  it("adds doc_comment, folds it into weight A, re-runs cleanly", async () => {
+    const engine = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await engine.ready();
+    // Minimal pre-030 chunks shape (the columns the trigger reads).
+    await engine.exec(
+      `CREATE TABLE chunks (
+         id TEXT PRIMARY KEY,
+         content TEXT,
+         symbol_name TEXT,
+         parent_symbol_path TEXT[]
+       );
+       INSERT INTO chunks (id, content, symbol_name) VALUES ('c1', 'body text', NULL);`,
+    );
+    await engine.exec(sql030); // establishes search_vector + trigger
+    await engine.exec(sql032); // adds doc_comment + folds it into weight A
+
+    // A term present ONLY in doc_comment lands at weight A on insert.
+    await engine.exec(
+      "INSERT INTO chunks (id, content, doc_comment) VALUES ('c2', 'unrelated body', 'frobnicationengine docs');",
+    );
+    const r = await engine.query<{ id: string }>(
+      `SELECT id FROM chunks
+        WHERE search_vector @@ plainto_tsquery('simple', 'frobnicationengine')`,
+    );
+    expect(r.rows.map((x) => x.id)).toEqual(["c2"]);
+
+    // Re-apply 032: CREATE OR REPLACE + ADD COLUMN IF NOT EXISTS → no-op.
+    await engine.exec(sql032);
+    const again = await engine.query<{ id: string }>(
+      `SELECT id FROM chunks
+        WHERE search_vector @@ plainto_tsquery('simple', 'frobnicationengine')`,
+    );
+    expect(again.rows.map((x) => x.id)).toEqual(["c2"]);
+
+    await engine.close();
+  });
+});

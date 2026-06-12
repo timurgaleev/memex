@@ -50,6 +50,107 @@ export interface CodeSymbol {
    * that the scalar form dropped.
    */
   parentSymbolPath: string[];
+  /**
+   * Extracted documentation comment for this symbol — JSDoc/`//` block
+   * immediately above it (JS/TS) or the leading docstring (Python). `null`
+   * when the symbol has none. Persisted to `chunks.doc_comment` and weighted
+   * 'A' in the chunk FTS (migration 032), so a query that uses the prose
+   * vocabulary of a function's doc — not its identifier — still ranks the
+   * function's chunk above incidental body mentions.
+   */
+  docComment: string | null;
+}
+
+/** Upper bound on a captured doc comment — keeps the FTS weight-'A' segment
+ * bounded so a long docstring/JSDoc can't dominate ranking or bloat a row. */
+const DOC_COMMENT_MAX = 2000;
+
+function clipDocComment(s: string): string | null {
+  const t = s.trim();
+  if (t.length === 0) return null;
+  return t.length > DOC_COMMENT_MAX ? t.slice(0, DOC_COMMENT_MAX) : t;
+}
+
+/**
+ * JS/TS doc comment = the contiguous run of `comment` nodes immediately above
+ * the symbol's statement (climbing past an `export` wrapper and any leading
+ * decorators). "Immediately" means no more than one blank line between the
+ * comment and what it documents, so a file-level license header separated by
+ * imports/blank lines is not mistaken for a symbol's doc. A TRAILING comment on
+ * the previous statement's line (`const x = 1; // note`) is rejected — it
+ * documents `x`, not the symbol below it.
+ */
+function jsPrecedingComment(node: TSNode): string | null {
+  let stmt: TSNode = node;
+  while (stmt.parent && stmt.parent.type === "export_statement") {
+    stmt = stmt.parent;
+  }
+  let adjacentRow = stmt.startPosition.row;
+  let sib = stmt.previousNamedSibling;
+  // Skip leading decorators (a decorated method's previous sibling is the
+  // `decorator`, with the doc comment above it). Track the row so adjacency is
+  // measured against the decorator, not the symbol below it.
+  while (sib && sib.type === "decorator") {
+    adjacentRow = sib.startPosition.row;
+    sib = sib.previousNamedSibling;
+  }
+  const parts: string[] = [];
+  while (sib && sib.type === "comment" && adjacentRow - sib.endPosition.row <= 1) {
+    const prev = sib.previousNamedSibling;
+    // A comment sharing its start line with the end of a preceding node is a
+    // trailing comment (code on the same line) — it documents that node, not
+    // ours. Stop here.
+    if (prev && prev.endPosition.row === sib.startPosition.row) break;
+    parts.unshift(sib.text);
+    adjacentRow = sib.startPosition.row;
+    sib = prev;
+  }
+  return parts.length > 0 ? clipDocComment(parts.join("\n")) : null;
+}
+
+/** Strip Python string quoting (prefixes r/b/f/u + ' '' ''' " "" """). */
+function stripPyStringQuotes(raw: string): string {
+  const noPrefix = raw.replace(/^[rRbBuUfF]{0,3}/, "");
+  const m = noPrefix.match(/^('''|"""|'|")([\s\S]*?)\1$/);
+  return m ? m[2]! : noPrefix;
+}
+
+/**
+ * Python doc comment = the leading docstring: a string expression that is the
+ * first statement in the symbol's body block.
+ */
+function pythonDocstring(node: TSNode): string | null {
+  const body = node.childForFieldName("body");
+  if (!body) return null;
+  const first = body.namedChild(0);
+  if (!first) return null;
+  let str: TSNode | null = null;
+  if (first.type === "expression_statement") {
+    const inner = first.namedChild(0);
+    if (inner && inner.type === "string") str = inner;
+  } else if (first.type === "string") {
+    str = first;
+  }
+  if (!str) return null;
+  // Reject an f-string (a `string` containing an `interpolation` child) — Python
+  // does not treat it as `__doc__`, so it is not a docstring.
+  for (let i = 0; i < str.namedChildCount; i++) {
+    if (str.namedChild(i)?.type === "interpolation") return null;
+  }
+  // Prefer the grammar's `string_content` segment(s); fall back to a quote strip.
+  const contents: string[] = [];
+  for (let i = 0; i < str.namedChildCount; i++) {
+    const c = str.namedChild(i);
+    if (c && c.type === "string_content") contents.push(c.text);
+  }
+  const text = contents.length > 0 ? contents.join("") : stripPyStringQuotes(str.text);
+  return clipDocComment(text);
+}
+
+/** Dispatch doc-comment extraction by language. NULL-safe on any miss. */
+function extractDocComment(node: TSNode, lang: CodeLanguage): string | null {
+  if (lang === "python") return pythonDocstring(node);
+  return jsPrecedingComment(node);
 }
 
 export interface FileLevelImport {
@@ -214,6 +315,7 @@ function* visitSymbols(
             ? enclosingPath[enclosingPath.length - 1]!
             : null,
         parentSymbolPath: [...enclosingPath],
+        docComment: extractDocComment(bodyNode, lang),
       };
     }
 
