@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.42] — 2026-06-12
+
 ### Added
 - **Facts-fence reconciliation — the `## Facts` fence becomes the system of
   record (migration 035).** The `## Facts` markdown fence (v1.3.32) was inert.
