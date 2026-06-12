@@ -6,6 +6,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Entity-slug canonicalization for wikilinks (migration 033).** A
+  `[[wikilink]]` mention is now resolved to an EXISTING canonical page slug
+  before its graph edge is written, instead of always minting a slugified
+  target — so `[[Alice Smith]]` lands on `people/alice-smith` rather than a
+  dangling `alice-smith`. A new deterministic, LLM-free resolver
+  (`core/slug-canonicalize.ts`) runs a confidence-ordered cascade: (1) exact
+  slug match; (2) unique exact-tail match on a namespaced slug's basename
+  (`[[Acme]]` → `companies/acme`); (3) unique prefix expansion
+  (`[[alice]]` → `people/alice-smith`); (4) a pg_trgm `similarity()` fuzzy
+  match on title + slug basename, gated by both a threshold AND a margin over
+  the runner-up; (5) the legacy slugify floor (always yields a slug, so an
+  edge is still created). Resolved edges are stamped
+  `resolution_type = 'qualified'`, the slugify fallback `'unqualified'`
+  (migration-029 columns), and `link_kind = 'plain'`. Migration 033 enables
+  the `pg_trgm` extension (loaded as a PGLite contrib for tests); stage 4
+  uses `similarity()` with an explicit threshold, so no GIN trigram index is
+  required at this vault's scale. **Safe-by-default** (ai-engineer +
+  code-reviewer + codex review): because memex is a single flat vault with no
+  source-scoping or dir/page-type hints, the fuzzy stage runs LAST, the
+  tail/prefix stages resolve ONLY when the match is unique (genuine ambiguity
+  falls through to the slugify floor rather than being silently arbitrated),
+  the fuzzy threshold defaults to a conservative `0.7` with a runner-up
+  margin, and connection_count tie-breaking was deliberately NOT adopted (a
+  rich-get-richer bias whose wrong `qualified` edge would compound across
+  future resolutions). Canonicalization is default-on with a
+  `MEMEX_WIKILINK_CANONICALIZE=0` kill switch and a `MEMEX_WIKILINK_TRGM`
+  threshold override. The boost is dormant on existing live edges until a page
+  is re-synced; a future `[[mention]]` rewrite lights it up. codex caught a
+  resolver-contract self-resolution leak (stage 1 now skips a self-match) and
+  the unnamespaced-prefix sprawl (tail/prefix restricted to namespaced slugs);
+  both fixed.
+
 ## [1.3.36] — 2026-06-12
 
 ### Added

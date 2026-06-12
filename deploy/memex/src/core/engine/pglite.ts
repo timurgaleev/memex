@@ -1,5 +1,7 @@
 /**
- * PGLite engine — wraps `@electric-sql/pglite` with the pgvector extension.
+ * PGLite engine — wraps `@electric-sql/pglite` with the pgvector + pg_trgm
+ * extensions (the latter backs migration 033's `CREATE EXTENSION pg_trgm`,
+ * used by the wikilink slug canonicalizer's `similarity()` scoring).
  *
  * Storage lives at a filesystem path (a directory). PGLite is single-process,
  * single-connection — concurrent memex processes against the same path
@@ -8,6 +10,7 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import type { Engine, QueryResult } from "./interface.ts";
 
 export interface PGliteEngineOptions {
@@ -20,7 +23,7 @@ export class PGliteEngine implements Engine {
   private db: PGlite;
 
   constructor(opts: PGliteEngineOptions) {
-    this.db = new PGlite(opts.dbPath, { extensions: { vector } });
+    this.db = new PGlite(opts.dbPath, { extensions: { vector, pg_trgm } });
   }
 
   async ready(): Promise<void> {

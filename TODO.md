@@ -255,8 +255,26 @@ generically (no upstream names).
   Follow-up (LOW, deferred): Python adjacent-literal docstrings (`"a" "b"` parse
   as `concatenated_string`, not `string`) are missed — null-safe, rare; add if
   a corpus needs it.
-- [ ] **Entity slug canonicalization** (high) — 4-stage LLM-free resolver
-  (exact → trgm fuzzy → prefix-expansion by connection_count → slugify).
+- [x] **Entity slug canonicalization** (high) — DONE (migration 033).
+  `core/slug-canonicalize.ts` resolves a `[[wikilink]]` mention to an
+  existing canonical page slug before the edge is written
+  (`[[Alice Smith]]` → `people/alice-smith`). 5-stage confidence-ordered
+  cascade: exact slug → unique exact-tail (namespaced basename) → unique
+  prefix expansion → pg_trgm `similarity()` fuzzy (threshold + runner-up
+  margin) → slugify floor. Edges stamped `resolution_type`
+  qualified/unqualified (mig-029 cols) + `link_kind='plain'`. Wired into
+  `syncWikilinksForPage`. ADAPTED, not blind-ported: the reference earned
+  safety from source-scoping + dir/page-type hints memex's single flat
+  vault lacks, so (a) fuzzy runs LAST not 2nd, (b) tail/prefix resolve only
+  on a UNIQUE match — ambiguity falls to the slugify floor, never silently
+  arbitrated, (c) threshold raised 0.55→0.7 + margin gate, (d)
+  **connection_count tie-breaking REJECTED** (ai-engineer: rich-get-richer
+  bias; a wrong `qualified` edge would compound across future resolutions).
+  Default-on; `MEMEX_WIKILINK_CANONICALIZE=0` kill switch +
+  `MEMEX_WIKILINK_TRGM` override. ai-engineer (2 HIGH on ordering/threshold,
+  both fixed by the redesign) + code-reviewer (CLEAN) + codex (self-resolve
+  contract leak + unnamespaced-prefix sprawl, both fixed). Dormant on live
+  edges until a page is re-synced.
 - [ ] **Gazetteer auto-link mentions** (high) — entity-typed page gazetteer +
   maximal-munch body scan with self/cross-source guards + first-mention
   dedup (today only explicit `[[Foo]]`).
@@ -309,8 +327,14 @@ generically (no upstream names).
   on tool error). The **`status` snapshot** also shipped (v1.3.16,
   `commands/status.ts` — stats + brainHealthMetrics + cacheStats) — the
   brain-facing operational surface (cache + call + status) is now complete.
-- [ ] **Enum/array param validation** (medium) — emit `enum`/`items` in
-  `paramDefToSchema` so invalid enums never reach handlers.
+- [x] **Enum/array param validation** (medium) — DONE/moot. The `enum` half
+  already ships: `paramDefToSchema` emits `enum` and `validateParams`
+  (operations.ts:140) rejects a non-member before dispatch. The `array`/`items`
+  half has NO consumer — no operation declares an array param and no handler
+  reads an array arg (the contract's `ParamType` is `string|integer|number|
+  boolean|object` by deliberate design; arrays are the documented escape hatch,
+  hand-written in tool_defs.ts). Adding `items` support would be speculative
+  dead code, so it is intentionally not built until a real array param lands.
 - [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
   post-rerank (return 1 when obvious, k when genuinely k answers).
 - [x] **doctor categorization + cause-ranking** (high) — DONE v1.3.10.

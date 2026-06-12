@@ -1,0 +1,21 @@
+-- 033_pg_trgm_extension.sql — enable pg_trgm for entity-slug canonicalization.
+--
+-- The wikilink canonicalizer (core/slug-canonicalize.ts) resolves a loose
+-- `[[Alice Smith]]` mention to an EXISTING canonical page slug
+-- (`people/alice-smith`) instead of always minting a dangling
+-- slugified target. Stage 2 of that resolver scores candidates with
+-- pg_trgm's `similarity()` function on the page title + slug basename.
+--
+-- `similarity()` is the only pg_trgm surface we use — we filter on an
+-- explicit threshold (`similarity(...) >= t`) rather than the `%`
+-- operator, so NO GIN trigram index is required. At memex's single-vault
+-- scale (hundreds of pages) the per-resolve sequential scan is trivial.
+-- A future large corpus would switch the resolver to the `%` operator +
+-- a `GIN (… gin_trgm_ops)` index; deferred until the scan actually bites.
+--
+-- pg_trgm is a trusted extension: installable by the database owner on
+-- RDS Postgres (PG13+) and shipped as a PGLite contrib module loaded in
+-- core/engine/pglite.ts. CREATE EXTENSION runs inside the migration
+-- transaction on both engines.
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;

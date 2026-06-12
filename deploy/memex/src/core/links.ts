@@ -16,6 +16,7 @@
  * tool.
  */
 import type { Storage } from "./storage.ts";
+import { makeSlugResolver } from "./slug-canonicalize.ts";
 
 // Catalogue of well-known link types. Not a DB constraint -- extensible
 // at runtime. New types may be passed with `allowAdHocType: true`.
@@ -422,6 +423,15 @@ export function extractWikilinks(body: string): string[] {
  * page with the wikilinks present in `body`. Other-typed links are
  * untouched. Runs in one transaction so a partial extract never
  * leaves the graph in an inconsistent state.
+ *
+ * Each raw `[[mention]]` is canonicalized to an EXISTING page slug via
+ * the 4-stage resolver (core/slug-canonicalize.ts) before the edge is
+ * written, so `[[Alice Smith]]` lands on `people/alice-smith` instead of
+ * a dangling `alice-smith`. A mention that resolves to a real page is
+ * stamped `resolution_type = 'qualified'`; the slugify fallback is
+ * `'unqualified'`. Resolution reads pages/links OUTSIDE the write
+ * transaction (the targets are other pages, independent of the edge
+ * rewrite); the delete + insert stay transactional.
  */
 export async function syncWikilinksForPage(
   storage: Storage,
@@ -429,9 +439,23 @@ export async function syncWikilinksForPage(
   body: string,
 ): Promise<{ removed: number; added: number }> {
   validateSlug(sourceSlug);
-  const targets = extractWikilinks(body)
-    .map((s) => slugifyTarget(s))
-    .filter((s) => s !== "unknown");
+
+  // Resolve each distinct mention, then collapse to one edge per target
+  // slug (two surface forms may canonicalize to the same page). A
+  // 'qualified' resolution wins over an 'unqualified' one for the same slug.
+  const resolver = makeSlugResolver(storage, sourceSlug);
+  const byTarget = new Map<string, boolean>(); // slug -> qualified?
+  for (const name of extractWikilinks(body)) {
+    const r = await resolver.resolve(name);
+    if (r.slug === "unknown") continue;
+    // Drop a self-loop: a page linking to itself is graph noise. (The
+    // resolver already excludes self from fuzzy/tail/prefix matches; this
+    // also catches an explicit `[[own-slug]]` resolved exact/slugify.)
+    if (r.slug === sourceSlug) continue;
+    const prior = byTarget.get(r.slug);
+    byTarget.set(r.slug, (prior ?? false) || r.resolved);
+  }
+
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
     const del = await tx.query<{ c: number }>(
@@ -444,14 +468,18 @@ export async function syncWikilinksForPage(
       [sourceSlug],
     );
     let added = 0;
-    for (const target of targets) {
+    for (const [target, qualified] of byTarget) {
       // Each insert is idempotent against UNIQUE(source, target, type).
+      // link_kind = 'plain' (deterministic scanner, not typed-NER);
+      // resolution_type records whether a real page backed the target.
       const ins = await tx.query<{ inserted: boolean }>(
-        `INSERT INTO links (source_slug, target_slug, type, inferred_confidence)
-         VALUES ($1, $2, 'wikilink', 1.0)
+        `INSERT INTO links
+           (source_slug, target_slug, type, inferred_confidence,
+            link_kind, resolution_type)
+         VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3)
          ON CONFLICT (source_slug, target_slug, type) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
-        [sourceSlug, target],
+        [sourceSlug, target, qualified ? "qualified" : "unqualified"],
       );
       if (ins.rows[0]?.inserted) added += 1;
     }
