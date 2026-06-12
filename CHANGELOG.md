@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Gazetteer auto-linking (opt-in, default OFF).** Beyond the explicit
+  `[[wikilink]]` syntax, memex can now derive `mentions` graph edges from a
+  page body by matching plain-text references to KNOWN entity pages. A
+  gazetteer is built from existing `person`/`company` page titles + their
+  declared aliases (#3); the body is scanned with maximal-munch (longest phrase
+  wins) at unicode word boundaries, and each first mention of an entity becomes
+  a `mentions` edge resolved to that page's canonical slug. Built on the slug
+  canonicalizer (#1) + aliases (#3) — the matches ARE existing pages, so no
+  fuzzy guessing. **DEFAULT OFF** (`MEMEX_GAZETTEER=1` to enable): auto-linking
+  prose against page titles is false-positive sensitive, and unlike the
+  reference (default-on) memex's single flat vault has no page-type/source
+  scoping to contain a bad match. Conservatively guarded: only named-entity
+  types; a min phrase length, stop-word list, and ambiguity drop (two pages
+  claiming one title → no link); a **proper-noun heuristic** (a match whose
+  surface form is lowercase in the prose — the common-word sense — is skipped);
+  existing `[[wikilink]]` spans masked out; first-mention dedup; the gazetteer
+  replaces only its own `link_kind='plain'` edges and never clobbers an
+  operator-asserted `mentions` edge (`INSERT … ON CONFLICT DO NOTHING`).
+  Reviewed by security-engineer (no Crit/High/Med — regex escaping bounded,
+  SQL parameterized, write-path is internal-token-gated, no redaction bypass),
+  ai-engineer (drove the proper-noun heuristic + unicode boundaries + the
+  maximal-munch test), and codex.
+
 ## [1.3.40] — 2026-06-12
 
 ### Added

@@ -40,6 +40,7 @@ import {
   type GraphNeighborsOptions,
   type GraphQueryOptions,
 } from "../core/links.ts";
+import { syncMentionsForPage } from "../core/gazetteer.ts";
 import {
   addTimelineEvent,
   getEntityTimeline,
@@ -434,7 +435,11 @@ async function callPagePut(
   if (typeof input === "string") return errResult(input);
   const r = await putPage(storage, input);
   if (r.changed) {
-    await syncWikilinksForPage(storage, r.slug, input.markdown_body ?? "");
+    const body = input.markdown_body ?? "";
+    await syncWikilinksForPage(storage, r.slug, body);
+    // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
+    // edges from plain-text references to known entity pages.
+    await syncMentionsForPage(storage, r.slug, body);
   }
   return jsonResult({ ok: true, ...r });
 }
@@ -458,7 +463,9 @@ async function callPageAppend(
   });
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
-    await syncWikilinksForPage(storage, r.slug, fresh?.markdown_body ?? "");
+    const body = fresh?.markdown_body ?? "";
+    await syncWikilinksForPage(storage, r.slug, body);
+    await syncMentionsForPage(storage, r.slug, body);
   }
   return jsonResult({ ok: true, ...r });
 }

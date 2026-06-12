@@ -300,9 +300,21 @@ generically (no upstream names).
   both fixed by the redesign) + code-reviewer (CLEAN) + codex (self-resolve
   contract leak + unnamespaced-prefix sprawl, both fixed). Dormant on live
   edges until a page is re-synced.
-- [ ] **Gazetteer auto-link mentions** (high) — entity-typed page gazetteer +
-  maximal-munch body scan with self/cross-source guards + first-mention
-  dedup (today only explicit `[[Foo]]`).
+- [x] **Gazetteer auto-link mentions** (high) — DONE (opt-in, default OFF).
+  `core/gazetteer.ts`: `buildGazetteer` (person/company titles + aliases,
+  excl. self, ambiguity-drop), `scanMentions` (maximal-munch longest-first,
+  unicode word boundaries, wikilink-span masking, first-mention dedup,
+  proper-noun capitalization heuristic), `syncMentionsForPage` (replaces only
+  `link_kind='plain'` mentions, `ON CONFLICT DO NOTHING` so an explicit edge
+  is never clobbered). Wired into put_page / page_append after the wikilink
+  sync. **DEFAULT OFF** (`MEMEX_GAZETTEER=1`): false-positive sensitive +
+  memex's flat vault has no scoping to contain a bad single-token match, so
+  unlike the reference (default-on) it is opt-in until the operator confirms
+  behavior on their vault. security-engineer (no Crit/High/Med) + ai-engineer
+  (proper-noun heuristic + unicode boundaries + maximal-munch test) + codex.
+  NOTE: single-token sentence-start common words remain an inherent NER
+  ambiguity bounded by the stop-list + default-OFF; the typed-NER / schema-pack
+  inference layer (below) is the richer follow-on.
 - [x] **Slug/page alias resolution** (medium) — DONE (migration 034), the
   `page_aliases` half. A page declares alt names in `compiled_truth.aliases`;
   `core/page-aliases.ts` (`normalizeAlias`/`extractAliasNorms`/`setPageAliases`/
