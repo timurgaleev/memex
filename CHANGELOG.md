@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.43] — 2026-06-12
+
 ### Added
 - **Slug-based page-type inference.** `page_put`'s `type` is now OPTIONAL: when
   omitted, `putPage` infers it from the slug's first segment via
