@@ -113,6 +113,33 @@ generically (no upstream names).
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 
+#### From the 2026-06-12 reference comparison (reference advanced 03ffc6e → ecd6ae8)
+- [x] **Well-form lone UTF-16 surrogates before `::jsonb` (ingest, HIGH)** —
+  DONE v1.3.34 (`core/well-form.ts`; applied at indexer-tx frontmatter +
+  frontmatter-inference + pages compiled_truth; lone surrogate→U+FFFD + NUL
+  dropped, valid pairs kept; integration proof test; code-reviewer CLEAN).
+  Original note kept below for context.
+- [ ] (context) the reference shipped `v0.42.40.0` fixing exactly this: a text window
+  sliced by raw UTF-16 index (their `excerpt()` link-context) can leave an
+  UNPAIRED surrogate half; serialized into JSONB, Postgres rejects it at the
+  `::jsonb` cast and ABORTS THE WHOLE INSERT — and if a staleness bookmark only
+  advances on a clean finish, the job wedges. memex shares the class: it has NO
+  surrogate sanitization anywhere (`grep -r surrogate src` → empty) and writes
+  `frontmatter` via `$4::jsonb` (indexer-tx.ts:94-106, `JSON.stringify(doc.frontmatter)`).
+  A markdown doc whose frontmatter (or any jsonb-stored sliced text — link
+  `context` mig 029, etc.) carries a lone surrogate (truncated emoji / bad
+  encoding) would fail to index. FIX: a `wellFormForJsonb(s)` helper —
+  `s.toWellFormed()` (lone surrogate → U+FFFD; Bun supports it) AND strip
+  `U+0000` (Postgres jsonb rejects NUL too, which toWellFormed does NOT remove)
+  — applied at every jsonb-write site (start with frontmatter in indexer-tx; audit
+  link `context`, any other `::jsonb`). Test: index a doc with a lone surrogate +
+  a NUL in frontmatter → succeeds, value sanitized. Small, safe, additive, real
+  production-bug fix. DO THIS FIRST next session.
+- The reference's other new commit, `v0.42.39.0 Retrieval Reflex` (teach the
+  agent when/what to retrieve), is AGENT-LAYER (north-star, out of brain-only
+  scope — the agent is Claude Code). Not planned. `v0.42.37.0` jobs stale-lock
+  reap was already assessed N/A (infra memex doesn't run).
+
 #### From the 2026-06-10 reference comparison (4-agent subsystem diff)
 - [x] **Evidence + create_safety stamping** (retrieval, high) — DONE v1.3.19.
   `core/search/evidence.ts`; arm-membership adaptation (reference's cosine

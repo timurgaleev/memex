@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Well-form lone UTF-16 surrogates + NUL before a `::jsonb` cast.** A document
+  whose frontmatter carried an unpaired UTF-16 surrogate (e.g. a truncated emoji
+  or mis-encoded source) or a NUL would make Postgres reject the `::jsonb` cast
+  and abort the whole index transaction — a single bad file could wedge
+  indexing. A new `core/well-form.ts` sanitizer (`wellFormForJsonb` /
+  `wellFormJsonbValue`) replaces lone surrogates with U+FFFD (via
+  `String.prototype.toWellFormed`) and drops NUL, deep-walking object keys and
+  values; valid surrogate pairs (real emoji) are preserved. Applied at every
+  frontmatter writer (`indexer-tx`, the `frontmatter-inference` cycle phase) and
+  the page `compiled_truth` jsonb write. Mirrors the upstream reference's same
+  fix, generalized + extended to the NUL case. Reviewed by code-reviewer.
+
 ## [1.3.33] — 2026-06-12
 
 ### Added

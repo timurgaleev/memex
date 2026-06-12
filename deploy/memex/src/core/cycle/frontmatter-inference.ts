@@ -14,6 +14,7 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { extractHashtags } from "../entities.ts";
+import { wellFormJsonbValue } from "../well-form.ts";
 
 export interface FrontmatterInferenceResult {
   scanned: number;
@@ -91,7 +92,7 @@ export async function frontmatterInferencePhase(
     if (changed) {
       await engine.query(
         `UPDATE documents SET frontmatter = $1::jsonb WHERE id = $2`,
-        [JSON.stringify(newFm), row.id],
+        [JSON.stringify(wellFormJsonbValue(newFm)), row.id],
       );
       result.updated++;
     }

@@ -21,6 +21,7 @@ import {
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { wellFormJsonbValue } from "./well-form.ts";
 
 export interface ChunkWrite {
   /** Chunk body text (will land in chunks.content). */
@@ -103,7 +104,10 @@ export async function writeDocumentTransaction(
         doc.documentId,
         doc.sourcePath,
         doc.title,
-        JSON.stringify(doc.frontmatter),
+        // Sanitize lone UTF-16 surrogates + NUL before the ::jsonb cast — a
+        // single bad value (truncated emoji, mis-encoded source) would
+        // otherwise make Postgres reject the cast and abort the whole index tx.
+        JSON.stringify(wellFormJsonbValue(doc.frontmatter)),
         doc.mtimeMs ?? null,
       ],
     );

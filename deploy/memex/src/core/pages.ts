@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import { bumpPageGeneration } from "./generation.ts";
+import { wellFormJsonbValue } from "./well-form.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -151,7 +152,9 @@ export async function putPage(
   const title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
   const hashNew = hashBody(body);
-  const truthJson = JSON.stringify(truth);
+  // Sanitize lone UTF-16 surrogates + NUL so the ::jsonb cast can't be aborted
+  // by a single bad value (see core/well-form.ts).
+  const truthJson = JSON.stringify(wellFormJsonbValue(truth));
 
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
