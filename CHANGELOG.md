@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.41] — 2026-06-12
+
 ### Added
 - **Gazetteer auto-linking (opt-in, default OFF).** Beyond the explicit
   `[[wikilink]]` syntax, memex can now derive `mentions` graph edges from a
