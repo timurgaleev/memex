@@ -42,6 +42,10 @@ import {
 } from "../core/links.ts";
 import { syncMentionsForPage } from "../core/gazetteer.ts";
 import {
+  reconcileFactsForPage,
+  purgeFenceFactsForPage,
+} from "../core/facts-reconcile.ts";
+import {
   addTimelineEvent,
   getEntityTimeline,
   type ListTimelineOptions,
@@ -441,6 +445,9 @@ async function callPagePut(
     // edges from plain-text references to known entity pages.
     await syncMentionsForPage(storage, r.slug, body);
   }
+  // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
+  // it re-reads the current body and guards on content_hash itself.
+  await reconcileFactsForPage(storage, r.slug, r.content_hash);
   return jsonResult({ ok: true, ...r });
 }
 
@@ -467,6 +474,7 @@ async function callPageAppend(
     await syncWikilinksForPage(storage, r.slug, body);
     await syncMentionsForPage(storage, r.slug, body);
   }
+  await reconcileFactsForPage(storage, r.slug, r.content_hash);
   return jsonResult({ ok: true, ...r });
 }
 
@@ -480,6 +488,11 @@ async function callPageDelete(
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
   const r = await deletePage(storage, args["slug"], writtenBy);
+  // A soft-deleted page must stop serving its fence-derived facts; explicit
+  // (NULL source_markdown_slug) facts are left intact.
+  if (!r.already_deleted) {
+    await purgeFenceFactsForPage(storage, args["slug"]);
+  }
   return jsonResult({ ok: true, ...r });
 }
 

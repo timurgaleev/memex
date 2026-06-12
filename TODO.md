@@ -429,9 +429,17 @@ to memex's architecture, or north-star:
   the redacted request summary (from `summarizeMcpParams`) when the dir is set
   — independent of the `MEMEX_LOG_REQUESTS` console sink, off by default. No
   param values in the trail.
-- [ ] **extract_facts cycle phase** (high, LLM-FREE — gate OPENED 2026-06-12,
-  scoped, MIGRATION-BEARING → deferred to a fresh-context session per the
-  no-half-migration rule). CONSULTED THE REFERENCE: its extract_facts is NOT
+- [x] **extract_facts** (high, LLM-FREE) — DONE (migration 035). The `## Facts`
+  fence is now the system of record: `core/facts-reconcile.ts`
+  `reconcileFactsForPage` projects a page's fence into `entity_facts` on every
+  put (re-read + content_hash guard + repair-on-reput), wipe scoped to the new
+  `source_markdown_slug` column (legacy/explicit facts survive), malformed-fence
+  protection, row_num clamp + row cap, `purgeFenceFactsForPage` on delete, fence
+  stripped before chunk-indexing. Default-on, `MEMEX_FACTS_FENCE=0` kill switch.
+  code-reviewer (no blockers) + codex (2 HIGH + 5 MEDIUM, all fixed). The
+  OPTIONAL fact-text embedding (reference's find_trajectory enrichment, falls
+  open) is a deferred follow-on; recompute_emotional_weight (page salience
+  [0..1]) is a SEPARATE deferred item below. Original deferred design note: [done] CONSULTED THE REFERENCE: its extract_facts is NOT
   LLM — the `## Facts` fence is the SOURCE OF TRUTH and the phase deterministically
   reconciles the DB index from it (the only AI call is an OPTIONAL embed of the
   fact text that falls open if the gateway is down). Best-practice contract to

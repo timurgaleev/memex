@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Facts-fence reconciliation — the `## Facts` fence becomes the system of
+  record (migration 035).** The `## Facts` markdown fence (v1.3.32) was inert.
+  Now, on every page write, the page's fence is parsed and projected into the
+  `entity_facts` index: the page's fence-owned fact rows are wiped and the
+  active (non-struck) rows re-inserted, keyed by two new NULLABLE columns
+  (`source_markdown_slug` + `row_num`). This is LLM-FREE and deterministic —
+  the fence is canonical structured markdown (a faithful adaptation of the
+  reference's extract_facts cycle phase, minus its optional fact embedding).
+  The wipe is scoped to `source_markdown_slug = <page>`, so a legacy or
+  explicitly-asserted fact (NULL, e.g. via `add_fact`) is invisible to it and
+  survives — the column scoping is the empty-fence guard. Reconciliation runs
+  on EVERY put (a no-op re-put is the repair path) and re-reads the page's
+  current body, guarding on `content_hash` so a concurrent newer write is never
+  overwritten with a stale projection. A malformed fence (markers present but
+  zero parseable rows) does NOT wipe — a syntax typo can't silently destroy the
+  prior facts; only a genuinely absent fence clears them. `page_delete` purges
+  the page's fence facts. The `## Facts` fence is also now stripped before
+  document chunk-indexing (`indexDocument`) so the table is not double-
+  represented as searchable prose. Default-on; `MEMEX_FACTS_FENCE=0` kill
+  switch. Reviewed by code-reviewer (no blockers) + codex, which caught a
+  reconcile-only-on-change gap (re-put now repairs), the separate-tx
+  stale-projection race (now content_hash-guarded), a missing page_delete
+  purge, malformed-fence destruction, INTEGER row_num overflow, an unbounded
+  insert loop, and the un-stripped fence in the chunk path; all fixed.
+
 ## [1.3.41] — 2026-06-12
 
 ### Added

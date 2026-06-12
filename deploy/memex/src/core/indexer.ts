@@ -14,6 +14,7 @@
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
+import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
 import { extractEntities } from "./entities.ts";
 import type { Storage } from "./storage.ts";
@@ -69,7 +70,11 @@ export async function indexDocument(
     throw new Error("indexDocument: sourcePath and text are required");
   }
 
-  const parsed = chunkMarkdown(input.text, opts.chunker);
+  // Strip the `## Facts` fence before chunking: the fence is a structured
+  // metadata table projected into entity_facts (facts-reconcile), not prose —
+  // indexing it as chunk text would duplicate it as noisy search content.
+  // Frontmatter sits above the fence, so stripping it leaves parsing intact.
+  const parsed = chunkMarkdown(stripFactsFence(input.text), opts.chunker);
   const id = docId(input.sourcePath);
   const model = opts.embeddingModel ?? EMBED_MODEL;
 
