@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`memex search modes` — read-only ranking-config view.** A new diagnostic
+  subcommand that prints the ACTIVE post-fusion ranking knobs (title-phrase
+  boost, per-prefix recency decay, near-dup Jaccard threshold, opt-in rerank,
+  query cache) with each one's resolved value, default, and `MEMEX_*` env
+  override, plus the intent taxonomy and the cheap-heuristic rules and the
+  query-cache ranking signature. It resolves the SAME getters the live search
+  path uses (so it can't drift), runs no search and touches no storage, and
+  doubles as a config validator — a malformed `MEMEX_*` value fails loudly here
+  before it can break a real search. `commands/search-modes.ts`.
 - **`## Facts` fence parser/renderer (LLM-free).** A new pure markdown
   <-> structured-rows boundary (`core/facts-fence.ts` + the generic
   `core/fence-shared.ts` table-row primitives): `parseFactsFence` /

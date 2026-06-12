@@ -68,8 +68,14 @@ generically (no upstream names).
   `k`/`token_budget`/`limit` range guards in the handlers are now belt-and-
   suspenders — fold them out once validateParams is trusted (still cover the
   CLI-direct call path).
-- [ ] **`search` CLI lacks diagnostics** (cli, high) — only `<query> --k`;
-  add `search modes|stats|tune` subcommands.
+- [x] **`search` CLI lacks diagnostics** (cli, high) — DONE (`search modes`).
+  `commands/search-modes.ts`: read-only dump of the active ranking knobs
+  (resolved value + default + `MEMEX_*` env per knob) + intent taxonomy + the
+  ranking signature. Sources every value from the live getters (no drift),
+  no storage/search, doubles as a config validator (fails loud on a bad env).
+  code-reviewer CLEAN. `stats` not added (overlaps `status`/`cache stats`);
+  `tune` deliberately omitted (a runtime mutation — env vars are the tuning
+  surface, and `search modes` shows their effect).
 - [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our
   phases are unstructured fns with `{ok:boolean}`; adopt a base class
   (source-scope + budget + uniform errors) and an `ok/warn/fail` envelope.

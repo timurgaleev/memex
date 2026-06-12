@@ -48,6 +48,7 @@ import { runCache } from "./commands/cache.ts";
 import { runCall } from "./commands/call.ts";
 import { runStatus } from "./commands/status.ts";
 import { runEmbed } from "./commands/embed.ts";
+import { runSearchModes } from "./commands/search-modes.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
@@ -90,6 +91,7 @@ function printUsage(): void {
   console.log("                               start HTTP server (loopback only)");
   console.log("  index <path>                 read a markdown file and index it");
   console.log("  search <query> [--k N]       hybrid retrieve over the corpus");
+  console.log("  search modes                 read-only view of the active ranking knobs");
   console.log("  reindex [--all] [--vault P] [--source vault|code|all] [--paths CSV]");
   console.log("                               walk the vault and/or code roots, index changed (or all) files");
   console.log("  code-def <name> [--json]     definition sites for <name>");
@@ -771,6 +773,11 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "search": {
+      // `search modes` — read-only ranking-config view (no query, no storage).
+      if (positional.length === 1 && positional[0] === "modes") {
+        runSearchModes();
+        return 0;
+      }
       const query = positional.join(" ");
       if (!query) {
         console.error("memex search: <query> is required");
