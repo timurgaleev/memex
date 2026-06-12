@@ -151,6 +151,26 @@ generically (no upstream names).
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 
+#### From the 2026-06-12 NIGHT reference re-comparison (reference advanced v0.42.37 → v0.42.42)
+Fetched the clone to `4ee530f v0.42.42.0` and diffed. Conclusion: **NO new
+brain-only LLM-free candidate for memex** — every advance is already-done, N/A
+to memex's architecture, or north-star:
+- `v0.42.40` well-form lone UTF-16 surrogates → ALREADY DONE (memex v1.3.34).
+- `v0.42.41` triage-wave: `venv/` skip in the code walker → ALREADY DONE
+  (`sweep-code.ts` skips `.venv`/`venv`/`__pycache__`); OAuth authorize-scope
+  default + legacy-token-scope → N/A (no OAuth, public-bearer model); AI-SDK
+  asymmetric `input_type` on the wire → N/A (memex embeds via Bedrock Titan v2,
+  symmetric, no AI-SDK adapter); **config `DATABASE_URL` cwd-`.env` hijack →
+  N/A** (the reference's hijack is the GENERIC `DATABASE_URL` that any web-app
+  `.env` sets; memex reads ONLY the namespaced `MEMEX_POSTGRES_URL`, which a
+  random checkout's `.env` never contains, and the container `/app` has no cwd
+  `.env` — verified). timeline-dedup-repair / extract-facts → LLM/north-star.
+- `v0.42.42` CLI bounded-teardown for txn-mode poolers → infra N/A (memex's
+  serve/CLI lifecycle differs; not a pooler-teardown shape).
+- `v0.42.39` Retrieval Reflex (teach the agent when/what to retrieve) →
+  AGENT-LAYER north-star (the agent is the MCP client), out of brain-only scope.
+- `v0.42.37` jobs stale-lock reap → infra N/A (assessed earlier).
+
 #### From the 2026-06-12 reference comparison (reference advanced 03ffc6e → ecd6ae8)
 - [x] **Well-form lone UTF-16 surrogates before `::jsonb` (ingest, HIGH)** —
   DONE v1.3.34 (`core/well-form.ts`; applied at indexer-tx frontmatter +
