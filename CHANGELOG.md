@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`## Facts` fence parser/renderer (LLM-free).** A new pure markdown
+  <-> structured-rows boundary (`core/facts-fence.ts` + the generic
+  `core/fence-shared.ts` table-row primitives): `parseFactsFence` /
+  `renderFactsFence` / `stripFactsFence` round-trip a `## Facts` fenced table
+  (`| # | claim | confidence | source |`, a `~~struck~~` claim marks the fact
+  inactive) on an entity's page. This makes the page markdown the
+  system-of-record for facts so they stop being DB-only and reset-fragile; the
+  `entity_facts` table (migration 018) becomes a derived index. No DB, no LLM,
+  no I/O — and INERT until a future `extract_facts` cycle phase consumes it.
+  Adapted from the reference's facts fence, projected onto memex's simpler
+  fact model (the reference's kind/visibility/notability/typed-claim columns
+  are not ported). The pipe/backslash escape (`escapeFenceCell`) and the
+  cell split (`parseRowCells`, a character scanner) are a true round-trip
+  inverse. Reviewed by code-reviewer (escape-inverse hardened for trailing
+  backslashes).
+
 ## [1.3.31] — 2026-06-12
 
 ### Changed

@@ -179,8 +179,14 @@ generically (no upstream names).
   accept) → keep the manual guards, snapshot parity, ship as a deliberate pass.
 - [ ] **`OperationError {error,message,suggestion?,docs?}`** (mcp, med) —
   structured error envelope; migrate handlers opt-in, keep the string wrapper.
-- [ ] **Facts-fence parser/renderer** (cycle, med, LLM-free) — pure `## Facts`
-  fence round-trip; INERT until the `extract_facts` phase consumes it.
+- [x] **Facts-fence parser/renderer** (cycle, med, LLM-free) — DONE.
+  `core/facts-fence.ts` (parse/render/strip) + `core/fence-shared.ts` (generic
+  table-row primitives, faithful port). `| # | claim | confidence | source |`,
+  strikethrough=inactive, memex-namespaced markers. Pure, INERT until
+  `extract_facts`. Adapted to memex's simpler fact model (entity_facts);
+  reference's kind/visibility/notability/typed-claim columns NOT ported. Escape
+  pair is a true round-trip inverse (char-scanner split + backslash escape;
+  code-reviewer caught the trailing-backslash gap → fixed). code-reviewer CLEAN.
 
 - [ ] **Graph read redaction on public** (high) — SHIPPING THIS INCREMENT:
   strip provenance (`source_chunk_id`/`written_at`/confidence) from
