@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.37] — 2026-06-12
+
 ### Added
 - **Entity-slug canonicalization for wikilinks (migration 033).** A
   `[[wikilink]]` mention is now resolved to an EXISTING canonical page slug
