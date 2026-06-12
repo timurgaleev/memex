@@ -6,6 +6,37 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Two-layer query-cache invalidation (migration 031).** The exact-match query
+  cache previously gated only on the global `document_generation_clock`: any
+  document write bumped the clock and invalidated the WHOLE cache, even queries
+  that never touched the changed doc. This adds a second, finer layer. A new
+  per-document `documents.generation` counter is bumped (folded into the
+  indexer's UPSERT) only for the document actually re-written, and each cache
+  row records a `query_cache.doc_generations` snapshot — `{document_id:
+  generation}` for every document its result chunks belong to. On read, Layer 1
+  (the clock bookmark) serves a row that is fresh corpus-wide; when the clock
+  has advanced, Layer 2 still serves the row iff every referenced document
+  still exists with an unchanged generation. A write to an UNRELATED document
+  no longer evicts the query. An empty snapshot (empty-result queries and
+  pre-migration rows) cannot disprove staleness, so it relies on Layer 1
+  exclusively. A single shared SQL freshness clause drives read, prune, and
+  stats so all three agree on "servable". Every writer that changes a
+  ranking-relevant field of a document now bumps that document's generation +
+  the global clock so Layer 2 stays sound: `indexer-tx` (content/frontmatter),
+  the `frontmatter-inference` cycle phase (salience), and
+  `backfillDocumentSources` (source-boost + scope). `memex embed` re-embeds
+  chunks WITHOUT bumping any generation, so it clears the cache outright rather
+  than just bumping the clock. `putCachedQuery` persists a row only when the
+  live clock still equals the clock the caller read before ranking — a
+  mid-search write therefore never produces a servable-but-stale cache row.
+  Accepted tradeoff (faithful to the reference's two-layer gate): a document
+  NOT in the cached result set that becomes relevant does not invalidate the
+  row until one of its referenced docs changes or it is pruned — a bounded
+  staleness window traded for a higher hit rate. Reviewed by ai-engineer +
+  code-reviewer + codex (codex caught the mid-search race and the two
+  non-indexer writers; ai-engineer independently flagged the same writers).
+
 ## [1.3.34] — 2026-06-12
 
 ### Fixed

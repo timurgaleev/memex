@@ -25,10 +25,23 @@ generically (no upstream names).
   the recency step) and folded into the query-cache ranking signature. Paths
   matching no prefix use the original uniform default (120d/0.6) — backward
   compatible.
-- [ ] **Two-layer cache invalidation** (retrieval, high) — our query-cache
-  gates on the global generation clock only; the reference adds a per-page
-  snapshot gate. We're vulnerable to stale cache on individual page
-  delete/bump (today nothing hard-deletes, so latent).
+- [x] **Two-layer cache invalidation** (retrieval, high) — DONE (migration 031).
+  Adds a per-document `documents.generation` counter + a
+  `query_cache.doc_generations` `{doc_id: generation}` snapshot. Layer 1 = the
+  existing global-clock bookmark; Layer 2 = when the clock advanced, serve iff
+  every referenced document still exists with an unchanged generation. A write
+  to an UNRELATED doc no longer evicts the query. Empty snapshots rely on
+  Layer 1 only (CDX-6 parity). A shared `cacheFreshClause` drives read/prune/
+  stats. ALL ranking-relevant document writers now bump generation + clock so
+  Layer 2 stays sound: `indexer-tx` (content/frontmatter, folded into the
+  UPSERT), `frontmatter-inference` (salience), `sources.backfillDocumentSources`
+  (source-boost + scope); `memex embed` re-embeds without a generation bump so
+  it `clearCache()`s outright. putCachedQuery only persists when the live clock
+  still equals the stamped clock (mid-search-write race guard). Accepted
+  tradeoff (faithful to the reference): a doc NOT in the result set that becomes
+  relevant doesn't invalidate until a referenced doc changes. Reviewed by
+  ai-engineer + code-reviewer + codex (codex caught the mid-search race + the
+  two non-indexer writers; ai-engineer independently caught the same writers).
 - [x] **Link provenance columns** (schema, high) — DONE v1.3.9 (migration
   029). NOTE: the columns already existed as bare nullable stubs from
   migration 024 (`context`, `link_kind`, `origin_page_id`, `origin_field`,

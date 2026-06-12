@@ -121,6 +121,37 @@ describe("embed backfill", () => {
     expect(after).toBeGreaterThan(before);
   });
 
+  it("clears the query cache after embedding — Layer 2 cannot cover a re-embed", async () => {
+    // Seed a cache row whose Layer 2 snapshot references a doc that the
+    // backfill does NOT re-write (so its generation is unchanged). Under the
+    // two-layer gate that row would survive a bare clock bump and serve a
+    // ranking blind to the freshly-embedded chunks — backfill must clearCache.
+    const { putCachedQuery, getCachedQuery, queryCacheKey } = await import(
+      "../src/core/search/query-cache.ts"
+    );
+    const clock = await currentDocumentClock(storage.engine());
+    const key = queryCacheKey("seed q", 5, undefined, false);
+    await putCachedQuery(
+      storage.engine(),
+      key,
+      "seed q",
+      5,
+      "topic",
+      ["doc_md_done_c0"],
+      clock,
+      ["doc_md_done"], // unchanged by the backfill → Layer 2 would keep it
+    );
+    expect(await getCachedQuery(storage.engine(), key, clock)).not.toBeNull();
+
+    const r = await runEmbedBackfill(storage.engine(), { embed: detEmbed });
+    expect(r.embedded).toBe(2);
+
+    // Cleared outright — gone at the OLD clock AND the new one.
+    const after = await currentDocumentClock(storage.engine());
+    expect(await getCachedQuery(storage.engine(), key, clock)).toBeNull();
+    expect(await getCachedQuery(storage.engine(), key, after)).toBeNull();
+  });
+
   it("does NOT bump the clock on a dry-run or when nothing is embedded", async () => {
     const c0 = await currentDocumentClock(storage.engine());
     await runEmbedBackfill(storage.engine(), { dryRun: true, embed: detEmbed });

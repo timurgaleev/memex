@@ -21,14 +21,25 @@ let storage: Storage;
 const FRESH = 5; // pretend the current document clock is 5
 const STALE = 4;
 
+// Align the live document clock so putCachedQuery's race guard (only persist
+// when the live clock equals the stamped clock) admits each seeded row.
+async function setClock(n: number): Promise<void> {
+  await storage
+    .engine()
+    .query("UPDATE document_generation_clock SET value = $1 WHERE id = 1", [n]);
+}
+
 beforeAll(async () => {
   storage = new Storage({ dbPath: join(dir, "db") });
   await storage.init();
   const e = storage.engine();
-  // Two fresh rows (clock 5) with distinct intents, one stale row (clock 4).
+  // Seed the stale row first, as if stored when the clock was 4 …
+  await setClock(STALE);
+  await putCachedQuery(e, "k3", "gamma", 10, "factual", ["c3"], STALE);
+  // … then advance the clock to 5 and store the two fresh rows.
+  await setClock(FRESH);
   await putCachedQuery(e, "k1", "alpha", 10, "factual", ["c1"], FRESH);
   await putCachedQuery(e, "k2", "beta", 10, "topic", ["c2"], FRESH);
-  await putCachedQuery(e, "k3", "gamma", 10, "factual", ["c3"], STALE);
 });
 
 afterAll(async () => {

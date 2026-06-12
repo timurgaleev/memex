@@ -23,6 +23,7 @@
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID } from "./embedding.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { clearCache } from "./search/query-cache.ts";
 
 export interface EmbedBackfillOptions {
   /** Max chunks to embed this run. Default: no cap (all candidates). */
@@ -124,13 +125,18 @@ export async function runEmbedBackfill(
   }
 
   // Repairing the vector arm changes what hybrid search returns, so the
-  // exact-match query cache (gated on the document-generation clock) must be
-  // invalidated — otherwise a ranking cached BEFORE the backfill keeps being
-  // served, bypassing the freshly-embedded chunks until some unrelated
-  // document write happens to bump the clock. Bump once (not per row), and
-  // only when vectors were actually inserted.
+  // query cache must be invalidated — otherwise a ranking cached BEFORE the
+  // backfill keeps being served, bypassing the freshly-embedded chunks. Under
+  // the two-layer cache (migration 031) bumping the global clock is NOT
+  // sufficient: backfill adds embeddings WITHOUT bumping any document's
+  // `generation`, so a cached row whose referenced docs are unchanged would
+  // survive Layer 2 and serve a stale ranking. A full clear is the correct,
+  // unambiguous flush for this rare operator-triggered maintenance op (the
+  // cache refills organically). The clock bump is kept as the corpus-changed
+  // signal other observers read. Both only when vectors were actually inserted.
   if (embedded > 0) {
     await bumpDocumentClock(engine);
+    await clearCache(engine);
   }
 
   return { candidates: candidates.length, embedded, failed, dryRun: false };

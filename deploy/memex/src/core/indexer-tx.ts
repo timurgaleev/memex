@@ -99,6 +99,11 @@ export async function writeDocumentTransaction(
          title              = EXCLUDED.title,
          frontmatter        = EXCLUDED.frontmatter,
          last_indexed_mtime = EXCLUDED.last_indexed_mtime,
+         -- Per-document generation (migration 031) — Layer 2 of the query
+         -- cache. A re-index bumps ONLY this document's counter, so the cache
+         -- invalidates queries that reference this doc without touching
+         -- unrelated cached queries. A fresh INSERT keeps the DEFAULT 0.
+         generation         = documents.generation + 1,
          updated_at         = NOW()`,
       [
         doc.documentId,

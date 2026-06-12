@@ -466,6 +466,10 @@ export async function hybridSearch(
       intent,
       ranked.map((h) => h.chunkId),
       cacheClock,
+      // Distinct documents the result chunks belong to → the Layer 2
+      // per-document generation snapshot (migration 031). A later write to a
+      // doc NOT in this set leaves the cached row servable.
+      [...new Set(ranked.map((h) => h.documentId))],
     ).catch(() => {});
   }
 

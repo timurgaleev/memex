@@ -15,6 +15,7 @@
 import type { Engine } from "../engine/interface.ts";
 import { extractHashtags } from "../entities.ts";
 import { wellFormJsonbValue } from "../well-form.ts";
+import { bumpDocumentClock } from "../generation.ts";
 
 export interface FrontmatterInferenceResult {
   scanned: number;
@@ -90,13 +91,18 @@ export async function frontmatterInferencePhase(
     }
 
     if (changed) {
+      // `frontmatter` feeds the post-fusion salience multiplier, so inferring
+      // it changes ranking — bump this doc's `generation` (Layer 2 of the
+      // query cache, migration 031) so a cached row that returned this doc
+      // invalidates. The global clock is bumped once after the loop (Layer 1).
       await engine.query(
-        `UPDATE documents SET frontmatter = $1::jsonb WHERE id = $2`,
+        `UPDATE documents SET frontmatter = $1::jsonb, generation = generation + 1 WHERE id = $2`,
         [JSON.stringify(wellFormJsonbValue(newFm)), row.id],
       );
       result.updated++;
     }
   }
 
+  if (result.updated > 0) await bumpDocumentClock(engine);
   return result;
 }

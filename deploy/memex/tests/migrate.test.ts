@@ -291,3 +291,49 @@ describe("migration 029 — link provenance hardening", () => {
     await engine.close();
   });
 });
+
+describe("migration 031 — two-layer query cache columns", () => {
+  const sql031 = readFileSync(
+    join(import.meta.dir, "../src/core/migrations/031_two_layer_query_cache.sql"),
+    "utf8",
+  );
+
+  it("adds documents.generation + query_cache.doc_generations, re-runs cleanly", async () => {
+    const engine = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await engine.ready();
+    // Minimal pre-031 shape for the two target tables.
+    await engine.exec(
+      `CREATE TABLE documents (id TEXT PRIMARY KEY);
+       CREATE TABLE query_cache (
+         cache_key TEXT PRIMARY KEY, query TEXT, k INTEGER,
+         intent TEXT, result_ids JSONB, clock_value BIGINT,
+         created_at TIMESTAMPTZ DEFAULT NOW()
+       );
+       INSERT INTO documents (id) VALUES ('d1');
+       INSERT INTO query_cache (cache_key, clock_value) VALUES ('k1', 0);`,
+    );
+
+    await engine.exec(sql031);
+
+    // documents.generation defaults to 0 on the existing row.
+    const g = await engine.query<{ generation: number }>(
+      "SELECT generation FROM documents WHERE id = 'd1'",
+    );
+    expect(Number(g.rows[0]!.generation)).toBe(0);
+
+    // query_cache.doc_generations defaults to '{}' on the existing row.
+    const dg = await engine.query<{ doc_generations: Record<string, number> }>(
+      "SELECT doc_generations FROM query_cache WHERE cache_key = 'k1'",
+    );
+    expect(dg.rows[0]!.doc_generations).toEqual({});
+
+    // Re-apply: ADD COLUMN IF NOT EXISTS makes it a no-op, not an error.
+    await engine.exec(sql031);
+    const after = await engine.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM query_cache",
+    );
+    expect(after.rows[0]!.n).toBe(1);
+
+    await engine.close();
+  });
+});

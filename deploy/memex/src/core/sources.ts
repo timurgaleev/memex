@@ -17,6 +17,7 @@
  * cycle skips tombstoned sources, etc.).
  */
 import type { Engine } from "./engine/interface.ts";
+import { bumpDocumentClock } from "./generation.ts";
 
 export type SourceKind =
   | "vault"
@@ -242,8 +243,13 @@ export async function backfillDocumentSources(
   for (const row of r.rows) {
     const sourceId = await resolveSourceForPath(engine, row.source_path);
     if (sourceId) {
+      // `source_id` is a ranking-relevant field (source-boost weighting + the
+      // scope filter on the keyword/vector arms), so changing it must
+      // invalidate the two-layer query cache for the touched document: bump
+      // its `generation` (Layer 2). The global clock is bumped once after the
+      // loop (Layer 1) so a cached row that returned this doc invalidates.
       await engine.query(
-        `UPDATE documents SET source_id = $1 WHERE id = $2`,
+        `UPDATE documents SET source_id = $1, generation = generation + 1 WHERE id = $2`,
         [sourceId, row.id],
       );
       updated++;
@@ -251,5 +257,6 @@ export async function backfillDocumentSources(
       unmatched++;
     }
   }
+  if (updated > 0) await bumpDocumentClock(engine);
   return { updated, unmatched };
 }

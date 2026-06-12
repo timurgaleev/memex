@@ -16,6 +16,17 @@ import {
 let tmp: string;
 let storage: Storage;
 
+/**
+ * Set the live document_generation_clock. putCachedQuery only persists a row
+ * when the live clock equals the stamped clock (the mid-search race guard), so
+ * these unit tests align the live clock with the synthetic stamp they use.
+ */
+async function setClock(n: number): Promise<void> {
+  await storage
+    .engine()
+    .query("UPDATE document_generation_clock SET value = $1 WHERE id = 1", [n]);
+}
+
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-qcache-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
@@ -47,6 +58,7 @@ describe("get/put with clock gating", () => {
   });
 
   it("round-trips a ranking at the matching clock", async () => {
+    await setClock(7);
     const key = queryCacheKey("q", 5, undefined, false);
     await putCachedQuery(storage.engine(), key, "q", 5, "topic", ["c1", "c2"], 7);
     const hit = await getCachedQuery(storage.engine(), key, 7);
@@ -56,6 +68,7 @@ describe("get/put with clock gating", () => {
   });
 
   it("is invalidated when the clock advances", async () => {
+    await setClock(7);
     const key = queryCacheKey("q", 5, undefined, false);
     await putCachedQuery(storage.engine(), key, "q", 5, "topic", ["c1"], 7);
     expect(await getCachedQuery(storage.engine(), key, 8)).toBeNull(); // clock moved
@@ -64,11 +77,24 @@ describe("get/put with clock gating", () => {
 
   it("upserts (newest write wins) on the same key", async () => {
     const key = queryCacheKey("q", 5, undefined, false);
+    await setClock(7);
     await putCachedQuery(storage.engine(), key, "q", 5, "topic", ["c1"], 7);
+    await setClock(9);
     await putCachedQuery(storage.engine(), key, "q", 5, "factual", ["c9", "c8"], 9);
     const hit = await getCachedQuery(storage.engine(), key, 9);
     expect(hit!.intent).toBe("factual");
     expect(hit!.resultIds).toEqual(["c9", "c8"]);
     expect(await getCachedQuery(storage.engine(), key, 7)).toBeNull(); // old clock gone
+  });
+
+  it("does NOT persist a row when the live clock advanced mid-search (race guard)", async () => {
+    await setClock(5);
+    const key = queryCacheKey("q", 5, undefined, false);
+    // Caller read clockValue=4 before ranking, but a write moved the live clock
+    // to 5 before this put → the ranking is against a stale corpus, so nothing
+    // is cached (the snapshot must never be stamped at a clock it doesn't match).
+    await putCachedQuery(storage.engine(), key, "q", 5, "topic", ["c1"], 4);
+    expect(await getCachedQuery(storage.engine(), key, 4)).toBeNull();
+    expect(await getCachedQuery(storage.engine(), key, 5)).toBeNull();
   });
 });
