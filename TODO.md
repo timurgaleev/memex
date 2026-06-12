@@ -61,8 +61,13 @@ generically (no upstream names).
   casts existing scalars to 1-element arrays in place. Live-verified on RDS:
   column `data_type=ARRAY/_text`, 102 rows cast, sample `[["Worker"]]`.
   Deeper chains fill in on reindex.
-- [ ] **Slug-based page-type inference** (enrichment, high) — we type pages
-  only explicitly at PUT; the reference infers type from path prefixes.
+- [x] **Slug-based page-type inference** (enrichment, high) — DONE.
+  `inferPageType(slug)` (pages.ts) maps the slug's first segment to a type
+  (people/→person, companies/→company, meetings/→meeting, …). `putPage` now
+  infers `type` when omitted (an explicit type always wins; unknown prefix →
+  `note`), and `page_put`'s `type` param is optional (snapshot regenerated).
+  Consumer is the v1.3.41 gazetteer (`type IN person/company`) — earlier
+  "no consumer / dropped" note is now stale. Migration-free, backward-compatible.
 - [x] **Tool defs hardcoded, not generated** (mcp, high) — DONE v1.3.18.
   All 25 tool `inputSchema`s now DERIVE from one `OPERATIONS` contract
   (`mcp/operations.ts`: `ParamDef` + `paramDefToSchema` + `operationInputSchema`);
@@ -264,12 +269,12 @@ to memex's architecture, or north-star:
   ai-engineer + code-reviewer reviewed (ai-eng HIGH: order-preservation depends
   on the flagless `ts_rank_cd` call → guardrail comment added; MEDIUM: code-chunk
   scope match is a recall change → wording tightened; code-reviewer all-PASS).
-- [ ] **Contract-derived `validateParams(op, params)`** (mcp, high) — now that
-  the OPERATIONS contract exists (v1.3.18), enforce enum/min/max the schema
-  already advertises. BEHAVIOR-CHANGING (rejects params handlers currently
-  accept) → keep the manual guards, snapshot parity, ship as a deliberate pass.
-- [ ] **`OperationError {error,message,suggestion?,docs?}`** (mcp, med) —
-  structured error envelope; migrate handlers opt-in, keep the string wrapper.
+- [x] **Contract-derived `validateParams(op, params)`** (mcp, high) — DONE
+  (duplicate of the shipped item above; `validateParams` is wired as a
+  pre-dispatch check in dispatch.ts:140 and enforces type/enum/min-max).
+- [x] **`OperationError {error,message,suggestion?,docs?}`** (mcp, med) — DONE
+  (duplicate of the shipped `OperationError shape` item above —
+  `core/operation-error.ts` + `toEnvelope`, public message-drop).
 - [x] **Facts-fence parser/renderer** (cycle, med, LLM-free) — DONE.
   `core/facts-fence.ts` (parse/render/strip) + `core/fence-shared.ts` (generic
   table-row primitives, faithful port). `| # | claim | confidence | source |`,
@@ -279,11 +284,11 @@ to memex's architecture, or north-star:
   pair is a true round-trip inverse (char-scanner split + backslash escape;
   code-reviewer caught the trailing-backslash gap → fixed). code-reviewer CLEAN.
 
-- [ ] **Graph read redaction on public** (high) — SHIPPING THIS INCREMENT:
-  strip provenance (`source_chunk_id`/`written_at`/confidence) from
-  `graph_neighbors`/`graph_query` on the public bearer; keep slugs+type
-  (the 2026-06-05 decision). Closes the triple-confirmed relationship-dump
-  leak.
+- [x] **Graph read redaction on public** (high) — DONE (verified 2026-06-12).
+  `redactGraphLinks` (public_redaction.ts) strips `confidence` /
+  `source_chunk_id` / `written_at` on the public bearer, keeping slugs+type;
+  wired in dispatch for `graph_neighbors`/`graph_query`. The stale "SHIPPING
+  THIS INCREMENT" note predated the actual ship.
 - [x] **Chunk weighted FTS** (high) — DONE (migration 030; see the weighted
   `search_vector` item above). Weight A = `symbol_name` + `parent_symbol_path`,
   B = chunk text; `doc_comment`/`symbol_name_qualified` fold in when added.

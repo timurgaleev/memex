@@ -410,8 +410,10 @@ async function callLogFriction(
 
 function asPageInput(args: Record<string, unknown>): PageInput | string {
   if (typeof args["slug"] !== "string") return "page_put: `slug` is required";
-  if (typeof args["type"] !== "string") return "page_put: `type` is required";
-  const input: PageInput = { slug: args["slug"], type: args["type"] };
+  // `type` is OPTIONAL: when omitted, putPage infers it from the slug's first
+  // segment (people/… → person), defaulting to `note`.
+  const input: PageInput = { slug: args["slug"] };
+  if (typeof args["type"] === "string") input.type = args["type"];
   if (typeof args["title"] === "string") input.title = args["title"];
   if (
     typeof args["compiled_truth"] === "object" &&

@@ -145,7 +145,7 @@
         },
         "type": {
           "type": "string",
-          "description": "One of: concept, person, company, meeting, idea, journal, note, email, event, decision, task, source. Pass allowAdHocType=true to accept other types."
+          "description": "One of: concept, person, company, meeting, idea, journal, note, email, event, decision, task, source. OPTIONAL — inferred from the slug's first segment (people/… → person) when omitted, defaulting to note. Pass allowAdHocType=true to accept other types."
         },
         "title": {
           "type": "string"
@@ -166,8 +166,7 @@
         }
       },
       "required": [
-        "slug",
-        "type"
+        "slug"
       ],
       "additionalProperties": false
     }

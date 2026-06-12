@@ -244,9 +244,8 @@ export const OPERATIONS: readonly Operation[] = [
           "kebab-case identifier with optional `/` namespaces (e.g. people/alice, journal/2026/05/2026-05-18).",
       }),
       type: str({
-        ...req,
         description:
-          "One of: concept, person, company, meeting, idea, journal, note, email, event, decision, task, source. Pass allowAdHocType=true to accept other types.",
+          "One of: concept, person, company, meeting, idea, journal, note, email, event, decision, task, source. OPTIONAL — inferred from the slug's first segment (people/… → person) when omitted, defaulting to note. Pass allowAdHocType=true to accept other types.",
       }),
       title: str(),
       compiled_truth: obj({

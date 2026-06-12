@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Slug-based page-type inference.** `page_put`'s `type` is now OPTIONAL: when
+  omitted, `putPage` infers it from the slug's first segment via
+  `inferPageType` (`people/…` → person, `companies/…` → company, `meetings/…`
+  → meeting, etc.), defaulting to `note` for an unrecognized prefix. An
+  explicit type always wins — fully backward-compatible. The vault's folder
+  convention now drives typing, which feeds the gazetteer's `person`/`company`
+  entity filter (v1.3.41) without the caller having to spell the type out.
+  Inference applies only when CREATING a page with no explicit type — an
+  omitted-type re-put PRESERVES the page's existing type (it is resolved
+  inside the write transaction after the current row is read), so a typed page
+  is never silently re-typed. Migration-free. code-reviewer (ship) + codex,
+  which caught the re-type-on-update bug (now preserved) and the blank-type
+  case (treated as omitted); both handled.
+
 ## [1.3.42] — 2026-06-12
 
 ### Added

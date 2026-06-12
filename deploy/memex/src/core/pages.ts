@@ -39,6 +39,34 @@ export const KNOWN_PAGE_TYPES = [
 
 export type KnownPageType = (typeof KNOWN_PAGE_TYPES)[number];
 
+/**
+ * Slug first-segment → page type. A page at `people/alice` is a `person`
+ * without the caller spelling it out — the vault's folder convention already
+ * encodes the type. Used to INFER `type` when a put omits it (an explicit
+ * type always wins). Plural and singular prefixes both map.
+ */
+const SLUG_PREFIX_TYPE: Record<string, KnownPageType> = {
+  people: "person", person: "person", persons: "person",
+  companies: "company", company: "company", orgs: "company", org: "company",
+  meetings: "meeting", meeting: "meeting",
+  ideas: "idea", idea: "idea",
+  journal: "journal", journals: "journal",
+  notes: "note", note: "note",
+  emails: "email", email: "email",
+  events: "event", event: "event",
+  decisions: "decision", decision: "decision",
+  tasks: "task", task: "task",
+  concepts: "concept", concept: "concept",
+  sources: "source", source: "source",
+};
+
+/** Infer a page type from a slug's first path segment, or null if unknown. */
+export function inferPageType(slug: string): KnownPageType | null {
+  if (typeof slug !== "string") return null;
+  const seg = slug.split("/")[0]?.toLowerCase() ?? "";
+  return SLUG_PREFIX_TYPE[seg] ?? null;
+}
+
 // Slug grammar:
 //   - lowercase a-z, digits 0-9, hyphen
 //   - optional `/` namespaces (each segment must satisfy the same rule)
@@ -64,7 +92,10 @@ export function validateSlug(slug: string): void {
 
 export interface PageInput {
   slug: string;
-  type: string;
+  /** Page type. OPTIONAL: when omitted it is inferred from the slug's first
+   *  segment (`people/…` → person), falling back to `note`. An explicit type
+   *  always wins. */
+  type?: string;
   title?: string;
   compiled_truth?: Record<string, unknown>;
   markdown_body?: string;
@@ -147,7 +178,15 @@ export async function putPage(
   input: PageInput,
 ): Promise<PutResult> {
   validateSlug(input.slug);
-  const type = normaliseType(input.type, input.allowAdHocType);
+  // An explicit (non-blank) type always wins; a blank/omitted type is resolved
+  // INSIDE the transaction (below), where the existing row is known — so an
+  // omitted-type re-put PRESERVES the page's current type rather than
+  // re-inferring it. Inference (slug prefix → type, default `note`) applies
+  // only when creating a page with no explicit type.
+  const explicitType =
+    typeof input.type === "string" && input.type.trim() !== ""
+      ? normaliseType(input.type, input.allowAdHocType)
+      : null;
   const body = input.markdown_body ?? "";
   const truth = input.compiled_truth ?? {};
   const title = input.title ?? null;
@@ -178,6 +217,15 @@ export async function putPage(
        GROUP BY p.content_hash, p.type, p.title, p.compiled_truth`,
       [input.slug],
     );
+
+    // Resolve the type now that the existing row is known: explicit wins;
+    // else preserve the existing page's type (an omitted-type update must NOT
+    // re-type the page); else (new page) infer from the slug, default `note`.
+    const prevType = existing.rows[0]?.type;
+    const type =
+      explicitType ??
+      prevType ??
+      normaliseType(inferPageType(input.slug) ?? "note", input.allowAdHocType);
 
     if (existing.rows.length === 0) {
       // Brand new page.
