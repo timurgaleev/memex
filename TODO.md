@@ -429,9 +429,26 @@ to memex's architecture, or north-star:
   the redacted request summary (from `summarizeMcpParams`) when the dir is set
   — independent of the `MEMEX_LOG_REQUESTS` console sink, off by default. No
   param values in the trail.
-- [ ] **extract_facts + recompute_emotional_weight cycle phases** (high,
-  LLM-free) — reconcile DB facts from a `## Facts` fence; score page
-  salience [0..1] from tags/takes.
+- [ ] **extract_facts cycle phase** (high, LLM-FREE — gate OPENED 2026-06-12,
+  scoped, MIGRATION-BEARING → deferred to a fresh-context session per the
+  no-half-migration rule). CONSULTED THE REFERENCE: its extract_facts is NOT
+  LLM — the `## Facts` fence is the SOURCE OF TRUTH and the phase deterministically
+  reconciles the DB index from it (the only AI call is an OPTIONAL embed of the
+  fact text that falls open if the gateway is down). Best-practice contract to
+  adapt: per affected page → read body → `parseFactsFence` (already in memex,
+  `core/facts-fence.ts`) → wipe that page's fence-owned DB facts → re-insert from
+  the fence; after the phase the DB byte-matches the fence. Empty-fence guard:
+  refuse the destructive pass while legacy pre-fence rows still exist (return
+  `warn`, not a silent wipe). NEEDS **migration 035**: memex's `entity_facts`
+  (mig 018) has `entity_slug/fact/confidence/source_slug/source_chunk_id/written_by`
+  but NOT the fence-reconciliation keys — add `source_markdown_slug` (the page
+  hosting the fence, to scope the wipe) + `row_num` (the fence row) so a
+  wipe-by-source_markdown_slug + re-insert-by-row_num is possible without
+  clobbering legacy/explicit facts. Wire as a `reconcile-facts` cycle phase
+  (between extract + the new warn-envelope makes partial reconcile a `warn`).
+  Optional: embed fact text via memex's existing Bedrock Titan path (defer —
+  falls-open like the reference). recompute_emotional_weight (page salience
+  [0..1] from tags/takes) is a SEPARATE follow-on, also LLM-free.
 - [ ] **resolve_symbol_edges cycle phase** (medium) — batch-resolve code-edge
   symbols to chunk IDs.
 - [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock
