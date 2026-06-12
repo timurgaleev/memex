@@ -10,14 +10,17 @@
  * the fuzzy approximate match last and only when unambiguous:
  *
  *   1. exact       — the slugified mention IS an existing page slug.
- *   2. exact-tail  — exactly one live page whose slug basename equals the
+ *   2. alias       — exactly one live page DECLARES the mention as an alias
+ *                    (`compiled_truth.aliases`, migration 034). Authoritative
+ *                    (`[[Robert]]` → `people/bob`); a collision falls through.
+ *   3. exact-tail  — exactly one live page whose slug basename equals the
  *                    slugified mention (`[[Acme]]` → `companies/acme`).
- *   3. prefix      — exactly one live page whose basename STARTS WITH the
+ *   4. prefix      — exactly one live page whose basename STARTS WITH the
  *                    mention (`[[alice]]` → `people/alice-smith`).
- *   4. trgm fuzzy  — pg_trgm `similarity()` on title + slug basename, above
+ *   5. trgm fuzzy  — pg_trgm `similarity()` on title + slug basename, above
  *                    a threshold AND clear of the runner-up by a margin
  *                    (catches typos / title↔slug drift).
- *   5. slugify     — fall back to the legacy slugified target. Always
+ *   6. slugify     — fall back to the legacy slugified target. Always
  *                    returns a slug so an edge is still created; the caller
  *                    stamps it `unqualified`.
  *
@@ -44,15 +47,16 @@
  */
 import type { Storage } from "./storage.ts";
 import { slugifyTarget } from "./links.ts";
+import { normalizeAlias, resolveAliasUnique } from "./page-aliases.ts";
 
 /** Resolution outcome — `slug` is never null (stage 5 always yields one). */
 export interface CanonicalizeResult {
   /** The resolved canonical slug, or the slugified fallback. */
   slug: string;
-  /** True when a real existing page was matched (stages 1–4). */
+  /** True when a real existing page was matched (stages 1–5). */
   resolved: boolean;
   /** Which cascade stage produced the slug. */
-  stage: "exact" | "exact_tail" | "prefix" | "trgm" | "slugify";
+  stage: "exact" | "alias" | "exact_tail" | "prefix" | "trgm" | "slugify";
 }
 
 export interface SlugResolver {
@@ -239,15 +243,25 @@ export function makeSlugResolver(
         return finish({ slug: fallbackSlug, resolved: true, stage: "exact" });
       }
 
-      // Stage 2 — unique exact-tail match.
+      // Stage 2 — declared alias (authoritative): a page that names this
+      // mention in `compiled_truth.aliases`. Unique match only — a
+      // collision falls through.
+      const alias = await resolveAliasUnique(
+        storage,
+        normalizeAlias(trimmed),
+        sourceSlug,
+      );
+      if (alias) return finish({ slug: alias, resolved: true, stage: "alias" });
+
+      // Stage 3 — unique exact-tail match.
       const tail = await exactTailUnique(storage, fallbackSlug, sourceSlug);
       if (tail) return finish({ slug: tail, resolved: true, stage: "exact_tail" });
 
-      // Stage 3 — unique prefix expansion.
+      // Stage 4 — unique prefix expansion.
       const prefix = await prefixExpansionUnique(storage, fallbackSlug, sourceSlug);
       if (prefix) return finish({ slug: prefix, resolved: true, stage: "prefix" });
 
-      // Stage 4 — fuzzy trigram, threshold + margin gated.
+      // Stage 5 — fuzzy trigram, threshold + margin gated.
       const fuzzy = await trgmUnambiguous(
         storage,
         trimmed,
@@ -257,7 +271,7 @@ export function makeSlugResolver(
       );
       if (fuzzy) return finish({ slug: fuzzy, resolved: true, stage: "trgm" });
 
-      // Stage 5 — slugify fallback (legacy behavior; edge still created).
+      // Stage 6 — slugify fallback (legacy behavior; edge still created).
       return fallback();
     },
   };

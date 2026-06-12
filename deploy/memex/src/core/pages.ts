@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
+import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -152,9 +153,13 @@ export async function putPage(
   const title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
   const hashNew = hashBody(body);
-  // Sanitize lone UTF-16 surrogates + NUL so the ::jsonb cast can't be aborted
-  // by a single bad value (see core/well-form.ts).
-  const truthJson = JSON.stringify(wellFormJsonbValue(truth));
+  // Sanitize lone UTF-16 surrogates + NUL ONCE, then derive both the jsonb
+  // payload and the alias norms from the sanitized value — otherwise a NUL /
+  // lone surrogate inside `aliases` would reach the page_aliases TEXT insert
+  // (which Postgres rejects) and abort the whole page write (see well-form.ts).
+  const safeTruth = wellFormJsonbValue(truth) as Record<string, unknown>;
+  const aliasNorms = extractAliasNorms(safeTruth);
+  const truthJson = JSON.stringify(safeTruth);
 
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
@@ -190,6 +195,7 @@ export async function putPage(
         [input.slug, hashNew, body, truthJson, writtenBy],
       );
       await bumpPageGeneration(tx, input.slug);
+      await setPageAliases(tx, input.slug, aliasNorms);
       return {
         slug: input.slug,
         version_n: 1,
@@ -248,6 +254,7 @@ export async function putPage(
       ],
     );
     await bumpPageGeneration(tx, input.slug);
+    await setPageAliases(tx, input.slug, aliasNorms);
     return {
       slug: input.slug,
       version_n: nextVersion,

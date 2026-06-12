@@ -6,6 +6,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Declared page aliases (migration 034).** A page can now name its
+  alternate identities in `compiled_truth.aliases` (e.g. a `people/bob` page
+  with `aliases: ["Robert", "Bobby"]`), and a `[[Robert]]` wikilink resolves
+  to `people/bob`. A new `page_aliases` index table is kept in lockstep with
+  every `putPage` (the alias set is replaced inside the same write
+  transaction; a hard page delete cascades, a soft delete is filtered out by
+  the resolver and restored automatically). The wikilink slug canonicalizer
+  gains an authoritative **alias** stage — ranked just below an exact slug
+  match and above the fuzzy tail/prefix/trigram cascade — so a declared alias
+  always wins over a fuzzy guess. Aliases are normalized as free-text phrases
+  (NFKC + lowercase + whitespace-collapse, length- and count-capped), not
+  slugified. Collision-safe: when two pages claim the same alias the resolver
+  returns no match and falls through to the cascade rather than arbitrating
+  (same safe-by-default posture as the canonicalizer). Cross-page edges
+  re-resolve on their own next wikilink sync (eventual consistency, the same
+  model as the slug canonicalizer); the migration needs no backfill since
+  declared aliases are a new convention. Reviewed by code-reviewer + codex —
+  codex caught a self-exclusion-before-collision-detection bug (a source-vs-
+  other alias clash now correctly falls through), a catch-all that could mask
+  a real DB error into a wrong-slug fuzzy match (now only the pre-migration
+  table-missing case is swallowed), key truncation that could collapse two
+  long aliases (over-limit aliases are dropped, not cut), an unsanitized
+  NUL/surrogate reaching the `page_aliases` TEXT insert (now derived from the
+  same well-formed value as the jsonb payload), and a missing `slug` index for
+  the per-page replace; all fixed.
+
 ## [1.3.37] — 2026-06-12
 
 ### Added

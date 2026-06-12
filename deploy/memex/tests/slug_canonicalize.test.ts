@@ -78,7 +78,36 @@ describe("makeSlugResolver", () => {
     expect(r).toEqual({ slug: "people/alice", resolved: true, stage: "exact" });
   });
 
-  it("stage 2 — unique exact-tail match (slugified name == basename)", async () => {
+  it("stage 2 — declared alias resolves authoritatively", async () => {
+    await putPage(storage, {
+      slug: "people/bob",
+      type: "person",
+      title: "Bob Jones",
+      compiled_truth: { aliases: ["Robert", "Bobby"] },
+    });
+    const r = await makeSlugResolver(storage, "journal/x").resolve("Robert");
+    expect(r.slug).toBe("people/bob");
+    expect(r.resolved).toBe(true);
+    expect(r.stage).toBe("alias");
+  });
+
+  it("stage 2 — an alias collision falls through (not arbitrated)", async () => {
+    await putPage(storage, {
+      slug: "teams/red/standup",
+      type: "note",
+      compiled_truth: { aliases: ["Standup"] },
+    });
+    await putPage(storage, {
+      slug: "teams/blue/standup",
+      type: "note",
+      compiled_truth: { aliases: ["Standup"] },
+    });
+    const r = await makeSlugResolver(storage, "journal/x").resolve("Standup");
+    expect(r.resolved).toBe(false);
+    expect(r.stage).toBe("slugify");
+  });
+
+  it("stage 3 — unique exact-tail match (slugified name == basename)", async () => {
     await putPage(storage, {
       slug: "people/alice-smith",
       type: "person",

@@ -114,9 +114,14 @@ generically (no upstream names).
   part already exists (public vs internal RateLimiter instances).
 - [ ] **Structured OperationContext** (mcp, medium) — centralize
   `buildOperationContext()` instead of ad-hoc per-call options.
-- [ ] **Qrels format** (eval, medium) — ours is path-centric; the reference
-  is slug-centric (`query_id`, `relevant_slugs`, `embedding_dim`). Add an
-  adapter before reusing reference qrels.
+- [x] **Qrels format** (eval, medium) — DONE/moot. The adapter's only stated
+  trigger is "before reusing reference qrels" — which won't happen (the
+  reference's qrels are its private eval corpus; not importable). memex's own
+  `tests/eval/qrels.json` is `expected_paths`-centric, which MATCHES memex's
+  path-keyed chunk search output (`eval.ts` compares `expected_paths` to
+  `topPaths`). Pages are slug-canonical but search returns chunk PATHS, so a
+  slug-centric rewrite would add an impedance mismatch, not remove one. No
+  consumer → not built (would be speculative).
 - [ ] **`link_kind` UNIQUE-coexistence** (enrichment, medium) — the column
   itself landed in migration 029 (v1.3.9); the remaining piece is widening
   the `links` UNIQUE key (today `(source_slug, target_slug, type)`) to include
@@ -278,8 +283,18 @@ generically (no upstream names).
 - [ ] **Gazetteer auto-link mentions** (high) — entity-typed page gazetteer +
   maximal-munch body scan with self/cross-source guards + first-mention
   dedup (today only explicit `[[Foo]]`).
-- [ ] **Slug/page alias resolution** (medium) — `slug_aliases` + `page_aliases`
-  so renamed pages still resolve wikilinks.
+- [x] **Slug/page alias resolution** (medium) — DONE (migration 034), the
+  `page_aliases` half. A page declares alt names in `compiled_truth.aliases`;
+  `core/page-aliases.ts` (`normalizeAlias`/`extractAliasNorms`/`setPageAliases`/
+  `resolveAliasUnique`) keeps a normalized `page_aliases` index in lockstep
+  with every `putPage` (replace-set inside the write tx; FK cascade on hard
+  delete; soft-delete filtered + auto-restored). The slug canonicalizer gains
+  an authoritative **alias** stage (after exact-slug, before fuzzy). Collision
+  -safe (unique-only, falls through), fails open pre-034. code-reviewer +
+  codex CLEAN. The `slug_aliases` half (old-slug→canonical on RENAME) is NOT
+  built: memex has no page-rename operation (put creates / delete soft-removes;
+  a slug never changes), so the table would have no writer. Add it together
+  with a rename op if one ever lands.
 - [x] **IR metric suite** (high) — already present in `core/search/metrics.ts`
   (precisionAtK/recallAtK/MRR/ndcgAtK/jaccardAtK/top1Stable/binaryGrades) +
   `metrics.test.ts`. The old "today only hit/rank/MRR" note was stale.

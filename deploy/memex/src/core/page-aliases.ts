@@ -1,0 +1,150 @@
+/**
+ * Declared page aliases (migration 034).
+ *
+ * A page declares alternate names in `compiled_truth.aliases`; this module
+ * normalizes them, keeps the `page_aliases` index in lockstep with each
+ * page write, and resolves a free-text mention to a unique canonical slug.
+ *
+ * Aliases are FREE TEXT (a person's other name, a company's short name),
+ * normalized as a phrase — lowercase / NFKC / whitespace-collapsed — NOT
+ * slugified. The slug canonicalizer consults this as a high-confidence
+ * stage (a declared alias is authoritative): ranked just below an exact
+ * slug match and above the fuzzy tail/prefix/trigram cascade.
+ *
+ * EVENTUAL CONSISTENCY (by design, same model as the slug canonicalizer):
+ * the alias index drives resolution at WIKILINK-WRITE time. Adding an alias
+ * to `people/bob` does NOT retro-rewrite a `[[Robert]]` edge that some other
+ * page already wrote to `robert`; that edge re-resolves on its own next
+ * `syncWikilinksForPage` (i.e. when its source page is re-put). A migration
+ * needs no backfill: declared aliases are a NEW convention introduced with
+ * migration 034, so no pre-existing page carries one to index.
+ */
+import type { Engine } from "./engine/interface.ts";
+import type { Storage } from "./storage.ts";
+
+/** Upper bound on a single normalized alias, in CODE POINTS (defence vs
+ *  unbounded writes). An over-limit alias is DROPPED, never truncated:
+ *  truncating into the lookup key would collapse two distinct long names to
+ *  the same key (and could split a surrogate pair at the cut). */
+const MAX_ALIAS_LEN = 200;
+/** Cap on aliases stored per page (a declaration list, not a corpus). */
+const MAX_ALIASES_PER_PAGE = 64;
+
+/**
+ * Normalize a free-text alias to its index key: NFKC-fold, lowercase,
+ * collapse internal whitespace, trim. Returns "" for a non-string or
+ * all-whitespace input (the caller drops empties). NO truncation — length
+ * is enforced by `isIndexableAlias` (drop, don't cut).
+ */
+export function normalizeAlias(s: unknown): string {
+  if (typeof s !== "string") return "";
+  return s
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** A normalized alias is usable as an index key iff non-empty and within the
+ *  code-point length cap (counted by code point, not UTF-16 unit). */
+export function isIndexableAlias(norm: string): boolean {
+  if (!norm) return false;
+  let count = 0;
+  for (const _ of norm) {
+    if (++count > MAX_ALIAS_LEN) return false;
+  }
+  return true;
+}
+
+/** True for a Postgres "undefined table" (42P01) error from either engine —
+ *  the pre-migration-034 case the resolver tolerates. Everything else
+ *  rethrows so a real DB fault is never silently masked. */
+function isUndefinedTableError(e: unknown): boolean {
+  const code = (e as { code?: string } | null)?.code;
+  if (code === "42P01") return true;
+  const msg = (e as { message?: string } | null)?.message ?? "";
+  return /relation .*page_aliases.* does not exist/i.test(msg);
+}
+
+/**
+ * Pull the distinct normalized aliases out of a page's compiled_truth.
+ * Accepts `compiled_truth.aliases` as an array of strings; anything else
+ * (missing, non-array, non-string entries) is skipped. Deduped, capped.
+ */
+export function extractAliasNorms(
+  compiledTruth: Record<string, unknown> | null | undefined,
+): string[] {
+  const raw = compiledTruth?.["aliases"];
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of raw) {
+    const n = normalizeAlias(v);
+    if (!isIndexableAlias(n) || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+    if (out.length >= MAX_ALIASES_PER_PAGE) break;
+  }
+  return out;
+}
+
+/**
+ * Replace the full alias set for one slug with `aliasNorms`. Runs on the
+ * caller's transaction (the page write) so a page and its aliases commit
+ * atomically. Empty `aliasNorms` just clears them. Idempotent against the
+ * `(alias_norm, slug)` PK.
+ */
+export async function setPageAliases(
+  engine: Engine,
+  slug: string,
+  aliasNorms: string[],
+): Promise<void> {
+  await engine.query(`DELETE FROM page_aliases WHERE slug = $1`, [slug]);
+  for (const aliasNorm of aliasNorms) {
+    await engine.query(
+      `INSERT INTO page_aliases (alias_norm, slug) VALUES ($1, $2)
+       ON CONFLICT (alias_norm, slug) DO NOTHING`,
+      [aliasNorm, slug],
+    );
+  }
+}
+
+/**
+ * Resolve a normalized alias to its UNIQUE live page slug. Returns null on a
+ * miss, a COLLISION (two live pages claim the same alias), or when the sole
+ * claimant IS `excludeSlug` (the mention's own source page) — the caller
+ * falls through rather than arbitrating.
+ *
+ * Collision is detected GLOBALLY, before self-exclusion: if the source page
+ * AND another page both claim the alias, that is a real two-page collision,
+ * NOT a clean resolution to "the other one". So the query does NOT filter
+ * `excludeSlug` in SQL; it pulls up to 2 live claimants and only resolves
+ * when there is exactly one and it isn't the source.
+ *
+ * Pre-migration-034 brains (no `page_aliases` table) return null; any OTHER
+ * DB error rethrows so a real fault never silently degrades to a wrong-slug
+ * fuzzy match.
+ */
+export async function resolveAliasUnique(
+  storage: Storage,
+  aliasNorm: string,
+  excludeSlug: string,
+): Promise<string | null> {
+  if (!isIndexableAlias(aliasNorm)) return null;
+  try {
+    const r = await storage.engine().query<{ slug: string }>(
+      `SELECT pa.slug AS slug
+         FROM page_aliases pa
+         JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
+        WHERE pa.alias_norm = $1
+        LIMIT 2`,
+      [aliasNorm],
+    );
+    if (r.rows.length !== 1) return null; // miss or collision
+    const only = r.rows[0]!.slug;
+    return only === excludeSlug ? null : only;
+  } catch (e) {
+    if (isUndefinedTableError(e)) return null; // pre-034 brain — degrade
+    throw e; // a real DB fault must not silently mask as "no alias"
+  }
+}
