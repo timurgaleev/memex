@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.33] — 2026-06-12
+
 ### Added
 - **`memex search modes` — read-only ranking-config view.** A new diagnostic
   subcommand that prints the ACTIVE post-fusion ranking knobs (title-phrase
@@ -16,6 +18,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   path uses (so it can't drift), runs no search and touches no storage, and
   doubles as a config validator — a malformed `MEMEX_*` value fails loudly here
   before it can break a real search. `commands/search-modes.ts`.
+
+## [1.3.32] — 2026-06-12
+
+### Added
 - **`## Facts` fence parser/renderer (LLM-free).** A new pure markdown
   <-> structured-rows boundary (`core/facts-fence.ts` + the generic
   `core/fence-shared.ts` table-row primitives): `parseFactsFence` /
