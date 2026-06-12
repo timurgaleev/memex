@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.36] — 2026-06-12
+
 ### Added
 - **Code doc-comment extraction + weighted FTS (migration 032).** The code
   chunker now extracts a symbol's documentation comment — the JSDoc/`//` block
