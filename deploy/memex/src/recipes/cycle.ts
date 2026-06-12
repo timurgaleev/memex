@@ -79,11 +79,12 @@ export function startCycleLoop(
 
     try {
       const r = await runCycleOnce(storage.engine(), opts);
+      const mark = (s: string) => (s === "fail" ? "FAIL" : s); // ok | warn | FAIL
       const summary = r.phases
-        .map((p) => `${p.phase}=${p.ok ? "ok" : "FAIL"}`)
+        .map((p) => `${p.phase}=${mark(p.status)}`)
         .join(" ");
       console.log(
-        `[cycle] tick ok=${r.ok} ${summary} duration=${
+        `[cycle] tick status=${mark(r.status)} ${summary} duration=${
           new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
         }ms${inQuiet ? " (quiet — embed-stale skipped)" : ""}`,
       );

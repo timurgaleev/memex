@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
-import { runCycleOnce } from "../src/core/cycle/index.ts";
+import { deriveStatus, runCycleOnce } from "../src/core/cycle/index.ts";
 import { embedStalePhase } from "../src/core/cycle/embed-stale.ts";
 import { extractPhase } from "../src/core/cycle/extract.ts";
 import { reconcileLinksPhase } from "../src/core/cycle/reconcile-links.ts";
@@ -197,6 +197,84 @@ describe("runCycleOnce orchestrator", () => {
     for (const p of r.phases) {
       expect(p.durationMs).toBeGreaterThanOrEqual(0);
     }
+    // a clean run: no phase failed, all ok, cycle rolls up to ok
+    for (const p of r.phases) {
+      expect(p.status).not.toBe("fail");
+    }
+    expect(["ok", "warn"]).toContain(r.status);
+  });
+
+  describe("deriveStatus (warn-state envelope)", () => {
+    it("flags embed-stale as warn when a re-embed errored", () => {
+      expect(
+        deriveStatus("embed-stale", {
+          scanned: 10,
+          reembedded: 8,
+          errors: [{ sourcePath: "a.md", message: "transient bedrock error" }],
+        } as never),
+      ).toBe("warn");
+      expect(
+        deriveStatus("embed-stale", {
+          scanned: 10,
+          reembedded: 10,
+          errors: [],
+        } as never),
+      ).toBe("ok");
+    });
+
+    it("flags extract as warn when a document errored", () => {
+      expect(
+        deriveStatus("extract", {
+          documents: 5,
+          chunks: 20,
+          mentionsBefore: 0,
+          mentionsAfter: 3,
+          errors: [{ sourcePath: "b.md", message: "parse failed" }],
+        } as never),
+      ).toBe("warn");
+      expect(
+        deriveStatus("extract", {
+          documents: 5,
+          chunks: 20,
+          mentionsBefore: 0,
+          mentionsAfter: 3,
+          errors: [],
+        } as never),
+      ).toBe("ok");
+    });
+
+    it("flags snapshot as warn when it could not persist", () => {
+      expect(deriveStatus("snapshot", { persisted: false } as never)).toBe("warn");
+      expect(deriveStatus("snapshot", { persisted: true } as never)).toBe("ok");
+    });
+
+    it("flags orphans-purge as warn on a zero-chunk (corrupt) doc", () => {
+      expect(
+        deriveStatus("orphans-purge", {
+          deleted: { embeddings: 0, entity_mentions: 0, entities: 0 },
+          flagged: {
+            docs_missing_on_disk: [{ id: "x", sourcePath: "x.md" }],
+            docs_with_zero_chunks: [{ id: "y", sourcePath: "y.md" }],
+          },
+        } as never),
+      ).toBe("warn");
+      // missing-on-disk alone (routine churn) does NOT warn
+      expect(
+        deriveStatus("orphans-purge", {
+          deleted: { embeddings: 0, entity_mentions: 0, entities: 0 },
+          flagged: {
+            docs_missing_on_disk: [{ id: "x", sourcePath: "x.md" }],
+            docs_with_zero_chunks: [],
+          },
+        } as never),
+      ).toBe("ok");
+    });
+
+    it("treats by-design informational phases as ok", () => {
+      // reconcile-links unresolved is normal, not a warning
+      expect(deriveStatus("reconcile-links", { unresolved: [{}] } as never)).toBe("ok");
+      expect(deriveStatus("frontmatter-inference", {} as never)).toBe("ok");
+    });
   });
 
   it("respects an explicit phases list", async () => {
@@ -209,5 +287,6 @@ describe("runCycleOnce orchestrator", () => {
     expect(r.phases.length).toBe(1);
     expect(r.phases[0]!.phase).toBe("snapshot");
     expect(r.phases[0]!.ok).toBe(true);
+    expect(r.phases[0]!.status).toBe("ok");
   });
 });

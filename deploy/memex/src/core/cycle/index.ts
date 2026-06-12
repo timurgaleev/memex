@@ -42,9 +42,22 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "snapshot",
 ];
 
+/**
+ * Three-state phase outcome (faithful to the reference's ok/warn/fail
+ * envelope). `warn` = the phase COMPLETED (didn't throw) but reported
+ * non-fatal issues — e.g. embed-stale re-embedded most chunks but a few hit
+ * a transient Bedrock error, or snapshot computed but couldn't persist. A
+ * warn does NOT fail the cycle; it surfaces a partial success that the old
+ * binary `ok` silently swallowed.
+ */
+export type PhaseStatus = "ok" | "warn" | "fail";
+
 export interface PhaseResult {
   phase: PhaseName;
+  /** Back-compat: true unless the phase threw. A `warn` is still `ok:true`. */
   ok: boolean;
+  /** Three-state outcome — prefer this over `ok` for new consumers. */
+  status: PhaseStatus;
   durationMs: number;
   detail?:
     | EmbedStaleResult
@@ -60,7 +73,49 @@ export interface CycleResult {
   startedAt: string;
   finishedAt: string;
   phases: PhaseResult[];
+  /** Back-compat: true unless a phase FAILED (warns don't flip it). */
   ok: boolean;
+  /** Worst phase outcome: fail if any failed, else warn if any warned, else ok. */
+  status: PhaseStatus;
+}
+
+/**
+ * Derive a SUCCEEDED phase's status from its detail. Explicit per-phase
+ * rules (not duck-typing) so the warn signal is precise:
+ *   - embed-stale / extract: any per-document error → warn (the phase still
+ *     succeeds on the rest; those failures are transient/recoverable next
+ *     cycle). Both carry the identical `{ errors: [...] }` shape.
+ *   - snapshot: computed but not persisted → warn (soft failure).
+ *   - orphans-purge: a `docs_with_zero_chunks` entry is a CORRUPT index row
+ *     (a document with no chunks) → warn. `docs_missing_on_disk` is left as
+ *     `ok`: a file deleted/renamed between syncs is routine churn the purge
+ *     handles, not an anomaly (would be noisy as a warn).
+ * reconcile-links `unresolved` is BY DESIGN informational (a wikilink to a
+ * not-yet-created page is normal), so it stays `ok`.
+ */
+export function deriveStatus(
+  phase: PhaseName,
+  detail: PhaseResult["detail"],
+): PhaseStatus {
+  if (phase === "embed-stale" || phase === "extract") {
+    const errs = (detail as EmbedStaleResult | ExtractResult | undefined)?.errors;
+    return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
+  }
+  if (phase === "snapshot") {
+    return (detail as SnapshotResult | undefined)?.persisted === false
+      ? "warn"
+      : "ok";
+  }
+  if (phase === "orphans-purge") {
+    const zero = (detail as OrphansPurgeResult | undefined)?.flagged
+      ?.docs_with_zero_chunks;
+    return Array.isArray(zero) && zero.length > 0 ? "warn" : "ok";
+  }
+  // reconcile-links, frontmatter-inference: no failure-bearing detail — their
+  // non-fatal signals are by-design informational, always ok. A NEW phase
+  // falls here too: add an explicit rule above if it can partially fail,
+  // rather than letting it default to ok unnoticed.
+  return "ok";
 }
 
 export interface CycleOptions {
@@ -86,9 +141,20 @@ async function runPhase<T>(
   progress({ kind: "phase", op: "cycle", phase, ts: start });
   try {
     const detail = (await fn()) as PhaseResult["detail"];
+    const status = deriveStatus(phase, detail);
+    if (status === "warn") {
+      progress({
+        kind: "log",
+        op: "cycle",
+        level: "warn",
+        message: `phase ${phase} completed with warnings`,
+        ts: Date.now(),
+      });
+    }
     return {
       phase,
       ok: true,
+      status,
       durationMs: Date.now() - start,
       detail,
     };
@@ -104,6 +170,7 @@ async function runPhase<T>(
     return {
       phase,
       ok: false,
+      status: "fail",
       durationMs: Date.now() - start,
       error,
     };
@@ -158,6 +225,7 @@ export async function runCycleOnce(
         r = {
           phase: p,
           ok: false,
+          status: "fail",
           durationMs: 0,
           error: `unknown phase: ${p as string}`,
         };
@@ -167,6 +235,11 @@ export async function runCycleOnce(
 
   const finishedAt = new Date().toISOString();
   const ok = phases.every((p) => p.ok);
+  const status: PhaseStatus = phases.some((p) => p.status === "fail")
+    ? "fail"
+    : phases.some((p) => p.status === "warn")
+      ? "warn"
+      : "ok";
   progress({
     kind: ok ? "completed" : "failed",
     op: "cycle",
@@ -174,5 +247,5 @@ export async function runCycleOnce(
     error: ok ? undefined : "one or more phases failed",
     ts: Date.now(),
   } as never);
-  return { startedAt, finishedAt, phases, ok };
+  return { startedAt, finishedAt, phases, ok, status };
 }

@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Warn-state envelope for cycle phases.** A maintenance-cycle phase result was
+  binary `ok: boolean` — a phase that COMPLETED but with non-fatal issues (e.g.
+  embed-stale re-embedded most chunks but a few hit a transient Bedrock error,
+  or snapshot computed but couldn't persist) reported `ok: true` and the partial
+  failure was invisible. `PhaseResult` and `CycleResult` now carry a three-state
+  `status: "ok" | "warn" | "fail"` (faithful to the reference's ok/warn/fail
+  envelope) alongside the unchanged `ok` (back-compat: `warn` is still
+  `ok: true`, and a warn does NOT fail the cycle). A small `deriveStatus(phase,
+  detail)` with explicit per-phase rules computes warn (embed-stale + extract
+  per-document errors, snapshot non-persist, orphans-purge a zero-chunk/corrupt
+  doc); by-design informational signals (reconcile-links `unresolved`,
+  orphans-purge `docs_missing_on_disk` routine churn) stay `ok`. The cycle
+  runner emits a `warn`-level progress log on a warned phase and the `cycle`
+  recipe renders `status=ok|warn|FAIL` per phase. memex's functional `runPhase`
+  wrapper already gave uniform error handling, so the reference's base-CLASS
+  refactor was intentionally NOT adopted (it would be churn) — only the
+  observability kernel landed.
+
 ## [1.3.39] — 2026-06-12
 
 ### Added

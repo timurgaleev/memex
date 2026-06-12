@@ -89,9 +89,19 @@ generically (no upstream names).
   code-reviewer CLEAN. `stats` not added (overlaps `status`/`cache stats`);
   `tune` deliberately omitted (a runtime mutation — env vars are the tuning
   surface, and `search modes` shows their effect).
-- [ ] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — our
-  phases are unstructured fns with `{ok:boolean}`; adopt a base class
-  (source-scope + budget + uniform errors) and an `ok/warn/fail` envelope.
+- [x] **BaseCyclePhase + warn-state result envelope** (cycle, medium) — DONE
+  (the warn-envelope half; the base-CLASS half intentionally NOT adopted).
+  `PhaseResult`/`CycleResult` gain `status: "ok"|"warn"|"fail"` alongside the
+  unchanged `ok` (back-compat — a warn is still `ok:true` and doesn't fail the
+  cycle). `deriveStatus(phase, detail)` (cycle/index.ts) computes warn from
+  explicit per-phase rules (embed-stale per-chunk errors, snapshot non-persist);
+  reconcile-links `unresolved` + orphans-purge `flagged` are by-design
+  informational → stay `ok`. runPhase emits a `warn`-level progress log; the
+  `cycle` recipe renders `status=ok|warn|FAIL`. ADAPTED, not blind-ported: memex's
+  6 phases are functional fns wrapped by `runPhase`, which ALREADY gives the
+  uniform error handling + source-scope the reference's base class provides — a
+  class refactor would be churn against "don't refactor what isn't broken", so
+  only the observability kernel landed.
 - [x] **OperationError shape** (mcp, medium) — DONE. `core/operation-error.ts`:
   `OperationError {code, message, suggestion?, docs?}` → `toEnvelope(isPublic)`
   (public WITHHOLDS the free-text `message`, keeps code + static suggestion/docs;

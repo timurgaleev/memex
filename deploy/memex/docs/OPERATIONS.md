@@ -75,7 +75,9 @@ Notable log lines to look for:
 - `[memex] listening on http://0.0.0.0:18790 (MCP enabled)`
 - `[code] boot sweep: scanned=N reindexed=M skipped=K parseErrors=0 errors=0`
 - `[memex] starting cycle loop: every Ns, embed-stale at >Md`
-- `[cycle] tick ok=true ...`
+- `[cycle] tick status=ok ...` (per-phase `status=ok|warn|FAIL`; `warn` =
+  the phase completed but reported non-fatal issues, e.g. a transient embed
+  error or a zero-chunk doc)
 
 ## Trigger a cycle manually
 
