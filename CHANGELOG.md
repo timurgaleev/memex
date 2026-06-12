@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.35] — 2026-06-12
+
 ### Added
 - **Two-layer query-cache invalidation (migration 031).** The exact-match query
   cache previously gated only on the global `document_generation_clock`: any
