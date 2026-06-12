@@ -19,7 +19,7 @@
  *     could extract — partial coverage beats zero coverage. Sweep
  *     escalates parse errors to a per-file warning.
  */
-import { getParser, type CodeLanguage } from "./parsers.ts";
+import { getParser, parseWithBudget, type CodeLanguage } from "./parsers.ts";
 import type { Node as TSNode } from "web-tree-sitter";
 
 export type SymbolKind =
@@ -397,12 +397,10 @@ export async function chunkCode(
   language: CodeLanguage,
 ): Promise<CodeChunked> {
   const parser = await getParser(language);
-  const tree = parser.parse(source);
-  if (!tree) {
-    throw new Error(
-      `core/chunkers/code: parser returned null tree for ${filename}`,
-    );
-  }
+  // parseWithBudget throws ParseTimeoutError on a wall-clock overrun; the
+  // per-file try/catch in sweep-code records it and skips the file (no
+  // partial/lossy reindex). Always returns a non-null tree otherwise.
+  const tree = parseWithBudget(parser, source);
   const symbols = Array.from(visitSymbols(tree.rootNode, language, source));
   const fileImports = Array.from(visitFileImports(tree.rootNode, language));
   // Dedup imports by (name, line).

@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Wall-clock budget on a single tree-sitter parse.** The code chunker already
+  caps input by byte size, but a small-yet-pathological file can still make the
+  WASM parser spin — and `parser.parse()` is synchronous, so a `Promise.race`
+  can't interrupt it. `parseWithBudget` now runs every code parse under a
+  wall-clock budget via tree-sitter's `progressCallback` (the in-process cancel
+  lever: returning truthy from the periodically-invoked callback aborts the
+  parse to null). On overrun `parseWithBudget` resets the parser and throws
+  `ParseTimeoutError`, which propagates out of `chunkCode`/`extractCodeEntities`
+  *before* the reindex write — so the per-file `try/catch` in the code sweep
+  skips that one file and PRESERVES its prior chunks/edges, rather than hanging
+  the sweep or silently overwriting a reindex with a half-parsed symbol's edges.
+  Default 5s, override with `MEMEX_PARSE_TIMEOUT_MS` (0 disables). Used the
+  progress callback rather than `setTimeoutMicros` because the latter's i64
+  argument mis-marshals under Bun's WASM bridge. Reviewed by code-reviewer +
+  codex; codex reproduced a parser-poisoning bug (a cancelled tree-sitter parser
+  is left resumable, so the next parse on the cached instance returned a
+  spurious `hasError` — fixed by `parser.reset()` on cancel) and flagged the
+  partial-overwrite and the sub-1ms-floors-to-disabled edges; all fixed. The
+  budget is cooperative, not hard preemption (the callback fires ~every 100
+  parser ops, so a trivially-short parse or a pure-lexer hang isn't interrupted)
+  — documented in the helper.
+
 ## [1.3.38] — 2026-06-12
 
 ### Added

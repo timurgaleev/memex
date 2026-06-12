@@ -29,7 +29,7 @@
 import type { CodeSymbol } from "./chunkers/code.ts";
 import type { CodeLanguage } from "./chunkers/parsers.ts";
 import type { ExtractedEntity } from "./entities.ts";
-import { getParser } from "./chunkers/parsers.ts";
+import { getParser, parseWithBudget } from "./chunkers/parsers.ts";
 import type { Node as TSNode } from "web-tree-sitter";
 
 export interface ExtractCodeEntitiesInput {
@@ -261,8 +261,12 @@ export async function extractCodeEntities(
   // without its enclosing class), but tree-sitter recovers gracefully —
   // we only need named identifier + call_expression nodes.
   const parser = await getParser(language);
-  const subTree = parser.parse(symbol.body);
-  if (!subTree) return entities;
+  // parseWithBudget throws ParseTimeoutError on overrun. We let it propagate
+  // (NOT degrade to a partial entity set): the caller indexCodeDocument runs
+  // this BEFORE writeDocumentTransaction, so a throw skips the whole file and
+  // preserves the prior chunks/edges — silently overwriting a reindex with a
+  // half-parsed symbol's edges would erase good call-graph data.
+  const subTree = parseWithBudget(parser, symbol.body);
 
   const callTypes = CALL_NODE_TYPES[language];
   const importTypes = IMPORT_NODE_TYPES[language];

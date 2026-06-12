@@ -383,9 +383,17 @@ generically (no upstream names).
 - [ ] **resolve_symbol_edges cycle phase** (medium) — batch-resolve code-edge
   symbols to chunk IDs.
 - [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock
-  cap per job; FNV-1a offset to decorrelate cron jobs.
-- [ ] **Code-chunk wall-clock timeout** (low) — tree-sitter `setTimeoutMicros`
-  so a pathological file can't hang the WASM parser.
+  cap per job; FNV-1a offset to decorrelate cron jobs. (The code-chunk half of
+  this bundle is done below; the cron-job stagger half remains — it belongs with
+  the durable-jobs supervisor work.)
+- [x] **Code-chunk wall-clock timeout** (low) — DONE. `parseWithBudget`
+  (`core/chunkers/parsers.ts`) runs every code parse under a wall-clock budget
+  via tree-sitter's `progressCallback` (returning truthy from the periodic
+  callback cancels the sync WASM parse → null → chunkCode throws → sweep-code
+  skips the file). Default 5s, `MEMEX_PARSE_TIMEOUT_MS` override (0 disables).
+  ADAPTED: the reference's `setTimeoutMicros` mis-marshals its i64 arg under
+  Bun's WASM bridge (ToBigInt error), so the progress callback — the modern
+  documented replacement — is used instead. Cancel verified by a unit test.
 
 ### Facts model (in-scope, larger)
 - [ ] **facts-fence markdown binding** (high) — make a `## Facts` fence the
