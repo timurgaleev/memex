@@ -122,8 +122,18 @@ generically (no upstream names).
   improvement, self-healing, no amplification) + code-reviewer CLEAN (TTL test
   isolation tightened). The "separate pre-auth IP / post-auth token limiters"
   part already exists (public vs internal RateLimiter instances).
-- [ ] **Structured OperationContext** (mcp, medium) — centralize
-  `buildOperationContext()` instead of ad-hoc per-call options.
+- [x] **Structured OperationContext** (mcp, medium) — ASSESSED → not built
+  (cosmetic-parity churn, no ad-hoc duplication to centralize). memex's
+  operation context is ALREADY centralized in two clean seams: `http/public_guard.ts`
+  derives `isPublic` from the request (auth/ingress) once, and `mcp/dispatch.ts`
+  derives the `redact`/`redactGraph` policy from `isPublic` once at the dispatch
+  entry, passing the booleans down. The reference's `buildOperationContext()`
+  exists to carry multi-source scoping + OAuth auth-tiers + budgets + source
+  allow-lists — none of which memex has (single-source, single-holder bearer).
+  Wrapping memex's one `isPublic` bit in a formal context OBJECT would be
+  ceremony with zero functional benefit, against "don't refactor what isn't
+  broken". Revisit only if a real second context dimension (tenancy/auth-tier)
+  ever lands.
 - [x] **Qrels format** (eval, medium) — DONE/moot. The adapter's only stated
   trigger is "before reusing reference qrels" — which won't happen (the
   reference's qrels are its private eval corpus; not importable). memex's own
