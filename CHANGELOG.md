@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.38] — 2026-06-12
+
 ### Added
 - **Declared page aliases (migration 034).** A page can now name its
   alternate identities in `compiled_truth.aliases` (e.g. a `people/bob` page
