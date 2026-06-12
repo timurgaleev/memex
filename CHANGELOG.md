@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.39] — 2026-06-12
+
 ### Added
 - **Wall-clock budget on a single tree-sitter parse.** The code chunker already
   caps input by byte size, but a small-yet-pathological file can still make the
