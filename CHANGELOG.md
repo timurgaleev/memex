@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.34] — 2026-06-12
+
 ### Fixed
 - **Well-form lone UTF-16 surrogates + NUL before a `::jsonb` cast.** A document
   whose frontmatter carried an unpaired UTF-16 surrogate (e.g. a truncated emoji
