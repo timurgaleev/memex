@@ -18,6 +18,7 @@ import {
   getEntityTimeline,
   type TimelineEventRow,
 } from "./timeline.ts";
+import { effectiveConfidence, factDecayEnabled } from "./facts-decay.ts";
 
 export interface AddFactInput {
   entity_slug: string;
@@ -37,6 +38,12 @@ export interface FactRow {
   source_chunk_id: string | null;
   written_by: string | null;
   written_at: string;
+  /** mig037 metadata. NULL on legacy rows / a fence without these columns. */
+  kind: string | null;
+  notability: string | null;
+  /** DATE text `YYYY-MM-DD` or NULL. */
+  valid_from: string | null;
+  valid_until: string | null;
 }
 
 export interface AddFactResult {
@@ -123,7 +130,19 @@ export interface ListFactsOptions {
    */
   queryVector?: number[];
   limit?: number;
+  /**
+   * Apply confidence decay (migration 037 `kind`/`valid_until` consumer):
+   * facts past `valid_until` are dropped and the rest are re-ranked by
+   * `effectiveConfidence` (older facts of a short-lived kind sink). Deterministic
+   * and LLM-free. Ignored when `queryVector` is set (semantic order wins) and
+   * for `order: "recency"`. Default OFF; `entityRecall` defaults it from
+   * `MEMEX_FACT_DECAY`.
+   */
+  decay?: boolean;
 }
+
+/** When decay re-ranks in TS we fetch a wide candidate set first, then trim. */
+const DECAY_FETCH_CAP = 1000;
 
 function normaliseSince(v: string | Date): string {
   if (v instanceof Date) {
@@ -149,6 +168,10 @@ export async function listFacts(
   const params: unknown[] = [entitySlug];
   const where: string[] = ["entity_slug = $1"];
   if (opts.since !== undefined) {
+    // `since` is a record-time predicate (written_at), independent of decay's
+    // validity-time anchoring (valid_from): "facts recorded since X, then
+    // decay-ranked". A fact recorded before `since` is intentionally excluded
+    // even if its valid_from is recent -- the two filters compose by design.
     params.push(normaliseSince(opts.since));
     where.push(`written_at >= $${params.length}::timestamptz`);
   }
@@ -157,10 +180,29 @@ export async function listFacts(
     params.push(opts.source_slug);
     where.push(`source_slug = $${params.length}`);
   }
+  const hasQueryVector = !!(opts.queryVector && opts.queryVector.length > 0);
+  // Decay re-ranks in TS, so it only applies to the plain confidence path:
+  // a semantic query (cosine) or an explicit recency sort take precedence.
+  // When `decay` is unset the global `MEMEX_FACT_DECAY` flag governs, so every
+  // fact-reading surface (entity_facts + entity_recall) honors it uniformly.
+  const decay = opts.decay ?? factDecayEnabled();
+  const wantDecay = decay && !hasQueryVector && opts.order !== "recency";
+
+  // When decaying, drop rows that are definitely past their `valid_until` at the
+  // SQL layer so they do not consume slots in the `DECAY_FETCH_CAP` candidate
+  // window (a ledger full of expired rows could otherwise crowd out fresh facts,
+  // returning too few). The bound is `>= CURRENT_DATE` (keep today + future):
+  // `rankByDecay` makes the exact, timezone-correct expiry call in TS, and this
+  // SQL bound is conservative enough that it never drops a row TS would keep,
+  // regardless of session timezone.
+  if (wantDecay) {
+    where.push("(valid_until IS NULL OR valid_until >= CURRENT_DATE)");
+  }
+
   // Semantic order when a query vector is supplied: rank by cosine distance,
   // embedded facts first (NULL distance sorts last), then the normal tiebreak.
   let order: string;
-  if (opts.queryVector && opts.queryVector.length > 0) {
+  if (hasQueryVector) {
     params.push(JSON.stringify(opts.queryVector));
     order = `embedding <=> $${params.length}::vector ASC NULLS LAST, confidence DESC, written_at DESC`;
   } else {
@@ -173,18 +215,53 @@ export async function listFacts(
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
       ? Math.floor(opts.limit)
       : 100;
-  params.push(limit);
+  // When decaying, fetch a wide candidate set (confidence-DESC, expired rows
+  // already filtered above) then re-rank + trim in TS so the true top-N by
+  // effective confidence is returned. A per-entity ledger is small, so the cap
+  // is not a correctness risk in practice; the documented residual is an entity
+  // with more than DECAY_FETCH_CAP live facts, where a fresh low-confidence fact
+  // below the confidence-DESC window could be missed.
+  const sqlLimit = wantDecay ? DECAY_FETCH_CAP : limit;
+  params.push(sqlLimit);
   const r = await storage.engine().query<FactRow>(
     `SELECT id, entity_slug, fact, confidence,
             source_slug, source_chunk_id, written_by,
-            written_at::text AS written_at
+            written_at::text AS written_at,
+            kind, notability,
+            valid_from::text  AS valid_from,
+            valid_until::text AS valid_until
        FROM entity_facts
        WHERE ${where.join(" AND ")}
        ORDER BY ${order}
        LIMIT $${params.length}`,
     params,
   );
-  return r.rows;
+  if (!wantDecay) return r.rows;
+  return rankByDecay(r.rows, limit);
+}
+
+/**
+ * Re-rank a fetched fact set by `effectiveConfidence`: drop facts that have
+ * decayed to 0 (expired / past `valid_until`), sort by effective confidence
+ * DESC with the same `confidence`/`written_at` tiebreak as the SQL path, then
+ * trim to `limit`. A single `now` is captured so all rows decay against one
+ * clock.
+ */
+function rankByDecay(rows: FactRow[], limit: number): FactRow[] {
+  const now = new Date();
+  const scored: { row: FactRow; eff: number }[] = [];
+  for (const row of rows) {
+    const eff = effectiveConfidence(row, now);
+    if (eff > 0) scored.push({ row, eff });
+  }
+  scored.sort((a, b) => {
+    if (b.eff !== a.eff) return b.eff - a.eff;
+    if (b.row.confidence !== a.row.confidence) {
+      return b.row.confidence - a.row.confidence;
+    }
+    return b.row.written_at.localeCompare(a.row.written_at);
+  });
+  return scored.slice(0, limit).map((s) => s.row);
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +284,12 @@ export interface EntityRecallOptions {
   query?: string;
   /** Injectable embedder (tests). Defaults to the Bedrock Titan path. */
   embed?: (text: string) => Promise<number[]>;
+  /**
+   * Apply confidence decay to the recalled facts (mig037 consumer). When
+   * undefined, defaults to the `MEMEX_FACT_DECAY` env flag. Ignored when
+   * `query` (semantic focus) is supplied.
+   */
+  decay?: boolean;
 }
 
 export interface EntityRecallResult {
@@ -260,6 +343,9 @@ export async function entityRecall(
   }
   const listOpts: ListFactsOptions = { limit: factLimit, order: "confidence" };
   if (queryVector) listOpts.queryVector = queryVector;
+  // Decay applies only to the plain confidence path (not semantic focus).
+  // Pass the caller's flag through (undefined -> listFacts defaults from env).
+  else if (opts.decay !== undefined) listOpts.decay = opts.decay;
   const [page, facts, timeline] = await Promise.all([
     getPage(storage, slug),
     listFacts(storage, slug, listOpts),

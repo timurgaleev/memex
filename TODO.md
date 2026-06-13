@@ -156,6 +156,52 @@ generically (no upstream names).
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 
+#### From the 2026-06-13 EXHAUSTIVE reference re-comparison (5-agent subsystem fan-out vs `4ee530f v0.42.42.0`)
+A full subsystem-by-subsystem diff (schema/chunkers/embeddings · retrieval/ranking/eval
+· MCP/CLI/jobs/config · facts/links/graph · cycle/security/redaction). Security
+swept clean — **no redaction-parity gap, no CRITICAL**: memex has a single public
+ingress (`dispatchTool`), allowlist field redaction, and is strictly stronger than
+the reference (which relies on OAuth scopes, not field redaction). The genuine
+brain-only LLM-free BUILD candidates found, prioritized:
+- [x] **Fact confidence decay + `valid_until` expiry at recall** (highest value) —
+  DONE. The mig037 `kind`/`valid_from`/`valid_until` columns were stored but
+  inert (zero readers). `core/facts-decay.ts` `effectiveConfidence` + the
+  `listFacts`/`entityRecall` `decay` path consume them (opt-in `MEMEX_FACT_DECAY`,
+  default OFF). Adapted to memex: nullable DATE columns, no `expired_at`,
+  written_at anchor fallback, env-gated not default-on.
+- [ ] **`link_kind` UNIQUE coexistence** (small migration) — the known open item;
+  widen the `links` UNIQUE key to include `link_kind`+`origin_slug` so a typed-NER
+  edge and a plain mention of the same (src,tgt,type) coexist. Do before any
+  `typed_ner` writer ships.
+- [ ] **Markdown chunk overlap + delimiter hierarchy** (recall lift) — the chunker
+  is heading/paragraph-only with zero overlap; boundary-straddling facts split
+  with no recall bridge. The reference does sentence-aware ~50-word overlap over a
+  5-level delimiter cascade. Medium.
+- [ ] **Graph-signals post-fusion stage** (opt-in retrieval win) — adjacency hub
+  boost (~1.05-1.10x) + MMR-lite session-cluster diversification, floor-gated +
+  fail-open. memex uses link-degree only offline (salience); the search pipeline
+  has no adjacency boost.
+- [ ] **Relational recall arm** (relationship-query quality) — wire typed edges in
+  as a 4th RRF arm so "who invested in X" candidates enter ranking. memex has the
+  graph (typed-links/entity_recall/graph_neighbors) but never feeds it to the
+  ranker. Bigger.
+- [ ] **`symbol_name_qualified` column + qualified-name FTS weight** (small) —
+  disambiguates `Foo.bar` vs `Baz.bar` in code search; extend the code chunker +
+  fold into the mig-030 weighted-FTS trigger at weight A.
+- [ ] **Jobs `timeout_ms` / `handleTimeouts` dead-letter** (robustness) — split
+  stall->retry from timeout->dead-letter so a genuinely wedged job is terminated,
+  not retried until its stall budget burns. Schema col + worker tick.
+- [ ] **Jobs lease fencing token** (small, low urgency at concurrency=1) — a
+  per-attempt `lock_token` gating complete/fail/handleStalled so a revived stalled
+  worker can't clobber a reclaimed row. Race window is tiny on the single-worker
+  serve; defer unless multi-worker lands.
+
+Dispositioned LOW / out-of-scope: CJK-aware chunking (English corpus), contextual-
+retrieval embed wrapper (needs an LLM pass — north-star), backoff jitter
+(multi-worker only — MOOT by design), multimodal/image embeddings + 36-language
+tree-sitter (asset-blocked), OAuth/multi-tenant/access_tokens + LLM cycle phases
+(synthesize/extract/grade/emotional-weight — north-star).
+
 #### From the 2026-06-12 NIGHT reference re-comparison (reference advanced v0.42.37 → v0.42.42)
 Fetched the clone to `4ee530f v0.42.42.0` and diffed. Conclusion: **NO new
 brain-only LLM-free candidate for memex** — every advance is already-done, N/A

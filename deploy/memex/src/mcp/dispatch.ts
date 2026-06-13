@@ -732,6 +732,13 @@ async function callEntityFacts(
   if (args["order"] === "recency" || args["order"] === "confidence")
     opts.order = args["order"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  // Confidence decay is INTERNAL ONLY (mirrors entity_recall `query`/`decay`).
+  // It reorders facts and drops expired ones using hidden `kind`/`valid_until`;
+  // on the public path the text is redacted but stable ids/confidence remain,
+  // so a caller could diff the decayed order against `order:"recency"` (which
+  // disables decay) to infer which hidden fact expired/demoted. Force it OFF on
+  // public; internal callers get it via the `MEMEX_FACT_DECAY` env default.
+  if (redact) opts.decay = false;
   const facts = await listFacts(storage, args["entity_slug"], opts);
   // Public ingress: `fact` is note-derived private content — strip it,
   // mirroring the search/page body redaction policy.
@@ -776,6 +783,13 @@ async function callEntityRecall(
   // public recall keeps the fixed confidence order.
   if (!redact && typeof args["query"] === "string" && args["query"].trim())
     opts.query = args["query"];
+  // Confidence decay is INTERNAL ONLY for the same reason: it REORDERS facts
+  // (and DROPS expired ones) using hidden `kind`/`valid_until` metadata. On the
+  // public path the fact text is stripped but stable ids/confidence remain, so
+  // a caller could diff decayed vs `order:"recency"` output to infer which
+  // hidden fact expired/demoted. Force decay OFF on public; internal recall
+  // honors `MEMEX_FACT_DECAY` via the recall layer's env default.
+  if (redact) opts.decay = false;
   if (typeof args["fact_limit"] === "number")
     opts.fact_limit = args["fact_limit"];
   if (typeof args["timeline_limit"] === "number")

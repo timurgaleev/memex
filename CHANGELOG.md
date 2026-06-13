@@ -6,6 +6,41 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Fact confidence decay — the consumer that makes the migration-037 columns
+  matter (opt-in, `MEMEX_FACT_DECAY=1`, default OFF).** Migration 037 added
+  `kind`/`notability`/`valid_from`/`valid_until` to `entity_facts`, but until now
+  nothing read them at recall: facts ordered purely by raw `confidence`. The new
+  `core/facts-decay.ts` `effectiveConfidence(fact, now)` is a pure, LLM-free
+  function: a fact past its `valid_until` (an explicit "stopped being true"
+  marker) scores 0 regardless of kind, and a fact whose `kind` carries a
+  half-life decays as `confidence * exp(-age_days / halflife)` — `event` 7d,
+  `commitment`/`preference` 90d, `belief`/`fact` 365d — anchored on `valid_from`
+  (falling back to `written_at`). A fact with no recognized `kind` does not
+  decay, so a legacy row with NULL metadata is unchanged. When the flag is on,
+  `listFacts` (and therefore `entity_facts` + `entity_recall`) drops decayed-to-0
+  facts and re-ranks the rest by effective confidence; when off, ordering is
+  byte-for-byte unchanged. Decay is **internal-ingress only**: on the
+  public-bearer path it is forced off so the fixed confidence order is preserved.
+  Otherwise a caller could diff the decayed order against `order:"recency"`
+  (which disables decay) to infer which hidden fact expired or was demoted by
+  `valid_until`/`kind` metadata they cannot see — the same content-oracle class
+  as the v1.3.48 semantic-`query` gate. Reviewed by ai-engineer, code-reviewer,
+  and codex (codex caught the public-ingress oracle).
+
+### Changed
+- **CI: shard the Bun test suite to bound runner memory.** The amd64 gate was
+  OOM-killed (exit 137) as the PGLite-heavy suite grew — every PGLite (WASM
+  Postgres) instance reserves WASM linear memory that is never returned to the
+  OS even after `close()`, so ~100+ files in one `bun test` process eventually
+  exceeded the 16 GB runner. `ci.yml` now runs the suite in fixed-size shards
+  (20 files), each a fresh process, bounding peak memory as the suite grows. The
+  local ship gate still runs the whole suite in one process.
+- **CI: drop the dead `pip` Dependabot ecosystem.** The repo has no Python
+  dependency manifest (pytest tooling is installed inline), so the `pip`
+  ecosystem failed every run with `dependency_file_not_found`. Removed; the
+  `github-actions` ecosystem stays.
+
 ## [1.3.49] — 2026-06-13
 
 ### Added
