@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex cycle [--phases a,b,c] [--stale-days N]` — run one maintenance cycle
+  on demand.** The periodic cycle loop schedules its FIRST tick one interval
+  (default 6h) after boot, so a freshly-deployed cycle-driven feature (page
+  salience, fact embeddings, link reconcile, …) isn't realized on live data
+  until that tick. This one-shot command runs the same `runCycleOnce` once and
+  exits, printing the per-phase result envelope as JSON — so an operator can
+  realize a backfill immediately after a deploy/import and verify a phase on the
+  live dataset. `--phases` limits the run to a comma-separated subset (validated
+  against the known phase names), which is the way to run just the cheap new
+  phases without the Bedrock-heavy `embed-stale`. Phases are idempotent and use
+  atomic writes, so an on-demand run is safe alongside the periodic loop.
+
 ## [1.3.48] — 2026-06-13
 
 ### Added

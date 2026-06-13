@@ -50,6 +50,7 @@ import { runStatus } from "./commands/status.ts";
 import { runEmbed } from "./commands/embed.ts";
 import { runSearchModes } from "./commands/search-modes.ts";
 import { runSalience } from "./commands/salience.ts";
+import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
@@ -123,6 +124,8 @@ function printUsage(): void {
   console.log("  status                       one-shot snapshot: counts + health + cache");
   console.log("  salience [--type T] [--days N] [--limit N]");
   console.log("                               pages ranked by deterministic salience score");
+  console.log("  cycle [--phases a,b,c] [--stale-days N]");
+  console.log("                               run one maintenance cycle on demand (backfills)");
   console.log("  embed [--limit N] [--dry-run]");
   console.log("                               backfill embeddings for non-code chunks missing a vector");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
@@ -316,6 +319,29 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.limit = n;
       }
       await runSalience(opts);
+      return 0;
+    }
+    case "cycle": {
+      const phasesStr = values.get("--phases");
+      const staleStr = values.get("--stale-days");
+      for (const f of ["--phases", "--stale-days"]) {
+        if (flags.has(f)) {
+          console.error(`memex cycle: ${f} requires a value`);
+          return 1;
+        }
+      }
+      const opts: Parameters<typeof runCycle>[0] = {};
+      // Call parsePhasesArg whenever --phases was given (even ""), so an empty
+      // value fails loud rather than silently defaulting to ALL phases.
+      if (phasesStr !== undefined) opts.phases = parsePhasesArg(phasesStr);
+      if (staleStr !== undefined) {
+        const n = Number(staleStr);
+        if (!Number.isInteger(n) || n < 0) {
+          throw new Error(`memex cycle: invalid --stale-days ${staleStr}`);
+        }
+        opts.staleDays = n;
+      }
+      await runCycle(opts);
       return 0;
     }
     case "extract": {
