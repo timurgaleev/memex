@@ -18,6 +18,7 @@
   </defs>
 
   <rect x="0" y="0" width="1000" height="360" rx="18" fill="url(#panel)"/>
+  <rect x="0.5" y="0.5" width="999" height="359" rx="18" fill="none" stroke="#1E2A44" stroke-width="1"/>
 
   <!-- header (fills set as attributes so they survive even if CSS is stripped) -->
   <text x="40" y="56" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memex</text>
@@ -32,11 +33,11 @@
 
   <!-- nodes: center x = 120, 310, 500, 690, 880 -->
   <g text-anchor="middle">
-    <rect x="40"  y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
-    <rect x="230" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
-    <rect x="420" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
-    <rect x="610" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
-    <rect x="800" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="40"  y="150" width="160" height="120" rx="12" fill="#1A2A47" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="230" y="150" width="160" height="120" rx="12" fill="#1A2A47" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="420" y="150" width="160" height="120" rx="12" fill="#1A2A47" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="610" y="150" width="160" height="120" rx="12" fill="#1A2A47" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="800" y="150" width="160" height="120" rx="12" fill="#1A2A47" stroke="#2C3D5C" stroke-width="1.5"/>
 
     <g fill="#E8EEF6" font-weight="700" font-size="16">
       <text x="120" y="200">Your notes</text>
@@ -61,10 +62,10 @@
 
   <!-- arrowheads between nodes -->
   <g fill="#34D3A6">
-    <path d="M205 205 l12 5 -12 5 z"/>
-    <path d="M395 205 l12 5 -12 5 z"/>
-    <path d="M585 205 l12 5 -12 5 z"/>
-    <path d="M775 205 l12 5 -12 5 z"/>
+    <path d="M211 205 l12 5 -12 5 z"/>
+    <path d="M401 205 l12 5 -12 5 z"/>
+    <path d="M591 205 l12 5 -12 5 z"/>
+    <path d="M781 205 l12 5 -12 5 z"/>
   </g>
 
   <!-- travelling pulses: default cx sits ON the rail, so the static frame looks
