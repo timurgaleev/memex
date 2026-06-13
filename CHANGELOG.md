@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.45] — 2026-06-13
+
 ### Added
 - **Fact metadata on the `## Facts` fence + `entity_facts` (migration 037).**
   The fence and the `entity_facts` index gain four optional metadata fields —
@@ -28,6 +30,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   this increment lands the fence→DB metadata pipeline. Reviewed by
   code-reviewer (caught + fixed a claim-named-"claim" header-absorption bug) +
   security-engineer (clean) + codex.
+
+## [1.3.44] — 2026-06-13
+
+### Added
 - **Deterministic page salience + `recompute-salience` cycle phase + `memex
   salience` surface (migration 036).** A new `pages.salience` column holds a
   [0..1] importance score recomputed each maintenance cycle from a page's
