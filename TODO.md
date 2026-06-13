@@ -190,10 +190,15 @@ brain-only LLM-free BUILD candidates found, prioritized:
   data loss. A drop-and-recreate of the UNIQUE on the populated `links` table for
   zero behavioral gain is exactly the churn "don't refactor what isn't broken"
   warns against.
-- [ ] **Markdown chunk overlap + delimiter hierarchy** (recall lift) — the chunker
-  is heading/paragraph-only with zero overlap; boundary-straddling facts split
-  with no recall bridge. The reference does sentence-aware ~50-word overlap over a
-  5-level delimiter cascade. Medium.
+- [x] **Markdown chunk overlap** (recall lift) — DONE (opt-in
+  `MEMEX_CHUNK_OVERLAP`, default OFF). `recursive.ts` prepends the previous
+  chunk's tail (sentence/word-snapped, capped at maxChars/2) to each size-split
+  continuation, applied AFTER mergeShort over the final list + heading-start skip
+  so it changes chunk content not count and never bridges a section boundary.
+  Adapted to memex (char-bounded, no tokenizer): the reference's 5-level
+  delimiter cascade + CJK word-counting NOT ported (CJK = no live non-Latin
+  corpus; the cascade is a token-aware refinement memex's char-greedy splitter
+  doesn't need). codex caught the before-mergeShort count-shift; fixed.
 - [ ] **Graph-signals post-fusion stage** (opt-in retrieval win) — adjacency hub
   boost (~1.05-1.10x) + MMR-lite session-cluster diversification, floor-gated +
   fail-open. memex uses link-degree only offline (salience); the search pipeline

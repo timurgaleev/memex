@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Sliding-window chunk overlap (opt-in, `MEMEX_CHUNK_OVERLAP`, default 0 =
+  OFF).** The markdown chunker split long sections by paragraph with ZERO
+  overlap, so a fact straddling a size-split boundary lost its recall bridge.
+  With the env (or the `overlapChars` option) set, each size-split continuation
+  chunk is prefixed with the tail of the previous chunk -- snapped forward to a
+  sentence boundary (else a word boundary), capped at `min(overlapChars,
+  maxChars/2)`. The overlap is applied as the LAST chunking step, over the final
+  chunk list, and skips any chunk that opens with an H1/H2 heading, so it (a)
+  changes chunk CONTENT only, never the chunk COUNT mergeShort produced (so
+  positional chunk ids stay stable vs the overlap-off output), and (b) never
+  bridges a section boundary. Default 0 keeps output byte-identical; existing
+  indexes are unchanged until re-indexed. Reviewed by ai-engineer, code-reviewer,
+  and codex (codex caught that applying overlap before mergeShort would have
+  shifted the chunk count).
+
 ## [1.3.50] — 2026-06-13
 
 ### Added
