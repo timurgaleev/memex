@@ -8,11 +8,7 @@ updates:
     labels:
       - dependencies
       - github-actions
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
+  # No `pip` ecosystem: the repo has no Python dependency manifest
+  # (requirements.txt / pyproject.toml). The pytest CI job installs its two
+  # dev tools (pytest, pyyaml) inline, so Dependabot has nothing to track —
+  # a `pip` entry just fails every run with `dependency_file_not_found`.

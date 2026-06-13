@@ -126,10 +126,35 @@ jobs:
           bun-version: latest
       - name: bun install (frozen lockfile)
         run: bun install --frozen-lockfile
-      - name: bun test
-        # Run the full memex suite — includes the path_guard / body_limit
-        # / concurrency / rate_limit_eviction tests added this round
-        # plus the pre-existing chunker / search / migrate suites.
-        # Per-test timeout is arch-specific (see matrix): tight on the
-        # amd64 gate, relaxed on the slow arm64 canary.
-        run: bun test --timeout ${{ matrix.test_timeout_ms }}
+      - name: bun test (sharded)
+        # Run the full memex suite in fixed-size shards, each a FRESH
+        # `bun test` process. Why: every PGLite (WASM Postgres) instance a
+        # test spins up reserves WASM linear memory that is never returned to
+        # the OS even after `storage.close()` — WASM heaps only grow. Running
+        # all ~100+ PGLite-heavy files in ONE process accumulates that memory
+        # until the 16 GB amd64 runner OOM-kills bun (exit 137). Sharding
+        # bounds peak memory to one chunk's worth and resets it between
+        # shards. Chunk SIZE (not a fixed shard count) keeps per-process
+        # memory bounded as the suite grows. Per-test timeout is arch-specific
+        # (see matrix): tight on the amd64 gate, relaxed on the slow arm64
+        # canary. The local ship gate still runs the whole suite in one
+        # process (the operator's machine has the RAM); CI shards only because
+        # it is memory-constrained.
+        env:
+          TEST_TIMEOUT: ${{ matrix.test_timeout_ms }}
+          SHARD_SIZE: "20"
+        run: |
+          mapfile -t files < <(find tests -name '*.test.ts' | sort)
+          echo "discovered ${#files[@]} test files; shard size ${SHARD_SIZE}"
+          fail=0
+          for ((i = 0; i < ${#files[@]}; i += SHARD_SIZE)); do
+            slice=("${files[@]:i:SHARD_SIZE}")
+            shard=$((i / SHARD_SIZE))
+            echo "::group::bun test shard ${shard} (${#slice[@]} files, first: ${slice[0]})"
+            if ! bun test --timeout "${TEST_TIMEOUT}" "${slice[@]}"; then
+              fail=1
+              echo "shard ${shard} FAILED"
+            fi
+            echo "::endgroup::"
+          done
+          exit "${fail}"
