@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.52] — 2026-06-13
+
 ### Added
 - **Per-job hard wall-clock timeout / dead-letter (migration 039).** A handler
   that wedges (never returns) held the single worker's one in-flight slot
