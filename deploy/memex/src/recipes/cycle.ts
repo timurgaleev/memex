@@ -34,7 +34,13 @@ export interface CycleHandle {
 const DEFAULT_QUIET_START = 6;
 const DEFAULT_QUIET_END = 8;
 
-const COSTLY_PHASES: ReadonlySet<PhaseName> = new Set(["embed-stale"]);
+// Phases skipped during quiet hours. embed-stale calls Bedrock; extract-timeline
+// (when MEMEX_MEETING_TIMELINE=1) is a replace-own-projection that re-derives
+// every meeting's events, so it is write-heavy on a meeting-rich vault.
+const COSTLY_PHASES: ReadonlySet<PhaseName> = new Set([
+  "embed-stale",
+  "extract-timeline",
+]);
 
 function isInQuietHours(
   now: Date,
@@ -75,6 +81,7 @@ export function startCycleLoop(
       phases,
       staleDays,
       progress: consoleProgress("cycle"),
+      storage,
     };
 
     try {

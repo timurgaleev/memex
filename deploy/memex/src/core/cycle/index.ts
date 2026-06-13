@@ -3,6 +3,7 @@
  * envelope. Phases are independent: one failing doesn't stop the others.
  */
 import type { Engine } from "../engine/interface.ts";
+import type { Storage } from "../storage.ts";
 import { type ProgressSink, NOOP_PROGRESS } from "../output/progress.ts";
 import {
   embedStalePhase,
@@ -26,6 +27,10 @@ import {
   recomputeSaliencePhase,
   type RecomputeSalienceResult,
 } from "./recompute-salience.ts";
+import {
+  extractMeetingTimelinePhase,
+  type MeetingTimelineResult,
+} from "../timeline-meetings.ts";
 import { snapshotPhase, type SnapshotResult } from "./snapshot.ts";
 import type { ExtractResult } from "../extract.ts";
 
@@ -36,6 +41,7 @@ export type PhaseName =
   | "orphans-purge"
   | "frontmatter-inference"
   | "recompute-salience"
+  | "extract-timeline"
   | "snapshot";
 
 export const ALL_PHASES: readonly PhaseName[] = [
@@ -45,6 +51,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "orphans-purge",
   "frontmatter-inference",
   "recompute-salience",
+  "extract-timeline",
   "snapshot",
 ];
 
@@ -72,6 +79,7 @@ export interface PhaseResult {
     | OrphansPurgeResult
     | FrontmatterInferenceResult
     | RecomputeSalienceResult
+    | MeetingTimelineResult
     | SnapshotResult;
   error?: string;
 }
@@ -118,17 +126,24 @@ export function deriveStatus(
       ?.docs_with_zero_chunks;
     return Array.isArray(zero) && zero.length > 0 ? "warn" : "ok";
   }
-  // reconcile-links, frontmatter-inference, recompute-salience: no
-  // failure-bearing detail — they either complete or throw (a single failed
-  // write aborts the whole phase → caught as fail above), so a SUCCEEDED run
-  // is always ok. A NEW phase falls here too: add an explicit rule above if it
-  // can partially fail, rather than letting it default to ok unnoticed.
+  // reconcile-links, frontmatter-inference, recompute-salience,
+  // extract-timeline: no failure-bearing detail — they either complete or throw
+  // (a single failed write aborts the whole phase → caught as fail above), so a
+  // SUCCEEDED run is always ok. A NEW phase falls here too: add an explicit rule
+  // above if it can partially fail, rather than letting it default to ok
+  // unnoticed.
   return "ok";
 }
 
 export interface CycleOptions {
   /** Limit which phases to run. Default = all. */
   phases?: PhaseName[];
+  /**
+   * Storage handle for phases that need Storage-level helpers (the slug
+   * resolver + timeline writer). The recipe always passes it; when absent
+   * (e.g. an engine-only test harness) the `extract-timeline` phase no-ops.
+   */
+  storage?: Storage;
   /** Forwarded to embed-stale. */
   staleDays?: number;
   /** Forwarded to embed-stale. */
@@ -234,6 +249,23 @@ export async function runCycleOnce(
           progress,
         );
         break;
+      case "extract-timeline": {
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? extractMeetingTimelinePhase(storage)
+              : Promise.resolve<MeetingTimelineResult>({
+                  meetings_scanned: 0,
+                  entries_written: 0,
+                  attendees_touched: 0,
+                }),
+          progress,
+        );
+        break;
+      }
       case "snapshot":
         r = await runPhase(engine, p, () => snapshotPhase(engine), progress);
         break;

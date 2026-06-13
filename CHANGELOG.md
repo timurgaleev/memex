@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Timeline extraction from meetings (opt-in, `MEMEX_MEETING_TIMELINE=1`).** A
+  new `extract-timeline` maintenance-cycle phase (`core/timeline-meetings.ts`)
+  walks every `meeting` page with a resolvable date and writes append-only
+  `timeline_events` (migration 017) for the meeting itself (`Meeting: <title>`)
+  and for each resolved attendee (`Attended <title>` on the attendee's page) at
+  the meeting date — so a person's timeline shows the meetings they attended.
+  Deterministic and LLM-free. Self-contained: attendees come straight from the
+  meeting's `attendees` / `attended_by` `compiled_truth` fields, and the meeting
+  date is resolved heuristically (explicit `date` field -> a `YYYY-MM-DD` in the
+  slug -> the first body date-mention -> skip). Attendee names resolve through
+  the slug resolver, accepting only the PRECISE stages
+  (exact / alias / exact_tail / prefix) and resolved-only, so a fuzzy near-name
+  never attaches a wrong meeting to someone's timeline. Idempotent — events
+  dedupe on `(slug, occurred_at, source_chunk_id)` with a stable per-meeting
+  source key. Migration-free (reuses `timeline_events` + `addTimelineEvent`).
+  DEFAULT OFF: `timeline_events` is append-only (corrections are new events,
+  never edits), so a mis-resolved attendee would leave a permanent stray entry;
+  the operator enables it after confirming attendee resolution behaves on their
+  vault. The phase no-ops when storage isn't threaded into the cycle.
+
 ## [1.3.46] — 2026-06-13
 
 ### Added

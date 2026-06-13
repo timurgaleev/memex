@@ -511,9 +511,20 @@ to memex's architecture, or north-star:
   params safe, normalizeDate airtight, no ReDoS, bounded) + codex.
   (`visibility` still omitted — single-holder model; add only with a
   multi-visibility model. Typed-claim metric/value/unit fields also omitted.)
-- [ ] **Timeline extraction from meetings** (medium, LLM-free) — attendees +
-  body mentions. **Timeline dedup key** — verify it covers
-  `(page_id, date, summary, source)`.
+- [x] **Timeline extraction from meetings** (medium, LLM-free) — DONE (v1.3.47,
+  opt-in `MEMEX_MEETING_TIMELINE=1`). `core/timeline-meetings.ts` +
+  `extract-timeline` cycle phase: each `meeting` page with a resolvable date
+  writes append-only `timeline_events` for the meeting + each resolved attendee
+  (`Attended <title>`). Self-contained (reads `attendees`/`attended_by`
+  frontmatter directly — no dependency on the opt-in typed-link `attended`
+  edges), date heuristic (compiled_truth.date -> slug-date -> first body
+  date-mention -> skip), attendees resolved PRECISE-stages-only + resolved-only.
+  Migration-free (reuses `timeline_events` mig 017). **Dedup key**: memex's
+  `timeline_events` dedups on `(slug, occurred_at, source_chunk_id)` with
+  `source_chunk_id='meeting-timeline:<slug>'` — covers the reference's
+  `(page_id, date, summary, source)` intent (slug=page, occurred_at=date, the
+  source key carries summary+source). Append-only: a removed attendee leaves a
+  stale event (by-design timeline immutability), which is why it is opt-in.
 
 ### Schema / code-graph (in-scope, larger)
 - [ ] **`code_edges_chunk` (resolved) + `code_edges_symbol` (unresolved)**
