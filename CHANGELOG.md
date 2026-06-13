@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Deterministic page salience + `recompute-salience` cycle phase + `memex
+  salience` surface (migration 036).** A new `pages.salience` column holds a
+  [0..1] importance score recomputed each maintenance cycle from a page's
+  high-emotion tags + graph link-degree — LLM-free and deterministic.
+  `computeSalience` (`core/salience-score.ts`) sums a tag-emotion boost
+  (max 0.5 for any tag in a configurable high-emotion seed set, overridable via
+  `MEMEX_SALIENCE_HIGH_TAGS`) and a ln-scaled link-degree boost (max 0.5,
+  saturating at degree 20); an isolated page scores 0.0. The
+  `recompute-salience` phase (`core/cycle/recompute-salience.ts`) reads tags
+  from `compiled_truth.tags` and degree from the `links` table — distinct in+out
+  neighbours, gated to EXISTING live pages (a dangling `[[wikilink]]` can't
+  inflate a page's score) and aggregated in one CTE pass — then writes only the
+  rows whose score changed in a single batched, `Math.fround`-quantised UPDATE
+  (idempotent, exact against the float4 column). It runs before `snapshot` in
+  the cycle and is cheap enough to run in quiet mode. The new read-only
+  `memex salience [--type T] [--days N] [--limit N]` CLI ranks live pages by
+  salience — the "what matters" surface. A faithful adaptation of the
+  reference's tags-and-takes emotional-weight score: this brain has no takes, so
+  link-degree replaces the takes-derived half. Salience ranks PAGES (graph
+  entities) and is deliberately SEPARATE from document hybrid-search ranking
+  (which keeps its frontmatter `weight`/`pinned` multiplier) — so the phase does
+  NOT touch the document query-cache generation/clock. ai-engineer +
+  code-reviewer + codex reviewed (float4-exactness, batched UPDATE, bare-flag
+  rejection, tag-trim, dangling-target gate — all applied).
+
 ## [1.3.43] — 2026-06-12
 
 ### Added

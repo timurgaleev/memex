@@ -462,6 +462,20 @@ to memex's architecture, or north-star:
   Optional: embed fact text via memex's existing Bedrock Titan path (defer —
   falls-open like the reference). recompute_emotional_weight (page salience
   [0..1] from tags/takes) is a SEPARATE follow-on, also LLM-free.
+- [x] **Page salience (recompute_emotional_weight equivalent)** (high) — DONE
+  (migration 036). `pages.salience` REAL [0..1] recomputed by the new
+  `recompute-salience` cycle phase. `computeSalience` (`core/salience-score.ts`)
+  = high-emotion-tag boost (max 0.5, configurable seed set via
+  `MEMEX_SALIENCE_HIGH_TAGS`) + ln-scaled link-degree boost (max 0.5, saturating
+  at degree 20). ADAPTED faithfully: the reference scores tags + "takes"; this
+  brain has no takes, so link-degree (distinct in+out neighbours GATED to
+  EXISTING live pages — no dangling-target inflation) replaces the takes half.
+  Consumer = read-only `memex salience [--type T] [--days N] [--limit N]` ("what
+  matters" surface), separate from document hybrid-search ranking (phase does
+  NOT touch the doc query-cache generation/clock). ai-engineer + code-reviewer +
+  codex: float4-exactness (Math.fround), batched UPDATE, bare-flag rejection,
+  tag-trim, dangling-gate (reviewers split — chose inflation-safety). A
+  `recent_salience` MCP op is a deferred follow-on (public surface).
 - [ ] **resolve_symbol_edges cycle phase** (medium) — batch-resolve code-edge
   symbols to chunk IDs.
 - [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock

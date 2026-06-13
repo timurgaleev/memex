@@ -179,18 +179,19 @@ describe("extract phase", () => {
 });
 
 describe("runCycleOnce orchestrator", () => {
-  it("runs all 6 phases by default; one phase failing doesn't stop others", async () => {
+  it("runs all 7 phases by default; one phase failing doesn't stop others", async () => {
     await seed();
     const e = storage.engine();
     // staleDays huge so embed-stale finds nothing — fastest cheap pass
     const r = await runCycleOnce(e, { staleDays: 99999 });
-    expect(r.phases.length).toBe(6);
+    expect(r.phases.length).toBe(7);
     expect(r.phases.map((p) => p.phase)).toEqual([
       "embed-stale",
       "extract",
       "reconcile-links",
       "orphans-purge",
       "frontmatter-inference",
+      "recompute-salience",
       "snapshot",
     ]);
     // every phase should record durationMs

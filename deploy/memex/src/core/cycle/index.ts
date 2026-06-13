@@ -22,6 +22,10 @@ import {
   frontmatterInferencePhase,
   type FrontmatterInferenceResult,
 } from "./frontmatter-inference.ts";
+import {
+  recomputeSaliencePhase,
+  type RecomputeSalienceResult,
+} from "./recompute-salience.ts";
 import { snapshotPhase, type SnapshotResult } from "./snapshot.ts";
 import type { ExtractResult } from "../extract.ts";
 
@@ -31,6 +35,7 @@ export type PhaseName =
   | "reconcile-links"
   | "orphans-purge"
   | "frontmatter-inference"
+  | "recompute-salience"
   | "snapshot";
 
 export const ALL_PHASES: readonly PhaseName[] = [
@@ -39,6 +44,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "reconcile-links",
   "orphans-purge",
   "frontmatter-inference",
+  "recompute-salience",
   "snapshot",
 ];
 
@@ -65,6 +71,7 @@ export interface PhaseResult {
     | ReconcileLinksResult
     | OrphansPurgeResult
     | FrontmatterInferenceResult
+    | RecomputeSalienceResult
     | SnapshotResult;
   error?: string;
 }
@@ -111,10 +118,11 @@ export function deriveStatus(
       ?.docs_with_zero_chunks;
     return Array.isArray(zero) && zero.length > 0 ? "warn" : "ok";
   }
-  // reconcile-links, frontmatter-inference: no failure-bearing detail — their
-  // non-fatal signals are by-design informational, always ok. A NEW phase
-  // falls here too: add an explicit rule above if it can partially fail,
-  // rather than letting it default to ok unnoticed.
+  // reconcile-links, frontmatter-inference, recompute-salience: no
+  // failure-bearing detail — they either complete or throw (a single failed
+  // write aborts the whole phase → caught as fail above), so a SUCCEEDED run
+  // is always ok. A NEW phase falls here too: add an explicit rule above if it
+  // can partially fail, rather than letting it default to ok unnoticed.
   return "ok";
 }
 
@@ -215,6 +223,14 @@ export async function runCycleOnce(
           engine,
           p,
           () => frontmatterInferencePhase(engine),
+          progress,
+        );
+        break;
+      case "recompute-salience":
+        r = await runPhase(
+          engine,
+          p,
+          () => recomputeSaliencePhase(engine),
           progress,
         );
         break;

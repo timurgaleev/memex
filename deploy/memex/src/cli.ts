@@ -49,6 +49,7 @@ import { runCall } from "./commands/call.ts";
 import { runStatus } from "./commands/status.ts";
 import { runEmbed } from "./commands/embed.ts";
 import { runSearchModes } from "./commands/search-modes.ts";
+import { runSalience } from "./commands/salience.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
 
@@ -120,6 +121,8 @@ function printUsage(): void {
   console.log("  call <tool> [--args '<json>']");
   console.log("                               invoke an MCP tool locally (internal ingress)");
   console.log("  status                       one-shot snapshot: counts + health + cache");
+  console.log("  salience [--type T] [--days N] [--limit N]");
+  console.log("                               pages ranked by deterministic salience score");
   console.log("  embed [--limit N] [--dry-run]");
   console.log("                               backfill embeddings for non-code chunks missing a vector");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
@@ -282,6 +285,37 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.limit = n;
       }
       await runBacklinks(opts);
+      return 0;
+    }
+    case "salience": {
+      // A flag with no value parses as a bare flag — reject it rather than
+      // silently ignoring the filter the user thought they applied.
+      for (const f of ["--type", "--days", "--limit"]) {
+        if (flags.has(f)) {
+          console.error(`memex salience: ${f} requires a value`);
+          return 1;
+        }
+      }
+      const typeStr = values.get("--type");
+      const daysStr = values.get("--days");
+      const limitStr = values.get("--limit");
+      const opts: Parameters<typeof runSalience>[0] = {};
+      if (typeStr) opts.type = typeStr;
+      if (daysStr !== undefined) {
+        const n = Number(daysStr);
+        if (!Number.isInteger(n) || n < 0 || n > 36500) {
+          throw new Error(`memex salience: invalid --days ${daysStr}`);
+        }
+        opts.days = n;
+      }
+      if (limitStr !== undefined) {
+        const n = Number(limitStr);
+        if (!Number.isInteger(n) || n < 1 || n > 200) {
+          throw new Error(`memex salience: invalid --limit ${limitStr}`);
+        }
+        opts.limit = n;
+      }
+      await runSalience(opts);
       return 0;
     }
     case "extract": {
