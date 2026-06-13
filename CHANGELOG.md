@@ -7,6 +7,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Fact metadata on the `## Facts` fence + `entity_facts` (migration 037).**
+  The fence and the `entity_facts` index gain four optional metadata fields —
+  `kind` (event / preference / commitment / belief / fact), `notability`
+  (high / medium / low), `valid_from`, `valid_until` (ISO dates). The fence
+  PARSER (`core/facts-fence.ts`) was rewritten from fixed-position to
+  HEADER-DRIVEN column mapping: a legacy 4-column fence
+  (`| # | claim | confidence | source |`) and a wide one parse with the same
+  code, columns may be reordered, and new columns don't break old pages. A
+  header row is identified by shape (`buildColMap` + `isHeaderShaped` — a data
+  row whose claim text is literally "claim" is no longer absorbed as a header).
+  Hand-edited cells normalize to NULL when they aren't a recognized enum or a
+  strict-ISO calendar date (round-trip guard rejects `2024-02-30`), so the
+  `DATE` / `CHECK`-constrained columns never see a poisoned value; the reconcile
+  pass (`core/facts-reconcile.ts`) projects the metadata via parameterized
+  INSERT. Migration 037 adds the four NULLABLE columns + catalog-guarded CHECK
+  constraints mirroring the enums (NULL allowed); there is deliberately no
+  `valid_until >= valid_from` CHECK (the hand-editable fence degrades
+  gracefully). Recall ranking by notability/validity is a deferred consumer —
+  this increment lands the fence→DB metadata pipeline. Reviewed by
+  code-reviewer (caught + fixed a claim-named-"claim" header-absorption bug) +
+  security-engineer (clean) + codex.
 - **Deterministic page salience + `recompute-salience` cycle phase + `memex
   salience` surface (migration 036).** A new `pages.salience` column holds a
   [0..1] importance score recomputed each maintenance cycle from a page's

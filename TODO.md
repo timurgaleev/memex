@@ -495,10 +495,22 @@ to memex's architecture, or north-star:
 - [ ] **facts-fence markdown binding** (high) — make a `## Facts` fence the
   system-of-record; parse/strip/render/upsert each cycle (`row_num`,
   `source_markdown_slug`). Today facts are DB-only and reset-fragile.
-- [ ] **Fact metadata** (high) — `kind`, `notability`, `valid_from`,
-  `valid_until` for categorization / recall ranking / forget-supersede.
-  (`visibility` only if a multi-visibility model is ever adopted — see
-  agent-layer note; single-holder today.)
+- [x] **Fact metadata** (high) — DONE (migration 037). `entity_facts` gains 4
+  NULLABLE columns — `kind` (event/preference/commitment/belief/fact), `notability`
+  (high/medium/low), `valid_from`, `valid_until` (DATE) — carried by the `## Facts`
+  fence and projected by the reconcile pass. The fence PARSER was rewritten from
+  fixed-position to HEADER-DRIVEN column mapping (`buildColMap` + `isHeaderShaped`),
+  so a legacy 4-column fence and a wide one parse with the same code and columns
+  may be reordered. Hand-edited cells normalize to NULL when not a recognized
+  enum / strict-ISO date (`normalizeKind/Notability/Date`, round-trip calendar
+  guard); CHECK constraints mirror the enums as defense-in-depth (NULL allowed).
+  NO `valid_until >= valid_from` CHECK by design (degrade-gracefully). RECALL
+  RANKING by notability/validity is the deferred consumer (the projection
+  pipeline is the deliverable here). code-reviewer (HIGH claim-literally-"claim"
+  header-absorption → fixed via header-shape guard) + security-engineer (CLEAN —
+  params safe, normalizeDate airtight, no ReDoS, bounded) + codex.
+  (`visibility` still omitted — single-holder model; add only with a
+  multi-visibility model. Typed-claim metric/value/unit fields also omitted.)
 - [ ] **Timeline extraction from meetings** (medium, LLM-free) — attendees +
   body mentions. **Timeline dedup key** — verify it covers
   `(page_id, date, summary, source)`.

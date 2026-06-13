@@ -111,13 +111,35 @@ export async function reconcileFactsForPage(
   // facts; the per-page wipe-on-rewrite keeps the row set bounded). Clamp
   // row_num to the INTEGER range and cap the total.
   const seenRow = new Set<number>();
-  const facts: { claim: string; confidence: number; source?: string; rowNum: number }[] = [];
+  const facts: {
+    claim: string;
+    confidence: number;
+    source?: string;
+    rowNum: number;
+    kind?: string;
+    notability?: string;
+    validFrom?: string;
+    validUntil?: string;
+  }[] = [];
   for (const f of parsed) {
     if (!f.active) continue;
     const rowNum = Math.min(Math.max(1, Math.trunc(f.rowNum)), MAX_ROW_NUM);
     if (seenRow.has(rowNum)) continue;
     seenRow.add(rowNum);
-    facts.push({ claim: f.claim, confidence: f.confidence, source: f.source, rowNum });
+    // kind / notability / valid_from / valid_until are already
+    // normalized-or-undefined by the fence parser (invalid → undefined), so
+    // they reach the DATE / CHECK-constrained columns clean or as NULL.
+    const row: (typeof facts)[number] = {
+      claim: f.claim,
+      confidence: f.confidence,
+      rowNum,
+    };
+    if (f.source !== undefined) row.source = f.source;
+    if (f.kind !== undefined) row.kind = f.kind;
+    if (f.notability !== undefined) row.notability = f.notability;
+    if (f.validFrom !== undefined) row.validFrom = f.validFrom;
+    if (f.validUntil !== undefined) row.validUntil = f.validUntil;
+    facts.push(row);
     if (facts.length >= MAX_FACTS_FENCE_ROWS) break;
   }
 
@@ -137,8 +159,9 @@ export async function reconcileFactsForPage(
       await tx.query(
         `INSERT INTO entity_facts
            (entity_slug, fact, confidence, source_slug, source_chunk_id,
-            written_by, source_markdown_slug, row_num)
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7)`,
+            written_by, source_markdown_slug, row_num,
+            kind, notability, valid_from, valid_until)
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11)`,
         [
           pageSlug,
           f.claim,
@@ -147,6 +170,10 @@ export async function reconcileFactsForPage(
           FENCE_WRITER,
           pageSlug,
           f.rowNum,
+          f.kind ?? null,
+          f.notability ?? null,
+          f.validFrom ?? null,
+          f.validUntil ?? null,
         ],
       );
       added += 1;

@@ -2,35 +2,32 @@
  * Parser / renderer for the `## Facts` markdown fence.
  *
  * A `## Facts` fence on an entity's page is the system-of-record for facts
- * about that entity; the `entity_facts` DB table (migration 018) is a derived
- * index a future `extract_facts` cycle phase reconciles from it. This module is
- * the pure markdown <-> structured-rows boundary — no DB, no LLM, no I/O — so
- * it can run in the chunker strip path and in a CI invariant check without
- * pulling a DB-shaped dependency graph.
- *
- * INERT until `extract_facts` lands: nothing writes/reads these rows to the DB
- * yet. Shipped now as the stable format so facts stop being DB-only and
- * reset-fragile (the markdown becomes the source-of-truth).
+ * about that entity; the `entity_facts` DB table (migrations 018/035/037) is a
+ * derived index the reconcile pass (core/facts-reconcile.ts) rebuilds from it.
+ * This module is the pure markdown <-> structured-rows boundary — no DB, no
+ * LLM, no I/O — so it can run in the chunker strip path and in a CI invariant
+ * check without pulling a DB-shaped dependency graph.
  *
  * Adapted from the reference's `facts-fence.ts`. The reference carries a 10–14
- * column schema (kind / visibility / notability / valid_from / typed-claims)
- * tied to its richer fact model; memex's `entity_facts` is simpler
- * (claim / confidence / source), so the fence is the 4-column projection of
- * that table. The generic row primitives are shared via `fence-shared.ts`
- * (faithful port); only the column layout is memex-specific. Markers are
+ * column schema; memex carries the subset its `entity_facts` models: the
+ * always-present `claim / confidence / source` plus the optional v1.3.45
+ * metadata `kind / notability / valid_from / valid_until`. Columns are matched
+ * by HEADER NAME (not fixed position), so a narrow legacy fence
+ * (`| # | claim | confidence | source |`) and a wide one parse with the same
+ * code, and new columns can be added without breaking old pages. Markers are
  * memex-namespaced.
  *
  *   ## Facts
  *
  *   <!--- memex:facts:begin -->
- *   | # | claim | confidence | source |
- *   |---|-------|------------|--------|
- *   | 1 | Founded Acme in 2017  | 1   | linkedin     |
- *   | 2 | ~~Moved to Berlin~~   | 0.9 | email/x9f2   |
+ *   | # | claim | kind | confidence | notability | valid_from | valid_until | source |
+ *   |---|-------|------|------------|------------|------------|-------------|--------|
+ *   | 1 | Founded Acme in 2017 | event | 1   | high | 2017-01-01 |            | linkedin   |
+ *   | 2 | ~~Moved to Berlin~~  | fact  | 0.9 |      |            | 2024-06-01  | email/x9f2 |
  *   <!--- memex:facts:end -->
  *
  * A `~~struck~~` claim marks the fact inactive (retracted / forgotten) — the
- * markdown stays the record, and `extract_facts` will drop/expire it in the DB.
+ * markdown stays the record, and the reconcile pass drops it from the DB.
  */
 
 import {
@@ -44,6 +41,22 @@ import {
 export const FACTS_FENCE_BEGIN = "<!--- memex:facts:begin -->";
 export const FACTS_FENCE_END = "<!--- memex:facts:end -->";
 
+/** Fact category — what kind of claim this is. Faithful to the reference set. */
+export type FactKind = "event" | "preference" | "commitment" | "belief" | "fact";
+/** How notable / important the fact is — ordinal, drives recall ranking. */
+export type FactNotability = "high" | "medium" | "low";
+
+const KIND_VALUES: ReadonlySet<string> = new Set([
+  "event",
+  "preference",
+  "commitment",
+  "belief",
+  "fact",
+]);
+const NOTABILITY_VALUES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+/** Strict ISO calendar date `YYYY-MM-DD`. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /** One parsed fence row. Mirrors the `entity_facts` projection. */
 export interface ParsedFact {
   /** Append-only row number from the `#` column (1-based; sequential fallback). */
@@ -54,6 +67,14 @@ export interface ParsedFact {
   confidence: number;
   /** Provenance slug, or undefined. */
   source?: string;
+  /** Fact category (migration 037). Undefined when absent/unrecognized. */
+  kind?: FactKind;
+  /** Notability ordinal (migration 037). Undefined when absent/unrecognized. */
+  notability?: FactNotability;
+  /** ISO date the fact became valid (migration 037). Undefined if absent/invalid. */
+  validFrom?: string;
+  /** ISO date the fact stopped being valid (migration 037). Undefined if absent/invalid. */
+  validUntil?: string;
   /** False when the claim was wrapped in `~~ ~~` (retracted / forgotten). */
   active: boolean;
 }
@@ -63,6 +84,110 @@ function clampConfidence(raw: string | undefined): number {
   const n = Number.parseFloat(raw);
   if (!Number.isFinite(n)) return 1.0;
   return Math.min(1, Math.max(0, n));
+}
+
+function normalizeKind(raw: string | undefined): FactKind | undefined {
+  if (raw === undefined) return undefined;
+  const v = raw.trim().toLowerCase();
+  return KIND_VALUES.has(v) ? (v as FactKind) : undefined;
+}
+
+function normalizeNotability(raw: string | undefined): FactNotability | undefined {
+  if (raw === undefined) return undefined;
+  const v = raw.trim().toLowerCase();
+  return NOTABILITY_VALUES.has(v) ? (v as FactNotability) : undefined;
+}
+
+/** Parse a strict `YYYY-MM-DD` cell; reject anything else (hand-edits degrade
+ *  to undefined rather than poisoning the DATE column). Validates the calendar
+ *  so `2024-13-40` is rejected, not just the shape. */
+function normalizeDate(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const v = raw.trim();
+  if (!ISO_DATE_RE.test(v)) return undefined;
+  // Reject year 0000 — JS `Date` accepts it (year 0) but Postgres rejects it as
+  // a DATE out of range, which would abort reconcile instead of degrading to
+  // NULL. Postgres AD dates start at year 1.
+  if (v.slice(0, 4) === "0000") return undefined;
+  const d = new Date(`${v}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return undefined;
+  // Round-trip guard: `Date` normalizes overflow (2024-02-30 → 2024-03-01),
+  // so require the parsed value to print back identically.
+  return d.toISOString().slice(0, 10) === v ? v : undefined;
+}
+
+/**
+ * Header → column-index map. Recognized header names (case-insensitive,
+ * trimmed) map to a canonical field. Unknown headers are ignored. Returns
+ * `null` when the row does not look like a header (no `claim` column).
+ */
+type ColMap = Partial<Record<keyof ParsedFact, number>>;
+
+function buildColMap(cells: readonly string[]): ColMap | null {
+  const map: ColMap = {};
+  cells.forEach((cell, idx) => {
+    const name = cell.trim().toLowerCase();
+    switch (name) {
+      case "#":
+      case "n":
+      case "row":
+      case "":
+        if (map.rowNum === undefined) map.rowNum = idx;
+        break;
+      case "claim":
+        map.claim = idx;
+        break;
+      case "kind":
+        map.kind = idx;
+        break;
+      case "confidence":
+      case "conf":
+        map.confidence = idx;
+        break;
+      case "notability":
+        map.notability = idx;
+        break;
+      case "valid_from":
+      case "valid from":
+      case "from":
+        map.validFrom = idx;
+        break;
+      case "valid_until":
+      case "valid until":
+      case "until":
+        map.validUntil = idx;
+        break;
+      case "source":
+      case "src":
+        map.source = idx;
+        break;
+      default:
+        break;
+    }
+  });
+  return map.claim !== undefined ? map : null;
+}
+
+/** Legacy fixed layout for a fence with no recognizable header row. */
+const LEGACY_COLMAP: ColMap = { rowNum: 0, claim: 1, confidence: 2, source: 3 };
+
+/**
+ * Does this `buildColMap`-matching row look like a HEADER (vs a data row whose
+ * claim text is coincidentally a column name like "claim")? A data row always
+ * LEADS with its row number; a header leads with a label (`#` / `n` / `row` /
+ * empty / a column name). So a positive-integer FIRST cell ⇒ data, not header.
+ * Tested against the literal first cell (not a mapped column) so it works even
+ * for a header that omits the `#` column.
+ */
+function isHeaderShaped(cells: readonly string[]): boolean {
+  const first = (cells[0] ?? "").trim();
+  const n = Number(first);
+  return !(Number.isInteger(n) && n > 0);
+}
+
+function cellAt(cells: readonly string[], idx: number | undefined): string | undefined {
+  if (idx === undefined) return undefined;
+  return cells[idx];
 }
 
 /**
@@ -77,41 +202,83 @@ export function parseFactsFence(markdown: string): ParsedFact[] {
   const end = lines.findIndex((l) => l.trim() === FACTS_FENCE_END);
   if (begin === -1 || end === -1 || end <= begin) return [];
 
-  const out: ParsedFact[] = [];
-  let seq = 0;
+  // First pass: locate the header row (the first row carrying a `claim` column)
+  // and build the column map from it. Fall back to the legacy fixed layout when
+  // no header is present, so a header-less hand-written fence still parses.
+  //
+  // A row is only accepted as the header when it ALSO looks header-shaped: its
+  // row-number cell must be non-numeric (`#` / `n` / `row` / empty). Every data
+  // row starts with an actual row number, so this stops a data row whose claim
+  // text happens to be the literal word "claim" (which would otherwise satisfy
+  // buildColMap) from being absorbed as the header and silently dropped.
+  let colMap: ColMap = LEGACY_COLMAP;
+  let headerIdx = -1;
   for (let i = begin + 1; i < end; i++) {
     const cells = parseRowCells(lines[i] ?? "");
     if (!cells || isSeparatorRow(cells)) continue;
-    // Skip the header row (`| # | claim | confidence | source |`).
-    if ((cells[1] ?? "").toLowerCase() === "claim") continue;
-    if (cells.length < 2) continue;
+    const m = buildColMap(cells);
+    if (m && isHeaderShaped(cells)) {
+      colMap = m;
+      headerIdx = i;
+      break;
+    }
+  }
 
-    const { text: claim, struck } = stripStrikethrough(cells[1] ?? "");
+  const out: ParsedFact[] = [];
+  let seq = 0;
+  for (let i = begin + 1; i < end; i++) {
+    if (i === headerIdx) continue; // skip the header row itself
+    const cells = parseRowCells(lines[i] ?? "");
+    if (!cells || isSeparatorRow(cells)) continue;
+    // Skip a REPEATED header row (markers/labels, non-numeric lead cell) — a
+    // duplicate `| # | claim | … |` must not become a fact whose claim is the
+    // literal word "claim". A genuine data row leads with a row number, so
+    // isHeaderShaped is false for it and it parses normally.
+    if (buildColMap(cells) && isHeaderShaped(cells)) continue;
+    const claimCell = cellAt(cells, colMap.claim);
+    if (claimCell === undefined) continue;
+    const { text: claim, struck } = stripStrikethrough(claimCell);
     if (!claim.trim()) continue; // a row with no claim is not a fact
 
     seq += 1;
-    const rowNumRaw = Number.parseInt((cells[0] ?? "").trim(), 10);
-    out.push({
+    const rowNumRaw = Number.parseInt((cellAt(cells, colMap.rowNum) ?? "").trim(), 10);
+    const fact: ParsedFact = {
       rowNum: Number.isInteger(rowNumRaw) && rowNumRaw > 0 ? rowNumRaw : seq,
       claim: claim.trim(),
-      confidence: clampConfidence(cells[2]),
-      source: parseStringCell(cells[3] ?? ""),
+      confidence: clampConfidence(cellAt(cells, colMap.confidence)),
       active: !struck,
-    });
+    };
+    const source = parseStringCell(cellAt(cells, colMap.source) ?? "");
+    if (source !== undefined) fact.source = source;
+    const kind = normalizeKind(cellAt(cells, colMap.kind));
+    if (kind !== undefined) fact.kind = kind;
+    const notability = normalizeNotability(cellAt(cells, colMap.notability));
+    if (notability !== undefined) fact.notability = notability;
+    const validFrom = normalizeDate(cellAt(cells, colMap.validFrom));
+    if (validFrom !== undefined) fact.validFrom = validFrom;
+    const validUntil = normalizeDate(cellAt(cells, colMap.validUntil));
+    if (validUntil !== undefined) fact.validUntil = validUntil;
+    out.push(fact);
   }
   return out;
 }
 
-/** Render facts into the fenced markdown block (markers + table). */
+/** Render facts into the fenced markdown block (markers + wide table). */
 export function renderFactsFence(facts: readonly ParsedFact[]): string {
-  const header = "| # | claim | confidence | source |";
-  const sep = "|---|-------|------------|--------|";
+  const header =
+    "| # | claim | kind | confidence | notability | valid_from | valid_until | source |";
+  const sep =
+    "|---|-------|------|------------|------------|------------|-------------|--------|";
   const rows = facts.map((f, idx) => {
     const claimCell = escapeFenceCell(f.claim);
     const claim = f.active ? claimCell : `~~${claimCell}~~`;
     const n = Number.isInteger(f.rowNum) && f.rowNum > 0 ? f.rowNum : idx + 1;
     const conf = clampConfidence(String(f.confidence));
-    return `| ${n} | ${claim} | ${conf} | ${escapeFenceCell(f.source ?? "")} |`;
+    return (
+      `| ${n} | ${claim} | ${escapeFenceCell(f.kind ?? "")} | ${conf} | ` +
+      `${escapeFenceCell(f.notability ?? "")} | ${escapeFenceCell(f.validFrom ?? "")} | ` +
+      `${escapeFenceCell(f.validUntil ?? "")} | ${escapeFenceCell(f.source ?? "")} |`
+    );
   });
   return [FACTS_FENCE_BEGIN, header, sep, ...rows, FACTS_FENCE_END].join("\n");
 }
