@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.50] — 2026-06-13
+
 ### Added
 - **Fact confidence decay — the consumer that makes the migration-037 columns
   matter (opt-in, `MEMEX_FACT_DECAY=1`, default OFF).** Migration 037 added
