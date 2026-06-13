@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.48] — 2026-06-13
+
 ### Added
 - **Fact-text embedding + semantic `entity_recall` (migration 038).** Facts can
   now be recalled by MEANING, not just confidence. Migration 038 adds a nullable
