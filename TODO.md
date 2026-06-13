@@ -147,12 +147,14 @@ generically (no upstream names).
   `topPaths`). Pages are slug-canonical but search returns chunk PATHS, so a
   slug-centric rewrite would add an impedance mismatch, not remove one. No
   consumer → not built (would be speculative).
-- [ ] **`link_kind` UNIQUE-coexistence** (enrichment, medium) — the column
-  itself landed in migration 029 (v1.3.9); the remaining piece is widening
-  the `links` UNIQUE key (today `(source_slug, target_slug, type)`) to include
-  `link_kind` (+ `origin_slug`) so a plain body mention and a typed-NER edge
-  between the same pair coexist instead of UPSERT-colliding. Do as part of the
-  NER-link increment, before anything writes `typed_ner`.
+- [x] **`link_kind` UNIQUE-coexistence** (enrichment, medium) — ASSESSED → MOOT
+  (2026-06-13). See the full disposition under the "2026-06-13 EXHAUSTIVE
+  re-comparison" section above. Short version: the NER-link increment (v1.3.46
+  typed-links) already resolved the collision by YIELDING (`ON CONFLICT … DO
+  NOTHING`), and plain vs typed_ner edges use non-overlapping `type` vocabularies
+  so they already coexist under the current key. Widening would break the
+  reviewed yield design, duplicate explicit edges, and need unbuilt graph-read
+  dedup — churn for zero gain.
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 
@@ -169,10 +171,25 @@ brain-only LLM-free BUILD candidates found, prioritized:
   `listFacts`/`entityRecall` `decay` path consume them (opt-in `MEMEX_FACT_DECAY`,
   default OFF). Adapted to memex: nullable DATE columns, no `expired_at`,
   written_at anchor fallback, env-gated not default-on.
-- [ ] **`link_kind` UNIQUE coexistence** (small migration) — the known open item;
-  widen the `links` UNIQUE key to include `link_kind`+`origin_slug` so a typed-NER
-  edge and a plain mention of the same (src,tgt,type) coexist. Do before any
-  `typed_ner` writer ships.
+- [x] **`link_kind` UNIQUE coexistence** — ASSESSED → MOOT (no widening shipped;
+  it would be both unnecessary and harmful). Evidence: (1) the plain and typed_ner
+  writers use NON-OVERLAPPING `type` vocabularies — plain edges are
+  `type ∈ {wikilink, mentions}` (`links.ts:480`, `gazetteer.ts:261`), typed_ner
+  edges are `type ∈ {works_at, attended, founded, knows, …}` (`typed-links.ts`),
+  so a plain mention and a typed-NER edge of the SAME (src,tgt,type) essentially
+  never occur — they ALREADY coexist under the current key (different type =
+  different key). (2) The only same-(src,tgt,type) overlap is an explicit `link`
+  (link_kind NULL) vs an inferred typed_ner of that type, and there the current
+  `ON CONFLICT … DO NOTHING` YIELD is CORRECT (`typed-links.ts:173-174`: explicit
+  operator assertion wins over inference) — coexistence would wrongly duplicate
+  an operator-asserted edge. (3) v1.3.46 deliberately shipped this single-edge
+  yield design (reviewed). (4) Real coexistence would additionally require
+  graph-read precedence/dedup (`graph_neighbors`/`graph_query` don't dedup by
+  provenance) — a larger model change, not a standalone UNIQUE widening. So the
+  collision the item worried about is already resolved by yield, with no live
+  data loss. A drop-and-recreate of the UNIQUE on the populated `links` table for
+  zero behavioral gain is exactly the churn "don't refactor what isn't broken"
+  warns against.
 - [ ] **Markdown chunk overlap + delimiter hierarchy** (recall lift) — the chunker
   is heading/paragraph-only with zero overlap; boundary-straddling facts split
   with no recall bridge. The reference does sentence-aware ~50-word overlap over a
