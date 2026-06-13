@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.47] — 2026-06-13
+
 ### Added
 - **Timeline extraction from meetings (opt-in, `MEMEX_MEETING_TIMELINE=1`).** A
   new `extract-timeline` maintenance-cycle phase (`core/timeline-meetings.ts`)
