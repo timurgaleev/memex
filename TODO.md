@@ -476,8 +476,10 @@ to memex's architecture, or north-star:
   codex: float4-exactness (Math.fround), batched UPDATE, bare-flag rejection,
   tag-trim, dangling-gate (reviewers split — chose inflation-safety). A
   `recent_salience` MCP op is a deferred follow-on (public surface).
-- [ ] **resolve_symbol_edges cycle phase** (medium) — batch-resolve code-edge
-  symbols to chunk IDs.
+- [~] **resolve_symbol_edges cycle phase** (medium) — MOOT, see the code-graph
+  assessment below: memex resolves code-edge symbols→chunks at QUERY time
+  (commands/code.ts code-def join), so a batch pre-resolution phase is a cache
+  for a corpus that doesn't yet need one (~0 live code chunks).
 - [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock
   cap per job; FNV-1a offset to decorrelate cron jobs. (The code-chunk half of
   this bundle is done below; the cron-job stagger half remains — it belongs with
@@ -544,16 +546,41 @@ to memex's architecture, or north-star:
   stale event (by-design timeline immutability), which is why it is opt-in.
 
 ### Schema / code-graph (in-scope, larger)
-- [ ] **`code_edges_chunk` (resolved) + `code_edges_symbol` (unresolved)**
-  (high) — structural call graph; pairs with `resolve_symbol_edges`.
-- [ ] **Language coverage** (high) — 3 → many (grammar WASMs + per-language
-  symbol-type config); **symbol hierarchy** (nested method chunks) + **per-
-  language edge config**.
+- [~] **`code_edges_chunk` (resolved) + `code_edges_symbol` (unresolved)** +
+  **resolve_symbol_edges** (high) — ASSESSED 2026-06-13: **MOOT for memex as a
+  dedicated-table re-model.** memex ALREADY has a working call graph via the
+  entity-mention model: `extractCodeEntities` (core/code-entities.ts) extracts
+  `call_expression`-derived `code-caller`/`code-callee`/`code-ref` entity
+  mentions at INDEX time (the reference's "unresolved code_edges_symbol"
+  equivalent), and `code-callers`/`code-callees`/`code-refs`
+  (commands/code.ts) RESOLVE name→defining-chunk at QUERY time by joining
+  `chunks → entity_mentions → entities` through the `code-def` entity (the
+  reference's "resolved code_edges_chunk" equivalent, computed lazily). So the
+  capability EXISTS; the only delta is the reference PERSISTS resolved edges in
+  a table (and pre-resolves via a `resolve_symbol_edges` phase) vs memex
+  resolving at query time. For a markdown-dominant corpus (live brain has ~0
+  code chunks) that delta is premature optimization, and persisting a parallel
+  edge table would duplicate/refactor working code ("don't refactor what isn't
+  broken"). REVISIT only if a code-heavy corpus makes query-time resolution a
+  measured bottleneck — then persist resolved edges as a cache, don't re-model.
+- [ ] **Language coverage** — DEFERRED (assessed 2026-06-13). Requires shipping
+  new tree-sitter grammar **WASM binaries** (build artifacts) into `wasm/` +
+  per-grammar node-type config; the LIVE corpus is markdown-dominant (~0 code
+  chunks) so more code languages add ~0 immediate retrieval value. The
+  symbol-hierarchy half already shipped (parent_symbol_path TEXT[], mig 028).
+  Revisit when a code-heavy source is indexed.
 
 ### Durable jobs (in-scope subset of P3)
-- [ ] Multi-process supervisor + PID-file lock + crash-restart (high);
-  wedge detection + queue-health (medium); lock-renewal heartbeat for long
-  jobs (medium); rate-lease concurrency gates (high); job audit JSONL (medium).
+- [~] Durable-jobs supervisor — ASSESSED 2026-06-13: **the durable-jobs CORE
+  already exists** (`core/jobs/{queue,worker,backoff,dag,quiet-hours}.ts`):
+  atomic `FOR UPDATE SKIP LOCKED` claim (multi-worker safe), `lock_until` lease
+  + `stall_count`/`max_stalled` WEDGE detection & requeue (mig 008), DAG FAN-IN
+  (mig 019), retry/backoff, quiet-hours. The remaining deltas — a PID-file
+  single-supervisor guard, multi-PROCESS lock-renewal heartbeat, and per-kind
+  rate-lease concurrency gates — are SCALE-OUT features that add little on the
+  single-EC2 single-worker deployment (one container, one drain loop). DEFER
+  until a genuine multi-process / multi-host need arises; job-audit JSONL is a
+  small standalone follow-on if wanted.
 
 ### Enrichment (LLM-free subset)
 - [~] Typed-NER link inference — **schema-pack (frontmatter) DONE** (v1.3.46,
