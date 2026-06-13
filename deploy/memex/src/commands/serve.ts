@@ -154,9 +154,26 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Start the durable jobs worker. Single-concurrency for v1. (The legacy
   // ingest recipes were removed — markdown enters via on-demand reindex /
   // MCP, code via the boot sweep; jobs remain for future handlers.)
-  const worker = new Worker(new Queue(storage.engine()), { intervalMs: 5000 });
+  // A default per-job wall-clock cap is OFF unless MEMEX_JOB_TIMEOUT_MS is set
+  // (a blanket cap could dead-letter a legitimately-slow Bedrock phase); a job
+  // can still set its own timeoutMs at enqueue.
+  const workerOpts: ConstructorParameters<typeof Worker>[1] = {
+    intervalMs: 5000,
+  };
+  const jobTimeoutRaw = process.env.MEMEX_JOB_TIMEOUT_MS?.trim();
+  // Strict: digits only (reject "100abc" -> 100, "1e9" -> 1, negatives, blanks),
+  // matching enqueue's positive-integer validation.
+  if (jobTimeoutRaw !== undefined && /^\d+$/.test(jobTimeoutRaw)) {
+    const parsed = Number.parseInt(jobTimeoutRaw, 10);
+    if (parsed > 0) workerOpts.jobTimeoutMs = parsed;
+  }
+  const worker = new Worker(new Queue(storage.engine()), workerOpts);
   worker.start();
-  console.log(`[memex] jobs worker started (intervalMs=5000)`);
+  console.log(
+    `[memex] jobs worker started (intervalMs=5000${
+      workerOpts.jobTimeoutMs ? `, jobTimeoutMs=${workerOpts.jobTimeoutMs}` : ""
+    })`,
+  );
 
   // Cycle loop. Off by default; opt in via env or memex.yml. The
   // `dream.*` config keys drive the cycle's embed-stale phase.

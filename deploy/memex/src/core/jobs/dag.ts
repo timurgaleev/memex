@@ -44,6 +44,11 @@ export interface SubmitJobInput {
   idempotency_key?: string;
   /** Schedule for a future time. Default now (immediate). */
   not_before?: Date | string;
+  /**
+   * Hard per-job wall-clock cap (ms, > 0). On exceed the worker dead-letters
+   * the job (terminal, no retry). Omit to use the worker default.
+   */
+  timeout_ms?: number;
 }
 
 export interface SubmitJobResult {
@@ -91,6 +96,20 @@ export async function submitJob(
     typeof input.max_retries === "number" && input.max_retries >= 0
       ? Math.floor(input.max_retries)
       : 3;
+  let timeoutMs: number | null = null;
+  if (input.timeout_ms !== undefined) {
+    // Upper bound = Postgres INTEGER ceiling (~24.8 days).
+    if (
+      !Number.isInteger(input.timeout_ms) ||
+      input.timeout_ms <= 0 ||
+      input.timeout_ms > 2_147_483_647
+    ) {
+      throw new Error(
+        `submitJob: timeout_ms must be a positive integer <= 2147483647 (got ${input.timeout_ms})`,
+      );
+    }
+    timeoutMs = input.timeout_ms;
+  }
   const payload = JSON.stringify(input.payload ?? {});
   const nextAttempt = normaliseTime(input.not_before).toISOString();
 
@@ -155,9 +174,9 @@ export async function submitJob(
     await tx.query(
       `INSERT INTO jobs
          (id, kind, payload, status, priority, retry_count, max_retries,
-          next_attempt_at, parent_job_id, depth, idempotency_key)
+          next_attempt_at, parent_job_id, depth, idempotency_key, timeout_ms)
        VALUES ($1, $2, $3::jsonb, 'pending', $4, 0, $5, $6::timestamptz,
-               $7, $8, $9)`,
+               $7, $8, $9, $10)`,
       [
         id,
         input.kind,
@@ -168,6 +187,7 @@ export async function submitJob(
         input.parent_job_id ?? null,
         depth,
         input.idempotency_key ?? null,
+        timeoutMs,
       ],
     );
     if (input.parent_job_id) {

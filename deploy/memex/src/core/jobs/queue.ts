@@ -31,6 +31,7 @@ interface RawJobRow {
   lock_until: string | Date | null;
   stall_count: number;
   max_stalled: number;
+  timeout_ms: number | null;
 }
 
 function toDate(v: string | Date): Date {
@@ -72,14 +73,17 @@ function rowToJob(r: RawJobRow): JobRow {
     lockUntil: r.lock_until ? toDate(r.lock_until) : null,
     stallCount: r.stall_count,
     maxStalled: r.max_stalled,
+    timeoutMs: r.timeout_ms ?? null,
   };
 }
 
 const SELECT_COLS =
-  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled";
+  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms";
 
 const DEFAULT_LOCK_SECONDS = 300; // 5 min — comfortably bigger than any
                                   // realistic job duration we run today.
+/** Postgres INTEGER ceiling for `jobs.timeout_ms` (~24.8 days). */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export interface ClaimOptions {
   /** Override "now" (tests). Defaults to new Date(). */
@@ -113,6 +117,12 @@ export interface FailOptions {
   maxMs?: number;
   /** Override "now" for backoff scheduling (tests). */
   now?: Date;
+  /**
+   * Dead-letter: force a terminal `failed` regardless of remaining retries.
+   * Used for a hard per-job timeout, where retrying would just wedge the worker
+   * again. retry_count is still bumped for the record.
+   */
+  terminal?: boolean;
 }
 
 export class Queue {
@@ -131,9 +141,22 @@ export class Queue {
         `Queue.enqueue: maxRetries must be >= 0 (got ${maxRetries})`,
       );
     }
+    let timeoutMs: number | null = null;
+    if (input.timeoutMs !== undefined) {
+      if (
+        !Number.isInteger(input.timeoutMs) ||
+        input.timeoutMs <= 0 ||
+        input.timeoutMs > MAX_TIMEOUT_MS
+      ) {
+        throw new Error(
+          `Queue.enqueue: timeoutMs must be a positive integer <= ${MAX_TIMEOUT_MS} (got ${input.timeoutMs})`,
+        );
+      }
+      timeoutMs = input.timeoutMs;
+    }
     const r = await this.engine.query<RawJobRow>(
-      `INSERT INTO jobs (id, kind, payload, priority, max_retries, next_attempt_at, quiet_hours_skip)
-       VALUES ($1, $2, $3::jsonb, $4, $5, COALESCE($6, NOW()), $7)
+      `INSERT INTO jobs (id, kind, payload, priority, max_retries, next_attempt_at, quiet_hours_skip, timeout_ms)
+       VALUES ($1, $2, $3::jsonb, $4, $5, COALESCE($6, NOW()), $7, $8)
        ON CONFLICT (id) DO NOTHING
        RETURNING ${SELECT_COLS}`,
       [
@@ -144,6 +167,7 @@ export class Queue {
         maxRetries,
         input.runAt ?? null,
         input.quietHoursSkip ?? false,
+        timeoutMs,
       ],
     );
     if (r.rows[0]) return rowToJob(r.rows[0]);
@@ -199,6 +223,23 @@ export class Queue {
       [now, lockUntil],
     );
     return r.rows[0] ? rowToJob(r.rows[0]) : null;
+  }
+
+  /**
+   * Extend a running job's `lock_until`. The worker calls this when a job's
+   * hard `timeout_ms` is longer than the claim lock, so the stall sweep can't
+   * requeue the row out from under an in-flight handler before its timeout
+   * fires. Returns true if a `running` row was extended, false if the row is no
+   * longer `running` (claim already lost) so the caller can abort the attempt.
+   */
+  async extendLock(id: string, lockUntil: Date): Promise<boolean> {
+    const r = await this.engine.query<{ id: string }>(
+      `UPDATE jobs SET lock_until = $2, updated_at = NOW()
+        WHERE id = $1 AND status = 'running'
+        RETURNING id`,
+      [id, lockUntil],
+    );
+    return r.rows.length > 0;
   }
 
   /**
@@ -308,14 +349,15 @@ export class Queue {
     if (!job) return null;
     if (job.status !== "running") return null;
     const nextRetry = job.retryCount + 1;
-    if (nextRetry > job.maxRetries) {
+    if (opts.terminal || nextRetry > job.maxRetries) {
       const r = await this.engine.query<RawJobRow>(
         `UPDATE jobs
             SET status = 'failed',
                 retry_count = $2,
                 last_error = $3,
                 finished_at = NOW(),
-                updated_at = NOW()
+                updated_at = NOW(),
+                lock_until = NULL
           WHERE id = $1 AND status = 'running'
           RETURNING ${SELECT_COLS}`,
         [id, nextRetry, error],

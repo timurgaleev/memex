@@ -848,6 +848,8 @@ async function callJobsSubmit(
     input.idempotency_key = args["idempotency_key"];
   if (typeof args["not_before"] === "string")
     input.not_before = args["not_before"];
+  if (typeof args["timeout_ms"] === "number")
+    input.timeout_ms = args["timeout_ms"];
   const r = await submitJob(storage.engine(), input);
   return jsonResult({ ok: true, ...r });
 }

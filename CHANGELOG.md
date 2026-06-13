@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-job hard wall-clock timeout / dead-letter (migration 039).** A handler
+  that wedges (never returns) held the single worker's one in-flight slot
+  forever: `lock_until` + the stall sweep recover a job whose WORKER died, but
+  not one whose HANDLER hangs while the worker is alive. A new nullable
+  `jobs.timeout_ms` (settable via `Queue.enqueue`, `submitJob`, and the
+  `jobs_submit` MCP tool; per-job, validated `> 0`) plus a worker-wide default
+  (`MEMEX_JOB_TIMEOUT_MS`, OFF by default so a legitimately-slow Bedrock phase
+  isn't killed) make the worker race the handler against a hard cap. On exceed
+  the job is DEAD-LETTERED (terminal fail via the new `FailOptions.terminal`, no
+  retry) and the worker is freed; JS can't cancel the orphaned handler, but its
+  late settlement is swallowed (no unhandledRejection) and the job row is
+  protected by `status='running'` write guards. When the timeout outlasts the
+  claim lock the worker extends the lock (`Queue.extendLock`) so the stall sweep
+  can't requeue the row before the timeout fires. `runJob` is now fully guarded
+  so a persistence failure can't crash the worker tick. Reviewed by
+  code-reviewer, bug-hunter, and codex (codex caught the unwired submit path, the
+  lock-vs-timeout race, and an unhandled-rejection path across two rounds).
+
 ## [1.3.51] — 2026-06-13
 
 ### Added

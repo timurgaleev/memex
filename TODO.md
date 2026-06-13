@@ -199,24 +199,51 @@ brain-only LLM-free BUILD candidates found, prioritized:
   delimiter cascade + CJK word-counting NOT ported (CJK = no live non-Latin
   corpus; the cascade is a token-aware refinement memex's char-greedy splitter
   doesn't need). codex caught the before-mergeShort count-shift; fixed.
-- [ ] **Graph-signals post-fusion stage** (opt-in retrieval win) — adjacency hub
-  boost (~1.05-1.10x) + MMR-lite session-cluster diversification, floor-gated +
-  fail-open. memex uses link-degree only offline (salience); the search pipeline
-  has no adjacency boost.
-- [ ] **Relational recall arm** (relationship-query quality) — wire typed edges in
-  as a 4th RRF arm so "who invested in X" candidates enter ranking. memex has the
-  graph (typed-links/entity_recall/graph_neighbors) but never feeds it to the
-  ranker. Bigger.
-- [ ] **`symbol_name_qualified` column + qualified-name FTS weight** (small) —
-  disambiguates `Foo.bar` vs `Baz.bar` in code search; extend the code chunker +
-  fold into the mig-030 weighted-FTS trigger at weight A.
-- [ ] **Jobs `timeout_ms` / `handleTimeouts` dead-letter** (robustness) — split
-  stall->retry from timeout->dead-letter so a genuinely wedged job is terminated,
-  not retried until its stall budget burns. Schema col + worker tick.
-- [ ] **Jobs lease fencing token** (small, low urgency at concurrency=1) — a
-  per-attempt `lock_token` gating complete/fail/handleStalled so a revived stalled
-  worker can't clobber a reclaimed row. Race window is tiny on the single-worker
-  serve; defer unless multi-worker lands.
+- [x] **Graph-signals post-fusion stage** — ASSESSED → DOCUMENT-DEFER (evidence).
+  The three reference signals map onto memex as: (a) **session-cluster
+  diversification (~0.95x MMR-lite) = REDUNDANT** — memex already applies
+  per-document dedup `maxPerDoc:1` (`search/hybrid.ts:414`), a HARD one-chunk-
+  per-document cap that's strictly stronger than a 0.95x demote; (b)
+  **cross-source boost = DORMANT** — memex is single-source, the reference itself
+  notes this signal is "dormant on single-source brains"; (c) **adjacency-hub
+  boost = structurally dormant on memex's data** — it operates on the page-link
+  graph, but the live brain is 347 documents / ~2 pages, search runs over
+  `documents`/`chunks` not `pages`, so the page graph is ~2 nodes and the boost
+  would touch a negligible fraction of hits with no way to validate. (Note found
+  en route: the search-time `salienceMultiplier` reads only frontmatter
+  `pinned`/`weight`, NOT the mig036 link-degree salience column — but wiring that
+  in is equally page-scoped, same dormancy.) Building 400+ lines of RRF-score-mult
+  + floor-gate + adjacency SQL for a ~2-node graph is premature infra against
+  "perform only the necessary work."
+- [x] **Jobs `timeout_ms` / dead-letter** (robustness) — DONE (migration 039,
+  v1.3.52). A wedged handler held the single worker's only in-flight slot forever
+  (stall sweep recovers a dead WORKER, not a hung HANDLER). Nullable
+  `jobs.timeout_ms` (via `Queue.enqueue` / `submitJob` / `jobs_submit`) + a
+  worker default (`MEMEX_JOB_TIMEOUT_MS`, OFF by default) race the handler; on
+  exceed it dead-letters (terminal, no retry, `FailOptions.terminal`) and frees
+  the worker, extending the claim lock (`extendLock`) so the stall sweep can't
+  requeue it first. `runJob` fully guarded. codex caught the unwired submit path
+  + lock-vs-timeout race + an unhandled-rejection path; all fixed.
+- [x] **Relational recall arm** — DOCUMENT-DEFER (structurally dormant). It would
+  parse "who invested in X" and inject typed-edge candidates as a 4th RRF arm,
+  but the graph it ranks is ~0 typed edges on the live brain (typed-links is
+  opt-in default-OFF; ~2 pages / 347 documents). It also needs a relational-intent
+  parser + fusion plumbing. memex already exposes the graph via `entity_recall` /
+  `graph_neighbors` (the agent calls them explicitly). Building a 4th arm over an
+  empty graph is premature; revisit if the brain grows a real typed-edge graph.
+- [x] **`symbol_name_qualified` column + qualified-name FTS weight** —
+  DOCUMENT-DEFER (dormant). It disambiguates `Foo.bar` vs `Baz.bar` in CODE
+  search, and the FTS weight only matters with code chunks — the live corpus has
+  ~0 code chunks (markdown brain). The mig-030 trigger comment already records
+  "memex has neither column yet" as a deliberate deferral. Cheap to add but with
+  no validatable value on the current data; revisit when a code-heavy corpus lands.
+- [x] **Jobs lease fencing token** — DOCUMENT-DEFER (nil value at concurrency=1).
+  A per-attempt `lock_token` guards against a revived stalled worker clobbering a
+  row reclaimed by ANOTHER worker — a multi-worker race. memex's serve runs a
+  SINGLE worker (`serve.ts`, concurrency 1), so there is no second worker to race;
+  the `status='running'` write guards + the v1.3.52 timeout/extendLock already
+  close the wedge hole. Add together with a multi-worker scale-out if one ever
+  lands.
 
 Dispositioned LOW / out-of-scope: CJK-aware chunking (English corpus), contextual-
 retrieval embed wrapper (needs an LLM pass — north-star), backoff jitter

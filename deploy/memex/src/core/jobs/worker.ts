@@ -16,6 +16,12 @@ import { getHandler } from "./handlers.ts";
 import type { Queue } from "./queue.ts";
 import type { JobRow } from "./types.ts";
 
+/** Queue.claim's default lock seconds — mirrored so lock-vs-timeout math agrees. */
+const DEFAULT_LOCK_SECONDS = 300;
+/** Slack added past a job's timeout when extending its lock, so the timeout
+ *  always fires before the (extended) lock expires. */
+const TIMEOUT_LOCK_GRACE_MS = 5000;
+
 export interface WorkerOptions {
   /** Polling interval when idle. Default 1000 ms. */
   intervalMs?: number;
@@ -27,6 +33,13 @@ export interface WorkerOptions {
   lockSeconds?: number;
   /** Run handleStalled() at most this often (ms). Default 30 000. */
   stallSweepIntervalMs?: number;
+  /**
+   * Default hard wall-clock cap (ms) for a job's handler when the job row does
+   * not set its own `timeoutMs`. A job exceeding it is dead-lettered and the
+   * worker freed. 0 / undefined = no default cap (today's behavior). A per-job
+   * `timeoutMs` always wins over this default.
+   */
+  jobTimeoutMs?: number;
 }
 
 export interface WorkerStats {
@@ -38,6 +51,8 @@ export interface WorkerStats {
   stallsRequeued: number;
   /** Total rows terminal-failed by the stall sweep. */
   stallsTerminallyFailed: number;
+  /** Jobs dead-lettered by the per-job wall-clock timeout. */
+  timedOut: number;
 }
 
 export class Worker {
@@ -53,6 +68,7 @@ export class Worker {
     retried: 0,
     stallsRequeued: 0,
     stallsTerminallyFailed: 0,
+    timedOut: 0,
   };
 
   constructor(
@@ -144,10 +160,17 @@ export class Worker {
         const job = await this.queue.claim(claimOpts);
         if (!job) break;
         this.inflight++;
-        // Fire-and-forget; runJob updates inflight on completion.
-        void this.runJob(job).finally(() => {
-          this.inflight--;
-        });
+        // Fire-and-forget; runJob updates inflight on completion. runJob never
+        // throws (it guards its own bookkeeping), but keep a catch as a final
+        // backstop so a stray rejection can never become an unhandledRejection.
+        void this.runJob(job)
+          .catch((e) => this.log("error", `[${job.id}] runJob: ${asMessage(e)}`))
+          .finally(() => {
+            this.inflight--;
+          })
+          // Terminal backstop: even the catch's logger or finally must never
+          // surface as an unhandledRejection.
+          .catch(() => {});
       }
     } catch (e) {
       this.log("error", `claim loop crashed: ${asMessage(e)}`);
@@ -165,27 +188,82 @@ export class Worker {
     if (!handler) {
       const msg = `no handler registered for kind '${job.kind}'`;
       this.log("error", `[${job.id}] ${msg}`);
-      const updated = await this.queue.fail(job.id, msg);
-      if (updated && updated.status === "pending") this.stats.retried++;
-      else this.stats.failed++;
+      try {
+        const updated = await this.queue.fail(job.id, msg);
+        if (updated && updated.status === "pending") this.stats.retried++;
+        else this.stats.failed++;
+      } catch (e) {
+        this.log("error", `[${job.id}] no-handler fail persist: ${asMessage(e)}`);
+      }
       return;
     }
-    try {
-      const result = await handler(job.payload, { job });
-      await this.queue.complete(
-        job.id,
-        result === undefined ? {} : (result as Record<string, unknown>),
-      );
-      this.stats.succeeded++;
-    } catch (e) {
-      const message = asMessage(e);
-      this.log("warn", `[${job.id}] ${job.kind} failed: ${message}`);
-      const updated = await this.queue.fail(job.id, message);
-      if (updated && updated.status === "pending") {
-        this.stats.retried++;
-      } else {
-        this.stats.failed++;
+    // Per-job hard wall-clock cap (job row wins over the worker default).
+    const timeoutMs = job.timeoutMs ?? this.opts.jobTimeoutMs ?? 0;
+    // If the timeout outlasts the claim lock, extend the lock so the stall
+    // sweep can't requeue the row before the timeout dead-letters it (the
+    // terminal fail would then no-op on a row that is no longer 'running').
+    if (timeoutMs > 0) {
+      const lockMs = (this.opts.lockSeconds ?? DEFAULT_LOCK_SECONDS) * 1000;
+      if (timeoutMs + TIMEOUT_LOCK_GRACE_MS > lockMs) {
+        // The lock MUST cover the timeout, else the stall sweep could requeue
+        // the row before the timeout dead-letters it. If we can't extend it
+        // (DB error, or the claim was already lost), abort this attempt rather
+        // than run a handler whose timeout can't be enforced — the job stays
+        // claimable and a later tick retries it.
+        let extended = false;
+        try {
+          extended = await this.queue.extendLock(
+            job.id,
+            new Date(Date.now() + timeoutMs + TIMEOUT_LOCK_GRACE_MS),
+          );
+        } catch (e) {
+          this.log("error", `[${job.id}] extendLock failed: ${asMessage(e)}`);
+        }
+        if (!extended) {
+          this.log(
+            "warn",
+            `[${job.id}] could not extend lock to cover timeout; skipping this attempt`,
+          );
+          return;
+        }
       }
+    }
+    // The whole body is guarded: a persistence failure (complete/fail) must
+    // never crash the worker tick or escape as an unhandledRejection.
+    try {
+      try {
+        const result =
+          timeoutMs > 0
+            ? await runWithTimeout(() => handler(job.payload, { job }), timeoutMs)
+            : await handler(job.payload, { job });
+        await this.queue.complete(
+          job.id,
+          result === undefined ? {} : (result as Record<string, unknown>),
+        );
+        this.stats.succeeded++;
+      } catch (e) {
+        const message = asMessage(e);
+        // A hard timeout dead-letters (terminal): JS cannot cancel the orphaned
+        // handler, but the worker is freed and retrying would only wedge it again.
+        const timedOut = e instanceof JobTimeoutError;
+        this.log(
+          "warn",
+          `[${job.id}] ${job.kind} ${timedOut ? "timed out" : "failed"}: ${message}`,
+        );
+        const updated = await this.queue.fail(
+          job.id,
+          message,
+          timedOut ? { terminal: true } : {},
+        );
+        if (timedOut) this.stats.timedOut++;
+        if (updated && updated.status === "pending") {
+          this.stats.retried++;
+        } else {
+          this.stats.failed++;
+        }
+      }
+    } catch (e) {
+      this.log("error", `[${job.id}] job bookkeeping failed: ${asMessage(e)}`);
     }
   }
 
@@ -209,4 +287,43 @@ function sleep(ms: number): Promise<void> {
 
 function asMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Thrown when a job handler exceeds its hard wall-clock cap. */
+export class JobTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`job exceeded its ${ms}ms timeout`);
+    this.name = "JobTimeoutError";
+  }
+}
+
+/**
+ * Run `start()`'s promise under a hard wall-clock cap. On timeout the returned
+ * promise rejects with `JobTimeoutError` and the worker moves on; the orphaned
+ * handler keeps running (JS has no cancellation) but its late settlement is
+ * swallowed so it never surfaces as an unhandledRejection. The timer is cleared
+ * on the normal path so it can't keep the event loop alive.
+ *
+ * NOTE the orphan can still mutate NON-queue state (documents, chunks, ...)
+ * after the dead-letter — the queue row is protected by `status='running'`
+ * write guards, but a handler with external side effects must be idempotent.
+ */
+function runWithTimeout<T>(start: () => Promise<T>, ms: number): Promise<T> {
+  let work: Promise<T>;
+  try {
+    work = start();
+  } catch (e) {
+    // A handler that throws synchronously (before returning a promise) becomes
+    // a normal rejection so runJob's catch routes it through fail().
+    return Promise.reject(e as Error);
+  }
+  // Guard: if `work` loses the race and later rejects, swallow it here.
+  work.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new JobTimeoutError(ms)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }

@@ -458,6 +458,7 @@ export const OPERATIONS: readonly Operation[] = [
       parent_job_id: str(),
       idempotency_key: str(),
       not_before: str(),
+      timeout_ms: int({ minimum: 1, maximum: 2147483647 }),
     },
   },
   {

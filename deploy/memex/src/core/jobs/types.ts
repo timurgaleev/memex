@@ -31,6 +31,12 @@ export interface JobRow {
   stallCount: number;
   /** Cap on stalls before terminal-fail. */
   maxStalled: number;
+  /**
+   * Hard per-job wall-clock cap (ms) the worker races the handler against; on
+   * exceed the job is dead-lettered (terminal fail). NULL = use the worker's
+   * process-wide default (off unless configured).
+   */
+  timeoutMs: number | null;
 }
 
 /**
@@ -55,4 +61,9 @@ export interface EnqueueInput {
   runAt?: Date;
   /** When true, the worker won't claim this job during quiet hours. */
   quietHoursSkip?: boolean;
+  /**
+   * Hard wall-clock cap (ms, > 0) for this job's handler. On exceed the worker
+   * dead-letters it (terminal, no retry). Omit to use the worker default.
+   */
+  timeoutMs?: number;
 }
