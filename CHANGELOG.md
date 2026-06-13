@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.49] — 2026-06-13
+
 ### Added
 - **`memex cycle [--phases a,b,c] [--stale-days N]` — run one maintenance cycle
   on demand.** The periodic cycle loop schedules its FIRST tick one interval
