@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.46] — 2026-06-13
+
 ### Added
 - **Typed-link inference from frontmatter (opt-in, `MEMEX_TYPED_LINKS=1`).** A
   deterministic, LLM-free schema-pack (`core/typed-links.ts`) derives TYPED
