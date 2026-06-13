@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 360" width="1000" height="360"
+     font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+     role="img"
+     aria-label="memex data flow: your notes and code are chunked, embedded, stored in Postgres with pgvector, retrieved by hybrid search, and served to your AI agent over MCP.">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0C1426"/>
+      <stop offset="1" stop-color="#0A1020"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6AA9FF"/>
+      <stop offset="1" stop-color="#34D3A6"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="360" rx="18" fill="url(#panel)"/>
+
+  <!-- header (fills set as attributes so they survive even if CSS is stripped) -->
+  <text x="40" y="56" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memex</text>
+  <text x="135" y="56" fill="#8FA3BB" font-size="16">your self-hosted AI brain &#8212; notes &amp; code, searchable by any AI agent</text>
+
+  <!-- connecting rail + animated flow (animation is a bonus; the static line reads fine) -->
+  <line x1="120" y1="210" x2="880" y2="210" stroke="#243653" stroke-width="3"/>
+  <line x1="120" y1="210" x2="880" y2="210" stroke="url(#flow)" stroke-width="3"
+        stroke-dasharray="10 14" opacity="0.85">
+    <animate attributeName="stroke-dashoffset" from="48" to="0" dur="1.4s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- nodes: center x = 120, 310, 500, 690, 880 -->
+  <g text-anchor="middle">
+    <rect x="40"  y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="230" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="420" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="610" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+    <rect x="800" y="150" width="160" height="120" rx="12" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+
+    <g fill="#E8EEF6" font-weight="700" font-size="16">
+      <text x="120" y="200">Your notes</text>
+      <text x="120" y="222">&amp; code</text>
+      <text x="310" y="210">Index</text>
+      <text x="500" y="210">Store</text>
+      <text x="690" y="204">Hybrid search</text>
+      <text x="880" y="204">Your AI agent</text>
+    </g>
+    <g fill="#93A7BE" font-size="12">
+      <text x="120" y="248">markdown &#183; TS &#183; Python</text>
+      <text x="310" y="236">chunk + embed</text>
+      <text x="310" y="252">(Bedrock Titan)</text>
+      <text x="500" y="236">Postgres</text>
+      <text x="500" y="252">+ pgvector</text>
+      <text x="690" y="230">vector + keyword</text>
+      <text x="690" y="246">+ entity graph</text>
+      <text x="880" y="230">over MCP</text>
+      <text x="880" y="246">Claude Code &#183; Cursor</text>
+    </g>
+  </g>
+
+  <!-- arrowheads between nodes -->
+  <g fill="#34D3A6">
+    <path d="M205 205 l12 5 -12 5 z"/>
+    <path d="M395 205 l12 5 -12 5 z"/>
+    <path d="M585 205 l12 5 -12 5 z"/>
+    <path d="M775 205 l12 5 -12 5 z"/>
+  </g>
+
+  <!-- travelling pulses: default cx sits ON the rail, so the static frame looks
+       intentional; the cx animation sweeps left-to-right when the viewer runs it. -->
+  <circle cx="350" cy="210" r="6" fill="#5BE3C0" filter="url(#glow)">
+    <animate attributeName="cx" values="120;880" dur="3.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="650" cy="210" r="5" fill="#6AA9FF" filter="url(#glow)" opacity="0.9">
+    <animate attributeName="cx" values="120;880" begin="1.6s" dur="3.2s" repeatCount="indefinite"/>
+  </circle>
+
+  <text x="40" y="320" fill="#93A7BE" font-size="13">One AWS account &#183; one EC2 &#183; MCP-only surface &#183; your data never leaves your cloud</text>
+</svg>

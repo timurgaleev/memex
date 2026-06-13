@@ -1,177 +1,160 @@
+<div align="center">
+
 # memex
 
-> Your own AI brain — self-hosted, single-tenant, MCP-native.
-> One repo, one EC2, one weekend to deploy.
+### Your own AI brain — self-hosted, private, and plugged straight into your AI agent.
 
-**memex** is a self-hostable knowledge brain and personal AI assistant.
-It indexes your markdown notes and your code into a hybrid vector +
-keyword + entity-graph index, then exposes everything to your
-favourite AI agent over the Model Context Protocol (MCP).
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+![MCP-native](https://img.shields.io/badge/interface-MCP--native-7C5CFC)
+![Self-hosted](https://img.shields.io/badge/runs%20in-your%20AWS%20account-34D3A6)
+![Built with Bun](https://img.shields.io/badge/built%20with-Bun%20%2B%20TypeScript-F472B6)
 
-Built for one user, one cloud account, one stack. No orchestrator, no
-multi-tenancy, no SaaS dependency for the brain itself. Your data
-stays in your AWS account.
+<img src="docs/assets/architecture.svg" alt="memex turns your notes and code into a searchable brain that your AI agent reaches over MCP" width="820">
 
----
-
-## Why memex
-
-- **Your data, your account.** Everything runs inside an AWS account
-  you control: a single EC2 host, RDS Postgres, EFS for state,
-  Cloudflare Tunnel for ingress. No third-party SaaS sees your notes.
-- **Plug-in for your AI agent.** Claude Code, Cursor, Codex — any
-  MCP-compatible client connects to `https://brain.<your-domain>/mcp`
-  and can search across everything you've ever written.
-- **Hybrid retrieval that actually works.** Bedrock Titan embeddings
-  for semantic recall, Postgres `tsvector` for keyword precision,
-  Reciprocal Rank Fusion to merge them — returned to your MCP client as
-  grounded, cited chunks to compose answers from.
-- **MCP-only surface.** No chat app, no bot, no bespoke API — the brain
-  speaks Model Context Protocol and nothing else. One contract, one
-  attack surface.
-- **Production-grade from clone-zero.** Terraform module, partial-S3
-  backend, CI workflow, secret rotation timer, PII audit gate. Not a
-  toy.
-- **No telemetry.** No analytics SDKs, no third-party trackers, no
-  ping-home. The only outbound traffic is to AWS and Cloudflare on
-  your behalf.
+</div>
 
 ---
 
-## What you can do with it on day one
+## What is memex?
 
-- Have Claude Code (or Cursor / Codex / any MCP client) pull live
-  context from your notes during refactors via the MCP server.
-- Ask "what did I decide last week about X?" from your AI agent — get
-  the exact note back with cited paths.
-- Search across everything you've written — hybrid vector + keyword +
-  entity-graph retrieval, exposed as MCP `tools/call`.
+You write a lot — notes, decisions, docs, code. Six months later you can't
+find any of it, and your AI assistant has no idea it exists.
+
+**memex is a personal knowledge brain you run in your own cloud.** It reads
+your markdown notes and your code, turns them into a searchable index, and
+hands that search to your AI agent — Claude Code, Cursor, Codex, anything that
+speaks the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Now
+your agent can answer *"what did I decide about X last month?"* with **your own
+words, cited back to the exact note** — instead of guessing.
+
+It's a second brain for you, and long-term memory for your AI.
+
+## Why it exists
+
+- **Your knowledge is private.** Most "AI memory" products upload everything to
+  someone else's servers. memex runs entirely inside **one AWS account you
+  control** — your notes never leave your cloud, and there's zero telemetry.
+- **One brain, every agent.** It exposes a single MCP endpoint. Any
+  MCP-compatible tool connects to it; you don't re-index your life per app.
+- **Search that actually finds things.** It blends *meaning* (vector
+  embeddings), *exact words* (keyword search), and *relationships* (an entity
+  graph) — so "the thing I called the auth rewrite" still surfaces even when you
+  search for something else.
+- **Small and boring on purpose.** No orchestrator, no multi-tenancy, no SaaS
+  to depend on. It fits on a single small EC2 box and you can read the whole
+  thing in an afternoon.
+
+## What you can do with it
+
+- Ask your AI agent a question and get an answer **grounded in your own notes**,
+  with the source path cited.
+- Pull live context from your past work **while you code** — that decision, that
+  gotcha you wrote down once and forgot.
 
 ---
 
 ## How it works
 
+memex indexes your content once, then answers searches on demand. Your AI
+agent talks to it over MCP; memex returns the **evidence**, and the agent
+writes the answer. (The brain retrieves — it doesn't chat.)
+
+```mermaid
+flowchart LR
+    N["Your notes and code<br/>markdown, TS, Python"]
+    A["Your AI agent<br/>Claude Code, Cursor, Codex"]
+
+    subgraph brain["memex - in your AWS account"]
+        direction TB
+        B["Chunk + Embed<br/>Bedrock Titan"]
+        C[("Postgres<br/>+ pgvector")]
+        D["Hybrid search<br/>vector + keyword + graph"]
+        B --> C --> D
+    end
+
+    N -->|index| B
+    A <-->|"MCP over HTTPS"| D
 ```
-                        MCP clients (Claude Code, Cursor, Codex)
-                                     |
-                          https://brain.<domain>/mcp
-                                     |
-                                     v
-                                cloudflared
-                                     |
-                 +-- docker-compose internal bridge --+
-                                     |
-     memex  (GET /health · POST /mcp — search, recall, graph)
-       |
-       |               Bedrock Titan v2   (embeddings)
-       |               Bedrock Nova Lite  (intent / expansion)
-       |               (answer synthesis happens in the MCP client)
-       |
-  RDS Postgres + pgvector
-       |
-      EFS  (container runtime state only — no content)
+
+When your agent asks a question, here's the round trip:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Agent as Your AI agent
+    participant memex as memex (MCP)
+    participant DB as Postgres + pgvector
+    You->>Agent: "What did I decide about X?"
+    Agent->>memex: tools/call search { q }
+    memex->>DB: vector + keyword + graph query
+    DB-->>memex: top chunks, ranked (RRF)
+    memex-->>Agent: cited chunks (evidence, not an answer)
+    Agent-->>You: answer, grounded in your own notes
 ```
 
-Inside the box:
+**Under the hood:** a small [Bun](https://bun.sh) + TypeScript service, Postgres
+16 with `pgvector`, AWS Bedrock for embeddings, and a Cloudflare Tunnel for
+HTTPS — so no EC2 port is ever exposed. The entire public surface is two routes:
+`GET /health` and `POST /mcp`. That's the whole attack surface.
 
-- **memex** — the knowledge brain. Bun + TypeScript runtime, Postgres
-  16 + pgvector, MCP JSON-RPC transport, multi-phase nightly
-  maintenance cycle, graph-only code chunkers for TS / Python. The
-  whole HTTP surface is two routes: `GET /health` + `POST /mcp`.
-- **cloudflared** — public HTTPS ingress without exposing any EC2
-  ports. Routes `brain.<domain>/mcp` to the memex MCP server so
-  MCP-compatible AI clients (Claude Code, Cursor, Codex, ...) can
-  connect from anywhere.
-
-Deep dives: [`ARCHITECTURE.md`](./ARCHITECTURE.md) and the per-subsystem
-docs under `deploy/<subsystem>/docs/`.
+> Want the full topology, every container, and the security model?
+> See [**ARCHITECTURE.md**](./ARCHITECTURE.md).
 
 ---
 
 ## Quickstart
 
-You need:
-
-- An AWS account (any region)
-- Terraform 1.6+, docker compose v2, bash 3.2+
-- A domain you control (for Cloudflare Tunnel ingress)
+You'll need an **AWS account**, **Terraform 1.6+**, **docker compose v2**, and a
+**domain** you control (for the Cloudflare Tunnel).
 
 ```bash
-git clone https://github.com/<your-fork>/memex.git
+git clone https://github.com/<your-org>/memex.git
 cd memex
 
-# 1. Interactive bootstrap. Prompts for AWS account, domain, GitHub
-#    owner, bucket names, optional alarm email. Writes:
-#      .env                          (runtime config)
-#      terraform/terraform.tfvars    (gitignored)
-#      terraform/backend.hcl         (gitignored)
-make init
-
-# 2. PII audit gate — must pass on a clean clone.
-make audit
-
-# 3. Plan against your AWS account.
-make plan
-
-# 4. Apply when the plan looks right.
-make apply
+make init     # interactive bootstrap: AWS account, domain, bucket names -> .env + tfvars
+make audit    # PII / secrets gate (must pass on a clean clone)
+make plan     # preview the AWS resources
+make apply    # create them
 ```
 
-After `make apply`, the EC2 boots, `scripts/bootstrap.sh` pulls the
-repo into `/opt/<project>`, fetches secrets from AWS Secrets Manager,
-and brings up the two containers (`memex`, `cloudflared`) via Docker
-Compose. Cloudflare Tunnel routes `brain.<domain>/mcp` to the memex
-MCP server so remote AI clients can connect.
+`make apply` boots one EC2 host, pulls the repo, fetches secrets from AWS
+Secrets Manager, and starts the two containers (`memex` + `cloudflared`). Your
+brain is then live at `https://brain.<your-domain>/mcp`.
 
-Connecting Claude Code to the MCP server:
-[`deploy/memex/docs/CLAUDE-CODE.md`](./deploy/memex/docs/CLAUDE-CODE.md).
+Connecting Claude Code (or any MCP client):
+[**deploy/memex/docs/CLAUDE-CODE.md**](./deploy/memex/docs/CLAUDE-CODE.md).
 
 ---
 
-## What's where
+## What's in the box
 
-| Subsystem | Path | Docs |
-|---|---|---|
-| **memex** — knowledge brain (search, index, MCP) | `deploy/memex/` | `deploy/memex/docs/` |
-| **cloudflared** — public ingress sidecar | `deploy/cloudflared/` | `deploy/cloudflared/docs/` |
-| **secrets** — AWS Secrets Manager fetch | `deploy/secrets/` | `deploy/secrets/README.md` |
-| **bootstrap.sh** — EC2 first-boot script | `scripts/bootstrap.sh` | inline |
-| **terraform** — all AWS infra | `terraform/` | inline |
-| **architecture diagram + inventory** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | — |
-| **agent onboarding** | [`llms.txt`](./llms.txt), [`AGENTS.md`](./AGENTS.md) | for AI sessions cloning the repo |
-| **deferred work** | [`TODO.md`](./TODO.md) | open roadmap |
-| **changelog** | [`CHANGELOG.md`](./CHANGELOG.md) | versioned releases |
+| Piece | What it does |
+|---|---|
+| **memex** | The brain: hybrid search, entity graph, code/markdown indexers, MCP server, a self-maintaining background cycle. |
+| **cloudflared** | Public HTTPS ingress via Cloudflare Tunnel — no open EC2 ports. |
+| **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
+| **AWS Bedrock** | Titan v2 embeddings + Nova Lite for query intent. Answer synthesis stays in *your* agent. |
+
+**Learn more:** [ARCHITECTURE.md](./ARCHITECTURE.md) ·
+[API / MCP tools](./deploy/memex/docs/API.md) ·
+[Operations](./deploy/memex/docs/OPERATIONS.md) ·
+[Privacy](./PRIVACY.md) · [Changelog](./CHANGELOG.md)
 
 ---
 
 ## Contributing
 
-Issues and PRs welcome. Two ground rules:
-
-- Read [`CLAUDE.md`](./CLAUDE.md) before opening a PR — it carries the
-  project's non-negotiable rules (no commits without explicit ask, no
-  unrequested infrastructure, surgical changes).
-- Open an issue first for anything that adds infrastructure or
-  touches the deploy story. The project is intentionally single-user
-  and the bar for scope additions is high.
-
-A `Feature / enhancement` issue template lives under
-`.github/ISSUE_TEMPLATE/`.
-
----
+Issues and PRs are welcome. memex is intentionally **single-user and small** —
+open an issue before anything that adds infrastructure or changes the deploy
+story. Please read [CLAUDE.md](./CLAUDE.md) (the repo's working rules) first.
 
 ## Security
 
-Found a vulnerability? Please **don't** open a public issue. See
-[`SECURITY.md`](./SECURITY.md) for the private disclosure channel.
-
----
+Found a vulnerability? Please don't open a public issue —
+see [SECURITY.md](./SECURITY.md) for the private disclosure channel.
 
 ## License
 
-[MIT](./LICENSE). Fork it, redeploy it, modify it, sell it — do
-whatever the MIT license permits.
-
-The project is solo-maintained. No SLA, no support contract, no
-promise that the next release won't change the deploy story. If you
-need that, fork and pin.
+[MIT](./LICENSE). Fork it, redeploy it, modify it, ship it. Solo-maintained, no
+SLA — if you need guarantees, fork and pin.

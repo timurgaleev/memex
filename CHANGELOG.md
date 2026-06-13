@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **README rewritten for newcomers + an animated architecture diagram.** The
+  landing README now leads with the human story (what memex is, why it exists,
+  how a question flows through it), embeds an animated SVG hero
+  (`docs/assets/architecture.svg`) plus two GitHub-native Mermaid diagrams
+  (architecture + a request/response sequence), and trims the prior wall of
+  text. No code or behavior change.
+
 ## [1.3.52] — 2026-06-13
 
 ### Added
