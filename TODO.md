@@ -528,9 +528,15 @@ to memex's architecture, or north-star:
   jobs (medium); rate-lease concurrency gates (high); job audit JSONL (medium).
 
 ### Enrichment (LLM-free subset)
-- [ ] Typed-NER link inference from context windows (gazetteer + pack regex)
-  (high); schema-pack link-type inference rules (high); ReDoS-guarded regex
-  for user packs (medium); completeness scoring rubrics (medium).
+- [~] Typed-NER link inference — **schema-pack (frontmatter) DONE** (v1.3.46,
+  opt-in `MEMEX_TYPED_LINKS=1`): `core/typed-links.ts` derives works_at/founded/
+  attended/located_at/advises/invested_in/knows edges from `compiled_truth`
+  fields (FIELD_MAPPINGS), resolver PRECISE-stages-only (no trgm), RESOLVED-ONLY,
+  link_kind='typed_ner' + origin_slug, single-origin invariant, DO-NOTHING yield
+  to explicit. STILL DEFERRED: prose-window NER from context (gazetteer +
+  ReDoS-guarded pack regex) (high); completeness scoring rubrics (medium); the
+  company-side `key_people`→works_at mapping + typed_ner↔explicit coexistence
+  (needs #145 link_kind UNIQUE widen).
 
 ### TODO — agent-layer (DEFERRED, north-star-gated, NOT planned)
 The agent/LLM/auth/voice half. Recorded for completeness; out of brain-only

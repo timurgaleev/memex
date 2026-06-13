@@ -41,6 +41,7 @@ import {
   type GraphQueryOptions,
 } from "../core/links.ts";
 import { syncMentionsForPage } from "../core/gazetteer.ts";
+import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -446,6 +447,15 @@ async function callPagePut(
     // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
     // edges from plain-text references to known entity pages.
     await syncMentionsForPage(storage, r.slug, body);
+    // Typed-link inference (opt-in, MEMEX_TYPED_LINKS=1) — derive works_at /
+    // founded / attended / … edges from frontmatter fields. Needs the resolved
+    // type + compiled_truth, so fetch the canonical row only when enabled.
+    if (typedLinksEnabled()) {
+      const page = await getPage(storage, r.slug);
+      if (page) {
+        await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+      }
+    }
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
   // it re-reads the current body and guards on content_hash itself.
@@ -475,6 +485,9 @@ async function callPageAppend(
     const body = fresh?.markdown_body ?? "";
     await syncWikilinksForPage(storage, r.slug, body);
     await syncMentionsForPage(storage, r.slug, body);
+    if (typedLinksEnabled() && fresh) {
+      await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth);
+    }
   }
   await reconcileFactsForPage(storage, r.slug, r.content_hash);
   return jsonResult({ ok: true, ...r });

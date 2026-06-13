@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Typed-link inference from frontmatter (opt-in, `MEMEX_TYPED_LINKS=1`).** A
+  deterministic, LLM-free schema-pack (`core/typed-links.ts`) derives TYPED
+  graph edges — `works_at`, `founded`, `attended`, `located_at`, `advises`,
+  `invested_in`, `knows` — from an entity page's `compiled_truth` frontmatter
+  fields, beyond the generic `wikilink`/`mentions` edges. A fixed
+  `FIELD_MAPPINGS` table maps a (page-type, field) pair to a relation + direction
+  (e.g. a person's `company: [Acme]` → `works_at` person→company; a meeting's
+  `attendees: [Bob]` → `attended` Bob→meeting). Field values resolve to canonical
+  slugs through the slug resolver, accepting only the PRECISE stages
+  (exact / alias / exact_tail / prefix) — the `trgm` fuzzy stage is excluded so a
+  near-name never mints a wrong factual relation — and RESOLVED-ONLY (an
+  unresolved value is skipped, never linked to a guess). Edges are stamped
+  `link_kind='typed_ner'` + `origin_slug=<declaring page>`; on re-put the page's
+  prior typed_ner edges are wiped (origin-scoped) and re-derived, and inserts
+  `DO NOTHING` on an existing (source, target, type) so an explicit edge wins.
+  Migration-free — it reuses the existing `links` table under a single-origin
+  invariant (no triple is declarable by two pages, so origin-scoped cleanup is
+  sound). DEFAULT OFF (a wrong inferred relation pollutes the graph — same
+  posture as the gazetteer); wired into the `page_put`/`page_append` path only
+  when enabled. The company-side `key_people`→`works_at` mapping and the
+  typed_ner↔explicit-link coexistence are deferred to the `link_kind`
+  UNIQUE-coexistence migration (#145). Reviewed by ai-engineer (trgm-precision
+  HIGH → fixed), code-reviewer (field-key + resolve-cap), and codex
+  (dual-origin HIGH → single-origin invariant).
+
 ## [1.3.45] — 2026-06-13
 
 ### Added
