@@ -492,9 +492,26 @@ to memex's architecture, or north-star:
   documented replacement — is used instead. Cancel verified by a unit test.
 
 ### Facts model (in-scope, larger)
-- [ ] **facts-fence markdown binding** (high) — make a `## Facts` fence the
-  system-of-record; parse/strip/render/upsert each cycle (`row_num`,
-  `source_markdown_slug`). Today facts are DB-only and reset-fragile.
+- [x] **facts-fence markdown binding** (high) — DONE (v1.3.42, migration 035).
+  The `## Facts` fence is the system of record; `core/facts-reconcile.ts`
+  parses/strips it and re-projects entity_facts on every put (scoped by
+  `source_markdown_slug`/`row_num`). See the v1.3.42 + v1.3.45 changelog.
+- [x] **Fact-text embedding** (high) — DONE (v1.3.48, migration 038). Nullable
+  `vector(1024)` `embedding` on entity_facts; `embed-facts` cycle phase
+  backfills via Bedrock Titan (falls-open, injectable). `entity_recall` gains an
+  optional `query` param that ranks the entity's facts by cosine similarity
+  (`embedding <=> queryvec`, embedded-first via NULLS LAST, confidence
+  tiebreak), falls-open to confidence order. No ANN index (per-entity exact
+  scan). security-engineer SHIP (allowlist redaction drops the column; rate
+  bucket bounds Bedrock cost) + ai-engineer + codex.
+- [x] **Fact metadata** (high) — DONE (migration 037). `entity_facts` gains 4
+  NULLABLE columns — `kind` (event/preference/commitment/belief/fact), `notability`
+  (high/medium/low), `valid_from`, `valid_until` (DATE) — carried by the `## Facts`
+  fence and projected by the reconcile pass. The fence PARSER was rewritten from
+  fixed-position to HEADER-DRIVEN column mapping (`buildColMap` + `isHeaderShaped`),
+  so a legacy 4-column fence and a wide one parse with the same code and columns
+  may be reordered. Hand-edited cells normalize to NULL when not a recognized
+  enum / strict-ISO date (`normalizeKind/Notability/Date`, round-trip calendar
 - [x] **Fact metadata** (high) — DONE (migration 037). `entity_facts` gains 4
   NULLABLE columns — `kind` (event/preference/commitment/belief/fact), `notability`
   (high/medium/low), `valid_from`, `valid_until` (DATE) — carried by the `## Facts`

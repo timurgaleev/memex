@@ -434,6 +434,10 @@ export const OPERATIONS: readonly Operation[] = [
       "One-shot 'what do I know about X?' aggregator. Returns the entity's page (compiled_truth + body) plus top-confidence facts plus most-recent timeline events in a single call. The page may be null when the entity exists only as a soft-stub (facts + timeline allowed, page not yet promoted).",
     params: {
       slug: str(req),
+      query: str({
+        description:
+          "Optional topic to focus the recalled facts on (e.g. 'funding history'). When set, the entity's facts are ranked by semantic similarity to it instead of by confidence. Falls-open: reverts to confidence order when embedding is unavailable.",
+      }),
       fact_limit: int({ minimum: 1, maximum: 200 }),
       timeline_limit: int({ minimum: 1, maximum: 200 }),
       redact_body: bool({

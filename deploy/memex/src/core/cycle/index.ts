@@ -11,6 +11,7 @@ import {
   type EmbedStaleResult,
 } from "./embed-stale.ts";
 import { extractPhase, type ExtractPhaseOptions } from "./extract.ts";
+import { embedFactsPhase, type EmbedFactsResult } from "./embed-facts.ts";
 import {
   reconcileLinksPhase,
   type ReconcileLinksResult,
@@ -36,6 +37,7 @@ import type { ExtractResult } from "../extract.ts";
 
 export type PhaseName =
   | "embed-stale"
+  | "embed-facts"
   | "extract"
   | "reconcile-links"
   | "orphans-purge"
@@ -46,6 +48,7 @@ export type PhaseName =
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "embed-stale",
+  "embed-facts",
   "extract",
   "reconcile-links",
   "orphans-purge",
@@ -74,6 +77,7 @@ export interface PhaseResult {
   durationMs: number;
   detail?:
     | EmbedStaleResult
+    | EmbedFactsResult
     | ExtractResult
     | ReconcileLinksResult
     | OrphansPurgeResult
@@ -112,8 +116,10 @@ export function deriveStatus(
   phase: PhaseName,
   detail: PhaseResult["detail"],
 ): PhaseStatus {
-  if (phase === "embed-stale" || phase === "extract") {
-    const errs = (detail as EmbedStaleResult | ExtractResult | undefined)?.errors;
+  if (phase === "embed-stale" || phase === "embed-facts" || phase === "extract") {
+    const errs = (
+      detail as EmbedStaleResult | EmbedFactsResult | ExtractResult | undefined
+    )?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
   }
   if (phase === "snapshot") {
@@ -221,6 +227,9 @@ export async function runCycleOnce(
         r = await runPhase(engine, p, () => embedStalePhase(engine, o), progress);
         break;
       }
+      case "embed-facts":
+        r = await runPhase(engine, p, () => embedFactsPhase(engine), progress);
+        break;
       case "extract": {
         const o: ExtractPhaseOptions = {};
         if (options.extractMaxDocs !== undefined) o.maxDocs = options.extractMaxDocs;

@@ -768,6 +768,14 @@ async function callEntityRecall(
   if (typeof args["slug"] !== "string")
     return errResult("entity_recall: `slug` is required");
   const opts: EntityRecallOptions = {};
+  // `query` re-orders facts by semantic similarity to caller-supplied text.
+  // INTERNAL ONLY: on the public-bearer path (redact) the fact text is stripped
+  // but stable identifiers remain, so query-driven REORDERING would be a
+  // content oracle (probe which hidden fact moves for "funding" / "health" /
+  // …) AND an unbounded per-call Bedrock cost knob. Drop it on public ingress;
+  // public recall keeps the fixed confidence order.
+  if (!redact && typeof args["query"] === "string" && args["query"].trim())
+    opts.query = args["query"];
   if (typeof args["fact_limit"] === "number")
     opts.fact_limit = args["fact_limit"];
   if (typeof args["timeline_limit"] === "number")

@@ -39,6 +39,7 @@ const DEFAULT_QUIET_END = 8;
 // every meeting's events, so it is write-heavy on a meeting-rich vault.
 const COSTLY_PHASES: ReadonlySet<PhaseName> = new Set([
   "embed-stale",
+  "embed-facts",
   "extract-timeline",
 ]);
 

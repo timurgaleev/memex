@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Fact-text embedding + semantic `entity_recall` (migration 038).** Facts can
+  now be recalled by MEANING, not just confidence. Migration 038 adds a nullable
+  `vector(1024)` `embedding` column to `entity_facts`; a new `embed-facts`
+  maintenance-cycle phase (`core/cycle/embed-facts.ts`) backfills NULL
+  embeddings via the same Bedrock Titan v2 path the chunk embeddings use. It is
+  FALLS-OPEN: a per-fact Bedrock failure is collected (the phase reports `warn`,
+  same envelope as `embed-stale`) and the row is left NULL to retry next cycle,
+  never blocking the cycle; the embedder is injectable so tests run offline. The
+  `entity_recall` MCP tool gains an optional `query` param: when set, the
+  entity's facts are ranked by cosine similarity (`embedding <=> queryvec`,
+  embedded facts first via `NULLS LAST`, then the normal confidence tiebreak)
+  instead of by confidence — answering "what do I know about Alice's *funding*?"
+  rather than just "about Alice". Embedding the query is falls-open too: a
+  Bedrock outage silently reverts to the confidence order. No ANN index —
+  `entity_recall` filters by `entity_slug` first, so an exact scan of a small
+  per-entity row set beats maintaining an index over the whole ledger. The
+  `query` param adds no new data to the public-bearer surface (the embedding is
+  never returned; facts text stays redacted as before). Reviewed by
+  security-engineer, ai-engineer, and codex.
+
 ## [1.3.47] — 2026-06-13
 
 ### Added

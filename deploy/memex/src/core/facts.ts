@@ -12,6 +12,7 @@
  * Manual facts (no source_chunk_id) bypass dedup.
  */
 import type { Storage } from "./storage.ts";
+import { embedText } from "./embedding.ts";
 import { getPage, validateSlug, type PageRow } from "./pages.ts";
 import {
   getEntityTimeline,
@@ -114,6 +115,13 @@ export interface ListFactsOptions {
   source_slug?: string;
   /** Sort by confidence DESC (default) or written_at DESC. */
   order?: "confidence" | "recency";
+  /**
+   * A pre-embedded query vector (1024-dim). When present, facts are ranked by
+   * cosine similarity to it (migration 038) — embedded facts first, ordered by
+   * distance, then unembedded facts by the normal confidence order. Overrides
+   * `order`. The caller embeds the query (entityRecall does, falls-open).
+   */
+  queryVector?: number[];
   limit?: number;
 }
 
@@ -149,10 +157,18 @@ export async function listFacts(
     params.push(opts.source_slug);
     where.push(`source_slug = $${params.length}`);
   }
-  const order =
-    opts.order === "recency"
-      ? "written_at DESC"
-      : "confidence DESC, written_at DESC";
+  // Semantic order when a query vector is supplied: rank by cosine distance,
+  // embedded facts first (NULL distance sorts last), then the normal tiebreak.
+  let order: string;
+  if (opts.queryVector && opts.queryVector.length > 0) {
+    params.push(JSON.stringify(opts.queryVector));
+    order = `embedding <=> $${params.length}::vector ASC NULLS LAST, confidence DESC, written_at DESC`;
+  } else {
+    order =
+      opts.order === "recency"
+        ? "written_at DESC"
+        : "confidence DESC, written_at DESC";
+  }
   const limit =
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
       ? Math.floor(opts.limit)
@@ -175,10 +191,22 @@ export async function listFacts(
 // entityRecall — the combined "what do I know about X?" answer.
 // ---------------------------------------------------------------------------
 
+/** Max chars of `query` embedded for semantic focus (a topic, not a document). */
+const MAX_QUERY_LEN = 512;
+
 export interface EntityRecallOptions {
   fact_limit?: number;
   timeline_limit?: number;
   redact_body?: boolean;
+  /**
+   * Optional topic to focus the recalled facts on. When set, the entity's
+   * facts are ranked by semantic similarity to it (migration 038) instead of by
+   * confidence. Falls-open: if embedding the query fails (Bedrock down), recall
+   * silently reverts to the confidence order.
+   */
+  query?: string;
+  /** Injectable embedder (tests). Defaults to the Bedrock Titan path. */
+  embed?: (text: string) => Promise<number[]>;
 }
 
 export interface EntityRecallResult {
@@ -217,9 +245,24 @@ export async function entityRecall(
     opts.timeline_limit <= 200
       ? Math.floor(opts.timeline_limit)
       : 25;
+  // Falls-open semantic focus: embed the query topic; on any failure recall
+  // reverts to the confidence order (queryVector stays undefined).
+  let queryVector: number[] | undefined;
+  if (typeof opts.query === "string" && opts.query.trim()) {
+    const embed = opts.embed ?? ((t: string) => embedText(t));
+    // Cap the embedded text to bound Bedrock cost/latency (a topic, not a doc).
+    const q = opts.query.trim().slice(0, MAX_QUERY_LEN);
+    try {
+      queryVector = await embed(q);
+    } catch {
+      queryVector = undefined;
+    }
+  }
+  const listOpts: ListFactsOptions = { limit: factLimit, order: "confidence" };
+  if (queryVector) listOpts.queryVector = queryVector;
   const [page, facts, timeline] = await Promise.all([
     getPage(storage, slug),
-    listFacts(storage, slug, { limit: factLimit, order: "confidence" }),
+    listFacts(storage, slug, listOpts),
     getEntityTimeline(storage, slug, { limit: timelineLimit }),
   ]);
   let outPage = page;
