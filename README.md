@@ -35,19 +35,9 @@ It's a second brain for you, and long-term memory for your AI.
 
 ## See it work
 
-```text
-You:    "What did I decide about the auth approach?"
-
-  your agent  -->  memex.search { q: "auth approach decision" }
-              <--  3 cited chunks from your own notes
-
-Agent:  You chose a bearer token over MCP, not OAuth -- "fewer moving
-        parts for a single-user brain."  (decided 2026-04)
-
-        Sources:
-          - decisions/auth-approach.md:12
-          - notes/mcp-security.md:31
-```
+<div align="center">
+  <img src="docs/assets/demo.svg" alt="Your agent asks 'what did I decide about the auth approach', memex.search returns 3 cited chunks from your own notes (decisions/auth-approach.md:12, notes/mcp-security.md:31), and the agent answers: you chose a bearer token over MCP, not OAuth." width="720">
+</div>
 
 memex returns the **evidence**, cited to the exact file. Your agent writes the
 answer. (The brain retrieves &mdash; it doesn't chat.)

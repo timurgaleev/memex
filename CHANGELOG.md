@@ -11,8 +11,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   diagram.** The landing README now leads with the value wedge (a private,
   self-hosted brain for any MCP agent), shows a concrete "See it work"
   input/output example, adds a tight "how it's different" comparison, and embeds
-  an animated SVG hero (`docs/assets/architecture.svg`) plus a request/response
-  Mermaid sequence diagram. Refined through CEO/positioning, developer-advocate,
+  an animated SVG hero (`docs/assets/architecture.svg`), an animated terminal
+  demo (`docs/assets/demo.svg`) in the "See it work" section, plus a
+  request/response Mermaid sequence diagram. Refined through CEO/positioning,
+  developer-advocate,
   visual-design, and technical-writer review passes. The GitHub repo description
   and topics were also corrected (the old description still advertised a removed
   Telegram bridge). No code or behavior change.
