@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640"
+     font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1224"/>
+      <stop offset="1" stop-color="#0A0F1E"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6AA9FF"/>
+      <stop offset="1" stop-color="#34D3A6"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="640" fill="url(#bg)"/>
+  <!-- soft accent glow strip top -->
+  <rect x="0" y="0" width="1280" height="6" fill="url(#accent)"/>
+
+  <g text-anchor="middle">
+    <!-- wordmark -->
+    <text x="640" y="232" fill="#F2F6FC" font-weight="800" font-size="128" letter-spacing="1">memex</text>
+    <!-- accent underline -->
+    <rect x="500" y="262" width="280" height="6" rx="3" fill="url(#accent)"/>
+
+    <!-- tagline -->
+    <text x="640" y="340" fill="#E8EEF6" font-weight="600" font-size="40">Long-term memory for your AI agent</text>
+    <text x="640" y="392" fill="#9FB6D2" font-weight="500" font-size="34">that never leaves your cloud.</text>
+  </g>
+
+  <!-- feature pills -->
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" text-anchor="middle" font-size="24" font-weight="600">
+    <g>
+      <rect x="226" y="452" width="240" height="56" rx="28" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+      <text x="346" y="488" fill="#CFE0F2">Self-hosted on AWS</text>
+    </g>
+    <g>
+      <rect x="486" y="452" width="190" height="56" rx="28" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+      <text x="581" y="488" fill="#CFE0F2">MCP-native</text>
+    </g>
+    <g>
+      <rect x="696" y="452" width="360" height="56" rx="28" fill="#16233D" stroke="#2C3D5C" stroke-width="1.5"/>
+      <text x="876" y="488" fill="#CFE0F2">vector + keyword + graph</text>
+    </g>
+  </g>
+
+  <!-- footer line -->
+  <text x="640" y="566" text-anchor="middle" fill="#6E83A1" font-size="22" font-weight="500">Open-source knowledge brain &#183; zero telemetry &#183; MIT</text>
+</svg>

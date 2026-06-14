@@ -13,7 +13,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   input/output example, adds a tight "how it's different" comparison, and embeds
   an animated SVG hero (`docs/assets/architecture.svg`), an animated terminal
   demo (`docs/assets/demo.svg`) in the "See it work" section, plus a
-  request/response Mermaid sequence diagram. Refined through CEO/positioning,
+  request/response Mermaid sequence diagram. A 1280x640 social-preview card
+  (`docs/assets/social-preview.png`, from `social-preview.svg`) is also provided
+  for the GitHub repo's Open Graph image. Refined through CEO/positioning,
   developer-advocate,
   visual-design, and technical-writer review passes. The GitHub repo description
   and topics were also corrected (the old description still advertised a removed
