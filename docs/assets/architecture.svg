@@ -21,8 +21,8 @@
   <rect x="0.5" y="0.5" width="999" height="359" rx="18" fill="none" stroke="#1E2A44" stroke-width="1"/>
 
   <!-- header (fills set as attributes so they survive even if CSS is stripped) -->
-  <text x="40" y="56" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memex</text>
-  <text x="135" y="56" fill="#8FA3BB" font-size="16">your self-hosted AI brain &#8212; notes &amp; code, searchable by any AI agent</text>
+  <text x="40" y="60" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memex</text>
+  <text x="168" y="60" fill="#8FA3BB" font-size="15">your self-hosted AI brain &#8212; notes &amp; code, searchable by any AI agent</text>
 
   <!-- connecting rail + animated flow (animation is a bonus; the static line reads fine) -->
   <line x1="120" y1="210" x2="880" y2="210" stroke="#243653" stroke-width="3"/>
@@ -30,6 +30,16 @@
         stroke-dasharray="10 14" opacity="0.85">
     <animate attributeName="stroke-dashoffset" from="48" to="0" dur="1.4s" repeatCount="indefinite"/>
   </line>
+
+  <!-- travelling pulses ride the rail; drawn BEFORE the nodes so the opaque
+       boxes occlude them, leaving the glow visible only in the gaps between
+       stages (reads as data moving down the pipeline, never over the labels). -->
+  <circle cx="350" cy="210" r="6" fill="#5BE3C0" filter="url(#glow)">
+    <animate attributeName="cx" values="120;880" dur="3.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="650" cy="210" r="5" fill="#6AA9FF" filter="url(#glow)" opacity="0.9">
+    <animate attributeName="cx" values="120;880" begin="1.6s" dur="3.2s" repeatCount="indefinite"/>
+  </circle>
 
   <!-- nodes: center x = 120, 310, 500, 690, 880 -->
   <g text-anchor="middle">
@@ -42,17 +52,17 @@
     <g fill="#E8EEF6" font-weight="700" font-size="16">
       <text x="120" y="200">Your notes</text>
       <text x="120" y="222">&amp; code</text>
-      <text x="310" y="210">Index</text>
-      <text x="500" y="210">Store</text>
+      <text x="310" y="204">Index</text>
+      <text x="500" y="204">Store</text>
       <text x="690" y="204">Hybrid search</text>
       <text x="880" y="204">Your AI agent</text>
     </g>
     <g fill="#93A7BE" font-size="12">
       <text x="120" y="248">markdown &#183; TS &#183; Python</text>
-      <text x="310" y="236">chunk + embed</text>
-      <text x="310" y="252">(Bedrock Titan)</text>
-      <text x="500" y="236">Postgres</text>
-      <text x="500" y="252">+ pgvector</text>
+      <text x="310" y="230">chunk + embed</text>
+      <text x="310" y="246">(Bedrock Titan)</text>
+      <text x="500" y="230">Postgres</text>
+      <text x="500" y="246">+ pgvector</text>
       <text x="690" y="230">vector + keyword</text>
       <text x="690" y="246">+ entity graph</text>
       <text x="880" y="230">over MCP</text>
@@ -61,21 +71,13 @@
   </g>
 
   <!-- arrowheads between nodes -->
-  <g fill="#34D3A6">
-    <path d="M211 205 l12 5 -12 5 z"/>
-    <path d="M401 205 l12 5 -12 5 z"/>
-    <path d="M591 205 l12 5 -12 5 z"/>
-    <path d="M781 205 l12 5 -12 5 z"/>
+  <g fill="none" stroke="#34D3A6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M210 203 l9 7 -9 7"/>
+    <path d="M400 203 l9 7 -9 7"/>
+    <path d="M590 203 l9 7 -9 7"/>
+    <path d="M780 203 l9 7 -9 7"/>
   </g>
 
-  <!-- travelling pulses: default cx sits ON the rail, so the static frame looks
-       intentional; the cx animation sweeps left-to-right when the viewer runs it. -->
-  <circle cx="350" cy="210" r="6" fill="#5BE3C0" filter="url(#glow)">
-    <animate attributeName="cx" values="120;880" dur="3.2s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="650" cy="210" r="5" fill="#6AA9FF" filter="url(#glow)" opacity="0.9">
-    <animate attributeName="cx" values="120;880" begin="1.6s" dur="3.2s" repeatCount="indefinite"/>
-  </circle>
-
-  <text x="40" y="320" fill="#93A7BE" font-size="13">One AWS account &#183; one EC2 &#183; MCP-only surface &#183; your data never leaves your cloud</text>
+  <line x1="40" y1="298" x2="960" y2="298" stroke="#1E2A44" stroke-width="1"/>
+  <text x="40" y="322" fill="#93A7BE" font-size="13">One AWS account &#183; one EC2 &#183; MCP-only surface &#183; your data never leaves your cloud</text>
 </svg>
