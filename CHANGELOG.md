@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.53] — 2026-06-14
+
+### Fixed
+- **Wall-of-text notes were silently dropped from the index (oversized-chunk
+  embedding 400).** The recursive markdown chunker sub-split an over-long
+  section only on blank lines, so a single unbroken paragraph -- e.g. a
+  voice-note transcript with no blank lines or newlines -- was emitted as one
+  giant chunk. When that chunk exceeded the embedding model's hard cap (Titan
+  v2: 8192 tokens / 50000 chars) Bedrock returned `400 Too many input tokens`
+  and the indexer aborted the whole document, leaving it entirely unsearchable.
+  `splitBySize` now pre-expands any paragraph over `maxChars` into
+  sentence-bounded units (then a surrogate-pair-safe hard char-slice as the
+  floor), and `chunkMarkdown` applies a final safety clamp (2x `maxChars`) after
+  `mergeShort`/`addOverlap` so no chunk handed to the embedder can ever exceed
+  the cap. Normal multi-paragraph documents are byte-identical (the new path
+  only fires for a paragraph already over `maxChars`); a document that *did*
+  contain an oversized paragraph will yield more, smaller chunks on its next
+  reindex -- an expected, content-preserving id shift for those docs only.
+
 ### Changed
 - **README rewritten for newcomers + adoption, with an animated architecture
   diagram.** The landing README now leads with the value wedge (a private,

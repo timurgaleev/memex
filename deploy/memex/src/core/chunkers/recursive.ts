@@ -154,15 +154,61 @@ function sectionsByHeading(body: string): string[] {
 }
 
 /**
+ * Hard-split a single paragraph that itself exceeds maxChars. A wall-of-text
+ * transcript (e.g. a voice-note with no blank lines or newlines) is one giant
+ * paragraph: splitting by blank line leaves it whole, so it would be emitted
+ * as a single oversized chunk that blows the embedding model's token cap and
+ * silently drops the entire document. Split on sentence boundaries first to
+ * keep units coherent, then hard-slice any remaining run that is still too
+ * long. ASCII terminators only (covers the en/de/ru corpus; keeps this source
+ * file byte-clean for the audit gate). The hard slice is the floor that
+ * guarantees every returned unit is <= maxChars regardless of punctuation.
+ */
+function splitOversizedUnit(text: string, maxChars: number): string[] {
+  // A non-positive budget would make the hard-slice loop below never advance
+  // (infinite loop). Treat it as "do not split" -- callers always pass a sane
+  // maxChars, but never hang on a config typo.
+  if (maxChars <= 0) return [text];
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const s of sentences) {
+    if (s.length <= maxChars) {
+      out.push(s);
+      continue;
+    }
+    for (let i = 0; i < s.length; ) {
+      let end = Math.min(i + maxChars, s.length);
+      // Don't slice through a UTF-16 surrogate pair (emoji etc.) -- back the
+      // cut off the high surrogate so neither piece carries a lone half-char.
+      if (end < s.length) {
+        const code = s.charCodeAt(end - 1);
+        if (code >= 0xd800 && code <= 0xdbff && end - 1 > i) end -= 1;
+      }
+      out.push(s.slice(i, end));
+      i = end;
+    }
+  }
+  return out;
+}
+
+/**
  * Sub-split a single section that exceeds maxChars by paragraph (blank-line
- * separated). Greedily packs paragraphs until the budget is reached.
+ * separated). Greedily packs paragraphs until the budget is reached. Any
+ * single paragraph that already exceeds maxChars is first expanded into
+ * sentence-/char-bounded units (see splitOversizedUnit) so no returned chunk
+ * can ever exceed maxChars.
  */
 function splitBySize(section: string, maxChars: number): string[] {
   if (section.length <= maxChars) return [section];
   const paragraphs = section.split(/\r?\n\s*\r?\n/).filter(Boolean);
+  const units: string[] = [];
+  for (const p of paragraphs) {
+    if (p.length <= maxChars) units.push(p);
+    else units.push(...splitOversizedUnit(p, maxChars));
+  }
   const out: string[] = [];
   let current = "";
-  for (const p of paragraphs) {
+  for (const p of units) {
     if (current.length === 0) {
       current = p;
       continue;
@@ -229,9 +275,23 @@ export function chunkMarkdown(
   // skip keeps a window from ever crossing a section boundary.
   const chunks = addOverlap(merged, overlapChars);
 
+  // Final safety clamp. splitBySize bounds each piece to maxChars, but the two
+  // later steps (mergeShort fold-forward, addOverlap prepend) run afterwards
+  // and can grow a chunk past it. The embedding model rejects an over-cap chunk
+  // with a 400 and the WHOLE document is dropped, so hard-bound the final
+  // output. The ceiling (2x maxChars) sits well above any normal overlapped
+  // chunk (<= 1.5x maxChars), so this only fires on pathological growth and
+  // leaves ordinary chunk ids untouched.
+  const ceiling = maxChars * 2;
+  const clamped: string[] = [];
+  for (const c of chunks) {
+    if (c.length <= ceiling) clamped.push(c);
+    else clamped.push(...splitOversizedUnit(c, maxChars));
+  }
+
   return {
     frontmatter,
     title: findFirstH1(body),
-    chunks,
+    chunks: clamped,
   };
 }

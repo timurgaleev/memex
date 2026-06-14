@@ -57,6 +57,56 @@ describe("chunkMarkdown", () => {
     }
   });
 
+  it("hard-splits a wall-of-text paragraph with no blank lines or newlines", () => {
+    // A voice-note transcript: one unbroken sentence-delimited blob, no blank
+    // lines (so paragraph splitting alone leaves it whole). Every chunk must
+    // still respect maxChars so the embedding model's token cap is never hit.
+    const sentence = "Wir besprechen die AWS Backup Strategie heute. ";
+    const blob = sentence.repeat(400); // ~19k chars, single paragraph
+    const md = `# Voice Note\n\n${blob}`;
+    const r = chunkMarkdown(md, { maxChars: 1500, minChars: 0 });
+    expect(r.chunks.length).toBeGreaterThan(1);
+    for (const c of r.chunks) {
+      expect(c.length).toBeLessThanOrEqual(1500);
+    }
+  });
+
+  it("hard-slices a single run with no sentence boundaries at all", () => {
+    // Worst case: a long run with no terminators -- the char-slice floor must
+    // still bound every chunk to maxChars.
+    const blob = "x".repeat(20000);
+    const md = `# Blob\n\n${blob}`;
+    const r = chunkMarkdown(md, { maxChars: 1500, minChars: 0 });
+    expect(r.chunks.length).toBeGreaterThan(1);
+    for (const c of r.chunks) {
+      expect(c.length).toBeLessThanOrEqual(1500);
+    }
+  });
+
+  it("keeps every chunk within the safety ceiling with overlap ON", () => {
+    // Overlap + mergeShort run after splitBySize and can regrow a chunk; the
+    // final clamp must keep the public output bounded (<= 2x maxChars) so the
+    // embedder is never handed an over-cap chunk.
+    const sentence = "Wir besprechen die AWS Backup Strategie heute. ";
+    const blob = sentence.repeat(400);
+    const md = `# Voice Note\n\n${blob}`;
+    const r = chunkMarkdown(md, { maxChars: 1500, overlapChars: 700 });
+    expect(r.chunks.length).toBeGreaterThan(1);
+    for (const c of r.chunks) {
+      expect(c.length).toBeLessThanOrEqual(3000);
+    }
+  });
+
+  it("loses no substance when hard-splitting a wall-of-text blob", () => {
+    const blob = "alpha beta gamma delta epsilon zeta ".repeat(500);
+    const md = `# Note\n\n${blob}`;
+    const r = chunkMarkdown(md, { maxChars: 1500, minChars: 0 });
+    const joined = r.chunks.join(" ").replace(/\s+/g, " ");
+    for (const tok of ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]) {
+      expect(joined).toContain(tok);
+    }
+  });
+
   it("merges chunks shorter than minChars with the next sibling", () => {
     const md = `# A\nshort\n\n## B\nshort\n\n## C\n${"x".repeat(800)}\n`;
     const r = chunkMarkdown(md, { minChars: 100 });
