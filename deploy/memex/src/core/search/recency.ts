@@ -151,6 +151,10 @@ export function resolveRecencyConfig(
   fallback: RecencyOptions = DEFAULT_RECENCY_FALLBACK,
 ): RecencyOptions {
   if (!path) return fallback;
+  // Page-derived mirror documents are keyed `page://<slug>` — strip the
+  // scheme so the slug matches the same prefix decay as its file twin
+  // (e.g. `page://people/x` decays like `people/x`, not the flat fallback).
+  if (path.startsWith("page://")) path = path.slice("page://".length);
   let best: { prefix: string; cfg: RecencyOptions } | null = null;
   for (const [prefix, cfg] of Object.entries(map)) {
     if (

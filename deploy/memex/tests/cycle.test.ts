@@ -179,14 +179,15 @@ describe("extract phase", () => {
 });
 
 describe("runCycleOnce orchestrator", () => {
-  it("runs all 9 phases by default; one phase failing doesn't stop others", async () => {
+  it("runs all 10 phases by default; one phase failing doesn't stop others", async () => {
     await seed();
     const e = storage.engine();
     // staleDays huge so embed-stale finds nothing — fastest cheap pass
     const r = await runCycleOnce(e, { staleDays: 99999 });
-    expect(r.phases.length).toBe(9);
+    expect(r.phases.length).toBe(10);
     expect(r.phases.map((p) => p.phase)).toEqual([
       "embed-stale",
+      "mirror-pages",
       "embed-facts",
       "extract",
       "reconcile-links",

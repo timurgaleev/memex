@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Pages written via `page_put`/`page_append` are now searchable.** Until now
+  the DB-canonical page store and the search index (`documents`/`chunks`/
+  `embeddings`) were two disconnected lineages: a page written through the MCP
+  write tools landed in `pages` but was invisible to `search`, which only reads
+  file-indexed documents. A new bridge (`core/page-index.ts`) mirrors a page's
+  body into the search store on every changed write by routing it through the
+  same `indexDocument` pipeline the file sweep uses, keyed by a reserved
+  `page://<slug>` source_path. The mirror is best-effort — the canonical page
+  write is the source of truth and commits first; an embed failure is logged
+  and surfaced as `search_indexed:false` rather than failing the write.
+  `page_delete` drops the mirror. A new cycle phase, **`mirror-pages`**,
+  reconciles the two stores: it re-mirrors any page whose mirror is missing
+  (a write-time embed failed) or stale (`page_content_hash` drift) and drops
+  orphan mirrors whose page was deleted. Page-derived hits are filtered out of
+  PUBLIC search entirely (a page slug/title is author-written PII and `page_put`
+  is internal-only); internal callers still receive them. Per-prefix recency
+  decay now strips the `page://` scheme so a page decays like its slug twin.
+
 ## [1.3.53] — 2026-06-14
 
 ### Fixed

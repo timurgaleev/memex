@@ -56,6 +56,20 @@ beforeAll(async () => {
         score: 0.99,
         intent: "topic",
       },
+      // A page-derived mirror hit: its slug (`page://people/jane`) is
+      // author-written PII and must be dropped from PUBLIC search entirely,
+      // while internal callers still receive it.
+      {
+        chunkId: "page-chunk-1",
+        documentId: "doc-page-1",
+        sourcePath: "page://people/jane",
+        title: "Jane Doe",
+        kind: "markdown",
+        rank: 2,
+        content: SECRET,
+        score: 0.88,
+        intent: "topic",
+      },
     ],
   }));
   ({ dispatchTool } = await import("../src/mcp/dispatch.ts"));
@@ -92,11 +106,44 @@ describe("dispatchTool search redaction", () => {
       { isPublic: true },
     );
     const out = payload(res);
+    // The page-mirror hit is filtered out → only the vault hit remains.
     expect(out.hits.length).toBe(1);
     expect(out.hits[0]).not.toHaveProperty("content");
     expect(out.hits[0]).not.toHaveProperty("snippet");
     expect(out.hits[0]).not.toHaveProperty("intent");
     expectNoLeak(res);
+  });
+
+  it("public ingress drops page-mirror hits entirely (slug is PII)", async () => {
+    const out = payload(
+      await dispatchTool(
+        storage,
+        { name: "search", arguments: { q: "revenue" } },
+        { isPublic: true },
+      ),
+    );
+    expect(
+      out.hits.some(
+        (h: { sourcePath?: string }) =>
+          typeof h.sourcePath === "string" && h.sourcePath.startsWith("page://"),
+      ),
+    ).toBe(false);
+  });
+
+  it("internal ingress retains page-mirror hits", async () => {
+    const out = payload(
+      await dispatchTool(
+        storage,
+        { name: "search", arguments: { q: "revenue" } },
+        { isPublic: false },
+      ),
+    );
+    expect(out.hits.length).toBe(2);
+    expect(
+      out.hits.some(
+        (h: { sourcePath?: string }) => h.sourcePath === "page://people/jane",
+      ),
+    ).toBe(true);
   });
 
   it("public ingress preserves allowlisted hit metadata", async () => {

@@ -33,10 +33,15 @@ import {
   type MeetingTimelineResult,
 } from "../timeline-meetings.ts";
 import { snapshotPhase, type SnapshotResult } from "./snapshot.ts";
+import {
+  mirrorPagesPhase,
+  type MirrorPagesResult,
+} from "./mirror-pages.ts";
 import type { ExtractResult } from "../extract.ts";
 
 export type PhaseName =
   | "embed-stale"
+  | "mirror-pages"
   | "embed-facts"
   | "extract"
   | "reconcile-links"
@@ -48,6 +53,7 @@ export type PhaseName =
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "embed-stale",
+  "mirror-pages",
   "embed-facts",
   "extract",
   "reconcile-links",
@@ -84,6 +90,7 @@ export interface PhaseResult {
     | FrontmatterInferenceResult
     | RecomputeSalienceResult
     | MeetingTimelineResult
+    | MirrorPagesResult
     | SnapshotResult;
   error?: string;
 }
@@ -116,9 +123,19 @@ export function deriveStatus(
   phase: PhaseName,
   detail: PhaseResult["detail"],
 ): PhaseStatus {
-  if (phase === "embed-stale" || phase === "embed-facts" || phase === "extract") {
+  if (
+    phase === "embed-stale" ||
+    phase === "embed-facts" ||
+    phase === "extract" ||
+    phase === "mirror-pages"
+  ) {
     const errs = (
-      detail as EmbedStaleResult | EmbedFactsResult | ExtractResult | undefined
+      detail as
+        | EmbedStaleResult
+        | EmbedFactsResult
+        | ExtractResult
+        | MirrorPagesResult
+        | undefined
     )?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
   }
@@ -225,6 +242,24 @@ export async function runCycleOnce(
         if (options.embedMaxPerCycle !== undefined)
           o.maxPerCycle = options.embedMaxPerCycle;
         r = await runPhase(engine, p, () => embedStalePhase(engine, o), progress);
+        break;
+      }
+      case "mirror-pages": {
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? mirrorPagesPhase(storage)
+              : Promise.resolve<MirrorPagesResult>({
+                  scanned: 0,
+                  mirrored: 0,
+                  removed: 0,
+                  errors: [],
+                }),
+          progress,
+        );
         break;
       }
       case "embed-facts":

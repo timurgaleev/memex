@@ -43,6 +43,11 @@ import {
 import { syncMentionsForPage } from "../core/gazetteer.ts";
 import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts";
 import {
+  indexPageIntoSearch,
+  removePageFromSearch,
+  isPageSourcePath,
+} from "../core/page-index.ts";
+import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
 } from "../core/facts-reconcile.ts";
@@ -274,9 +279,24 @@ async function callSearch(
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
   const hits = await hybridSearch(storage, q, searchOpts);
-  const out = redact
-    ? redactBodies(hits as unknown as Record<string, unknown>[])
+  // Public ingress: drop page-derived mirror hits entirely. A page slug
+  // (`page://people/<name>`) and title are author-written identifiers — the
+  // exact PII the redaction layer suppresses — and search is a free-text
+  // enumeration surface. page_put is internal-only; its content stays
+  // internal-only in search too. Internal callers (no redaction) still get
+  // page hits. Flip this if public page discovery is ever wanted.
+  const visible = redact
+    ? (hits as unknown as Record<string, unknown>[]).filter(
+        (h) =>
+          !(
+            typeof h["sourcePath"] === "string" &&
+            isPageSourcePath(h["sourcePath"])
+          ),
+      )
     : hits;
+  const out = redact
+    ? redactBodies(visible as unknown as Record<string, unknown>[])
+    : visible;
   return jsonResult({ ok: true, hits: out });
 }
 
@@ -441,26 +461,64 @@ async function callPagePut(
   const input = asPageInput(args);
   if (typeof input === "string") return errResult(input);
   const r = await putPage(storage, input);
+  let searchIndexed: boolean | undefined;
   if (r.changed) {
-    const body = input.markdown_body ?? "";
+    // Fetch the canonical row once: an omitted-title/-body re-put preserves
+    // the stored values, so `input` alone may not reflect what's searchable.
+    const page = await getPage(storage, r.slug);
+    const body = page?.markdown_body ?? input.markdown_body ?? "";
     await syncWikilinksForPage(storage, r.slug, body);
     // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
     // edges from plain-text references to known entity pages.
     await syncMentionsForPage(storage, r.slug, body);
     // Typed-link inference (opt-in, MEMEX_TYPED_LINKS=1) — derive works_at /
-    // founded / attended / … edges from frontmatter fields. Needs the resolved
-    // type + compiled_truth, so fetch the canonical row only when enabled.
-    if (typedLinksEnabled()) {
-      const page = await getPage(storage, r.slug);
-      if (page) {
-        await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
-      }
+    // founded / attended / … edges from frontmatter fields.
+    if (typedLinksEnabled() && page) {
+      await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+    }
+    // Mirror the page body into the search store so a page written via
+    // page_put is findable. Best-effort: the canonical page write already
+    // committed and is the source of truth — an embed failure must not fail
+    // the write. The cycle backstop reconciles unindexed pages later.
+    if (page) {
+      searchIndexed = await mirrorPageToSearch(storage, page);
     }
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
   // it re-reads the current body and guards on content_hash itself.
   await reconcileFactsForPage(storage, r.slug, r.content_hash);
-  return jsonResult({ ok: true, ...r });
+  return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
+}
+
+/**
+ * Best-effort mirror of a page into the search store. Returns whether the
+ * mirror succeeded. Never throws — the DB-canonical page is the source of
+ * truth; search is a derived projection the cycle can rebuild.
+ */
+async function mirrorPageToSearch(
+  storage: Storage,
+  page: {
+    slug: string;
+    title: string | null;
+    markdown_body: string;
+    content_hash?: string;
+  },
+): Promise<boolean> {
+  try {
+    await indexPageIntoSearch(storage, {
+      slug: page.slug,
+      title: page.title,
+      markdown_body: page.markdown_body,
+      ...(page.content_hash ? { content_hash: page.content_hash } : {}),
+    });
+    return true;
+  } catch (e) {
+    console.error(
+      `[page-index] failed to mirror page ${page.slug} into search:`,
+      e instanceof Error ? e.message : e,
+    );
+    return false;
+  }
 }
 
 async function callPageAppend(
@@ -480,6 +538,7 @@ async function callPageAppend(
       ? { written_by: args["written_by"] }
       : {}),
   });
+  let searchIndexed: boolean | undefined;
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
     const body = fresh?.markdown_body ?? "";
@@ -488,9 +547,10 @@ async function callPageAppend(
     if (typedLinksEnabled() && fresh) {
       await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth);
     }
+    if (fresh) searchIndexed = await mirrorPageToSearch(storage, fresh);
   }
   await reconcileFactsForPage(storage, r.slug, r.content_hash);
-  return jsonResult({ ok: true, ...r });
+  return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
 }
 
 async function callPageDelete(
@@ -507,6 +567,16 @@ async function callPageDelete(
   // (NULL source_markdown_slug) facts are left intact.
   if (!r.already_deleted) {
     await purgeFenceFactsForPage(storage, args["slug"]);
+    // Drop the page's search mirror so a deleted page stops appearing in
+    // search hits. Best-effort — the soft-delete already succeeded.
+    try {
+      await removePageFromSearch(storage, args["slug"]);
+    } catch (e) {
+      console.error(
+        `[page-index] failed to drop search mirror for ${args["slug"]}:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
   return jsonResult({ ok: true, ...r });
 }

@@ -17,6 +17,7 @@ import { chunkMarkdown } from "./chunkers/index.ts";
 import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
 import { extractEntities } from "./entities.ts";
+import { bumpDocumentClock } from "./generation.ts";
 import type { Storage } from "./storage.ts";
 import {
   writeDocumentTransaction,
@@ -26,6 +27,12 @@ import {
 
 export type IndexResult = IndexTxResult;
 
+/** Embed one chunk into a vector. Injectable so tests embed offline. */
+export type EmbedFn = (
+  text: string,
+  opts: { modelId: string },
+) => Promise<number[]>;
+
 export interface IndexFileOptions {
   /** Override the source_path stored in the row (defaults to absolute path). */
   sourcePath?: string;
@@ -33,6 +40,12 @@ export interface IndexFileOptions {
   chunker?: { maxChars?: number; minChars?: number };
   /** Override embedding model id (e.g. for tests). */
   embeddingModel?: string;
+  /**
+   * Override the embedder. Defaults to the real Titan `embedText`; tests
+   * inject a deterministic embedder to stay offline (same seam pattern as
+   * hybrid search's `embedQuery`).
+   */
+  embedFn?: EmbedFn;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -52,6 +65,12 @@ export interface IndexInput {
   text: string;
   /** Optional file mtime in ms — recorded so the sweep can skip unchanged files. */
   mtimeMs?: number;
+  /**
+   * Extra document-level metadata merged OVER the body's parsed frontmatter
+   * (these keys win). Used by the page bridge to stamp `page_content_hash`
+   * so the cycle can detect a stale mirror.
+   */
+  extraFrontmatter?: Record<string, unknown>;
 }
 
 /**
@@ -77,18 +96,23 @@ export async function indexDocument(
   const parsed = chunkMarkdown(stripFactsFence(input.text), opts.chunker);
   const id = docId(input.sourcePath);
   const model = opts.embeddingModel ?? EMBED_MODEL;
+  const embed = opts.embedFn ?? embedText;
 
   // Embed BEFORE we touch the DB — if Bedrock fails, we don't half-write.
   const vectors: number[][] = [];
   for (const chunk of parsed.chunks) {
-    vectors.push(await embedText(chunk, { modelId: model }));
+    vectors.push(await embed(chunk, { modelId: model }));
   }
+
+  const frontmatter = input.extraFrontmatter
+    ? { ...parsed.frontmatter, ...input.extraFrontmatter }
+    : parsed.frontmatter;
 
   const chunkWrites: ChunkWrite[] = parsed.chunks.map((text, i) => {
     // Frontmatter tags only attach to chunk 0 — they're document-level signals,
     // not chunk-level. Body wikilinks/hashtags/dates attach to the chunk they
     // appear in.
-    const fm = i === 0 ? parsed.frontmatter : {};
+    const fm = i === 0 ? frontmatter : {};
     return {
       text,
       embedding: vectors[i] ?? null,
@@ -102,7 +126,7 @@ export async function indexDocument(
       documentId: id,
       sourcePath: input.sourcePath,
       title: parsed.title,
-      frontmatter: parsed.frontmatter,
+      frontmatter,
       mtimeMs: input.mtimeMs ?? null,
       embeddingModel: model,
     },
@@ -161,4 +185,29 @@ export async function indexFile(
     },
     opts,
   );
+}
+
+/**
+ * Remove a document (and, via ON DELETE CASCADE, its chunks + embeddings +
+ * entity_mentions) by its source_path. Idempotent — deleting an absent
+ * document is a no-op. Returns whether a row was removed. Bumps the
+ * generation clock so the query cache invalidates.
+ */
+export async function removeDocument(
+  storage: Storage,
+  sourcePath: string,
+): Promise<{ removed: boolean }> {
+  if (!sourcePath) throw new Error("removeDocument: sourcePath is required");
+  const id = docId(sourcePath);
+  const engine = storage.raw();
+  let removed = false;
+  await engine.transaction(async (tx) => {
+    const r = await tx.query<{ id: string }>(
+      "DELETE FROM documents WHERE id = $1 RETURNING id",
+      [id],
+    );
+    removed = r.rows.length > 0;
+    if (removed) await bumpDocumentClock(tx);
+  });
+  return { removed };
 }
