@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.55] — 2026-06-22
+
+### Fixed
+- **Page-mirror cycle phase no longer burns Bedrock during quiet hours.** The
+  new `mirror-pages` phase re-embeds stale/missing page mirrors, so it belongs
+  with the other Bedrock-heavy phases that are skipped during the quiet-hours
+  window — it is now in `COSTLY_PHASES` alongside `embed-stale`/`embed-facts`.
+- **Backstop now detects a stale mirror after a title-only edit.**
+  `pages.content_hash` is body-only, so a `page_put` that changes only the
+  title left the body hash unchanged and the `mirror-pages` backstop could not
+  tell the mirror was stale if the write-time embed failed. The mirror now also
+  stamps `page_title`, and the reconcile query re-mirrors when either the body
+  hash or the title drifts.
+
 ## [1.3.54] — 2026-06-21
 
 ### Added

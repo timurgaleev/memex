@@ -77,8 +77,17 @@ export async function indexPageIntoSearch(
     {
       sourcePath: pageSourcePath(page.slug),
       text,
+      // Stamp the body hash AND the title: `pages.content_hash` is body-only,
+      // so a title-only edit leaves it unchanged. Stamping the title too lets
+      // the backstop detect a stale mirror after a title-only edit whose
+      // write-time embed failed.
       ...(page.content_hash
-        ? { extraFrontmatter: { page_content_hash: page.content_hash } }
+        ? {
+            extraFrontmatter: {
+              page_content_hash: page.content_hash,
+              page_title: page.title ?? "",
+            },
+          }
         : {}),
     },
     indexOpts,
@@ -134,7 +143,8 @@ export async function reconcilePageMirrors(
        LEFT JOIN documents d ON d.source_path = 'page://' || p.slug
       WHERE p.deleted_at IS NULL
         AND (d.id IS NULL
-             OR COALESCE(d.frontmatter->>'page_content_hash', '') <> p.content_hash)
+             OR COALESCE(d.frontmatter->>'page_content_hash', '') <> p.content_hash
+             OR COALESCE(d.frontmatter->>'page_title', '') <> COALESCE(p.title, ''))
       ORDER BY p.updated_at DESC
       LIMIT $1`,
     [limit],

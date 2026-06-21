@@ -236,6 +236,36 @@ describe("reconcilePageMirrors backstop", () => {
     expect(await docIdForSlug(slug)).toBeNull();
   });
 
+  it("re-mirrors after a title-only edit (body hash unchanged)", async () => {
+    const slug = "notes/title-only-edit";
+    const body = "constantbody zonkforty unchanged across edits";
+    const r1 = await putPage(storage, {
+      slug,
+      type: "note",
+      title: "Old Title",
+      markdown_body: body,
+    });
+    await indexPageIntoSearch(
+      storage,
+      { slug, title: "Old Title", markdown_body: body, content_hash: r1.content_hash },
+      { embedFn },
+    );
+    // Change ONLY the title — body (and thus content_hash) is identical.
+    await putPage(storage, {
+      slug,
+      type: "note",
+      title: "New Title Quibblezap",
+      markdown_body: body,
+    });
+
+    const res = await reconcilePageMirrors(storage, { embedFn });
+    expect(res.mirrored).toBeGreaterThanOrEqual(1);
+
+    const docId = await docIdForSlug(slug);
+    const hits = await keywordSearch(storage.engine(), "quibblezap", 10);
+    expect(hits.some((id) => id.startsWith(docId!))).toBe(true);
+  });
+
   it("a fully reconciled corpus is a no-op (no missing/stale/orphan)", async () => {
     // Reconcile twice; the second pass should mirror nothing new.
     await reconcilePageMirrors(storage, { embedFn });
