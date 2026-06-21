@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.54] — 2026-06-21
+
 ### Added
 - **Pages written via `page_put`/`page_append` are now searchable.** Until now
   the DB-canonical page store and the search index (`documents`/`chunks`/
