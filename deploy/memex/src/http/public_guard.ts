@@ -81,6 +81,22 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "unlink",
   "add_fact",
   "add_timeline_event",
+  "add_tag",
+  "remove_tag",
+  // get_chunks returns raw chunk CONTENT — the public ingress redacts content
+  // everywhere else, so it must be internal-only (a read, but a content read).
+  "get_chunks",
+  // get_tags returns author-authored tag labels (can encode private terms, e.g.
+  // a client name) — a new free-text class on the public path; internal-only,
+  // consistent with the privacy-max redaction posture.
+  "get_tags",
+  // resolve_slugs + relational_recall surface PAGE slugs (people/<name>,
+  // companies/<name>) — exactly the author-written identifiers the public search
+  // path deliberately suppresses (page:// hits are filtered on public ingress).
+  // Internal-only so they can't re-expose / enumerate the private slug + typed
+  // relationship graph through the public bearer.
+  "resolve_slugs",
+  "relational_recall",
   "jobs_submit",
   "jobs_cancel",
 ]);

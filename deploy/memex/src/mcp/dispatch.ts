@@ -51,6 +51,10 @@ import {
   removePageFromSearch,
   isPageSourcePath,
 } from "../core/page-index.ts";
+import { getChunksForPage, getChunksForSource } from "../core/chunks-read.ts";
+import { resolveSlugs } from "../core/slug-resolve.ts";
+import { addTag, removeTag, getTags } from "../core/tags.ts";
+import { relationalRecall } from "../core/search/relational-recall.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -185,6 +189,18 @@ export async function dispatchTool(
         return await callGraphQuery(storage, args, redactGraph);
       case "traverse_graph":
         return await callTraverseGraph(storage, args);
+      case "get_chunks":
+        return await callGetChunks(storage, args);
+      case "resolve_slugs":
+        return await callResolveSlugs(storage, args);
+      case "add_tag":
+        return await callAddTag(storage, args);
+      case "remove_tag":
+        return await callRemoveTag(storage, args);
+      case "get_tags":
+        return await callGetTags(storage, args);
+      case "relational_recall":
+        return await callRelationalRecall(storage, args);
       case "add_fact":
         return await callAddFact(storage, args);
       case "add_timeline_event":
@@ -823,6 +839,83 @@ async function callTraverseGraph(
       `traverse_graph: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+}
+
+async function callGetChunks(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const hasSlug = typeof args["slug"] === "string" && args["slug"].length > 0;
+  const hasSrc =
+    typeof args["source_path"] === "string" && args["source_path"].length > 0;
+  if (!hasSlug && !hasSrc) {
+    return errResult("get_chunks: provide `slug` or `source_path`");
+  }
+  const chunks = hasSlug
+    ? await getChunksForPage(storage, args["slug"] as string)
+    : await getChunksForSource(storage, args["source_path"] as string);
+  return jsonResult({ ok: true, chunks });
+}
+
+async function callResolveSlugs(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["query"] !== "string" || args["query"].length === 0) {
+    return errResult("resolve_slugs: `query` is required");
+  }
+  const opts: Parameters<typeof resolveSlugs>[2] = {};
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  // Only slugs/titles/scores returned — already public via page_get/search.
+  const hits = await resolveSlugs(storage, args["query"], opts);
+  return jsonResult({ ok: true, query: args["query"], hits });
+}
+
+async function callAddTag(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") return errResult("add_tag: `slug` is required");
+  if (typeof args["tag"] !== "string") return errResult("add_tag: `tag` is required");
+  try {
+    await addTag(storage, args["slug"], args["tag"]);
+    return jsonResult({ ok: true, slug: args["slug"], tag: args["tag"] });
+  } catch (e) {
+    return errResult(`add_tag: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function callRemoveTag(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") return errResult("remove_tag: `slug` is required");
+  if (typeof args["tag"] !== "string") return errResult("remove_tag: `tag` is required");
+  await removeTag(storage, args["slug"], args["tag"]);
+  return jsonResult({ ok: true, slug: args["slug"], tag: args["tag"] });
+}
+
+async function callGetTags(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") return errResult("get_tags: `slug` is required");
+  const tags = await getTags(storage, args["slug"]);
+  return jsonResult({ ok: true, slug: args["slug"], tags });
+}
+
+async function callRelationalRecall(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["query"] !== "string" || args["query"].length === 0) {
+    return errResult("relational_recall: `query` is required");
+  }
+  const opts: Parameters<typeof relationalRecall>[2] = {};
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (typeof args["depth"] === "number") opts.depth = args["depth"];
+  const hits = await relationalRecall(storage, args["query"], opts);
+  return jsonResult({ ok: true, query: args["query"], hits });
 }
 
 // ---------------------------------------------------------------------------

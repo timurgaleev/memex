@@ -56,10 +56,14 @@ slug-canonicalization (mig033) wired; autocut deliberately rejected (return-poli
 | 1 | **page_restore** | undelete a soft-deleted page. | S | **DONE v1.7.0** |
 | 2 | **page_revert** | roll a page body back to a `page_versions` snapshot. | M | **DONE v1.7.0** |
 | 3 | traverse_graph | recursive N-hop graph walk (depth-capped CTE); memex `graph_query`/`graph_neighbors` are 1-hop only. | M | **DONE v1.8.0** |
-| 4 | relational-recall arm | 4th RRF arm: NL relational query → seed entity → typed-edge fan-out → ranked candidates. | L | TODO |
-| 5 | resolve_slugs | fuzzy partial-string → canonical slugs (link/type-ahead foundation). | S | TODO |
-| 6 | get_chunks | return a page's ordered content chunks (citation/re-embed access). | S | TODO |
-| 7 | tag ops (add/remove/get_tag) | mutate/read the dormant `tags` table (mig023) as a first-class axis. LOW value (frontmatter already covers most). | S | TODO (low) |
+| 4 | relational_recall | deterministic relational query → seed entity → typed-edge fan-out (standalone tool, NOT wired into hybrid hot path). | L | **DONE v1.9.0** |
+| 5 | resolve_slugs | fuzzy partial-string → canonical slugs (pg_trgm). | S | **DONE v1.9.0** |
+| 6 | get_chunks | return a page's/document's ordered content chunks. | S | **DONE v1.9.0** |
+| 7 | tag ops (add/remove/get_tags) | first-class page tags over the `tags` table. | S | **DONE v1.9.0** |
+
+**PARITY COMPLETE** — all identified deterministic, brain-internal, valuable gaps
+vs the reference are closed. Remaining reference surface is MOOT/out-of-scope
+(see lists above: LLM/agent, embedding-dim provider conflict, scale-out, etc.).
 
 ## State
 - 7 releases this session: v1.3.54, v1.3.55, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1.

@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-06-22
+
+### Added
+- **Six new MCP tools closing the remaining reference-parity gaps** (drafted in
+  parallel via a dynamic workflow, integrated + reviewed serially):
+  - **`get_chunks`** (read) — return a page's (`slug` → its `page://<slug>`
+    mirror) or a document's (`source_path`) content chunks, ordered.
+  - **`resolve_slugs`** (read) — fuzzy-resolve a partial/informal string to
+    canonical page slugs (exact-slug → score 1, else pg_trgm `similarity()` over
+    title + slug, soft-deleted excluded). `core/slug-resolve.ts`.
+  - **`add_tag` / `remove_tag` / `get_tags`** — first-class page tags over the
+    previously-dormant `tags` table (normalized, idempotent, page-existence
+    checked). add/remove are internal-only writes; `get_tags` is a read.
+    `core/tags.ts`.
+  - **`relational_recall`** (read) — deterministic relational query: parses a
+    relationship question, resolves the seed entity, fans out typed edges — no
+    LLM. Standalone (does not touch the hybrid search hot path).
+    `core/search/relational-recall.ts`.
+  Completes the PARITY.md gap list (#4–#7). 34 MCP tools total.
+
+## [1.8.0] — 2026-06-22
+
 ### Added
 - **`traverse_graph` — recursive N-hop graph walk.** memex's `graph_neighbors`
   and `graph_query` were single-hop only; multi-hop questions ("everyone within

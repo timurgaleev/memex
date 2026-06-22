@@ -526,4 +526,56 @@ export const OPERATIONS: readonly Operation[] = [
       "Compact log view of a job: status, retries, last_error, children count + status breakdown, unread inbox count. Designed to fit in a single chat reply.",
     params: { id: str(req) },
   },
+  {
+    name: "get_chunks",
+    description:
+      "Return a page's (or document's) content chunks in order. Pass `slug` (resolved through the page's page://<slug> search mirror) or `source_path` (a raw document). At least one is required; chunks come back ordered by chunk_index.",
+    params: {
+      slug: str(),
+      source_path: str(),
+    },
+  },
+  {
+    name: "resolve_slugs",
+    description:
+      "Fuzzy-resolve a partial/informal string to canonical page slugs, ranked best-first (exact live-slug → score 1; else pg_trgm similarity over title + slug, soft-deleted excluded). Returns [{slug, title, score}].",
+    params: {
+      query: str(req),
+      limit: int({ minimum: 1, maximum: 100 }),
+    },
+  },
+  {
+    name: "add_tag",
+    description:
+      "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — internal/MCP-stdio only.",
+    params: {
+      slug: str(req),
+      tag: str(req),
+    },
+  },
+  {
+    name: "remove_tag",
+    description:
+      "Remove a tag from a page. Idempotent (removing an absent tag is a no-op). WRITE — internal/MCP-stdio only.",
+    params: {
+      slug: str(req),
+      tag: str(req),
+    },
+  },
+  {
+    name: "get_tags",
+    description:
+      "List a page's tags in lexical order. Empty list for an unknown or untagged page.",
+    params: { slug: str(req) },
+  },
+  {
+    name: "relational_recall",
+    description:
+      "Deterministic relational query — resolves a seed entity from a natural-language relationship question ('who does alice report to?', 'who works at acme', 'how is alice connected to bob') and fans out typed edges. Returns [{slug, relation, depth}]. No LLM.",
+    params: {
+      query: str(req),
+      limit: int({ minimum: 1, maximum: 200 }),
+      depth: int({ minimum: 1, maximum: 6 }),
+    },
+  },
 ];

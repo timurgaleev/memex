@@ -1,0 +1,361 @@
+/**
+ * Relational recall — a deterministic relational-query arm (LLM-free).
+ *
+ * Some questions are answered by an EDGE between entities, not by a passage:
+ * "who founded acme", "where does alice work", "what connects bob and carol".
+ * Lexical / vector search surfaces those poorly because the answer lives in the
+ * typed-link graph, not in any single chunk. This module turns such a query
+ * into edge-derived candidate slugs by:
+ *
+ *   1. parsing a relational intent + extracting the seed entity + relation
+ *      (regex/keyword only — see {@link parseRelationalQuery}, NO LLM);
+ *   2. resolving the seed phrase to a real page slug via the same 4-stage
+ *      canonicalizer the wikilink scanner uses ({@link makeSlugResolver});
+ *   3. fanning out the matched typed edges over the `links` table
+ *      ({@link graphNeighbors} for depth 1, {@link traverseGraph} for the
+ *      type-agnostic `connects` walk).
+ *
+ * Determinism + safety. Detection parses the ORIGINAL query (never an
+ * LLM-expanded variant). Seed resolution is gated: a phrase that only
+ * slugify-falls-back (no real page) is dropped, so the arm never traverses
+ * from an invented slug. Fail-OPEN: any error returns an empty list — this is
+ * a standalone, additive MCP read tool (`relational_recall`), wired OUTSIDE
+ * the hybridSearch hot path, so a fault here can never break search.
+ *
+ * Scope (v1, deliberate). Single-source, single-seed for the typed archetypes;
+ * `connects` resolves two seeds and intersects their reachable sets. memex has
+ * no `introduced`/`knows`-style edge for "who introduced me to X", so that
+ * archetype walks type-agnostically (any edge touching the seed is the signal).
+ *
+ * Tested in tests/relational_recall.test.ts.
+ */
+import type { Storage } from "../storage.ts";
+import { KNOWN_LINK_TYPES, graphNeighbors, traverseGraph } from "../links.ts";
+import { makeSlugResolver } from "../slug-canonicalize.ts";
+
+export type RelationalKind = "who_rel" | "who_at" | "connects" | "intro";
+export type RelationalDirection = "outbound" | "inbound" | "both";
+
+export interface RelationalQuery {
+  /** Which archetype matched. */
+  kind: RelationalKind;
+  /** Raw entity phrases to resolve, in query order. 1 for most, 2 for connects. */
+  seeds: string[];
+  /** Typed edges to traverse, or null for a type-agnostic walk. */
+  linkTypes: string[] | null;
+  /** Traversal direction from the seed over the link graph. */
+  direction: RelationalDirection;
+  /** The matched relation phrase, for telemetry / debugging. */
+  relationPhrase: string;
+}
+
+export interface RelationalRecallResult {
+  /** A page slug reachable from the seed over the matched relation. */
+  slug: string;
+  /** The link type that surfaced this slug, or "connects" for the walk. */
+  relation: string;
+  /** Hop distance from the seed (1 for the typed single-hop archetypes). */
+  depth: number;
+}
+
+export interface RelationalRecallOptions {
+  /** Max candidates returned (1..200). Default 20. */
+  limit?: number;
+  /** Max hops for the type-agnostic `connects`/`intro` walk (1..6). Default 3. */
+  depth?: number;
+  /** Receives the parsed intent + outcome for telemetry. Never throws upstream. */
+  onMeta?: (meta: RelationalRecallMeta) => void;
+}
+
+export interface RelationalRecallMeta {
+  /** True when the parse matched AND at least one candidate was found. */
+  fired: boolean;
+  /** The matched archetype, or null when the query isn't relational. */
+  kind: RelationalKind | null;
+  /** How many seeds resolved to a real page. */
+  seeds_resolved: number;
+  /** Candidate slugs returned. */
+  candidates: number;
+  /** True when fanout threw and the arm failed open. */
+  errored: boolean;
+}
+
+// Bounded lazy seed capture: 1–80 chars, so the trailing anchor — not
+// backtracking — decides the boundary (no catastrophic-backtracking surface).
+const SEED = "(.{1,80}?)";
+
+// Pronouns / generic nouns are never entities — reject a parse that cleans
+// down to one of these (precision-first).
+const STOPWORD_SEEDS: ReadonlySet<string> = new Set([
+  "it", "that", "this", "them", "these", "those", "here", "there",
+  "everyone", "anyone", "someone", "anybody", "somebody", "people",
+  "things", "us", "me", "him", "her", "you", "who", "what", "which",
+]);
+
+interface CompiledPattern {
+  re: RegExp;
+  kind: RelationalKind;
+  linkTypes: string[] | null;
+  direction: RelationalDirection;
+  seedGroups: 1 | 2;
+}
+
+// "who <verb> <seed>" — traverse INBOUND to the seed (the people who did the
+// verb point AT the seed). Every emitted link type is in memex's
+// KNOWN_LINK_TYPES so a relation phrase can never name an edge ingest can't
+// produce; `assertKnown` enforces that at module load.
+const WHO_REL_VERBS: Array<{
+  verb: string;
+  linkTypes: string[];
+  direction: RelationalDirection;
+}> = [
+  { verb: "invested in|invests in|funded|backed|backs", linkTypes: ["invested_in"], direction: "inbound" },
+  { verb: "founded|co-?founded|started", linkTypes: ["founded"], direction: "inbound" },
+  { verb: "advises|advised", linkTypes: ["advises"], direction: "inbound" },
+  { verb: "works at|worked at|works for", linkTypes: ["works_at"], direction: "inbound" },
+  { verb: "attended", linkTypes: ["attended"], direction: "inbound" },
+  { verb: "knows|met", linkTypes: ["knows", "met"], direction: "both" },
+];
+
+/** Every link type a pattern emits must be one ingest can write. Fail loud at
+ *  load time rather than silently traversing an edge that never exists. */
+function assertKnown(types: string[]): string[] {
+  const known = new Set<string>(KNOWN_LINK_TYPES);
+  for (const t of types) {
+    if (!known.has(t)) {
+      throw new Error(
+        `relational-recall: unknown link_type "${t}" — must be one of ${KNOWN_LINK_TYPES.join(", ")}`,
+      );
+    }
+  }
+  return types;
+}
+
+function buildPatterns(): CompiledPattern[] {
+  const patterns: CompiledPattern[] = [];
+
+  // connects — two seeds, type-agnostic. Most specific, checked first.
+  patterns.push({
+    re: new RegExp(
+      `\\b(?:what|which)\\s+(?:companies?|people|things|entities|deals?)?\\s*(?:connects?|links?|ties? together|is (?:the )?(?:connection|link|relationship) between)\\s+${SEED}\\s+(?:and|&)\\s+${SEED}\\s*\\??$`,
+      "i",
+    ),
+    kind: "connects", linkTypes: null, direction: "both", seedGroups: 2,
+  });
+  patterns.push({
+    re: new RegExp(
+      `\\bhow\\s+(?:are|is|do|does)\\s+${SEED}\\s+(?:and|&)\\s+${SEED}\\s+(?:connected|related|linked|associated)\\b`,
+      "i",
+    ),
+    kind: "connects", linkTypes: null, direction: "both", seedGroups: 2,
+  });
+
+  // intro — type-agnostic walk around the named person (no `introduced` edge).
+  patterns.push({
+    re: new RegExp(
+      `\\bwho\\s+(?:introduced|connected|referred)\\s+(?:me|us|him|her|them)\\s+to\\s+${SEED}\\s*\\??$`,
+      "i",
+    ),
+    kind: "intro", linkTypes: null, direction: "both", seedGroups: 1,
+  });
+
+  // who_at — entity in the middle: "who at acme works on payments".
+  patterns.push({
+    re: new RegExp(
+      `\\bwho\\s+(?:at|from|in)\\s+${SEED}\\s+(?:works? on|works?|leads?|runs?|builds?|owns?|handles?|manages?)\\b`,
+      "i",
+    ),
+    kind: "who_at", linkTypes: assertKnown(["works_at"]), direction: "inbound", seedGroups: 1,
+  });
+
+  // who_rel — "who <verb> <seed>".
+  for (const v of WHO_REL_VERBS) {
+    patterns.push({
+      re: new RegExp(`\\bwho\\s+(?:${v.verb})\\s+${SEED}\\s*\\??$`, "i"),
+      kind: "who_rel", linkTypes: assertKnown(v.linkTypes), direction: v.direction, seedGroups: 1,
+    });
+  }
+
+  // outgoing variants — "what did <seed> invest in", "where does <seed> work".
+  patterns.push({
+    re: new RegExp(
+      `\\bwhat\\s+(?:companies?|startups?|deals?)?\\s*(?:has|have|did|does)?\\s*${SEED}\\s+invest(?:ed)? in\\b`,
+      "i",
+    ),
+    kind: "who_rel", linkTypes: assertKnown(["invested_in"]), direction: "outbound", seedGroups: 1,
+  });
+  patterns.push({
+    re: new RegExp(`\\bwhere\\s+(?:does|did|has)\\s+${SEED}\\s+work\\b`, "i"),
+    kind: "who_rel", linkTypes: assertKnown(["works_at"]), direction: "outbound", seedGroups: 1,
+  });
+
+  return patterns;
+}
+
+// Patterns are static — compile once at module load (and surface a bad
+// link_type immediately rather than on first call).
+const PATTERNS = buildPatterns();
+
+/** Trim, drop a leading article + surrounding quotes, strip a trailing `?`. */
+function cleanSeed(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\?+$/, "")
+    .replace(/^["'`]|["'`]$/g, "")
+    .replace(/^(?:the|a|an)\s+/i, "")
+    .trim();
+}
+
+function validSeed(s: string): boolean {
+  if (s.length === 0 || s.length > 80) return false;
+  if (STOPWORD_SEEDS.has(s.toLowerCase())) return false;
+  return true;
+}
+
+/**
+ * Parse a query into a {@link RelationalQuery}, or null if it isn't relational.
+ * Pure: no DB, no LLM, no async. First matching pattern wins (ordered specific
+ * → general). Bounds work at 512 chars (real queries are short).
+ */
+export function parseRelationalQuery(query: string): RelationalQuery | null {
+  if (typeof query !== "string" || query.length === 0 || query.length > 512) {
+    return null;
+  }
+  for (const p of PATTERNS) {
+    const m = p.re.exec(query);
+    if (!m) continue;
+    if (p.seedGroups === 2) {
+      const a = cleanSeed(m[1] ?? "");
+      const b = cleanSeed(m[2] ?? "");
+      if (!validSeed(a) || !validSeed(b)) continue;
+      return { kind: p.kind, seeds: [a, b], linkTypes: p.linkTypes, direction: p.direction, relationPhrase: m[0].trim() };
+    }
+    const seed = cleanSeed(m[1] ?? "");
+    if (!validSeed(seed)) continue;
+    return { kind: p.kind, seeds: [seed], linkTypes: p.linkTypes, direction: p.direction, relationPhrase: m[0].trim() };
+  }
+  return null;
+}
+
+/** Resolve a seed phrase to a REAL page slug, or null when it only
+ *  slugify-falls-back (confidence gate: never traverse from an invented slug). */
+async function resolveSeed(storage: Storage, phrase: string): Promise<string | null> {
+  // sourceSlug "" excludes nothing from the candidate sets — we're resolving a
+  // query seed, not a page's own outbound mention, so there is no self to skip.
+  const resolver = makeSlugResolver(storage, "");
+  const r = await resolver.resolve(phrase);
+  return r.resolved ? r.slug : null;
+}
+
+function clampLimit(v: number | undefined): number {
+  return typeof v === "number" && v >= 1 && v <= 200 ? Math.floor(v) : 20;
+}
+
+function clampDepth(v: number | undefined): number {
+  return typeof v === "number" && v >= 1 && v <= 6 ? Math.floor(v) : 3;
+}
+
+/** The "other end" of a neighbor row relative to the seed. */
+function otherEnd(
+  row: { source_slug: string; target_slug: string },
+  seed: string,
+): string {
+  return row.source_slug === seed ? row.target_slug : row.source_slug;
+}
+
+/**
+ * Build the relational recall arm. Returns an empty list (a pure no-op) when
+ * the query isn't relational, no seed resolves, or fanout fails. Never throws.
+ */
+export async function relationalRecall(
+  storage: Storage,
+  query: string,
+  opts: RelationalRecallOptions = {},
+): Promise<RelationalRecallResult[]> {
+  const meta: RelationalRecallMeta = {
+    fired: false, kind: null, seeds_resolved: 0, candidates: 0, errored: false,
+  };
+  const finish = (list: RelationalRecallResult[]) => {
+    meta.candidates = list.length;
+    meta.fired = list.length > 0;
+    opts.onMeta?.(meta);
+    return list;
+  };
+
+  const parsed = parseRelationalQuery(query);
+  if (!parsed) return finish([]);
+  meta.kind = parsed.kind;
+
+  const limit = clampLimit(opts.limit);
+  const depth = clampDepth(opts.depth);
+
+  try {
+    // connects — resolve BOTH endpoints, then intersect their reachable sets
+    // (the shared midpoints), ordered by combined hop distance.
+    if (parsed.kind === "connects" && parsed.seeds.length === 2) {
+      const a = await resolveSeed(storage, parsed.seeds[0]!);
+      const b = await resolveSeed(storage, parsed.seeds[1]!);
+      if (!a || !b) return finish([]);
+      meta.seeds_resolved = 2;
+      const [fromA, fromB] = await Promise.all([
+        traverseGraph(storage, a, { direction: "both", maxDepth: depth, limit: 1000 }),
+        traverseGraph(storage, b, { direction: "both", maxDepth: depth, limit: 1000 }),
+      ]);
+      const depthB = new Map(fromB.map((h) => [h.slug, h.depth]));
+      const endpoints = new Set([a, b]);
+      const shared = fromA
+        .filter((h) => depthB.has(h.slug) && !endpoints.has(h.slug))
+        .map((h) => ({ slug: h.slug, combined: h.depth + (depthB.get(h.slug) ?? 0) }))
+        .sort((x, y) => x.combined - y.combined || x.slug.localeCompare(y.slug))
+        .slice(0, limit)
+        .map((x) => ({ slug: x.slug, relation: "connects", depth: x.combined }));
+      return finish(shared);
+    }
+
+    // Single-seed archetypes (who_rel / who_at / intro).
+    const seedSlug = await resolveSeed(storage, parsed.seeds[0]!);
+    if (!seedSlug) return finish([]);
+    meta.seeds_resolved = 1;
+
+    // intro — no `introduced` edge in memex; walk every edge touching the seed.
+    if (parsed.linkTypes === null) {
+      const hits = await traverseGraph(storage, seedSlug, {
+        direction: parsed.direction,
+        maxDepth: depth,
+        limit,
+      });
+      return finish(
+        hits.map((h) => ({ slug: h.slug, relation: "related_to", depth: h.depth })),
+      );
+    }
+
+    // Typed single-hop: union the matched link types, dedup by the other-end
+    // slug (a slug surfaced by two types keeps its first relation), cap at limit.
+    const wantedTypes = new Set(parsed.linkTypes);
+    const seen = new Map<string, RelationalRecallResult>();
+    for (const lt of parsed.linkTypes) {
+      const rows = await graphNeighbors(storage, seedSlug, {
+        type: lt,
+        direction: parsed.direction,
+        limit: 1000,
+      });
+      for (const row of rows) {
+        if (!wantedTypes.has(row.type)) continue; // defensive: type filter is exact
+        const slug = otherEnd(row, seedSlug);
+        if (slug === seedSlug || seen.has(slug)) continue;
+        seen.set(slug, { slug, relation: row.type, depth: 1 });
+        if (seen.size >= limit) break;
+      }
+      if (seen.size >= limit) break;
+    }
+    return finish([...seen.values()]);
+  } catch (err) {
+    // Fail-open: a fanout fault returns an empty arm, never breaking the caller.
+    console.error(
+      "[relational-recall] fanout failed, returning empty arm:",
+      err instanceof Error ? err.message : err,
+    );
+    meta.errored = true;
+    return finish([]);
+  }
+}
