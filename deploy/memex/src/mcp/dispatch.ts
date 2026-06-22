@@ -72,6 +72,11 @@ import { brainIdentity } from "../core/identity.ts";
 import { purgeDeletedPages } from "../core/pages-purge.ts";
 import { queryRefine } from "../core/search/query-refine.ts";
 import { codeCallers, codeCallees } from "../core/code-graph.ts";
+import { parseWindow, volunteerContext, volunteerUsageStats } from "../core/context/volunteer.ts";
+import {
+  logVolunteerEventsFireAndForget,
+  volunteerEventRowsFrom,
+} from "../core/context/volunteer-events.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -268,6 +273,8 @@ export async function dispatchTool(
         return await callCodeCallers(storage, args);
       case "code_callees":
         return await callCodeCallees(storage, args);
+      case "volunteer_context":
+        return await callVolunteerContext(storage, args);
       default:
         throw new OperationError(
           "not_found",
@@ -1435,4 +1442,37 @@ async function callCodeCallees(
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
   const result = await codeCallees(storage.engine(), args["target"], limit);
   return jsonResult({ ok: true, ...result });
+}
+
+async function callVolunteerContext(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  // Stats mode: per-arm used/volunteered precision (feedback loop).
+  if (args["stats"] === true) {
+    const days = typeof args["turn"] === "number" ? (args["turn"] as number) : 30;
+    const stats = await volunteerUsageStats(storage, days);
+    return jsonResult({ ok: true, ...stats });
+  }
+  if (typeof args["window"] !== "string" || args["window"].length === 0) {
+    return errResult("volunteer_context: `window` is required");
+  }
+  const turns = parseWindow(args["window"]);
+  if (!turns.length) return jsonResult({ ok: true, pages: [] });
+
+  const opts: Parameters<typeof volunteerContext>[1] = { window: turns };
+  if (typeof args["max_pages"] === "number") opts.maxPages = args["max_pages"];
+  if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
+
+  const pages = await volunteerContext(storage, opts);
+
+  // Fire-and-forget feedback log (channel 'op').
+  const sessionId = typeof args["session_id"] === "string" ? args["session_id"] : null;
+  const turn = typeof args["turn"] === "number" ? (args["turn"] as number) : null;
+  logVolunteerEventsFireAndForget(
+    storage,
+    volunteerEventRowsFrom(pages, { channel: "op", session_id: sessionId, turn }),
+  );
+
+  return jsonResult({ ok: true, pages });
 }

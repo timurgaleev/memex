@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Push-based context** (Wave 3 of reference-parity) — deterministic, zero-LLM.
+  Given a rolling conversation window, the brain extracts entity candidates,
+  resolves them to existing pages by **alias (0.9) / title (0.8) / slug-suffix
+  (0.6)** with a +0.05 boost for newest-turn or repeated mentions, gates by
+  confidence, caps to N, and volunteers pages — instead of waiting for a pull.
+  - **`volunteer_context` MCP tool** — `window` → volunteered pages
+    `[{slug,title,confidence,arm,rationale,synopsis}]`; `stats:true` returns the
+    per-arm used/volunteered precision (derived from `last_retrieved_at`, no
+    extra writes). Internal-only (surfaces slugs/titles/synopses).
+  - **`memex watch` CLI** — streams `user:`/`assistant:` turns from stdin,
+    maintains a rolling window, prints volunteered pointers as JSONL/text,
+    suppresses already-volunteered slugs per session.
+  - **`context_volunteer_events` feedback log** (migration 044) — one row per
+    volunteered page (slug/confidence/arm/rationale/channel only — **never the
+    conversation text**); pruned at 90 days by the `purge` cycle phase.
+  - New `core/context/{entity-salience,reflex,volunteer,volunteer-events}.ts`.
+  50 MCP tools. Adapted from the reference (single-source flat vault: no
+  source_id federation; the reference's PGLite-IPC reflex orchestrator is
+  out of scope).
+
 ## [1.12.0] — 2026-06-23
 
 ### Added

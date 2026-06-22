@@ -118,6 +118,7 @@ describe("MCP HTTP transport", () => {
       "stats",
       "traverse_graph",
       "unlink",
+      "volunteer_context",
     ]);
   });
 

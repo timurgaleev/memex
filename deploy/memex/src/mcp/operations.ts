@@ -716,4 +716,17 @@ export const OPERATIONS: readonly Operation[] = [
       limit: int({ minimum: 1, maximum: 1000 }),
     },
   },
+  {
+    name: "volunteer_context",
+    description:
+      "Push-based context: given a rolling conversation window, deterministically extract entity candidates, resolve them to existing page pointers (alias 0.9 / title 0.8 / slug-suffix 0.6, + a 0.05 boost for newest-turn or >=2-turn mentions), gate by confidence, cap to N, and return volunteered pages [{slug,title,display,confidence,arm,rationale,synopsis}]. No LLM, no Bedrock. Surfaces page slugs/titles + synopses — internal/MCP-stdio only. Set `stats:true` for the per-arm used/volunteered precision feedback (approximate, derived from last_retrieved_at).",
+    params: {
+      window: str({ ...req, description: "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn." }),
+      max_pages: int({ minimum: 1, maximum: 5, description: "Max pages volunteered (default 3, cap 5)." }),
+      min_confidence: num({ minimum: 0, maximum: 1, description: "Confidence gate 0..1 (default 0.7). At the default, slug-suffix matches never volunteer." }),
+      session_id: str({ description: "Opaque session id stamped on each logged volunteer event." }),
+      turn: int({ minimum: 0, description: "Turn number stamped on each logged volunteer event." }),
+      stats: bool({ description: "Return per-arm used/volunteered precision stats instead of volunteering (uses `turn` as the day window when set)." }),
+    },
+  },
 ];
