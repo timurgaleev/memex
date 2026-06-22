@@ -44,6 +44,25 @@ import {
   type ResolveSymbolEdgesResult,
 } from "./resolve-symbol-edges.ts";
 import type { ExtractResult } from "../extract.ts";
+import {
+  extractAtomsPhase,
+  type ExtractAtomsResult,
+} from "../synthesis/atoms.ts";
+import {
+  synthesizeConceptsPhase,
+  type SynthesizeConceptsResult,
+} from "../synthesis/concepts.ts";
+import {
+  proposeTakesPhase,
+  gradeTakesPhase,
+  type ProposeTakesResult,
+  type GradeTakesResult,
+} from "../synthesis/takes.ts";
+import {
+  calibrationProfilePhase,
+  type CalibrationProfileResult,
+} from "../synthesis/calibration.ts";
+import type { LlmFn } from "../llm/nova.ts";
 
 export type PhaseName =
   | "lint"
@@ -58,7 +77,14 @@ export type PhaseName =
   | "recompute-salience"
   | "extract-timeline"
   | "snapshot"
-  | "purge";
+  | "purge"
+  // Synthesis phases (Wave 5) — opt-in, LLM-backed, default-OFF (NOT in
+  // ALL_PHASES). Run only when explicitly requested via options.phases.
+  | "extract-atoms"
+  | "synthesize-concepts"
+  | "propose-takes"
+  | "grade-takes"
+  | "calibration-profile";
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "lint",
@@ -106,7 +132,12 @@ export interface PhaseResult {
     | PurgeResult
     | LintPhaseResult
     | ResolveSymbolEdgesResult
-    | SnapshotResult;
+    | SnapshotResult
+    | ExtractAtomsResult
+    | SynthesizeConceptsResult
+    | ProposeTakesResult
+    | GradeTakesResult
+    | CalibrationProfileResult;
   error?: string;
 }
 
@@ -173,6 +204,18 @@ export function deriveStatus(
       ?.docs_with_zero_chunks;
     return Array.isArray(zero) && zero.length > 0 ? "warn" : "ok";
   }
+  if (
+    phase === "extract-atoms" ||
+    phase === "synthesize-concepts" ||
+    phase === "propose-takes" ||
+    phase === "grade-takes" ||
+    phase === "calibration-profile"
+  ) {
+    // Synthesis phases per-item fail-open: a non-empty errors[] means some
+    // LLM calls failed but the run completed → warn (never fails the cycle).
+    const errs = (detail as { errors?: unknown[] } | undefined)?.errors;
+    return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
+  }
   // reconcile-links, frontmatter-inference, recompute-salience,
   // extract-timeline: no failure-bearing detail — they either complete or throw
   // (a single failed write aborts the whole phase → caught as fail above), so a
@@ -197,6 +240,19 @@ export interface CycleOptions {
   embedMaxPerCycle?: number;
   /** Forwarded to extract. */
   extractMaxDocs?: number;
+  /**
+   * Synthesis knobs (Wave 5 LLM phases). All optional; `llmFn` is the test
+   * seam (omitted in prod → the real Bedrock Nova client). Caps bound LLM
+   * spend per run.
+   */
+  synthesis?: {
+    llmFn?: LlmFn;
+    modelId?: string;
+    maxDocs?: number;
+    maxConcepts?: number;
+    maxTakes?: number;
+    minGraded?: number;
+  };
   /** Optional progress sink. */
   progress?: ProgressSink;
 }
@@ -345,6 +401,48 @@ export async function runCycleOnce(
         break;
       case "purge":
         r = await runPhase(engine, p, () => purgePhase(engine), progress);
+        break;
+      // Synthesis phases (Wave 5) — LLM-backed, opt-in. Order matters:
+      // atoms -> concepts -> takes -> grade -> calibration.
+      case "extract-atoms":
+        r = await runPhase(
+          engine,
+          p,
+          () => extractAtomsPhase(engine, options.synthesis ?? {}),
+          progress,
+        );
+        break;
+      case "synthesize-concepts":
+        r = await runPhase(
+          engine,
+          p,
+          () => synthesizeConceptsPhase(engine, options.synthesis ?? {}),
+          progress,
+        );
+        break;
+      case "propose-takes":
+        r = await runPhase(
+          engine,
+          p,
+          () => proposeTakesPhase(engine, options.synthesis ?? {}),
+          progress,
+        );
+        break;
+      case "grade-takes":
+        r = await runPhase(
+          engine,
+          p,
+          () => gradeTakesPhase(engine, options.synthesis ?? {}),
+          progress,
+        );
+        break;
+      case "calibration-profile":
+        r = await runPhase(
+          engine,
+          p,
+          () => calibrationProfilePhase(engine, options.synthesis ?? {}),
+          progress,
+        );
         break;
       default:
         r = {

@@ -125,6 +125,11 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // advisor surfaces operational state (pending migrations, job queue, embed
   // coverage, internal-auth config) — private infra, internal-only.
   "advisor",
+  // Synthesized content is LLM-derived FROM the user's private notes — list it
+  // only internally, same posture as the note surfaces it summarizes.
+  "list_concepts",
+  "list_takes",
+  "get_calibration_profile",
   "jobs_submit",
   "jobs_cancel",
 ]);
