@@ -79,6 +79,11 @@ import {
 } from "../core/context/volunteer-events.ts";
 import { runAdvisor } from "../core/advisor/run.ts";
 import { listBrainSkillpacks } from "../core/skillpack/brain-resident.ts";
+import {
+  listConcepts,
+  listTakes,
+  getCalibrationProfile,
+} from "../core/synthesis/reads.ts";
 import packageJson from "../../package.json" with { type: "json" };
 import {
   reconcileFactsForPage,
@@ -282,6 +287,12 @@ export async function dispatchTool(
         return await callAdvisor(storage);
       case "list_brain_skillpack":
         return await callListBrainSkillpack();
+      case "list_concepts":
+        return await callListConcepts(storage, args);
+      case "list_takes":
+        return await callListTakes(storage, args);
+      case "get_calibration_profile":
+        return await callGetCalibrationProfile(storage);
       default:
         throw new OperationError(
           "not_found",
@@ -1495,4 +1506,31 @@ async function callAdvisor(storage: Storage): Promise<ToolCallResult> {
 
 async function callListBrainSkillpack(): Promise<ToolCallResult> {
   return jsonResult({ ok: true, ...listBrainSkillpacks() });
+}
+
+async function callListConcepts(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
+  const concepts = await listConcepts(storage.engine(), limit);
+  return jsonResult({ ok: true, concepts });
+}
+
+async function callListTakes(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof listTakes>[1] = {};
+  if (typeof args["status"] === "string") opts.status = args["status"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const takes = await listTakes(storage.engine(), opts);
+  return jsonResult({ ok: true, takes });
+}
+
+async function callGetCalibrationProfile(
+  storage: Storage,
+): Promise<ToolCallResult> {
+  const profile = await getCalibrationProfile(storage.engine());
+  return jsonResult({ ok: true, profile });
 }

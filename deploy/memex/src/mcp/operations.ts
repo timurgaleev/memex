@@ -741,4 +741,27 @@ export const OPERATIONS: readonly Operation[] = [
       "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. After orienting, ask the user whether to install the pack (memex skillpack).",
     params: {},
   },
+  {
+    name: "list_concepts",
+    description:
+      "List synthesized concept pages (LLM-derived from the corpus by the synthesize-concepts cycle phase): concept_slug, title, tier (T1/T2/T3), atom_count, narrative. Ordered by atom_count DESC. Read-only; internal-only (derived over private notes).",
+    params: {
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
+    },
+  },
+  {
+    name: "list_takes",
+    description:
+      "List synthesized 'takes' (opinionated claims the propose-takes phase derived, optionally graded): take_key, claim_text, kind, weight, domain, status (queued/accepted/rejected). Advisory only — never mutates notes. Read-only; internal-only.",
+    params: {
+      status: str({ enum: ["queued", "accepted", "rejected"], description: "Filter by review status." }),
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
+    },
+  },
+  {
+    name: "get_calibration_profile",
+    description:
+      "The latest narrative calibration/bias profile (from the calibration-profile phase): grade tallies, accuracy, pattern statements, bias tags. Read-only; internal-only. Null when no profile has been generated yet.",
+    params: {},
+  },
 ];
