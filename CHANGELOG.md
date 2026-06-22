@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-06-23
+
 ### Added
 - **Push-based context** (Wave 3 of reference-parity) — deterministic, zero-LLM.
   Given a rolling conversation window, the brain extracts entity candidates,
