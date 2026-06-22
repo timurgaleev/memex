@@ -12,9 +12,18 @@
  *   ...
  *   await worker.stop();       // waits for the in-flight job, then exits
  */
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 import { getHandler } from "./handlers.ts";
 import type { Queue } from "./queue.ts";
 import type { JobRow } from "./types.ts";
+import type { Engine } from "../engine/interface.ts";
+import {
+  acquireWorkerLock,
+  heartbeatWorkerLock,
+  releaseWorkerLock,
+  DEFAULT_WORKER_LOCK_ID,
+} from "./worker-lock.ts";
 
 /** Queue.claim's default lock seconds — mirrored so lock-vs-timeout math agrees. */
 const DEFAULT_LOCK_SECONDS = 300;
@@ -40,6 +49,17 @@ export interface WorkerOptions {
    * `timeoutMs` always wins over this default.
    */
   jobTimeoutMs?: number;
+  /**
+   * Engine for the single-active-worker lock. When provided, the worker
+   * elects one active instance via the `worker_lock` row (migration 042) and
+   * heartbeats it each tick; other instances idle until the holder's heartbeat
+   * lapses. Omit (e.g. in unit tests) to disable the guard entirely.
+   */
+  engine?: Engine;
+  /** Lock id for the single-worker guard. Default `memex-jobs-worker`. */
+  workerLockId?: string;
+  /** Seconds before a missed heartbeat lets another worker steal. Default 60. */
+  workerLockTtlSeconds?: number;
 }
 
 export interface WorkerStats {
@@ -61,6 +81,12 @@ export class Worker {
   private stopping = false;
   private stopped = true;
   private lastStallSweep = 0;
+  private holdsLock = false;
+  private lockWarned = false;
+  // Unique per Worker INSTANCE (not just per process): two Worker objects in
+  // one process must be distinct holders, else both would re-acquire the same
+  // lock (own-holder re-acquire always succeeds) and the guard would be moot.
+  private readonly lockHolder = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   private readonly stats: WorkerStats = {
     picked: 0,
     succeeded: 0,
@@ -91,6 +117,20 @@ export class Worker {
     }
     while (this.inflight > 0) {
       await sleep(25);
+    }
+    // Release the single-worker lock so a replacement can take over at once
+    // (rather than waiting for the TTL to lapse).
+    if (this.holdsLock && this.opts.engine) {
+      try {
+        await releaseWorkerLock(
+          this.opts.engine,
+          this.opts.workerLockId ?? DEFAULT_WORKER_LOCK_ID,
+          this.lockHolder,
+        );
+      } catch (e) {
+        this.log("error", `worker lock release failed: ${asMessage(e)}`);
+      }
+      this.holdsLock = false;
     }
     this.stopped = true;
   }
@@ -137,10 +177,44 @@ export class Worker {
     );
   }
 
+  /**
+   * Single-active-worker gate. Returns true when this worker may do work this
+   * tick. No engine configured → always true (guard disabled). Otherwise
+   * acquire-or-heartbeat the lock; a worker that can't acquire (another live
+   * holder) or that lost its lock idles this tick and retries next.
+   */
+  private async ensureWorkerLock(): Promise<boolean> {
+    const engine = this.opts.engine;
+    if (!engine) return true;
+    const id = this.opts.workerLockId ?? DEFAULT_WORKER_LOCK_ID;
+    const ttl = this.opts.workerLockTtlSeconds ?? 60;
+    if (this.holdsLock) {
+      const kept = await heartbeatWorkerLock(engine, id, this.lockHolder);
+      if (!kept) {
+        this.holdsLock = false;
+        this.log("warn", "lost worker lock (heartbeat stolen) — idling");
+        return false;
+      }
+      return true;
+    }
+    this.holdsLock = await acquireWorkerLock(engine, id, this.lockHolder, ttl);
+    if (this.holdsLock) {
+      this.log("info", `acquired worker lock as ${this.lockHolder}`);
+      this.lockWarned = false;
+    } else if (!this.lockWarned) {
+      this.log("info", "another worker holds the lock — idling");
+      this.lockWarned = true;
+    }
+    return this.holdsLock;
+  }
+
   private async tick(): Promise<void> {
     if (this.stopping) return;
     const concurrency = Math.max(1, this.opts.concurrency ?? 1);
     try {
+      // Single-active-worker gate: idle this tick if another worker holds the
+      // lock. The `finally` still reschedules, so we retry next interval.
+      if (!(await this.ensureWorkerLock())) return;
       // Stall sweep first — recovers rows whose worker died last tick
       // before they get blocked behind fresh claims.
       const sweepInterval = this.opts.stallSweepIntervalMs ?? 30_000;

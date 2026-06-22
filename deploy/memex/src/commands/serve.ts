@@ -159,6 +159,10 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // can still set its own timeoutMs at enqueue.
   const workerOpts: ConstructorParameters<typeof Worker>[1] = {
     intervalMs: 5000,
+    // Single-active-worker guard: a double-start / second container / restart
+    // overlap elects ONE active worker via the worker_lock row; the rest idle
+    // until the holder's heartbeat lapses (migration 042).
+    engine: storage.engine(),
   };
   const jobTimeoutRaw = process.env.MEMEX_JOB_TIMEOUT_MS?.trim();
   // Strict: digits only (reject "100abc" -> 100, "1e9" -> 1, negatives, blanks),

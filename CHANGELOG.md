@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-06-22
+
+### Added
+- **Single-active-worker guard + heartbeat (durable-jobs hardening, part 1).**
+  The job queue's atomic claim already kept two workers off the same row, but
+  nothing stopped two worker *processes* (a double-start, a second container, a
+  restart overlap) from both polling and both running the maintenance cycle. A
+  new singleton `worker_lock` row (migration 042) elects ONE active worker:
+  each Worker (when given an `engine`) acquires the lock on its first tick,
+  heartbeats it every tick, and releases on stop; instances that can't acquire
+  idle and retry. A holder that crashes or wedges stops heartbeating, so its TTL
+  (60s) lapses and a survivor steals the lock — the same heartbeat is the wedge
+  signal (`readWorkerLock` exposes staleness). Each Worker instance gets a unique
+  holder id so even two instances in one process elect a single active one.
+  Helpers in `core/jobs/worker-lock.ts`; wired in `serve.ts`. (Deferred to later
+  parts: PID-liveness probing, DAG fan-in, budget/rate-lease, inbox, status/
+  doctor surfacing of the heartbeat.)
+
 ## [1.5.0] — 2026-06-22
 
 ### Added
