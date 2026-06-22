@@ -115,6 +115,10 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "forget_fact",
   "purge_deleted_pages",
   "query",
+  // code_callers/code_callees surface indexed source paths + symbol names —
+  // private repo structure; internal-only, consistent with the slug/content set.
+  "code_callers",
+  "code_callees",
   "jobs_submit",
   "jobs_cancel",
 ]);

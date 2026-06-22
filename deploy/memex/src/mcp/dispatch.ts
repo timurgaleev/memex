@@ -71,6 +71,7 @@ import { recallFact, forgetFact } from "../core/facts-recall.ts";
 import { brainIdentity } from "../core/identity.ts";
 import { purgeDeletedPages } from "../core/pages-purge.ts";
 import { queryRefine } from "../core/search/query-refine.ts";
+import { codeCallers, codeCallees } from "../core/code-graph.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -263,6 +264,10 @@ export async function dispatchTool(
         return await callPurgeDeletedPages(storage, args);
       case "query":
         return await callQuery(storage, args);
+      case "code_callers":
+        return await callCodeCallers(storage, args);
+      case "code_callees":
+        return await callCodeCallees(storage, args);
       default:
         throw new OperationError(
           "not_found",
@@ -1406,4 +1411,28 @@ async function callQuery(
   const refine = typeof args["refine"] === "string" ? args["refine"] : "";
   const hits = await queryRefine(storage, q, refine, opts);
   return jsonResult({ ok: true, hits });
+}
+
+async function callCodeCallers(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["name"] !== "string" || args["name"].length === 0) {
+    return errResult("code_callers: `name` is required");
+  }
+  const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
+  const result = await codeCallers(storage.engine(), args["name"], limit);
+  return jsonResult({ ok: true, ...result });
+}
+
+async function callCodeCallees(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["target"] !== "string" || args["target"].length === 0) {
+    return errResult("code_callees: `target` is required");
+  }
+  const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
+  const result = await codeCallees(storage.engine(), args["target"], limit);
+  return jsonResult({ ok: true, ...result });
 }

@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Code-graph activation** (Wave 2 of reference-parity). memex already shipped
+  the tree-sitter code chunker, `code_edges_symbol` table, and the
+  `resolve-symbol-edges` cycle phase, but they were dormant on a markdown-only
+  corpus. Now:
+  - **`memex index <path>` auto-detects code** — a recognised source extension
+    (`.ts/.tsx/.mts/.cts/.py`) is routed through `indexCodeFile` (tree-sitter
+    chunk + symbol + call-graph extraction) instead of the markdown path; the
+    result reports `kind: "code" | "doc"`. (Whole trees still go through
+    `memex reindex --source code`.)
+  - **`code_callers` + `code_callees` MCP tools** — expose the call graph that
+    was previously CLI-only. `code_callers(name)` returns who calls a symbol;
+    `code_callees("<path>:<line>")` resolves the innermost code-def covering
+    that line then returns what it calls (`resolved_symbol` reports the match).
+    New `core/code-graph.ts`; deterministic, internal-only (they surface source
+    paths + symbols). 49 MCP tools total.
+
 ## [1.11.0] — 2026-06-22
 
 ### Added

@@ -698,4 +698,22 @@ export const OPERATIONS: readonly Operation[] = [
       refine_weight: num({ minimum: 0, description: "RRF weight for the refine term. Default 1." }),
     },
   },
+  {
+    name: "code_callers",
+    description:
+      "Call-graph: who calls the symbol `name`. Returns the `code-caller` mentions (surface form + chunk + source path) over the indexed code corpus. Deterministic, no LLM. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+    params: {
+      name: str({ ...req, description: "Bare symbol name to find callers of (e.g. `hybridSearch`)." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "code_callees",
+    description:
+      "Call-graph: what the symbol enclosing `<path>:<line>` calls. Two-phase — resolves the innermost code-def covering that file:line, then returns its `code-callee` mentions. `resolved_symbol` reports which symbol was matched (null = none covers that line). Deterministic, no LLM. Optional `limit` (1..1000, default 200).",
+    params: {
+      target: str({ ...req, description: "`<path>:<line>` of a call site / symbol body (e.g. `src/x.ts:42`)." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
 ];

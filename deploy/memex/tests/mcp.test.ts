@@ -73,6 +73,8 @@ describe("MCP HTTP transport", () => {
       "add_tag",
       "add_timeline_event",
       "backlinks",
+      "code_callees",
+      "code_callers",
       "entity_facts",
       "entity_recall",
       "entity_timeline",
