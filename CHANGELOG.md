@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`graph-signals` — deterministic graph-aware retrieval stage** (opt-in,
+  default OFF). A post-fusion ranking stage that reads the `links` graph and
+  applies three conservative multipliers to the top-K of a fused result set:
+  - **adjacency hub boost (×1.05)** — a result page linked-to by ≥2 OTHER
+    in-set result pages is a hub for this query;
+  - **cross-source boost (×1.10)** — stacks on adjacency when a page is linked
+    from ≥2 distinct other sources; **dormant on this single-source brain**
+    (`pages` carries no per-page source → `cross_source_hits` is always 0), wired
+    for parity and activates only if the brain becomes multi-source;
+  - **session diversification (×0.95 demote)** — when several results share a
+    session prefix (a `chat/` marker or a `YYYY-MM-DD` segment) keep the
+    highest-scoring one and demote the rest (MMR-lite). Entity/topic directories
+    (`people/`, `docs/`) are never diversified.
+
+  Operates on one representative (highest-scoring) chunk per page slug, so a
+  hub's many chunks can't each be boosted. Enabled per-call via
+  `SearchOptions.graphSignals` or `MEMEX_GRAPH_SIGNALS=1`; the live ranking model
+  is unchanged unless explicitly enabled. Fail-open: any links-query error leaves
+  scores untouched. New `core/search/graph-signals.ts` (inline slug-keyed `links`
+  SQL — no engine-interface change, self-links excluded), wired into
+  `hybridSearch` pre-dedup. Adapted from the reference implementation (page-id
+  keyed there; slug-keyed here to match memex's `links` model); the reference's
+  score-distribution probe + JSONL failure-audit telemetry are intentionally
+  omitted. Not an MCP tool, no migration. Found by an exhaustive re-comparison
+  against the reference — a genuine retrieval-ranking gap earlier parity passes
+  had missed.
+
 ## [1.9.0] — 2026-06-22
 
 ### Added

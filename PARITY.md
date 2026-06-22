@@ -21,6 +21,7 @@ implementation" — never by name, per the repo name-ban.)
 | v1.3.54/55 | **page→search bridge**: `page_put`/`page_append` chunk+embed the body into the search store (`page://<slug>`), `page_delete` drops it, `mirror-pages` cycle phase reconciles. THE real gap — pages were written but unsearchable. | page→content-chunk indexing |
 | v1.4.0 | **soft-delete + archive + quarantine + search visibility filter + purge phase** (migration 040). Hidden docs excluded from both retrieval arms. | visibility clause + destructive-guard + purge |
 | v1.4.1 | **`lint` as a cycle phase** (read-only frontmatter audit). | lint cycle phase |
+| v1.10.0 | **`graph-signals` retrieval stage** (opt-in, default OFF): adjacency hub boost (×1.05) + cross-source boost (×1.10, dormant single-source) + session diversification (×0.95). Slug-keyed `links` SQL, one representative per page, fail-open. Found by the 2026-06-22 v0.42.52 re-comparison — **a real ranking gap (reference v0.40.4) earlier passes had missed**, not a delta item. | `search/graph-signals.ts` post-fusion stage |
 
 ## DONE but INERT / scale-out for THIS brain (built this session; harmless, additive, reviewed — left in place, NOT rebuilt)
 - **v1.5.0 resolve_symbol_edges** (mig 041) — code call-graph resolution. Per the
@@ -61,11 +62,35 @@ slug-canonicalization (mig033) wired; autocut deliberately rejected (return-poli
 | 6 | get_chunks | return a page's/document's ordered content chunks. | S | **DONE v1.9.0** |
 | 7 | tag ops (add/remove/get_tags) | first-class page tags over the `tags` table. | S | **DONE v1.9.0** |
 
-**PARITY COMPLETE** — all identified deterministic, brain-internal, valuable gaps
-vs the reference are closed. Remaining reference surface is MOOT/out-of-scope
-(see lists above: LLM/agent, embedding-dim provider conflict, scale-out, etc.).
+## 2026-06-22 re-comparison vs reference v0.42.52 (10 new releases: v0.42.43→52)
+Reference advanced from v0.42.42 (prior baseline) to v0.42.52. Exhaustive
+re-triage (10-agent workflow: 6 delta subsystems + 4 full cross-checks of
+search / cycle+jobs / pages+facts+graph / MCP-tool surface), then operator
+verification of every "GAP" the agents raised. Outcome:
+
+| Reference delta theme | Verdict |
+|---|---|
+| push-based context / retrieval-reflex / volunteer / watch (v0.42.43) | OUT — agent-facing (Claude Code IS the agent) |
+| brain-resident skillpacks + proactive advisor (v0.42.47) | OUT — agent skill-distribution + operator nagging |
+| git durability / federated reads / sync-delta cost estimator (v0.42.45/46/48/51) | OUT — sync/federation (operator: future, not now) |
+| autopilot dead-job storm / supervisor wedge / minions reliability (v0.42.52) | MOOT — multi-worker scale-out; memex is single in-process worker (atomic claim + stall-requeue + worker-lock + heartbeat already) |
+| DB-contention pacing for backfills (v0.42.49) | DEFERRED — default-off no-op on a single small brain; low value, revisit if the corpus/concurrency grows |
+| op_checkpoints array-constraint / generation-clock sequence | N/A — memex has no op_checkpoints; clock contention is a non-issue at single-node scale |
+| **graph-signals (v0.40.4, predates the baseline)** | **GAP → shipped v1.10.0** — the one real, deterministic, brain-internal retrieval feature memex genuinely lacked |
+| 24 "missing" MCP tools the agents listed | mostly OUT (LLM/takes, federation, schema-packs, multimodal, file/raw-data substrate) or already present in memex (`stats`, `page_versions`, `page_revert`, `backlinks`, `graph_neighbors`, `entity_recall`, orphans CLI) — no genuine valuable deterministic read tool missing |
+
+**PARITY COMPLETE (brain-only scope).** After closing graph-signals, every
+identified deterministic, brain-internal, valuable gap vs the reference is shipped.
+The remaining reference surface is OUT-of-scope (LLM/agent layer, push-context,
+skillpacks/advisor, git-sync/federation), MOOT (scale-out, code-graph on a
+markdown corpus), provider-conflicting (embedding dim), or deferred-low-value
+(backfill pacing).
 
 ## State
-- 7 releases this session: v1.3.54, v1.3.55, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1.
+- This session: 1 release — **v1.10.0** (graph-signals).
+- Prior sessions: v1.3.54→v1.9.0 (page bridge, soft-delete/visibility, lint,
+  resolve_symbol_edges, durable-jobs lock, page_restore/revert, traverse_graph,
+  get_chunks/resolve_slugs/tags/relational_recall).
 - All live on the EC2, healthy. Migrations through 042. Cycle = 13 phases.
-- Full Bun suite green (1108/0). `make audit` PII:0, `make scrub-audit` HIGH:0.
+  graph-signals adds no migration and no MCP tool (opt-in ranking stage only).
+- `make audit` PII:0, `make scrub-audit` HIGH:0.

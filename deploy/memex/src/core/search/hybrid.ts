@@ -62,6 +62,7 @@ import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
+import { applyGraphSignals } from "./graph-signals.ts";
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -117,6 +118,12 @@ export interface SearchOptions {
    * caller).
    */
   onCapture?: (info: SearchCaptureInfo) => Promise<void> | void;
+  /**
+   * Opt-in graph-signals stage (default OFF): adjacency hub boost + session
+   * diversification over the link graph. Falls back to MEMEX_GRAPH_SIGNALS=1.
+   * The live ranking model is immutable unless this is set. See graph-signals.ts.
+   */
+  graphSignals?: boolean;
 }
 
 export interface SearchCaptureInfo {
@@ -409,6 +416,16 @@ export async function hybridSearch(
         ? titleBoost
         : 1),
   }));
+
+  // 6c. Graph signals (opt-in, default OFF) — adjacency hub boost + session
+  //     diversification over the link graph, applied pre-dedup on the full
+  //     scored set so a hub's chunk can rise before per-doc collapse. Mutates
+  //     score in place; fail-open (a links query error leaves scores intact).
+  const graphSignalsOn =
+    opts.graphSignals ?? process.env.MEMEX_GRAPH_SIGNALS === "1";
+  if (graphSignalsOn) {
+    await applyGraphSignals(scored, engine, { enabled: true });
+  }
 
   // Re-sort after boost + recency (RRF was already sorted but these flip).
   scored.sort((a, b) => b.score - a.score);
