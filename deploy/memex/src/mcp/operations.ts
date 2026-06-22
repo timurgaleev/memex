@@ -578,4 +578,124 @@ export const OPERATIONS: readonly Operation[] = [
       depth: int({ minimum: 1, maximum: 6 }),
     },
   },
+  {
+    name: "get_links",
+    description:
+      "All typed edges touching `slug`, grouped by type and direction. An `outbound` group holds edges where the slug is the source; `inbound` where it is the target. Groups are ordered by type then outbound-before-inbound; edges within a group are newest-first. Optional `limit` (1..1000, default 1000) caps the edges scanned per direction.",
+    params: {
+      slug: str(req),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "list_link_sources",
+    description:
+      "The link-type catalogue with live per-type edge counts. Every KNOWN_LINK_TYPES entry is returned (count 0 when unused), plus any ad-hoc type present in the graph (known:false). Ordered by count DESC then type ASC, so the most-used relationship types surface first while the full vocabulary stays discoverable. Returns [{type, count, known}].",
+    params: {},
+  },
+  {
+    name: "find_orphans",
+    description:
+      "Pages with zero inbound links — nothing in the graph references them. The natural enrichment targets (a page nobody links to is new or forgotten). Newest-first. Optional `type` page-type filter; `limit` (1..1000, default 50). Deterministic, no LLM.",
+    params: {
+      type: str({ description: "Restrict to a single page type (e.g. person)." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "find_experts",
+    description:
+      "Pages ranked by graph link-degree — the hubs of the knowledge base. Degree counts distinct in+out neighbours that resolve to a LIVE page (unresolved [[wikilink]] stubs don't inflate it). Optional `type` page-type filter; `limit` (1..200, default 5). Deterministic, no LLM.",
+    params: {
+      type: str({ description: "Restrict to a single page type." }),
+      limit: int({ minimum: 1, maximum: 200 }),
+    },
+  },
+  {
+    name: "find_contradictions",
+    description:
+      "Page pairs joined by an explicit `contradicts` edge (the conflict markers already asserted in the graph). Surfaces existing edges; does NOT run a fresh probe or call an LLM. Optional `slug` substring filter (matches either side); `limit` (1..200, default 20).",
+    params: {
+      slug: str({ description: "Substring filter; matches either side of the pair (case-insensitive)." }),
+      limit: int({ minimum: 1, maximum: 200 }),
+    },
+  },
+  {
+    name: "find_trajectory",
+    description:
+      "Chronological 'how did this entity change?' log for one slug — the merged, oldest-first view of its entity_facts ledger and its timeline_events. Each fact anchors at its valid_from (else written_at); each event at occurred_at. Optional `since`/`until` ISO bounds on that anchor; `limit` (1..500, default 100). Deterministic, no LLM.",
+    params: {
+      entity_slug: str({ ...req, description: "The entity to chart (e.g. companies/acme, people/alice)." }),
+      since: str({ description: "Lower bound (ISO timestamp) on the point's anchor date." }),
+      until: str({ description: "Upper bound (ISO timestamp)." }),
+      limit: int({ minimum: 1, maximum: 500 }),
+    },
+  },
+  {
+    name: "get_recent_salience",
+    description:
+      "Live pages ranked by the deterministic `salience` score (migration 036: high-emotion tags + graph link-degree, recomputed by the recompute-salience cycle phase) — the 'what matters' read. Optional `type` filter and `days` recency window. No LLM, no Bedrock. Surfaces page slugs/titles — internal/MCP-stdio only.",
+    params: {
+      type: str({ description: "Filter to a single page type (exact match), e.g. person." }),
+      days: int({ minimum: 1, description: "Only pages updated within the last N days. Omit for all-time." }),
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 20)." }),
+    },
+  },
+  {
+    name: "find_anomalies",
+    description:
+      "Deterministic structural OUTLIERS over the live page graph. memex has no retrieval/access counters, so this keys on the signals it does have: `degree_outlier` (a connectivity hub — link-degree at/above mean + sigma·stddev across live pages) and `stale_salient` (a high-salience page whose updated_at is older than staleDays — important memory gone cold). No LLM. Surfaces page slugs/titles — internal/MCP-stdio only.",
+    params: {
+      sigma: num({ minimum: 0, description: "Std-devs above the mean degree to flag a hub (default 2)." }),
+      staleDays: int({ minimum: 1, description: "Days an updated_at must lag to count a salient page stale (default 90)." }),
+      salienceFloor: num({ minimum: 0, maximum: 1, description: "Salience floor for the stale_salient class (default 0.5)." }),
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows per anomaly kind (default 20)." }),
+    },
+  },
+  {
+    name: "recall",
+    description:
+      "Read a single fact by its numeric id from the entity_facts ledger. Returns the fact row (claim, confidence, source, mig037 metadata). Returns an error if the id is unknown or the fact has been forgotten (tombstoned via forget_fact).",
+    params: {
+      id: int({ ...req, minimum: 1, description: "Fact id (entity_facts.id)." }),
+    },
+  },
+  {
+    name: "forget_fact",
+    description:
+      "Forget (soft-delete) a fact by id — stamps forgotten_at so the fact stops surfacing in recall; the row is retained for audit. Idempotent: a second forget is a no-op (forgotten=false), an unknown id reports found=false. Optional `reason` is stored on the tombstoned row. WRITE — internal/MCP-stdio only.",
+    params: {
+      id: int({ ...req, minimum: 1, description: "Fact id to forget (entity_facts.id)." }),
+      reason: str({ description: "Optional audit note stored on the forgotten row." }),
+    },
+  },
+  {
+    name: "get_brain_identity",
+    description:
+      "Brain identity + counters for a thin-client banner. Returns the running version, the storage engine kind, and corpus counts (documents / chunks / embeddings / pages / sources) plus the brain's earliest created_at. Counts only — no slugs, titles, or bodies. Cheap; no Bedrock.",
+    params: {},
+  },
+  {
+    name: "purge_deleted_pages",
+    description:
+      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only.",
+    params: {
+      older_than_hours: num({
+        minimum: 0,
+        description: "Age cutoff in hours. Pages soft-deleted longer ago than this are reaped. Default 72.",
+      }),
+    },
+  },
+  {
+    name: "query",
+    description:
+      "Refinement search: hybrid-search `q`, then bias the ranking toward a second `refine` term via weighted RRF (a chunk strong for BOTH floats up). Reorders within the primary candidate set — never widens it. Deterministic (no LLM rerank). `primary_weight` / `refine_weight` tune the pull; omit `refine` to behave like plain search.",
+    params: {
+      q: str({ ...req, description: "Primary natural-language query." }),
+      refine: str({ description: "Second term to refine/intersect the ranking against." }),
+      k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 5." }),
+      primary_weight: num({ minimum: 0, description: "RRF weight for the primary query. Default 1." }),
+      refine_weight: num({ minimum: 0, description: "RRF weight for the refine term. Default 1." }),
+    },
+  },
 ];

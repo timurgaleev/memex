@@ -97,6 +97,24 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // relationship graph through the public bearer.
   "resolve_slugs",
   "relational_recall",
+  // Wave-1 reads that surface page slugs/titles or fact free-text — the same
+  // author-written identifiers/content the public path suppresses everywhere
+  // else. get_links exposes the slug graph; find_* + get_recent_salience list
+  // page slugs/titles; recall returns fact text + an entity slug. Internal-only,
+  // consistent with resolve_slugs / relational_recall / get_chunks.
+  "get_links",
+  "find_orphans",
+  "find_experts",
+  "find_contradictions",
+  "find_trajectory",
+  "get_recent_salience",
+  "find_anomalies",
+  "recall",
+  // forget_fact + purge_deleted_pages are WRITES; query returns full SearchHit
+  // bodies (the content public search redacts). All internal-only.
+  "forget_fact",
+  "purge_deleted_pages",
+  "query",
   "jobs_submit",
   "jobs_cancel",
 ]);

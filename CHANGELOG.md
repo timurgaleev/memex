@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **13 new deterministic MCP tools** (47 tools total) — reference-parity read +
+  admin surface, all zero-LLM, drafted in parallel via a dynamic workflow and
+  integrated serially:
+  - **`get_links`** — every typed edge touching a slug, grouped by type +
+    direction (outbound/inbound). **`list_link_sources`** — the link-type
+    catalogue with live per-type edge counts. (`core/links-read.ts`)
+  - **`find_orphans`** (pages with no inbound links), **`find_experts`** (pages
+    by graph link-degree), **`find_contradictions`** (pairs joined by a
+    `contradicts` edge), **`find_trajectory`** (merged facts+timeline log for an
+    entity, oldest-first). (`core/insights.ts`)
+  - **`get_recent_salience`** (pages by the deterministic salience score),
+    **`find_anomalies`** (structural outliers — `degree_outlier` hubs +
+    `stale_salient` cold-but-important pages). (`core/usage-insights.ts`)
+  - **`recall`** (read a fact by id), **`forget_fact`** (tombstone a fact;
+    audit-preserving soft-delete, migration 043 adds `entity_facts.forgotten_at`/
+    `forgotten_reason`). (`core/facts-recall.ts`)
+  - **`get_brain_identity`** (version + engine + corpus counts, no slugs/bodies),
+    **`purge_deleted_pages`** (hard-delete pages soft-deleted > N hours, the
+    manual counterpart to the purge cycle phase), **`query`** (refinement search:
+    bias a hybrid search toward a second term via weighted RRF, never widening
+    the candidate set). (`core/identity.ts`, `core/pages-purge.ts`,
+    `core/search/query-refine.ts`)
+
+  Write/content/slug-surfacing tools (everything except `list_link_sources` +
+  `get_brain_identity`, which return only type-names/counts) are internal-only
+  (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`). Each: parameterized SQL, deterministic
+  ordering, security-review CLEAN + code-review (one MEDIUM fixed: explicit
+  `ESCAPE '\'`). First wave of the full reference-parity program.
+
 ## [1.10.0] — 2026-06-22
 
 ### Added

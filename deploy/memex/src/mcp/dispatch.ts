@@ -55,6 +55,22 @@ import { getChunksForPage, getChunksForSource } from "../core/chunks-read.ts";
 import { resolveSlugs } from "../core/slug-resolve.ts";
 import { addTag, removeTag, getTags } from "../core/tags.ts";
 import { relationalRecall } from "../core/search/relational-recall.ts";
+import { getLinks, listLinkSources } from "../core/links-read.ts";
+import {
+  findOrphans,
+  findExperts,
+  findContradictions,
+  findTrajectory,
+  type FindOrphansOptions,
+  type FindExpertsOptions,
+  type FindContradictionsOptions,
+  type FindTrajectoryOptions,
+} from "../core/insights.ts";
+import { getRecentSalience, findAnomalies } from "../core/usage-insights.ts";
+import { recallFact, forgetFact } from "../core/facts-recall.ts";
+import { brainIdentity } from "../core/identity.ts";
+import { purgeDeletedPages } from "../core/pages-purge.ts";
+import { queryRefine } from "../core/search/query-refine.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -221,6 +237,32 @@ export async function dispatchTool(
         return await callJobsCancel(storage, args);
       case "jobs_logs":
         return await callJobsLogs(storage, args, redact);
+      case "get_links":
+        return await callGetLinks(storage, args);
+      case "list_link_sources":
+        return await callListLinkSources(storage);
+      case "find_orphans":
+        return await callFindOrphans(storage, args);
+      case "find_experts":
+        return await callFindExperts(storage, args);
+      case "find_contradictions":
+        return await callFindContradictions(storage, args);
+      case "find_trajectory":
+        return await callFindTrajectory(storage, args);
+      case "get_recent_salience":
+        return await callGetRecentSalience(storage, args);
+      case "find_anomalies":
+        return await callFindAnomalies(storage, args);
+      case "recall":
+        return await callRecall(storage, args);
+      case "forget_fact":
+        return await callForgetFact(storage, args);
+      case "get_brain_identity":
+        return await callGetBrainIdentity(storage);
+      case "purge_deleted_pages":
+        return await callPurgeDeletedPages(storage, args);
+      case "query":
+        return await callQuery(storage, args);
       default:
         throw new OperationError(
           "not_found",
@@ -1186,4 +1228,182 @@ async function callJobsLogs(
     ? redactJob(log as unknown as Record<string, unknown>)
     : log;
   return jsonResult({ ok: true, log: out });
+}
+
+// --- Wave 1: graph reads, insights, facts, identity, refinement ---
+
+async function callGetLinks(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("get_links: `slug` is required");
+  }
+  const opts: Parameters<typeof getLinks>[2] = {};
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const groups = await getLinks(storage, args["slug"], opts);
+  return jsonResult({ ok: true, slug: args["slug"], groups });
+}
+
+async function callListLinkSources(storage: Storage): Promise<ToolCallResult> {
+  const sources = await listLinkSources(storage);
+  return jsonResult({ ok: true, sources });
+}
+
+async function callFindOrphans(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: FindOrphansOptions = {};
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const pages = await findOrphans(storage, opts);
+  return jsonResult({ ok: true, pages });
+}
+
+async function callFindExperts(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: FindExpertsOptions = {};
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const experts = await findExperts(storage, opts);
+  return jsonResult({ ok: true, experts });
+}
+
+async function callFindContradictions(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: FindContradictionsOptions = {};
+  if (typeof args["slug"] === "string") opts.slug = args["slug"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const contradictions = await findContradictions(storage, opts);
+  return jsonResult({ ok: true, contradictions });
+}
+
+async function callFindTrajectory(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["entity_slug"] !== "string" || args["entity_slug"].length === 0) {
+    return errResult("find_trajectory: `entity_slug` is required");
+  }
+  const opts: FindTrajectoryOptions = {};
+  if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["until"] === "string") opts.until = args["until"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const points = await findTrajectory(storage, args["entity_slug"], opts);
+  return jsonResult({ ok: true, entity_slug: args["entity_slug"], points });
+}
+
+async function callGetRecentSalience(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof getRecentSalience>[1] = {};
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (typeof args["days"] === "number") opts.days = args["days"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const pages = await getRecentSalience(storage, opts);
+  return jsonResult({ ok: true, pages });
+}
+
+async function callFindAnomalies(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof findAnomalies>[1] = {};
+  if (typeof args["sigma"] === "number") opts.sigma = args["sigma"];
+  if (typeof args["staleDays"] === "number") opts.staleDays = args["staleDays"];
+  if (typeof args["salienceFloor"] === "number") opts.salienceFloor = args["salienceFloor"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const anomalies = await findAnomalies(storage, opts);
+  return jsonResult({ ok: true, anomalies });
+}
+
+async function callRecall(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const id = args["id"];
+  if (!Number.isInteger(id) || (id as number) < 1) {
+    return errResult("recall: `id` must be a positive integer");
+  }
+  const fact = await recallFact(storage, id as number);
+  if (!fact) {
+    throw new OperationError(
+      "not_found",
+      `recall: fact ${id} not found`,
+      "Pass a live fact id (see entity_facts).",
+    );
+  }
+  return jsonResult({ ok: true, fact });
+}
+
+async function callForgetFact(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const id = args["id"];
+  if (!Number.isInteger(id) || (id as number) < 1) {
+    return errResult("forget_fact: `id` must be a positive integer");
+  }
+  const opts: Parameters<typeof forgetFact>[2] = {};
+  if (typeof args["reason"] === "string") opts.reason = args["reason"];
+  const r = await forgetFact(storage, id as number, opts);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callGetBrainIdentity(storage: Storage): Promise<ToolCallResult> {
+  const id = await brainIdentity(storage);
+  return jsonResult({ ok: true, ...id });
+}
+
+async function callPurgeDeletedPages(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  let olderThanHours: number | undefined;
+  if (args["older_than_hours"] !== undefined) {
+    const v = args["older_than_hours"];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+      return errResult(
+        "purge_deleted_pages: `older_than_hours` must be a non-negative number",
+      );
+    }
+    olderThanHours = v;
+  }
+  const r =
+    olderThanHours === undefined
+      ? await purgeDeletedPages(storage.engine())
+      : await purgeDeletedPages(storage.engine(), olderThanHours);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callQuery(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const q = args["q"];
+  if (typeof q !== "string" || q.length === 0) {
+    throw new OperationError(
+      "invalid_params",
+      "query: `q` is required",
+      "Pass a non-empty `q` string.",
+    );
+  }
+  const opts: Parameters<typeof queryRefine>[3] = {};
+  if (typeof args["k"] === "number") opts.k = args["k"];
+  if (typeof args["primary_weight"] === "number") opts.primaryWeight = args["primary_weight"];
+  if (typeof args["refine_weight"] === "number") opts.refineWeight = args["refine_weight"];
+  const onCapture = makeCaptureCallback(storage.engine(), storage.config(), {
+    toolName: "mcp.query",
+    remote: true,
+  });
+  if (onCapture) opts.search = { onCapture };
+  const refine = typeof args["refine"] === "string" ? args["refine"] : "";
+  const hits = await queryRefine(storage, q, refine, opts);
+  return jsonResult({ ok: true, hits });
 }
