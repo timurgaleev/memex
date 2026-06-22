@@ -34,6 +34,9 @@ export interface ChunkWrite {
   embedding?: number[] | null;
   /** Bare symbol identifier — populated for code chunks, NULL for markdown. */
   symbolName?: string | null;
+  /** Qualified symbol name (parent path :: name) — code chunks only. The key
+   *  the resolve-symbol-edges phase matches call targets against. */
+  symbolNameQualified?: string | null;
   /** Symbol kind (function/class/method/arrow/const/module-import) — code only. */
   symbolType?: string | null;
   /**
@@ -138,8 +141,9 @@ export async function writeDocumentTransaction(
       await tx.query(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
-            symbol_name, symbol_type, parent_symbol_path, doc_comment, language)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11)`,
+            symbol_name, symbol_type, parent_symbol_path, doc_comment, language,
+            symbol_name_qualified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12)`,
         [
           cid,
           doc.documentId,
@@ -157,6 +161,7 @@ export async function writeDocumentTransaction(
             : null,
           ch.docComment ?? null,
           ch.language ?? null,
+          ch.symbolNameQualified ?? null,
         ],
       );
 

@@ -14,6 +14,11 @@ import type { Storage } from "./storage.ts";
 import { chunkCode } from "./chunkers/code.ts";
 import { languageForFile, type CodeLanguage } from "./chunkers/parsers.ts";
 import { extractCodeEntities } from "./code-entities.ts";
+import {
+  qualifiedSymbolName,
+  writeCodeEdgesForDocument,
+  type CodeEdgeInput,
+} from "./code-edges.ts";
 import type { ExtractedEntity } from "./entities.ts";
 import {
   writeDocumentTransaction,
@@ -82,6 +87,7 @@ export async function indexCodeDocument(
 
   // Build per-symbol entity sets. Each chunk corresponds to one symbol.
   const chunkWrites: ChunkWrite[] = [];
+  const codeEdges: CodeEdgeInput[] = [];
   for (let i = 0; i < parsed.symbols.length; i++) {
     const symbol = parsed.symbols[i]!;
     const entities = await extractCodeEntities({
@@ -92,18 +98,35 @@ export async function indexCodeDocument(
     // Prepend the file-level imports onto the FIRST symbol chunk so
     // `code-refs <name>` finds them.
     const merged = i === 0 ? [...fileImportRefs, ...entities] : entities;
+    const qualified = qualifiedSymbolName(symbol.parentSymbolPath, symbol.name);
     chunkWrites.push({
       text: symbol.body,
       startLine: symbol.startLine,
       endLine: symbol.endLine,
       embedding: null, // graph-only
       symbolName: symbol.name,
+      symbolNameQualified: qualified,
       symbolType: symbol.kind,
       parentSymbolPath: symbol.parentSymbolPath,
       docComment: symbol.docComment,
       language,
       entities: merged,
     });
+    // Turn this symbol's callee references (already extracted as `code-caller`
+    // entities) into typed edges anchored on this symbol's chunk. Targets are
+    // bare names left UNRESOLVED; the resolve-symbol-edges phase links them to a
+    // defining chunk. Dedup per (callee) so a symbol called N times = one edge.
+    const seen = new Set<string>();
+    for (const e of entities) {
+      if (e.type !== "code-caller" || seen.has(e.name)) continue;
+      seen.add(e.name);
+      codeEdges.push({
+        fromChunkId: `${id}_c${i}`,
+        fromSymbolQualified: qualified,
+        toSymbolQualified: e.name,
+        edgeType: "calls",
+      });
+    }
   }
 
   // Edge case: file has imports but no symbols. We still want the imports
@@ -131,6 +154,19 @@ export async function indexCodeDocument(
     },
     chunkWrites,
   );
+
+  // Persist call edges (best-effort — the chunks/graph already committed; a
+  // failure here just leaves edges for the next reindex/cycle to rebuild).
+  if (codeEdges.length > 0) {
+    try {
+      await writeCodeEdgesForDocument(storage, id, codeEdges);
+    } catch (e) {
+      console.error(
+        `[code-edges] failed to write edges for ${input.sourcePath}:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
   return {
     ...result,

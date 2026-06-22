@@ -39,6 +39,10 @@ import {
 } from "./mirror-pages.ts";
 import { purgePhase, type PurgeResult } from "./purge.ts";
 import { lintPhase, type LintPhaseResult } from "./lint.ts";
+import {
+  resolveSymbolEdgesPhase,
+  type ResolveSymbolEdgesResult,
+} from "./resolve-symbol-edges.ts";
 import type { ExtractResult } from "../extract.ts";
 
 export type PhaseName =
@@ -47,6 +51,7 @@ export type PhaseName =
   | "mirror-pages"
   | "embed-facts"
   | "extract"
+  | "resolve-symbol-edges"
   | "reconcile-links"
   | "orphans-purge"
   | "frontmatter-inference"
@@ -61,6 +66,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "mirror-pages",
   "embed-facts",
   "extract",
+  "resolve-symbol-edges",
   "reconcile-links",
   "orphans-purge",
   "frontmatter-inference",
@@ -99,6 +105,7 @@ export interface PhaseResult {
     | MirrorPagesResult
     | PurgeResult
     | LintPhaseResult
+    | ResolveSymbolEdgesResult
     | SnapshotResult;
   error?: string;
 }
@@ -135,7 +142,8 @@ export function deriveStatus(
     phase === "embed-stale" ||
     phase === "embed-facts" ||
     phase === "extract" ||
-    phase === "mirror-pages"
+    phase === "mirror-pages" ||
+    phase === "resolve-symbol-edges"
   ) {
     const errs = (
       detail as
@@ -143,6 +151,7 @@ export function deriveStatus(
         | EmbedFactsResult
         | ExtractResult
         | MirrorPagesResult
+        | ResolveSymbolEdgesResult
         | undefined
     )?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
@@ -289,6 +298,9 @@ export async function runCycleOnce(
         r = await runPhase(engine, p, () => extractPhase(engine, o), progress);
         break;
       }
+      case "resolve-symbol-edges":
+        r = await runPhase(engine, p, () => resolveSymbolEdgesPhase(engine), progress);
+        break;
       case "reconcile-links":
         r = await runPhase(engine, p, () => reconcileLinksPhase(engine), progress);
         break;

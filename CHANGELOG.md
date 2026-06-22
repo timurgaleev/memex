@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-06-22
+
+### Added
+- **Resolved code call-graph (`resolve-symbol-edges` cycle phase).** Code call
+  edges, until now stored only as bare-name `code-caller`/`code-callee` entities
+  (which alias same-named methods across classes), are now also written as typed
+  `code_edges_symbol` rows anchored on the calling symbol's chunk (migration
+  041, with a new `chunks.symbol_name_qualified` column). A new
+  `resolve-symbol-edges` cycle phase links each edge's callee to its defining
+  chunk WITHIN the same document — exactly one match → `resolved_chunk_id`, 2+ →
+  `ambiguous` + `candidates[]`, 0 → left for cross-file/external. Incremental
+  via a `chunks.edges_backfilled_at` watermark (a document is resolved once,
+  then re-resolved only after a re-index). Existing entity-based
+  `code-callers`/`code-callees` are unchanged. Faithful to the reference's
+  two-table-no-promotion design (resolution writes into `edge_metadata`).
+  (Receiver-type inference — upgrading `obj.method()` to `Class::method` before
+  resolution — is a future enhancement; current resolution disambiguates within
+  a document by defining-symbol name.)
+
 ## [1.4.1] — 2026-06-22
 
 ### Added
