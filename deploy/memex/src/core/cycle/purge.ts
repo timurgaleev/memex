@@ -11,11 +11,13 @@ import {
   purgeExpiredDocuments,
   SOFT_DELETE_TTL_HOURS,
 } from "../destructive-guard.ts";
+import { purgeStaleVolunteerEvents } from "../context/volunteer-events.ts";
 
 export interface PurgeResult {
   purged_documents_deleted: number;
   purged_documents_archived: number;
   purged_pages: number;
+  purged_volunteer_events: number;
 }
 
 export async function purgePhase(
@@ -34,9 +36,13 @@ export async function purgePhase(
       RETURNING slug`,
     [String(ttlHours)],
   );
+  // Telemetry GC: prune volunteer-context feedback events past their TTL.
+  // Best-effort (the helper swallows its own errors), never blocks the reaper.
+  const purged_volunteer_events = await purgeStaleVolunteerEvents(engine);
   return {
     purged_documents_deleted: docs.purged_deleted,
     purged_documents_archived: docs.purged_archived,
     purged_pages: p.rows.length,
+    purged_volunteer_events,
   };
 }

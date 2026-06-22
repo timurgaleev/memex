@@ -50,6 +50,7 @@ import { runStatus } from "./commands/status.ts";
 import { runEmbed } from "./commands/embed.ts";
 import { runSearchModes } from "./commands/search-modes.ts";
 import { runSalience } from "./commands/salience.ts";
+import { runWatch } from "./commands/watch.ts";
 import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import type { EntityType } from "./core/entities.ts";
@@ -319,6 +320,34 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.limit = n;
       }
       await runSalience(opts);
+      return 0;
+    }
+    case "watch": {
+      if (flags.has("--help") || flags.has("-h")) {
+        const { WATCH_HELP } = await import("./commands/watch.ts");
+        process.stdout.write(WATCH_HELP);
+        return 0;
+      }
+      const opts: Parameters<typeof runWatch>[0] = { json: flags.has("--json") };
+      const wt = values.get("--window-turns");
+      const mp = values.get("--max-pages");
+      const mc = values.get("--min-confidence");
+      if (wt !== undefined) {
+        const n = Number(wt);
+        if (!Number.isInteger(n) || n < 1) throw new Error(`memex watch: invalid --window-turns ${wt}`);
+        opts.windowTurns = n;
+      }
+      if (mp !== undefined) {
+        const n = Number(mp);
+        if (!Number.isInteger(n) || n < 1) throw new Error(`memex watch: invalid --max-pages ${mp}`);
+        opts.maxPages = n;
+      }
+      if (mc !== undefined) {
+        const n = Number(mc);
+        if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error(`memex watch: invalid --min-confidence ${mc}`);
+        opts.minConfidence = n;
+      }
+      await runWatch(opts);
       return 0;
     }
     case "cycle": {
