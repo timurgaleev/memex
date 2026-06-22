@@ -5,6 +5,7 @@
  * Both PGLite and Postgres support `<=>` cosine operator from pgvector.
  */
 import type { Engine } from "../engine/interface.ts";
+import { visibilityClause } from "../visibility.ts";
 
 export interface VectorSearchOptions {
   /** Optional source-id filter — only return chunks whose parent doc
@@ -19,10 +20,17 @@ export async function vectorSearch(
   opts: VectorSearchOptions = {},
 ): Promise<string[]> {
   const sourceIds = opts.sourceIds ?? [];
+  const vis = visibilityClause("d");
   if (sourceIds.length === 0) {
+    // Join chunks→documents so the visibility filter applies to the ANN arm
+    // too. Exclusions (deleted/archived/quarantined) are rare, so the filtered
+    // scan barely dents recall; correctness (never surfacing hidden docs) wins.
     const r = await engine.query<{ chunk_id: string }>(
-      `SELECT chunk_id FROM embeddings
-       ORDER BY vector <=> $1::vector
+      `SELECT e.chunk_id FROM embeddings e
+       JOIN chunks c     ON c.id = e.chunk_id
+       JOIN documents d  ON d.id = c.document_id
+       WHERE ${vis}
+       ORDER BY e.vector <=> $1::vector
        LIMIT $2`,
       [JSON.stringify(queryVector), limit],
     );
@@ -33,6 +41,7 @@ export async function vectorSearch(
      JOIN chunks c     ON c.id = e.chunk_id
      JOIN documents d  ON d.id = c.document_id
      WHERE d.source_id = ANY($2::text[])
+       AND ${vis}
      ORDER BY e.vector <=> $1::vector
      LIMIT $3`,
     [JSON.stringify(queryVector), sourceIds, limit],

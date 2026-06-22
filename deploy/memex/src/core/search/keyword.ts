@@ -21,6 +21,7 @@
  * can pass user input verbatim.
  */
 import type { Engine } from "../engine/interface.ts";
+import { visibilityClause } from "../visibility.ts";
 
 export interface KeywordSearchOptions {
   sourceIds?: readonly string[];
@@ -33,11 +34,16 @@ export async function keywordSearch(
   opts: KeywordSearchOptions = {},
 ): Promise<string[]> {
   const sourceIds = opts.sourceIds ?? [];
+  const vis = visibilityClause("d");
   if (sourceIds.length === 0) {
+    // Join documents so the visibility filter (deleted/archived/quarantine)
+    // applies — soft-deleted/quarantined docs must never be candidates.
     const r = await engine.query<{ id: string }>(
-      `SELECT id FROM chunks
-       WHERE search_vector @@ plainto_tsquery('simple', $1)
-       ORDER BY ts_rank_cd(search_vector, plainto_tsquery('simple', $1)) DESC, id COLLATE "C" ASC
+      `SELECT c.id FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE c.search_vector @@ plainto_tsquery('simple', $1)
+         AND ${vis}
+       ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
        LIMIT $2`,
       [query, limit],
     );
@@ -48,6 +54,7 @@ export async function keywordSearch(
      JOIN documents d ON d.id = c.document_id
      WHERE c.search_vector @@ plainto_tsquery('simple', $1)
        AND d.source_id = ANY($2::text[])
+       AND ${vis}
      ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
      LIMIT $3`,
     [query, sourceIds, limit],

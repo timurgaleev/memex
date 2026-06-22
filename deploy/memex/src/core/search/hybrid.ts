@@ -22,6 +22,7 @@ import { embedText } from "../embedding.ts";
 import { reciprocalRankFusion } from "../rrf.ts";
 import { vectorSearch } from "./vector.ts";
 import { keywordSearch } from "./keyword.ts";
+import { visibilityClause } from "../visibility.ts";
 import {
   dedupByDocument,
   dedupByTextSimilarity,
@@ -173,10 +174,16 @@ async function hydrateByIds(
     source_path: string;
     title: string | null;
   }>(
+    // Visibility filter here too (belt-and-suspenders): a cached query can
+    // re-hydrate ids captured before a doc was soft-deleted/archived/
+    // quarantined. The column-flip ops bump per-doc generation to invalidate
+    // Layer-2, but filtering at hydrate guarantees a hidden doc never surfaces
+    // even if an invalidation is ever missed.
     `SELECT c.id, c.document_id, c.content, d.source_path, d.title
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
-      WHERE c.id = ANY($1::text[])`,
+      WHERE c.id = ANY($1::text[])
+        AND ${visibilityClause("d")}`,
     [ids],
   );
   const byId = new Map(rows.rows.map((r) => [r.id, r]));

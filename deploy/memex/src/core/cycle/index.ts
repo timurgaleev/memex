@@ -37,6 +37,7 @@ import {
   mirrorPagesPhase,
   type MirrorPagesResult,
 } from "./mirror-pages.ts";
+import { purgePhase, type PurgeResult } from "./purge.ts";
 import type { ExtractResult } from "../extract.ts";
 
 export type PhaseName =
@@ -49,7 +50,8 @@ export type PhaseName =
   | "frontmatter-inference"
   | "recompute-salience"
   | "extract-timeline"
-  | "snapshot";
+  | "snapshot"
+  | "purge";
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "embed-stale",
@@ -62,6 +64,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "recompute-salience",
   "extract-timeline",
   "snapshot",
+  "purge",
 ];
 
 /**
@@ -91,6 +94,7 @@ export interface PhaseResult {
     | RecomputeSalienceResult
     | MeetingTimelineResult
     | MirrorPagesResult
+    | PurgeResult
     | SnapshotResult;
   error?: string;
 }
@@ -312,6 +316,9 @@ export async function runCycleOnce(
       }
       case "snapshot":
         r = await runPhase(engine, p, () => snapshotPhase(engine), progress);
+        break;
+      case "purge":
+        r = await runPhase(engine, p, () => purgePhase(engine), progress);
         break;
       default:
         r = {

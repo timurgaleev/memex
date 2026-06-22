@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-06-22
+
+### Added
+- **Document soft-delete, archive, and quarantine with a search visibility
+  filter.** Retiring content no longer means a hard `DELETE` — a document can be
+  soft-deleted (reversible, hard-purged after a 72h TTL), its source archived
+  (with an expiry), or quarantined (a `frontmatter.quarantine` marker, no
+  column). A single shared visibility filter (`core/visibility.ts`, faithful to
+  the reference's `buildVisibilityClause`) is spliced into both retrieval arms
+  (`search/keyword.ts`, `search/vector.ts`) so hidden documents can never appear
+  in search — the exclusion lives in the WHERE clause, not post-processing, and
+  cannot be bypassed by a verbosity flag. Migration `040` adds
+  `documents.deleted_at`/`archived`/`archived_at`/`archive_expires_at` (additive,
+  defaulted — existing rows stay fully visible). `core/destructive-guard.ts`
+  provides the programmatic API: impact preview + confirmation gate, soft-delete/
+  restore by document, archive/restore by source, and `purgeExpiredDocuments`.
+  A new **`purge`** cycle phase hard-deletes documents and pages past the TTL
+  (cascading to chunks/embeddings via FK). Quarantine helpers live in
+  `core/quarantine.ts` (hide-from-search vs warn-but-show markers).
+
 ## [1.3.55] — 2026-06-22
 
 ### Fixed
