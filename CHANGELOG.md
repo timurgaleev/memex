@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-06-22
+
+### Added
+- **`memex status` now surfaces the job worker's heartbeat (durable-jobs part 2).**
+  The snapshot gains a `worker` field — the active worker's `holder`, last
+  `heartbeatAt`, `staleMs`, and a `stale` flag (heartbeat older than its TTL =
+  the holder crashed or wedged). `null` when no worker has acquired the lock.
+  Makes the wedge signal introduced in 1.6.0 observable at a glance; read-only.
+
 ## [1.6.0] — 2026-06-22
 
 ### Added

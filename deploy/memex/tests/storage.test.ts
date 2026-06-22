@@ -32,7 +32,9 @@ test("Storage init is idempotent (second init is a no-op)", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
+  // Runs init TWICE (each applies the full migration set); generous timeout so
+  // it can't flake on a CPU-starved full-suite run as the migration count grows.
+}, 30_000);
 
 test("Storage exposes pgvector — embeddings table accepts a 1024-dim vector", async () => {
   const dir = mkdtempSync(join(tmpdir(), "tb-storage-"));

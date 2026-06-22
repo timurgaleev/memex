@@ -48,6 +48,7 @@ describe("memex status", () => {
       stats: { documents: number; chunks: number; embeddings: number };
       health: { embed_coverage_pct: number; queue_depth: number; failed_jobs_24h: number };
       cache: { total: number; fresh: number; stale: number };
+      worker: { holder: string; stale: boolean } | null;
     };
     expect(parsed.ok).toBe(true);
     expect(parsed.version).toMatch(/\d+\.\d+\.\d+/);
@@ -56,5 +57,7 @@ describe("memex status", () => {
     expect(parsed.health.embed_coverage_pct).toBe(1);
     expect(parsed.health.failed_jobs_24h).toBe(0);
     expect(parsed.cache.total).toBe(0);
+    // No worker has acquired the lock on a fresh brain.
+    expect(parsed.worker).toBeNull();
   });
 });
