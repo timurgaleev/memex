@@ -729,4 +729,16 @@ export const OPERATIONS: readonly Operation[] = [
       stats: bool({ description: "Return per-arm used/volunteered precision stats instead of volunteering (uses `turn` as the day window when set)." }),
     },
   },
+  {
+    name: "advisor",
+    description:
+      "Ranked, read-only \"what to do next\" for this brain: pending migrations, version drift, stalled/failed jobs, low embedding coverage, and setup smells. Each finding has a severity (high/medium/low/info), a why-it-matters, and the exact fix command. Never mutates, never calls an LLM. Tell the user; ask before running any fix. Internal-only.",
+    params: {},
+  },
+  {
+    name: "list_brain_skillpack",
+    description:
+      "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. After orienting, ask the user whether to install the pack (memex skillpack).",
+    params: {},
+  },
 ];
