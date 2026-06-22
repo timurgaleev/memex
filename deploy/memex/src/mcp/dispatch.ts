@@ -38,9 +38,11 @@ import {
   removeLink,
   graphNeighbors,
   graphQuery,
+  traverseGraph,
   syncWikilinksForPage,
   type GraphNeighborsOptions,
   type GraphQueryOptions,
+  type TraverseGraphOptions,
 } from "../core/links.ts";
 import { syncMentionsForPage } from "../core/gazetteer.ts";
 import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts";
@@ -181,6 +183,8 @@ export async function dispatchTool(
         return await callGraphNeighbors(storage, args, redactGraph);
       case "graph_query":
         return await callGraphQuery(storage, args, redactGraph);
+      case "traverse_graph":
+        return await callTraverseGraph(storage, args);
       case "add_fact":
         return await callAddFact(storage, args);
       case "add_timeline_event":
@@ -794,6 +798,31 @@ async function callGraphQuery(
       ? redactGraphLinks(links as unknown as Record<string, unknown>[])
       : links,
   });
+}
+
+async function callTraverseGraph(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["start_slug"] !== "string" || args["start_slug"].length === 0) {
+    return errResult("traverse_graph: `start_slug` is required");
+  }
+  const opts: TraverseGraphOptions = {};
+  if (typeof args["direction"] === "string")
+    opts.direction = args["direction"] as TraverseGraphOptions["direction"];
+  if (typeof args["type"] === "string") opts.type = args["type"];
+  if (Number.isInteger(args["max_depth"])) opts.maxDepth = args["max_depth"] as number;
+  if (Number.isInteger(args["limit"])) opts.limit = args["limit"] as number;
+  try {
+    // Returns only {slug, depth} — slugs are already public for the graph read
+    // surface (graph_neighbors/graph_query expose them), so no extra redaction.
+    const hits = await traverseGraph(storage, args["start_slug"], opts);
+    return jsonResult({ ok: true, start: args["start_slug"], hits });
+  } catch (e) {
+    return errResult(
+      `traverse_graph: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

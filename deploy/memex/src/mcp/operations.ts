@@ -389,6 +389,18 @@ export const OPERATIONS: readonly Operation[] = [
     },
   },
   {
+    name: "traverse_graph",
+    description:
+      "Recursive N-hop graph walk from a start slug over the link graph — the multi-hop counterpart to graph_neighbors. Returns each reachable node once at its shortest `depth`. `direction` (outbound|inbound|both, default outbound), optional `type` edge filter, `max_depth` (1..10, default 3), `limit` (1..1000, default 100). Example: {start_slug:'people/alice', direction:'both', max_depth:2} → everyone within 2 hops of Alice.",
+    params: {
+      start_slug: str(req),
+      direction: str({ enum: ["outbound", "inbound", "both"] }),
+      type: str(),
+      max_depth: int({ minimum: 1, maximum: 10 }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
     name: "add_fact",
     description:
       "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",

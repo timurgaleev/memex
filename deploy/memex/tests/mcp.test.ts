@@ -95,6 +95,7 @@ describe("MCP HTTP transport", () => {
       "page_versions",
       "search",
       "stats",
+      "traverse_graph",
       "unlink",
     ]);
   });

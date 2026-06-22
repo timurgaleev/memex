@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`traverse_graph` — recursive N-hop graph walk.** memex's `graph_neighbors`
+  and `graph_query` were single-hop only; multi-hop questions ("everyone within
+  2 hops of Alice") were impossible despite the typed-edge graph already being
+  stored. New `traverse_graph` MCP read tool walks the `links` graph from a start
+  slug: depth-capped (`max_depth` 1..10, default 3), cycle-safe (a node already
+  on the current path is never re-entered), returns each reachable node once at
+  its shortest `depth`. `direction` = outbound|inbound|both (both = undirected),
+  optional `type` edge filter, `limit` 1..1000. Deterministic; recursive CTE
+  without LATERAL for PGLite/Postgres portability. Found via the reference
+  comparison; tracked in `PARITY.md`.
+
+## [1.7.0] — 2026-06-22
+
+### Added
 - **`page_restore` + `page_revert` — page recovery (closes a data-loss
   asymmetry).** memex soft-deletes pages and stores a full body snapshot per
   version "for audit", but had no way to undo either: a soft-deleted page could

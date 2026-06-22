@@ -55,7 +55,7 @@ slug-canonicalization (mig033) wired; autocut deliberately rejected (return-poli
 |---|-----|------|------|--------|
 | 1 | **page_restore** | undelete a soft-deleted page. | S | **DONE v1.7.0** |
 | 2 | **page_revert** | roll a page body back to a `page_versions` snapshot. | M | **DONE v1.7.0** |
-| 3 | traverse_graph | recursive N-hop graph walk (depth-capped CTE); memex `graph_query`/`graph_neighbors` are 1-hop only. | M | TODO |
+| 3 | traverse_graph | recursive N-hop graph walk (depth-capped CTE); memex `graph_query`/`graph_neighbors` are 1-hop only. | M | **DONE v1.8.0** |
 | 4 | relational-recall arm | 4th RRF arm: NL relational query → seed entity → typed-edge fan-out → ranked candidates. | L | TODO |
 | 5 | resolve_slugs | fuzzy partial-string → canonical slugs (link/type-ahead foundation). | S | TODO |
 | 6 | get_chunks | return a page's ordered content chunks (citation/re-embed access). | S | TODO |

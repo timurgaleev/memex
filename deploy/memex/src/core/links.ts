@@ -395,6 +395,106 @@ export async function graphQuery(
   return r.rows;
 }
 
+export interface TraverseGraphOptions {
+  /** Max hops from the start (1..10). Default 3. */
+  maxDepth?: number;
+  /** Edge direction to follow. Default `outbound`. */
+  direction?: "outbound" | "inbound" | "both";
+  /** Optional edge-type filter. */
+  type?: string;
+  /** Max distinct nodes returned (1..1000). Default 100. */
+  limit?: number;
+}
+
+export interface TraverseHit {
+  slug: string;
+  /** Shortest hop distance from the start node (>= 1). */
+  depth: number;
+}
+
+/**
+ * Recursive N-hop graph walk from `startSlug` over the `links` edge table —
+ * the multi-hop counterpart to single-hop `graphNeighbors`/`graphQuery`.
+ * Depth-capped, cycle-safe (a node already on the current path is never
+ * re-entered), returns each reachable node once at its shortest depth.
+ *
+ * `direction` selects which way edges are followed; `both` treats the graph as
+ * undirected. Bounded by `maxDepth` AND `limit`. Deterministic, no LLM. The SQL
+ * avoids LATERAL for PGLite/Postgres portability.
+ */
+export async function traverseGraph(
+  storage: Storage,
+  startSlug: string,
+  opts: TraverseGraphOptions = {},
+): Promise<TraverseHit[]> {
+  validateSlug(startSlug);
+  const direction = opts.direction ?? "outbound";
+  if (!["outbound", "inbound", "both"].includes(direction)) {
+    throw new Error(
+      `traverseGraph: direction must be outbound|inbound|both (got ${direction})`,
+    );
+  }
+  const maxDepth =
+    typeof opts.maxDepth === "number" && opts.maxDepth >= 1 && opts.maxDepth <= 10
+      ? Math.floor(opts.maxDepth)
+      : 3;
+  const limit =
+    typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
+      ? Math.floor(opts.limit)
+      : 100;
+  const type = opts.type ? normaliseType(opts.type, true) : null;
+
+  // direction → join condition + the "other end" expression. Whitelisted
+  // literals (never user input) — safe to interpolate.
+  const joinCond =
+    direction === "outbound"
+      ? "l.source_slug = w.slug"
+      : direction === "inbound"
+        ? "l.target_slug = w.slug"
+        : "(l.source_slug = w.slug OR l.target_slug = w.slug)";
+  const nextExpr =
+    direction === "outbound"
+      ? "l.target_slug"
+      : direction === "inbound"
+        ? "l.source_slug"
+        : "CASE WHEN l.source_slug = w.slug THEN l.target_slug ELSE l.source_slug END";
+
+  const params: unknown[] = [startSlug, maxDepth];
+  let typeFilter = "";
+  if (type) {
+    params.push(type);
+    typeFilter = ` AND l.type = $${params.length}`;
+  }
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+
+  // ponytail: `limit` bounds the OUTPUT (distinct nodes), not the CTE's work —
+  // path-based pruning materializes every simple path up to maxDepth, so a
+  // DENSE graph at high maxDepth (esp. `both`) can fan out super-linearly
+  // before the final GROUP BY. maxDepth (cap 10) is the real cost guard; fine
+  // for memex's small, sparse wiki-link graph. If the graph ever grows dense,
+  // switch to a per-iteration visited-set cap or lower the `both` ceiling.
+  const r = await storage.engine().query<{ slug: string; depth: number }>(
+    `WITH RECURSIVE walk(slug, depth, path) AS (
+       SELECT $1::text, 0, ARRAY[$1::text]
+       UNION ALL
+       SELECT ${nextExpr}, w.depth + 1, w.path || ${nextExpr}
+       FROM walk w
+       JOIN links l ON ${joinCond}
+       WHERE w.depth < $2
+         AND NOT (${nextExpr} = ANY(w.path))${typeFilter}
+     )
+     SELECT slug, MIN(depth) AS depth
+       FROM walk
+      WHERE depth > 0
+      GROUP BY slug
+      ORDER BY MIN(depth) ASC, slug ASC
+      LIMIT ${limitParam}`,
+    params,
+  );
+  return r.rows.map((x) => ({ slug: x.slug, depth: Number(x.depth) }));
+}
+
 // ---------------------------------------------------------------------------
 // Deterministic [[wikilink]] extractor -- zero LLM, idempotent.
 // ---------------------------------------------------------------------------
