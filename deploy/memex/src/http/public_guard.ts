@@ -122,6 +122,9 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // volunteer_context surfaces page slugs/titles + synopses (the same
   // author-written identifiers/content the public path suppresses); internal-only.
   "volunteer_context",
+  // advisor surfaces operational state (pending migrations, job queue, embed
+  // coverage, internal-auth config) — private infra, internal-only.
+  "advisor",
   "jobs_submit",
   "jobs_cancel",
 ]);

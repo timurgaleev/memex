@@ -77,6 +77,9 @@ import {
   logVolunteerEventsFireAndForget,
   volunteerEventRowsFrom,
 } from "../core/context/volunteer-events.ts";
+import { runAdvisor } from "../core/advisor/run.ts";
+import { listBrainSkillpacks } from "../core/skillpack/brain-resident.ts";
+import packageJson from "../../package.json" with { type: "json" };
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -275,6 +278,10 @@ export async function dispatchTool(
         return await callCodeCallees(storage, args);
       case "volunteer_context":
         return await callVolunteerContext(storage, args);
+      case "advisor":
+        return await callAdvisor(storage);
+      case "list_brain_skillpack":
+        return await callListBrainSkillpack();
       default:
         throw new OperationError(
           "not_found",
@@ -1475,4 +1482,17 @@ async function callVolunteerContext(
   );
 
   return jsonResult({ ok: true, pages });
+}
+
+async function callAdvisor(storage: Storage): Promise<ToolCallResult> {
+  const report = await runAdvisor({
+    engine: storage.raw(),
+    version: packageJson.version,
+    now: new Date(),
+  });
+  return jsonResult({ ok: true, ...report });
+}
+
+async function callListBrainSkillpack(): Promise<ToolCallResult> {
+  return jsonResult({ ok: true, ...listBrainSkillpacks() });
 }

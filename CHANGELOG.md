@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`advisor` + `list_brain_skillpack` MCP tools** (Wave 4 of reference-parity) —
+  deterministic, zero-LLM.
+  - **`advisor`** — ranked, read-only "what to do next": pending migrations,
+    version drift, stalled/failed jobs, low embedding coverage, and the
+    `MEMEX_INTERNAL_TOKEN` setup smell. Each finding carries a severity
+    (high/medium/low/info), a why-it-matters, and the exact fix command — it
+    never mutates and never runs the fix. Reuses memex's existing doctor / status
+    / jobs primitives (no parallel diagnostic engine). Internal-only (surfaces
+    operational state). New `core/advisor/{types,run,collectors}.ts`.
+  - **`list_brain_skillpack`** — lists the brain-resident skill pack
+    (`deploy/skills/` slug + one-line description). Public-safe (catalogue only,
+    like `list_link_sources`). New `core/skillpack/brain-resident.ts`.
+  52 MCP tools. Adapted from the reference (no DB config-key plane → the public
+  gate is `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`, not `mcp.publish_advisor`; no
+  workspace/skill-install nagging; no `--apply` exec path — findings are
+  human-runnable command strings).
+
 ## [1.13.0] — 2026-06-23
 
 ### Added
