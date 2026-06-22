@@ -1,6 +1,6 @@
 /**
- * Cycle — runs the 6 maintenance phases in order, returns a per-phase
- * envelope. Phases are independent: one failing doesn't stop the others.
+ * Cycle — runs the maintenance phases (see ALL_PHASES) in order, returns a
+ * per-phase envelope. Phases are independent: one failing doesn't stop others.
  */
 import type { Engine } from "../engine/interface.ts";
 import type { Storage } from "../storage.ts";
@@ -38,9 +38,11 @@ import {
   type MirrorPagesResult,
 } from "./mirror-pages.ts";
 import { purgePhase, type PurgeResult } from "./purge.ts";
+import { lintPhase, type LintPhaseResult } from "./lint.ts";
 import type { ExtractResult } from "../extract.ts";
 
 export type PhaseName =
+  | "lint"
   | "embed-stale"
   | "mirror-pages"
   | "embed-facts"
@@ -54,6 +56,7 @@ export type PhaseName =
   | "purge";
 
 export const ALL_PHASES: readonly PhaseName[] = [
+  "lint",
   "embed-stale",
   "mirror-pages",
   "embed-facts",
@@ -95,6 +98,7 @@ export interface PhaseResult {
     | MeetingTimelineResult
     | MirrorPagesResult
     | PurgeResult
+    | LintPhaseResult
     | SnapshotResult;
   error?: string;
 }
@@ -145,6 +149,13 @@ export function deriveStatus(
   }
   if (phase === "snapshot") {
     return (detail as SnapshotResult | undefined)?.persisted === false
+      ? "warn"
+      : "ok";
+  }
+  if (phase === "lint") {
+    // A non-empty flagged count is content-conformance debt → warn (the phase
+    // measures; frontmatter-inference fixes). Zero violations → ok.
+    return ((detail as LintPhaseResult | undefined)?.flagged ?? 0) > 0
       ? "warn"
       : "ok";
   }
@@ -240,6 +251,9 @@ export async function runCycleOnce(
   for (const p of requested) {
     let r: PhaseResult;
     switch (p) {
+      case "lint":
+        r = await runPhase(engine, p, () => lintPhase(engine), progress);
+        break;
       case "embed-stale": {
         const o: EmbedStaleOptions = {};
         if (options.staleDays !== undefined) o.staleDays = options.staleDays;

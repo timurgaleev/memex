@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-06-22
+
+### Added
+- **`lint` is now a maintenance-cycle phase, not just a CLI command.** The
+  frontmatter-conformance ruleset moved into a shared core (`core/lint.ts`,
+  used by both `memex lint` and the cycle) and runs as the first cycle phase
+  each pass — a read-only audit that reports how many documents violate the
+  ruleset (`title`/`tags`/`created`/`updated`). A non-zero count surfaces as a
+  `warn` so conformance debt is visible without failing the cycle; the
+  frontmatter-inference phase is what fixes it. Brings memex's cycle closer to
+  the reference's phase set (now 12 phases).
+
 ## [1.4.0] — 2026-06-22
 
 ### Added
