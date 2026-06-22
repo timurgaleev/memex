@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-06-23
+
 ### Added
 - **Code-graph activation** (Wave 2 of reference-parity). memex already shipped
   the tree-sitter code chunker, `code_edges_symbol` table, and the
