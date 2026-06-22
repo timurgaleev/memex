@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-06-22
+
 ### Added
 - **`graph-signals` — deterministic graph-aware retrieval stage** (opt-in,
   default OFF). A post-fusion ranking stage that reads the `links` graph and
