@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-06-23
+
 ### Added
 - **`advisor` + `list_brain_skillpack` MCP tools** (Wave 4 of reference-parity) —
   deterministic, zero-LLM.
