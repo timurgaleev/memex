@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`page_restore` + `page_revert` — page recovery (closes a data-loss
+  asymmetry).** memex soft-deletes pages and stores a full body snapshot per
+  version "for audit", but had no way to undo either: a soft-deleted page could
+  never be undeleted, and version history was read-only with no rollback. Two
+  new internal-only MCP write tools fix that:
+  - `page_restore` clears `deleted_at` (the inverse of `page_delete`), re-derives
+    the page's facts and search mirror (both torn down on delete; links survive),
+    and records a restore event in the version chain. No-op if missing or live.
+  - `page_revert` rolls a page's body back to a prior `page_versions` snapshot,
+    creating a NEW version (history stays append-only). Reuses `page_put` so
+    type/title are preserved and links/facts/search refresh. Refuses to revert
+    to a delete/restore event version or a missing version.
+  Both are in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` (internal/stdio only). Found by
+  a fresh comparison against the reference implementation, which has the
+  equivalent restore/revert ops; logged in `PARITY.md`.
+
 ## [1.6.1] — 2026-06-22
 
 ### Added

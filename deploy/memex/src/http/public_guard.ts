@@ -75,6 +75,8 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "page_put",
   "page_append",
   "page_delete",
+  "page_restore",
+  "page_revert",
   "link",
   "unlink",
   "add_fact",

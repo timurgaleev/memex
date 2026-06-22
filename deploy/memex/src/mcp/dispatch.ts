@@ -26,6 +26,8 @@ import {
   putPage,
   appendPage,
   deletePage,
+  restorePage,
+  revertPage,
   getPage,
   listPages,
   pageVersions,
@@ -161,6 +163,10 @@ export async function dispatchTool(
         return await callPageAppend(storage, args);
       case "page_delete":
         return await callPageDelete(storage, args);
+      case "page_restore":
+        return await callPageRestore(storage, args);
+      case "page_revert":
+        return await callPageRevert(storage, args);
       case "page_get":
         return await callPageGet(storage, args, redact);
       case "page_list":
@@ -576,6 +582,61 @@ async function callPageDelete(
         `[page-index] failed to drop search mirror for ${args["slug"]}:`,
         e instanceof Error ? e.message : e,
       );
+    }
+  }
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callPageRestore(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_restore: `slug` is required");
+  }
+  const writtenBy =
+    typeof args["written_by"] === "string" ? args["written_by"] : undefined;
+  const r = await restorePage(storage, args["slug"], writtenBy);
+  if (r.restored) {
+    // Re-derive ONLY what delete tore down: facts (purged on delete) and the
+    // search mirror (dropped on delete). Links/mentions/typed-links are NOT
+    // touched by a soft-delete, so they're already intact — no re-sync needed
+    // (this is why restore is narrower than revert, which changes the body).
+    const page = await getPage(storage, r.slug);
+    if (page) {
+      await reconcileFactsForPage(storage, r.slug, page.content_hash);
+      await mirrorPageToSearch(storage, page);
+    }
+  }
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callPageRevert(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string") {
+    return errResult("page_revert: `slug` is required");
+  }
+  const v = args["version"];
+  if (!Number.isInteger(v) || (v as number) < 1) {
+    return errResult("page_revert: `version` must be a positive integer");
+  }
+  const writtenBy =
+    typeof args["written_by"] === "string" ? args["written_by"] : undefined;
+  const r = await revertPage(storage, args["slug"], v as number, writtenBy);
+  if (r.reverted) {
+    // The body changed — refresh links, mentions, facts, and the search mirror,
+    // exactly as a normal page_put would.
+    const page = await getPage(storage, r.slug);
+    if (page) {
+      await syncWikilinksForPage(storage, r.slug, page.markdown_body);
+      await syncMentionsForPage(storage, r.slug, page.markdown_body);
+      if (typedLinksEnabled()) {
+        await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+      }
+      await reconcileFactsForPage(storage, r.slug, page.content_hash);
+      await mirrorPageToSearch(storage, page);
     }
   }
   return jsonResult({ ok: true, ...r });

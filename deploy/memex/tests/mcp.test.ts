@@ -90,6 +90,8 @@ describe("MCP HTTP transport", () => {
       "page_get",
       "page_list",
       "page_put",
+      "page_restore",
+      "page_revert",
       "page_versions",
       "search",
       "stats",

@@ -491,3 +491,123 @@ export async function deletePage(
     return { slug, already_deleted: false };
   });
 }
+
+export interface RestoreResult {
+  slug: string;
+  /** True when a soft-deleted page was undeleted; false if missing or live. */
+  restored: boolean;
+}
+
+/**
+ * Undelete a soft-deleted page (clear `deleted_at`). The page row + its full
+ * version history are kept on delete specifically so this is possible; without
+ * it an accidental `page_delete` is unrecoverable. Records a restore event in
+ * the version chain. No-op (restored:false) when the page is missing or live.
+ */
+export async function restorePage(
+  storage: Storage,
+  slug: string,
+  writtenBy?: string,
+): Promise<RestoreResult> {
+  validateSlug(slug);
+  const engine = storage.engine();
+  return engine.transaction(async (tx) => {
+    const r = await tx.query<{ content_hash: string; deleted_at: string | null }>(
+      `SELECT content_hash, deleted_at::text AS deleted_at
+         FROM pages WHERE slug = $1`,
+      [slug],
+    );
+    if (r.rows.length === 0 || r.rows[0]!.deleted_at === null) {
+      return { slug, restored: false };
+    }
+    await tx.query(
+      `UPDATE pages SET deleted_at = NULL, updated_at = NOW() WHERE slug = $1`,
+      [slug],
+    );
+    const nextN = await tx.query<{ n: number }>(
+      `SELECT COALESCE(MAX(version_n), 0)::int + 1 AS n
+         FROM page_versions WHERE slug = $1`,
+      [slug],
+    );
+    const marker = JSON.stringify({ restored_at: new Date().toISOString() });
+    await tx.query(
+      `INSERT INTO page_versions
+         (slug, version_n, hash_prev, hash_new,
+          body_snapshot, compiled_truth_snapshot, written_by, written_at)
+       VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW())`,
+      [slug, nextN.rows[0]!.n, r.rows[0]!.content_hash, marker, writtenBy ?? null],
+    );
+    await bumpPageGeneration(tx, slug);
+    return { slug, restored: true };
+  });
+}
+
+export interface RevertResult {
+  slug: string;
+  /** True when the body was rolled back (false = page missing/deleted, version
+   *  not found, target is an event marker, or content already identical). */
+  reverted: boolean;
+  /** The target version reverted TO (null when not found). */
+  from_version: number | null;
+  /** The NEW version number created by the revert (null when no change). */
+  new_version: number | null;
+  reason?: string;
+}
+
+/**
+ * Roll a page's body back to a prior `page_versions` snapshot. memex keeps a
+ * full body snapshot per version but offered no rollback until now. Reverting
+ * creates a NEW version with the old content (history is append-only, never
+ * rewritten); reuses `putPage` so type/title are preserved and the change flows
+ * through the normal write path (generation bump, links, facts).
+ */
+export async function revertPage(
+  storage: Storage,
+  slug: string,
+  targetVersion: number,
+  writtenBy?: string,
+): Promise<RevertResult> {
+  validateSlug(slug);
+  const page = await getPage(storage, slug);
+  if (!page) {
+    return { slug, reverted: false, from_version: null, new_version: null, reason: "page not found or deleted" };
+  }
+  const snap = await storage.engine().query<{
+    body_snapshot: string;
+    compiled_truth_snapshot: Record<string, unknown>;
+  }>(
+    `SELECT body_snapshot, compiled_truth_snapshot
+       FROM page_versions WHERE slug = $1 AND version_n = $2`,
+    [slug, targetVersion],
+  );
+  const row = snap.rows[0];
+  if (!row) {
+    return { slug, reverted: false, from_version: null, new_version: null, reason: `version ${targetVersion} not found` };
+  }
+  // An event marker (delete/restore) carries no real body — refuse to revert to
+  // it (it would blank the page); use page_restore for deletion events.
+  const truth = row.compiled_truth_snapshot ?? {};
+  if (
+    Object.hasOwn(truth, "deleted_at") ||
+    Object.hasOwn(truth, "restored_at")
+  ) {
+    return { slug, reverted: false, from_version: targetVersion, new_version: null, reason: "target is a delete/restore event, not a content version" };
+  }
+  // Preserve the CURRENT title + type: page_versions has no title column, and
+  // putPage does NOT preserve an omitted title (it nulls it). Passing the live
+  // title keeps revert body-only — and keeps revert-to-identical idempotent
+  // (omitting it would null the title, forcing a spurious version).
+  const put = await putPage(storage, {
+    slug,
+    markdown_body: row.body_snapshot,
+    compiled_truth: truth,
+    ...(page.title != null ? { title: page.title } : {}),
+    ...(writtenBy ? { written_by: writtenBy } : {}),
+  });
+  return {
+    slug,
+    reverted: put.changed,
+    from_version: targetVersion,
+    new_version: put.changed ? put.version_n : null,
+  };
+}

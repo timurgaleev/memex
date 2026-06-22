@@ -214,6 +214,49 @@
     }
   },
   {
+    "name": "page_restore",
+    "description": "Undelete a soft-deleted page (clears deleted_at). The inverse of page_delete; no-op if the page is missing or already live. WRITE — internal/MCP-stdio only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "written_by": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "page_revert",
+    "description": "Roll a page's body back to a prior page_versions snapshot. Creates a NEW version with the old content (history is append-only). `version` is the target version_n (see page_versions). WRITE — internal/MCP-stdio only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "written_by": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "page_get",
     "description": "Read a page by slug. Returns an error if the page does not exist or is soft-deleted.",
     "inputSchema": {

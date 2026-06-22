@@ -280,6 +280,25 @@ export const OPERATIONS: readonly Operation[] = [
     },
   },
   {
+    name: "page_restore",
+    description:
+      "Undelete a soft-deleted page (clears deleted_at). The inverse of page_delete; no-op if the page is missing or already live. WRITE — internal/MCP-stdio only.",
+    params: {
+      slug: str(req),
+      written_by: str(),
+    },
+  },
+  {
+    name: "page_revert",
+    description:
+      "Roll a page's body back to a prior page_versions snapshot. Creates a NEW version with the old content (history is append-only). `version` is the target version_n (see page_versions). WRITE — internal/MCP-stdio only.",
+    params: {
+      slug: str(req),
+      version: int({ ...req, minimum: 1 }),
+      written_by: str(),
+    },
+  },
+  {
     name: "page_get",
     description:
       "Read a page by slug. Returns an error if the page does not exist or is soft-deleted.",
