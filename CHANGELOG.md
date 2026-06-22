@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-06-22
+
 ### Added
 - **13 new deterministic MCP tools** (47 tools total) — reference-parity read +
   admin surface, all zero-LLM, drafted in parallel via a dynamic workflow and
