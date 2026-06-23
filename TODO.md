@@ -7,6 +7,32 @@ introduces them.
 
 ---
 
+## Deferred — full-parity follow-ups (2026-06-23)
+
+> NOTE: the "brain-only" north-star elsewhere in this file is **superseded** as
+> of 2026-06-23 — the operator opted into full reference parity. LLM synthesis,
+> code-graph, push-context, advisor, and an OAuth app-layer all shipped
+> (v1.10.0–v1.16.0). These are the remaining pieces, deferred because they need
+> infra/provider decisions, not because they're out of scope.
+
+- [ ] **Brain federation** (deferred — operator, 2026-06-23). A network of
+  memex brains (multi-source / multi-holder), likely on Supabase or a similar
+  backend. Needs a per-source/per-user data model (memex is single-holder today
+  — no `user_id` on documents/pages), cross-brain read grants, and an infra
+  story. A *separate project*, not an increment — start with a design doc
+  (tenancy + sync/clock + auth) before any code.
+- [ ] **Embedding 1024→1536** (deferred). Larger vectors for slightly better
+  recall, but requires moving off Amazon Bedrock Titan v2 (1024-dim) to a
+  1536-dim provider + a full corpus re-embed + an `embeddings` column migration.
+  Provider choice is the operator's.
+- [ ] **Enable OAuth in production** (operator action — code shipped default-OFF
+  in v1.16.0). Before flipping `auth.oauth.enabled`: (a) terraform public ingress
+  (ALB/SG/TLS + JWKS egress) via the ops dir; (b) decide tenancy (today every
+  validated token maps to the one shared redacted scope); (c) pick an IdP + fill
+  `auth.oauth`; (d) add a negative / per-IP cache to the JWKS fetch.
+
+---
+
 ## Parity gap backlog (vs the reference, 2026-06-09)
 
 Source: a full subsystem-by-subsystem diff of this brain against the

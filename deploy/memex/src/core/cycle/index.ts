@@ -103,6 +103,20 @@ export const ALL_PHASES: readonly PhaseName[] = [
 ];
 
 /**
+ * Opt-in LLM-synthesis phases (Wave 5). Deliberately NOT in ALL_PHASES — they
+ * spend Bedrock and only run when explicitly requested (`memex cycle --phases
+ * extract-atoms,...`). Listed here so the CLI accepts them as valid phase names
+ * while the default cycle stays free + deterministic.
+ */
+export const SYNTHESIS_PHASES: readonly PhaseName[] = [
+  "extract-atoms",
+  "synthesize-concepts",
+  "propose-takes",
+  "grade-takes",
+  "calibration-profile",
+];
+
+/**
  * Three-state phase outcome (faithful to the reference's ok/warn/fail
  * envelope). `warn` = the phase COMPLETED (didn't throw) but reported
  * non-fatal issues — e.g. embed-stale re-embedded most chunks but a few hit

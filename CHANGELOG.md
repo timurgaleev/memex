@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.16.1] — 2026-06-23
+
+### Fixed
+- **`memex cycle --phases` now accepts the synthesis phases.** The opt-in
+  synthesis phases (extract-atoms / synthesize-concepts / propose-takes /
+  grade-takes / calibration-profile) were valid in the run switch but rejected
+  by the CLI's phase validator (which only knew `ALL_PHASES`), so they were
+  unreachable from the command line. Added `SYNTHESIS_PHASES` and widened the
+  validator to `ALL_PHASES ∪ SYNTHESIS_PHASES`.
+
+### Added
+- **`terraform/cognito.tf`** — optional AWS Cognito user pool for the OAuth path
+  (Wave 6). Gated by `var.enable_oauth` (default **false** → creates nothing);
+  fully additive. Outputs `cognito_issuer` / `cognito_jwks_uri` /
+  `cognito_app_client_id` to drop straight into `auth.oauth`.
+- **`memex.yml.example`** documents the `auth.oauth` block (default-OFF, rides
+  the existing /mcp ingress, lock to your own `sub` for a private test).
+
 ## [1.16.0] — 2026-06-23
 
 ### Added
