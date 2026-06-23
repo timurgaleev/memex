@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-06-23
+
+### Fixed
+- **`global.amazon.nova-2-lite-v1:0` now invokes — un-degrades intent
+  classification, query expansion, and synthesis.** The `BedrockDenyOffRegion`
+  IAM statement denied every Nova call: the `global.*` inference profile routes
+  the underlying foundation-model invocation region-less, so the deny's
+  `aws:RequestedRegion` allowlist never matched and Bedrock returned
+  `AccessDeniedException`. Scoped the deny to `anthropic.claude-*` only — Nova
+  (cheap, credit-eligible) may now route worldwide, while the expensive Claude
+  models stay region-locked. `var.bedrock_allowed_regions` now governs Claude
+  alone.
+
 ## [1.16.1] — 2026-06-23
 
 ### Fixed
