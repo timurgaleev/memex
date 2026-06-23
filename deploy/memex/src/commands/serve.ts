@@ -86,6 +86,12 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (internalToken && internalToken.length > 0) {
     serverOpts.internalToken = internalToken;
   }
+  // Optional OAuth/JWT bearer path (Wave 6) — only wired when explicitly
+  // enabled in memex.yml's auth.oauth block; otherwise the static bearer is
+  // the sole auth path (unchanged).
+  if (config.auth?.oauth?.enabled === true) {
+    serverOpts.oauthConfig = config.auth.oauth;
+  }
   const server = startServer(serverOpts);
 
   // Markdown ingest is on-demand only: there is no boot-time file watcher.

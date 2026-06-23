@@ -88,6 +88,16 @@ export interface EvalCaptureConfig {
 
 // --- Combined --------------------------------------------------------------
 
+import type { OAuthConfig } from "../http/oauth.ts";
+
+/**
+ * Optional OAuth/JWT bearer auth overlay. Absent / `oauth.enabled !== true`
+ * → the static public bearer is the only auth path (default, unchanged).
+ */
+export interface AuthConfig {
+  oauth?: OAuthConfig;
+}
+
 export interface Config {
   database: DatabaseConfig;
   embedding: BedrockEmbeddingConfig;
@@ -99,6 +109,7 @@ export interface Config {
   dream?: DreamConfig;
   mcp?: McpConfig;
   evalCapture?: EvalCaptureConfig;
+  auth?: AuthConfig;
 }
 
 export function defaultConfigPath(): string {
@@ -176,6 +187,7 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
     if (overlay.dream) merged.dream = overlay.dream;
     if (overlay.mcp) merged.mcp = overlay.mcp;
     if (overlay.evalCapture) merged.evalCapture = overlay.evalCapture;
+    if (overlay.auth) merged.auth = overlay.auth;
     if (overlay.storage?.vault && !merged.storage.vault) {
       merged.storage.vault = overlay.storage.vault;
     }

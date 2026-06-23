@@ -6,6 +6,45 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **OAuth/JWT bearer auth — app-layer** (Wave 6 of reference-parity).
+  **Default-OFF / config-gated**: when `auth.oauth.enabled !== true` (the
+  default), behaviour is byte-identical to today's static-bearer auth. When
+  enabled, an `Authorization: Bearer <jwt>` that fails the static check is
+  verified against the configured issuer's JWKS (RS256/ES256 via WebCrypto — no
+  new dependency), with `iss`/`aud`/`exp`/`nbf` + optional `sub` allowlist +
+  clock-skew checks; a valid token maps to the **public (redacted) read scope
+  only** — never internal, never a write path. Fail-closed (any verify error
+  keeps the original 401). New `http/oauth.ts` + `auth.oauth` config block.
+  Two security passes CLEAN (alg pinned before key import, signature before
+  claims, no creds logged, no network when disabled).
+  **NOT enabled / needs the operator:** (a) terraform public ingress
+  (ALB/SG/TLS + JWKS egress) — app-layer can't open the port; (b) a
+  tenancy/data-partitioning decision if true multi-tenant is wanted (memex has
+  no per-user data model — every token currently maps to the one shared brain);
+  (c) pick an IdP + fill `auth.oauth`. Until then it stays off.
+- **LLM synthesis** (Wave 5 of reference-parity) — the brain now derives
+  higher-level knowledge from the corpus via Bedrock Nova. **Opt-in,
+  default-OFF** (the five phases are NOT in `ALL_PHASES`; they run only when
+  explicitly requested). **Source notes are never touched** — all output lands
+  in dedicated `synth_*` tables (migration 045), each row carrying provenance +
+  `generated_at` + `model_id`.
+  - Cycle phases (order: atoms → concepts → takes → grade → calibration):
+    **`extract-atoms`** (distil notes into atomic claims), **`synthesize-concepts`**
+    (cluster atoms into concept pages), **`propose-takes`** (derive opinionated
+    claims to a review queue), **`grade-takes`** (evidence-ground each take),
+    **`calibration-profile`** (narrative bias/calibration profile). Each is
+    budget-capped, idempotent, and fail-open (an LLM error logs + skips, never
+    corrupts the brain).
+  - Read tools: **`list_concepts`**, **`list_takes`**, **`get_calibration_profile`**
+    — internal-only (LLM-derived over private notes).
+  - New `core/synthesis/{atoms,concepts,takes,calibration,reads}.ts` +
+    `core/llm/nova.ts` (shared Nova helper with an injectable test seam — tests
+    mock the LLM, zero Bedrock calls). **55 MCP tools.**
+  Adapted from the reference (own-namespace tables instead of writing atoms/
+  concepts into `pages`; Nova not the reference's gateway Haiku/Sonnet; voice-gate
+  / ensemble-judge / auto-apply machinery dropped — grades stay advisory).
+
 ## [1.14.0] — 2026-06-23
 
 ### Added
