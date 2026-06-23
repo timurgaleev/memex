@@ -23,6 +23,8 @@ import {
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
 } from "./public_guard.ts";
+import { verifyOAuthToken } from "./oauth.ts";
+import type { OAuthConfig } from "./oauth.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 
@@ -51,6 +53,13 @@ export interface ServerOptions {
    * warning is logged; operators should configure the secret.
    */
   internalToken?: string;
+  /**
+   * Optional OAuth/JWT bearer config (Wave 6). Default-OFF: when absent or
+   * `enabled !== true`, the JWT path is never invoked and auth is byte-identical
+   * to the static-bearer behaviour. A validated token maps to the PUBLIC
+   * (redacted) scope only — never internal.
+   */
+  oauthConfig?: OAuthConfig;
 }
 
 export interface ServerHandle {
@@ -93,12 +102,28 @@ export function startServer(opts: ServerOptions): ServerHandle {
     fetch: async (req) => {
       const url = new URL(req.url);
 
-      const guard = evaluatePublicGuard(req, url, guardOpts);
+      let guard = evaluatePublicGuard(req, url, guardOpts);
       if (!guard.allow) {
-        return Response.json(
-          { ok: false, error: guard.reason },
-          { status: guard.status },
-        );
+        // OAuth fallback (default-OFF). Only when enabled, only on a 401
+        // (public request, bearer present-but-wrong / missing) — never on a
+        // 403 write-path or 503 unconfigured. A valid JWT maps to the PUBLIC
+        // redacted scope (isPublic:true), never internal. Fail-closed: any
+        // verify error leaves the original rejection intact.
+        if (opts.oauthConfig?.enabled === true && guard.status === 401) {
+          const m = /^Bearer (.+)$/.exec(
+            req.headers.get("Authorization") ?? "",
+          );
+          if (m && m[1]) {
+            const r = await verifyOAuthToken(m[1], opts.oauthConfig);
+            if (r.ok) guard = { allow: true, isPublic: true };
+          }
+        }
+        if (!guard.allow) {
+          return Response.json(
+            { ok: false, error: guard.reason },
+            { status: guard.status },
+          );
+        }
       }
 
       if (url.pathname === "/health" && req.method === "GET") {

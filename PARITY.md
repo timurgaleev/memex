@@ -2,9 +2,38 @@
 
 Persistent worklog so nothing is lost across context compression. Goal:
 **adapt memex to match the behaviour of the reference implementation**,
-brain-internal, faithfully — no invented concepts, every change traced to a
-reference subsystem. (The reference is referred to ONLY as "the reference
-implementation" — never by name, per the repo name-ban.)
+faithfully — no invented concepts, every change traced to a reference subsystem.
+(The reference is referred to ONLY as "the reference implementation" — never by
+name, per the repo name-ban.)
+
+## ⭐ SCOPE CHANGE 2026-06-22/23 — FULL parity (no longer brain-only)
+
+The operator reversed the brain-only north-star (informed, each risky fork
+confirmed): memex now pursues **full behavioural parity with the reference** —
+LLM synthesis, code-graph, push-context, advisor/skillpack, and OAuth are all
+**IN scope**. The "OUT-of-scope / brain-only" notes lower in this file are
+SUPERSEDED for those items. Deferred (operator): brain federation + embedding
+1024→1536 (need infra/provider not yet provisioned).
+
+### Parity-program waves
+| Wave | What | Release | Status |
+|---|---|---|---|
+| (pre) | graph-signals retrieval stage (earlier missed gap) | v1.10.0 | LIVE |
+| 1 | 13 deterministic MCP tools (links/insights/facts/identity/purge/query) | v1.11.0 | LIVE |
+| 2 | code-graph activation (index auto-detect + code_callers/code_callees) | v1.12.0 | LIVE |
+| 3 | push-context (volunteer_context + `memex watch` + events log, mig 044) | v1.13.0 | LIVE |
+| 4 | advisor + list_brain_skillpack | v1.14.0 | LIVE |
+| 5 | **LLM synthesis** (atoms/concepts/takes/grade/calibration, own `synth_*` namespace, mig 045; opt-in/default-OFF) + list_concepts/list_takes/get_calibration_profile | v1.15.0 | **PUSHED, deploy pending SSO** |
+| 6 | **OAuth/JWT bearer app-layer** (default-OFF, public-scope-only, WebCrypto, no new dep) | v1.16.0 | **PUSHED, deploy pending SSO** |
+
+55 MCP tools (pre-Wave-6; Wave 6 adds no tool). Migrations →045. Waves 5–6 are
+committed to `main` but await `aws sso login` → SSM deploy + verify + tag (the
+SSO session expired mid-session). Synthesis writes ONLY to `synth_*` (source
+notes sacrosanct); OAuth is inert until the operator enables it + wires public
+ingress via terraform (ops dir) + decides tenancy. See agent memory
+`session-handoff-2026-06-23-parity-waves` for the morning deploy steps.
+
+---
 
 ## Operating rules (do not drift)
 - Find the answer in the reference; do not invent. Adapt to memex's stack
