@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-06-23
+
 ### Added
 - **OAuth/JWT bearer auth — app-layer** (Wave 6 of reference-parity).
   **Default-OFF / config-gated**: when `auth.oauth.enabled !== true` (the
@@ -23,6 +25,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tenancy/data-partitioning decision if true multi-tenant is wanted (memex has
   no per-user data model — every token currently maps to the one shared brain);
   (c) pick an IdP + fill `auth.oauth`. Until then it stays off.
+
+## [1.15.0] — 2026-06-23
+
+### Added
 - **LLM synthesis** (Wave 5 of reference-parity) — the brain now derives
   higher-level knowledge from the corpus via Bedrock Nova. **Opt-in,
   default-OFF** (the five phases are NOT in `ALL_PHASES`; they run only when
