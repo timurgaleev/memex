@@ -52,6 +52,11 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
 - **Search that actually finds things.** It blends *meaning* (vector
   embeddings), *exact words* (keyword search), and *relationships* (an entity
   graph) &mdash; so the thing you only half-remember still surfaces.
+- **Understands your code too.** It indexes your source (TypeScript, Python) and
+  can answer *"who calls this function / what does it call"* from a real call
+  graph &mdash; not just your prose.
+- **Surfaces notes before you ask.** Hand it a conversation and it volunteers the
+  pages most likely relevant &mdash; deterministic, no AI guessing.
 - **Small and boring on purpose.** No orchestrator, no multi-tenancy, no SaaS to
   depend on. It fits on one small EC2 box, and you can read the whole thing in
   an afternoon.
@@ -63,6 +68,7 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
 | Your data stays in your cloud | ✅ | ❌ | ✅ |
 | Any MCP agent, one shared index | ✅ | sometimes | ❌ |
 | Vector **+** keyword **+** entity-graph | ✅ | varies | vector-only |
+| Understands code (real call graph), not just notes | ✅ | ❌ | ❌ |
 | Zero telemetry, no SaaS dependency | ✅ | ❌ | ✅ |
 
 **Who it's for:** developers who live in Claude Code / Cursor / Codex,
@@ -130,10 +136,10 @@ Connecting Claude Code (or any MCP client):
 
 | Piece | What it does |
 |---|---|
-| **memex** | The brain: hybrid search, entity graph, code/markdown indexers, MCP server, a self-maintaining background cycle. |
+| **memex** | The brain: hybrid search, entity + code call graph, code/markdown indexers, MCP server, a built-in `advisor` that ranks what to fix, push-context that volunteers relevant pages, an opt-in (off-by-default) step that distils notes into concepts/opinions in a *separate* store (your original notes are never touched), and a self-maintaining background cycle. 55 MCP tools. |
 | **cloudflared** | Public HTTPS ingress via Cloudflare Tunnel &mdash; no open EC2 ports. |
 | **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
-| **AWS Bedrock** | Titan v2 embeddings + Nova Lite for query intent. Answer synthesis stays in *your* agent. |
+| **AWS Bedrock** | Titan v2 embeddings + Nova for query intent and the optional, off-by-default note synthesis. Your agent still writes the answers. |
 
 **Learn more:** [ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [API / MCP tools](./deploy/memex/docs/API.md) ·

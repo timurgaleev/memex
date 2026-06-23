@@ -59,16 +59,34 @@ or batched (array).
 ```
 
 Returns every registered tool, each with a JSON-Schema draft-7
-`inputSchema`. The set spans search/retrieval (`search`, `backlinks`,
-`stats`), the page store (`page_get`/`page_list`/`page_versions` +
-writes `page_put`/`page_append`/`page_delete`), the typed graph
-(`graph_neighbors`/`graph_query` + `link`/`unlink`), entity facts &
-timeline (`entity_facts`/`entity_timeline`/`entity_recall` + `add_fact`/
-`add_timeline_event`), the jobs DAG (`jobs_list`/`get`/`logs` +
-`jobs_submit`/`jobs_cancel`), plus `index` and `log_friction`.
+`inputSchema`. **`tools/list` is the live source of truth** (currently
+55 tools); the groups below are a map, not an exhaustive contract:
 
-On the **public** ingress the write tools are filtered out of
-`tools/list` entirely and rejected from `tools/call` — see Auth below.
+- **Search / retrieval** — `search`, `query` (refinement), `backlinks`,
+  `get_chunks`, `resolve_slugs`, `relational_recall`, `stats`.
+- **Pages** — `page_get`/`page_list`/`page_versions` + writes
+  `page_put`/`page_append`/`page_delete`/`page_restore`/`page_revert` +
+  `purge_deleted_pages`.
+- **Graph & links** — `graph_neighbors`/`graph_query`/`traverse_graph`,
+  `get_links`/`list_link_sources`, `link`/`unlink`.
+- **Entities & facts** — `entity_facts`/`entity_timeline`/`entity_recall`,
+  `add_fact`/`add_timeline_event`, `recall`/`forget_fact`,
+  `add_tag`/`remove_tag`/`get_tags`.
+- **Insights** — `find_orphans`, `find_experts`, `find_contradictions`,
+  `find_trajectory`, `get_recent_salience`, `find_anomalies`.
+- **Code graph** — `code_callers`, `code_callees`.
+- **Push-context** — `volunteer_context`.
+- **Advisor / skillpack** — `advisor`, `list_brain_skillpack`.
+- **Synthesis (read)** — `list_concepts`, `list_takes`,
+  `get_calibration_profile` (the opt-in LLM-synthesis output store).
+- **Jobs** — `jobs_list`/`jobs_get`/`jobs_logs` + `jobs_submit`/`jobs_cancel`.
+- **Admin / misc** — `index`, `log_friction`, `get_brain_identity`.
+
+On the **public** ingress, write tools and any tool that surfaces page
+slugs / note content / operational state are filtered out of `tools/list`
+and rejected from `tools/call` (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`) — see
+Auth below. (`list_link_sources` and `get_brain_identity` are the only
+catalogue/counter reads kept public-safe.)
 
 ### `tools/call`
 

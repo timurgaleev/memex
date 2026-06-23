@@ -6,10 +6,13 @@
 ## What this repo is
 
 Self-hostable personal knowledge brain, reached over MCP only:
-- **memex** — knowledge brain (Bun + Postgres + pgvector, hybrid
-  search, MCP server; retrieval only — Bedrock Titan v2 embeddings +
-  Nova Lite intent/expansion, answer synthesis is the MCP client's job;
-  PGLite available as a dev-only fallback)
+- **memex** — knowledge brain (Bun + Postgres + pgvector). Hybrid
+  search + graph-signals ranking, entity + code call graph
+  (callers/callees), push-context, advisor, 55 MCP tools. Retrieval-first
+  — Bedrock Titan v2 embeddings + Nova intent/expansion; answer synthesis
+  is the MCP client's job. An opt-in, off-by-default LLM step distils notes
+  into a separate `synth_*` store (source notes never touched). PGLite is a
+  dev-only fallback.
 - **cloudflared** — public HTTPS ingress for the MCP server
   (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect
 
