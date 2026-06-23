@@ -131,12 +131,25 @@ variable "bedrock_allowed_regions" {
     profile-routed invocations (via Bedrock's CalledVia identity)
     can fan out beyond.
 
-    Default covers eu-west-1 (primary), eu-central-1 (Nova Pro v1
-    fallback) and us-east-1 (global.* profiles route through it).
+    Default covers the EU Nova cross-region inference set — eu-west-1
+    (primary), eu-central-1, eu-north-1, eu-west-3 — plus us-east-1
+    (global.* profiles route through it). The `eu.amazon.nova-*` profile
+    fans out across all four EU regions; eu-west-3 was missing, which
+    denied every profile-routed Nova call (synthesis + intent/expansion).
     Removing entries shrinks blast radius; adding entries widens it.
   EOT
   type        = list(string)
-  default     = ["eu-west-1", "eu-central-1", "eu-north-1", "us-east-1"]
+  # Full EU region family — the `eu.amazon.nova-*` cross-region inference profile
+  # fans out across all of these (observed: eu-west-3, eu-south-1, …), and the
+  # deny's CalledVia exemption does NOT fire for profile-routed foundation-model
+  # sub-calls, so every member region must be allowed. Still blocks us-west/ap
+  # /etc. (us-east-1 kept for global.* routing). Blast-radius = EU only.
+  default = [
+    "eu-west-1", "eu-west-2", "eu-west-3",
+    "eu-central-1", "eu-central-2",
+    "eu-north-1", "eu-south-1", "eu-south-2",
+    "us-east-1",
+  ]
 }
 
 variable "bedrock_model_id" {
