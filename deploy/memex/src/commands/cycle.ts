@@ -21,6 +21,7 @@ import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   ALL_PHASES,
+  SYNTHESIS_PHASES,
   runCycleOnce,
   type CycleOptions,
   type PhaseName,
@@ -33,7 +34,10 @@ export interface CycleCmdOptions {
   staleDays?: number;
 }
 
-const PHASE_SET: ReadonlySet<string> = new Set(ALL_PHASES);
+// Accept the default phases PLUS the opt-in synthesis phases (which are not in
+// ALL_PHASES by design, but are valid to request explicitly).
+const VALID_PHASES: readonly PhaseName[] = [...ALL_PHASES, ...SYNTHESIS_PHASES];
+const PHASE_SET: ReadonlySet<string> = new Set(VALID_PHASES);
 
 /** Parse + validate a `--phases` CSV against the known phase names. Throws on
  *  an empty result (so `--phases ""` / `--phases ,` fails LOUD instead of
@@ -50,13 +54,13 @@ export function parsePhasesArg(raw: string): PhaseName[] {
   );
   if (names.length === 0) {
     throw new Error(
-      `memex cycle: --phases is empty -- give a comma-separated subset of: ${ALL_PHASES.join(", ")}`,
+      `memex cycle: --phases is empty -- give a comma-separated subset of: ${VALID_PHASES.join(", ")}`,
     );
   }
   const bad = names.filter((n) => !PHASE_SET.has(n));
   if (bad.length > 0) {
     throw new Error(
-      `memex cycle: unknown phase(s) ${bad.join(", ")} -- valid: ${ALL_PHASES.join(", ")}`,
+      `memex cycle: unknown phase(s) ${bad.join(", ")} -- valid: ${VALID_PHASES.join(", ")}`,
     );
   }
   return names as PhaseName[];

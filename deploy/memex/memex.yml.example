@@ -46,3 +46,25 @@ dream:
 mcp:
   enabled: true
   rate_limit_per_minute: 60
+
+# ---------------------------------------------------------------------------
+# Optional OAuth/JWT bearer auth (Wave 6). DEFAULT-OFF.
+# ---------------------------------------------------------------------------
+# Leave this block out (or `enabled: false`) and nothing changes — the single
+# static public bearer stays the only auth path. When enabled, an incoming
+# `Authorization: Bearer <jwt>` that fails the static-bearer check is verified
+# against your IdP's JWKS (RS256/ES256); a valid token is granted the PUBLIC,
+# redacted read scope ONLY — never internal, never a write tool.
+#
+# Rides the EXISTING /mcp ingress (no new infra) — the EC2 just needs outbound
+# HTTPS to `jwks_uri` (already open for Bedrock). For a PRIVATE test, set
+# `allowed_subs` to your own token's `sub` so only you are accepted.
+#
+# auth:
+#   oauth:
+#     enabled: true
+#     issuer: "https://<your-idp-issuer>/"        # exact `iss` claim
+#     jwks_uri: "https://<your-idp-issuer>/.well-known/jwks.json"
+#     audience: "<your-api-audience>"             # required `aud`
+#     allowed_subs: ["<your-user-sub>"]           # private test: lock to you
+#     clock_skew_s: 60
