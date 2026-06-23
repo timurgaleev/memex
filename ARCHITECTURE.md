@@ -33,7 +33,7 @@ external message broker — the whole runtime fits in `t4g.medium`.
 
 | Container | Image | Owns |
 |---|---|---|
-| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search, entity graph, code chunkers, MCP server, 6-phase maintenance cycle. Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Nova Lite (intent/expansion). Answer synthesis is the MCP client's job. |
+| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search (+ graph-signals ranking), entity + code call graph, code/markdown chunkers, push-context, advisor, MCP server (55 tools), a maintenance cycle (~13 deterministic phases + 5 opt-in LLM-synthesis phases). Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Nova (intent/expansion + the opt-in, off-by-default note synthesis). Answer synthesis is the MCP client's job. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel). The dashboard routes `brain.<domain>/mcp` to memex on the internal docker bridge. |
 
 Inter-container ports are not exposed to the host. `cloudflared`
@@ -56,6 +56,11 @@ so future contributors don't reach for them blindly.
 | `mcp/http_transport.ts` | MCP JSON-RPC POST handler. Public and internal traffic key into separate `RateLimiter` instances — public uses Cloudflare's `Cf-Connecting-Ip`, internal collapses to a single "internal" bucket (XFF / X-Real-IP are attacker-controlled and would defeat per-IP limits). |
 | `mcp/rate_limit.ts` | Token-bucket limiter with periodic idle-bucket eviction + `maxKeys` cap — bounded memory under high public IP variety. |
 | `core/migrate.ts` | Single-tx migration runner: `engine.transaction(tx => { tx.exec(sql); tx.query("INSERT INTO migrations …") })`. A crash between the two phases used to leave the migration applied-but-unrecorded → re-run on next boot, breaking non-idempotent SQL. |
+| `core/code-graph.ts` + `core/chunkers/code.ts` | Code indexing + call graph. `memex index` auto-detects source files (TS/Python) and the `code_callers` / `code_callees` tools answer who-calls-what over `entity_mentions`. |
+| `core/context/*` | Push-context (deterministic, no LLM): `volunteer.ts` extracts entities from a conversation window and resolves them to pages by alias/title/slug; `volunteer-events.ts` logs what was volunteered for a feedback metric. Backs the `volunteer_context` tool + `memex watch`. |
+| `core/advisor/*` | Read-only diagnostics: ranks pending migrations / stalled jobs / low embed coverage / setup smells into `{severity, fix_command}` findings (the `advisor` tool). Reuses the doctor/status/jobs primitives. |
+| `core/synthesis/*` + `core/llm/nova.ts` | **Opt-in, off-by-default** LLM phases (extract-atoms → synthesize-concepts → propose-takes → grade-takes → calibration-profile). Output is written ONLY to dedicated `synth_*` tables — `documents`/`chunks`/`pages` are never mutated. `nova.ts` is the shared Bedrock-Nova helper with an injectable seam so tests run with zero Bedrock calls. |
+| `http/oauth.ts` | **Default-OFF** optional OAuth/JWT bearer path. When `auth.oauth.enabled`, a Bearer JWT is verified against the issuer JWKS (RS256/ES256 via WebCrypto, no new dep); a valid token maps to the **public, redacted** read scope only — never internal, never a write path. |
 
 ## Access — MCP only
 
