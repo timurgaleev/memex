@@ -63,12 +63,16 @@ data "aws_iam_policy_document" "memex_custom" {
     ]
   }
 
-  # Deny direct Bedrock invocations targeting regions we do not host
-  # in. A compromised container could otherwise call Nova / Haiku
-  # directly in, e.g., us-east-1 and silently burn the operator's
-  # credits on the more expensive model variants. The profile-routed
-  # path is still allowed because it goes through Bedrock's
-  # inference-profile ARN check before fanning out.
+  # Deny direct off-region Bedrock invocations of the EXPENSIVE Claude
+  # models. A compromised container could otherwise call Claude directly
+  # in, e.g., us-east-1 and silently burn the operator's credits.
+  #
+  # Nova is deliberately NOT covered here: the `global.amazon.nova-*`
+  # inference profile routes the underlying foundation-model call
+  # region-less (worldwide), so `aws:RequestedRegion` never matches a
+  # fixed allowlist and the call is denied. Nova 2 Lite is cheap and
+  # credit-eligible, so we let it invoke in any region; only Claude
+  # stays region-locked.
   statement {
     sid    = "BedrockDenyOffRegion"
     effect = "Deny"
@@ -76,7 +80,7 @@ data "aws_iam_policy_document" "memex_custom" {
       "bedrock:InvokeModel",
       "bedrock:InvokeModelWithResponseStream",
     ]
-    resources = ["arn:aws:bedrock:*::foundation-model/*"]
+    resources = ["arn:aws:bedrock:*::foundation-model/anthropic.claude-*"]
     condition {
       test     = "StringNotEqualsIfExists"
       variable = "aws:RequestedRegion"

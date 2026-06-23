@@ -125,25 +125,19 @@ variable "multi_az_subnet_cidrs" {
 
 variable "bedrock_allowed_regions" {
   description = <<-EOT
-    Regions allowed for direct `bedrock:InvokeModel` calls from the
-    EC2 instance role. The IAM policy applies a Deny statement that
-    blocks any direct invocation outside this list — only
-    profile-routed invocations (via Bedrock's CalledVia identity)
-    can fan out beyond.
-
-    Default covers the EU Nova cross-region inference set — eu-west-1
-    (primary), eu-central-1, eu-north-1, eu-west-3 — plus us-east-1
-    (global.* profiles route through it). The `eu.amazon.nova-*` profile
-    fans out across all four EU regions; eu-west-3 was missing, which
-    denied every profile-routed Nova call (synthesis + intent/expansion).
-    Removing entries shrinks blast radius; adding entries widens it.
+    Regions where the EC2 instance role may invoke the EXPENSIVE Claude
+    foundation models directly. The IAM Deny statement
+    (BedrockDenyOffRegion) blocks `anthropic.claude-*` invocations
+    outside this list. Nova is NOT governed by this list — it is exempt
+    from the deny so `global.amazon.nova-*` can route worldwide (see
+    iam.tf). Removing entries shrinks Claude's blast radius; adding
+    entries widens it.
   EOT
   type        = list(string)
-  # Full EU region family — the `eu.amazon.nova-*` cross-region inference profile
-  # fans out across all of these (observed: eu-west-3, eu-south-1, …), and the
-  # deny's CalledVia exemption does NOT fire for profile-routed foundation-model
-  # sub-calls, so every member region must be allowed. Still blocks us-west/ap
-  # /etc. (us-east-1 kept for global.* routing). Blast-radius = EU only.
+  # Full EU region family + us-east-1 — the regions where Claude may be
+  # invoked directly. Still blocks us-west/ap/etc. for Claude. Nova is
+  # exempt from the deny entirely (cheap + credit-eligible), so this list
+  # no longer affects Nova routing.
   default = [
     "eu-west-1", "eu-west-2", "eu-west-3",
     "eu-central-1", "eu-central-2",
