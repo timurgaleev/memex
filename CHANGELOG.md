@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-06-25
+
 ### Added
 - **Public-ingress constructive writes (opt-in, default OFF).** The
   `MEMEX_PUBLIC_WRITE=1` flag now opens *only* the constructive knowledge-write
