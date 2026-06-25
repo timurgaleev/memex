@@ -69,19 +69,31 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
   "/jobs/cancel",
 ]);
 
-const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
+// Constructive knowledge-writes the public/authenticated ingress MAY perform
+// when MEMEX_PUBLIC_WRITE=1. Mirrors the reference's remote-write surface:
+// remote callers can ADD knowledge (pages, facts, links, tags), but the
+// destructive ops (page_delete/restore/revert, unlink, remove_tag,
+// purge_deleted_pages, forget_fact) stay local-only — the reference keeps hard
+// deletes "Local CLI only (not exposed over HTTP MCP)" too. These appear in the
+// public tools/list and are reachable ONLY while the flag is on; with the flag
+// off they are forbidden exactly as before.
+const PUBLIC_WRITE_TOOLS: ReadonlySet<string> = new Set([
   "index",
-  "log_friction",
   "page_put",
   "page_append",
-  "page_delete",
-  "page_restore",
-  "page_revert",
-  "link",
-  "unlink",
   "add_fact",
   "add_timeline_event",
   "add_tag",
+  "link",
+]);
+
+const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
+  // Destructive writes — never reachable from public, even with the write flag.
+  "log_friction",
+  "page_delete",
+  "page_restore",
+  "page_revert",
+  "unlink",
   "remove_tag",
   // get_chunks returns raw chunk CONTENT — the public ingress redacts content
   // everywhere else, so it must be internal-only (a read, but a content read).
@@ -267,18 +279,23 @@ function timingSafeEqualStrings(a: string, b: string): boolean {
 }
 
 /**
- * MCP tools/call extra check — even with a valid bearer, mutating
- * tools are rejected from public requests by default. When
- * `MEMEX_PUBLIC_WRITE=1` the gate opens.
+ * MCP tools/call extra check — even with a valid bearer, mutating tools are
+ * rejected from public requests by default. `MEMEX_PUBLIC_WRITE=1` opens ONLY
+ * the constructive PUBLIC_WRITE_TOOLS (index / page_put / page_append /
+ * add_fact / add_timeline_event / add_tag / link). The always-internal set
+ * (destructive writes + privacy-sensitive content/identifier reads) stays
+ * forbidden regardless of the flag.
  */
 export function isPublicMcpToolForbidden(toolName: string): boolean {
-  if (publicWriteAllowed()) return false;
-  return FORBIDDEN_MCP_TOOLS_FROM_PUBLIC.has(toolName);
+  if (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC.has(toolName)) return true;
+  if (PUBLIC_WRITE_TOOLS.has(toolName)) return !publicWriteAllowed();
+  return false;
 }
 
 export const PUBLIC_GUARD_INTERNALS = {
   isPublicRequest,
   FORBIDDEN_PATHS_FROM_PUBLIC,
   FORBIDDEN_MCP_TOOLS_FROM_PUBLIC,
+  PUBLIC_WRITE_TOOLS,
   publicReadBodiesAllowed,
 };

@@ -186,7 +186,7 @@ export async function dispatchTool(
       case "search":
         return await callSearch(storage, args, redact);
       case "index":
-        return await callIndex(storage, args);
+        return await callIndex(storage, args, opts.isPublic ?? false);
       case "backlinks":
         return await callBacklinks(storage, args, redact);
       case "stats":
@@ -401,9 +401,20 @@ async function callSearch(
 async function callIndex(
   storage: Storage,
   args: Record<string, unknown>,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   const path = args["path"];
   if (typeof path === "string" && path.length > 0) {
+    // The `path` form reads a file off the daemon's filesystem. Even though
+    // isWithinAllowedRoot caps it to the vault/code roots, the public ingress
+    // must never trigger a server-side file read — remote callers index inline
+    // (`sourcePath` + `text`) only. Defence-in-depth on top of the root guard.
+    if (isPublic) {
+      return errResult(
+        "index: the `path` form is internal-only; pass `sourcePath` + `text` " +
+          "to index inline content from the public path",
+      );
+    }
     let allowed: boolean;
     try {
       allowed = isWithinAllowedRoot(path);

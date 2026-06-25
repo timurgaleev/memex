@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Public-ingress constructive writes (opt-in, default OFF).** The
+  `MEMEX_PUBLIC_WRITE=1` flag now opens *only* the constructive knowledge-write
+  tools to the public/authenticated `/mcp` path (static bearer or OAuth):
+  `index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`,
+  `add_tag`, `link`. This lets a remote MCP client record into the brain —
+  matching the reference's authenticated remote-write surface. Destructive ops
+  (`page_delete`, `page_restore`, `page_revert`, `unlink`, `remove_tag`,
+  `purge_deleted_pages`, `forget_fact`) and privacy-sensitive content/identifier
+  reads stay internal-only regardless of the flag — the reference likewise keeps
+  hard deletes local-CLI-only. Previously the flag was all-or-nothing (it
+  un-forbade the entire set, including destructive ops and private reads); it is
+  now surgical. Bearer/OAuth auth is still enforced before any write. Wired into
+  compose as `MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}`.
+
 ## [1.16.2] — 2026-06-23
 
 ### Fixed

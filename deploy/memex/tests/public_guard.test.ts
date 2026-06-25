@@ -322,9 +322,26 @@ describe("MEMEX_PUBLIC_WRITE opt-in", () => {
     else process.env["MEMEX_PUBLIC_WRITE"] = ORIGINAL;
   });
 
-  it("isPublicMcpToolForbidden returns false for write tools when env=1", () => {
+  it("opens only constructive writes when env=1; destructive + reads stay internal", () => {
+    // Constructive knowledge-writes open.
     expect(isPublicMcpToolForbidden("index")).toBe(false);
-    expect(isPublicMcpToolForbidden("log_friction")).toBe(false);
+    expect(isPublicMcpToolForbidden("page_put")).toBe(false);
+    expect(isPublicMcpToolForbidden("page_append")).toBe(false);
+    expect(isPublicMcpToolForbidden("add_fact")).toBe(false);
+    expect(isPublicMcpToolForbidden("add_timeline_event")).toBe(false);
+    expect(isPublicMcpToolForbidden("add_tag")).toBe(false);
+    expect(isPublicMcpToolForbidden("link")).toBe(false);
+    // Destructive writes stay forbidden even with the flag on.
+    expect(isPublicMcpToolForbidden("page_delete")).toBe(true);
+    expect(isPublicMcpToolForbidden("page_revert")).toBe(true);
+    expect(isPublicMcpToolForbidden("unlink")).toBe(true);
+    expect(isPublicMcpToolForbidden("remove_tag")).toBe(true);
+    expect(isPublicMcpToolForbidden("forget_fact")).toBe(true);
+    expect(isPublicMcpToolForbidden("log_friction")).toBe(true);
+    // Privacy-sensitive content / identifier reads stay forbidden too.
+    expect(isPublicMcpToolForbidden("get_chunks")).toBe(true);
+    expect(isPublicMcpToolForbidden("recall")).toBe(true);
+    expect(isPublicMcpToolForbidden("query")).toBe(true);
   });
 
   it("evaluatePublicGuard allows /index POST with bearer when env=1", () => {
@@ -351,5 +368,30 @@ describe("MEMEX_PUBLIC_WRITE opt-in", () => {
     });
     expect(r.allow).toBe(false);
     if (!r.allow) expect(r.status).toBe(401);
+  });
+
+  it("public MCP index with server `path` is blocked even with the write flag on", async () => {
+    // The gate lets `index` through (it's a constructive write), but the
+    // handler rejects the filesystem-`path` form on the public ingress —
+    // remote callers must index inline. Errors before any file read / embed.
+    const r = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Cf-Connecting-Ip": "1.2.3.4",
+        "Authorization": `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "index", arguments: { path: "/etc/passwd" } },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      result?: { content?: { text?: string }[] };
+    };
+    expect(JSON.stringify(body)).toMatch(/internal-only/);
   });
 });
