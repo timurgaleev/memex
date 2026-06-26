@@ -121,6 +121,23 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     either), not an alias-hop regression. Tighten by adding `AND NOT p.archived`
     to the shared resolver if/when the hydration gap is closed.
 - [ ] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall.
+  Reference design (captured 2026-06-26, ready to port): `QUERY_EMBED_TIMEOUT_MS`
+  env (default 6000) → `AbortSignal.timeout(ms)` + `Promise.race([embed, deadline])`
+  in hybrid; on reject, swallow + leave the vector arm empty so retrieval falls
+  back to keyword-only (the existing empty-vectorList path). `embedText` needs an
+  `abortSignal` param threaded to the Bedrock call.
+- [ ] **Retry-After on 429.** NOTE: memex's own ingress did not surface a 429 in
+  the grep (no server-side rate-limit 429 path found) — locate the limiter
+  (memory: "rate-limiter LRU+TTL" v1.3.x) before porting; the reference computes
+  the wait as `max(MIN 2s, Retry-After, x-rate-limit-reset)` capped at 60s, but
+  that is an OUTBOUND client backoff — the inbound 429 header is the actual task.
+- [ ] **Cycle concurrency lock.** Reference uses a row-based lock table
+  (`*_cycle_locks`: id PK, holder_pid, holder_host, ttl_expires_at,
+  last_refreshed_at) with a TTL upsert (`ON CONFLICT DO UPDATE ... WHERE
+  ttl_expires_at < NOW() AND last_refreshed_at < NOW() - grace`), a refresh
+  heartbeat, TTL 30m, steal-grace 600s. memex already has `worker_lock` (mig042)
+  + `jobs/worker-lock.ts` lease machinery — reuse it with a `cycle` lock id
+  rather than a new table.
 - [ ] Stamp `content_flag` on results; `Retry-After` on 429; write
   `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
   staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
