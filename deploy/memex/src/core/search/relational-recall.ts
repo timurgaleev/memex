@@ -63,6 +63,8 @@ export interface RelationalRecallOptions {
   limit?: number;
   /** Max hops for the type-agnostic `connects`/`intro` walk (1..6). Default 3. */
   depth?: number;
+  /** Tenant scope: restrict edge fanout to these source_ids. Empty/undefined => unscoped. */
+  sourceIds?: string[];
   /** Receives the parsed intent + outcome for telemetry. Never throws upstream. */
   onMeta?: (meta: RelationalRecallMeta) => void;
 }
@@ -288,6 +290,7 @@ export async function relationalRecall(
 
   const limit = clampLimit(opts.limit);
   const depth = clampDepth(opts.depth);
+  const sourceIds = opts.sourceIds;
 
   try {
     // connects — resolve BOTH endpoints, then intersect their reachable sets
@@ -298,8 +301,8 @@ export async function relationalRecall(
       if (!a || !b) return finish([]);
       meta.seeds_resolved = 2;
       const [fromA, fromB] = await Promise.all([
-        traverseGraph(storage, a, { direction: "both", maxDepth: depth, limit: 1000 }),
-        traverseGraph(storage, b, { direction: "both", maxDepth: depth, limit: 1000 }),
+        traverseGraph(storage, a, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
+        traverseGraph(storage, b, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
       ]);
       const depthB = new Map(fromB.map((h) => [h.slug, h.depth]));
       const endpoints = new Set([a, b]);
@@ -323,6 +326,7 @@ export async function relationalRecall(
         direction: parsed.direction,
         maxDepth: depth,
         limit,
+        sourceIds,
       });
       return finish(
         hits.map((h) => ({ slug: h.slug, relation: "related_to", depth: h.depth })),
@@ -338,6 +342,7 @@ export async function relationalRecall(
         type: lt,
         direction: parsed.direction,
         limit: 1000,
+        sourceIds,
       });
       for (const row of rows) {
         if (!wantedTypes.has(row.type)) continue; // defensive: type filter is exact

@@ -129,16 +129,25 @@ export async function resolveAliasUnique(
   storage: Storage,
   aliasNorm: string,
   excludeSlug: string,
+  sourceIds?: string[],
 ): Promise<string | null> {
   if (!isIndexableAlias(aliasNorm)) return null;
   try {
+    const params: unknown[] = [aliasNorm];
+    let scopeFilter = "";
+    // Tenant scope (mig047): confine collision detection + resolution to the
+    // given sources' pages when set; omitted/empty -> unscoped (whole-brain).
+    if (sourceIds && sourceIds.length > 0) {
+      params.push(sourceIds);
+      scopeFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+    }
     const r = await storage.engine().query<{ slug: string }>(
       `SELECT pa.slug AS slug
          FROM page_aliases pa
          JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
-        WHERE pa.alias_norm = $1
+        WHERE pa.alias_norm = $1${scopeFilter}
         LIMIT 2`,
-      [aliasNorm],
+      params,
     );
     if (r.rows.length !== 1) return null; // miss or collision
     const only = r.rows[0]!.slug;

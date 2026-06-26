@@ -153,6 +153,11 @@ export interface AddLinkInput {
   origin_slug?: string;
   origin_field?: string;
   resolution_type?: ResolutionType;
+  /**
+   * Tenant source scope (migration 047). Omitted -> the column DEFAULT
+   * 'default' applies, preserving whole-brain behavior.
+   */
+  source_id?: string;
 }
 
 /** Upper bound on the stored mention-context window (defence vs unbounded writes). */
@@ -217,14 +222,27 @@ export async function addLink(
       ? null
       : input.origin_field.slice(0, MAX_ORIGIN_FIELD_LEN);
   const resolutionType = normaliseResolutionType(input.resolution_type);
+  // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
+  // column's DEFAULT 'default' applies otherwise (never pass NULL).
+  const sourceId =
+    typeof input.source_id === "string" && input.source_id.length > 0
+      ? input.source_id
+      : null;
+  const sourceCol = sourceId !== null ? ", source_id" : "";
+  const sourceVal = sourceId !== null ? ", $11" : "";
+  const params: unknown[] = [
+    input.source_slug, target, type, conf, chunkId,
+    context, linkKind, originSlug, originField, resolutionType,
+  ];
+  if (sourceId !== null) params.push(sourceId);
   // On an idempotent re-add, provenance is STICKY: an omitted field (empty
   // context / NULL enum) preserves the prior value so a bare `link` re-call
   // never wipes enrichment-written provenance.
   const r = await storage.engine().query<{ inserted: boolean }>(
     `INSERT INTO links
        (source_slug, target_slug, type, inferred_confidence, source_chunk_id,
-        context, link_kind, origin_slug, origin_field, resolution_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        context, link_kind, origin_slug, origin_field, resolution_type${sourceCol})
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10${sourceVal})
      ON CONFLICT (source_slug, target_slug, type) DO UPDATE
        SET inferred_confidence = EXCLUDED.inferred_confidence,
            source_chunk_id     = EXCLUDED.source_chunk_id,
@@ -235,8 +253,7 @@ export async function addLink(
            origin_field        = COALESCE(EXCLUDED.origin_field, links.origin_field),
            resolution_type     = COALESCE(EXCLUDED.resolution_type, links.resolution_type)
      RETURNING (xmax = 0) AS inserted`,
-    [input.source_slug, target, type, conf, chunkId,
-     context, linkKind, originSlug, originField, resolutionType],
+    params,
   );
   return {
     source_slug: input.source_slug,
@@ -275,6 +292,11 @@ export interface GraphNeighborsOptions {
   type?: string;
   direction?: "outbound" | "inbound" | "both";
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, edges are filtered
+   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 export interface NeighborRow extends LinkRow {
@@ -309,6 +331,12 @@ export async function graphNeighbors(
     params.push(type);
     typeFilter = ` AND type = $${params.length}`;
   }
+  // Tenant scope (mig047): same filter string applied to both UNION arms.
+  let scopeFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const queries: string[] = [];
   if (direction === "outbound" || direction === "both") {
     queries.push(
@@ -316,7 +344,7 @@ export async function graphNeighbors(
               source_chunk_id, written_at::text AS written_at,
               'outbound' AS direction
        FROM links
-       WHERE source_slug = $1${typeFilter}`,
+       WHERE source_slug = $1${typeFilter}${scopeFilter}`,
     );
   }
   if (direction === "inbound" || direction === "both") {
@@ -325,7 +353,7 @@ export async function graphNeighbors(
               source_chunk_id, written_at::text AS written_at,
               'inbound' AS direction
        FROM links
-       WHERE target_slug = $1${typeFilter}`,
+       WHERE target_slug = $1${typeFilter}${scopeFilter}`,
     );
   }
   params.push(limit);
@@ -341,6 +369,11 @@ export interface GraphQueryOptions {
   source_slug?: string;
   target_slug?: string;
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, edges are filtered
+   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 /**
@@ -378,6 +411,10 @@ export async function graphQuery(
     params.push(target);
     where.push(`target_slug = $${params.length}`);
   }
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    where.push(`source_id = ANY($${params.length}::text[])`);
+  }
   const limit =
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
       ? Math.floor(opts.limit)
@@ -404,6 +441,11 @@ export interface TraverseGraphOptions {
   type?: string;
   /** Max distinct nodes returned (1..1000). Default 100. */
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, only edges with
+   * `source_id = ANY(...)` are traversed. Omitted/empty -> unscoped.
+   */
+  sourceIds?: string[];
 }
 
 export interface TraverseHit {
@@ -465,6 +507,12 @@ export async function traverseGraph(
     params.push(type);
     typeFilter = ` AND l.type = $${params.length}`;
   }
+  // Tenant scope (mig047): confine the walk to edges in the given sources.
+  let scopeFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
+  }
   params.push(limit);
   const limitParam = `$${params.length}`;
 
@@ -482,7 +530,7 @@ export async function traverseGraph(
        FROM walk w
        JOIN links l ON ${joinCond}
        WHERE w.depth < $2
-         AND NOT (${nextExpr} = ANY(w.path))${typeFilter}
+         AND NOT (${nextExpr} = ANY(w.path))${typeFilter}${scopeFilter}
      )
      SELECT slug, MIN(depth) AS depth
        FROM walk
@@ -537,8 +585,13 @@ export async function syncWikilinksForPage(
   storage: Storage,
   sourceSlug: string,
   body: string,
+  sourceId?: string,
 ): Promise<{ removed: number; added: number }> {
   validateSlug(sourceSlug);
+  // Tenant scope (mig047): stamp source_id on derived edges only when given,
+  // else let the column DEFAULT 'default' apply (never pass NULL).
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
   // Resolve each distinct mention, then collapse to one edge per target
   // slug (two surface forms may canonicalize to the same page). A
@@ -557,29 +610,43 @@ export async function syncWikilinksForPage(
   }
 
   const engine = storage.engine();
+  // When scoped, the delete + insert confine to this source so a per-tenant
+  // re-put never clears another tenant's wikilink edges. Unscoped (NULL) keeps
+  // the original whole-source behavior.
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $4" : "";
   return engine.transaction(async (tx) => {
+    const delParams: unknown[] = [sourceSlug];
+    if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
       `WITH d AS (
          DELETE FROM links
-          WHERE source_slug = $1 AND type = 'wikilink'
+          WHERE source_slug = $1 AND type = 'wikilink'${delScope}
           RETURNING 1
        )
        SELECT COUNT(*)::int AS c FROM d`,
-      [sourceSlug],
+      delParams,
     );
     let added = 0;
     for (const [target, qualified] of byTarget) {
       // Each insert is idempotent against UNIQUE(source, target, type).
       // link_kind = 'plain' (deterministic scanner, not typed-NER);
       // resolution_type records whether a real page backed the target.
+      const insParams: unknown[] = [
+        sourceSlug,
+        target,
+        qualified ? "qualified" : "unqualified",
+      ];
+      if (scope !== null) insParams.push(scope);
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence,
-            link_kind, resolution_type)
-         VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3)
+            link_kind, resolution_type${insCol})
+         VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3${insVal})
          ON CONFLICT (source_slug, target_slug, type) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
-        [sourceSlug, target, qualified ? "qualified" : "unqualified"],
+        insParams,
       );
       if (ins.rows[0]?.inserted) added += 1;
     }

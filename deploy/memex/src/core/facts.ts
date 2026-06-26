@@ -27,6 +27,11 @@ export interface AddFactInput {
   source_slug?: string;
   source_chunk_id?: string;
   written_by?: string;
+  /**
+   * Tenant source scope (migration 047). Omitted -> the column DEFAULT
+   * 'default' applies, preserving whole-brain behavior.
+   */
+  source_id?: string;
 }
 
 export interface FactRow {
@@ -83,14 +88,29 @@ export async function addFact(
   if (sourceSlug !== null) validateSlug(sourceSlug);
   const chunkId = input.source_chunk_id ?? null;
   const writtenBy = input.written_by ?? null;
+  // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
+  // column's DEFAULT 'default' applies otherwise (never pass NULL).
+  const sourceId =
+    typeof input.source_id === "string" && input.source_id.length > 0
+      ? input.source_id
+      : null;
+  const sourceCol = sourceId !== null ? ", source_id" : "";
 
   if (chunkId === null) {
+    const params: unknown[] = [
+      input.entity_slug,
+      input.fact,
+      conf,
+      sourceSlug,
+      writtenBy,
+    ];
+    if (sourceId !== null) params.push(sourceId);
     const r = await storage.engine().query<{ id: number }>(
       `INSERT INTO entity_facts
-         (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by)
-       VALUES ($1, $2, $3, $4, NULL, $5)
+         (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by${sourceCol})
+       VALUES ($1, $2, $3, $4, NULL, $5${sourceId !== null ? ", $6" : ""})
        RETURNING id`,
-      [input.entity_slug, input.fact, conf, sourceSlug, writtenBy],
+      params,
     );
     return {
       id: r.rows[0]?.id ?? null,
@@ -98,15 +118,24 @@ export async function addFact(
       inserted: true,
     };
   }
+  const params: unknown[] = [
+    input.entity_slug,
+    input.fact,
+    conf,
+    sourceSlug,
+    chunkId,
+    writtenBy,
+  ];
+  if (sourceId !== null) params.push(sourceId);
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO entity_facts
-       (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by${sourceCol})
+     VALUES ($1, $2, $3, $4, $5, $6${sourceId !== null ? ", $7" : ""})
      ON CONFLICT (entity_slug, fact, source_chunk_id)
        WHERE source_chunk_id IS NOT NULL
        DO NOTHING
      RETURNING id`,
-    [input.entity_slug, input.fact, conf, sourceSlug, chunkId, writtenBy],
+    params,
   );
   return {
     id: r.rows[0]?.id ?? null,
@@ -139,6 +168,12 @@ export interface ListFactsOptions {
    * `MEMEX_FACT_DECAY`.
    */
   decay?: boolean;
+  /**
+   * Tenant source scope (migration 047). When a non-empty list is given,
+   * facts are filtered to `source_id = ANY(...)`. Omitted/empty -> unscoped
+   * (whole-brain), preserving current behavior.
+   */
+  sourceIds?: string[];
 }
 
 /** When decay re-ranks in TS we fetch a wide candidate set first, then trim. */
@@ -179,6 +214,10 @@ export async function listFacts(
     validateSlug(opts.source_slug);
     params.push(opts.source_slug);
     where.push(`source_slug = $${params.length}`);
+  }
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    where.push(`source_id = ANY($${params.length}::text[])`);
   }
   const hasQueryVector = !!(opts.queryVector && opts.queryVector.length > 0);
   // Decay re-ranks in TS, so it only applies to the plain confidence path:
@@ -290,6 +329,11 @@ export interface EntityRecallOptions {
    * `query` (semantic focus) is supplied.
    */
   decay?: boolean;
+  /**
+   * Tenant source scope (migration 047). Threaded to both the facts and
+   * timeline reads. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 export interface EntityRecallResult {
@@ -346,10 +390,12 @@ export async function entityRecall(
   // Decay applies only to the plain confidence path (not semantic focus).
   // Pass the caller's flag through (undefined -> listFacts defaults from env).
   else if (opts.decay !== undefined) listOpts.decay = opts.decay;
+  const scoped = opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
+  if (scoped) listOpts.sourceIds = scoped;
   const [page, facts, timeline] = await Promise.all([
-    getPage(storage, slug),
+    getPage(storage, slug, scoped),
     listFacts(storage, slug, listOpts),
-    getEntityTimeline(storage, slug, { limit: timelineLimit }),
+    getEntityTimeline(storage, slug, { limit: timelineLimit, sourceIds: scoped }),
   ]);
   let outPage = page;
   if (page && opts.redact_body) {

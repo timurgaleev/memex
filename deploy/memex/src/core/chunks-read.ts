@@ -30,12 +30,21 @@ export interface ChunkRow {
 export async function getChunksForSource(
   storage: Storage,
   sourcePath: string,
+  sourceIds?: string[],
 ): Promise<ChunkRow[]> {
   if (typeof sourcePath !== "string" || sourcePath.length === 0) {
     throw new Error("getChunksForSource: `sourcePath` is required");
   }
 
   const db = storage.engine();
+  const params: unknown[] = [sourcePath];
+  // Tenant scope: a chunk's owning source is its parent document's source_id.
+  // Empty/undefined => unscoped (back-compat).
+  let scopeFilter = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+  }
   const result = await db.query<{
     id: string;
     chunk_index: number;
@@ -45,9 +54,9 @@ export async function getChunksForSource(
     `SELECT c.id, c.chunk_index, c.content, c.symbol_name
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
-      WHERE d.source_path = $1
+      WHERE d.source_path = $1${scopeFilter}
       ORDER BY c.chunk_index`,
-    [sourcePath],
+    params,
   );
 
   return result.rows.map((r) => ({
@@ -66,9 +75,10 @@ export async function getChunksForSource(
 export async function getChunksForPage(
   storage: Storage,
   slug: string,
+  sourceIds?: string[],
 ): Promise<ChunkRow[]> {
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("getChunksForPage: `slug` is required");
   }
-  return getChunksForSource(storage, pageSourcePath(slug));
+  return getChunksForSource(storage, pageSourcePath(slug), sourceIds);
 }

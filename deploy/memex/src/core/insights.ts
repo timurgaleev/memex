@@ -47,6 +47,17 @@ function clampLimit(limit: number | undefined, def: number, max: number): number
   return def;
 }
 
+/**
+ * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
+ * unscoped (back-compat: every legacy caller reads the whole brain); a non-empty
+ * list is deduped to a clean `string[]` ready to bind as `$n::text[]`.
+ */
+function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
+  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
+}
+
 // --- find_orphans ----------------------------------------------------------
 
 export interface FindOrphansOptions {
@@ -54,6 +65,11 @@ export interface FindOrphansOptions {
   type?: string;
   /** Max rows (1..1000, default 50). */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (all sources, back-compat).
+   * Non-empty → only pages whose `source_id` is in the list.
+   */
+  sourceIds?: string[];
 }
 
 export interface OrphanRow {
@@ -83,11 +99,17 @@ export async function findOrphans(
     params.push(opts.type);
     typeFilter = ` AND p.type = $${params.length}`;
   }
+  const sources = normalizeSourceIds(opts.sourceIds);
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+  }
   params.push(limit);
   const r = await storage.engine().query<OrphanRow>(
     `SELECT p.slug, p.type, p.title, p.updated_at::text AS updated_at
        FROM pages p
-       WHERE p.deleted_at IS NULL${typeFilter}
+       WHERE p.deleted_at IS NULL${typeFilter}${sourceFilter}
          AND NOT EXISTS (
            SELECT 1 FROM links l WHERE l.target_slug = p.slug
          )
@@ -105,6 +127,11 @@ export interface FindExpertsOptions {
   type?: string;
   /** Max rows (1..200, default 5). */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * rank only pages in the listed sources, counting only those sources' edges.
+   */
+  sourceIds?: string[];
 }
 
 export interface ExpertRow {
@@ -136,6 +163,16 @@ export async function findExperts(
     params.push(opts.type);
     typeFilter = ` AND p.type = $${params.length}`;
   }
+  const sources = normalizeSourceIds(opts.sourceIds);
+  let edgeSourceFilter = "";
+  let pageSourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    const idx = params.length;
+    // Count only the tenant's own edges and rank only the tenant's pages.
+    edgeSourceFilter = ` WHERE source_id = ANY($${idx}::text[])`;
+    pageSourceFilter = ` AND p.source_id = ANY($${idx}::text[])`;
+  }
   params.push(limit);
   const r = await storage.engine().query<{
     slug: string;
@@ -144,9 +181,9 @@ export async function findExperts(
     degree: number | string;
   }>(
     `WITH edges AS (
-       SELECT source_slug AS slug, target_slug AS neighbour FROM links
+       SELECT source_slug AS slug, target_slug AS neighbour FROM links${edgeSourceFilter}
        UNION ALL
-       SELECT target_slug AS slug, source_slug AS neighbour FROM links
+       SELECT target_slug AS slug, source_slug AS neighbour FROM links${edgeSourceFilter}
      ),
      degrees AS (
        SELECT e.slug, COUNT(DISTINCT e.neighbour) AS degree
@@ -157,7 +194,7 @@ export async function findExperts(
      SELECT p.slug, p.type, p.title, COALESCE(d.degree, 0) AS degree
        FROM pages p
        LEFT JOIN degrees d ON d.slug = p.slug
-       WHERE p.deleted_at IS NULL${typeFilter}
+       WHERE p.deleted_at IS NULL${typeFilter}${pageSourceFilter}
        ORDER BY COALESCE(d.degree, 0) DESC, p.updated_at DESC, p.slug COLLATE "C" ASC
        LIMIT $${params.length}`,
     params,
@@ -177,6 +214,11 @@ export interface FindContradictionsOptions {
   slug?: string;
   /** Max rows (1..200, default 20). */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * only `contradicts` edges whose `source_id` is in the list.
+   */
+  sourceIds?: string[];
 }
 
 export interface ContradictionRow {
@@ -213,6 +255,12 @@ export async function findContradictions(
     params.push(`%${escaped}%`);
     slugFilter = ` AND (l.source_slug ILIKE $${params.length} ESCAPE '\\' OR l.target_slug ILIKE $${params.length} ESCAPE '\\')`;
   }
+  const sources = normalizeSourceIds(opts.sourceIds);
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
+  }
   params.push(limit);
   const r = await storage.engine().query<ContradictionRow>(
     `SELECT l.source_slug, l.target_slug,
@@ -222,7 +270,7 @@ export async function findContradictions(
        FROM links l
        JOIN pages sp ON sp.slug = l.source_slug AND sp.deleted_at IS NULL
        LEFT JOIN pages tp ON tp.slug = l.target_slug AND tp.deleted_at IS NULL
-       WHERE l.type = 'contradicts'${slugFilter}
+       WHERE l.type = 'contradicts'${slugFilter}${sourceFilter}
        ORDER BY l.written_at DESC
        LIMIT $${params.length}`,
     params,
@@ -246,6 +294,11 @@ export interface FindTrajectoryOptions {
   until?: string;
   /** Max points (1..500, default 100). */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * only facts/events whose `source_id` is in the list.
+   */
+  sourceIds?: string[];
 }
 
 export interface TrajectoryPoint {
@@ -297,6 +350,13 @@ export async function findTrajectory(
     const idx = params.length;
     factBounds += ` AND COALESCE(f.valid_from::timestamptz, f.written_at) <= $${idx}::timestamptz`;
     eventBounds += ` AND ev.occurred_at <= $${idx}::timestamptz`;
+  }
+  const sources = normalizeSourceIds(opts.sourceIds);
+  if (sources) {
+    params.push(sources);
+    const idx = params.length;
+    factBounds += ` AND f.source_id = ANY($${idx}::text[])`;
+    eventBounds += ` AND ev.source_id = ANY($${idx}::text[])`;
   }
   params.push(limit);
   const limitIdx = params.length;

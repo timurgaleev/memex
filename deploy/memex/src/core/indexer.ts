@@ -71,6 +71,8 @@ export interface IndexInput {
    * so the cycle can detect a stale mirror.
    */
   extraFrontmatter?: Record<string, unknown>;
+  /** Owning source (tenant) stamped onto the document. Defaults to 'default'. */
+  sourceId?: string | null;
 }
 
 /**
@@ -129,6 +131,7 @@ export async function indexDocument(
       frontmatter,
       mtimeMs: input.mtimeMs ?? null,
       embeddingModel: model,
+      sourceId: input.sourceId ?? null,
     },
     chunkWrites,
   );

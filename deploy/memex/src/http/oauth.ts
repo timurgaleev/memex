@@ -52,7 +52,11 @@ export interface OAuthConfig {
 // --- Result type -----------------------------------------------------------
 
 export type OAuthResult =
-  | { ok: true; sub: string }
+  // `sub` is the trusted identity. `sourceId`/`allowedSources` are read from
+  // token claims but are NOT trusted for tenancy (claims are
+  // user-influenceable) — server.ts ignores them and looks the grant up
+  // server-side in `source_grants`. Kept for diagnostics / back-compat only.
+  | { ok: true; sub: string; sourceId?: string; allowedSources?: string[] }
   | { ok: false; reason: string };
 
 // --- JWKS types ------------------------------------------------------------
@@ -357,7 +361,22 @@ export async function verifyOAuthToken(
     }
 
     // checkClaims guarantees sub is a non-empty string.
-    return { ok: true, sub: parsed.claims.sub as string };
+    const sub = parsed.claims.sub as string;
+    // SECURITY: token claims are NOT trusted for tenancy. The IdP proves
+    // identity (sub) only; a `source_id` / `federated_read` claim is
+    // user-influenceable and must never grant scope. server.ts derives the
+    // tenancy grant from the server-side `source_grants` table keyed by sub
+    // and IGNORES the fields read below. They are surfaced for diagnostics /
+    // back-compat only — do not feed them into an AuthInfo.
+    const claims = parsed.claims as Record<string, unknown>;
+    const sourceId =
+      typeof claims["source_id"] === "string" ? claims["source_id"] : undefined;
+    const allowedSources =
+      Array.isArray(claims["federated_read"]) &&
+      (claims["federated_read"] as unknown[]).every((v) => typeof v === "string")
+        ? (claims["federated_read"] as string[])
+        : undefined;
+    return { ok: true, sub, sourceId, allowedSources };
   } catch (e) {
     return {
       ok: false,

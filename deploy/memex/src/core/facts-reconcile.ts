@@ -85,9 +85,14 @@ export async function reconcileFactsForPage(
   storage: Storage,
   pageSlug: string,
   expectedContentHash: string,
+  sourceId?: string,
 ): Promise<{ removed: number; added: number }> {
   if (!factsFenceEnabled()) return { removed: 0, added: 0 };
   validateSlug(pageSlug);
+  // Tenant scope (mig047): stamp source_id on fence-derived facts only when
+  // given, else let the column DEFAULT 'default' apply (never pass NULL).
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
   // Re-read the CURRENT page. Skip if it's gone or moved on since the write
   // that triggered us (concurrency guard — the newer write reconciles itself).
@@ -144,37 +149,47 @@ export async function reconcileFactsForPage(
   }
 
   const engine: Engine = storage.engine();
+  // When scoped, the wipe + insert confine to this source so a per-tenant
+  // re-put never clears another tenant's fence facts. Unscoped (NULL) keeps the
+  // original whole-source behavior.
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $12" : "";
   return engine.transaction(async (tx) => {
+    const delParams: unknown[] = [pageSlug];
+    if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
       `WITH d AS (
          DELETE FROM entity_facts
-          WHERE source_markdown_slug = $1
+          WHERE source_markdown_slug = $1${delScope}
           RETURNING 1
        )
        SELECT COUNT(*)::int AS c FROM d`,
-      [pageSlug],
+      delParams,
     );
     let added = 0;
     for (const f of facts) {
+      const insParams: unknown[] = [
+        pageSlug,
+        f.claim,
+        f.confidence,
+        safeSourceSlug(f.source),
+        FENCE_WRITER,
+        pageSlug,
+        f.rowNum,
+        f.kind ?? null,
+        f.notability ?? null,
+        f.validFrom ?? null,
+        f.validUntil ?? null,
+      ];
+      if (scope !== null) insParams.push(scope);
       await tx.query(
         `INSERT INTO entity_facts
            (entity_slug, fact, confidence, source_slug, source_chunk_id,
             written_by, source_markdown_slug, row_num,
-            kind, notability, valid_from, valid_until)
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          pageSlug,
-          f.claim,
-          f.confidence,
-          safeSourceSlug(f.source),
-          FENCE_WRITER,
-          pageSlug,
-          f.rowNum,
-          f.kind ?? null,
-          f.notability ?? null,
-          f.validFrom ?? null,
-          f.validUntil ?? null,
-        ],
+            kind, notability, valid_from, valid_until${insCol})
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11${insVal})`,
+        insParams,
       );
       added += 1;
     }

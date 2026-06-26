@@ -227,41 +227,56 @@ export async function syncMentionsForPage(
   storage: Storage,
   sourceSlug: string,
   body: string,
+  sourceId?: string,
 ): Promise<{ added: number; removed: number }> {
   if (!gazetteerEnabled()) return { added: 0, removed: 0 };
   validateSlug(sourceSlug);
+  // Tenant scope (mig047): stamp source_id on derived edges only when given,
+  // else let the column DEFAULT 'default' apply (never pass NULL).
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
   const entries = await buildGazetteer(storage, sourceSlug);
   const targets = scanMentions(body, entries).filter((s) => s !== sourceSlug);
 
   const engine: Engine = storage.engine();
+  // When scoped, the delete + insert confine to this source so a per-tenant
+  // re-put never clears another tenant's mention edges. Unscoped (NULL) keeps
+  // the original whole-source behavior.
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $3" : "";
   return engine.transaction(async (tx) => {
     // Scope the delete to the gazetteer's OWN edges: type='mentions' with
     // link_kind='plain'. An explicit `link` mention carries link_kind NULL (or
     // typed_ner), so it is never deleted here. NOTE: an enrichment caller that
     // ever writes a 'mentions' edge with link_kind='plain' would make that edge
     // gazetteer-owned (re-swept each put) — keep 'plain' for the gazetteer only.
+    const delParams: unknown[] = [sourceSlug];
+    if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
       `WITH d AS (
          DELETE FROM links
-          WHERE source_slug = $1 AND type = 'mentions' AND link_kind = 'plain'
+          WHERE source_slug = $1 AND type = 'mentions' AND link_kind = 'plain'${delScope}
           RETURNING 1
        )
        SELECT COUNT(*)::int AS c FROM d`,
-      [sourceSlug],
+      delParams,
     );
     let added = 0;
     for (const target of targets) {
       // DO NOTHING preserves an existing explicit mention (link_kind NULL) —
       // the gazetteer never overwrites an operator-asserted edge.
+      const insParams: unknown[] = [sourceSlug, target];
+      if (scope !== null) insParams.push(scope);
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence,
-            link_kind, resolution_type)
-         VALUES ($1, $2, 'mentions', 1.0, 'plain', 'qualified')
+            link_kind, resolution_type${insCol})
+         VALUES ($1, $2, 'mentions', 1.0, 'plain', 'qualified'${insVal})
          ON CONFLICT (source_slug, target_slug, type) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
-        [sourceSlug, target],
+        insParams,
       );
       if (ins.rows[0]?.inserted) added += 1;
     }

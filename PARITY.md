@@ -123,3 +123,37 @@ markdown corpus), provider-conflicting (embedding dim), or deferred-low-value
 - All live on the EC2, healthy. Migrations through 042. Cycle = 13 phases.
   graph-signals adds no migration and no MCP tool (opt-in ranking stage only).
 - `make audit` PII:0, `make scrub-audit` HIGH:0.
+
+---
+
+## 2026-06-25 — CORRECTION to "PARITY COMPLETE" + tenancy program start
+
+A fresh, code-grounded re-audit (9-agent workflow reading reference + memex
+source directly, distrusting the docs) found the earlier "PARITY COMPLETE"
+verdict **overclaimed**. It held for the *deterministic brain-only* subset, but
+real, previously-unrecorded gaps exist:
+
+**Genuinely-missing small items (auto / low-risk), not in any prior list:**
+- `graph-signals` floor-ratio gate is a **no-op** — `hybrid.ts` never computes
+  the `floorThreshold` that `graph-signals.ts` accepts, so every metadata boost
+  is ungated.
+- `page_aliases` (mig 034) exists but the **alias-hop / alias-resolved boost is
+  never wired** into `hybridSearch` — the main named-entity synonym gap.
+- No **bounded query-embed deadline** (a stalled embed provider hangs search
+  instead of failing over to keyword).
+- `content_flag` never stamped on results; **Retry-After** absent on 429;
+  `chunker_version` never written; `embed_skip` frontmatter unsupported;
+  `LINK_EXTRACTOR_VERSION` staleness watermark absent.
+- Cycle has **no concurrency lock** → two overlapping cycles double Bedrock cost.
+
+These are tracked in `TODO.md` (retrieval/resilience backlog).
+
+**The real headline — multi-tenancy is NET-NEW, not a parity gap.** The
+reference is itself single-holder-by-default but ships the building blocks
+(`oauth_clients/tokens/codes`, `source_id` on every content row, `scope.ts`,
+`oauth-provider.ts`, an admin SPA). memex deliberately skipped all of it
+(0 tenancy columns across 45 migrations, verified). Company multi-user is a
+faithful **port** of that model — now started: `docs/tenancy.md` (design +
+must-fix checklist), `src/core/scope.ts`, migration `046_oauth.sql`.
+Invasive `source_id` data-model migration is gated behind the checklist and a
+live-deploy decision.

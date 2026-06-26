@@ -147,26 +147,39 @@ export async function syncTypedLinksForPage(
   pageSlug: string,
   pageType: string,
   compiledTruth: Record<string, unknown> | null | undefined,
+  sourceId?: string,
 ): Promise<{ added: number; removed: number }> {
   if (!typedLinksEnabled()) return { added: 0, removed: 0 };
   validateSlug(pageSlug);
+  // Tenant scope (mig047): stamp source_id on derived edges only when given,
+  // else let the column DEFAULT 'default' apply (never pass NULL).
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
   const edges = await collectEdges(storage, pageSlug, pageType, compiledTruth);
 
   const engine: Engine = storage.engine();
+  // When scoped, the delete + insert confine to this source so a per-tenant
+  // re-put never clears another tenant's typed_ner edges. Unscoped (NULL) keeps
+  // the original whole-source behavior.
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $7" : "";
   return engine.transaction(async (tx) => {
     // Scope the wipe to THIS page's frontmatter-owned typed_ner edges. Edges
     // may have source_slug != pageSlug (incoming direction), so origin_slug --
     // the declaring page -- is the ownership key, not source_slug. Wikilink /
     // gazetteer edges have NULL origin_slug, so they are never touched.
+    const delParams: unknown[] = [pageSlug];
+    if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
       `WITH d AS (
          DELETE FROM links
-          WHERE origin_slug = $1 AND link_kind = '${FENCE_WRITER_KIND}'
+          WHERE origin_slug = $1 AND link_kind = '${FENCE_WRITER_KIND}'${delScope}
           RETURNING 1
        )
        SELECT COUNT(*)::int AS c FROM d`,
-      [pageSlug],
+      delParams,
     );
     let added = 0;
     for (const e of edges) {
@@ -176,14 +189,18 @@ export async function syncTypedLinksForPage(
       // recorded in `origin_field`, so duplicating it into `context` would
       // pollute any context-display path. `link_kind` is a hardcoded const
       // (no user value reaches the interpolation).
+      const insParams: unknown[] = [
+        e.source, e.target, e.type, INFERRED_CONFIDENCE, pageSlug, e.field,
+      ];
+      if (scope !== null) insParams.push(scope);
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence,
-            link_kind, origin_slug, origin_field, resolution_type)
-         VALUES ($1, $2, $3, $4, '${FENCE_WRITER_KIND}', $5, $6, 'qualified')
+            link_kind, origin_slug, origin_field, resolution_type${insCol})
+         VALUES ($1, $2, $3, $4, '${FENCE_WRITER_KIND}', $5, $6, 'qualified'${insVal})
          ON CONFLICT (source_slug, target_slug, type) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
-        [e.source, e.target, e.type, INFERRED_CONFIDENCE, pageSlug, e.field],
+        insParams,
       );
       if (ins.rows[0]?.inserted) added += 1;
     }

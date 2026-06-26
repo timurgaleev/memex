@@ -8,6 +8,11 @@
  * are reserved for protocol-level failures (malformed request etc.).
  */
 import type { Storage } from "../core/storage.ts";
+import {
+  type AuthInfo,
+  effectiveReadSourceIds,
+  effectiveWriteSourceId,
+} from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
 import { findBacklinks } from "../core/backlinks.ts";
@@ -157,6 +162,10 @@ export interface DispatchOptions {
    *  bodies unless `MEMEX_PUBLIC_READ_BODIES` is opted-in — identical to
    *  the REST routes so the two ingress paths cannot diverge. */
   isPublic?: boolean;
+  /** Resolved caller identity. When present, its source grant scopes every
+   *  read (to `allowedSources`/`sourceId`) and stamps every write
+   *  (`sourceId`). Absent → unscoped (local/internal whole-brain access). */
+  authInfo?: AuthInfo;
 }
 
 export async function dispatchTool(
@@ -175,6 +184,11 @@ export async function dispatchTool(
   // governs free-text bodies). The public graph projection keeps slugs + the
   // edge type regardless; provenance is never returned publicly.
   const redactGraph = opts.isPublic ?? false;
+  // The caller's tenant grant: read scope (union of allowed sources) + the
+  // single write source. Undefined when no authInfo → unscoped whole-brain
+  // (local CLI / internal token), preserving single-tenant behavior.
+  const readSources = effectiveReadSourceIds(opts.authInfo);
+  const writeSource = effectiveWriteSourceId(opts.authInfo);
   try {
     // Enforce the declared param contract (type / enum / min-max of present
     // params) before dispatch. Known tools only — an unknown name falls through
@@ -184,19 +198,19 @@ export async function dispatchTool(
     if (op) validateParams(op, args);
     switch (req.name) {
       case "search":
-        return await callSearch(storage, args, redact);
+        return await callSearch(storage, args, redact, readSources);
       case "index":
-        return await callIndex(storage, args, opts.isPublic ?? false);
+        return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
       case "backlinks":
-        return await callBacklinks(storage, args, redact);
+        return await callBacklinks(storage, args, redact, readSources);
       case "stats":
         return await callStats(storage);
       case "log_friction":
         return await callLogFriction(storage, args);
       case "page_put":
-        return await callPagePut(storage, args);
+        return await callPagePut(storage, args, writeSource);
       case "page_append":
-        return await callPageAppend(storage, args);
+        return await callPageAppend(storage, args, writeSource);
       case "page_delete":
         return await callPageDelete(storage, args);
       case "page_restore":
@@ -204,43 +218,43 @@ export async function dispatchTool(
       case "page_revert":
         return await callPageRevert(storage, args);
       case "page_get":
-        return await callPageGet(storage, args, redact);
+        return await callPageGet(storage, args, redact, readSources);
       case "page_list":
-        return await callPageList(storage, args, redact);
+        return await callPageList(storage, args, redact, readSources);
       case "page_versions":
         return await callPageVersions(storage, args, redact);
       case "link":
-        return await callLink(storage, args);
+        return await callLink(storage, args, writeSource);
       case "unlink":
         return await callUnlink(storage, args);
       case "graph_neighbors":
-        return await callGraphNeighbors(storage, args, redactGraph);
+        return await callGraphNeighbors(storage, args, redactGraph, readSources);
       case "graph_query":
-        return await callGraphQuery(storage, args, redactGraph);
+        return await callGraphQuery(storage, args, redactGraph, readSources);
       case "traverse_graph":
-        return await callTraverseGraph(storage, args);
+        return await callTraverseGraph(storage, args, readSources);
       case "get_chunks":
-        return await callGetChunks(storage, args);
+        return await callGetChunks(storage, args, readSources);
       case "resolve_slugs":
-        return await callResolveSlugs(storage, args);
+        return await callResolveSlugs(storage, args, readSources);
       case "add_tag":
-        return await callAddTag(storage, args);
+        return await callAddTag(storage, args, writeSource);
       case "remove_tag":
         return await callRemoveTag(storage, args);
       case "get_tags":
         return await callGetTags(storage, args);
       case "relational_recall":
-        return await callRelationalRecall(storage, args);
+        return await callRelationalRecall(storage, args, readSources);
       case "add_fact":
-        return await callAddFact(storage, args);
+        return await callAddFact(storage, args, writeSource);
       case "add_timeline_event":
-        return await callAddTimelineEvent(storage, args);
+        return await callAddTimelineEvent(storage, args, writeSource);
       case "entity_facts":
-        return await callEntityFacts(storage, args, redact);
+        return await callEntityFacts(storage, args, redact, readSources);
       case "entity_timeline":
-        return await callEntityTimeline(storage, args, redact);
+        return await callEntityTimeline(storage, args, redact, readSources);
       case "entity_recall":
-        return await callEntityRecall(storage, args, redact);
+        return await callEntityRecall(storage, args, redact, readSources);
       case "jobs_submit":
         return await callJobsSubmit(storage, args);
       case "jobs_list":
@@ -252,23 +266,23 @@ export async function dispatchTool(
       case "jobs_logs":
         return await callJobsLogs(storage, args, redact);
       case "get_links":
-        return await callGetLinks(storage, args);
+        return await callGetLinks(storage, args, readSources);
       case "list_link_sources":
-        return await callListLinkSources(storage);
+        return await callListLinkSources(storage, readSources);
       case "find_orphans":
-        return await callFindOrphans(storage, args);
+        return await callFindOrphans(storage, args, readSources);
       case "find_experts":
-        return await callFindExperts(storage, args);
+        return await callFindExperts(storage, args, readSources);
       case "find_contradictions":
-        return await callFindContradictions(storage, args);
+        return await callFindContradictions(storage, args, readSources);
       case "find_trajectory":
-        return await callFindTrajectory(storage, args);
+        return await callFindTrajectory(storage, args, readSources);
       case "get_recent_salience":
-        return await callGetRecentSalience(storage, args);
+        return await callGetRecentSalience(storage, args, readSources);
       case "find_anomalies":
-        return await callFindAnomalies(storage, args);
+        return await callFindAnomalies(storage, args, readSources);
       case "recall":
-        return await callRecall(storage, args);
+        return await callRecall(storage, args, readSources);
       case "forget_fact":
         return await callForgetFact(storage, args);
       case "get_brain_identity":
@@ -278,9 +292,9 @@ export async function dispatchTool(
       case "query":
         return await callQuery(storage, args);
       case "code_callers":
-        return await callCodeCallers(storage, args);
+        return await callCodeCallers(storage, args, readSources);
       case "code_callees":
-        return await callCodeCallees(storage, args);
+        return await callCodeCallees(storage, args, readSources);
       case "volunteer_context":
         return await callVolunteerContext(storage, args);
       case "advisor":
@@ -288,9 +302,9 @@ export async function dispatchTool(
       case "list_brain_skillpack":
         return await callListBrainSkillpack();
       case "list_concepts":
-        return await callListConcepts(storage, args);
+        return await callListConcepts(storage, args, readSources);
       case "list_takes":
-        return await callListTakes(storage, args);
+        return await callListTakes(storage, args, readSources);
       case "get_calibration_profile":
         return await callGetCalibrationProfile(storage);
       default:
@@ -332,6 +346,7 @@ async function callSearch(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -376,6 +391,7 @@ async function callSearch(
   const searchOpts: SearchOptions = { k };
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
+  if (readSources && readSources.length) searchOpts.sourceIds = readSources;
   const hits = await hybridSearch(storage, q, searchOpts);
   // Public ingress: drop page-derived mirror hits entirely. A page slug
   // (`page://people/<name>`) and title are author-written identifiers — the
@@ -402,6 +418,7 @@ async function callIndex(
   storage: Storage,
   args: Record<string, unknown>,
   isPublic = false,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   const path = args["path"];
   if (typeof path === "string" && path.length > 0) {
@@ -434,7 +451,7 @@ async function callIndex(
   const sourcePath = args["sourcePath"];
   const text = args["text"];
   if (typeof sourcePath === "string" && typeof text === "string") {
-    const r = await indexDocument(storage, { sourcePath, text });
+    const r = await indexDocument(storage, { sourcePath, text, ...(writeSource ? { sourceId: writeSource } : {}) });
     return jsonResult({ ok: true, ...r });
   }
   return errResult("index: pass either `path` or both `sourcePath` and `text`");
@@ -444,6 +461,7 @@ async function callBacklinks(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const name = args["name"];
   if (typeof name !== "string" || name.length === 0) {
@@ -468,6 +486,7 @@ async function callBacklinks(
     }
     opts.limit = limit as number;
   }
+  if (readSources?.length) opts.sourceIds = readSources;
   const hits = await findBacklinks(storage, name, opts);
   // Public ingress: `surfaceForm` is note-authored free text — strip it,
   // mirroring the search/page/fact body redaction policy.
@@ -566,9 +585,11 @@ function asPageInput(args: Record<string, unknown>): PageInput | string {
 async function callPagePut(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   const input = asPageInput(args);
   if (typeof input === "string") return errResult(input);
+  if (writeSource) input.source_id = writeSource;
   const r = await putPage(storage, input);
   let searchIndexed: boolean | undefined;
   if (r.changed) {
@@ -576,14 +597,14 @@ async function callPagePut(
     // the stored values, so `input` alone may not reflect what's searchable.
     const page = await getPage(storage, r.slug);
     const body = page?.markdown_body ?? input.markdown_body ?? "";
-    await syncWikilinksForPage(storage, r.slug, body);
+    await syncWikilinksForPage(storage, r.slug, body, writeSource);
     // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
     // edges from plain-text references to known entity pages.
-    await syncMentionsForPage(storage, r.slug, body);
+    await syncMentionsForPage(storage, r.slug, body, writeSource);
     // Typed-link inference (opt-in, MEMEX_TYPED_LINKS=1) — derive works_at /
     // founded / attended / … edges from frontmatter fields.
     if (typedLinksEnabled() && page) {
-      await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+      await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, writeSource);
     }
     // Mirror the page body into the search store so a page written via
     // page_put is findable. Best-effort: the canonical page write already
@@ -595,7 +616,7 @@ async function callPagePut(
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
   // it re-reads the current body and guards on content_hash itself.
-  await reconcileFactsForPage(storage, r.slug, r.content_hash);
+  await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
   return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
 }
 
@@ -611,6 +632,7 @@ async function mirrorPageToSearch(
     title: string | null;
     markdown_body: string;
     content_hash?: string;
+    source_id?: string;
   },
 ): Promise<boolean> {
   try {
@@ -619,6 +641,7 @@ async function mirrorPageToSearch(
       title: page.title,
       markdown_body: page.markdown_body,
       ...(page.content_hash ? { content_hash: page.content_hash } : {}),
+      ...(page.source_id ? { source_id: page.source_id } : {}),
     });
     return true;
   } catch (e) {
@@ -633,6 +656,7 @@ async function mirrorPageToSearch(
 async function callPageAppend(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_append: `slug` is required");
@@ -646,19 +670,20 @@ async function callPageAppend(
     ...(typeof args["written_by"] === "string"
       ? { written_by: args["written_by"] }
       : {}),
+    ...(writeSource ? { source_id: writeSource } : {}),
   });
   let searchIndexed: boolean | undefined;
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
     const body = fresh?.markdown_body ?? "";
-    await syncWikilinksForPage(storage, r.slug, body);
-    await syncMentionsForPage(storage, r.slug, body);
+    await syncWikilinksForPage(storage, r.slug, body, writeSource);
+    await syncMentionsForPage(storage, r.slug, body, writeSource);
     if (typedLinksEnabled() && fresh) {
-      await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth);
+      await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth, writeSource);
     }
     if (fresh) searchIndexed = await mirrorPageToSearch(storage, fresh);
   }
-  await reconcileFactsForPage(storage, r.slug, r.content_hash);
+  await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
   return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
 }
 
@@ -749,11 +774,12 @@ async function callPageGet(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_get: `slug` is required");
   }
-  const page = await getPage(storage, args["slug"]);
+  const page = await getPage(storage, args["slug"], readSources && readSources.length ? readSources : undefined);
   if (!page) return errResult(`page not found: ${args["slug"]}`);
   return jsonResult({
     ok: true,
@@ -765,11 +791,13 @@ async function callPageList(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listPages>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const pages = await listPages(storage, opts);
   const out = redact
     ? pages.map((p) => redactBody(p as unknown as Record<string, unknown>))
@@ -806,6 +834,7 @@ async function callPageVersions(
 async function callLink(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["source_slug"] !== "string")
     return errResult("link: `source_slug` is required");
@@ -824,6 +853,7 @@ async function callLink(
     input.source_chunk_id = args["source_chunk_id"];
   if (typeof args["allowAdHocType"] === "boolean")
     input.allowAdHocType = args["allowAdHocType"];
+  if (writeSource) input.source_id = writeSource;
   const r = await addLink(storage, input);
   return jsonResult({ ok: true, ...r });
 }
@@ -850,6 +880,7 @@ async function callGraphNeighbors(
   storage: Storage,
   args: Record<string, unknown>,
   redact: boolean,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("graph_neighbors: `slug` is required");
@@ -862,6 +893,7 @@ async function callGraphNeighbors(
   )
     opts.direction = args["direction"] as GraphNeighborsOptions["direction"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const links = await graphNeighbors(storage, args["slug"], opts);
   return jsonResult({
     ok: true,
@@ -876,6 +908,7 @@ async function callGraphQuery(
   storage: Storage,
   args: Record<string, unknown>,
   redact: boolean,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["type"] !== "string")
     return errResult("graph_query: `type` is required");
@@ -890,6 +923,7 @@ async function callGraphQuery(
       "graph_query: at least one of `source_slug` or `target_slug` is required",
     );
   }
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const links = await graphQuery(storage, opts);
   return jsonResult({
     ok: true,
@@ -902,6 +936,7 @@ async function callGraphQuery(
 async function callTraverseGraph(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["start_slug"] !== "string" || args["start_slug"].length === 0) {
     return errResult("traverse_graph: `start_slug` is required");
@@ -912,6 +947,7 @@ async function callTraverseGraph(
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (Number.isInteger(args["max_depth"])) opts.maxDepth = args["max_depth"] as number;
   if (Number.isInteger(args["limit"])) opts.limit = args["limit"] as number;
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   try {
     // Returns only {slug, depth} — slugs are already public for the graph read
     // surface (graph_neighbors/graph_query expose them), so no extra redaction.
@@ -927,6 +963,7 @@ async function callTraverseGraph(
 async function callGetChunks(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const hasSlug = typeof args["slug"] === "string" && args["slug"].length > 0;
   const hasSrc =
@@ -934,21 +971,24 @@ async function callGetChunks(
   if (!hasSlug && !hasSrc) {
     return errResult("get_chunks: provide `slug` or `source_path`");
   }
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
   const chunks = hasSlug
-    ? await getChunksForPage(storage, args["slug"] as string)
-    : await getChunksForSource(storage, args["source_path"] as string);
+    ? await getChunksForPage(storage, args["slug"] as string, sourceIds)
+    : await getChunksForSource(storage, args["source_path"] as string, sourceIds);
   return jsonResult({ ok: true, chunks });
 }
 
 async function callResolveSlugs(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["query"] !== "string" || args["query"].length === 0) {
     return errResult("resolve_slugs: `query` is required");
   }
   const opts: Parameters<typeof resolveSlugs>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   // Only slugs/titles/scores returned — already public via page_get/search.
   const hits = await resolveSlugs(storage, args["query"], opts);
   return jsonResult({ ok: true, query: args["query"], hits });
@@ -957,11 +997,12 @@ async function callResolveSlugs(
 async function callAddTag(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") return errResult("add_tag: `slug` is required");
   if (typeof args["tag"] !== "string") return errResult("add_tag: `tag` is required");
   try {
-    await addTag(storage, args["slug"], args["tag"]);
+    await addTag(storage, args["slug"], args["tag"], writeSource);
     return jsonResult({ ok: true, slug: args["slug"], tag: args["tag"] });
   } catch (e) {
     return errResult(`add_tag: ${e instanceof Error ? e.message : String(e)}`);
@@ -990,6 +1031,7 @@ async function callGetTags(
 async function callRelationalRecall(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["query"] !== "string" || args["query"].length === 0) {
     return errResult("relational_recall: `query` is required");
@@ -997,6 +1039,7 @@ async function callRelationalRecall(
   const opts: Parameters<typeof relationalRecall>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["depth"] === "number") opts.depth = args["depth"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const hits = await relationalRecall(storage, args["query"], opts);
   return jsonResult({ ok: true, query: args["query"], hits });
 }
@@ -1010,6 +1053,7 @@ async function callRelationalRecall(
 async function callAddFact(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string")
     return errResult("add_fact: `entity_slug` is required");
@@ -1027,6 +1071,7 @@ async function callAddFact(
     input.source_chunk_id = args["source_chunk_id"];
   if (typeof args["written_by"] === "string")
     input.written_by = args["written_by"];
+  if (writeSource) input.source_id = writeSource;
   const r = await addFact(storage, input);
   return jsonResult({ ok: true, ...r });
 }
@@ -1034,6 +1079,7 @@ async function callAddFact(
 async function callAddTimelineEvent(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("add_timeline_event: `slug` is required");
@@ -1050,6 +1096,7 @@ async function callAddTimelineEvent(
   };
   if (typeof args["source_chunk_id"] === "string")
     input.source_chunk_id = args["source_chunk_id"];
+  if (writeSource) input.source_id = writeSource;
   const r = await addTimelineEvent(storage, input);
   return jsonResult({ ok: true, ...r });
 }
@@ -1058,6 +1105,7 @@ async function callEntityFacts(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string")
     return errResult("entity_facts: `entity_slug` is required");
@@ -1075,6 +1123,7 @@ async function callEntityFacts(
   // disables decay) to infer which hidden fact expired/demoted. Force it OFF on
   // public; internal callers get it via the `MEMEX_FACT_DECAY` env default.
   if (redact) opts.decay = false;
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const facts = await listFacts(storage, args["entity_slug"], opts);
   // Public ingress: `fact` is note-derived private content — strip it,
   // mirroring the search/page body redaction policy.
@@ -1088,6 +1137,7 @@ async function callEntityTimeline(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("entity_timeline: `slug` is required");
@@ -1095,6 +1145,7 @@ async function callEntityTimeline(
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["until"] === "string") opts.until = args["until"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const timeline = await getEntityTimeline(storage, args["slug"], opts);
   // Public ingress: `event` is note-derived private content — strip it.
   const out = redact
@@ -1107,6 +1158,7 @@ async function callEntityRecall(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("entity_recall: `slug` is required");
@@ -1136,6 +1188,7 @@ async function callEntityRecall(
   if (typeof args["redact_body"] === "boolean")
     opts.redact_body = args["redact_body"];
   else if (redact) opts.redact_body = true;
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const r = await entityRecall(storage, args["slug"], opts);
   // `redact_body` only strips the page body; the facts + timeline arrays
   // carry note-derived `fact`/`event` text and must be redacted on public
@@ -1276,28 +1329,32 @@ async function callJobsLogs(
 async function callGetLinks(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("get_links: `slug` is required");
   }
   const opts: Parameters<typeof getLinks>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const groups = await getLinks(storage, args["slug"], opts);
   return jsonResult({ ok: true, slug: args["slug"], groups });
 }
 
-async function callListLinkSources(storage: Storage): Promise<ToolCallResult> {
-  const sources = await listLinkSources(storage);
+async function callListLinkSources(storage: Storage, readSources?: string[]): Promise<ToolCallResult> {
+  const sources = await listLinkSources(storage, readSources && readSources.length ? readSources : undefined);
   return jsonResult({ ok: true, sources });
 }
 
 async function callFindOrphans(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: FindOrphansOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const pages = await findOrphans(storage, opts);
   return jsonResult({ ok: true, pages });
 }
@@ -1305,10 +1362,12 @@ async function callFindOrphans(
 async function callFindExperts(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: FindExpertsOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const experts = await findExperts(storage, opts);
   return jsonResult({ ok: true, experts });
 }
@@ -1316,10 +1375,12 @@ async function callFindExperts(
 async function callFindContradictions(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: FindContradictionsOptions = {};
   if (typeof args["slug"] === "string") opts.slug = args["slug"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const contradictions = await findContradictions(storage, opts);
   return jsonResult({ ok: true, contradictions });
 }
@@ -1327,6 +1388,7 @@ async function callFindContradictions(
 async function callFindTrajectory(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string" || args["entity_slug"].length === 0) {
     return errResult("find_trajectory: `entity_slug` is required");
@@ -1335,6 +1397,7 @@ async function callFindTrajectory(
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["until"] === "string") opts.until = args["until"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const points = await findTrajectory(storage, args["entity_slug"], opts);
   return jsonResult({ ok: true, entity_slug: args["entity_slug"], points });
 }
@@ -1342,11 +1405,13 @@ async function callFindTrajectory(
 async function callGetRecentSalience(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof getRecentSalience>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["days"] === "number") opts.days = args["days"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const pages = await getRecentSalience(storage, opts);
   return jsonResult({ ok: true, pages });
 }
@@ -1354,12 +1419,14 @@ async function callGetRecentSalience(
 async function callFindAnomalies(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof findAnomalies>[1] = {};
   if (typeof args["sigma"] === "number") opts.sigma = args["sigma"];
   if (typeof args["staleDays"] === "number") opts.staleDays = args["staleDays"];
   if (typeof args["salienceFloor"] === "number") opts.salienceFloor = args["salienceFloor"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const anomalies = await findAnomalies(storage, opts);
   return jsonResult({ ok: true, anomalies });
 }
@@ -1367,12 +1434,13 @@ async function callFindAnomalies(
 async function callRecall(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const id = args["id"];
   if (!Number.isInteger(id) || (id as number) < 1) {
     return errResult("recall: `id` must be a positive integer");
   }
-  const fact = await recallFact(storage, id as number);
+  const fact = await recallFact(storage, id as number, readSources && readSources.length ? readSources : undefined);
   if (!fact) {
     throw new OperationError(
       "not_found",
@@ -1452,24 +1520,28 @@ async function callQuery(
 async function callCodeCallers(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["name"] !== "string" || args["name"].length === 0) {
     return errResult("code_callers: `name` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const result = await codeCallers(storage.engine(), args["name"], limit);
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const result = await codeCallers(storage.engine(), args["name"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
 
 async function callCodeCallees(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["target"] !== "string" || args["target"].length === 0) {
     return errResult("code_callees: `target` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const result = await codeCallees(storage.engine(), args["target"], limit);
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const result = await codeCallees(storage.engine(), args["target"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
 
@@ -1522,19 +1594,23 @@ async function callListBrainSkillpack(): Promise<ToolCallResult> {
 async function callListConcepts(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const concepts = await listConcepts(storage.engine(), limit);
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const concepts = await listConcepts(storage.engine(), limit, sourceIds);
   return jsonResult({ ok: true, concepts });
 }
 
 async function callListTakes(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listTakes>[1] = {};
   if (typeof args["status"] === "string") opts.status = args["status"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const takes = await listTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
 }

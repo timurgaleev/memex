@@ -17,6 +17,7 @@ import type { Storage } from "./storage.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
+import { OperationError } from "./operation-error.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -103,6 +104,11 @@ export interface PageInput {
   written_by?: string;
   /** Allow a type that isn't in KNOWN_PAGE_TYPES. Default false. */
   allowAdHocType?: boolean;
+  /**
+   * Owning source (tenant). Defaults to 'default'. A write to a slug already
+   * owned by a different source is refused (no cross-tenant overwrite).
+   */
+  source_id?: string;
 }
 
 export interface PageRow {
@@ -115,6 +121,8 @@ export interface PageRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /** Owning source (tenant). Carried so the search mirror propagates it. */
+  source_id: string;
 }
 
 export interface PutResult {
@@ -191,6 +199,7 @@ export async function putPage(
   const truth = input.compiled_truth ?? {};
   const title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
+  const sourceId = input.source_id ?? "default";
   const hashNew = hashBody(body);
   // Sanitize lone UTF-16 surrogates + NUL ONCE, then derive both the jsonb
   // payload and the alias norms from the sanitized value — otherwise a NUL /
@@ -207,16 +216,27 @@ export async function putPage(
       type: string;
       title: string | null;
       compiled_truth: unknown;
+      source_id: string;
       version_n: number;
     }>(
-      `SELECT p.content_hash, p.type, p.title, p.compiled_truth,
+      `SELECT p.content_hash, p.type, p.title, p.compiled_truth, p.source_id,
               COALESCE(MAX(v.version_n), 0) AS version_n
        FROM pages p
        LEFT JOIN page_versions v ON v.slug = p.slug
        WHERE p.slug = $1 AND p.deleted_at IS NULL
-       GROUP BY p.content_hash, p.type, p.title, p.compiled_truth`,
+       GROUP BY p.content_hash, p.type, p.title, p.compiled_truth, p.source_id`,
       [input.slug],
     );
+
+    // No cross-tenant overwrite: a slug owned by another source is off-limits.
+    const owner = existing.rows[0]?.source_id;
+    if (owner !== undefined && owner !== sourceId) {
+      throw new OperationError(
+        "permission_denied",
+        `page '${input.slug}' is owned by another source`,
+        "Use a slug within your own source, or request access.",
+      );
+    }
 
     // Resolve the type now that the existing row is known: explicit wins;
     // else preserve the existing page's type (an omitted-type update must NOT
@@ -231,16 +251,16 @@ export async function putPage(
       // Brand new page.
       await tx.query(
         `INSERT INTO pages (slug, type, title, compiled_truth,
-                            markdown_body, content_hash)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-        [input.slug, type, title, truthJson, body, hashNew],
+                            markdown_body, content_hash, source_id)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+        [input.slug, type, title, truthJson, body, hashNew, sourceId],
       );
       await tx.query(
         `INSERT INTO page_versions
            (slug, version_n, hash_prev, hash_new,
-            body_snapshot, compiled_truth_snapshot, written_by)
-         VALUES ($1, 1, NULL, $2, $3, $4::jsonb, $5)`,
-        [input.slug, hashNew, body, truthJson, writtenBy],
+            body_snapshot, compiled_truth_snapshot, written_by, source_id)
+         VALUES ($1, 1, NULL, $2, $3, $4::jsonb, $5, $6)`,
+        [input.slug, hashNew, body, truthJson, writtenBy, sourceId],
       );
       await bumpPageGeneration(tx, input.slug);
       await setPageAliases(tx, input.slug, aliasNorms);
@@ -289,8 +309,8 @@ export async function putPage(
     await tx.query(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
-          body_snapshot, compiled_truth_snapshot, written_by)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+          body_snapshot, compiled_truth_snapshot, written_by, source_id)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
       [
         input.slug,
         nextVersion,
@@ -299,6 +319,7 @@ export async function putPage(
         body,
         truthJson,
         writtenBy,
+        sourceId,
       ],
     );
     await bumpPageGeneration(tx, input.slug);
@@ -319,6 +340,12 @@ export interface AppendInput {
    *  new chunk only when needed (so callers don't have to worry about it). */
   content: string;
   written_by?: string;
+  /**
+   * Owning source (tenant). When set, the target page is resolved within this
+   * source only — a caller cannot append to a page they do not own (it reads
+   * as "does not exist").
+   */
+  source_id?: string;
 }
 
 export async function appendPage(
@@ -329,7 +356,8 @@ export async function appendPage(
   if (typeof input.content !== "string" || input.content.length === 0) {
     throw new Error("appendPage: content is required");
   }
-  const current = await getPage(storage, input.slug);
+  const scope = input.source_id ? [input.source_id] : undefined;
+  const current = await getPage(storage, input.slug, scope);
   if (!current) {
     throw new Error(
       `appendPage: page ${JSON.stringify(input.slug)} does not exist; ` +
@@ -349,6 +377,7 @@ export async function appendPage(
     compiled_truth: current.compiled_truth,
     markdown_body: newBody,
     written_by: input.written_by,
+    source_id: current.source_id,
     allowAdHocType: true, // existing type, definitionally allowed
   });
 }
@@ -356,17 +385,24 @@ export async function appendPage(
 export async function getPage(
   storage: Storage,
   slug: string,
+  sourceIds?: readonly string[],
 ): Promise<PageRow | null> {
   validateSlug(slug);
+  const params: unknown[] = [slug];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push([...sourceIds]);
+    scope = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<PageRow>(
     `SELECT slug, type, title, compiled_truth,
-            markdown_body, content_hash,
+            markdown_body, content_hash, source_id,
             created_at::text AS created_at,
             updated_at::text AS updated_at,
             deleted_at::text AS deleted_at
        FROM pages
-       WHERE slug = $1 AND deleted_at IS NULL`,
-    [slug],
+       WHERE slug = $1 AND deleted_at IS NULL${scope}`,
+    params,
   );
   return r.rows[0] ?? null;
 }
@@ -375,6 +411,8 @@ export interface ListPagesOptions {
   type?: string;
   since?: string;
   limit?: number;
+  /** Restrict to these owning sources. Omit/empty → unscoped (whole brain). */
+  sourceIds?: readonly string[];
 }
 
 export async function listPages(
@@ -395,10 +433,14 @@ export async function listPages(
     params.push(opts.since);
     where.push(`updated_at >= $${params.length}::timestamptz`);
   }
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push([...opts.sourceIds]);
+    where.push(`source_id = ANY($${params.length}::text[])`);
+  }
   params.push(limit);
   const sql = `
     SELECT slug, type, title, compiled_truth,
-           markdown_body, content_hash,
+           markdown_body, content_hash, source_id,
            created_at::text AS created_at,
            updated_at::text AS updated_at,
            deleted_at::text AS deleted_at
