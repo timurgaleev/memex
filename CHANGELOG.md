@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Alias-hop — search resolves a query that is exactly a page's declared
+  alias.** A page can declare free-text aliases in `compiled_truth.aliases`
+  (migration 034, indexed in `page_aliases`); the wikilink resolver already used
+  them, but search did not, so a query that is exactly an alias (e.g. "Bobby"
+  for `people/bob`) missed the page when the alias never appears in its body.
+  `hybridSearch` now runs an alias-hop after rerank: it normalizes the whole
+  query, requires an EXACT match to a declared alias (≤6 tokens, unique
+  resolution — a collision resolves to nothing), then boosts the canonical page
+  ×1.10 if it is already in the results or injects its representative chunk at
+  the head if absent. Source-scoped and visibility-filtered, so it never
+  surfaces another tenant's or a soft-deleted page. Default ON (the exact-match
+  gate keeps the blast radius tiny — a normal query is a no-op); `MEMEX_ALIAS_HOP=0`
+  disables it. Folded into the query-cache ranking signature (version `5`).
+
 ## [1.19.0] — 2026-06-26
 
 ### Security

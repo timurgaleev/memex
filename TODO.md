@@ -106,8 +106,20 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   parse); `hybrid.ts` threads it into `applyGraphSignals`; unset → `-Infinity`
   (inert, ranking unchanged); ratio folded into the cache ranking signature
   (RANKING_VERSION 4). Tests in `search_graph_signals.test.ts`.
-- [ ] Wire alias-hop + alias-resolved boost (`page_aliases`, mig 034) into
-  `hybridSearch` — the named-entity synonym gap.
+- [x] Wire alias-hop (`page_aliases`, mig 034) into `hybridSearch` — DONE.
+  `core/search/alias-hop.ts` `applyAliasHop`: exact-full-query alias match
+  (≤6 tokens, unique resolution) → ×1.10 boost if the canonical page is present,
+  else inject its representative chunk at the head; source-scoped +
+  visibility-filtered; default ON (`MEMEX_ALIAS_HOP=0` to disable); folded into
+  the cache ranking signature (v5). Tests: `search_alias_hop.test.ts`. NOTE: the
+  reference's separate `slug_aliases` concept-redirect boost is a distinct
+  feature memex lacks (no concept-redirect pages) — out of scope.
+  - Follow-up (LOW, review): `resolveAliasUnique` filters `deleted_at IS NULL`
+    but not `archived`; an archived page already in the result set could be
+    alias-boosted (the inject path is safe — `fetchPageHeadHit` applies the full
+    visibility filter). Pre-existing (the main hydration doesn't filter archived
+    either), not an alias-hop regression. Tighten by adding `AND NOT p.archived`
+    to the shared resolver if/when the hydration gap is closed.
 - [ ] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall.
 - [ ] Stamp `content_flag` on results; `Retry-After` on 429; write
   `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
