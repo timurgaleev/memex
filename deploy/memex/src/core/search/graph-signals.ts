@@ -55,6 +55,70 @@ export const SESSION_MIN_SHARE = 2;
 
 const PAGE_SCHEME = "page://";
 
+/** Thrown on a malformed MEMEX_GRAPH_SIGNALS_FLOOR value. */
+export class GraphSignalsFloorParseError extends Error {}
+
+/**
+ * Parse MEMEX_GRAPH_SIGNALS_FLOOR into a floor RATIO in [0, 1], or `undefined`
+ * when unset/blank — undefined disables the gate (every hit stays eligible for
+ * a boost, the pre-floor behaviour). Fail-loud on a malformed or out-of-range
+ * value so a typo can't silently disable the gate it was meant to tighten.
+ */
+export function resolveGraphSignalsFloorRatio(
+  envValue: string | undefined = process.env["MEMEX_GRAPH_SIGNALS_FLOOR"],
+): number | undefined {
+  if (envValue === undefined || envValue.trim() === "") return undefined;
+  const raw = envValue.trim();
+  if (!/^\d+(\.\d+)?$/.test(raw)) {
+    throw new GraphSignalsFloorParseError(
+      `invalid MEMEX_GRAPH_SIGNALS_FLOOR: ${JSON.stringify(envValue)}`,
+    );
+  }
+  const v = Number.parseFloat(raw);
+  if (!Number.isFinite(v) || v < 0 || v > 1) {
+    throw new GraphSignalsFloorParseError(
+      `invalid MEMEX_GRAPH_SIGNALS_FLOOR (must be 0..1): ${JSON.stringify(envValue)}`,
+    );
+  }
+  return v;
+}
+
+// Memoized once per process. `undefined` is a valid result (gate disabled), so
+// the sentinel is `null` rather than the `??=` pattern used by the other env
+// getters — `??=` would re-parse on every call when the env is unset.
+let _graphSignalsFloorRatio: number | undefined | null = null;
+/** Memoized MEMEX_GRAPH_SIGNALS_FLOOR ratio (parsed once, fail-loud). */
+export function getGraphSignalsFloorRatio(): number | undefined {
+  if (_graphSignalsFloorRatio === null) {
+    _graphSignalsFloorRatio = resolveGraphSignalsFloorRatio();
+  }
+  return _graphSignalsFloorRatio;
+}
+
+/**
+ * Derive the absolute score floor from a candidate set + a ratio: a hit must
+ * score within `ratio` of the strongest hit to stay eligible for any graph
+ * boost. Returns NEGATIVE_INFINITY — no gate, every hit eligible — when the
+ * ratio is undefined/out-of-range or the top score is non-positive. Feed the
+ * result to {@link GraphSignalsOpts.floorThreshold}; the `score >= floor` gate
+ * then treats -Infinity as "always eligible", matching the pre-floor behaviour.
+ */
+export function computeFloorThreshold(
+  results: readonly { score: number }[],
+  floorRatio: number | undefined,
+): number {
+  if (floorRatio === undefined) return Number.NEGATIVE_INFINITY;
+  if (!Number.isFinite(floorRatio) || floorRatio < 0 || floorRatio > 1) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  let top = Number.NEGATIVE_INFINITY;
+  for (const r of results) {
+    if (Number.isFinite(r.score) && r.score > top) top = r.score;
+  }
+  if (!Number.isFinite(top) || top <= 0) return Number.NEGATIVE_INFINITY;
+  return top * floorRatio;
+}
+
 /** One adjacency tally for a target slug, restricted to the input set. */
 export interface AdjacencyRow {
   hits: number;
@@ -82,9 +146,10 @@ export interface GraphSignalsOpts {
   /** Top-K size (default DEFAULT_TOP_K). */
   topK?: number;
   /**
-   * Absolute score floor: hits below it skip ALL graph boosts. Pass
-   * undefined to disable the gate (memex computes no floor today; the
-   * param exists for parity + tests).
+   * Absolute score floor: hits below it skip ALL graph boosts. hybrid.ts
+   * derives it via {@link computeFloorThreshold} from the candidate set and
+   * the MEMEX_GRAPH_SIGNALS_FLOOR ratio. Pass undefined (or NEGATIVE_INFINITY)
+   * to disable the gate — every hit stays eligible.
    */
   floorThreshold?: number;
   /** Test seam: replaces the inline links query. */
@@ -274,6 +339,11 @@ export async function applyGraphSignals(
     for (let i = 1; i < members.length; i++) {
       const m = members[i];
       if (m === undefined) continue;
+      // Same floor gate as the boost loop: a hit below the floor is exempt from
+      // ALL graph signals, demotion included. Otherwise a sub-floor hit could be
+      // pushed down by ×SESSION_DEMOTE while a boost it never received is
+      // withheld — a one-sided penalty the floor is meant to suppress.
+      if (floor !== undefined && !(m.rep.score >= floor)) continue;
       m.rep.score *= SESSION_DEMOTE;
       meta.session_demotions++;
     }
