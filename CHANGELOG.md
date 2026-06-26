@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Defensive Row-Level Security enable (migration 049).** Flips
+  `relrowsecurity` on across every content + auth data table (the `migrations`
+  ledger excluded) as a defense-in-depth marker — tenancy isolation itself stays
+  enforced at the application layer (the `source_id` scope filter from migration
+  047 + the dispatch wiring). The enable is deliberately inert today: no policy
+  is created and `FORCE` is not set, and the `ALTER`s run only when the migrating
+  role holds `BYPASSRLS` (such a role is itself exempt, and table owners are
+  exempt without `FORCE`), so the brain's behaviour is unchanged. On a managed
+  Postgres where the app role lacks `BYPASSRLS`, the migration raises a NOTICE
+  and touches nothing. PGLite-safe (its `postgres` role has `BYPASSRLS`; the full
+  suite runs unchanged). This lays the groundwork for a future per-row policy
+  without altering current reads or writes.
+
+### Fixed
+- **Graph-signals score floor is now wired (was a no-op).** The opt-in
+  graph-signals ranking stage carried a `floorThreshold` gate — "a hit below the
+  floor is exempt from every graph signal" (adjacency/cross-source boost **and**
+  session demotion) — but `hybridSearch` never computed or passed a threshold, so
+  the gate never fired. `hybrid.ts` now derives a relative floor,
+  `topScore × MEMEX_GRAPH_SIGNALS_FLOOR` (a ratio in `[0,1]`), via the new
+  `computeFloorThreshold`, and threads it into `applyGraphSignals`. Unset (the
+  default) resolves to `-Infinity`, so the gate stays inert and ranking is
+  byte-identical to before — the floor only bites when an operator opts in
+  alongside `MEMEX_GRAPH_SIGNALS=1`. The ratio is folded into the query-cache
+  ranking signature (bumped to version `4`) so a floor change can't serve a
+  stale ordering. Env parse is fail-loud on a malformed/out-of-range value.
+
 ## [1.18.1] — 2026-06-26
 
 ### Added

@@ -65,9 +65,22 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   trajectory`, `get_recent_salience`, `code_callers/callees`,
   `list_concepts/list_takes` (add sourceIds params to insights.ts /
   code-graph.ts / synthesis/reads.ts first).
-- [ ] **RLS backstop** migration + per-connection `SET app.current_sources`
-  pool GUC (defense-in-depth; deferred from 047 to avoid bricking on missing
-  setter).
+- [x] **RLS enable** migration (049) — DONE, faithful to the reference's model:
+  a `DO`-block guarded on `rolbypassrls` flips `relrowsecurity` on across every
+  content + auth table (`migrations` excluded). No policy + no `FORCE`, so it is
+  inert today (the migrating bypass-role is exempt; a non-bypass managed-Postgres
+  role gets a NOTICE and no change) — isolation stays app-layer. PGLite-safe
+  (verified) + `tests/rls_enable.test.ts`. **NOT done (intentionally — the
+  reference does neither, and adding them would diverge from "same as the
+  reference"):** per-row policies and the per-connection `SET app.current_sources`
+  pool GUC. Revisit only if the operator wants DB-level enforcement beyond the
+  reference's defensive enable.
+  - Follow-up (LOW, security review): the migration's ELSE branch (non-BYPASSRLS
+    role → NOTICE, no change) is only reachable on a real managed Postgres, so
+    it has no PGLite test coverage. And 049 is safe ONLY for the single-role
+    deploy (migrate role == runtime role == table owner) — if role separation is
+    ever introduced, add permissive policies before granting a migration-only
+    role BYPASSRLS (documented in the migration header).
 - [x] Extend `tests/tenant_isolation.test.ts` to cover get_chunks,
   relational_recall, the insight tools, and derived-write stamping — DONE
   (11/11; 4 leak-lock cases added).
@@ -87,8 +100,12 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
 ### Retrieval / resilience backlog (found by the 2026-06-25 re-audit)
 
 Small, deterministic, brain-internal — safe to ship incrementally:
-- [ ] Compute + pass `floorThreshold` in `hybrid.ts` so the graph-signals gate
-  stops being a no-op.
+- [x] Compute + pass `floorThreshold` in `hybrid.ts` so the graph-signals gate
+  stops being a no-op — DONE. `computeFloorThreshold` (graph-signals.ts) derives
+  a relative floor `topScore × MEMEX_GRAPH_SIGNALS_FLOOR` (ratio 0..1, fail-loud
+  parse); `hybrid.ts` threads it into `applyGraphSignals`; unset → `-Infinity`
+  (inert, ranking unchanged); ratio folded into the cache ranking signature
+  (RANKING_VERSION 4). Tests in `search_graph_signals.test.ts`.
 - [ ] Wire alias-hop + alias-resolved boost (`page_aliases`, mig 034) into
   `hybridSearch` — the named-entity synonym gap.
 - [ ] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall.
