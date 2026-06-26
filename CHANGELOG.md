@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-06-26
+
 ### Added
 - **Alias-hop — search resolves a query that is exactly a page's declared
   alias.** A page can declare free-text aliases in `compiled_truth.aliases`
