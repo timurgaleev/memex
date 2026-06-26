@@ -61,8 +61,16 @@ function normaliseId(id: unknown): number {
 export async function recallFact(
   storage: Storage,
   id: number,
+  sourceIds?: string[],
 ): Promise<RecalledFact | null> {
   const factId = normaliseId(id);
+  const params: unknown[] = [factId];
+  let scopeFilter = "";
+  // Tenant scope (mig047): filter only when a non-empty list is given.
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<RecalledFact>(
     `SELECT id, entity_slug, fact, confidence,
             source_slug, source_chunk_id, written_by,
@@ -72,8 +80,8 @@ export async function recallFact(
             valid_until::text  AS valid_until,
             forgotten_at::text AS forgotten_at
        FROM entity_facts
-       WHERE id = $1 AND forgotten_at IS NULL`,
-    [factId],
+       WHERE id = $1 AND forgotten_at IS NULL${scopeFilter}`,
+    params,
   );
   return r.rows[0] ?? null;
 }

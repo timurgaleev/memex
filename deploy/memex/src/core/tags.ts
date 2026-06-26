@@ -60,11 +60,16 @@ export async function addTag(
   storage: Storage,
   slug: string,
   tag: string,
+  sourceId?: string,
 ): Promise<void> {
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("addTag: `slug` is required");
   }
   const norm = requireTag(tag);
+  // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
+  // column's DEFAULT 'default' applies otherwise (never pass NULL).
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
   // ponytail: check-then-act TOCTOU — a concurrent page_delete between this
   // check and the insert could tag a just-deleted page. The tags table has no
   // FK (migration 023 is standalone), so the DB can't enforce it. Harmless +
@@ -74,10 +79,13 @@ export async function addTag(
   if (!(await pageExists(storage, slug))) {
     throw new Error(`addTag failed: page "${slug}" not found`);
   }
+  const params: unknown[] = [slug, norm];
+  const sourceCol = scope !== null ? ", source_id" : "";
+  if (scope !== null) params.push(scope);
   await storage.engine().query(
-    `INSERT INTO tags (slug, tag) VALUES ($1, $2)
+    `INSERT INTO tags (slug, tag${sourceCol}) VALUES ($1, $2${scope !== null ? ", $3" : ""})
      ON CONFLICT (slug, tag) DO NOTHING`,
-    [slug, norm],
+    params,
   );
 }
 

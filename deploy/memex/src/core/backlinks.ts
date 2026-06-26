@@ -24,6 +24,11 @@ export interface BacklinksOptions {
   type?: EntityType;
   /** Limit on rows returned. Default 50. */
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, results are filtered
+   * to documents whose `source_id = ANY(...)`. Omitted/empty -> unscoped.
+   */
+  sourceIds?: string[];
 }
 
 export async function findBacklinks(
@@ -37,6 +42,15 @@ export async function findBacklinks(
     throw new Error(`backlinks: limit must be in [1, 1000] (got ${limit})`);
   }
   const eid = entityId(type, name);
+
+  const params: unknown[] = [eid, limit];
+  let scopeFilter = "";
+  // Tenant scope (mig047): filter the joined documents (nullable source_id)
+  // only when a non-empty list is given.
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+  }
 
   const db = storage.raw();
   const result = await db.query<{
@@ -55,11 +69,11 @@ export async function findBacklinks(
      FROM entity_mentions em
      JOIN chunks c   ON c.id = em.chunk_id
      JOIN documents d ON d.id = c.document_id
-     WHERE em.entity_id = $1
+     WHERE em.entity_id = $1${scopeFilter}
      GROUP BY d.id, d.source_path, d.title
      ORDER BY mention_count DESC, d.title NULLS LAST, d.source_path
      LIMIT $2`,
-    [eid, limit],
+    params,
   );
 
   return result.rows.map((r) => ({

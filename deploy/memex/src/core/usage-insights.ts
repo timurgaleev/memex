@@ -32,6 +32,11 @@ export interface RecentSalienceOptions {
   days?: number;
   /** Max rows. Default 20, clamped to [1, 200]. */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (all sources, back-compat).
+   * Non-empty → only pages whose `source_id` is in the list.
+   */
+  sourceIds?: string[];
 }
 
 export interface SalientPage {
@@ -60,6 +65,16 @@ function clampLimit(raw: number | undefined): number {
 }
 
 /**
+ * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
+ * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
+ */
+function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
+  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
+}
+
+/**
  * Live pages ranked by `salience DESC, updated_at DESC` — the "what matters"
  * read. Honours an optional `type` filter and an `updated_at` recency window.
  */
@@ -77,6 +92,11 @@ export async function getRecentSalience(
   if (opts.days !== undefined && opts.days > 0) {
     params.push(opts.days);
     where.push(`updated_at >= NOW() - ($${params.length} || ' days')::interval`);
+  }
+  const sources = normalizeSourceIds(opts.sourceIds);
+  if (sources) {
+    params.push(sources);
+    where.push(`source_id = ANY($${params.length}::text[])`);
   }
   params.push(limit);
   const limitParam = `$${params.length}`;
@@ -118,6 +138,11 @@ export interface FindAnomaliesOptions {
   salienceFloor?: number;
   /** Max rows PER anomaly kind. Default 20, clamped to [1, 200]. */
   limit?: number;
+  /**
+   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * consider only the listed sources' pages and count only their edges.
+   */
+  sourceIds?: string[];
 }
 
 export interface Anomaly {
@@ -190,13 +215,23 @@ export async function findAnomalies(
   );
   const limit = clampLimit(opts.limit);
 
+  const sources = normalizeSourceIds(opts.sourceIds);
+  const params: unknown[] = [];
+  let edgeSourceFilter = "";
+  let pageSourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    edgeSourceFilter = ` WHERE source_id = ANY($1::text[])`;
+    pageSourceFilter = ` AND p.source_id = ANY($1::text[])`;
+  }
+
   // Degree = distinct in+out neighbours per slug, gated to live target pages —
   // identical to recompute-salience so the two views never disagree on degree.
   const res = await storage.engine().query<AnomalyQueryRow>(
     `WITH edges AS (
-       SELECT source_slug AS slug, target_slug AS neighbour FROM links
+       SELECT source_slug AS slug, target_slug AS neighbour FROM links${edgeSourceFilter}
        UNION ALL
-       SELECT target_slug AS slug, source_slug AS neighbour FROM links
+       SELECT target_slug AS slug, source_slug AS neighbour FROM links${edgeSourceFilter}
      ),
      degrees AS (
        SELECT e.slug, COUNT(DISTINCT e.neighbour) AS degree
@@ -213,7 +248,8 @@ export async function findAnomalies(
             EXTRACT(EPOCH FROM (NOW() - p.updated_at)) / 86400 AS age_days
        FROM pages p
        LEFT JOIN degrees d ON d.slug = p.slug
-       WHERE p.deleted_at IS NULL`,
+       WHERE p.deleted_at IS NULL${pageSourceFilter}`,
+    params,
   );
 
   const rows = res.rows.map((r) => ({

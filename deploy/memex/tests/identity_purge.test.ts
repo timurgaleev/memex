@@ -49,7 +49,9 @@ describe("brainIdentity", () => {
     expect(id.chunks).toBe(0);
     expect(id.embeddings).toBe(0);
     expect(id.pages).toBe(0);
-    expect(id.sources).toBe(0);
+    // Migration 047 seeds the system 'default' tenant (the FK target every
+    // content row defaults to), so a fresh brain always has exactly one source.
+    expect(id.sources).toBe(1);
     expect(id.created_at).toBeNull();
   });
 

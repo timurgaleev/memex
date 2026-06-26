@@ -30,6 +30,11 @@ export interface LinkGroup {
 export interface GetLinksOptions {
   /** Max edges scanned per direction (1..1000). Default 1000. */
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, edges are filtered
+   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 function normaliseLimit(limit: number | undefined): number {
@@ -51,6 +56,13 @@ export async function getLinks(
 ): Promise<LinkGroup[]> {
   validateSlug(slug);
   const limit = normaliseLimit(opts.limit);
+  const params: unknown[] = [slug, limit];
+  // Tenant scope (mig047): same filter string in both UNION arms.
+  let scopeFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<
     LinkRow & { direction: "outbound" | "inbound" }
   >(
@@ -58,7 +70,7 @@ export async function getLinks(
              source_chunk_id, written_at::text AS written_at,
              'outbound' AS direction
         FROM links
-       WHERE source_slug = $1
+       WHERE source_slug = $1${scopeFilter}
        ORDER BY written_at DESC
        LIMIT $2)
      UNION ALL
@@ -66,10 +78,10 @@ export async function getLinks(
              source_chunk_id, written_at::text AS written_at,
              'inbound' AS direction
         FROM links
-       WHERE target_slug = $1
+       WHERE target_slug = $1${scopeFilter}
        ORDER BY written_at DESC
        LIMIT $2)`,
-    [slug, limit],
+    params,
   );
 
   const groups = new Map<string, LinkGroup>();
@@ -109,11 +121,20 @@ export interface LinkSource {
  */
 export async function listLinkSources(
   storage: Storage,
+  sourceIds?: string[],
 ): Promise<LinkSource[]> {
+  const params: unknown[] = [];
+  let scopeFilter = "";
+  // Tenant scope (mig047): count only edges in the given sources when set.
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scopeFilter = ` WHERE source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ type: string; count: number }>(
     `SELECT type, COUNT(*)::int AS count
-       FROM links
+       FROM links${scopeFilter}
       GROUP BY type`,
+    params,
   );
 
   const counts = new Map<string, number>();

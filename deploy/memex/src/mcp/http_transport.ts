@@ -20,6 +20,7 @@ import { logToolCall } from "./param-redaction.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
+import type { AuthInfo } from "../core/auth-info.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "memex", version: "0.1.0" };
@@ -61,6 +62,14 @@ export interface McpRequestContext {
    * legacy fallthrough of the HTTP `/index` gate.
    */
   internalAuthOk?: boolean;
+  /**
+   * Resolved identity for OAuth/JWT callers. Present only when an OAuth
+   * token was verified at the ingress; absent for static-bearer and
+   * internal-token paths (those remain unscoped, preserving current
+   * behavior). When set, the dispatcher uses it to scope reads to the
+   * caller's granted sources and stamp writes with the caller's sourceId.
+   */
+  authInfo?: AuthInfo;
 }
 
 interface JsonRpcRequest {
@@ -227,7 +236,7 @@ async function handleSingle(
         const result = await dispatchTool(
           storage,
           { name: params.name, arguments: params.arguments },
-          { isPublic: ctx.isPublic },
+          { isPublic: ctx.isPublic, authInfo: ctx.authInfo },
         );
         // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
         // Names + counts + coarse size only — never raw param values.

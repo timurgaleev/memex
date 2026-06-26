@@ -15,6 +15,89 @@ introduces them.
 > (v1.10.0–v1.16.0). These are the remaining pieces, deferred because they need
 > infra/provider decisions, not because they're out of scope.
 
+### Multi-tenancy (company multi-user) — IN PROGRESS (2026-06-25)
+
+Design + must-fix checklist: `docs/tenancy.md`. Operator decisions locked:
+external IdP (Cognito) issues JWTs; tenant = a `sources` row; per-user private
+source + shared org source via `federated_read[]`; app-layer `source_id` filter
++ RLS backstop. Faithful copy-paste-adapt of the reference, NOT from scratch.
+
+- [x] Scope model `src/core/scope.ts` + tests (`tests/scope.test.ts`).
+- [x] Additive auth tables — migration `046_oauth.sql` (clients/tokens/codes,
+  access_tokens, mcp_request_log). Reviewed (security + architect).
+- [ ] **Invasive `source_id` migration (047)** — gated. Per the reviews:
+  - propagate `source_id` page→bridged-document→chunk (isolation is enforced on
+    `documents.source_id`, the search-arm filter — pages must carry it through
+    the bridge or they index as `default` and leak);
+  - incremental PK path (keep `slug` PK + `UNIQUE(source_id, slug)`, defer the
+    composite PK);
+  - widen `sources.kind` CHECK to add `'tenant'`;
+  - `source_id` in the query-cache key (mig 031) to stop cross-tenant cache
+    poisoning;
+  - filter the full surface (graph/links/facts/timeline/aliases/HNSW
+    post-filter), make `sourceIds` a required builder param, add RLS backstop,
+    validate `federated_read[]` against `sources`, CI grep gate on bare `slug =`.
+- [ ] Port `oauth-provider.ts` (client-credentials + token verify/revoke), adapt
+  to Bun/postgres.js; wire Cognito JWT → `AuthInfo{sourceId, allowedSources}`.
+- [ ] Thread `AuthInfo` through `mcp/dispatch.ts` + `http/server.ts`.
+- [ ] Admin surface (`/admin`) — later phase.
+- [ ] **Live deploy is a separate gated step** — terraform ingress + RDS
+  migration only on explicit operator "deploy".
+
+#### Tenancy pre-deploy MUST-FIX (security review 2026-06-25) — block go-live
+- [ ] **CRITICAL — JWT entitlement floor.** `http/oauth.ts` reads
+  `source_id`/`federated_read` straight from token claims with no server-side
+  check; a user-influenceable claim = forge `federated_read:[victim]` → read
+  all. Add a `source_grants` table (`sub` → entitled sources) + enforce resolved
+  sources ⊆ entitlement; do NOT trust claims raw. Document the hard IdP
+  requirement (claims IdP-asserted, not user-writable). reference-faithful: the
+  grant lives server-side (its `oauth_clients.source_id`/`federated_read`), not
+  in a user token.
+- [ ] **CRITICAL — wire `get_chunks` + `relational_recall`** with readSources
+  (chunks-read.ts + relational-recall.ts have NO source filter → direct
+  cross-tenant body/graph read).
+- [ ] **HIGH — stamp `source_id` on derived writes**: `syncMentionsForPage`
+  (gazetteer.ts), `syncTypedLinksForPage` (typed-links.ts),
+  `reconcileFactsForPage` (facts-reconcile.ts), and pass the page's source into
+  `syncWikilinksForPage` from `page_put`/`page_append` — else a tenant's derived
+  edges/facts land in `default`.
+- [ ] **HIGH — wire readSources** into `find_orphans/experts/contradictions/
+  trajectory`, `get_recent_salience`, `code_callers/callees`,
+  `list_concepts/list_takes` (add sourceIds params to insights.ts /
+  code-graph.ts / synthesis/reads.ts first).
+- [ ] **RLS backstop** migration + per-connection `SET app.current_sources`
+  pool GUC (defense-in-depth; deferred from 047 to avoid bricking on missing
+  setter).
+- [x] Extend `tests/tenant_isolation.test.ts` to cover get_chunks,
+  relational_recall, the insight tools, and derived-write stamping — DONE
+  (11/11; 4 leak-lock cases added).
+- [x] Wire get_chunks/relational_recall/insights/code/synthesis read handlers +
+  stamp derived writes (mentions/typed-links/fence-facts/wikilinks) — DONE.
+- [x] JWT entitlement floor — DONE: migration 048 `source_grants` (sub→source +
+  federated_read); `http/server.ts` resolves the grant server-side by `sub`;
+  token claims are NOT trusted for tenancy.
+- [ ] **Operator policy decision** — an authenticated JWT `sub` with NO
+  `source_grants` row currently gets unscoped **redacted** whole-brain read
+  (back-compat default). For a company brain, consider fail-closed (deny until
+  provisioned) instead. Decide before go-live.
+- [ ] `list_concepts` / `get_calibration_profile` are global synthesis
+  aggregates (no `source_id`, mig 045) — confirm acceptable that they are not
+  per-tenant, or give the synth tables a source axis.
+
+### Retrieval / resilience backlog (found by the 2026-06-25 re-audit)
+
+Small, deterministic, brain-internal — safe to ship incrementally:
+- [ ] Compute + pass `floorThreshold` in `hybrid.ts` so the graph-signals gate
+  stops being a no-op.
+- [ ] Wire alias-hop + alias-resolved boost (`page_aliases`, mig 034) into
+  `hybridSearch` — the named-entity synonym gap.
+- [ ] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall.
+- [ ] Stamp `content_flag` on results; `Retry-After` on 429; write
+  `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
+  staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+- [ ] Cycle concurrency lock (advisory lock / DB TTL row) to avoid double cost.
+- [ ] Advisor `collectUsageShape`: add orphan-pages + dead-links checks.
+
 - [ ] **Brain federation** (deferred — operator, 2026-06-23). A network of
   memex brains (multi-source / multi-holder), likely on Supabase or a similar
   backend. Needs a per-source/per-user data model (memex is single-holder today

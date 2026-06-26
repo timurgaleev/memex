@@ -33,6 +33,11 @@ export interface ResolveSlugsOptions {
   limit?: number;
   /** Minimum similarity to keep a fuzzy candidate. Default 0.3. */
   threshold?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, candidate pages are
+   * filtered to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 const DEFAULT_LIMIT = 5;
@@ -67,20 +72,33 @@ export async function resolveSlugs(
   }
 
   const db = storage.engine();
+  const scoped = !!(opts.sourceIds && opts.sourceIds.length > 0);
 
   // Exact slug match wins outright — an informal query that IS a live slug
   // resolves to itself at full confidence, never diluted by a fuzzy runner-up.
+  const exactParams: unknown[] = [q];
+  let exactScope = "";
+  if (scoped) {
+    exactParams.push(opts.sourceIds);
+    exactScope = ` AND source_id = ANY($${exactParams.length}::text[])`;
+  }
   const exact = await db.query<{ slug: string; title: string | null }>(
     `SELECT slug, title FROM pages
-      WHERE slug = $1 AND deleted_at IS NULL
+      WHERE slug = $1 AND deleted_at IS NULL${exactScope}
       LIMIT 1`,
-    [q],
+    exactParams,
   );
   if (exact.rows.length > 0) {
     return [{ slug: exact.rows[0]!.slug, title: exact.rows[0]!.title, score: 1 }];
   }
 
   // Fuzzy: better of title- vs slug-similarity per page, threshold-gated.
+  const fuzzyParams: unknown[] = [q, threshold, limit];
+  let fuzzyScope = "";
+  if (scoped) {
+    fuzzyParams.push(opts.sourceIds);
+    fuzzyScope = ` AND source_id = ANY($${fuzzyParams.length}::text[])`;
+  }
   const fuzzy = await db.query<{
     slug: string;
     title: string | null;
@@ -92,14 +110,14 @@ export async function resolveSlugs(
               similarity(slug, lower($1))
             ) AS score
        FROM pages
-      WHERE deleted_at IS NULL
+      WHERE deleted_at IS NULL${fuzzyScope}
         AND GREATEST(
               similarity(lower(COALESCE(title, '')), lower($1)),
               similarity(slug, lower($1))
             ) >= $2
       ORDER BY score DESC, slug ASC
       LIMIT $3`,
-    [q, threshold, limit],
+    fuzzyParams,
   );
 
   return fuzzy.rows.map((r) => ({

@@ -27,6 +27,30 @@ import { verifyOAuthToken } from "./oauth.ts";
 import type { OAuthConfig } from "./oauth.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
+import type { AuthInfo } from "../core/auth-info.ts";
+
+/**
+ * The server-side entitlement floor for an OAuth subject. Grants live in the
+ * `source_grants` table (migration 048), keyed by JWT `sub`, and are the ONLY
+ * trusted source of a subject's write source + federated read set — token
+ * claims are deliberately ignored for tenancy. Returns `null` for an
+ * un-provisioned subject (caller falls back to unscoped public-redacted read).
+ */
+interface SourceGrantRow {
+  source_id: string | null;
+  federated_read: string[];
+}
+
+async function lookupSourceGrant(
+  storage: Storage,
+  sub: string,
+): Promise<SourceGrantRow | null> {
+  const res = await storage.engine().query<SourceGrantRow>(
+    "SELECT source_id, federated_read FROM source_grants WHERE sub = $1",
+    [sub],
+  );
+  return res.rows[0] ?? null;
+}
 
 export interface ServerOptions {
   host: string;
@@ -103,6 +127,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
       const url = new URL(req.url);
 
       let guard = evaluatePublicGuard(req, url, guardOpts);
+      let oauthAuth: AuthInfo | undefined;
       if (!guard.allow) {
         // OAuth fallback (default-OFF). Only when enabled, only on a 401
         // (public request, bearer present-but-wrong / missing) — never on a
@@ -114,8 +139,32 @@ export function startServer(opts: ServerOptions): ServerHandle {
             req.headers.get("Authorization") ?? "",
           );
           if (m && m[1]) {
-            const r = await verifyOAuthToken(m[1], opts.oauthConfig);
-            if (r.ok) guard = { allow: true, isPublic: true };
+            const bearer = m[1];
+            const r = await verifyOAuthToken(bearer, opts.oauthConfig);
+            if (r.ok) {
+              guard = { allow: true, isPublic: true };
+              // SECURITY: the source grant is NEVER trusted from token claims —
+              // `r.sourceId` / `r.allowedSources` are user-influenceable. The
+              // IdP only proves identity (sub); the entitlement floor lives
+              // server-side in `source_grants`, keyed by sub. Look it up.
+              const grant = await lookupSourceGrant(opts.storage, r.sub);
+              oauthAuth = {
+                token: bearer,
+                clientId: r.sub,
+                scopes: ["read"],
+                // No grant row → leave sourceId/allowedSources undefined, so
+                // effectiveReadSourceIds() => undefined => unscoped public-
+                // redacted read: the safe default for an un-provisioned subject
+                // (still gated by isPublic redaction, never widened).
+                ...(grant?.source_id != null
+                  ? { sourceId: grant.source_id }
+                  : {}),
+                ...(grant?.federated_read != null
+                  ? { allowedSources: grant.federated_read }
+                  : {}),
+                isPublic: true,
+              };
+            }
           }
         }
         if (!guard.allow) {
@@ -138,6 +187,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         return mcpHandler(req, {
           isPublic: guard.isPublic,
           internalAuthOk: ia.allow,
+          ...(oauthAuth !== undefined ? { authInfo: oauthAuth } : {}),
         });
       }
       return new Response("Not Found", { status: 404 });

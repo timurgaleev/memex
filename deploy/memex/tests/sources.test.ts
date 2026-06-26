@@ -43,8 +43,11 @@ describe("sources", () => {
       syncPolicy: "mirror", // changed
     });
     const all = await listSources(e);
-    expect(all.length).toBe(1);
-    expect(all[0]!.sync_policy).toBe("mirror");
+    // The brain also carries the seeded system 'default' source (migration
+    // 047), so assert idempotency on the 'vault' row specifically.
+    const vaultRows = all.filter((s) => s.id === "vault");
+    expect(vaultRows.length).toBe(1);
+    expect(vaultRows[0]!.sync_policy).toBe("mirror");
   });
 
   it("resolveSourceForPath picks longest prefix match", async () => {

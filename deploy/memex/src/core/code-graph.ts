@@ -55,22 +55,42 @@ function clampLimit(limit: number | undefined): number {
     : 200;
 }
 
+/**
+ * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
+ * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
+ */
+function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
+  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
+}
+
 async function mentionsFor(
   engine: Engine,
   type: EntityType,
   name: string,
   limit: number,
+  sourceIds?: string[],
 ): Promise<CodeGraphResult> {
   const eid = entityId(type, name);
+  const params: unknown[] = [eid, limit];
+  // Scope on the joined documents.source_id. NULL (unclassified) rows are
+  // excluded fail-closed: a tenant never sees an unclassified legacy mention.
+  const sources = normalizeSourceIds(sourceIds);
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+  }
   const r = await engine.query<CodeMention>(
     `SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path
        FROM entity_mentions em
        JOIN chunks c ON c.id = em.chunk_id
        JOIN documents d ON d.id = c.document_id
-      WHERE em.entity_id = $1
+      WHERE em.entity_id = $1${sourceFilter}
       ORDER BY d.source_path, c.start_line NULLS FIRST
       LIMIT $2`,
-    [eid, limit],
+    params,
   );
   return { query: { type, name }, count: r.rows.length, mentions: r.rows };
 }
@@ -80,8 +100,9 @@ export async function codeCallers(
   engine: Engine,
   name: string,
   limit?: number,
+  sourceIds?: string[],
 ): Promise<CodeGraphResult> {
-  return mentionsFor(engine, "code-caller", name, clampLimit(limit));
+  return mentionsFor(engine, "code-caller", name, clampLimit(limit), sourceIds);
 }
 
 /** Resolve the innermost-enclosing code-def symbol covering file:line. */
@@ -89,7 +110,15 @@ export async function resolveSymbolAt(
   engine: Engine,
   file: string,
   line: number,
+  sourceIds?: string[],
 ): Promise<string | null> {
+  const params: unknown[] = [file, line];
+  const sources = normalizeSourceIds(sourceIds);
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+  }
   const r = await engine.query<{ name: string }>(
     `SELECT e.name
        FROM chunks c
@@ -98,10 +127,10 @@ export async function resolveSymbolAt(
        JOIN entities e ON e.id = em.entity_id
       WHERE d.source_path = $1
         AND $2 BETWEEN c.start_line AND c.end_line
-        AND e.type = 'code-def'
+        AND e.type = 'code-def'${sourceFilter}
       ORDER BY (c.end_line - c.start_line) ASC
       LIMIT 1`,
-    [file, line],
+    params,
   );
   return r.rows[0]?.name ?? null;
 }
@@ -111,6 +140,7 @@ export async function codeCallees(
   engine: Engine,
   target: string,
   limit?: number,
+  sourceIds?: string[],
 ): Promise<CodeCalleesResult> {
   const parsed = parsePathLine(target);
   if (!parsed) {
@@ -118,7 +148,7 @@ export async function codeCallees(
       `code_callees: invalid target '${target}' — expected '<path>:<line>'`,
     );
   }
-  const sym = await resolveSymbolAt(engine, parsed.file, parsed.line);
+  const sym = await resolveSymbolAt(engine, parsed.file, parsed.line, sourceIds);
   if (!sym) {
     return {
       query: { type: "code-callee", name: target },
@@ -127,6 +157,6 @@ export async function codeCallees(
       resolved_symbol: null,
     };
   }
-  const res = await mentionsFor(engine, "code-callee", sym, clampLimit(limit));
+  const res = await mentionsFor(engine, "code-callee", sym, clampLimit(limit), sourceIds);
   return { ...res, resolved_symbol: sym };
 }

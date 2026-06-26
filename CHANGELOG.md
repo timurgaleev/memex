@@ -6,6 +6,63 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Multi-tenancy foundation (auth tables + scope model).** First slice of the
+  company-deployable, multi-user brain (see `docs/tenancy.md`). Adds the OAuth
+  scope hierarchy (`src/core/scope.ts`: `admin > sources_admin/users_admin/write
+  > read`, `agent` standalone) and migration `046_oauth.sql` — `access_tokens`,
+  `mcp_request_log`, `oauth_clients` (with `source_id` write-scope +
+  `federated_read[]` read-scope), `oauth_tokens` (revocable), `oauth_codes`.
+  Purely additive: the tables sit empty until the `source_id` data-model
+  migration and the auth wiring land, so this is safe on a single-holder brain.
+  Faithful copy-paste-adapt of the reference's tenancy model, reviewed by
+  security + architecture passes before merge.
+
+- **Tenancy data model + auth primitives (migration 047 + ports).** `source_id`
+  added to `pages`/`links`/`entity_facts`/`timeline_events`/`tags`
+  (+`page_versions`); pages keep the `slug` PK with a new `UNIQUE(source_id,
+  slug)` (incremental path); the system `default` tenant is seeded.
+  `documents.source_id` is left nullable so the existing path-prefix source
+  classifier keeps working. Write paths now stamp `source_id` (indexer, the
+  page→search bridge incl. the cycle re-mirror, and `page_put` with a
+  cross-tenant overwrite guard); `page_get`/`page_list` take a source filter and
+  the search arms already scope on `documents.source_id`. Ports landed:
+  `core/auth-info.ts` (AuthInfo + fail-closed source-scope resolvers) and
+  `core/oauth-provider.ts`. Full Bun suite green (1353/0).
+
+- **Tenancy activated end-to-end (dispatch + http wiring).** `dispatchTool`
+  resolves the caller's source grant from `DispatchOptions.authInfo`
+  (`effectiveReadSourceIds`/`effectiveWriteSourceId`) and threads it through the
+  read/write handlers — search, pages, facts, timeline, links, graph,
+  backlinks, resolve_slugs, tags. The HTTP ingress builds an `AuthInfo` from a
+  verified Cognito JWT's `source_id` + `federated_read` claims; the static
+  public bearer and the internal token stay unscoped (whole-brain) for
+  back-compat. New `tests/tenant_isolation.test.ts` is the cross-tenant contract
+  (tenant B cannot read A's pages/facts/timeline/links). Full Bun suite green
+  (1360/0).
+
+- **Tenant isolation hardened across the full read/write surface + server-side
+  entitlement floor.** Migration `048_source_grants.sql` adds a `source_grants`
+  table (`sub` → `source_id` + `federated_read[]`); the HTTP ingress now
+  resolves a caller's grant from that table by the JWT `sub` — token claims are
+  **no longer trusted** for tenancy (the IdP only proves identity). Every
+  remaining read path is source-scoped: `get_chunks`, `relational_recall`,
+  `find_orphans/experts/contradictions/trajectory`, `get_recent_salience`,
+  `find_anomalies`, `code_callers/callees`, `list_takes`, `entity_recall` (incl.
+  its page-body fetch), `backlinks`. Derived writes from `page_put`/`page_append`
+  (wikilink/mention/typed-link edges, fence facts) stamp the page's `source_id`
+  instead of landing in `default`. `tests/tenant_isolation.test.ts` now has 12
+  cross-tenant leak-lock cases. Two adversarial security passes; full Bun suite
+  green.
+
+### Notes
+- `list_concepts` / `get_calibration_profile` are global synthesis aggregates
+  (no `source_id`, mig 045) — not per-tenant by design. Remaining for go-live
+  (tracked in `docs/tenancy.md` / `TODO.md`): the RLS backstop (defense-in-depth)
+  and an operator policy call on un-provisioned subjects (today: unscoped
+  *redacted* read; consider fail-closed). No live deploy without an explicit
+  decision.
+
 ## [1.17.0] — 2026-06-25
 
 ### Added

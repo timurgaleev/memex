@@ -53,6 +53,11 @@ export interface PageIndexInput {
    * mirror (page changed but a write-time embed failed).
    */
   content_hash?: string;
+  /**
+   * Owning source (tenant) of the page. Propagated to the mirror document so
+   * the page's content is search-isolated to its tenant. Defaults to 'default'.
+   */
+  source_id?: string;
 }
 
 /**
@@ -77,6 +82,7 @@ export async function indexPageIntoSearch(
     {
       sourcePath: pageSourcePath(page.slug),
       text,
+      sourceId: page.source_id ?? null,
       // Stamp the body hash AND the title: `pages.content_hash` is body-only,
       // so a title-only edit leaves it unchanged. Stamping the title too lets
       // the backstop detect a stale mirror after a title-only edit whose
@@ -137,12 +143,14 @@ export async function reconcilePageMirrors(
     title: string | null;
     markdown_body: string;
     content_hash: string;
+    source_id: string;
   }>(
-    `SELECT p.slug, p.title, p.markdown_body, p.content_hash
+    `SELECT p.slug, p.title, p.markdown_body, p.content_hash, p.source_id
        FROM pages p
        LEFT JOIN documents d ON d.source_path = 'page://' || p.slug
       WHERE p.deleted_at IS NULL
         AND (d.id IS NULL
+             OR d.source_id <> p.source_id
              OR COALESCE(d.frontmatter->>'page_content_hash', '') <> p.content_hash
              OR COALESCE(d.frontmatter->>'page_title', '') <> COALESCE(p.title, ''))
       ORDER BY p.updated_at DESC
@@ -159,6 +167,7 @@ export async function reconcilePageMirrors(
           title: p.title,
           markdown_body: p.markdown_body,
           content_hash: p.content_hash,
+          source_id: p.source_id,
         },
         indexOpts,
       );

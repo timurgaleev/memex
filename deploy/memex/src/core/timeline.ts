@@ -19,6 +19,11 @@ export interface AddTimelineEventInput {
   occurred_at: string | Date;
   event: string;
   source_chunk_id?: string;
+  /**
+   * Tenant source scope (migration 047). Omitted -> the column DEFAULT
+   * 'default' applies, preserving whole-brain behavior.
+   */
+  source_id?: string;
 }
 
 export interface TimelineEventRow {
@@ -70,16 +75,25 @@ export async function addTimelineEvent(
   }
   const occurred = normaliseOccurredAt(input.occurred_at);
   const chunkId = input.source_chunk_id ?? null;
+  // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
+  // column's DEFAULT 'default' applies otherwise (never pass NULL).
+  const sourceId =
+    typeof input.source_id === "string" && input.source_id.length > 0
+      ? input.source_id
+      : null;
+  const sourceCol = sourceId !== null ? ", source_id" : "";
 
   // ON CONFLICT does not fire when source_chunk_id IS NULL because the
   // partial UNIQUE index excludes nulls. So `inserted` is always true
   // for null-chunk inserts (the operator's deliberate choice).
   if (chunkId === null) {
+    const params: unknown[] = [input.slug, occurred, input.event];
+    if (sourceId !== null) params.push(sourceId);
     const r = await storage.engine().query<{ id: number }>(
-      `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id)
-       VALUES ($1, $2::timestamptz, $3, NULL)
+      `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id${sourceCol})
+       VALUES ($1, $2::timestamptz, $3, NULL${sourceId !== null ? ", $4" : ""})
        RETURNING id`,
-      [input.slug, occurred, input.event],
+      params,
     );
     return {
       id: r.rows[0]?.id ?? null,
@@ -88,14 +102,16 @@ export async function addTimelineEvent(
       inserted: true,
     };
   }
+  const params: unknown[] = [input.slug, occurred, input.event, chunkId];
+  if (sourceId !== null) params.push(sourceId);
   const r = await storage.engine().query<{ id: number }>(
-    `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id)
-     VALUES ($1, $2::timestamptz, $3, $4)
+    `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id${sourceCol})
+     VALUES ($1, $2::timestamptz, $3, $4${sourceId !== null ? ", $5" : ""})
      ON CONFLICT (slug, occurred_at, source_chunk_id)
        WHERE source_chunk_id IS NOT NULL
        DO NOTHING
      RETURNING id`,
-    [input.slug, occurred, input.event, chunkId],
+    params,
   );
   return {
     id: r.rows[0]?.id ?? null,
@@ -111,6 +127,11 @@ export interface ListTimelineOptions {
   /** Inclusive ISO timestamp. */
   until?: string | Date;
   limit?: number;
+  /**
+   * Tenant source scope (migration 047). When non-empty, events are filtered
+   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   */
+  sourceIds?: string[];
 }
 
 export async function getEntityTimeline(
@@ -128,6 +149,10 @@ export async function getEntityTimeline(
   if (opts.until !== undefined) {
     params.push(normaliseOccurredAt(opts.until));
     where.push(`occurred_at <= $${params.length}::timestamptz`);
+  }
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    where.push(`source_id = ANY($${params.length}::text[])`);
   }
   const limit =
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000

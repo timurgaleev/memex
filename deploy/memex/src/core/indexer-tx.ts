@@ -70,6 +70,13 @@ export interface DocumentWrite {
   mtimeMs?: number | null;
   /** Embedding model id (only meaningful when chunks carry vectors). */
   embeddingModel?: string | null;
+  /**
+   * Owning source (tenant). Stamped onto `documents.source_id` so search arms
+   * scope results per tenant. Null/undefined → 'default' on a fresh insert and
+   * leaves an existing row's source untouched on reindex (never clobbers a real
+   * tenant with the fallback).
+   */
+  sourceId?: string | null;
 }
 
 export interface IndexTxResult {
@@ -101,9 +108,13 @@ export async function writeDocumentTransaction(
 
   await engine.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO documents (id, source_path, title, frontmatter, last_indexed_mtime, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, NOW())
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, updated_at)
+       VALUES ($1, $6, $2, $3, $4::jsonb, $5, NOW())
        ON CONFLICT (id) DO UPDATE SET
+         -- Keep the existing source on reindex unless the caller passes one
+         -- explicitly. A null write leaves classification to the path-prefix
+         -- backfill in core/sources.ts (don't freeze a doc as 'default').
+         source_id          = COALESCE($6, documents.source_id),
          source_path        = EXCLUDED.source_path,
          title              = EXCLUDED.title,
          frontmatter        = EXCLUDED.frontmatter,
@@ -123,6 +134,7 @@ export async function writeDocumentTransaction(
         // otherwise make Postgres reject the cast and abort the whole index tx.
         JSON.stringify(wellFormJsonbValue(doc.frontmatter)),
         doc.mtimeMs ?? null,
+        doc.sourceId ?? null,
       ],
     );
 
