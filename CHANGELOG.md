@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-06-26
+
 ### Added
 - **Multi-tenancy foundation (auth tables + scope model).** First slice of the
   company-deployable, multi-user brain (see `docs/tenancy.md`). Adds the OAuth
