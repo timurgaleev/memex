@@ -130,6 +130,10 @@ export function stampEvidence(
   query?: string,
 ): void {
   hits.forEach((h, i) => {
+    // Preserve an alias-hop stamp: an injected/boosted alias hit was already
+    // classified `alias_hit` (the strongest "this page exists" signal) and is
+    // not in either retrieval arm, so re-classifying would wrongly demote it.
+    if (h.evidence === "alias_hit") return;
     const evidence = classifyEvidence({
       inVector: vectorIds.has(h.chunkId),
       inKeyword: keywordIds.has(h.chunkId),

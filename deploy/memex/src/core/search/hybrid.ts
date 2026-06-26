@@ -67,6 +67,7 @@ import {
   computeFloorThreshold,
   getGraphSignalsFloorRatio,
 } from "./graph-signals.ts";
+import { applyAliasHop, aliasHopEnabled } from "./alias-hop.ts";
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -475,8 +476,12 @@ export async function hybridSearch(
     if (ndThreshold <= 1.0) final = dedupByTextSimilarity(reranked, ndThreshold);
   }
 
-  // 9. Trim to k (the ranked result, pre-token-budget).
-  const ranked: SearchHit[] = final.slice(0, k).map((h) => ({
+  // 8c. Alias-hop (default ON, exact-full-query-alias gated): if the whole
+  //     query is a declared alias, boost the canonical page when present or
+  //     inject it at the head when absent. Runs on the FULL post-rerank list
+  //     (before the trim) so an injected page can't be trimmed out. A normal
+  //     (non-alias) query is a no-op.
+  let organic: SearchHit[] = final.map((h) => ({
     chunkId: h.chunkId,
     documentId: h.documentId,
     sourcePath: h.payload?.sourcePath ?? "",
@@ -485,6 +490,12 @@ export async function hybridSearch(
     score: h.score,
     intent,
   }));
+  if (aliasHopEnabled()) {
+    organic = await applyAliasHop(organic, storage, trimmed, intent, opts.sourceIds);
+  }
+
+  // 9. Trim to k (the ranked result, pre-token-budget).
+  const ranked: SearchHit[] = organic.slice(0, k);
 
   // 9·evidence — stamp WHY each hit matched (which retrieval arm(s) surfaced
   //     it) + a conservative create_safety hint for the agent. Pure-additive:
