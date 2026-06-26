@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-06-26
+
 ### Security
 - **Defensive Row-Level Security enable (migration 049).** Flips
   `relrowsecurity` on across every content + auth data table (the `migrations`
