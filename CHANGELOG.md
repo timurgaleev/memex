@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`tenant` provisioning CLI — onboard multi-tenant users.** Makes the v1.18.0
+  tenancy operable by populating the `source_grants` table:
+  `tenant add <id> [--name]` registers a tenant source, `tenant grant <sub>
+  --source <id> [--read a,b]` grants a JWT subject a write source + federated
+  read set (validates every id against `sources` before writing — no dangling
+  grants, since Postgres can't FK an array), `tenant list`, `tenant revoke
+  <sub>`. Until a grant row exists for a subject the brain stays unscoped
+  (single `default` tenant), so this is the switch that turns isolation on
+  per user.
+
 ## [1.18.0] — 2026-06-26
 
 ### Added
