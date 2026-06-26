@@ -47,6 +47,7 @@ import type { Engine } from "../engine/interface.ts";
 import { getTitleBoost } from "./title-match.ts";
 import { getNearDupThreshold } from "./dedup.ts";
 import { getGraphSignalsFloorRatio } from "./graph-signals.ts";
+import { aliasHopEnabled } from "./alias-hop.ts";
 
 export interface CachedQuery {
   intent: string | null;
@@ -61,9 +62,11 @@ export interface CachedQuery {
  * instead of serving a pre-change order until the document clock happens to
  * advance. `2` = the title-phrase boost (v1.3.20); `3` = the near-dup dedup
  * stage (v1.3.25); `4` = the graph-signals score-floor ratio
- * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts.
+ * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts;
+ * `5` = the alias-hop stage (MEMEX_ALIAS_HOP), which can boost or inject the
+ * canonical page for an exact-alias query.
  */
-const RANKING_VERSION = "4";
+const RANKING_VERSION = "5";
 
 /**
  * Signature of the ranking inputs that are NOT function arguments, so a change
@@ -75,7 +78,9 @@ const RANKING_VERSION = "4";
  *   - the near-dup Jaccard threshold (`MEMEX_NEARDUP_JACCARD`), which changes
  *     which hits survive dedup;
  *   - the graph-signals score-floor ratio (`MEMEX_GRAPH_SIGNALS_FLOOR`), which
- *     changes which hits are eligible for a graph boost.
+ *     changes which hits are eligible for a graph boost;
+ *   - the alias-hop on/off flag (`MEMEX_ALIAS_HOP`), which can boost or inject
+ *     the canonical page for an exact-alias query.
  * NOTE: time-based recency (a hit ages between writes) still drifts the true
  * order within a cache lifetime — that is inherent to caching a wall-clock
  * ranking and is accepted by design (the cache is gated on the document
@@ -83,7 +88,7 @@ const RANKING_VERSION = "4";
  */
 export function rankingSignature(): string {
   const recency = process.env["MEMEX_RECENCY_DECAY"] ?? "";
-  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}`;
+  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}:ah=${aliasHopEnabled() ? 1 : 0}`;
 }
 
 /**
