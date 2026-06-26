@@ -46,6 +46,7 @@ import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { getTitleBoost } from "./title-match.ts";
 import { getNearDupThreshold } from "./dedup.ts";
+import { getGraphSignalsFloorRatio } from "./graph-signals.ts";
 
 export interface CachedQuery {
   intent: string | null;
@@ -59,9 +60,10 @@ export interface CachedQuery {
  * deploy that changes ranking invalidates stale cached orderings immediately,
  * instead of serving a pre-change order until the document clock happens to
  * advance. `2` = the title-phrase boost (v1.3.20); `3` = the near-dup dedup
- * stage (v1.3.25).
+ * stage (v1.3.25); `4` = the graph-signals score-floor ratio
+ * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts.
  */
-const RANKING_VERSION = "3";
+const RANKING_VERSION = "4";
 
 /**
  * Signature of the ranking inputs that are NOT function arguments, so a change
@@ -71,7 +73,9 @@ const RANKING_VERSION = "3";
  *     memoized getter the ranking uses, so the key and the order never diverge;
  *   - the raw `MEMEX_RECENCY_DECAY` env, which also reorders results;
  *   - the near-dup Jaccard threshold (`MEMEX_NEARDUP_JACCARD`), which changes
- *     which hits survive dedup.
+ *     which hits survive dedup;
+ *   - the graph-signals score-floor ratio (`MEMEX_GRAPH_SIGNALS_FLOOR`), which
+ *     changes which hits are eligible for a graph boost.
  * NOTE: time-based recency (a hit ages between writes) still drifts the true
  * order within a cache lifetime — that is inherent to caching a wall-clock
  * ranking and is accepted by design (the cache is gated on the document
@@ -79,7 +83,7 @@ const RANKING_VERSION = "3";
  */
 export function rankingSignature(): string {
   const recency = process.env["MEMEX_RECENCY_DECAY"] ?? "";
-  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}`;
+  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}`;
 }
 
 /**

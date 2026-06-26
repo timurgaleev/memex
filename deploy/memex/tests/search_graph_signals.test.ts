@@ -6,6 +6,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   applyGraphSignals,
+  computeFloorThreshold,
+  resolveGraphSignalsFloorRatio,
+  GraphSignalsFloorParseError,
   sessionPrefix,
   slugForSourcePath,
   ADJACENCY_BOOST,
@@ -177,5 +180,100 @@ describe("applyGraphSignals", () => {
       adjacencyFn: async () => adj,
     });
     expect(hits[0].score).toBe(0.1); // below floor → no boost
+  });
+
+  it("does NOT session-demote a hit below the floor", async () => {
+    // Two hits in one session group; ratio 0.5 over top score 1.0 → floor 0.5.
+    // The 0.4 member is below the floor and must keep its score (exempt from the
+    // demotion, same as it is exempt from the boost loop).
+    const hits = [
+      hit("page://daily/2026-05-20/a", 1.0),
+      hit("page://daily/2026-05-20/b", 0.4),
+    ];
+    const floorThreshold = computeFloorThreshold(hits, resolveGraphSignalsFloorRatio("0.5"));
+    await applyGraphSignals(hits, noEngine, {
+      enabled: true,
+      floorThreshold,
+      adjacencyFn: async () => new Map(),
+    });
+    expect(hits[0].score).toBe(1.0); // group top → kept
+    expect(hits[1].score).toBe(0.4); // below floor → NOT demoted
+  });
+
+  it("DOES session-demote a below-top hit that is above the floor", async () => {
+    // Both members above the floor (ratio 0) → the non-top member is demoted.
+    const hits = [
+      hit("page://daily/2026-05-20/a", 1.0),
+      hit("page://daily/2026-05-20/b", 0.8),
+    ];
+    await applyGraphSignals(hits, noEngine, {
+      enabled: true,
+      floorThreshold: computeFloorThreshold(hits, resolveGraphSignalsFloorRatio("0")),
+      adjacencyFn: async () => new Map(),
+    });
+    expect(hits[0].score).toBe(1.0);
+    expect(hits[1].score).toBeCloseTo(0.8 * SESSION_DEMOTE, 10);
+  });
+
+  it("applies the boost to a hit AT the computed floor (end-to-end wiring)", async () => {
+    // top score 1.0, ratio 0.5 → floor 0.5; the 0.5 hit is eligible, 0.4 is not.
+    const hits = [hit("page://hub", 1.0), hit("page://mid", 0.5), hit("page://low", 0.4)];
+    const adj = new Map<string, AdjacencyRow>([
+      ["mid", { hits: 5, cross_source_hits: 0 }],
+      ["low", { hits: 5, cross_source_hits: 0 }],
+    ]);
+    const floorThreshold = computeFloorThreshold(hits, resolveGraphSignalsFloorRatio("0.5"));
+    expect(floorThreshold).toBe(0.5);
+    await applyGraphSignals(hits, noEngine, {
+      enabled: true,
+      floorThreshold,
+      adjacencyFn: async () => adj,
+    });
+    expect(hits[1].score).toBe(0.5 * ADJACENCY_BOOST); // at floor → boosted
+    expect(hits[2].score).toBe(0.4); // below floor → untouched
+  });
+});
+
+describe("computeFloorThreshold", () => {
+  const set = [{ score: 1.0 }, { score: 0.4 }];
+  it("returns -Infinity (gate off) when the ratio is undefined", () => {
+    expect(computeFloorThreshold(set, undefined)).toBe(Number.NEGATIVE_INFINITY);
+  });
+  it("returns topScore * ratio", () => {
+    expect(computeFloorThreshold(set, 0.5)).toBe(0.5);
+    expect(computeFloorThreshold(set, 0.25)).toBe(0.25);
+  });
+  it("ratio 0 collapses the floor to 0 (effectively no gate for non-negative scores)", () => {
+    expect(computeFloorThreshold(set, 0)).toBe(0);
+  });
+  it("returns -Infinity for an out-of-range ratio", () => {
+    expect(computeFloorThreshold(set, 1.5)).toBe(Number.NEGATIVE_INFINITY);
+    expect(computeFloorThreshold(set, -0.1)).toBe(Number.NEGATIVE_INFINITY);
+  });
+  it("returns -Infinity when the top score is non-positive or the set is empty", () => {
+    expect(computeFloorThreshold([{ score: 0 }, { score: -1 }], 0.5)).toBe(
+      Number.NEGATIVE_INFINITY,
+    );
+    expect(computeFloorThreshold([], 0.5)).toBe(Number.NEGATIVE_INFINITY);
+  });
+});
+
+describe("resolveGraphSignalsFloorRatio", () => {
+  it("returns undefined when unset or blank", () => {
+    expect(resolveGraphSignalsFloorRatio(undefined)).toBeUndefined();
+    expect(resolveGraphSignalsFloorRatio("")).toBeUndefined();
+    expect(resolveGraphSignalsFloorRatio("   ")).toBeUndefined();
+  });
+  it("parses a valid ratio in [0, 1]", () => {
+    expect(resolveGraphSignalsFloorRatio("0")).toBe(0);
+    expect(resolveGraphSignalsFloorRatio("0.7")).toBe(0.7);
+    expect(resolveGraphSignalsFloorRatio("1")).toBe(1);
+  });
+  it("fails loud on a non-numeric value", () => {
+    expect(() => resolveGraphSignalsFloorRatio("abc")).toThrow(GraphSignalsFloorParseError);
+  });
+  it("fails loud on an out-of-range value", () => {
+    expect(() => resolveGraphSignalsFloorRatio("1.5")).toThrow(GraphSignalsFloorParseError);
+    expect(() => resolveGraphSignalsFloorRatio("-0.1")).toThrow(GraphSignalsFloorParseError);
   });
 });

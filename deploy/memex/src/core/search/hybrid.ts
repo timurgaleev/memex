@@ -62,7 +62,11 @@ import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
-import { applyGraphSignals } from "./graph-signals.ts";
+import {
+  applyGraphSignals,
+  computeFloorThreshold,
+  getGraphSignalsFloorRatio,
+} from "./graph-signals.ts";
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -233,6 +237,12 @@ export async function hybridSearch(
   // Adaptive return-sizing (opt-in, default OFF). Resolved once; applied as the
   // final view on BOTH return paths, after the cache has stored the full set.
   const adaptiveCfg = resolveAdaptiveReturn(opts.adaptiveReturn);
+  // Resolve the graph-signals floor ratio up-front (memoized, fail-loud) so a
+  // malformed MEMEX_GRAPH_SIGNALS_FLOOR surfaces here rather than being
+  // swallowed by the cache try-block below — which catches bare and would
+  // silently disable caching on every query. rankingSignature() reads the same
+  // memoized value inside that block.
+  const graphFloorRatio = getGraphSignalsFloorRatio();
 
   // 0. Exact-match query cache (fail-open). A hit skips intent + embed +
   //    retrieval + fusion entirely. Validity is gated on the live-model
@@ -424,7 +434,17 @@ export async function hybridSearch(
   const graphSignalsOn =
     opts.graphSignals ?? process.env.MEMEX_GRAPH_SIGNALS === "1";
   if (graphSignalsOn) {
-    await applyGraphSignals(scored, engine, { enabled: true });
+    // Relative score floor (MEMEX_GRAPH_SIGNALS_FLOOR): a hit must score within
+    // `ratio` of the top hit to be eligible for a graph signal. Unset → the
+    // ratio is undefined → computeFloorThreshold returns -Infinity; collapse
+    // that back to `undefined` so the disabled path is byte-identical to the
+    // pre-floor call (the `floor === undefined` short-circuit), with no NaN-edge
+    // divergence between the two.
+    const floor = computeFloorThreshold(scored, graphFloorRatio);
+    await applyGraphSignals(scored, engine, {
+      enabled: true,
+      floorThreshold: Number.isFinite(floor) ? floor : undefined,
+    });
   }
 
   // Re-sort after boost + recency (RRF was already sorted but these flip).
