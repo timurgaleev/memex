@@ -17,6 +17,7 @@ import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
+import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -153,6 +154,33 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       checks.push({
         name: "source-health",
         ok: false,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Link-extraction lag (migration 051). Informational by design (ok:true):
+    // a backlog of un-extracted pages degrades graph coverage but a brain can
+    // legitimately run with it (autopilot off, a fresh import). Surfaced so the
+    // operator can re-put / sweep. After mig 051 every pre-existing page reads
+    // stale (NULL watermark) until it is next written — that backlog is the
+    // point of the check.
+    try {
+      const e = storage.raw();
+      const totalR = await e.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pages WHERE deleted_at IS NULL",
+      );
+      const total = totalR.rows[0]?.n ?? 0;
+      const stale = total > 0 ? await countStalePagesForExtraction(e, { versionTs: LINK_EXTRACTOR_VERSION_TS }) : 0;
+      const pct = total > 0 ? ((stale / total) * 100).toFixed(1) : "0.0";
+      checks.push({
+        name: "links-extraction-lag",
+        ok: true,
+        detail: `${stale}/${total} page(s) stale for link extraction (${pct}%)`,
+      });
+    } catch (e) {
+      checks.push({
+        name: "links-extraction-lag",
+        ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });
     }

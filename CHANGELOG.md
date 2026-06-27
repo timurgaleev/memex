@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Link-extraction freshness watermark (`LINK_EXTRACTOR_VERSION`).** A faithful
+  port of the reference's `links_extracted_at` design. Migration 051 adds a
+  nullable `pages.links_extracted_at TIMESTAMPTZ` (+ a `(source_id,
+  links_extracted_at)` index, no backfill — every existing page reads stale until
+  next written, which is the point). `core/links.ts` gains
+  `LINK_EXTRACTOR_VERSION_TS` (bump it when extractor logic changes to force a
+  re-sweep), `stampLinksExtracted(engine, slug)`, and
+  `countStalePagesForExtraction(engine, {sourceIds, versionTs})` with the
+  reference's predicate — a page is stale when `links_extracted_at IS NULL OR <
+  VERSION_TS OR updated_at > links_extracted_at`. The watermark is stamped after
+  the full link-sync set (wikilinks + gazetteer mentions + typed-NER) on
+  `page_put` / `page_append` / `page_revert`, so it advances past the page's own
+  `updated_at` and reads clean until the next edit. A new informational
+  `links-extraction-lag` doctor check surfaces the stale backlog (ok:true — a
+  brain can legitimately run with un-extracted pages). Stack adaptation: single
+  `engine.query` (no postgres/PGLite branch), stamp at the dispatch put paths
+  (memex syncs links there, not in a bespoke engine method). Known limitation
+  (the reference has a batch `extract --stale` sweep memex lacks): the watermark
+  advances only on a page write, so bumping `LINK_EXTRACTOR_VERSION_TS` is
+  detect-only — it surfaces the version backlog in the doctor but does not
+  auto-remediate untouched pages until a stale-sweep command lands (tracked in
+  TODO). The NULL and edited-since arms are fully remediated by the inline stamp.
+
 ## [1.25.0] — 2026-06-27
 
 ### Added

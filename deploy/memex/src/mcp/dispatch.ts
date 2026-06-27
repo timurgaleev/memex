@@ -45,6 +45,7 @@ import {
   graphQuery,
   traverseGraph,
   syncWikilinksForPage,
+  stampLinksExtracted,
   type GraphNeighborsOptions,
   type GraphQueryOptions,
   type TraverseGraphOptions,
@@ -606,6 +607,10 @@ async function callPagePut(
     if (typedLinksEnabled() && page) {
       await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, writeSource);
     }
+    // Advance the link-extraction watermark now that the full edge set is
+    // synced (migration 051) — stamped after updated_at, so the staleness
+    // predicate reads clean until the next edit / extractor-version bump.
+    await stampLinksExtracted(storage.engine(), r.slug, writeSource);
     // Mirror the page body into the search store so a page written via
     // page_put is findable. Best-effort: the canonical page write already
     // committed and is the source of truth — an embed failure must not fail
@@ -681,6 +686,7 @@ async function callPageAppend(
     if (typedLinksEnabled() && fresh) {
       await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth, writeSource);
     }
+    await stampLinksExtracted(storage.engine(), r.slug, writeSource); // watermark (mig 051)
     if (fresh) searchIndexed = await mirrorPageToSearch(storage, fresh);
   }
   await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
@@ -763,6 +769,7 @@ async function callPageRevert(
       if (typedLinksEnabled()) {
         await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
       }
+      await stampLinksExtracted(storage.engine(), r.slug); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash);
       await mirrorPageToSearch(storage, page);
     }

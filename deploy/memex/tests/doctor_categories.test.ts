@@ -31,6 +31,7 @@ describe("doctor categorize", () => {
     expect([...KNOWN_CHECK_NAMES].sort()).toEqual([
       "config",
       "index-spread",
+      "links-extraction-lag",
       "pglite",
       "source-health",
       "stats",
