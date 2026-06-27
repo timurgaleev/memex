@@ -148,8 +148,21 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
     `holder_host`) — FAITHFUL to the reference; single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
-- [ ] Write `chunker_version`; `LINK_EXTRACTOR_VERSION`
-  staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+- [ ] Write `chunker_version`; `LINK_EXTRACTOR` bare-wikilink + verb-context
+  resolution.
+  - [x] `LINK_EXTRACTOR_VERSION` staleness watermark — DONE (v1.26.0). Migration
+    051 `pages.links_extracted_at`; `LINK_EXTRACTOR_VERSION_TS` +
+    `stampLinksExtracted` (slug+source_id keyed) + `countStalePagesForExtraction`
+    in core/links.ts; stamped after the full link-sync set at the 3 dispatch put
+    paths; informational `links-extraction-lag` doctor check. Reviewed (workflow):
+    fidelity + correctness SHIP; LOW source_id-keying fixed; LOW index/NOW left
+    (faithful).
+  - [ ] **FOLLOW-UP (watermark review, MEDIUM):** port a batch `extract --stale`
+    sweep so a `LINK_EXTRACTOR_VERSION_TS` bump auto-remediates untouched pages
+    (re-sync edges + re-stamp). Today the version-bump arm is DETECT-ONLY — the
+    doctor surfaces the backlog but only a page write clears it. Reference model:
+    listStalePagesForExtraction + markPagesExtractedBatch stamping the read
+    `updated_at` (its D4 race fix).
   - [x] Stamp `content_flag` on results — DONE (v1.24.0). Faithful adaptation of
     the reference's `getContentFlagsByPageIds` + `stampContentFlags`:
     `core/search/content-flag.ts` reads `reason`/`detail` via `->>` and stamps

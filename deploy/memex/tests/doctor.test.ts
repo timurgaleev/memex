@@ -80,6 +80,7 @@ describe("doctor", () => {
     expect(names).toEqual([
       "config",
       "index-spread",
+      "links-extraction-lag",
       "pglite",
       "source-health",
       "stats",

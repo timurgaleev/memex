@@ -16,6 +16,7 @@
  * tool.
  */
 import type { Storage } from "./storage.ts";
+import type { Engine } from "./engine/interface.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 
 // Catalogue of well-known link types. Not a DB constraint -- extensible
@@ -652,4 +653,82 @@ export async function syncWikilinksForPage(
     }
     return { removed: del.rows[0]?.c ?? 0, added };
   });
+}
+
+// --- Link-extraction freshness watermark (migration 051) ------------------
+
+/**
+ * The link-extractor version stamp. A page whose `links_extracted_at` predates
+ * this is STALE — re-extracting it would apply newer extractor logic. BUMP THIS
+ * to the ship date whenever the link-extraction logic (the wikilink scanner,
+ * gazetteer, or typed-NER rules) changes in a way that should re-run over the
+ * whole corpus. Faithful adaptation of the reference's LINK_EXTRACTOR_VERSION_TS.
+ *
+ * REMEDIATION CAVEAT (stack difference): the watermark only advances on a
+ * `page_put`/`page_append`/`page_revert` that actually changes the page. The
+ * reference clears version-staleness with a batch `extract --stale` sweep;
+ * memex has no such sweep yet, so bumping this constant is DETECT-ONLY — the
+ * `links-extraction-lag` doctor count rises for every untouched page and only
+ * falls as each is next written. Port a stale-sweep command before relying on a
+ * version bump to auto-remediate. (The NULL and `updated_at >` staleness arms
+ * are fully remediated by the inline stamp; only the version arm is detect-only.)
+ */
+export const LINK_EXTRACTOR_VERSION_TS = "2026-06-27T00:00:00Z";
+
+/**
+ * Stamp a page as freshly link-extracted. Called AFTER the full link-sync set
+ * (wikilinks + gazetteer mentions + typed-NER) completes for a put/append/
+ * revert, so the watermark advances past the page's own `updated_at` and the
+ * staleness predicate reads clean until the next edit or a version bump.
+ *
+ * Keyed on slug AND (when given) source_id, mirroring the reference's
+ * `markPagesExtractedBatch`. `slug` is the global PK today, so the source filter
+ * is redundant now — it pre-empts the migration-047 composite `(source_id,
+ * slug)` PK, under which a slug is no longer globally unique and a source-blind
+ * UPDATE would over-stamp a sibling source's row.
+ */
+export async function stampLinksExtracted(engine: Engine, slug: string, sourceId?: string): Promise<void> {
+  const params: unknown[] = [slug];
+  let scopeFilter = "";
+  if (typeof sourceId === "string" && sourceId.length > 0) {
+    params.push(sourceId);
+    scopeFilter = ` AND source_id = $${params.length}`;
+  }
+  await engine.query(`UPDATE pages SET links_extracted_at = NOW() WHERE slug = $1${scopeFilter}`, params);
+}
+
+export interface StaleExtractionOpts {
+  /** Tenant scope: count only pages in these sources. Unscoped when omitted. */
+  sourceIds?: string[];
+  /** The version watermark (default LINK_EXTRACTOR_VERSION_TS). */
+  versionTs?: string;
+}
+
+/**
+ * Count live pages whose link edges are stale for extraction — never extracted,
+ * extracted under an older extractor version, or edited since the last extract.
+ * Faithful adaptation of the reference's `countStalePagesForExtraction` (single
+ * engine.query, no postgres/pglite branch).
+ */
+export async function countStalePagesForExtraction(
+  engine: Engine,
+  opts: StaleExtractionOpts = {},
+): Promise<number> {
+  const versionTs = opts.versionTs ?? LINK_EXTRACTOR_VERSION_TS;
+  const params: unknown[] = [versionTs];
+  let scopeFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
+  const r = await engine.query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM pages
+      WHERE deleted_at IS NULL${scopeFilter}
+        AND (links_extracted_at IS NULL
+             OR links_extracted_at < $1::timestamptz
+             OR updated_at > links_extracted_at)`,
+    params,
+  );
+  return r.rows[0]?.n ?? 0;
 }
