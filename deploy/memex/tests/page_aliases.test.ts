@@ -12,6 +12,7 @@ import { deletePage, putPage } from "../src/core/pages.ts";
 import {
   extractAliasNorms,
   normalizeAlias,
+  resolveAliasCandidates,
   resolveAliasUnique,
   setPageAliases,
 } from "../src/core/page-aliases.ts";
@@ -212,5 +213,20 @@ describe("setPageAliases (direct)", () => {
     await setPageAliases(storage.engine(), "people/bob", ["a", "b"]);
     await setPageAliases(storage.engine(), "people/bob", ["b", "c"]);
     expect(await aliasRows("people/bob")).toEqual(["b", "c"]);
+  });
+});
+
+describe("resolveAliasCandidates", () => {
+  it("returns EVERY claimant of an exact alias, slug-ordered (no LIMIT truncation)", async () => {
+    // 12 pages all claim the alias "boss" — more than the old LIMIT 8. The
+    // resolver must return all 12, slug-ordered, so the caller's deterministic
+    // top-N cap can never miss a true ordered survivor.
+    const slugs = Array.from({ length: 12 }, (_, i) => `people/p${String(i).padStart(2, "0")}`);
+    for (const slug of slugs) {
+      await putPage(storage, { slug, type: "person" });
+      await setPageAliases(storage.engine(), slug, ["boss"]);
+    }
+    const got = await resolveAliasCandidates(storage, "boss");
+    expect(got.map((c) => c.slug)).toEqual(slugs); // all 12, in slug order
   });
 });
