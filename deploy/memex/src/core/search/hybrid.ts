@@ -58,6 +58,7 @@ import {
   putCachedQuery,
   queryCacheKey,
 } from "./query-cache.ts";
+import { stampContentFlags, type ContentFlag } from "./content-flag.ts";
 import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
@@ -155,6 +156,13 @@ export interface SearchHit {
   evidence?: Evidence;
   /** Derived don't-duplicate hint for the agent — see evidence.ts. */
   create_safety?: CreateSafety;
+  /**
+   * WARN signal: the page carries a `content_flag` frontmatter marker
+   * (markup-heavy / oversize / operator-flagged). Still searchable — this tells
+   * the agent to examine the page before trusting it. Absent when clean.
+   * Stamped post-fusion by `stampContentFlags`. See content-flag.ts.
+   */
+  content_flag?: ContentFlag;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -351,6 +359,8 @@ export async function hybridSearch(
         // computable from the hit title, so a cached title hit surfaces
         // `exact_title_match` rather than a flat `weak_semantic`.
         stampDefaultEvidence(hits, trimmed);
+        // Same WARN channel on the cache-hit path so the flag is uniform.
+        await stampContentFlags(engine, hits);
         if (opts.onCapture) {
           try {
             await opts.onCapture({
@@ -595,6 +605,10 @@ export async function hybridSearch(
   //     A hit surfaced only by an expansion pass classifies weak_semantic
   //     (conservative, never a false `exists`).
   stampEvidence(ranked, new Set(vectorIds), new Set(primaryKeywordIds), trimmed);
+
+  // 9·content_flag — stamp the WARN marker on any flagged page (best-effort,
+  //     post-fusion). Pure-additive; never reorders or breaks search.
+  await stampContentFlags(engine, ranked);
 
   // 9a. Populate the query cache (fire-and-forget) with the ranked chunk
   //     ids at the clock value read on entry. A clock that advanced mid-

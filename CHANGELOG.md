@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`content_flag` WARN marker surfaced on search hits.** A faithful adaptation
+  of the reference's `getContentFlagsByPageIds` + `stampContentFlags`
+  agent-warning channel. A document whose frontmatter carries a `content_flag`
+  marker stays fully searchable, but each result it produces is now stamped with
+  `SearchHit.content_flag = { reason, detail }` so the MCP client can decide
+  whether to trust the page (the WARN tier of `quarantine.ts`, vs the HIDE tier
+  `quarantine`). `src/core/search/content-flag.ts` reads `reason`/`detail` in SQL
+  with `->>` exactly as the reference does; `stampContentFlags` runs post-fusion
+  on the final sliced set (bounded by `k`) on both the live and cache-hit search
+  paths, mutating hits in place, and is fail-open — a flag-fetch error never
+  breaks retrieval. Stack adaptation: doc-keyed over `documents.frontmatter`
+  (memex search is chunk→document keyed), TEXT ids, `engine.query` in place of
+  the reference's bespoke engine method.
+
 ## [1.23.0] — 2026-06-27
 
 ### Added
