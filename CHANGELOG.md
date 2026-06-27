@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.26.0] — 2026-06-27
+
 ### Added
 - **Link-extraction freshness watermark (`LINK_EXTRACTOR_VERSION`).** A faithful
   port of the reference's `links_extracted_at` design. Migration 051 adds a
