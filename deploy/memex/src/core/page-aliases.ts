@@ -157,3 +157,45 @@ export async function resolveAliasUnique(
     throw e; // a real DB fault must not silently mask as "no alias"
   }
 }
+
+/**
+ * Resolve a normalized alias to ALL the live (source_id, slug) pages that
+ * declare it — the multi-candidate form the alias-hop search stage needs. A
+ * collision (two pages claim one alias) returns BOTH rows; the caller orders +
+ * caps them deterministically. This is intentionally NOT `resolveAliasUnique`'s
+ * collision-to-null posture: in search a collision should surface every
+ * claimant up to a small cap, not nothing.
+ *
+ * Source-scoped (mig047): confined to `sourceIds`' pages when set, whole-brain
+ * otherwise. Pre-migration-034 brains (no table) degrade to `[]`; any other DB
+ * error rethrows so a real fault never masks as "no alias".
+ */
+export async function resolveAliasCandidates(
+  storage: Storage,
+  aliasNorm: string,
+  sourceIds?: string[],
+  limit = 8,
+): Promise<Array<{ slug: string; source_id: string }>> {
+  if (!isIndexableAlias(aliasNorm)) return [];
+  try {
+    const params: unknown[] = [aliasNorm];
+    let scopeFilter = "";
+    if (sourceIds && sourceIds.length > 0) {
+      params.push(sourceIds);
+      scopeFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+    }
+    params.push(limit);
+    const r = await storage.engine().query<{ slug: string; source_id: string }>(
+      `SELECT pa.slug AS slug, COALESCE(p.source_id, 'default') AS source_id
+         FROM page_aliases pa
+         JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
+        WHERE pa.alias_norm = $1${scopeFilter}
+        LIMIT $${params.length}`,
+      params,
+    );
+    return r.rows;
+  } catch (e) {
+    if (isUndefinedTableError(e)) return [];
+    throw e;
+  }
+}

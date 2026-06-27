@@ -1,66 +1,59 @@
 /**
- * Alias-hop — surface the canonical page when the WHOLE query is a declared
- * alias of it.
+ * Alias-hop — when the normalized query EXACTLY matches a page's declared
+ * free-text alias, make sure that page is in the result set: boost it if
+ * already present, inject it at top-of-organic + ε if absent. The only layer
+ * that bridges true synonyms with zero surface overlap ("Bobby" → `people/bob`)
+ * — neither keyword nor title-boost can.
  *
- * A page declares free-text aliases in `compiled_truth.aliases` (migration 034,
- * indexed in `page_aliases`). The wikilink resolver already consults that index,
- * but search did not: a query that is exactly an alias (e.g. "Bobby" for
- * `people/bob`) would miss the page entirely when the alias never appears in the
- * page body. This stage closes that gap, mirroring the reference's `applyAliasHop`:
+ * Faithful port of the reference's `applyAliasHop`, adapted to memex's stack
+ * (chunk-level SearchHit + the `page://<slug>` page→document bridge instead of
+ * page-level SearchResult). Precision guards (verbatim from the reference):
+ *   - FULL normalized-query exact match only (not substring / not n-grams);
+ *   - skip queries longer than MAX_ALIAS_QUERY_TOKENS (prose, not a name);
+ *   - bounded: present-boost is ×1.10; an injected page lands at
+ *     top-of-organic + ε, NEVER an absolute score (aliases are not a ranking
+ *     sledgehammer);
+ *   - collisions (two pages claim one alias): deterministic (source_id, slug)
+ *     order, capped at MAX_ALIAS_INJECT.
  *
- *   1. Normalize the FULL query (NFKC + lowercase + collapse) and require an
- *      EXACT match to a declared alias — not a substring, not an n-gram. Skip
- *      queries longer than MAX_ALIAS_QUERY_TOKENS tokens (an alias is a name,
- *      not a sentence). This exact-match gate keeps the blast radius tiny: a
- *      normal query that isn't itself an alias is a no-op.
- *   2. Resolve via `page_aliases` to a UNIQUE canonical slug (a collision —
- *      one alias claimed by two pages — resolves to nothing, same safe-by-
- *      default posture as the slug canonicalizer).
- *   3. If the canonical page is already in the result set, boost its best chunk
- *      by ALIAS_HOP_PRESENT_BOOST and re-sort. If it is absent, fetch its
- *      representative chunk (source-scoped + visibility-filtered) and inject it
- *      at the head.
- *
- * Runs AFTER rerank/dedup on the full pre-trim list, so an injected page cannot
- * be trimmed out. Default ON (the exact-match gate makes it safe); set
- * MEMEX_ALIAS_HOP=0 to disable. The on/off flag is folded into the query-cache
- * ranking signature.
+ * Fail-open: a pre-migration-034 brain (no `page_aliases` table) or any lookup
+ * error degrades to the input unchanged. Returns a NEW array; the caller
+ * re-slices. Default ON; MEMEX_ALIAS_HOP=0 disables (folded into the
+ * query-cache ranking signature).
  */
 import type { Engine } from "../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import type { Intent } from "./intent.ts";
 import type { SearchHit } from "./hybrid.ts";
 import { visibilityClause } from "../visibility.ts";
-import {
-  normalizeAlias,
-  isIndexableAlias,
-  resolveAliasUnique,
-} from "../page-aliases.ts";
+import { normalizeAlias, resolveAliasCandidates } from "../page-aliases.ts";
 import { slugForSourcePath } from "./graph-signals.ts";
 import { createSafetyFor } from "./evidence.ts";
 
-/** Multiplier applied to the canonical page when it is already in the results. */
+/** Bounded boost when the canonical page is already in the results. */
 export const ALIAS_HOP_PRESENT_BOOST = 1.1;
-/** Queries longer than this (in whitespace tokens) never alias-hop. */
+/** Queries longer than this (whitespace tokens) never alias-hop. */
 export const MAX_ALIAS_QUERY_TOKENS = 6;
-
-const PAGE_SCHEME = "page://";
+/** Cap on canonical pages boosted/injected per query (collision safety). */
+export const MAX_ALIAS_INJECT = 3;
 
 /** Default ON; MEMEX_ALIAS_HOP=0 disables the stage. */
 export function aliasHopEnabled(): boolean {
   return process.env["MEMEX_ALIAS_HOP"] !== "0";
 }
 
-/** Test seams: replace the alias resolver / page-head fetch (no DB in tests). */
+/** Test seams: replace the alias-candidate lookup / page-head fetch (no DB). */
 export interface AliasHopOpts {
-  resolveAlias?: (norm: string) => Promise<string | null>;
-  fetchHead?: (slug: string) => Promise<SearchHit | null>;
+  resolveCandidates?: (
+    norm: string,
+  ) => Promise<Array<{ slug: string; source_id: string }>>;
+  fetchHead?: (slug: string, sourceId: string) => Promise<SearchHit | null>;
 }
 
 /**
- * Apply the alias-hop to a post-rerank result list. Returns a possibly-modified
- * list (boosted + re-sorted, or with a canonical page injected at the head).
- * A no-op when the query is not exactly a uniquely-resolvable alias.
+ * Apply the alias-hop to a post-rerank result list. A no-op when the query is
+ * not exactly a declared alias. Returns a NEW array (boosted/injected +
+ * re-sorted by score).
  */
 export async function applyAliasHop(
   hits: SearchHit[],
@@ -70,56 +63,79 @@ export async function applyAliasHop(
   sourceIds: readonly string[] | undefined,
   opts: AliasHopOpts = {},
 ): Promise<SearchHit[]> {
-  const norm = normalizeAlias(query);
-  if (!isIndexableAlias(norm)) return hits;
-  if (norm.split(" ").length > MAX_ALIAS_QUERY_TOKENS) return hits;
+  if (!query) return hits;
+  const qNorm = normalizeAlias(query);
+  if (!qNorm || qNorm.split(" ").length > MAX_ALIAS_QUERY_TOKENS) return hits;
 
-  const scope =
-    sourceIds && sourceIds.length > 0 ? [...sourceIds] : undefined;
-  const resolve =
-    opts.resolveAlias ?? ((n: string) => resolveAliasUnique(storage, n, "", scope));
-  const slug = await resolve(norm);
-  if (!slug) return hits; // miss or collision → no-op
+  const scope = sourceIds && sourceIds.length > 0 ? [...sourceIds] : undefined;
+  let refs: Array<{ slug: string; source_id: string }>;
+  try {
+    refs = opts.resolveCandidates
+      ? await opts.resolveCandidates(qNorm)
+      : await resolveAliasCandidates(storage, qNorm, scope);
+  } catch {
+    return hits; // pre-034 table-missing OR transient error → fail-open
+  }
+  if (refs.length === 0) return hits;
 
-  // Canonical page already present → boost its best chunk and re-sort. All
-  // chunks of a page share one `page://<slug>` source_path, so a single find
-  // covers every chunk of the page.
-  const presentIdx = hits.findIndex(
-    (h) => slugForSourcePath(h.sourcePath) === slug,
+  // Deterministic + capped: order by (source_id, slug) so a federated caller
+  // boosts/injects the RIGHT source's page, never collapsing or cross-injecting.
+  const ordered = [...refs]
+    .sort((a, b) =>
+      a.source_id === b.source_id
+        ? a.slug.localeCompare(b.slug)
+        : a.source_id.localeCompare(b.source_id),
+    )
+    .slice(0, MAX_ALIAS_INJECT);
+
+  const out = [...hits];
+  const topScore = out.reduce(
+    (m, r) => (Number.isFinite(r.score) && r.score > m ? r.score : m),
+    0,
   );
-  if (presentIdx !== -1) {
-    // Immutable: replace the matched hit with a boosted copy carrying the
-    // alias_hit evidence (an exact alias match IS a "this page exists" signal);
-    // never mutate the caller's element in place.
-    const boosted = hits.map((h, i) =>
-      i === presentIdx
-        ? {
-            ...h,
-            score: h.score * ALIAS_HOP_PRESENT_BOOST,
-            evidence: "alias_hit" as const,
-            create_safety: createSafetyFor("alias_hit"),
-          }
-        : h,
-    );
-    return boosted.sort((a, b) => b.score - a.score);
+  let injectScore = topScore > 0 ? topScore : 1.0;
+
+  for (const ref of ordered) {
+    const idx = out.findIndex((r) => slugForSourcePath(r.sourcePath) === ref.slug);
+    if (idx >= 0) {
+      // Present → ×1.10 + alias_hit evidence. Immutable replace (memex style
+      // rule) rather than the reference's in-place mutation.
+      const h = out[idx]!;
+      out[idx] = {
+        ...h,
+        score: Number.isFinite(h.score) ? h.score * ALIAS_HOP_PRESENT_BOOST : h.score,
+        evidence: "alias_hit",
+        create_safety: createSafetyFor("alias_hit"),
+      };
+      continue;
+    }
+    // Absent → fetch the canonical page's head chunk (in ITS source) + inject
+    // at top-of-organic + ε. The ε increments per inject so multiple collision
+    // claimants stack just above the organic top without leapfrogging.
+    const injected = opts.fetchHead
+      ? await opts.fetchHead(ref.slug, ref.source_id)
+      : await fetchPageHeadHit(
+          storage.engine(),
+          ref.slug,
+          intent,
+          ref.source_id ? [ref.source_id] : scope,
+        );
+    if (!injected) continue;
+    injectScore += 1e-6;
+    injected.score = injectScore;
+    injected.evidence = "alias_hit";
+    injected.create_safety = createSafetyFor("alias_hit");
+    out.push(injected);
   }
 
-  // Absent → inject the canonical page's representative chunk at the head.
-  const fetch =
-    opts.fetchHead ??
-    ((s: string) => fetchPageHeadHit(storage.engine(), s, intent, scope));
-  const injected = await fetch(slug);
-  if (!injected) return hits;
-  injected.score = (hits[0]?.score ?? 1) * ALIAS_HOP_PRESENT_BOOST;
-  injected.evidence = "alias_hit";
-  injected.create_safety = createSafetyFor("alias_hit");
-  return [injected, ...hits];
+  out.sort((a, b) => b.score - a.score);
+  return out;
 }
 
 /**
- * Fetch the representative (lowest-id) chunk of a page as a SearchHit,
- * confined to the given sources and the visibility filter. Returns null when
- * the page has no live indexed chunk in scope.
+ * Fetch the representative (lowest-id) chunk of a page as a SearchHit, confined
+ * to the given sources and the visibility filter. Returns null when the page
+ * has no live indexed chunk in scope.
  */
 async function fetchPageHeadHit(
   engine: Engine,
@@ -127,7 +143,7 @@ async function fetchPageHeadHit(
   intent: Intent,
   scope: string[] | undefined,
 ): Promise<SearchHit | null> {
-  const params: unknown[] = [`${PAGE_SCHEME}${slug}`];
+  const params: unknown[] = [`page://${slug}`];
   let scopeFilter = "";
   if (scope && scope.length > 0) {
     params.push(scope);
