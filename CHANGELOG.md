@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-06-27
+
 ### Added
 - **`embed_skip` frontmatter marker.** A faithful port of the reference's
   embed-skip predicate, sibling to the existing `quarantine`/`content_flag`

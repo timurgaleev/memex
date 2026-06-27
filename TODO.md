@@ -149,8 +149,16 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     `holder_host`) — FAITHFUL to the reference; single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
 - [ ] Stamp `content_flag` on results; write
-  `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
+  `chunker_version`; `LINK_EXTRACTOR_VERSION`
   staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+  - [x] `embed_skip` frontmatter — DONE (v1.23.0). `core/embed-skip.ts`
+    (`isEmbedSkipped` + `embedSkipFilterFragment`, sibling to quarantine.ts);
+    gated at the inline indexer + embed-backfill (cycle re-embed inherits via
+    indexDocument). Chunk-scoped, faithful to the reference; embed-coverage
+    metric still counts the chunks (also faithful). Operator-declared path only
+    — the oversized auto-writer is the deferred content-sanity increment.
+    ai-engineer: no CRIT/HIGH; 2 LOW (facts arm out-of-scope by design,
+    future-stamper reindex contract) documented in the module header.
 - [x] Advisor `collectUsageShape`: add orphan-pages + dead-links checks — DONE
   (v1.22.0). New `collectUsageShape` collector emits `orphan_pages` (islanded —
   no inbound AND no outbound live edge) + `dead_links` (live-source link whose
