@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Bounded query-embed deadline → keyword-only fallback.** A faithful port of
+  the reference's `embedQueryBounded`/`makeQueryEmbedDeadline`: `hybridSearch`
+  races the query embed against `MEMEX_QUERY_EMBED_TIMEOUT_MS` (default 6000,
+  floored at a 2s minimum budget) via `AbortSignal.timeout`; `embedText` accepts
+  the signal so the in-flight Bedrock request is actually cancelled. On timeout
+  or error the vector arm is dropped and retrieval proceeds keyword-only. Success
+  path unchanged.
+- **DB-backed cycle concurrency lock.** A faithful port of the reference's
+  `db-lock` primitive: `src/core/db-lock.ts` (`tryAcquireDbLock` — an upsert with
+  a TTL + heartbeat steal-grace, `holder_pid`/`holder_host` scoped
+  refresh/release) over a new `cycle_locks` table (migration 050). The
+  maintenance cycle acquires `memex-cycle` before each run, skips if another
+  holder is live, and releases in `finally`; a crashed holder is reclaimed after
+  the TTL/grace lapses.
+- **`Retry-After` on inbound 429.** Matches the reference's 429 response shape:
+  the per-caller token-bucket limiter now exposes a read-only `retryAfterSeconds`
+  (seconds until the caller's bucket refills one token, ≥1, clamped to avoid an
+  `Infinity` header), and the MCP 429 response carries it as a `Retry-After`
+  header.
+
+### Fixed
+- **Alias-hop re-ported to faithfully match the reference (corrects v1.20.0).**
+  The first cut resolved a single candidate, boosted an injected page by ×1.10,
+  and skipped the final sort on the absent path. It now resolves ALL claimants
+  (`resolveAliasCandidates`), orders them by `(source_id, slug)` and caps at
+  `MAX_ALIAS_INJECT=3` (collision handling), boosts a present page ×1.10, injects
+  an absent page at top-of-organic + ε (a small bump, never an absolute or
+  boosted score — aliases are not a ranking sledgehammer), and always re-sorts.
+
 ## [1.20.0] — 2026-06-26
 
 ### Added
