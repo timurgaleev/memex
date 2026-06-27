@@ -8,12 +8,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
+import { putPage, deletePage } from "../src/core/pages.ts";
+import { addLink } from "../src/core/links.ts";
 import {
   collectEmbedCoverage,
   collectStalledJobs,
   collectVersion,
   collectSetupSmells,
   collectMigration,
+  collectUsageShape,
 } from "../src/core/advisor/collectors.ts";
 import type { AdvisorContext } from "../src/core/advisor/types.ts";
 
@@ -86,6 +89,36 @@ describe("collectVersion", () => {
     expect(out.length).toBe(1);
     expect(out[0]?.id).toBe("version_drift");
     expect(out[0]?.severity).toBe("low");
+  });
+});
+
+describe("collectUsageShape", () => {
+  it("flags an islanded page and a dead link", async () => {
+    // alice → bob (both connected); carol is islanded; dave → ghost (dead target).
+    // alice → dave keeps dave connected so it isn't itself counted as an orphan.
+    await putPage(storage, { slug: "people/alice", type: "person" });
+    await putPage(storage, { slug: "people/bob", type: "person" });
+    await putPage(storage, { slug: "people/carol", type: "person" });
+    await putPage(storage, { slug: "people/dave", type: "person" });
+    await addLink(storage, { source_slug: "people/alice", target_slug: "people/bob", type: "knows" });
+    await addLink(storage, { source_slug: "people/alice", target_slug: "people/dave", type: "knows" });
+    await addLink(storage, { source_slug: "people/dave", target_slug: "people/ghost", type: "knows" });
+
+    const out = await collectUsageShape.collect(ctx());
+    const byId = new Map(out.map((f) => [f.id, f]));
+    expect(byId.get("orphan_pages")?.title).toContain("1 page has");
+    expect(byId.get("orphan_pages")?.fix_command).toBe("memex orphans");
+    expect(byId.get("dead_links")?.title).toContain("1 link point");
+    expect(byId.get("dead_links")?.fix_command).toBe("memex doctor");
+
+    // Soft-delete adaptation: deleting bob turns alice → bob into a dead link
+    // (target no longer live), while carol stays the sole orphan (alice keeps a
+    // live edge to dave, dave keeps a live inbound from alice).
+    await deletePage(storage, "people/bob");
+    const out2 = await collectUsageShape.collect(ctx());
+    const byId2 = new Map(out2.map((f) => [f.id, f]));
+    expect(byId2.get("orphan_pages")?.title).toContain("1 page has");
+    expect(byId2.get("dead_links")?.title).toContain("2 links point");
   });
 });
 

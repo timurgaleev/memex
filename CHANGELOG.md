@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Advisor surfaces graph-hygiene gaps (orphan pages + dead links).** A faithful
+  port of the graph-hygiene half of the reference's `usage-shape` advisor
+  collector (the embedding-coverage half already lives in `collectEmbedCoverage`).
+  A new `collectUsageShape` collector emits an `orphan_pages` finding (pages with
+  no inbound AND no outbound link — islanded, invisible to graph traversal; fix:
+  `memex orphans`) and a `dead_links` finding (a live-source link whose
+  `target_slug` resolves to no live page; fix: `memex doctor`). Both counts come
+  from one read-only round trip; like the reference, it runs on the explicit
+  `advisor` pass, not a hot sync path. Soft-delete adaptation: the reference
+  hard-deletes pages (their link rows cascade away), so to preserve its
+  semantics memex (which soft-deletes, keeping the rows) gates every edge on a
+  live page at both ends — a link to/from a soft-deleted page counts as a
+  non-edge. Empty brain → no findings.
+
 ## [1.21.0] — 2026-06-27
 
 ### Added

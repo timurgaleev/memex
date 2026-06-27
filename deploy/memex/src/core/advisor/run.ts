@@ -17,6 +17,7 @@ import {
   collectVersion,
   collectStalledJobs,
   collectEmbedCoverage,
+  collectUsageShape,
   collectSetupSmells,
 } from "./collectors.ts";
 
@@ -26,6 +27,7 @@ export const COLLECTORS: AdvisorCollector[] = [
   collectVersion,
   collectStalledJobs,
   collectEmbedCoverage,
+  collectUsageShape,
   collectSetupSmells,
 ];
 
