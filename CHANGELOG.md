@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.25.0] — 2026-06-27
+
 ### Added
 - **db-lock full port: active auto-takeover, cleanup-registration, and an
   inspect/reap surface.** The cycle lock shipped as a simplified TTL+steal-grace

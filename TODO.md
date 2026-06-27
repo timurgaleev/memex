@@ -216,7 +216,28 @@ A 6-unit re-audit of the shipped increments against the reference's ACTUAL code
   vs the reference's two-stage (pre-auth IP + post-auth token-id). These predate
   the Retry-After increment (the v1.3.x limiter). Operator policy decision —
   left as-is pending an explicit call.
-- [ ] **db-lock (v1.21) — FULL PORT pending (operator-chosen).** memex shipped a
+- [x] **db-lock — FULL PORT done (v1.25.0).** Ported the reference's full
+  db-lock core + safety/ops surface: `classifyHolderLiveness`/
+  `isHolderDeadLocally`/`isLockHolderLive`, auto-takeover in `tryAcquireDbLock`,
+  cleanup-registration via new `process-cleanup.ts`, `inspectLock`/
+  `listStaleLocks`/`deleteLockRow`(+`IfStale`/`Exact`), `reapDeadHolderLocks`.
+  `startCycleLoop.stop()` releases the in-flight lock; reap runs at tick start.
+  Reviewed (parallel workflow): fidelity + security SHIP, one correctness HIGH
+  (process-cleanup SIGTERM racing serve's graceful shutdown) fixed by scoping
+  process-cleanup to abnormal signals only. Omitted the reference's
+  `syncLockId`/`liveSyncStatus`/`withRefreshingLock`/`tryWithDbElection`/
+  `buildTenantLockId` (no memex consumer — porting = dead code).
+  - NOTE (docker deploy model): memex runs one container; each new container
+    has a fresh hostname, so the SAME-HOST auto-takeover + `reapDeadHolderLocks`
+    rarely fire across a deploy (PID-1 death = container death = new hostname).
+    The practically-active release-on-deploy path is the hostname-independent
+    cleanup-registration + `cycle.stop()` release. The same-host pieces are
+    faithful parity (active if a process ever dies WITHIN a living container);
+    a TTL-expired row from a pre-fix container is reclaimed by the upsert on the
+    next tick regardless. If a stable-host or multi-host model ever lands, the
+    same-host paths become load-bearing.
+
+- [ ] **(superseded) db-lock simplified-port note** — memex shipped a
   SIMPLIFIED TTL+steal-grace lock framed as a "faithful port". The reference's
   `db-lock` additionally has: an active auto-takeover fallback (delete a
   provably-dead same-host holder + retry), cleanup-registration (release the lock
