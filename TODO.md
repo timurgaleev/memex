@@ -148,9 +148,13 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
     `holder_host`) — FAITHFUL to the reference; single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
-- [ ] Stamp `content_flag` on results; write
-  `chunker_version`; `LINK_EXTRACTOR_VERSION`
+- [ ] Write `chunker_version`; `LINK_EXTRACTOR_VERSION`
   staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+  - [x] Stamp `content_flag` on results — DONE (v1.24.0). Faithful adaptation of
+    the reference's `getContentFlagsByPageIds` + `stampContentFlags`:
+    `core/search/content-flag.ts` reads `reason`/`detail` via `->>` and stamps
+    `SearchHit.content_flag` post-fusion on both the live + cache-hit paths,
+    fail-open. Doc-keyed over `documents.frontmatter` (stack adaptation).
   - [x] `embed_skip` frontmatter — DONE (v1.23.0). `core/embed-skip.ts`
     (`isEmbedSkipped` + `embedSkipFilterFragment`, sibling to quarantine.ts);
     gated at the inline indexer + embed-backfill (cycle re-embed inherits via
