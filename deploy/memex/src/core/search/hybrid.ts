@@ -599,7 +599,12 @@ export async function hybridSearch(
   // 9a. Populate the query cache (fire-and-forget) with the ranked chunk
   //     ids at the clock value read on entry. A clock that advanced mid-
   //     search makes this write immediately stale (never read) — harmless.
-  if (cacheReady) {
+  //     Skip the write when the embed deadline dropped the vector arm
+  //     (`queryVector === null`): that result is keyword-only/degraded, and the
+  //     cache key has no vector-availability component, so caching it would pin
+  //     the degraded ranking for the whole cache window even after Bedrock
+  //     recovers. Recompute next time instead.
+  if (cacheReady && queryVector !== null) {
     void putCachedQuery(
       engine,
       cacheKey,
