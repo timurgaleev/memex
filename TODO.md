@@ -190,6 +190,44 @@ Small, deterministic, brain-internal — safe to ship incrementally:
 
 ---
 
+## Fidelity re-audit dispositions (2026-06-27)
+
+A 6-unit re-audit of the shipped increments against the reference's ACTUAL code
+(copy-paste-adapt fidelity, not freehand). Outcomes:
+- **advisor usage-shape (v1.22)** — faithful, no change.
+- **alias-hop (v1.21)** — FIXED (v1.24.1): removed the `LIMIT 8`, added
+  `ORDER BY` to match the reference's unbounded `resolveAliases`.
+- **content_flag (v1.24.0)** — re-derived faithfully mid-flight (dropped an
+  invented `normalizeContentFlag`; now mirrors `getContentFlagsByPageIds`'s
+  `->>` extraction).
+- **embed_skip (v1.23)** — `isEmbedSkipped` uses key-existence (`Object.hasOwn`)
+  vs the reference's `value !== null`. KEPT memex's: it is consistent with
+  memex's own SQL fragment (`? 'embed_skip'`), whereas aligning would re-import
+  the reference's own JS/SQL mismatch. Defensible improvement, documented.
+- **embed-deadline (v1.21)** — the `embedQuery` test-seam is memex test infra the
+  reference lacks; KEPT (the production path is faithful; the seam is how
+  memex's hermetic tests inject a deterministic embedder).
+- **Retry-After header (v1.21)** — audit flagged a missing `?? 60` fallback;
+  FALSE POSITIVE — memex's `retryAfterSeconds` is total (always a clamped
+  number ≥1, 3600 cap when refill≤0), so it already guarantees the reference's
+  intent without dead code.
+- **Rate-limit policy (pre-existing, NOT a port)** — memex sustains 1 token/s
+  (capacity 30) vs the reference's 0.5/s, and is single-stage (public/internal)
+  vs the reference's two-stage (pre-auth IP + post-auth token-id). These predate
+  the Retry-After increment (the v1.3.x limiter). Operator policy decision —
+  left as-is pending an explicit call.
+- [ ] **db-lock (v1.21) — FULL PORT pending (operator-chosen).** memex shipped a
+  SIMPLIFIED TTL+steal-grace lock framed as a "faithful port". The reference's
+  `db-lock` additionally has: an active auto-takeover fallback (delete a
+  provably-dead same-host holder + retry), cleanup-registration (release the lock
+  on SIGTERM/crash — memex has no `process-cleanup`/`registerCleanup` yet; every
+  deploy SIGTERMs the container, so a held cycle lock currently lingers up to
+  TTL=30m), holder-liveness classification, and an operational surface
+  (`inspectLock`/`listStaleLocks`/`reapDeadHolderLocks`, for the reference's
+  `doctor`/`break-lock` CLIs). Port the full surface (adapt: `cycle_locks` table,
+  `MEMEX_` env, `engine.query` — memex has no `executeRawDirect`/second pool, so
+  the direct-pool refresh is N/A). NEXT increment.
+
 ## Parity gap backlog (vs the reference, 2026-06-09)
 
 Source: a full subsystem-by-subsystem diff of this brain against the

@@ -174,7 +174,6 @@ export async function resolveAliasCandidates(
   storage: Storage,
   aliasNorm: string,
   sourceIds?: string[],
-  limit = 8,
 ): Promise<Array<{ slug: string; source_id: string }>> {
   if (!isIndexableAlias(aliasNorm)) return [];
   try {
@@ -184,13 +183,17 @@ export async function resolveAliasCandidates(
       params.push(sourceIds);
       scopeFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
     }
-    params.push(limit);
+    // No LIMIT — return EVERY claimant of an exact alias, ordered, mirroring the
+    // reference's `resolveAliases`. An exact-alias match has few claimants, and
+    // the caller (`applyAliasHop`) is what caps the injected set
+    // (`MAX_ALIAS_INJECT`). A prior `LIMIT 8` truncated before that sort, so with
+    // >8 claimants the deterministic top-N could be missed.
     const r = await storage.engine().query<{ slug: string; source_id: string }>(
       `SELECT pa.slug AS slug, COALESCE(p.source_id, 'default') AS source_id
          FROM page_aliases pa
          JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
         WHERE pa.alias_norm = $1${scopeFilter}
-        LIMIT $${params.length}`,
+        ORDER BY source_id, pa.slug`,
       params,
     );
     return r.rows;

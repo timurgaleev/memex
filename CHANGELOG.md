@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **alias-hop returns every claimant of an exact alias (fidelity re-audit).**
+  `resolveAliasCandidates` capped the fetch at `LIMIT 8` with no `ORDER BY`, so a
+  query alias claimed by more than 8 pages fetched a nondeterministic 8 before
+  `applyAliasHop` sorted them by `(source_id, slug)` and took the top
+  `MAX_ALIAS_INJECT` — the true ordered survivors could be missed. The cap is
+  removed and the fetch is `ORDER BY source_id, slug`, matching the reference's
+  unbounded `resolveAliases`; the injected set is still bounded downstream by
+  `MAX_ALIAS_INJECT`. An exact-alias match has few claimants in practice.
+
 ## [1.24.0] — 2026-06-27
 
 ### Added
