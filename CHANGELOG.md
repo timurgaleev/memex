@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **db-lock full port: active auto-takeover, cleanup-registration, and an
+  inspect/reap surface.** The cycle lock shipped as a simplified TTL+steal-grace
+  primitive; this completes the faithful port of the reference's `db-lock`.
+  `tryAcquireDbLock` now reclaims a provably-dead **same-host** holder
+  immediately (PID-probe + grace window, `classifyHolderLiveness` /
+  `isHolderDeadLocally`) instead of waiting out the 30-min TTL, and registers a
+  cleanup callback so abnormal termination releases the lock. New
+  `src/core/process-cleanup.ts` (a faithful port) installs
+  SIGHUP/SIGPIPE/uncaughtException/unhandledRejection handlers that run
+  registered releases on a 3s deadline (NOT SIGINT/SIGTERM — memex's `serve`
+  owns those via its graceful `shutdown()`, so a competing handler would race
+  the drain); the cycle daemon's `startCycleLoop.stop()` now also releases the
+  in-flight tick's lock deterministically before the engine closes (so a deploy
+  SIGTERM mid-tick can't strand the lock). Added the operational surface `inspectLock`,
+  `listStaleLocks`, `deleteLockRow`/`deleteLockRowIfStale`/`deleteLockRowExact`
+  (snapshot-matched, PID-reuse-safe), `isLockHolderLive`, and a host-scoped
+  `reapDeadHolderLocks` background sweep run at cycle start. Stack adaptation:
+  the reference's postgres/PGLite branching + direct-session-pool refresh
+  collapse to memex's single `engine.query` (no second pool); `cycle_locks`
+  table, `memex-cycle` namespace. No migration (the columns already exist).
+
 ## [1.24.1] — 2026-06-27
 
 ### Fixed
