@@ -29,6 +29,12 @@ function getClient(): BedrockRuntimeClient {
 export interface EmbedOptions {
   client?: BedrockRuntimeClient;
   modelId?: string;
+  /**
+   * Optional abort signal threaded into the Bedrock `send()` call so a caller
+   * with a deadline (e.g. the bounded query-embed in search) can cancel the
+   * in-flight request instead of leaking it past the budget.
+   */
+  abortSignal?: AbortSignal;
 }
 
 interface TitanResponseV2 {
@@ -61,7 +67,7 @@ export async function embedText(
     accept: "application/json",
   });
 
-  const response = await client.send(command);
+  const response = await client.send(command, { abortSignal: opts.abortSignal });
   if (!response.body) {
     throw new Error("embedText: empty response body from Bedrock");
   }

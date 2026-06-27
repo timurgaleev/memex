@@ -159,6 +159,83 @@ export interface SearchHit {
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 
+// Query-embed deadline. The vector arm must never let a slow/stuck Bedrock call
+// hold the whole search hostage: the embed runs against a wall-clock budget, and
+// on timeout we fall back to keyword-only (embedding failure is non-fatal).
+const QUERY_EMBED_TIMEOUT_MS = (() => {
+  const n = Number(process.env.MEMEX_QUERY_EMBED_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 6_000;
+})();
+const MIN_QUERY_EMBED_BUDGET_MS = 2_000;
+
+export interface QueryEmbedDeadline {
+  signal: AbortSignal;
+  deadlineAt: number;
+}
+
+export function makeQueryEmbedDeadline(ms = QUERY_EMBED_TIMEOUT_MS): QueryEmbedDeadline {
+  return { signal: AbortSignal.timeout(ms), deadlineAt: Date.now() + ms };
+}
+
+/**
+ * Embed a query under a wall-clock deadline. Threads the deadline's abort signal
+ * into the Bedrock call AND races the promise against a fail-loud timer, so a
+ * hung connection that ignores the abort still cannot block past the budget.
+ * Returns the vector or throws on deadline; the caller treats a throw as a
+ * keyword-only fallback.
+ */
+export async function embedQueryBounded(
+  text: string,
+  embedOpts: { embeddingModel?: string } | undefined,
+  dl: QueryEmbedDeadline,
+): Promise<number[]> {
+  const p = embedText(text, {
+    modelId: embedOpts?.embeddingModel ?? EMBED_MODEL,
+    abortSignal: dl.signal,
+  });
+  p.catch(() => {});
+  const remaining = Math.max(MIN_QUERY_EMBED_BUDGET_MS, dl.deadlineAt - Date.now());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
+      remaining,
+    );
+  });
+  try {
+    return await Promise.race([p, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Race an injected embedder (the hermetic `embedQuery` test seam) against the
+ * same deadline as `embedQueryBounded`, so the bounded behaviour is identical
+ * whether the embed comes from Bedrock or a test injection.
+ */
+async function raceEmbedderAgainstDeadline(
+  embedFn: (text: string) => Promise<number[]>,
+  text: string,
+  dl: QueryEmbedDeadline,
+): Promise<number[]> {
+  const p = embedFn(text);
+  p.catch(() => {});
+  const remaining = Math.max(MIN_QUERY_EMBED_BUDGET_MS, dl.deadlineAt - Date.now());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
+      remaining,
+    );
+  });
+  try {
+    return await Promise.race([p, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 interface HitPayload extends BoostablePayload, ChunkPayloadForRerank {
   /** Live-model content freshness (documents.updated_at), for recency. */
   updated_at?: string | null;
@@ -307,16 +384,26 @@ export async function hybridSearch(
   //    optional injection seam: when set it replaces the Bedrock embedder,
   //    letting a hermetic test drive the vector arm with deterministic vectors.
   //    Unset (the only production path) → the real Titan embedder, unchanged.
-  const queryVector = opts.embedQuery
-    ? await opts.embedQuery(trimmed)
-    : await embedText(trimmed, {
-        modelId: opts.embeddingModel ?? EMBED_MODEL,
-      });
+  //    The embed runs under a wall-clock deadline: a slow/stuck Bedrock call
+  //    must never hold the whole search hostage. On timeout (or any embed
+  //    error) the vector arm is dropped and we fall back to keyword-only —
+  //    embedding failure is non-fatal.
+  let queryVector: number[] | null = null;
+  const dl = makeQueryEmbedDeadline();
+  try {
+    queryVector = opts.embedQuery
+      ? await raceEmbedderAgainstDeadline(opts.embedQuery, trimmed, dl)
+      : await embedQueryBounded(trimmed, { embeddingModel: opts.embeddingModel }, dl);
+  } catch {
+    queryVector = null; // keyword-only fallback
+  }
 
   const [vectorIds, primaryKeywordIds] = await Promise.all([
-    vectorSearch(engine, queryVector, fanout, {
-      sourceIds: opts.sourceIds,
-    }),
+    queryVector
+      ? vectorSearch(engine, queryVector, fanout, {
+          sourceIds: opts.sourceIds,
+        })
+      : Promise.resolve<string[]>([]),
     keywordSearch(engine, trimmed, fanout, {
       sourceIds: opts.sourceIds,
     }),
