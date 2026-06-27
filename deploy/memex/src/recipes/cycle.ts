@@ -15,6 +15,7 @@ import {
   type PhaseName,
 } from "../core/cycle/index.ts";
 import { consoleProgress } from "../core/output/progress.ts";
+import { tryAcquireDbLock, CYCLE_LOCK_ID } from "../core/db-lock.ts";
 
 export interface CycleLoopOptions {
   /** Interval between ticks, ms. */
@@ -87,22 +88,37 @@ export function startCycleLoop(
       storage,
     };
 
-    try {
-      const r = await runCycleOnce(storage.engine(), opts);
-      const mark = (s: string) => (s === "fail" ? "FAIL" : s); // ok | warn | FAIL
-      const summary = r.phases
-        .map((p) => `${p.phase}=${mark(p.status)}`)
-        .join(" ");
-      console.log(
-        `[cycle] tick status=${mark(r.status)} ${summary} duration=${
-          new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
-        }ms${inQuiet ? " (quiet — embed-stale skipped)" : ""}`,
-      );
-    } catch (e) {
-      console.warn(
-        `[cycle] tick failed:`,
-        e instanceof Error ? e.message : e,
-      );
+    // Cross-process guard: another daemon (or a manual `cycle` run) may already
+    // be working this brain. The DB lock serializes the maintenance pipeline so
+    // two cycles don't fight over the same phases. A null handle means a live
+    // holder owns the lock — skip this tick and re-arm the next one.
+    const lock = await tryAcquireDbLock(storage.engine(), CYCLE_LOCK_ID, 30);
+    if (!lock) {
+      console.log(`[cycle] tick skipped: another holder owns ${CYCLE_LOCK_ID}`);
+    } else {
+      try {
+        const r = await runCycleOnce(storage.engine(), opts);
+        const mark = (s: string) => (s === "fail" ? "FAIL" : s); // ok | warn | FAIL
+        const summary = r.phases
+          .map((p) => `${p.phase}=${mark(p.status)}`)
+          .join(" ");
+        console.log(
+          `[cycle] tick status=${mark(r.status)} ${summary} duration=${
+            new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
+          }ms${inQuiet ? " (quiet — embed-stale skipped)" : ""}`,
+        );
+      } catch (e) {
+        console.warn(
+          `[cycle] tick failed:`,
+          e instanceof Error ? e.message : e,
+        );
+      } finally {
+        try {
+          await lock.release();
+        } catch {
+          /* idempotent — lock will auto-expire under TTL */
+        }
+      }
     }
     if (!stopped) {
       timer = setTimeout(runTick, options.intervalMs);
