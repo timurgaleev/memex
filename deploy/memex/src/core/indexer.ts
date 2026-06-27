@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
+import { isEmbedSkipped } from "./embed-skip.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import type { Storage } from "./storage.ts";
@@ -100,15 +101,18 @@ export async function indexDocument(
   const model = opts.embeddingModel ?? EMBED_MODEL;
   const embed = opts.embedFn ?? embedText;
 
-  // Embed BEFORE we touch the DB — if Bedrock fails, we don't half-write.
-  const vectors: number[][] = [];
-  for (const chunk of parsed.chunks) {
-    vectors.push(await embed(chunk, { modelId: model }));
-  }
-
   const frontmatter = input.extraFrontmatter
     ? { ...parsed.frontmatter, ...input.extraFrontmatter }
     : parsed.frontmatter;
+
+  // Embed BEFORE we touch the DB — if Bedrock fails, we don't half-write. A page
+  // marked `embed_skip` is indexed + keyword-searchable but never embedded: its
+  // chunks land with a null vector so the vector arm skips them.
+  const skipEmbed = isEmbedSkipped(frontmatter);
+  const vectors: (number[] | null)[] = [];
+  for (const chunk of parsed.chunks) {
+    vectors.push(skipEmbed ? null : await embed(chunk, { modelId: model }));
+  }
 
   const chunkWrites: ChunkWrite[] = parsed.chunks.map((text, i) => {
     // Frontmatter tags only attach to chunk 0 — they're document-level signals,

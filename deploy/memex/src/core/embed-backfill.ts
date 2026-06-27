@@ -22,6 +22,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID } from "./embedding.ts";
+import { embedSkipFilterFragment } from "./embed-skip.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { clearCache } from "./search/query-cache.ts";
 
@@ -73,6 +74,7 @@ async function findCandidates(
        LEFT JOIN embeddings em ON em.chunk_id = c.id
       WHERE em.chunk_id IS NULL
         AND COALESCE(d.frontmatter->>'kind','') <> 'code'
+        AND ${embedSkipFilterFragment("d")}
         AND length(btrim(c.content)) > 0
       ORDER BY c.id COLLATE "C" ASC
       ${limitClause}`,

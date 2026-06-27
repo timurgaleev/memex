@@ -64,6 +64,18 @@ beforeEach(async () => {
     { documentId: "doc_md_done", sourcePath: "/notes/b.md", title: "b", frontmatter: {}, embeddingModel: "det" },
     [{ text: "already embedded markdown chunk", entities: [], embedding: deterministicEmbed("already embedded markdown chunk") }],
   );
+
+  // Markdown document marked embed_skip — un-embedded chunks that the backfill
+  // must NEVER target (indexed + keyword-searchable, but excluded from the
+  // vector arm by design).
+  await writeDocumentTransaction(
+    storage,
+    { documentId: "doc_md_skip", sourcePath: "/notes/c.md", title: "c", frontmatter: { embed_skip: true }, embeddingModel: "det" },
+    [
+      { text: "skipped chunk about retrieval quality", entities: [] },
+      { text: "another skipped chunk about vector search", entities: [] },
+    ],
+  );
 });
 
 afterEach(async () => {
@@ -95,6 +107,16 @@ describe("embed backfill", () => {
 
     // Total: 1 (pre-existing) + 2 (backfilled) = 3.
     expect(await embeddingCount()).toBe(3);
+  });
+
+  it("never targets an embed_skip document's un-embedded chunks", async () => {
+    const r = await runEmbedBackfill(storage.engine(), { embed: detEmbed });
+    // Only the two doc_md_missing chunks — the embed_skip pair is excluded.
+    expect(r.candidates).toBe(2);
+    const skipEmb = await storage
+      .engine()
+      .query<{ n: number }>("SELECT COUNT(*)::int AS n FROM embeddings WHERE chunk_id LIKE 'doc_md_skip%'");
+    expect(skipEmb.rows[0]?.n).toBe(0);
   });
 
   it("is idempotent — a second run finds nothing left", async () => {

@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`embed_skip` frontmatter marker.** A faithful port of the reference's
+  embed-skip predicate, sibling to the existing `quarantine`/`content_flag`
+  markers: a document whose frontmatter carries `embed_skip` is indexed and
+  fully keyword-searchable but never embedded. `src/core/embed-skip.ts` exposes
+  `isEmbedSkipped(frontmatter)` (key-existence — marker contents are diagnostic)
+  and `embedSkipFilterFragment(docAlias)` (a `NOT (frontmatter ? 'embed_skip')`
+  SQL fragment, reusing `quarantine.ts`'s `assertSqlAlias`). Wired into the two
+  memex embed paths: the inline indexer skips embedding an `embed_skip` page's
+  chunks (they land with a null vector), and `embed-backfill` excludes them from
+  its missing-chunk candidate set. The cycle re-embed phase re-indexes via the
+  indexer, so it inherits the gate. Faithful note: only the embed PATHS honour
+  the marker — the embed-coverage METRIC still counts these chunks (as the
+  reference's `getHealth` does). The oversized-page auto-writer is a separate
+  deferred content-sanity increment; this ships the operator-declared path.
+
 ## [1.22.0] — 2026-06-27
 
 ### Added
