@@ -12,6 +12,7 @@ import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { registerSource } from "../core/sources.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
+import { installSignalHandlers } from "../core/process-cleanup.ts";
 import { basename } from "node:path";
 
 export interface ServeOptions {
@@ -51,6 +52,14 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       "memex serve: --http is required. (stdio MCP not yet supported.)",
     );
   }
+
+  // Abnormal-termination net: release a held cycle lock (and any other
+  // registered cleanup) on SIGHUP/SIGPIPE/uncaughtException/unhandledRejection.
+  // It deliberately does NOT touch SIGINT/SIGTERM — those are owned by the
+  // graceful `shutdown()` below, which releases the lock via `cycle.stop()`
+  // before `storage.close()`. (A competing SIGTERM handler here would race that
+  // drain and exit early.)
+  installSignalHandlers();
 
   const config = loadConfig();
   // Pass the full Config so the factory picks the right engine

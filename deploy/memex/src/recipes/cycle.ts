@@ -15,7 +15,12 @@ import {
   type PhaseName,
 } from "../core/cycle/index.ts";
 import { consoleProgress } from "../core/output/progress.ts";
-import { tryAcquireDbLock, CYCLE_LOCK_ID } from "../core/db-lock.ts";
+import {
+  tryAcquireDbLock,
+  reapDeadHolderLocks,
+  CYCLE_LOCK_ID,
+  type DbLockHandle,
+} from "../core/db-lock.ts";
 
 export interface CycleLoopOptions {
   /** Interval between ticks, ms. */
@@ -72,6 +77,11 @@ export function startCycleLoop(
 
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // The lock held by an in-flight tick, tracked at loop scope so a graceful
+  // stop() can release it deterministically — otherwise a SIGTERM landing
+  // mid-tick (every deploy) would abandon the tick's `finally` and strand the
+  // lock until the TTL lapses. `null` between ticks.
+  let currentLock: DbLockHandle | null = null;
 
   const runTick = async (): Promise<void> => {
     if (stopped) return;
@@ -88,6 +98,16 @@ export function startCycleLoop(
       storage,
     };
 
+    // Background sweep: reclaim a `memex-cycle` lock stranded by a holder that
+    // crashed (OOM/SIGKILL) on THIS host, so a dead row never blocks a tick for
+    // the full TTL. tryAcquireDbLock only reclaims on contention; this is the
+    // proactive sweep. Best-effort — never let it abort the tick.
+    try {
+      await reapDeadHolderLocks(storage.engine());
+    } catch {
+      /* best-effort sweep */
+    }
+
     // Cross-process guard: another daemon (or a manual `cycle` run) may already
     // be working this brain. The DB lock serializes the maintenance pipeline so
     // two cycles don't fight over the same phases. A null handle means a live
@@ -96,6 +116,7 @@ export function startCycleLoop(
     if (!lock) {
       console.log(`[cycle] tick skipped: another holder owns ${CYCLE_LOCK_ID}`);
     } else {
+      currentLock = lock;
       // Heartbeat: refresh the lock every ~TTL/3 (10 min for the 30 min TTL) so
       // a long run (a heavy embed-stale pass over a large vault) cannot outlive
       // the TTL + steal-grace and let a second cycle acquire concurrently. The
@@ -131,6 +152,7 @@ export function startCycleLoop(
         } catch {
           /* idempotent — lock will auto-expire under TTL */
         }
+        currentLock = null;
       }
     }
     if (!stopped) {
@@ -145,6 +167,22 @@ export function startCycleLoop(
     stop: async () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      // Release a lock held by an in-flight tick BEFORE the caller closes the
+      // engine (serve's shutdown does `await cycle.stop()` then `storage.close()`).
+      // The tick's own `finally` would otherwise race the engine close. Idempotent
+      // with that `finally`; either order leaves the row deleted. NOTE: this does
+      // NOT await the in-flight tick — it releases the lock while the tick may
+      // still be running, which is safe ONLY because the sole caller (serve's
+      // shutdown) closes the engine and exits immediately after. In a keep-alive
+      // context this would let a competitor acquire mid-work; don't reuse it so.
+      if (currentLock) {
+        try {
+          await currentLock.release();
+        } catch {
+          /* idempotent — TTL is the backstop */
+        }
+        currentLock = null;
+      }
     },
   };
 }
