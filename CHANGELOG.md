@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.24.0] — 2026-06-27
+
 ### Added
 - **`content_flag` WARN marker surfaced on search hits.** A faithful adaptation
   of the reference's `getContentFlagsByPageIds` + `stampContentFlags`
