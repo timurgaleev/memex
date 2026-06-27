@@ -186,6 +186,92 @@ export const collectEmbedCoverage: AdvisorCollector = {
 };
 
 /**
+ * Usage shape — the graph-hygiene half of the reference's `usage-shape`
+ * collector. The embedding-coverage finding it also carries lives in
+ * `collectEmbedCoverage` here, so this collector adds only the two link-graph
+ * gaps: islanded pages (no inbound AND no outbound link — invisible to graph
+ * traversal) and dead links (a `target_slug` that resolves to no live page).
+ *
+ * Definitions match the reference's getHealth: orphan = islanded (a hub that
+ * only links out is working as intended, not an orphan); dead link = a link
+ * whose `target_slug` resolves to no live page. Both counts come from ONE round
+ * trip; this scan is heavier than the metric collectors, so — like the reference
+ * — it belongs to the explicit `advisor` run, not a hot sync-cadence path.
+ *
+ * Soft-delete adaptation: the reference HARD-deletes pages (the link rows
+ * cascade away with them), so a dead page contributes no edges to either count.
+ * memex SOFT-deletes (sets `deleted_at`, the link rows survive), so to preserve
+ * the reference's semantics a link to/from a soft-deleted page must count as a
+ * NON-edge. Both counts therefore gate every edge on a live page at both ends:
+ * orphan = no inbound edge FROM a live page and no outbound edge TO a live page;
+ * dead link = a live-source link whose target is not a live page (a link from a
+ * dead source is itself unreachable, so it is not a "dead link" to fix). A
+ * self-loop reads as non-orphan — faithful to the reference, whose orphan check
+ * is satisfied by either direction of any edge, self-loop included.
+ */
+export const collectUsageShape: AdvisorCollector = {
+  id: "usage-shape",
+  collect: async (ctx) => {
+    let row: { page_count: number; orphan_pages: number; dead_links: number } | undefined;
+    try {
+      const r = await ctx.engine.query<{ page_count: number; orphan_pages: number; dead_links: number }>(
+        `SELECT
+           (SELECT count(*) FROM pages WHERE deleted_at IS NULL)::int AS page_count,
+           (SELECT count(*) FROM pages p
+              WHERE p.deleted_at IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM links l JOIN pages s ON s.slug = l.source_slug AND s.deleted_at IS NULL
+                   WHERE l.target_slug = p.slug
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM links l JOIN pages t ON t.slug = l.target_slug AND t.deleted_at IS NULL
+                   WHERE l.source_slug = p.slug
+                )
+           )::int AS orphan_pages,
+           (SELECT count(*) FROM links l
+              WHERE EXISTS (
+                SELECT 1 FROM pages s WHERE s.slug = l.source_slug AND s.deleted_at IS NULL
+              )
+                AND NOT EXISTS (
+                  SELECT 1 FROM pages t WHERE t.slug = l.target_slug AND t.deleted_at IS NULL
+                )
+           )::int AS dead_links`,
+      );
+      row = r.rows[0];
+    } catch {
+      return []; // pages/links table absent or engine quirk → say nothing
+    }
+    if (!row || Number(row.page_count) === 0) return []; // empty brain → no graph to advise on
+
+    const findings: AdvisorFinding[] = [];
+    const orphans = Number(row.orphan_pages);
+    const dead = Number(row.dead_links);
+
+    if (orphans > 0) {
+      findings.push({
+        id: "orphan_pages",
+        severity: "info",
+        title: `${orphans} page${orphans === 1 ? " has" : "s have"} no links in or out.`,
+        detail: "Islanded pages do not surface through graph traversal — connect or review them.",
+        fix_command: "memex orphans",
+        collector: "usage-shape",
+      });
+    }
+    if (dead > 0) {
+      findings.push({
+        id: "dead_links",
+        severity: "info",
+        title: `${dead} link${dead === 1 ? "" : "s"} point to a page that no longer exists.`,
+        detail: "A link whose target was deleted or never created clutters the graph and misleads traversal.",
+        fix_command: "memex doctor",
+        collector: "usage-shape",
+      });
+    }
+    return findings;
+  },
+};
+
+/**
  * Setup smells — config/env misconfigurations the owner usually wants to know
  * about. memex has no DB config-key plane, so the one deterministic, security-
  * relevant smell is the internal-auth token being unset: with no
