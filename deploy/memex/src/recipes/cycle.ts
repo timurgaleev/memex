@@ -96,6 +96,18 @@ export function startCycleLoop(
     if (!lock) {
       console.log(`[cycle] tick skipped: another holder owns ${CYCLE_LOCK_ID}`);
     } else {
+      // Heartbeat: refresh the lock every ~TTL/3 (10 min for the 30 min TTL) so
+      // a long run (a heavy embed-stale pass over a large vault) cannot outlive
+      // the TTL + steal-grace and let a second cycle acquire concurrently. The
+      // refresh is fire-and-forget; a transient failure self-heals next tick and
+      // the TTL stays the backstop. unref so the timer never pins the event loop.
+      const refresher = setInterval(
+        () => {
+          void lock.refresh().catch(() => {});
+        },
+        10 * 60 * 1000,
+      );
+      (refresher as unknown as { unref?: () => void }).unref?.();
       try {
         const r = await runCycleOnce(storage.engine(), opts);
         const mark = (s: string) => (s === "fail" ? "FAIL" : s); // ok | warn | FAIL
@@ -113,6 +125,7 @@ export function startCycleLoop(
           e instanceof Error ? e.message : e,
         );
       } finally {
+        clearInterval(refresher);
         try {
           await lock.release();
         } catch {
