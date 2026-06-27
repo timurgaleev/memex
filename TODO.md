@@ -120,28 +120,37 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     visibility filter). Pre-existing (the main hydration doesn't filter archived
     either), not an alias-hop regression. Tighten by adding `AND NOT p.archived`
     to the shared resolver if/when the hydration gap is closed.
-- [ ] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall.
-  Reference design (captured 2026-06-26, ready to port): `QUERY_EMBED_TIMEOUT_MS`
-  env (default 6000) → `AbortSignal.timeout(ms)` + `Promise.race([embed, deadline])`
-  in hybrid; on reject, swallow + leave the vector arm empty so retrieval falls
-  back to keyword-only (the existing empty-vectorList path). `embedText` needs an
-  `abortSignal` param threaded to the Bedrock call.
-- [ ] **Retry-After on 429.** NOTE: memex's own ingress did not surface a 429 in
-  the grep (no server-side rate-limit 429 path found) — locate the limiter
-  (memory: "rate-limiter LRU+TTL" v1.3.x) before porting; the reference computes
-  the wait as `max(MIN 2s, Retry-After, x-rate-limit-reset)` capped at 60s, but
-  that is an OUTBOUND client backoff — the inbound 429 header is the actual task.
-- [ ] **Cycle concurrency lock.** Reference uses a row-based lock table
-  (`*_cycle_locks`: id PK, holder_pid, holder_host, ttl_expires_at,
-  last_refreshed_at) with a TTL upsert (`ON CONFLICT DO UPDATE ... WHERE
-  ttl_expires_at < NOW() AND last_refreshed_at < NOW() - grace`), a refresh
-  heartbeat, TTL 30m, steal-grace 600s. memex already has `worker_lock` (mig042)
-  + `jobs/worker-lock.ts` lease machinery — reuse it with a `cycle` lock id
-  rather than a new table.
-- [ ] Stamp `content_flag` on results; `Retry-After` on 429; write
+- [x] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall —
+  DONE (v1.21.0). Faithful port of the reference's `embedQueryBounded` /
+  `makeQueryEmbedDeadline` / `QueryEmbedDeadline`: `hybridSearch` races the query
+  embed against `MEMEX_QUERY_EMBED_TIMEOUT_MS` (default 6000, 2s-min budget) via
+  `AbortSignal.timeout`; `embedText` accepts the signal so the Bedrock request is
+  cancelled. Timeout/error → vector arm dropped, retrieval proceeds keyword-only.
+  Files: `core/embedding.ts`, `core/search/hybrid.ts`. HIGH fix applied: a
+  degraded keyword-only result is NOT cached.
+- [x] **Retry-After on 429** — DONE (v1.21.0). Faithful to the reference's 429
+  response shape: the per-caller token-bucket limiter exposes a read-only
+  `retryAfterSeconds` (seconds until the bucket refills one token, ≥1, clamped to
+  avoid `Infinity`); the MCP 429 carries it as a `Retry-After` header. Files:
+  `mcp/rate_limit.ts`, `mcp/http_transport.ts`. (Inbound header only — the
+  reference's outbound-client `max(2s, Retry-After, reset)` backoff is N/A.)
+  - MEDIUM follow-up (pre-existing, NOT introduced here): JSON-RPC batch
+    amplification — the limiter charges 1 token per HTTP POST, but a batch body
+    runs N distinct dispatches under that single token. Tighten by charging per
+    sub-request if batch abuse ever shows up.
+- [x] **Cycle concurrency lock** — DONE (v1.21.0). Faithful port of the
+  reference's `db-lock` (a dedicated lock table, NOT memex's existing
+  worker_lock): `core/db-lock.ts` (`tryAcquireDbLock` + `DbLockHandle`, TTL upsert
+  + heartbeat steal-grace, `holder_pid` scoped refresh/release) over migration
+  `050_cycle_locks.sql`. The maintenance cycle acquires `memex-cycle`, refreshes
+  every 10m mid-run, releases in `finally`; a crashed holder is reclaimed after
+  TTL/grace. MEDIUM fix applied: lock refreshes mid-run.
+  - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
+    `holder_host`) — FAITHFUL to the reference; single-container so collision risk
+    is nil. Add `holder_host` if a multi-host deploy ever lands.
+- [ ] Stamp `content_flag` on results; write
   `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
   staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
-- [ ] Cycle concurrency lock (advisory lock / DB TTL row) to avoid double cost.
 - [ ] Advisor `collectUsageShape`: add orphan-pages + dead-links checks.
 
 - [ ] **Brain federation** (deferred — operator, 2026-06-23). A network of

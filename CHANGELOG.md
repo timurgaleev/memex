@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-06-27
+
 ### Added
 - **Bounded query-embed deadline → keyword-only fallback.** A faithful port of
   the reference's `embedQueryBounded`/`makeQueryEmbedDeadline`: `hybridSearch`
