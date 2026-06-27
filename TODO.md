@@ -151,7 +151,14 @@ Small, deterministic, brain-internal — safe to ship incrementally:
 - [ ] Stamp `content_flag` on results; write
   `chunker_version`; support `embed_skip` frontmatter; `LINK_EXTRACTOR_VERSION`
   staleness watermark; `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
-- [ ] Advisor `collectUsageShape`: add orphan-pages + dead-links checks.
+- [x] Advisor `collectUsageShape`: add orphan-pages + dead-links checks — DONE
+  (v1.22.0). New `collectUsageShape` collector emits `orphan_pages` (islanded —
+  no inbound AND no outbound live edge) + `dead_links` (live-source link whose
+  target is not a live page); one read-only round trip, explicit-advisor only.
+  Soft-delete adaptation gates every edge on a live page at both ends so the
+  counts match the reference's hard-delete semantics. Live-verified on prod
+  (4 orphans + 4 dead links). code-reviewer: SQL-safe, MEDIUM (zombie-source
+  dead links) fixed by the live-source gate.
 
 - [ ] **Brain federation** (deferred — operator, 2026-06-23). A network of
   memex brains (multi-source / multi-holder), likely on Supabase or a similar

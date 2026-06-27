@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-06-27
+
 ### Added
 - **Advisor surfaces graph-hygiene gaps (orphan pages + dead links).** A faithful
   port of the graph-hygiene half of the reference's `usage-shape` advisor
