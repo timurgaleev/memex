@@ -137,10 +137,14 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
       return new Response("Method Not Allowed", { status: 405 });
     }
     const limiter = ctx.isPublic ? publicLimiter : internalLimiter;
-    if (!limiter.allow(keyFn(req))) {
+    const clientId = keyFn(req);
+    if (!limiter.allow(clientId)) {
       return Response.json(
         rpcError(null, ERR_RATE_LIMITED, "rate limit exceeded"),
-        { status: 429 },
+        {
+          status: 429,
+          headers: { "Retry-After": String(limiter.retryAfterSeconds(clientId)) },
+        },
       );
     }
 
