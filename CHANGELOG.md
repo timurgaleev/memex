@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.24.1] — 2026-06-27
+
 ### Fixed
 - **alias-hop returns every claimant of an exact alias (fidelity re-audit).**
   `resolveAliasCandidates` capped the fetch at `LIMIT 8` with no `ORDER BY`, so a
