@@ -114,6 +114,28 @@ export class RateLimiter {
     if (oldest !== undefined) this.buckets.delete(oldest);
   }
 
+  /**
+   * Seconds until the bucket holds at least one token again, for the
+   * `Retry-After` header on a rejected request. READ-ONLY: projects the
+   * bucket's token count without consuming a token or touching the LRU
+   * recency order (no delete+set). Returns 1 for an untracked key or
+   * whenever a token is already available; clamps to 3600 when the
+   * limiter never refills (refillPerSecond <= 0) to avoid an Infinity
+   * header, which is not a valid RFC 7231 delta-seconds value.
+   */
+  retryAfterSeconds(key: string, nowMs: number = Date.now()): number {
+    const b = this.buckets.get(key);
+    if (!b) return 1;
+    const elapsed = (nowMs - b.lastRefillMs) / 1000;
+    const projectedTokens = Math.min(
+      this.capacity,
+      b.tokens + elapsed * this.refillPerSecond,
+    );
+    if (projectedTokens >= 1) return 1;
+    if (this.refillPerSecond <= 0) return 3600;
+    return Math.max(1, Math.ceil((1 - projectedTokens) / this.refillPerSecond));
+  }
+
   /** For diagnostics / tests. */
   size(): number {
     return this.buckets.size;
