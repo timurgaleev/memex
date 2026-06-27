@@ -88,10 +88,10 @@ describe("applyAliasHop", () => {
   it("surfaces every collision claimant, deterministically ordered and capped", async () => {
     const hits = [hit("page://a", 1.0)];
     const refs = [
-      { slug: "z/last", source_id: "default" },
+      { slug: "z/dropped", source_id: "default" },
       { slug: "a/first", source_id: "default" },
       { slug: "m/mid", source_id: "default" },
-      { slug: "n/over-cap", source_id: "default" },
+      { slug: "n/third", source_id: "default" },
     ];
     const out = await applyAliasHop(hits, noStorage, "standup", "topic", undefined, {
       resolveCandidates: candidates(refs),
@@ -102,12 +102,12 @@ describe("applyAliasHop", () => {
     const injectedSlugs = out
       .map((h) => h.sourcePath)
       .filter((p) => p.startsWith("page://") && p !== "page://a");
-    // ordered by slug (a/first, m/mid, z/last) → ε makes the last-injected
-    // highest, so the final score-sort reverses to z, m, a above the organic top.
+    // ordered by slug (a/first, m/mid, n/third, z/dropped) → first 3 survive
+    // the MAX_ALIAS_INJECT cap; z/dropped is the over-cap 4th.
     expect(injectedSlugs).toContain("page://a/first");
     expect(injectedSlugs).toContain("page://m/mid");
-    expect(injectedSlugs).toContain("page://z/last");
-    expect(injectedSlugs).not.toContain("page://n/over-cap");
+    expect(injectedSlugs).toContain("page://n/third");
+    expect(injectedSlugs).not.toContain("page://z/dropped");
   });
 
   it("skips a candidate with no fetchable head chunk", async () => {
