@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
-import { countStaleChunkerDocs } from "../src/core/chunker-version.ts";
+import { countStaleChunkerDocs, listStaleChunkerDocIds } from "../src/core/chunker-version.ts";
+import { sweepVault } from "../src/core/sweep.ts";
+import { mkdtempSync as mkVault } from "node:fs";
 import { MARKDOWN_CHUNKER_VERSION } from "../src/core/chunkers/recursive.ts";
 
 let tmp: string;
@@ -84,5 +86,59 @@ describe("countStaleChunkerDocs", () => {
       [{ text: "fn()", entities: [], symbolName: "fn" }],
     );
     expect(await countStaleChunkerDocs(e)).toBe(0);
+  });
+});
+
+describe("listStaleChunkerDocIds", () => {
+  it("returns only the stale ids (the targeting set for reindex --rechunk-stale)", async () => {
+    const e = storage.engine();
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "d_fresh", sourcePath: "/fresh.md", title: "f", frontmatter: {}, embeddingModel: "det", chunkerVersion: MARKDOWN_CHUNKER_VERSION },
+      [{ text: "body", entities: [] }],
+    );
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "d_stale", sourcePath: "/stale.md", title: "s", frontmatter: {}, embeddingModel: "det", chunkerVersion: MARKDOWN_CHUNKER_VERSION },
+      [{ text: "body", entities: [] }],
+    );
+    await e.query("UPDATE documents SET chunker_version = chunker_version - 1 WHERE id = $1", ["d_stale"]);
+
+    const ids = await listStaleChunkerDocIds(e);
+    expect(ids.has("d_stale")).toBe(true);
+    expect(ids.has("d_fresh")).toBe(false);
+    expect(ids.size).toBe(1);
+  });
+
+  it("is empty when nothing is stale (today's state — both constants unbumped)", async () => {
+    const e = storage.engine();
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "d1", sourcePath: "/a.md", title: "a", frontmatter: {}, embeddingModel: "det", chunkerVersion: MARKDOWN_CHUNKER_VERSION },
+      [{ text: "body", entities: [] }],
+    );
+    expect((await listStaleChunkerDocIds(e)).size).toBe(0);
+  });
+});
+
+describe("sweepVault forceStaleChunker — orphan signal", () => {
+  it("reports a stale doc whose file is gone from the vault as unreached", async () => {
+    const e = storage.engine();
+    // A stale doc whose source file does NOT exist in the vault dir → the walk
+    // never reaches it → no indexFile (no Bedrock) → it must surface as unreached
+    // rather than silently staying stale with an ok:true run.
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_gone", sourcePath: "/gone.md", title: "g", frontmatter: {}, embeddingModel: "det", chunkerVersion: MARKDOWN_CHUNKER_VERSION },
+      [{ text: "body", entities: [] }],
+    );
+    await e.query("UPDATE documents SET chunker_version = chunker_version - 1 WHERE id = $1", ["doc_gone"]);
+
+    const emptyVault = mkVault(join(tmpdir(), "memex-emptyvault-"));
+    const res = await sweepVault(storage, { vault: emptyVault, forceStaleChunker: true });
+    rmSync(emptyVault, { recursive: true, force: true });
+
+    expect(res.reindexed).toBe(0);
+    expect(res.staleChunkerUnreached).toEqual(["doc_gone"]);
   });
 });
