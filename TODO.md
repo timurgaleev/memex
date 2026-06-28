@@ -7,6 +7,37 @@ introduces them.
 
 ---
 
+## Parity gap sweep (2026-06-28) — 6-subsystem dynamic-workflow diff
+
+A fresh dynamic-workflow fan-out (6 brain-only subsystem readers + a completeness
+critic) re-diffed the reference against memex to confirm nothing shippable was
+missed. 23 findings; 21 already done / north-star / gated / dormant. Genuinely
+shippable brain-only gaps found:
+- [x] **`last_retrieved_at` write-back — DONE (v1.40.0).** The column (mig 024) +
+  consumer (`context/volunteer.ts` "used" stat) shipped with NO producer →
+  always NULL → stat always 0. `core/last-retrieved.ts` `bumpLastRetrievedAt`
+  wired at `page_get`. Throttled, best-effort, `MEMEX_TRACK_RETRIEVAL` opt-out.
+  Producer is `source_id`-scoped (mig-047 pre-emption). FOLLOW-UP (mig-047): the
+  consumer `context/volunteer.ts:255` joins `ON p.slug = e.slug` only — add a
+  `source_id` axis to the volunteer-events join when the composite PK lands, or
+  the "used" stat will cross-count same-slug pages across sources.
+- [ ] **`cycle_freshness` doctor check (MEDIUM).** memex's doctor has no
+  cycle-liveness probe; `cycle_snapshots.captured_at` is written every tick
+  (`core/cycle/snapshot.ts`). A wedged cycle surfaces only via the downstream
+  `links-extraction-lag` proxy. One-query add: warn if `MAX(captured_at)` is
+  older than N× the tick interval. NEXT shippable increment.
+- [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
+  event-loop-starving sync loop. memex's docker healthcheck already restarts a
+  hung container (the reference's scenario is an unsupervised cron CLI), so
+  near-zero marginal value. Build only if a real ReDoS-starvation case appears.
+- [ ] **Coverage blind spot — ingestion/sync write path.** The six readers
+  covered storage but not the file→page→chunk→embed WRITE path (vault watcher,
+  incremental re-sync cadence, dedupe-on-reingest, backfill resumability) vs the
+  reference's ingest modules. Run one targeted reader pass before declaring full
+  parity.
+
+---
+
 ## Deferred — full-parity follow-ups (2026-06-23)
 
 > NOTE: the "brain-only" north-star elsewhere in this file is **superseded** as
