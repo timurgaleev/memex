@@ -252,9 +252,9 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     the inert `sources.chunker_version` source-level stub (mig024).
   - [ ] **SHARED FOLLOW-UP (chunker_version + LINK_EXTRACTOR_VERSION):** one batch
     re-process sweep so bumping either version constant auto-remediates instead of
-    detect-only. For chunker: reindex docs WHERE chunker_version < CURRENT (per
-    kind). For links: re-sync + re-stamp stale pages. Both are detect-only today
-    (doctor surfaces the backlog; only a natural write clears it).
+    detect-only. LINKS HALF DONE (v1.38.0, `memex extract --stale`). CHUNKER half
+    remains: reindex docs WHERE chunker_version < CURRENT (per kind) — more
+    invasive (re-chunk + re-embed), a separate increment.
   - [x] `LINK_EXTRACTOR_VERSION` staleness watermark — DONE (v1.26.0). Migration
     051 `pages.links_extracted_at`; `LINK_EXTRACTOR_VERSION_TS` +
     `stampLinksExtracted` (slug+source_id keyed) + `countStalePagesForExtraction`
@@ -262,10 +262,11 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     paths; informational `links-extraction-lag` doctor check. Reviewed (workflow):
     fidelity + correctness SHIP; LOW source_id-keying fixed; LOW index/NOW left
     (faithful).
-  - [ ] **FOLLOW-UP (watermark review, MEDIUM):** port a batch `extract --stale`
-    sweep so a `LINK_EXTRACTOR_VERSION_TS` bump auto-remediates untouched pages
-    (re-sync edges + re-stamp). Today the version-bump arm is DETECT-ONLY — the
-    doctor surfaces the backlog but only a page write clears it. Reference model:
+  - [x] **FOLLOW-UP (watermark review, MEDIUM) — DONE (v1.38.0).** Ported the
+    batch `extract --stale` sweep so a `LINK_EXTRACTOR_VERSION_TS` bump
+    auto-remediates untouched pages (re-sync edges + re-stamp). The version-bump
+    arm is no longer detect-only. `core/links-stale-sweep.ts` +
+    `listStalePagesForExtraction`/`markPagesExtractedBatch`. Reference model:
     listStalePagesForExtraction + markPagesExtractedBatch stamping the read
     `updated_at` (its D4 race fix).
   - [x] Stamp `content_flag` on results — DONE (v1.24.0). Faithful adaptation of

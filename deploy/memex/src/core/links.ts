@@ -829,3 +829,115 @@ export async function countStalePagesForExtraction(
   );
   return r.rows[0]?.n ?? 0;
 }
+
+/** One stale page's content, enough to re-run the full link-sync set. */
+export interface StalePageRow {
+  slug: string;
+  type: string;
+  markdown_body: string;
+  compiled_truth: Record<string, unknown> | null;
+  source_id: string;
+  /**
+   * Full-µs UTC string of `updated_at` (projected via `to_char`, not
+   * `::text`/JS Date — both are DateStyle- or ms-truncation-fragile). The sweep
+   * stamps `links_extracted_at` to exactly this so the staleness predicate
+   * clears; a concurrent edit advancing `updated_at` past it keeps the page
+   * stale for the next run (D4 race fix).
+   */
+  updated_at_iso: string;
+}
+
+export interface ListStaleExtractionOpts extends StaleExtractionOpts {
+  /** Keyset page size (the only memory bound — page content is unbounded). */
+  batchSize: number;
+  /** Keyset cursor: return only pages with `slug > afterSlug`. */
+  afterSlug?: string;
+}
+
+/**
+ * One keyset batch of live pages whose link edges are stale for extraction.
+ * Faithful adaptation of the reference's `listStalePagesForExtraction`; memex
+ * keysets on the `slug` PK (the reference uses a numeric `id`). Single
+ * engine.query, no postgres/pglite branch.
+ */
+export async function listStalePagesForExtraction(
+  engine: Engine,
+  opts: ListStaleExtractionOpts,
+): Promise<StalePageRow[]> {
+  const versionTs = opts.versionTs ?? LINK_EXTRACTOR_VERSION_TS;
+  const params: unknown[] = [versionTs];
+  let scopeFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
+  let afterClause = "";
+  if (typeof opts.afterSlug === "string" && opts.afterSlug.length > 0) {
+    params.push(opts.afterSlug);
+    afterClause = ` AND slug > $${params.length}`;
+  }
+  params.push(opts.batchSize);
+  const limitIdx = params.length;
+  const r = await engine.query<StalePageRow>(
+    `SELECT slug, type, markdown_body, compiled_truth, source_id,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_iso
+       FROM pages
+      WHERE deleted_at IS NULL${scopeFilter}
+        AND (links_extracted_at IS NULL
+             OR links_extracted_at < $1::timestamptz
+             OR updated_at > links_extracted_at)${afterClause}
+      ORDER BY slug
+      LIMIT $${limitIdx}`,
+    params,
+  );
+  return r.rows;
+}
+
+/** A page processed by the sweep, stamped with its own read `updated_at_iso`. */
+export interface ExtractedPageRef {
+  slug: string;
+  source_id: string;
+  /** Stamp this exact value (the row's read updated_at); see {@link StalePageRow}. */
+  extractedAt?: string;
+}
+
+/**
+ * Batch-stamp `links_extracted_at` for swept pages. Per-ref timestamp (D4 race
+ * fix): each ref carries the row's read `updated_at`; refs that omit it fall
+ * back to `defaultExtractedAt`. Faithful adaptation of the reference's
+ * `markPagesExtractedBatch` — 3-arg `unnest` (PGLite-proven, cf. synthesis
+ * atoms/takes), keyed on `(slug, source_id)` to pre-empt the mig-047 composite
+ * PK.
+ *
+ * STACK DIFFERENCE (`floorTs`): the reference's staleness predicate has only
+ * the NULL + `updated_at >` arms, so it stamps the raw read `updated_at`. memex
+ * added a THIRD arm — `links_extracted_at < versionTs` (the version-bump
+ * trigger, v1.26.0) — so stamping a raw `updated_at` that predates the version
+ * would leave the version arm true and the page stale forever. `floorTs` (=
+ * {@link LINK_EXTRACTOR_VERSION_TS}) lifts the stamp to `GREATEST(read
+ * updated_at, versionTs)`: clears all three arms, yet a later edit advancing
+ * `updated_at` past the floor re-stales the page (D4 preserved).
+ */
+export async function markPagesExtractedBatch(
+  engine: Engine,
+  refs: ExtractedPageRef[],
+  defaultExtractedAt: string,
+  floorTs?: string,
+): Promise<void> {
+  if (refs.length === 0) return;
+  const slugs = refs.map((r) => r.slug);
+  const srcs = refs.map((r) => r.source_id);
+  const tss = refs.map((r) => r.extractedAt ?? defaultExtractedAt);
+  const params: unknown[] = [slugs, srcs, tss];
+  let tsExpr = "v.ts::timestamptz";
+  if (typeof floorTs === "string" && floorTs.length > 0) {
+    params.push(floorTs);
+    tsExpr = `GREATEST(v.ts::timestamptz, $${params.length}::timestamptz)`;
+  }
+  await engine.query(
+    `UPDATE pages p SET links_extracted_at = ${tsExpr}
+       FROM unnest($1::text[], $2::text[], $3::text[]) AS v(slug, source_id, ts)
+      WHERE p.slug = v.slug AND p.source_id = v.source_id`,
+    params,
+  );
+}

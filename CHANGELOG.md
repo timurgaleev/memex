@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.38.0] — 2026-06-28
+
+### Added
+- **`memex extract --stale` — incremental link re-extraction sweep.** Bumping
+  `LINK_EXTRACTOR_VERSION_TS` (or any page edit) marks pages stale; until now
+  that was DETECT-ONLY (the `links-extraction-lag` doctor count rose and only
+  fell as each page was next written). The sweep re-runs the SAME link-sync set
+  the MCP `page_put` path runs — wikilinks + gazetteer mentions + typed-NER +
+  verb-context, each behind its own opt-in gate — over every stale page in
+  keyset batches, then advances the watermark. `core/links-stale-sweep.ts`
+  (`extractStaleLinks`) + `listStalePagesForExtraction` /
+  `markPagesExtractedBatch` in `core/links.ts`; flags
+  `--source-id S`, `--catch-up`, `--dry-run`, `--json`. Faithful adaptation of
+  the reference's `extractStaleFromDB`: keysets on the `slug` PK (the reference
+  uses a numeric `id`), one `engine.query` (no postgres/pglite branch), no
+  timeline arm (memex's put path extracts links only). The D4 race fix stamps
+  each page's READ `updated_at` (full-µs `to_char`, not a ms-truncated JS Date)
+  so a concurrent edit keeps the page stale for the next run; the stamp is
+  lifted to `GREATEST(updated_at, versionTs)` so a page last edited BEFORE the
+  current extractor version still clears memex's version-staleness arm and the
+  sweep converges (code-reviewer caught the version-arm gap; fixed + regression
+  test). Default batch 50 (`MEMEX_EXTRACT_STALE_BATCH`), 30-min budget
+  (`MEMEX_EXTRACT_TIME_BUDGET_MS`, `--catch-up` to ignore). Closes the
+  link half of the shared version-watermark auto-remediation follow-up.
+
 ## [1.37.0] — 2026-06-28
 
 ### Added
