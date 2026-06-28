@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.37.0] — 2026-06-28
+
 ### Added
 - **Admin Calibration page — the SPA's sixth page; admin surface complete.**
   `GET /admin/api/calibration/profile` (requireAdmin-gated, null-safe) reads the
