@@ -61,6 +61,11 @@ services:
       # phase so heavyweight ingest doesn't run during quiet hours.
       - MEMEX_DREAM_INTERVAL_S=21600
       - MEMEX_DREAM_STALE_DAYS=30
+      # Per-cycle-phase wall-clock cap so a hung phase (e.g. a Bedrock call with
+      # no client timeout) can't wedge the whole tick and strand the cycle lock.
+      # Default 15min; lower via the host .env for faster recovery on a small
+      # instance (phases are individually bounded — embed-stale caps at 50/cycle).
+      - MEMEX_CYCLE_PHASE_TIMEOUT_MS=${MEMEX_CYCLE_PHASE_TIMEOUT_MS:-900000}
       # Public-ingress writes (opt-in, default OFF). When =1, the public /mcp
       # path (static bearer or OAuth) may call the CONSTRUCTIVE write tools
       # (index, page_put, page_append, add_fact, add_timeline_event, add_tag,
