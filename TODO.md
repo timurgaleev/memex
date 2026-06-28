@@ -40,7 +40,27 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
 - [ ] Port `oauth-provider.ts` (client-credentials + token verify/revoke), adapt
   to Bun/postgres.js; wire Cognito JWT → `AuthInfo{sourceId, allowedSources}`.
 - [ ] Thread `AuthInfo` through `mcp/dispatch.ts` + `http/server.ts`.
-- [ ] Admin surface (`/admin`) — later phase.
+- [ ] **Admin surface (`/admin`) — IN PROGRESS (operator: "totally the same as
+  reference", 2026-06-28).** Full faithful parity: the reference's React 19 + Vite 6
+  admin SPA (6 pages: Login, Dashboard, Agents, RequestLog, Calibration,
+  JobsWatch) + 23 `/admin*` routes + magic-link/cookie auth, all adapted from
+  express → memex's Bun.serve. memex already has the provisioning FUNCTIONAL core
+  (`tenant` CLI: add/grant/list/revoke); this adds the web surface over it. Three
+  serial increments (ship each):
+  - **A — admin HTTP API + auth (backend):** port the 23 routes onto Bun.serve —
+    `requireAdmin` middleware, cookie parsing, magic-link auth (`POST /admin/login`,
+    `POST /admin/api/issue-magic-link`, `GET /admin/auth/:nonce`, nonce TTL +
+    rate-limiter), the `/admin/api/*` data endpoints (full-stats, clients/agents
+    list = tenant list, registerClientManual = tenant add, mint/revoke grants),
+    SSE `/admin/events`. Reference: `src/commands/serve-http.ts` (the `/admin`
+    block) + `oauth-provider.ts` registerClientManual. Foundation — usable via API
+    alone. START HERE.
+  - **B — admin SPA (frontend):** port the reference `admin/` Vite/React project
+    (App + main + api.ts + the 6 pages + scope-constants) into a memex `admin/`
+    dir; adapt the API base + scopes to memex; `vite build`.
+  - **C — embed + serve:** port `admin-embedded.ts` + `scripts/build-admin-embedded.ts`
+    (Bun `with { type: 'file' }` asset embed) and serve the SPA at `/admin` from
+    Bun.serve with SPA fallback.
 - [ ] **Live deploy is a separate gated step** — terraform ingress + RDS
   migration only on explicit operator "deploy".
 
