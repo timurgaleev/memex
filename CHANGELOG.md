@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.31.0] — 2026-06-28
+
 ### Added
 - **Admin surface — increment A2: data + provisioning endpoints.** The
   `/admin/api/*` routes the admin SPA reads, on Bun.serve (`src/http/admin-api.ts`).
