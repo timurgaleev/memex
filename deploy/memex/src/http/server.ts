@@ -30,6 +30,7 @@ import { RateLimiter } from "../mcp/rate_limit.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
 import { handleAdminApi } from "./admin-api.ts";
 import { serveAdminStatic } from "./admin-static.ts";
+import { handleAdminEventsRoute } from "./admin-events.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 /**
@@ -219,6 +220,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
           requireAdmin: adminAuth.requireAdmin,
         });
         if (r2) return r2;
+        // SSE live-activity feed (deferred #2) — requireAdmin-gated.
+        const rsse = handleAdminEventsRoute(req, adminAuth.requireAdmin);
+        if (rsse) return rsse;
         // C: the built SPA (static dist + index.html fallback). Auth + the data
         // API above win; everything else under /admin is the front-end. GET only.
         if (req.method === "GET") {

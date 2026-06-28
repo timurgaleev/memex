@@ -105,7 +105,11 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     (status counts + recent jobs) + `RequestLog.tsx` / `JobsWatch.tsx` pages +
     nav. Bound LIMIT/OFFSET, capped error text. codex reviewed. **Admin SPA is
     feature-complete (5 pages).**
-    - [ ] DEFERRED (parity-N/A — needs infra memex lacks): the SSE
+    - [x] **SSE /admin/events live feed — DONE (v1.36.0).** http/admin-events.ts
+      pub/sub bus (cap 50) + publishToolCallEvent (redacted, hot-path-safe) +
+      GET /admin/events (requireAdmin, text/event-stream) + Dashboard EventSource
+      tail. codex + security-engineer clean.
+    - [ ] DEFERRED (Calibration only — — needs infra memex lacks): the SSE
       `/admin/events` live feed (no event bus — Dashboard's 30s refresh + Jobs
       Watch's 15s poll cover live-status) and the Calibration page (no
       calibration backend). `mcp_request_log` has no writer yet (memex logs the

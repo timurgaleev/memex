@@ -18,6 +18,7 @@ import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { logToolCall } from "./param-redaction.ts";
 import { logToolCallToDb } from "./request-log-db.ts";
+import { publishToolCallEvent } from "../http/admin-events.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
@@ -249,13 +250,17 @@ async function handleSingle(
         logToolCall(params.name, ctx.isPublic, params.arguments, !result.isError);
         // Opt-in DB sink (MEMEX_REQUEST_LOG_DB) — feeds the admin Request Log
         // page. Fire-and-forget + redacted; never blocks or fails the call.
+        const agentName = ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal");
         logToolCallToDb(storage.engine(), {
           tool: params.name,
-          agentName: ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal"),
+          agentName,
           latencyMs: Date.now() - startedAt,
           ok: !result.isError,
           params: params.arguments,
         });
+        // Push a redacted event to the admin SSE feed (deferred #2). No-op when
+        // no admin browser is connected; never raw params.
+        publishToolCallEvent({ tool: params.name, agent: agentName, latencyMs: Date.now() - startedAt, ok: !result.isError });
         return rpcOk(id, result);
       } catch (e) {
         // Defensive: dispatchTool already catches + sanitizes, but if it
