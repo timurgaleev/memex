@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.33.0] — 2026-06-28
+
 ### Added
 - **Admin surface — increment B2: the Agents provisioning page.** A new
   `admin/src/pages/Agents.tsx` + sidebar nav: lists the tenant `source_grants`,
