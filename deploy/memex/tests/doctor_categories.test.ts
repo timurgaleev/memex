@@ -31,6 +31,7 @@ describe("doctor categorize", () => {
     expect([...KNOWN_CHECK_NAMES].sort()).toEqual([
       "chunker-version-lag",
       "config",
+      "cycle-freshness",
       "index-spread",
       "links-extraction-lag",
       "pglite",

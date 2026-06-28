@@ -21,11 +21,11 @@ shippable brain-only gaps found:
   consumer `context/volunteer.ts:255` joins `ON p.slug = e.slug` only — add a
   `source_id` axis to the volunteer-events join when the composite PK lands, or
   the "used" stat will cross-count same-slug pages across sources.
-- [ ] **`cycle_freshness` doctor check (MEDIUM).** memex's doctor has no
-  cycle-liveness probe; `cycle_snapshots.captured_at` is written every tick
-  (`core/cycle/snapshot.ts`). A wedged cycle surfaces only via the downstream
-  `links-extraction-lag` proxy. One-query add: warn if `MAX(captured_at)` is
-  older than N× the tick interval. NEXT shippable increment.
+- [x] **`cycle_freshness` doctor check — DONE (v1.41.0).** `core/cycle-freshness.ts`
+  `checkCycleFreshness` reads `MAX(captured_at)` (to_char ISO), warn >6h / fail
+  >24h (`MEMEX_CYCLE_FRESHNESS_WARN_HOURS`/`_FAIL_HOURS`). Zero snapshots =
+  informational. WARN-only by default; `MEMEX_CYCLE_FRESHNESS_ENFORCE=1` for
+  hard exit-1 (code-reviewer HIGH: a cycle-off deploy would else cry wolf).
 - [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
   hung container (the reference's scenario is an unsupervised cron CLI), so

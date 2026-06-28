@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.41.0] — 2026-06-28
+
+### Added
+- **`cycle-freshness` doctor check — maintenance-cycle liveness probe.** The
+  cycle (re-embed, reconcile-links, recompute-salience, snapshot) appends a
+  `cycle_snapshots` row every tick, but nothing watched its liveness: a wedged
+  loop (stuck db-lock, exception loop) surfaced only via the downstream
+  `links-extraction-lag` proxy. `core/cycle-freshness.ts` `checkCycleFreshness`
+  reads `MAX(captured_at)` and classifies it warn (>6h) / fail (>24h), thresholds
+  overridable via `MEMEX_CYCLE_FRESHNESS_WARN_HOURS` / `_FAIL_HOURS`. Zero
+  snapshots is informational (`ok`), not a failure — a fresh brain or a deploy
+  that never enabled the cycle loop has none; the signal is an established
+  stream going stale. Wired into `memex doctor` (brain category). Staleness is
+  WARN-only by default — a deploy that ran the cycle then disabled it keeps old
+  snapshots, and a hard `exit 1` there would cry wolf; `MEMEX_CYCLE_FRESHNESS_ENFORCE=1`
+  opts into a real failure for a deploy that wants `doctor` to gate on cycle
+  liveness. Brain-only sibling of the reference's `cycle_freshness`
+  check, adapted to memex's single snapshot stream (the reference probes
+  per-federated-source `last_full_cycle_at`). The timestamp is projected via
+  `to_char` ISO, not the DateStyle-fragile `::text`. Surfaced by the parity-gap
+  workflow sweep.
+
 ## [1.40.0] — 2026-06-28
 
 ### Fixed
