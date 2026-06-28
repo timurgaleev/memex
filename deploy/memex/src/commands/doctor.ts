@@ -19,6 +19,7 @@ import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
+import { checkCycleFreshness } from "../core/cycle-freshness.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -200,6 +201,20 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     } catch (e) {
       checks.push({
         name: "chunker-version-lag",
+        ok: true,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Cycle liveness: a wedged maintenance loop otherwise surfaces only via the
+    // downstream links-extraction-lag proxy. Informational until the snapshot
+    // stream goes stale (fails only past the fail threshold).
+    try {
+      const fresh = await checkCycleFreshness(storage.raw());
+      checks.push({ name: "cycle-freshness", ok: fresh.ok, detail: fresh.detail });
+    } catch (e) {
+      checks.push({
+        name: "cycle-freshness",
         ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });
