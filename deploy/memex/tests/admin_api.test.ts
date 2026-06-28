@@ -124,4 +124,12 @@ describe("admin-api provisioning (authed)", () => {
     expect((await call("/admin/api/requests"))?.status).toBe(401);
     expect((await call("/admin/api/jobs/watch"))?.status).toBe(401);
   });
+
+  it("calibration/profile returns null when none computed, gated when unauth", async () => {
+    expect((await call("/admin/api/calibration/profile"))?.status).toBe(401);
+    const r = await call("/admin/api/calibration/profile", authed());
+    expect(r?.status).toBe(200);
+    const body = (await r!.json()) as { profile: unknown };
+    expect(body.profile).toBeNull(); // fresh brain — no synthesis calibration run yet
+  });
 });

@@ -4,10 +4,11 @@ import { DashboardPage } from "./pages/Dashboard";
 import { AgentsPage } from "./pages/Agents";
 import { RequestLogPage } from "./pages/RequestLog";
 import { JobsWatchPage } from "./pages/JobsWatch";
+import { CalibrationPage } from "./pages/Calibration";
 import { api } from "./api";
 
-type Page = "login" | "dashboard" | "agents" | "log" | "jobs";
-const PAGES = ["login", "dashboard", "agents", "log", "jobs"] as const;
+type Page = "login" | "dashboard" | "agents" | "log" | "jobs" | "calibration";
+const PAGES = ["login", "dashboard", "agents", "log", "jobs", "calibration"] as const;
 
 function getPage(): Page {
   const hash = window.location.hash.replace("#", "") || "dashboard";
@@ -61,6 +62,9 @@ export function App() {
           <a className={`nav-item ${page === "jobs" ? "active" : ""}`} onClick={() => navigate("jobs")}>
             Jobs Watch
           </a>
+          <a className={`nav-item ${page === "calibration" ? "active" : ""}`} onClick={() => navigate("calibration")}>
+            Calibration
+          </a>
         </div>
         <div style={{ marginTop: "auto", padding: "16px 12px", borderTop: "1px solid #1e1e2e" }}>
           <button
@@ -78,6 +82,7 @@ export function App() {
         {page === "agents" && <AgentsPage />}
         {page === "log" && <RequestLogPage />}
         {page === "jobs" && <JobsWatchPage />}
+        {page === "calibration" && <CalibrationPage />}
       </main>
     </div>
   );

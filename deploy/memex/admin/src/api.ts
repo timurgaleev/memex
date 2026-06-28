@@ -37,4 +37,5 @@ export const api = {
     apiFetch("/admin/api/revoke-grant", { method: "POST", body: JSON.stringify({ sub }) }),
   requests: (page = 1) => apiFetch(`/admin/api/requests?page=${page}`),
   jobsWatch: () => apiFetch("/admin/api/jobs/watch"),
+  calibrationProfile: () => apiFetch("/admin/api/calibration/profile"),
 };
