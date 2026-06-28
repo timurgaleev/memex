@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.46.0] — 2026-06-29
+
+### Added
+- **`MEMEX_CYCLE_SKIP_PHASES` — operator escape hatch to drop a defective cycle
+  phase.** A CSV of phase names removed from every tick (`recipes/cycle.ts`
+  `parseSkipPhases`), so a phase with a live defect can be isolated WITHOUT
+  losing the rest of the maintenance cycle while the defect is root-caused. Used
+  on the live brain to skip `frontmatter-inference` — the phase whose start
+  consistently SIGKILLs the tick (a hard OOM the GC + 3000m cap of v1.45.0
+  reduced but did not eliminate; needs a local heap-profile to root-cause). With
+  it skipped the cycle runs end-to-end (lint → … → snapshot) and writes a fresh
+  `cycle_snapshots` row again, so re-embed / link-reconcile / salience / the
+  `cycle-freshness` signal all resume; the optional frontmatter back-fill is the
+  only deferred phase. Wired through the compose env.
+
 ## [1.45.0] — 2026-06-28
 
 ### Fixed
