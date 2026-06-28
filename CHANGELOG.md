@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.30.0] — 2026-06-28
+
 ### Added
 - **Admin surface — increment A1: cookie + magic-link auth.** First slice of the
   full admin-surface port (operator: same as the reference). `src/http/admin.ts`
