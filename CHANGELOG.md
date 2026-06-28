@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.42.0] — 2026-06-28
+
+### Fixed
+- **Maintenance cycle starved on a frequently-redeployed brain — first tick now
+  fires 60s after boot, not a full interval later.** Root-caused from the
+  v1.41.0 `cycle-freshness` check flagging the live cycle 53h stale: the loop
+  scheduled its FIRST tick a full `intervalMs` after boot (the prod default is
+  6h), and every container recreation (deploy / OOM restart) reset that timer —
+  so a brain redeployed more often than its interval never completed a tick, and
+  its snapshots / re-embed / link-reconcile / salience passes never ran.
+  `recipes/cycle.ts` now defers the first tick by `firstTickDelayMs(intervalMs)`
+  = `min(intervalMs, 60s)` (tunable via `MEMEX_CYCLE_FIRST_TICK_DELAY_MS` for a
+  tiny instance where 60s of boot contention is still too eager); subsequent
+  ticks keep the full interval. A sub-minute test interval keeps its own
+  cadence. Deploying this also remediates the live symptom: the 60s tick's
+  `tryAcquireDbLock` reclaims the stranded TTL-expired lock and writes a fresh
+  snapshot.
+
 ## [1.41.0] — 2026-06-28
 
 ### Added
