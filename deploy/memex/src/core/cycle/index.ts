@@ -312,6 +312,23 @@ export function withPhaseTimeout<T>(
   });
 }
 
+// Force a full GC between phases. On the small live host (~3.7 GB) the cycle's
+// cumulative working set — un-GC'd phase garbage + page cache — climbed across
+// phases and tripped the container mem_limit (cgroup OOM-kill of PID 1, silent
+// SIGKILL mid-`frontmatter-inference`, no JS exception). Reclaiming each phase's
+// intermediate allocations before the next starts lowers the cumulative peak so
+// the cycle fits. Bun-only (`Bun.gc`); a no-op elsewhere. Disable with
+// MEMEX_CYCLE_GC=0.
+function reclaimBetweenPhases(): void {
+  if (process.env.MEMEX_CYCLE_GC === "0") return;
+  const g = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun;
+  try {
+    g?.gc?.(true);
+  } catch {
+    /* best-effort — GC is an optimisation, never fail the cycle on it */
+  }
+}
+
 async function runPhase<T>(
   engine: Engine,
   phase: PhaseName,
@@ -330,6 +347,7 @@ async function runPhase<T>(
       const rssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
       console.error(`[cycle] phase ${phase} done status=${status} rss=${rssMb}MB dur=${Date.now() - start}ms`);
     }
+    reclaimBetweenPhases();
     if (status === "warn") {
       progress({
         kind: "log",
@@ -348,6 +366,7 @@ async function runPhase<T>(
     };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
+    reclaimBetweenPhases();
     progress({
       kind: "log",
       op: "cycle",

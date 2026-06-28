@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.45.0] — 2026-06-28
+
+### Fixed
+- **Cycle GC between phases + raise the memory cap — the cycle was being
+  SIGKILLed mid-tick by its own container limit.** The per-phase RSS telemetry
+  (v1.44.0) + the container logs nailed it: the serve PID 1 dies silently (NO JS
+  exception — a SIGKILL signature) right as `frontmatter-inference` starts, then
+  the boot sequence reappears (Docker restarts it). The cycle's cumulative
+  working set (un-GC'd phase garbage + page cache) climbs across phases —
+  lint 1080MB, extract 1367MB, … — and trips the cgroup `mem_limit`, OOM-killing
+  the process before a snapshot is written. Two fixes: (1) `core/cycle/index.ts`
+  forces a full GC after every phase (`Bun.gc(true)`, `MEMEX_CYCLE_GC=0` to
+  disable) so each phase's intermediate allocations are reclaimed before the next
+  starts, lowering the cumulative peak; (2) the `mem_limit` default rises 2600m →
+  3000m (the kernel had tolerated ~3.48 GB before the cap; 3000m gives the cycle
+  room while still leaving headroom for cloudflared + the system on the ~3.7 GB
+  host). The standing `cycle-freshness` doctor check (v1.41.0) verifies recovery.
+
 ## [1.44.0] — 2026-06-28
 
 ### Fixed
