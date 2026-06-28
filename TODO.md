@@ -33,10 +33,22 @@ shippable brain-only gaps found:
   just-ticked cycle can momentarily read WARN — make the warn default relative
   to the cycle interval (≈2×) or raise it; operator can set
   `MEMEX_CYCLE_FRESHNESS_WARN_HOURS=12` meanwhile.
-- [ ] **OPEN (deep) — the maintenance cycle CRASHES mid-flight; no tick completes
-  on the live brain. Needs LOCAL repro.** (Supersedes the earlier "FIXED v1.43.0"
-  note — withPhaseTimeout bounds a HANG but the real failure is a process EXIT,
-  which a JS timeout can't catch.) Full investigation 2026-06-28:
+- [~] **MOSTLY RESOLVED — the cycle now completes; one phase isolated.** As of
+  v1.46.0 the live cycle runs END-TO-END and writes snapshots again
+  (`cycle-freshness` = "last cycle 0h ago", SNAP_COUNT rising, lock released,
+  48 s/tick, peak RSS 1404 MB). The fix: `MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference`
+  (set in the host .env) drops the ONE phase whose start hard-SIGKILLs the tick.
+  REMAINING (needs LOCAL heap-profile): root-cause WHY `frontmatter-inference`
+  spikes anon memory enough to OOM-kill PID 1 on its `SELECT all docs + chunk-0`
+  + 658-row UPDATE loop (the corpus is tiny — 658 docs/4303 chunks/≤21 KB — so
+  it's an algorithmic/driver allocation, not data size; GC + 3000m reduced but
+  did not eliminate it). Fix it, then drop the skip. Also port the reference's
+  INCREMENTAL extract (only changed slugs) — extract is the heaviest phase
+  (1404 MB/31 s, re-processes ALL docs every tick). Full investigation below:
+- [ ] **(investigation log) cycle crash — process EXIT mid-tick, root-caused to
+  frontmatter-inference.** (The earlier "FIXED v1.43.0" note was wrong —
+  withPhaseTimeout bounds a HANG but the real failure was a process EXIT a JS
+  timeout can't catch.) 2026-06-28/29:
   - The live serve PID 1 EXITS mid-cycle → Docker `restart: unless-stopped`
     restarts it (restarts=1) → the cycle dies, lock strands, no snapshot. NOT a
     healthcheck restart (plain compose doesn't restart on unhealthy).
