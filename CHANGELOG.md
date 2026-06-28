@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin Calibration page — the SPA's sixth page; admin surface complete.**
+  `GET /admin/api/calibration/profile` (requireAdmin-gated, null-safe) reads the
+  latest `synth_calibration_profile` scorecard via the existing
+  `getCalibrationProfile` (the synthesis calibration the cycle already computes);
+  `admin/src/pages/Calibration.tsx` renders accuracy + the
+  correct/incorrect/partial/unresolvable breakdown, the model id, bias tags, and
+  pattern statements (all React-escaped text). Empty-state until a synthesis
+  calibration run exists. The reference's SVG calibration charts are a follow-on;
+  the scorecard is the faithful core. The admin dashboard now mirrors the
+  reference's full six-page nav (Dashboard · Agents · Request Log · Jobs Watch ·
+  Calibration, behind Login).
+
 ## [1.36.0] — 2026-06-28
 
 ### Added

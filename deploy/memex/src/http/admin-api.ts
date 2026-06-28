@@ -15,6 +15,7 @@ import type { Storage } from "../core/storage.ts";
 import { registerSource } from "../core/sources.ts";
 import { listGrants, upsertGrant, revokeGrant, validateGrantSourceIds } from "../core/tenant-grants.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
+import { getCalibrationProfile } from "../core/synthesis/reads.ts";
 
 export interface AdminApiDeps {
   storage: Storage;
@@ -190,6 +191,17 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       return Response.json({ counts: counts.rows, recent: recent.rows });
     } catch (e) {
       return serverError("jobs-watch", e);
+    }
+  }
+
+  // GET /admin/api/calibration/profile — the latest synthesis calibration
+  // scorecard (Calibration page). Null when no profile has been computed yet.
+  if (p === "/admin/api/calibration/profile" && req.method === "GET") {
+    try {
+      const profile = await getCalibrationProfile(engine);
+      return Response.json({ profile });
+    } catch (e) {
+      return serverError("calibration-profile", e);
     }
   }
 

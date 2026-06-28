@@ -109,7 +109,11 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
       pub/sub bus (cap 50) + publishToolCallEvent (redacted, hot-path-safe) +
       GET /admin/events (requireAdmin, text/event-stream) + Dashboard EventSource
       tail. codex + security-engineer clean.
-    - [ ] DEFERRED (Calibration only — — needs infra memex lacks): the SSE
+    - [x] **Calibration page — DONE (v1.37.0).** GET /admin/api/calibration/profile
+      over getCalibrationProfile (synth_calibration_profile scorecard) + Calibration.tsx
+      (accuracy/breakdown/bias tags/pattern statements). SVG charts = follow-on.
+      ADMIN SPA FEATURE-COMPLETE (6 pages).
+    - [ ] FOLLOW-ON (cosmetic): the reference SVG calibration charts (— — needs infra memex lacks): the SSE
       `/admin/events` live feed (no event bus — Dashboard's 30s refresh + Jobs
       Watch's 15s poll cover live-status) and the Calibration page (no
       calibration backend). `mcp_request_log` has no writer yet (memex logs the
