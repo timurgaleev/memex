@@ -148,7 +148,21 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
     `holder_host`) — FAITHFUL to the reference; single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
-- [ ] `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+- [x] `LINK_EXTRACTOR` bare-wikilink + verb-context resolution — bare-wikilink
+  DONE/parity (v1.28.0): already covered by `extractWikilinks` + the
+  `slug-canonicalize` exact-tail/prefix basename stages (no port needed).
+  verb-context inference CORE done (v1.28.0): `core/link-verb-infer.ts`
+  (`inferLinkType` + verbatim verb regexes + context window + `MEMEX_LINK_VERB_INFER`
+  opt-in, default-OFF). codex: faithful/verbatim.
+  - [ ] **FOLLOW-UP (verb-context live wiring, v1.29.0):** wire `inferLinkType`
+    into `syncWikilinksForPage` behind the flag. Edge-ownership design needed
+    first: prose-inferred typed edges (works_at/founded/…) collide with the
+    frontmatter `syncTypedLinksForPage` (link_kind='typed_ner', which DELETE-
+    replaces its set) and gazetteer mentions. Recommended: a distinct
+    `link_kind='verb_ner'` (migration 053 widening the mig029 CHECK) so prose
+    inference owns + DELETE-replaces only its own set, never touching the other
+    edge sources. Then per resolved wikilink: `edgeContextWindow` → `inferLinkType`
+    → write the typed edge when != mentions.
   - [x] Write `chunker_version` — DONE (v1.27.0). Per-document
     `documents.chunker_version` SMALLINT (migration 052, grandfather DEFAULT 1);
     `MARKDOWN_CHUNKER_VERSION`/`CODE_CHUNKER_VERSION` consts (both 1); stamped in

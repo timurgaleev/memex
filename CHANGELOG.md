@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Verb-context link-type inference core (`inferLinkType`).** A faithful port of
+  the reference's deterministic (LLM-free) wikilink edge-typing: `inferLinkType`
+  classifies a `[[target]]` edge from the prose around the mention —
+  `founded > invested_in > advises > works_at` per-edge verbs, then a
+  person→`companies/*` page-role prior (`investor > advisor > employee`), else
+  `mentions`. `src/core/link-verb-infer.ts` carries the verb regexes copied
+  verbatim from the reference (calibrated against a rich-prose corpus),
+  `edgeContextWindow` (the ~240-char per-edge window), and the opt-in flag
+  `MEMEX_LINK_VERB_INFER` (default OFF). Reviewed: codex confirms the regexes +
+  precedence are a verbatim/faithful match. This ships the inference KERNEL with
+  unit tests; the live edge-writer wiring is deferred (see below) because
+  prose-inferred types collide with the existing frontmatter typed-links and
+  gazetteer edges in the wikilink DELETE-replace and need a distinct edge-origin
+  discriminator first.
+- **`[[bare-name]]` wikilink resolution — confirmed at parity (no change).** The
+  reference's generic bare-wikilink pass + `resolveBasenameMatches` is already
+  covered by memex's `extractWikilinks` (which captures every `[[…]]`, not just
+  dir-qualified) feeding the `slug-canonicalize` resolver's exact-tail and prefix
+  basename stages. memex's 5-stage confidence cascade is a faithful equivalent
+  (arguably richer); nothing to port.
+
 ## [1.27.0] — 2026-06-28
 
 ### Added
