@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.36.0] — 2026-06-28
+
 ### Added
 - **Admin SSE live-activity feed (`/admin/events`) + Dashboard live tail.** A
   faithful adaptation of the reference's `/admin/events`: `src/http/admin-events.ts`
