@@ -323,6 +323,13 @@ async function runPhase<T>(
   try {
     const detail = (await withPhaseTimeout(phase, fn)) as PhaseResult["detail"];
     const status = deriveStatus(phase, detail);
+    // Per-phase memory telemetry: a live OOM (a bun cycle process hit 3.48 GB
+    // RSS → kernel kill mid-tick) needs the spiking phase named. Cheap; on by
+    // default, silence with MEMEX_CYCLE_RSS_LOG=0.
+    if (process.env.MEMEX_CYCLE_RSS_LOG !== "0") {
+      const rssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
+      console.error(`[cycle] phase ${phase} done status=${status} rss=${rssMb}MB dur=${Date.now() - start}ms`);
+    }
     if (status === "warn") {
       progress({
         kind: "log",

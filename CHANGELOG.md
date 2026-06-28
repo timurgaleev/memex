@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.44.0] — 2026-06-28
+
+### Fixed
+- **Contain the cycle OOM + add per-phase memory telemetry.** Diagnosed the live
+  cycle stall to a kernel OOM-kill: a bun cycle process reached 3.48 GB RSS on
+  the ~3.7 GB host (dmesg `Out of memory: Killed process … (bun) anon-rss:3478424kB`,
+  `global_oom`), which killed the process mid-tick, took its in-process timers
+  with it (so neither the phase timeout nor the lock refresher could fire), and
+  stranded the cycle lock — the maintenance cycle never wrote a snapshot. Two
+  changes: (1) `docker-compose.yml` gains `mem_limit` (default 2600m, tunable via
+  `MEMEX_MEM_LIMIT`) so a runaway is a clean cgroup OOM-kill + restart of the
+  memex container instead of a kernel global-OOM that kills an arbitrary process
+  and strands the lock; (2) the cycle logs `rss=<MB>` after each phase
+  (`MEMEX_CYCLE_RSS_LOG=0` to silence) so the spiking phase is named — the
+  small live corpus (658 docs / 4303 chunks / ≤21 KB chunks, no duplicate
+  chunk-0 rows) means the 3.48 GB is not a simple materialisation, and the
+  per-phase RSS pins down the real allocator for a targeted follow-up fix.
+
 ## [1.43.0] — 2026-06-28
 
 ### Fixed

@@ -16,6 +16,12 @@ services:
       context: ./memex
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Cap container memory so a runaway (a cycle phase has hit 3.48 GB RSS on
+    # the ~3.7 GB host) is a clean cgroup OOM-kill + restart of THIS container,
+    # not a kernel global-OOM that kills an arbitrary process (Postgres client,
+    # cloudflared) and strands the cycle lock. Tunable via the host .env; leaves
+    # headroom for cloudflared + the system on a small instance.
+    mem_limit: ${MEMEX_MEM_LIMIT:-2600m}
     security_opt:
       - no-new-privileges:true
     cap_drop:
