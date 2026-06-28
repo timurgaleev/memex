@@ -40,6 +40,33 @@ export interface CycleHandle {
 const DEFAULT_QUIET_START = 6;
 const DEFAULT_QUIET_END = 8;
 
+// The first tick fires after THIS short delay (boot CPU headroom), not the full
+// interval. A long `intervalMs` (e.g. the 6h prod default) deferred the first
+// tick a full interval, and every container recreation (deploy / OOM restart)
+// reset that timer — so a brain redeployed more often than its interval never
+// completed a tick and its maintenance cycle starved (caught by the
+// cycle-freshness doctor check: snapshots 53h stale despite a 6h interval).
+// 60s gives boot headroom without coupling first-cycle latency to the interval.
+// Tunable via MEMEX_CYCLE_FIRST_TICK_DELAY_MS for a tiny instance where 60s of
+// boot contention (serve + jobs worker init) is still too eager.
+const DEFAULT_INITIAL_TICK_DELAY_MS = 60_000;
+
+function initialTickDelayMs(): number {
+  const raw = process.env.MEMEX_CYCLE_FIRST_TICK_DELAY_MS;
+  if (raw === undefined || raw === "") return DEFAULT_INITIAL_TICK_DELAY_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_INITIAL_TICK_DELAY_MS;
+}
+
+/**
+ * Delay before the FIRST tick: short enough that a frequently-redeployed brain
+ * still cycles, but never longer than the interval itself (a sub-minute test
+ * interval keeps its own cadence).
+ */
+export function firstTickDelayMs(intervalMs: number): number {
+  return Math.min(Math.max(0, intervalMs), initialTickDelayMs());
+}
+
 // Phases skipped during quiet hours. embed-stale calls Bedrock; mirror-pages
 // re-embeds stale/missing page mirrors (also Bedrock); extract-timeline (when
 // MEMEX_MEETING_TIMELINE=1) is a replace-own-projection that re-derives every
@@ -160,8 +187,9 @@ export function startCycleLoop(
     }
   };
 
-  // First tick deferred by one interval so daemon boot has CPU headroom.
-  timer = setTimeout(runTick, options.intervalMs);
+  // First tick after a short boot-headroom delay (NOT the full interval) so a
+  // brain redeployed more often than its interval still completes ticks.
+  timer = setTimeout(runTick, firstTickDelayMs(options.intervalMs));
 
   return {
     stop: async () => {

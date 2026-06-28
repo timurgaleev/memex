@@ -26,6 +26,13 @@ shippable brain-only gaps found:
   >24h (`MEMEX_CYCLE_FRESHNESS_WARN_HOURS`/`_FAIL_HOURS`). Zero snapshots =
   informational. WARN-only by default; `MEMEX_CYCLE_FRESHNESS_ENFORCE=1` for
   hard exit-1 (code-reviewer HIGH: a cycle-off deploy would else cry wolf).
+  PROD FINDING (immediately caught a 53h-stale cycle) ROOT-CAUSED + FIXED in
+  v1.42.0: the loop deferred its first tick a full 6h interval, reset by every
+  deploy/restart → starvation. First tick is now `min(interval, 60s)`.
+  FOLLOW-UP (LOW): warn default 6h == the prod tick interval, so a healthy
+  just-ticked cycle can momentarily read WARN — make the warn default relative
+  to the cycle interval (≈2×) or raise it; operator can set
+  `MEMEX_CYCLE_FRESHNESS_WARN_HOURS=12` meanwhile.
 - [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
   hung container (the reference's scenario is an unsupervised cron CLI), so
