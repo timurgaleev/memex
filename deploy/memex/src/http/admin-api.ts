@@ -149,5 +149,49 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
   }
 
+  // GET /admin/api/requests?page=N — recent MCP request log rows (RequestLog
+  // page). The table (mig 046) exists; a request-logger populates it. Paginated.
+  if (p === "/admin/api/requests" && req.method === "GET") {
+    try {
+      const PER = 25;
+      const page = Math.max(1, Math.floor(Number(url.searchParams.get("page")) || 1));
+      const rows = await engine.query<Record<string, unknown>>(
+        // error_message capped (left(...,300)) — admin-only, but it can carry
+        // upstream payload/path text; no need to ship the raw blob to the UI.
+        `SELECT id, agent_name, operation, latency_ms, status,
+                left(error_message, 300) AS error_message, created_at::text AS created_at
+           FROM mcp_request_log
+          ORDER BY created_at DESC, id DESC
+          LIMIT $1 OFFSET $2`,
+        [PER, (page - 1) * PER],
+      );
+      const total = await engine.query<{ n: number }>("SELECT count(*)::int AS n FROM mcp_request_log");
+      return Response.json({ page, per_page: PER, total: total.rows[0]?.n ?? 0, rows: rows.rows });
+    } catch (e) {
+      return serverError("requests", e);
+    }
+  }
+
+  // GET /admin/api/jobs/watch — job queue snapshot (JobsWatch page): status
+  // counts + the most-recent jobs.
+  if (p === "/admin/api/jobs/watch" && req.method === "GET") {
+    try {
+      const counts = await engine.query<{ status: string; n: number }>(
+        "SELECT status, count(*)::int AS n FROM jobs GROUP BY status ORDER BY status",
+      );
+      const recent = await engine.query<Record<string, unknown>>(
+        `SELECT id, kind, status, retry_count, left(last_error, 300) AS last_error,
+                created_at::text AS created_at,
+                started_at::text AS started_at, finished_at::text AS finished_at
+           FROM jobs
+          ORDER BY created_at DESC
+          LIMIT 25`,
+      );
+      return Response.json({ counts: counts.rows, recent: recent.rows });
+    } catch (e) {
+      return serverError("jobs-watch", e);
+    }
+  }
+
   return null; // not a known data route
 }

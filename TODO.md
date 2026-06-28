@@ -100,9 +100,17 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     grants, register-source + provision-grant modals, per-row revoke — over the
     A2 endpoints (no new backend). Reference's OAuth-client manager re-modeled to
     memex sources/grants. codex reviewed (no XSS; dup-key LOW fixed).
-  - [ ] **B3 — feed pages + A2b endpoints:** RequestLog (`/admin/api/requests`
-    over `mcp_request_log`), JobsWatch (`/admin/api/jobs/watch`), Calibration,
-    SSE `/admin/events` + the Dashboard live feed. Each page with its endpoint.
+  - [x] **B3 — Request Log + Jobs Watch (v1.34.0).** A2b endpoints
+    `/admin/api/requests` (paginated `mcp_request_log`) + `/admin/api/jobs/watch`
+    (status counts + recent jobs) + `RequestLog.tsx` / `JobsWatch.tsx` pages +
+    nav. Bound LIMIT/OFFSET, capped error text. codex reviewed. **Admin SPA is
+    feature-complete (5 pages).**
+    - [ ] DEFERRED (parity-N/A — needs infra memex lacks): the SSE
+      `/admin/events` live feed (no event bus — Dashboard's 30s refresh + Jobs
+      Watch's 15s poll cover live-status) and the Calibration page (no
+      calibration backend). `mcp_request_log` has no writer yet (memex logs the
+      JSONL audit trail instead) — add a DB-sink request logger to populate the
+      Request Log page, or leave it for when the request-log feed is wanted.
 - [ ] **Live deploy is a separate gated step** — terraform ingress + RDS
   migration only on explicit operator "deploy".
 

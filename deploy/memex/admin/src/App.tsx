@@ -2,16 +2,16 @@ import React, { useState, useEffect } from "react";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
 import { AgentsPage } from "./pages/Agents";
+import { RequestLogPage } from "./pages/RequestLog";
+import { JobsWatchPage } from "./pages/JobsWatch";
 import { api } from "./api";
 
-// B1 mounted Dashboard; B2 adds Agents. The feed pages (B3) extend this union +
-// the sidebar as they land.
-type Page = "login" | "dashboard" | "agents";
+type Page = "login" | "dashboard" | "agents" | "log" | "jobs";
+const PAGES = ["login", "dashboard", "agents", "log", "jobs"] as const;
 
 function getPage(): Page {
   const hash = window.location.hash.replace("#", "") || "dashboard";
-  if (hash === "login" || hash === "agents") return hash;
-  return "dashboard";
+  return (PAGES as readonly string[]).includes(hash) ? (hash as Page) : "dashboard";
 }
 
 export function App() {
@@ -55,6 +55,12 @@ export function App() {
           <a className={`nav-item ${page === "agents" ? "active" : ""}`} onClick={() => navigate("agents")}>
             Agents
           </a>
+          <a className={`nav-item ${page === "log" ? "active" : ""}`} onClick={() => navigate("log")}>
+            Request Log
+          </a>
+          <a className={`nav-item ${page === "jobs" ? "active" : ""}`} onClick={() => navigate("jobs")}>
+            Jobs Watch
+          </a>
         </div>
         <div style={{ marginTop: "auto", padding: "16px 12px", borderTop: "1px solid #1e1e2e" }}>
           <button
@@ -70,6 +76,8 @@ export function App() {
       <main className="main">
         {page === "dashboard" && <DashboardPage />}
         {page === "agents" && <AgentsPage />}
+        {page === "log" && <RequestLogPage />}
+        {page === "jobs" && <JobsWatchPage />}
       </main>
     </div>
   );

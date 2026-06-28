@@ -101,4 +101,27 @@ describe("admin-api provisioning (authed)", () => {
     expect(body.health).toBeDefined();
     expect(body.counts).not.toBeNull();
   });
+
+  it("requests returns a paginated (empty) request log", async () => {
+    const r = await call("/admin/api/requests?page=1", authed());
+    expect(r?.status).toBe(200);
+    const body = (await r!.json()) as { page: number; total: number; rows: unknown[] };
+    expect(body.page).toBe(1);
+    expect(Array.isArray(body.rows)).toBe(true);
+  });
+
+  it("jobs/watch returns status counts + recent jobs", async () => {
+    const e = storage.engine();
+    await e.query(`INSERT INTO jobs (id, kind, status) VALUES ('j1','sweep','succeeded')`);
+    const r = await call("/admin/api/jobs/watch", authed());
+    expect(r?.status).toBe(200);
+    const body = (await r!.json()) as { counts: { status: string; n: number }[]; recent: { kind: string }[] };
+    expect(body.counts.find((c) => c.status === "succeeded")?.n).toBe(1);
+    expect(body.recent[0]?.kind).toBe("sweep");
+  });
+
+  it("requests + jobs/watch 401 without a session", async () => {
+    expect((await call("/admin/api/requests"))?.status).toBe(401);
+    expect((await call("/admin/api/jobs/watch"))?.status).toBe(401);
+  });
 });

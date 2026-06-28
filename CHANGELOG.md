@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin surface — increment B3: Request Log + Jobs Watch (feed pages).** Two
+  read-only A2b endpoints + their SPA pages complete the admin dashboard's
+  five-page nav. `GET /admin/api/requests?page=N` paginates `mcp_request_log`
+  (the table exists from migration 046; a request-logger populates it — empty
+  until then); `GET /admin/api/jobs/watch` returns job status counts + the 25
+  most-recent jobs. Both behind the single `requireAdmin` gate; `LIMIT`/`OFFSET`
+  are bound params and `error_message`/`last_error` are capped at 300 chars in
+  SQL (codex hardening). New `RequestLog.tsx` (paginated table) + `JobsWatch.tsx`
+  (status metrics + a 15s-polling recent-jobs table). codex reviewed (no
+  injection; perf-at-scale + error-truncation LOWs addressed). The reference's
+  SSE `/admin/events` live feed and the Calibration page are NOT ported — they
+  need an event bus and a calibration backend that memex does not have; the
+  Jobs Watch poll + the Dashboard 30s refresh cover the live-status need.
+
 ## [1.33.0] — 2026-06-28
 
 ### Added
