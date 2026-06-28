@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin surface — the dashboard is live at `/admin` (increments B1 + C).** The
+  Vite/React admin SPA (`admin/`, React 19 + Vite 6) now builds in a dedicated
+  Dockerfile `admin-builder` stage and is served at `/admin` from Bun.serve.
+  B1 ships the scaffold + Login (bootstrap-token / magic-link model) + Dashboard
+  (corpus counts + brain health from `/admin/api/full-stats`), with `api.ts`
+  wrapping the A2 endpoints. C adds `src/http/admin-static.ts` — it serves the
+  built `admin/dist` (resolved relative to the module, `/app/admin/dist` in the
+  container) with an `index.html` SPA fallback, dispatched only for `GET /admin*`
+  AFTER the auth routes (A1) and the data API (A2) so those always win. A
+  `resolve()`+`relative()` path-boundary guard blocks traversal out of `dist`
+  (the string-prefix form codex flagged is fixed). Only the static `dist` crosses
+  from the builder stage — React/Vite/node_modules never reach the runtime image.
+  The Agents provisioning page (B2) and the live feed pages (B3) extend the SPA
+  next. codex reviewed the static serve + Dockerfile.
+
 ## [1.31.0] — 2026-06-28
 
 ### Added

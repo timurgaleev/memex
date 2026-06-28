@@ -1,6 +1,20 @@
 # memex — Bun runtime, multi-stage build
 # Base image: oven/bun:1.3.13-alpine (preferred).
 # Fallback: oven/bun:1.3.13 (non-alpine) if the alpine tag is unavailable.
+
+# --- admin SPA builder ----------------------------------------------------
+# Builds the Vite/React admin dashboard (admin/) into static assets. Kept in a
+# separate stage so React/Vite + node_modules never reach the runtime image —
+# only the built dist/ is copied across.
+FROM oven/bun:1.3.13-alpine AS admin-builder
+WORKDIR /admin
+COPY admin/package.json admin/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY admin/vite.config.ts admin/tsconfig.json admin/index.html ./
+COPY admin/src ./src
+RUN bun run build
+
+# --- runtime --------------------------------------------------------------
 FROM oven/bun:1.3.13-alpine
 
 WORKDIR /app
@@ -15,6 +29,9 @@ COPY templates/ ./templates/
 # on resolving them out of node_modules at runtime — keeps the boot
 # path deterministic and bun build (future) traversal-free.
 COPY wasm/ ./wasm/
+# Built admin SPA (static dist) from the builder stage — served at /admin by
+# http/admin-static.ts (resolves to /app/admin/dist).
+COPY --from=admin-builder /admin/dist ./admin/dist
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
