@@ -11,21 +11,21 @@ import {
 
 describe("extractCandidates", () => {
   it("extracts a multi-token capitalized run", () => {
-    const out = extractCandidates("I met Garry Tan yesterday at the office.");
-    expect(out.map((c) => c.query)).toContain("Garry Tan");
+    const out = extractCandidates("I met Dana Reed yesterday at the office.");
+    expect(out.map((c) => c.query)).toContain("Dana Reed");
   });
 
   it("strips a trailing possessive", () => {
-    const out = extractCandidates("That is Garry's car.");
-    expect(out.map((c) => c.query)).toContain("Garry");
-    expect(out.map((c) => c.query)).not.toContain("Garry's");
+    const out = extractCandidates("That is Dana's car.");
+    expect(out.map((c) => c.query)).toContain("Dana");
+    expect(out.map((c) => c.query)).not.toContain("Dana's");
   });
 
   it("captures @handles without the @ in the query", () => {
-    const out = extractCandidates("ping @garry about it");
-    const c = out.find((x) => x.query === "garry");
+    const out = extractCandidates("ping @dana about it");
+    const c = out.find((x) => x.query === "dana");
     expect(c).toBeDefined();
-    expect(c?.display).toBe("@garry");
+    expect(c?.display).toBe("@dana");
   });
 
   it("drops hard stopwords even when capitalized at sentence start", () => {
@@ -50,9 +50,9 @@ describe("extractCandidates", () => {
     expect(out.map((c) => c.query)).not.toContain("X");
   });
 
-  it("dedupes on the normalized form (Garry vs garry)", () => {
-    const out = extractCandidates("Garry called. Then garry left.");
-    expect(out.filter((c) => c.query.toLowerCase() === "garry").length).toBe(1);
+  it("dedupes on the normalized form (Dana vs dana)", () => {
+    const out = extractCandidates("Dana called. Then dana left.");
+    expect(out.filter((c) => c.query.toLowerCase() === "dana").length).toBe(1);
   });
 
   it("caps at MAX_CANDIDATES", () => {
@@ -73,9 +73,9 @@ describe("extractCandidatesFromWindow", () => {
 
   it("merges occurrences across turns", () => {
     const out = extractCandidatesFromWindow(
-      turns(["user", "Tell me about Garry Tan"], ["assistant", "Garry Tan founded YC"]),
+      turns(["user", "Tell me about Dana Reed"], ["assistant", "Dana Reed founded a startup"]),
     );
-    const c = out.find((x) => x.query === "Garry Tan");
+    const c = out.find((x) => x.query === "Dana Reed");
     expect(c?.occurrences).toBe(2);
   });
 

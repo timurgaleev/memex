@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Opt-in DB request-log sink (`MEMEX_REQUEST_LOG_DB`).** Populates the
+  `mcp_request_log` table (migration 046) the admin Request Log page reads —
+  memex's default request observability stays the JSONL audit trail + console
+  line; this adds a third, opt-in sink (default OFF). `src/mcp/request-log-db.ts`
+  `logToolCallToDb` inserts one redacted row per tool call (known-only operation
+  name, caller identity, latency, ok status, the param SUMMARY — never raw
+  values), wired fire-and-forget at the MCP dispatch site so a logging failure
+  can never fail the call. The Request Log page goes live once the flag is set.
+
+### Changed
+- Scrubbed stray upstream-reference identifiers from `CHANGELOG.md`, `TODO.md`,
+  and the entity-salience example fixtures (neutral sample names) to keep the
+  public repo free of any non-public project/person names.
+
 ## [1.34.0] — 2026-06-28
 
 ### Added
@@ -110,7 +125,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the CHECK swap is lock-safe on the single-connection boot apply, and the
   yield-to-frontmatter loop is stable. `verb_ner` is an internal raw-SQL origin
   (not a valid explicit `addLink` input). This closes the bare-wikilink +
-  verb-context backlog item — full gBrain link-extraction parity.
+  verb-context backlog item — full the reference link-extraction parity.
 
 ## [1.28.0] — 2026-06-28
 

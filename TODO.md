@@ -41,7 +41,7 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   to Bun/postgres.js; wire Cognito JWT → `AuthInfo{sourceId, allowedSources}`.
 - [ ] Thread `AuthInfo` through `mcp/dispatch.ts` + `http/server.ts`.
 - [ ] **Admin surface (`/admin`) — IN PROGRESS (operator: "totally the same as
-  gbrain", 2026-06-28).** Full faithful parity: the reference's React 19 + Vite 6
+  the reference", 2026-06-28).** Full faithful parity: the reference's React 19 + Vite 6
   admin SPA (6 pages: Login, Dashboard, Agents, RequestLog, Calibration,
   JobsWatch) + 23 `/admin*` routes + magic-link/cookie auth, all adapted from
   express → memex's Bun.serve. memex already has the provisioning FUNCTIONAL core
@@ -69,7 +69,7 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     RequestLog 150, Calibration 174, JobsWatch 174). Porting requires a new
     frontend toolchain in this backend repo (`admin/package.json` React+Vite,
     `bun install`, `vite build`) AND real DATA-SHAPE adaptation — the reference
-    SPA reads gBrain shapes (`stats`/`health`/SSE `/admin/events`/`oauth_clients`
+    SPA reads the reference shapes (`stats`/`health`/SSE `/admin/events`/`oauth_clients`
     register-client) that memex's A2 does NOT have; memex exposes `full-stats` +
     `grants`/`sources`. So it is a faithful port of the STRUCTURE/design, with the
     data layer + the Agents page re-modeled to memex `source_grants`. Sub-plan:
@@ -120,7 +120,7 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   check; a user-influenceable claim = forge `federated_read:[victim]` → read
   all. Add a `source_grants` table (`sub` → entitled sources) + enforce resolved
   sources ⊆ entitlement; do NOT trust claims raw. Document the hard IdP
-  requirement (claims IdP-asserted, not user-writable). gBrain-faithful: the
+  requirement (claims IdP-asserted, not user-writable). reference-faithful: the
   grant lives server-side (its `oauth_clients.source_id`/`federated_read`), not
   in a user token.
 - [ ] **CRITICAL — wire `get_chunks` + `relational_recall`** with readSources
@@ -233,7 +233,7 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     (page_revert unscoped delete) is pre-existing to the revert path + latent
     until the mig047 composite PK; LinkKind type kept plain|typed_ner
     (verb_ner is internal raw-SQL only, documented). **Closes the bare-wikilink +
-    verb-context item → full gBrain link-extraction parity.**
+    verb-context item → full the reference link-extraction parity.**
   - [x] Write `chunker_version` — DONE (v1.27.0). Per-document
     `documents.chunker_version` SMALLINT (migration 052, grandfather DEFAULT 1);
     `MARKDOWN_CHUNKER_VERSION`/`CODE_CHUNKER_VERSION` consts (both 1); stamped in
