@@ -73,13 +73,16 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     register-client) that memex's A2 does NOT have; memex exposes `full-stats` +
     `grants`/`sources`. So it is a faithful port of the STRUCTURE/design, with the
     data layer + the Agents page re-modeled to memex `source_grants`. Sub-plan:
-    - **B1 — scaffold + Login + Dashboard:** `admin/` Vite project (package.json,
-      vite.config base `/admin/`, index.html, tsconfig, main.tsx, index.css
-      copied + renamed), `api.ts` adapted to A2 (`login`, `signOutEverywhere`,
-      `fullStats`→/admin/api/full-stats, `grants`, `registerSource`, `grant`,
-      `revokeGrant`), App.tsx sidebar, Login.tsx (rename GBrain→memex), Dashboard
-      reading `full-stats` (SSE feed deferred to A2b). Verify with `bun install`
-      + `vite build` → dist.
+    - [x] **B1 — scaffold + Login + Dashboard — DONE (source on main; builds).**
+      `admin/` Vite project (package.json React19+Vite6, vite.config base
+      `/admin/`, index.html, tsconfig, main.tsx, index.css copied), `api.ts`
+      adapted to A2 (login/signOutEverywhere/fullStats/grants/registerSource/
+      grant/revokeGrant), App.tsx sidebar + sign-out, Login.tsx + Dashboard.tsx
+      (reads `/admin/api/full-stats`; SSE feed deferred to B3). `bun install` +
+      `vite build` verified → dist (32 modules, ~200KB js). node_modules/dist
+      gitignored; the main tsc (`include: src+tests`) ignores `admin/`. NOT YET
+      SERVED — dormant until C wires the Docker `vite build` + the /admin static
+      serve. Ships LIVE together with C.
     - **B2 — Agents page:** re-model the 633-line OAuth-client manager to memex's
       sources + grants provisioning UI over A2 (`/admin/api/sources`, `grants`,
       `revoke-grant`).
