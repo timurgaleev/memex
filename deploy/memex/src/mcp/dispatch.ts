@@ -45,6 +45,7 @@ import {
   graphQuery,
   traverseGraph,
   syncWikilinksForPage,
+  syncVerbLinksForPage,
   stampLinksExtracted,
   type GraphNeighborsOptions,
   type GraphQueryOptions,
@@ -52,6 +53,7 @@ import {
 } from "../core/links.ts";
 import { syncMentionsForPage } from "../core/gazetteer.ts";
 import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts";
+import { linkVerbInferEnabled } from "../core/link-verb-infer.ts";
 import {
   indexPageIntoSearch,
   removePageFromSearch,
@@ -607,6 +609,11 @@ async function callPagePut(
     if (typedLinksEnabled() && page) {
       await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, writeSource);
     }
+    // Verb-context typed edges from prose (opt-in MEMEX_LINK_VERB_INFER) —
+    // owns link_kind='verb_ner', never touches the edges above.
+    if (linkVerbInferEnabled() && page) {
+      await syncVerbLinksForPage(storage, r.slug, page.type, body, writeSource);
+    }
     // Advance the link-extraction watermark now that the full edge set is
     // synced (migration 051) — stamped after updated_at, so the staleness
     // predicate reads clean until the next edit / extractor-version bump.
@@ -685,6 +692,9 @@ async function callPageAppend(
     await syncMentionsForPage(storage, r.slug, body, writeSource);
     if (typedLinksEnabled() && fresh) {
       await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth, writeSource);
+    }
+    if (linkVerbInferEnabled() && fresh) {
+      await syncVerbLinksForPage(storage, r.slug, fresh.type, body, writeSource);
     }
     await stampLinksExtracted(storage.engine(), r.slug, writeSource); // watermark (mig 051)
     if (fresh) searchIndexed = await mirrorPageToSearch(storage, fresh);
@@ -768,6 +778,9 @@ async function callPageRevert(
       await syncMentionsForPage(storage, r.slug, page.markdown_body);
       if (typedLinksEnabled()) {
         await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+      }
+      if (linkVerbInferEnabled()) {
+        await syncVerbLinksForPage(storage, r.slug, page.type, page.markdown_body);
       }
       await stampLinksExtracted(storage.engine(), r.slug); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash);

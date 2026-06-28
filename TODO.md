@@ -154,15 +154,16 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   verb-context inference CORE done (v1.28.0): `core/link-verb-infer.ts`
   (`inferLinkType` + verbatim verb regexes + context window + `MEMEX_LINK_VERB_INFER`
   opt-in, default-OFF). codex: faithful/verbatim.
-  - [ ] **FOLLOW-UP (verb-context live wiring, v1.29.0):** wire `inferLinkType`
-    into `syncWikilinksForPage` behind the flag. Edge-ownership design needed
-    first: prose-inferred typed edges (works_at/founded/…) collide with the
-    frontmatter `syncTypedLinksForPage` (link_kind='typed_ner', which DELETE-
-    replaces its set) and gazetteer mentions. Recommended: a distinct
-    `link_kind='verb_ner'` (migration 053 widening the mig029 CHECK) so prose
-    inference owns + DELETE-replaces only its own set, never touching the other
-    edge sources. Then per resolved wikilink: `edgeContextWindow` → `inferLinkType`
-    → write the typed edge when != mentions.
+  - [x] **verb-context live wiring — DONE (v1.29.0).** `syncVerbLinksForPage`
+    (links.ts) + migration 053 (`link_kind='verb_ner'` discriminator) + wired at
+    page_put/append/revert behind `MEMEX_LINK_VERB_INFER` (default OFF). Owns +
+    DELETE-replaces only its verb_ner set; yields to explicit/frontmatter edges
+    via ON CONFLICT DO NOTHING. Reviewed: codex (no blockers — DELETE collision-
+    free, CHECK swap lock-safe, yield-loop stable) + code-reviewer. LOW
+    (page_revert unscoped delete) is pre-existing to the revert path + latent
+    until the mig047 composite PK; LinkKind type kept plain|typed_ner
+    (verb_ner is internal raw-SQL only, documented). **Closes the bare-wikilink +
+    verb-context item → full gBrain link-extraction parity.**
   - [x] Write `chunker_version` — DONE (v1.27.0). Per-document
     `documents.chunker_version` SMALLINT (migration 052, grandfather DEFAULT 1);
     `MARKDOWN_CHUNKER_VERSION`/`CODE_CHUNKER_VERSION` consts (both 1); stamped in
