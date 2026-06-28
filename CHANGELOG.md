@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.29.0] — 2026-06-28
+
 ### Added
 - **Verb-context inference wired into the edge writer (`syncVerbLinksForPage`).**
   Completes the v1.28.0 inference core: with `MEMEX_LINK_VERB_INFER=1` (default
