@@ -109,6 +109,7 @@ function printUsage(): void {
   console.log("  backlinks <name> [--type T] [--limit N]");
   console.log("                               documents that mention this entity (default type=wikilink)");
   console.log("  extract [--all] [--vault P]  re-run regex entity extraction over existing chunks (cheap)");
+  console.log("  extract --stale [--source-id S] [--catch-up] [--dry-run] [--json]  re-extract links for stale pages");
   console.log("  reconcile-links [--limit N]  list wikilinks that don't resolve to a document");
   console.log("  check-resolvable [--limit N] [--threshold P] [--strict]");
   console.log("                               wikilink coverage report; --strict elevates warnings into the exit-1 path");
@@ -380,6 +381,17 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "extract": {
+      if (flags.has("--stale")) {
+        const sourceId = values.get("--source-id");
+        await runExtract({
+          stale: true,
+          dryRun: flags.has("--dry-run"),
+          json: flags.has("--json"),
+          catchUp: flags.has("--catch-up"),
+          sourceIds: sourceId ? [sourceId] : undefined,
+        });
+        return 0;
+      }
       const all = flags.has("--all");
       const vault = values.get("--vault");
       await runExtract(vault ? { all, vault } : { all });
