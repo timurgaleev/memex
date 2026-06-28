@@ -89,15 +89,19 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     - **B3 — feed pages + A2b endpoints:** RequestLog (`/admin/api/requests` over
       `mcp_request_log`), JobsWatch (`/admin/api/jobs/watch`), Calibration, SSE
       `/admin/events`. Each page + its backend endpoint together.
-  - **C — embed + serve:** port `admin-embedded.ts` + a `build-admin-embedded.ts`
-    (Bun `with { type: 'file' }` asset embed), add the `vite build` step to the
-    Dockerfile, and serve the built SPA at `/admin` from Bun.serve with SPA
-    fallback (the `/admin*` dispatch in server.ts already has the seam).
-    NOTE: B + C add a frontend build to the Docker image — do them as ONE focused
-    frontend session (scaffold → build → embed → serve → live-verify the UI),
-    not fragmented, so the Docker build never lands half-wired. The admin is
-    already FUNCTIONAL headlessly via the `tenant` CLI + the A2 HTTP API; the SPA
-    is the UI layer on top.
+  - [x] **C — serve (v1.32.0).** `http/admin-static.ts` serves the built
+    `admin/dist` at `/admin` with an `index.html` SPA fallback (GET-only, after
+    auth + the data API); a `resolve()`+`relative()` boundary guards traversal.
+    Dockerfile gains an `admin-builder` stage (`bun install` + `vite build`) and
+    COPYs only `/admin/dist` → `/app/admin/dist`; `.dockerignore` keeps the
+    context lean. codex reviewed (traversal string-prefix → boundary fix applied).
+    The admin dashboard (Login + Dashboard) is now LIVE at `/admin`.
+  - [ ] **B2 — Agents page:** re-model the reference's 633-line OAuth-client
+    manager into a memex sources + grants provisioning UI over A2
+    (`/admin/api/sources`, `grants`, `revoke-grant`); add the nav item + page.
+  - [ ] **B3 — feed pages + A2b endpoints:** RequestLog (`/admin/api/requests`
+    over `mcp_request_log`), JobsWatch (`/admin/api/jobs/watch`), Calibration,
+    SSE `/admin/events` + the Dashboard live feed. Each page with its endpoint.
 - [ ] **Live deploy is a separate gated step** — terraform ingress + RDS
   migration only on explicit operator "deploy".
 

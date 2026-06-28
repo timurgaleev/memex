@@ -29,6 +29,7 @@ import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
 import { handleAdminApi } from "./admin-api.ts";
+import { serveAdminStatic } from "./admin-static.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 /**
@@ -218,6 +219,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
           requireAdmin: adminAuth.requireAdmin,
         });
         if (r2) return r2;
+        // C: the built SPA (static dist + index.html fallback). Auth + the data
+        // API above win; everything else under /admin is the front-end. GET only.
+        if (req.method === "GET") {
+          const r3 = await serveAdminStatic(url);
+          if (r3) return r3;
+        }
       }
       return new Response("Not Found", { status: 404 });
     },

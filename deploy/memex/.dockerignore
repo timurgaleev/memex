@@ -1,0 +1,5 @@
+# Keep the build context lean. The admin SPA is built in a dedicated builder
+# stage (see Dockerfile), so local install/build artifacts must not be shipped.
+admin/node_modules/
+admin/dist/
+node_modules/
