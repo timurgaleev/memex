@@ -33,6 +33,16 @@ shippable brain-only gaps found:
   just-ticked cycle can momentarily read WARN — make the warn default relative
   to the cycle interval (≈2×) or raise it; operator can set
   `MEMEX_CYCLE_FRESHNESS_WARN_HOURS=12` meanwhile.
+- [ ] **OPEN — cycle tick runs long without writing a snapshot (found via the
+  v1.42.0 deploy).** After the first-tick fix, the live catch-up tick held the
+  `memex-cycle` lock 11+ min, ran phases through frontmatter-inference, but did
+  NOT reach the (last) snapshot phase or log completion; `last_refreshed_at` had
+  not advanced at the 10-min refresher mark. Container stayed healthy (event loop
+  live → not a sync wedge). Likely a large Bedrock embed backlog after the 53h
+  gap, OR a late-phase hang. Next: confirm the snapshot eventually lands (lock
+  released, SNAP_COUNT rises) vs the lock TTL-expiring with no progress; if a
+  phase genuinely hangs, add per-phase timeouts (the reference has phase-level
+  deadlines). The `cycle-freshness` check is the standing detector.
 - [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
   hung container (the reference's scenario is an unsupervised cron CLI), so
