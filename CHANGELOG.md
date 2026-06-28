@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.35.0] — 2026-06-28
+
 ### Added
 - **Opt-in DB request-log sink (`MEMEX_REQUEST_LOG_DB`).** Populates the
   `mcp_request_log` table (migration 046) the admin Request Log page reads —
