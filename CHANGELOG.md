@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.34.0] — 2026-06-28
+
 ### Added
 - **Admin surface — increment B3: Request Log + Jobs Watch (feed pages).** Two
   read-only A2b endpoints + their SPA pages complete the admin dashboard's
