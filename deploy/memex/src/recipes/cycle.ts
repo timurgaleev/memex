@@ -94,6 +94,16 @@ function isInQuietHours(
   return hour >= startHour || hour < endHour;
 }
 
+/** Parse the `MEMEX_CYCLE_SKIP_PHASES` CSV into a phase-name set. */
+export function parseSkipPhases(raw: string | undefined): Set<string> {
+  return new Set(
+    (raw ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
 export function startCycleLoop(
   storage: Storage,
   options: CycleLoopOptions,
@@ -110,13 +120,20 @@ export function startCycleLoop(
   // lock until the TTL lapses. `null` between ticks.
   let currentLock: DbLockHandle | null = null;
 
+  // Operator escape hatch: drop named phases from every tick. Exists so a phase
+  // with a live defect (e.g. a memory spike that SIGKILLs the tick before it can
+  // snapshot) can be isolated WITHOUT losing the rest of the maintenance cycle,
+  // while the defect is root-caused. CSV of PhaseName, e.g.
+  // MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference.
+  const skipPhases = parseSkipPhases(process.env.MEMEX_CYCLE_SKIP_PHASES);
+
   const runTick = async (): Promise<void> => {
     if (stopped) return;
     const now = new Date();
     const inQuiet = isInQuietHours(now, quietStart, quietEnd);
-    const phases: PhaseName[] = inQuiet
-      ? ALL_PHASES.filter((p) => !COSTLY_PHASES.has(p))
-      : [...ALL_PHASES];
+    const phases: PhaseName[] = (
+      inQuiet ? ALL_PHASES.filter((p) => !COSTLY_PHASES.has(p)) : [...ALL_PHASES]
+    ).filter((p) => !skipPhases.has(p));
 
     const opts: CycleOptions = {
       phases,
