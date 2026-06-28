@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin surface — increment B2: the Agents provisioning page.** A new
+  `admin/src/pages/Agents.tsx` + sidebar nav: lists the tenant `source_grants`,
+  with modals to register a tenant source and provision a JWT-subject grant
+  (write source + comma-separated federated-read ids), and a per-row revoke.
+  Drives the already-shipped A2 endpoints (`/admin/api/grants`, `sources`,
+  `revoke-grant`) — no new backend. The reference's 633-line OAuth-client manager
+  is re-modeled to memex's `sources` + `source_grants` tenancy (same intent,
+  memex's shape), reusing the existing admin CSS. codex reviewed (no XSS — React
+  auto-escapes server data; a duplicate React-key LOW was fixed). Built into the
+  served SPA. The live feed pages (B3) are next.
+
 ## [1.32.0] — 2026-06-28
 
 ### Added
