@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin SSE live-activity feed (`/admin/events`) + Dashboard live tail.** A
+  faithful adaptation of the reference's `/admin/events`: `src/http/admin-events.ts`
+  adds a process-local pub/sub bus (capped at 50 concurrent streams, 25s
+  keepalive). Every MCP tool call publishes a REDACTED event (known-only
+  operation name, caller identity, latency, ok status — never raw params) from
+  the dispatch site, fire-and-forget so it can never block or fail the call. The
+  `GET /admin/events` route (requireAdmin-gated, `text/event-stream`) streams
+  them to each connected admin browser; the Dashboard's Live Activity table
+  consumes the feed via `EventSource`. Backpressured clients drop the frame (not
+  the connection); dead clients are evicted on first failed write. Reviewed by
+  codex + security-engineer: no CRITICAL/HIGH — hot-path-safe, redacted,
+  auth-gated, DoS-capped; the `agent` field is React-escaped on render.
+
 ## [1.35.0] — 2026-06-28
 
 ### Added
