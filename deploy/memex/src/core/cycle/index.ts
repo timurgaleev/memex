@@ -271,6 +271,47 @@ export interface CycleOptions {
   progress?: ProgressSink;
 }
 
+// Per-phase wall-clock deadline. A phase that hangs (e.g. a Bedrock/Nova call
+// with no client timeout) otherwise wedges the WHOLE tick: `await fn()` never
+// returns, the phase loop never advances, runCycleOnce never resolves, and the
+// cycle loop's `finally` never releases the db-lock — so the maintenance cycle
+// stalls until the lock TTL lapses and stays stuck every subsequent tick.
+// Default 15 min (generous for a large embed-stale backlog under its per-cycle
+// cap); `MEMEX_CYCLE_PHASE_TIMEOUT_MS=0` disables. A timed-out phase is recorded
+// as `fail` and the cycle proceeds to its remaining phases (incl. snapshot) and
+// releases the lock — liveness over the leaked in-flight work.
+function phaseTimeoutMs(): number {
+  const raw = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return 15 * 60 * 1000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 15 * 60 * 1000;
+}
+
+export function withPhaseTimeout<T>(
+  phase: PhaseName,
+  fn: () => Promise<T>,
+  ms: number = phaseTimeoutMs(),
+): Promise<T> {
+  if (ms <= 0) return fn();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`phase ${phase} timed out after ${ms}ms`)),
+      ms,
+    );
+    (timer as unknown as { unref?: () => void }).unref?.();
+    fn().then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function runPhase<T>(
   engine: Engine,
   phase: PhaseName,
@@ -280,7 +321,7 @@ async function runPhase<T>(
   const start = Date.now();
   progress({ kind: "phase", op: "cycle", phase, ts: start });
   try {
-    const detail = (await fn()) as PhaseResult["detail"];
+    const detail = (await withPhaseTimeout(phase, fn)) as PhaseResult["detail"];
     const status = deriveStatus(phase, detail);
     if (status === "warn") {
       progress({
