@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.28.0] — 2026-06-28
+
 ### Added
 - **Verb-context link-type inference core (`inferLinkType`).** A faithful port of
   the reference's deterministic (LLM-free) wikilink edge-typing: `inferLinkType`
