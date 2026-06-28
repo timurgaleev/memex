@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
+import { AgentsPage } from "./pages/Agents";
 import { api } from "./api";
 
-// B1 mounts Dashboard; Agents (B2) and the feed pages (B3) extend this union +
+// B1 mounted Dashboard; B2 adds Agents. The feed pages (B3) extend this union +
 // the sidebar as they land.
-type Page = "login" | "dashboard";
+type Page = "login" | "dashboard" | "agents";
 
 function getPage(): Page {
   const hash = window.location.hash.replace("#", "") || "dashboard";
-  return hash === "login" ? "login" : "dashboard";
+  if (hash === "login" || hash === "agents") return hash;
+  return "dashboard";
 }
 
 export function App() {
@@ -50,6 +52,9 @@ export function App() {
           <a className={`nav-item ${page === "dashboard" ? "active" : ""}`} onClick={() => navigate("dashboard")}>
             Dashboard
           </a>
+          <a className={`nav-item ${page === "agents" ? "active" : ""}`} onClick={() => navigate("agents")}>
+            Agents
+          </a>
         </div>
         <div style={{ marginTop: "auto", padding: "16px 12px", borderTop: "1px solid #1e1e2e" }}>
           <button
@@ -64,6 +69,7 @@ export function App() {
       </nav>
       <main className="main">
         {page === "dashboard" && <DashboardPage />}
+        {page === "agents" && <AgentsPage />}
       </main>
     </div>
   );

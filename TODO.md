@@ -96,9 +96,10 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     COPYs only `/admin/dist` → `/app/admin/dist`; `.dockerignore` keeps the
     context lean. codex reviewed (traversal string-prefix → boundary fix applied).
     The admin dashboard (Login + Dashboard) is now LIVE at `/admin`.
-  - [ ] **B2 — Agents page:** re-model the reference's 633-line OAuth-client
-    manager into a memex sources + grants provisioning UI over A2
-    (`/admin/api/sources`, `grants`, `revoke-grant`); add the nav item + page.
+  - [x] **B2 — Agents page (v1.33.0).** `admin/src/pages/Agents.tsx` + nav: lists
+    grants, register-source + provision-grant modals, per-row revoke — over the
+    A2 endpoints (no new backend). Reference's OAuth-client manager re-modeled to
+    memex sources/grants. codex reviewed (no XSS; dup-key LOW fixed).
   - [ ] **B3 — feed pages + A2b endpoints:** RequestLog (`/admin/api/requests`
     over `mcp_request_log`), JobsWatch (`/admin/api/jobs/watch`), Calibration,
     SSE `/admin/events` + the Dashboard live feed. Each page with its endpoint.
