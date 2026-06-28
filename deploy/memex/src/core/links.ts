@@ -18,6 +18,7 @@
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
+import { inferLinkType, edgeContextWindow } from "./link-verb-infer.ts";
 
 // Catalogue of well-known link types. Not a DB constraint -- extensible
 // at runtime. New types may be passed with `allowAdHocType: true`.
@@ -115,7 +116,12 @@ function normaliseConfidence(c: number | undefined): number {
   return c;
 }
 
-/** Edge derivation kind — see migration 029. */
+/** Edge derivation kind for the EXPLICIT `addLink` input — see migration 029.
+ *  NOTE: the DB CHECK also allows `'verb_ner'` (migration 053, prose
+ *  verb-inference), but that is an INTERNAL origin written only by
+ *  `syncVerbLinksForPage` via raw SQL — it is intentionally NOT a valid explicit
+ *  `addLink` input, so `normaliseLinkKind` still rejects it. Graph reads don't
+ *  project `link_kind`, so the narrower input type never mis-reads a verb_ner row. */
 export type LinkKind = "plain" | "typed_ner";
 /** Wikilink resolution form — see migration 029. */
 export type ResolutionType = "qualified" | "unqualified";
@@ -645,6 +651,97 @@ export async function syncWikilinksForPage(
            (source_slug, target_slug, type, inferred_confidence,
             link_kind, resolution_type${insCol})
          VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3${insVal})
+         ON CONFLICT (source_slug, target_slug, type) DO NOTHING
+         RETURNING (xmax = 0) AS inserted`,
+        insParams,
+      );
+      if (ins.rows[0]?.inserted) added += 1;
+    }
+    return { removed: del.rows[0]?.c ?? 0, added };
+  });
+}
+
+// --- Verb-context typed edges (migration 053, opt-in) ---------------------
+
+/** Confidence for a regex-inferred verb edge — below an explicit (1.0) or a
+ *  frontmatter typed edge, above noise. */
+const VERB_INFER_CONFIDENCE = 0.6;
+
+/**
+ * Derive typed edges (works_at / invested_in / founded / advises) from the prose
+ * around a page's `[[wikilinks]]` and persist them with `link_kind='verb_ner'`.
+ * A faithful adaptation of the reference's verb-context extraction, wired as a
+ * SEPARATE edge source (like gazetteer / typed-links) behind
+ * `MEMEX_LINK_VERB_INFER`. Opt-in, default OFF.
+ *
+ * Ownership: DELETE-replaces ONLY this source's `verb_ner` edges, so it never
+ * touches `plain` (wikilink + gazetteer) or `typed_ner` (frontmatter) edges. An
+ * inferred edge that collides with an explicit / frontmatter edge on the same
+ * (source, target, type) yields via `ON CONFLICT DO NOTHING`. The wikilink edge
+ * itself is left in place — this only ADDS the typed relationship; a hit whose
+ * prose carries no verb (`inferLinkType` → `mentions`) is skipped.
+ *
+ * `pageType` is the source page's type (drives the meeting/person prior). The
+ * per-edge context window is centred on the wikilink surface form (a 240-char
+ * radius; the first occurrence of the surface text — a generous window, so a
+ * verb a clause away from the mention is still caught).
+ *
+ * PRECISION CEILING (inherent to regex windowing, why this is opt-in + low-trust):
+ * the first-occurrence window can (a) miss a verb attached to a LATER mention of
+ * the same target (false negative), or (b) pull a verb belonging to an adjacent
+ * entity inside the wide radius (mislabel). The edges are stamped at confidence
+ * 0.6 with the `verb_ner` provenance so a consumer can treat them as soft
+ * signals, and the person→company role prior backstops verb-less mentions. This
+ * matches the reference's regex-NER precision class; an LLM pass would be the
+ * accuracy ceiling, out of memex's brain-only scope.
+ */
+export async function syncVerbLinksForPage(
+  storage: Storage,
+  sourceSlug: string,
+  pageType: string,
+  body: string,
+  sourceId?: string,
+): Promise<{ removed: number; added: number }> {
+  validateSlug(sourceSlug);
+  const scope = typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
+
+  const resolver = makeSlugResolver(storage, sourceSlug);
+  // target slug -> inferred type. First occurrence's context wins (stable);
+  // inferLinkType already encodes the verb precedence within a single window.
+  const byTarget = new Map<string, string>();
+  for (const surface of extractWikilinks(body)) {
+    const r = await resolver.resolve(surface);
+    if (r.slug === "unknown" || r.slug === sourceSlug) continue;
+    if (byTarget.has(r.slug)) continue;
+    const t = inferLinkType(pageType, edgeContextWindow(body, surface), body, r.slug);
+    if (t === "mentions") continue; // no typed upgrade — the wikilink edge already covers it
+    byTarget.set(r.slug, t);
+  }
+
+  const engine = storage.engine();
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $5" : "";
+  return engine.transaction(async (tx) => {
+    const delParams: unknown[] = [sourceSlug];
+    if (scope !== null) delParams.push(scope);
+    const del = await tx.query<{ c: number }>(
+      `WITH d AS (
+         DELETE FROM links
+          WHERE source_slug = $1 AND link_kind = 'verb_ner'${delScope}
+          RETURNING 1
+       )
+       SELECT COUNT(*)::int AS c FROM d`,
+      delParams,
+    );
+    let added = 0;
+    for (const [target, type] of byTarget) {
+      const insParams: unknown[] = [sourceSlug, target, type, VERB_INFER_CONFIDENCE];
+      if (scope !== null) insParams.push(scope);
+      const ins = await tx.query<{ inserted: boolean }>(
+        `INSERT INTO links
+           (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
+         VALUES ($1, $2, $3, $4, 'verb_ner'${insVal})
          ON CONFLICT (source_slug, target_slug, type) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,

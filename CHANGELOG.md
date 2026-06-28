@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Verb-context inference wired into the edge writer (`syncVerbLinksForPage`).**
+  Completes the v1.28.0 inference core: with `MEMEX_LINK_VERB_INFER=1` (default
+  OFF), a page write derives typed edges (`works_at` / `invested_in` / `founded`
+  / `advises`) from the prose around each `[[wikilink]]` and persists them.
+  Migration 053 widens the `links.link_kind` CHECK to add a distinct `verb_ner`
+  origin, so prose inference DELETE-replaces ONLY its own edge set — it never
+  touches `plain` (wikilink + gazetteer) or `typed_ner` (frontmatter typed-links)
+  edges, and yields to an explicit/frontmatter edge on the same
+  `(source, target, type)` via `ON CONFLICT DO NOTHING`. Wired as a separate
+  source after `syncTypedLinksForPage` at `page_put` / `page_append` /
+  `page_revert`. Reviewed: codex confirms the DELETE scoping is collision-free,
+  the CHECK swap is lock-safe on the single-connection boot apply, and the
+  yield-to-frontmatter loop is stable. `verb_ner` is an internal raw-SQL origin
+  (not a valid explicit `addLink` input). This closes the bare-wikilink +
+  verb-context backlog item — full reference link-extraction parity.
+
 ## [1.28.0] — 2026-06-28
 
 ### Added
