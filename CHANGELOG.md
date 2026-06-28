@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.27.0] — 2026-06-28
+
 ### Added
 - **Per-document chunker version (`chunker_version`).** A faithful port of the
   reference's `pages.chunker_version` re-chunk-on-bump detection, adapted to
