@@ -29,6 +29,7 @@ describe("doctor categorize", () => {
 
   it("KNOWN_CHECK_NAMES is the union of every category set", () => {
     expect([...KNOWN_CHECK_NAMES].sort()).toEqual([
+      "chunker-version-lag",
       "config",
       "index-spread",
       "links-extraction-lag",

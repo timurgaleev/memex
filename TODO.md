@@ -148,8 +148,20 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
     `holder_host`) — FAITHFUL to the reference; single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
-- [ ] Write `chunker_version`; `LINK_EXTRACTOR` bare-wikilink + verb-context
-  resolution.
+- [ ] `LINK_EXTRACTOR` bare-wikilink + verb-context resolution.
+  - [x] Write `chunker_version` — DONE (v1.27.0). Per-document
+    `documents.chunker_version` SMALLINT (migration 052, grandfather DEFAULT 1);
+    `MARKDOWN_CHUNKER_VERSION`/`CODE_CHUNKER_VERSION` consts (both 1); stamped in
+    the index UPSERT; `countStaleChunkerDocs` (kind-branched) + informational
+    `chunker-version-lag` doctor check. Reviewed: codex (no blockers) +
+    ai-engineer (faithful, no CRIT/HIGH; LOW two-kind-predicate + INFO detect-only
+    both documented). Cost-prompt not ported (Bedrock, not OpenAI). Distinct from
+    the inert `sources.chunker_version` source-level stub (mig024).
+  - [ ] **SHARED FOLLOW-UP (chunker_version + LINK_EXTRACTOR_VERSION):** one batch
+    re-process sweep so bumping either version constant auto-remediates instead of
+    detect-only. For chunker: reindex docs WHERE chunker_version < CURRENT (per
+    kind). For links: re-sync + re-stamp stale pages. Both are detect-only today
+    (doctor surfaces the backlog; only a natural write clears it).
   - [x] `LINK_EXTRACTOR_VERSION` staleness watermark — DONE (v1.26.0). Migration
     051 `pages.links_extracted_at`; `LINK_EXTRACTOR_VERSION_TS` +
     `stampLinksExtracted` (slug+source_id keyed) + `countStalePagesForExtraction`

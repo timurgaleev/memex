@@ -14,6 +14,7 @@
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
+import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
 import { isEmbedSkipped } from "./embed-skip.ts";
@@ -135,6 +136,7 @@ export async function indexDocument(
       frontmatter,
       mtimeMs: input.mtimeMs ?? null,
       embeddingModel: model,
+      chunkerVersion: MARKDOWN_CHUNKER_VERSION,
       sourceId: input.sourceId ?? null,
     },
     chunkWrites,

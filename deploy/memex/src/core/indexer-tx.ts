@@ -71,6 +71,13 @@ export interface DocumentWrite {
   /** Embedding model id (only meaningful when chunks carry vectors). */
   embeddingModel?: string | null;
   /**
+   * Chunker version that produced these chunks (migration 052) —
+   * MARKDOWN_CHUNKER_VERSION for markdown, CODE_CHUNKER_VERSION for code.
+   * Stamped onto `documents.chunker_version`; omitted → the column DEFAULT 1
+   * (the grandfather value) applies on insert and is preserved on reindex.
+   */
+  chunkerVersion?: number;
+  /**
    * Owning source (tenant). Stamped onto `documents.source_id` so search arms
    * scope results per tenant. Null/undefined → 'default' on a fresh insert and
    * leaves an existing row's source untouched on reindex (never clobbers a real
@@ -108,8 +115,8 @@ export async function writeDocumentTransaction(
 
   await engine.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, updated_at)
-       VALUES ($1, $6, $2, $3, $4::jsonb, $5, NOW())
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, updated_at)
+       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), NOW())
        ON CONFLICT (id) DO UPDATE SET
          -- Keep the existing source on reindex unless the caller passes one
          -- explicitly. A null write leaves classification to the path-prefix
@@ -119,6 +126,9 @@ export async function writeDocumentTransaction(
          title              = EXCLUDED.title,
          frontmatter        = EXCLUDED.frontmatter,
          last_indexed_mtime = EXCLUDED.last_indexed_mtime,
+         -- Re-index re-chunks under the CURRENT chunker, so advance the stamp;
+         -- a metadata-only re-put that omits the version preserves the prior one.
+         chunker_version    = COALESCE($7, documents.chunker_version),
          -- Per-document generation (migration 031) — Layer 2 of the query
          -- cache. A re-index bumps ONLY this document's counter, so the cache
          -- invalidates queries that reference this doc without touching
@@ -135,6 +145,7 @@ export async function writeDocumentTransaction(
         JSON.stringify(wellFormJsonbValue(doc.frontmatter)),
         doc.mtimeMs ?? null,
         doc.sourceId ?? null,
+        doc.chunkerVersion ?? null,
       ],
     );
 

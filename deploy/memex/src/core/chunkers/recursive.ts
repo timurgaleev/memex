@@ -18,6 +18,17 @@
 import { parseFrontmatter } from "../frontmatter.ts";
 export { parseFrontmatter };
 
+/**
+ * Markdown chunker version (migration 052). Stamped onto `documents.chunker_version`
+ * at index time. BUMP THIS whenever this splitter's logic changes in a way that
+ * should re-chunk + re-embed the existing markdown corpus — a document whose
+ * stamp is below the current value reads stale for the doctor `chunker-version-lag`
+ * check. Starts at 1 (the grandfather DEFAULT), so the first bump is what
+ * surfaces the re-chunk backlog. Faithful adaptation of the reference's
+ * MARKDOWN_CHUNKER_VERSION.
+ */
+export const MARKDOWN_CHUNKER_VERSION = 1;
+
 export interface ChunkerOptions {
   /** Soft upper bound per chunk in characters. Default ≈ 4000 chars (~1000 tokens). */
   maxChars?: number;
