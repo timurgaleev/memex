@@ -17,6 +17,7 @@ import type { Storage } from "../core/storage.ts";
 import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { logToolCall } from "./param-redaction.ts";
+import { logToolCallToDb } from "./request-log-db.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
@@ -237,6 +238,7 @@ async function handleSingle(
         );
       }
       try {
+        const startedAt = Date.now();
         const result = await dispatchTool(
           storage,
           { name: params.name, arguments: params.arguments },
@@ -245,6 +247,15 @@ async function handleSingle(
         // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
         // Names + counts + coarse size only — never raw param values.
         logToolCall(params.name, ctx.isPublic, params.arguments, !result.isError);
+        // Opt-in DB sink (MEMEX_REQUEST_LOG_DB) — feeds the admin Request Log
+        // page. Fire-and-forget + redacted; never blocks or fails the call.
+        logToolCallToDb(storage.engine(), {
+          tool: params.name,
+          agentName: ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal"),
+          latencyMs: Date.now() - startedAt,
+          ok: !result.isError,
+          params: params.arguments,
+        });
         return rpcOk(id, result);
       } catch (e) {
         // Defensive: dispatchTool already catches + sanitizes, but if it

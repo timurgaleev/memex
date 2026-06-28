@@ -11,21 +11,21 @@ import {
 
 describe("extractCandidates", () => {
   it("extracts a multi-token capitalized run", () => {
-    const out = extractCandidates("I met Ada Lovelace yesterday at the office.");
-    expect(out.map((c) => c.query)).toContain("Ada Lovelace");
+    const out = extractCandidates("I met Dana Reed yesterday at the office.");
+    expect(out.map((c) => c.query)).toContain("Dana Reed");
   });
 
   it("strips a trailing possessive", () => {
-    const out = extractCandidates("That is Ada's car.");
-    expect(out.map((c) => c.query)).toContain("Ada");
-    expect(out.map((c) => c.query)).not.toContain("Ada's");
+    const out = extractCandidates("That is Dana's car.");
+    expect(out.map((c) => c.query)).toContain("Dana");
+    expect(out.map((c) => c.query)).not.toContain("Dana's");
   });
 
   it("captures @handles without the @ in the query", () => {
-    const out = extractCandidates("ping @ada about it");
-    const c = out.find((x) => x.query === "ada");
+    const out = extractCandidates("ping @dana about it");
+    const c = out.find((x) => x.query === "dana");
     expect(c).toBeDefined();
-    expect(c?.display).toBe("@ada");
+    expect(c?.display).toBe("@dana");
   });
 
   it("drops hard stopwords even when capitalized at sentence start", () => {
@@ -50,9 +50,9 @@ describe("extractCandidates", () => {
     expect(out.map((c) => c.query)).not.toContain("X");
   });
 
-  it("dedupes on the normalized form (Ada vs ada)", () => {
-    const out = extractCandidates("Ada called. Then ada left.");
-    expect(out.filter((c) => c.query.toLowerCase() === "ada").length).toBe(1);
+  it("dedupes on the normalized form (Dana vs dana)", () => {
+    const out = extractCandidates("Dana called. Then dana left.");
+    expect(out.filter((c) => c.query.toLowerCase() === "dana").length).toBe(1);
   });
 
   it("caps at MAX_CANDIDATES", () => {
@@ -73,9 +73,9 @@ describe("extractCandidatesFromWindow", () => {
 
   it("merges occurrences across turns", () => {
     const out = extractCandidatesFromWindow(
-      turns(["user", "Tell me about Ada Lovelace"], ["assistant", "Ada Lovelace founded Acme"]),
+      turns(["user", "Tell me about Dana Reed"], ["assistant", "Dana Reed founded a startup"]),
     );
-    const c = out.find((x) => x.query === "Ada Lovelace");
+    const c = out.find((x) => x.query === "Dana Reed");
     expect(c?.occurrences).toBe(2);
   });
 

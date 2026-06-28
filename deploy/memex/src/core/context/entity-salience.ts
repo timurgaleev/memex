@@ -8,7 +8,7 @@
  * a wasted resolve and, worse, a misleading volunteered pointer.
  *
  * DELIBERATE limits (documented, not bugs):
- *   - Proper-case + ASCII biased. Misses lowercase names ("ada") and many
+ *   - Proper-case + ASCII biased. Misses lowercase names ("dana") and many
  *     non-Latin scripts.
  *   - extractCandidates is single-turn. extractCandidatesFromWindow widens
  *     extraction across the last N turns (assistant-introduced entities and
@@ -23,7 +23,7 @@
 import { normalizeAlias } from "../page-aliases.ts";
 
 export interface EntityCandidate {
-  /** Surface form for the pointer label, e.g. "Ada Lovelace" or "@ada". */
+  /** Surface form for the pointer label, e.g. "Dana Reed" or "@dana". */
   display: string;
   /** Text fed to normalizeAlias / slugify for resolution (no @, no possessive). */
   query: string;
@@ -81,7 +81,7 @@ const HANDLE_RE = /@([A-Za-z0-9_]{2,})/g;
 const CAP_TOKEN = "\\p{Lu}[\\p{L}0-9'\\u2019\\-]*(?:\\.\\p{L}[\\p{L}0-9'\\u2019\\-]*)*";
 const CAP_RUN_RE = new RegExp(`${CAP_TOKEN}(?:\\s+${CAP_TOKEN}){0,3}`, "gu");
 
-/** Strip a trailing possessive ("Ada's" -> "Ada", "Jones'" -> "Jones"). */
+/** Strip a trailing possessive ("Dana's" -> "Dana", "Jones'" -> "Jones"). */
 function stripPossessive(s: string): string {
   return s.replace(/['\u2019]s$/i, "").replace(/['\u2019]$/i, "");
 }
@@ -108,7 +108,7 @@ function isPureNumber(s: string): boolean {
 /**
  * Extract candidate entity surface-forms from one turn's text. Deterministic,
  * precision-biased, capped at MAX_CANDIDATES. Deduped on normalizeAlias()
- * (so "Ada" and "ada" collapse), first display wins.
+ * (so "Dana" and "dana" collapse), first display wins.
  */
 export function extractCandidates(text: string): EntityCandidate[] {
   if (!text || typeof text !== "string") return [];
