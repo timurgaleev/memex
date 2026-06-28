@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.43.0] — 2026-06-28
+
+### Fixed
+- **Per-phase cycle timeout — a hung maintenance phase can no longer wedge the
+  whole tick.** Found live after the v1.42.0 first-tick fix made the cycle run
+  again: a phase (the live tick stalled around `frontmatter-inference`) hung in
+  an `await` that never resolved — the phase loop never advanced, `runCycleOnce`
+  never returned, and the cycle loop's `finally` never released the db-lock, so
+  the cycle stalled (no snapshot, lock stuck past its TTL, healthy container).
+  `core/cycle/index.ts` now wraps each phase in `withPhaseTimeout` (default 15
+  min, `MEMEX_CYCLE_PHASE_TIMEOUT_MS=0` disables): a phase that exceeds the
+  deadline rejects, is recorded as a `fail`, and the cycle proceeds through its
+  remaining phases (including `snapshot`) and releases the lock — liveness over
+  the leaked in-flight work. Faithful to the reference's phase-level deadlines.
+  The underlying reason a specific phase hangs (likely a Bedrock/Nova call with
+  no client timeout) is a follow-up; this bounds the blast radius so one phase
+  never stalls the cycle again.
+
 ## [1.42.0] — 2026-06-28
 
 ### Fixed

@@ -33,16 +33,23 @@ shippable brain-only gaps found:
   just-ticked cycle can momentarily read WARN — make the warn default relative
   to the cycle interval (≈2×) or raise it; operator can set
   `MEMEX_CYCLE_FRESHNESS_WARN_HOURS=12` meanwhile.
-- [ ] **OPEN — cycle tick runs long without writing a snapshot (found via the
-  v1.42.0 deploy).** After the first-tick fix, the live catch-up tick held the
-  `memex-cycle` lock 11+ min, ran phases through frontmatter-inference, but did
-  NOT reach the (last) snapshot phase or log completion; `last_refreshed_at` had
-  not advanced at the 10-min refresher mark. Container stayed healthy (event loop
-  live → not a sync wedge). Likely a large Bedrock embed backlog after the 53h
-  gap, OR a late-phase hang. Next: confirm the snapshot eventually lands (lock
-  released, SNAP_COUNT rises) vs the lock TTL-expiring with no progress; if a
-  phase genuinely hangs, add per-phase timeouts (the reference has phase-level
-  deadlines). The `cycle-freshness` check is the standing detector.
+- [x] **Cycle tick wedged in a hung phase — FIXED (v1.43.0).** Confirmed a
+  late-phase hang (the live tick stalled ~`frontmatter-inference`, held the lock
+  >30 min past its TTL, never wrote a snapshot, container healthy = not a sync
+  wedge → a never-resolving `await`). `core/cycle/index.ts` `withPhaseTimeout`
+  (default 15 min, `MEMEX_CYCLE_PHASE_TIMEOUT_MS`) now bounds each phase so a
+  hung one fails and the cycle still reaches snapshot + releases the lock.
+  FOLLOW-UP (MEDIUM): root-cause WHICH phase hangs and WHY (likely a Bedrock/Nova
+  call with no client timeout) and thread an AbortSignal for true cancellation
+  instead of leaking the in-flight promise — the timeout is the blast-radius
+  bound, not the underlying fix. SCOPE NOTE (review): the timeout restores
+  liveness for a NETWORK hang (Bedrock park on `fetch`, holds no PGLite slot);
+  it does NOT free a phase wedged mid-`db.query` on the single PGLite connection
+  (the leaked query would re-block the next phase) — but a true DB hang on the
+  no-I/O WASM connection is implausible. LOW: confirm the Bedrock/Nova client
+  carries its own socket timeout so the leaked work actually rejects; add an
+  integration test asserting a timed-out earlier phase still yields a `snapshot`
+  PhaseResult + the lock row is released.
 - [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
   hung container (the reference's scenario is an unsupervised cron CLI), so
