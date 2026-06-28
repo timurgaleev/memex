@@ -63,12 +63,38 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
       read-only feed pages — `/admin/api/requests` (mcp_request_log),
       `/admin/api/jobs/watch`, calibration, SSE `/admin/events` — add as the SPA
       needs them.
-  - **B — admin SPA (frontend):** port the reference `admin/` Vite/React project
-    (App + main + api.ts + the 6 pages + scope-constants) into a memex `admin/`
-    dir; adapt the API base + scopes to memex; `vite build`.
-  - **C — embed + serve:** port `admin-embedded.ts` + `scripts/build-admin-embedded.ts`
-    (Bun `with { type: 'file' }` asset embed) and serve the SPA at `/admin` from
-    Bun.serve with SPA fallback.
+  - **B — admin SPA (frontend) — SCOPED, needs a focused frontend session.** The
+    reference `admin/` is a React 19 + Vite 6 project (~1860 lines: App, main,
+    api.ts, index.css 359, + 6 pages — Login 96, Dashboard 137, Agents 633,
+    RequestLog 150, Calibration 174, JobsWatch 174). Porting requires a new
+    frontend toolchain in this backend repo (`admin/package.json` React+Vite,
+    `bun install`, `vite build`) AND real DATA-SHAPE adaptation — the reference
+    SPA reads gBrain shapes (`stats`/`health`/SSE `/admin/events`/`oauth_clients`
+    register-client) that memex's A2 does NOT have; memex exposes `full-stats` +
+    `grants`/`sources`. So it is a faithful port of the STRUCTURE/design, with the
+    data layer + the Agents page re-modeled to memex `source_grants`. Sub-plan:
+    - **B1 — scaffold + Login + Dashboard:** `admin/` Vite project (package.json,
+      vite.config base `/admin/`, index.html, tsconfig, main.tsx, index.css
+      copied + renamed), `api.ts` adapted to A2 (`login`, `signOutEverywhere`,
+      `fullStats`→/admin/api/full-stats, `grants`, `registerSource`, `grant`,
+      `revokeGrant`), App.tsx sidebar, Login.tsx (rename GBrain→memex), Dashboard
+      reading `full-stats` (SSE feed deferred to A2b). Verify with `bun install`
+      + `vite build` → dist.
+    - **B2 — Agents page:** re-model the 633-line OAuth-client manager to memex's
+      sources + grants provisioning UI over A2 (`/admin/api/sources`, `grants`,
+      `revoke-grant`).
+    - **B3 — feed pages + A2b endpoints:** RequestLog (`/admin/api/requests` over
+      `mcp_request_log`), JobsWatch (`/admin/api/jobs/watch`), Calibration, SSE
+      `/admin/events`. Each page + its backend endpoint together.
+  - **C — embed + serve:** port `admin-embedded.ts` + a `build-admin-embedded.ts`
+    (Bun `with { type: 'file' }` asset embed), add the `vite build` step to the
+    Dockerfile, and serve the built SPA at `/admin` from Bun.serve with SPA
+    fallback (the `/admin*` dispatch in server.ts already has the seam).
+    NOTE: B + C add a frontend build to the Docker image — do them as ONE focused
+    frontend session (scaffold → build → embed → serve → live-verify the UI),
+    not fragmented, so the Docker build never lands half-wired. The admin is
+    already FUNCTIONAL headlessly via the `tenant` CLI + the A2 HTTP API; the SPA
+    is the UI layer on top.
 - [ ] **Live deploy is a separate gated step** — terraform ingress + RDS
   migration only on explicit operator "deploy".
 
