@@ -4,6 +4,7 @@
  * Loads config (created by `init`), opens PGLite, starts the server,
  * registers SIGINT/SIGTERM for graceful shutdown.
  */
+import { randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { startServer } from "../http/server.ts";
 import { loadConfig } from "../core/config.ts";
@@ -100,6 +101,16 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // the sole auth path (unchanged).
   if (config.auth?.oauth?.enabled === true) {
     serverOpts.oauthConfig = config.auth.oauth;
+  }
+  // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
+  // set; otherwise an ephemeral per-run token printed to stderr (lives only in
+  // the operator's terminal — never in a URL). Mounting the `/admin` auth routes
+  // either way keeps parity with the reference.
+  const adminBootstrap = process.env.MEMEX_ADMIN_BOOTSTRAP?.trim();
+  const adminToken = adminBootstrap && adminBootstrap.length > 0 ? adminBootstrap : randomBytes(24).toString("hex");
+  serverOpts.adminBootstrapToken = adminToken;
+  if (!adminBootstrap) {
+    console.error(`[memex] admin bootstrap token (ephemeral, this run only): ${adminToken}`);
   }
   const server = startServer(serverOpts);
 

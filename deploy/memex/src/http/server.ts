@@ -27,6 +27,7 @@ import { verifyOAuthToken } from "./oauth.ts";
 import type { OAuthConfig } from "./oauth.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
+import { createAdminAuth, type AdminAuth } from "./admin.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 /**
@@ -84,6 +85,14 @@ export interface ServerOptions {
    * (redacted) scope only — never internal.
    */
   oauthConfig?: OAuthConfig;
+  /**
+   * Admin surface bootstrap token (increment A1). When set, the `/admin` auth
+   * routes are mounted: the operator/agent uses this token to log in or mint a
+   * magic link. Omitted → no admin surface.
+   */
+  adminBootstrapToken?: string;
+  /** Public base URL for minted admin magic-links (falls back to the request host). */
+  publicUrl?: string;
 }
 
 export interface ServerHandle {
@@ -108,6 +117,14 @@ export function startServer(opts: ServerOptions): ServerHandle {
 
   const guardOpts: { bearerToken?: string } = {};
   if (opts.publicBearerToken) guardOpts.bearerToken = opts.publicBearerToken;
+
+  let adminAuth: AdminAuth | null = null;
+  if (opts.adminBootstrapToken && opts.adminBootstrapToken.length > 0) {
+    adminAuth = createAdminAuth({
+      bootstrapToken: opts.adminBootstrapToken,
+      ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
+    });
+  }
   const internalAuthOpts: { internalToken?: string } = {};
   if (opts.internalToken) {
     internalAuthOpts.internalToken = opts.internalToken;
@@ -189,6 +206,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
           internalAuthOk: ia.allow,
           ...(oauthAuth !== undefined ? { authInfo: oauthAuth } : {}),
         });
+      }
+      if (adminAuth && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
+        // A1: auth routes only. Data endpoints (A2) + the embedded SPA (B/C)
+        // dispatch here later; for now an authed non-auth path is a 404.
+        const r = await adminAuth.handleAuthRoute(req, url);
+        if (r) return r;
       }
       return new Response("Not Found", { status: 404 });
     },

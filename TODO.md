@@ -47,14 +47,19 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   express → memex's Bun.serve. memex already has the provisioning FUNCTIONAL core
   (`tenant` CLI: add/grant/list/revoke); this adds the web surface over it. Three
   serial increments (ship each):
-  - **A — admin HTTP API + auth (backend):** port the 23 routes onto Bun.serve —
-    `requireAdmin` middleware, cookie parsing, magic-link auth (`POST /admin/login`,
-    `POST /admin/api/issue-magic-link`, `GET /admin/auth/:nonce`, nonce TTL +
-    rate-limiter), the `/admin/api/*` data endpoints (full-stats, clients/agents
-    list = tenant list, registerClientManual = tenant add, mint/revoke grants),
-    SSE `/admin/events`. Reference: `src/commands/serve-http.ts` (the `/admin`
-    block) + `oauth-provider.ts` registerClientManual. Foundation — usable via API
-    alone. START HERE.
+  - **A — admin HTTP API + auth (backend):**
+    - [x] **A1 — auth core (v1.30.0).** `http/admin.ts` `createAdminAuth`:
+      `/admin/login`, `/admin/api/issue-magic-link`, `/admin/auth/:nonce`,
+      `/admin/api/sign-out-everywhere` + `requireAdmin`; in-memory sessions +
+      single-use magic-link nonces; HttpOnly/SameSite=Strict cookie; public-guard
+      `/admin*` bypass; bootstrap token from `MEMEX_ADMIN_BOOTSTRAP`/ephemeral.
+      codex + security-engineer reviewed (MEDIUM login rate-limit + LOWs fixed).
+    - [ ] **A2 — data + provisioning endpoints:** the `/admin/api/*` routes
+      (full-stats, `/admin/api/agents`=tenant/clients list, register-client=tenant
+      add, update-client-ttl, revoke-client=revoke grant, requests, jobs/watch,
+      calibration, SSE `/admin/events`). EACH must call `requireAdmin` itself (the
+      public guard no longer protects `/admin*`). Reference: serve-http.ts
+      `/admin/api/*` block + oauth-provider.ts registerClientManual.
   - **B — admin SPA (frontend):** port the reference `admin/` Vite/React project
     (App + main + api.ts + the 6 pages + scope-constants) into a memex `admin/`
     dir; adapt the API base + scopes to memex; `vite build`.

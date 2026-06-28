@@ -221,6 +221,13 @@ export function evaluatePublicGuard(
     return { allow: true, isPublic: true };
   }
 
+  // Admin surface — carries its OWN cookie + magic-link auth (http/admin.ts),
+  // so the public bearer guard lets it through; the admin handler enforces the
+  // session / bootstrap token / nonce on every route itself.
+  if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    return { allow: true, isPublic: true };
+  }
+
   if (
     FORBIDDEN_PATHS_FROM_PUBLIC.has(url.pathname) &&
     !publicWriteAllowed()

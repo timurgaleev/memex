@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin surface — increment A1: cookie + magic-link auth.** First slice of the
+  full admin-surface port (operator: same as the reference). `src/http/admin.ts`
+  (`createAdminAuth`) mounts the `/admin` auth routes on Bun.serve, a faithful
+  express→Bun adaptation: `POST /admin/login` (bootstrap token → constant-time
+  `sha256` compare → 24h session cookie), `POST /admin/api/issue-magic-link`
+  (`Authorization: Bearer <bootstrap>` → a 5-minute single-use nonce URL),
+  `GET /admin/auth/:nonce` (single-use redemption → 7d session + redirect),
+  `POST /admin/api/sign-out-everywhere`, and a `requireAdmin` check. Sessions +
+  nonces are in-memory (LRU-capped); the cookie is HttpOnly + SameSite=Strict +
+  conditional-Secure. The public bearer guard exempts `/admin*` (admin carries
+  its own auth); `serve.ts` mints the bootstrap token from `MEMEX_ADMIN_BOOTSTRAP`
+  or an ephemeral per-run value. Reviewed by codex + security-engineer: no
+  CRITICAL/HIGH; the MEDIUM (rate-limit `/admin/login`) and LOWs (cf-connecting-ip
+  rate key, malformed-nonce 401-not-500) were fixed. Increments A2 (data +
+  provisioning endpoints), B (the SPA), and C (embed + serve) follow.
+
 ## [1.29.0] — 2026-06-28
 
 ### Added
