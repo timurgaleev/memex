@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import { indexFile } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
+import { listStaleChunkerDocIds } from "./chunker-version.ts";
 
 export interface SweepOptions {
   /** Filesystem root of the vault. */
@@ -35,6 +36,13 @@ export interface SweepOptions {
    * 50 docs to test") without committing to the whole vault.
    */
   maxFiles?: number;
+  /**
+   * Force-reindex documents whose stamped `chunker_version` is below the
+   * current value for their kind (migration 052), even when mtime is
+   * unchanged — the targeted half of `reindex --rechunk-stale`. Re-chunks +
+   * re-embeds only the stale set, not the whole corpus (which `force` would).
+   */
+  forceStaleChunker?: boolean;
 }
 
 export interface SweepResult {
@@ -42,6 +50,14 @@ export interface SweepResult {
   reindexed: number;
   skipped: number;
   errors: { path: string; message: string }[];
+  /**
+   * `forceStaleChunker` only: ids of chunker-stale documents that the walk never
+   * reached (file deleted/moved from the vault, under an ignored dir, or indexed
+   * from a path outside this vault root). They stay stale until their file
+   * reappears or they are purged — surfaced here so the run signals the gap
+   * instead of silently reporting success.
+   */
+  staleChunkerUnreached?: string[];
 }
 
 const DEFAULT_IGNORES = [
@@ -92,8 +108,16 @@ export async function sweepVault(
     known.set(r.id, r.last_indexed_mtime);
   }
 
+  // Targeted re-chunk: the ids whose chunks predate the current chunker
+  // version. A walked file in this set is re-indexed regardless of mtime.
+  const staleChunkerIds = opts.forceStaleChunker
+    ? await listStaleChunkerDocIds(storage.raw())
+    : null;
+  const seenStaleIds = staleChunkerIds ? new Set<string>() : null;
+
   const perFileDelayMs = Math.max(0, opts.perFileDelayMs ?? 0);
   const maxFiles = opts.maxFiles ?? Number.POSITIVE_INFINITY;
+  let budgetBroke = false;
 
   for (const file of walkFiles(opts.vault, {
     extensions: [".md"],
@@ -102,8 +126,11 @@ export async function sweepVault(
     result.scanned++;
     const id = docId(file.path);
     const lastIndexed = known.get(id) ?? null;
+    const forcedByChunker = staleChunkerIds?.has(id) ?? false;
+    if (forcedByChunker) seenStaleIds!.add(id);
     if (
       !opts.force &&
+      !forcedByChunker &&
       lastIndexed !== null &&
       lastIndexed >= file.mtimeMs
     ) {
@@ -113,6 +140,7 @@ export async function sweepVault(
     if (result.reindexed >= maxFiles) {
       // Budget exhausted — stop walking. Subsequent scans will pick up where
       // we left off (since last_indexed_mtime gets written on each success).
+      budgetBroke = true;
       break;
     }
     try {
@@ -127,6 +155,13 @@ export async function sweepVault(
     if (perFileDelayMs > 0) {
       await new Promise((res) => setTimeout(res, perFileDelayMs));
     }
+  }
+
+  // Only meaningful on a COMPLETE walk: a maxFiles break leaves later stale
+  // files unwalked-but-not-orphaned (they resume next run), so don't flag them.
+  if (staleChunkerIds && seenStaleIds && !budgetBroke) {
+    const unreached = [...staleChunkerIds].filter((id) => !seenStaleIds.has(id));
+    if (unreached.length > 0) result.staleChunkerUnreached = unreached;
   }
 
   return result;

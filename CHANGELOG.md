@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.39.0] — 2026-06-28
+
+### Added
+- **`memex reindex --rechunk-stale` — targeted chunker-version remediation.**
+  Completes the chunker half of the shared version-watermark follow-up (the link
+  half shipped in v1.38.0). A `chunker_version` bump (migration 052) was
+  DETECT-ONLY: the doctor `chunker-version-lag` count rose but only a natural
+  reindex cleared it, and `reindex --all` re-embeds the WHOLE corpus.
+  `--rechunk-stale` re-indexes ONLY the documents whose stamped
+  `chunker_version` is below the current value for their kind — re-chunking +
+  re-embedding just the stale subset. `listStaleChunkerDocIds` (sharing the
+  `countStaleChunkerDocs` predicate so the two never drift) feeds a
+  `forceStaleChunker` mode in `sweepVault`: a walked vault file whose document
+  is stale is re-indexed regardless of mtime, which re-stamps the current
+  version and clears staleness. Stack adaptation vs the reference (which
+  re-imports from stored `pages.compiled_truth`): memex stores no full document
+  body (only `chunks.content`), so remediation re-reads the source file from the
+  vault — `--rechunk-stale` targets the subset worth re-reading. Operator-
+  triggered (no surprise Bedrock cost); markdown/vault only (the code corpus is
+  a follow-up). Inert until a chunker constant is bumped (both are 1 today).
+
 ## [1.38.0] — 2026-06-28
 
 ### Added

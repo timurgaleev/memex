@@ -27,6 +27,13 @@ export interface ReindexCommandOptions {
   source?: "vault" | "code" | "all";
   /** CSV of code roots; overrides MEMEX_CODE_PATHS env var. */
   codePaths?: string;
+  /**
+   * Also re-index documents whose chunker_version is below current (mig 052),
+   * re-chunking + re-embedding the stale set on top of the normal mtime-due
+   * sweep. Auto-remediates a chunker constant bump without the full-corpus
+   * re-embed `--all` triggers.
+   */
+  rechunkStale?: boolean;
 }
 
 interface VaultReindexResult {
@@ -84,6 +91,7 @@ export async function runReindex(
         const result = await sweepVault(storage, {
           vault,
           force: opts.all ?? false,
+          forceStaleChunker: opts.rechunkStale ?? false,
         });
         out.push({ kind: "vault", vault, result });
       }

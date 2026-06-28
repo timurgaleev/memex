@@ -250,11 +250,14 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     ai-engineer (faithful, no CRIT/HIGH; LOW two-kind-predicate + INFO detect-only
     both documented). Cost-prompt not ported (Bedrock, not OpenAI). Distinct from
     the inert `sources.chunker_version` source-level stub (mig024).
-  - [ ] **SHARED FOLLOW-UP (chunker_version + LINK_EXTRACTOR_VERSION):** one batch
-    re-process sweep so bumping either version constant auto-remediates instead of
-    detect-only. LINKS HALF DONE (v1.38.0, `memex extract --stale`). CHUNKER half
-    remains: reindex docs WHERE chunker_version < CURRENT (per kind) — more
-    invasive (re-chunk + re-embed), a separate increment.
+  - [x] **SHARED FOLLOW-UP (chunker_version + LINK_EXTRACTOR_VERSION) — DONE.**
+    Both halves auto-remediate now instead of detect-only. LINKS: v1.38.0
+    (`memex extract --stale`). CHUNKER: v1.39.0 (`memex reindex --rechunk-stale`)
+    — `listStaleChunkerDocIds` + `sweepVault({forceStaleChunker})` re-index ONLY
+    stale docs (re-chunk + re-embed the subset, not `--all`'s whole corpus).
+    Stack note: memex stores no full doc body, so it re-reads the source file
+    (vault). FOLLOW-UP (LOW): extend `--rechunk-stale` to the code corpus
+    (`sweepCodeRoots`) — markdown/vault only today; code is ~0 live chunks.
   - [x] `LINK_EXTRACTOR_VERSION` staleness watermark — DONE (v1.26.0). Migration
     051 `pages.links_extracted_at`; `LINK_EXTRACTOR_VERSION_TS` +
     `stampLinksExtracted` (slug+source_id keyed) + `countStalePagesForExtraction`

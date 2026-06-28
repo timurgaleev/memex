@@ -22,6 +22,15 @@ import type { Engine } from "./engine/interface.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import { CODE_CHUNKER_VERSION } from "./chunkers/code.ts";
 
+// The kind-branched staleness predicate, shared by the count + the id list so
+// the two never drift. $1 = CODE_CHUNKER_VERSION, $2 = MARKDOWN_CHUNKER_VERSION.
+const STALE_CHUNKER_WHERE = `d.deleted_at IS NULL
+        AND (
+          (COALESCE(d.frontmatter->>'kind','') = 'code'  AND d.chunker_version < $1)
+          OR
+          (COALESCE(d.frontmatter->>'kind','') <> 'code' AND d.chunker_version < $2)
+        )`;
+
 /**
  * Count live documents whose chunks predate the current chunker version for
  * their kind. Single engine.query (no postgres/PGLite branch). Soft-deleted
@@ -29,15 +38,24 @@ import { CODE_CHUNKER_VERSION } from "./chunkers/code.ts";
  */
 export async function countStaleChunkerDocs(engine: Engine): Promise<number> {
   const r = await engine.query<{ n: number }>(
-    `SELECT count(*)::int AS n
-       FROM documents d
-      WHERE d.deleted_at IS NULL
-        AND (
-          (COALESCE(d.frontmatter->>'kind','') = 'code'  AND d.chunker_version < $1)
-          OR
-          (COALESCE(d.frontmatter->>'kind','') <> 'code' AND d.chunker_version < $2)
-        )`,
+    `SELECT count(*)::int AS n FROM documents d WHERE ${STALE_CHUNKER_WHERE}`,
     [CODE_CHUNKER_VERSION, MARKDOWN_CHUNKER_VERSION],
   );
   return r.rows[0]?.n ?? 0;
+}
+
+/**
+ * The document ids of live chunker-stale documents. Used by `reindex
+ * --rechunk-stale` to force-reindex ONLY these (re-chunk + re-embed just the
+ * stale set, not the whole corpus). The id matches `docId(source_path)`, so the
+ * vault sweep can test membership per walked file. memex can't re-chunk from the
+ * DB (documents store no full body — only `chunks.content`), so remediation
+ * re-reads the source file; this targets the subset worth re-reading.
+ */
+export async function listStaleChunkerDocIds(engine: Engine): Promise<Set<string>> {
+  const r = await engine.query<{ id: string }>(
+    `SELECT d.id FROM documents d WHERE ${STALE_CHUNKER_WHERE}`,
+    [CODE_CHUNKER_VERSION, MARKDOWN_CHUNKER_VERSION],
+  );
+  return new Set(r.rows.map((row) => row.id));
 }
