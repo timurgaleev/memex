@@ -20,6 +20,16 @@
  *     escalates parse errors to a per-file warning.
  */
 import { getParser, parseWithBudget, type CodeLanguage } from "./parsers.ts";
+
+/**
+ * Code chunker version (migration 052). Stamped onto `documents.chunker_version`
+ * for code documents. BUMP THIS whenever the symbol-splitting logic changes in a
+ * way that should re-chunk the existing code corpus. Independent of
+ * MARKDOWN_CHUNKER_VERSION — the stale check branches on document kind. Starts at
+ * 1 (the grandfather DEFAULT). Faithful adaptation of the reference's
+ * code-chunker CHUNKER_VERSION.
+ */
+export const CODE_CHUNKER_VERSION = 1;
 import type { Node as TSNode } from "web-tree-sitter";
 
 export type SymbolKind =

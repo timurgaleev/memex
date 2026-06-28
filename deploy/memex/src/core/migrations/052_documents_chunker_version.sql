@@ -1,0 +1,17 @@
+-- 052_documents_chunker_version.sql — per-document chunker version stamp.
+--
+-- Records which chunker version split a document into its chunks. When the
+-- chunker logic changes (MARKDOWN_CHUNKER_VERSION / CODE_CHUNKER_VERSION in
+-- src/core/chunkers/*.ts is bumped), documents whose stamp predates the current
+-- version are STALE — re-indexing them would re-chunk + re-embed under the new
+-- splitter. See countStaleChunkerDocs (src/core/chunker-version.ts) and the
+-- doctor `chunker-version-lag` check.
+--
+-- Distinct from the inert `sources.chunker_version TEXT` stub (migration 024),
+-- which is the SOURCE-level sync gate — a different axis, untouched here.
+--
+-- GRANDFATHER: DEFAULT 1. Every existing document reads version 1; since both
+-- chunker constants START at 1, nothing is spuriously stale on upgrade — the
+-- first real bump is what surfaces the re-chunk backlog. PGLite-safe: ADD COLUMN
+-- with a constant DEFAULT is metadata-only on Postgres 11+ / PGLite 17.5.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS chunker_version SMALLINT NOT NULL DEFAULT 1;

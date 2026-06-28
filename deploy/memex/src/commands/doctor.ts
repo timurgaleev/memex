@@ -18,6 +18,7 @@ import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
+import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -180,6 +181,25 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     } catch (e) {
       checks.push({
         name: "links-extraction-lag",
+        ok: true,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Chunker-version lag (migration 052). Informational (ok:true): documents
+    // chunked under an older chunker version would re-chunk + re-embed on the
+    // next reindex. Zero until a chunker constant is bumped (every doc starts at
+    // the grandfather version 1).
+    try {
+      const stale = await countStaleChunkerDocs(storage.raw());
+      checks.push({
+        name: "chunker-version-lag",
+        ok: true,
+        detail: `${stale} document(s) stale for re-chunk (chunker version bumped)`,
+      });
+    } catch (e) {
+      checks.push({
+        name: "chunker-version-lag",
         ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });

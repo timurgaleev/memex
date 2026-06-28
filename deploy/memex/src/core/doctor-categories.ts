@@ -28,6 +28,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "index-spread",
   "source-health",
   "links-extraction-lag",
+  "chunker-version-lag",
 ]);
 
 /** Infrastructure / setup — "can the brain run here at all?" */

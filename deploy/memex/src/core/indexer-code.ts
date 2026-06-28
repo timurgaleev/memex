@@ -11,7 +11,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
-import { chunkCode } from "./chunkers/code.ts";
+import { chunkCode, CODE_CHUNKER_VERSION } from "./chunkers/code.ts";
 import { languageForFile, type CodeLanguage } from "./chunkers/parsers.ts";
 import { extractCodeEntities } from "./code-entities.ts";
 import {
@@ -151,6 +151,7 @@ export async function indexCodeDocument(
       frontmatter: { language, kind: "code" },
       mtimeMs: input.mtimeMs ?? null,
       embeddingModel: null,
+      chunkerVersion: CODE_CHUNKER_VERSION,
     },
     chunkWrites,
   );

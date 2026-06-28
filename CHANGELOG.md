@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-document chunker version (`chunker_version`).** A faithful port of the
+  reference's `pages.chunker_version` re-chunk-on-bump detection, adapted to
+  memex's document/chunk model. Migration 052 adds
+  `documents.chunker_version SMALLINT NOT NULL DEFAULT 1` (grandfather: every
+  existing doc reads version 1). `MARKDOWN_CHUNKER_VERSION` (recursive.ts) and
+  `CODE_CHUNKER_VERSION` (code.ts) — both start at 1; bump one when its splitter
+  logic changes to mark the affected corpus for re-chunk + re-embed. The version
+  is stamped onto the document in the index UPSERT (a reindex re-chunks under the
+  current splitter and advances the stamp; a metadata-only re-put preserves it).
+  `core/chunker-version.ts` `countStaleChunkerDocs` counts documents below the
+  current version for their kind (the predicate branches on
+  `frontmatter->>'kind' = 'code'` — independent markdown/code namespaces), and a
+  new informational `chunker-version-lag` doctor check surfaces the backlog
+  (ok:true). Stack adaptation: single `engine.query`; the reference's OpenAI
+  cost-prompt is not ported (memex is Bedrock). Distinct from the inert
+  source-level `sources.chunker_version` stub (migration 024), left untouched.
+
 ## [1.26.0] — 2026-06-27
 
 ### Added
