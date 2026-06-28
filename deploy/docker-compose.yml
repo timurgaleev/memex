@@ -21,7 +21,7 @@ services:
     # not a kernel global-OOM that kills an arbitrary process (Postgres client,
     # cloudflared) and strands the cycle lock. Tunable via the host .env; leaves
     # headroom for cloudflared + the system on a small instance.
-    mem_limit: ${MEMEX_MEM_LIMIT:-2600m}
+    mem_limit: ${MEMEX_MEM_LIMIT:-3000m}
     security_opt:
       - no-new-privileges:true
     cap_drop:
