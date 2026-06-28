@@ -53,6 +53,7 @@ import {
 } from "../core/links.ts";
 import { syncMentionsForPage } from "../core/gazetteer.ts";
 import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts";
+import { bumpLastRetrievedAt } from "../core/last-retrieved.ts";
 import { linkVerbInferEnabled } from "../core/link-verb-infer.ts";
 import {
   indexPageIntoSearch,
@@ -801,6 +802,12 @@ async function callPageGet(
   }
   const page = await getPage(storage, args["slug"], readSources && readSources.length ? readSources : undefined);
   if (!page) return errResult(`page not found: ${args["slug"]}`);
+  // Retrieval write-back (mig 024): a user just surfaced this page — bump the
+  // last_retrieved_at signal the context-volunteer "used" stat reads. Throttled
+  // + best-effort; awaited because memex is single-holder (no fire-and-forget
+  // drain needed). page_get is the unambiguous page-surface op; search hits are
+  // chunk/document-level and don't carry a page slug, so they don't feed it.
+  await bumpLastRetrievedAt(storage.engine(), [page.slug], page.source_id);
   return jsonResult({
     ok: true,
     page: redact ? redactBody(page as unknown as Record<string, unknown>) : page,

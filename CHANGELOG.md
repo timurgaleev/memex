@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.40.0] — 2026-06-28
+
+### Fixed
+- **`pages.last_retrieved_at` write-back — the missing producer for the
+  context-volunteer "used" stat.** Migration 024 added `last_retrieved_at` and
+  `core/context/volunteer.ts` consumes it (the `stats:true` per-arm precision
+  feedback derives `used` from `pages.last_retrieved_at > volunteered_at`), but
+  nothing ever wrote the column — so it stayed NULL and the `used` count was
+  structurally always 0. `core/last-retrieved.ts` `bumpLastRetrievedAt` now
+  stamps `last_retrieved_at = NOW()` when the `page_get` op surfaces a page,
+  making the volunteer precision feedback real. Faithful adaptation of the
+  reference's producer: 5-minute throttle (a hot page surfaced by many fetches
+  doesn't pile up MVCC row versions), best-effort (any failure is swallowed with
+  a warn — the op result is never affected), default-on with a
+  `MEMEX_TRACK_RETRIEVAL=0` opt-out. Stack adaptations: keyed on the `slug` PK
+  (the reference uses a numeric id; the consumer joins on slug); awaited in the
+  op handler rather than fire-and-forget (memex is single-holder, so it sidesteps
+  the reference's PGLite dangling-promise drain apparatus for negligible added
+  latency). `page_get` is the only call site — search hits are chunk/document-
+  level and carry no page slug, so they don't feed the page-level signal.
+
 ## [1.39.0] — 2026-06-28
 
 ### Added
