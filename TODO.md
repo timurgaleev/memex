@@ -54,12 +54,15 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
       single-use magic-link nonces; HttpOnly/SameSite=Strict cookie; public-guard
       `/admin*` bypass; bootstrap token from `MEMEX_ADMIN_BOOTSTRAP`/ephemeral.
       codex + security-engineer reviewed (MEDIUM login rate-limit + LOWs fixed).
-    - [ ] **A2 — data + provisioning endpoints:** the `/admin/api/*` routes
-      (full-stats, `/admin/api/agents`=tenant/clients list, register-client=tenant
-      add, update-client-ttl, revoke-client=revoke grant, requests, jobs/watch,
-      calibration, SSE `/admin/events`). EACH must call `requireAdmin` itself (the
-      public guard no longer protects `/admin*`). Reference: serve-http.ts
-      `/admin/api/*` block + oauth-provider.ts registerClientManual.
+    - [x] **A2 — data + provisioning endpoints (v1.31.0).** `http/admin-api.ts`:
+      `GET /admin/api/full-stats` (health + counts), `GET /admin/api/grants`,
+      `POST /admin/api/sources` (= tenant add), `POST /admin/api/grants` (= tenant
+      grant), `POST /admin/api/revoke-grant`. Wraps the same provisioning core the
+      CLI uses; single requireAdmin gate + per-route defense-in-depth. codex +
+      security-engineer reviewed (LOWs fixed). FOLLOW-UP (A2b, optional): the
+      read-only feed pages — `/admin/api/requests` (mcp_request_log),
+      `/admin/api/jobs/watch`, calibration, SSE `/admin/events` — add as the SPA
+      needs them.
   - **B — admin SPA (frontend):** port the reference `admin/` Vite/React project
     (App + main + api.ts + the 6 pages + scope-constants) into a memex `admin/`
     dir; adapt the API base + scopes to memex; `vite build`.

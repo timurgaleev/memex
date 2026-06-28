@@ -28,6 +28,7 @@ import type { OAuthConfig } from "./oauth.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
+import { handleAdminApi } from "./admin-api.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 /**
@@ -208,10 +209,15 @@ export function startServer(opts: ServerOptions): ServerHandle {
         });
       }
       if (adminAuth && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
-        // A1: auth routes only. Data endpoints (A2) + the embedded SPA (B/C)
-        // dispatch here later; for now an authed non-auth path is a 404.
+        // A1 auth routes, then A2 data/provisioning routes (each gates on
+        // requireAdmin itself). The embedded SPA (B/C) dispatches here later.
         const r = await adminAuth.handleAuthRoute(req, url);
         if (r) return r;
+        const r2 = await handleAdminApi(req, url, {
+          storage: opts.storage,
+          requireAdmin: adminAuth.requireAdmin,
+        });
+        if (r2) return r2;
       }
       return new Response("Not Found", { status: 404 });
     },

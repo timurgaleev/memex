@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin surface — increment A2: data + provisioning endpoints.** The
+  `/admin/api/*` routes the admin SPA reads, on Bun.serve (`src/http/admin-api.ts`).
+  Faithful to the reference's admin API in shape, adapted to memex's tenancy
+  model — the reference provisions OAuth `oauth_clients`; memex provisions tenant
+  `sources` + JWT-subject `source_grants`, so the handlers wrap the SAME
+  provisioning core the `tenant` CLI uses (`core/sources.ts`,
+  `core/tenant-grants.ts`) plus the brain stats: `GET /admin/api/full-stats`
+  (brain health + corpus counts), `GET /admin/api/grants` (list), `POST
+  /admin/api/sources` (register a tenant source), `POST /admin/api/grants`
+  (provision a subject grant), `POST /admin/api/revoke-grant`. A single
+  `requireAdmin` gate fronts the whole surface before any engine work, with
+  per-route checks kept as defense-in-depth. Reviewed by codex +
+  security-engineer: no CRITICAL/HIGH; the LOWs (generic 500 instead of leaking
+  SQL error text, strict `read[]` validation, auth-before-engine) were fixed.
+  Increment B (the SPA) and C (embed + serve) follow.
+
 ## [1.30.0] — 2026-06-28
 
 ### Added
