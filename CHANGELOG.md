@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.32.0] — 2026-06-28
+
 ### Added
 - **Admin surface — the dashboard is live at `/admin` (increments B1 + C).** The
   Vite/React admin SPA (`admin/`, React 19 + Vite 6) now builds in a dedicated
