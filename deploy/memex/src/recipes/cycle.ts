@@ -40,6 +40,13 @@ export interface CycleHandle {
 const DEFAULT_QUIET_START = 6;
 const DEFAULT_QUIET_END = 8;
 
+// Cycle-lock TTL, minutes. 5 (not 30) so a crashed or cross-host holder's row
+// TTL-expires within 5 min and the next tick's host-agnostic tryAcquireDbLock
+// upsert reclaims it — instead of a dead container's lock blocking the cycle for
+// the full 30 min. Healthy long runs stay alive via the sub-TTL refresher (every
+// 30s). Mirrors the reference's drop from 30→5 min + active in-phase refresh.
+const LOCK_TTL_MINUTES = 5;
+
 // The first tick fires after THIS short delay (boot CPU headroom), not the full
 // interval. A long `intervalMs` (e.g. the 6h prod default) deferred the first
 // tick a full interval, and every container recreation (deploy / OOM restart)
@@ -92,6 +99,17 @@ function isInQuietHours(
   if (!Number.isFinite(hour)) return false;
   if (startHour < endHour) return hour >= startHour && hour < endHour;
   return hour >= startHour || hour < endHour;
+}
+
+/**
+ * Delay before the NEXT tick. A skipped (lock-contended) tick retries within the
+ * TTL window so a crashed cross-host holder doesn't stall the cycle a full
+ * interval; a tick that ran re-arms at the normal interval.
+ */
+export function nextTickDelayMs(intervalMs: number, skipped: boolean): number {
+  return skipped
+    ? Math.min(intervalMs, LOCK_TTL_MINUTES * 60 * 1000)
+    : intervalMs;
 }
 
 /** Parse the `MEMEX_CYCLE_SKIP_PHASES` CSV into a phase-name set. */
@@ -155,22 +173,30 @@ export function startCycleLoop(
     // Cross-process guard: another daemon (or a manual `cycle` run) may already
     // be working this brain. The DB lock serializes the maintenance pipeline so
     // two cycles don't fight over the same phases. A null handle means a live
-    // holder owns the lock — skip this tick and re-arm the next one.
-    const lock = await tryAcquireDbLock(storage.engine(), CYCLE_LOCK_ID, 30);
+    // holder owns the lock — skip this tick and re-arm the next one SOON (a
+    // crashed cross-host holder's row TTL-expires within LOCK_TTL_MINUTES, then
+    // the next tick's tryAcquireDbLock upsert reclaims it).
+    let skipped = false;
+    const lock = await tryAcquireDbLock(
+      storage.engine(),
+      CYCLE_LOCK_ID,
+      LOCK_TTL_MINUTES,
+    );
     if (!lock) {
+      skipped = true;
       console.log(`[cycle] tick skipped: another holder owns ${CYCLE_LOCK_ID}`);
     } else {
       currentLock = lock;
-      // Heartbeat: refresh the lock every ~TTL/3 (10 min for the 30 min TTL) so
-      // a long run (a heavy embed-stale pass over a large vault) cannot outlive
-      // the TTL + steal-grace and let a second cycle acquire concurrently. The
-      // refresh is fire-and-forget; a transient failure self-heals next tick and
-      // the TTL stays the backstop. unref so the timer never pins the event loop.
+      // Heartbeat: refresh the lock every ~TTL/10 (30s for the 5 min TTL) so a
+      // long run (a heavy embed-stale pass) cannot outlive the short TTL and let
+      // a second cycle acquire concurrently. The short TTL is what lets a crashed
+      // holder on ANY host be reclaimed fast; this refresh keeps a HEALTHY long
+      // run alive under it. Fire-and-forget; unref so the timer never pins the loop.
       const refresher = setInterval(
         () => {
           void lock.refresh().catch(() => {});
         },
-        10 * 60 * 1000,
+        30 * 1000,
       );
       (refresher as unknown as { unref?: () => void }).unref?.();
       try {
@@ -200,7 +226,7 @@ export function startCycleLoop(
       }
     }
     if (!stopped) {
-      timer = setTimeout(runTick, options.intervalMs);
+      timer = setTimeout(runTick, nextTickDelayMs(options.intervalMs, skipped));
     }
   };
 

@@ -84,6 +84,16 @@ export interface IndexInput {
  * the same sourcePath replaces all prior chunks (cascade also wipes their
  * embeddings + entity_mentions).
  */
+// Cap any single document at 5 MiB. The reference enforces this at BOTH ingest
+// entry points — the file path AND the in-memory content path (its
+// `importFromContent` guard, added specifically because the remote MCP write
+// passes caller-supplied content straight in and bypasses the file-size check).
+// memex had only the file-path cap (`indexFile` below); this is the missing
+// content-path half — without it the remote `index` tool, page mirror, and
+// embed-stale could store an unbounded document (the live brain accumulated
+// 18–30 MB-frontmatter voicenote/gcal docs this way → cycle OOM).
+const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
+
 export async function indexDocument(
   storage: Storage,
   input: IndexInput,
@@ -91,6 +101,14 @@ export async function indexDocument(
 ): Promise<IndexResult> {
   if (!input.sourcePath || !input.text) {
     throw new Error("indexDocument: sourcePath and text are required");
+  }
+  const byteLength = Buffer.byteLength(input.text, "utf-8");
+  if (byteLength > MAX_INDEX_FILE_BYTES) {
+    throw new Error(
+      `indexDocument: ${input.sourcePath} is ${byteLength} bytes — exceeds the ` +
+        `${MAX_INDEX_FILE_BYTES} byte cap. Split it, or remove large embedded ` +
+        `assets (e.g. an inline transcript stored in the frontmatter header).`,
+    );
   }
 
   // Strip the `## Facts` fence before chunking: the fence is a structured
@@ -145,14 +163,9 @@ export async function indexDocument(
 
 /**
  * Index a file on disk. Reads the file, calls indexDocument with absolute
- * path as sourcePath (or the override).
+ * path as sourcePath (or the override). The file-size cap (defense-in-depth
+ * before readFileSync) shares MAX_INDEX_FILE_BYTES with indexDocument above.
  */
-// Cap any single document at 5 MiB before reading. A hostile or
-// runaway markdown file (concatenated logs, accidental binary commit)
-// would otherwise OOM the daemon and block the Bun event loop while
-// readFileSync runs synchronously.
-const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
-
 export async function indexFile(
   storage: Storage,
   filePath: string,

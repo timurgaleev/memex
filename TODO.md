@@ -1482,3 +1482,13 @@ were intentionally removed; memex is a brain reached over MCP only._
 
 Open an issue using the `Feature / enhancement` template. PRs are
 welcome but please open the issue first so we can agree on shape.
+
+### Cycle lock 5-min TTL — starvation-margin note (v1.48.0, review)
+LOW/MEDIUM: with the lock TTL dropped 30→5 min, a cycle phase that blocks the
+event loop SYNCHRONOUSLY for >5 min would stop the 30s refresher firing → the
+TTL lapses → a concurrent same-host invocation (manual `memex cycle`, deploy
+overlap) could steal the lock past the 100s steal-grace and run two cycles.
+Narrow: phases are await-heavy (per-chunk Bedrock) so the loop yields, and the
+deploy runs a single container with one loop; steal-grace is the backstop.
+Acceptable for the single-instance deploy. Revisit (raise TTL or add a
+worker-thread watchdog) only if a multi-instance or a known long-sync phase lands.
