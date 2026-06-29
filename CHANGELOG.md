@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.50.0] — 2026-06-29
+
+### Changed
+- **Cycle entity-extraction is now INCREMENTAL — structural parity with the
+  reference.** The reference threads sync's changed-slug list into extract so it
+  only re-processes changed docs ("54K-page → sub-second"); memex re-walked EVERY
+  document every tick (the cycle's heaviest phase, ~1.4 GB / 30 s). memex has no
+  cycle sync phase to source a changed-set, so it uses its OWN watermark idiom
+  (the one migration 051 already uses for link extraction): migration 054 adds
+  `documents.entities_extracted_at`, and `core/extract.ts` selects only stale
+  docs — never extracted, extractor version (`ENTITY_EXTRACTOR_VERSION_TS`)
+  bumped, or re-indexed since. The cycle runs incremental by default; `extract
+  --all` forces a full walk. Each processed doc is stamped to
+  `GREATEST(read updated_at, versionTs)` — the `updated_at` arm gives the D4 race
+  fix (a concurrent re-index re-stales it), and lifting to the version floor
+  stops a doc edited before the current extractor version from re-extracting
+  forever. First run after the migration is one final full walk (NULL
+  grandfathers every doc), then steady-state incremental.
+
 ## [1.49.0] — 2026-06-29
 
 ### Changed
