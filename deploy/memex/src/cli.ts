@@ -31,6 +31,7 @@ import {
 } from "./commands/sources.ts";
 import { runCode, type CodeSub } from "./commands/code.ts";
 import { runTenant, type TenantSub } from "./commands/tenant.ts";
+import { runAuth } from "./commands/auth.ts";
 
 const VALID_JOB_STATUSES: ReadonlySet<JobStatus> = new Set([
   "pending",
@@ -174,6 +175,12 @@ function printUsage(): void {
   console.log("                               upsert a write-source + federated-read grant for a JWT subject");
   console.log("  tenant list                  JSON list of all subject grants");
   console.log("  tenant revoke <sub>          delete the grant for a JWT subject");
+  console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
+  console.log("                               register a client_credentials OAuth client (prints secret once)");
+  console.log("  auth list-clients            JSON list of registered OAuth clients");
+  console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
+  console.log("  auth grant-token <id> <secret> [--scopes S]");
+  console.log("                               mint an access token locally (= POST /token)");
   console.log("  --help                       show this help");
 }
 
@@ -900,6 +907,12 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.sub_jwt = positional[1];
       }
       await runTenant(opts);
+      return 0;
+    }
+    case "auth": {
+      // Self-issued OAuth 2.1 provider management. Re-parses its own raw flags
+      // (--grant-types/--scopes/--source/--federated-read), so pass the raw tail.
+      await runAuth(argv.slice(1));
       return 0;
     }
     case "search": {
