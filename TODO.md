@@ -1494,19 +1494,19 @@ Acceptable for the single-instance deploy. Revisit (raise TTL or add a
 worker-thread watchdog) only if a multi-instance or a known long-sync phase lands.
 
 ### Structural reference-parity ports — DONE (v1.48.0–v1.50.0, 2026-06-29)
-Operator ask: "everything the same as reference — copy-paste-adapt, don't freehand."
+Operator ask: "everything the same as the reference — copy-paste-adapt, don't freehand."
 A dynamic-workflow reference-structure map produced faithful port specs; shipped:
 - **v1.48.0 (#1 ingest size cap)** — the ROOT CAUSE of the 30MB frontmatter:
-  reference caps content at 5MB on BOTH the file path AND the in-memory content path
-  (`importFromContent`); memex had only the file path. `indexDocument` now rejects
-  >5MB (covers the remote `index` tool / page mirror / embed-stale).
-- **v1.48.0 (#2 lock TTL 30→5min)** — reference's short-TTL+sub-TTL-refresh model so a
-  crashed cross-host holder's lock frees in 5min; skipped tick re-arms within TTL.
-- **v1.49.0 (#3 frontmatter at ingest)** — reference infers per-file at import, has NO
-  frontmatter cycle phase. New `core/frontmatter-inference.ts` (copy-adapt; empty
-  DIRECTORY_RULES — reference's table is a private vault) wired into `indexDocument`;
+  the reference caps content at 5MB on BOTH the file path AND the in-memory content
+  path (its content-import guard); memex had only the file path. `indexDocument` now
+  rejects >5MB (covers the remote `index` tool / page mirror / embed-stale).
+- **v1.48.0 (#2 lock TTL 30→5min)** — the reference's short-TTL+sub-TTL-refresh model
+  so a crashed cross-host holder's lock frees in 5min; skipped tick re-arms within TTL.
+- **v1.49.0 (#3 frontmatter at ingest)** — the reference infers per-file at import,
+  has NO frontmatter cycle phase. New `core/frontmatter-inference.ts` (copy-adapt; empty
+  DIRECTORY_RULES — the reference's table is a private vault) wired into `indexDocument`;
   the recurring DB phase DELETED (cycle now 12 phases). The OOM band-aids retired.
-- **v1.50.0 (#4 incremental extract)** — reference extracts only changed slugs; memex
+- **v1.50.0 (#4 incremental extract)** — the reference extracts only changed slugs; memex
   has no cycle sync phase, so migration 054 `documents.entities_extracted_at`
   watermark (its own mig-051 idiom) gates the cycle's extract to stale docs only.
   Extract RSS 1404MB→626MB, faster cycle. `extract --all` forces a full walk.
