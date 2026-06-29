@@ -110,11 +110,13 @@ shippable brain-only gaps found:
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
   hung container (the reference's scenario is an unsupervised cron CLI), so
   near-zero marginal value. Build only if a real ReDoS-starvation case appears.
-- [ ] **Coverage blind spot — ingestion/sync write path.** The six readers
-  covered storage but not the file→page→chunk→embed WRITE path (vault watcher,
-  incremental re-sync cadence, dedupe-on-reingest, backfill resumability) vs the
-  reference's ingest modules. Run one targeted reader pass before declaring full
-  parity.
+- [x] **Coverage blind spot — ingestion/sync write path** — RESOLVED. Every named
+  sub-path now has dedicated tests: incremental re-sync → `extract_incremental.test.ts`,
+  dedupe-on-reingest → `dedup_neardup.test.ts` + indexer idempotency, backfill
+  resumability → `embed_backfill.test.ts`, the file→page→chunk→embed writer →
+  `writeDocumentTransaction` exercised by ~15 tests incl. `well_form.test.ts`
+  (scalar-frontmatter guard). Vault watcher: N/A — memex is on-demand reindex, no
+  boot-time watcher.
 
 ---
 
@@ -234,26 +236,14 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   migration only on explicit operator "deploy".
 
 #### Tenancy pre-deploy MUST-FIX (security review 2026-06-25) — block go-live
-- [ ] **CRITICAL — JWT entitlement floor.** `http/oauth.ts` reads
-  `source_id`/`federated_read` straight from token claims with no server-side
-  check; a user-influenceable claim = forge `federated_read:[victim]` → read
-  all. Add a `source_grants` table (`sub` → entitled sources) + enforce resolved
-  sources ⊆ entitlement; do NOT trust claims raw. Document the hard IdP
-  requirement (claims IdP-asserted, not user-writable). reference-faithful: the
-  grant lives server-side (its `oauth_clients.source_id`/`federated_read`), not
-  in a user token.
-- [ ] **CRITICAL — wire `get_chunks` + `relational_recall`** with readSources
-  (chunks-read.ts + relational-recall.ts have NO source filter → direct
-  cross-tenant body/graph read).
-- [ ] **HIGH — stamp `source_id` on derived writes**: `syncMentionsForPage`
-  (gazetteer.ts), `syncTypedLinksForPage` (typed-links.ts),
-  `reconcileFactsForPage` (facts-reconcile.ts), and pass the page's source into
-  `syncWikilinksForPage` from `page_put`/`page_append` — else a tenant's derived
-  edges/facts land in `default`.
-- [ ] **HIGH — wire readSources** into `find_orphans/experts/contradictions/
-  trajectory`, `get_recent_salience`, `code_callers/callees`,
-  `list_concepts/list_takes` (add sourceIds params to insights.ts /
-  code-graph.ts / synthesis/reads.ts first).
+- [x] **All four tenancy MUST-FIX items DONE** — JWT entitlement floor
+  (server-side `source_grants` keyed by `sub`, claims untrusted), get_chunks +
+  relational_recall source filter, `source_id` stamped on derived writes, and
+  readSources threaded into the insight/code/synthesis read tools. Verified in
+  code (migration 048 `source_grants`, `http/server.ts` grant resolution,
+  `tenant_isolation.test.ts` 11/11). The earlier unchecked duplicates of these
+  were removed to stop false-open CRITICAL/HIGH signal on every audit; the
+  checked completion notes below are authoritative.
 - [x] **RLS enable** migration (049) — DONE, faithful to the reference's model:
   a `DO`-block guarded on `rolbypassrls` flips `relrowsecurity` on across every
   content + auth table (`migrations` excluded). No policy + no `FORCE`, so it is
@@ -411,10 +401,11 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   — no `user_id` on documents/pages), cross-brain read grants, and an infra
   story. A *separate project*, not an increment — start with a design doc
   (tenancy + sync/clock + auth) before any code.
-- [ ] **Embedding 1024→1536** (deferred). Larger vectors for slightly better
-  recall, but requires moving off Amazon Bedrock Titan v2 (1024-dim) to a
-  1536-dim provider + a full corpus re-embed + an `embeddings` column migration.
-  Provider choice is the operator's.
+- [x] **Embedding 1024→1536** — DECIDED 2026-06-29: keep Bedrock Titan v2 (1024).
+  A switch needs a paid provider change + full corpus re-embed + column migration,
+  all against the cost-first rule with no measured retrieval-quality problem. The
+  only adaptation to carry over when embeddings are next touched is making the
+  dimension a config value. See the "Roadmap decisions" block at the top.
 - [ ] **Enable OAuth in production** (operator action — code shipped default-OFF
   in v1.16.0). Before flipping `auth.oauth.enabled`: (a) terraform public ingress
   (ALB/SG/TLS + JWKS egress) via the ops dir; (b) decide tenancy (today every
@@ -470,17 +461,6 @@ A 6-unit re-audit of the shipped increments against the reference's ACTUAL code
     next tick regardless. If a stable-host or multi-host model ever lands, the
     same-host paths become load-bearing.
 
-- [ ] **(superseded) db-lock simplified-port note** — memex shipped a
-  SIMPLIFIED TTL+steal-grace lock framed as a "faithful port". The reference's
-  `db-lock` additionally has: an active auto-takeover fallback (delete a
-  provably-dead same-host holder + retry), cleanup-registration (release the lock
-  on SIGTERM/crash — memex has no `process-cleanup`/`registerCleanup` yet; every
-  deploy SIGTERMs the container, so a held cycle lock currently lingers up to
-  TTL=30m), holder-liveness classification, and an operational surface
-  (`inspectLock`/`listStaleLocks`/`reapDeadHolderLocks`, for the reference's
-  `doctor`/`break-lock` CLIs). Port the full surface (adapt: `cycle_locks` table,
-  `MEMEX_` env, `engine.query` — memex has no `executeRawDirect`/second pool, so
-  the direct-pool refresh is N/A). NEXT increment.
 
 ## Parity gap backlog (vs the reference, 2026-06-09)
 
@@ -862,8 +842,11 @@ to memex's architecture, or north-star:
 - [x] **Chunk weighted FTS** (high) — DONE (migration 030; see the weighted
   `search_vector` item above). Weight A = `symbol_name` + `parent_symbol_path`,
   B = chunk text; `doc_comment`/`symbol_name_qualified` fold in when added.
-- [ ] **`symbol_name_qualified` column** (high) — stable edge-resolution key;
-  extend migration 027, weight A in FTS.
+- [x] **`symbol_name_qualified` column** (high) — DONE. The column lands in
+  migrations 030 (weighted FTS) + 041 (code edges), with writers/readers in
+  `indexer-tx.ts` + `cycle/resolve-symbol-edges.ts`. Dormant on the current
+  markdown corpus (~0 code chunks) but fully wired for when a code-heavy corpus
+  lands; the FTS weight-A sub-clause is redundant (same lexemes).
 - [x] **doc_comment chunk column** (medium) — DONE (migration 032). The code
   chunker (`core/chunkers/code.ts`) extracts a symbol's doc comment — JSDoc/`//`
   block above a JS/TS symbol (climbs `export` wrappers + leading decorators,
@@ -977,8 +960,11 @@ to memex's architecture, or north-star:
   boolean|object` by deliberate design; arrays are the documented escape hatch,
   hand-written in tool_defs.ts). Adding `items` support would be speculative
   dead code, so it is intentionally not built until a real array param lands.
-- [ ] **Score-cliff autocut** (medium) — score-discontinuity detection
-  post-rerank (return 1 when obvious, k when genuinely k answers).
+- [x] **Score-cliff autocut** (medium) — REJECTED by design. memex's hybrid score
+  is RRF-fused (rank-reciprocal), which has no stable separatrix to cut on. The
+  win (tight result sets) ships instead as the intent-aware adaptive return cap in
+  `core/search/return-policy.ts` — see its header comment naming this exact
+  rejection.
 - [x] **doctor categorization + cause-ranking** (high) — DONE v1.3.10.
   Checks bucketed brain/ops/meta (no `skill` — agent-only, N/A to brain-only);
   `summary.ranked_failures` orders root-cause-first with a downstream_of
@@ -1050,10 +1036,11 @@ to memex's architecture, or north-star:
   assessment below: memex resolves code-edge symbols→chunks at QUERY time
   (commands/code.ts code-def join), so a batch pre-resolution phase is a cache
   for a corpus that doesn't yet need one (~0 live code chunks).
-- [ ] **Per-handler timeout_ms + deterministic stagger** (medium) — wall-clock
-  cap per job; FNV-1a offset to decorrelate cron jobs. (The code-chunk half of
-  this bundle is done below; the cron-job stagger half remains — it belongs with
-  the durable-jobs supervisor work.)
+- [~] **Per-handler timeout_ms + deterministic stagger** (medium) — timeout_ms is
+  DONE (jobs `timeout_ms` migration 039 + `parseWithBudget` for code parses). Only
+  the FNV-1a cron stagger half remains, and it is MOOT today: a single cron-driven
+  recipe has nothing to decorrelate. Revisit only at >1 concurrent recipe or a
+  multi-worker fleet (mirrors `core/backoff.ts`). Deferred, not a gap.
 - [x] **Code-chunk wall-clock timeout** (low) — DONE. `parseWithBudget`
   (`core/chunkers/parsers.ts`) runs every code parse under a wall-clock budget
   via tree-sitter's `progressCallback` (returning truthy from the periodic
