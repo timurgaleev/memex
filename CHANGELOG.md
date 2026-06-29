@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.47.0] — 2026-06-29
+
+### Fixed
+- **`frontmatter-inference` cycle phase — keyset-paginated to stop the OOM
+  SIGKILL (the real fix behind the v1.46.0 skip).** The phase had no equivalent
+  in the reference (which infers frontmatter ONE file at a time at import,
+  `inferFrontmatter(path, content)` — there is no frontmatter cycle phase there);
+  memex added it as a DB phase that materialised EVERY doc + its chunk-0 content
+  in a single query, which spiked anon memory enough to OOM-kill the cycle
+  process at this phase's start on the small live host. Adapted to the reference's
+  bounded-iteration pattern: keyset-paginate by id (`MEMEX_CYCLE_FM_BATCH`,
+  default 100), pull chunk-0 via a `LIMIT 1` correlated subquery capped at 64 KB
+  (`LEFT()`), so peak memory is O(batch) not O(corpus). Re-enables the phase
+  without the `MEMEX_CYCLE_SKIP_PHASES` workaround.
+
 ## [1.46.0] — 2026-06-29
 
 ### Added
