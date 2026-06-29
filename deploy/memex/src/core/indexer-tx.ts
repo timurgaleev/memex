@@ -21,7 +21,7 @@ import {
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
-import { wellFormJsonbValue } from "./well-form.ts";
+import { wellFormJsonbObject } from "./well-form.ts";
 
 export interface ChunkWrite {
   /** Chunk body text (will land in chunks.content). */
@@ -142,7 +142,10 @@ export async function writeDocumentTransaction(
         // Sanitize lone UTF-16 surrogates + NUL before the ::jsonb cast — a
         // single bad value (truncated emoji, mis-encoded source) would
         // otherwise make Postgres reject the cast and abort the whole index tx.
-        JSON.stringify(wellFormJsonbValue(doc.frontmatter)),
+        // wellFormJsonbObject ALSO guards the object invariant: a non-object
+        // frontmatter (a recipe passing raw content) collapses to {} instead of
+        // serializing as a multi-MB jsonb scalar (the 420MB-frontmatter bug).
+        JSON.stringify(wellFormJsonbObject(doc.frontmatter)),
         doc.mtimeMs ?? null,
         doc.sourceId ?? null,
         doc.chunkerVersion ?? null,

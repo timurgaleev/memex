@@ -58,3 +58,20 @@ export function wellFormJsonbValue(v: unknown): unknown {
   }
   return v; // number | boolean | null | undefined | bigint | symbol → unchanged
 }
+
+/**
+ * Coerce a frontmatter / doc-metadata value to a sanitized jsonb OBJECT.
+ *
+ * `documents.frontmatter` is metadata and must always be a JSON object. An
+ * ingest path that hands over a string (a recipe passing raw content, a
+ * mis-typed `extraFrontmatter`) or any other scalar/array would otherwise
+ * serialize through the `::jsonb` cast as a SCALAR — e.g. a whole 12 MB file
+ * body stored as `"...."` — bloating the row and yielding NULL for every
+ * `frontmatter->'key'` read (the 2026-06 420 MB-frontmatter incident). Any
+ * non-plain-object collapses to `{}`; a real object is deep-sanitized as usual.
+ */
+export function wellFormJsonbObject(v: unknown): Record<string, unknown> {
+  const isPlainObject =
+    v !== null && typeof v === "object" && !Array.isArray(v);
+  return wellFormJsonbValue(isPlainObject ? v : {}) as Record<string, unknown>;
+}

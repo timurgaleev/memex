@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   wellFormForJsonb,
   wellFormJsonbValue,
+  wellFormJsonbObject,
 } from "../src/core/well-form.ts";
 import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
@@ -54,6 +55,22 @@ describe("wellFormForJsonb (unit)", () => {
   });
 });
 
+describe("wellFormJsonbObject (frontmatter object invariant)", () => {
+  it("collapses a non-object to {} (the 420MB-frontmatter guard)", () => {
+    expect(wellFormJsonbObject("a whole 12MB file body")).toEqual({});
+    expect(wellFormJsonbObject(["a", "b"])).toEqual({});
+    expect(wellFormJsonbObject(null)).toEqual({});
+    expect(wellFormJsonbObject(undefined)).toEqual({});
+    expect(wellFormJsonbObject(42)).toEqual({});
+  });
+
+  it("keeps a real object and still deep-sanitizes it", () => {
+    const out = wellFormJsonbObject({ tags: ["x"], note: `e${LONE_HIGH}` });
+    expect(out.tags).toEqual(["x"]);
+    expect(out.note).toBe("e�");
+  });
+});
+
 describe("frontmatter with a lone surrogate indexes cleanly (jsonb cast)", () => {
   let tmp: string;
   let storage: Storage;
@@ -94,5 +111,32 @@ describe("frontmatter with a lone surrogate indexes cleanly (jsonb cast)", () =>
     expect(fm.note).toBe("truncated emoji �"); // sanitized
     expect(fm.nul).toBe("ab"); // NUL dropped
     expect(fm.ok).toBe(VALID_EMOJI); // valid pair preserved
+  });
+
+  it("stores a string frontmatter as {} not a jsonb scalar (420MB-bug guard)", async () => {
+    // An ingest path that passes raw content as frontmatter would otherwise
+    // serialize a whole file body as a jsonb scalar string. The chokepoint
+    // guard collapses it to an object.
+    await writeDocumentTransaction(
+      storage,
+      {
+        documentId: "doc_scalar",
+        sourcePath: "/scalar.md",
+        title: "scalar",
+        frontmatter: "the entire file body crammed in here" as unknown as Record<
+          string,
+          unknown
+        >,
+        embeddingModel: "det",
+      },
+      [{ text: "body", entities: [] }],
+    );
+    const r = await storage
+      .engine()
+      .query<{ t: string }>(
+        "SELECT jsonb_typeof(frontmatter) AS t FROM documents WHERE id = $1",
+        ["doc_scalar"],
+      );
+    expect(r.rows[0]!.t).toBe("object");
   });
 });
