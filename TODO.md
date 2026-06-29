@@ -7,6 +7,26 @@ introduces them.
 
 ---
 
+## Roadmap decisions (2026-06-29) — cost-first
+
+Three forward calls, settled (mirror the upstream structure, adapt for our
+self-hosted + low-spend constraints):
+
+- **Embeddings — stay on the current 1024-dim provider; no switch now.** Making
+  the embedding dimension a config value (not hardcoded) is the only adaptation to
+  carry over when embeddings are next touched, so a future model swap is a config
+  change, not a rewrite. No provider switch / full re-embed without a measured
+  retrieval-quality problem — the swap costs money and a corpus re-embed.
+- **Agent/synthesis layer — deferred; build later as cheap, default-OFF slices.**
+  Start with a single opt-in `auto-think` cycle phase reusing the existing
+  maintenance cycle, feature-flagged off, rather than a big-bang agent runtime.
+  It is the most LLM-expensive surface; gate it.
+- **Multi-tenant auth — AWS Cognito (cheapest IdP) behind the existing
+  default-OFF JWT bearer + `source_id` scope (migration 047).** Gated on an
+  explicit operator "deploy".
+
+---
+
 ## Parity gap sweep (2026-06-28) — 6-subsystem dynamic-workflow diff
 
 A fresh dynamic-workflow fan-out (6 brain-only subsystem readers + a completeness
