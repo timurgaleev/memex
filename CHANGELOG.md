@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.49.0] — 2026-06-29
+
+### Changed
+- **Frontmatter inference moved to ingest; the recurring cycle phase removed —
+  structural parity with the reference.** The reference infers a frontmatter
+  header ONCE per file at import (a pure `inferFrontmatter(path, content)`) and
+  has NO frontmatter cycle phase; memex had diverged into a recurring DB phase
+  that re-scanned every document each tick (the OOM source). Restored the
+  reference's structure: new `core/frontmatter-inference.ts` (faithful
+  copy-adapt of `inferFrontmatter` / `serializeFrontmatter` / `applyInference`
+  + the date/title helpers) is wired into `indexDocument` — content lacking a
+  `---` header gets an inferred one (title from first H1 / filename, type
+  `note`, date from filename) before chunking; `IndexFileOptions.inferFrontmatter`
+  (default on) opts out. The `core/cycle/frontmatter-inference.ts` phase is
+  DELETED and dropped from the cycle (now 12 phases, not 13), so the
+  `MEMEX_CYCLE_SKIP_PHASES`/`FM_BATCH`/`FM_MAX_BYTES` OOM band-aids are no longer
+  needed. ADAPTATION: `DIRECTORY_RULES` ships empty (the reference's table names
+  a private vault) — the default rule keeps inference path-agnostic; operators
+  extend it locally. Retroactive backfill of already-stored headerless docs is
+  `reindex --all` (re-ingest re-infers), not a timer.
+
 ## [1.48.0] — 2026-06-29
 
 ### Fixed

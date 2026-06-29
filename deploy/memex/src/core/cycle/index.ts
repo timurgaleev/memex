@@ -21,10 +21,6 @@ import {
   type OrphansPurgeResult,
 } from "./orphans-purge.ts";
 import {
-  frontmatterInferencePhase,
-  type FrontmatterInferenceResult,
-} from "./frontmatter-inference.ts";
-import {
   recomputeSaliencePhase,
   type RecomputeSalienceResult,
 } from "./recompute-salience.ts";
@@ -73,7 +69,6 @@ export type PhaseName =
   | "resolve-symbol-edges"
   | "reconcile-links"
   | "orphans-purge"
-  | "frontmatter-inference"
   | "recompute-salience"
   | "extract-timeline"
   | "snapshot"
@@ -95,7 +90,6 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "resolve-symbol-edges",
   "reconcile-links",
   "orphans-purge",
-  "frontmatter-inference",
   "recompute-salience",
   "extract-timeline",
   "snapshot",
@@ -139,7 +133,6 @@ export interface PhaseResult {
     | ExtractResult
     | ReconcileLinksResult
     | OrphansPurgeResult
-    | FrontmatterInferenceResult
     | RecomputeSalienceResult
     | MeetingTimelineResult
     | MirrorPagesResult
@@ -443,14 +436,6 @@ export async function runCycleOnce(
         break;
       case "orphans-purge":
         r = await runPhase(engine, p, () => orphansPurgePhase(engine), progress);
-        break;
-      case "frontmatter-inference":
-        r = await runPhase(
-          engine,
-          p,
-          () => frontmatterInferencePhase(engine),
-          progress,
-        );
         break;
       case "recompute-salience":
         r = await runPhase(

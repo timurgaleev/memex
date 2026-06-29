@@ -17,7 +17,6 @@ import { embedStalePhase } from "../src/core/cycle/embed-stale.ts";
 import { extractPhase } from "../src/core/cycle/extract.ts";
 import { reconcileLinksPhase } from "../src/core/cycle/reconcile-links.ts";
 import { orphansPurgePhase } from "../src/core/cycle/orphans-purge.ts";
-import { frontmatterInferencePhase } from "../src/core/cycle/frontmatter-inference.ts";
 import { snapshotPhase } from "../src/core/cycle/snapshot.ts";
 import { entityId } from "../src/core/entities.ts";
 
@@ -122,30 +121,9 @@ describe("orphans-purge phase", () => {
   });
 });
 
-describe("frontmatter-inference phase", () => {
-  it("fills missing title + tags from body when frontmatter is empty", async () => {
-    await seed();
-    const e = storage.engine();
-    const r = await frontmatterInferencePhase(e);
-    expect(r.scanned).toBe(2);
-    expect(r.updated).toBeGreaterThan(0);
-    const after = await e.query<{ frontmatter: Record<string, unknown> }>(
-      "SELECT frontmatter FROM documents WHERE id='d1'",
-    );
-    const fm = after.rows[0]!.frontmatter;
-    expect(fm["title"]).toBe("Foo");
-    expect(fm["tags"]).toEqual(expect.arrayContaining(["alpha", "beta"]));
-    expect(fm["created"]).toBeDefined();
-  });
-
-  it("is idempotent — second run doesn't increment updated", async () => {
-    await seed();
-    const e = storage.engine();
-    await frontmatterInferencePhase(e);
-    const r2 = await frontmatterInferencePhase(e);
-    expect(r2.updated).toBe(0);
-  });
-});
+// frontmatter inference moved to ingest (core/frontmatter-inference.ts +
+// indexDocument) — the recurring cycle phase was removed (v1.49.0). Its tests
+// live in tests/frontmatter_inference.test.ts.
 
 describe("snapshot phase", () => {
   it("returns counts; persists when cycle_snapshots exists", async () => {
@@ -179,12 +157,12 @@ describe("extract phase", () => {
 });
 
 describe("runCycleOnce orchestrator", () => {
-  it("runs all 13 phases by default; one phase failing doesn't stop others", async () => {
+  it("runs all 12 phases by default; one phase failing doesn't stop others", async () => {
     await seed();
     const e = storage.engine();
     // staleDays huge so embed-stale finds nothing — fastest cheap pass
     const r = await runCycleOnce(e, { staleDays: 99999 });
-    expect(r.phases.length).toBe(13);
+    expect(r.phases.length).toBe(12);
     expect(r.phases.map((p) => p.phase)).toEqual([
       "lint",
       "embed-stale",
@@ -194,7 +172,6 @@ describe("runCycleOnce orchestrator", () => {
       "resolve-symbol-edges",
       "reconcile-links",
       "orphans-purge",
-      "frontmatter-inference",
       "recompute-salience",
       "extract-timeline",
       "snapshot",
@@ -280,7 +257,7 @@ describe("runCycleOnce orchestrator", () => {
     it("treats by-design informational phases as ok", () => {
       // reconcile-links unresolved is normal, not a warning
       expect(deriveStatus("reconcile-links", { unresolved: [{}] } as never)).toBe("ok");
-      expect(deriveStatus("frontmatter-inference", {} as never)).toBe("ok");
+      expect(deriveStatus("recompute-salience", {} as never)).toBe("ok");
     });
   });
 
