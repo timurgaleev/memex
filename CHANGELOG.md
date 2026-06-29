@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.51.0] — 2026-06-29
+
+### Added
+- **Self-issued OAuth 2.1 (`client_credentials`).** memex is now its own
+  authorization server — no external identity provider required. Register a
+  client with `memex auth register-client <name> --scopes "read write" --source
+  <id>`, exchange its credentials at `POST /token` for a `memex_at_…` access
+  token, and present that token as `Authorization: Bearer` on `/mcp`. Each token
+  is scoped to its client's source set. New CLI: `auth register-client`,
+  `list-clients`, `revoke-client`, `grant-token`. Enable with
+  `auth.selfIssued.enabled: true` in `memex.yml` (default-off). The `/token`
+  endpoint is per-IP rate-limited.
+
+### Removed
+- **External-IdP JWT auth path.** The optional third-party JWT/JWKS verifier is
+  gone, superseded by the self-issued provider above. Removes a network
+  dependency and the need to run a separate identity provider.
+
+### Fixed
+- **Bloated `frontmatter` from a bad ingest path.** A document whose metadata
+  arrived as a non-object (raw content mis-passed as frontmatter) was stored as a
+  multi-megabyte JSON scalar, wasting space and reading back as empty metadata.
+  Ingest now coerces any non-object frontmatter to `{}` at the write boundary.
+
 ## [1.50.0] — 2026-06-29
 
 ### Changed

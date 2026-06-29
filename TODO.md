@@ -21,9 +21,11 @@ self-hosted + low-spend constraints):
   Start with a single opt-in `auto-think` cycle phase reusing the existing
   maintenance cycle, feature-flagged off, rather than a big-bang agent runtime.
   It is the most LLM-expensive surface; gate it.
-- **Multi-tenant auth — AWS Cognito (cheapest IdP) behind the existing
-  default-OFF JWT bearer + `source_id` scope (migration 047).** Gated on an
-  explicit operator "deploy".
+- **Multi-tenant auth — DONE (v1.51.0): self-issued OAuth 2.1 `client_credentials`,
+  the reference's model (no external IdP).** memex is its own authorization server
+  (`/token` + `memex auth register-client` + `memex_at_` verify on `/mcp`). The
+  earlier AWS Cognito path was built then removed — an external IdP is the wrong
+  tool for an agent-served brain (more deps, not the reference's way).
 
 ---
 
