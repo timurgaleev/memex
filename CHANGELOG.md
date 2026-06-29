@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.48.0] — 2026-06-29
+
+### Fixed
+- **Ingest content-size cap on the in-memory path (the 30 MB-frontmatter root
+  cause).** The reference enforces its 5 MB ingest cap at BOTH entry points — the
+  file path AND the in-memory content path (its `importFromContent` guard, added
+  specifically because the remote MCP write passes caller-supplied content
+  straight in and bypasses the file-size check). memex had only the file-path cap
+  (`indexFile`); `indexDocument` — reached by the remote `index` tool, the page
+  mirror, and embed-stale — had none, so an unbounded document could be stored
+  (the live brain accumulated 18–30 MB-frontmatter voicenote/gcal docs this way,
+  which then OOM-killed the cycle). Ported the reference's guard: `indexDocument`
+  now rejects `Buffer.byteLength(text) > 5 MB` (hardcoded, as the reference does).
+  Covers every in-memory caller in one place. NOTE: this stops NEW oversized docs;
+  the ~436 MB already stored needs a separate one-off cleanup.
+- **Cycle lock TTL 30 → 5 min + sub-TTL refresh + fast skip-retry.** A crashed
+  container left a 30-min cycle lock; a new container (different Docker hostname →
+  cross-host, not reap-eligible) couldn't supersede it until the TTL lapsed, and a
+  skipped tick re-armed a full 6 h later — so the cycle stalled. Ported the
+  reference's model (it dropped its lock TTL 30 → 5 min with an active sub-TTL
+  refresh): `LOCK_TTL_MINUTES = 5`, the heartbeat refresher fires every 30 s (was
+  10 min) to keep a healthy long run alive under the short TTL, and a lock-
+  contended tick now re-arms within the TTL window (`nextTickDelayMs`) instead of
+  the full interval. A crashed cross-host holder's row now TTL-expires within
+  5 min and the next tick's host-agnostic `tryAcquireDbLock` upsert reclaims it.
+
 ## [1.47.0] — 2026-06-29
 
 ### Fixed
