@@ -13,7 +13,7 @@ describe("withPhaseTimeout", () => {
 
   it("rejects a hung phase after the deadline", async () => {
     const hang = () => new Promise<number>(() => {}); // never resolves
-    await expect(withPhaseTimeout("frontmatter-inference", hang, 50)).rejects.toThrow(
+    await expect(withPhaseTimeout("recompute-salience", hang, 50)).rejects.toThrow(
       /timed out after 50ms/,
     );
   });

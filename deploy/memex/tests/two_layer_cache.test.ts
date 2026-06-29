@@ -18,7 +18,6 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { currentDocumentClock } from "../src/core/generation.ts";
-import { frontmatterInferencePhase } from "../src/core/cycle/frontmatter-inference.ts";
 import { backfillDocumentSources, registerSource } from "../src/core/sources.ts";
 import {
   cacheStats,
@@ -267,32 +266,9 @@ describe("prune + stats are two-layer aware", () => {
 // the review surfaced (frontmatter inference → salience; source assignment →
 // source-boost + scope).
 describe("non-indexer document writers invalidate the two-layer cache", () => {
-  it("frontmatter inference bumps generation + clock → cached row invalidates", async () => {
-    const clock = await currentDocumentClock(storage.engine());
-    const genBefore = await docGeneration("doc_a");
-    const key = queryCacheKey("about a", 5, undefined, false);
-    await putCachedQuery(
-      storage.engine(),
-      key,
-      "about a",
-      5,
-      "topic",
-      ["doc_a_c0"],
-      clock,
-      ["doc_a"],
-    );
-    expect(await getCachedQuery(storage.engine(), key, clock)).not.toBeNull();
-
-    // doc_a has title "Alpha" but empty frontmatter → inference fills it in.
-    const r = await frontmatterInferencePhase(storage.engine());
-    expect(r.updated).toBeGreaterThan(0);
-
-    expect(await docGeneration("doc_a")).toBeGreaterThan(genBefore!);
-    const newClock = await currentDocumentClock(storage.engine());
-    expect(newClock).toBeGreaterThan(clock);
-    // Layer 1 fails (clock moved) AND Layer 2 fails (doc_a generation bumped).
-    expect(await getCachedQuery(storage.engine(), key, newClock)).toBeNull();
-  });
+  // (frontmatter-inference was a non-indexer writer that bumped generation; it
+  // moved to ingest in v1.49.0, so the indexer's own write bumps generation now.
+  // The source-backfill writer below still exercises the Layer-2 path.)
 
   it("source backfill bumps generation + clock → cached row invalidates", async () => {
     await registerSource(storage.engine(), {

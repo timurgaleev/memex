@@ -76,7 +76,10 @@ export async function indexPageIntoSearch(
     await removePageFromSearch(storage, page.slug);
     return null;
   }
-  const indexOpts: IndexFileOptions = { ...opts };
+  // A page mirror is a page BODY (its title is already folded into `text` by
+  // pageText), not a raw markdown file — skip path-based frontmatter inference
+  // so a slug like `daily/2026-03-20` doesn't gain a synthesized type/date header.
+  const indexOpts: IndexFileOptions = { ...opts, inferFrontmatter: false };
   return indexDocument(
     storage,
     {

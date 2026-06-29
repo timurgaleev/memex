@@ -48,6 +48,16 @@ export interface IndexFileOptions {
    * hybrid search's `embedQuery`).
    */
   embedFn?: EmbedFn;
+  /**
+   * Infer a frontmatter header at ingest for content that lacks one (the
+   * reference's import-time inference). Default ON. The inferred block is NOT
+   * persisted to disk or the body, so re-index MUST re-infer (it is pure +
+   * deterministic — the same header every time) — do NOT pass `false` on a
+   * reindex, or a headerless doc re-chunks bare and silently loses its inferred
+   * type/date/tags. Pass `false` only for a caller whose `text` is NOT a raw
+   * markdown file needing path-based inference (e.g. a page-body mirror).
+   */
+  inferFrontmatter?: boolean;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -111,11 +121,21 @@ export async function indexDocument(
     );
   }
 
+  // Infer a frontmatter header at ingest for content that has none (the
+  // reference's import-time inference — a per-file pure step, NOT a recurring
+  // cycle phase). A doc that already starts with `---` is returned untouched.
+  let text = input.text;
+  if (opts.inferFrontmatter !== false) {
+    const { applyInference } = await import("./frontmatter-inference.ts");
+    const { content: inferred, inferred: meta } = applyInference(input.sourcePath, text);
+    if (!meta.skipped) text = inferred;
+  }
+
   // Strip the `## Facts` fence before chunking: the fence is a structured
   // metadata table projected into entity_facts (facts-reconcile), not prose —
   // indexing it as chunk text would duplicate it as noisy search content.
   // Frontmatter sits above the fence, so stripping it leaves parsing intact.
-  const parsed = chunkMarkdown(stripFactsFence(input.text), opts.chunker);
+  const parsed = chunkMarkdown(stripFactsFence(text), opts.chunker);
   const id = docId(input.sourcePath);
   const model = opts.embeddingModel ?? EMBED_MODEL;
   const embed = opts.embedFn ?? embedText;
@@ -150,7 +170,15 @@ export async function indexDocument(
     {
       documentId: id,
       sourcePath: input.sourcePath,
-      title: parsed.title,
+      // Title column: the H1, else the frontmatter `title` (an explicit header
+      // or one synthesized by ingest inference) — mirrors the reference folding
+      // a frontmatter title into the title column, so an inferred title for a
+      // headerless, H1-less doc still reaches `documents.title`.
+      title:
+        parsed.title ??
+        (typeof frontmatter["title"] === "string"
+          ? (frontmatter["title"] as string)
+          : null),
       frontmatter,
       mtimeMs: input.mtimeMs ?? null,
       embeddingModel: model,
