@@ -104,7 +104,8 @@ HTTPS &mdash; so no EC2 port is ever exposed. The entire public surface is two
 routes: `GET /health` and `POST /mcp`. That's the whole attack surface.
 
 > Full topology, every container, and the security model:
-> [**ARCHITECTURE.md**](./ARCHITECTURE.md).
+> [**ARCHITECTURE.md**](./ARCHITECTURE.md). End-to-end walkthrough — how a note
+> becomes a cited search result: [**docs/HOW_IT_WORKS.md**](./docs/HOW_IT_WORKS.md).
 
 ---
 
@@ -141,7 +142,8 @@ Connecting Claude Code (or any MCP client):
 | **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
 | **AWS Bedrock** | Titan v2 embeddings + Nova for query intent and the optional, off-by-default note synthesis. Your agent still writes the answers. |
 
-**Learn more:** [ARCHITECTURE.md](./ARCHITECTURE.md) ·
+**Learn more:** [How it works](./docs/HOW_IT_WORKS.md) ·
+[ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [API / MCP tools](./deploy/memex/docs/API.md) ·
 [Operations](./deploy/memex/docs/OPERATIONS.md) ·
 [Privacy](./PRIVACY.md) · [Changelog](./CHANGELOG.md)
