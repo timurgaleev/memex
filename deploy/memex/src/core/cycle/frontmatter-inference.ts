@@ -48,6 +48,17 @@ const FM_BATCH = Math.max(1, Number(process.env.MEMEX_CYCLE_FM_BATCH) || 100);
 // analogue of not slurping a giant file whole.
 const BODY_SAMPLE_CHARS = 65536;
 
+// Skip docs whose stored frontmatter already exceeds this — the phase only
+// FILLS MISSING fields, so a large frontmatter is by definition not missing
+// them, and loading it is pure memory cost. The live brain has anomalous docs
+// with 18–30 MB frontmatter (436 MB total) — `SELECT d.frontmatter` over all of
+// them was the OOM. A real frontmatter block is well under 1 KB; 16 KB is a
+// generous ceiling. Override via MEMEX_CYCLE_FM_MAX_BYTES.
+const FM_MAX_BYTES = Math.max(
+  256,
+  Number(process.env.MEMEX_CYCLE_FM_MAX_BYTES) || 16384,
+);
+
 export async function frontmatterInferencePhase(
   engine: Engine,
 ): Promise<FrontmatterInferenceResult> {
@@ -77,9 +88,10 @@ export async function frontmatterInferencePhase(
                 '') AS body_sample
        FROM documents d
        WHERE d.id > $1
+         AND length(d.frontmatter::text) <= $3
        ORDER BY d.id
        LIMIT $2`,
-      [afterId, FM_BATCH],
+      [afterId, FM_BATCH, FM_MAX_BYTES],
     );
     if (batch.rows.length === 0) break;
 
