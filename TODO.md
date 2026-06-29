@@ -1510,7 +1510,19 @@ A dynamic-workflow reference-structure map produced faithful port specs; shipped
   has no cycle sync phase, so migration 054 `documents.entities_extracted_at`
   watermark (its own mig-051 idiom) gates the cycle's extract to stale docs only.
   Extract RSS 1404MB→626MB, faster cycle. `extract --all` forces a full walk.
-REMAINING DATA cleanup (separate, not code): the ~436MB of already-stored 30MB
-frontmatter rows (voicenotes with embedded transcripts, gcal imports) — the cap
-stops NEW ones; a one-off truncate/re-ingest reclaims the old. The 5MB cap +
-incremental extract make them harmless to the cycle regardless.
+DATA cleanup — DONE (2026-06-29): 32 rows had `frontmatter` of `jsonb_typeof =
+'string'` — a giant JSON scalar holding a whole file/email body (code docs,
+`gmail:*`, `gcal`, `ops/*`), 420MB total. Reset to `'{}'::jsonb` in a txn (search
+unaffected — metadata reads return NULL on a string anyway; bodies/chunks
+untouched), then `VACUUM (ANALYZE)`. Max frontmatter 30MB→949KB, oversized rows 0.
+
+### Frontmatter-as-scalar-string ingest bug — TODO (code, found 2026-06-29)
+P2: the 32 cleaned rows prove an ingest path writes a whole file/email body into
+`documents.frontmatter` as a JSON **scalar string** instead of a metadata object.
+The v1.48 5MB cap only blocks rows ABOVE 5MB; the same parser path can still
+mis-store sub-5MB content as a string frontmatter (post-cleanup max is already
+949KB). Root cause is upstream of the cap — a frontmatter parser/fallback that
+emits a scalar when YAML parse doesn't yield a mapping. Investigate the code-graph
+indexer + gmail/gcal recipe ingest; reject/normalize non-object frontmatter at
+`indexDocument` (coerce to `{}` or parse correctly). Harmless to the cycle today
+(cap + incremental-extract + tags-only projection), so not urgent.
