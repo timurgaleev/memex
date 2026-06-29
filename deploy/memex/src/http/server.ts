@@ -23,8 +23,6 @@ import {
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
 } from "./public_guard.ts";
-import { verifyOAuthToken } from "./oauth.ts";
-import type { OAuthConfig } from "./oauth.ts";
 import {
   OAuthProvider,
   InvalidTokenError,
@@ -36,29 +34,6 @@ import { handleAdminApi } from "./admin-api.ts";
 import { serveAdminStatic } from "./admin-static.ts";
 import { handleAdminEventsRoute } from "./admin-events.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
-
-/**
- * The server-side entitlement floor for an OAuth subject. Grants live in the
- * `source_grants` table (migration 048), keyed by JWT `sub`, and are the ONLY
- * trusted source of a subject's write source + federated read set — token
- * claims are deliberately ignored for tenancy. Returns `null` for an
- * un-provisioned subject (caller falls back to unscoped public-redacted read).
- */
-interface SourceGrantRow {
-  source_id: string | null;
-  federated_read: string[];
-}
-
-async function lookupSourceGrant(
-  storage: Storage,
-  sub: string,
-): Promise<SourceGrantRow | null> {
-  const res = await storage.engine().query<SourceGrantRow>(
-    "SELECT source_id, federated_read FROM source_grants WHERE sub = $1",
-    [sub],
-  );
-  return res.rows[0] ?? null;
-}
 
 /**
  * POST /token — OAuth 2.1 client_credentials grant (RFC 6749 §4.4). Accepts a
@@ -146,13 +121,6 @@ export interface ServerOptions {
    * warning is logged; operators should configure the secret.
    */
   internalToken?: string;
-  /**
-   * Optional OAuth/JWT bearer config (Wave 6). Default-OFF: when absent or
-   * `enabled !== true`, the JWT path is never invoked and auth is byte-identical
-   * to the static-bearer behaviour. A validated token maps to the PUBLIC
-   * (redacted) scope only — never internal.
-   */
-  oauthConfig?: OAuthConfig;
   /**
    * memex's own OAuth 2.1 provider (client_credentials), wired from
    * `config.auth.selfIssued.enabled`. When set, the server mounts POST `/token`
@@ -287,50 +255,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
         }
       }
       if (!guard.allow) {
-        // OAuth fallback (default-OFF). Only when enabled, only on a 401
-        // (public request, bearer present-but-wrong / missing) — never on a
-        // 403 write-path or 503 unconfigured. A valid JWT maps to the PUBLIC
-        // redacted scope (isPublic:true), never internal. Fail-closed: any
-        // verify error leaves the original rejection intact.
-        if (opts.oauthConfig?.enabled === true && guard.status === 401) {
-          const m = /^Bearer (.+)$/.exec(
-            req.headers.get("Authorization") ?? "",
-          );
-          if (m && m[1]) {
-            const bearer = m[1];
-            const r = await verifyOAuthToken(bearer, opts.oauthConfig);
-            if (r.ok) {
-              guard = { allow: true, isPublic: true };
-              // SECURITY: the source grant is NEVER trusted from token claims —
-              // `r.sourceId` / `r.allowedSources` are user-influenceable. The
-              // IdP only proves identity (sub); the entitlement floor lives
-              // server-side in `source_grants`, keyed by sub. Look it up.
-              const grant = await lookupSourceGrant(opts.storage, r.sub);
-              oauthAuth = {
-                token: bearer,
-                clientId: r.sub,
-                scopes: ["read"],
-                // No grant row → leave sourceId/allowedSources undefined, so
-                // effectiveReadSourceIds() => undefined => unscoped public-
-                // redacted read: the safe default for an un-provisioned subject
-                // (still gated by isPublic redaction, never widened).
-                ...(grant?.source_id != null
-                  ? { sourceId: grant.source_id }
-                  : {}),
-                ...(grant?.federated_read != null
-                  ? { allowedSources: grant.federated_read }
-                  : {}),
-                isPublic: true,
-              };
-            }
-          }
-        }
-        if (!guard.allow) {
-          return Response.json(
-            { ok: false, error: guard.reason },
-            { status: guard.status },
-          );
-        }
+        return Response.json(
+          { ok: false, error: guard.reason },
+          { status: guard.status },
+        );
       }
 
       if (url.pathname === "/health" && req.method === "GET") {

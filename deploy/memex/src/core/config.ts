@@ -88,27 +88,22 @@ export interface EvalCaptureConfig {
 
 // --- Combined --------------------------------------------------------------
 
-import type { OAuthConfig } from "../http/oauth.ts";
-
 /**
  * memex's own OAuth 2.1 provider (client_credentials). When
  * `selfIssued.enabled === true` the server mounts `/token` and verifies
  * self-issued `memex_at_…` bearer tokens on the MCP ingress, scoping each to its
  * registered `oauth_clients` row. Default-OFF — the static public bearer stays
- * the sole path. This is memex's reference-faithful auth surface; the external
- * IdP/JWT `oauth` overlay below is deprecated in favor of it.
+ * the sole path. This is memex's reference-faithful auth surface.
  */
 export interface SelfIssuedConfig {
   enabled?: boolean;
 }
 
 /**
- * Optional auth overlays. Both default-OFF → the static public bearer is the
- * only auth path (unchanged). `selfIssued` is memex's own client_credentials
- * provider; `oauth` is the legacy external-IdP JWT verifier (deprecated).
+ * Optional auth overlay. Default-OFF → the static public bearer is the only auth
+ * path (unchanged). `selfIssued` is memex's own client_credentials provider.
  */
 export interface AuthConfig {
-  oauth?: OAuthConfig;
   selfIssued?: SelfIssuedConfig;
 }
 

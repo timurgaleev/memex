@@ -97,12 +97,6 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (internalToken && internalToken.length > 0) {
     serverOpts.internalToken = internalToken;
   }
-  // Optional OAuth/JWT bearer path (Wave 6) — only wired when explicitly
-  // enabled in memex.yml's auth.oauth block; otherwise the static bearer is
-  // the sole auth path (unchanged). DEPRECATED — superseded by selfIssued below.
-  if (config.auth?.oauth?.enabled === true) {
-    serverOpts.oauthConfig = config.auth.oauth;
-  }
   // memex's own OAuth 2.1 provider (client_credentials). When enabled, mounts
   // POST /token and verifies self-issued `memex_at_…` tokens on /mcp. Shares the
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
