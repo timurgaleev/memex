@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.52.0] — 2026-06-29
+
+### Added
+- **Opt-in auto-think (background synthesis).** A new `MEMEX_DREAM_SYNTHESIS=1`
+  flag opts memex's existing Nova synthesis chain (atoms → concepts → takes →
+  grading → calibration) into the maintenance cycle, running during quiet hours
+  only and writing to the isolated `synth_*` store (read via `list_concepts` /
+  `list_takes` / `get_calibration_profile`). Default-OFF — the brain stays
+  pure-retrieval unless you enable it. Count-capped per phase
+  (`MEMEX_DREAM_SYNTHESIS_MAX_*`), Nova Lite, idempotent (re-runs on an unchanged
+  corpus are no-ops).
+
 ## [1.51.0] — 2026-06-29
 
 ### Added

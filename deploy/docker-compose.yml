@@ -76,6 +76,12 @@ services:
       # a phase with a live defect without losing the rest of the cycle (set in
       # the host .env, default none).
       - MEMEX_CYCLE_SKIP_PHASES=${MEMEX_CYCLE_SKIP_PHASES:-}
+      # Opt-in auto-think (default OFF). =1 appends the Nova synthesis chain
+      # (atoms→concepts→takes→grade→calibration → the isolated synth_* store,
+      # read via list_concepts/list_takes) to QUIET-HOURS ticks only. Count-capped
+      # (MEMEX_DREAM_SYNTHESIS_MAX_DOCS/_MAX_CONCEPTS/_MAX_TAKES/_MIN_GRADED), Nova
+      # Lite, idempotent. Leave unset to keep the brain pure-retrieval.
+      - MEMEX_DREAM_SYNTHESIS=${MEMEX_DREAM_SYNTHESIS:-}
       # Public-ingress writes (opt-in, default OFF). When =1, the public /mcp
       # path (static bearer or OAuth) may call the CONSTRUCTIVE write tools
       # (index, page_put, page_append, add_fact, add_timeline_event, add_tag,

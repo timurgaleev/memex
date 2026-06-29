@@ -17,10 +17,14 @@ self-hosted + low-spend constraints):
   carry over when embeddings are next touched, so a future model swap is a config
   change, not a rewrite. No provider switch / full re-embed without a measured
   retrieval-quality problem — the swap costs money and a corpus re-embed.
-- **Agent/synthesis layer — deferred; build later as cheap, default-OFF slices.**
-  Start with a single opt-in `auto-think` cycle phase reusing the existing
-  maintenance cycle, feature-flagged off, rather than a big-bang agent runtime.
-  It is the most LLM-expensive surface; gate it.
+- **Agent/synthesis layer — FIRST SLICE DONE (v1.52.0).** `MEMEX_DREAM_SYNTHESIS=1`
+  opts the existing Nova synthesis chain into quiet-hours cycle ticks (default-OFF,
+  count-capped, writes the isolated `synth_*` store). memex already had the
+  synthesis primitives + storage + MCP reads; this was the missing auto-run wiring.
+  Deliberately did NOT port the reference's Opus/USD-budget/`think` pipeline —
+  conflicts with the Nova-only / synthesis-is-the-client's-job stance. Later slices
+  (deferred): a dedicated slower synthesis cadence, surfacing `synth_*` into
+  retrieval/answer context, a composite `auto-think` phase name.
 - **Multi-tenant auth — DONE (v1.51.0): self-issued OAuth 2.1 `client_credentials`,
   the reference's model (no external IdP).** memex is its own authorization server
   (`/token` + `memex auth register-client` + `memex_at_` verify on `/mcp`). The

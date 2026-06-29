@@ -10,6 +10,7 @@
 import type { Storage } from "../core/storage.ts";
 import {
   ALL_PHASES,
+  SYNTHESIS_PHASES,
   runCycleOnce,
   type CycleOptions,
   type PhaseName,
@@ -122,6 +123,29 @@ export function parseSkipPhases(raw: string | undefined): Set<string> {
   );
 }
 
+/** Positive-integer env override with a fallback (0/blank/garbage → fallback). */
+export function capEnv(raw: string | undefined, fallback: number): number {
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Build a tick's phase list. Quiet hours drop COSTLY_PHASES (embed-stale etc.)
+ * AND are the only window where the opt-in synthesis chain runs (it's the
+ * heaviest Nova work, so keep it off peak). The operator skip-list applies last.
+ */
+export function selectTickPhases(opts: {
+  inQuiet: boolean;
+  synthEnabled: boolean;
+  skipPhases: Set<string>;
+}): PhaseName[] {
+  const base: PhaseName[] = opts.inQuiet
+    ? ALL_PHASES.filter((p) => !COSTLY_PHASES.has(p))
+    : [...ALL_PHASES];
+  if (opts.synthEnabled && opts.inQuiet) base.push(...SYNTHESIS_PHASES);
+  return base.filter((p) => !opts.skipPhases.has(p));
+}
+
 export function startCycleLoop(
   storage: Storage,
   options: CycleLoopOptions,
@@ -145,19 +169,34 @@ export function startCycleLoop(
   // MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference.
   const skipPhases = parseSkipPhases(process.env.MEMEX_CYCLE_SKIP_PHASES);
 
+  // Opt-in (default-OFF) auto-think: appends the Nova synthesis chain
+  // (atoms→concepts→takes→grade→calibration, all writing the ISOLATED synth_*
+  // store, never documents/pages) to QUIET-HOURS ticks only — synthesis is the
+  // costly Nova work, so it runs when interactive recall traffic is low. memex's
+  // idiomatic auto-think: opt the existing default-OFF SYNTHESIS_PHASES into the
+  // schedule, count-capped (no USD budget, no deep-tier model — Nova Lite only).
+  const synthEnabled = process.env.MEMEX_DREAM_SYNTHESIS === "1";
+  const synthCaps = synthEnabled
+    ? {
+        maxDocs: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_DOCS, 25),
+        maxConcepts: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_CONCEPTS, 30),
+        maxTakes: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_TAKES, 25),
+        minGraded: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MIN_GRADED, 5),
+      }
+    : undefined;
+
   const runTick = async (): Promise<void> => {
     if (stopped) return;
     const now = new Date();
     const inQuiet = isInQuietHours(now, quietStart, quietEnd);
-    const phases: PhaseName[] = (
-      inQuiet ? ALL_PHASES.filter((p) => !COSTLY_PHASES.has(p)) : [...ALL_PHASES]
-    ).filter((p) => !skipPhases.has(p));
+    const phases = selectTickPhases({ inQuiet, synthEnabled, skipPhases });
 
     const opts: CycleOptions = {
       phases,
       staleDays,
       progress: consoleProgress("cycle"),
       storage,
+      ...(synthCaps ? { synthesis: synthCaps } : {}),
     };
 
     // Background sweep: reclaim a `memex-cycle` lock stranded by a holder that
