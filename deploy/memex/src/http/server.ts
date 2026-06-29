@@ -25,6 +25,10 @@ import {
 } from "./public_guard.ts";
 import { verifyOAuthToken } from "./oauth.ts";
 import type { OAuthConfig } from "./oauth.ts";
+import {
+  OAuthProvider,
+  InvalidTokenError,
+} from "../core/oauth-provider.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
@@ -54,6 +58,67 @@ async function lookupSourceGrant(
     [sub],
   );
   return res.rows[0] ?? null;
+}
+
+/**
+ * POST /token — OAuth 2.1 client_credentials grant (RFC 6749 §4.4). Accepts a
+ * form-encoded or JSON body with `grant_type=client_credentials`, `client_id`,
+ * `client_secret`, optional `scope`. Returns the RFC 6749 §5.1 token payload, or
+ * a §5.2 error. Any client/secret failure collapses to a single `invalid_client`
+ * 401 so the endpoint never reveals whether a client_id exists.
+ */
+async function handleTokenRoute(
+  req: Request,
+  provider: OAuthProvider,
+): Promise<Response> {
+  let params: URLSearchParams;
+  try {
+    const ct = req.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const j = (await req.json()) as Record<string, unknown>;
+      params = new URLSearchParams();
+      for (const [k, v] of Object.entries(j)) {
+        if (typeof v === "string") params.set(k, v);
+      }
+    } else {
+      params = new URLSearchParams(await req.text());
+    }
+  } catch {
+    return Response.json(
+      { error: "invalid_request", error_description: "malformed body" },
+      { status: 400 },
+    );
+  }
+
+  if (params.get("grant_type") !== "client_credentials") {
+    return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
+  }
+  const clientId = params.get("client_id");
+  const clientSecret = params.get("client_secret");
+  if (!clientId || !clientSecret) {
+    return Response.json(
+      {
+        error: "invalid_client",
+        error_description: "client_id and client_secret are required",
+      },
+      { status: 401 },
+    );
+  }
+
+  try {
+    const tokens = await provider.exchangeClientCredentials(
+      clientId,
+      clientSecret,
+      params.get("scope") ?? undefined,
+    );
+    return Response.json(tokens, {
+      status: 200,
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    // Never distinguish unknown-client from bad-secret from wrong-grant.
+    return Response.json({ error: "invalid_client" }, { status: 401 });
+  }
 }
 
 export interface ServerOptions {
@@ -89,6 +154,14 @@ export interface ServerOptions {
    */
   oauthConfig?: OAuthConfig;
   /**
+   * memex's own OAuth 2.1 provider (client_credentials), wired from
+   * `config.auth.selfIssued.enabled`. When set, the server mounts POST `/token`
+   * and verifies self-issued `memex_at_…` bearer tokens on the `/mcp` ingress,
+   * scoping each request to its registered `oauth_clients` row. This is the
+   * reference-faithful auth path that replaces the external-IdP JWT overlay.
+   */
+  oauthProvider?: OAuthProvider;
+  /**
    * Admin surface bootstrap token (increment A1). When set, the `/admin` auth
    * routes are mounted: the operator/agent uses this token to log in or mint a
    * magic link. Omitted → no admin surface.
@@ -121,6 +194,13 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const guardOpts: { bearerToken?: string } = {};
   if (opts.publicBearerToken) guardOpts.bearerToken = opts.publicBearerToken;
 
+  // Per-IP throttle for the unauthenticated POST /token endpoint — blunts
+  // client_secret brute-force and the DB-load DoS it would otherwise allow
+  // (10/min, capacity 10). Only created when the self-issued provider is on.
+  const tokenRateLimiter = opts.oauthProvider
+    ? new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 })
+    : null;
+
   let adminAuth: AdminAuth | null = null;
   if (opts.adminBootstrapToken && opts.adminBootstrapToken.length > 0) {
     adminAuth = createAdminAuth({
@@ -143,11 +223,69 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const server = Bun.serve({
     hostname: opts.host,
     port: opts.port,
-    fetch: async (req) => {
+    fetch: async (req, server) => {
       const url = new URL(req.url);
+
+      // POST /token — OAuth 2.1 client_credentials endpoint. Authenticates via
+      // the client_id/client_secret in the body (NOT the public bearer), so it
+      // runs BEFORE the bearer guard. Only mounted when the self-issued provider
+      // is enabled. Per-IP rate-limited (brute-force / DoS defense).
+      if (
+        url.pathname === "/token" &&
+        req.method === "POST" &&
+        opts.oauthProvider
+      ) {
+        const ip = server.requestIP(req)?.address ?? "unknown";
+        if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+          return Response.json(
+            { error: "slow_down", error_description: "rate limit exceeded" },
+            { status: 429, headers: { "Retry-After": "60" } },
+          );
+        }
+        return handleTokenRoute(req, opts.oauthProvider);
+      }
 
       let guard = evaluatePublicGuard(req, url, guardOpts);
       let oauthAuth: AuthInfo | undefined;
+      if (!guard.allow) {
+        // Self-issued provider (preferred path). A `memex_at_…` token is opaque
+        // (not a JWS), so it must be verified here, not by the JWT verifier. On
+        // success the request is a TRUSTED registered client scoped to its own
+        // `oauth_clients` row — unredacted read within that source scope
+        // (isPublic:false); writes stay gated by the internal-token path.
+        if (opts.oauthProvider && guard.status === 401) {
+          const m = /^Bearer (.+)$/.exec(
+            req.headers.get("Authorization") ?? "",
+          );
+          if (m && m[1] && m[1].startsWith("memex_at_")) {
+            try {
+              const info = await opts.oauthProvider.verifyAccessToken(m[1]);
+              guard = { allow: true, isPublic: false };
+              oauthAuth = {
+                token: info.token,
+                clientId: info.clientId,
+                scopes: info.scopes,
+                ...(info.sourceId != null ? { sourceId: info.sourceId } : {}),
+                ...(info.allowedSources != null
+                  ? { allowedSources: info.allowedSources }
+                  : {}),
+                isPublic: false,
+              };
+            } catch (e) {
+              // InvalidTokenError = a bad/expired token: fall through to the
+              // public path silently. ANY OTHER error (DB outage, provider bug)
+              // is still fail-closed to public, but MUST be logged — otherwise an
+              // incident is indistinguishable from a routine bad token.
+              if (!(e instanceof InvalidTokenError)) {
+                console.error(
+                  "[memex] self-issued token verification error:",
+                  e,
+                );
+              }
+            }
+          }
+        }
+      }
       if (!guard.allow) {
         // OAuth fallback (default-OFF). Only when enabled, only on a 401
         // (public request, bearer present-but-wrong / missing) — never on a

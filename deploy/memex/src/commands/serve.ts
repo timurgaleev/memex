@@ -12,6 +12,7 @@ import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { registerSource } from "../core/sources.ts";
+import { OAuthProvider } from "../core/oauth-provider.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
 import { installSignalHandlers } from "../core/process-cleanup.ts";
 import { basename } from "node:path";
@@ -98,9 +99,16 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   // Optional OAuth/JWT bearer path (Wave 6) — only wired when explicitly
   // enabled in memex.yml's auth.oauth block; otherwise the static bearer is
-  // the sole auth path (unchanged).
+  // the sole auth path (unchanged). DEPRECATED — superseded by selfIssued below.
   if (config.auth?.oauth?.enabled === true) {
     serverOpts.oauthConfig = config.auth.oauth;
+  }
+  // memex's own OAuth 2.1 provider (client_credentials). When enabled, mounts
+  // POST /token and verifies self-issued `memex_at_…` tokens on /mcp. Shares the
+  // engine with the brain — the oauth_clients/oauth_tokens tables (migration
+  // 046) already exist. The reference-faithful auth path.
+  if (config.auth?.selfIssued?.enabled === true) {
+    serverOpts.oauthProvider = new OAuthProvider({ engine: storage.raw() });
   }
   // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
   // set; otherwise an ephemeral per-run token printed to stderr (lives only in
