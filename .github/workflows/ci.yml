@@ -96,7 +96,13 @@ jobs:
     # on the live t4g.medium catches arm64-specific regressions
     # within ~2 minutes of merge.
     continue-on-error: ${{ matrix.arch == 'arm64' }}
-    timeout-minutes: 60
+    # 90, not 60: the free arm64 canary runs the full sharded suite on a 3-4x
+    # slower runner and, as the suite grew, began grazing the old 60-min cap —
+    # a TIMEOUT shows as "cancelled" and drags the whole run's badge even though
+    # the amd64 GATE is green. The extra margin lets the canary finish with a
+    # real green/red verdict. amd64 finishes in ~11 min, so this never affects
+    # the gate. (arm64 stays continue-on-error — it is a signal, not a gate.)
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
