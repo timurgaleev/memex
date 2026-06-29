@@ -33,8 +33,21 @@ shippable brain-only gaps found:
   just-ticked cycle can momentarily read WARN — make the warn default relative
   to the cycle interval (≈2×) or raise it; operator can set
   `MEMEX_CYCLE_FRESHNESS_WARN_HOURS=12` meanwhile.
-- [~] **MOSTLY RESOLVED — the cycle now completes; one phase isolated.** As of
-  v1.46.0 the live cycle runs END-TO-END and writes snapshots again
+- [x] **RESOLVED (v1.47.0) — the cycle runs end-to-end with EVERY phase.** Root
+  cause was empirical: anomalous docs with 18–30 MB `frontmatter` JSONB (436 MB
+  across 658 docs); `frontmatter-inference`'s `SELECT d.frontmatter` over all of
+  them parsed into multi-GB of JS objects → OOM-SIGKILL. Fix (faithful to the
+  reference's one-doc-at-a-time inference, since it has no such cycle phase):
+  keyset-paginate (`MEMEX_CYCLE_FM_BATCH`) + skip docs whose frontmatter exceeds
+  `MEMEX_CYCLE_FM_MAX_BYTES` (16 KB — the phase only fills MISSING fields, so a
+  big frontmatter isn't missing them) + chunk-0 via `LIMIT 1` subquery capped at
+  64 KB. Live-verified: frontmatter-inference now `done status=ok rss=1009MB`
+  (was a SIGKILL), full tick completes, SNAP_COUNT 86→89, `cycle-freshness`
+  "last cycle 0h ago". The `MEMEX_CYCLE_SKIP_PHASES` workaround is removed.
+  REMAINING data follow-up: WHY do docs have 30 MB frontmatter? An ingest path is
+  dumping content into the `frontmatter` JSONB — root-cause + clean the data.
+- [~] (superseded by v1.47.0) earlier MOSTLY-RESOLVED-via-skip note — kept for
+  history: As of v1.46.0 the live cycle ran END-TO-END and wrote snapshots again
   (`cycle-freshness` = "last cycle 0h ago", SNAP_COUNT rising, lock released,
   48 s/tick, peak RSS 1404 MB). The fix: `MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference`
   (set in the host .env) drops the ONE phase whose start hard-SIGKILLs the tick.
