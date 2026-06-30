@@ -12,6 +12,7 @@ import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
 import { runExtract } from "./commands/extract.ts";
+import { runExtractConversationFactsCli } from "./commands/extract-conversation-facts.ts";
 import { runReconcileLinks } from "./commands/reconcile-links.ts";
 import { runCheckResolvable } from "./commands/check-resolvable.ts";
 import { runSkillify, runSkillifyCheck } from "./commands/skillify.ts";
@@ -403,6 +404,35 @@ async function main(argv: readonly string[]): Promise<number> {
       const all = flags.has("--all");
       const vault = values.get("--vault");
       await runExtract(vault ? { all, vault } : { all });
+      return 0;
+    }
+    case "extract-conversation-facts": {
+      const file = positional[0] ?? values.get("--file");
+      if (!file) {
+        console.error(
+          "memex extract-conversation-facts: <transcript-file> is required",
+        );
+        return 1;
+      }
+      const budgetStr = values.get("--budget");
+      const args: Parameters<typeof runExtractConversationFactsCli>[0] = {
+        file,
+        json: flags.has("--json"),
+      };
+      const sourceSlug = values.get("--source-slug");
+      if (sourceSlug) args.sourceSlug = sourceSlug;
+      const dateContext = values.get("--date-context");
+      if (dateContext) args.dateContext = dateContext;
+      if (budgetStr !== undefined) {
+        const n = Number(budgetStr);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(
+            `memex extract-conversation-facts: invalid --budget ${budgetStr}`,
+          );
+        }
+        args.maxBudgetUsd = n;
+      }
+      await runExtractConversationFactsCli(args);
       return 0;
     }
     case "reconcile-links": {

@@ -1,0 +1,183 @@
+/**
+ * `memex extract-conversation-facts` — parse a chat transcript into turns and
+ * extract structured facts from each via paid Bedrock Sonnet, bounded by a USD
+ * budget. Opt-in, default-OFF (set MEMEX_FACTS_EXTRACTION=1 to run live), the
+ * agent-layer slice the operator chose for reference parity.
+ *
+ * Pipeline: parseConversation (deterministic) → per-turn Sonnet extraction
+ * (budget-gated) → addFact into entity_facts. Stops cleanly when the budget is
+ * exhausted; partial progress is kept.
+ */
+import { readFileSync } from "node:fs";
+import { Storage } from "../core/storage.ts";
+import { loadConfig } from "../core/config.ts";
+import { parseConversation } from "../core/conversation-parser.ts";
+import {
+  extractFactsFromTurn,
+  writeExtractedFacts,
+} from "../core/facts-extract.ts";
+import { BudgetTracker, BudgetExhausted } from "../core/budget.ts";
+import { DEFAULT_SONNET_MODEL, type SonnetFn } from "../core/llm/sonnet.ts";
+
+/** Conservative worst-case usage for the pre-flight budget guard: the sanitizer
+ *  caps a turn at ~12K chars (~3K input tokens) + the extractor's 800-token
+ *  output cap, rounded up. Keeps the cap a near-strict pre-call ceiling. */
+const WORST_CASE_USAGE = { inputTokens: 4000, outputTokens: 800 };
+
+export interface ExtractConvFactsOptions {
+  /** Raw transcript text. */
+  text: string;
+  /** Provenance slug stamped on each written fact. */
+  sourceSlug?: string;
+  /** Fallback YYYY-MM-DD for time-only transcript formats. */
+  dateContext?: string;
+  /** USD ceiling for the run. Default 1.0 (MEMEX_FACTS_BUDGET_USD overrides). */
+  maxBudgetUsd?: number;
+  /** Test seam — inject a fake model; bypasses the live-run env gate. */
+  sonnetFn?: SonnetFn;
+  modelId?: string;
+}
+
+export interface ExtractConvFactsReport {
+  ran: boolean;
+  reason?: string;
+  turns: number;
+  factsWritten: number;
+  factsSkipped: number;
+  spentUsd: number;
+  budgetExhausted: boolean;
+}
+
+function liveEnabled(): boolean {
+  const v = (process.env["MEMEX_FACTS_EXTRACTION"] ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+function defaultBudget(): number {
+  const raw = (process.env["MEMEX_FACTS_BUDGET_USD"] ?? "").trim();
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 1.0;
+}
+
+export async function runExtractConversationFacts(
+  storage: Storage,
+  opts: ExtractConvFactsOptions,
+): Promise<ExtractConvFactsReport> {
+  // Default-OFF: a live (paid) run requires the explicit env gate. Tests inject
+  // a sonnetFn, which both bypasses the gate and avoids any spend.
+  if (!opts.sonnetFn && !liveEnabled()) {
+    return {
+      ran: false,
+      reason:
+        "default-OFF: set MEMEX_FACTS_EXTRACTION=1 to run paid Sonnet extraction",
+      turns: 0,
+      factsWritten: 0,
+      factsSkipped: 0,
+      spentUsd: 0,
+      budgetExhausted: false,
+    };
+  }
+
+  const messages = parseConversation(opts.text, {
+    ...(opts.dateContext ? { dateContext: opts.dateContext } : {}),
+  });
+  const cap = opts.maxBudgetUsd ?? defaultBudget();
+  const budget = new BudgetTracker(cap, "extract-conversation-facts");
+  // The model id is resolved up front so the pre-flight guard prices the same
+  // model the call will use (a strict-as-possible pre-call ceiling).
+  const modelId =
+    opts.modelId ?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL;
+
+  let factsWritten = 0;
+  let factsSkipped = 0;
+  let exhausted = false;
+
+  for (const msg of messages) {
+    const turn = `${msg.speaker}: ${msg.text}`.trim();
+    if (!turn) continue;
+    // Pre-flight: don't dispatch a paid call when the worst-case cost would
+    // breach the cap (also stops unpriced models — wouldExceed returns true).
+    if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+      exhausted = true;
+      break;
+    }
+    let result;
+    try {
+      result = await extractFactsFromTurn(turn, {
+        ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
+        modelId,
+      });
+    } catch {
+      // A model/network error skips this turn; never abort the batch.
+      continue;
+    }
+    try {
+      budget.record(result.modelId, result.usage);
+    } catch (e) {
+      if (e instanceof BudgetExhausted) {
+        exhausted = true;
+        // Still persist this last turn's facts (already paid for), then stop.
+        const w = await writeExtractedFacts(storage, result.facts, {
+          ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
+        });
+        factsWritten += w.written;
+        factsSkipped += w.skipped;
+        break;
+      }
+      throw e;
+    }
+    const w = await writeExtractedFacts(storage, result.facts, {
+      ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
+    });
+    factsWritten += w.written;
+    factsSkipped += w.skipped;
+  }
+
+  return {
+    ran: true,
+    turns: messages.length,
+    factsWritten,
+    factsSkipped,
+    spentUsd: Number(budget.totalSpent().toFixed(6)),
+    budgetExhausted: exhausted,
+  };
+}
+
+export interface ExtractConvFactsCliArgs {
+  /** Path to a transcript file. */
+  file: string;
+  sourceSlug?: string;
+  dateContext?: string;
+  maxBudgetUsd?: number;
+  json?: boolean;
+}
+
+/** CLI entry: read a transcript file, run extraction, print the report. */
+export async function runExtractConversationFactsCli(
+  args: ExtractConvFactsCliArgs,
+): Promise<void> {
+  const text = readFileSync(args.file, "utf8");
+  const storage = new Storage(loadConfig());
+  await storage.init();
+  try {
+    const report = await runExtractConversationFacts(storage, {
+      text,
+      ...(args.sourceSlug ? { sourceSlug: args.sourceSlug } : {}),
+      ...(args.dateContext ? { dateContext: args.dateContext } : {}),
+      ...(args.maxBudgetUsd !== undefined ? { maxBudgetUsd: args.maxBudgetUsd } : {}),
+    });
+    if (args.json) {
+      console.log(JSON.stringify(report));
+    } else if (!report.ran) {
+      console.log(`extract-conversation-facts: skipped — ${report.reason}`);
+    } else {
+      console.log(
+        `extract-conversation-facts: ${report.turns} turns, ${report.factsWritten} facts written` +
+          ` (${report.factsSkipped} skipped), spent $${report.spentUsd.toFixed(4)}` +
+          (report.budgetExhausted ? " [budget exhausted]" : ""),
+      );
+    }
+  } finally {
+    await storage.close();
+  }
+}

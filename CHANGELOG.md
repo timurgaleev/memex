@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.54.0] — 2026-06-30
+
+### Added
+- **Conversation→facts extraction (opt-in, paid).** A new
+  `memex extract-conversation-facts <transcript>` command parses a chat
+  transcript into turns (the deterministic conversation parser) and extracts
+  structured facts from each turn with Bedrock Claude Sonnet, writing them into
+  the `entity_facts` ledger. Default-OFF: a live run requires
+  `MEMEX_FACTS_EXTRACTION=1`. Every run is bounded by a USD budget
+  (`--budget`, default $1, `MEMEX_FACTS_BUDGET_USD`) — the `BudgetTracker` is a
+  hard ceiling that stops the run when spend is reached, and refuses to invoke
+  an unpriced model. Untrusted turn text is run through the prompt-injection
+  sanitizer and DATA-fenced before the model sees it. The model is the EU
+  Bedrock inference profile (`MEMEX_FACTS_MODEL`, default Sonnet 4.6); notes
+  never leave AWS. Requires Bedrock model access for Claude Sonnet + an
+  `iam.tf` invoke-permission widening before it can run live.
+
 ## [1.53.0] — 2026-06-30
 
 ### Added
