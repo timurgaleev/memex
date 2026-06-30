@@ -22,6 +22,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { Engine } from "./engine/interface.ts";
+import { sanitizeForPrompt } from "./llm/sanitize.ts";
 
 const DEFAULT_MODEL_ID =
   process.env.SKILLIFY_MODEL_ID ?? "global.amazon.nova-2-lite-v1:0";
@@ -177,15 +178,19 @@ export async function proposeForSkill(
 ): Promise<SkillProposal> {
   const client = opts.client ?? getClient();
   const modelId = opts.modelId ?? DEFAULT_MODEL_ID;
+  // Skill text + friction queries/reasons are untrusted (search-miss content
+  // can be attacker-influenced) — strip injection phrases before the LLM sees
+  // them. The skill markdown the model rewrites stays structurally intact.
+  const safeText = sanitizeForPrompt(currentText).text;
   const userPrompt =
     `Skill: ${skill}\n` +
     `Friction count (last window): ${count}\n\n` +
-    `--- skill markdown ---\n${currentText}\n--- end skill ---\n\n` +
+    `--- skill markdown ---\n${safeText}\n--- end skill ---\n\n` +
     `--- friction events (most recent first) ---\n` +
     examples
       .map(
         (e, i) =>
-          `${i + 1}. [${e.kind}] query=${JSON.stringify(e.query)} reason=${JSON.stringify(e.reason)}`,
+          `${i + 1}. [${e.kind}] query=${JSON.stringify(sanitizeForPrompt(String(e.query)).text)} reason=${JSON.stringify(sanitizeForPrompt(String(e.reason)).text)}`,
       )
       .join("\n") +
     `\n--- end events ---`;

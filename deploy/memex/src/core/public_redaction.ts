@@ -10,6 +10,7 @@
  * unless the operator opts in with `MEMEX_PUBLIC_READ_BODIES=1`.
  * Allowlists are fail-safe: a new body-ish field is stripped by default.
  */
+import { redactConnectionInfo } from "./url-redact.ts";
 
 /** True when the operator opted into returning full bodies publicly. */
 export function publicReadBodiesAllowed(): boolean {
@@ -32,7 +33,12 @@ export const PUBLIC_ERROR_MESSAGE = "internal error";
 export function publicSafeErrorMessage(e: unknown, isPublic: boolean): string {
   const detail = e instanceof Error ? e.message : String(e);
   if (isPublic) {
-    console.error("[memex] suppressed error on public ingress:", detail);
+    // Scrub any DSN / credential / IP before it reaches the operator log —
+    // a postgres-js connection error can carry the password-bearing DSN.
+    console.error(
+      "[memex] suppressed error on public ingress:",
+      redactConnectionInfo(detail),
+    );
     return PUBLIC_ERROR_MESSAGE;
   }
   return detail;

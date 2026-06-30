@@ -22,6 +22,7 @@ import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { wellFormJsonbObject } from "./well-form.ts";
+import { resolveEffectiveDate } from "./effective-date.ts";
 
 export interface ChunkWrite {
   /** Chunk body text (will land in chunks.content). */
@@ -115,8 +116,8 @@ export async function writeDocumentTransaction(
 
   await engine.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, updated_at)
-       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), NOW())
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, updated_at)
+       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), $8, NOW())
        ON CONFLICT (id) DO UPDATE SET
          -- Keep the existing source on reindex unless the caller passes one
          -- explicitly. A null write leaves classification to the path-prefix
@@ -126,6 +127,8 @@ export async function writeDocumentTransaction(
          title              = EXCLUDED.title,
          frontmatter        = EXCLUDED.frontmatter,
          last_indexed_mtime = EXCLUDED.last_indexed_mtime,
+         -- Content date re-parsed from the fresh frontmatter on every re-index.
+         effective_date     = EXCLUDED.effective_date,
          -- Re-index re-chunks under the CURRENT chunker, so advance the stamp;
          -- a metadata-only re-put that omits the version preserves the prior one.
          chunker_version    = COALESCE($7, documents.chunker_version),
@@ -149,6 +152,7 @@ export async function writeDocumentTransaction(
         doc.mtimeMs ?? null,
         doc.sourceId ?? null,
         doc.chunkerVersion ?? null,
+        resolveEffectiveDate(doc.frontmatter, doc.sourcePath),
       ],
     );
 

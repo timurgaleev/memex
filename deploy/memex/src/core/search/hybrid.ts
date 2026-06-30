@@ -41,6 +41,13 @@ import {
 } from "./recency.ts";
 import { salienceMultiplier } from "./salience.ts";
 import { isTitlePhraseMatch, getTitleBoost } from "./title-match.ts";
+import { isCanonicalQuery } from "./recency-gate.ts";
+import {
+  getCurationBoostMap,
+  curationMultiplierForPath,
+  getSearchExcludePrefixes,
+  isExcludedPath,
+} from "./curation.ts";
 import {
   resolveAdaptiveReturn,
   applyAdaptiveReturn,
@@ -130,6 +137,14 @@ export interface SearchOptions {
    * The live ranking model is immutable unless this is set. See graph-signals.ts.
    */
   graphSignals?: boolean;
+  /** Filter to chunks of a given source language (chunks.language, e.g. "typescript"). */
+  lang?: string;
+  /** Filter to chunks of a given symbol kind (chunks.symbol_type, e.g. "function"). */
+  symbolKind?: string;
+  /** Keep only docs whose content date COALESCE(effective_date,updated_at) is >= this ISO date. */
+  since?: string;
+  /** Keep only docs whose content date COALESCE(effective_date,updated_at) is <= this ISO date. */
+  until?: string;
 }
 
 export interface SearchCaptureInfo {
@@ -249,6 +264,12 @@ interface HitPayload extends BoostablePayload, ChunkPayloadForRerank {
   updated_at?: string | null;
   /** Document frontmatter (documents.frontmatter), for salience. */
   frontmatter?: unknown;
+  /** Chunk source language (chunks.language), for the lang filter. */
+  language?: string | null;
+  /** Chunk symbol kind (chunks.symbol_type), for the symbol_kind filter. */
+  symbol_type?: string | null;
+  /** Content date COALESCE(effective_date, updated_at), for since/until. */
+  effective_date?: string | null;
 }
 
 /**
@@ -336,7 +357,14 @@ export async function hybridSearch(
   //    error falls through to a normal search — the cache is pure
   //    optimization and must never break retrieval.
   const rerankWanted = opts.rerank ?? process.env.MEMEX_RERANK === "1";
-  const cacheEnabled = !opts.noCache && process.env.MEMEX_QUERY_CACHE !== "0";
+  // Per-call post-hydrate filters (lang / symbol_kind / since / until) are NOT
+  // part of the cache key, so a filtered query bypasses the query cache
+  // entirely — it never reads a cached unfiltered set nor writes a filtered one.
+  const hasFilters = Boolean(
+    opts.lang || opts.symbolKind || opts.since || opts.until,
+  );
+  const cacheEnabled =
+    !opts.noCache && !hasFilters && process.env.MEMEX_QUERY_CACHE !== "0";
   let cacheKey = "";
   let cacheClock = 0;
   let cacheReady = false;
@@ -454,13 +482,19 @@ export async function hybridSearch(
     source_kind: SourceKind | null;
     updated_at: string | null;
     frontmatter: unknown;
+    language: string | null;
+    symbol_type: string | null;
+    effective_date: string | null;
   }>(
     `SELECT c.id, c.document_id, c.content,
             d.source_path, d.title,
             d.source_id,
             s.kind AS source_kind,
             d.updated_at::text AS updated_at,
-            d.frontmatter
+            d.frontmatter,
+            c.language,
+            c.symbol_type,
+            COALESCE(d.effective_date, d.updated_at)::text AS effective_date
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = d.source_id
@@ -485,8 +519,44 @@ export async function hybridSearch(
         source_kind: row.source_kind,
         updated_at: row.updated_at,
         frontmatter: row.frontmatter,
+        language: row.language,
+        symbol_type: row.symbol_type,
+        effective_date: row.effective_date,
       },
     });
+  }
+
+  // 5b. Per-call filters (lang / symbol_kind / since / until). Post-hydrate so
+  //     they compose with fusion; the candidate set may shrink below k (filter
+  //     semantics — only matching hits are returned). Cache is bypassed when
+  //     any filter is set, so this never persists a filtered set.
+  if (hasFilters) {
+    // Compare dates as epoch ms, NOT strings: Postgres renders TIMESTAMPTZ as
+    // "2024-03-15 10:00:00+00" (space separator) while a caller passes ISO
+    // ("2024-03-15T…") — a raw string compare would mis-order across that gap.
+    const sinceMs = opts.since ? Date.parse(opts.since) : NaN;
+    const untilMs = opts.until ? Date.parse(opts.until) : NaN;
+    scored = scored.filter((s) => {
+      const p = s.payload;
+      if (opts.lang && p?.language !== opts.lang) return false;
+      if (opts.symbolKind && p?.symbol_type !== opts.symbolKind) return false;
+      if (opts.since || opts.until) {
+        const cd = p?.effective_date ?? p?.updated_at ?? null;
+        const cdMs = cd ? Date.parse(cd) : NaN;
+        if (Number.isNaN(cdMs)) return false;
+        if (!Number.isNaN(sinceMs) && cdMs < sinceMs) return false;
+        if (!Number.isNaN(untilMs) && cdMs > untilMs) return false;
+      }
+      return true;
+    });
+  }
+
+  // 6-. Hard-exclude — drop fixtures / attachments / raw sidecars by slug
+  //     prefix (default none; MEMEX_SEARCH_EXCLUDE opts in). Cheap precision
+  //     filter, applied before scoring so excluded hits never compete.
+  const excludePrefixes = getSearchExcludePrefixes();
+  if (excludePrefixes.length > 0) {
+    scored = scored.filter((s) => !isExcludedPath(s.payload?.sourcePath ?? null, excludePrefixes));
   }
 
   // 6. Source-boost.
@@ -497,6 +567,13 @@ export async function hybridSearch(
   //     the rest of the pipeline; both are neutral (1.0) when their signal
   //     is absent, so neither can bury a hit that doesn't declare it.
   const nowMs = Date.now();
+  // Canonical/definitional queries ("who is X", "define X", a bare symbol)
+  // want the authoritative page regardless of age — skip the recency + salience
+  // multipliers for them (an explicit temporal bound re-enables freshness).
+  const canonical = isCanonicalQuery(trimmed);
+  // Curation authority by slug prefix — curated originals outrank bulk feeds
+  // inside one store. Orthogonal to recency decay; neutral (×1) off-prefix.
+  const curationMap = getCurationBoostMap();
   // Per-prefix recency decay (env-overridable); paths matching no prefix
   // (e.g. code chunks under `src/`) fall back to the original uniform decay.
   // Memoized: resolved once per process, so the env parse (and its fail-loud
@@ -513,13 +590,16 @@ export async function hybridSearch(
     ...s,
     score:
       s.score *
-      recencyMultiplierForPath(
-        s.payload?.updated_at ?? null,
-        nowMs,
-        s.payload?.sourcePath ?? null,
-        recencyMap,
-      ) *
-      salienceMultiplier(s.payload?.frontmatter) *
+      (canonical
+        ? 1
+        : recencyMultiplierForPath(
+            s.payload?.updated_at ?? null,
+            nowMs,
+            s.payload?.sourcePath ?? null,
+            recencyMap,
+          )) *
+      (canonical ? 1 : salienceMultiplier(s.payload?.frontmatter)) *
+      curationMultiplierForPath(s.payload?.sourcePath ?? null, curationMap) *
       (titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title)
         ? titleBoost
         : 1),

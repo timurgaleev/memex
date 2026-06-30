@@ -32,7 +32,10 @@ export function parseFrontmatter(md: string): ParsedFrontmatter {
 
     const listMatch = trimmed.match(/^\s*-\s+(.*)$/);
     if (listMatch && lastListKey !== null) {
-      const arr = (fm[lastListKey] as unknown[] | undefined) ?? [];
+      // The pending key was seeded with "" (empty scalar); the first list item
+      // promotes it to an array. A re-entry keeps the existing array.
+      const existing = fm[lastListKey];
+      const arr = Array.isArray(existing) ? existing : [];
       arr.push(stripQuotes(listMatch[1] ?? ""));
       fm[lastListKey] = arr;
       continue;
@@ -46,8 +49,11 @@ export function parseFrontmatter(md: string): ParsedFrontmatter {
     const key = kv[1] ?? "";
     const rawVal = (kv[2] ?? "").trim();
     if (rawVal === "") {
+      // A bare `key:` is an empty scalar until a `- item` proves it a list.
+      // Default to "" (not []) so `typeof fm[key] === "string"` readers of
+      // blank date:/source:/title: see a string, not a mistyped array.
       lastListKey = key;
-      fm[key] = [];
+      fm[key] = "";
     } else {
       lastListKey = null;
       fm[key] = stripQuotes(rawVal);
