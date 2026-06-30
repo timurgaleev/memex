@@ -16,9 +16,10 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
-/** EU cross-region inference profile for Claude Sonnet 4.6. Operator confirms
- *  the exact version suffix; override via MEMEX_FACTS_MODEL. */
-export const DEFAULT_SONNET_MODEL = "eu.anthropic.claude-sonnet-4-6-v1:0";
+/** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
+ *  invokable in eu-west-1 (no version suffix). Override via MEMEX_FACTS_MODEL
+ *  (e.g. `eu.anthropic.claude-haiku-4-5-20251001-v1:0` for the cheaper tier). */
+export const DEFAULT_SONNET_MODEL = "eu.anthropic.claude-sonnet-4-6";
 
 export interface SonnetCallInput {
   system: string;
