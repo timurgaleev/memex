@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { hybridSearch } from "../core/search/index.ts";
+import { wilsonCI, smallSampleNote, type WilsonCI } from "../core/wilson.ts";
 
 interface Qrel {
   id: string;
@@ -37,6 +38,8 @@ interface QueryReport {
   hits: number;
   expected: number;
   topPaths: string[];
+  /** Set when this query threw — the run continues, the query scores 0. */
+  error?: string;
 }
 
 interface EvalReport {
@@ -44,6 +47,14 @@ interface EvalReport {
   k: number;
   meanRecall: number;
   meanReciprocalRank: number;
+  /** Fraction of queries that retrieved at least one expected path (a binomial
+   *  proportion the Wilson CI bounds). */
+  hitRate: number;
+  wilsonCi95: WilsonCI;
+  /** Present when n < 30 — the CI is too wide to act on. */
+  smallSampleNote?: string;
+  /** Queries that threw (isolated, did not abort the run). */
+  errors: { id: string; error: string }[];
   perQuery: QueryReport[];
 }
 
@@ -104,19 +115,37 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
   await storage.init();
 
   const perQuery: QueryReport[] = [];
+  const errors: { id: string; error: string }[] = [];
   try {
     for (const q of qrels.queries) {
-      const hits = await hybridSearch(storage, q.query, { k });
-      const paths = hits.map((h) => h.sourcePath);
-      perQuery.push({
-        id: q.id,
-        query: q.query,
-        recallAtK: recallAtK(paths, q.expected_paths),
-        mrr: reciprocalRank(paths, q.expected_paths),
-        hits: paths.length,
-        expected: q.expected_paths.length,
-        topPaths: paths.slice(0, 3),
-      });
+      // Per-query isolation: one query throwing (a bad embed, a transient DB
+      // error) must not abort the whole run and lose every other measurement.
+      try {
+        const hits = await hybridSearch(storage, q.query, { k });
+        const paths = hits.map((h) => h.sourcePath);
+        perQuery.push({
+          id: q.id,
+          query: q.query,
+          recallAtK: recallAtK(paths, q.expected_paths),
+          mrr: reciprocalRank(paths, q.expected_paths),
+          hits: paths.length,
+          expected: q.expected_paths.length,
+          topPaths: paths.slice(0, 3),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push({ id: q.id, error: msg });
+        perQuery.push({
+          id: q.id,
+          query: q.query,
+          recallAtK: 0,
+          mrr: 0,
+          hits: 0,
+          expected: q.expected_paths.length,
+          topPaths: [],
+          error: msg,
+        });
+      }
     }
   } finally {
     await storage.close();
@@ -126,6 +155,13 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
     perQuery.reduce((s, q) => s + q.recallAtK, 0) / perQuery.length;
   const meanReciprocalRank =
     perQuery.reduce((s, q) => s + q.mrr, 0) / perQuery.length;
+  // Hit-rate: fraction of queries that retrieved at least one expected path.
+  // A binomial proportion — bound it with a Wilson 95% CI so the score reads
+  // as a measurement with uncertainty, not a bare number.
+  const hitCount = perQuery.filter((q) => q.recallAtK > 0).length;
+  const hitRate = hitCount / perQuery.length;
+  const wilsonCi95 = wilsonCI(hitCount, perQuery.length);
+  const note = smallSampleNote(perQuery.length);
   const ok = meanRecall >= minRecall;
 
   const report: EvalReport = {
@@ -133,6 +169,10 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
     k,
     meanRecall,
     meanReciprocalRank,
+    hitRate,
+    wilsonCi95,
+    ...(note ? { smallSampleNote: note } : {}),
+    errors,
     perQuery,
   };
   console.log(JSON.stringify(report, null, 2));

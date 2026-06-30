@@ -105,6 +105,28 @@ export async function codeCallers(
   return mentionsFor(engine, "code-caller", name, clampLimit(limit), sourceIds);
 }
 
+/** Where `name` is defined — the `code-def` mentions for a symbol (by bare
+ *  name). Complements `resolveSymbolAt` (file:line → def) with def-by-name. */
+export async function codeDefs(
+  engine: Engine,
+  name: string,
+  limit?: number,
+  sourceIds?: string[],
+): Promise<CodeGraphResult> {
+  return mentionsFor(engine, "code-def", name, clampLimit(limit), sourceIds);
+}
+
+/** All references to `name` — the `code-ref` mentions (imports, type uses,
+ *  non-call references). Complements `codeCallers` for proof-grade tracing. */
+export async function codeRefs(
+  engine: Engine,
+  name: string,
+  limit?: number,
+  sourceIds?: string[],
+): Promise<CodeGraphResult> {
+  return mentionsFor(engine, "code-ref", name, clampLimit(limit), sourceIds);
+}
+
 /** Resolve the innermost-enclosing code-def symbol covering file:line. */
 export async function resolveSymbolAt(
   engine: Engine,

@@ -80,7 +80,8 @@ import { recallFact, forgetFact } from "../core/facts-recall.ts";
 import { brainIdentity } from "../core/identity.ts";
 import { purgeDeletedPages } from "../core/pages-purge.ts";
 import { queryRefine } from "../core/search/query-refine.ts";
-import { codeCallers, codeCallees } from "../core/code-graph.ts";
+import { codeCallers, codeCallees, codeDefs, codeRefs } from "../core/code-graph.ts";
+import { runRecursiveWalk } from "../core/code-walk.ts";
 import { parseWindow, volunteerContext, volunteerUsageStats } from "../core/context/volunteer.ts";
 import {
   logVolunteerEventsFireAndForget,
@@ -291,6 +292,8 @@ export async function dispatchTool(
         return await callForgetFact(storage, args);
       case "get_brain_identity":
         return await callGetBrainIdentity(storage);
+      case "whoami":
+        return callWhoami(opts.authInfo, readSources, opts.isPublic ?? false);
       case "purge_deleted_pages":
         return await callPurgeDeletedPages(storage, args);
       case "query":
@@ -299,6 +302,14 @@ export async function dispatchTool(
         return await callCodeCallers(storage, args, readSources);
       case "code_callees":
         return await callCodeCallees(storage, args, readSources);
+      case "code_def":
+        return await callCodeDefs(storage, args, readSources);
+      case "code_refs":
+        return await callCodeRefs(storage, args, readSources);
+      case "code_blast":
+        return await callCodeWalk(storage, args, readSources, "callers");
+      case "code_flow":
+        return await callCodeWalk(storage, args, readSources, "callees");
       case "volunteer_context":
         return await callVolunteerContext(storage, args);
       case "advisor":
@@ -396,6 +407,30 @@ async function callSearch(
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
   if (readSources && readSources.length) searchOpts.sourceIds = readSources;
+  // Optional per-call filters — strings validated by the op contract.
+  if (typeof args["lang"] === "string" && args["lang"]) searchOpts.lang = args["lang"];
+  if (typeof args["symbol_kind"] === "string" && args["symbol_kind"]) {
+    searchOpts.symbolKind = args["symbol_kind"];
+  }
+  const dateBound = (name: "since" | "until"): string | undefined => {
+    const v = args[name];
+    if (v === undefined || v === null || v === "") return undefined;
+    // Require an ISO-8601 date (optionally with a time) so a malformed bound
+    // ("last month") fails loud at the call site instead of silently dropping
+    // results in the comparison below.
+    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}([T ]|$)/.test(v) || Number.isNaN(Date.parse(v))) {
+      throw new OperationError(
+        "invalid_params",
+        `search: \`${name}\` must be an ISO-8601 date (e.g. 2024-03-15 or 2024-03-15T10:00:00Z)`,
+        `Pass \`${name}\` as an ISO date or datetime.`,
+      );
+    }
+    return v;
+  };
+  const since = dateBound("since");
+  const until = dateBound("until");
+  if (since) searchOpts.since = since;
+  if (until) searchOpts.until = until;
   const hits = await hybridSearch(storage, q, searchOpts);
   // Public ingress: drop page-derived mirror hits entirely. A page slug
   // (`page://people/<name>`) and title are author-written identifiers — the
@@ -1497,6 +1532,23 @@ async function callGetBrainIdentity(storage: Storage): Promise<ToolCallResult> {
   return jsonResult({ ok: true, ...id });
 }
 
+/** Introspect the calling identity — the caller's own auth context, no corpus.
+ *  Unscoped (no authInfo / no read scope) reports read_sources: null. */
+function callWhoami(
+  authInfo: AuthInfo | undefined,
+  readSources: string[] | undefined,
+  isPublic: boolean,
+): ToolCallResult {
+  return jsonResult({
+    ok: true,
+    client_id: authInfo?.clientId ?? null,
+    scopes: authInfo?.scopes ?? [],
+    write_source: authInfo?.sourceId ?? null,
+    read_sources: readSources ?? null,
+    is_public: isPublic,
+  });
+}
+
 async function callPurgeDeletedPages(
   storage: Storage,
   args: Record<string, unknown>,
@@ -1569,6 +1621,66 @@ async function callCodeCallees(
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
   const sourceIds = readSources && readSources.length ? readSources : undefined;
   const result = await codeCallees(storage.engine(), args["target"], limit, sourceIds);
+  return jsonResult({ ok: true, ...result });
+}
+
+async function callCodeDefs(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  if (typeof args["name"] !== "string" || args["name"].length === 0) {
+    return errResult("code_def: `name` is required");
+  }
+  const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const result = await codeDefs(storage.engine(), args["name"], limit, sourceIds);
+  return jsonResult({ ok: true, ...result });
+}
+
+async function callCodeRefs(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  if (typeof args["name"] !== "string" || args["name"].length === 0) {
+    return errResult("code_refs: `name` is required");
+  }
+  const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const result = await codeRefs(storage.engine(), args["name"], limit, sourceIds);
+  return jsonResult({ ok: true, ...result });
+}
+
+async function callCodeWalk(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  direction: "callers" | "callees",
+): Promise<ToolCallResult> {
+  if (typeof args["symbol"] !== "string" || args["symbol"].length === 0) {
+    return errResult(
+      `${direction === "callers" ? "code_blast" : "code_flow"}: \`symbol\` is required`,
+    );
+  }
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const depthCapMax = direction === "callers" ? 8 : 12;
+  const depth =
+    typeof args["depth"] === "number"
+      ? Math.min(Math.max(1, Math.floor(args["depth"] as number)), depthCapMax)
+      : undefined;
+  const maxNodes =
+    typeof args["max_nodes"] === "number"
+      ? Math.min(Math.max(1, Math.floor(args["max_nodes"] as number)), 200)
+      : undefined;
+  const exact = args["exact"] === true;
+  const result = await runRecursiveWalk(storage.engine(), args["symbol"], {
+    direction,
+    depth,
+    maxNodes,
+    sourceIds,
+    exact,
+  });
   return jsonResult({ ok: true, ...result });
 }
 

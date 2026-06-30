@@ -6,6 +6,64 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.53.0] — 2026-06-30
+
+### Added
+- **Code-intelligence tools (`code_def`, `code_refs`, `code_blast`,
+  `code_flow`).** Four deterministic, LLM-free MCP tools over the already-indexed
+  code graph. `code_def` lists where a bare symbol is defined; `code_refs` lists
+  all references (imports / type uses / non-call); `code_blast` walks the
+  transitive callers (blast radius) grouped by hop depth; `code_flow` walks the
+  transitive callees with terminal side-effect tagging (db / http / file_io /
+  process_exec). The recursive walks are bounded by `depth` + `max_nodes` with
+  cycle detection. Internal-ingress only (they surface private repo paths).
+- **`whoami` MCP tool.** Introspects the calling identity — `client_id`,
+  granted scopes, the write source, and the readable sources — for debugging the
+  `client_credentials` multi-client setup. Returns only the caller's own auth
+  context; `read_sources` is null when unscoped.
+- **Content-date search filters (`since` / `until` / `lang` / `symbol_kind`).**
+  `search` now accepts optional filters: `since`/`until` rank on a document's
+  CONTENT date (new `documents.effective_date`, parsed at ingest from
+  frontmatter `date`/`event_date`/`published` or a `YYYY-MM-DD` filename,
+  falling back to `updated_at` via COALESCE), and `lang`/`symbol_kind` filter
+  code chunks by language / symbol kind. Filters apply post-ranking and bypass
+  the query cache. Migration 055 adds the column + a COALESCE expression index
+  (grandfathered, no backfill).
+- **Intent-gated recency.** Canonical/definitional queries ("who is X",
+  "define X", a bare symbol) now skip the recency + salience decay multipliers,
+  so an old-but-authoritative page is no longer buried by freshness on exactly
+  the queries that want it. An explicit temporal bound ("…today", "…last week")
+  re-enables freshness. Pure regex, no LLM.
+- **Slug-prefix curation boost + hard-exclude.** An optional per-prefix
+  authority multiplier (`MEMEX_CURATION_BOOST`) lets curated originals outrank
+  bulk feeds inside one store, and a hard-exclude denylist
+  (`MEMEX_SEARCH_EXCLUDE`, default empty) keeps fixtures / attachments / raw
+  sidecars out of results.
+- **Eval confidence bounds + per-query isolation.** `memex eval` now reports a
+  hit-rate with a Wilson 95% CI (and a small-sample note below n=30), and one
+  query throwing no longer aborts the whole run — it scores 0 and the run
+  continues, with failures collected in an `errors[]` block.
+- **Conversation/chat-transcript parser.** A pure, deterministic
+  `parseConversation` turns an exported chat log (iMessage / Slack / Telegram /
+  WhatsApp / Discord / IRC / plain transcript) into structured
+  `{ speaker, timestamp, text }` messages. No LLM.
+
+### Security
+- **DSN / credential redaction in logs.** A new scrubber strips postgres DSNs,
+  `password=` / `user=`, and bare IPv4s from error text before it is logged, so
+  a postgres-js connection error can no longer write the live credential to the
+  operator log on the public-ingress error path.
+- **Prompt-injection sanitizer for untrusted corpus.** Note/skill/search-miss
+  text injected into the Nova synthesis and friction-propose prompts is now run
+  through a shared injection-pattern scrubber + length cap, cutting the trivial
+  "ignore prior instructions" surface.
+
+### Fixed
+- **Frontmatter empty-scalar bug.** A bare `key:` with no value (e.g. a blank
+  `date:`) was stored as `[]` (an array) instead of `""` (a string), breaking
+  every `typeof === "string"` reader. It now yields `""`, and is promoted to an
+  array only when list items actually follow.
+
 ## [1.52.0] — 2026-06-29
 
 ### Added

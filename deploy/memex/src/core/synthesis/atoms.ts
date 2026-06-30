@@ -26,6 +26,7 @@
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { sanitizeForPrompt } from "../llm/sanitize.ts";
 
 /** Allowed atom_type values. A returned type outside this set falls back. */
 export const ATOM_TYPES = [
@@ -220,7 +221,8 @@ export async function extractAtomsPhase(
     try {
       const resp = await llm({
         system: SYSTEM_PROMPT,
-        user: `Source: ${doc.id}\n\n---\n\n${doc.text.slice(0, MAX_DOC_CHARS_TO_LLM)}`,
+        // Note body is untrusted — strip injection phrases + cap before the LLM.
+        user: `Source: ${doc.id}\n\n---\n\n${sanitizeForPrompt(doc.text, MAX_DOC_CHARS_TO_LLM).text}`,
         maxTokens: 1200,
       });
       text = resp.text;

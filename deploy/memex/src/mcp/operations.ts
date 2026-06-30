@@ -170,7 +170,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "search",
     description:
-      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title.",
+      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache.",
     params: {
       q: str({ ...req, description: "Natural-language query." }),
       k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 5." }),
@@ -179,6 +179,22 @@ export const OPERATIONS: readonly Operation[] = [
         maximum: 200000,
         description:
           "Optional cap on total returned content size (~chars/4 tokens). Hits are kept in rank order; the overflowing tail hit is truncated. Unset = no cap.",
+      }),
+      lang: str({
+        description:
+          "Filter to chunks of a source language (chunks.language, e.g. 'typescript', 'python'). Code chunks only.",
+      }),
+      symbol_kind: str({
+        description:
+          "Filter to chunks of a symbol kind (chunks.symbol_type, e.g. 'function', 'class', 'method').",
+      }),
+      since: str({
+        description:
+          "Keep only hits whose content date COALESCE(effective_date, updated_at) is >= this ISO-8601 date/datetime.",
+      }),
+      until: str({
+        description:
+          "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this ISO-8601 date/datetime.",
       }),
     },
   },
@@ -676,6 +692,12 @@ export const OPERATIONS: readonly Operation[] = [
     params: {},
   },
   {
+    name: "whoami",
+    description:
+      "Introspect the CALLING identity: the client_id, granted OAuth scopes, the write source, and the read sources this token may see. Returns {client_id, scopes, write_source, read_sources, is_public}. `read_sources` is null when the caller is unscoped (local CLI / internal token = whole-brain). Reveals only the caller's own auth context — no corpus. Cheap; no Bedrock. Useful for debugging the client_credentials multi-client setup.",
+    params: {},
+  },
+  {
     name: "purge_deleted_pages",
     description:
       "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only.",
@@ -714,6 +736,46 @@ export const OPERATIONS: readonly Operation[] = [
     params: {
       target: str({ ...req, description: "`<path>:<line>` of a call site / symbol body (e.g. `src/x.ts:42`)." }),
       limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "code_def",
+    description:
+      "Where is the symbol `name` defined. Returns the `code-def` mentions (surface form + chunk + source path) for a bare symbol name across the indexed code corpus. Deterministic, no LLM. Complements `code_callers`/`code_callees` with 'where is X defined'. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+    params: {
+      name: str({ ...req, description: "Bare symbol name to locate definitions of (e.g. `hybridSearch`, `Storage`)." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "code_refs",
+    description:
+      "All references to the symbol `name` — the `code-ref` mentions (imports, type uses, non-call references) over the indexed code corpus. Deterministic, no LLM. Complements `code_callers` (call sites) for proof-grade symbol tracing. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+    params: {
+      name: str({ ...req, description: "Bare symbol name to find references to (e.g. `hybridSearch`)." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "code_blast",
+    description:
+      "Blast radius: every transitive CALLER of `symbol`, grouped by hop depth (direct → 2-hop → 3-hop). Run before editing a function to size the change. BFS over the resolved code edge graph, bounded by `depth` (default 5, max 8) and `max_nodes` (default 200). Deterministic, no LLM. Returns {result, depth_groups?, cycles_detected?, truncation?, did_you_mean?, candidates?}. `result` is 'ok' | 'not_found' | 'ambiguous'.",
+    params: {
+      symbol: str({ ...req, description: "Bare or qualified symbol name (e.g. `performSync` or `Foo::performSync`)." }),
+      depth: int({ minimum: 1, maximum: 8, description: "Hop cap. Default 5, max 8." }),
+      max_nodes: int({ minimum: 1, maximum: 200, description: "Result-set cap. Default 200." }),
+      exact: bool({ description: "Skip bare-name disambiguation; treat `symbol` as an exact qualified name." }),
+    },
+  },
+  {
+    name: "code_flow",
+    description:
+      "Execution flow: every transitive CALLEE reachable from the entry-point `symbol`, grouped by hop depth, with terminal side-effect tagging. Run to trace how a request flows to a DB write / HTTP call / file I/O. BFS over the resolved code edge graph, bounded by `depth` (default 8, max 12) and `max_nodes` (default 200). Deterministic, no LLM. Same envelope as `code_blast` plus `terminal_nodes: [{symbol, sink_kind}]` where sink_kind ∈ db_call|http_call|file_io|process_exec.",
+    params: {
+      symbol: str({ ...req, description: "Entry-point symbol name (bare or qualified)." }),
+      depth: int({ minimum: 1, maximum: 12, description: "Hop cap. Default 8, max 12." }),
+      max_nodes: int({ minimum: 1, maximum: 200, description: "Result-set cap. Default 200." }),
+      exact: bool({ description: "Skip bare-name disambiguation; treat `symbol` as an exact qualified name." }),
     },
   },
   {

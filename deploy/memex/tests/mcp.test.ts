@@ -74,8 +74,12 @@ describe("MCP HTTP transport", () => {
       "add_timeline_event",
       "advisor",
       "backlinks",
+      "code_blast",
       "code_callees",
       "code_callers",
+      "code_def",
+      "code_flow",
+      "code_refs",
       "entity_facts",
       "entity_recall",
       "entity_timeline",
@@ -124,6 +128,7 @@ describe("MCP HTTP transport", () => {
       "traverse_graph",
       "unlink",
       "volunteer_context",
+      "whoami",
     ]);
   });
 
