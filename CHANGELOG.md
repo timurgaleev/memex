@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.54.1] — 2026-06-30
+
 ### Fixed
 - **Conversation→facts model id.** `MEMEX_FACTS_MODEL` default corrected to the
   real EU Bedrock inference profile `eu.anthropic.claude-sonnet-4-6` (no
