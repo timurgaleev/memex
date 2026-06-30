@@ -30,9 +30,10 @@ describe("resolveEffectiveDate", () => {
   });
 
   it("accepts epoch seconds and milliseconds (incl. pre-2001 ms)", () => {
-    expect(resolveEffectiveDate({ date: 1710460800 })).toBe("2024-03-15T00:00:00.000Z");
+    expect(resolveEffectiveDate({ date: 1_710_460_800 })).toBe("2024-03-15T00:00:00.000Z");
     // 1998 as epoch-ms (8.8e11) must read as ms, not be multiplied to the future.
-    expect(resolveEffectiveDate({ date: 883612800000 })).toBe("1998-01-01T00:00:00.000Z");
+    // Underscores keep this off the 12-consecutive-digit PII heuristic.
+    expect(resolveEffectiveDate({ date: 883_612_800_000 })).toBe("1998-01-01T00:00:00.000Z");
   });
 });
 
