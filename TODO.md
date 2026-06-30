@@ -33,6 +33,28 @@ self-hosted + low-spend constraints):
 
 ---
 
+## Parity gap sweep (2026-06-30) — 16 findings, 14+1 shipped
+
+A dynamic-workflow diff (9 subsystem readers + synthesis) surfaced 16 brain-only
+findings. **Shipped (v1.53.0):** code_def / code_refs / code_blast / code_flow
+(BFS over code_edges_symbol), whoami, since/until/lang/symbol_kind search filters
++ `documents.effective_date` (mig 055), intent-gated recency, slug-prefix
+curation boost + hard-exclude, DSN/credential redaction, prompt-injection
+sanitizer, eval Wilson CI + per-query isolation, frontmatter blank-key fix.
+**Shipped (v1.54.0/.1):** conversation→facts extractor via paid Bedrock Sonnet
+(default-OFF, $1 budget, IAM applied, proven live).
+
+Genuinely deferred (one item, candidate for a future session):
+- [ ] **`near_symbol` + `walk_depth` search expansion.** The reference anchors
+  retrieval at a qualified symbol and expands through code_edges with
+  `1/(1+hop)` decay (reference `core/search/two-pass.ts` + hybrid wiring). memex
+  `core/search/two-pass.ts` exists but has NO nearSymbol/anchor/walkDepth
+  machinery — this is a candidate-construction-stage (pre-fusion) integration,
+  higher blast-radius than the post-hydrate `since/until/lang` filters already
+  shipped. Reuses `core/code-walk.ts` (the BFS walker). Portable; deferred by
+  risk, not by un-portability. Expose `near_symbol` + `walk_depth` on `search`/
+  `query` once designed.
+
 ## Parity gap sweep (2026-06-28) — 6-subsystem dynamic-workflow diff
 
 A fresh dynamic-workflow fan-out (6 brain-only subsystem readers + a completeness
