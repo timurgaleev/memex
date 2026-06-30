@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Conversation→facts model id.** `MEMEX_FACTS_MODEL` default corrected to the
+  real EU Bedrock inference profile `eu.anthropic.claude-sonnet-4-6` (no
+  `-v1:0` suffix), verified ACTIVE + invokable in eu-west-1. The EC2 instance
+  role's `bedrock:InvokeModel` was widened (terraform `iam.tf`) to that
+  inference profile + the `anthropic.claude-sonnet-4-6` foundation model, so
+  the live container can run the extractor once `MEMEX_FACTS_EXTRACTION=1` is
+  set. Sonnet stays region-locked via the existing off-region deny.
+
 ## [1.54.0] — 2026-06-30
 
 ### Added
