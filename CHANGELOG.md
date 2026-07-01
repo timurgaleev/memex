@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.55.0] — 2026-07-01
+
+### Added
+- **`near_symbol` + `walk_depth` structural search expansion (default OFF).**
+  The `search` op gains two optional params: `near_symbol` anchors retrieval at
+  a qualified symbol name, and `walk_depth` (0-2) expands the fused anchors
+  through the code call graph (`code_edges_symbol`), scoring each structural
+  neighbor `anchorScore × 1/(1+hop)`. New `core/search/structural-expand.ts`
+  walks callers (direct `from_chunk_id`) + callees (resolve-phase
+  `resolved_chunk_id`, else name-resolved) in batched per-hop queries, bounded
+  by depth ≤ 2, a 50-wide frontier, and ≤ 200 fresh chunks/hop; tenant scope is
+  enforced on `documents.source_id` (code edges carry none). Wired into
+  `hybridSearch` pre-hydrate (cache bypassed; per-doc dedup widened for the
+  walk). Inert on a prose corpus — code chunks only.
+
+### Changed
+- **Embedding width is configurable.** `core/embedding.ts` reads
+  `MEMEX_EMBED_DIM` (fail-loud, default 1024 = Titan v2) instead of a hardcoded
+  literal, so a future embedder swap is an env change, not a code hunt. No
+  behavior change at the default.
+
+### Fixed
+- **`tool_defs` contract snapshot refreshed** to the current tool set (the
+  v1.53 code-intel tools + `whoami` + the new structural-search params), so the
+  generated-vs-frozen equality test reflects the live MCP contract again.
+
 ## [1.54.1] — 2026-06-30
 
 ### Fixed

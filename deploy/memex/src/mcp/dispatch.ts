@@ -431,6 +431,14 @@ async function callSearch(
   const until = dateBound("until");
   if (since) searchOpts.since = since;
   if (until) searchOpts.until = until;
+  // Structural two-pass expansion (code graph) — strings/ints validated by the
+  // op contract; walk_depth clamped to the engine cap defensively.
+  if (typeof args["near_symbol"] === "string" && args["near_symbol"]) {
+    searchOpts.nearSymbol = args["near_symbol"];
+  }
+  if (typeof args["walk_depth"] === "number") {
+    searchOpts.walkDepth = Math.min(Math.max(args["walk_depth"], 0), 2);
+  }
   const hits = await hybridSearch(storage, q, searchOpts);
   // Public ingress: drop page-derived mirror hits entirely. A page slug
   // (`page://people/<name>`) and title are author-written identifiers — the

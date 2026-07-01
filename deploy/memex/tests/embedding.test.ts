@@ -1,5 +1,5 @@
 import { test, expect, mock } from "bun:test";
-import { embedText } from "../src/core/embedding.ts";
+import { embedText, resolveEmbedDimensions } from "../src/core/embedding.ts";
 import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 
 function mockBedrockClient(returnVector: number[]): BedrockRuntimeClient {
@@ -37,4 +37,22 @@ test("embedText accepts modelId override", async () => {
   // Should not throw with a custom modelId
   const result = await embedText("hello", { client, modelId: "custom.model.v1" });
   expect(result.length).toBe(1024);
+});
+
+test("resolveEmbedDimensions defaults to 1024 when unset/blank", () => {
+  expect(resolveEmbedDimensions(undefined)).toBe(1024);
+  expect(resolveEmbedDimensions("")).toBe(1024);
+  expect(resolveEmbedDimensions("   ")).toBe(1024);
+});
+
+test("resolveEmbedDimensions reads a valid positive integer", () => {
+  expect(resolveEmbedDimensions("1536")).toBe(1536);
+  expect(resolveEmbedDimensions("256")).toBe(256);
+});
+
+test("resolveEmbedDimensions fails loud on a bad value", () => {
+  expect(() => resolveEmbedDimensions("0")).toThrow(/positive integer/);
+  expect(() => resolveEmbedDimensions("-1")).toThrow(/positive integer/);
+  expect(() => resolveEmbedDimensions("1.5")).toThrow(/positive integer/);
+  expect(() => resolveEmbedDimensions("abc")).toThrow(/positive integer/);
 });
