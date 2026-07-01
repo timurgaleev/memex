@@ -1,0 +1,20 @@
+-- 057_chunks_contextual_embedded.sql — track which chunks were embedded with
+-- the contextual-retrieval prefix.
+--
+-- The opt-in wrapper (MEMEX_CONTEXTUAL_RETRIEVAL=1) prepends a
+-- <context>{title}\n{synopsis}</context> header to a chunk's text JUST BEFORE
+-- embedding (src/core/search/contextual-embed.ts) — the vector reflects the
+-- prefix, the canonical chunks.content does not. This marker column records
+-- whether a chunk's stored vector was produced under that wrapper, so a bulk
+-- re-embed (reindex --contextual) can target only the chunks still on the
+-- plain, un-prefixed vector rather than re-embedding the whole corpus.
+--
+-- GRANDFATHER: DEFAULT FALSE. Every existing chunk reads false (its vector was
+-- produced without the prefix), which is correct — the marker flips true only
+-- when the wrapper actually ran for that chunk's embed. No backfill; a chunk
+-- re-embedded under the flag stamps true at write time.
+--
+-- Additive + reversible: a single ADD COLUMN IF NOT EXISTS with a constant
+-- DEFAULT is metadata-only on Postgres 11+ / PGLite 17.5, and dropping the
+-- column fully reverts the change. Idempotent — safe to re-run.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS contextual_embedded BOOLEAN NOT NULL DEFAULT FALSE;

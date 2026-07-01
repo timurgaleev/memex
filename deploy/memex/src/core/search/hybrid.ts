@@ -70,6 +70,7 @@ import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
+import { graphRerank } from "./graph-rerank.ts";
 import {
   applyGraphSignals,
   computeFloorThreshold,
@@ -103,6 +104,14 @@ export interface SearchOptions {
   sourceIds?: readonly string[];
   /** Override MEMEX_RERANK. */
   rerank?: boolean;
+  /**
+   * Opt-in graph-aware Sonnet rerank (default OFF; falls back to
+   * MEMEX_GRAPH_RERANK=1). POST-FUSION: reorders the top hits with one paid
+   * Sonnet call, given each hit's excerpt + a link-graph connectivity hint.
+   * Fail-open — any error/budget-skip returns the pre-rerank order. Distinct
+   * from `rerank` (the Haiku two-pass text reranker). See graph-rerank.ts.
+   */
+  graphRerank?: boolean;
   /** Override Nova Lite intent classification — for tests / cheap fallback. */
   intent?: Intent;
   /** Skip query expansion. */
@@ -728,6 +737,19 @@ export async function hybridSearch(
   }));
   if (aliasHopEnabled()) {
     organic = await applyAliasHop(organic, storage, trimmed, intent, opts.sourceIds);
+  }
+
+  // 8d. Graph-aware Sonnet rerank (opt-in, default OFF) — reorder the top hits
+  //     with one paid Sonnet call using a link-graph connectivity hint. Runs on
+  //     the FULL post-alias list (before the trim) so a promoted hit can't be
+  //     trimmed out. Self-gates (returns input unchanged unless the flag/seam is
+  //     set); fail-open on any error or budget skip. Distinct from the Haiku
+  //     two-pass rerank above.
+  if (opts.graphRerank ?? process.env.MEMEX_GRAPH_RERANK === "1") {
+    organic = await graphRerank(trimmed, organic, {
+      storage,
+      ...(opts.sourceIds ? { sourceIds: [...opts.sourceIds] } : {}),
+    });
   }
 
   // 9. Trim to k (the ranked result, pre-token-budget).

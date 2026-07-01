@@ -13,6 +13,7 @@ import { runEval } from "./commands/eval.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
 import { runExtract } from "./commands/extract.ts";
 import { runExtractConversationFactsCli } from "./commands/extract-conversation-facts.ts";
+import { runThinkCli } from "./commands/think.ts";
 import { runReconcileLinks } from "./commands/reconcile-links.ts";
 import { runCheckResolvable } from "./commands/check-resolvable.ts";
 import { runSkillify, runSkillifyCheck } from "./commands/skillify.ts";
@@ -182,6 +183,8 @@ function printUsage(): void {
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");
   console.log("                               mint an access token locally (= POST /token)");
+  console.log("  think <question> [--k N] [--budget USD] [--json]");
+  console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1)");
   console.log("  --help                       show this help");
 }
 
@@ -433,6 +436,35 @@ async function main(argv: readonly string[]): Promise<number> {
         args.maxBudgetUsd = n;
       }
       await runExtractConversationFactsCli(args);
+      return 0;
+    }
+    case "think": {
+      const question = positional.join(" ").trim() || values.get("--question");
+      if (!question) {
+        console.error("memex think: a <question> is required");
+        return 1;
+      }
+      const args: Parameters<typeof runThinkCli>[0] = {
+        question,
+        json: flags.has("--json"),
+      };
+      const kStr = values.get("--k");
+      if (kStr !== undefined) {
+        const n = Number(kStr);
+        if (!Number.isInteger(n) || n < 1 || n > 100) {
+          throw new Error(`memex think: invalid --k ${kStr}`);
+        }
+        args.k = n;
+      }
+      const budgetStr = values.get("--budget");
+      if (budgetStr !== undefined) {
+        const n = Number(budgetStr);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(`memex think: invalid --budget ${budgetStr}`);
+        }
+        args.maxBudgetUsd = n;
+      }
+      await runThinkCli(args);
       return 0;
     }
     case "reconcile-links": {

@@ -44,26 +44,45 @@ Accepted scope, in build order (lowest blast-radius first):
   corpus re-embed** + column/HNSW migration. Verify which provider is reachable
   from our AWS/Bedrock posture first (cost + egress). Detail: "Embedding
   1024→1536" + the "Roadmap decisions" embeddings bullet (now reversed).
-- [ ] **4. Re-accept the "rejected" expensive-AI features** — ACCEPTED as
-  **paid opt-in Sonnet slices** (the proven conversation→facts pattern: flag +
-  budget + Bedrock Sonnet, never default-ON in a way that surprises cost).
-  Six slices, prioritized by value/effort:
+- [x] **4. Re-accept the "rejected" expensive-AI features — COMPLETE (v1.57.0).**
+  ACCEPTED as **paid opt-in Sonnet slices** (the proven conversation→facts
+  pattern: flag + budget + Bedrock Sonnet, never default-ON in a way that
+  surprises cost). All six slices S1–S6 shipped default-OFF; the paid
+  per-chunk-synopsis tier of S6 + its bulk `reindex --contextual` re-embed remain
+  the only operator-gated follow-ups. Six slices, prioritized by value/effort:
   - [x] **S1 — ensemble/multi-vote grading — DONE (v1.56.0).** N Sonnet judges
     → majority verdict + median confidence in `gradeTakesPhase`
     (`MEMEX_TAKE_ENSEMBLE`, mig 056 provenance). ai-engineer reviewed (HIGH
     parse-fail-vs-budget-out split + 2 MEDIUM fixed). Tests in
     `synthesis_takes.test.ts`. Dormant until the flag is set.
-  - [ ] **S2 — think / deep-synthesis pipeline** (`MEMEX_THINK`, new
-    `core/synthesis/think.ts` + `commands/think.ts`).
-  - [ ] **S3 — relational-recall LLM arm** (`MEMEX_RELATIONAL_LLM`, Sonnet
-    fallback when the deterministic parse misses).
-  - [ ] **S4 — graph-aware Sonnet rerank** (`MEMEX_GRAPH_RERANK`, post-fusion,
-    distinct from the Haiku `MEMEX_RERANK`).
-  - [ ] **S5 — extra deep-synthesis cadence** (`MEMEX_DEEP_SYNTH` cycle phase).
-  - [ ] **S6 — contextual-retrieval embed wrapper** (`MEMEX_CONTEXTUAL_RETRIEVAL`,
-    mig 057; its `reindex --contextual` bulk re-embed is the one operator-gated
-    cost step — sequence AFTER Item 3 to avoid a double re-embed).
-  Each = its own batch, default-OFF, ships like facts/S1 did (not deploy-gated).
+  - [x] **S2 — think / deep-synthesis pipeline — DONE (v1.57.0).** `MEMEX_THINK`,
+    `core/synthesis/think.ts` (GATHER hybrid+takes → Sonnet synthesis →
+    `{answer, citations, gaps}`) + `commands/think.ts` + `cli.ts` case. Budget
+    `MEMEX_THINK_BUDGET_USD`. Injectable `pagesFn`/`sonnetFn` seams (hybridSearch
+    has no offline embedder). 18 tests.
+  - [x] **S3 — relational-recall LLM arm — DONE (v1.57.0).** `MEMEX_RELATIONAL_LLM`,
+    `core/search/relational-llm.ts`: Sonnet extracts `{kind,seeds,linkTypes,
+    direction}` (validated vs `KNOWN_LINK_TYPES`), reuses the shared
+    `fanoutRelational` (refactored out of `relationalRecall`, behavior-preserving,
+    13 regression tests green). Wired as an opt-in fallback in the
+    `relational_recall` MCP tool. 12 tests.
+  - [x] **S4 — graph-aware Sonnet rerank — DONE (v1.57.0).** `MEMEX_GRAPH_RERANK`,
+    `core/search/graph-rerank.ts`: post-fusion Sonnet reorder with a link-graph
+    degree hint; fail-open to the input order; budget pre-flight BEFORE the degree
+    query. Wired into `hybridSearch` before the trim. Distinct from Haiku
+    `MEMEX_RERANK`. 15 tests.
+  - [x] **S5 — extra deep-synthesis cadence — DONE (v1.57.0).** `MEMEX_DEEP_SYNTH`,
+    `core/synthesis/deep-synth.ts`: runs `think` over top `synth_concepts` as
+    standing questions on quiet-hours cycle ticks, one shared USD cap, returns +
+    logs (no write-back). Wired into `recipes/cycle.ts` runTick. 8 tests.
+  - [x] **S6 — contextual-retrieval embed wrapper — DONE (v1.57.0).**
+    `MEMEX_CONTEXTUAL_RETRIEVAL`, mig 057, `core/search/contextual-embed.ts`
+    (LLM-FREE tier: `<context>{title}\n{synopsis}</context>` on the embed INPUT
+    only, deterministic first-two-sentences synopsis, code bypass). Wired into
+    the indexer embed path (flag-gated). The paid per-chunk Haiku synopsis tier +
+    the `reindex --contextual` bulk re-embed stay DEFERRED/operator-gated —
+    sequence the bulk re-embed AFTER Item 3 to avoid a double re-embed. 21 tests.
+  Each default-OFF, shipped like facts/S1 (not deploy-gated). Item 4 COMPLETE.
 
 Method (unchanged): copy-paste-adapt with `file:line` citations, TDD, self-review
 agent per batch, ship via the repo loop (test→push→deploy→verify→release), no

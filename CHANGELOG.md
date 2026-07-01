@@ -6,6 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Paid opt-in Sonnet slices S2–S6 (default OFF, budget-capped).** Five
+  agent-layer reference-parity slices, each gated behind its own env flag and a
+  USD `BudgetTracker` — nothing runs, and no Bedrock call is made, until the
+  operator sets the flag. All follow the proven conversation→facts / take-
+  ensemble template (pre-flight `wouldExceed`, `record` hard ceiling,
+  `sanitizeForPrompt` on untrusted text, tolerant JSON parse, injectable
+  `SonnetFn` seam so tests never touch Bedrock):
+  - **`think` — deep-synthesis pipeline (`MEMEX_THINK`).** New `memex think
+    <question>` command + `core/synthesis/think.ts`: GATHER (hybrid page search
+    + a keyword scan of `synth_takes`) → one Sonnet synthesis → structured
+    `{answer, citations, gaps}` with `[ref]` citations to source paths / take
+    keys. Reports across the corpus; never instructs. `MEMEX_THINK_BUDGET_USD`
+    (default $1).
+  - **Relational-recall LLM fallback (`MEMEX_RELATIONAL_LLM`).** When the
+    deterministic regex arm misses a phrasing, `core/search/relational-llm.ts`
+    asks Sonnet to extract the same `{kind, seeds, linkTypes, direction}` intent
+    (validated against `KNOWN_LINK_TYPES`), then reuses the SAME edge fanout
+    (`fanoutRelational`, refactored out of `relationalRecall`). Wired as an
+    opt-in fallback in the `relational_recall` MCP tool.
+  - **Graph-aware Sonnet rerank (`MEMEX_GRAPH_RERANK`).** Post-fusion reranker
+    (`core/search/graph-rerank.ts`) that reorders the top hits with one Sonnet
+    call given each hit's excerpt + a link-graph connectivity hint. Fail-open —
+    any error/budget-skip returns the pre-rerank order. Distinct from the Haiku
+    two-pass `MEMEX_RERANK`. Wired into `hybridSearch` before the trim.
+  - **Deep-synthesis cadence (`MEMEX_DEEP_SYNTH`).** `core/synthesis/deep-synth.ts`
+    runs the `think` pass over the top `synth_concepts` as standing questions,
+    on quiet-hours cycle ticks only, under one shared USD cap; results are
+    returned + logged (memex writes nothing back). Distinct from the Nova
+    `MEMEX_DREAM_SYNTHESIS` tick.
+  - **Contextual-retrieval embed wrapper (`MEMEX_CONTEXTUAL_RETRIEVAL`,
+    migration 057).** LLM-FREE tier: `core/search/contextual-embed.ts` prepends a
+    `<context>{title}\n{synopsis}</context>` header to each chunk's EMBEDDING
+    INPUT only (canonical chunk text untouched); synopsis is the deterministic
+    first two sentences of the page; code chunks bypass. Marker column
+    `chunks.contextual_embedded` tracks re-embed targeting. The bulk
+    `reindex --contextual` re-embed stays operator-gated (not shipped active).
+
 ## [1.56.0] — 2026-07-01
 
 ### Added
