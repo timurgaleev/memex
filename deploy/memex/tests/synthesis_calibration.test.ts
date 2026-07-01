@@ -14,7 +14,7 @@ import {
   parseBiasTags,
   parsePatternStatements,
 } from "../src/core/synthesis/calibration.ts";
-import type { LlmFn } from "../src/core/llm/nova.ts";
+import type { LlmFn } from "../src/core/llm/haiku.ts";
 
 let tmp: string;
 let storage: Storage;

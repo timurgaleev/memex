@@ -58,7 +58,7 @@ import {
   calibrationProfilePhase,
   type CalibrationProfileResult,
 } from "../synthesis/calibration.ts";
-import type { LlmFn } from "../llm/nova.ts";
+import type { LlmFn } from "../llm/haiku.ts";
 
 export type PhaseName =
   | "lint"
@@ -249,7 +249,7 @@ export interface CycleOptions {
   extractMaxDocs?: number;
   /**
    * Synthesis knobs (Wave 5 LLM phases). All optional; `llmFn` is the test
-   * seam (omitted in prod → the real Bedrock Nova client). Caps bound LLM
+   * seam (omitted in prod → the real Bedrock Claude Haiku client). Caps bound LLM
    * spend per run.
    */
   synthesis?: {
@@ -264,7 +264,7 @@ export interface CycleOptions {
   progress?: ProgressSink;
 }
 
-// Per-phase wall-clock deadline. A phase that hangs (e.g. a Bedrock/Nova call
+// Per-phase wall-clock deadline. A phase that hangs (e.g. a Bedrock/Haiku call
 // with no client timeout) otherwise wedges the WHOLE tick: `await fn()` never
 // returns, the phase loop never advances, runCycleOnce never resolves, and the
 // cycle loop's `finally` never releases the db-lock — so the maintenance cycle

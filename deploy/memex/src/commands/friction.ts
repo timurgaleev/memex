@@ -4,7 +4,7 @@
  * Subcommands:
  *   analyze [--since H] [--limit N]      counts + recent + top-repeats
  *   propose-fix [--skill S | --top-skills N] [--since H] [--limit N]
- *                                        Nova Lite suggests skill-text edits
+ *                                        Claude Haiku suggests skill-text edits
  *
  * The propose-fix surface is print-only by design — auto-applying
  * model-suggested skill edits needs a friction-on-friction safeguard

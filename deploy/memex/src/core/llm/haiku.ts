@@ -1,12 +1,12 @@
 /**
- * Thin shared Bedrock Nova call helper.
+ * Thin shared Bedrock Claude Haiku call helper.
  *
- * memex already calls Nova in two places (search/intent.ts, search/expansion.ts),
- * but each instantiates its own BedrockRuntimeClient + hand-rolls the
- * ConverseCommand. The synthesis subsystem (Wave 5) adds five more LLM call
- * sites, so this consolidates the single "send a system+user prompt, get text
- * back" shape into one place. The existing two callers are NOT migrated here
- * (surgical-change rule); they keep their own clients.
+ * memex already calls the utility LLM in two places (search/intent.ts,
+ * search/expansion.ts), but each instantiates its own BedrockRuntimeClient +
+ * hand-rolls the ConverseCommand. The synthesis subsystem (Wave 5) adds five
+ * more LLM call sites, so this consolidates the single "send a system+user
+ * prompt, get text back" shape into one place. The existing two callers are NOT
+ * migrated here (surgical-change rule); they keep their own clients.
  *
  * Design:
  *   - One reused client per region (same lazy-singleton pattern as intent.ts).
@@ -21,10 +21,10 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
-/** Default Nova Lite id — identical to intent.ts / expansion.ts. */
-export const DEFAULT_NOVA_MODEL = "global.amazon.nova-2-lite-v1:0";
+/** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
+export const DEFAULT_HAIKU_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
-export interface NovaCallInput {
+export interface LlmCallInput {
   /** System prompt — the instruction. */
   system: string;
   /** User turn — the (untrusted) content. */
@@ -35,7 +35,7 @@ export interface NovaCallInput {
   temperature?: number;
 }
 
-export interface NovaCallResult {
+export interface LlmCallResult {
   /** The model's text output (already trimmed of the envelope, not of content). */
   text: string;
   /** Resolved model id used for the call — recorded as provenance on synthesis rows. */
@@ -43,14 +43,15 @@ export interface NovaCallResult {
 }
 
 /**
- * The injectable LLM seam. Production wires `callNova`; tests pass a fake that
+ * The injectable LLM seam. Production wires `callHaiku`; tests pass a fake that
  * returns canned text without any network call. Every synthesis phase takes one
  * of these as `opts.llmFn`.
  */
-export type LlmFn = (input: NovaCallInput) => Promise<NovaCallResult>;
+export type LlmFn = (input: LlmCallInput) => Promise<LlmCallResult>;
 
-// Keyed by region: a process may call Nova in more than one region, and a bare
-// singleton would pin every later call to whichever region happened first.
+// Keyed by region: a process may call the utility LLM in more than one region,
+// and a bare singleton would pin every later call to whichever region happened
+// first.
 const _clients = new Map<string, BedrockRuntimeClient>();
 function client(region: string): BedrockRuntimeClient {
   let c = _clients.get(region);
@@ -61,22 +62,23 @@ function client(region: string): BedrockRuntimeClient {
   return c;
 }
 
-export interface CallNovaOptions {
+export interface LlmCallOptions {
   modelId?: string;
   region?: string;
 }
 
 /**
- * Production Nova call. Throws on any Bedrock / network error — callers decide
- * whether to fail-open. The returned `modelId` is the resolved id (so a row's
- * provenance reflects what actually ran, not a guess).
+ * Production utility-LLM call (Claude Haiku via Bedrock). Throws on any Bedrock
+ * / network error — callers decide whether to fail-open. The returned `modelId`
+ * is the resolved id (so a row's provenance reflects what actually ran, not a
+ * guess).
  */
-export async function callNova(
-  input: NovaCallInput,
-  opts: CallNovaOptions = {},
-): Promise<NovaCallResult> {
+export async function callHaiku(
+  input: LlmCallInput,
+  opts: LlmCallOptions = {},
+): Promise<LlmCallResult> {
   const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
-  const modelId = opts.modelId ?? process.env.MEMEX_NOVA_MODEL ?? DEFAULT_NOVA_MODEL;
+  const modelId = opts.modelId ?? process.env.MEMEX_UTILITY_MODEL ?? DEFAULT_HAIKU_MODEL;
   const c = client(region);
   const resp = await c.send(
     new ConverseCommand({
@@ -95,8 +97,8 @@ export async function callNova(
 
 /**
  * Resolve the LlmFn a phase should use: the injected one (tests), else a
- * production closure over `callNova`. Keeps every phase's resolution identical.
+ * production closure over `callHaiku`. Keeps every phase's resolution identical.
  */
-export function resolveLlmFn(injected: LlmFn | undefined, opts: CallNovaOptions = {}): LlmFn {
-  return injected ?? ((input) => callNova(input, opts));
+export function resolveLlmFn(injected: LlmFn | undefined, opts: LlmCallOptions = {}): LlmFn {
+  return injected ?? ((input) => callHaiku(input, opts));
 }

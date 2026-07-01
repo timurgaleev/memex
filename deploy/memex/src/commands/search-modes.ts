@@ -39,13 +39,13 @@ export function buildSearchModes(): SearchModesView {
     ok: true,
     intents: [...VALID_INTENTS],
     // The cheap pre-Bedrock heuristics from classifyIntent; anything matching
-    // none of these is sent to Nova-Lite, falling back to `topic`.
+    // none of these is sent to Claude Haiku, falling back to `topic`.
     intent_heuristics: {
       exact: 'query wrapped in "double quotes"',
       howto: 'matches /\\bhow (do|to|can|should)\\b/i',
       factual: 'matches /\\b(when|what|who|where|which) (is|was|did)\\b/i',
       "(empty)": "topic",
-      "(otherwise)": "Nova-Lite classify → one of the intents, else topic",
+      "(otherwise)": "Claude Haiku classify → one of the intents, else topic",
     },
     knobs: {
       title_boost: {

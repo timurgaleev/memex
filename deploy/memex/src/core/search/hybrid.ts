@@ -2,7 +2,7 @@
  * Hybrid search orchestrator — coordinates the pieces in core/search/*.
  *
  * Pipeline:
- *   1. classify intent (Nova Lite, opt-in cache via heuristics)
+ *   1. classify intent (Claude Haiku, opt-in cache via heuristics)
  *   2. (parallel) embed query → vector retrieval; keyword retrieval
  *   3. (optional) query expansion → extra keyword passes
  *   4. RRF fuse all retrieval lists
@@ -112,7 +112,7 @@ export interface SearchOptions {
    * from `rerank` (the Haiku two-pass text reranker). See graph-rerank.ts.
    */
   graphRerank?: boolean;
-  /** Override Nova Lite intent classification — for tests / cheap fallback. */
+  /** Override Claude Haiku intent classification — for tests / cheap fallback. */
   intent?: Intent;
   /** Skip query expansion. */
   noExpansion?: boolean;
@@ -455,7 +455,7 @@ export async function hybridSearch(
     }
   }
 
-  // 1. Intent (cheap heuristic + Nova Lite). Allow override for tests.
+  // 1. Intent (cheap heuristic + Claude Haiku). Allow override for tests.
   const intent = opts.intent ?? (await classifyIntent(trimmed));
 
   // 2. Embed + parallel retrieval. Keyword needs the original query;

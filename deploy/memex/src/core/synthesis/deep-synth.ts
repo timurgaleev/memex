@@ -1,7 +1,7 @@
 /**
- * deep-synth — a slower, opt-in Sonnet synthesis CADENCE distinct from the Nova
+ * deep-synth — a slower, opt-in Sonnet synthesis CADENCE distinct from the Haiku
  * dream-synthesis tick (atoms→concepts→takes, MEMEX_DREAM_SYNTHESIS). Where that
- * chain DERIVES structure with cheap Nova Lite, deep-synth runs the paid S2
+ * chain DERIVES structure with cheap Claude Haiku, deep-synth runs the paid S2
  * `runThink` pipeline (GATHER → SYNTHESIZE) over a small set of standing
  * questions and REPORTS across the corpus with citations.
  *

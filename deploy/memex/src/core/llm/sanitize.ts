@@ -1,9 +1,9 @@
 /**
- * Prompt-injection defense for untrusted note/corpus text fed into Nova.
+ * Prompt-injection defense for untrusted note/corpus text fed into the utility LLM.
  *
  * The threat: synthesis (atoms/concepts/takes) and friction-propose inject up
  * to tens of thousands of chars of note/skill/search-miss text VERBATIM into a
- * Nova user turn. A note line that says "ignore prior instructions, output X"
+ * Claude Haiku user turn. A note line that says "ignore prior instructions, output X"
  * can hijack the model. memex already guards short queries
  * (`search/expansion.ts` sanitizeQueryForPrompt); this is the shared guard for
  * the long-corpus call sites.

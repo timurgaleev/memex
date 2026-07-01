@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import type { Engine } from "../src/core/engine/interface.ts";
 import { extractAtomsPhase, parseAtomsResponse } from "../src/core/synthesis/atoms.ts";
-import type { LlmFn } from "../src/core/llm/nova.ts";
+import type { LlmFn } from "../src/core/llm/haiku.ts";
 
 let tmp: string;
 let storage: Storage;

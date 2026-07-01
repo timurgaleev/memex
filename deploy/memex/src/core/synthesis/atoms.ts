@@ -17,15 +17,15 @@
  *   - fail-open: an LLM error on one document logs + skips that document; the
  *     phase continues and never corrupts the brain.
  *
- * The LLM is injected via `opts.llmFn` (see core/llm/nova.ts). Tests pass a
- * fake; production resolves `callNova`. NO live Bedrock in tests.
+ * The LLM is injected via `opts.llmFn` (see core/llm/haiku.ts). Tests pass a
+ * fake; production resolves `callHaiku`. NO live Bedrock in tests.
  *
  * Ported faithfully from the reference's extract-atoms phase, adapted to
  * memex's flat single-source vault (no source_id) and own-namespace tables.
  */
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
-import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 
 /** Allowed atom_type values. A returned type outside this set falls back. */
@@ -47,9 +47,9 @@ const MAX_DOC_CHARS_TO_LLM = 50_000;
 export interface ExtractAtomsOptions {
   /** Max documents to process this run (cost guard). Default 25. */
   maxDocs?: number;
-  /** Injected LLM seam. Tests pass a fake; production resolves callNova. */
+  /** Injected LLM seam. Tests pass a fake; production resolves callHaiku. */
   llmFn?: LlmFn;
-  /** Override the Nova model id (config / tests). */
+  /** Override the utility model id (config / tests). */
   modelId?: string;
 }
 

@@ -117,7 +117,7 @@ function printUsage(): void {
   console.log("  check-resolvable [--limit N] [--threshold P] [--strict]");
   console.log("                               wikilink coverage report; --strict elevates warnings into the exit-1 path");
   console.log("  skillify <prompt> [--out PATH] [--slug S] [--dry-run]");
-  console.log("                               draft a skill *.md from a one-line prompt (Nova Lite + linter)");
+  console.log("                               draft a skill *.md from a one-line prompt (Claude Haiku + linter)");
   console.log("  skillify check <slug> [--strict]");
   console.log("                               validate an existing skill against the contract; --strict elevates warnings");
   console.log("  jobs list [--status S] [--kind K] [--limit N]");
@@ -164,7 +164,7 @@ function printUsage(): void {
   console.log("  friction log --kind K [--query Q] [--reason R] [--source-path P] [--skill S] [--severity confused|error|blocker|nit]");
   console.log("                               record a friction event; kinds: search-miss|wrong-answer|tool-error|low-confidence|other|delight|phase-marker|interrupted");
   console.log("  friction propose-fix [--skill S | --top-skills N] [--since H] [--example-limit N]");
-  console.log("                               Nova Lite suggests skill-text edits to reduce friction");
+  console.log("                               Claude Haiku suggests skill-text edits to reduce friction");
   console.log("  orphans                      DB hygiene report + safe deletions");
   console.log("  pages [--limit N] [--filter S] catalogue of known wikilink targets");
   console.log("  lint                         frontmatter conformance check");

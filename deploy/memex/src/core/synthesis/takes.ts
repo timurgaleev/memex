@@ -17,7 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
-import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
@@ -25,7 +25,7 @@ import { contentHash16 } from "./atoms.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
 export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
-/** Distinct version so ensemble grades never collide with single-pass Nova
+/** Distinct version so ensemble grades never collide with single-pass utility-tier
  *  grades under the (take_id, prompt_version, evidence_sig) uniqueness key. */
 export const GRADE_ENSEMBLE_PROMPT_VERSION = "v1-sonnet-ensemble";
 
@@ -273,7 +273,7 @@ export interface GradeTakesOptions {
    * Opt-in multi-judge Sonnet ensemble (default from MEMEX_TAKE_ENSEMBLE). When
    * on, each take is graded by N Sonnet judges (temperature-diversified) and the
    * verdict is the majority vote with the median confidence — replacing the
-   * single-pass Nova call. Paid; budget-capped; falls back to single-pass off.
+   * single-pass utility-tier call. Paid; budget-capped; falls back to single-pass off.
    */
   ensemble?: boolean;
   /** Injected Sonnet seam (tests). Default: the real Bedrock callSonnet. */

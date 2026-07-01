@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import type { Engine } from "../src/core/engine/interface.ts";
 import { runCycleOnce } from "../src/core/cycle/index.ts";
-import type { LlmFn } from "../src/core/llm/nova.ts";
+import type { LlmFn } from "../src/core/llm/haiku.ts";
 
 let tmp: string;
 let storage: Storage;

@@ -133,7 +133,7 @@ export function capEnv(raw: string | undefined, fallback: number): number {
 /**
  * Build a tick's phase list. Quiet hours drop COSTLY_PHASES (embed-stale etc.)
  * AND are the only window where the opt-in synthesis chain runs (it's the
- * heaviest Nova work, so keep it off peak). The operator skip-list applies last.
+ * heaviest Haiku work, so keep it off peak). The operator skip-list applies last.
  */
 export function selectTickPhases(opts: {
   inQuiet: boolean;
@@ -170,12 +170,12 @@ export function startCycleLoop(
   // MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference.
   const skipPhases = parseSkipPhases(process.env.MEMEX_CYCLE_SKIP_PHASES);
 
-  // Opt-in (default-OFF) auto-think: appends the Nova synthesis chain
+  // Opt-in (default-OFF) auto-think: appends the Haiku synthesis chain
   // (atoms→concepts→takes→grade→calibration, all writing the ISOLATED synth_*
   // store, never documents/pages) to QUIET-HOURS ticks only — synthesis is the
-  // costly Nova work, so it runs when interactive recall traffic is low. memex's
+  // costly Haiku work, so it runs when interactive recall traffic is low. memex's
   // idiomatic auto-think: opt the existing default-OFF SYNTHESIS_PHASES into the
-  // schedule, count-capped (no USD budget, no deep-tier model — Nova Lite only).
+  // schedule, count-capped (no USD budget, no deep-tier model — Claude Haiku only).
   const synthEnabled = process.env.MEMEX_DREAM_SYNTHESIS === "1";
   const synthCaps = synthEnabled
     ? {

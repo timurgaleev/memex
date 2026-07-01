@@ -8,7 +8,7 @@
  *   SYNTHESIZE  one Sonnet call over the rendered <pages>/<takes> blocks →
  *               structured {answer, citations, gaps}. Never fabricate citations.
  *
- * Unlike Nova synthesis (atoms/concepts/takes), this is a paid Sonnet path:
+ * Unlike the utility-tier Haiku synthesis (atoms/concepts/takes), this is a paid Sonnet path:
  * opt-in, default-OFF (MEMEX_THINK=1), USD-budget-capped. memex is a retrieval
  * brain — think REPORTS across the corpus with citations; it does not instruct.
  *
