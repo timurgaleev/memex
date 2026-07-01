@@ -18,10 +18,52 @@
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
+import { sanitizeForPrompt } from "../llm/sanitize.ts";
+import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
 export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
+/** Distinct version so ensemble grades never collide with single-pass Nova
+ *  grades under the (take_id, prompt_version, evidence_sig) uniqueness key. */
+export const GRADE_ENSEMBLE_PROMPT_VERSION = "v1-sonnet-ensemble";
+
+const DEFAULT_ENSEMBLE_JUDGES = 3;
+const DEFAULT_ENSEMBLE_BUDGET_USD = 1.0;
+
+/** Estimate one judge's token usage for the pre-call budget gate. Derived from
+ *  the ACTUAL prompt size (~4 chars/token) so a large injected-evidence blob
+ *  can't slip a call past a near-empty budget — a fixed constant would. */
+function estimateJudgeUsage(claim: string, evidence: string): SonnetUsage {
+  const inputChars = GRADE_SYSTEM_PROMPT.length + claim.length + evidence.length + 64;
+  return { inputTokens: Math.ceil(inputChars / 4), outputTokens: 400 };
+}
+
+/** Ensemble opt-in — a paid Sonnet path, OFF unless the operator sets the flag. */
+export function takeEnsembleEnabled(): boolean {
+  return process.env.MEMEX_TAKE_ENSEMBLE === "1";
+}
+
+function ensembleJudgeCount(): number {
+  const raw = process.env.MEMEX_TAKE_ENSEMBLE_JUDGES;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_ENSEMBLE_JUDGES;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 9) {
+    throw new Error(`MEMEX_TAKE_ENSEMBLE_JUDGES must be an integer 1..9, got: ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
+function ensembleBudgetUsd(): number {
+  const raw = process.env.MEMEX_TAKE_ENSEMBLE_BUDGET_USD;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_ENSEMBLE_BUDGET_USD;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`MEMEX_TAKE_ENSEMBLE_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
 
 const DEFAULT_MAX_DOCS = 25;
 const DEFAULT_MAX_TAKES = 25;
@@ -227,6 +269,140 @@ export interface GradeTakesOptions {
   promptVersion?: string;
   /** Inject evidence retrieval (tests). Default: hybrid-search over the corpus. */
   evidenceFn?: (claim: string) => Promise<string>;
+  /**
+   * Opt-in multi-judge Sonnet ensemble (default from MEMEX_TAKE_ENSEMBLE). When
+   * on, each take is graded by N Sonnet judges (temperature-diversified) and the
+   * verdict is the majority vote with the median confidence — replacing the
+   * single-pass Nova call. Paid; budget-capped; falls back to single-pass off.
+   */
+  ensemble?: boolean;
+  /** Injected Sonnet seam (tests). Default: the real Bedrock callSonnet. */
+  sonnetFn?: SonnetFn;
+  /** Shared USD budget for the ensemble run. Default: a fresh cap from env. */
+  budget?: BudgetTracker;
+  /** Judges per take (default from MEMEX_TAKE_ENSEMBLE_JUDGES, then 3). */
+  judges?: number;
+}
+
+export interface EnsembleGrade {
+  verdict: TakeVerdict;
+  confidence: number;
+  reasoning: string;
+  /** How many judges actually returned a parseable verdict. */
+  judgeCount: number;
+}
+
+export interface EnsembleResult {
+  /** The aggregated grade, or null when judges ran but none parsed (the caller
+   *  writes an `unresolvable` fallback — NOT the same as budget-out). */
+  grade: EnsembleGrade | null;
+  /** Judge calls actually made. 0 = budget gated before any call → the phase
+   *  stops (no spend, nothing to write). >0 with grade=null = spend happened
+   *  but no parseable verdict → write the fallback and keep going. */
+  callsMade: number;
+  /** A wouldExceed skip or a record() ceiling hit occurred this take. */
+  budgetHit: boolean;
+  /** The Sonnet model the judges ran on (for the model_id provenance column). */
+  graderModel: string;
+}
+
+/** Majority verdict + median confidence among the winning votes. Ties break
+ *  toward the verdict with the greatest summed confidence, then by TAKE_VERDICTS
+ *  order (deterministic). */
+export function aggregateVerdicts(votes: readonly ParsedVerdict[]): ParsedVerdict | null {
+  if (votes.length === 0) return null;
+  const tally = new Map<TakeVerdict, { count: number; confSum: number }>();
+  for (const v of votes) {
+    const t = tally.get(v.verdict) ?? { count: 0, confSum: 0 };
+    t.count += 1;
+    t.confSum += v.confidence;
+    tally.set(v.verdict, t);
+  }
+  let winner: TakeVerdict = votes[0]!.verdict;
+  let best = { count: -1, confSum: -1 };
+  for (const verdict of TAKE_VERDICTS) {
+    const t = tally.get(verdict);
+    if (!t) continue;
+    if (
+      t.count > best.count ||
+      (t.count === best.count && t.confSum > best.confSum)
+    ) {
+      winner = verdict;
+      best = t;
+    }
+  }
+  const winning = votes.filter((v) => v.verdict === winner);
+  const sorted = winning.map((v) => v.confidence).sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const confidence =
+    sorted.length % 2 === 1
+      ? sorted[mid]!
+      : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const reasoning = winning[0]!.reasoning;
+  return { verdict: winner, confidence, reasoning };
+}
+
+/**
+ * Grade one take with an N-judge Sonnet ensemble. Each judge is a fresh Sonnet
+ * call (first at temperature 0 for a stable anchor, the rest diversified) over
+ * the SAME sanitized claim + evidence. Budget-gated: a pre-call `wouldExceed`
+ * check skips a judge that can't be afforded, and `record` enforces the hard
+ * ceiling. Returns null when the budget leaves no room for even one judge, or
+ * when no judge produced a parseable verdict. Propagates BudgetExhausted so the
+ * phase loop stops (partial progress) exactly like the facts extractor.
+ */
+export async function gradeTakeEnsemble(
+  claim: string,
+  evidence: string,
+  opts: {
+    sonnetFn: SonnetFn;
+    budget: BudgetTracker;
+    judges: number;
+    modelId?: string;
+  },
+): Promise<EnsembleResult> {
+  const user = `Claim: ${sanitizeForPrompt(claim)}\n\nEvidence:\n${sanitizeForPrompt(evidence)}`;
+  const probeModel = opts.modelId ?? process.env.MEMEX_FACTS_MODEL ?? "sonnet";
+  const estUsage = estimateJudgeUsage(claim, evidence);
+  const votes: ParsedVerdict[] = [];
+  let graderModel = probeModel;
+  let callsMade = 0;
+  let budgetHit = false;
+  for (let i = 0; i < opts.judges; i++) {
+    if (opts.budget.wouldExceed(probeModel, estUsage)) {
+      budgetHit = true;
+      break;
+    }
+    const resp = await opts.sonnetFn({
+      system: GRADE_SYSTEM_PROMPT,
+      user,
+      maxTokens: 500,
+      temperature: i === 0 ? 0 : 0.6,
+    });
+    callsMade += 1;
+    graderModel = resp.modelId;
+    let overCap = false;
+    try {
+      opts.budget.record(resp.modelId, resp.usage);
+    } catch (e) {
+      if (e instanceof BudgetExhausted) {
+        budgetHit = true;
+        overCap = true;
+      } else {
+        throw e;
+      }
+    }
+    const parsed = parseVerdictResponse(resp.text);
+    if (parsed) votes.push(parsed);
+    if (overCap) break; // this call already tipped the ceiling — stop.
+  }
+  const agg = aggregateVerdicts(votes);
+  return {
+    grade: agg ? { ...agg, judgeCount: votes.length } : null,
+    callsMade,
+    budgetHit,
+    graderModel,
+  };
 }
 
 export interface GradeTakesResult {
@@ -319,9 +495,18 @@ export async function gradeTakesPhase(
   opts: GradeTakesOptions = {},
 ): Promise<GradeTakesResult> {
   const maxTakes = opts.maxTakes ?? DEFAULT_MAX_TAKES;
-  const promptVersion = opts.promptVersion ?? GRADE_TAKES_PROMPT_VERSION;
+  const useEnsemble = opts.ensemble ?? takeEnsembleEnabled();
+  const promptVersion =
+    opts.promptVersion ??
+    (useEnsemble ? GRADE_ENSEMBLE_PROMPT_VERSION : GRADE_TAKES_PROMPT_VERSION);
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
   const evidenceFn = opts.evidenceFn ?? ((claim: string) => defaultEvidence(engine, claim));
+  // Ensemble path (paid Sonnet): one shared budget + injectable model seam.
+  const sonnetFn = useEnsemble ? resolveSonnetFn(opts.sonnetFn) : null;
+  const budget = useEnsemble
+    ? opts.budget ?? new BudgetTracker(ensembleBudgetUsd(), "take-ensemble")
+    : null;
+  const judges = opts.judges ?? ensembleJudgeCount();
   const result: GradeTakesResult = {
     takesScanned: 0,
     gradesWritten: 0,
@@ -355,14 +540,41 @@ export async function gradeTakesPhase(
 
     let verdict: ParsedVerdict | null;
     let modelId: string;
+    let graderModel: string | null = null;
+    let judgeCount: number | null = null;
+    let ensembleBudgetHit = false;
     try {
-      const resp = await llm({
-        system: GRADE_SYSTEM_PROMPT,
-        user: `Claim: ${take.claim_text}\n\nEvidence:\n${evidence}`,
-        maxTokens: 500,
-      });
-      verdict = parseVerdictResponse(resp.text);
-      modelId = resp.modelId;
+      if (sonnetFn && budget) {
+        const ens = await gradeTakeEnsemble(take.claim_text, evidence, {
+          sonnetFn,
+          budget,
+          judges,
+          modelId: opts.modelId,
+        });
+        // No judge was even affordable → stop the phase (nothing spent, nothing
+        // to write; the take is re-graded next run). Partial progress.
+        if (ens.callsMade === 0) {
+          result.errors.push(`take ${take.id} ensemble: budget exhausted before grading`);
+          break;
+        }
+        modelId = ens.graderModel;
+        judgeCount = ens.grade?.judgeCount ?? 0;
+        graderModel = `ensemble:${judgeCount}`;
+        // Judges ran but none parsed → verdict stays null so the unresolvable
+        // fallback below writes a row (a real spend must not vanish silently).
+        verdict = ens.grade
+          ? { verdict: ens.grade.verdict, confidence: ens.grade.confidence, reasoning: ens.grade.reasoning }
+          : null;
+        ensembleBudgetHit = ens.budgetHit;
+      } else {
+        const resp = await llm({
+          system: GRADE_SYSTEM_PROMPT,
+          user: `Claim: ${sanitizeForPrompt(take.claim_text)}\n\nEvidence:\n${sanitizeForPrompt(evidence)}`,
+          maxTokens: 500,
+        });
+        verdict = parseVerdictResponse(resp.text);
+        modelId = resp.modelId;
+      }
     } catch (e) {
       result.errors.push(`take ${take.id} judge: ${e instanceof Error ? e.message : String(e)}`);
       continue;
@@ -379,17 +591,21 @@ export async function gradeTakesPhase(
     try {
       const { rows: written } = await engine.query<{ id: number }>(
         `INSERT INTO synth_take_grades
-           (take_id, prompt_version, evidence_signature, verdict, confidence, reasoning, model_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+           (take_id, prompt_version, evidence_signature, verdict, confidence, reasoning, model_id, grader_model, judge_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (take_id, prompt_version, evidence_signature) DO NOTHING
          RETURNING id`,
-        [take.id, promptVersion, sig, v.verdict, v.confidence, v.reasoning, modelId],
+        [take.id, promptVersion, sig, v.verdict, v.confidence, v.reasoning, modelId, graderModel, judgeCount],
       );
       if (written.length > 0) result.gradesWritten += 1;
       else result.cacheHits += 1;
     } catch (e) {
       result.errors.push(`take ${take.id} grade write: ${e instanceof Error ? e.message : String(e)}`);
     }
+
+    // The budget ceiling was reached grading this take — its grade is written;
+    // stop before spending on the next one.
+    if (ensembleBudgetHit) break;
   }
 
   return result;

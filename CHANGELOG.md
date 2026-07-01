@@ -6,7 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.55.0] — 2026-07-01
+## [1.56.0] — 2026-07-01
+
+### Added
+- **Multi-judge Sonnet ensemble for take grading (opt-in, default OFF).** With
+  `MEMEX_TAKE_ENSEMBLE=1`, each queued forecasting take is graded by N Bedrock
+  Claude Sonnet judges (temperature-diversified) instead of a single Nova pass;
+  the verdict is the majority vote with the median confidence of the winners.
+  Budget-capped (`MEMEX_TAKE_ENSEMBLE_BUDGET_USD`, default $1) with a per-call
+  pre-flight estimate from the real prompt size, `MEMEX_TAKE_ENSEMBLE_JUDGES`
+  (default 3). Ensemble grades carry provenance (`grader_model`, `judge_count`,
+  migration 056) and a distinct `prompt_version` so they never collide with
+  single-pass rows. Paid path — nothing runs until the flag is set; the default
+  cycle is unchanged.
 
 ### Added
 - **`near_symbol` + `walk_depth` structural search expansion (default OFF).**
