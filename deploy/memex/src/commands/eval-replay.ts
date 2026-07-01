@@ -31,6 +31,34 @@ import {
 
 export type EvalReplaySub = "capture" | "list" | "delete" | "run";
 
+/** Minimum baseline drop (in mean-RR / hit-rate points) that counts as a
+ *  regression for the `run` CI gate. A small epsilon absorbs run-to-run
+ *  jitter so the gate fires on real drops, not noise. Override with
+ *  `EVAL_REPLAY_REGRESSION_EPS` (a non-negative number). */
+export const DEFAULT_EVAL_REGRESSION_EPS = 0.01;
+
+export function evalRegressionEps(
+  raw: string | undefined = process.env["EVAL_REPLAY_REGRESSION_EPS"],
+): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_EVAL_REGRESSION_EPS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_EVAL_REGRESSION_EPS;
+}
+
+/** Pure predicate: does a replay report signal a CI-gating regression?
+ *  A run with a baseline whose mean-RR or hit-rate dropped by more than `eps`
+ *  regresses; a --promote run and a baseline-less first run never do. */
+export function isReplayRegression(
+  report: { baseline?: { deltaMeanRR: number; deltaHitRate: number } },
+  opts: { promote?: boolean; eps?: number } = {},
+): boolean {
+  if (opts.promote || !report.baseline) return false;
+  const eps = opts.eps ?? evalRegressionEps();
+  return (
+    report.baseline.deltaMeanRR < -eps || report.baseline.deltaHitRate < -eps
+  );
+}
+
 export interface EvalReplayCmdOptions {
   sub: EvalReplaySub;
   // capture
@@ -96,6 +124,20 @@ export async function runEvalReplay(opts: EvalReplayCmdOptions): Promise<void> {
         if (opts.promote) replayOpts.promote = true;
         const report = await replayAll(storage, replayOpts);
         console.log(JSON.stringify(report, null, 2));
+        // CI regression gate: a run WITH a baseline that dropped meaningfully
+        // (mean reciprocal-rank or hit-rate below the persisted baseline by more
+        // than EVAL_REPLAY_REGRESSION_EPS) exits 1 so a pipeline can block the
+        // merge. Skipped for --promote (that intentionally rewrites the baseline)
+        // and when there is no baseline yet (first run has nothing to regress
+        // against). Retrieval quality is otherwise a silent-drift class.
+        if (isReplayRegression(report, { ...(opts.promote ? { promote: true } : {}) })) {
+          const b = report.baseline!;
+          console.error(
+            `eval-replay: REGRESSION vs baseline — deltaMeanRR=${b.deltaMeanRR.toFixed(4)}, ` +
+              `deltaHitRate=${b.deltaHitRate.toFixed(4)} (eps=${evalRegressionEps()})`,
+          );
+          process.exitCode = 1;
+        }
         return;
       }
       default: {

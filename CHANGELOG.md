@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`eval-replay run` CI regression gate.** The captured-query replay now exits
+  non-zero when a run WITH a persisted baseline drops meaningfully — mean
+  reciprocal-rank or hit-rate below the baseline by more than
+  `EVAL_REPLAY_REGRESSION_EPS` (default 0.01) — so a pipeline can block a merge
+  that silently degrades retrieval quality. A `--promote` run (which rewrites the
+  baseline) and a baseline-less first run never gate. Exposed as pure predicates
+  `isReplayRegression` / `evalRegressionEps` for testing; the fixture-eval hard
+  gate (`eval`) is unchanged, this catches what real captured queries surface.
+
 ## [1.64.0] — 2026-07-01
 
 ### Added
