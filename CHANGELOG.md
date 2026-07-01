@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.63.0] — 2026-07-01
+
 ### Changed
 - **Source-aware page mirror identity (composite-PK precursor, additive).** The
   page→search-document bridge now keys each page's mirror document by tenant:
