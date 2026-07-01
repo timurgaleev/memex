@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.57.0] — 2026-07-01
+
 ### Added
 - **Paid opt-in Sonnet slices S2–S6 (default OFF, budget-capped).** Five
   agent-layer reference-parity slices, each gated behind its own env flag and a
