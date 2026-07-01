@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.62.0] — 2026-07-01
+
 ### Added
 - **Fail-closed unprovisioned-tenant read policy (opt-in, default OFF).** With
   `MEMEX_TENANT_FAIL_CLOSED=1`, an authenticated PUBLIC principal that presents a
