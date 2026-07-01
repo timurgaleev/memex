@@ -64,6 +64,7 @@ import { getChunksForPage, getChunksForSource } from "../core/chunks-read.ts";
 import { resolveSlugs } from "../core/slug-resolve.ts";
 import { addTag, removeTag, getTags } from "../core/tags.ts";
 import { relationalRecall } from "../core/search/relational-recall.ts";
+import { relationalRecallLlm } from "../core/search/relational-llm.ts";
 import { getLinks, listLinkSources } from "../core/links-read.ts";
 import {
   findOrphans,
@@ -1110,7 +1111,19 @@ async function callRelationalRecall(
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["depth"] === "number") opts.depth = args["depth"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const hits = await relationalRecall(storage, args["query"], opts);
+  let hits = await relationalRecall(storage, args["query"], opts);
+  // Opt-in paid fallback (default OFF): when the deterministic regex arm found
+  // nothing, ask Sonnet to classify the edge-question and re-run the SAME
+  // fanout. Reachable only when MEMEX_RELATIONAL_LLM=1 — live MCP stays free.
+  if (hits.length === 0 && process.env["MEMEX_RELATIONAL_LLM"] === "1") {
+    // Forward only the shared scope/paging fields — the two arms carry distinct
+    // onMeta shapes, so pass an explicit subset rather than the regex arm's opts.
+    const llmOpts: Parameters<typeof relationalRecallLlm>[2] = {};
+    if (opts.limit !== undefined) llmOpts.limit = opts.limit;
+    if (opts.depth !== undefined) llmOpts.depth = opts.depth;
+    if (opts.sourceIds !== undefined) llmOpts.sourceIds = [...opts.sourceIds];
+    hits = await relationalRecallLlm(storage, args["query"], llmOpts);
+  }
   return jsonResult({ ok: true, query: args["query"], hits });
 }
 

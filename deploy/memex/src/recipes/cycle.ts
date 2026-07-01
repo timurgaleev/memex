@@ -16,6 +16,7 @@ import {
   type PhaseName,
 } from "../core/cycle/index.ts";
 import { consoleProgress } from "../core/output/progress.ts";
+import { runDeepSynthPhase } from "../core/synthesis/deep-synth.ts";
 import {
   tryAcquireDbLock,
   reapDeadHolderLocks,
@@ -249,6 +250,28 @@ export function startCycleLoop(
             new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
           }ms${inQuiet ? " (quiet — embed-stale skipped)" : ""}`,
         );
+        // Opt-in (default-OFF) PAID deep-synthesis cadence: a Sonnet `think` pass
+        // over the top synth_concepts as standing questions, USD-budget-capped.
+        // Quiet hours only (heaviest + paid) and inside the held lock so it never
+        // overlaps another cycle. Results are RETURNED (memex writes nothing back);
+        // logged for the operator. Fail-soft — never let it abort the tick.
+        if (inQuiet && process.env.MEMEX_DEEP_SYNTH === "1") {
+          try {
+            const ds = await runDeepSynthPhase(storage, {});
+            if (ds.ran) {
+              console.log(
+                `[cycle] deep-synth: ${ds.syntheses.length}/${ds.questionsAsked} synthesized,` +
+                  ` spent $${ds.spentUsd.toFixed(4)}` +
+                  (ds.budgetExhausted ? " [budget exhausted]" : ""),
+              );
+            }
+          } catch (e) {
+            console.warn(
+              `[cycle] deep-synth failed:`,
+              e instanceof Error ? e.message : e,
+            );
+          }
+        }
       } catch (e) {
         console.warn(
           `[cycle] tick failed:`,

@@ -18,6 +18,12 @@ import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
 import { isEmbedSkipped } from "./embed-skip.ts";
+import {
+  contextualRetrievalEnabled,
+  buildContextualPrefix,
+  wrapChunkForEmbedding,
+  extractFirstTwoSentences,
+} from "./search/contextual-embed.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import type { Storage } from "./storage.ts";
@@ -148,9 +154,23 @@ export async function indexDocument(
   // marked `embed_skip` is indexed + keyword-searchable but never embedded: its
   // chunks land with a null vector so the vector arm skips them.
   const skipEmbed = isEmbedSkipped(frontmatter);
+  // Contextual-retrieval wrapper (opt-in, default-OFF): prepend a document-level
+  // <context>{title}\n{synopsis}</context> header to each chunk's EMBEDDING INPUT
+  // only — the canonical chunk text written below is untouched. Code docs bypass
+  // wrapping. Synopsis = the deterministic first two sentences of the page's
+  // opening chunk. No LLM call (that is the deferred paid per-chunk tier).
+  const isCode = frontmatter["kind"] === "code";
+  const ctxTitle =
+    parsed.title ??
+    (typeof frontmatter["title"] === "string" ? (frontmatter["title"] as string) : null);
+  const ctxPrefix =
+    contextualRetrievalEnabled() && !isCode
+      ? buildContextualPrefix(ctxTitle, extractFirstTwoSentences(parsed.chunks[0] ?? ""), { isCode })
+      : null;
   const vectors: (number[] | null)[] = [];
   for (const chunk of parsed.chunks) {
-    vectors.push(skipEmbed ? null : await embed(chunk, { modelId: model }));
+    const embedInput = wrapChunkForEmbedding(chunk, ctxPrefix, { isCode });
+    vectors.push(skipEmbed ? null : await embed(embedInput, { modelId: model }));
   }
 
   const chunkWrites: ChunkWrite[] = parsed.chunks.map((text, i) => {

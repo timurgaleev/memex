@@ -265,6 +265,97 @@ function otherEnd(
   return row.source_slug === seed ? row.target_slug : row.source_slug;
 }
 
+export interface FanoutOptions {
+  /** Max candidates returned (1..200). Default 20. */
+  limit?: number;
+  /** Max hops for the type-agnostic `connects`/`intro` walk (1..6). Default 3. */
+  depth?: number;
+  /** Tenant scope: restrict edge fanout to these source_ids. Empty/undefined => unscoped. */
+  sourceIds?: string[];
+  /** Receives how many seeds resolved to a real page (telemetry). */
+  onSeedsResolved?: (n: number) => void;
+}
+
+/**
+ * Run the deterministic edge fanout for an ALREADY-parsed relational query — the
+ * shared core of both the regex arm ({@link relationalRecall}) and the paid-LLM
+ * fallback arm (core/search/relational-llm.ts). Resolves each seed to a REAL
+ * page slug (confidence gate: an unresolved seed yields an empty list), then
+ * fans out the matched typed edges — or a type-agnostic walk when
+ * `linkTypes === null` — over the `links` graph.
+ *
+ * Does NOT catch: the caller owns fail-open policy (both arms wrap this in a
+ * try/catch that returns an empty arm on fault).
+ */
+export async function fanoutRelational(
+  storage: Storage,
+  parsed: RelationalQuery,
+  opts: FanoutOptions = {},
+): Promise<RelationalRecallResult[]> {
+  const limit = clampLimit(opts.limit);
+  const depth = clampDepth(opts.depth);
+  const sourceIds = opts.sourceIds;
+
+  // connects — resolve BOTH endpoints, then intersect their reachable sets
+  // (the shared midpoints), ordered by combined hop distance.
+  if (parsed.kind === "connects" && parsed.seeds.length === 2) {
+    const a = await resolveSeed(storage, parsed.seeds[0]!);
+    const b = await resolveSeed(storage, parsed.seeds[1]!);
+    if (!a || !b) return [];
+    opts.onSeedsResolved?.(2);
+    const [fromA, fromB] = await Promise.all([
+      traverseGraph(storage, a, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
+      traverseGraph(storage, b, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
+    ]);
+    const depthB = new Map(fromB.map((h) => [h.slug, h.depth]));
+    const endpoints = new Set([a, b]);
+    return fromA
+      .filter((h) => depthB.has(h.slug) && !endpoints.has(h.slug))
+      .map((h) => ({ slug: h.slug, combined: h.depth + (depthB.get(h.slug) ?? 0) }))
+      .sort((x, y) => x.combined - y.combined || x.slug.localeCompare(y.slug))
+      .slice(0, limit)
+      .map((x) => ({ slug: x.slug, relation: "connects", depth: x.combined }));
+  }
+
+  // Single-seed archetypes (who_rel / who_at / intro).
+  const seedSlug = await resolveSeed(storage, parsed.seeds[0]!);
+  if (!seedSlug) return [];
+  opts.onSeedsResolved?.(1);
+
+  // intro — no `introduced` edge in memex; walk every edge touching the seed.
+  if (parsed.linkTypes === null) {
+    const hits = await traverseGraph(storage, seedSlug, {
+      direction: parsed.direction,
+      maxDepth: depth,
+      limit,
+      sourceIds,
+    });
+    return hits.map((h) => ({ slug: h.slug, relation: "related_to", depth: h.depth }));
+  }
+
+  // Typed single-hop: union the matched link types, dedup by the other-end
+  // slug (a slug surfaced by two types keeps its first relation), cap at limit.
+  const wantedTypes = new Set(parsed.linkTypes);
+  const seen = new Map<string, RelationalRecallResult>();
+  for (const lt of parsed.linkTypes) {
+    const rows = await graphNeighbors(storage, seedSlug, {
+      type: lt,
+      direction: parsed.direction,
+      limit: 1000,
+      sourceIds,
+    });
+    for (const row of rows) {
+      if (!wantedTypes.has(row.type)) continue; // defensive: type filter is exact
+      const slug = otherEnd(row, seedSlug);
+      if (slug === seedSlug || seen.has(slug)) continue;
+      seen.set(slug, { slug, relation: row.type, depth: 1 });
+      if (seen.size >= limit) break;
+    }
+    if (seen.size >= limit) break;
+  }
+  return [...seen.values()];
+}
+
 /**
  * Build the relational recall arm. Returns an empty list (a pure no-op) when
  * the query isn't relational, no seed resolves, or fanout fails. Never throws.
@@ -288,72 +379,16 @@ export async function relationalRecall(
   if (!parsed) return finish([]);
   meta.kind = parsed.kind;
 
-  const limit = clampLimit(opts.limit);
-  const depth = clampDepth(opts.depth);
-  const sourceIds = opts.sourceIds;
-
   try {
-    // connects — resolve BOTH endpoints, then intersect their reachable sets
-    // (the shared midpoints), ordered by combined hop distance.
-    if (parsed.kind === "connects" && parsed.seeds.length === 2) {
-      const a = await resolveSeed(storage, parsed.seeds[0]!);
-      const b = await resolveSeed(storage, parsed.seeds[1]!);
-      if (!a || !b) return finish([]);
-      meta.seeds_resolved = 2;
-      const [fromA, fromB] = await Promise.all([
-        traverseGraph(storage, a, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
-        traverseGraph(storage, b, { direction: "both", maxDepth: depth, limit: 1000, sourceIds }),
-      ]);
-      const depthB = new Map(fromB.map((h) => [h.slug, h.depth]));
-      const endpoints = new Set([a, b]);
-      const shared = fromA
-        .filter((h) => depthB.has(h.slug) && !endpoints.has(h.slug))
-        .map((h) => ({ slug: h.slug, combined: h.depth + (depthB.get(h.slug) ?? 0) }))
-        .sort((x, y) => x.combined - y.combined || x.slug.localeCompare(y.slug))
-        .slice(0, limit)
-        .map((x) => ({ slug: x.slug, relation: "connects", depth: x.combined }));
-      return finish(shared);
-    }
-
-    // Single-seed archetypes (who_rel / who_at / intro).
-    const seedSlug = await resolveSeed(storage, parsed.seeds[0]!);
-    if (!seedSlug) return finish([]);
-    meta.seeds_resolved = 1;
-
-    // intro — no `introduced` edge in memex; walk every edge touching the seed.
-    if (parsed.linkTypes === null) {
-      const hits = await traverseGraph(storage, seedSlug, {
-        direction: parsed.direction,
-        maxDepth: depth,
-        limit,
-        sourceIds,
-      });
-      return finish(
-        hits.map((h) => ({ slug: h.slug, relation: "related_to", depth: h.depth })),
-      );
-    }
-
-    // Typed single-hop: union the matched link types, dedup by the other-end
-    // slug (a slug surfaced by two types keeps its first relation), cap at limit.
-    const wantedTypes = new Set(parsed.linkTypes);
-    const seen = new Map<string, RelationalRecallResult>();
-    for (const lt of parsed.linkTypes) {
-      const rows = await graphNeighbors(storage, seedSlug, {
-        type: lt,
-        direction: parsed.direction,
-        limit: 1000,
-        sourceIds,
-      });
-      for (const row of rows) {
-        if (!wantedTypes.has(row.type)) continue; // defensive: type filter is exact
-        const slug = otherEnd(row, seedSlug);
-        if (slug === seedSlug || seen.has(slug)) continue;
-        seen.set(slug, { slug, relation: row.type, depth: 1 });
-        if (seen.size >= limit) break;
-      }
-      if (seen.size >= limit) break;
-    }
-    return finish([...seen.values()]);
+    const list = await fanoutRelational(storage, parsed, {
+      limit: opts.limit,
+      depth: opts.depth,
+      sourceIds: opts.sourceIds,
+      onSeedsResolved: (n) => {
+        meta.seeds_resolved = n;
+      },
+    });
+    return finish(list);
   } catch (err) {
     // Fail-open: a fanout fault returns an empty arm, never breaking the caller.
     console.error(
