@@ -22,6 +22,11 @@ import { addTimelineEvent } from "../src/core/timeline.ts";
 import { addLink } from "../src/core/links.ts";
 import { registerSource } from "../src/core/sources.ts";
 import { indexPageIntoSearch } from "../src/core/page-index.ts";
+import { addTag } from "../src/core/tags.ts";
+import { hybridSearch } from "../src/core/search/hybrid.ts";
+import { applyGraphSignals, type GraphSignalScorable } from "../src/core/search/graph-signals.ts";
+import { queryCacheKey, putCachedQuery } from "../src/core/search/query-cache.ts";
+import { currentDocumentClock } from "../src/core/generation.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
 
@@ -37,6 +42,19 @@ const B_SECRET = "Tenant-B-only: revenue 9.9M";
 const A_CHUNK_SECRET = "TenantAChunkSecret-zebra-quartz-9417";
 // Target page A's body wikilinks to, so page_put derives a wikilink edge.
 const A_LINK_TARGET = "companies/acme-subsidiary-a";
+
+// Read-surface fixtures (BATCH 3): a shared keyword ("quokka") with per-tenant
+// secret tokens, mirrored into the search store so a scoped query/hydrate
+// proves it filters on documents.source_id. Bedrock-free via the det-embed seam.
+const QA_SLUG = "qtest/quokka-a";
+const QB_SLUG = "qtest/quokka-b";
+const QA_TOKEN = "AlphaSecretAAA";
+const QB_TOKEN = "BetaSecretBBB";
+const QA_BODY = `quokka ${QA_TOKEN}`;
+const QB_BODY = `quokka ${QB_TOKEN}`;
+// Distinct per-tenant tag tokens for the get_tags leak-lock.
+const A_TAG = "atag-alpha";
+const B_TAG = "btag-beta";
 
 let tmp: string;
 let storage: Storage;
@@ -84,6 +102,14 @@ beforeAll(async () => {
   // Derived-write stamping: wikilink target page (source_id "a") so A's
   // page_put can derive a resolvable wikilink edge to it.
   await putPage(storage, { slug: A_LINK_TARGET, type: "company", title: "Acme Subsidiary A", markdown_body: "sub", source_id: "a" });
+
+  // BATCH 3 read-surface fixtures — both tenants share the "quokka" keyword so
+  // retrieval surfaces both, and only the scope decides which chunk hydrates.
+  await indexPageIntoSearch(storage, { slug: QA_SLUG, title: "Quokka A", markdown_body: QA_BODY, source_id: "a" }, { embedFn });
+  await indexPageIntoSearch(storage, { slug: QB_SLUG, title: "Quokka B", markdown_body: QB_BODY, source_id: "b" }, { embedFn });
+  // Tags stamped per-source (mig047) on each tenant's own page.
+  await addTag(storage, A_SLUG, A_TAG, "a");
+  await addTag(storage, B_SLUG, B_TAG, "b");
 });
 
 afterAll(async () => {
@@ -202,5 +228,122 @@ describe("tenant isolation via dispatch authInfo", () => {
     const all = JSON.stringify(await call("page_list", {}));
     expect(all).toContain(A_SLUG);
     expect(all).toContain(B_SLUG);
+  });
+});
+
+describe("read-surface scoping (BATCH 3)", () => {
+  it("get_tags: B cannot read A's tag; A sees its own; unscoped sees both", async () => {
+    const b = await call("get_tags", { slug: A_SLUG }, auth("b"));
+    expect(b.tags).not.toContain(A_TAG);
+    const a = await call("get_tags", { slug: A_SLUG }, auth("a"));
+    expect(a.tags).toContain(A_TAG);
+    // Behaviour-neutral: an unscoped caller sees the tag whole-brain.
+    const all = await call("get_tags", { slug: A_SLUG });
+    expect(all.tags).toContain(A_TAG);
+  });
+
+  it("page_versions: B cannot read A's version snapshots; A + unscoped can", async () => {
+    const b = JSON.stringify(await call("page_versions", { slug: A_SLUG }, auth("b")));
+    expect(b).not.toContain(A_SECRET);
+    const a = JSON.stringify(await call("page_versions", { slug: A_SLUG }, auth("a")));
+    expect(a).toContain(A_SECRET);
+    const all = JSON.stringify(await call("page_versions", { slug: A_SLUG }));
+    expect(all).toContain(A_SECRET);
+  });
+
+  it("query tool: B-scoped refinement never surfaces A's chunk token", async () => {
+    // Keyword arm only (no Bedrock in tests → embed fails → keyword fallback).
+    const b = JSON.stringify(await call("query", { q: "quokka" }, auth("b")));
+    expect(b).not.toContain(QA_TOKEN);
+    expect(b).toContain(QB_TOKEN);
+    const a = JSON.stringify(await call("query", { q: "quokka" }, auth("a")));
+    expect(a).not.toContain(QB_TOKEN);
+    // Behaviour-neutral: unscoped query sees both tenants' chunks.
+    const all = JSON.stringify(await call("query", { q: "quokka" }));
+    expect(all).toContain(QA_TOKEN);
+    expect(all).toContain(QB_TOKEN);
+  });
+
+  it("hydrate: scoped hybridSearch hydrates only in-scope chunks; unscoped sees both", async () => {
+    const scoped = await hybridSearch(storage, "quokka", {
+      k: 10,
+      sourceIds: ["a"],
+      embedQuery: embedFn,
+    });
+    const scopedStr = JSON.stringify(scoped);
+    expect(scopedStr).toContain(QA_TOKEN);
+    expect(scopedStr).not.toContain(QB_TOKEN);
+    const unscoped = JSON.stringify(
+      await hybridSearch(storage, "quokka", { k: 10, embedQuery: embedFn }),
+    );
+    expect(unscoped).toContain(QA_TOKEN);
+    expect(unscoped).toContain(QB_TOKEN);
+  });
+
+  it("hydrateByIds (cache arm): a stale cross-source cache row is re-filtered on hydrate", async () => {
+    const engine = storage.engine();
+    // Grab B's mirrored chunk (source 'b').
+    const bChunk = await engine.query<{ id: string; document_id: string }>(
+      `SELECT c.id, c.document_id FROM chunks c
+         JOIN documents d ON d.id = c.document_id
+        WHERE d.source_id = 'b' AND c.content LIKE '%' || $1 || '%' LIMIT 1`,
+      [QB_TOKEN],
+    );
+    expect(bChunk.rows.length).toBe(1);
+    const { id: bChunkId, document_id: bDocId } = bChunk.rows[0]!;
+
+    // Poison the 'a'-scoped cache key with B's chunk id, as a re-scope could
+    // strand. A scoped hydrate must still filter it out (leak-lock).
+    const qLeak = "cacheprobe leak phrase alpha";
+    const clockA = await currentDocumentClock(engine);
+    const keyA = queryCacheKey(qLeak, 10, ["a"], false);
+    await putCachedQuery(engine, keyA, qLeak, 10, "topic", [bChunkId], clockA, [bDocId]);
+    const leaked = JSON.stringify(
+      await hybridSearch(storage, qLeak, { k: 10, sourceIds: ["a"], rerank: false, embedQuery: embedFn }),
+    );
+    expect(leaked).not.toContain(QB_TOKEN);
+
+    // Behaviour-neutral control: the SAME poisoned id under an UNSCOPED key
+    // still hydrates (whole-brain), proving the guard only trims out-of-scope.
+    const qNeutral = "cacheprobe neutral phrase beta";
+    const clockU = await currentDocumentClock(engine);
+    const keyU = queryCacheKey(qNeutral, 10, undefined, false);
+    await putCachedQuery(engine, keyU, qNeutral, 10, "topic", [bChunkId], clockU, [bDocId]);
+    const served = JSON.stringify(
+      await hybridSearch(storage, qNeutral, { k: 10, rerank: false, embedQuery: embedFn }),
+    );
+    expect(served).toContain(QB_TOKEN);
+  });
+
+  it("graph-signals adjacency: a scoped caller never inherits another source's hub boost", async () => {
+    const engine = storage.engine();
+    // Hub with two inbound links, both stamped source 'b'. Endpoints are live
+    // pages so defaultAdjacency's page joins hold.
+    const HUB = "gs/hub";
+    const L1 = "gs/b1";
+    const L2 = "gs/b2";
+    await putPage(storage, { slug: HUB, type: "note", title: "Hub", markdown_body: "hub", source_id: "b" });
+    await putPage(storage, { slug: L1, type: "note", title: "L1", markdown_body: "l1", source_id: "b" });
+    await putPage(storage, { slug: L2, type: "note", title: "L2", markdown_body: "l2", source_id: "b" });
+    await addLink(storage, { source_slug: L1, target_slug: HUB, type: "mentions", source_id: "b" });
+    await addLink(storage, { source_slug: L2, target_slug: HUB, type: "mentions", source_id: "b" });
+
+    const mkResults = (): GraphSignalScorable[] =>
+      [HUB, L1, L2].map((slug) => ({ score: 1, payload: { sourcePath: `page://${slug}` } }));
+
+    // 'a'-scoped: the 'b' links are invisible → hub gets no adjacency boost.
+    const aScoped = mkResults();
+    await applyGraphSignals(aScoped, engine, { enabled: true, sourceIds: ["a"] });
+    expect(aScoped[0]!.score).toBe(1);
+
+    // 'b'-scoped: two in-source inbound links → hub boosted above its peers.
+    const bScoped = mkResults();
+    await applyGraphSignals(bScoped, engine, { enabled: true, sourceIds: ["b"] });
+    expect(bScoped[0]!.score).toBeGreaterThan(1);
+
+    // Behaviour-neutral: an unscoped caller sees the same hub boost as today.
+    const unscoped = mkResults();
+    await applyGraphSignals(unscoped, engine, { enabled: true });
+    expect(unscoped[0]!.score).toBeGreaterThan(1);
   });
 });

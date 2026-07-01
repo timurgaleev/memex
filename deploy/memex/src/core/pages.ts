@@ -456,21 +456,30 @@ export async function pageVersions(
   storage: Storage,
   slug: string,
   limit = 20,
+  sourceIds?: readonly string[],
 ): Promise<PageVersionRow[]> {
   validateSlug(slug);
   const cap =
     typeof limit === "number" && limit >= 1 && limit <= 200
       ? Math.floor(limit)
       : 20;
+  // Tenant scope (mig047): a scoped caller sees only versions stamped to its
+  // own source(s). No-op when unset — the full version chain, as today.
+  const params: unknown[] = [slug, cap];
+  let sourceFilter = "";
+  if (sourceIds && sourceIds.length) {
+    params.push(sourceIds);
+    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<PageVersionRow>(
     `SELECT slug, version_n, hash_prev, hash_new,
             body_snapshot, compiled_truth_snapshot,
             written_by, written_at::text AS written_at
        FROM page_versions
-       WHERE slug = $1
+       WHERE slug = $1${sourceFilter}
        ORDER BY version_n DESC
        LIMIT $2`,
-    [slug, cap],
+    params,
   );
   return r.rows;
 }

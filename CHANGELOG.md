@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Multi-tenancy read-surface scoping (behavior-neutral, Item 2 batch).** Every
+  remaining unscoped read arm now filters by `source_id` when a caller passes
+  `sourceIds`, closing tenant-leak paths ahead of multi-tenant go-live. The chunk
+  hydrate and the cache-hit `hydrateByIds` path gain a `documents.source_id`
+  guard; graph-signals adjacency filters `links.source_id`; the structural
+  code-edge frontier is NULL-tolerantly scoped; and the `query`, `get_tags`, and
+  `page_versions` MCP tools now thread the caller's read-sources into their
+  queries. Unscoped/local callers keep whole-brain behavior unchanged — no
+  default change, inert on the single-tenant brain. Leak-lock cases added to
+  `tenant_isolation` (query tool, get_tags, page_versions, hydrate, a poisoned
+  cross-source cache row, graph-signals adjacency).
+
 ## [1.57.0] — 2026-07-01
 
 ### Added

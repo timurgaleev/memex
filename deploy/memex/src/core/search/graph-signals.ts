@@ -152,6 +152,12 @@ export interface GraphSignalsOpts {
    * to disable the gate — every hit stays eligible.
    */
   floorThreshold?: number;
+  /**
+   * Tenant scope — when set, adjacency counts only links belonging to these
+   * sources (`links.source_id`, migration 047). No-op when unset: the whole
+   * link graph is considered, matching today's whole-brain behaviour.
+   */
+  sourceIds?: readonly string[];
   /** Test seam: replaces the inline links query. */
   adjacencyFn?: (slugs: string[]) => Promise<Map<string, AdjacencyRow>>;
   /** Observability sink — called once with fire counts. */
@@ -218,9 +224,18 @@ export function sessionPrefix(slug: string): string | null {
 async function defaultAdjacency(
   engine: Engine,
   slugs: string[],
+  sourceIds?: readonly string[],
 ): Promise<Map<string, AdjacencyRow>> {
   const result = new Map<string, AdjacencyRow>();
   if (slugs.length === 0) return result;
+  // Tenant scope: count only in-source edges (`links.source_id`, mig047) so a
+  // scoped caller never inherits another source's hub signal. No-op when unset.
+  const params: unknown[] = [slugs];
+  let sourceFilter = "";
+  if (sourceIds && sourceIds.length) {
+    params.push(sourceIds);
+    sourceFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
+  }
   const rows = await engine.query<{ to_slug: string; hits: number }>(
     `SELECT l.target_slug AS to_slug,
             COUNT(DISTINCT l.source_slug)::int AS hits
@@ -229,10 +244,10 @@ async function defaultAdjacency(
        JOIN pages sp ON sp.slug = l.source_slug AND sp.deleted_at IS NULL
       WHERE l.source_slug = ANY($1::text[])
         AND l.target_slug = ANY($1::text[])
-        AND l.source_slug <> l.target_slug
+        AND l.source_slug <> l.target_slug${sourceFilter}
       GROUP BY l.target_slug
      HAVING COUNT(DISTINCT l.source_slug) >= 1`,
-    [slugs],
+    params,
   );
   for (const r of rows.rows) {
     result.set(r.to_slug, { hits: Number(r.hits), cross_source_hits: 0 });
@@ -288,7 +303,7 @@ export async function applyGraphSignals(
   try {
     adjacency = opts.adjacencyFn
       ? await opts.adjacencyFn(uniqueSlugs)
-      : await defaultAdjacency(engine, uniqueSlugs);
+      : await defaultAdjacency(engine, uniqueSlugs, opts.sourceIds);
   } catch (err) {
     // Fail-open: leave results untouched. Session diversification also
     // skips (predictable all-or-nothing posture).

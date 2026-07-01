@@ -29,6 +29,12 @@ export interface QueryRefineOptions {
   primaryWeight?: number;
   /** RRF weight applied to the refine term's ranking. Default 1. */
   refineWeight?: number;
+  /**
+   * Tenant scope forwarded onto BOTH underlying hybrid searches (primary +
+   * refine), so a scoped caller never fuses in another source's chunks. No-op
+   * when unset — whole-brain behaviour, as today.
+   */
+  sourceIds?: readonly string[];
   /** Forwarded onto the underlying hybrid searches (e.g. onCapture). */
   search?: SearchOptions;
 }
@@ -50,6 +56,7 @@ export async function queryRefine(
   // trim to k (mirrors hybridSearch's own fanout instinct).
   const fanout = Math.max(20, k * 3);
   const baseOpts: SearchOptions = { ...(opts.search ?? {}), k: fanout };
+  if (opts.sourceIds && opts.sourceIds.length) baseOpts.sourceIds = opts.sourceIds;
 
   const primary = await hybridSearch(storage, query, baseOpts);
   // No refine term → behave exactly like search, trimmed to k.
