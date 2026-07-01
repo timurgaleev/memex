@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Contract-level multi-tenant isolation test harness.** A systematic sweep
+  (`tenant_isolation_contract.test.ts`, 22 read tools / 23 cases / 136 assertions)
+  that seeds two tenants with deliberately colliding identifiers (shared entity
+  name, shared code symbol, shared source path, shared page title, shared graph
+  start node with per-source edges) and asserts every read tool — graph traversal,
+  insights, facts/resolution, code graph, synthesis, search, whoami — honors the
+  caller's `source_id` scope: a scoped read never returns the other tenant's
+  content, always returns its own (positive control), and an unscoped local caller
+  still sees both. **Result: no leaks** — proves the read-surface scoping holds
+  across the full MCP surface. Documents two by-design facts: `list_concepts` is a
+  global aggregate (no `source_id` on `synth_concepts`), and `pages.slug` is a
+  global primary key (two tenants can't yet literally share a slug).
+
 ## [1.60.0] — 2026-07-01
 
 ### Added
