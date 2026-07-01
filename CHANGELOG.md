@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.65.0] — 2026-07-01
+
 ### Added
 - **`eval-replay run` CI regression gate.** The captured-query replay now exits
   non-zero when a run WITH a persisted baseline drops meaningfully — mean
