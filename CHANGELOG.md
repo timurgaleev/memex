@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.64.0] — 2026-07-01
+
 ### Added
 - **Per-source (per-tenant) health breakdown.** In a multi-tenant deploy one
   tenant's broken ingestion/embedding was invisible inside the whole-brain
