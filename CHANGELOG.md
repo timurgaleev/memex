@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.61.0] — 2026-07-01
+
 ### Added
 - **Contract-level multi-tenant isolation test harness.** A systematic sweep
   (`tenant_isolation_contract.test.ts`, 22 read tools / 23 cases / 136 assertions)
