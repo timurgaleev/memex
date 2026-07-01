@@ -35,17 +35,23 @@ Accepted scope, in build order (lowest blast-radius first):
   leak-close (v1.58), Nova→Bedrock-Haiku (v1.59), chunks.source_id mirror (v1.60),
   and a **contract-level isolation harness proving 22 read tools honor scope, no
   leaks** (v1.61). REMAINING, reconciled with Codex (which tempered "build all"):
-  - **NEEDED before go-live:** fail-closed unprovisioned-`sub` policy (S; verify
-    static bearer path first) + query-cache source_id key (CONFIRMED already keyed
-    via `scope`, query-cache.ts:171) + keep synthesis hard-gated OFF until a
-    multi-tenant synth source-axis is actually wanted.
-  - **NEEDED soon (even single-tenant):** deletion-reconcile on the mtime-
-    incremental reindex (a deleted file leaves a stale row until `--all`).
-  - **DEFER (Codex downgraded from "now"):** composite `(source_id,slug)` PK on
-    pages/page_versions/page_aliases — only needed once multiple tenants create
-    arbitrary pages; global slug identity is baked into lookups/aliases/versions/
-    links/graph/mirror-ids/citations, so follow Codex's ordered sequence and drop
-    the global slug PK LAST. Per-source health/doctor axis: optional/soon.
+  - **NEEDED before go-live:** [x] fail-closed unprovisioned-`sub` policy —
+    SHIPPED v1.62.0 (`MEMEX_TENANT_FAIL_CLOSED`, default-OFF, `__memex_no_source__`
+    sentinel closes the `[]`-means-all bypass; static bearer provably untouched).
+    [x] query-cache source_id key — CONFIRMED already keyed via `scope`
+    (query-cache.ts:171). [ ] keep synthesis hard-gated OFF until a multi-tenant
+    synth source-axis is actually wanted (unchanged — no work needed now).
+  - **NEEDED soon (even single-tenant):** [x] deletion-reconcile — SHIPPED v1.62.0
+    (`reindex --reconcile-deletes`, opt-in, soft-delete via destructive-guard,
+    3 over-delete guards).
+  - **composite `(source_id,slug)` PK — precursor SHIPPED v1.63.0 (additive):**
+    source-aware page mirror id `page://<sourceId>/<slug>` (legacy `page://<slug>`
+    for default → no live re-mirror), source-threaded page reads. REMAINING (the
+    irreversible final step, OPERATOR-GATED on an explicit "drop the PK"): drop the
+    global `pages.slug` PK + `putPage`'s cross-source reject so two tenants hold the
+    same slug as separate rows. Codex + live data (14 pages, 0 dup slugs) agree:
+    defer the PK drop until multiple tenants actually write pages. Per-source
+    health/doctor axis: optional/soon.
   - **GATED on operator env / explicit deploy (irreversible):** terraform public
     ingress (ALB/SG/TLS — only from the private ops dir, not this checkout) +
     the fail-closed flip against live data (backfill NULL `source_id` first, else

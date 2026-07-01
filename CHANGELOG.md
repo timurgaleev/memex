@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Source-aware page mirror identity (composite-PK precursor, additive).** The
+  page→search-document bridge now keys each page's mirror document by tenant:
+  `pageSourcePath(slug, sourceId)` returns `page://<sourceId>/<slug>` for a
+  non-`default` source and the legacy `page://<slug>` for `default`/unset — so two
+  tenants' same-slug pages map to DISTINCT search documents instead of colliding
+  on one id. The 14 existing `default` pages keep their exact legacy mirror id
+  (no live re-mirror, no orphans). A shared `PAGE_MIRROR_PATH_SQL` reconstructs
+  the id from `(source_id, slug)` in both `reconcilePageMirrors` passes (the
+  orphan-detection join is rewritten to be scheme-symmetric so a non-`default`
+  mirror is never mis-flagged). `getChunksForPage` builds the tenant-aware id for
+  a scoped read. This is the additive, reversible precursor to a future composite
+  `(source_id, slug)` primary key — NO primary key is dropped and no migration is
+  added here; the global `pages.slug` PK + `putPage`'s cross-source reject remain
+  the deliberately deferred, operator-gated final step before two tenants can hold
+  the same slug as separate rows.
+
 ## [1.62.0] — 2026-07-01
 
 ### Added
