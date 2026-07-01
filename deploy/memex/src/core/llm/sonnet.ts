@@ -1,15 +1,16 @@
 /**
  * Bedrock Claude (Sonnet) call helper — the paid, higher-reasoning tier for
- * fact extraction. Mirrors the Nova helper's ConverseCommand shape but returns
- * token usage so the BudgetTracker can price each call.
+ * fact extraction and the opt-in paid slices. Mirrors the Haiku utility helper's
+ * ConverseCommand shape but returns token usage so the BudgetTracker can price
+ * each call.
  *
- * memex is Nova-only everywhere EXCEPT this opt-in, default-OFF conversation→
- * facts path, where the operator explicitly chose Sonnet (reference parity) for
- * the notability/salience judgment Nova Lite is weaker at. Sonnet runs through
- * the SAME Bedrock account as Titan/Nova — notes never leave AWS — via an EU
- * cross-region inference profile (`eu.anthropic.*`). The exact profile id is
- * config (`MEMEX_FACTS_MODEL`); confirm the version suffix in the Bedrock
- * console and widen `terraform/iam.tf` bedrock:InvokeModel to that ARN.
+ * memex runs the Claude Haiku utility tier everywhere EXCEPT this
+ * higher-reasoning path (conversation→facts + the opt-in slices), where the
+ * operator chose Sonnet for the notability/salience judgment Haiku is weaker at.
+ * Sonnet runs through the SAME Bedrock account as Titan/Haiku — notes never leave
+ * AWS — via an EU cross-region inference profile (`eu.anthropic.*`). The exact
+ * profile id is config (`MEMEX_FACTS_MODEL`); confirm the version suffix in the
+ * Bedrock console and widen `terraform/iam.tf` bedrock:InvokeModel to that ARN.
  */
 import {
   BedrockRuntimeClient,

@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Utility LLM tier swapped from Amazon Nova Lite to Bedrock Claude Haiku.**
+  memex now runs ONLY Anthropic models through AWS Bedrock. The utility tier —
+  query intent classification, query expansion, friction-propose, skillify, and
+  the quiet-hours synthesis chain (atoms/concepts/takes/calibration) — moves from
+  `amazon.nova-2-lite` to `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (verified
+  ACTIVE + IAM-granted in eu-west-1). The shared helper `core/llm/nova.ts` is
+  renamed to `core/llm/haiku.ts` (`callHaiku`, `DEFAULT_HAIKU_MODEL`, env
+  `MEMEX_UTILITY_MODEL` — was `MEMEX_NOVA_MODEL`). Caching, count-caps, fail-open
+  behavior, and the injectable test seams are unchanged. Note: Haiku is materially
+  pricier per token than Nova Lite and intent runs per query, so utility spend
+  rises; the synthesis chain stays count-capped, not USD-capped.
+
 ## [1.58.0] — 2026-07-01
 
 ### Changed

@@ -7,7 +7,7 @@
  *   1. Read all atoms with concept tags from `synth_atoms`.
  *   2. Group by concept tag.
  *   3. Filter to groups with >= 2 atoms; tier by count (T1 >=10, T2 >=5, T3 >=2).
- *   4. T1/T2: Nova synthesizes a 1-paragraph narrative. T3: deterministic stub.
+ *   4. T1/T2: Claude Haiku synthesizes a 1-paragraph narrative. T3: deterministic stub.
  *   5. Upsert one `synth_concepts` row per group + provenance links.
  *
  * Safety: opt-in; budget-capped via `maxConcepts` (cost guard on LLM calls);
@@ -16,7 +16,7 @@
  * deterministic narrative, never aborts).
  */
 import type { Engine } from "../engine/interface.ts";
-import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 
 const DEFAULT_MAX_CONCEPTS = 30;
 const TIER_T1_MIN = 10;

@@ -1,5 +1,5 @@
 /**
- * Query intent classifier — Nova Lite cheap, credit-eligible.
+ * Query intent classifier — Claude Haiku (Bedrock), cheap utility tier.
  *
  * Distinguishes between:
  *   - factual:    "when did X happen", "what is X"
@@ -27,7 +27,7 @@ export const VALID_INTENTS: ReadonlySet<Intent> = new Set([
   "exact",
 ]);
 
-const DEFAULT_MODEL = "global.amazon.nova-2-lite-v1:0";
+const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 let _client: BedrockRuntimeClient | null = null;
 function client(region: string): BedrockRuntimeClient {

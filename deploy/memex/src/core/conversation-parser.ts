@@ -9,8 +9,9 @@
  *
  * Adapted from the reference's conversation-parser: the pure pattern core only.
  * The reference's optional LLM polish / LLM fallback are deliberately NOT
- * ported — memex is Nova-only and a deterministic parser is the retrieval
- * brain's job. Patterns are a curated subset covering the common export
+ * ported — memex routes utility work through Claude Haiku (Bedrock) and a
+ * deterministic parser is the retrieval brain's job. Patterns are a curated
+ * subset covering the common export
  * formats; add entries to BUILTIN_PATTERNS as new formats appear.
  */
 

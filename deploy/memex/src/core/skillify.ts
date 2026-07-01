@@ -3,7 +3,7 @@
  *
  * Two pieces:
  *
- *   1. `draftSkill` calls Bedrock Nova Lite (Converse API) to produce a
+ *   1. `draftSkill` calls Bedrock Claude Haiku (Converse API) to produce a
  *      first-pass markdown body. The model is steered with a system prompt
  *      that demands the exact frontmatter contract used by `deploy/skills/`.
  *   2. `lintAndShape` is a deterministic post-processor that guarantees
@@ -20,7 +20,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 
 const DEFAULT_MODEL_ID =
-  process.env.SKILLIFY_MODEL_ID ?? "global.amazon.nova-2-lite-v1:0";
+  process.env.SKILLIFY_MODEL_ID ?? "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
 
 let _defaultClient: BedrockRuntimeClient | null = null;
@@ -34,7 +34,7 @@ function getClient(): BedrockRuntimeClient {
 export interface SkillifyOptions {
   /** Override the Bedrock client (tests pass a stub). */
   client?: BedrockRuntimeClient;
-  /** Override the model id; default is Nova 2 Lite. */
+  /** Override the model id; default is Claude Haiku (Bedrock). */
   modelId?: string;
 }
 

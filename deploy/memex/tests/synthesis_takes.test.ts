@@ -16,7 +16,7 @@ import {
   parseVerdictResponse,
   aggregateVerdicts,
 } from "../src/core/synthesis/takes.ts";
-import type { LlmFn } from "../src/core/llm/nova.ts";
+import type { LlmFn } from "../src/core/llm/haiku.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
 import { BudgetTracker } from "../src/core/budget.ts";
 

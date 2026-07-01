@@ -4,7 +4,7 @@
  * touches authored notes.
  *
  * Aggregates the resolved take-grade subset into a scorecard (counts + accuracy)
- * and asks Nova for 2-4 plain-language pattern statements + a few kebab-case
+ * and asks Claude Haiku for 2-4 plain-language pattern statements + a few kebab-case
  * bias tags. The narrative is advisory output, recorded with provenance (the
  * graded take ids), generated_at, and model_id.
  *
@@ -15,7 +15,7 @@
  * (an LLM error falls back to a deterministic template, never aborts).
  */
 import type { Engine } from "../engine/interface.ts";
-import { resolveLlmFn, type LlmFn } from "../llm/nova.ts";
+import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 
 export const CALIBRATION_PROMPT_VERSION = "v1-nova";
 
@@ -208,7 +208,7 @@ export async function calibrationProfilePhase(
 
   if (patternStatements.length > 0) {
     try {
-      // Indirect chain: corpus -> Nova (patterns) -> here -> Nova (bias tags).
+      // Indirect chain: corpus -> Haiku (patterns) -> here -> Haiku (bias tags).
       // The patterns are length-clamped (<=200 chars, <=4 items) but otherwise
       // unsanitized. Acceptable because the only sink is the bias_tags JSONB in
       // synth_calibration_profile — write-only, never executed or reflected to a

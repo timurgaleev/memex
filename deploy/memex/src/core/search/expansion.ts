@@ -1,5 +1,5 @@
 /**
- * Query expansion — Nova Lite generates 2-3 synonym/paraphrase variants.
+ * Query expansion — Claude Haiku (Bedrock) generates 2-3 synonym/paraphrase variants.
  *
  * The intent here is NOT to bloat the query but to give the keyword path
  * a wider recall surface. Vector search is already semantic; keyword
@@ -9,7 +9,7 @@
  *     OR; PGLite doesn't support OR in plainto_tsquery so we run multiple
  *     queries and union the chunk_id sets).
  *
- * Cost: each call ≈ 60-120 output tokens × Nova Lite price. Negligible.
+ * Cost: each call ≈ 60-120 output tokens × Claude Haiku price. Negligible.
  *
  * Trust boundary: the user query is untrusted input and the LLM output is
  * untrusted output. `sanitizeQueryForPrompt` neutralizes the query before it
@@ -20,7 +20,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
-const DEFAULT_MODEL = "global.amazon.nova-2-lite-v1:0";
+const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 /** Upper bound on chars sent to / accepted from the expansion LLM. */
 const MAX_QUERY_CHARS = 500;

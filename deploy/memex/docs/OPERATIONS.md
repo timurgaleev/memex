@@ -194,6 +194,6 @@ can resume.
 | t4g.medium on-demand | ~$13/mo |
 | db.t4g.micro RDS Postgres + 20 GiB gp3 + 7-day backup | ~$15/mo |
 | Bedrock Titan v2 embeddings | credit-eligible (≈ $0/mo for our volume) |
-| Bedrock Nova 2 Lite (intent / expansion) | credit-eligible |
+| Bedrock Claude Haiku (intent / expansion) | paid (per-query; heuristic cache skips most) |
 | Cloudflare Tunnel | free (Zero Trust free tier) |
 | Total stack | **~$28/mo** at light personal use |

@@ -134,11 +134,11 @@ Append-only convention: never edit a shipped migration; ship a new one.
 flowchart TD
   Q[query string] --> C{query cache hit?\ngated on document_generation_clock}
   C -->|hit| OUT[hydrate cached ids → token_budget → return]
-  C -->|miss| I[classifyIntent — Nova Lite + heuristics]
+  C -->|miss| I[classifyIntent — Claude Haiku + heuristics]
   I --> E[embedText — Titan v2]
   E --> V[vectorSearch — pgvector cosine]
   Q --> K[keywordSearch — tsvector + ts_rank_cd]
-  Q --> X[expandQuery — Nova Lite paraphrase ×3]
+  Q --> X[expandQuery — Claude Haiku paraphrase ×3]
   X --> K2[extra keywordSearch passes]
   V --> R[intent-weighted reciprocalRankFusion]
   K --> R
@@ -239,8 +239,8 @@ Mode `0600`. Reserved for future agent-side consumption.
 | Use | Model | Cost |
 |---|---|---|
 | Embeddings | `amazon.titan-embed-text-v2:0` | credit-eligible |
-| Query intent (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
-| Query expansion (internal) | `global.amazon.nova-2-lite-v1:0` | credit-eligible |
+| Query intent (internal) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (per-query; heuristic cache skips most) |
+| Query expansion (internal) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (per non-exact query) |
 | Two-pass rerank (opt-in) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if `MEMEX_RERANK=1`) |
 
 Answer synthesis is not performed by memex — the MCP client (Claude

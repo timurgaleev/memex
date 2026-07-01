@@ -56,7 +56,7 @@ lost disk data is high.
 
 ### AWS model selection
 - memex uses Bedrock for embeddings (Amazon Titan Text Embeddings v2)
-  and the Nova Lite calls behind intent classification / query
+  and the Bedrock Claude Haiku calls behind intent classification / query
   expansion / friction-propose. Answer *synthesis* is the MCP client's
   job (Claude Code etc.) — memex is a retrieval brain, not a chat agent.
 - `var.bedrock_model_id` surfaces a configured default in

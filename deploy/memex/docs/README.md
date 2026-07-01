@@ -65,10 +65,10 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 | `eval [--k N]` | retrieval quality harness against `tests/eval/qrels.json` |
 | `eval-replay {capture\|list\|run\|delete}` | regression harness from captured production queries; `run --promote` sets the new baseline |
 | `check-resolvable [--limit N] [--threshold P]` | wikilink coverage report; exits 1 when orphan-rate exceeds `P` % |
-| `skillify "<prompt>" [--out P] [--slug S] [--dry-run]` | draft a skill `*.md` via Bedrock Nova Lite + deterministic linter |
+| `skillify "<prompt>" [--out P] [--slug S] [--dry-run]` | draft a skill `*.md` via Bedrock Claude Haiku + deterministic linter |
 | `skillpack [--out P]` | bundle skills as tar.gz with manifest (for downstream agent loaders that consume skill packs) |
 | `jobs {list\|stats\|show\|retry\|cancel}` | inspect / reset / cancel rows in the durable job queue |
-| `friction {analyze\|propose-fix}` | counts + recents (`analyze`); Nova-Lite-suggested skill-text edits (`propose-fix`) |
+| `friction {analyze\|propose-fix}` | counts + recents (`analyze`); Claude-Haiku-suggested skill-text edits (`propose-fix`) |
 | `migrate-engine --from X --to Y` | one-shot copy between Engine adapters |
 
 ## Read more

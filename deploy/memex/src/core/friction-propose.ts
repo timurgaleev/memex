@@ -7,7 +7,7 @@
  *
  * Output:
  *   - For each skill: the current body, a sample of friction examples,
- *     a Nova-Lite-suggested rewrite, and a one-paragraph rationale.
+ *     a Claude-Haiku-suggested rewrite, and a one-paragraph rationale.
  *
  * The command is print-only — no `--apply` flag. A human reads the JSON,
  * decides if the suggestion is sensible, and runs `skillify --slug X
@@ -25,7 +25,7 @@ import type { Engine } from "./engine/interface.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
 
 const DEFAULT_MODEL_ID =
-  process.env.SKILLIFY_MODEL_ID ?? "global.amazon.nova-2-lite-v1:0";
+  process.env.SKILLIFY_MODEL_ID ?? "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
 const DEFAULT_SKILLS_DIR =
   process.env.SKILLIFY_SKILLS_DIR ?? "deploy/skills";
@@ -165,7 +165,7 @@ Rules:
   and suggestion = the original markdown unchanged.`;
 
 /**
- * Build a single proposal by calling Nova Lite. Pure-ish: takes a stub
+ * Build a single proposal by calling Claude Haiku. Pure-ish: takes a stub
  * client when testing offline.
  */
 export async function proposeForSkill(
