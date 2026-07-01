@@ -7,6 +7,59 @@ introduces them.
 
 ---
 
+## Scope reversal (2026-06-30) — FULL reference parity ACCEPTED
+
+Operator call (2026-06-30): memex is an **open-source project headed for
+many companies**, so the cost-first / brain-only / "rejected" gates below are
+**lifted**. Build everything, copy-paste-adapt from the reference (never name
+it in code/commits). This block SUPERSEDES the conflicting "keep deferred /
+gated / rejected" notes in the dated sections further down — those sections
+keep the *engineering detail*; this block changes their *disposition* to ACCEPTED.
+
+Accepted scope, in build order (lowest blast-radius first):
+
+- [x] **1. `near_symbol` + `walk_depth` search expansion** — DONE (Unreleased).
+  `core/search/structural-expand.ts` (`expandAnchors`: batched BFS over
+  `code_edges_symbol`, depth ≤ 2, 50-frontier / 200-candidate caps, `1/(1+hop)`
+  decay, scope on `documents.source_id`) wired into `hybridSearch` pre-hydrate
+  (cache bypass, widened per-doc dedup); `near_symbol`/`walk_depth` exposed on
+  the `search` op. The prerequisite `chunks.symbol_name_qualified` already
+  shipped (mig 041) — no new migration. ai-engineer reviewed: HIGH fan-out/N+1
+  fixed (per-frontier batching + caps), 2 MEDIUM fixed (frontier symbol dedup,
+  near_symbol baseScore documented). Tests `tests/structural_expand.test.ts`
+  (7). Dormant on the live corpus (~0 code chunks) — lands behind its
+  default-off switch. Ships bundled with the embedding-dim-config change.
+- [ ] **2. Multi-tenancy go-live** — ACCEPTED, full build (was "IN PROGRESS /
+  gated on deploy"). The app-layer + admin SPA + OAuth already shipped
+  (v1.30–v1.37, v1.51); the remaining blockers are the **invasive `source_id`
+  migration (047)**, fail-closed unprovisioned-`sub` policy, per-tenant
+  synth aggregates, and the **terraform public ingress + RDS migration**
+  deploy. Detail + checklist: "Multi-tenancy (company multi-user)" +
+  "Tenancy pre-deploy MUST-FIX". This is multiple shipped batches, each
+  verified — NOT one blind change against the live single-tenant brain.
+- [ ] **3. Embedding upgrade — follow the reference** — ACCEPTED (was "stay on
+  Titan 1024, no switch"). Two-step: (a) make the embedding dimension a
+  **config value** (no hardcoded 1024) so a swap is config not rewrite —
+  prerequisite; (b) switch to the reference's higher-dim provider + **full
+  corpus re-embed** + column/HNSW migration. Verify which provider is reachable
+  from our AWS/Bedrock posture first (cost + egress). Detail: "Embedding
+  1024→1536" + the "Roadmap decisions" embeddings bullet (now reversed).
+- [ ] **4. Re-accept the "rejected" expensive-AI features** — ACCEPTED as
+  **paid opt-in Sonnet slices** (the proven conversation→facts pattern: flag +
+  budget + Bedrock Sonnet, never default-ON in a way that surprises cost).
+  Port each reference feature we previously declined: the `think`/brainstorm/
+  deep-synthesis pipeline (Opus→Sonnet on our stack), ensemble/multi-vote
+  grading, contextual-retrieval embed wrapper, relational-recall arm,
+  graph-signals post-fusion, and the remaining synthesis cadences. Detail:
+  scattered under "NOT in scope" / "DOCUMENT-DEFER" dispositions below — each
+  flips to a build item. Sequence these after 1–3; size each as its own batch.
+
+Method (unchanged): copy-paste-adapt with `file:line` citations, TDD, self-review
+agent per batch, ship via the repo loop (test→push→deploy→verify→release), no
+reference names in any tracked file (`make audit`/`scrub-audit` gate).
+
+---
+
 ## Roadmap decisions (2026-06-29) — cost-first
 
 Three forward calls, settled (mirror the upstream structure, adapt for our

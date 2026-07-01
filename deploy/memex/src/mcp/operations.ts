@@ -196,6 +196,16 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this ISO-8601 date/datetime.",
       }),
+      near_symbol: str({
+        description:
+          "Anchor retrieval at this qualified symbol name (e.g. 'BrainEngine::searchKeyword'). Its chunk(s) join the candidate set and seed a structural walk of the code call graph. Code corpora only.",
+      }),
+      walk_depth: int({
+        minimum: 0,
+        maximum: 2,
+        description:
+          "Structural walk depth 0-2 (default 0 = off). Expands the anchors through code_edges_symbol with 1/(1+hop) score decay. Code corpora only; bypasses the query cache.",
+      }),
     },
   },
   {

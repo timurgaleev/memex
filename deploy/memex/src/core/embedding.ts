@@ -14,7 +14,31 @@ import {
 /** Canonical Titan v2 model id — the default for `embedText` and the model
  *  recorded by the embedding backfill, so the two never drift apart. */
 export const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
-const DEFAULT_DIMENSIONS = 1024;
+
+/** Titan v2's native output width and the brain's stored `vector(N)` column
+ *  width. The provider/model swap (a higher-dim embedder + full re-embed +
+ *  column migration) is gated; until then this stays 1024. Surfaced as config
+ *  so a future swap is an env change here, not a hunt for hardcoded literals —
+ *  the swap must move this default AND the `vector(...)` column width together. */
+const FALLBACK_DIMENSIONS = 1024;
+
+/** Resolve the embedding width from `MEMEX_EMBED_DIM` (fail-loud) or the
+ *  Titan-v2 default. Validated once at module load so a bad env fails the
+ *  process, not a silent wrong-width vector deep in the index path. */
+export function resolveEmbedDimensions(
+  raw: string | undefined = process.env.MEMEX_EMBED_DIM,
+): number {
+  if (raw === undefined || raw.trim() === "") return FALLBACK_DIMENSIONS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `MEMEX_EMBED_DIM must be a positive integer, got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
+}
+
+export const EMBED_DIMENSIONS = resolveEmbedDimensions();
 const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
 
 let _defaultClient: BedrockRuntimeClient | null = null;
@@ -60,7 +84,7 @@ export async function embedText(
     modelId,
     body: JSON.stringify({
       inputText: text,
-      dimensions: DEFAULT_DIMENSIONS,
+      dimensions: EMBED_DIMENSIONS,
       normalize: true,
     }),
     contentType: "application/json",
@@ -76,9 +100,9 @@ export async function embedText(
   if (!Array.isArray(parsed.embedding)) {
     throw new Error("embedText: response missing 'embedding' array");
   }
-  if (parsed.embedding.length !== DEFAULT_DIMENSIONS) {
+  if (parsed.embedding.length !== EMBED_DIMENSIONS) {
     throw new Error(
-      `embedText: expected ${DEFAULT_DIMENSIONS}-dim vector, got ${parsed.embedding.length}`,
+      `embedText: expected ${EMBED_DIMENSIONS}-dim vector, got ${parsed.embedding.length}`,
     );
   }
   return parsed.embedding;

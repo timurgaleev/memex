@@ -76,6 +76,7 @@ import {
   getGraphSignalsFloorRatio,
 } from "./graph-signals.ts";
 import { applyAliasHop, aliasHopEnabled } from "./alias-hop.ts";
+import { expandAnchors } from "./structural-expand.ts";
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -145,6 +146,19 @@ export interface SearchOptions {
   since?: string;
   /** Keep only docs whose content date COALESCE(effective_date,updated_at) is <= this ISO date. */
   until?: string;
+  /**
+   * Structural two-pass expansion (default OFF): walk the code call graph
+   * `walkDepth` hops (1-2, capped at 2) from the fused anchors over
+   * `code_edges_symbol`, scoring neighbors by `anchorScore * 1/(1+hop)`.
+   * Code corpora only; inert when no edges exist. See structural-expand.ts.
+   */
+  walkDepth?: number;
+  /**
+   * Anchor retrieval at this qualified symbol name — its chunk(s) join the
+   * fused anchor set, seeding the structural walk even when the text query
+   * matched nothing. Bypasses the query cache like the per-call filters.
+   */
+  nearSymbol?: string;
 }
 
 export interface SearchCaptureInfo {
@@ -363,8 +377,15 @@ export async function hybridSearch(
   const hasFilters = Boolean(
     opts.lang || opts.symbolKind || opts.since || opts.until,
   );
+  // Structural expansion (near_symbol / walk_depth) widens the candidate set
+  // beyond what the query alone produces, so its result must never be served
+  // from — nor written to — the exact-match query cache.
+  const structural = (opts.walkDepth ?? 0) > 0 || Boolean(opts.nearSymbol);
   const cacheEnabled =
-    !opts.noCache && !hasFilters && process.env.MEMEX_QUERY_CACHE !== "0";
+    !opts.noCache &&
+    !hasFilters &&
+    !structural &&
+    process.env.MEMEX_QUERY_CACHE !== "0";
   let cacheKey = "";
   let cacheClock = 0;
   let cacheReady = false;
@@ -468,6 +489,38 @@ export async function hybridSearch(
     k: opts.rrfK,
     weights: rrfWeights,
   }).slice(0, fanout);
+
+  // 4b. Structural two-pass expansion (near_symbol / walk_depth) — default OFF.
+  //     Widen the candidate set with code-graph neighbors BEFORE hydrate so the
+  //     neighbors flow through the single hydrate + scoring + dedup path. Runs
+  //     before the empty-fused short-circuit so a bare `near_symbol` query (no
+  //     keyword/vector hit) can still seed anchors. Best-effort: a missing or
+  //     empty edge table must never break base retrieval.
+  if (structural) {
+    try {
+      const expanded = await expandAnchors(
+        engine,
+        fused.map((f) => ({ id: f.id, score: f.score })),
+        {
+          walkDepth: opts.walkDepth,
+          nearSymbol: opts.nearSymbol,
+          sourceIds: opts.sourceIds,
+        },
+      );
+      const have = new Set(fused.map((f) => f.id));
+      for (const e of expanded) {
+        if (!have.has(e.id)) {
+          fused.push({ id: e.id, score: e.score });
+          have.add(e.id);
+        }
+      }
+    } catch (err) {
+      // Structural expansion is optional — fall back to the un-expanded anchors.
+      // Log server-side so a real bug in the walk isn't masked as "no neighbors".
+      console.warn(`[structural-expand] expansion failed, falling back: ${String(err)}`);
+    }
+  }
+
   if (fused.length === 0) return [];
 
   // 5. Hydrate.
@@ -630,10 +683,16 @@ export async function hybridSearch(
 
   // 7. Per-document dedup (one chunk per document) — skip for `exact` intent
   //    ("show me everything about this note").
+  // Structural walks deliberately surface multiple neighbor chunks from the
+  // same document/class (sibling methods, the call-site + its callee), so the
+  // one-chunk-per-doc collapse is widened proportionally to the walk depth.
+  const maxPerDoc = structural
+    ? Math.min(10, Math.max((opts.walkDepth ?? 0) * 5, 5))
+    : 1;
   const perDoc =
     intent === "exact"
       ? scored
-      : dedupByDocument(scored, { enabled: true, maxPerDoc: 1 });
+      : dedupByDocument(scored, { enabled: true, maxPerDoc });
 
   // 8. Two-pass rerank (opt-in) — runs BEFORE near-dup so the reranker sees
   //    both near-identical twins and decides their order; near-dup then drops
