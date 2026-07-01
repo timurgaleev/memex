@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.59.0] — 2026-07-01
+
 ### Changed
 - **Utility LLM tier swapped from Amazon Nova Lite to Bedrock Claude Haiku.**
   memex now runs ONLY Anthropic models through AWS Bedrock. The utility tier —
