@@ -12,6 +12,7 @@ import type { Storage } from "./storage.ts";
 import { indexFile } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
+import { reconcileDeletedDocuments } from "./reconcile-deletes.ts";
 
 export interface SweepOptions {
   /** Filesystem root of the vault. */
@@ -43,6 +44,16 @@ export interface SweepOptions {
    * re-embeds only the stale set, not the whole corpus (which `force` would).
    */
   forceStaleChunker?: boolean;
+  /**
+   * Deletion-reconcile (opt-in, default OFF): after the walk, soft-delete the
+   * DB documents under this vault root whose file has been removed from disk,
+   * so a deleted note stops surfacing as stale evidence. OFF by default because
+   * an mtime-incremental sweep over a PARTIAL file set must never delete docs
+   * outside that set — see the guard at the call site. Scope is the full
+   * `opts.vault` root; only run on a COMPLETE walk (skipped on a `maxFiles`
+   * break, which leaves later files unwalked and would look "missing").
+   */
+  reconcileDeletes?: boolean;
 }
 
 export interface SweepResult {
@@ -58,6 +69,13 @@ export interface SweepResult {
    * instead of silently reporting success.
    */
   staleChunkerUnreached?: string[];
+  /**
+   * `reconcileDeletes` only: number of documents soft-deleted because their
+   * file was removed from the vault since the last index.
+   */
+  reconciled?: number;
+  /** `reconcileDeletes` only: the source_paths retired by the reconcile pass. */
+  reconciledPaths?: string[];
 }
 
 const DEFAULT_IGNORES = [
@@ -162,6 +180,18 @@ export async function sweepVault(
   if (staleChunkerIds && seenStaleIds && !budgetBroke) {
     const unreached = [...staleChunkerIds].filter((id) => !seenStaleIds.has(id));
     if (unreached.length > 0) result.staleChunkerUnreached = unreached;
+  }
+
+  // Deletion-reconcile: retire docs whose file vanished from THIS vault root.
+  // Only on a COMPLETE walk — a `maxFiles` break leaves later files unwalked,
+  // and reconcile keys off on-disk existence within `opts.vault`, so a
+  // truncated run must not run it (a not-yet-walked file still exists on disk
+  // and would survive anyway, but skipping keeps the "partial ⇒ no reconcile"
+  // rule explicit and single-sourced).
+  if (opts.reconcileDeletes && !budgetBroke) {
+    const rec = await reconcileDeletedDocuments(storage.raw(), opts.vault);
+    result.reconciled = rec.reconciled;
+    result.reconciledPaths = rec.reconciledPaths;
   }
 
   return result;
