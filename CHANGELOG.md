@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.60.0] — 2026-07-01
+
 ### Added
 - **`chunks.source_id` mirror (migration 058, Item 2 batch).** A nullable
   `chunks.source_id` column mirrors the parent `documents.source_id`, backfilled
