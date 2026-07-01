@@ -10,7 +10,7 @@
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { currentDocumentClock } from "../core/generation.ts";
-import { brainHealthMetrics } from "../core/source-health.ts";
+import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
 import { cacheStats } from "../core/search/query-cache.ts";
 import {
   readWorkerLock,
@@ -21,6 +21,9 @@ import packageJson from "../../package.json" with { type: "json" };
 export interface StatusCmdOptions {
   /** Override the config path (tests point this at a temp dir). */
   configPath?: string;
+  /** Include the per-source (per-tenant) health breakdown. Local CLI is an
+   *  unscoped/trusted caller, so it sees every source incl. '(unclassified)'. */
+  perSource?: boolean;
 }
 
 export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
@@ -40,9 +43,21 @@ export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
     // ever acquired the lock; `stale: true` = the holder crashed or wedged
     // (heartbeat older than its TTL) and a survivor will steal on next tick.
     const worker = await readWorkerLock(engine, DEFAULT_WORKER_LOCK_ID);
+    // Unscoped (no sourceIds) → whole-brain breakdown incl. '(unclassified)'.
+    const perSource = opts.perSource
+      ? await collectPerSourceHealth(engine)
+      : undefined;
     console.log(
       JSON.stringify(
-        { ok: true, version: packageJson.version, stats, health, cache, worker },
+        {
+          ok: true,
+          version: packageJson.version,
+          stats,
+          health,
+          ...(perSource ? { perSource } : {}),
+          cache,
+          worker,
+        },
         null,
         2,
       ),

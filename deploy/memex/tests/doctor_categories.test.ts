@@ -34,6 +34,7 @@ describe("doctor categorize", () => {
       "cycle-freshness",
       "index-spread",
       "links-extraction-lag",
+      "per-source-embed-coverage",
       "pglite",
       "source-health",
       "stats",

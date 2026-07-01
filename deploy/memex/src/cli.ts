@@ -270,7 +270,7 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "status": {
-      await runStatus();
+      await runStatus(flags.has("--per-source") ? { perSource: true } : {});
       return 0;
     }
     case "integrity": {

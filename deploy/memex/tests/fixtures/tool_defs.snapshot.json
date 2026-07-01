@@ -113,6 +113,15 @@
     }
   },
   {
+    "name": "source_health",
+    "description": "Per-source (per-tenant) operational health: for each source_id it returns document_count, chunk_count, embed coverage (embedded/embeddable chunks, code excluded), and staleness lag. Answers 'which source is broken?' when one tenant's ingestion/embedding stalls. A scoped caller sees only its granted sources' rows (the NULL-source '(unclassified)' bucket is visible to a local/unscoped caller only); an unscoped local caller also gets the whole-brain `health` roll-up. Read-only; cheap; no Bedrock.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "log_friction",
     "description": "Record a friction event — used by the agent to flag when retrieval missed, an answer felt wrong, a tool errored out, OR when a recall produced an unexpectedly good hit (`delight`). When invoked from a skill, include extra.skill = '<skill-slug>' so `memex friction propose-fix` can group the event with the skill that fired it. Set `severity` to confused/error/blocker/nit on negative kinds for triage.",
     "inputSchema": {

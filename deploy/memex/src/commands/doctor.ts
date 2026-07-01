@@ -16,7 +16,7 @@ import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
-import { brainHealthMetrics } from "../core/source-health.ts";
+import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
@@ -218,6 +218,38 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });
+    }
+
+    // Per-source embed coverage (opt-in via MEMEX_DOCTOR_PER_SOURCE=1). In a
+    // multi-tenant deploy one tenant's embedding can break (0% coverage while
+    // it has embeddable chunks) invisibly inside the whole-brain average. This
+    // WARNS by listing those sources but never gates (ok:true) — a source can
+    // legitimately sit at 0% mid-backfill. Off by default to keep single-tenant
+    // reports quiet.
+    if (process.env.MEMEX_DOCTOR_PER_SOURCE === "1") {
+      try {
+        const rows = await collectPerSourceHealth(storage.raw());
+        const broken = rows.filter(
+          (r) => r.embeddable_chunks > 0 && r.embedded_chunks === 0,
+        );
+        checks.push({
+          name: "per-source-embed-coverage",
+          ok: true,
+          detail:
+            broken.length === 0
+              ? `${rows.length} source(s), none at 0% embed coverage`
+              : `WARN ${broken.length} source(s) at 0% embed coverage: ` +
+                broken
+                  .map((r) => `${r.source_id} (0/${r.embeddable_chunks})`)
+                  .join(", "),
+        });
+      } catch (e) {
+        checks.push({
+          name: "per-source-embed-coverage",
+          ok: true,
+          detail: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
   }
 
