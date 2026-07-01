@@ -11,6 +11,14 @@
  * The mirror document is keyed by a reserved `page://<slug>` source_path so
  * it never collides with file-derived documents (which use real filesystem
  * paths) and so a page delete can find and drop its mirror.
+ *
+ * TENANT AXIS (composite-PK precursor): a page's identity is `(source_id,
+ * slug)`, so two tenants may own the same slug. The mirror id therefore
+ * carries the source for any non-'default' tenant — `page://<sourceId>/<slug>`
+ * — so their bodies map to DISTINCT search documents instead of colliding on a
+ * shared `page://<slug>`. The 'default' tenant keeps the bare `page://<slug>`
+ * form so existing mirror documents are NOT orphaned by the new scheme (no
+ * live re-mirror needed). See {@link pageSourcePath}.
  */
 import {
   indexDocument,
@@ -20,8 +28,20 @@ import {
 } from "./indexer.ts";
 import type { Storage } from "./storage.ts";
 
-/** Reserved source_path namespace for page-derived search documents. */
-export function pageSourcePath(slug: string): string {
+/**
+ * Reserved source_path namespace for page-derived search documents, keyed by
+ * the page's `(source_id, slug)` identity.
+ *
+ * Back-compat guarantee: `source_id` omitted OR `'default'` yields the legacy
+ * `page://<slug>` id, so the existing single-tenant corpus keeps every mirror
+ * document exactly where it is (no re-mirror, no orphan). A non-'default'
+ * tenant gets a collision-free `page://<sourceId>/<slug>` — required so two
+ * tenants' same-slug pages don't overwrite one shared mirror document.
+ */
+export function pageSourcePath(slug: string, sourceId?: string | null): string {
+  if (sourceId && sourceId !== "default") {
+    return `page://${sourceId}/${slug}`;
+  }
   return `page://${slug}`;
 }
 
@@ -29,6 +49,17 @@ export function pageSourcePath(slug: string): string {
 export function isPageSourcePath(sourcePath: string): boolean {
   return sourcePath.startsWith("page://");
 }
+
+/**
+ * SQL expression that reconstructs a page's mirror source_path from its
+ * `(source_id, slug)` columns, MUST mirror {@link pageSourcePath} exactly. Used
+ * by the reconcile passes to join `pages` ↔ `documents` on the tenant-aware id
+ * (a slug may repeat across sources, so a bare `'page://' || slug` join would
+ * mismatch a non-'default' tenant's mirror). `p` is the `pages` alias.
+ */
+const PAGE_MIRROR_PATH_SQL =
+  `CASE WHEN p.source_id = 'default' THEN 'page://' || p.slug ` +
+  `ELSE 'page://' || p.source_id || '/' || p.slug END`;
 
 /**
  * Compose the text indexed for a page: the title as an H1 (so the page title
@@ -73,7 +104,7 @@ export async function indexPageIntoSearch(
 ): Promise<IndexResult | null> {
   const text = pageText(page.title, page.markdown_body);
   if (text.trim().length === 0) {
-    await removePageFromSearch(storage, page.slug);
+    await removePageFromSearch(storage, page.slug, page.source_id);
     return null;
   }
   // A page mirror is a page BODY (its title is already folded into `text` by
@@ -83,7 +114,7 @@ export async function indexPageIntoSearch(
   return indexDocument(
     storage,
     {
-      sourcePath: pageSourcePath(page.slug),
+      sourcePath: pageSourcePath(page.slug, page.source_id),
       text,
       sourceId: page.source_id ?? null,
       // Stamp the body hash AND the title: `pages.content_hash` is body-only,
@@ -150,7 +181,7 @@ export async function reconcilePageMirrors(
   }>(
     `SELECT p.slug, p.title, p.markdown_body, p.content_hash, p.source_id
        FROM pages p
-       LEFT JOIN documents d ON d.source_path = 'page://' || p.slug
+       LEFT JOIN documents d ON d.source_path = ${PAGE_MIRROR_PATH_SQL}
       WHERE p.deleted_at IS NULL
         AND (d.id IS NULL
              OR d.source_id <> p.source_id
@@ -188,7 +219,7 @@ export async function reconcilePageMirrors(
     `SELECT d.source_path
        FROM documents d
        LEFT JOIN pages p
-         ON p.slug = substring(d.source_path FROM 8) AND p.deleted_at IS NULL
+         ON ${PAGE_MIRROR_PATH_SQL} = d.source_path AND p.deleted_at IS NULL
       WHERE d.source_path LIKE 'page://%' AND p.slug IS NULL
       LIMIT $1`,
     [limit],
@@ -207,10 +238,15 @@ export async function reconcilePageMirrors(
   return result;
 }
 
-/** Drop a page's mirror document (idempotent). */
+/**
+ * Drop a page's mirror document (idempotent). `sourceId` selects the tenant's
+ * mirror id — omitted/'default' targets the legacy `page://<slug>` document, so
+ * existing single-tenant callers are unchanged.
+ */
 export async function removePageFromSearch(
   storage: Storage,
   slug: string,
+  sourceId?: string | null,
 ): Promise<{ removed: boolean }> {
-  return removeDocument(storage, pageSourcePath(slug));
+  return removeDocument(storage, pageSourcePath(slug, sourceId));
 }

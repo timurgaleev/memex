@@ -80,5 +80,12 @@ export async function getChunksForPage(
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("getChunksForPage: `slug` is required");
   }
-  return getChunksForSource(storage, pageSourcePath(slug), sourceIds);
+  // The mirror id is tenant-aware (see pageSourcePath). A single-source scoped
+  // read resolves that tenant's own `page://<sourceId>/<slug>` document; an
+  // unscoped read (or a multi-source scope, which is ambiguous by slug alone)
+  // keeps the legacy `page://<slug>` id, so existing 'default' callers are
+  // unchanged. getChunksForSource still applies the `d.source_id` scope filter.
+  const owner =
+    sourceIds && sourceIds.length === 1 ? sourceIds[0] : undefined;
+  return getChunksForSource(storage, pageSourcePath(slug, owner), sourceIds);
 }
