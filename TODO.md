@@ -47,12 +47,23 @@ Accepted scope, in build order (lowest blast-radius first):
 - [ ] **4. Re-accept the "rejected" expensive-AI features** — ACCEPTED as
   **paid opt-in Sonnet slices** (the proven conversation→facts pattern: flag +
   budget + Bedrock Sonnet, never default-ON in a way that surprises cost).
-  Port each reference feature we previously declined: the `think`/brainstorm/
-  deep-synthesis pipeline (Opus→Sonnet on our stack), ensemble/multi-vote
-  grading, contextual-retrieval embed wrapper, relational-recall arm,
-  graph-signals post-fusion, and the remaining synthesis cadences. Detail:
-  scattered under "NOT in scope" / "DOCUMENT-DEFER" dispositions below — each
-  flips to a build item. Sequence these after 1–3; size each as its own batch.
+  Six slices, prioritized by value/effort:
+  - [x] **S1 — ensemble/multi-vote grading — DONE (v1.56.0).** N Sonnet judges
+    → majority verdict + median confidence in `gradeTakesPhase`
+    (`MEMEX_TAKE_ENSEMBLE`, mig 056 provenance). ai-engineer reviewed (HIGH
+    parse-fail-vs-budget-out split + 2 MEDIUM fixed). Tests in
+    `synthesis_takes.test.ts`. Dormant until the flag is set.
+  - [ ] **S2 — think / deep-synthesis pipeline** (`MEMEX_THINK`, new
+    `core/synthesis/think.ts` + `commands/think.ts`).
+  - [ ] **S3 — relational-recall LLM arm** (`MEMEX_RELATIONAL_LLM`, Sonnet
+    fallback when the deterministic parse misses).
+  - [ ] **S4 — graph-aware Sonnet rerank** (`MEMEX_GRAPH_RERANK`, post-fusion,
+    distinct from the Haiku `MEMEX_RERANK`).
+  - [ ] **S5 — extra deep-synthesis cadence** (`MEMEX_DEEP_SYNTH` cycle phase).
+  - [ ] **S6 — contextual-retrieval embed wrapper** (`MEMEX_CONTEXTUAL_RETRIEVAL`,
+    mig 057; its `reindex --contextual` bulk re-embed is the one operator-gated
+    cost step — sequence AFTER Item 3 to avoid a double re-embed).
+  Each = its own batch, default-OFF, ships like facts/S1 did (not deploy-gated).
 
 Method (unchanged): copy-paste-adapt with `file:line` citations, TDD, self-review
 agent per batch, ship via the repo loop (test→push→deploy→verify→release), no
