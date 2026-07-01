@@ -10,8 +10,9 @@
 import type { Storage } from "../core/storage.ts";
 import {
   type AuthInfo,
-  effectiveReadSourceIds,
+  effectiveReadSourceIdsForIngress,
   effectiveWriteSourceId,
+  tenantFailClosedEnabled,
 } from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
@@ -193,7 +194,9 @@ export async function dispatchTool(
   // The caller's tenant grant: read scope (union of allowed sources) + the
   // single write source. Undefined when no authInfo → unscoped whole-brain
   // (local CLI / internal token), preserving single-tenant behavior.
-  const readSources = effectiveReadSourceIds(opts.authInfo);
+  const readSources = effectiveReadSourceIdsForIngress(opts.authInfo, {
+    failClosed: tenantFailClosedEnabled(),
+  });
   const writeSource = effectiveWriteSourceId(opts.authInfo);
   try {
     // Enforce the declared param contract (type / enum / min-max of present

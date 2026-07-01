@@ -15,6 +15,12 @@
  *
  * `--source` defaults to `vault` for backward compatibility. `--paths`
  * (CSV) overrides `MEMEX_CODE_PATHS` for the code sweep.
+ *
+ * `--reconcile-deletes` (default OFF) additionally soft-deletes vault
+ * documents whose file was removed from disk since the last index, so a
+ * deleted note stops surfacing as stale evidence. Scoped to the swept vault
+ * root only; never applied to the code sweep (a partial `--paths` subset must
+ * not be read as "everything else was deleted").
  */
 import { Storage } from "../core/storage.ts";
 import { sweepVault, type SweepResult } from "../core/sweep.ts";
@@ -34,6 +40,13 @@ export interface ReindexCommandOptions {
    * re-embed `--all` triggers.
    */
   rechunkStale?: boolean;
+  /**
+   * Soft-delete vault documents whose file no longer exists on disk (deletion-
+   * reconcile). Default OFF. Applies to the VAULT sweep only — the code sweep
+   * is left untouched because its `--paths` set can be a partial subset, where
+   * "missing on disk" would wrongly retire everything outside the subset.
+   */
+  reconcileDeletes?: boolean;
 }
 
 interface VaultReindexResult {
@@ -92,6 +105,7 @@ export async function runReindex(
           vault,
           force: opts.all ?? false,
           forceStaleChunker: opts.rechunkStale ?? false,
+          reconcileDeletes: opts.reconcileDeletes ?? false,
         });
         out.push({ kind: "vault", vault, result });
       }

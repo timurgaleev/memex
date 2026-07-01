@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Fail-closed unprovisioned-tenant read policy (opt-in, default OFF).** With
+  `MEMEX_TENANT_FAIL_CLOSED=1`, an authenticated PUBLIC principal that presents a
+  token but resolves to NO source grant reads nothing instead of the redacted
+  whole brain — `effectiveReadSourceIdsForIngress` returns an unownable sentinel
+  source (`__memex_no_source__`) that keeps every read handler's `source_id`
+  filter engaged and matches zero rows (closing the `[]`-means-all bypass where an
+  empty scope array would skip the filter). Provably does NOT touch the daily
+  static-bearer path (dispatched with no `authInfo`, so the guard is unreachable)
+  nor trusted-local/OAuth-with-grant callers — all keep their exact current view.
+  Default OFF: behavior is identical to today until the operator flips the flag
+  for a multi-tenant deploy.
+- **`reindex --reconcile-deletes` (opt-in).** A note deleted from the vault no
+  longer lingers as stale evidence: after the on-disk walk, `reconcileDeletedDocuments`
+  soft-deletes (via the existing `softDeleteDocuments` guard — `deleted_at`, clock
+  invalidation, TTL purge cascade) every live document whose `source_path` is under
+  the swept root but no longer exists on disk. Three safety guards prevent a
+  partial sweep from over-deleting: a separator-safe under-root check, an
+  existence probe, and a hard skip when the walk was truncated by a file/budget
+  cap. Default OFF; the code-root sweep is intentionally not wired (its `--paths`
+  can be a subset).
+
 ## [1.61.0] — 2026-07-01
 
 ### Added

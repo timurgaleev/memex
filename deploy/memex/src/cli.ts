@@ -99,8 +99,9 @@ function printUsage(): void {
   console.log("  index <path>                 read a markdown file and index it");
   console.log("  search <query> [--k N]       hybrid retrieve over the corpus");
   console.log("  search modes                 read-only view of the active ranking knobs");
-  console.log("  reindex [--all] [--vault P] [--source vault|code|all] [--paths CSV] [--rechunk-stale]");
+  console.log("  reindex [--all] [--vault P] [--source vault|code|all] [--paths CSV] [--rechunk-stale] [--reconcile-deletes]");
   console.log("                               walk the vault and/or code roots, index changed (or all) files");
+  console.log("                               (--reconcile-deletes soft-deletes vault docs whose file is gone)");
   console.log("  code-def <name> [--json]     definition sites for <name>");
   console.log("  code-refs <name> [--json]    non-defining identifier references for <name>");
   console.log("  code-callers <name> [--json] symbols whose body calls <name>");
@@ -237,6 +238,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (sourceStr) opts.source = sourceStr as "vault" | "code" | "all";
       if (paths) opts.codePaths = paths;
       if (flags.has("--rechunk-stale")) opts.rechunkStale = true;
+      if (flags.has("--reconcile-deletes")) opts.reconcileDeletes = true;
       await runReindex(opts);
       return 0;
     }

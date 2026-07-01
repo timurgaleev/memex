@@ -68,6 +68,58 @@ export function effectiveReadSourceIds(
   return undefined;
 }
 
+/**
+ * Reserved source id that matches NO real source. It is the fail-closed
+ * sentinel: when an authenticated PUBLIC principal presents no read grant and
+ * the fail-closed policy is on, its read scope resolves to `[SENTINEL]` so every
+ * `sourceIds`-filtered read (`... WHERE source_id = ANY($n)`) matches zero rows.
+ *
+ * Why a sentinel rather than an empty array: the read helpers gate their scope
+ * filter on `sourceIds && sourceIds.length` (v1.58), so an empty `[]` SKIPS the
+ * filter and silently widens back to whole-brain — a fail-closed BYPASS. A
+ * one-element array of an unownable id keeps the filter engaged and no-matches,
+ * flowing through every read handler unchanged.
+ */
+export const NO_SOURCE_SENTINEL = "__memex_no_source__";
+
+/**
+ * Is the fail-closed multi-tenant read policy enabled? Default OFF — only an
+ * explicit `MEMEX_TENANT_FAIL_CLOSED=1` (or `=true`) opts in. Off, the ingress
+ * resolver is byte-for-byte {@link effectiveReadSourceIds}, so the daily
+ * static-bearer path is untouched.
+ */
+export function tenantFailClosedEnabled(): boolean {
+  const v = process.env["MEMEX_TENANT_FAIL_CLOSED"];
+  return v === "1" || v === "true";
+}
+
+/**
+ * Ingress-side read scope with an OPTIONAL fail-closed floor.
+ *
+ * Resolves the base scope via {@link effectiveReadSourceIds}. When the caller
+ * holds a grant it is honored verbatim. When they hold none (`base === undefined`)
+ * the policy branches ONLY on an authenticated public principal:
+ *
+ *   - `failClosed` on AND `auth` present AND `auth.isPublic === true`
+ *       → `[NO_SOURCE_SENTINEL]` (reads NOTHING — an authenticated public caller
+ *         with no grant must not fall through to the redacted whole-brain).
+ *   - otherwise → `undefined` (UNCHANGED whole-brain): this is the static public
+ *       bearer (`auth === undefined`) and the trusted-local / OAuth path
+ *       (`isPublic === false`). The discriminator is deliberately narrow so the
+ *       daily Claude Code static-bearer path is never scoped.
+ */
+export function effectiveReadSourceIdsForIngress(
+  auth: AuthInfo | undefined,
+  opts?: { failClosed?: boolean },
+): string[] | undefined {
+  const base = effectiveReadSourceIds(auth);
+  if (base !== undefined) return base;
+  if (opts?.failClosed === true && auth !== undefined && auth.isPublic === true) {
+    return [NO_SOURCE_SENTINEL];
+  }
+  return undefined;
+}
+
 /** The source a caller is authorized to WRITE to, or `undefined` if unscoped. */
 export function effectiveWriteSourceId(
   auth: AuthInfo | undefined,
