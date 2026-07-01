@@ -124,6 +124,7 @@ describe("MCP HTTP transport", () => {
       "remove_tag",
       "resolve_slugs",
       "search",
+      "source_health",
       "stats",
       "traverse_graph",
       "unlink",

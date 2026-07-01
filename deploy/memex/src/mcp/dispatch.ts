@@ -18,6 +18,10 @@ import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
 import { findBacklinks } from "../core/backlinks.ts";
 import {
+  brainHealthMetrics,
+  collectPerSourceHealth,
+} from "../core/source-health.ts";
+import {
   isWithinAllowedRoot,
   PathGuardConfigError,
 } from "../core/path_guard.ts";
@@ -214,6 +218,8 @@ export async function dispatchTool(
         return await callBacklinks(storage, args, redact, readSources);
       case "stats":
         return await callStats(storage);
+      case "source_health":
+        return await callSourceHealth(storage, readSources);
       case "log_friction":
         return await callLogFriction(storage, args);
       case "page_put":
@@ -550,6 +556,26 @@ async function callBacklinks(
 async function callStats(storage: Storage): Promise<ToolCallResult> {
   const stats = await storage.stats();
   return jsonResult({ ok: true, ...stats });
+}
+
+/**
+ * Per-source health breakdown. `readSources` scopes the rows: a scoped tenant
+ * sees only its granted sources (and never the NULL '(unclassified)' bucket);
+ * an unscoped local/internal caller (readSources undefined) sees every source
+ * plus the whole-brain `health` roll-up. The brain-level metric is only
+ * exposed to unscoped callers so a tenant can't read cross-tenant totals.
+ */
+async function callSourceHealth(
+  storage: Storage,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const engine = storage.engine();
+  const perSource = await collectPerSourceHealth(engine, readSources);
+  const payload: Record<string, unknown> = { ok: true, perSource };
+  if (readSources === undefined) {
+    payload.health = await brainHealthMetrics(engine);
+  }
+  return jsonResult(payload);
 }
 
 const VALID_FRICTION = VALID_FRICTION_KINDS;

@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-source (per-tenant) health breakdown.** In a multi-tenant deploy one
+  tenant's broken ingestion/embedding was invisible inside the whole-brain
+  average — you couldn't tell "which tenant is broken". `collectPerSourceHealth`
+  reports, per `documents.source_id`, the document/chunk counts, embeddable vs
+  embedded chunks, embed-coverage %, code-chunk count, and lag — with the NULL
+  source folded into a visible `(unclassified)` bucket. Exposed as a new
+  `source_health` MCP tool (scoped: a granted remote caller sees only its own
+  sources; the whole-brain roll-up is added only for trusted-local/internal
+  callers) and a `memex status --per-source` CLI view. An opt-in doctor check
+  (`MEMEX_DOCTOR_PER_SOURCE=1`, non-blocking) WARNs when any single source has
+  chunks but zero embeddings (a tenant whose embedding is broken). The existing
+  whole-brain `BrainHealthMetrics` and the default doctor run are unchanged.
+
 ## [1.63.0] — 2026-07-01
 
 ### Changed
