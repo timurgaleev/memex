@@ -116,13 +116,22 @@ export async function removeTag(
 export async function getTags(
   storage: Storage,
   slug: string,
+  sourceIds?: readonly string[],
 ): Promise<string[]> {
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("getTags: `slug` is required");
   }
+  // Tenant scope (mig047): a scoped caller sees only tags stamped to its own
+  // source(s). No-op when unset — the whole page's tags, as today.
+  const params: unknown[] = [slug];
+  let sourceFilter = "";
+  if (sourceIds && sourceIds.length) {
+    params.push(sourceIds);
+    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ tag: string }>(
-    `SELECT tag FROM tags WHERE slug = $1 ORDER BY tag COLLATE "C" ASC`,
-    [slug],
+    `SELECT tag FROM tags WHERE slug = $1${sourceFilter} ORDER BY tag COLLATE "C" ASC`,
+    params,
   );
   return r.rows.map((row) => row.tag);
 }

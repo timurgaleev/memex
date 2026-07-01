@@ -228,7 +228,7 @@ export async function dispatchTool(
       case "page_list":
         return await callPageList(storage, args, redact, readSources);
       case "page_versions":
-        return await callPageVersions(storage, args, redact);
+        return await callPageVersions(storage, args, redact, readSources);
       case "link":
         return await callLink(storage, args, writeSource);
       case "unlink":
@@ -248,7 +248,7 @@ export async function dispatchTool(
       case "remove_tag":
         return await callRemoveTag(storage, args);
       case "get_tags":
-        return await callGetTags(storage, args);
+        return await callGetTags(storage, args, readSources);
       case "relational_recall":
         return await callRelationalRecall(storage, args, readSources);
       case "add_fact":
@@ -298,7 +298,7 @@ export async function dispatchTool(
       case "purge_deleted_pages":
         return await callPurgeDeletedPages(storage, args);
       case "query":
-        return await callQuery(storage, args);
+        return await callQuery(storage, args, readSources);
       case "code_callers":
         return await callCodeCallers(storage, args, readSources);
       case "code_callees":
@@ -880,12 +880,14 @@ async function callPageVersions(
   storage: Storage,
   args: Record<string, unknown>,
   redact = false,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_versions: `slug` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
-  const versions = await pageVersions(storage, args["slug"], limit);
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const versions = await pageVersions(storage, args["slug"], limit, sourceIds);
   // Version rows carry body snapshots; redact each through the same
   // page allowlist so public callers see metadata only.
   const out = redact
@@ -1093,9 +1095,11 @@ async function callRemoveTag(
 async function callGetTags(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") return errResult("get_tags: `slug` is required");
-  const tags = await getTags(storage, args["slug"]);
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const tags = await getTags(storage, args["slug"], sourceIds);
   return jsonResult({ ok: true, slug: args["slug"], tags });
 }
 
@@ -1594,6 +1598,7 @@ async function callPurgeDeletedPages(
 async function callQuery(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -1607,6 +1612,7 @@ async function callQuery(
   if (typeof args["k"] === "number") opts.k = args["k"];
   if (typeof args["primary_weight"] === "number") opts.primaryWeight = args["primary_weight"];
   if (typeof args["refine_weight"] === "number") opts.refineWeight = args["refine_weight"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
   const onCapture = makeCaptureCallback(storage.engine(), storage.config(), {
     toolName: "mcp.query",
     remote: true,

@@ -306,8 +306,19 @@ async function hydrateByIds(
   engine: Engine,
   ids: readonly string[],
   intent: Intent,
+  sourceIds?: readonly string[],
 ): Promise<SearchHit[]> {
   if (ids.length === 0) return [];
+  // Tenant scope (belt-and-suspenders): a cached result-id set can predate a
+  // re-scope, so a scoped caller must re-filter on hydrate — the cache key
+  // includes the scope, but a stale row keyed before the scope changed could
+  // otherwise leak another source's chunk. No-op when unscoped.
+  const params: unknown[] = [ids];
+  let sourceFilter = "";
+  if (sourceIds && sourceIds.length) {
+    params.push(sourceIds);
+    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+  }
   const rows = await engine.query<{
     id: string;
     document_id: string;
@@ -324,8 +335,8 @@ async function hydrateByIds(
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
       WHERE c.id = ANY($1::text[])
-        AND ${visibilityClause("d")}`,
-    [ids],
+        AND ${visibilityClause("d")}${sourceFilter}`,
+    params,
   );
   const byId = new Map(rows.rows.map((r) => [r.id, r]));
   const out: SearchHit[] = [];
@@ -406,7 +417,7 @@ export async function hybridSearch(
       cacheReady = true;
       if (cached) {
         const cachedIntent = (cached.intent as Intent) ?? "topic";
-        const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent);
+        const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent, opts.sourceIds);
         const hits =
           opts.tokenBudget !== undefined
             ? applyTokenBudget(hydrated, opts.tokenBudget)
@@ -534,6 +545,16 @@ export async function hybridSearch(
 
   // 5. Hydrate.
   const ids = fused.map((f) => f.id);
+  // Tenant scope: a scoped caller sees only its own sources. The retrieval arms
+  // already filter by source, but the structural walk can surface neighbors
+  // reached through the (source-agnostic) code edge table, so the hydrate join
+  // re-asserts the scope as the single choke point. No-op when unscoped.
+  const hydrateParams: unknown[] = [ids];
+  let hydrateSourceFilter = "";
+  if (opts.sourceIds && opts.sourceIds.length) {
+    hydrateParams.push(opts.sourceIds);
+    hydrateSourceFilter = ` AND d.source_id = ANY($${hydrateParams.length}::text[])`;
+  }
   const rows = await engine.query<{
     id: string;
     document_id: string;
@@ -560,8 +581,8 @@ export async function hybridSearch(
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = d.source_id
-     WHERE c.id = ANY($1::text[])`,
-    [ids],
+     WHERE c.id = ANY($1::text[])${hydrateSourceFilter}`,
+    hydrateParams,
   );
   const byId = new Map(rows.rows.map((r) => [r.id, r]));
 
@@ -684,6 +705,7 @@ export async function hybridSearch(
     await applyGraphSignals(scored, engine, {
       enabled: true,
       floorThreshold: Number.isFinite(floor) ? floor : undefined,
+      ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
     });
   }
 
