@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`chunks.source_id` mirror (migration 058, Item 2 batch).** A nullable
+  `chunks.source_id` column mirrors the parent `documents.source_id`, backfilled
+  once from the parent and kept in sync by the write path (`indexer-tx.ts` stamps
+  the authoritative post-upsert source on every chunk). No default (a NULL-source
+  document's chunks stay NULL rather than freezing to `'default'` and mis-scoping),
+  no FK (a cheap denormalized mirror), partial index on non-NULL. Behavior-neutral
+  — retrieval still scopes transitively through the documents join today; the
+  per-chunk mirror is for future per-chunk tenant scoping and targeted re-embed.
+
 ## [1.59.0] — 2026-07-01
 
 ### Changed

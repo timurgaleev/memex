@@ -160,6 +160,20 @@ export async function writeDocumentTransaction(
     // corpus changed (migration 025).
     await bumpDocumentClock(tx);
 
+    // Read the AUTHORITATIVE source back from the row we just upserted — NOT the
+    // raw doc.sourceId. On reindex the upsert keeps the prior source via
+    // COALESCE($6, documents.source_id), so the stored value is the only correct
+    // one. Mirroring it onto chunks (migration 058) keeps chunks.source_id ==
+    // documents.source_id, including NULL, so a bridged/unclassified doc's chunks
+    // never freeze to 'default'.
+    const effSource =
+      (
+        await tx.query<{ source_id: string | null }>(
+          "SELECT source_id FROM documents WHERE id = $1",
+          [doc.documentId],
+        )
+      ).rows[0]?.source_id ?? null;
+
     // Wipe prior chunks for this document. Cascades to embeddings + entity_mentions
     // via ON DELETE CASCADE on the FK, so reindexing is idempotent.
     await tx.query("DELETE FROM chunks WHERE document_id = $1", [doc.documentId]);
@@ -172,8 +186,8 @@ export async function writeDocumentTransaction(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
             symbol_name, symbol_type, parent_symbol_path, doc_comment, language,
-            symbol_name_qualified)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12)`,
+            symbol_name_qualified, source_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $13)`,
         [
           cid,
           doc.documentId,
@@ -192,6 +206,9 @@ export async function writeDocumentTransaction(
           ch.docComment ?? null,
           ch.language ?? null,
           ch.symbolNameQualified ?? null,
+          // Mirror the parent doc's authoritative source (migration 058) — NULL
+          // stays NULL so unclassified docs don't freeze to 'default'.
+          effSource,
         ],
       );
 

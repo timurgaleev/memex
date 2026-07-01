@@ -113,6 +113,37 @@ describe("frontmatter with a lone surrogate indexes cleanly (jsonb cast)", () =>
     expect(fm.ok).toBe(VALID_EMOJI); // valid pair preserved
   });
 
+  it("mirrors the doc source onto chunks; NULL source stays NULL (mig 058)", async () => {
+    await storage.engine().query(
+      "INSERT INTO sources (id, kind, path_prefix) VALUES ($1, 'other', $2) ON CONFLICT (id) DO NOTHING",
+      ["tenant_wf", "__tenant_wf__"],
+    );
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_src", sourcePath: "/src.md", title: "s", frontmatter: {}, embeddingModel: "det", sourceId: "tenant_wf" },
+      [{ text: "a", entities: [] }, { text: "b", entities: [] }],
+    );
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_nosrc", sourcePath: "/nosrc.md", title: "n", frontmatter: {}, embeddingModel: "det" },
+      [{ text: "c", entities: [] }],
+    );
+    const scoped = await storage
+      .engine()
+      .query<{ source_id: string | null }>(
+        "SELECT source_id FROM chunks WHERE document_id = $1",
+        ["doc_src"],
+      );
+    expect(scoped.rows.map((r) => r.source_id)).toEqual(["tenant_wf", "tenant_wf"]);
+    const unscoped = await storage
+      .engine()
+      .query<{ source_id: string | null }>(
+        "SELECT source_id FROM chunks WHERE document_id = $1",
+        ["doc_nosrc"],
+      );
+    expect(unscoped.rows[0]?.source_id ?? null).toBeNull();
+  });
+
   it("stores a string frontmatter as {} not a jsonb scalar (420MB-bug guard)", async () => {
     // An ingest path that passes raw content as frontmatter would otherwise
     // serialize a whole file body as a jsonb scalar string. The chokepoint
