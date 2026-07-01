@@ -29,14 +29,29 @@ Accepted scope, in build order (lowest blast-radius first):
   near_symbol baseScore documented). Tests `tests/structural_expand.test.ts`
   (7). Dormant on the live corpus (~0 code chunks) — lands behind its
   default-off switch. Ships bundled with the embedding-dim-config change.
-- [ ] **2. Multi-tenancy go-live** — ACCEPTED, full build (was "IN PROGRESS /
-  gated on deploy"). The app-layer + admin SPA + OAuth already shipped
-  (v1.30–v1.37, v1.51); the remaining blockers are the **invasive `source_id`
-  migration (047)**, fail-closed unprovisioned-`sub` policy, per-tenant
-  synth aggregates, and the **terraform public ingress + RDS migration**
-  deploy. Detail + checklist: "Multi-tenancy (company multi-user)" +
-  "Tenancy pre-deploy MUST-FIX". This is multiple shipped batches, each
-  verified — NOT one blind change against the live single-tenant brain.
+- [~] **2. Multi-tenancy go-live** — IN PROGRESS, hardening the SHIPPED shape
+  (2026-07-01 compare + Codex reconcile). Already live: app-layer + admin SPA +
+  OAuth (v1.30–v1.51), mig 047 source_id (pages/links/facts/timeline/tags), read
+  leak-close (v1.58), Nova→Bedrock-Haiku (v1.59), chunks.source_id mirror (v1.60),
+  and a **contract-level isolation harness proving 22 read tools honor scope, no
+  leaks** (v1.61). REMAINING, reconciled with Codex (which tempered "build all"):
+  - **NEEDED before go-live:** fail-closed unprovisioned-`sub` policy (S; verify
+    static bearer path first) + query-cache source_id key (CONFIRMED already keyed
+    via `scope`, query-cache.ts:171) + keep synthesis hard-gated OFF until a
+    multi-tenant synth source-axis is actually wanted.
+  - **NEEDED soon (even single-tenant):** deletion-reconcile on the mtime-
+    incremental reindex (a deleted file leaves a stale row until `--all`).
+  - **DEFER (Codex downgraded from "now"):** composite `(source_id,slug)` PK on
+    pages/page_versions/page_aliases — only needed once multiple tenants create
+    arbitrary pages; global slug identity is baked into lookups/aliases/versions/
+    links/graph/mirror-ids/citations, so follow Codex's ordered sequence and drop
+    the global slug PK LAST. Per-source health/doctor axis: optional/soon.
+  - **GATED on operator env / explicit deploy (irreversible):** terraform public
+    ingress (ALB/SG/TLS — only from the private ops dir, not this checkout) +
+    the fail-closed flip against live data (backfill NULL `source_id` first, else
+    the scoped reader sees nothing under the static bearer).
+  Full picture: memory `memex-full-compare-2026-07-01` + the maintainer's vault
+  comparison note (kept outside this repo).
 - [ ] **3. Embedding upgrade — follow the reference** — ACCEPTED (was "stay on
   Titan 1024, no switch"). Two-step: (a) make the embedding dimension a
   **config value** (no hardcoded 1024) so a swap is config not rewrite —
