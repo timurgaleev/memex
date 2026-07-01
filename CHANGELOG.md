@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.58.0] — 2026-07-01
+
 ### Changed
 - **Multi-tenancy read-surface scoping (behavior-neutral, Item 2 batch).** Every
   remaining unscoped read arm now filters by `source_id` when a caller passes
