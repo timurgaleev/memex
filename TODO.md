@@ -50,8 +50,27 @@ Accepted scope, in build order (lowest blast-radius first):
     irreversible final step, OPERATOR-GATED on an explicit "drop the PK"): drop the
     global `pages.slug` PK + `putPage`'s cross-source reject so two tenants hold the
     same slug as separate rows. Codex + live data (14 pages, 0 dup slugs) agree:
-    defer the PK drop until multiple tenants actually write pages. Per-source
-    health/doctor axis: optional/soon.
+    defer the PK drop until multiple tenants actually write pages.
+  - [x] **per-source health/doctor axis — SHIPPED v1.64.0.** `collectPerSourceHealth`
+    + `source_health` MCP tool (scoped) + `memex status --per-source` + opt-in
+    `MEMEX_DOCTOR_PER_SOURCE` warn check. Whole-brain metric unchanged. Live-verified.
+  - [x] **eval-replay CI regression gate — SHIPPED v1.65.0.** `eval-replay run`
+    exits 1 on a baseline drop > `EVAL_REPLAY_REGRESSION_EPS`.
+  - **Assessed + eliminated (no work): mcp_request_log writer already wired
+    (`MEMEX_REQUEST_LOG_DB`); Bedrock-native rerank NOT available in eu-west-1
+    (`list-foundation-models` rerank = []) — Haiku two-pass stays the AWS rerank.**
+  - **Deferred as low-value-now:** salience take_count (synth store empty until
+    `MEMEX_DREAM_SYNTHESIS=1`), query-cache contention-free sequence (low write QPS),
+    per-source entities (no active leak — reads re-scope via chunk→document join),
+    RLS real policies + FORCE (needs a least-privilege runtime role), wire retrieval
+    readers to the chunks.source_id mirror (behavior-neutral perf).
+  - **OPERATOR-GATED (irreversible / needs operator env) — the only remaining go-live blockers:**
+    (a) flip `MEMEX_TENANT_FAIL_CLOSED=1` on live — code shipped default-OFF; safe to
+    flip since the static bearer is `authInfo=undefined` (unaffected) — flip when a
+    real remote OAuth tenant with a grant exists. (b) drop the global slug PK
+    (composite-PK final step) — only when multiple tenants write pages. (c) terraform
+    public ingress (ALB/SG/TLS) — needs `terraform.tfvars` from the operator's private
+    ops dir; NOT runnable from this public checkout.
   - **GATED on operator env / explicit deploy (irreversible):** terraform public
     ingress (ALB/SG/TLS — only from the private ops dir, not this checkout) +
     the fail-closed flip against live data (backfill NULL `source_id` first, else
