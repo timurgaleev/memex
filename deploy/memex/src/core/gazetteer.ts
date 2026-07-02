@@ -103,26 +103,44 @@ function isUsablePhrase(phrase: string): boolean {
 export async function buildGazetteer(
   storage: Storage,
   sourceSlug: string,
+  sourceIds?: string[],
 ): Promise<GazetteerEntry[]> {
   const typeList = GAZETTEER_TYPES.map((t) => `'${t}'`).join(", ");
+  // Tenant scope (mig047): when a write source is present, the entry table is
+  // built ONLY from that source's entity pages, so a per-tenant auto-link never
+  // matches (and edges to) another tenant's person/company. Unscoped (the
+  // corpus-wide sweep / local caller) stays whole-brain. GAZETTEER_TYPES is a
+  // hardcoded const (no injection); slug is bound via $1, sources via $2.
+  const scope = sourceIds && sourceIds.length > 0 ? sourceIds : undefined;
+  const pageParams: unknown[] = [sourceSlug];
+  let pageScope = "";
+  if (scope) {
+    pageParams.push(scope);
+    pageScope = ` AND source_id = ANY($${pageParams.length}::text[])`;
+  }
   // LIMIT bounds the load on a large vault, preferring longer (more specific)
-  // titles/aliases. GAZETTEER_TYPES is a hardcoded const (no injection); slug
-  // is bound via $1.
+  // titles/aliases.
   const r = await storage.engine().query<{ slug: string; title: string | null }>(
     `SELECT slug, title FROM pages
-      WHERE deleted_at IS NULL AND slug <> $1 AND type IN (${typeList})
+      WHERE deleted_at IS NULL AND slug <> $1 AND type IN (${typeList})${pageScope}
       ORDER BY length(title) DESC NULLS LAST
       LIMIT ${MAX_ENTRIES}`,
-    [sourceSlug],
+    pageParams,
   );
+  const aliasParams: unknown[] = [sourceSlug];
+  let aliasScope = "";
+  if (scope) {
+    aliasParams.push(scope);
+    aliasScope = ` AND p.source_id = ANY($${aliasParams.length}::text[])`;
+  }
   const aliasRows = await storage.engine().query<{ slug: string; alias_norm: string }>(
     `SELECT pa.slug, pa.alias_norm
        FROM page_aliases pa
        JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
-      WHERE p.slug <> $1 AND p.type IN (${typeList})
+      WHERE p.slug <> $1 AND p.type IN (${typeList})${aliasScope}
       ORDER BY length(pa.alias_norm) DESC
       LIMIT ${MAX_ENTRIES}`,
-    [sourceSlug],
+    aliasParams,
   );
 
   // A phrase claimed by two DIFFERENT pages is ambiguous → drop it entirely
@@ -236,7 +254,11 @@ export async function syncMentionsForPage(
   const scope =
     typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
-  const entries = await buildGazetteer(storage, sourceSlug);
+  const entries = await buildGazetteer(
+    storage,
+    sourceSlug,
+    scope !== null ? [scope] : undefined,
+  );
   const targets = scanMentions(body, entries).filter((s) => s !== sourceSlug);
 
   const engine: Engine = storage.engine();
@@ -274,7 +296,7 @@ export async function syncMentionsForPage(
            (source_slug, target_slug, type, inferred_confidence,
             link_kind, resolution_type${insCol})
          VALUES ($1, $2, 'mentions', 1.0, 'plain', 'qualified'${insVal})
-         ON CONFLICT (source_slug, target_slug, type) DO NOTHING
+         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );

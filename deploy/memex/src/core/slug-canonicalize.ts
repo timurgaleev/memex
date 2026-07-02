@@ -64,6 +64,17 @@ export interface SlugResolver {
   resolve(name: string): Promise<CanonicalizeResult>;
 }
 
+export interface SlugResolverOptions {
+  /**
+   * Tenant write scope (migration 047). When non-empty, every DB stage
+   * (exact / alias / tail / prefix / trgm) resolves ONLY against pages owned
+   * by these sources — so a wikilink written under one tenant never
+   * canonicalizes onto another tenant's page. Omitted/empty → whole-brain
+   * resolution (local / CLI / pre-scoping callers), unchanged.
+   */
+  sourceIds?: string[];
+}
+
 const DEFAULT_TRGM_THRESHOLD = 0.7;
 /**
  * Minimum gap between the best and second-best trigram score for the
@@ -105,10 +116,20 @@ export function resolveTrgmThreshold(
   return n;
 }
 
-async function pageExists(storage: Storage, slug: string): Promise<boolean> {
+async function pageExists(
+  storage: Storage,
+  slug: string,
+  sourceIds?: string[],
+): Promise<boolean> {
+  const params: unknown[] = [slug];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ one: number }>(
-    `SELECT 1 AS one FROM pages WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
-    [slug],
+    `SELECT 1 AS one FROM pages WHERE slug = $1 AND deleted_at IS NULL${scope} LIMIT 1`,
+    params,
   );
   return r.rows.length > 0;
 }
@@ -125,17 +146,24 @@ async function exactTailUnique(
   storage: Storage,
   slugified: string,
   sourceSlug: string,
+  sourceIds?: string[],
 ): Promise<string | null> {
   if (slugified.length < MIN_TAIL_LEN || slugified.includes("/")) return null;
+  const params: unknown[] = [slugified, sourceSlug];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ slug: string }>(
     `SELECT p.slug AS slug
        FROM pages p
       WHERE p.deleted_at IS NULL
         AND p.slug <> $2
         AND p.slug LIKE '%/%'
-        AND regexp_replace(p.slug, '^.*/', '') = $1
+        AND regexp_replace(p.slug, '^.*/', '') = $1${scope}
       LIMIT 2`,
-    [slugified, sourceSlug],
+    params,
   );
   return r.rows.length === 1 ? r.rows[0]!.slug : null;
 }
@@ -152,10 +180,17 @@ async function prefixExpansionUnique(
   storage: Storage,
   slugified: string,
   sourceSlug: string,
+  sourceIds?: string[],
 ): Promise<string | null> {
   // slugifyTarget only emits [a-z0-9/-]; none are LIKE metacharacters, so
   // `slugified || '%'` needs no escaping.
   if (slugified.length < MIN_TAIL_LEN || slugified.includes("/")) return null;
+  const params: unknown[] = [slugified, sourceSlug];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ slug: string }>(
     `SELECT p.slug AS slug
        FROM pages p
@@ -163,9 +198,9 @@ async function prefixExpansionUnique(
         AND p.slug <> $2
         AND p.slug LIKE '%/%'
         AND regexp_replace(p.slug, '^.*/', '') LIKE $1 || '%'
-        AND regexp_replace(p.slug, '^.*/', '') <> $1
+        AND regexp_replace(p.slug, '^.*/', '') <> $1${scope}
       LIMIT 2`,
-    [slugified, sourceSlug],
+    params,
   );
   return r.rows.length === 1 ? r.rows[0]!.slug : null;
 }
@@ -181,7 +216,14 @@ async function trgmUnambiguous(
   slugified: string,
   sourceSlug: string,
   threshold: number,
+  sourceIds?: string[],
 ): Promise<string | null> {
+  const params: unknown[] = [name, slugified, sourceSlug];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
+  }
   const r = await storage.engine().query<{ slug: string; sim: number }>(
     `SELECT p.slug AS slug,
             GREATEST(
@@ -190,10 +232,10 @@ async function trgmUnambiguous(
             ) AS sim
        FROM pages p
       WHERE p.deleted_at IS NULL
-        AND p.slug <> $3
+        AND p.slug <> $3${scope}
       ORDER BY sim DESC, p.slug ASC
       LIMIT 2`,
-    [name, slugified, sourceSlug],
+    params,
   );
   const top = r.rows[0];
   if (!top || Number(top.sim) < threshold) return null;
@@ -213,10 +255,13 @@ async function trgmUnambiguous(
 export function makeSlugResolver(
   storage: Storage,
   sourceSlug: string,
+  opts: SlugResolverOptions = {},
 ): SlugResolver {
   const cache = new Map<string, CanonicalizeResult>();
   const enabled = canonicalizeEnabled();
   const threshold = resolveTrgmThreshold();
+  const sourceIds =
+    opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
 
   return {
     async resolve(name: string): Promise<CanonicalizeResult> {
@@ -239,7 +284,7 @@ export function makeSlugResolver(
       // Stage 1 — exact: the slugified mention is itself a live page.
       // Skip a self-match so the resolver never reports a qualified
       // self-resolution (its contract excludes sourceSlug from every set).
-      if (fallbackSlug !== sourceSlug && (await pageExists(storage, fallbackSlug))) {
+      if (fallbackSlug !== sourceSlug && (await pageExists(storage, fallbackSlug, sourceIds))) {
         return finish({ slug: fallbackSlug, resolved: true, stage: "exact" });
       }
 
@@ -250,15 +295,16 @@ export function makeSlugResolver(
         storage,
         normalizeAlias(trimmed),
         sourceSlug,
+        sourceIds,
       );
       if (alias) return finish({ slug: alias, resolved: true, stage: "alias" });
 
       // Stage 3 — unique exact-tail match.
-      const tail = await exactTailUnique(storage, fallbackSlug, sourceSlug);
+      const tail = await exactTailUnique(storage, fallbackSlug, sourceSlug, sourceIds);
       if (tail) return finish({ slug: tail, resolved: true, stage: "exact_tail" });
 
       // Stage 4 — unique prefix expansion.
-      const prefix = await prefixExpansionUnique(storage, fallbackSlug, sourceSlug);
+      const prefix = await prefixExpansionUnique(storage, fallbackSlug, sourceSlug, sourceIds);
       if (prefix) return finish({ slug: prefix, resolved: true, stage: "prefix" });
 
       // Stage 5 — fuzzy trigram, threshold + margin gated.
@@ -268,6 +314,7 @@ export function makeSlugResolver(
         fallbackSlug,
         sourceSlug,
         threshold,
+        sourceIds,
       );
       if (fuzzy) return finish({ slug: fuzzy, resolved: true, stage: "trgm" });
 
