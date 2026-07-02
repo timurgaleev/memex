@@ -126,8 +126,13 @@ describe("Queue.claim", () => {
   });
 
   it("skips quiet_hours_skip jobs when in quiet hours", async () => {
-    await queue.enqueue({ kind: "embed", id: "Q", quietHoursSkip: true });
-    await queue.enqueue({ kind: "noop", id: "L" });
+    // Anchor next_attempt_at in the past so the fixed claim clocks below stay
+    // due regardless of the real wall clock (without runAt, next_attempt_at
+    // defaults to the real enqueue time — the fixed 2026-07-01 claim dates fall
+    // behind it once that date passes, and nothing is claimable).
+    const due = new Date("2026-01-01T00:00:00Z");
+    await queue.enqueue({ kind: "embed", id: "Q", quietHoursSkip: true, runAt: due });
+    await queue.enqueue({ kind: "noop", id: "L", runAt: due });
     // A "now" inside the window — 06:30 Berlin (summer = 04:30 UTC).
     const inside = new Date("2026-07-01T04:30:00Z");
     const claimed = await queue.claim({ now: inside });
