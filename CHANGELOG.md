@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.68.0] — 2026-07-02
+
+### Added
+- **Complete configuration reference (`docs/CONFIGURATION.md`) and a self-host
+  deployment guide (`docs/DEPLOYMENT.md`).** The config reference enumerates every
+  `MEMEX_*` flag grouped by concern with its default and a free/paid cost tag; the
+  deployment guide is a linear zero-to-live how-to (Bedrock model access, terraform,
+  secrets, Cloudflare Tunnel, MCP hookup, verify). README/llms.txt corrected: 61 MCP
+  tools (was 55/25), Claude Haiku not Nova for utility calls, and the multi-source
+  tenant-isolation posture (was mis-stated as "no multi-tenancy / single-user").
+
 ### Fixed
 - **Paid Sonnet slices no longer silently refuse to spend when `MEMEX_FACTS_MODEL`
   is passed as an empty string.** A `${MEMEX_FACTS_MODEL:-}` docker-compose

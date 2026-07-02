@@ -20,7 +20,7 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 - Runs a 6-phase maintenance cycle every 6 h (`embed-stale`,
   `extract`, `reconcile-links`, `orphans-purge`,
   `frontmatter-inference`, `snapshot`).
-- Exposes 25 MCP tools (search, index, backlinks, stats,
+- Exposes 61 MCP tools (search, index, backlinks, stats,
   page_{put,append,delete,get,list,versions}, link, unlink,
   graph_{neighbors,query}, entity_{facts,timeline,recall},
   add_fact, add_timeline_event, jobs_{submit,list,get,cancel,logs},
@@ -43,7 +43,9 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
   layered with `pages`, `links`, `entity_facts`, `timeline_events`,
   `hot_memory`, `jobs`, and `subagent_*` ledgers added in phases
   A.1–A.5.
-- Not a multi-tenant system. Single user, single source-of-truth vault.
+- Multi-source tenant isolation (each source scoped; opt-in fail-closed via
+  `MEMEX_TENANT_FAIL_CLOSED`). One deployment can serve more than one person;
+  see `../../docs/tenancy.md`.
 
 ## Quick CLI surface
 
