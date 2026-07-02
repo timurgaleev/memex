@@ -64,13 +64,31 @@ Accepted scope, in build order (lowest blast-radius first):
     per-source entities (no active leak — reads re-scope via chunk→document join),
     RLS real policies + FORCE (needs a least-privilege runtime role), wire retrieval
     readers to the chunks.source_id mirror (behavior-neutral perf).
+  - [x] **WRITE-path tenant isolation — SHIPPED v1.66.0 + v1.67.0.** Adversarial
+    audit (2026-07-02) found the write path had latent holes symmetric to the v1.58
+    read leak-close. v1.66.0: destructive tools (delete/revert/restore/removeLink/
+    removeTag/forgetFact/purge) scope by the caller's write source. v1.67.0:
+    wikilink/verb/typed-link canonicalization source-scoped at write time (no
+    cross-tenant `[[people/alice]]` resolution); `links`+`tags` unique keys gained
+    `source_id` (**mig 059**, collision-safe on single-source live data — verified
+    live: links=9 preserved, new keys `links_source_target_type_source_id_key` +
+    `tags_slug_tag_source_id_key`); write-side fail-closed (`effectiveWriteSourceIdForIngress`,
+    gated on `MEMEX_TENANT_FAIL_CLOSED`); gazetteer source-scoped. All additive,
+    behavior-neutral for single-tenant. This CLEARS the write-gate: a 2nd WRITE
+    tenant is now code-safe.
+  - **Remaining audit LOWs (deferred, minor):** `list_concepts`/`get_calibration_profile`
+    are GLOBAL synth aggregates (safe — synthesis default-OFF; add source_id to synth
+    tables only if multi-tenant synthesis is enabled); putPage owner-check blind to
+    soft-deleted rows (namespace-squat edge, no cross-tenant write). Not worth a release now.
   - **OPERATOR-GATED (irreversible / needs operator env) — the only remaining go-live blockers:**
-    (a) flip `MEMEX_TENANT_FAIL_CLOSED=1` on live — code shipped default-OFF; safe to
-    flip since the static bearer is `authInfo=undefined` (unaffected) — flip when a
-    real remote OAuth tenant with a grant exists. (b) drop the global slug PK
-    (composite-PK final step) — only when multiple tenants write pages. (c) terraform
-    public ingress (ALB/SG/TLS) — needs `terraform.tfvars` from the operator's private
-    ops dir; NOT runnable from this public checkout.
+    (a) **LIVE 2-tenant auth smoke** over `brain.<domain>/mcp` with real tokens — the one
+    genuine go-live proof (Codex); operator-run (mutates prod). Runbook: vault
+    `Projects/memex/2026-07-02-multitenant-golive-runbook.md`. (b) flip
+    `MEMEX_TENANT_FAIL_CLOSED=1` on live — code shipped default-OFF; safe (static bearer
+    is `authInfo=undefined`, unaffected) — flip when a real remote OAuth tenant with a
+    grant exists. (c) drop the global slug PK — Codex + live data (14 pages, 0 dup slugs)
+    say DEFER; use tenant slug prefixes instead. (d) recreate the lost `terraform.tfvars`
+    via `scripts/init.sh` (only needed for a future terraform apply; nothing pending now).
   - **GATED on operator env / explicit deploy (irreversible):** terraform public
     ingress (ALB/SG/TLS — only from the private ops dir, not this checkout) +
     the fail-closed flip against live data (backfill NULL `source_id` first, else
