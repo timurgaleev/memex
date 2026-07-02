@@ -98,14 +98,26 @@ export async function removeTag(
   storage: Storage,
   slug: string,
   tag: string,
+  sourceId?: string,
 ): Promise<void> {
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("removeTag: `slug` is required");
   }
   const norm = requireTag(tag);
+  // Tenant write scope (mig047): when set, only a tag stamped to this source is
+  // removed — a scoped caller can never unset another tenant's tag. Unset →
+  // whole-brain by (slug, tag), unchanged.
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
+  const params: unknown[] = [slug, norm];
+  let sourceFilter = "";
+  if (scope !== null) {
+    params.push(scope);
+    sourceFilter = ` AND source_id = $${params.length}`;
+  }
   await storage.engine().query(
-    `DELETE FROM tags WHERE slug = $1 AND tag = $2`,
-    [slug, norm],
+    `DELETE FROM tags WHERE slug = $1 AND tag = $2${sourceFilter}`,
+    params,
   );
 }
 

@@ -32,13 +32,23 @@ export interface PurgeDeletedPagesResult {
 export async function purgeDeletedPages(
   engine: Engine,
   olderThanHours: number = SOFT_DELETE_TTL_HOURS,
+  sourceIds?: string[],
 ): Promise<PurgeDeletedPagesResult> {
+  // Tenant write scope (mig047): when a non-empty scope is given, the reaper
+  // only frees rows owned by it — a scoped caller can never purge another
+  // tenant's soft-deleted pages. Unset/empty → whole-brain, unchanged.
+  const params: unknown[] = [String(olderThanHours)];
+  let sourceFilter = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
   const r = await engine.query<{ slug: string }>(
     `DELETE FROM pages
       WHERE deleted_at IS NOT NULL
-        AND deleted_at < NOW() - ($1 || ' hours')::interval
+        AND deleted_at < NOW() - ($1 || ' hours')::interval${sourceFilter}
       RETURNING slug`,
-    [String(olderThanHours)],
+    params,
   );
   const slugs = r.rows.map((row) => row.slug);
   return { count: slugs.length, slugs };

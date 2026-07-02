@@ -227,11 +227,11 @@ export async function dispatchTool(
       case "page_append":
         return await callPageAppend(storage, args, writeSource);
       case "page_delete":
-        return await callPageDelete(storage, args);
+        return await callPageDelete(storage, args, writeSource);
       case "page_restore":
-        return await callPageRestore(storage, args);
+        return await callPageRestore(storage, args, writeSource);
       case "page_revert":
-        return await callPageRevert(storage, args);
+        return await callPageRevert(storage, args, writeSource);
       case "page_get":
         return await callPageGet(storage, args, redact, readSources);
       case "page_list":
@@ -241,7 +241,7 @@ export async function dispatchTool(
       case "link":
         return await callLink(storage, args, writeSource);
       case "unlink":
-        return await callUnlink(storage, args);
+        return await callUnlink(storage, args, writeSource);
       case "graph_neighbors":
         return await callGraphNeighbors(storage, args, redactGraph, readSources);
       case "graph_query":
@@ -255,7 +255,7 @@ export async function dispatchTool(
       case "add_tag":
         return await callAddTag(storage, args, writeSource);
       case "remove_tag":
-        return await callRemoveTag(storage, args);
+        return await callRemoveTag(storage, args, writeSource);
       case "get_tags":
         return await callGetTags(storage, args, readSources);
       case "relational_recall":
@@ -299,13 +299,13 @@ export async function dispatchTool(
       case "recall":
         return await callRecall(storage, args, readSources);
       case "forget_fact":
-        return await callForgetFact(storage, args);
+        return await callForgetFact(storage, args, writeSource);
       case "get_brain_identity":
         return await callGetBrainIdentity(storage);
       case "whoami":
         return callWhoami(opts.authInfo, readSources, opts.isPublic ?? false);
       case "purge_deleted_pages":
-        return await callPurgeDeletedPages(storage, args);
+        return await callPurgeDeletedPages(storage, args, writeSource);
       case "query":
         return await callQuery(storage, args, readSources);
       case "code_callers":
@@ -780,13 +780,14 @@ async function callPageAppend(
 async function callPageDelete(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_delete: `slug` is required");
   }
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
-  const r = await deletePage(storage, args["slug"], writtenBy);
+  const r = await deletePage(storage, args["slug"], writtenBy, writeSource);
   // A soft-deleted page must stop serving its fence-derived facts; explicit
   // (NULL source_markdown_slug) facts are left intact.
   if (!r.already_deleted) {
@@ -808,13 +809,14 @@ async function callPageDelete(
 async function callPageRestore(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_restore: `slug` is required");
   }
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
-  const r = await restorePage(storage, args["slug"], writtenBy);
+  const r = await restorePage(storage, args["slug"], writtenBy, writeSource);
   if (r.restored) {
     // Re-derive ONLY what delete tore down: facts (purged on delete) and the
     // search mirror (dropped on delete). Links/mentions/typed-links are NOT
@@ -832,6 +834,7 @@ async function callPageRestore(
 async function callPageRevert(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_revert: `slug` is required");
@@ -842,7 +845,7 @@ async function callPageRevert(
   }
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
-  const r = await revertPage(storage, args["slug"], v as number, writtenBy);
+  const r = await revertPage(storage, args["slug"], v as number, writtenBy, writeSource);
   if (r.reverted) {
     // The body changed — refresh links, mentions, facts, and the search mirror,
     // exactly as a normal page_put would.
@@ -963,6 +966,7 @@ async function callLink(
 async function callUnlink(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["source_slug"] !== "string")
     return errResult("unlink: `source_slug` is required");
@@ -974,6 +978,7 @@ async function callUnlink(
     source_slug: args["source_slug"],
     target_slug: args["target_slug"],
     type: args["type"],
+    ...(writeSource ? { source_id: writeSource } : {}),
   });
   return jsonResult({ ok: true, ...r });
 }
@@ -1114,10 +1119,11 @@ async function callAddTag(
 async function callRemoveTag(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") return errResult("remove_tag: `slug` is required");
   if (typeof args["tag"] !== "string") return errResult("remove_tag: `tag` is required");
-  await removeTag(storage, args["slug"], args["tag"]);
+  await removeTag(storage, args["slug"], args["tag"], writeSource);
   return jsonResult({ ok: true, slug: args["slug"], tag: args["tag"] });
 }
 
@@ -1570,6 +1576,7 @@ async function callRecall(
 async function callForgetFact(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   const id = args["id"];
   if (!Number.isInteger(id) || (id as number) < 1) {
@@ -1577,7 +1584,10 @@ async function callForgetFact(
   }
   const opts: Parameters<typeof forgetFact>[2] = {};
   if (typeof args["reason"] === "string") opts.reason = args["reason"];
-  const r = await forgetFact(storage, id as number, opts);
+  // A destructive write scopes to the caller's SINGLE write source (a scalar),
+  // never the federated READ set — a tenant may read many sources but must only
+  // forget within its own write source. Undefined → unscoped, unchanged.
+  const r = await forgetFact(storage, id as number, opts, writeSource ? [writeSource] : undefined);
   return jsonResult({ ok: true, ...r });
 }
 
@@ -1606,6 +1616,7 @@ function callWhoami(
 async function callPurgeDeletedPages(
   storage: Storage,
   args: Record<string, unknown>,
+  writeSource?: string,
 ): Promise<ToolCallResult> {
   let olderThanHours: number | undefined;
   if (args["older_than_hours"] !== undefined) {
@@ -1617,10 +1628,10 @@ async function callPurgeDeletedPages(
     }
     olderThanHours = v;
   }
-  const r =
-    olderThanHours === undefined
-      ? await purgeDeletedPages(storage.engine())
-      : await purgeDeletedPages(storage.engine(), olderThanHours);
+  // Scope the reaper to the caller's write source when scoped. Passing
+  // `olderThanHours` undefined still triggers the fn's default TTL (72h).
+  const scope = writeSource ? [writeSource] : undefined;
+  const r = await purgeDeletedPages(storage.engine(), olderThanHours, scope);
   return jsonResult({ ok: true, ...r });
 }
 
