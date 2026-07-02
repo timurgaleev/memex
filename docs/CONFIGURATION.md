@@ -59,12 +59,17 @@ boot rather than silently falling back, so a bad edit is caught immediately.
 
 ## Quality & cost tiers (pick one)
 
-memex ships **everything paid OFF by default** — a fresh deploy is a pure
-retrieval brain that never makes a billable model call beyond embeddings. That
-default is deliberate: cloning the repo must never surprise you with a bill. But
-**more spend buys more quality** — the paid tiers below are what the project is
-capable of at its best, and are the *recommended* setup once you know your usage.
-Enable a tier by setting its flags in `.env` (all are in the compose allowlist).
+memex's **runtime code ships everything paid OFF by default** — a bare
+`git clone` is a pure retrieval brain that never makes a billable model call
+beyond embeddings, so cloning the repo can never surprise you with a bill. The
+opt-in happens one layer up: **`scripts/init.sh` defaults to the Max quality
+tier** and writes those flags into the generated (gitignored) `.env`, so a real
+operator install gets the full-featured experience by default. Pick `balanced`
+or `free` at the init prompt, or set `MEMEX_INIT_TIER=free|balanced|max` for the
+non-interactive path. **More spend buys more quality** — the paid tiers below are
+what the project is capable of at its best, and Max is the *recommended* setup.
+Change tiers any time by editing the flags in `.env` (all are in the compose
+allowlist) and recomposing.
 
 | Tier | What you get | Flags | ~Cost/mo* |
 |------|--------------|-------|-----------|
@@ -112,7 +117,6 @@ to `environment:` before overriding.
 
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
-| `MEMEX_RERANK` | off (`=1` on) | Enable the cross-encoder-style rerank pass over hybrid hits. | free |
 | `MEMEX_GRAPH_SIGNALS` | off (`=1` on) | Fold graph centrality signals into the ranking score. | free |
 | `MEMEX_GRAPH_SIGNALS_FLOOR` | unset (gate off) | Ratio in `0..1`; hits below the floor are excluded from the graph boost. Unset → every hit stays eligible. Fail-loud on out-of-range. | free |
 | `MEMEX_RECENCY_DECAY` | built-in map | Per-path-prefix half-life/floor overrides, merged over the default decay map (`prefix:halfLifeDays:floor`, CSV). Recency weighting is on by default. | free |
@@ -144,6 +148,7 @@ you opt in.
 
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
+| `MEMEX_RERANK` | off (`=1` on) | Two-pass rerank — reorders the top hybrid hits with one Claude Haiku call per search. The budget alternative to the paid Sonnet `MEMEX_GRAPH_RERANK`; near-identical ranking quality. | cheap (Haiku, ~$1–3/mo) |
 | `MEMEX_DREAM_SYNTHESIS` | off (`=1` on) | Appends the Haiku synthesis chain to quiet-hours cycle ticks only. Idempotent, count-capped. | cheap (Haiku) |
 | `MEMEX_DREAM_SYNTHESIS_MAX_DOCS` | `25` | Max source docs fed per synthesis run. | — |
 | `MEMEX_DREAM_SYNTHESIS_MAX_CONCEPTS` | `30` | Max concepts produced per run. | — |
