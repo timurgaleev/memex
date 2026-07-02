@@ -8,8 +8,8 @@
 Self-hostable personal knowledge brain, reached over MCP only:
 - **memex** — knowledge brain (Bun + Postgres + pgvector). Hybrid
   search + graph-signals ranking, entity + code call graph
-  (callers/callees), push-context, advisor, 55 MCP tools. Retrieval-first
-  — Bedrock Titan v2 embeddings + Nova intent/expansion; answer synthesis
+  (callers/callees), push-context, advisor, 61 MCP tools. Retrieval-first
+  — Bedrock Titan v2 embeddings + Claude Haiku intent/expansion; answer synthesis
   is the MCP client's job. An opt-in, off-by-default LLM step distils notes
   into a separate `synth_*` store (source notes never touched). PGLite is a
   dev-only fallback.

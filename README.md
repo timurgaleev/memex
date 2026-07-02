@@ -57,9 +57,11 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
   graph &mdash; not just your prose.
 - **Surfaces notes before you ask.** Hand it a conversation and it volunteers the
   pages most likely relevant &mdash; deterministic, no AI guessing.
-- **Small and boring on purpose.** No orchestrator, no multi-tenancy, no SaaS to
-  depend on. It fits on one small EC2 box, and you can read the whole thing in
-  an afternoon.
+- **Small and boring on purpose.** No orchestrator, no SaaS to depend on. It
+  fits on one small EC2 box, and you can read the whole thing in an afternoon.
+  Multi-source tenant isolation is built in (each source scoped, opt-in
+  fail-closed) so one box can serve more than one person &mdash; see
+  [docs/tenancy.md](./docs/tenancy.md).
 
 ## How it's different
 
@@ -136,12 +138,15 @@ Connecting Claude Code (or any MCP client):
 
 | Piece | What it does |
 |---|---|
-| **memex** | The brain: hybrid search, entity + code call graph, code/markdown indexers, MCP server, a built-in `advisor` that ranks what to fix, push-context that volunteers relevant pages, an opt-in (off-by-default) step that distils notes into concepts/opinions in a *separate* store (your original notes are never touched), and a self-maintaining background cycle. 55 MCP tools. |
+| **memex** | The brain: hybrid search, entity + code call graph, code/markdown indexers, MCP server, a built-in `advisor` that ranks what to fix, push-context that volunteers relevant pages, an opt-in (off-by-default) step that distils notes into concepts/opinions in a *separate* store (your original notes are never touched), and a self-maintaining background cycle. 61 MCP tools. |
 | **cloudflared** | Public HTTPS ingress via Cloudflare Tunnel &mdash; no open EC2 ports. |
 | **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
-| **AWS Bedrock** | Titan v2 embeddings + Nova for query intent and the optional, off-by-default note synthesis. Your agent still writes the answers. |
+| **AWS Bedrock** | Titan v2 embeddings + Claude Haiku for query intent and the optional, off-by-default note synthesis (Claude Sonnet for the paid opt-in deep-reasoning slices). Your agent still writes the answers. |
 
 **Learn more:** [ARCHITECTURE.md](./ARCHITECTURE.md) ·
+[Deployment](./docs/DEPLOYMENT.md) ·
+[Configuration](./docs/CONFIGURATION.md) ·
+[Tenancy](./docs/tenancy.md) ·
 [API / MCP tools](./deploy/memex/docs/API.md) ·
 [Operations](./deploy/memex/docs/OPERATIONS.md) ·
 [Privacy](./PRIVACY.md) · [Changelog](./CHANGELOG.md)
@@ -156,8 +161,9 @@ ideas welcome in [issues](../../issues).
 
 ## Contributing
 
-memex is intentionally **single-user and small** &mdash; open an issue before
-anything that adds infrastructure or changes the deploy story. Please read
+memex is intentionally **small** &mdash; one box, multi-source tenant isolation,
+no SaaS &mdash; so open an issue before anything that adds infrastructure or
+changes the deploy story. Please read
 [CLAUDE.md](./CLAUDE.md) (the repo's working rules) first.
 
 ## Security
