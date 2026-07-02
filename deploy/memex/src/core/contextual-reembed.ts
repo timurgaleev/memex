@@ -50,6 +50,14 @@ import {
   wrapChunkForEmbedding,
   extractFirstTwoSentences,
 } from "./search/contextual-embed.ts";
+import {
+  contextualLlmEnabled,
+  generateChunkContext,
+  defaultContextualLlmBudget,
+  CONTEXTUAL_LLM_LABEL,
+} from "./search/contextual-llm.ts";
+import { BudgetTracker } from "./budget.ts";
+import type { LlmFn } from "./llm/haiku.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { clearCache } from "./search/query-cache.ts";
 
@@ -68,6 +76,23 @@ export interface ContextualReembedOptions {
    * the real Titan `embedText`. Mirrors embed-backfill's `embed` seam.
    */
   embed?: (text: string) => Promise<number[]>;
+  /**
+   * Paid per-chunk LLM-context tier (`contextual-llm.ts`). When set — or when
+   * `MEMEX_CONTEXTUAL_LLM` is on — each chunk's prefix uses a model-generated
+   * situating blurb instead of the deterministic document synopsis; a null
+   * result (budget/err) falls back to deterministic. Tests inject `llmFn` to
+   * bypass the env gate and avoid any Bedrock spend.
+   */
+  llmFn?: LlmFn;
+  /**
+   * Shared USD budget for the LLM tier across the WHOLE run — so
+   * `MEMEX_CONTEXTUAL_LLM_BUDGET_USD` caps TOTAL spend, not per-chunk. When it is
+   * exhausted mid-run, remaining chunks silently fall back to deterministic
+   * (still wrapped) and the run completes. Default: a fresh cap from the env.
+   */
+  llmBudget?: BudgetTracker;
+  /** Override the utility model id for the LLM tier (tests/pricing). */
+  contextualModel?: string;
   /** Progress callback fired after each document is committed. */
   onProgress?: (documentsDone: number, chunksDone: number) => void;
 }
@@ -81,6 +106,11 @@ export interface ContextualReembedResult {
   skipped: number;
   /** Documents whose embed call threw — left untouched for a retry. */
   failed: number;
+  /** Chunks wrapped with a per-chunk LLM-generated context (paid tier). */
+  llmContext: number;
+  /** Chunks that fell back to the deterministic synopsis (LLM off, budget
+   *  exhausted, or an LLM error). Zero when the LLM tier is not active. */
+  deterministicFallback: number;
   dryRun: boolean;
 }
 
@@ -146,6 +176,22 @@ async function openingChunkContent(
   return r.rows[0]?.content ?? "";
 }
 
+/** The document's full text — every chunk concatenated in order. Fed to the
+ *  per-chunk LLM tier so the model can situate a chunk within the whole doc.
+ *  Reconstructed from `chunks` because `page://` docs have no file on disk. */
+async function documentText(
+  engine: Engine,
+  documentId: string,
+): Promise<string> {
+  const r = await engine.query<{ content: string }>(
+    `SELECT content FROM chunks
+      WHERE document_id = $1
+      ORDER BY chunk_index ASC`,
+    [documentId],
+  );
+  return r.rows.map((row) => row.content).join("\n\n");
+}
+
 /** Chunks of a document to re-embed this pass, chunk-ordered. */
 async function chunksToReembed(
   engine: Engine,
@@ -193,6 +239,15 @@ export async function runContextualReembed(
   const force = opts.force ?? false;
   const limit = opts.limit && opts.limit > 0 ? Math.floor(opts.limit) : undefined;
 
+  // Paid per-chunk LLM tier: active when a test injects `llmFn` OR the operator
+  // set the env flag. ONE budget is shared across the whole run so the env cap
+  // bounds TOTAL spend; exhaustion mid-run falls back to deterministic per chunk.
+  const llmActive = opts.llmFn !== undefined || contextualLlmEnabled();
+  const llmBudget = llmActive
+    ? opts.llmBudget ??
+      new BudgetTracker(defaultContextualLlmBudget(), CONTEXTUAL_LLM_LABEL)
+    : undefined;
+
   const docs = await findCandidateDocs(engine, force);
   const skipped = force ? 0 : await countAlreadyMarked(engine);
 
@@ -202,12 +257,22 @@ export async function runContextualReembed(
     for (const doc of docs) {
       pending += (await chunksToReembed(engine, doc.id, force)).length;
     }
-    return { documents: docs.length, chunks: pending, skipped, failed: 0, dryRun: true };
+    return {
+      documents: docs.length,
+      chunks: pending,
+      skipped,
+      failed: 0,
+      llmContext: 0,
+      deterministicFallback: 0,
+      dryRun: true,
+    };
   }
 
   let documents = 0;
   let chunks = 0;
   let failed = 0;
+  let llmContext = 0;
+  let deterministicFallback = 0;
 
   for (const doc of docs) {
     if (limit !== undefined && chunks >= limit) break;
@@ -217,14 +282,33 @@ export async function runContextualReembed(
         await openingChunkContent(engine, doc.id),
       );
       // isCode is always false here — code docs are excluded from the scan.
-      const prefix = buildContextualPrefix(doc.title, synopsis, { isCode: false });
+      const deterministicPrefix = buildContextualPrefix(doc.title, synopsis, {
+        isCode: false,
+      });
       const pending = await chunksToReembed(engine, doc.id, force);
       if (pending.length === 0) continue;
+
+      // The per-chunk LLM tier needs the whole document; load it once per doc.
+      const docText = llmActive ? await documentText(engine, doc.id) : "";
 
       // Embed OUTSIDE the transaction so a Bedrock failure never half-writes a
       // document (indexer.ts's ordering). Collect vectors first, then commit.
       const writes: { id: string; vector: number[] }[] = [];
       for (const ch of pending) {
+        let prefix = deterministicPrefix;
+        if (llmActive) {
+          const llmCtx = await generateChunkContext(docText, ch.content, {
+            ...(opts.llmFn ? { llmFn: opts.llmFn } : {}),
+            ...(llmBudget ? { budget: llmBudget } : {}),
+            ...(opts.contextualModel ? { modelId: opts.contextualModel } : {}),
+          });
+          if (llmCtx) {
+            prefix = buildContextualPrefix(doc.title, llmCtx, { isCode: false });
+            llmContext++;
+          } else {
+            deterministicFallback++;
+          }
+        }
         const vector = await embed(
           wrapChunkForEmbedding(ch.content, prefix, { isCode: false }),
         );
@@ -268,7 +352,15 @@ export async function runContextualReembed(
     await clearCache(engine);
   }
 
-  return { documents, chunks, skipped, failed, dryRun: false };
+  return {
+    documents,
+    chunks,
+    skipped,
+    failed,
+    llmContext,
+    deterministicFallback,
+    dryRun: false,
+  };
 }
 
 /**

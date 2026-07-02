@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Paid per-chunk contextual-retrieval LLM tier (`MEMEX_CONTEXTUAL_LLM`).** The
+  full Anthropic "Contextual Retrieval" technique on top of the free deterministic
+  wrapper: each chunk gets a unique Claude Haiku-generated blurb situating it within
+  its whole document, prepended before embedding (better recall on ambiguous chunks).
+  Opt-in, default-OFF, bounded by `MEMEX_CONTEXTUAL_LLM_BUDGET_USD` (default 5.0) —
+  ONE shared budget across a whole `reindex --contextual` run. Fail-open: any budget
+  skip / exhaustion / Bedrock error falls back to the deterministic `<context>title +
+  synopsis</context>` prefix, so indexing never breaks; the run reports `llmContext`
+  vs `deterministicFallback` counts, and a later `--contextual --force` with more
+  budget upgrades the fell-back chunks. Document text is a stable leading prompt block
+  (Bedrock prompt-caching left as a ~10x cost-saver follow-up). Covers `page://` docs
+  (mail/calendar) the same as the deterministic tier.
+
 ## [1.69.0] — 2026-07-02
 
 ### Added
