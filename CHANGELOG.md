@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.67.0] — 2026-07-02
+
 ### Changed
 - **Write-time tenant isolation: cross-tenant resolution, edge/tag tamper, and
   write fail-closed (multi-tenant hardening, migration 059).** The remaining
