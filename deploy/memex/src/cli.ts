@@ -100,6 +100,8 @@ function printUsage(): void {
   console.log("  search <query> [--k N]       hybrid retrieve over the corpus");
   console.log("  search modes                 read-only view of the active ranking knobs");
   console.log("  reindex [--all] [--vault P] [--source vault|code|all] [--paths CSV] [--rechunk-stale] [--reconcile-deletes]");
+  console.log("  reindex --contextual [--force] [--dry-run] [--limit N]");
+  console.log("                               whole-corpus from-DB re-embed under the contextual-retrieval wrapper");
   console.log("                               walk the vault and/or code roots, index changed (or all) files");
   console.log("                               (--reconcile-deletes soft-deletes vault docs whose file is gone)");
   console.log("  code-def <name> [--json]     definition sites for <name>");
@@ -239,6 +241,17 @@ async function main(argv: readonly string[]): Promise<number> {
       if (paths) opts.codePaths = paths;
       if (flags.has("--rechunk-stale")) opts.rechunkStale = true;
       if (flags.has("--reconcile-deletes")) opts.reconcileDeletes = true;
+      if (flags.has("--contextual")) opts.contextual = true;
+      if (flags.has("--force")) opts.force = true;
+      if (flags.has("--dry-run")) opts.dryRun = true;
+      const ctxLimitStr = values.get("--limit");
+      if (ctxLimitStr !== undefined) {
+        const n = Number(ctxLimitStr);
+        if (!Number.isInteger(n) || n <= 0) {
+          throw new Error(`memex reindex: invalid --limit ${ctxLimitStr}`);
+        }
+        opts.limit = n;
+      }
       await runReindex(opts);
       return 0;
     }

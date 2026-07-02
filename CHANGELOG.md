@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex reindex --contextual` — whole-corpus contextual-retrieval re-embed.**
+  Turning on `MEMEX_CONTEXTUAL_RETRIEVAL` only wraps *newly indexed* documents, so
+  the flag alone left the existing corpus on un-wrapped vectors (a mixed vector
+  space). This new command re-embeds every embeddable chunk FROM THE DATABASE with
+  the deterministic `<context>title + synopsis</context>` prefix — including
+  `page://`-sourced docs (e.g. mail/calendar) that have no file on disk and that
+  `reindex --all` (a disk sweep) can never reach. It is idempotent and resumable:
+  it writes migration 057's previously-unused `chunks.contextual_embedded` marker,
+  skips already-wrapped chunks (unless `--force`), and commits per-document so a
+  crash never leaves a document half-wrapped. `--dry-run` sizes the workload,
+  `--limit N` caps a batch. Code/`embed_skip` docs stay out of vector search (never
+  given an embedding row). The wrapper is free/deterministic — no per-chunk LLM
+  call — so a full re-embed costs only Titan embeddings. Run once after enabling
+  the flag: `reindex --contextual`.
+
 ## [1.68.0] — 2026-07-02
 
 ### Added

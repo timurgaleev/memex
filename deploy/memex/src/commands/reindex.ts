@@ -21,11 +21,24 @@
  * deleted note stops surfacing as stale evidence. Scoped to the swept vault
  * root only; never applied to the code sweep (a partial `--paths` subset must
  * not be read as "everything else was deleted").
+ *
+ * `--contextual` runs a DIFFERENT job: a whole-corpus, from-DB re-embed that
+ * applies the contextual-retrieval wrapper to every embeddable chunk
+ * (`core/contextual-reembed.ts`). It ignores `--source`/`--vault`/`--paths`
+ * (there is no file sweep) and does NOT read `MEMEX_CONTEXTUAL_RETRIEVAL` —
+ * running it IS the intent. `--force` re-embeds even already-wrapped chunks;
+ * `--dry-run` counts the workload; `--limit N` caps chunks per run. Turn the
+ * env flag on first so future index-time embeds stay consistent, then run this
+ * once to backfill the existing corpus (including `page://` docs with no file).
  */
 import { Storage } from "../core/storage.ts";
 import { sweepVault, type SweepResult } from "../core/sweep.ts";
 import { sweepCodeRoots, type SweepCodeResult } from "../core/sweep-code.ts";
 import { loadConfig } from "../core/config.ts";
+import {
+  contextualReembed,
+  type ContextualReembedResult,
+} from "../core/contextual-reembed.ts";
 
 export interface ReindexCommandOptions {
   all?: boolean;
@@ -47,6 +60,18 @@ export interface ReindexCommandOptions {
    * "missing on disk" would wrongly retire everything outside the subset.
    */
   reconcileDeletes?: boolean;
+  /**
+   * Run the whole-corpus contextual re-embed instead of a file sweep
+   * (`core/contextual-reembed.ts`). Mutually exclusive with the sweep modes —
+   * when set, `--source`/`--vault`/`--paths` are ignored.
+   */
+  contextual?: boolean;
+  /** Contextual re-embed: re-embed even chunks already marked. Default OFF. */
+  force?: boolean;
+  /** Contextual re-embed: count the workload only, never write. Default OFF. */
+  dryRun?: boolean;
+  /** Contextual re-embed: cap chunks re-embedded this run (document-atomic). */
+  limit?: number;
 }
 
 interface VaultReindexResult {
@@ -82,6 +107,11 @@ function resolveVaultPath(
   );
 }
 
+interface ContextualReindexResult {
+  kind: "contextual";
+  result: ContextualReembedResult;
+}
+
 export async function runReindex(
   opts: ReindexCommandOptions,
 ): Promise<void> {
@@ -91,6 +121,18 @@ export async function runReindex(
   await storage.init();
 
   try {
+    // Contextual re-embed is a standalone job — no file sweep runs alongside it.
+    if (opts.contextual) {
+      const result = await contextualReembed(storage, {
+        force: opts.force ?? false,
+        dryRun: opts.dryRun ?? false,
+        ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      });
+      const out: ContextualReindexResult = { kind: "contextual", result };
+      console.log(JSON.stringify({ ok: true, runs: [out] }, null, 2));
+      return;
+    }
+
     const out: (VaultReindexResult | CodeReindexResult)[] = [];
 
     if (source === "vault" || source === "all") {
