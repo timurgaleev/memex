@@ -58,6 +58,19 @@ export interface CallSonnetOptions {
   region?: string;
 }
 
+/**
+ * Resolve the paid-tier model id. Precedence: an explicit override → the
+ * `MEMEX_FACTS_MODEL` env → the built-in default. Uses `||` (not `??`) so an
+ * EMPTY-STRING env value — what a `${MEMEX_FACTS_MODEL:-}` docker-compose
+ * passthrough injects when the operator hasn't set it — is treated as "unset"
+ * and falls through to the real default. An empty model id would otherwise be
+ * unpriced, and the budget guard would refuse to spend (silent "budget
+ * exhausted before the call"). Every paid slice resolves its model through here.
+ */
+export function resolveFactsModel(override?: string): string {
+  return override || process.env["MEMEX_FACTS_MODEL"] || DEFAULT_SONNET_MODEL;
+}
+
 /** Production Sonnet call. Throws on any Bedrock/network error — the caller's
  *  budget loop decides whether to record a pessimistic cost and stop. */
 export async function callSonnet(
@@ -65,8 +78,7 @@ export async function callSonnet(
   opts: CallSonnetOptions = {},
 ): Promise<SonnetCallResult> {
   const region = opts.region ?? process.env["AWS_REGION"] ?? "eu-west-1";
-  const modelId =
-    opts.modelId ?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL;
+  const modelId = resolveFactsModel(opts.modelId);
   const c = client(region);
   const resp = await c.send(
     new ConverseCommand({

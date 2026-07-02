@@ -18,7 +18,7 @@
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
-import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
+import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
@@ -362,7 +362,7 @@ export async function gradeTakeEnsemble(
   },
 ): Promise<EnsembleResult> {
   const user = `Claim: ${sanitizeForPrompt(claim)}\n\nEvidence:\n${sanitizeForPrompt(evidence)}`;
-  const probeModel = opts.modelId ?? process.env.MEMEX_FACTS_MODEL ?? "sonnet";
+  const probeModel = resolveFactsModel(opts.modelId);
   const estUsage = estimateJudgeUsage(claim, evidence);
   const votes: ParsedVerdict[] = [];
   let graderModel = probeModel;

@@ -17,7 +17,7 @@ import {
   writeExtractedFacts,
 } from "../core/facts-extract.ts";
 import { BudgetTracker, BudgetExhausted } from "../core/budget.ts";
-import { DEFAULT_SONNET_MODEL, type SonnetFn } from "../core/llm/sonnet.ts";
+import { resolveFactsModel, type SonnetFn } from "../core/llm/sonnet.ts";
 
 /** Conservative worst-case usage for the pre-flight budget guard: the sanitizer
  *  caps a turn at ~12K chars (~3K input tokens) + the extractor's 800-token
@@ -85,8 +85,7 @@ export async function runExtractConversationFacts(
   const budget = new BudgetTracker(cap, "extract-conversation-facts");
   // The model id is resolved up front so the pre-flight guard prices the same
   // model the call will use (a strict-as-possible pre-call ceiling).
-  const modelId =
-    opts.modelId ?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL;
+  const modelId = resolveFactsModel(opts.modelId);
 
   let factsWritten = 0;
   let factsSkipped = 0;

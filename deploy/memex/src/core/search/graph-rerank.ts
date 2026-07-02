@@ -23,7 +23,7 @@ import type { Storage } from "../storage.ts";
 import type { SearchHit } from "./hybrid.ts";
 import { slugForSourcePath } from "./graph-signals.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
-import { DEFAULT_SONNET_MODEL } from "../llm/sonnet.ts";
+import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 
@@ -178,7 +178,7 @@ export async function graphRerank(
   if (head.length <= 1) return hits;
 
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "graph-rerank");
-  const modelId = opts.modelId ?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL;
+  const modelId = resolveFactsModel(opts.modelId);
   const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;
   // Price the pre-flight and the live call on the same model (test seam ignores).
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId });
