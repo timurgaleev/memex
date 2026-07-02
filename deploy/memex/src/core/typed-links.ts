@@ -156,7 +156,13 @@ export async function syncTypedLinksForPage(
   const scope =
     typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
-  const edges = await collectEdges(storage, pageSlug, pageType, compiledTruth);
+  const edges = await collectEdges(
+    storage,
+    pageSlug,
+    pageType,
+    compiledTruth,
+    scope !== null ? [scope] : undefined,
+  );
 
   const engine: Engine = storage.engine();
   // When scoped, the delete + insert confine to this source so a per-tenant
@@ -198,7 +204,7 @@ export async function syncTypedLinksForPage(
            (source_slug, target_slug, type, inferred_confidence,
             link_kind, origin_slug, origin_field, resolution_type${insCol})
          VALUES ($1, $2, $3, $4, '${FENCE_WRITER_KIND}', $5, $6, 'qualified'${insVal})
-         ON CONFLICT (source_slug, target_slug, type) DO NOTHING
+         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );
@@ -218,6 +224,7 @@ async function collectEdges(
   pageSlug: string,
   pageType: string,
   compiledTruth: Record<string, unknown> | null | undefined,
+  sourceIds?: string[],
 ): Promise<InferredEdge[]> {
   const rules = FIELD_MAPPINGS[pageType];
   if (!rules || !compiledTruth || typeof compiledTruth !== "object") return [];
@@ -229,7 +236,13 @@ async function collectEdges(
     fieldIndex.set(k.toLowerCase(), v);
   }
 
-  const resolver = makeSlugResolver(storage, pageSlug);
+  // Scope resolution to the writer's source (mig047) so a frontmatter field
+  // value never canonicalizes onto another tenant's page. Unscoped when empty.
+  const resolver = makeSlugResolver(
+    storage,
+    pageSlug,
+    sourceIds && sourceIds.length > 0 ? { sourceIds } : {},
+  );
   const seen = new Set<string>();
   const edges: InferredEdge[] = [];
   let attempts = 0;

@@ -385,3 +385,74 @@ describe("migration 032 — chunk doc_comment + weighted FTS fold", () => {
     await engine.close();
   });
 });
+
+describe("migration 059 — links + tags source_id in the uniqueness key", () => {
+  const sql059 = readFileSync(
+    join(import.meta.dir, "../src/core/migrations/059_links_tags_source_id_unique.sql"),
+    "utf8",
+  );
+
+  // Folds source_id into the links UNIQUE(triple) and the tags PRIMARY
+  // KEY(slug,tag) so each tenant owns its own row for an otherwise-identical
+  // edge / tag. Collision-safe on live data (every row is source_id='default',
+  // a constant column can't create a duplicate) and re-run-safe (guarded
+  // DROP/ADD). Reproduces the mig-016 / mig-023 shape + the mig-047 source_id.
+  it("widens both keys, allows a same-triple/tag row per source, re-runs cleanly", async () => {
+    const engine = new PGliteEngine({ dbPath: join(tmp, "db") });
+    await engine.ready();
+    await engine.exec(
+      `CREATE TABLE links (
+         id BIGSERIAL PRIMARY KEY,
+         source_slug TEXT NOT NULL, target_slug TEXT NOT NULL, type TEXT NOT NULL,
+         source_id TEXT NOT NULL DEFAULT 'default',
+         UNIQUE (source_slug, target_slug, type)
+       );
+       CREATE TABLE tags (
+         slug TEXT NOT NULL, tag TEXT NOT NULL,
+         source_id TEXT NOT NULL DEFAULT 'default',
+         PRIMARY KEY (slug, tag)
+       );`,
+    );
+    // Live-shape rows: everything on the single 'default' tenant.
+    await engine.exec(
+      `INSERT INTO links (source_slug, target_slug, type, source_id) VALUES ('a','b','mentions','default');
+       INSERT INTO tags (slug, tag, source_id) VALUES ('p','x','default');`,
+    );
+    // Under the OLD key, a second source's identical triple/tag is a duplicate.
+    await expect(
+      engine.exec(`INSERT INTO links (source_slug, target_slug, type, source_id) VALUES ('a','b','mentions','tenantb');`),
+    ).rejects.toThrow();
+    await expect(
+      engine.exec(`INSERT INTO tags (slug, tag, source_id) VALUES ('p','x','tenantb');`),
+    ).rejects.toThrow();
+
+    await engine.exec(sql059);
+
+    // New key: the same triple/tag in a DIFFERENT source is now allowed.
+    await engine.exec(`INSERT INTO links (source_slug, target_slug, type, source_id) VALUES ('a','b','mentions','tenantb');`);
+    await engine.exec(`INSERT INTO tags (slug, tag, source_id) VALUES ('p','x','tenantb');`);
+    const lc = await engine.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM links WHERE source_slug='a' AND target_slug='b' AND type='mentions'`,
+    );
+    const tc = await engine.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM tags WHERE slug='p' AND tag='x'`,
+    );
+    expect(lc.rows[0]!.n).toBe(2);
+    expect(tc.rows[0]!.n).toBe(2);
+
+    // ...but a duplicate WITHIN a source still conflicts (own-row uniqueness).
+    await expect(
+      engine.exec(`INSERT INTO links (source_slug, target_slug, type, source_id) VALUES ('a','b','mentions','tenantb');`),
+    ).rejects.toThrow();
+    await expect(
+      engine.exec(`INSERT INTO tags (slug, tag, source_id) VALUES ('p','x','tenantb');`),
+    ).rejects.toThrow();
+
+    // Re-apply: guarded DROP IF EXISTS + pg_constraint-guarded ADD → no-op.
+    await engine.exec(sql059);
+    const after = await engine.query<{ n: number }>("SELECT count(*)::int AS n FROM links");
+    expect(after.rows[0]!.n).toBe(2);
+
+    await engine.close();
+  });
+});

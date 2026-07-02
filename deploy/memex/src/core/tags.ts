@@ -82,9 +82,13 @@ export async function addTag(
   const params: unknown[] = [slug, norm];
   const sourceCol = scope !== null ? ", source_id" : "";
   if (scope !== null) params.push(scope);
+  // The conflict target folds in source_id (migration 059) so each tenant owns
+  // its own (slug, tag, source_id) row — a per-tenant add never no-ops (or
+  // clobbers) another tenant's identical (slug, tag). When source_id is not
+  // explicitly inserted the column DEFAULT 'default' fills the arbitration value.
   await storage.engine().query(
     `INSERT INTO tags (slug, tag${sourceCol}) VALUES ($1, $2${scope !== null ? ", $3" : ""})
-     ON CONFLICT (slug, tag) DO NOTHING`,
+     ON CONFLICT (slug, tag, source_id) DO NOTHING`,
     params,
   );
 }

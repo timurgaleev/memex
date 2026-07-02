@@ -128,6 +128,36 @@ export function effectiveWriteSourceId(
 }
 
 /**
+ * Ingress-side WRITE scope with an OPTIONAL fail-closed floor — the write-path
+ * mirror of {@link effectiveReadSourceIdsForIngress}.
+ *
+ * Resolves the base write source via {@link effectiveWriteSourceId}. When the
+ * caller holds a write grant it is returned verbatim. When they hold none
+ * (`base === undefined`) the policy branches ONLY on an authenticated public
+ * principal:
+ *
+ *   - `failClosed` on AND `auth` present AND `auth.isPublic === true`
+ *       → `NO_SOURCE_SENTINEL` — the dispatcher MUST reject the write with
+ *         permission_denied rather than let it default to the 'default' tenant
+ *         (an orphaned/no-write-source OAuth principal must not write anywhere).
+ *   - otherwise → `undefined` (UNCHANGED unscoped write): the static public
+ *       bearer (`auth === undefined`) and the trusted-local / OAuth path
+ *       (`isPublic === false`). Same narrow discriminator as the read helper, so
+ *       the daily static-bearer path is never scoped.
+ */
+export function effectiveWriteSourceIdForIngress(
+  auth: AuthInfo | undefined,
+  opts?: { failClosed?: boolean },
+): string | undefined {
+  const base = effectiveWriteSourceId(auth);
+  if (base !== undefined) return base;
+  if (opts?.failClosed === true && auth !== undefined && auth.isPublic === true) {
+    return NO_SOURCE_SENTINEL;
+  }
+  return undefined;
+}
+
+/**
  * Resolve the source-scope filter for a read-side op handler. Returns an opts
  * fragment ready to spread into an engine call.
  *

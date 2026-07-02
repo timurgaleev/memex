@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Write-time tenant isolation: cross-tenant resolution, edge/tag tamper, and
+  write fail-closed (multi-tenant hardening, migration 059).** The remaining
+  adversarial-audit write-path holes are closed, all additive/behavior-neutral for
+  the single-tenant deploy:
+  - **Wikilink/verb/typed-link canonicalization is now source-scoped at write
+    time.** `makeSlugResolver` gained an optional `sourceIds`; every DB stage
+    (exact-tail, prefix-expansion, trigram, alias, existence) filters by it when
+    set, threaded from the write call sites (`syncWikilinksForPage`,
+    `syncVerbLinksForPage`, `syncTypedLinksForPage`). Previously a tenant's
+    `[[people/alice]]` could resolve to another tenant's page; now it resolves
+    within the writer's source. Unset (local/CLI) → whole-brain, unchanged.
+  - **`links` and `tags` unique keys now include `source_id`** (migration 059:
+    `UNIQUE(source_slug,target_slug,type,source_id)` and `UNIQUE(slug,tag,source_id)`),
+    so a second tenant's `link`/`add_tag` for a triple/tag another tenant already
+    has creates its OWN row instead of overwriting or no-op'ing the other tenant's.
+    Collision-safe on live data — every existing row is `source_id='default'`, so
+    the wider key is functionally identical on single-source data. All `ON CONFLICT`
+    sites updated to match.
+  - **Write-side fail-closed** (`effectiveWriteSourceIdForIngress`, gated on
+    `MEMEX_TENANT_FAIL_CLOSED`, default-OFF): a non-local principal with no resolved
+    write source is rejected (`permission_denied`) instead of silently defaulting
+    to `default`; `appendPage` now requires the target page's `source_id` to match
+    the caller's scoped write source and never adopts the found row's source.
+  - **Gazetteer auto-link entry table is source-scoped** when a write source is
+    present, so a tenant's auto-linking only sees its own entities; the cycle's
+    corpus-wide sweep stays whole-brain.
+
 ## [1.66.0] — 2026-07-02
 
 ### Changed

@@ -250,7 +250,7 @@ export async function addLink(
        (source_slug, target_slug, type, inferred_confidence, source_chunk_id,
         context, link_kind, origin_slug, origin_field, resolution_type${sourceCol})
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10${sourceVal})
-     ON CONFLICT (source_slug, target_slug, type) DO UPDATE
+     ON CONFLICT (source_slug, target_slug, type, source_id) DO UPDATE
        SET inferred_confidence = EXCLUDED.inferred_confidence,
            source_chunk_id     = EXCLUDED.source_chunk_id,
            context             = CASE WHEN EXCLUDED.context <> ''
@@ -619,7 +619,13 @@ export async function syncWikilinksForPage(
   // Resolve each distinct mention, then collapse to one edge per target
   // slug (two surface forms may canonicalize to the same page). A
   // 'qualified' resolution wins over an 'unqualified' one for the same slug.
-  const resolver = makeSlugResolver(storage, sourceSlug);
+  // Scope resolution to the writer's source (mig047) so a tenant's wikilink
+  // never canonicalizes onto another tenant's page. Unscoped when NULL.
+  const resolver = makeSlugResolver(
+    storage,
+    sourceSlug,
+    scope !== null ? { sourceIds: [scope] } : {},
+  );
   const byTarget = new Map<string, boolean>(); // slug -> qualified?
   for (const name of extractWikilinks(body)) {
     const r = await resolver.resolve(name);
@@ -667,7 +673,7 @@ export async function syncWikilinksForPage(
            (source_slug, target_slug, type, inferred_confidence,
             link_kind, resolution_type${insCol})
          VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3${insVal})
-         ON CONFLICT (source_slug, target_slug, type) DO NOTHING
+         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );
@@ -721,7 +727,12 @@ export async function syncVerbLinksForPage(
   validateSlug(sourceSlug);
   const scope = typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
 
-  const resolver = makeSlugResolver(storage, sourceSlug);
+  // Scope resolution to the writer's source (mig047), as syncWikilinksForPage.
+  const resolver = makeSlugResolver(
+    storage,
+    sourceSlug,
+    scope !== null ? { sourceIds: [scope] } : {},
+  );
   // target slug -> inferred type. First occurrence's context wins (stable);
   // inferLinkType already encodes the verb precedence within a single window.
   const byTarget = new Map<string, string>();
@@ -758,7 +769,7 @@ export async function syncVerbLinksForPage(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
          VALUES ($1, $2, $3, $4, 'verb_ner'${insVal})
-         ON CONFLICT (source_slug, target_slug, type) DO NOTHING
+         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );

@@ -364,6 +364,19 @@ export async function appendPage(
         `call putPage to create it first`,
     );
   }
+  // Tenant write scope (mig047): a scoped caller must NEVER adopt the found
+  // row's source_id — that is how an unresolved/mis-scoped principal could
+  // append into (and re-stamp) another tenant's page. The scoped getPage above
+  // already confines resolution to `input.source_id`, so a mismatch here means
+  // a source-blind row leaked through; fail closed rather than write across it.
+  // Unscoped (local/CLI) keeps the found row's source_id, unchanged.
+  if (input.source_id && current.source_id !== input.source_id) {
+    throw new Error(
+      `appendPage: page ${JSON.stringify(input.slug)} does not exist; ` +
+        `call putPage to create it first`,
+    );
+  }
+  const writeSourceId = input.source_id ?? current.source_id;
   const sep =
     current.markdown_body.length > 0 &&
     !current.markdown_body.endsWith("\n")
@@ -377,7 +390,7 @@ export async function appendPage(
     compiled_truth: current.compiled_truth,
     markdown_body: newBody,
     written_by: input.written_by,
-    source_id: current.source_id,
+    source_id: writeSourceId,
     allowAdHocType: true, // existing type, definitionally allowed
   });
 }

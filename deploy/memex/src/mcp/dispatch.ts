@@ -11,8 +11,9 @@ import type { Storage } from "../core/storage.ts";
 import {
   type AuthInfo,
   effectiveReadSourceIdsForIngress,
-  effectiveWriteSourceId,
+  effectiveWriteSourceIdForIngress,
   tenantFailClosedEnabled,
+  NO_SOURCE_SENTINEL,
 } from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
@@ -166,6 +167,32 @@ const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
   "date",
 ]);
 
+/**
+ * Tools that stamp/filter on the caller's WRITE source (they receive
+ * `writeSource` in the dispatch switch). Under the fail-closed policy an
+ * authenticated public principal with NO write grant must be rejected on these
+ * before any handler runs — never allowed to default to the 'default' tenant.
+ * A non-write op is unaffected (reads keep their own scope resolver). Kept in
+ * lock-step with the `writeSource`-consuming cases below; the source_id FK is
+ * the backstop if one is ever missed (the sentinel can't reference a real row).
+ */
+const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set([
+  "index",
+  "page_put",
+  "page_append",
+  "page_delete",
+  "page_restore",
+  "page_revert",
+  "link",
+  "unlink",
+  "add_tag",
+  "remove_tag",
+  "add_fact",
+  "add_timeline_event",
+  "forget_fact",
+  "purge_deleted_pages",
+]);
+
 /** Per-call options the transport supplies. */
 export interface DispatchOptions {
   /** True when the request arrived over the public ingress
@@ -201,8 +228,27 @@ export async function dispatchTool(
   const readSources = effectiveReadSourceIdsForIngress(opts.authInfo, {
     failClosed: tenantFailClosedEnabled(),
   });
-  const writeSource = effectiveWriteSourceId(opts.authInfo);
+  // The write source, with the same fail-closed floor as reads: an
+  // authenticated PUBLIC principal holding no write grant resolves to the
+  // NO_SOURCE_SENTINEL, which the gate below turns into permission_denied on any
+  // write op — it must NEVER fall through and stamp the shared 'default' tenant.
+  // Undefined (static bearer / trusted-local / OAuth non-public) stays unscoped.
+  const writeSourceRaw = effectiveWriteSourceIdForIngress(opts.authInfo, {
+    failClosed: tenantFailClosedEnabled(),
+  });
+  const writeDenied = writeSourceRaw === NO_SOURCE_SENTINEL;
+  const writeSource = writeDenied ? undefined : writeSourceRaw;
   try {
+    // Fail-closed write gate: reject a scopeless authenticated public principal
+    // from every write op before dispatch (default-OFF unless
+    // MEMEX_TENANT_FAIL_CLOSED=1). Reads are unaffected.
+    if (writeDenied && WRITE_SCOPED_TOOLS.has(req.name)) {
+      throw new OperationError(
+        "permission_denied",
+        `no write source is granted to this client for '${req.name}'`,
+        "Request a write scope for your client, or use a scoped token.",
+      );
+    }
     // Enforce the declared param contract (type / enum / min-max of present
     // params) before dispatch. Known tools only — an unknown name falls through
     // to the switch default. Throws OperationError('invalid_params'), rendered
