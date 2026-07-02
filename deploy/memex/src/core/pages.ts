@@ -500,14 +500,27 @@ export async function deletePage(
   storage: Storage,
   slug: string,
   writtenBy?: string,
+  writeSource?: string,
 ): Promise<DeleteResult> {
   validateSlug(slug);
+  // Tenant write scope (mig047): when a scoped caller supplies its write source,
+  // a slug owned by another source reads as "not found" (no-op / already_deleted)
+  // — a scoped delete can never soft-delete a sibling tenant's page. Unset
+  // (undefined) → no filter, whole-brain by slug exactly as today.
+  const scope =
+    typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    const params: unknown[] = [slug];
+    let sourceFilter = "";
+    if (scope !== null) {
+      params.push(scope);
+      sourceFilter = ` AND source_id = $${params.length}`;
+    }
     const r = await tx.query<{ content_hash: string; deleted_at: string | null }>(
       `SELECT content_hash, deleted_at::text AS deleted_at
-         FROM pages WHERE slug = $1`,
-      [slug],
+         FROM pages WHERE slug = $1${sourceFilter}`,
+      params,
     );
     if (r.rows.length === 0 || r.rows[0]!.deleted_at !== null) {
       return { slug, already_deleted: true };
@@ -515,8 +528,8 @@ export async function deletePage(
     const ts = new Date().toISOString();
     await tx.query(
       `UPDATE pages SET deleted_at = NOW(), updated_at = NOW()
-        WHERE slug = $1`,
-      [slug],
+        WHERE slug = $1${sourceFilter}`,
+      params,
     );
     // Append a tombstone version so the history shows the deletion event.
     const nextN = await tx.query<{ n: number }>(
@@ -559,21 +572,33 @@ export async function restorePage(
   storage: Storage,
   slug: string,
   writtenBy?: string,
+  writeSource?: string,
 ): Promise<RestoreResult> {
   validateSlug(slug);
+  // Tenant write scope (mig047): a scoped caller can only undelete a page in its
+  // own source; another tenant's soft-deleted page reads as "not found"
+  // (restored:false). Unset → whole-brain by slug, unchanged.
+  const scope =
+    typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    const params: unknown[] = [slug];
+    let sourceFilter = "";
+    if (scope !== null) {
+      params.push(scope);
+      sourceFilter = ` AND source_id = $${params.length}`;
+    }
     const r = await tx.query<{ content_hash: string; deleted_at: string | null }>(
       `SELECT content_hash, deleted_at::text AS deleted_at
-         FROM pages WHERE slug = $1`,
-      [slug],
+         FROM pages WHERE slug = $1${sourceFilter}`,
+      params,
     );
     if (r.rows.length === 0 || r.rows[0]!.deleted_at === null) {
       return { slug, restored: false };
     }
     await tx.query(
-      `UPDATE pages SET deleted_at = NULL, updated_at = NOW() WHERE slug = $1`,
-      [slug],
+      `UPDATE pages SET deleted_at = NULL, updated_at = NOW() WHERE slug = $1${sourceFilter}`,
+      params,
     );
     const nextN = await tx.query<{ n: number }>(
       `SELECT COALESCE(MAX(version_n), 0)::int + 1 AS n
@@ -617,19 +642,32 @@ export async function revertPage(
   slug: string,
   targetVersion: number,
   writtenBy?: string,
+  writeSource?: string,
 ): Promise<RevertResult> {
   validateSlug(slug);
-  const page = await getPage(storage, slug);
+  // Tenant write scope (mig047): confine the page fetch, the version snapshot
+  // read, and the re-put to the caller's write source. A slug owned by another
+  // tenant resolves to "page not found" here — a scoped revert can never roll
+  // back a sibling tenant's page. Unset → whole-brain by slug, unchanged.
+  const scope =
+    typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
+  const page = await getPage(storage, slug, scope !== null ? [scope] : undefined);
   if (!page) {
     return { slug, reverted: false, from_version: null, new_version: null, reason: "page not found or deleted" };
+  }
+  const snapParams: unknown[] = [slug, targetVersion];
+  let snapFilter = "";
+  if (scope !== null) {
+    snapParams.push(scope);
+    snapFilter = ` AND source_id = $${snapParams.length}`;
   }
   const snap = await storage.engine().query<{
     body_snapshot: string;
     compiled_truth_snapshot: Record<string, unknown>;
   }>(
     `SELECT body_snapshot, compiled_truth_snapshot
-       FROM page_versions WHERE slug = $1 AND version_n = $2`,
-    [slug, targetVersion],
+       FROM page_versions WHERE slug = $1 AND version_n = $2${snapFilter}`,
+    snapParams,
   );
   const row = snap.rows[0];
   if (!row) {
@@ -654,6 +692,9 @@ export async function revertPage(
     compiled_truth: truth,
     ...(page.title != null ? { title: page.title } : {}),
     ...(writtenBy ? { written_by: writtenBy } : {}),
+    // Stamp the re-put with the caller's write source so putPage's cross-tenant
+    // guard accepts it (the page is owned by `scope`, not 'default').
+    ...(scope !== null ? { source_id: scope } : {}),
   });
   return {
     slug,

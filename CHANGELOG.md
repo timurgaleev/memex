@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Destructive write tools now scope by the caller's write source (multi-tenant
+  hardening).** An adversarial audit found the destructive mutations operated by
+  bare slug/id with no tenant filter — isolation rested on the `MEMEX_INTERNAL_TOKEN`
+  env gate, not the caller's grant, so a future multi-tenant OAuth writer could
+  delete/revert/forget another tenant's content by slug. `deletePage`,
+  `restorePage`, `revertPage`, `removeLink`, `removeTag`, `forgetFact`, and
+  `purgeDeletedPages` now thread the caller's single write source
+  (`effectiveWriteSourceId`) and add `AND source_id = ...` to the mutation — a
+  destructive op on a row outside the caller's write source matches zero rows (a
+  clean no-op, never a cross-tenant delete). Symmetric to the v1.58 read
+  leak-close and additive: an unscoped (local CLI / internal) caller behaves
+  exactly as before. Write scope is the caller's SINGLE write source, never the
+  federated read set (a tenant may read a union but only delete within its own).
+
 ## [1.65.0] — 2026-07-01
 
 ### Added

@@ -110,27 +110,47 @@ export async function forgetFact(
   storage: Storage,
   id: number,
   input: ForgetFactInput = {},
+  sourceIds?: string[],
 ): Promise<ForgetFactResult> {
   const factId = normaliseId(id);
   const reason = typeof input.reason === "string" ? input.reason : null;
+  // Tenant write scope (mig047): when a non-empty scope is given, both the
+  // tombstone UPDATE and the existence probe are confined to it. A fact owned by
+  // another source neither flips (out of the UPDATE) nor reports found — a
+  // scoped caller can never forget, or even prove the existence of, a sibling
+  // tenant's fact. Unset/empty → whole-brain by id, unchanged.
+  const scoped = sourceIds && sourceIds.length > 0 ? sourceIds : null;
   // Single statement: stamp the tombstone ONLY on a currently-live row. The
   // RETURNING tells us whether this call did the flip; a separate existence
   // probe disambiguates unknown-id from already-forgotten.
+  const updParams: unknown[] = [factId, reason];
+  let updFilter = "";
+  if (scoped !== null) {
+    updParams.push(scoped);
+    updFilter = ` AND source_id = ANY($${updParams.length}::text[])`;
+  }
   const upd = await storage.engine().query<{ id: number }>(
     `UPDATE entity_facts
         SET forgotten_at = NOW(), forgotten_reason = $2
-      WHERE id = $1 AND forgotten_at IS NULL
+      WHERE id = $1 AND forgotten_at IS NULL${updFilter}
       RETURNING id`,
-    [factId, reason],
+    updParams,
   );
   if (upd.rows.length > 0) {
     return { id: factId, found: true, forgotten: true };
   }
-  // No flip: either the id is unknown, or it was already forgotten. One cheap
-  // existence probe tells the two apart so the caller gets an honest envelope.
+  // No flip: either the id is unknown (or out of scope), or it was already
+  // forgotten. One cheap, same-scope existence probe tells the two apart so the
+  // caller gets an honest envelope without leaking another tenant's row.
+  const probeParams: unknown[] = [factId];
+  let probeFilter = "";
+  if (scoped !== null) {
+    probeParams.push(scoped);
+    probeFilter = ` AND source_id = ANY($${probeParams.length}::text[])`;
+  }
   const exists = await storage.engine().query<{ id: number }>(
-    `SELECT id FROM entity_facts WHERE id = $1`,
-    [factId],
+    `SELECT id FROM entity_facts WHERE id = $1${probeFilter}`,
+    probeParams,
   );
   return {
     id: factId,

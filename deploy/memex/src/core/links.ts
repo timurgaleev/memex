@@ -274,6 +274,12 @@ export interface RemoveLinkInput {
   source_slug: string;
   target_slug: string;
   type: string;
+  /**
+   * Tenant write scope (migration 047). When set, only an edge owned by this
+   * source is removed — a scoped caller can never delete another tenant's edge.
+   * Omitted/empty → no filter (whole-brain by tuple, unchanged).
+   */
+  source_id?: string;
 }
 
 export async function removeLink(
@@ -283,14 +289,24 @@ export async function removeLink(
   validateSlug(input.source_slug);
   const target = slugifyTarget(input.target_slug);
   const type = normaliseType(input.type, true);
+  const scope =
+    typeof input.source_id === "string" && input.source_id.length > 0
+      ? input.source_id
+      : null;
+  const params: unknown[] = [input.source_slug, target, type];
+  let sourceFilter = "";
+  if (scope !== null) {
+    params.push(scope);
+    sourceFilter = ` AND source_id = $${params.length}`;
+  }
   const r = await storage.engine().query<{ removed: number }>(
     `WITH d AS (
        DELETE FROM links
-        WHERE source_slug = $1 AND target_slug = $2 AND type = $3
+        WHERE source_slug = $1 AND target_slug = $2 AND type = $3${sourceFilter}
         RETURNING 1
      )
      SELECT COUNT(*)::int AS removed FROM d`,
-    [input.source_slug, target, type],
+    params,
   );
   return { removed: r.rows[0]?.removed ?? 0 };
 }
