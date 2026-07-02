@@ -43,11 +43,19 @@ describe("buildUserContent — cachePoint placement", () => {
       cachePrefix: "<document>\nd\n</document>",
       maxTokens: 120,
     };
-    const content = buildUserContent(input, true);
-    expect(content.length).toBe(3);
-    expect(content[0]).toEqual({ text: "<document>\nd\n</document>" });
-    expect(content[1]).toEqual({ cachePoint: { type: "default" } });
-    expect(content[2]).toEqual({ text: "<chunk>\nc\n</chunk>" });
+    const cached = buildUserContent(input, true);
+    expect(cached.length).toBe(3);
+    expect(cached[0]).toEqual({ text: "<document>\nd\n</document>" });
+    expect(cached[1]).toEqual({ cachePoint: { type: "default" } });
+    // The separator lives on the uncached tail block, so the doc block is the
+    // sole cached segment yet the concatenated wire form still carries "\n\n".
+    expect(cached[2]).toEqual({ text: "\n\n<chunk>\nc\n</chunk>" });
+
+    // Byte-identical invariant: the cached text blocks joined top-to-bottom
+    // equal the single collapsed (uncached) block — same prompt either way.
+    const joinText = (bs: typeof cached) =>
+      bs.filter((b) => "text" in b).map((b) => (b as { text: string }).text).join("");
+    expect(joinText(cached)).toBe(joinText(buildUserContent(input, false)));
   });
 
   it("fail-safe: no cachePoint when caching is disabled — one merged block", () => {
