@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.69.0] — 2026-07-02
+
 ### Added
 - **`memex reindex --contextual` — whole-corpus contextual-retrieval re-embed.**
   Turning on `MEMEX_CONTEXTUAL_RETRIEVAL` only wraps *newly indexed* documents, so
