@@ -23,7 +23,13 @@
  * The utility tier here (Haiku) is the cheap contextualizer; a paid Sonnet
  * reasoning tier would be overkill for a one-line situating blurb.
  */
-import { resolveLlmFn, type LlmFn, DEFAULT_HAIKU_MODEL } from "../llm/haiku.ts";
+import {
+  resolveLlmFn,
+  type LlmFn,
+  type LlmCallInput,
+  type LlmUsage,
+  DEFAULT_HAIKU_MODEL,
+} from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import type { SonnetUsage } from "../llm/sonnet.ts";
@@ -88,31 +94,54 @@ function estimateUsage(system: string, user: string, outputTokens: number): Sonn
   };
 }
 
+/** Fold prompt-cache usage into an effective input-token count. Bedrock bills a
+ *  cache READ at ~10% and a cache WRITE at ~125% of the normal input rate; the
+ *  flat BudgetTracker only knows one input price, so we translate cached tokens
+ *  into an equivalent uncached count. This makes the budget reflect the real
+ *  (lower) spend once the document prefix is being served from cache. */
+function usageFromReported(u: LlmUsage): SonnetUsage {
+  const cacheRead = u.cacheReadInputTokens ?? 0;
+  const cacheWrite = u.cacheWriteInputTokens ?? 0;
+  return {
+    inputTokens: Math.ceil(u.inputTokens + cacheWrite * 1.25 + cacheRead * 0.1),
+    outputTokens: u.outputTokens,
+  };
+}
+
 /**
- * Build the user turn: the whole document, then the chunk to situate.
- *
- * Both are treated as untrusted DATA — run through `sanitizeForPrompt` so a note
- * line like "ignore prior instructions" can't hijack the utility model.
- *
- * ponytail: the `<document>` block is kept as the STABLE leading segment so a
- * future Bedrock prompt-caching `cachePoint` can cache it ACROSS every chunk of
- * one document. Each chunk currently re-sends the whole document; caching the
- * doc block would cut this tier's input cost by ~10x. Not wired now — the shared
- * Haiku helper doesn't expose a cachePoint, and adding it is the follow-up cost
- * optimization, not part of correctness here.
+ * The `<document>…</document>` block — the STABLE, per-document segment. It is
+ * kept separate from the chunk tail so it can be sent as a Bedrock prompt-cache
+ * prefix (`cachePrefix`): identical across every chunk of one document, so the
+ * cache is written once and read back for the rest of that document's chunks.
+ * Treated as untrusted DATA (`sanitizeForPrompt`) so a note line can't hijack
+ * the utility model.
+ */
+export function buildDocumentBlock(docText: string): string {
+  return `<document>\n${sanitizeForPrompt(docText).text}\n</document>`;
+}
+
+/** The per-CHUNK tail — the one segment that changes call to call, so it is NOT
+ *  cached. Kept after the document block so the cacheable prefix stays stable. */
+export function buildChunkTail(chunkText: string): string {
+  const chunk = sanitizeForPrompt(chunkText).text;
+  return (
+    `Here is the chunk to situate within the document:\n` +
+    `<chunk>\n${chunk}\n</chunk>\n\n` +
+    `Give the short succinct context and nothing else.`
+  );
+}
+
+/**
+ * Build the full user turn: the whole document, then the chunk to situate. This
+ * is the single-block form (no caching); the split cache form concatenates the
+ * same two segments with the same `\n\n` join, so the on-wire prompt is byte-for-
+ * byte identical whether or not a `cachePoint` is inserted between them.
  */
 export function buildContextualUserMessage(
   docText: string,
   chunkText: string,
 ): string {
-  const doc = sanitizeForPrompt(docText).text;
-  const chunk = sanitizeForPrompt(chunkText).text;
-  return (
-    `<document>\n${doc}\n</document>\n\n` +
-    `Here is the chunk to situate within the document:\n` +
-    `<chunk>\n${chunk}\n</chunk>\n\n` +
-    `Give the short succinct context and nothing else.`
-  );
+  return `${buildDocumentBlock(docText)}\n\n${buildChunkTail(chunkText)}`;
 }
 
 export interface GenerateChunkContextOptions {
@@ -124,6 +153,15 @@ export interface GenerateChunkContextOptions {
   modelId?: string;
   maxTokens?: number;
   region?: string;
+  /**
+   * Send the `<document>` block as a Bedrock prompt-cache prefix. Set by the
+   * re-embed loop, which processes one document's chunks consecutively with the
+   * SAME doc text — so the doc prefix is written to cache on the first chunk and
+   * read back for the rest (within the ~5min TTL), cutting per-chunk input cost.
+   * Fail-safe end to end: a model/region that can't cache is retried uncached in
+   * the Haiku client, so this only ever lowers cost, never breaks the call.
+   */
+  cacheDocument?: boolean;
 }
 
 /**
@@ -148,7 +186,11 @@ export async function generateChunkContext(
   const budget =
     opts.budget ?? new BudgetTracker(defaultContextualLlmBudget(), CONTEXTUAL_LLM_LABEL);
 
-  const user = buildContextualUserMessage(docText, chunkText);
+  const docBlock = buildDocumentBlock(docText);
+  const tail = buildChunkTail(chunkText);
+  // The full prompt — used for the pre-flight estimate whether or not the call is
+  // split for caching, so a large document can't slip past a near-empty budget.
+  const user = `${docBlock}\n\n${tail}`;
 
   // Pre-flight: skip the paid call BEFORE spending when the prior spend already
   // left no room. Fail-open — a budget skip returns null (deterministic prefix),
@@ -157,12 +199,22 @@ export async function generateChunkContext(
     return null;
   }
 
+  // With caching on, the document is the cache PREFIX and only the chunk tail is
+  // the (uncached) user turn; without it, one combined block. The merged wire
+  // form is identical, so the model sees the same prompt either way.
+  const callInput: LlmCallInput = opts.cacheDocument
+    ? { system: SYSTEM_PROMPT, user: tail, cachePrefix: docBlock, maxTokens, temperature: 0 }
+    : { system: SYSTEM_PROMPT, user, maxTokens, temperature: 0 };
+
   try {
-    const resp = await llmFn({ system: SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
-    // The Haiku helper returns no token usage, so price on the resolved model id
-    // with an estimate from the prompt + response size — consistent with the
-    // pre-flight estimate, which keeps the shared cap honest across a run.
-    const usage = estimateUsage(SYSTEM_PROMPT, user, Math.ceil((resp.text?.length ?? 0) / 4));
+    const resp = await llmFn(callInput);
+    // Prefer real token usage (Bedrock Converse reports it, including cache
+    // read/write) so the budget reflects the true — cache-discounted — spend.
+    // A fake seam or a transport with no usage falls back to a size estimate,
+    // consistent with the pre-flight estimate that keeps the shared cap honest.
+    const usage = resp.usage
+      ? usageFromReported(resp.usage)
+      : estimateUsage(SYSTEM_PROMPT, user, Math.ceil((resp.text?.length ?? 0) / 4));
     try {
       budget.record(modelId, usage);
     } catch (e) {

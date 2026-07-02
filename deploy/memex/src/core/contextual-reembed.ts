@@ -301,6 +301,9 @@ export async function runContextualReembed(
             ...(opts.llmFn ? { llmFn: opts.llmFn } : {}),
             ...(llmBudget ? { budget: llmBudget } : {}),
             ...(opts.contextualModel ? { modelId: opts.contextualModel } : {}),
+            // Consecutive chunks of THIS document share the identical doc prefix,
+            // so cache it once and read it back for the rest of the document.
+            cacheDocument: true,
           });
           if (llmCtx) {
             prefix = buildContextualPrefix(doc.title, llmCtx, { isCode: false });

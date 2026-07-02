@@ -146,6 +146,15 @@ valid_nonempty() {
   return 1
 }
 
+valid_tier() {
+  local v
+  v="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    free|balanced|max) return 0 ;;
+    *) echo "  invalid: choose 'max', 'balanced', or 'free'"; return 1 ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------
 # Collect answers
 # ---------------------------------------------------------------------------
@@ -167,6 +176,17 @@ prompt ALARM_EMAIL       "CloudWatch alarm email (optional)"      ""            
 prompt SSH_ALLOWED_CIDR  "SSH allowed CIDR (optional, e.g. 1.2.3.4/32)" ""       valid_cidr_or_empty
 prompt USE_SSH_DEPLOY_KEY  "Use SSH deploy key (true/false; false for public repo)" "false" valid_bool
 
+# Feature tier: what the generated .env opts this install into. The app's
+# runtime code defaults stay OFF regardless — these flags only take effect
+# once the operator runs docker compose. A bare `git clone` never bills.
+echo >&2
+echo "[init] Feature tier — the quality/cost level this install opts into:" >&2
+echo "         max      full paid Sonnet brain, ~\$25-390/mo by search volume (recommended)" >&2
+echo "         balanced cheap Haiku rerank + synthesis, ~\$5-15/mo" >&2
+echo "         free     retrieval only, infra cost only" >&2
+prompt FEATURE_TIER      "Feature tier (max/balanced/free)"       "${MEMEX_INIT_TIER:-max}" valid_tier
+FEATURE_TIER="$(printf '%s' "$FEATURE_TIER" | tr '[:upper:]' '[:lower:]')"
+
 REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
 
 # ---------------------------------------------------------------------------
@@ -183,6 +203,57 @@ write_atomic() {
   chmod "$mode" "$tmp"
   mv -f "$tmp" "$target"
 }
+
+# ---------------------------------------------------------------------------
+# Feature tier -> flags block written into .env
+#
+# Only writes flags to a local gitignored .env; it deploys nothing and spends
+# nothing. Flags take effect only when the operator runs docker compose. Every
+# key here is already in the compose environment: allowlist.
+# ---------------------------------------------------------------------------
+build_tier_block() {
+  local tier="$1"
+  local balanced="MEMEX_RERANK=1
+MEMEX_DREAM_SYNTHESIS=1
+MEMEX_DOCTOR_PER_SOURCE=1
+MEMEX_TENANT_FAIL_CLOSED=1"
+  local max_extra="MEMEX_GRAPH_RERANK=1
+MEMEX_RELATIONAL_LLM=1
+MEMEX_THINK=1
+MEMEX_DEEP_SYNTH=1
+MEMEX_TAKE_ENSEMBLE=1
+MEMEX_FACTS_EXTRACTION=1
+MEMEX_CONTEXTUAL_RETRIEVAL=1
+MEMEX_CONTEXTUAL_LLM=1
+MEMEX_CONTEXTUAL_LLM_BUDGET_USD=5.0"
+
+  case "$tier" in
+    free)
+      printf '%s\n' \
+"# Feature tier: free (retrieval only). No billable model calls beyond
+# embeddings. To upgrade later, add the Balanced/Max flags (see
+# docs/CONFIGURATION.md) and recompose."
+      ;;
+    balanced)
+      printf '%s\n\n%s\n' \
+"# Feature tier: balanced (Haiku, ~\$5-15/mo). Cheap Haiku rerank + nightly
+# synthesis + per-source health + tenant fail-closed. To go cheaper later,
+# comment these out + recompose. See docs/CONFIGURATION.md." \
+"$balanced"
+      ;;
+    max)
+      printf '%s\n\n%s\n%s\n' \
+"# Feature tier: max (paid Sonnet, ~\$25-390/mo depending on search volume; the
+# recommended 'best results' tier). Paid Sonnet slices spend per call, each
+# capped by its *_BUDGET_USD companion. To go cheaper later, comment these out
+# + recompose. See docs/CONFIGURATION.md. NOTE: MEMEX_CONTEXTUAL_* only affects
+# future embeds — run 'reindex --contextual' after the first index." \
+"$balanced" "$max_extra"
+      ;;
+  esac
+}
+
+TIER_BLOCK="$(build_tier_block "$FEATURE_TIER")"
 
 # ---------------------------------------------------------------------------
 # Render .env
@@ -217,6 +288,8 @@ MEMEX_PUBLIC_WRITE=0
 
 # Default EFS mount path on the host (used by docker-compose volume binds).
 EFS_MOUNT=/mnt/${REPO_NAME}-efs/${REPO_NAME}
+
+${TIER_BLOCK}
 "
 
 # .env carries AWS account id, alarm email, optional CIDR — keep it

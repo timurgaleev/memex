@@ -45,11 +45,18 @@ scripts/init.sh
 
 `scripts/init.sh` is interactive. It prompts for your AWS account id, region,
 profile, **domain**, subdomain (default `brain`), GitHub owner/repo, secrets
-prefix (default `memex`), the tfstate bucket + region, and optional
-alarm email / SSH CIDR. It then writes three **gitignored** files atomically:
+prefix (default `memex`), the tfstate bucket + region, optional
+alarm email / SSH CIDR, and a **feature tier** (default **Max quality** — the
+full paid Sonnet brain; the installer opts you into the recommended tier). It
+then writes three **gitignored** files atomically:
 
 - `.env` — runtime config for compose + scripts (`MEMEX_HOST` becomes
-  `<subdomain>.<domain>`, `MEMEX_PUBLIC_WRITE=0`).
+  `<subdomain>.<domain>`, `MEMEX_PUBLIC_WRITE=0`, plus the chosen tier's
+  feature flags). The tier default is **Max**; pick `balanced` or `free` at the
+  prompt, or set `MEMEX_INIT_TIER=free|balanced|max` for the non-interactive
+  path. These flags only take effect once you recompose — a bare `git clone`
+  (whose runtime code defaults stay OFF) never bills. See
+  [CONFIGURATION.md](CONFIGURATION.md#quality--cost-tiers-pick-one).
 - `terraform/terraform.tfvars` — terraform inputs.
 - `terraform/backend.hcl` — the S3 partial-backend config.
 

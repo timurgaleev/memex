@@ -19,10 +19,22 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
+  ValidationException,
+  type ContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 
 /** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
 export const DEFAULT_HAIKU_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+export interface LlmUsage {
+  /** Non-cached input tokens billed at the normal input rate. */
+  inputTokens: number;
+  outputTokens: number;
+  /** Tokens served from the prompt cache — billed at ~10% of the input rate. */
+  cacheReadInputTokens?: number;
+  /** Tokens written to the prompt cache — billed at ~125% of the input rate. */
+  cacheWriteInputTokens?: number;
+}
 
 export interface LlmCallInput {
   /** System prompt — the instruction. */
@@ -33,6 +45,16 @@ export interface LlmCallInput {
   maxTokens: number;
   /** Sampling temperature. Default 0 (deterministic-as-possible). */
   temperature?: number;
+  /**
+   * Optional cacheable leading block for the USER turn. When set, it is sent as
+   * its own content block followed by a Bedrock `cachePoint`, so a model/region
+   * that supports prompt caching caches this prefix and reuses it across calls
+   * that share the SAME prefix (e.g. one document across all of its chunks). The
+   * `user` field then carries only the uncached remainder (the per-call tail).
+   * Fail-safe: a model/region that rejects the `cachePoint` (ValidationException)
+   * is retried once as a single uncached block, so the call still succeeds.
+   */
+  cachePrefix?: string;
 }
 
 export interface LlmCallResult {
@@ -40,6 +62,9 @@ export interface LlmCallResult {
   text: string;
   /** Resolved model id used for the call — recorded as provenance on synthesis rows. */
   modelId: string;
+  /** Token usage when the transport exposes it (Bedrock Converse). Absent for a
+   *  fake seam that returns none — callers then fall back to an estimate. */
+  usage?: LlmUsage;
 }
 
 /**
@@ -68,6 +93,27 @@ export interface LlmCallOptions {
 }
 
 /**
+ * Build the user-turn content blocks. With `withCache` and a `cachePrefix`, the
+ * prefix is its own block followed by a `cachePoint`, then the uncached `user`
+ * tail — so the cacheable segment is exactly the prefix. Otherwise it collapses
+ * to a single text block (prefix + tail joined the same way the split reads on
+ * the wire). Pure + exported so the cachePoint placement is unit-testable
+ * without a live Bedrock client.
+ */
+export function buildUserContent(input: LlmCallInput, withCache: boolean): ContentBlock[] {
+  if (withCache && input.cachePrefix) {
+    return [
+      { text: input.cachePrefix },
+      { cachePoint: { type: "default" } },
+      { text: input.user },
+    ];
+  }
+  return [
+    { text: input.cachePrefix ? `${input.cachePrefix}\n\n${input.user}` : input.user },
+  ];
+}
+
+/**
  * Production utility-LLM call (Claude Haiku via Bedrock). Throws on any Bedrock
  * / network error — callers decide whether to fail-open. The returned `modelId`
  * is the resolved id (so a row's provenance reflects what actually ran, not a
@@ -80,19 +126,49 @@ export async function callHaiku(
   const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
   const modelId = opts.modelId ?? process.env.MEMEX_UTILITY_MODEL ?? DEFAULT_HAIKU_MODEL;
   const c = client(region);
-  const resp = await c.send(
-    new ConverseCommand({
-      modelId,
-      system: [{ text: input.system }],
-      messages: [{ role: "user", content: [{ text: input.user }] }],
-      inferenceConfig: {
-        maxTokens: input.maxTokens,
-        temperature: input.temperature ?? 0,
-      },
-    }),
-  );
+
+  const send = (withCache: boolean) =>
+    c.send(
+      new ConverseCommand({
+        modelId,
+        system: [{ text: input.system }],
+        messages: [{ role: "user", content: buildUserContent(input, withCache) }],
+        inferenceConfig: {
+          maxTokens: input.maxTokens,
+          temperature: input.temperature ?? 0,
+        },
+      }),
+    );
+
+  let resp;
+  try {
+    resp = await send(true);
+  } catch (err) {
+    // Fail-safe: a model/region that can't cache rejects the `cachePoint` with a
+    // ValidationException. Retry once as a single uncached block so the call still
+    // succeeds — caching is a cost optimization, never a correctness dependency.
+    if (input.cachePrefix && err instanceof ValidationException) {
+      resp = await send(false);
+    } else {
+      throw err;
+    }
+  }
+
   const text = resp.output?.message?.content?.[0]?.text ?? "";
-  return { text, modelId };
+  const u = resp.usage;
+  const usage: LlmUsage | undefined = u
+    ? {
+        inputTokens: u.inputTokens ?? 0,
+        outputTokens: u.outputTokens ?? 0,
+        ...(u.cacheReadInputTokens != null
+          ? { cacheReadInputTokens: u.cacheReadInputTokens }
+          : {}),
+        ...(u.cacheWriteInputTokens != null
+          ? { cacheWriteInputTokens: u.cacheWriteInputTokens }
+          : {}),
+      }
+    : undefined;
+  return { text, modelId, usage };
 }
 
 /**

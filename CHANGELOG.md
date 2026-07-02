@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Bedrock prompt caching for the contextual-LLM tier (~3x cheaper re-embed).**
+  The Haiku client already uses the Converse API, so the per-chunk contextual call
+  now places a `cachePoint` after the `<document>` block; consecutive chunks of the
+  same document reuse the cached doc prefix (they run in one loop, inside the ~5min
+  cache TTL). A full 4371-chunk re-embed's dominant doc-input cost drops ~two-thirds
+  (cache reads bill ~10x cheaper). Fail-safe: a `ValidationException` on the cached
+  attempt retries once uncached, and a sub-minimum prefix is silently uncached — so
+  a region/model without caching degrades to the old cost, never an error. Cache
+  read/write token usage is folded into the budget so the cap reflects real spend.
+- **`scripts/init.sh` defaults to the Max-quality tier.** The installer now prompts
+  for a feature tier (Max / Balanced / Free) with per-tier cost notes and writes the
+  chosen flags into the generated `.env`; bare Enter = **Max** (the full paid
+  experience), or set `MEMEX_INIT_TIER=free|balanced|max` non-interactively.
+  The app's runtime code defaults stay OFF — a blind `git clone` never bills; the
+  opt-in is the conscious `init.sh` run.
+
+### Fixed
+- Corrected the `MEMEX_RERANK` config-reference row: it is the cheap Haiku two-pass
+  rerank (~$1–3/mo), not a free retrieval knob — moved to the Haiku section.
+
 ### Fixed
 - **Green CI: the `jobs.test` quiet-hours case was a wall-clock time-bomb.** It
   enqueued jobs at the real clock but claimed them with a hard-coded `2026-07-01`
