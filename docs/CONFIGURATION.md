@@ -57,6 +57,32 @@ boot rather than silently falling back, so a bad edit is caught immediately.
 
 ---
 
+## Quality & cost tiers (pick one)
+
+memex ships **everything paid OFF by default** — a fresh deploy is a pure
+retrieval brain that never makes a billable model call beyond embeddings. That
+default is deliberate: cloning the repo must never surprise you with a bill. But
+**more spend buys more quality** — the paid tiers below are what the project is
+capable of at its best, and are the *recommended* setup once you know your usage.
+Enable a tier by setting its flags in `.env` (all are in the compose allowlist).
+
+| Tier | What you get | Flags | ~Cost/mo* |
+|------|--------------|-------|-----------|
+| **Free — Retrieval** (default) | Hybrid search + graph + code intel. No LLM calls beyond embeddings. | *(none)* | infra only (~$52) |
+| **Balanced — Haiku** *(best value)* | + Haiku two-pass rerank on every search, nightly note synthesis, per-source health, tenant fail-closed. Sharper ranking + a self-thinking brain, cheaply. | `MEMEX_RERANK` `MEMEX_DREAM_SYNTHESIS` `MEMEX_DOCTOR_PER_SOURCE` `MEMEX_TENANT_FAIL_CLOSED` | +$5–15 |
+| **Max quality — Sonnet** *(recommended for best results)* | Everything. Sonnet graph-aware rerank on every search, relational reasoning, `think`, scheduled deep-synth, take-ensemble grading, conversation→facts, per-chunk LLM contextual embeddings. The full-fat brain. | all of the above **plus** `MEMEX_GRAPH_RERANK` `MEMEX_RELATIONAL_LLM` `MEMEX_THINK` `MEMEX_DEEP_SYNTH` `MEMEX_TAKE_ENSEMBLE` `MEMEX_FACTS_EXTRACTION` `MEMEX_CONTEXTUAL_LLM` | +$25–390 |
+
+\* Above the ~$52/mo fixed infra (one small EC2 + RDS). Variable cost is
+dominated by **`MEMEX_GRAPH_RERANK`** — a paid Sonnet call on *every* search, so
+it scales with query volume (the swing between the $25 and $390 ends of the Max
+tier). If you want Max-tier reasoning everywhere *except* the per-search Sonnet
+cost, run the **Balanced** tier's `MEMEX_RERANK` (Haiku, ~$1–3/mo) in place of
+`MEMEX_GRAPH_RERANK` — near-identical ranking quality at a fraction of the cost.
+Every paid Sonnet slice is independently bounded by a `*_BUDGET_USD` cap
+(default `1.0`), so no single call or run can run away.
+
+---
+
 ## 1. Core / required
 
 The values a working install cannot start without. The first three come from

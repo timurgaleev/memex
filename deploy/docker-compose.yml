@@ -96,6 +96,12 @@ services:
       # link). Destructive ops + privacy-sensitive reads stay internal-only
       # regardless. Set =1 in the host .env to activate.
       - MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}
+      # Two-pass Haiku rerank (opt-in, default OFF). =1 reorders the top hybrid
+      # hits with one CHEAP Claude Haiku call per search (~$1-3/mo at moderate
+      # volume). The budget-friendly alternative to the paid Sonnet graph-rerank
+      # below — recommended over graph-rerank unless you specifically want the
+      # graph-centrality signal + Sonnet-tier reasoning.
+      - MEMEX_RERANK=${MEMEX_RERANK:-}
       # --- Paid opt-in Bedrock Claude Sonnet slices (all default OFF) ---------
       # Each makes a PAID Sonnet call only when its flag is set, bounded by its
       # own USD BudgetTracker (*_BUDGET_USD, default 1.0). See docs/CONFIGURATION.md.
