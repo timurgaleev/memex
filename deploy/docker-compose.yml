@@ -96,6 +96,33 @@ services:
       # link). Destructive ops + privacy-sensitive reads stay internal-only
       # regardless. Set =1 in the host .env to activate.
       - MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}
+      # --- Paid opt-in Bedrock Claude Sonnet slices (all default OFF) ---------
+      # Each makes a PAID Sonnet call only when its flag is set, bounded by its
+      # own USD BudgetTracker (*_BUDGET_USD, default 1.0). See docs/CONFIGURATION.md.
+      # think: `memex think <q>` deep synthesis (CLI). relational-LLM: Sonnet
+      # fallback for the relational arm. graph-rerank: Sonnet rerank per search.
+      # deep-synth: scheduled think over top concepts. take-ensemble: N-judge
+      # Sonnet grading of takes. facts-extraction: conversation→facts.
+      - MEMEX_THINK=${MEMEX_THINK:-}
+      - MEMEX_THINK_BUDGET_USD=${MEMEX_THINK_BUDGET_USD:-}
+      - MEMEX_RELATIONAL_LLM=${MEMEX_RELATIONAL_LLM:-}
+      - MEMEX_RELATIONAL_LLM_BUDGET_USD=${MEMEX_RELATIONAL_LLM_BUDGET_USD:-}
+      - MEMEX_GRAPH_RERANK=${MEMEX_GRAPH_RERANK:-}
+      - MEMEX_GRAPH_RERANK_BUDGET_USD=${MEMEX_GRAPH_RERANK_BUDGET_USD:-}
+      - MEMEX_DEEP_SYNTH=${MEMEX_DEEP_SYNTH:-}
+      - MEMEX_DEEP_SYNTH_BUDGET_USD=${MEMEX_DEEP_SYNTH_BUDGET_USD:-}
+      - MEMEX_DEEP_SYNTH_MAX_QUESTIONS=${MEMEX_DEEP_SYNTH_MAX_QUESTIONS:-}
+      - MEMEX_TAKE_ENSEMBLE=${MEMEX_TAKE_ENSEMBLE:-}
+      - MEMEX_TAKE_ENSEMBLE_BUDGET_USD=${MEMEX_TAKE_ENSEMBLE_BUDGET_USD:-}
+      - MEMEX_TAKE_ENSEMBLE_JUDGES=${MEMEX_TAKE_ENSEMBLE_JUDGES:-}
+      - MEMEX_FACTS_EXTRACTION=${MEMEX_FACTS_EXTRACTION:-}
+      - MEMEX_FACTS_BUDGET_USD=${MEMEX_FACTS_BUDGET_USD:-}
+      # Contextual-retrieval embed wrapper (LLM-free). Enabling it changes ONLY
+      # future embeds — run a full re-embed after enabling, or the vector space
+      # becomes mixed (wrapped + unwrapped) and search quality degrades.
+      - MEMEX_CONTEXTUAL_RETRIEVAL=${MEMEX_CONTEXTUAL_RETRIEVAL:-}
+      # Override the paid-tier model (default eu.anthropic.claude-sonnet-4-6).
+      - MEMEX_FACTS_MODEL=${MEMEX_FACTS_MODEL:-}
     env_file:
       # MEMEX_POSTGRES_URL (RDS endpoint) and MEMEX_PUBLIC_BEARER
       # (public-ingress auth) — written by deploy/secrets/fetch-secrets.sh
