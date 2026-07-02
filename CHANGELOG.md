@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.70.0] — 2026-07-02
+
 ### Added
 - **Paid per-chunk contextual-retrieval LLM tier (`MEMEX_CONTEXTUAL_LLM`).** The
   full Anthropic "Contextual Retrieval" technique on top of the free deterministic
