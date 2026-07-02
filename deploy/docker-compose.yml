@@ -76,12 +76,20 @@ services:
       # a phase with a live defect without losing the rest of the cycle (set in
       # the host .env, default none).
       - MEMEX_CYCLE_SKIP_PHASES=${MEMEX_CYCLE_SKIP_PHASES:-}
-      # Opt-in auto-think (default OFF). =1 appends the Nova synthesis chain
-      # (atoms→concepts→takes→grade→calibration → the isolated synth_* store,
+      # Opt-in auto-think (default OFF). =1 appends the Claude Haiku synthesis
+      # chain (atoms→concepts→takes→grade→calibration → the isolated synth_* store,
       # read via list_concepts/list_takes) to QUIET-HOURS ticks only. Count-capped
-      # (MEMEX_DREAM_SYNTHESIS_MAX_DOCS/_MAX_CONCEPTS/_MAX_TAKES/_MIN_GRADED), Nova
-      # Lite, idempotent. Leave unset to keep the brain pure-retrieval.
+      # (MEMEX_DREAM_SYNTHESIS_MAX_DOCS/_MAX_CONCEPTS/_MAX_TAKES/_MIN_GRADED), Claude
+      # Haiku via Bedrock, idempotent. Leave unset to keep the brain pure-retrieval.
       - MEMEX_DREAM_SYNTHESIS=${MEMEX_DREAM_SYNTHESIS:-}
+      # Opt-in per-source (per-tenant) doctor warn check (default OFF, free). =1
+      # makes `doctor` WARN when any single source has chunks but zero embeddings.
+      - MEMEX_DOCTOR_PER_SOURCE=${MEMEX_DOCTOR_PER_SOURCE:-}
+      # Opt-in multi-tenant fail-closed read/write floor (default OFF). =1 makes an
+      # authenticated PUBLIC principal with no source grant read/write nothing
+      # instead of the redacted whole brain. The static bearer (no authInfo) is
+      # unaffected. Flip once a real remote OAuth tenant with a grant exists.
+      - MEMEX_TENANT_FAIL_CLOSED=${MEMEX_TENANT_FAIL_CLOSED:-}
       # Public-ingress writes (opt-in, default OFF). When =1, the public /mcp
       # path (static bearer or OAuth) may call the CONSTRUCTIVE write tools
       # (index, page_put, page_append, add_fact, add_timeline_event, add_tag,
