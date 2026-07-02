@@ -121,6 +121,11 @@ services:
       # future embeds — run a full re-embed after enabling, or the vector space
       # becomes mixed (wrapped + unwrapped) and search quality degrades.
       - MEMEX_CONTEXTUAL_RETRIEVAL=${MEMEX_CONTEXTUAL_RETRIEVAL:-}
+      # PAID per-chunk contextual-retrieval tier (Haiku): each chunk gets an
+      # LLM-generated blurb situating it in its document. Bounded by its own
+      # budget (default 5.0). Enable, then run `reindex --contextual` to backfill.
+      - MEMEX_CONTEXTUAL_LLM=${MEMEX_CONTEXTUAL_LLM:-}
+      - MEMEX_CONTEXTUAL_LLM_BUDGET_USD=${MEMEX_CONTEXTUAL_LLM_BUDGET_USD:-}
       # Override the paid-tier model (default eu.anthropic.claude-sonnet-4-6).
       - MEMEX_FACTS_MODEL=${MEMEX_FACTS_MODEL:-}
     env_file:

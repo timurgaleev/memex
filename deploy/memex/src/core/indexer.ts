@@ -24,6 +24,14 @@ import {
   wrapChunkForEmbedding,
   extractFirstTwoSentences,
 } from "./search/contextual-embed.ts";
+import {
+  contextualLlmEnabled,
+  generateChunkContext,
+  defaultContextualLlmBudget,
+  CONTEXTUAL_LLM_LABEL,
+} from "./search/contextual-llm.ts";
+import { BudgetTracker } from "./budget.ts";
+import type { LlmFn } from "./llm/haiku.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import type { Storage } from "./storage.ts";
@@ -54,6 +62,13 @@ export interface IndexFileOptions {
    * hybrid search's `embedQuery`).
    */
   embedFn?: EmbedFn;
+  /**
+   * Paid per-chunk LLM-context tier seam (`contextual-llm.ts`). Injected in
+   * tests to exercise the LLM path with a fake — bypasses the env gate and any
+   * Bedrock spend. Production leaves this unset; the `MEMEX_CONTEXTUAL_LLM` flag
+   * drives whether the live utility model runs.
+   */
+  contextualLlmFn?: LlmFn;
   /**
    * Infer a frontmatter header at ingest for content that lacks one (the
    * reference's import-time inference). Default ON. The inferred block is NOT
@@ -157,19 +172,41 @@ export async function indexDocument(
   // Contextual-retrieval wrapper (opt-in, default-OFF): prepend a document-level
   // <context>{title}\n{synopsis}</context> header to each chunk's EMBEDDING INPUT
   // only — the canonical chunk text written below is untouched. Code docs bypass
-  // wrapping. Synopsis = the deterministic first two sentences of the page's
-  // opening chunk. No LLM call (that is the deferred paid per-chunk tier).
+  // wrapping. The deterministic synopsis = the first two sentences of the page's
+  // opening chunk. The PAID per-chunk LLM tier (MEMEX_CONTEXTUAL_LLM) instead
+  // asks a utility model to situate EACH chunk within the whole document; a null
+  // result (budget/err) falls back to the deterministic prefix (fail-open).
   const isCode = frontmatter["kind"] === "code";
   const ctxTitle =
     parsed.title ??
     (typeof frontmatter["title"] === "string" ? (frontmatter["title"] as string) : null);
-  const ctxPrefix =
-    contextualRetrievalEnabled() && !isCode
-      ? buildContextualPrefix(ctxTitle, extractFirstTwoSentences(parsed.chunks[0] ?? ""), { isCode })
-      : null;
+  // Either flag (or an injected llmFn) turns wrapping on; the LLM tier is a
+  // superset that upgrades the synopsis, so it must build the deterministic
+  // prefix too (its fallback path).
+  const llmActive =
+    (contextualLlmEnabled() || opts.contextualLlmFn !== undefined) && !isCode && !skipEmbed;
+  const wrapActive =
+    (contextualRetrievalEnabled() || llmActive) && !isCode;
+  const deterministicPrefix = wrapActive
+    ? buildContextualPrefix(ctxTitle, extractFirstTwoSentences(parsed.chunks[0] ?? ""), { isCode })
+    : null;
+  const docText = llmActive ? parsed.chunks.join("\n\n") : "";
+  // Fresh budget per document at index time (a new doc is a small, bounded run);
+  // the whole-corpus backfill is where a single shared budget matters.
+  const ctxBudget = llmActive
+    ? new BudgetTracker(defaultContextualLlmBudget(), CONTEXTUAL_LLM_LABEL)
+    : undefined;
   const vectors: (number[] | null)[] = [];
   for (const chunk of parsed.chunks) {
-    const embedInput = wrapChunkForEmbedding(chunk, ctxPrefix, { isCode });
+    let prefix = deterministicPrefix;
+    if (llmActive) {
+      const llmCtx = await generateChunkContext(docText, chunk, {
+        ...(opts.contextualLlmFn ? { llmFn: opts.contextualLlmFn } : {}),
+        ...(ctxBudget ? { budget: ctxBudget } : {}),
+      });
+      if (llmCtx) prefix = buildContextualPrefix(ctxTitle, llmCtx, { isCode });
+    }
+    const embedInput = wrapChunkForEmbedding(chunk, prefix, { isCode });
     vectors.push(skipEmbed ? null : await embed(embedInput, { modelId: model }));
   }
 
