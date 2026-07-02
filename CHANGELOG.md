@@ -24,6 +24,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   opt-in is the conscious `init.sh` run.
 
 ### Fixed
+- **contextual-LLM cachePoint split now carries the `\n\n` separator** so the
+  cached wire form is byte-identical to the uncached one — backfilled chunks and
+  future index-time embeds feed Haiku the same prompt (the re-embed's whole point).
 - Corrected the `MEMEX_RERANK` config-reference row: it is the cheap Haiku two-pass
   rerank (~$1–3/mo), not a free retrieval knob — moved to the Haiku section.
 

@@ -102,10 +102,13 @@ export interface LlmCallOptions {
  */
 export function buildUserContent(input: LlmCallInput, withCache: boolean): ContentBlock[] {
   if (withCache && input.cachePrefix) {
+    // The separator lives on the UNCACHED tail block so the on-the-wire form
+    // (prefix + "\n\n" + user) is byte-identical to the collapsed single-block
+    // form below; only `cachePrefix` is the cached segment.
     return [
       { text: input.cachePrefix },
       { cachePoint: { type: "default" } },
-      { text: input.user },
+      { text: `\n\n${input.user}` },
     ];
   }
   return [
