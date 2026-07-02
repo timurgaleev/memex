@@ -37,7 +37,7 @@ import {
 } from "./relational-recall.ts";
 import {
   resolveSonnetFn,
-  DEFAULT_SONNET_MODEL,
+  resolveFactsModel,
   type SonnetFn,
   type SonnetUsage,
 } from "../llm/sonnet.ts";
@@ -282,7 +282,7 @@ export async function relationalRecallLlm(
   const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;
   const budget =
     opts.budget ?? new BudgetTracker(opts.maxBudgetUsd ?? defaultBudget(), "relational-llm");
-  const modelId = opts.modelId ?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL;
+  const modelId = resolveFactsModel(opts.modelId);
   // Wire the live seam to the SAME model the pre-flight prices, so the estimate
   // and the actual call never disagree (the injected test seam ignores this).
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId });

@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Paid Sonnet slices no longer silently refuse to spend when `MEMEX_FACTS_MODEL`
+  is passed as an empty string.** A `${MEMEX_FACTS_MODEL:-}` docker-compose
+  passthrough injects an empty string (not "unset") when the operator hasn't set
+  the override. Every paid slice resolved its model with
+  `?? process.env["MEMEX_FACTS_MODEL"] ?? DEFAULT_SONNET_MODEL` — and `??` does
+  NOT fall through on `""`, so the model id became `""`, which is unpriced, so
+  the budget guard refused every call ("budget exhausted before synthesis",
+  `$0.0000` spent). Introduce `resolveFactsModel()` (uses `||`, treating an empty
+  env value as unset) and route all seven paid-tier call sites (think, deep-synth,
+  graph-rerank, relational-llm, take-ensemble, conversation-facts, and the base
+  `callSonnet`) through it. Verified live: `memex think` now synthesizes.
+
 ## [1.67.0] — 2026-07-02
 
 ### Changed
