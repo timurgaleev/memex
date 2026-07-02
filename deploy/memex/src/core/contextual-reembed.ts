@@ -1,0 +1,283 @@
+/**
+ * Contextual re-embed — a whole-corpus, from-DB re-embed that applies the
+ * contextual-retrieval wrapper (`core/search/contextual-embed.ts`) to every
+ * embeddable chunk's EMBEDDING INPUT. Driven by `memex reindex --contextual`.
+ *
+ * WHY from the DB, not disk: the wrapper must reach `page_put`-sourced docs
+ * (gmail/gcal/etc.) whose body lives only in `pages.markdown_body` — those
+ * documents have NO file on disk, so a file-tree sweep can never re-embed them.
+ * Their chunks ARE in the `chunks` table, so iterating documents in the DB is
+ * the only path that covers the ENTIRE corpus (on-disk + inline `page://` docs
+ * alike). This mirrors `core/embed-backfill.ts`, but instead of targeting only
+ * NULL-vector chunks it re-embeds under the contextual prefix.
+ *
+ * GATING: this command ALWAYS applies the wrapper — running it IS the operator's
+ * intent, so it does NOT read `MEMEX_CONTEXTUAL_RETRIEVAL`. The env flag governs
+ * FUTURE index-time embedding (`core/indexer.ts`), so new docs stay consistent
+ * with the backfilled corpus. Turn the flag on, then run this once.
+ *
+ * WHAT IS SKIPPED (and why the vector arm stays correct):
+ *   - Soft-deleted documents (`deleted_at IS NOT NULL`) — retired content.
+ *   - `embed_skip` documents — intentionally never embedded (keyword-only).
+ *   - Code documents (`frontmatter.kind = 'code'`) — graph-only by design. Code
+ *     chunks carry NO `embeddings` row; that absence is the ONLY thing keeping
+ *     code out of the vector arm (`core/search/vector.ts` has no kind filter).
+ *     Creating a code embedding — even raw/unwrapped — would make code surface
+ *     in vector search, breaking the graph-only invariant that
+ *     `embed-backfill` also enforces. So code is excluded outright, never
+ *     embedded and never marked.
+ * This is the same "embeddable" candidate definition embed-backfill / source-
+ * health use, so a chunk this command re-embeds is exactly a chunk that already
+ * had (or should have) a vector.
+ *
+ * IDEMPOTENT + RESUMABLE: each re-embedded chunk is stamped
+ * `chunks.contextual_embedded = true` (migration 057) in the SAME transaction
+ * that writes its vector. A chunk already marked is skipped unless `--force`, so:
+ *   - a re-run after a completed pass is a no-op;
+ *   - an interrupted run resumes exactly where it stopped.
+ * Per-DOCUMENT atomicity is the crash-safety property: a document's chunks are
+ * embedded (network, outside any txn) and then written + marked in ONE
+ * transaction, so a crash can only ever leave a document fully wrapped-and-marked
+ * or fully untouched — never half-wrapped. `--force` re-embeds even already-
+ * marked chunks (for a title/synopsis change or a chunker bump).
+ */
+import type { Engine } from "./engine/interface.ts";
+import type { Storage } from "./storage.ts";
+import { embedText, DEFAULT_MODEL_ID } from "./embedding.ts";
+import { embedSkipFilterFragment } from "./embed-skip.ts";
+import {
+  buildContextualPrefix,
+  wrapChunkForEmbedding,
+  extractFirstTwoSentences,
+} from "./search/contextual-embed.ts";
+import { bumpDocumentClock } from "./generation.ts";
+import { clearCache } from "./search/query-cache.ts";
+
+export interface ContextualReembedOptions {
+  /** Re-embed even chunks already marked `contextual_embedded`. Default false. */
+  force?: boolean;
+  /** Count candidates only — never embed or write. */
+  dryRun?: boolean;
+  /** Max chunks to re-embed this run (applied at document boundaries so a
+   *  document is never left half-wrapped). Default: no cap. */
+  limit?: number;
+  /** Model id recorded on each embeddings row. Defaults to Titan v2. */
+  model?: string;
+  /**
+   * Embedder injection seam — tests pass a deterministic fn; production uses
+   * the real Titan `embedText`. Mirrors embed-backfill's `embed` seam.
+   */
+  embed?: (text: string) => Promise<number[]>;
+  /** Progress callback fired after each document is committed. */
+  onProgress?: (documentsDone: number, chunksDone: number) => void;
+}
+
+export interface ContextualReembedResult {
+  /** Documents that had at least one chunk to re-embed (excludes skipped-clean). */
+  documents: number;
+  /** Chunks re-embedded + marked. */
+  chunks: number;
+  /** Chunks already `contextual_embedded` and left as-is (not `--force`). */
+  skipped: number;
+  /** Documents whose embed call threw — left untouched for a retry. */
+  failed: number;
+  dryRun: boolean;
+}
+
+interface CandidateDoc {
+  id: string;
+  title: string | null;
+}
+
+interface ChunkRow {
+  id: string;
+  content: string;
+}
+
+/** Boolean fragment: documents this command is allowed to re-embed. Excludes
+ *  soft-deleted, embed-skip, and code docs (see the module header). Kept here so
+ *  the candidate-doc scan and the summary's skipped-count share one definition. */
+function embeddableDocFragment(): string {
+  return (
+    `d.deleted_at IS NULL ` +
+    `AND ${embedSkipFilterFragment("d")} ` +
+    `AND COALESCE(d.frontmatter->>'kind','') <> 'code'`
+  );
+}
+
+/** Non-deleted, embeddable documents with >=1 chunk still needing the wrapper
+ *  (or every chunk under `--force`), id-ordered for a stable, resumable pass. */
+async function findCandidateDocs(
+  engine: Engine,
+  force: boolean,
+): Promise<CandidateDoc[]> {
+  // Under --force every non-empty chunk is a candidate; otherwise only the
+  // unmarked ones. The EXISTS keeps a fully-marked document out of the scan so a
+  // resumed/repeat run does no per-document work for what is already done.
+  const chunkPredicate = force
+    ? "length(btrim(c.content)) > 0"
+    : "length(btrim(c.content)) > 0 AND NOT c.contextual_embedded";
+  const r = await engine.query<CandidateDoc>(
+    `SELECT d.id, d.title
+       FROM documents d
+      WHERE ${embeddableDocFragment()}
+        AND EXISTS (
+          SELECT 1 FROM chunks c
+           WHERE c.document_id = d.id AND ${chunkPredicate}
+        )
+      ORDER BY d.id COLLATE "C" ASC`,
+  );
+  return r.rows;
+}
+
+/** The opening chunk's content (lowest `chunk_index`) — its first two sentences
+ *  are the deterministic document synopsis. */
+async function openingChunkContent(
+  engine: Engine,
+  documentId: string,
+): Promise<string> {
+  const r = await engine.query<{ content: string }>(
+    `SELECT content FROM chunks
+      WHERE document_id = $1
+      ORDER BY chunk_index ASC
+      LIMIT 1`,
+    [documentId],
+  );
+  return r.rows[0]?.content ?? "";
+}
+
+/** Chunks of a document to re-embed this pass, chunk-ordered. */
+async function chunksToReembed(
+  engine: Engine,
+  documentId: string,
+  force: boolean,
+): Promise<ChunkRow[]> {
+  const marked = force ? "" : "AND NOT contextual_embedded";
+  const r = await engine.query<ChunkRow>(
+    `SELECT id, content FROM chunks
+      WHERE document_id = $1
+        AND length(btrim(content)) > 0
+        ${marked}
+      ORDER BY chunk_index ASC`,
+    [documentId],
+  );
+  return r.rows;
+}
+
+/** Count embeddable chunks already marked — reported as `skipped` for context. */
+async function countAlreadyMarked(engine: Engine): Promise<number> {
+  const r = await engine.query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+      WHERE ${embeddableDocFragment()}
+        AND c.contextual_embedded
+        AND length(btrim(c.content)) > 0`,
+  );
+  return r.rows[0]?.n ?? 0;
+}
+
+/**
+ * Re-embed the whole corpus under the contextual-retrieval wrapper. Iterates
+ * every embeddable document from the DB (reaching `page://` inline docs that
+ * have no file on disk) and, per document, embeds each pending chunk's
+ * `<context>title\nsynopsis</context>`-prefixed text, then writes the vectors +
+ * marks in one transaction.
+ */
+export async function runContextualReembed(
+  engine: Engine,
+  opts: ContextualReembedOptions = {},
+): Promise<ContextualReembedResult> {
+  const embed = opts.embed ?? ((t: string) => embedText(t));
+  const model = opts.model ?? DEFAULT_MODEL_ID;
+  const force = opts.force ?? false;
+  const limit = opts.limit && opts.limit > 0 ? Math.floor(opts.limit) : undefined;
+
+  const docs = await findCandidateDocs(engine, force);
+  const skipped = force ? 0 : await countAlreadyMarked(engine);
+
+  if (opts.dryRun) {
+    // Report the chunk workload without embedding. Sum pending chunks per doc.
+    let pending = 0;
+    for (const doc of docs) {
+      pending += (await chunksToReembed(engine, doc.id, force)).length;
+    }
+    return { documents: docs.length, chunks: pending, skipped, failed: 0, dryRun: true };
+  }
+
+  let documents = 0;
+  let chunks = 0;
+  let failed = 0;
+
+  for (const doc of docs) {
+    if (limit !== undefined && chunks >= limit) break;
+
+    try {
+      const synopsis = extractFirstTwoSentences(
+        await openingChunkContent(engine, doc.id),
+      );
+      // isCode is always false here — code docs are excluded from the scan.
+      const prefix = buildContextualPrefix(doc.title, synopsis, { isCode: false });
+      const pending = await chunksToReembed(engine, doc.id, force);
+      if (pending.length === 0) continue;
+
+      // Embed OUTSIDE the transaction so a Bedrock failure never half-writes a
+      // document (indexer.ts's ordering). Collect vectors first, then commit.
+      const writes: { id: string; vector: number[] }[] = [];
+      for (const ch of pending) {
+        const vector = await embed(
+          wrapChunkForEmbedding(ch.content, prefix, { isCode: false }),
+        );
+        writes.push({ id: ch.id, vector });
+      }
+
+      await engine.transaction(async (tx) => {
+        for (const w of writes) {
+          await tx.query(
+            `INSERT INTO embeddings (chunk_id, vector, model)
+             VALUES ($1, $2::vector, $3)
+             ON CONFLICT (chunk_id) DO UPDATE
+               SET vector = EXCLUDED.vector, model = EXCLUDED.model`,
+            [w.id, JSON.stringify(w.vector), model],
+          );
+          await tx.query(
+            "UPDATE chunks SET contextual_embedded = TRUE WHERE id = $1",
+            [w.id],
+          );
+        }
+      });
+
+      documents++;
+      chunks += writes.length;
+      opts.onProgress?.(documents, chunks);
+    } catch (err) {
+      failed++;
+      console.error(
+        `contextual-reembed: document ${doc.id} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  // Re-embedding changes what the vector arm returns, so the query cache must be
+  // flushed — same reasoning as embed-backfill: a bare clock bump can't evict a
+  // Layer-2 row whose referenced docs' generation is unchanged, so clear it
+  // outright. Only when vectors actually moved.
+  if (chunks > 0) {
+    await bumpDocumentClock(engine);
+    await clearCache(engine);
+  }
+
+  return { documents, chunks, skipped, failed, dryRun: false };
+}
+
+/**
+ * Storage-facing wrapper so the CLI can pass a `Storage` and let this own the
+ * `engine()` handle (matching the other command entry points).
+ */
+export async function contextualReembed(
+  storage: Storage,
+  opts: ContextualReembedOptions = {},
+): Promise<ContextualReembedResult> {
+  return runContextualReembed(storage.engine(), opts);
+}
