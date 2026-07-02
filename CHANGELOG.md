@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.66.0] — 2026-07-02
+
 ### Changed
 - **Destructive write tools now scope by the caller's write source (multi-tenant
   hardening).** An adversarial audit found the destructive mutations operated by
