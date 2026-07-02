@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Documented quality/cost tiers + the cheap `MEMEX_RERANK` alternative in the
+  compose allowlist.** `docs/CONFIGURATION.md` now opens with a Free / Balanced /
+  Max-quality tier table (paid = better quality, the recommended setup once usage
+  is known) and `.env.example` mirrors it. The Haiku two-pass rerank
+  (`MEMEX_RERANK`, ~$1-3/mo) is now allowlisted as the budget alternative to the
+  paid Sonnet `MEMEX_GRAPH_RERANK` (the dominant per-search cost) — near-identical
+  ranking quality at a fraction of the price. All runtime defaults stay OFF (a
+  clone never surprises you with a bill); a tier is an explicit opt-in.
+
 ## [1.70.0] — 2026-07-02
 
 ### Added
