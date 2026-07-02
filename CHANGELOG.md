@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Green CI: the `jobs.test` quiet-hours case was a wall-clock time-bomb.** It
+  enqueued jobs at the real clock but claimed them with a hard-coded `2026-07-01`
+  date; once that date passed, `next_attempt_at <= now` excluded every job and the
+  test failed (`Expected "L", Received undefined`). Anchor the enqueue `runAt` to a
+  fixed past date so the case is time-independent. Production claim logic unchanged.
+
 ## [1.71.0] — 2026-07-02
 
 ### Added
