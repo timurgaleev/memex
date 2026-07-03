@@ -3,8 +3,8 @@
  *
  * When `add_fact` writes a new claim about an entity, an exact-tuple index
  * (entity_slug, fact, source_chunk_id) only catches byte-identical re-emits
- * from the same chunk. Two paraphrases of the same fact ("lives in Berlin" /
- * "is based in Berlin") both land, and a stale fact is never retired when a
+ * from the same chunk. Two paraphrases of the same fact ("lives in Gotham" /
+ * "is based in Gotham") both land, and a stale fact is never retired when a
  * newer one contradicts it. This module ports the reference's
  * classify-before-insert cascade to close that gap:
  *

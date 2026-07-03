@@ -263,7 +263,7 @@ describe("findTrajectory", () => {
     });
     await addFact(storage, {
       entity_slug: "companies/acme",
-      fact: "headquartered in Berlin",
+      fact: "headquartered in Gotham",
     });
 
     const points = await findTrajectory(storage, "companies/acme");
