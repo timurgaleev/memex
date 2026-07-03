@@ -86,9 +86,24 @@ export async function recallFact(
   return r.rows[0] ?? null;
 }
 
+/**
+ * Structured tombstone cause (migration 062) — distinct from the free-text
+ * `reason` audit note. A by-id operator forget is `forget`; an automatic
+ * dedup/supersede retirement is `supersede`. A consumer that must not resurrect
+ * a genuinely-forgotten fact honors ONLY `forget`.
+ */
+export type ForgetCause = "forget" | "supersede";
+
 export interface ForgetFactInput {
   /** Optional audit note stored in `forgotten_reason`. */
   reason?: string;
+  /**
+   * Structured cause stamped in `forgotten_cause` (migration 062). Defaults to
+   * `forget` — the by-id path is an explicit operator forget. A supersede/dedup
+   * path passes `supersede` so a fence-reconcile skip-set can tell the two
+   * apart and never suppress a superseded fence claim's legitimate re-insert.
+   */
+  cause?: ForgetCause;
 }
 
 export interface ForgetFactResult {
@@ -114,6 +129,9 @@ export async function forgetFact(
 ): Promise<ForgetFactResult> {
   const factId = normaliseId(id);
   const reason = typeof input.reason === "string" ? input.reason : null;
+  // Structured cause (mig062) — defaults to 'forget'; a supersede/dedup path
+  // passes 'supersede'. The CHECK constraint rejects any other value.
+  const cause: ForgetCause = input.cause === "supersede" ? "supersede" : "forget";
   // Tenant write scope (mig047): when a non-empty scope is given, both the
   // tombstone UPDATE and the existence probe are confined to it. A fact owned by
   // another source neither flips (out of the UPDATE) nor reports found — a
@@ -123,7 +141,7 @@ export async function forgetFact(
   // Single statement: stamp the tombstone ONLY on a currently-live row. The
   // RETURNING tells us whether this call did the flip; a separate existence
   // probe disambiguates unknown-id from already-forgotten.
-  const updParams: unknown[] = [factId, reason];
+  const updParams: unknown[] = [factId, reason, cause];
   let updFilter = "";
   if (scoped !== null) {
     updParams.push(scoped);
@@ -131,7 +149,7 @@ export async function forgetFact(
   }
   const upd = await storage.engine().query<{ id: number }>(
     `UPDATE entity_facts
-        SET forgotten_at = NOW(), forgotten_reason = $2
+        SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
       WHERE id = $1 AND forgotten_at IS NULL${updFilter}
       RETURNING id`,
     updParams,

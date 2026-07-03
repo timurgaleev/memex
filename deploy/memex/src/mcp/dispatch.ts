@@ -108,6 +108,12 @@ import {
   purgeFenceFactsForPage,
 } from "../core/facts-reconcile.ts";
 import {
+  factsExtractionEnabled,
+  isFactsExtractionEligible,
+  extractFactsForPage,
+} from "../core/facts-extract.ts";
+import { getFactsQueue } from "../core/facts-queue.ts";
+import {
   addTimelineEvent,
   getEntityTimeline,
   type ListTimelineOptions,
@@ -813,12 +819,49 @@ async function callPagePut(
     // the write. The cycle backstop reconciles unindexed pages later.
     if (page) {
       searchIndexed = await mirrorPageToSearch(storage, page);
+      // On-write fact extraction (default-OFF, best-effort). Only on a real
+      // content change and only for prose-eligible pages.
+      maybeEnqueueFactExtraction(storage, page, writeSource);
     }
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
   // it re-reads the current body and guards on content_hash itself.
   await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
   return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
+}
+
+/**
+ * Best-effort, default-OFF on-write fact extraction. When
+ * MEMEX_FACTS_EXTRACTION is enabled AND the page is prose-eligible, enqueue a
+ * bounded, fire-and-forget extraction job (paid Sonnet, budget-guarded inside
+ * `extractFactsForPage`). NEVER blocks or fails the triggering write — the
+ * queue absorbs errors, and a dropped/failed job is re-covered by the
+ * conversation-facts backfill cycle phase. The write source scopes both the
+ * per-session serialization key and the tenant the facts are written to.
+ */
+function maybeEnqueueFactExtraction(
+  storage: Storage,
+  page: { slug: string; type: string; markdown_body: string; source_id?: string },
+  writeSource?: string,
+): void {
+  if (!factsExtractionEnabled()) return;
+  const eligible = isFactsExtractionEligible(
+    page.type,
+    page.markdown_body,
+    page.slug,
+  );
+  if (!eligible.ok) return;
+  const sessionId = writeSource ?? page.source_id ?? "default";
+  getFactsQueue().enqueue(
+    () =>
+      extractFactsForPage(storage, {
+        slug: page.slug,
+        type: page.type,
+        body: page.markdown_body,
+        ...(page.source_id ? { sourceId: page.source_id } : {}),
+      }).then(() => undefined),
+    sessionId,
+  );
 }
 
 /**
@@ -886,7 +929,10 @@ async function callPageAppend(
       await syncVerbLinksForPage(storage, r.slug, fresh.type, body, writeSource);
     }
     await stampLinksExtracted(storage.engine(), r.slug, writeSource); // watermark (mig 051)
-    if (fresh) searchIndexed = await mirrorPageToSearch(storage, fresh);
+    if (fresh) {
+      searchIndexed = await mirrorPageToSearch(storage, fresh);
+      maybeEnqueueFactExtraction(storage, fresh, writeSource);
+    }
   }
   await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
   return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
