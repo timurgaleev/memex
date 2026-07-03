@@ -41,8 +41,11 @@ export interface ChunkerOptions {
    * heading section -- never across a heading boundary (a heading is a semantic
    * break, not an arbitrary cut). Snapped to a sentence/word boundary and capped
    * at half the previous chunk so it never duplicates a majority of a chunk.
-   * Default comes from `MEMEX_CHUNK_OVERLAP` (default 0 = OFF, byte-identical to
-   * the no-overlap behavior; existing indexes are unchanged until re-indexed).
+   * Default comes from `MEMEX_CHUNK_OVERLAP`, else `DEFAULT_OVERLAP_CHARS`
+   * (~50 words, ON). The default applies to NEWLY indexed pages only; chunks
+   * already stored keep their current overlap until the document is re-indexed,
+   * so flipping the default never forces a corpus-wide reindex. Set `0` (opt or
+   * env) to disable.
    */
   overlapChars?: number;
 }
@@ -60,12 +63,24 @@ const DEFAULT_MAX = 4000;
 const DEFAULT_MIN = 200;
 /** Below this many chars an overlap window is not worth prepending. */
 const MIN_OVERLAP_CHARS = 16;
+/**
+ * Default trailing overlap (chars) for NEWLY indexed pages — ~50 words of
+ * sentence-aware bridge, matching the reference's default. ON by default so a
+ * boundary-straddling fact stays retrievable from both size-split chunks. This
+ * changes only what a fresh index/reindex produces: chunks already stored keep
+ * their current (overlap-off) content until the document is re-indexed, so no
+ * corpus-wide reindex is forced. Turn off per-index with `overlapChars: 0` or
+ * corpus-wide with `MEMEX_CHUNK_OVERLAP=0`.
+ */
+export const DEFAULT_OVERLAP_CHARS = 300;
 
 /**
- * Resolve the overlap window: explicit option wins, else `MEMEX_CHUNK_OVERLAP`,
- * else 0 (OFF). A non-numeric / negative env value fails SAFE to 0 (chunking
- * must never break indexing). Capped at half of `maxChars` so overlap can never
- * dominate a chunk.
+ * Resolve the overlap window (ON by default). Precedence:
+ *   - explicit `opt` wins (a caller passing `0` disables; a negative/NaN opt
+ *     fails SAFE to 0 — chunking must never break indexing);
+ *   - else `MEMEX_CHUNK_OVERLAP`: `0` disables, a positive value sets it, and an
+ *     unset OR unparseable value falls back to `DEFAULT_OVERLAP_CHARS` (ON).
+ * Capped at half of `maxChars` so overlap can never dominate a chunk.
  */
 export function resolveOverlapChars(
   opt: number | undefined,
@@ -74,9 +89,16 @@ export function resolveOverlapChars(
   let v = opt;
   if (v === undefined) {
     const raw = process.env.MEMEX_CHUNK_OVERLAP;
-    v = raw === undefined ? 0 : Number.parseInt(raw, 10);
+    if (raw === undefined || raw.trim() === "") {
+      v = DEFAULT_OVERLAP_CHARS; // unset → ON by default
+    } else {
+      const parsed = Number.parseInt(raw, 10);
+      // A parseable value (incl. 0 = explicit disable) wins; garbage → default.
+      v = Number.isFinite(parsed) ? parsed : DEFAULT_OVERLAP_CHARS;
+    }
   }
-  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (!Number.isFinite(v) || v < 0) return 0; // explicit negative/NaN opt → off
+  if (v === 0) return 0; // explicit disable
   return Math.min(Math.floor(v), Math.floor(maxChars / 2));
 }
 

@@ -54,6 +54,49 @@ export interface CachedQuery {
   resultIds: string[];
 }
 
+/** A semantic (embedding-cosine) cache hit: a {@link CachedQuery} plus the
+ *  cosine similarity of the matched stored query (0..1). */
+export interface SemanticCachedQuery extends CachedQuery {
+  similarity: number;
+}
+
+/** Default cosine-similarity floor for a semantic cache hit. */
+export const DEFAULT_SEMANTIC_SIMILARITY = 0.92;
+/** Default TTL (seconds) bounding how old a semantic hit may be. */
+export const DEFAULT_SEMANTIC_TTL_SECONDS = 3600;
+
+export interface SemanticCacheConfig {
+  enabled: boolean;
+  similarity: number;
+  ttlSeconds: number;
+}
+
+/**
+ * Resolve the semantic-arm config from env (fail-safe, never throws — the cache
+ * is a pure optimization):
+ *   - `MEMEX_QUERY_CACHE_SEMANTIC=1` turns the arm ON (default OFF);
+ *   - `MEMEX_QUERY_CACHE_SIM` sets the cosine floor (default 0.92), clamped to
+ *     (0, 1] — a non-positive / >1 / garbage value falls back to the default;
+ *   - `MEMEX_QUERY_CACHE_TTL` sets the TTL seconds (default 3600), floored to a
+ *     positive integer (garbage → default).
+ */
+export function resolveSemanticCacheConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): SemanticCacheConfig {
+  const enabled = env["MEMEX_QUERY_CACHE_SEMANTIC"] === "1";
+  const simRaw = Number(env["MEMEX_QUERY_CACHE_SIM"]);
+  const similarity =
+    Number.isFinite(simRaw) && simRaw > 0 && simRaw <= 1
+      ? simRaw
+      : DEFAULT_SEMANTIC_SIMILARITY;
+  const ttlRaw = Number(env["MEMEX_QUERY_CACHE_TTL"]);
+  const ttlSeconds =
+    Number.isFinite(ttlRaw) && ttlRaw > 0
+      ? Math.floor(ttlRaw)
+      : DEFAULT_SEMANTIC_TTL_SECONDS;
+  return { enabled, similarity, ttlSeconds };
+}
+
 /**
  * Post-fusion ranking version. Bump this string whenever the ORDER a search
  * returns changes for reasons NOT already captured by the cache key (query, k,
@@ -182,6 +225,26 @@ export function queryCacheKey(
 }
 
 /**
+ * Bucket key for the semantic arm: a hash of every ranking input EXCEPT the
+ * query text (k, source scope, rerank, ranking signature). A semantic cosine
+ * match is confined to rows with the same bucket, so a paraphrase can only
+ * borrow a ranking computed under identical knobs. Mirrors {@link queryCacheKey}
+ * exactly, minus the query term.
+ */
+export function queryCacheBucketKey(
+  k: number,
+  sourceIds: readonly string[] | undefined,
+  rerank: boolean,
+  rankingSig: string = rankingSignature(),
+): string {
+  const scope = sourceIds && sourceIds.length > 0
+    ? [...sourceIds].map((s) => s.toLowerCase()).sort()
+    : [];
+  const material = JSON.stringify([k, scope, rerank ? 1 : 0, rankingSig]);
+  return createHash("sha256").update(material).digest("hex");
+}
+
+/**
  * Return the cached ranking iff it exists AND passes the two-layer freshness
  * gate (Layer 1 clock bookmark OR Layer 2 per-document snapshot).
  */
@@ -203,6 +266,59 @@ export async function getCachedQuery(
     : [];
   if (ids.length === 0) return null;
   return { intent: row.intent, resultIds: ids };
+}
+
+/**
+ * Semantic (embedding-cosine) cache read — the paraphrase-tolerant arm. Only
+ * called on an exact-match MISS, and only when the vector arm is healthy (the
+ * caller passes the freshly-computed query vector; a degraded/null vector must
+ * skip this path). Matches the nearest stored query embedding that:
+ *   - shares the same `bucket_key` (identical k / scope / rerank / ranking sig);
+ *   - has a non-NULL stored embedding;
+ *   - is within the TTL window (`created_at > now - ttlSeconds`);
+ *   - passes the SAME two-layer freshness gate as the exact path
+ *     ({@link cacheFreshClause}); and
+ *   - is within `similarity` cosine of the probe (distance < 1 - similarity).
+ *
+ * Returns the cached ranking + the matched similarity, or null on any miss.
+ * Pure optimization: the caller wraps this in try/catch and falls through to a
+ * full search on any error.
+ */
+export async function getSemanticCachedQuery(
+  engine: Engine,
+  bucketKey: string,
+  queryVector: readonly number[],
+  clockValue: number,
+  cfg: { similarity: number; ttlSeconds: number },
+): Promise<SemanticCachedQuery | null> {
+  if (queryVector.length === 0) return null;
+  const distanceThreshold = 1 - cfg.similarity;
+  const vec = JSON.stringify([...queryVector]);
+  const r = await engine.query<{
+    intent: string | null;
+    result_ids: unknown;
+    similarity: number | string;
+  }>(
+    `SELECT qc.intent, qc.result_ids,
+            1 - (qc.query_embedding <=> $1::vector) AS similarity
+       FROM query_cache qc
+      WHERE qc.bucket_key = $2
+        AND qc.query_embedding IS NOT NULL
+        AND qc.created_at > NOW() - ($5 || ' seconds')::interval
+        AND (qc.query_embedding <=> $1::vector) < $4
+        AND ${cacheFreshClause("$3")}
+      ORDER BY qc.query_embedding <=> $1::vector ASC
+      LIMIT 1`,
+    [vec, bucketKey, clockValue, distanceThreshold, String(cfg.ttlSeconds)],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  const ids = Array.isArray(row.result_ids)
+    ? (row.result_ids as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  if (ids.length === 0) return null;
+  const sim = typeof row.similarity === "number" ? row.similarity : Number(row.similarity);
+  return { intent: row.intent, resultIds: ids, similarity: Number.isFinite(sim) ? sim : 0 };
 }
 
 export interface CacheStats {
@@ -319,20 +435,33 @@ export async function putCachedQuery(
   resultIds: readonly string[],
   clockValue: number,
   documentIds: readonly string[] = [],
+  semantic?: { bucketKey: string; queryEmbedding?: readonly number[] },
 ): Promise<void> {
+  // Semantic-arm columns (migration 065). `bucket_key` is cheap and always
+  // stored when provided; `query_embedding` is stored only when the caller
+  // supplies a vector (semantic arm on AND vector arm healthy) — otherwise NULL,
+  // so the default path writes no extra vector on every search.
+  const bucketKey = semantic?.bucketKey ?? null;
+  const queryEmbedding =
+    semantic?.queryEmbedding && semantic.queryEmbedding.length > 0
+      ? JSON.stringify([...semantic.queryEmbedding])
+      : null;
   await engine.query(
-    `INSERT INTO query_cache (cache_key, query, k, intent, result_ids, clock_value, doc_generations)
+    `INSERT INTO query_cache (cache_key, query, k, intent, result_ids, clock_value, doc_generations, bucket_key, query_embedding)
      SELECT $1, $2, $3, $4, $5::jsonb, $6,
        COALESCE(
          (SELECT jsonb_object_agg(d.id, d.generation)
             FROM documents d WHERE d.id = ANY($7::text[])),
-         '{}'::jsonb)
+         '{}'::jsonb),
+       $8, $9::vector
      WHERE COALESCE((SELECT value FROM document_generation_clock WHERE id = 1), 0) = $6
      ON CONFLICT (cache_key) DO UPDATE SET
        intent          = EXCLUDED.intent,
        result_ids      = EXCLUDED.result_ids,
        clock_value     = EXCLUDED.clock_value,
        doc_generations = EXCLUDED.doc_generations,
+       bucket_key      = EXCLUDED.bucket_key,
+       query_embedding = EXCLUDED.query_embedding,
        created_at      = NOW()`,
     [
       key,
@@ -342,6 +471,8 @@ export async function putCachedQuery(
       JSON.stringify([...resultIds]),
       clockValue,
       [...documentIds],
+      bucketKey,
+      queryEmbedding,
     ],
   );
 }

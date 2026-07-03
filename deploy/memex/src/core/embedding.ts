@@ -41,6 +41,25 @@ export function resolveEmbedDimensions(
 export const EMBED_DIMENSIONS = resolveEmbedDimensions();
 const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
 
+/** Provider tag folded into the embedding signature. Titan is served through
+ *  Bedrock; a future provider swap changes this AND the model id together. */
+const EMBED_PROVIDER = "bedrock";
+
+/**
+ * Provenance signature for a stored embedding: `provider:model:dims`. Stamped
+ * on each `embeddings` row at write time (migration 066) so a model or
+ * dimension swap is self-describing. The stale/backfill loop compares a row's
+ * stored signature to the current one and re-embeds only rows whose signature
+ * actually differs — a NULL (legacy, pre-signature) row is left untouched, so
+ * turning this on never forces a full re-embed of the existing corpus.
+ */
+export function embeddingSignature(
+  modelId: string = DEFAULT_MODEL_ID,
+  dims: number = EMBED_DIMENSIONS,
+): string {
+  return `${EMBED_PROVIDER}:${modelId}:${dims}`;
+}
+
 let _defaultClient: BedrockRuntimeClient | null = null;
 
 function getClient(): BedrockRuntimeClient {

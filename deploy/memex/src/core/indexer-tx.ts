@@ -21,6 +21,7 @@ import {
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { embeddingSignature } from "./embedding.ts";
 import { wellFormJsonbObject } from "./well-form.ts";
 import { resolveEffectiveDate } from "./effective-date.ts";
 
@@ -213,10 +214,16 @@ export async function writeDocumentTransaction(
       );
 
       if (ch.embedding) {
+        const embModel = doc.embeddingModel ?? "unknown";
         await tx.query(
-          `INSERT INTO embeddings (chunk_id, vector, model)
-           VALUES ($1, $2::vector, $3)`,
-          [cid, JSON.stringify(ch.embedding), doc.embeddingModel ?? "unknown"],
+          `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
+           VALUES ($1, $2::vector, $3, $4)`,
+          [
+            cid,
+            JSON.stringify(ch.embedding),
+            embModel,
+            embeddingSignature(embModel, ch.embedding.length),
+          ],
         );
         embeddingsWritten++;
       }

@@ -64,7 +64,9 @@ describe("chunkMarkdown", () => {
     const sentence = "Wir besprechen die AWS Backup Strategie heute. ";
     const blob = sentence.repeat(400); // ~19k chars, single paragraph
     const md = `# Voice Note\n\n${blob}`;
-    const r = chunkMarkdown(md, { maxChars: 1500, minChars: 0 });
+    // Isolate the pure size-split ceiling (overlap OFF): the sibling test below
+    // covers the with-overlap 2x safety ceiling.
+    const r = chunkMarkdown(md, { maxChars: 1500, minChars: 0, overlapChars: 0 });
     expect(r.chunks.length).toBeGreaterThan(1);
     for (const c of r.chunks) {
       expect(c.length).toBeLessThanOrEqual(1500);

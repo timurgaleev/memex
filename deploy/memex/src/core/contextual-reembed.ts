@@ -43,7 +43,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
-import { embedText, DEFAULT_MODEL_ID } from "./embedding.ts";
+import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
 import { embedSkipFilterFragment } from "./embed-skip.ts";
 import {
   buildContextualPrefix,
@@ -321,11 +321,13 @@ export async function runContextualReembed(
       await engine.transaction(async (tx) => {
         for (const w of writes) {
           await tx.query(
-            `INSERT INTO embeddings (chunk_id, vector, model)
-             VALUES ($1, $2::vector, $3)
+            `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
+             VALUES ($1, $2::vector, $3, $4)
              ON CONFLICT (chunk_id) DO UPDATE
-               SET vector = EXCLUDED.vector, model = EXCLUDED.model`,
-            [w.id, JSON.stringify(w.vector), model],
+               SET vector = EXCLUDED.vector,
+                   model = EXCLUDED.model,
+                   embedding_signature = EXCLUDED.embedding_signature`,
+            [w.id, JSON.stringify(w.vector), model, embeddingSignature(model, w.vector.length)],
           );
           await tx.query(
             "UPDATE chunks SET contextual_embedded = TRUE WHERE id = $1",
