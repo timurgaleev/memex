@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — the last two Tier-2 items (reference parity, operator-approved)
+- **`think` auto-anchor.** When you ask a temporal question ("when did X change,
+  is it still…") and don't name an anchor, `think` now derives candidate entities
+  from the question text + the retrieved entity-page slugs, resolves them to
+  canonical slugs (dropping fallback-slugify guesses), and injects each one's
+  `<trajectory>` how-it-changed log. Deterministic, default-ON
+  (`MEMEX_THINK_AUTO_ANCHOR`), temporal/knowledge_update intents only, fail-soft.
+- **`patterns` cycle phase — cross-session theme miner.** Reads recent reflection
+  pages (configurable slug prefix, `MEMEX_PATTERNS_REFLECTION_PREFIX`, default
+  `reflections/`), runs one budget-capped Sonnet pass to surface themes recurring
+  across ≥`MEMEX_PATTERNS_MIN_EVIDENCE` distinct reflections, and writes one
+  `patterns/<topic-slug>` page each (citing its evidence). Paid, default-OFF
+  (`MEMEX_PATTERNS`). This is the one synthesis phase that writes real pages;
+  reads and writes are pinned to a single `source_id` so one tenant's reflections
+  are never mined into another's pattern page.
+
 ## [1.74.0] — 2026-07-03
 
 ### Fixed
