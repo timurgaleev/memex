@@ -22,9 +22,16 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { visibilityClause } from "../visibility.ts";
+import { chunkFilterClauses, type ChunkFilters } from "./filters.ts";
 
 export interface KeywordSearchOptions {
   sourceIds?: readonly string[];
+  /**
+   * Pushed-down lang / symbol_kind / since / until predicates. Folded into the
+   * WHERE clause so the LIMIT budget is spent on rows that already match — a
+   * filtered match ranking below the fanout is no longer dropped. See filters.ts.
+   */
+  filters?: ChunkFilters;
 }
 
 export async function keywordSearch(
@@ -35,29 +42,25 @@ export async function keywordSearch(
 ): Promise<string[]> {
   const sourceIds = opts.sourceIds ?? [];
   const vis = visibilityClause("d");
-  if (sourceIds.length === 0) {
-    // Join documents so the visibility filter (deleted/archived/quarantine)
-    // applies — soft-deleted/quarantined docs must never be candidates.
-    const r = await engine.query<{ id: string }>(
-      `SELECT c.id FROM chunks c
-       JOIN documents d ON d.id = c.document_id
-       WHERE c.search_vector @@ plainto_tsquery('simple', $1)
-         AND ${vis}
-       ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
-       LIMIT $2`,
-      [query, limit],
-    );
-    return r.rows.map((row) => row.id);
+  // Join documents so the visibility filter (deleted/archived/quarantine)
+  // applies — soft-deleted/quarantined docs must never be candidates.
+  const params: unknown[] = [query];
+  let sourceFilter = "";
+  if (sourceIds.length > 0) {
+    params.push(sourceIds);
+    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
   }
+  const filterClauses = chunkFilterClauses(params, opts.filters);
+  params.push(limit);
+  const limitParam = `$${params.length}`;
   const r = await engine.query<{ id: string }>(
     `SELECT c.id FROM chunks c
      JOIN documents d ON d.id = c.document_id
      WHERE c.search_vector @@ plainto_tsquery('simple', $1)
-       AND d.source_id = ANY($2::text[])
-       AND ${vis}
+       AND ${vis}${sourceFilter}${filterClauses}
      ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
-     LIMIT $3`,
-    [query, sourceIds, limit],
+     LIMIT ${limitParam}`,
+    params,
   );
   return r.rows.map((row) => row.id);
 }
