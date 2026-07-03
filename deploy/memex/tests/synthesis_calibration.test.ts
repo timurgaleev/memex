@@ -14,6 +14,7 @@ import {
   parseBiasTags,
   parsePatternStatements,
 } from "../src/core/synthesis/calibration.ts";
+import { getCalibrationProfile } from "../src/core/synthesis/reads.ts";
 import type { LlmFn } from "../src/core/llm/haiku.ts";
 
 let tmp: string;
@@ -44,6 +45,35 @@ async function seedGradedTake(verdict: string): Promise<void> {
     `INSERT INTO synth_take_grades (take_id, prompt_version, evidence_signature, verdict, confidence, model_id)
      VALUES ($1, 'v1-nova', $2, $3, 0.8, 'm')`,
     [Number(rows[0]?.id), `sig-${takeCounter}`, verdict],
+  );
+}
+
+/** Register a tenant so the profile FK to sources(id) is satisfiable. */
+async function seedSource(id: string): Promise<void> {
+  await engine.query(
+    `INSERT INTO sources (id, kind, path_prefix) VALUES ($1, 'other', $2)
+       ON CONFLICT (id) DO NOTHING`,
+    [id, `__${id}__`],
+  );
+}
+
+/** Seed a graded take owned by `sourceId` (via its source document). */
+async function seedGradedTakeForSource(sourceId: string, verdict: string): Promise<void> {
+  takeCounter += 1;
+  const docId = `doc-${sourceId}-${takeCounter}`;
+  await engine.query(
+    `INSERT INTO documents (id, source_path, source_id) VALUES ($1, $2, $3)`,
+    [docId, `/x/${docId}.md`, sourceId],
+  );
+  const { rows } = await engine.query<{ id: number }>(
+    `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, model_id)
+     VALUES ($1, $2, 'h', 'v1-nova', 'claim', 'm') RETURNING id`,
+    [`ct-${sourceId}-${takeCounter}`, docId],
+  );
+  await engine.query(
+    `INSERT INTO synth_take_grades (take_id, prompt_version, evidence_signature, verdict, confidence, model_id)
+     VALUES ($1, 'v1-nova', $2, $3, 0.8, 'm')`,
+    [Number(rows[0]?.id), `sig-${sourceId}-${takeCounter}`, verdict],
   );
 }
 
@@ -109,5 +139,38 @@ describe("calibrationProfilePhase", () => {
     expect(r.profileWritten).toBe(true);
     expect(r.errors.length).toBeGreaterThan(0);
     expect(r.patternStatements.length).toBe(1); // template fallback
+  });
+});
+
+describe("per-source calibration (tenancy)", () => {
+  it("writes one profile per source; a scoped read returns only that source, no blend", async () => {
+    await seedSource("tenant-a");
+    await seedSource("tenant-b");
+    // tenant-a: a strong track record; tenant-b: a weak one.
+    for (let i = 0; i < 5; i++) await seedGradedTakeForSource("tenant-a", "correct");
+    for (let i = 0; i < 5; i++) await seedGradedTakeForSource("tenant-b", "incorrect");
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    expect(r.profileWritten).toBe(true);
+    expect(r.profiles.length).toBe(2);
+
+    const a = await getCalibrationProfile(engine, ["tenant-a"]);
+    const b = await getCalibrationProfile(engine, ["tenant-b"]);
+    expect(a?.source_id).toBe("tenant-a");
+    expect(a?.total_graded).toBe(5);
+    expect(a?.accuracy).toBeCloseTo(1.0, 5); // 5/5 correct — never blended with b
+    expect(b?.source_id).toBe("tenant-b");
+    expect(b?.total_graded).toBe(5);
+    expect(b?.accuracy).toBeCloseTo(0.0, 5); // 0/5 correct — never blended with a
+  });
+
+  it("excludes other tenants' profiles fail-closed for a scoped caller", async () => {
+    await seedSource("tenant-a");
+    for (let i = 0; i < 5; i++) await seedGradedTakeForSource("tenant-a", "correct");
+    await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+
+    // A caller scoped to a tenant with no profile sees nothing — not tenant-a's.
+    const other = await getCalibrationProfile(engine, ["tenant-z"]);
+    expect(other).toBeNull();
   });
 });

@@ -410,7 +410,7 @@ export async function dispatchTool(
       case "list_takes":
         return await callListTakes(storage, args, readSources);
       case "get_calibration_profile":
-        return await callGetCalibrationProfile(storage);
+        return await callGetCalibrationProfile(storage, readSources);
       default:
         throw new OperationError(
           "not_found",
@@ -1902,7 +1902,9 @@ async function callListTakes(
 
 async function callGetCalibrationProfile(
   storage: Storage,
+  readSources?: string[],
 ): Promise<ToolCallResult> {
-  const profile = await getCalibrationProfile(storage.engine());
+  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const profile = await getCalibrationProfile(storage.engine(), sourceIds);
   return jsonResult({ ok: true, profile });
 }
