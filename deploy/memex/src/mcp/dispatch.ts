@@ -76,6 +76,7 @@ import {
   findOrphans,
   findExperts,
   findContradictions,
+  listProbedContradictions,
   findTrajectory,
   type FindOrphansOptions,
   type FindExpertsOptions,
@@ -1583,8 +1584,17 @@ async function callFindContradictions(
   if (typeof args["slug"] === "string") opts.slug = args["slug"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const contradictions = await findContradictions(storage, opts);
-  return jsonResult({ ok: true, contradictions });
+  // Asserted `contradicts` edges (deterministic graph) + LLM-suspected findings
+  // cached by the probe-contradictions phase (migration 064; [] on a pre-064
+  // brain or when the probe has never run). Same tenant scope for both.
+  const probedOpts: { limit?: number; sourceIds?: string[] } = {};
+  if (typeof args["limit"] === "number") probedOpts.limit = args["limit"];
+  if (readSources && readSources.length) probedOpts.sourceIds = readSources;
+  const [contradictions, probed] = await Promise.all([
+    findContradictions(storage, opts),
+    listProbedContradictions(storage, probedOpts),
+  ]);
+  return jsonResult({ ok: true, contradictions, probed });
 }
 
 async function callFindTrajectory(

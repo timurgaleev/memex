@@ -22,6 +22,7 @@ import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } f
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
+import { embedText } from "../embedding.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
 export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
@@ -70,6 +71,33 @@ const DEFAULT_MAX_TAKES = 25;
 const MIN_DOC_CHARS = 400;
 const MAX_DOC_CHARS_TO_LLM = 50_000;
 
+/** Default minimum take age before it is graded — ~6 months. A take needs time
+ *  to be resolvable; grading a claim minutes after it was written wastes a paid
+ *  judge on a verdict that is almost always 'unresolvable'. */
+const DEFAULT_GRADE_MIN_AGE_DAYS = 182;
+
+/** Resolve the grade age gate (days) from `MEMEX_GRADE_MIN_AGE_DAYS`. A blank
+ *  env keeps the 6-month default; `0` disables the gate (grade immediately). */
+export function gradeMinAgeDays(
+  raw: string | undefined = process.env.MEMEX_GRADE_MIN_AGE_DAYS,
+): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_GRADE_MIN_AGE_DAYS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `MEMEX_GRADE_MIN_AGE_DAYS must be a non-negative number, got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
+}
+
+/** Opt-in claim embedding at propose time (feeds `think`'s take VECTOR stream).
+ *  Default-OFF: an un-embedded take still recalls via the keyword stream, so the
+ *  vector index is a pure enhancement the operator turns on when they want it. */
+export function takeEmbedEnabled(): boolean {
+  return process.env.MEMEX_TAKE_EMBED === "1";
+}
+
 export const TAKE_KINDS = ["prediction", "judgment", "bet"] as const;
 export type TakeKind = (typeof TAKE_KINDS)[number];
 
@@ -83,6 +111,12 @@ export interface ProposeTakesOptions {
   llmFn?: LlmFn;
   modelId?: string;
   promptVersion?: string;
+  /**
+   * Inject a claim embedder (tests). Default: the Bedrock Titan path when
+   * `MEMEX_TAKE_EMBED=1`, else null (no embedding — the column stays NULL and
+   * the take recalls via the keyword stream only). Fail-soft per take.
+   */
+  embed?: ((text: string) => Promise<number[]>) | null;
 }
 
 export interface ProposeTakesResult {
@@ -212,6 +246,13 @@ export async function proposeTakesPhase(
   const maxDocs = opts.maxDocs ?? DEFAULT_MAX_DOCS;
   const promptVersion = opts.promptVersion ?? PROPOSE_TAKES_PROMPT_VERSION;
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
+  // `undefined` → env-gated default; an explicit `null` (or OFF flag) → skip.
+  const embed =
+    opts.embed !== undefined
+      ? opts.embed
+      : takeEmbedEnabled()
+        ? (t: string) => embedText(t)
+        : null;
   const result: ProposeTakesResult = {
     documentsScanned: 0,
     documentsProcessed: 0,
@@ -242,13 +283,23 @@ export async function proposeTakesPhase(
     result.documentsProcessed += 1;
     for (const take of takes) {
       const key = takeKey(doc.id, doc.contentHash16, promptVersion, take.claim_text);
+      // Embed the claim so `think`'s take VECTOR stream can rank it (opt-in;
+      // fail-soft — an embed error leaves the column NULL, keyword recall intact).
+      let embedding: string | null = null;
+      if (embed) {
+        try {
+          embedding = JSON.stringify(await embed(take.claim_text));
+        } catch (e) {
+          result.errors.push(`${doc.id} take embed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       try {
         await engine.query(
           `INSERT INTO synth_takes
-             (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, domain, status, model_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', $9)
+             (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, domain, status, model_id, embedding)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', $9, $10::vector)
            ON CONFLICT (take_key) DO NOTHING`,
-          [key, doc.id, doc.contentHash16, promptVersion, take.claim_text, take.kind, take.weight, take.domain ?? null, modelId],
+          [key, doc.id, doc.contentHash16, promptVersion, take.claim_text, take.kind, take.weight, take.domain ?? null, modelId, embedding],
         );
         result.takesQueued += 1;
       } catch (e) {
@@ -267,6 +318,11 @@ export interface GradeTakesOptions {
   llmFn?: LlmFn;
   modelId?: string;
   promptVersion?: string;
+  /**
+   * Minimum take age (days) before it is eligible for grading. Default: 6
+   * months (`MEMEX_GRADE_MIN_AGE_DAYS`, then 182). `0` disables the gate.
+   */
+  minAgeDays?: number;
   /** Inject evidence retrieval (tests). Default: hybrid-search over the corpus. */
   evidenceFn?: (claim: string) => Promise<string>;
   /**
@@ -495,6 +551,7 @@ export async function gradeTakesPhase(
   opts: GradeTakesOptions = {},
 ): Promise<GradeTakesResult> {
   const maxTakes = opts.maxTakes ?? DEFAULT_MAX_TAKES;
+  const minAgeDays = opts.minAgeDays ?? gradeMinAgeDays();
   const useEnsemble = opts.ensemble ?? takeEnsembleEnabled();
   const promptVersion =
     opts.promptVersion ??
@@ -514,18 +571,24 @@ export async function gradeTakesPhase(
     errors: [],
   };
 
-  // Queued takes that have no grade yet for this prompt version, oldest first.
+  // Takes old enough to be resolvable, with no grade yet for this prompt
+  // version, oldest first. Status IN ('queued','graded'): a 'graded' take (one
+  // already graded under a DIFFERENT prompt version) is still eligible for a
+  // re-grade under the current version — the age gate + NOT EXISTS keep it
+  // from being re-graded under the SAME version. `accepted`/`rejected` are
+  // operator-terminal and excluded.
   const { rows: takes } = await engine.query<{ id: number; claim_text: string }>(
     `SELECT t.id, t.claim_text
        FROM synth_takes t
-      WHERE t.status = 'queued'
+      WHERE t.status IN ('queued', 'graded')
+        AND t.generated_at <= now() - ($2 * interval '1 day')
         AND NOT EXISTS (
           SELECT 1 FROM synth_take_grades g
            WHERE g.take_id = t.id AND g.prompt_version = $1
         )
       ORDER BY t.id ASC
-      LIMIT $2`,
-    [promptVersion, maxTakes],
+      LIMIT $3`,
+    [promptVersion, minAgeDays, maxTakes],
   );
 
   for (const take of takes) {
@@ -599,6 +662,14 @@ export async function gradeTakesPhase(
       );
       if (written.length > 0) result.gradesWritten += 1;
       else result.cacheHits += 1;
+      // Advance the lifecycle: a graded take leaves the 'queued' pool so
+      // `list_takes(status='queued')` stops surfacing it forever. Idempotent
+      // (WHERE status='queued'); 'accepted'/'rejected' are operator-terminal
+      // and never downgraded here.
+      await engine.query(
+        `UPDATE synth_takes SET status = 'graded' WHERE id = $1 AND status = 'queued'`,
+        [take.id],
+      );
     } catch (e) {
       result.errors.push(`take ${take.id} grade write: ${e instanceof Error ? e.message : String(e)}`);
     }

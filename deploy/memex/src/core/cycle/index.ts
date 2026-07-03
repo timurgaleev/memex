@@ -58,6 +58,10 @@ import {
   calibrationProfilePhase,
   type CalibrationProfileResult,
 } from "../synthesis/calibration.ts";
+import {
+  probeContradictionsPhase,
+  type ProbeContradictionsResult,
+} from "../synthesis/contradictions.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 
 export type PhaseName =
@@ -79,7 +83,8 @@ export type PhaseName =
   | "synthesize-concepts"
   | "propose-takes"
   | "grade-takes"
-  | "calibration-profile";
+  | "calibration-profile"
+  | "probe-contradictions";
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "lint",
@@ -108,6 +113,7 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
   "propose-takes",
   "grade-takes",
   "calibration-profile",
+  "probe-contradictions",
 ];
 
 /**
@@ -144,7 +150,8 @@ export interface PhaseResult {
     | SynthesizeConceptsResult
     | ProposeTakesResult
     | GradeTakesResult
-    | CalibrationProfileResult;
+    | CalibrationProfileResult
+    | ProbeContradictionsResult;
   error?: string;
 }
 
@@ -216,7 +223,8 @@ export function deriveStatus(
     phase === "synthesize-concepts" ||
     phase === "propose-takes" ||
     phase === "grade-takes" ||
-    phase === "calibration-profile"
+    phase === "calibration-profile" ||
+    phase === "probe-contradictions"
   ) {
     // Synthesis phases per-item fail-open: a non-empty errors[] means some
     // LLM calls failed but the run completed → warn (never fails the cycle).
@@ -507,6 +515,16 @@ export async function runCycleOnce(
           engine,
           p,
           () => calibrationProfilePhase(engine, options.synthesis ?? {}),
+          progress,
+        );
+        break;
+      case "probe-contradictions":
+        r = await runPhase(
+          engine,
+          p,
+          // Paid Sonnet, default-OFF (gated on MEMEX_PROBE_CONTRADICTIONS). Reads
+          // its own model/budget from env; no Haiku synthesis seam applies here.
+          () => probeContradictionsPhase(engine, {}),
           progress,
         );
         break;
