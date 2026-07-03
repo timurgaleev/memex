@@ -265,7 +265,16 @@ async function findExpertsByTopic(
   // 1. Topic match. Widen the candidate pool (×10, floor 50) so a page's best
   //    chunk score survives chunk-grain fan-out before we collapse to pages.
   const innerK = Math.max(limit * 10, 50);
-  const searchOpts: SearchOptions = { k: innerK };
+  // Keep the topic signal deterministic + free (the doc contract above): pin the
+  // intent so hybridSearch skips its per-query Haiku intent classifier, disable
+  // query expansion (another Haiku call), and drop the backlink boost so ranking
+  // reflects topic match, not hub popularity.
+  const searchOpts: SearchOptions = {
+    k: innerK,
+    intent: "topic",
+    noExpansion: true,
+    backlinkBoost: false,
+  };
   if (sources) searchOpts.sourceIds = sources;
   if (opts.embedQuery) searchOpts.embedQuery = opts.embedQuery;
   let hits: SearchHit[];
