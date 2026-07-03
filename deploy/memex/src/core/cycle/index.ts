@@ -63,6 +63,10 @@ import {
   type ProbeContradictionsResult,
 } from "../synthesis/contradictions.ts";
 import {
+  patternsPhase,
+  type PatternsPhaseResult,
+} from "../synthesis/patterns.ts";
+import {
   consolidateFactsPhase,
   type ConsolidateFactsResult,
 } from "./consolidate-facts.ts";
@@ -93,6 +97,7 @@ export type PhaseName =
   | "grade-takes"
   | "calibration-profile"
   | "probe-contradictions"
+  | "patterns"
   // Facts-maintenance phases — opt-in, default-OFF (NOT in ALL_PHASES).
   // consolidate-facts is deterministic + free; conversation-facts-backfill is
   // paid (Sonnet) and additionally gated by MEMEX_FACTS_BACKFILL.
@@ -127,6 +132,7 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
   "grade-takes",
   "calibration-profile",
   "probe-contradictions",
+  "patterns",
 ];
 
 /**
@@ -176,6 +182,7 @@ export interface PhaseResult {
     | GradeTakesResult
     | CalibrationProfileResult
     | ProbeContradictionsResult
+    | PatternsPhaseResult
     | ConsolidateFactsResult
     | ConversationFactsBackfillResult;
   error?: string;
@@ -251,6 +258,7 @@ export function deriveStatus(
     phase === "grade-takes" ||
     phase === "calibration-profile" ||
     phase === "probe-contradictions" ||
+    phase === "patterns" ||
     phase === "consolidate-facts" ||
     phase === "conversation-facts-backfill"
   ) {
@@ -556,6 +564,29 @@ export async function runCycleOnce(
           progress,
         );
         break;
+      case "patterns": {
+        // Paid Sonnet, default-OFF (MEMEX_PATTERNS). Writes real patterns/<slug>
+        // pages, so it needs the Storage handle (putPage), not just the engine.
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? patternsPhase(storage, {})
+              : Promise.resolve<PatternsPhaseResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  reflectionsConsidered: 0,
+                  patternsWritten: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
       // Facts-maintenance phases — opt-in, default-OFF (see FACTS_MAINT_PHASES).
       case "consolidate-facts":
         r = await runPhase(engine, p, () => consolidateFactsPhase(engine), progress);
