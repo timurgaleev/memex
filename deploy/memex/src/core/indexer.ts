@@ -19,6 +19,14 @@ import { stripFactsFence } from "./facts-fence.ts";
 import { embedText } from "./embedding.ts";
 import { isEmbedSkipped } from "./embed-skip.ts";
 import {
+  assessContentSanity,
+  stampSanityMarkers,
+  sanityGateEnabled,
+  sanityDisposition,
+  resolveSanityThresholds,
+  ContentSanityBlockError,
+} from "./content-sanity.ts";
+import {
   contextualRetrievalEnabled,
   buildContextualPrefix,
   wrapChunkForEmbedding,
@@ -161,9 +169,33 @@ export async function indexDocument(
   const model = opts.embeddingModel ?? EMBED_MODEL;
   const embed = opts.embedFn ?? embedText;
 
-  const frontmatter = input.extraFrontmatter
+  const baseFrontmatter = input.extraFrontmatter
     ? { ...parsed.frontmatter, ...input.extraFrontmatter }
     : parsed.frontmatter;
+
+  // Content-sanity gate (deterministic, free): stamp quarantine / content_flag
+  // / embed_skip markers BEFORE embedding so scraper junk, oversize dumps, and
+  // markup-heavy boilerplate can't enter the vector index. Junk is HIDDEN
+  // (quarantine + embed_skip) by default; `MEMEX_SANITY_DISPOSITION=reject`
+  // turns it into an explicit hard-block error. Oversize soft-blocks (embed_skip
+  // + content_flag); markup-heavy flags. Kill switch: `MEMEX_NO_SANITY=1`.
+  let frontmatter = baseFrontmatter;
+  if (sanityGateEnabled()) {
+    const sanity = assessContentSanity({
+      body: parsed.chunks.join("\n\n"),
+      title:
+        parsed.title ??
+        (typeof baseFrontmatter["title"] === "string"
+          ? (baseFrontmatter["title"] as string)
+          : ""),
+      page_kind: baseFrontmatter["kind"] === "code" ? "code" : undefined,
+      ...resolveSanityThresholds(),
+    });
+    if (sanity.shouldQuarantine && sanityDisposition() === "reject") {
+      throw new ContentSanityBlockError(sanity);
+    }
+    frontmatter = stampSanityMarkers(baseFrontmatter, sanity);
+  }
 
   // Embed BEFORE we touch the DB — if Bedrock fails, we don't half-write. A page
   // marked `embed_skip` is indexed + keyword-searchable but never embedded: its
