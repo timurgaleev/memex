@@ -16,6 +16,8 @@ import {
   type CandidatePair,
 } from "../src/core/synthesis/contradictions.ts";
 import { listProbedContradictions } from "../src/core/insights.ts";
+import { addFact } from "../src/core/facts.ts";
+import { registerSource } from "../src/core/sources.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
 import { BudgetTracker } from "../src/core/budget.ts";
 
@@ -148,5 +150,38 @@ describe("probeContradictionsPhase", () => {
   it("pairKey is stable + order-sensitive", () => {
     expect(pairKey("1", "2", "v")).toBe(pairKey("1", "2", "v"));
     expect(pairKey("1", "2", "v")).not.toBe(pairKey("2", "1", "v"));
+  });
+
+  // Regression: the real defaultPairs generator must NEVER pair two tenants'
+  // facts that share an entity_slug — that would leak one tenant's private fact
+  // text into the other's find_contradictions read.
+  it("defaultPairs never crosses a tenant boundary on a shared slug", async () => {
+    const SLUG = "people/alice-smith";
+    const B_MARK = "TenantB-private-marker-9931";
+    await registerSource(engine, { id: "tenantA", kind: "vault", pathPrefix: "/tenant-a" });
+    await registerSource(engine, { id: "tenantB", kind: "vault", pathPrefix: "/tenant-b" });
+    await addFact(storage, { entity_slug: SLUG, fact: "alice lives in Gotham", source_id: "tenantA" });
+    await addFact(storage, { entity_slug: SLUG, fact: "alice lives in Metropolis", source_id: "tenantA" });
+    await addFact(storage, { entity_slug: SLUG, fact: `alice ${B_MARK} lives in Gotham`, source_id: "tenantB" });
+
+    const prev = process.env.MEMEX_PROBE_CONTRADICTIONS;
+    process.env.MEMEX_PROBE_CONTRADICTIONS = "1";
+    try {
+      // No pairsFn → exercises the real SQL defaultPairs path. Judge always says
+      // "contradicts" so every generated pair would be stored.
+      await probeContradictionsPhase(engine, { sonnetFn: fakeSonnet(CONTRADICTS) });
+    } finally {
+      if (prev !== undefined) process.env.MEMEX_PROBE_CONTRADICTIONS = prev;
+      else delete process.env.MEMEX_PROBE_CONTRADICTIONS;
+    }
+
+    // tenantB's single fact has no same-tenant partner → nothing stored for it.
+    expect(await listProbedContradictions(storage, { sourceIds: ["tenantB"] })).toHaveLength(0);
+    // tenantA's two facts pair within the tenant; none of its rows may carry
+    // tenantB's private marker text.
+    const aRows = await listProbedContradictions(storage, { sourceIds: ["tenantA"] });
+    for (const row of aRows) {
+      expect(JSON.stringify(row)).not.toContain(B_MARK);
+    }
   });
 });

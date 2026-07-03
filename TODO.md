@@ -126,6 +126,22 @@ not a real isolation leak). CI has been red on this since at least v1.72.0.
 Investigate the seed/isolation-harness setup (why the page doesn't persist/read
 in this test's DB), fix, get CI green. Separate from the Tier-1 ship.
 
+### Tier-2 review follow-ups (self-review, 2026-07-03)
+- **[HIGH — FIXED]** contradiction probe `defaultPairs` paired two tenants' facts
+  on a shared slug → cross-tenant fact-text leak via `find_contradictions`. Fixed
+  with `AND f2.source_id IS NOT DISTINCT FROM f1.source_id` + regression test. Both
+  default-OFF (`MEMEX_PROBE_CONTRADICTIONS`).
+- **[LOW] facts on-write extraction** (`MEMEX_FACTS_EXTRACTION`, default-OFF): the
+  BudgetTracker is per-write only — no aggregate daily ceiling, so total spend
+  scales with write volume. And the process-singleton extraction queue is shared
+  across tenants, so one tenant's write-flood can evict another tenant's pending
+  jobs (drop-oldest, cap 100). Best-effort + re-covered by the backfill phase;
+  add an aggregate cap + per-tenant queue fairness if the feature goes always-on.
+- **[INFO] calibration in `think`**: `getCalibrationProfile(engine)` is called
+  unscoped, but `think` is CLI/`deep-synth`-only (never a tenant MCP tool), so it
+  is whole-brain by design. IF `think` is ever surfaced as a tenant tool,
+  calibration + `gatherPages`/`gatherTakes` must all take `sourceIds`.
+
 ### Tier-1 review follow-ups (from the self-review after shipping)
 - **[MEDIUM] facts supersede ↔ fence tombstone coupling.** `facts-reconcile.ts`
   builds its "forgotten" skip-set from `forgotten_at IS NOT NULL` regardless of

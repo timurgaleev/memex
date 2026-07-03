@@ -6,6 +6,47 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Whole-brain `get_chunks` now returns a tenant page's chunks.** A page's
+  search mirror is keyed `page://<sourceId>/<slug>`, but the whole-brain / static
+  bearer / multi-source read path fell back to the bare `page://<slug>` id and
+  found nothing. `getChunksForPage` now resolves the page's real owner from the
+  pages store (single-source tenant reads keep the no-query fast path); the
+  `source_id` scope filter still gates every read. Fixes the long-standing red
+  `tenant_fail_closed` CI test.
+
+### Added — brain-parity Tier-2 (reference deep-compare, brain-only)
+- **Facts: on-write extraction** (`MEMEX_FACTS_EXTRACTION`, default-OFF) — the
+  conversation→facts extractor now runs on page writes via a bounded, best-effort,
+  budget-capped queue (page-type eligibility, prompt-sanitized, tenant-scoped,
+  never blocks the write). Plus opt-in cycle phases: **`consolidate-facts`**
+  (deterministic — clusters facts per entity by embedding cosine and promotes a
+  cluster to a take, mig 061) and **`conversation-facts-backfill`** (paid, backfills
+  transcripts unattended). Forget now records a **`forgotten_reason`** (mig 062) so
+  a dedup *supersede* never suppresses an operator's fence claim.
+- **Synthesis: richer `think`** — gathers takes via VECTOR search (mig 063 adds an
+  opt-in take embedding) fused with the page/keyword arms, injects a `<trajectory>`
+  block for temporal questions, and validates citations against the gathered
+  evidence (drops fabricated refs, never fails synthesis). **Take lifecycle**: a
+  min-age grading gate (`MEMEX_GRADE_MIN_AGE_DAYS`, default 182d), a real
+  `queued→graded` status advance, and the calibration profile is now injected into
+  the `think` prompt as an anti-bias block. **Latent-contradiction probe**
+  (`MEMEX_PROBE_CONTRADICTIONS`, default-OFF, mig 064) — a paid cycle phase caches
+  LLM-suspected fact conflicts that `find_contradictions` now surfaces.
+- **Search/embeddings: semantic query-cache** (`MEMEX_QUERY_CACHE_SEMANTIC`,
+  default-OFF, mig 065) — a paraphrase hits the cache on query-embedding cosine
+  ≥0.92, keeping memex's stronger freshness model. **Embedding provenance
+  signature** (mig 066) auto-invalidates embeddings on a model/dim swap.
+  **Concurrent embed workers** (`MEMEX_EMBED_CONCURRENCY`, default 8) make a full
+  re-embed ~10× faster. Default sentence-aware chunk **overlap** for newly indexed
+  pages (existing chunks unchanged until reindexed).
+- **Substrate: `slug_aliases` redirect table** (mig 067) — a renamed/merged page
+  leaves a durable source-scoped redirect resolved before the fuzzy cascade. A
+  **page rename** primitive preserves history within the slug-PK model. Opt-in
+  **hot-memory `_meta` injection** (`MEMEX_HOT_MEMORY_META`, default-OFF) surfaces
+  decay-weighted top facts on MCP responses. A **nightly eval quality probe**
+  (`memex eval-probe` + systemd timer, mig 068 `eval_snapshots`) that doctor can read.
+
 ## [1.73.0] — 2026-07-03
 
 ### Added — brain-parity (reference deep-compare, brain-only)
