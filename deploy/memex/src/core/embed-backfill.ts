@@ -214,10 +214,10 @@ export async function runEmbedBackfill(
   engine: Engine,
   opts: EmbedBackfillOptions = {},
 ): Promise<EmbedBackfillResult> {
-  const embed = opts.embed ?? ((t: string) => embedText(t));
-  // Record the same model id `embedText` defaults to, so a backfilled row's
+  // Record the same model id the embedder actually uses, so a backfilled row's
   // recorded model matches the embedder that produced it (no drift).
   const model = opts.model ?? DEFAULT_MODEL_ID;
+  const embed = opts.embed ?? ((t: string) => embedText(t, { modelId: model }));
   const currentSig = embeddingSignature(model);
   const batch = opts.batch && opts.batch > 0 ? opts.batch : 50;
   const concurrency = resolveConcurrency(opts.concurrency);

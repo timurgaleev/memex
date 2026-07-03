@@ -153,6 +153,10 @@ async function defaultPairs(
            ON f2.entity_slug = f1.entity_slug
           AND f2.id > f1.id
           AND f2.fact <> f1.fact
+          -- Same-tenant only: never pair two tenants' facts that share a slug
+          -- (e.g. both hold people/alice-smith), which would leak one tenant's
+          -- private fact text into the other's find_contradictions read.
+          AND f2.source_id IS NOT DISTINCT FROM f1.source_id
         WHERE f1.written_at >= now() - ($1 * interval '1 day')
           AND f2.written_at >= now() - ($1 * interval '1 day')
         ORDER BY f1.entity_slug ASC, f1.id ASC, f2.id ASC
