@@ -449,6 +449,69 @@ export async function findContradictions(
   }));
 }
 
+// --- probed (suspected) contradictions -------------------------------------
+
+export interface ProbedContradictionRow {
+  a_ref: string;
+  a_text: string;
+  b_ref: string;
+  b_text: string;
+  severity: string;
+  axis: string;
+  confidence: number;
+  resolution_command: string;
+  generated_at: string;
+}
+
+/**
+ * LLM-suspected contradictions cached by the `probe-contradictions` phase
+ * (migration 064) — the paid complement to the asserted `contradicts` edges
+ * findContradictions reads. Highest severity + confidence first. Tenant-scoped
+ * fail-closed when a read scope is supplied (a NULL/foreign source_id row is
+ * excluded, matching migration 047). Fail-open to [] on a pre-064 brain.
+ */
+export async function listProbedContradictions(
+  storage: Storage,
+  opts: { limit?: number; sourceIds?: string[] } = {},
+): Promise<ProbedContradictionRow[]> {
+  const limit = clampLimit(opts.limit, 20, 200);
+  const params: unknown[] = [];
+  const sources = normalizeSourceIds(opts.sourceIds);
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
+  params.push(limit);
+  try {
+    const r = await storage.engine().query<ProbedContradictionRow>(
+      `SELECT a_ref, a_text, b_ref, b_text, severity, axis,
+              confidence, resolution_command, generated_at::text AS generated_at
+         FROM synth_contradictions
+        WHERE 1 = 1${sourceFilter}
+        ORDER BY
+          CASE severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+          confidence DESC,
+          generated_at DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    return r.rows.map((row) => ({
+      a_ref: row.a_ref,
+      a_text: row.a_text,
+      b_ref: row.b_ref,
+      b_text: row.b_text,
+      severity: row.severity,
+      axis: row.axis,
+      confidence: Number(row.confidence) || 0,
+      resolution_command: row.resolution_command,
+      generated_at: row.generated_at,
+    }));
+  } catch {
+    return []; // pre-064 brain — synth_contradictions doesn't exist yet
+  }
+}
+
 // --- find_trajectory -------------------------------------------------------
 
 export interface FindTrajectoryOptions {

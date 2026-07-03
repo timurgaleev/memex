@@ -114,10 +114,12 @@ describe("proposeTakesPhase", () => {
 });
 
 describe("gradeTakesPhase", () => {
+  // Seed a take dated a year back so it clears the default 6-month grade age
+  // gate (grading targets claims old enough to have resolved).
   async function seedTake(id: number, claim: string): Promise<void> {
     await engine.query(
-      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id)
-       VALUES ($1, 'd1', 'h', 'v1-nova', $2, 'prediction', 0.7, 'queued', 'm')`,
+      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id, generated_at)
+       VALUES ($1, 'd1', 'h', 'v1-nova', $2, 'prediction', 0.7, 'queued', 'm', now() - interval '365 days')`,
       [`tk-${id}`, claim],
     );
   }
@@ -206,10 +208,12 @@ describe("aggregateVerdicts", () => {
 });
 
 describe("gradeTakesPhase — Sonnet ensemble (S1)", () => {
+  // Seed a take dated a year back so it clears the default 6-month grade age
+  // gate (grading targets claims old enough to have resolved).
   async function seedTake(id: number, claim: string): Promise<void> {
     await engine.query(
-      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id)
-       VALUES ($1, 'd1', 'h', 'v1-nova', $2, 'prediction', 0.7, 'queued', 'm')`,
+      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id, generated_at)
+       VALUES ($1, 'd1', 'h', 'v1-nova', $2, 'prediction', 0.7, 'queued', 'm', now() - interval '365 days')`,
       [`tk-${id}`, claim],
     );
   }

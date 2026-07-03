@@ -650,7 +650,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "find_contradictions",
     description:
-      "Page pairs joined by an explicit `contradicts` edge (the conflict markers already asserted in the graph). Surfaces existing edges; does NOT run a fresh probe or call an LLM. Optional `slug` substring filter (matches either side); `limit` (1..200, default 20).",
+      "Conflicts in the brain, two ways. `contradictions`: page pairs joined by an explicit `contradicts` edge (markers already asserted in the graph). `probed`: LLM-suspected fact conflicts cached by the opt-in probe-contradictions cycle phase (severity/axis/confidence/resolution_command; empty until that phase has run). This tool only READS caches — it never calls an LLM itself. Optional `slug` substring filter (edges only, matches either side); `limit` (1..200, default 20).",
     params: {
       slug: str({ description: "Substring filter; matches either side of the pair (case-insensitive)." }),
       limit: int({ minimum: 1, maximum: 200 }),
