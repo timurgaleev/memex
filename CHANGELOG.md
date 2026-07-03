@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.74.0] — 2026-07-03
+
 ### Fixed
 - **Whole-brain `get_chunks` now returns a tenant page's chunks.** A page's
   search mirror is keyed `page://<sourceId>/<slug>`, but the whole-brain / static
