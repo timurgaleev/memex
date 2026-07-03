@@ -12,12 +12,17 @@ import { putPage, deletePage } from "../src/core/pages.ts";
 import { addLink } from "../src/core/links.ts";
 import { addFact } from "../src/core/facts.ts";
 import { addTimelineEvent } from "../src/core/timeline.ts";
+import { indexPageIntoSearch } from "../src/core/page-index.ts";
+import { deterministicEmbed } from "./det-embed.ts";
 import {
   findOrphans,
   findExperts,
   findContradictions,
   findTrajectory,
 } from "../src/core/insights.ts";
+
+// Hermetic embedder for the topic arm — no Bedrock.
+const embedFn = async (text: string) => deterministicEmbed(text);
 
 let tmp: string;
 let storage: Storage;
@@ -103,6 +108,103 @@ describe("findExperts", () => {
     await addLink(storage, { source_slug: "people/p", target_slug: "companies/c", type: "works_at" });
     const out = await findExperts(storage, { type: "company" });
     expect(out.map((e) => e.slug)).toEqual(["companies/c"]);
+  });
+});
+
+describe("findExperts — topic mode", () => {
+  // Seed two people: alice's page is about the topic, bob's is not. Mirror
+  // both bodies into search (the page → search bridge) so the topic arm can
+  // score them.
+  async function seedTopicPeople(): Promise<void> {
+    await putPage(storage, {
+      slug: "people/alice",
+      type: "person",
+      title: "Alice",
+      markdown_body:
+        "Alice leads lab automation: robotic liquid handling, assay scheduling, automation pipelines.",
+    });
+    await putPage(storage, {
+      slug: "people/bob",
+      type: "person",
+      title: "Bob",
+      markdown_body: "Bob keeps a garden of perennials and writes about soil composting.",
+    });
+    await indexPageIntoSearch(
+      storage,
+      {
+        slug: "people/alice",
+        title: "Alice",
+        markdown_body:
+          "Alice leads lab automation: robotic liquid handling, assay scheduling, automation pipelines.",
+      },
+      { embedFn },
+    );
+    await indexPageIntoSearch(
+      storage,
+      {
+        slug: "people/bob",
+        title: "Bob",
+        markdown_body: "Bob keeps a garden of perennials and writes about soil composting.",
+      },
+      { embedFn },
+    );
+  }
+
+  it("ranks the topic-tied person first and carries a score", async () => {
+    await seedTopicPeople();
+
+    const experts = await findExperts(storage, {
+      topic: "lab automation",
+      embedQuery: embedFn,
+    });
+
+    expect(experts.length).toBeGreaterThanOrEqual(1);
+    expect(experts[0]!.slug).toBe("people/alice");
+    expect(experts[0]!.score).toBeGreaterThan(0);
+    // If bob surfaced at all, he must rank below alice.
+    const bob = experts.find((e) => e.slug === "people/bob");
+    if (bob) expect(bob.score!).toBeLessThan(experts[0]!.score!);
+  });
+
+  it("excludes non-person/company pages from the default candidate set", async () => {
+    await seedTopicPeople();
+    // A note page that also mentions the topic must NOT surface as an expert.
+    await putPage(storage, {
+      slug: "notes/automation-memo",
+      type: "note",
+      title: "Automation memo",
+      markdown_body: "Notes on lab automation rollout and robotic liquid handling.",
+    });
+    await indexPageIntoSearch(
+      storage,
+      {
+        slug: "notes/automation-memo",
+        title: "Automation memo",
+        markdown_body: "Notes on lab automation rollout and robotic liquid handling.",
+      },
+      { embedFn },
+    );
+
+    const experts = await findExperts(storage, {
+      topic: "lab automation",
+      embedQuery: embedFn,
+    });
+    expect(experts.some((e) => e.slug === "notes/automation-memo")).toBe(false);
+    expect(experts.some((e) => e.slug === "people/alice")).toBe(true);
+  });
+
+  it("keeps link-degree behaviour when topic is absent (back-compat)", async () => {
+    await putPage(storage, { slug: "people/hub", type: "person" });
+    await putPage(storage, { slug: "people/x", type: "person" });
+    await putPage(storage, { slug: "people/y", type: "person" });
+    // hub reaches two live neighbours (degree 2); x reaches only hub (degree 1).
+    await addLink(storage, { source_slug: "people/hub", target_slug: "people/x", type: "knows" });
+    await addLink(storage, { source_slug: "people/hub", target_slug: "people/y", type: "knows" });
+
+    const experts = await findExperts(storage, { limit: 1 });
+    expect(experts[0]!.slug).toBe("people/hub");
+    expect(experts[0]!.degree).toBe(2);
+    expect(experts[0]!.score).toBeUndefined();
   });
 });
 

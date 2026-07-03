@@ -1568,6 +1568,7 @@ async function callFindExperts(
   const opts: FindExpertsOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (typeof args["topic"] === "string") opts.topic = args["topic"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const experts = await findExperts(storage, opts);
   return jsonResult({ ok: true, experts });
