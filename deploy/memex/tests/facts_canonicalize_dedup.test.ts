@@ -48,14 +48,14 @@ function vec(spec: Record<number, number>): number[] {
 
 /**
  * Deterministic stub embedder with controllable cosine geometry:
- *   berlin           -> e0                       (dup cluster anchor)
- *   nearfall         -> 0.93·e0 + 0.3676·e1      (cos 0.93 to berlin: fallback band)
+ *   gotham           -> e0                       (dup cluster anchor)
+ *   nearfall         -> 0.93·e0 + 0.3676·e1      (cos 0.93 to gotham: fallback band)
  *   paris            -> e2                       (orthogonal / independent)
  *   super-old/new    -> cos 0.5                  (below fast-path, forces the LLM)
  */
 function stubEmbed(text: string): Promise<number[]> {
   const t = text.toLowerCase();
-  if (t.includes("berlin")) return Promise.resolve(vec({ 0: 1 }));
+  if (t.includes("gotham")) return Promise.resolve(vec({ 0: 1 }));
   if (t.includes("nearfall")) {
     return Promise.resolve(vec({ 0: 0.93, 1: Math.sqrt(1 - 0.93 * 0.93) }));
   }
@@ -224,13 +224,13 @@ describe("addFact insert-time dedup (3)", () => {
   it("cosine fast-path collapses a near-identical fact WITHOUT the LLM", async () => {
     const first = await addFact(storage, {
       entity_slug: E,
-      fact: "lives in Berlin",
+      fact: "lives in Gotham",
       dedup: { embed: stubEmbed, llmFn: throwingHaiku }, // LLM must NOT be reached
     });
     expect(first.inserted).toBe(true);
     const dup = await addFact(storage, {
       entity_slug: E,
-      fact: "is based in Berlin",
+      fact: "is based in Gotham",
       dedup: { embed: stubEmbed, llmFn: throwingHaiku },
     });
     // Same stub vector -> cosine 1.0 >= 0.95 -> duplicate, collapsed onto first.
@@ -242,14 +242,14 @@ describe("addFact insert-time dedup (3)", () => {
   it("classifier failure falls back to cosine >= 0.92 -> duplicate", async () => {
     const first = await addFact(storage, {
       entity_slug: E,
-      fact: "lives in Berlin",
+      fact: "lives in Gotham",
       dedup: { embed: stubEmbed, llmFn: throwingHaiku },
     });
     // cos 0.93 to the anchor, below the 0.95 fast-path -> LLM attempted -> throws
     // -> fallback cosine 0.93 >= 0.92 -> duplicate.
     const dup = await addFact(storage, {
       entity_slug: E,
-      fact: "nearfall berlin-ish",
+      fact: "nearfall gotham-ish",
       dedup: { embed: stubEmbed, llmFn: throwingHaiku },
     });
     expect(dup.inserted).toBe(false);
@@ -257,7 +257,7 @@ describe("addFact insert-time dedup (3)", () => {
   });
 
   it("inserts an independent fact (dissimilar, cosine-only path)", async () => {
-    await addFact(storage, { entity_slug: E, fact: "lives in Berlin", dedup: { embed: stubEmbed } });
+    await addFact(storage, { entity_slug: E, fact: "lives in Gotham", dedup: { embed: stubEmbed } });
     const indep = await addFact(storage, {
       entity_slug: E,
       fact: "visited Paris once",
@@ -291,8 +291,8 @@ describe("addFact insert-time dedup (3)", () => {
   });
 
   it("default (no dedup opts) preserves the legacy manual-insert behavior", async () => {
-    const a = await addFact(storage, { entity_slug: E, fact: "lives in Berlin" });
-    const b = await addFact(storage, { entity_slug: E, fact: "lives in Berlin" });
+    const a = await addFact(storage, { entity_slug: E, fact: "lives in Gotham" });
+    const b = await addFact(storage, { entity_slug: E, fact: "lives in Gotham" });
     // No dedup -> both manual inserts land (mig018 skip-dedup on NULL chunk).
     expect(a.inserted).toBe(true);
     expect(b.inserted).toBe(true);
