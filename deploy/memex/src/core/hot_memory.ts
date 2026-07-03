@@ -195,3 +195,48 @@ export async function listHotFacts(
   );
   return r.rows;
 }
+
+export interface RecentHotOptions {
+  /** Cap on rows returned. Clamped to [1, MAX_LIST_LIMIT]. Default 50. */
+  limit?: number;
+  /** Only rows written on/after this instant (ISO string). Omit → no floor. */
+  since?: string;
+}
+
+/**
+ * List the most-recent UNSUPERSEDED hot facts ACROSS all entities — the input
+ * the `_meta.brain_hot_memory` injection ranks + decays. Newest first; the
+ * caller applies decay weighting and the final top-K cut.
+ *
+ * INTERNAL surface only: `hot_memory` carries no source_id / visibility axis and
+ * holds unvetted free-text PII (see the module security note). Callers MUST NOT
+ * expose this on the public ingress.
+ */
+export async function listRecentHotFacts(
+  storage: Storage,
+  opts: RecentHotOptions = {},
+): Promise<HotFactRow[]> {
+  const limit =
+    typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= MAX_LIST_LIMIT
+      ? Math.floor(opts.limit)
+      : 50;
+  const params: unknown[] = [];
+  const where: string[] = ["superseded_by IS NULL"];
+  if (typeof opts.since === "string" && opts.since.length > 0) {
+    params.push(opts.since);
+    where.push(`written_at >= $${params.length}::timestamptz`);
+  }
+  params.push(limit);
+  const r = await storage.engine().query<HotFactRow>(
+    `SELECT id, entity_slug, fact, effective_confidence,
+            session_id, source_slug, source_chunk_id,
+            written_by, superseded_by,
+            written_at::text AS written_at
+       FROM hot_memory
+       WHERE ${where.join(" AND ")}
+       ORDER BY written_at DESC
+       LIMIT $${params.length}`,
+    params,
+  );
+  return r.rows;
+}

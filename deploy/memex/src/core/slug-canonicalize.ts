@@ -48,15 +48,23 @@
 import type { Storage } from "./storage.ts";
 import { slugifyTarget } from "./links.ts";
 import { normalizeAlias, resolveAliasUnique } from "./page-aliases.ts";
+import { resolveSlugWithAlias } from "./slug-aliases.ts";
 
-/** Resolution outcome — `slug` is never null (stage 5 always yields one). */
+/** Resolution outcome — `slug` is never null (stage 6 always yields one). */
 export interface CanonicalizeResult {
   /** The resolved canonical slug, or the slugified fallback. */
   slug: string;
-  /** True when a real existing page was matched (stages 1–5). */
+  /** True when a real existing page was matched (redirect / stages 1–5). */
   resolved: boolean;
   /** Which cascade stage produced the slug. */
-  stage: "exact" | "alias" | "exact_tail" | "prefix" | "trgm" | "slugify";
+  stage:
+    | "redirect"
+    | "exact"
+    | "alias"
+    | "exact_tail"
+    | "prefix"
+    | "trgm"
+    | "slugify";
 }
 
 export interface SlugResolver {
@@ -280,6 +288,16 @@ export function makeSlugResolver(
       // Unresolvable mention (empty / all-stripped) or canonicalization off:
       // hand back the legacy slugified target untouched.
       if (!enabled || fallbackSlug === "unknown") return fallback();
+
+      // Stage 0 — redirect: a RENAMED/MERGED page left a durable `old→canonical`
+      // forwarding record (migration 067). This short-circuits the whole fuzzy
+      // cascade — a redirect is an authoritative, operator-minted mapping, so a
+      // stale `[[old-slug]]` resolves to the live page directly. Skip a redirect
+      // that would point at the mention's own source page (never self-resolve).
+      const redirected = await resolveSlugWithAlias(storage, fallbackSlug, sourceIds);
+      if (redirected !== fallbackSlug && redirected !== sourceSlug) {
+        return finish({ slug: redirected, resolved: true, stage: "redirect" });
+      }
 
       // Stage 1 — exact: the slugified mention is itself a live page.
       // Skip a self-match so the resolver never reports a qualified

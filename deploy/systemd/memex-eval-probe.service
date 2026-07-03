@@ -1,0 +1,21 @@
+[Unit]
+Description=memex nightly retrieval-quality probe (eval-replay → eval_snapshots)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Replay the captured eval set against the live brain and append ONE row to
+# eval_snapshots (migration 068). Runs inside the already-running memex
+# container so it shares the same config + Postgres URL. Passive probe: it
+# never promotes the baseline and never gates anything — a `|| true` keeps a
+# transient failure (e.g. a container restart mid-run) from marking the unit
+# failed and spamming the journal; the next night simply retries.
+ExecStart=/usr/bin/docker exec deploy-memex-1 bun run src/cli.ts eval-probe
+# AWS region for the Bedrock embed calls the hybrid arm makes. Instance role
+# provides the credentials; no profile needed.
+Environment=AWS_REGION=eu-west-1
+Environment=TZ=Europe/Berlin
+StandardOutput=append:/var/log/memex/memex-eval-probe.log
+StandardError=append:/var/log/memex/memex-eval-probe.log
