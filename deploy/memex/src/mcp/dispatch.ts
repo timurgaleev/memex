@@ -142,6 +142,7 @@ import {
   publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
 import { OperationError, isOperationError } from "../core/operation-error.ts";
+import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
 import { OPERATIONS, validateParams } from "./operations.ts";
 
 // Operation lookup by tool name, built once (the contract is static).
@@ -160,6 +161,9 @@ export interface ToolContentBlock {
 export interface ToolCallResult {
   content: ToolContentBlock[];
   isError?: boolean;
+  /** MCP `_meta` — out-of-band data attached to a result. Used for the
+   *  best-effort `brain_hot_memory` injection (see the dispatchTool wrapper). */
+  _meta?: Record<string, unknown>;
 }
 
 const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
@@ -228,7 +232,38 @@ export interface DispatchOptions {
   authInfo?: AuthInfo;
 }
 
+/**
+ * Public entry: dispatch the tool call, then best-effort attach the
+ * `_meta.brain_hot_memory` payload (Item 3, migration 020 surfacing).
+ *
+ * The injection is gated hard: it runs ONLY for a successful, non-public,
+ * UNSCOPED (operator / trusted-local, `authInfo === undefined`) call, and is a
+ * no-op unless MEMEX_HOT_MEMORY_META=1. `hot_memory` has no tenant/visibility
+ * axis and holds unvetted PII, so it must never reach a public or tenant-scoped
+ * caller. Any error here is swallowed — the meta hook can NEVER fail a tool call.
+ */
 export async function dispatchTool(
+  storage: Storage,
+  req: ToolCallRequest,
+  opts: DispatchOptions = {},
+): Promise<ToolCallResult> {
+  const result = await dispatchToolInner(storage, req, opts);
+  const injectable =
+    !result.isError &&
+    !(opts.isPublic ?? false) &&
+    opts.authInfo === undefined;
+  if (injectable) {
+    try {
+      const meta = await getBrainHotMemoryMeta(storage);
+      if (meta) return { ...result, _meta: meta };
+    } catch {
+      // Best-effort: never let the meta hook fail the underlying tool call.
+    }
+  }
+  return result;
+}
+
+async function dispatchToolInner(
   storage: Storage,
   req: ToolCallRequest,
   opts: DispatchOptions = {},

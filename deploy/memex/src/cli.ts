@@ -10,6 +10,7 @@ import { runReindex } from "./commands/reindex.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
+import { runEvalProbe } from "./commands/eval-probe.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
 import { runExtract } from "./commands/extract.ts";
 import { runExtractConversationFactsCli } from "./commands/extract-conversation-facts.ts";
@@ -112,6 +113,7 @@ function printUsage(): void {
   console.log("  doctor                       self-diagnostics — exits 0 on healthy");
   console.log("  integrity [--vault P]        vault-vs-index drift report");
   console.log("  eval [--k N]                 retrieval quality harness against tests/eval/qrels.json");
+  console.log("  eval-probe [--limit N]       replay eval set, append a row to eval_snapshots (nightly probe)");
   console.log("  backlinks <name> [--type T] [--limit N]");
   console.log("                               documents that mention this entity (default type=wikilink)");
   console.log("  extract [--all] [--vault P]  re-run regex entity extraction over existing chunks (cheap)");
@@ -298,6 +300,15 @@ async function main(argv: readonly string[]): Promise<number> {
         throw new Error(`memex eval: invalid --k ${kStr}`);
       }
       await runEval(k !== undefined ? { k } : {});
+      return 0;
+    }
+    case "eval-probe": {
+      const limitStr = values.get("--limit");
+      const limit = limitStr ? Number(limitStr) : undefined;
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
+        throw new Error(`memex eval-probe: invalid --limit ${limitStr}`);
+      }
+      await runEvalProbe(limit !== undefined ? { limit } : {});
       return 0;
     }
     case "backlinks": {

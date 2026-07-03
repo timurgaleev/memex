@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily memex retrieval-quality probe at 04:30 Europe/Berlin
+
+[Timer]
+# Off-peak, and staggered clear of the 06:00 bearer rotation so the two units
+# never contend for the container at once.
+OnCalendar=*-*-* 04:30:00 Europe/Berlin
+# If the EC2 missed the slot (spot rebalance, reboot), run once it is back.
+Persistent=true
+Unit=memex-eval-probe.service
+
+[Install]
+WantedBy=timers.target

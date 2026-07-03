@@ -17,6 +17,7 @@ import type { Storage } from "./storage.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
+import { resolveSlugWithAlias, setSlugAlias } from "./slug-aliases.ts";
 import { OperationError } from "./operation-error.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
@@ -357,7 +358,10 @@ export async function appendPage(
     throw new Error("appendPage: content is required");
   }
   const scope = input.source_id ? [input.source_id] : undefined;
-  const current = await getPage(storage, input.slug, scope);
+  // Exact read (NOT redirect-aware): a write must target the literal slug. If
+  // this slug was renamed away, appending must fail ("does not exist"), never
+  // silently resurrect the old slug that now only holds a redirect.
+  const current = await getPageExact(storage, input.slug, scope);
   if (!current) {
     throw new Error(
       `appendPage: page ${JSON.stringify(input.slug)} does not exist; ` +
@@ -401,6 +405,25 @@ export async function getPage(
   sourceIds?: readonly string[],
 ): Promise<PageRow | null> {
   validateSlug(slug);
+  const row = await getPageExact(storage, slug, sourceIds);
+  if (row) return row;
+  // Miss — the slug may be an OLD name a rename/merge left a redirect for
+  // (migration 067). Resolve one hop through the redirect registry and re-read.
+  // Zero-cost on the hot path (a live page never reaches here); the extra
+  // round-trip is paid only on an actual miss. A redirect that doesn't move the
+  // slug (none registered / pre-067 brain) short-circuits without a re-query.
+  const canonical = await resolveSlugWithAlias(storage, slug, sourceIds);
+  if (canonical === slug) return null;
+  return getPageExact(storage, canonical, sourceIds);
+}
+
+/** Exact `pages` read by slug, tenant-scoped. No redirect resolution — the
+ *  single-hop primitive `getPage` layers the redirect on top of. */
+async function getPageExact(
+  storage: Storage,
+  slug: string,
+  sourceIds?: readonly string[],
+): Promise<PageRow | null> {
   const params: unknown[] = [slug];
   let scope = "";
   if (sourceIds && sourceIds.length > 0) {
@@ -664,7 +687,10 @@ export async function revertPage(
   // back a sibling tenant's page. Unset → whole-brain by slug, unchanged.
   const scope =
     typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
-  const page = await getPage(storage, slug, scope !== null ? [scope] : undefined);
+  // Exact read (NOT redirect-aware): revert re-puts under this literal slug, so
+  // following a redirect here would resurrect a renamed-away slug. A revert of
+  // an old slug correctly reports "page not found".
+  const page = await getPageExact(storage, slug, scope !== null ? [scope] : undefined);
   if (!page) {
     return { slug, reverted: false, from_version: null, new_version: null, reason: "page not found or deleted" };
   }
@@ -715,4 +741,205 @@ export async function revertPage(
     from_version: targetVersion,
     new_version: put.changed ? put.version_n : null,
   };
+}
+
+export interface RenameResult {
+  from_slug: string;
+  to_slug: string;
+  /** True when the page moved; false = source missing, target taken, same slug. */
+  renamed: boolean;
+  reason?: string;
+  /** Per-table rows carried across (observability only). */
+  moved?: Record<string, number>;
+}
+
+export interface RenameOptions {
+  written_by?: string;
+  /** Owning source (tenant). When set, the rename resolves + carries ONLY within
+   *  this source — a page owned by another tenant reads as "not found". */
+  source_id?: string;
+}
+
+/**
+ * Rename (or merge-forward) a page to a new slug, preserving its history WITHIN
+ * the current global-slug-PK model — NO composite-PK / integer-page-id schema
+ * change (that overhaul stays deferred; see composite_pk_precursor test).
+ *
+ * The move is transactional: a new `pages` row is inserted at `toSlug`, every
+ * substrate table that keys on the slug is re-pointed old→new, the old row is
+ * deleted, and a durable `old→new` redirect is written to `slug_aliases`
+ * (migration 067) so stale `[[old-slug]]` wikilinks and direct `page_get
+ * old-slug` calls still resolve. Carried tables: page_versions, links
+ * (source+target), tags, timeline_events, entity_facts, hot_memory,
+ * page_aliases.
+ *
+ * SEARCH MIRROR: the `documents`/`chunks`/`embeddings` projection is NOT moved
+ * here — its ids are derived from the mirror `source_path`, so re-keying it in
+ * place would fight the FK graph. Instead the existing cycle backstop
+ * (`reconcilePageMirrors`) re-mirrors the new slug and drops the old orphan on
+ * its next pass — the same self-healing path a normal page_put relies on. The
+ * caller may drop the old mirror eagerly (removePageFromSearch) for immediacy.
+ *
+ * No-op results (renamed:false): source page missing/deleted, target slug
+ * already taken (live OR soft-deleted — the global PK forbids a second row), or
+ * from==to.
+ */
+export async function renamePage(
+  storage: Storage,
+  fromSlug: string,
+  toSlug: string,
+  opts: RenameOptions = {},
+): Promise<RenameResult> {
+  validateSlug(fromSlug);
+  validateSlug(toSlug);
+  if (fromSlug === toSlug) {
+    return { from_slug: fromSlug, to_slug: toSlug, renamed: false, reason: "from and to slugs are identical" };
+  }
+  const scope =
+    typeof opts.source_id === "string" && opts.source_id.length > 0
+      ? opts.source_id
+      : null;
+  const writtenBy = opts.written_by ?? null;
+  const engine = storage.engine();
+  return engine.transaction(async (tx) => {
+    // Source page must exist, be live, and (when scoped) be owned by the caller.
+    const srcParams: unknown[] = [fromSlug];
+    let srcFilter = "";
+    if (scope !== null) {
+      srcParams.push(scope);
+      srcFilter = ` AND source_id = $${srcParams.length}`;
+    }
+    const src = await tx.query<{ source_id: string; content_hash: string }>(
+      `SELECT source_id, content_hash FROM pages
+        WHERE slug = $1 AND deleted_at IS NULL${srcFilter}`,
+      srcParams,
+    );
+    if (src.rows.length === 0) {
+      return { from_slug: fromSlug, to_slug: toSlug, renamed: false, reason: "source page not found or deleted" };
+    }
+    const ownerSource = src.rows[0]!.source_id;
+
+    // Target slug must be globally free — the `pages.slug` PK forbids a second
+    // row for it, even a soft-deleted one.
+    const dst = await tx.query<{ slug: string }>(
+      `SELECT slug FROM pages WHERE slug = $1`,
+      [toSlug],
+    );
+    if (dst.rows.length > 0) {
+      return { from_slug: fromSlug, to_slug: toSlug, renamed: false, reason: "target slug already exists" };
+    }
+
+    // Insert the new row as a copy of the old (fresh generation/salience — the
+    // cycle re-derives those; created_at carried so provenance survives).
+    await tx.query(
+      `INSERT INTO pages
+         (slug, type, title, compiled_truth, markdown_body,
+          content_hash, source_id, created_at, updated_at)
+       SELECT $2, type, title, compiled_truth, markdown_body,
+              content_hash, source_id, created_at, NOW()
+         FROM pages WHERE slug = $1`,
+      [fromSlug, toSlug],
+    );
+
+    const moved: Record<string, number> = {};
+    const move = async (label: string, sql: string, params: unknown[]): Promise<void> => {
+      const r = await tx.query<{ one: number }>(sql, params);
+      moved[label] = r.rows.length;
+    };
+
+    // FK children (ON DELETE CASCADE, no ON UPDATE) — re-point BEFORE deleting
+    // the old row so the delete cascades nothing.
+    await move(
+      "page_versions",
+      `UPDATE page_versions SET slug = $2 WHERE slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "timeline_events",
+      `UPDATE timeline_events SET slug = $2 WHERE slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "page_aliases",
+      `UPDATE page_aliases SET slug = $2 WHERE slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "links_out",
+      `UPDATE links SET source_slug = $2 WHERE source_slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    // Inbound edges: drop rows that would collide with an existing (source,
+    // to, type, source_id) edge before re-pointing, so the UPDATE can't trip
+    // the tenant-aware unique key.
+    await tx.query(
+      `DELETE FROM links l
+        WHERE l.target_slug = $1
+          AND EXISTS (
+            SELECT 1 FROM links x
+             WHERE x.source_slug = l.source_slug
+               AND x.target_slug = $2
+               AND x.type = l.type
+               AND x.source_id = l.source_id)`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "links_in",
+      `UPDATE links SET target_slug = $2 WHERE target_slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+
+    // Non-FK data tables keyed by the slug.
+    await move(
+      "tags",
+      `UPDATE tags SET slug = $2 WHERE slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "entity_facts",
+      `UPDATE entity_facts SET entity_slug = $2 WHERE entity_slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await tx.query(
+      `UPDATE entity_facts SET source_markdown_slug = $2 WHERE source_markdown_slug = $1`,
+      [fromSlug, toSlug],
+    );
+    await move(
+      "hot_memory",
+      `UPDATE hot_memory SET entity_slug = $2 WHERE entity_slug = $1 RETURNING 1 AS one`,
+      [fromSlug, toSlug],
+    );
+    await tx.query(
+      `UPDATE hot_memory SET source_slug = $2 WHERE source_slug = $1`,
+      [fromSlug, toSlug],
+    );
+
+    // Drop the old row — its FK children are already moved, so nothing cascades.
+    await tx.query(`DELETE FROM pages WHERE slug = $1`, [fromSlug]);
+
+    // Durable redirect old→new (source-scoped) + a tombstone version on the new
+    // page so the move shows up in history.
+    await setSlugAlias(tx, {
+      alias_slug: fromSlug,
+      canonical_slug: toSlug,
+      source_id: scope ?? ownerSource,
+      notes: "rename",
+    });
+    const nextN = await tx.query<{ n: number }>(
+      `SELECT COALESCE(MAX(version_n), 0)::int + 1 AS n
+         FROM page_versions WHERE slug = $1`,
+      [toSlug],
+    );
+    const marker = JSON.stringify({ renamed_from: fromSlug, renamed_at: new Date().toISOString() });
+    await tx.query(
+      `INSERT INTO page_versions
+         (slug, version_n, hash_prev, hash_new,
+          body_snapshot, compiled_truth_snapshot, written_by, written_at, source_id)
+       VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW(), $6)`,
+      [toSlug, nextN.rows[0]!.n, src.rows[0]!.content_hash, marker, writtenBy, ownerSource],
+    );
+    await bumpPageGeneration(tx, toSlug);
+
+    return { from_slug: fromSlug, to_slug: toSlug, renamed: true, moved };
+  });
 }
