@@ -98,15 +98,17 @@ export function tenantFailClosedEnabled(): boolean {
  *
  * Resolves the base scope via {@link effectiveReadSourceIds}. When the caller
  * holds a grant it is honored verbatim. When they hold none (`base === undefined`)
- * the policy branches ONLY on an authenticated public principal:
+ * the policy branches on whether the caller is an AUTHENTICATED principal:
  *
- *   - `failClosed` on AND `auth` present AND `auth.isPublic === true`
- *       → `[NO_SOURCE_SENTINEL]` (reads NOTHING — an authenticated public caller
- *         with no grant must not fall through to the redacted whole-brain).
+ *   - `failClosed` on AND `auth` present (`auth !== undefined`)
+ *       → `[NO_SOURCE_SENTINEL]` (reads NOTHING — an authenticated caller with no
+ *         source grant must not fall through to the redacted whole-brain). This
+ *         covers an OAuth tenant (`isPublic === false`) as well as an authenticated
+ *         public caller — a scopeless registered client is NOT whole-brain-trusted.
  *   - otherwise → `undefined` (UNCHANGED whole-brain): this is the static public
- *       bearer (`auth === undefined`) and the trusted-local / OAuth path
- *       (`isPublic === false`). The discriminator is deliberately narrow so the
- *       daily Claude Code static-bearer path is never scoped.
+ *       bearer and the trusted-local path, both of which present `auth === undefined`.
+ *       The discriminator is `auth === undefined`, so the daily Claude Code
+ *       static-bearer path is never scoped.
  */
 export function effectiveReadSourceIdsForIngress(
   auth: AuthInfo | undefined,
@@ -114,7 +116,7 @@ export function effectiveReadSourceIdsForIngress(
 ): string[] | undefined {
   const base = effectiveReadSourceIds(auth);
   if (base !== undefined) return base;
-  if (opts?.failClosed === true && auth !== undefined && auth.isPublic === true) {
+  if (opts?.failClosed === true && auth !== undefined) {
     return [NO_SOURCE_SENTINEL];
   }
   return undefined;
@@ -133,17 +135,17 @@ export function effectiveWriteSourceId(
  *
  * Resolves the base write source via {@link effectiveWriteSourceId}. When the
  * caller holds a write grant it is returned verbatim. When they hold none
- * (`base === undefined`) the policy branches ONLY on an authenticated public
- * principal:
+ * (`base === undefined`) the policy branches on whether the caller is an
+ * AUTHENTICATED principal:
  *
- *   - `failClosed` on AND `auth` present AND `auth.isPublic === true`
+ *   - `failClosed` on AND `auth` present (`auth !== undefined`)
  *       → `NO_SOURCE_SENTINEL` — the dispatcher MUST reject the write with
  *         permission_denied rather than let it default to the 'default' tenant
  *         (an orphaned/no-write-source OAuth principal must not write anywhere).
  *   - otherwise → `undefined` (UNCHANGED unscoped write): the static public
- *       bearer (`auth === undefined`) and the trusted-local / OAuth path
- *       (`isPublic === false`). Same narrow discriminator as the read helper, so
- *       the daily static-bearer path is never scoped.
+ *       bearer and the trusted-local path, both of which present `auth === undefined`.
+ *       Same discriminator as the read helper, so the daily static-bearer path is
+ *       never scoped.
  */
 export function effectiveWriteSourceIdForIngress(
   auth: AuthInfo | undefined,
@@ -151,7 +153,7 @@ export function effectiveWriteSourceIdForIngress(
 ): string | undefined {
   const base = effectiveWriteSourceId(auth);
   if (base !== undefined) return base;
-  if (opts?.failClosed === true && auth !== undefined && auth.isPublic === true) {
+  if (opts?.failClosed === true && auth !== undefined) {
     return NO_SOURCE_SENTINEL;
   }
   return undefined;
@@ -205,24 +207,32 @@ export function resolveRequestedScope(
   sourceIdParam: string | undefined,
   allSourcesParam = false,
 ): { sourceId?: string; sourceIds?: string[] } {
-  const trustedLocal = auth?.isPublic === false;
+  // SECURITY: "trusted" means the static-bearer / trusted-local / internal path,
+  // which presents NO authInfo (`auth === undefined`). An OAuth tenant has
+  // `isPublic === false` too, so keying on isPublic would let a tenant pose as
+  // trusted-local and request any source (IDOR). A tenant is ALWAYS scoped to its
+  // grant here.
+  const trustedLocal = auth === undefined;
   const wantsAll = allSourcesParam || sourceIdParam === "__all__";
   if (wantsAll) {
     return trustedLocal ? {} : sourceScopeOpts(auth);
   }
   if (sourceIdParam !== undefined) {
-    const allowed = auth?.allowedSources;
-    if (
-      !trustedLocal &&
-      allowed &&
-      allowed.length > 0 &&
-      !allowed.includes(sourceIdParam)
-    ) {
-      throw new OperationError(
-        "permission_denied",
-        `source '${sourceIdParam}' is outside your granted sources`,
-        "Request access to this source, or omit source_id to read within your grant.",
-      );
+    if (!trustedLocal) {
+      // Fail-closed: a scoped caller may only name a source inside its grant.
+      // An empty/absent grant matches nothing, so a caller with no allowed
+      // sources is rejected rather than passed through verbatim.
+      const allowed = auth?.allowedSources ?? [];
+      const own = auth?.sourceId;
+      const permitted =
+        allowed.includes(sourceIdParam) || sourceIdParam === own;
+      if (!permitted) {
+        throw new OperationError(
+          "permission_denied",
+          `source '${sourceIdParam}' is outside your granted sources`,
+          "Request access to this source, or omit source_id to read within your grant.",
+        );
+      }
     }
     return { sourceId: sourceIdParam };
   }

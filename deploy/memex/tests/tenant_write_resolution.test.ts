@@ -207,10 +207,11 @@ describe("HOLE 3 — write fail-closed + appendPage never adopts a victim source
       expect(granted.isError).toBeUndefined();
       expect(JSON.parse(granted.content[0]!.text).already_deleted).toBe(true);
 
-      // A READ op is unaffected by the write gate.
+      // A READ op is unaffected by the write gate. (`whoami`, not `stats` —
+      // `stats` is now operator-only and refused for a tenant token by design.)
       const read = await dispatchTool(
         storage,
-        { name: "stats", arguments: {} },
+        { name: "whoami", arguments: {} },
         { isPublic: true, authInfo: auth(undefined, true) },
       );
       expect(read.isError).toBeUndefined();

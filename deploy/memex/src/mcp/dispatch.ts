@@ -193,6 +193,27 @@ const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set([
   "purge_deleted_pages",
 ]);
 
+/**
+ * Operator-only operational tools. These expose brain-wide state that has no
+ * per-source axis — the job queue (jobs_* return another tenant's job
+ * payload/result/logs: vault paths, note snippets) and the advisor/stats
+ * dashboards (migrations, embed coverage, whole-brain counts, internal-auth
+ * config). They are refused for any authenticated tenant principal
+ * (`authInfo !== undefined`), i.e. an OAuth `memex_at_` caller. The static
+ * daily bearer and the trusted-local/internal path (both `authInfo === undefined`)
+ * keep full access — they are the operator. `source_health` is deliberately NOT
+ * here: it is the per-source (tenant-safe) health view.
+ */
+const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "stats",
+  "advisor",
+  "jobs_submit",
+  "jobs_list",
+  "jobs_get",
+  "jobs_cancel",
+  "jobs_logs",
+]);
+
 /** Per-call options the transport supplies. */
 export interface DispatchOptions {
   /** True when the request arrived over the public ingress
@@ -247,6 +268,18 @@ export async function dispatchTool(
         "permission_denied",
         `no write source is granted to this client for '${req.name}'`,
         "Request a write scope for your client, or use a scoped token.",
+      );
+    }
+    // Operator-only gate: an authenticated tenant principal (OAuth `memex_at_`
+    // token, `authInfo` present) cannot reach the brain-wide operational tools —
+    // they have no per-source scope and would leak another tenant's job
+    // payload/logs or the whole-brain advisor/stats. The static bearer + internal
+    // path (`authInfo === undefined`) are the operator and keep access.
+    if (opts.authInfo !== undefined && OPERATOR_ONLY_TOOLS.has(req.name)) {
+      throw new OperationError(
+        "permission_denied",
+        `tool '${req.name}' is operator-only and not callable by a tenant token`,
+        "Use the per-source 'source_health' tool for tenant-scoped health.",
       );
     }
     // Enforce the declared param contract (type / enum / min-max of present

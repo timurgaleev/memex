@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Closed four latent multi-tenant read-scope holes** (found by an adversarial
+  review; all latent because the OAuth/multi-tenant path is dormant today, but they
+  must close before a second tenant):
+  - **Operator-only tools.** `stats`, `advisor`, and the `jobs_*` queue tools expose
+    brain-wide state with no per-source axis (another tenant's job payload/logs,
+    whole-brain counts, migrations, internal-auth config). They are now refused for
+    any authenticated tenant token (`authInfo` present) — the static daily bearer and
+    the trusted-local/internal path (`authInfo === undefined`) keep full access.
+    `source_health` stays tenant-scoped and reachable.
+  - **Fail-closed floor made reachable.** `MEMEX_TENANT_FAIL_CLOSED` gated its sentinel
+    on `auth.isPublic === true`, but every live OAuth caller is `isPublic:false`, so a
+    scopeless authenticated principal still fell through to whole-brain read / `'default'`
+    write. The floor now triggers for ANY authenticated principal with no grant
+    (`auth !== undefined`); the static bearer (`auth === undefined`) is still never scoped.
+  - **`resolveRequestedScope` IDOR landmine** (dead code, unwired) keyed "trusted" on
+    `isPublic === false`, letting a future handler treat an OAuth tenant as trusted-local
+    and hand it any/all sources; an empty grant also passed a requested source verbatim.
+    Now keys trust on `auth === undefined` and fails closed on an empty grant.
+
 ### Added
 - **Bedrock prompt caching for the contextual-LLM tier (~3x cheaper re-embed).**
   The Haiku client already uses the Converse API, so the per-chunk contextual call
