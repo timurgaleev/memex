@@ -7,6 +7,28 @@ introduces them.
 
 ---
 
+## 2026-07-02 — full-parity + tiers session (v1.57 → v1.72) DONE
+
+Shipped + live-verified this session (see CHANGELOG for each):
+- Multi-tenant read+write isolation complete (leak-close, contract harness,
+  destructive-op scoping, write-time canonicalizer, links/tags source_id keys
+  mig 059, write fail-closed, gazetteer scoping).
+- Only-Anthropic-via-Bedrock (Nova removed → Haiku utility, Sonnet paid).
+- All paid slices live + a bug fixed (empty `MEMEX_FACTS_MODEL` refused spend).
+- **Contextual retrieval complete**: deterministic wrapper + `reindex --contextual`
+  whole-corpus re-embed + PAID per-chunk Haiku LLM tier (`MEMEX_CONTEXTUAL_LLM`) +
+  **Bedrock prompt caching** (~3x cheaper re-embed).
+- **Quality/cost tiers** documented (Free/Balanced/Max); `MEMEX_RERANK` allowlisted;
+  `init.sh` defaults to Max; operator's prod on Balanced (`GRAPH_RERANK=0`+`RERANK=1`).
+- Monthly cost forecast (~$80/mo Balanced prod; ~$141 Max). CI time-bomb fixed.
+
+Remaining = **operator-gated only**: (a) live 2-tenant auth smoke (personal howto in
+the maintainer vault; autonomous prod-mutation is classifier-blocked — hands-on);
+(b) composite-PK slug drop (Codex: DEFER, use tenant slug prefixes); (c) terraform
+apply only from the ops dir. No open build work.
+
+---
+
 ## Scope reversal (2026-06-30) — FULL reference parity ACCEPTED
 
 Operator call (2026-06-30): memex is an **open-source project headed for
