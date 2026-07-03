@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.73.0] — 2026-07-03
+
 ### Added — brain-parity (reference deep-compare, brain-only)
 - **Content-sanity ingest gate.** memex had the full quarantine/`content_flag`/
   `embed_skip` read+filter substrate but nothing WROTE the markers, so scraper
