@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.75.0] — 2026-07-03
+
 ### Added — the last two Tier-2 items (reference parity, operator-approved)
 - **`think` auto-anchor.** When you ask a temporal question ("when did X change,
   is it still…") and don't name an anchor, `think` now derives candidate entities
