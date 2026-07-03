@@ -80,12 +80,33 @@ export async function getChunksForPage(
   if (typeof slug !== "string" || slug.length === 0) {
     throw new Error("getChunksForPage: `slug` is required");
   }
-  // The mirror id is tenant-aware (see pageSourcePath). A single-source scoped
-  // read resolves that tenant's own `page://<sourceId>/<slug>` document; an
-  // unscoped read (or a multi-source scope, which is ambiguous by slug alone)
-  // keeps the legacy `page://<slug>` id, so existing 'default' callers are
-  // unchanged. getChunksForSource still applies the `d.source_id` scope filter.
+  // The mirror id is tenant-aware (see pageSourcePath): a non-'default' owner
+  // gets `page://<sourceId>/<slug>`, so a bare `page://<slug>` lookup misses it.
+  //   - single-source scoped read → that tenant IS the owner (no extra query).
+  //   - otherwise (unscoped whole-brain OR multi-source scope) → resolve the
+  //     page's real owner from the `pages` store so a whole-brain caller (the
+  //     static bearer / operator) can read a tenant page's chunks by slug.
+  // The `d.source_id` scope filter in getChunksForSource still gates the read,
+  // so resolving the owner unscoped here never leaks across a caller's grant.
   const owner =
-    sourceIds && sourceIds.length === 1 ? sourceIds[0] : undefined;
+    sourceIds && sourceIds.length === 1
+      ? sourceIds[0]
+      : await resolvePageOwner(storage, slug);
   return getChunksForSource(storage, pageSourcePath(slug, owner), sourceIds);
+}
+
+/**
+ * The owning source of a live page, or `undefined` when the slug has no page
+ * row (e.g. a legacy mirror document with no `pages` entry — keeps the bare
+ * `page://<slug>` back-compat path). Read-only, keyed on the slug PK.
+ */
+async function resolvePageOwner(
+  storage: Storage,
+  slug: string,
+): Promise<string | undefined> {
+  const r = await storage.engine().query<{ source_id: string }>(
+    `SELECT source_id FROM pages WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
+    [slug],
+  );
+  return r.rows[0]?.source_id;
 }

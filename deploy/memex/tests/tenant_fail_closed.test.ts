@@ -1,14 +1,20 @@
 /**
  * Fail-closed multi-tenant read policy (MEMEX_TENANT_FAIL_CLOSED).
  *
- * The guard closes ONE hole: an AUTHENTICATED PUBLIC principal that holds no
- * source grant used to resolve to `undefined` scope = the redacted whole brain.
- * With the flag on, that caller reads NOTHING. The guard is deliberately narrow
- * — it must never touch the two paths the daily service depends on:
+ * The guard closes one hole: an AUTHENTICATED principal that holds no source
+ * grant used to resolve to `undefined` scope = the redacted whole brain. With
+ * the flag on, that caller reads NOTHING. The discriminator is `authInfo`
+ * presence, not the `isPublic` bit (see the security note in auth-info.ts:
+ * keying on `isPublic` would let an OAuth tenant pose as trusted-local): ANY
+ * caller that presents an `authInfo` — public OR an `isPublic:false` OAuth
+ * tenant — is scoped to its grant, and a scopeless one reads nothing. The two
+ * paths the daily service depends on both present `authInfo === undefined`, so
+ * the guard never touches them:
  *
  *   (a) the static public bearer — dispatched with `authInfo === undefined`
  *       (the Claude Code path). Whole-brain, redacted, ALWAYS.
- *   (b) trusted-local / OAuth (`isPublic === false`). Whole-brain.
+ *   (b) the trusted-local / CLI / internal path (`authInfo === undefined`).
+ *       Whole-brain.
  *
  * Bedrock-free: seeds via core writers + the det-embed seam, asserts through
  * dispatchTool. No `search` (needs embeddings); get_chunks is a direct SQL read.
@@ -50,11 +56,14 @@ function publicNoGrant(): AuthInfo {
   };
 }
 
-/** A trusted-local / OAuth principal with NO grant — must stay whole-brain. */
-function trustedLocalNoGrant(): AuthInfo {
+/** An authenticated OAuth tenant (`isPublic:false`) with NO grant. It presents
+ *  an `authInfo`, so it is NOT the trusted-local/operator path (that presents
+ *  `authInfo === undefined`) — under fail-closed it reads NOTHING, same as an
+ *  authed-public no-grant caller. With the flag OFF it stays whole-brain. */
+function oauthNoGrant(): AuthInfo {
   return {
-    token: "tok-local",
-    clientId: "client-local",
+    token: "tok-oauth-nogrant",
+    clientId: "client-oauth-nogrant",
     scopes: ["read", "write"],
     isPublic: false,
   };
@@ -134,7 +143,7 @@ describe("default (flag unset) — behavior identical to today", () => {
   });
 
   it("OAuth-no-grant (isPublic:false) → whole-brain", async () => {
-    const all = JSON.stringify(await call("page_list", {}, via(trustedLocalNoGrant())));
+    const all = JSON.stringify(await call("page_list", {}, via(oauthNoGrant())));
     expect(all).toContain(A_SLUG);
     expect(all).toContain(B_SLUG);
   });
@@ -147,7 +156,7 @@ describe("default (flag unset) — behavior identical to today", () => {
   });
 });
 
-describe("MEMEX_TENANT_FAIL_CLOSED=1 — the guard bites ONLY the authed-public-no-grant caller", () => {
+describe("MEMEX_TENANT_FAIL_CLOSED=1 — the guard bites every authenticated no-grant caller", () => {
   it("authenticated PUBLIC principal with no grant reads NOTHING", async () => {
     process.env[ENV_KEY] = "1";
     const out = await call("page_list", {}, via(publicNoGrant()));
@@ -164,11 +173,13 @@ describe("MEMEX_TENANT_FAIL_CLOSED=1 — the guard bites ONLY the authed-public-
     expect(all).toContain(B_SLUG);
   });
 
-  it("trusted-local (isPublic:false, no grant) STILL reads whole-brain", async () => {
+  it("OAuth tenant (isPublic:false, no grant) reads NOTHING — authInfo present is scoped, not trusted-local", async () => {
     process.env[ENV_KEY] = "1";
-    const all = JSON.stringify(await call("page_list", {}, via(trustedLocalNoGrant())));
-    expect(all).toContain(A_SLUG);
-    expect(all).toContain(B_SLUG);
+    const out = await call("page_list", {}, via(oauthNoGrant()));
+    const s = JSON.stringify(out);
+    expect(s).not.toContain(A_SLUG);
+    expect(s).not.toContain(B_SLUG);
+    expect(out.pages).toEqual([]);
   });
 
   it("OAuth principal WITH a grant still reads exactly its grant", async () => {
