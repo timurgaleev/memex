@@ -111,6 +111,21 @@ agent-oriented install doc; memex has none).
 Full ranked detail in agent memory `memex-brain-compare-2026-07-03` and the
 vault note `Projects/memex/2026-07-03-brain-compare.md`.
 
+### PRE-EXISTING CI red — `tenant_fail_closed.test.ts` (P1, not introduced by v1.73.0)
+Three cases in `deploy/memex/tests/tenant_fail_closed.test.ts` fail on **clean
+main** (verified at commit 1055326, before any Tier-1 work) AND in CI under real
+Postgres — so it is NOT a PGlite-vs-Postgres artifact:
+- "the guard bites ONLY the authed-public-no-grant caller > trusted-local … STILL reads whole-brain"
+- "empty-scope … get_chunks > flag OFF: authed-public-no-grant get_chunks sees A's chunk (fail-open baseline)"
+- "flag ON: static bearer get_chunks STILL sees A's chunk (whole-brain preserved)"
+Symptom: the test's seeded page (`companies/fc-a`) is invisible to `page_list`
+and `get_chunks` — both return `{ok:true, pages:[]}` / `{chunks:[]}`, i.e. the
+seed write in `beforeAll` never persists or a visibility filter hides it. So the
+assertions that expect the seed to be READABLE fail (it's a broken-setup failure,
+not a real isolation leak). CI has been red on this since at least v1.72.0.
+Investigate the seed/isolation-harness setup (why the page doesn't persist/read
+in this test's DB), fix, get CI green. Separate from the Tier-1 ship.
+
 ### Tier-1 review follow-ups (from the self-review after shipping)
 - **[MEDIUM] facts supersede ↔ fence tombstone coupling.** `facts-reconcile.ts`
   builds its "forgotten" skip-set from `forgotten_at IS NOT NULL` regardless of
