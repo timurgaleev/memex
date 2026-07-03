@@ -19,6 +19,39 @@ import {
   type TimelineEventRow,
 } from "./timeline.ts";
 import { effectiveConfidence, factDecayEnabled } from "./facts-decay.ts";
+import {
+  classifyFact,
+  defaultClassifierLlmFn,
+  CHEAP_THRESHOLD,
+  FALLBACK_THRESHOLD,
+  type FactCandidate,
+} from "./facts-classify.ts";
+import type { LlmFn } from "./llm/haiku.ts";
+import type { BudgetTracker } from "./budget.ts";
+
+/**
+ * Insert-time dedup / supersede knobs (migration 038 fact embedding + the
+ * facts-classify cascade). Providing this object OPTS IN to the classify path
+ * for this call regardless of env (the test seam); production callers leave it
+ * undefined and let `MEMEX_FACTS_DEDUP` govern. All fields default sensibly.
+ */
+export interface FactDedupOptions {
+  /** Embedder for the new fact (tests). Defaults to the Bedrock Titan path. */
+  embed?: (text: string) => Promise<number[]>;
+  /** Haiku seam for the classifier step (tests). Defaults to the shared helper
+   *  ONLY when `MEMEX_FACTS_DEDUP_LLM` is on; otherwise the LLM step is skipped. */
+  llmFn?: LlmFn;
+  /** Budget guard for the paid classifier call. */
+  budget?: BudgetTracker;
+  /** Model id used for budget pricing. */
+  modelId?: string;
+  /** Cosine fast-path threshold (default 0.95). */
+  cheapThreshold?: number;
+  /** Classifier-failure fallback threshold (default 0.92). */
+  fallbackThreshold?: number;
+  /** Cap on entity-prefiltered candidates fetched (default 5). */
+  candidateLimit?: number;
+}
 
 export interface AddFactInput {
   entity_slug: string;
@@ -32,6 +65,136 @@ export interface AddFactInput {
    * 'default' applies, preserving whole-brain behavior.
    */
   source_id?: string;
+  /** Fact category (migration 037). Validated against the CHECK set; an
+   *  unrecognized value is dropped to NULL. */
+  kind?: string;
+  /** Notability ordinal (migration 037). Validated against the CHECK set; an
+   *  unrecognized value is dropped to NULL. */
+  notability?: string;
+  /**
+   * Insert-time dedup / supersede. Present -> opt in for this call; absent ->
+   * governed by `MEMEX_FACTS_DEDUP` (default OFF, exact-tuple dedup only).
+   */
+  dedup?: FactDedupOptions;
+}
+
+/** Allowed `kind` values — mirrors the migration 037 CHECK constraint. */
+const KIND_VALUES: ReadonlySet<string> = new Set([
+  "event",
+  "preference",
+  "commitment",
+  "belief",
+  "fact",
+]);
+/** Allowed `notability` values — mirrors the migration 037 CHECK constraint. */
+const NOTABILITY_VALUES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+
+/** Normalize a caller-supplied kind to an allowed value, else NULL (never let a
+ *  bad value reach — and abort on — the CHECK constraint). */
+function normaliseKind(k: string | undefined): string | null {
+  if (typeof k !== "string") return null;
+  const v = k.trim().toLowerCase();
+  return KIND_VALUES.has(v) ? v : null;
+}
+
+/** Normalize a caller-supplied notability to an allowed value, else NULL. */
+function normaliseNotability(n: string | undefined): string | null {
+  if (typeof n !== "string") return null;
+  const v = n.trim().toLowerCase();
+  return NOTABILITY_VALUES.has(v) ? v : null;
+}
+
+/**
+ * Insert-time dedup is opt-in. An explicit `input.dedup` enables it for the
+ * call (tests / callers); otherwise `MEMEX_FACTS_DEDUP` governs. The paid Haiku
+ * classifier step is separately gated by `MEMEX_FACTS_DEDUP_LLM` — with it off
+ * only the free cosine fast-path runs.
+ */
+export function factsDedupEnabled(
+  env: string | undefined = process.env.MEMEX_FACTS_DEDUP,
+): boolean {
+  const v = (env ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+export function factsDedupLlmEnabled(
+  env: string | undefined = process.env.MEMEX_FACTS_DEDUP_LLM,
+): boolean {
+  const v = (env ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+interface ResolvedDedup {
+  embed: (text: string) => Promise<number[]>;
+  llmFn?: LlmFn;
+  budget?: BudgetTracker;
+  modelId?: string;
+  cheapThreshold: number;
+  fallbackThreshold: number;
+  candidateLimit: number;
+}
+
+/** Resolve the effective dedup config, or null when the path is off. */
+function resolveDedup(input: AddFactInput): ResolvedDedup | null {
+  const d = input.dedup;
+  if (d) {
+    const llmFn = d.llmFn ?? (factsDedupLlmEnabled() ? defaultClassifierLlmFn() : undefined);
+    return {
+      embed: d.embed ?? ((t) => embedText(t)),
+      ...(llmFn ? { llmFn } : {}),
+      ...(d.budget ? { budget: d.budget } : {}),
+      ...(d.modelId ? { modelId: d.modelId } : {}),
+      cheapThreshold: d.cheapThreshold ?? CHEAP_THRESHOLD,
+      fallbackThreshold: d.fallbackThreshold ?? FALLBACK_THRESHOLD,
+      candidateLimit: d.candidateLimit ?? 5,
+    };
+  }
+  if (!factsDedupEnabled()) return null;
+  const llmFn = factsDedupLlmEnabled() ? defaultClassifierLlmFn() : undefined;
+  return {
+    embed: (t) => embedText(t),
+    ...(llmFn ? { llmFn } : {}),
+    cheapThreshold: CHEAP_THRESHOLD,
+    fallbackThreshold: FALLBACK_THRESHOLD,
+    candidateLimit: 5,
+  };
+}
+
+/**
+ * Entity-prefiltered nearest-neighbour candidates for the classifier, scored by
+ * cosine similarity (`1 - <=> distance`) and ordered best-first. Scoped to the
+ * new fact's effective source so dedup never crosses a tenant boundary, and to
+ * live (non-tombstoned) embedded rows.
+ */
+async function fetchDedupCandidates(
+  storage: Storage,
+  entitySlug: string,
+  vecJson: string,
+  effectiveSource: string,
+  limit: number,
+): Promise<FactCandidate[]> {
+  const r = await storage.engine().query<{
+    id: number;
+    fact: string;
+    kind: string | null;
+    cos: number;
+  }>(
+    `SELECT id, fact, kind, 1 - (embedding <=> $2::vector) AS cos
+       FROM entity_facts
+      WHERE entity_slug = $1
+        AND forgotten_at IS NULL
+        AND embedding IS NOT NULL
+        AND source_id = $3
+      ORDER BY embedding <=> $2::vector
+      LIMIT $4`,
+    [entitySlug, vecJson, effectiveSource, limit],
+  );
+  return r.rows.map((row) => ({
+    id: row.id,
+    fact: row.fact,
+    kind: row.kind,
+    cos: Number(row.cos),
+  }));
 }
 
 export interface FactRow {
@@ -88,36 +251,69 @@ export async function addFact(
   if (sourceSlug !== null) validateSlug(sourceSlug);
   const chunkId = input.source_chunk_id ?? null;
   const writtenBy = input.written_by ?? null;
+  const kind = normaliseKind(input.kind);
+  const notability = normaliseNotability(input.notability);
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
   // column's DEFAULT 'default' applies otherwise (never pass NULL).
   const sourceId =
     typeof input.source_id === "string" && input.source_id.length > 0
       ? input.source_id
       : null;
-  const sourceCol = sourceId !== null ? ", source_id" : "";
 
-  if (chunkId === null) {
-    const params: unknown[] = [
-      input.entity_slug,
-      input.fact,
-      conf,
-      sourceSlug,
-      writtenBy,
-    ];
-    if (sourceId !== null) params.push(sourceId);
-    const r = await storage.engine().query<{ id: number }>(
-      `INSERT INTO entity_facts
-         (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by${sourceCol})
-       VALUES ($1, $2, $3, $4, NULL, $5${sourceId !== null ? ", $6" : ""})
-       RETURNING id`,
-      params,
-    );
-    return {
-      id: r.rows[0]?.id ?? null,
-      entity_slug: input.entity_slug,
-      inserted: true,
-    };
+  // Insert-time dedup / supersede (opt-in). Embed the new fact, fetch its
+  // entity-prefiltered nearest neighbours, and classify. A "duplicate" collapses
+  // (return the matched id, inserted:false); a "supersede" tombstones the old
+  // fact after the new one lands. Falls-open: an embed failure skips the whole
+  // path and the fact inserts as usual.
+  let supersededId: number | null = null;
+  let embeddingJson: string | null = null;
+  const dedup = resolveDedup(input);
+  if (dedup) {
+    let vec: number[] | null = null;
+    try {
+      vec = await dedup.embed(input.fact);
+    } catch {
+      vec = null;
+    }
+    if (vec && vec.length > 0) {
+      embeddingJson = JSON.stringify(vec);
+      const effectiveSource = sourceId ?? "default";
+      const candidates = await fetchDedupCandidates(
+        storage,
+        input.entity_slug,
+        embeddingJson,
+        effectiveSource,
+        dedup.candidateLimit,
+      );
+      const verdict = await classifyFact({ fact: input.fact, kind }, candidates, {
+        ...(dedup.llmFn ? { llmFn: dedup.llmFn } : {}),
+        ...(dedup.budget ? { budget: dedup.budget } : {}),
+        ...(dedup.modelId ? { modelId: dedup.modelId } : {}),
+        cheapThreshold: dedup.cheapThreshold,
+        fallbackThreshold: dedup.fallbackThreshold,
+      });
+      if (verdict.decision === "duplicate") {
+        return {
+          id: verdict.matchedId,
+          entity_slug: input.entity_slug,
+          inserted: false,
+        };
+      }
+      if (verdict.decision === "supersede") supersededId = verdict.supersededId;
+    }
   }
+
+  // Build the INSERT dynamically: the always-present columns plus whichever of
+  // kind / notability / source_id / embedding are set. `embedding` needs a
+  // ::vector cast; the rest are plain placeholders.
+  const cols = [
+    "entity_slug",
+    "fact",
+    "confidence",
+    "source_slug",
+    "source_chunk_id",
+    "written_by",
+  ];
   const params: unknown[] = [
     input.entity_slug,
     input.fact,
@@ -126,22 +322,56 @@ export async function addFact(
     chunkId,
     writtenBy,
   ];
-  if (sourceId !== null) params.push(sourceId);
+  if (kind !== null) {
+    cols.push("kind");
+    params.push(kind);
+  }
+  if (notability !== null) {
+    cols.push("notability");
+    params.push(notability);
+  }
+  if (sourceId !== null) {
+    cols.push("source_id");
+    params.push(sourceId);
+  }
+  if (embeddingJson !== null) {
+    cols.push("embedding");
+    params.push(embeddingJson);
+  }
+  const placeholders = cols.map((c, i) =>
+    c === "embedding" ? `$${i + 1}::vector` : `$${i + 1}`,
+  );
+  // Chunk-sourced facts keep the exact-tuple idempotency guard; manual facts
+  // (NULL chunk) always insert.
+  const conflict =
+    chunkId !== null
+      ? `ON CONFLICT (entity_slug, fact, source_chunk_id)
+           WHERE source_chunk_id IS NOT NULL
+           DO NOTHING`
+      : "";
   const r = await storage.engine().query<{ id: number }>(
-    `INSERT INTO entity_facts
-       (entity_slug, fact, confidence, source_slug, source_chunk_id, written_by${sourceCol})
-     VALUES ($1, $2, $3, $4, $5, $6${sourceId !== null ? ", $7" : ""})
-     ON CONFLICT (entity_slug, fact, source_chunk_id)
-       WHERE source_chunk_id IS NOT NULL
-       DO NOTHING
+    `INSERT INTO entity_facts (${cols.join(", ")})
+     VALUES (${placeholders.join(", ")})
+     ${conflict}
      RETURNING id`,
     params,
   );
-  return {
-    id: r.rows[0]?.id ?? null,
-    entity_slug: input.entity_slug,
-    inserted: r.rows.length > 0,
-  };
+  const newId = r.rows[0]?.id ?? null;
+  const inserted = chunkId === null ? true : r.rows.length > 0;
+
+  // Retire the superseded fact only once the replacement actually landed. The
+  // tombstone reuses the mig043 forget columns (no dedicated supersede link),
+  // and — paired with the reconcile tombstone-preservation — survives a fence
+  // rebuild rather than resurrecting.
+  if (inserted && supersededId !== null && newId !== null) {
+    await storage.engine().query(
+      `UPDATE entity_facts
+          SET forgotten_at = NOW(), forgotten_reason = $2
+        WHERE id = $1 AND forgotten_at IS NULL`,
+      [supersededId, `superseded by fact ${newId}`],
+    );
+  }
+  return { id: newId, entity_slug: input.entity_slug, inserted };
 }
 
 export interface ListFactsOptions {
