@@ -18,6 +18,8 @@
  * 037 metadata). No schema change — all columns queried already exist.
  */
 import type { Storage } from "./storage.ts";
+import { hybridSearch, type SearchHit, type SearchOptions } from "./search/hybrid.ts";
+import { PAGE_MIRROR_PATH_SQL, isPageSourcePath } from "./page-index.ts";
 
 // Shared kebab-case slug grammar (matches links.ts / pages.ts). Validated at
 // the boundary so a caller-supplied slug can never be interpolated raw, and a
@@ -132,15 +134,41 @@ export interface FindExpertsOptions {
    * rank only pages in the listed sources, counting only those sources' edges.
    */
   sourceIds?: string[];
+  /**
+   * Optional topic query. When present (non-empty), switches from the default
+   * link-degree hub ranking to expertise ranking: person/company pages scored
+   * by how strongly their body relates to the topic, decayed by relationship
+   * recency and lifted by salience. Deterministic — no LLM.
+   */
+  topic?: string;
+  /**
+   * Test-only injection of the query embedder, threaded into `hybridSearch`
+   * so the topic arm runs hermetically without Bedrock. Production leaves this
+   * undefined and the real Titan embedder is used.
+   */
+  embedQuery?: (text: string) => Promise<number[]>;
 }
 
 export interface ExpertRow {
   slug: string;
   type: string;
   title: string | null;
-  /** Distinct in+out neighbours that resolve to a live page. */
+  /** Distinct in+out neighbours that resolve to a live page (link-degree mode). */
   degree: number;
+  /**
+   * Composite expertise score (topic mode only): expertise × recency × salience.
+   * Absent in link-degree mode, where `degree` is the ranking key.
+   */
+  score?: number;
 }
+
+// Expertise-ranking constants (topic mode). Mirrors the locked whoknows spec:
+// score = expertise × max(floor, recency_decay) × (0.5 + 0.5 × salience).
+const EXPERTISE_HALF_LIFE_DAYS = 180; // ~6-month relationship half-life
+const EXPERTISE_RECENCY_FLOOR = 0.1; // cold pages stay visible (no multiplicative-zero)
+// Default candidate types when no explicit `type` filter is passed — the
+// person/company "who knows about X" surface. Any single `type` override wins.
+const EXPERT_DEFAULT_TYPES = ["person", "company"];
 
 /**
  * Pages ranked by graph link-degree — the hubs of the knowledge base. Degree
@@ -153,6 +181,9 @@ export async function findExperts(
   storage: Storage,
   opts: FindExpertsOptions = {},
 ): Promise<ExpertRow[]> {
+  if (typeof opts.topic === "string" && opts.topic.trim().length > 0) {
+    return findExpertsByTopic(storage, opts);
+  }
   const limit = clampLimit(opts.limit, 5, 200);
   const params: unknown[] = [];
   let typeFilter = "";
@@ -205,6 +236,130 @@ export async function findExperts(
     title: row.title,
     degree: Number(row.degree) || 0,
   }));
+}
+
+/**
+ * Topic-ranked experts — "who in my brain knows about <topic>?". Person/company
+ * pages ranked by expertise depth, not raw graph connectivity. Deterministic:
+ * the topic signal is memex's own hybrid search over the page → search mirror
+ * (`page://<slug>` documents, see page-index.ts), so a page whose body relates
+ * to the topic scores high with NO LLM call.
+ *
+ *   score = expertise × max(floor, recency_decay) × (0.5 + 0.5 × salience)
+ *     expertise      = log1p(topic_match)  — sub-linear; one big page can't dominate.
+ *     recency_decay  = exp(-days_since_updated / 180), floored at 0.1.
+ *     salience       = pages.salience (already 0..1), centered so missing = neutral.
+ *
+ * Tenant scope is threaded into the search AND the page resolve so a scoped
+ * caller never surfaces another source's people. Defaults to person/company
+ * candidates; an explicit `type` overrides that.
+ */
+async function findExpertsByTopic(
+  storage: Storage,
+  opts: FindExpertsOptions,
+): Promise<ExpertRow[]> {
+  const topic = (opts.topic ?? "").trim();
+  const limit = clampLimit(opts.limit, 5, 200);
+  const sources = normalizeSourceIds(opts.sourceIds);
+
+  // 1. Topic match. Widen the candidate pool (×10, floor 50) so a page's best
+  //    chunk score survives chunk-grain fan-out before we collapse to pages.
+  const innerK = Math.max(limit * 10, 50);
+  const searchOpts: SearchOptions = { k: innerK };
+  if (sources) searchOpts.sourceIds = sources;
+  if (opts.embedQuery) searchOpts.embedQuery = opts.embedQuery;
+  let hits: SearchHit[];
+  try {
+    hits = await hybridSearch(storage, topic, searchOpts);
+  } catch {
+    // A search failure (e.g. embed deadline with no keyword hits) yields no
+    // experts rather than throwing — the caller asked a question, not a write.
+    return [];
+  }
+
+  // 2. Collapse chunk hits to one best score per page-mirror document.
+  const bestByPath = new Map<string, number>();
+  for (const h of hits) {
+    if (!isPageSourcePath(h.sourcePath)) continue;
+    const prev = bestByPath.get(h.sourcePath);
+    if (prev === undefined || h.score > prev) bestByPath.set(h.sourcePath, h.score);
+  }
+  if (bestByPath.size === 0) return [];
+
+  // 3. Resolve mirror paths back to live person/company pages, tenant-scoped.
+  //    Joining on the mirror-path EXPRESSION (not a parse of source_path) is
+  //    unambiguous even when a slug itself contains '/'.
+  const paths = Array.from(bestByPath.keys());
+  const params: unknown[] = [paths];
+  let typeFilter: string;
+  if (opts.type !== undefined) {
+    if (typeof opts.type !== "string" || opts.type.length === 0) {
+      throw new Error("findExperts: type must be a non-empty string");
+    }
+    params.push(opts.type);
+    typeFilter = ` AND p.type = $${params.length}`;
+  } else {
+    params.push(EXPERT_DEFAULT_TYPES);
+    typeFilter = ` AND p.type = ANY($${params.length}::text[])`;
+  }
+  let pageSourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    pageSourceFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+  }
+  const rows = await storage.engine().query<{
+    slug: string;
+    type: string;
+    title: string | null;
+    salience: number | string;
+    updated_at: string;
+    mirror_path: string;
+  }>(
+    `SELECT p.slug, p.type, p.title, p.salience,
+            p.updated_at::text AS updated_at,
+            ${PAGE_MIRROR_PATH_SQL} AS mirror_path
+       FROM pages p
+       WHERE p.deleted_at IS NULL${typeFilter}${pageSourceFilter}
+         AND ${PAGE_MIRROR_PATH_SQL} = ANY($1::text[])`,
+    params,
+  );
+
+  // 4. Score each resolved page.
+  const now = Date.now();
+  const scored: ExpertRow[] = rows.rows.map((row) => {
+    const raw = bestByPath.get(row.mirror_path) ?? 0;
+    const expertise = Math.log1p(Math.max(0, Number.isFinite(raw) ? raw : 0));
+
+    let recency = EXPERTISE_RECENCY_FLOOR;
+    const updatedMs = Date.parse(row.updated_at);
+    if (Number.isFinite(updatedMs)) {
+      const days = Math.max(0, (now - updatedMs) / 86_400_000);
+      recency = Math.max(EXPERTISE_RECENCY_FLOOR, Math.exp(-days / EXPERTISE_HALF_LIFE_DAYS));
+    }
+
+    let salience = Number(row.salience);
+    if (!Number.isFinite(salience)) salience = 0;
+    salience = Math.min(1, Math.max(0, salience));
+    const salienceFactor = 0.5 + 0.5 * salience;
+
+    const score = expertise * recency * salienceFactor;
+    return {
+      slug: row.slug,
+      type: row.type,
+      title: row.title,
+      degree: 0,
+      score: Number.isFinite(score) ? score : 0,
+    };
+  });
+
+  // 5. Rank by score DESC; tie-break on slug for a deterministic order.
+  scored.sort((a, b) => {
+    const sb = b.score ?? 0;
+    const sa = a.score ?? 0;
+    if (sb !== sa) return sb - sa;
+    return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+  });
+  return scored.slice(0, limit);
 }
 
 // --- find_contradictions ---------------------------------------------------

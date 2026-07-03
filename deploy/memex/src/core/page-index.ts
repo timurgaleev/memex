@@ -57,7 +57,7 @@ export function isPageSourcePath(sourcePath: string): boolean {
  * (a slug may repeat across sources, so a bare `'page://' || slug` join would
  * mismatch a non-'default' tenant's mirror). `p` is the `pages` alias.
  */
-const PAGE_MIRROR_PATH_SQL =
+export const PAGE_MIRROR_PATH_SQL =
   `CASE WHEN p.source_id = 'default' THEN 'page://' || p.slug ` +
   `ELSE 'page://' || p.source_id || '/' || p.slug END`;
 

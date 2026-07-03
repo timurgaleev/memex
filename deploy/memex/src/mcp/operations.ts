@@ -637,9 +637,13 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "find_experts",
     description:
-      "Pages ranked by graph link-degree — the hubs of the knowledge base. Degree counts distinct in+out neighbours that resolve to a LIVE page (unresolved [[wikilink]] stubs don't inflate it). Optional `type` page-type filter; `limit` (1..200, default 5). Deterministic, no LLM.",
+      "Who knows about a topic — or the graph's hubs. With `topic`: person/company pages ranked by expertise (how strongly their body relates to the topic, via hybrid search) × relationship recency (6-month half-life) × salience. Without `topic`: pages ranked by graph link-degree (distinct live in+out neighbours; unresolved [[wikilink]] stubs don't inflate it). Optional `type` overrides the default person/company candidate set in topic mode, or filters the hub ranking; `limit` (1..200, default 5). Deterministic, no LLM.",
     params: {
-      type: str({ description: "Restrict to a single page type." }),
+      topic: str({
+        description:
+          "Optional topic query. When set, ranks person/company pages by expertise + recency + salience. When omitted, returns graph link-degree hubs.",
+      }),
+      type: str({ description: "Restrict to a single page type (overrides the person/company default in topic mode)." }),
       limit: int({ minimum: 1, maximum: 200 }),
     },
   },
