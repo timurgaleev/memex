@@ -2,13 +2,15 @@
  * Sliding-window chunk overlap (recursive markdown chunker). Overlap bridges a
  * size-driven split inside one heading section so a boundary-straddling fact
  * stays retrievable from both chunks; it never crosses a heading boundary, and
- * is OFF by default (env `MEMEX_CHUNK_OVERLAP` / `overlapChars` opt).
+ * is ON by default (~50 words) for newly indexed pages, disablable via env
+ * `MEMEX_CHUNK_OVERLAP=0` or the `overlapChars: 0` opt.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { chunkMarkdown } from "../src/core/chunkers/index.ts";
 import {
   overlapTail,
   resolveOverlapChars,
+  DEFAULT_OVERLAP_CHARS,
 } from "../src/core/chunkers/recursive.ts";
 
 const p1 = "Alpha sentence one. ".repeat(15); // ~300 chars, sentence-delimited
@@ -21,11 +23,17 @@ afterEach(() => {
 });
 
 describe("chunk overlap", () => {
-  it("is OFF by default: adjacent size-split chunks share no text", () => {
-    const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
+  it("is OFF when explicitly disabled: adjacent size-split chunks share no text", () => {
+    const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0, overlapChars: 0 });
     expect(r.chunks.length).toBe(2);
     expect(r.chunks[1]).not.toContain("Alpha"); // no bridge from chunk 0
     expect(r.chunks[0]).not.toContain("Bravo");
+  });
+
+  it("is ON by default: a size-split continuation carries the previous tail", () => {
+    const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
+    expect(r.chunks.length).toBe(2);
+    expect(r.chunks[1]).toContain("Alpha sentence one"); // default bridge present
   });
 
   it("prepends the previous chunk's tail when overlapChars > 0", () => {
@@ -100,8 +108,14 @@ describe("chunk overlap", () => {
     expect(r.chunks[1]).toContain("Alpha sentence one");
   });
 
-  it("fails safe to OFF on a non-numeric env value", () => {
+  it("falls back to the default (ON) on a non-numeric env value", () => {
     process.env.MEMEX_CHUNK_OVERLAP = "not-a-number";
+    const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
+    expect(r.chunks[1]).toContain("Alpha sentence one"); // garbage → default overlap
+  });
+
+  it("is disabled by an explicit MEMEX_CHUNK_OVERLAP=0", () => {
+    process.env.MEMEX_CHUNK_OVERLAP = "0";
     const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
     expect(r.chunks[1]).not.toContain("Alpha");
   });
@@ -143,11 +157,28 @@ describe("overlapTail", () => {
 });
 
 describe("resolveOverlapChars", () => {
-  it("returns 0 for undefined/0/negative and caps at maxChars/2", () => {
-    expect(resolveOverlapChars(undefined, 4000)).toBe(0);
+  afterEach(() => {
+    delete process.env.MEMEX_CHUNK_OVERLAP;
+  });
+
+  it("defaults to DEFAULT_OVERLAP_CHARS when opt + env are unset (ON)", () => {
+    expect(resolveOverlapChars(undefined, 4000)).toBe(DEFAULT_OVERLAP_CHARS);
+  });
+
+  it("honours an explicit 0/negative opt as OFF and caps at maxChars/2", () => {
     expect(resolveOverlapChars(0, 4000)).toBe(0);
     expect(resolveOverlapChars(-5, 4000)).toBe(0);
     expect(resolveOverlapChars(100000, 4000)).toBe(2000);
     expect(resolveOverlapChars(2.9, 4000)).toBe(2);
+  });
+
+  it("treats MEMEX_CHUNK_OVERLAP=0 as an explicit disable", () => {
+    process.env.MEMEX_CHUNK_OVERLAP = "0";
+    expect(resolveOverlapChars(undefined, 4000)).toBe(0);
+  });
+
+  it("uses a positive MEMEX_CHUNK_OVERLAP verbatim (capped)", () => {
+    process.env.MEMEX_CHUNK_OVERLAP = "120";
+    expect(resolveOverlapChars(undefined, 4000)).toBe(120);
   });
 });

@@ -62,8 +62,12 @@ import {
 } from "./evidence.ts";
 import {
   getCachedQuery,
+  getSemanticCachedQuery,
   putCachedQuery,
   queryCacheKey,
+  queryCacheBucketKey,
+  resolveSemanticCacheConfig,
+  type CachedQuery,
 } from "./query-cache.ts";
 import { stampContentFlags, type ContentFlag } from "./content-flag.ts";
 import { currentDocumentClock } from "../generation.ts";
@@ -441,47 +445,53 @@ export async function hybridSearch(
   let cacheKey = "";
   let cacheClock = 0;
   let cacheReady = false;
+  // Serve a cache hit (exact or semantic): re-hydrate from the live tables,
+  // stamp the uniform evidence + content-flag contract, fire capture, and apply
+  // the final adaptive-return view. Shared by both cache arms so they behave
+  // identically. `expansion: false` is correct for both — a cache hit
+  // short-circuits before the expansion/retrieval stage.
+  const serveCachedRanking = async (cached: CachedQuery): Promise<SearchHit[]> => {
+    const cachedIntent = (cached.intent as Intent) ?? "topic";
+    const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent, opts.sourceIds);
+    const hits =
+      opts.tokenBudget !== undefined
+        ? applyTokenBudget(hydrated, opts.tokenBudget)
+        : hydrated;
+    // Cache hits have no arm membership to classify — stamp the conservative
+    // default so the evidence contract is uniform (always present) and never a
+    // false `exists`. A title-phrase match is still computable from the hit
+    // title, so a cached title hit surfaces `exact_title_match` rather than a
+    // flat `weak_semantic`.
+    stampDefaultEvidence(hits, trimmed);
+    // Same WARN channel on the cache-hit path so the flag is uniform.
+    await stampContentFlags(engine, hits);
+    if (opts.onCapture) {
+      try {
+        await opts.onCapture({
+          query: trimmed,
+          k,
+          resultDocIds: hits.map((h) => h.documentId),
+          intent: cachedIntent,
+          latencyMs: Date.now() - startedAt,
+          rerank: rerankWanted,
+          expansion: false,
+        });
+      } catch {
+        // capture failures never surface
+      }
+    }
+    // Adaptive return-sizing (opt-in, default OFF) — the FINAL view, applied
+    // after the cache read served the full stored set and after capture saw it,
+    // so the cap never poisons the cache or shrinks the eval window.
+    return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
+  };
   if (cacheEnabled) {
     try {
       cacheClock = await currentDocumentClock(engine);
       cacheKey = queryCacheKey(trimmed, k, opts.sourceIds, rerankWanted);
       const cached = await getCachedQuery(engine, cacheKey, cacheClock);
       cacheReady = true;
-      if (cached) {
-        const cachedIntent = (cached.intent as Intent) ?? "topic";
-        const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent, opts.sourceIds);
-        const hits =
-          opts.tokenBudget !== undefined
-            ? applyTokenBudget(hydrated, opts.tokenBudget)
-            : hydrated;
-        // Cache hits have no arm membership to classify — stamp the
-        // conservative default so the evidence contract is uniform (always
-        // present) and never a false `exists`. A title-phrase match is still
-        // computable from the hit title, so a cached title hit surfaces
-        // `exact_title_match` rather than a flat `weak_semantic`.
-        stampDefaultEvidence(hits, trimmed);
-        // Same WARN channel on the cache-hit path so the flag is uniform.
-        await stampContentFlags(engine, hits);
-        if (opts.onCapture) {
-          try {
-            await opts.onCapture({
-              query: trimmed,
-              k,
-              resultDocIds: hits.map((h) => h.documentId),
-              intent: cachedIntent,
-              latencyMs: Date.now() - startedAt,
-              rerank: rerankWanted,
-              expansion: false,
-            });
-          } catch {
-            // capture failures never surface
-          }
-        }
-        // Adaptive return-sizing (opt-in, default OFF) — the FINAL view, applied
-        // after the cache read served the full stored set and after capture saw
-        // it, so the cap never poisons the cache or shrinks the eval window.
-        return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
-      }
+      if (cached) return await serveCachedRanking(cached);
     } catch {
       cacheReady = false; // fall through to a normal search
     }
@@ -507,6 +517,31 @@ export async function hybridSearch(
       : await embedQueryBounded(trimmed, { embeddingModel: opts.embeddingModel }, dl);
   } catch {
     queryVector = null; // keyword-only fallback
+  }
+
+  // 1b. Semantic query cache (opt-in, default OFF). On an exact-match miss, try
+  //     the nearest stored query embedding within the same scope/knobs bucket,
+  //     cosine >= threshold, TTL- and freshness-gated. Requires a healthy vector
+  //     arm — a degraded/null `queryVector` skips this path (the degraded
+  //     ranking must not be borrowed by a paraphrase). Fail-open like the exact
+  //     arm: any error falls through to the full search.
+  if (cacheReady && queryVector !== null) {
+    const semCfg = resolveSemanticCacheConfig();
+    if (semCfg.enabled) {
+      try {
+        const bucket = queryCacheBucketKey(k, opts.sourceIds, rerankWanted);
+        const sem = await getSemanticCachedQuery(
+          engine,
+          bucket,
+          queryVector,
+          cacheClock,
+          semCfg,
+        );
+        if (sem) return await serveCachedRanking(sem);
+      } catch {
+        // semantic cache is a pure optimization — fall through to full search
+      }
+    }
   }
 
   const [vectorIds, primaryKeywordIds] = await Promise.all([
@@ -869,6 +904,16 @@ export async function hybridSearch(
   //     the degraded ranking for the whole cache window even after Bedrock
   //     recovers. Recompute next time instead.
   if (cacheReady && queryVector !== null) {
+    // Semantic arm (migration 065, opt-in): stamp the bucket key + query
+    // embedding so a later paraphrase can match this row by cosine. Only when
+    // the arm is on — the default path writes no extra vector per search.
+    const semCfg = resolveSemanticCacheConfig();
+    const semantic = semCfg.enabled
+      ? {
+          bucketKey: queryCacheBucketKey(k, opts.sourceIds, rerankWanted),
+          queryEmbedding: queryVector,
+        }
+      : undefined;
     void putCachedQuery(
       engine,
       cacheKey,
@@ -881,6 +926,7 @@ export async function hybridSearch(
       // per-document generation snapshot (migration 031). A later write to a
       // doc NOT in this set leaves the cached row servable.
       [...new Set(ranked.map((h) => h.documentId))],
+      semantic,
     ).catch(() => {});
   }
 
