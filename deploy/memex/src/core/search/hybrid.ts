@@ -78,6 +78,9 @@ import {
 } from "./graph-signals.ts";
 import { applyAliasHop, aliasHopEnabled } from "./alias-hop.ts";
 import { expandAnchors } from "./structural-expand.ts";
+import { applyBacklinkBoost } from "./backlink-boost.ts";
+import { cosineReScore } from "./cosine-rescore.ts";
+import type { ChunkFilters } from "./filters.ts";
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -147,6 +150,22 @@ export interface SearchOptions {
    * The live ranking model is immutable unless this is set. See graph-signals.ts.
    */
   graphSignals?: boolean;
+  /**
+   * Backlink-count boost (default ON): multiply each hit by
+   * 1 + 0.05*ln(1+inbound_link_count) using the page's GLOBAL in-degree from the
+   * `links` table, floor-ratio-gated like graph-signals. Deterministic + cheap
+   * (one links tally). Falls back to MEMEX_BACKLINK_BOOST !== "0". Set false /
+   * MEMEX_BACKLINK_BOOST=0 to disable. See backlink-boost.ts.
+   */
+  backlinkBoost?: boolean;
+  /**
+   * Cosine re-score blend (default OFF): before dedup, re-score each candidate
+   * as 0.7*normalizedRRF + 0.3*(query·chunk cosine) so semantically-closer
+   * chunks survive the per-doc collapse. Adds one embeddings fetch per query.
+   * Falls back to MEMEX_COSINE_RESCORE === "1". Inert on the keyword-only
+   * fallback (no query vector). See cosine-rescore.ts.
+   */
+  cosineRescore?: boolean;
   /** Filter to chunks of a given source language (chunks.language, e.g. "typescript"). */
   lang?: string;
   /** Filter to chunks of a given symbol kind (chunks.symbol_type, e.g. "function"). */
@@ -397,6 +416,19 @@ export async function hybridSearch(
   const hasFilters = Boolean(
     opts.lang || opts.symbolKind || opts.since || opts.until,
   );
+  // Pushed-down filter set (lang / symbol_kind / since / until). Threaded into
+  // BOTH retrieval arms so the per-arm LIMIT budget is spent on already-matching
+  // rows — a filtered match ranking below the fanout is no longer dropped. The
+  // post-hydrate filter (step 5b) still runs as the choke point for structural
+  // neighbors, which bypass the retrieval arms. Undefined when no axis is set.
+  const chunkFilters: ChunkFilters | undefined = hasFilters
+    ? {
+        ...(opts.lang ? { lang: opts.lang } : {}),
+        ...(opts.symbolKind ? { symbolKind: opts.symbolKind } : {}),
+        ...(opts.since ? { since: opts.since } : {}),
+        ...(opts.until ? { until: opts.until } : {}),
+      }
+    : undefined;
   // Structural expansion (near_symbol / walk_depth) widens the candidate set
   // beyond what the query alone produces, so its result must never be served
   // from — nor written to — the exact-match query cache.
@@ -481,10 +513,12 @@ export async function hybridSearch(
     queryVector
       ? vectorSearch(engine, queryVector, fanout, {
           sourceIds: opts.sourceIds,
+          filters: chunkFilters,
         })
       : Promise.resolve<string[]>([]),
     keywordSearch(engine, trimmed, fanout, {
       sourceIds: opts.sourceIds,
+      filters: chunkFilters,
     }),
   ]);
 
@@ -495,7 +529,10 @@ export async function hybridSearch(
     if (variants.length > 0) {
       const extra = await Promise.all(
         variants.map((v) =>
-          keywordSearch(engine, v, fanout, { sourceIds: opts.sourceIds }),
+          keywordSearch(engine, v, fanout, {
+            sourceIds: opts.sourceIds,
+            filters: chunkFilters,
+          }),
         ),
       );
       lists.push(...extra);
@@ -634,6 +671,18 @@ export async function hybridSearch(
     });
   }
 
+  // 5c. Cosine re-score blend (opt-in, default OFF) — re-score each candidate as
+  //     0.7*normalizedRRF + 0.3*(query·chunk cosine) BEFORE the multiplicative
+  //     boosts + dedup, so a semantically-closer chunk survives the per-doc
+  //     collapse. Runs only when the vector arm produced a query vector (nothing
+  //     to blend on the keyword-only fallback). Fail-open: a fetch error leaves
+  //     the RRF scores intact.
+  const cosineRescoreOn =
+    opts.cosineRescore ?? process.env.MEMEX_COSINE_RESCORE === "1";
+  if (cosineRescoreOn && queryVector !== null) {
+    await cosineReScore(scored, engine, queryVector, opts.sourceIds);
+  }
+
   // 6-. Hard-exclude — drop fixtures / attachments / raw sidecars by slug
   //     prefix (default none; MEMEX_SEARCH_EXCLUDE opts in). Cheap precision
   //     filter, applied before scoring so excluded hits never compete.
@@ -704,6 +753,24 @@ export async function hybridSearch(
     const floor = computeFloorThreshold(scored, graphFloorRatio);
     await applyGraphSignals(scored, engine, {
       enabled: true,
+      floorThreshold: Number.isFinite(floor) ? floor : undefined,
+      ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
+    });
+  }
+
+  // 6d. Backlink-count boost (default ON) — a standing hub signal: multiply each
+  //     hit by 1 + 0.05*ln(1+inbound_link_count) using the page's GLOBAL
+  //     in-degree from the `links` table. Distinct from graph-signals (which
+  //     counts only in-set links, opt-in): this reads whole-corpus in-degree so
+  //     a hub earns a small boost on every query. Floor-ratio-gated by the SAME
+  //     MEMEX_GRAPH_SIGNALS_FLOOR ratio (undefined → no gate, every hit
+  //     eligible). Pre-dedup so the boost decides which chunk survives per-doc
+  //     collapse; fail-open on a links query error.
+  const backlinkBoostOn =
+    opts.backlinkBoost ?? process.env.MEMEX_BACKLINK_BOOST !== "0";
+  if (backlinkBoostOn) {
+    const floor = computeFloorThreshold(scored, graphFloorRatio);
+    await applyBacklinkBoost(scored, engine, {
       floorThreshold: Number.isFinite(floor) ? floor : undefined,
       ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
     });
