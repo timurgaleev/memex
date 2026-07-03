@@ -109,6 +109,7 @@ export async function listTakes(
 
 export interface CalibrationProfileRow {
   generated_at: string;
+  source_id: string;
   total_graded: number;
   correct: number;
   incorrect: number;
@@ -121,23 +122,33 @@ export interface CalibrationProfileRow {
 }
 
 /**
- * @param sourceIds Accepted for API symmetry but NOT applied: the calibration
- *   profile is a single GLOBAL scorecard per run (migration 045 has no
- *   `source_id` on `synth_calibration_profile`), so there is no per-tenant axis
- *   to filter on. Passing it is a no-op.
+ * Latest calibration profile the caller is allowed to see. Migration 060 added
+ * the `source_id` axis, so profiles are per-tenant: a scoped caller filters to
+ * their effective read source set (`source_id = ANY($allowed)`), which excludes
+ * every other tenant's profile fail-closed — the same posture the other scoped
+ * reads take. `undefined`/empty leaves it unscoped (admin/internal), returning
+ * the newest profile across all tenants.
  */
 export async function getCalibrationProfile(
   engine: Engine,
-  _sourceIds?: string[],
+  sourceIds?: string[],
 ): Promise<CalibrationProfileRow | null> {
+  const sources = normalizeSourceIds(sourceIds);
+  const params: unknown[] = [];
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` WHERE source_id = ANY($${params.length}::text[])`;
+  }
   try {
     const r = await engine.query<CalibrationProfileRow>(
-      `SELECT generated_at::text AS generated_at, total_graded, correct,
+      `SELECT generated_at::text AS generated_at, source_id, total_graded, correct,
               incorrect, partial, unresolvable, accuracy,
               pattern_statements, bias_tags, model_id
-         FROM synth_calibration_profile
+         FROM synth_calibration_profile${sourceFilter}
         ORDER BY generated_at DESC
         LIMIT 1`,
+      params,
     );
     return r.rows[0] ?? null;
   } catch {
