@@ -163,6 +163,14 @@ export async function reconcileFactsForPage(
     // re-inserting any fence fact whose claim is already tombstoned for this
     // page. A fence fact's identity here is its claim text (every fence row on
     // a page shares entity_slug = the page). Fetched BEFORE the wipe.
+    //
+    // COUPLING: this set is `forgotten_at IS NOT NULL` regardless of WHY the row
+    // was tombstoned. The insert-time dedup supersede path (facts.ts, gated by
+    // MEMEX_FACTS_DEDUP, default-OFF) also stamps forgotten_at, so a supersede of
+    // a fence-sourced claim would suppress its re-insert here even while the
+    // operator still declares it in the fence. Contained (dedup is opt-in); a
+    // proper fix distinguishes a forget_fact tombstone from a supersede one. See
+    // TODO.md (facts backlog).
     const tombParams: unknown[] = [pageSlug];
     if (scope !== null) tombParams.push(scope);
     const tomb = await tx.query<{ fact: string }>(

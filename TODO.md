@@ -29,6 +29,111 @@ apply only from the ops dir. No open build work.
 
 ---
 
+## 2026-07-03 — brain-only parity backlog (reference v0.42.53 deep compare)
+
+A 7-subsystem code-level compare of the reference (v0.42.53) vs memex (v1.72),
+scoped to the retrieval brain only. Memex is a faithful core port and wins in
+several places (durable job queue, contextual retrieval, version history,
+public redaction, tenant write scoping, stronger slug cascade). The genuine
+gaps below are worth closing; three of them are latent bugs in memex's own code.
+
+### Tier 1 — build (correctness + free/cheap quality)
+1. **Content-sanity ingest gate WRITER.** memex has the full
+   quarantine/content_flag/embed_skip read+filter substrate but nothing WRITES
+   the markers (`embed-skip.ts` comment: "the deferred content-sanity writer
+   stamps it"). Port the reference's `content-sanity.ts`: scraper-junk patterns
+   + operator literals hard-block, oversize warn 50KB/block 500KB, markup-ratio
+   0.85 → content_flag. Hook into every ingest path (indexDocument / page write).
+   Deterministic, free.
+2. **Fact-extraction canonicalization bundle** (3 one-touch bugs in our code):
+   - (a) `writeExtractedFacts` blind-slugifies the entity name — never calls the
+     existing `slug-canonicalize.ts` cascade → phantom `alice` instead of
+     `people/alice-smith`. Wire the cascade in.
+   - (b) extractor parses `kind`/`notability` but `addFact`/`AddFactInput` drop
+     them (columns EXIST — mig 037). Thread both through → NULL-kind facts that
+     never decay get their decay back. Widen `AddFactInput` + insert.
+   - (c) `forget_fact` on a fence-owned fact is silently non-durable — it stamps
+     a DB tombstone but `reconcileFactsForPage` wipes+reinserts fence rows on the
+     next page re-put → fact resurrects. Make forget survive rebuild (strike the
+     fence row / preserve tombstone across reconcile).
+3. **Insert-time fact dup/supersede classification.** `addFact` dedups on exact
+   `(entity_slug, fact, source_chunk_id)` only → rephrased dups + contradictions
+   accumulate. Port cosine-0.95 fast-path + Haiku `duplicate|supersede|independent`
+   classifier (entity-prefiltered candidates). Depends on #2. Utility-tier Haiku.
+4. **Calibration/synthesis tenancy.** `synth_calibration_profile` has NO
+   source_id axis; the phase aggregates ALL tenants into one global profile
+   exposed via `get_calibration_profile` (cross-tenant blend + leak). Add source
+   axis (mig **060**), scope the phase + the read. Do before a real 2nd tenant.
+5. **Filter pushdown to SQL.** lang/since/until/symbolKind filters post-hydrate
+   over the fanout pool → a filtered query can return 0 despite matches. Thread
+   filters into `keyword.ts` / vector SQL so the LIMIT budget lands on matches.
+6. **Ranking (search/hybrid.ts), two free deterministic signals:** always-on
+   log-scaled backlink-count boost `1 + 0.05*ln(1+count)` (floor-gated); and a
+   cosine re-score blend `0.7*RRF + 0.3*query-chunk cosine` before dedup.
+7. **`find_experts` topic param.** memex's version has no topic — returns generic
+   link-degree hubs. Port topic-ranked expertise (match score + recency decay +
+   salience) so "who knows about X" works.
+
+### Tier 2 — worth it, when convenient
+Semantic query-cache (embedding-cosine ≥0.92 hit; memex exact-text only —
+paraphrase always misses; keep memex's better freshness model); `think` gather
+breadth (4 fused streams incl. takes-vector + graph vs memex's 2; trajectory
+injection for temporal Qs; citation validation vs gathered evidence);
+`MEMEX_FACTS_EXTRACTION` wired into write surfaces + a conversation-facts
+backfill cycle phase (today CLI-batch only); `consolidate` phase (facts→takes via
+embedding clustering, deterministic); `patterns` phase (cross-session theme miner,
+Sonnet slice); latent-contradiction probe (Sonnet slice feeding find_contradictions);
+embedding provenance signature + auto-invalidation on model/dim swap; page rename
+primitive + `slug_aliases` redirect table; nightly `memex eval` quality probe
+(systemd timer + snapshot); take lifecycle hygiene (min-age grading gate; nothing
+updates `synth_takes.status`; calibration profile consumed by nothing); default
+chunk overlap (memex OFF, reference 50-word ON); batch/concurrent embed workers
+(~10-20x faster full re-embed); hot-memory `_meta` injection on MCP responses.
+
+### Skip (reasoned)
+Image/multimodal + `search_by_image` + file/S3 substrate (no images/PDFs in the
+corpus; Titan Multimodal G1 makes it AWS-buildable IF ever wanted); autocut
+(memex reranker emits ordinal scores — nothing to cut on); CJK chunking
+(en/de/ru corpus); 36 tree-sitter grammars (ts/py cover the corpus; add go/rust
+on demand); schema-pack authoring suite; raw_data/ingest_log writers;
+progressive-batch orchestrator; drift-watch; remediation auto-run; search
+telemetry rollup (memex eval side is richer); takes-quality 3-model panel
+(violates Anthropic-only; a Sonnet-judge variant is possible later); 9 extra
+conversation-parser formats; `enrich_thin` + extraction receipts; `sources_*`
+admin over MCP (CLI posture fine); job retry/pause/replay over MCP.
+
+### OSS-install note
+Deliberate: reference is local-first (PGLite, no cloud); memex REQUIRES AWS
+(Bedrock embeddings) — higher install friction by design. Cheap win if OSS
+adoption matters: an `INSTALL_FOR_AGENTS.md` equivalent (reference ships a 15KB
+agent-oriented install doc; memex has none).
+
+Full ranked detail in agent memory `memex-brain-compare-2026-07-03` and the
+vault note `Projects/memex/2026-07-03-brain-compare.md`.
+
+### Tier-1 review follow-ups (from the self-review after shipping)
+- **[MEDIUM] facts supersede ↔ fence tombstone coupling.** `facts-reconcile.ts`
+  builds its "forgotten" skip-set from `forgotten_at IS NOT NULL` regardless of
+  cause. The insert-time dedup supersede path (`MEMEX_FACTS_DEDUP`, default-OFF)
+  also stamps `forgotten_at`, so a supersede of a fence-sourced claim would
+  suppress its fence re-insert while the operator still declares it. Contained
+  (opt-in). Fix: distinguish a `forget_fact` tombstone from a supersede one
+  (e.g. a `forgotten_reason` column) so reconcile only honors user-forgets.
+- **[LOW] facts-classify prompt fence.** `sanitizeForPrompt` neutralizes
+  `</data>`/`</turn>` but not the `</existing>`/`</new>` tags the classifier
+  uses — a crafted fact could break its own `<new>` fence. Self-inflicted,
+  within the caller's own tenant, dedup default-OFF. Fix: add `close-existing`
+  /`close-new` patterns to `INJECTION_PATTERNS` in `sanitize.ts`.
+- **[LOW] cosine-rescore mixed scale.** `cosine-rescore.ts`: a candidate chunk
+  missing from the cosine map keeps its raw (unnormalized) RRF score while the
+  rest move to the 0..1 blend — a missing-embedding chunk sinks post-blend.
+  Rare (near-total embedding coverage); `MEMEX_COSINE_RESCORE` default-OFF.
+- **[INFO] content-sanity junk scan** only reads the first 2KB, so junk padded
+  past 2KB evades the quarantine marker. Index-quality only, not a security
+  boundary.
+
+---
+
 ## Scope reversal (2026-06-30) — FULL reference parity ACCEPTED
 
 Operator call (2026-06-30): memex is an **open-source project headed for
