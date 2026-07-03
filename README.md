@@ -143,7 +143,8 @@ Connecting Claude Code (or any MCP client):
 | **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
 | **AWS Bedrock** | Titan v2 embeddings + Claude Haiku for query intent and the optional, off-by-default note synthesis (Claude Sonnet for the paid opt-in deep-reasoning slices). Your agent still writes the answers. |
 
-**Learn more:** [ARCHITECTURE.md](./ARCHITECTURE.md) ·
+**Learn more:** [How it works](./docs/HOW-IT-WORKS.md) ·
+[ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [Deployment](./docs/DEPLOYMENT.md) ·
 [Configuration](./docs/CONFIGURATION.md) ·
 [Tenancy](./docs/tenancy.md) ·
