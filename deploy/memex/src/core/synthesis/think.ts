@@ -27,6 +27,8 @@ import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { embedText } from "../embedding.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
+import { extractCandidateEntities } from "./entity-extract.ts";
+import { makeSlugResolver } from "../slug-canonicalize.ts";
 import { findTrajectory, type TrajectoryPoint } from "../insights.ts";
 import { getCalibrationProfile } from "./reads.ts";
 
@@ -302,6 +304,51 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
   });
 }
 
+/** Auto-anchor is default-ON (matches the reference); disable with =0. */
+function autoAnchorEnabled(): boolean {
+  return (process.env.MEMEX_THINK_AUTO_ANCHOR ?? "").trim() !== "0";
+}
+
+/** Slug behind a `page://<slug>` / `page://<sourceId>/<slug>` mirror path, else null. */
+function mirrorSlug(sourcePath: string): string | null {
+  if (typeof sourcePath !== "string" || !sourcePath.startsWith("page://")) return null;
+  const rest = sourcePath.slice("page://".length);
+  return rest.length > 0 ? rest : null;
+}
+
+/**
+ * Derive trajectory anchors when the caller named none: candidate entities from
+ * the question + retrieved entity-page slugs, resolved to canonical slugs
+ * (fallback-slugify matches are dropped, mirroring the reference's
+ * resolution_source gate). Pure-ish, fail-soft — returns [] on any error.
+ */
+async function autoAnchors(
+  storage: Storage,
+  question: string,
+  pages: SearchHit[],
+): Promise<string[]> {
+  try {
+    const retrieved = pages
+      .map((p) => mirrorSlug(p.sourcePath))
+      .filter((s): s is string => s !== null);
+    const candidates = extractCandidateEntities(question, retrieved);
+    if (candidates.length === 0) return [];
+    const resolver = makeSlugResolver(storage, "");
+    const resolved: string[] = [];
+    for (const c of candidates) {
+      try {
+        const r = await resolver.resolve(c.raw);
+        if (r.resolved) resolved.push(r.slug);
+      } catch {
+        /* skip a single unresolvable candidate */
+      }
+    }
+    return Array.from(new Set(resolved));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Gather each anchor's trajectory (reusing findTrajectory), capped and
  * timeout-guarded as a whole. Deterministic, no LLM. Returns [] on any failure —
@@ -552,11 +599,17 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
   // Fuse the keyword + vector take streams (RRF, dedup by take_key).
   const takes = takesVec.length > 0 ? fuseTakeStreams(takesKw, takesVec, maxTakes) : takesKw;
 
-  // Trajectory injection — only for temporal / knowledge_update questions with
-  // anchor entities. Best-effort + timeout-guarded; never blocks the run.
+  // Trajectory injection — only for temporal / knowledge_update questions.
+  // Anchors come from the caller OR, when none are named, are auto-derived from
+  // the question + retrieved entity-page slugs (default-ON, MEMEX_THINK_AUTO_ANCHOR).
+  // Best-effort + timeout-guarded; never blocks the run.
+  let anchors: string[] = opts.anchors && opts.anchors.length > 0 ? opts.anchors : [];
+  if (intent !== "other" && anchors.length === 0 && autoAnchorEnabled()) {
+    anchors = await autoAnchors(storage, question, pages);
+  }
   const trajectoryBlock =
-    intent !== "other" && opts.anchors && opts.anchors.length > 0
-      ? renderTrajectoryBlock(await gatherTrajectories(storage, opts.anchors))
+    intent !== "other" && anchors.length > 0
+      ? renderTrajectoryBlock(await gatherTrajectories(storage, anchors))
       : "";
 
   // Anti-bias calibration profile (Item 4c). Fail-soft to "".
