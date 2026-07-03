@@ -13,6 +13,7 @@ import type { Storage } from "./storage.ts";
 import { addFact } from "./facts.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
 import { resolveSonnetFn, type SonnetFn } from "./llm/sonnet.ts";
+import { makeSlugResolver } from "./slug-canonicalize.ts";
 
 export const FACT_KINDS = [
   "event",
@@ -154,16 +155,48 @@ export function slugifyEntity(name: string): string | null {
  * `addFact` path. Facts with no resolvable entity are skipped (a fact ledger is
  * keyed by entity). Returns the count written. Best-effort per fact — one bad
  * row never aborts the batch.
+ *
+ * CANONICALIZATION: the model emits an entity as a canonical slug OR a loose
+ * display name ("Alice"). A blind slugify would mint a phantom `alice` page
+ * instead of attaching to the existing `people/alice-smith`. So each entity is
+ * run through the shared slug-canonicalize cascade (exact → alias → exact-tail
+ * → prefix → trgm-with-margin) first; only a CONFIDENT unique match reattaches
+ * onto an existing page. Anything ambiguous falls back to the slugify floor
+ * (the prior behavior), so a genuinely new entity still gets its own row. The
+ * resolver is per-batch (its cache collapses a repeated mention to one DB hit).
  */
 export async function writeExtractedFacts(
   storage: Storage,
   facts: readonly ExtractedFact[],
-  opts: { sourceSlug?: string; writtenBy?: string } = {},
+  opts: {
+    sourceSlug?: string;
+    writtenBy?: string;
+    sourceId?: string;
+    /** Insert-time dedup / supersede knobs threaded to addFact (default OFF). */
+    dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
+  } = {},
 ): Promise<{ written: number; skipped: number }> {
   let written = 0;
   let skipped = 0;
+  // Exclude the transcript's own page from the candidate set, and scope
+  // resolution to the writing tenant when one is given.
+  const resolver = makeSlugResolver(storage, opts.sourceSlug ?? "", {
+    ...(opts.sourceId ? { sourceIds: [opts.sourceId] } : {}),
+  });
   for (const f of facts) {
-    const slug = f.entity ? slugifyEntity(f.entity) : null;
+    if (!f.entity) {
+      skipped += 1;
+      continue;
+    }
+    // Confident cascade match reattaches onto the existing canonical page; an
+    // ambiguous / novel entity degrades to the legacy slugify floor.
+    let slug: string | null;
+    try {
+      const r = await resolver.resolve(f.entity);
+      slug = r.resolved ? r.slug : slugifyEntity(f.entity);
+    } catch {
+      slug = slugifyEntity(f.entity);
+    }
     if (!slug) {
       skipped += 1;
       continue;
@@ -173,7 +206,11 @@ export async function writeExtractedFacts(
         entity_slug: slug,
         fact: f.fact,
         confidence: f.confidence,
+        kind: f.kind,
+        notability: f.notability,
         ...(opts.sourceSlug ? { source_slug: opts.sourceSlug } : {}),
+        ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
+        ...(opts.dedup ? { dedup: opts.dedup } : {}),
         written_by: opts.writtenBy ?? "facts-extract",
       });
       if (r.inserted) written += 1;

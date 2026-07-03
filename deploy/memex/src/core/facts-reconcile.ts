@@ -156,12 +156,30 @@ export async function reconcileFactsForPage(
   const insCol = scope !== null ? ", source_id" : "";
   const insVal = scope !== null ? ", $12" : "";
   return engine.transaction(async (tx) => {
+    // Preserve forget tombstones (mig043) across the rebuild: a fact the
+    // operator explicitly forgot must not be resurrected by the next page
+    // re-put. Two parts — (1) the wipe below spares tombstoned rows
+    // (`forgotten_at IS NULL`), keeping them for audit, and (2) we skip
+    // re-inserting any fence fact whose claim is already tombstoned for this
+    // page. A fence fact's identity here is its claim text (every fence row on
+    // a page shares entity_slug = the page). Fetched BEFORE the wipe.
+    const tombParams: unknown[] = [pageSlug];
+    if (scope !== null) tombParams.push(scope);
+    const tomb = await tx.query<{ fact: string }>(
+      `SELECT DISTINCT fact FROM entity_facts
+        WHERE source_markdown_slug = $1
+          AND forgotten_at IS NOT NULL${delScope}`,
+      tombParams,
+    );
+    const forgotten = new Set(tomb.rows.map((r) => r.fact));
+
     const delParams: unknown[] = [pageSlug];
     if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
       `WITH d AS (
          DELETE FROM entity_facts
-          WHERE source_markdown_slug = $1${delScope}
+          WHERE source_markdown_slug = $1
+            AND forgotten_at IS NULL${delScope}
           RETURNING 1
        )
        SELECT COUNT(*)::int AS c FROM d`,
@@ -169,6 +187,8 @@ export async function reconcileFactsForPage(
     );
     let added = 0;
     for (const f of facts) {
+      // A forgotten claim stays forgotten across a fence rebuild.
+      if (forgotten.has(f.claim)) continue;
       const insParams: unknown[] = [
         pageSlug,
         f.claim,
