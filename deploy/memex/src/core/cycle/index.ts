@@ -62,6 +62,14 @@ import {
   probeContradictionsPhase,
   type ProbeContradictionsResult,
 } from "../synthesis/contradictions.ts";
+import {
+  consolidateFactsPhase,
+  type ConsolidateFactsResult,
+} from "./consolidate-facts.ts";
+import {
+  conversationFactsBackfillPhase,
+  type ConversationFactsBackfillResult,
+} from "./conversation-facts-backfill.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 
 export type PhaseName =
@@ -84,7 +92,12 @@ export type PhaseName =
   | "propose-takes"
   | "grade-takes"
   | "calibration-profile"
-  | "probe-contradictions";
+  | "probe-contradictions"
+  // Facts-maintenance phases — opt-in, default-OFF (NOT in ALL_PHASES).
+  // consolidate-facts is deterministic + free; conversation-facts-backfill is
+  // paid (Sonnet) and additionally gated by MEMEX_FACTS_BACKFILL.
+  | "consolidate-facts"
+  | "conversation-facts-backfill";
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "lint",
@@ -114,6 +127,17 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
   "grade-takes",
   "calibration-profile",
   "probe-contradictions",
+];
+
+/**
+ * Opt-in facts-maintenance phases. Like SYNTHESIS_PHASES, deliberately NOT in
+ * ALL_PHASES — they run only when explicitly requested. `consolidate-facts` is
+ * deterministic + free; `conversation-facts-backfill` spends Bedrock and is
+ * additionally gated by the MEMEX_FACTS_BACKFILL env flag.
+ */
+export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
+  "consolidate-facts",
+  "conversation-facts-backfill",
 ];
 
 /**
@@ -151,7 +175,9 @@ export interface PhaseResult {
     | ProposeTakesResult
     | GradeTakesResult
     | CalibrationProfileResult
-    | ProbeContradictionsResult;
+    | ProbeContradictionsResult
+    | ConsolidateFactsResult
+    | ConversationFactsBackfillResult;
   error?: string;
 }
 
@@ -224,10 +250,12 @@ export function deriveStatus(
     phase === "propose-takes" ||
     phase === "grade-takes" ||
     phase === "calibration-profile" ||
-    phase === "probe-contradictions"
+    phase === "probe-contradictions" ||
+    phase === "consolidate-facts" ||
+    phase === "conversation-facts-backfill"
   ) {
-    // Synthesis phases per-item fail-open: a non-empty errors[] means some
-    // LLM calls failed but the run completed → warn (never fails the cycle).
+    // These phases fail-open per item: a non-empty errors[] means some work
+    // failed but the run completed → warn (never fails the cycle).
     const errs = (detail as { errors?: unknown[] } | undefined)?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
   }
@@ -528,6 +556,32 @@ export async function runCycleOnce(
           progress,
         );
         break;
+      // Facts-maintenance phases — opt-in, default-OFF (see FACTS_MAINT_PHASES).
+      case "consolidate-facts":
+        r = await runPhase(engine, p, () => consolidateFactsPhase(engine), progress);
+        break;
+      case "conversation-facts-backfill": {
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? conversationFactsBackfillPhase(storage)
+              : Promise.resolve<ConversationFactsBackfillResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  pagesConsidered: 0,
+                  pagesProcessed: 0,
+                  factsWritten: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
       default:
         r = {
           phase: p,

@@ -28,9 +28,14 @@ export const INJECTION_PATTERNS: Array<{ name: string; rx: RegExp; replacement: 
   { name: "role-jailbreak", rx: /you\s+are\s+(?:now|actually|really)\s+(?:a|an)\s+\w+/gi, replacement: "[redacted]" },
   { name: "do-anything-now", rx: /\b(?:DAN|do\s+anything\s+now|developer\s+mode\s+enabled?)\b/gi, replacement: "[redacted]" },
   // Tag injection — neutralize attempts to open a fake control block or close
-  // a <data> / <turn> fence (callers use either tag).
+  // a <data> / <turn> / <existing> / <new> fence (callers use one of these).
   { name: "close-data", rx: /<\s*\/\s*data\s*>/gi, replacement: "&lt;/data&gt;" },
   { name: "close-turn", rx: /<\s*\/\s*turn\s*>/gi, replacement: "&lt;/turn&gt;" },
+  // The facts contradiction-classifier fences each candidate/new claim in
+  // <existing>…</existing> / <new>…</new>. Neutralize a close tag so a crafted
+  // fact text cannot break out of its own fence and inject classifier control.
+  { name: "close-existing", rx: /<\s*\/\s*existing\s*>/gi, replacement: "&lt;/existing&gt;" },
+  { name: "close-new", rx: /<\s*\/\s*new\s*>/gi, replacement: "&lt;/new&gt;" },
   { name: "open-system", rx: /<\s*system\b[^>]*>/gi, replacement: "&lt;system&gt;" },
   { name: "open-instructions", rx: /<\s*instructions?\b[^>]*>/gi, replacement: "&lt;instructions&gt;" },
   // Output exfiltration.

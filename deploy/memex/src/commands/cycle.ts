@@ -22,6 +22,7 @@ import { loadConfig } from "../core/config.ts";
 import {
   ALL_PHASES,
   SYNTHESIS_PHASES,
+  FACTS_MAINT_PHASES,
   runCycleOnce,
   type CycleOptions,
   type PhaseName,
@@ -34,9 +35,13 @@ export interface CycleCmdOptions {
   staleDays?: number;
 }
 
-// Accept the default phases PLUS the opt-in synthesis phases (which are not in
-// ALL_PHASES by design, but are valid to request explicitly).
-const VALID_PHASES: readonly PhaseName[] = [...ALL_PHASES, ...SYNTHESIS_PHASES];
+// Accept the default phases PLUS the opt-in synthesis + facts-maintenance
+// phases (not in ALL_PHASES by design, but valid to request explicitly).
+const VALID_PHASES: readonly PhaseName[] = [
+  ...ALL_PHASES,
+  ...SYNTHESIS_PHASES,
+  ...FACTS_MAINT_PHASES,
+];
 const PHASE_SET: ReadonlySet<string> = new Set(VALID_PHASES);
 
 /** Parse + validate a `--phases` CSV against the known phase names. Throws on

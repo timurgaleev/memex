@@ -104,7 +104,7 @@ describe("dispatch injection gating", () => {
       clientId: "memex_at_x",
       allowedSources: ["tenant-a"],
       sourceId: "tenant-a",
-    } as unknown as Parameters<typeof dispatchTool>[2]["authInfo"];
+    } as unknown as NonNullable<Parameters<typeof dispatchTool>[2]>["authInfo"];
     const r = await dispatchTool(
       storage,
       { name: "get_brain_identity", arguments: {} },

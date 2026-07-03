@@ -12,8 +12,9 @@
 import type { Storage } from "./storage.ts";
 import { addFact } from "./facts.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
-import { resolveSonnetFn, type SonnetFn } from "./llm/sonnet.ts";
+import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "./llm/sonnet.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
+import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 
 export const FACT_KINDS = [
   "event",
@@ -219,4 +220,139 @@ export async function writeExtractedFacts(
     }
   }
   return { written, skipped };
+}
+// MEMEX_FACTS_EXTRACTION gate + BudgetTracker as the CLI batch path.
+// ---------------------------------------------------------------------------
+
+/** Author stamped on facts extracted by the on-write hook (vs the CLI batch). */
+export const ON_WRITE_WRITER = "facts-extract";
+
+/**
+ * Page types whose body is prose worth extracting conversation-shaped facts
+ * from. Entity pages (person/company/concept) and structured stubs (task/event)
+ * are excluded — they carry attributes, not narrated claims. Mirrors the intent
+ * of the reference's eligibility type set, mapped onto memex's KNOWN_PAGE_TYPES.
+ */
+export const EXTRACTION_ELIGIBLE_TYPES: readonly string[] = [
+  "note",
+  "meeting",
+  "email",
+  "journal",
+  "source",
+  "idea",
+  "decision",
+];
+
+/** Min body length (chars) before a page is worth a paid extraction call. */
+const MIN_EXTRACTION_BODY_CHARS = 80;
+
+export type EligibilityResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Should this page write trigger on-write fact extraction? Prose-typed, long
+ * enough to carry a claim, and not a subagent-scratch page. Deterministic +
+ * LLM-free so it can gate the hot write path with zero spend.
+ */
+export function isFactsExtractionEligible(
+  type: string | undefined,
+  body: string | undefined,
+  slug?: string,
+): EligibilityResult {
+  if (slug && slug.startsWith("wiki/agents/")) {
+    return { ok: false, reason: "subagent_namespace" };
+  }
+  const t = (type ?? "").trim().toLowerCase();
+  if (!EXTRACTION_ELIGIBLE_TYPES.includes(t)) {
+    return { ok: false, reason: `kind:${t || "unknown"}` };
+  }
+  const trimmed = (body ?? "").trim();
+  if (trimmed.length < MIN_EXTRACTION_BODY_CHARS) {
+    return { ok: false, reason: "too_short" };
+  }
+  return { ok: true };
+}
+
+/**
+ * The on-write extraction gate. Default-OFF: a live (paid) run requires the
+ * explicit MEMEX_FACTS_EXTRACTION env gate, exactly like the CLI batch path.
+ */
+export function factsExtractionEnabled(
+  env: string | undefined = process.env["MEMEX_FACTS_EXTRACTION"],
+): boolean {
+  const v = (env ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/** Per-write USD ceiling for one on-write extraction. Small — it prices a
+ *  single page-body turn. MEMEX_FACTS_WRITE_BUDGET_USD overrides. */
+function perWriteBudgetUsd(): number {
+  const raw = (process.env["MEMEX_FACTS_WRITE_BUDGET_USD"] ?? "").trim();
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0.05;
+}
+
+/** Conservative worst-case usage for the pre-flight budget guard (mirrors the
+ *  CLI batch path's ceiling: ~12K sanitized chars in + 800-token output cap). */
+const WORST_CASE_USAGE = { inputTokens: 4000, outputTokens: 800 };
+
+export interface ExtractForPageOptions {
+  slug: string;
+  type: string;
+  body: string;
+  sourceId?: string;
+  /** Test seam — inject a fake model; bypasses nothing (caller gates enabled). */
+  sonnetFn?: SonnetFn;
+  modelId?: string;
+  maxBudgetUsd?: number;
+}
+
+export interface ExtractForPageResult {
+  factsWritten: number;
+  factsSkipped: number;
+  spentUsd: number;
+}
+
+/**
+ * Best-effort single-page extraction: price-guard, one budgeted Sonnet call over
+ * the page body, write the facts scoped to the page's source. Absorbs a model or
+ * budget error into a zero-write result — the caller (the queue) treats it as
+ * fire-and-forget. Does NOT re-check the enabled gate: the page-write hook
+ * checks `factsExtractionEnabled()` + eligibility BEFORE enqueuing, and tests
+ * drive it directly with an injected `sonnetFn`.
+ */
+export async function extractFactsForPage(
+  storage: Storage,
+  opts: ExtractForPageOptions,
+): Promise<ExtractForPageResult> {
+  const modelId = resolveFactsModel(opts.modelId);
+  const cap = opts.maxBudgetUsd ?? perWriteBudgetUsd();
+  const budget = new BudgetTracker(cap, "facts-extract:on-write");
+  if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
+  }
+  let result: ExtractTurnResult;
+  try {
+    result = await extractFactsFromTurn(opts.body, {
+      ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
+      modelId,
+    });
+  } catch {
+    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
+  }
+  try {
+    budget.record(result.modelId, result.usage);
+  } catch (e) {
+    if (!(e instanceof BudgetExhausted)) throw e;
+    // Over budget after the (already-paid) call — still persist what we got.
+  }
+  const w = await writeExtractedFacts(storage, result.facts, {
+    sourceSlug: opts.slug,
+    writtenBy: ON_WRITE_WRITER,
+    ...(opts.sourceId ? { sourceId: opts.sourceId } : {}),
+  });
+  return {
+    factsWritten: w.written,
+    factsSkipped: w.skipped,
+    spentUsd: Number(budget.totalSpent().toFixed(6)),
+  };
 }
