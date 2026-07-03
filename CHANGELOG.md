@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.72.0] — 2026-07-03
+
 ### Security
 - **Closed four latent multi-tenant read-scope holes** (found by an adversarial
   review; all latent because the OAuth/multi-tenant path is dormant today, but they
