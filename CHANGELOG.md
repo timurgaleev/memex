@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — brain-parity (reference deep-compare, brain-only)
+- **Content-sanity ingest gate.** memex had the full quarantine/`content_flag`/
+  `embed_skip` read+filter substrate but nothing WROTE the markers, so scraper
+  junk, oversize, and markup-heavy content entered the vector index unimpeded.
+  A new deterministic, LLM-free assessor (`content-sanity.ts`) now gates every
+  ingest through `indexDocument`: junk (Cloudflare/CAPTCHA/error-page patterns)
+  is hidden by default (quarantine + `embed_skip`), oversize soft-blocks
+  (`>500KB`), markup-heavy flags. Kill switch `MEMEX_NO_SANITY=1`; opt-in hard
+  reject via `MEMEX_SANITY_DISPOSITION=reject`; thresholds overridable. Runs
+  before any Titan spend.
+- **Search: filter pushdown + two ranking signals.** `lang`/`since`/`until`/
+  `symbol_kind` filters are now folded into the keyword and vector SQL WHERE
+  clauses (parameterized, tenant-scoped) so a filtered match ranking below the
+  fan-out pool is no longer dropped. New always-on log-scaled backlink-count
+  boost (`1 + 0.05·ln(1+in_degree)`, floor-gated; `MEMEX_BACKLINK_BOOST=0` to
+  disable) gives hub pages a standing boost. New opt-in cosine re-score blend
+  (`0.7·RRF + 0.3·query-chunk cosine`, `MEMEX_COSINE_RESCORE=1`).
+- **`find_experts` topic ranking.** Optional `topic` param answers "who in my
+  brain knows about X" — person/company pages ranked by topic match (via the
+  page→search mirror) × recency decay × salience. Deterministic, no LLM; absent
+  `topic` keeps the prior link-degree behavior. Tenant-scoped.
+- **Facts: canonicalization, metadata retention, durable forget.** Extracted
+  entity names now run the slug-canonicalize cascade before insert (reattach to
+  the canonical page on a confident match instead of minting a phantom);
+  `kind`/`notability` (mig 037 columns) are now threaded through `addFact` so
+  facts decay correctly; a `forget_fact` on a fence-owned fact now survives a
+  page re-put (reconcile spares tombstoned claims).
+- **Facts: opt-in insert-time dedup/supersede** (`MEMEX_FACTS_DEDUP`, default
+  OFF; paid classifier `MEMEX_FACTS_DEDUP_LLM`). Cosine-0.95 fast-path collapses
+  duplicates; a budget-capped Haiku classifier resolves duplicate/supersede/
+  independent, retiring the superseded fact. Candidate reads are tenant-scoped;
+  fact text is prompt-sanitized before the Haiku call.
+
+### Fixed
+- **Calibration profiles scoped per source_id** (mig 060). `synth_calibration_
+  profile` had no source axis, so the calibration phase blended all tenants into
+  one global profile that `get_calibration_profile` then exposed. Profiles are
+  now per-source; `getCalibrationProfile` honors the caller's read-source set;
+  the single-tenant `default` path is unchanged (additive/idempotent backfill).
+
 ## [1.72.0] — 2026-07-03
 
 ### Security
