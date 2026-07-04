@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.79.1] — 2026-07-04
+
 ### Fixed — cross-tenant + public-exposure divergences (reference audit)
 An exhaustive function-by-function audit of memex against the reference found
 seven behaviour/default/guard divergences of the same class as the OAuth default;
