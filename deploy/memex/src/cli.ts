@@ -24,6 +24,7 @@ import { runEvalReplay } from "./commands/eval-replay.ts";
 import type { EvalTag } from "./core/eval-replay.ts";
 import { runFriction } from "./commands/friction.ts";
 import { runEvalExport } from "./commands/eval-export.ts";
+import { runExport } from "./commands/export.ts";
 import { runEvalPrune } from "./commands/eval-prune.ts";
 import { runApplyMigrations } from "./commands/apply-migrations.ts";
 import {
@@ -308,7 +309,15 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
         throw new Error(`memex eval-probe: invalid --limit ${limitStr}`);
       }
-      await runEvalProbe(limit !== undefined ? { limit } : {});
+      const maxUsdStr = values.get("--max-usd");
+      const maxUsd = maxUsdStr ? Number(maxUsdStr) : undefined;
+      if (maxUsd !== undefined && (!Number.isFinite(maxUsd) || maxUsd <= 0)) {
+        throw new Error(`memex eval-probe: invalid --max-usd ${maxUsdStr}`);
+      }
+      const probeOpts: Parameters<typeof runEvalProbe>[0] = {};
+      if (limit !== undefined) probeOpts.limit = limit;
+      if (maxUsd !== undefined) probeOpts.maxUsd = maxUsd;
+      await runEvalProbe(probeOpts);
       return 0;
     }
     case "backlinks": {
@@ -625,6 +634,15 @@ async function main(argv: readonly string[]): Promise<number> {
       const out = values.get("--out");
       if (out) opts.out = out;
       await runEvalExport(opts);
+      return 0;
+    }
+    case "export": {
+      const opts: Parameters<typeof runExport>[0] = {};
+      const dir = values.get("--dir");
+      if (dir) opts.dir = dir;
+      const src = values.get("--source");
+      if (src) opts.sourceIds = src.split(",").map((s) => s.trim()).filter(Boolean);
+      await runExport(opts);
       return 0;
     }
     case "eval-prune": {

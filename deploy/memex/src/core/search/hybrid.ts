@@ -123,6 +123,12 @@ export interface SearchOptions {
   intent?: Intent;
   /** Skip query expansion. */
   noExpansion?: boolean;
+  /**
+   * Optional query-expander injection. Defaults to the real Bedrock expander;
+   * set ONLY by hermetic tests to drive the expansion pass with deterministic
+   * synonyms (no Bedrock). Production never passes this.
+   */
+  expandQueryFn?: (query: string, opts: { max: number }) => Promise<string[]>;
   /** Disable the exact-match query cache for this call (default: enabled). */
   noCache?: boolean;
   /**
@@ -191,6 +197,11 @@ export interface SearchOptions {
    * matched nothing. Bypasses the query cache like the per-call filters.
    */
   nearSymbol?: string;
+  /**
+   * @internal Set by the zero-result broadened retry to stop recursion after a
+   * single re-run. Callers never set this.
+   */
+  _zeroRetried?: boolean;
 }
 
 export interface SearchCaptureInfo {
@@ -560,7 +571,7 @@ export async function hybridSearch(
   // 3. Expansion (skip for exact intent or when caller opted out).
   const lists: string[][] = [vectorIds, primaryKeywordIds];
   if (intent !== "exact" && !opts.noExpansion) {
-    const variants = await expandQuery(trimmed, { max: 3 });
+    const variants = await (opts.expandQueryFn ?? expandQuery)(trimmed, { max: 3 });
     if (variants.length > 0) {
       const extra = await Promise.all(
         variants.map((v) =>
@@ -613,7 +624,31 @@ export async function hybridSearch(
     }
   }
 
-  if (fused.length === 0) return [];
+  if (fused.length === 0) {
+    // Zero-result broadened retry (once). The only lever that can turn an empty
+    // set non-empty is query expansion (different terms) — a bigger fanout can't
+    // add rows that don't exist. So when an `exact`-intent pass found nothing and
+    // expansion was permitted (the caller didn't opt out), re-run as `topic`,
+    // which re-enables the synonym expansion pass. Gated OFF for filtered /
+    // structural queries (an empty filtered set is correct semantics) and for
+    // `noExpansion` callers (they explicitly declined the LLM expansion — honor
+    // it), and capped at one retry via `_zeroRetried`.
+    const canBroaden =
+      !opts._zeroRetried &&
+      !hasFilters &&
+      !structural &&
+      !opts.noExpansion &&
+      intent === "exact";
+    if (canBroaden) {
+      return await hybridSearch(storage, query, {
+        ...opts,
+        intent: "topic",
+        noCache: true,
+        _zeroRetried: true,
+      });
+    }
+    return [];
+  }
 
   // 5. Hydrate.
   const ids = fused.map((f) => f.id);
@@ -729,7 +764,7 @@ export async function hybridSearch(
   // 6. Source-boost.
   scored = applySourceBoost(scored);
 
-  // 6b. Recency (documents.updated_at) + salience (frontmatter pinned/weight)
+  // 6b. Recency (documents.effective_date) + salience (frontmatter pinned/weight)
   //     — gentle post-fusion multipliers on the LIVE model. Immutable like
   //     the rest of the pipeline; both are neutral (1.0) when their signal
   //     is absent, so neither can bury a hit that doesn't declare it.
@@ -760,7 +795,11 @@ export async function hybridSearch(
       (canonical
         ? 1
         : recencyMultiplierForPath(
-            s.payload?.updated_at ?? null,
+            // Decay on the content date (effective_date, already COALESCE'd with
+            // updated_at at hydrate), NOT the row's updated_at — a backfill /
+            // re-ingest / rechunk bumps updated_at and would otherwise make stale
+            // content score as fresh.
+            s.payload?.effective_date ?? s.payload?.updated_at ?? null,
             nowMs,
             s.payload?.sourcePath ?? null,
             recencyMap,

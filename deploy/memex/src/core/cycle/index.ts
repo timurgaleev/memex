@@ -63,6 +63,10 @@ import {
   type ProbeContradictionsResult,
 } from "../synthesis/contradictions.ts";
 import {
+  reflectionsPhase,
+  type ReflectionsPhaseResult,
+} from "../synthesis/reflections.ts";
+import {
   patternsPhase,
   type PatternsPhaseResult,
 } from "../synthesis/patterns.ts";
@@ -97,6 +101,7 @@ export type PhaseName =
   | "grade-takes"
   | "calibration-profile"
   | "probe-contradictions"
+  | "reflections"
   | "patterns"
   // Facts-maintenance phases — opt-in, default-OFF (NOT in ALL_PHASES).
   // consolidate-facts is deterministic + free; conversation-facts-backfill is
@@ -132,6 +137,9 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
   "grade-takes",
   "calibration-profile",
   "probe-contradictions",
+  // reflections runs BEFORE patterns so a fresh brain can populate reflections/
+  // and then mine them for cross-session themes in the same tick.
+  "reflections",
   "patterns",
 ];
 
@@ -182,6 +190,7 @@ export interface PhaseResult {
     | GradeTakesResult
     | CalibrationProfileResult
     | ProbeContradictionsResult
+    | ReflectionsPhaseResult
     | PatternsPhaseResult
     | ConsolidateFactsResult
     | ConversationFactsBackfillResult;
@@ -258,6 +267,7 @@ export function deriveStatus(
     phase === "grade-takes" ||
     phase === "calibration-profile" ||
     phase === "probe-contradictions" ||
+    phase === "reflections" ||
     phase === "patterns" ||
     phase === "consolidate-facts" ||
     phase === "conversation-facts-backfill"
@@ -564,6 +574,29 @@ export async function runCycleOnce(
           progress,
         );
         break;
+      case "reflections": {
+        // Paid Sonnet, default-OFF (MEMEX_REFLECTIONS). Writes real
+        // reflections/<slug> pages, so it needs the Storage handle (putPage).
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? reflectionsPhase(storage, {})
+              : Promise.resolve<ReflectionsPhaseResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  transcriptsConsidered: 0,
+                  reflectionsWritten: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
       case "patterns": {
         // Paid Sonnet, default-OFF (MEMEX_PATTERNS). Writes real patterns/<slug>
         // pages, so it needs the Storage handle (putPage), not just the engine.

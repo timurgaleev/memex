@@ -6,6 +6,65 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Take grading fed the judge `[object Object]`.** Both grade paths interpolated
+  the `sanitizeForPrompt` result object instead of its `.text`, so the ensemble
+  and single-pass judges scored an empty claim + evidence — every verdict was
+  garbage. Fixed to `.text`; a regression test now captures the judge prompt and
+  asserts it carries the real claim + evidence. (Default-OFF, so no prod impact.)
+- **Recency decay now uses the content date, not `updated_at`.** A backfill /
+  re-ingest / rechunk bumps `updated_at`, which made stale content score as fresh
+  in ranking. The recency multiplier now decays on `effective_date`
+  (`COALESCE(effective_date, updated_at)`), so freshness tracks the content, not
+  the last write.
+- **Superseded facts no longer suppress a legitimate fence re-insert.** The
+  insert-time dedup supersede path now stamps `forgotten_cause = 'supersede'`
+  (migration 062's discriminator), and fence reconciliation's tombstone skip-set
+  honors only genuine forgets (`cause = 'forget'` or legacy `NULL`) — a superseded
+  claim the operator still declares in a `## Facts` fence re-enters on re-put.
+
+### Added — brain-parity (reference deep-compare, brain-only)
+- **Unchanged-chunk embedding reuse on re-index.** Editing one line of a page no
+  longer re-embeds the whole document: a chunk whose raw text is byte-identical to
+  the stored version at the same index (under the same embedding model) reuses its
+  vector, skipping both Bedrock and the paid contextual-LLM tier for that chunk.
+- **Zero-result broadened retry.** When an `exact`-intent search returns nothing
+  and the caller permitted expansion, the query re-runs once as `topic` — the only
+  lever that can turn an empty set non-empty (synonym expansion). Capped at one
+  retry; never fires for filtered, structural, or `noExpansion` (LLM-free) queries.
+- **`reflections` cycle phase — reflection writer.** One budget-capped Sonnet pass
+  over recent un-reflected transcripts writes `reflections/<topic-slug>` pages
+  (cited, `source_id`-pinned), giving the `patterns` phase (v1.75) a source to
+  mine. Paid, default-OFF (`MEMEX_REFLECTIONS`). Runs before `patterns` so a fresh
+  brain populates then mines in the same tick.
+- **`takes_search` MCP tool.** Keyword/trigram search over take claim texts
+  (tenant-scoped), so a client can find prior takes by topic instead of listing.
+- **`set_take_status` MCP tool.** Flip a take's review status to `accepted` /
+  `rejected` (tenant-scoped, enum-validated), closing the take review lifecycle.
+- **`memex export`.** Dump every live page to a markdown tree (frontmatter + body,
+  slug directory structure), with `--source` tenant scoping — the portability /
+  backup / tenant-data-export escape hatch for a DB-only substrate.
+- **Link hygiene (deterministic, no LLM).** `[[page#anchor]]` heading anchors are
+  stripped before slug resolution; fenced + inline code is masked before link and
+  entity extraction (no more phantom edges from code snippets); `[Name](dir/slug.md)`
+  markdown links are extracted as edges (resolver-gated); and prose citing a code
+  path (`src/foo.ts:42`) links to the indexed code page.
+- **Content-sanity operator-literal channel.** `MEMEX_SANITY_LITERALS_FILE` (one
+  case-insensitive junk substring per line) now feeds the ingest gate, so
+  site-specific boilerplate the built-in patterns miss is quarantined. Fail-open.
+- **`doctor` retrieval-quality trend + `eval-probe --max-usd`.** `memex doctor`
+  now surfaces the latest nightly `eval-probe` snapshot (informational), and the
+  probe takes a per-run USD ceiling that converts to a query cap.
+
+### Changed
+- **One-shot `memex cycle` takes the daemon's cycle lock.** A manual `cycle` run
+  now shares the periodic loop's `memex-cycle` advisory lock (with a heartbeat),
+  so a one-shot and a mid-tick daemon can't overlap and double Bedrock spend; the
+  one-shot skips with a message when the daemon holds the lock.
+- **Anti-loop guard.** Synthesis-written pages (`reflections/`, `patterns/`) are
+  excluded from the paid conversation-facts backfill selector, so synthesis output
+  can't feed paid re-extraction of itself.
+
 ## [1.75.0] — 2026-07-03
 
 ### Added — the last two Tier-2 items (reference parity, operator-approved)

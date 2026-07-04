@@ -107,6 +107,57 @@ export async function listTakes(
   }
 }
 
+export interface TakeSearchRow {
+  take_key: string;
+  claim_text: string;
+  kind: string;
+  weight: number;
+  domain: string | null;
+  status: string;
+}
+
+/**
+ * Fuzzy claim search over `synth_takes`. Ranks by pg_trgm `similarity()` and
+ * falls back to a substring match so a short query still recalls its exact
+ * phrase. Uses the `similarity()` FUNCTION with an explicit threshold rather
+ * than the `%` operator, since there is no trigram GIN index to back the
+ * operator (same choice as slug resolution). Tenant scope mirrors `listTakes`:
+ * a scoped caller only sees takes whose source document is one of theirs,
+ * fail-closed. Fail-open to empty on a pre-045 brain.
+ */
+export async function searchTakes(
+  engine: Engine,
+  opts: { q: string; limit?: number; sourceIds?: string[] },
+): Promise<TakeSearchRow[]> {
+  const q = typeof opts.q === "string" ? opts.q.trim() : "";
+  if (q.length === 0) return [];
+  const n = clampLimit(opts.limit, 200, 50);
+  const sources = normalizeSourceIds(opts.sourceIds);
+  const params: unknown[] = [q, n];
+  let sourceFilter = "";
+  if (sources) {
+    params.push(sources);
+    sourceFilter = ` AND EXISTS (
+          SELECT 1 FROM documents d
+           WHERE d.id = synth_takes.source_ref
+             AND d.source_id = ANY($${params.length}::text[])
+        )`;
+  }
+  try {
+    const r = await engine.query<TakeSearchRow>(
+      `SELECT take_key, claim_text, kind, weight, domain, status
+         FROM synth_takes
+        WHERE (similarity(claim_text, $1) >= 0.3 OR claim_text ILIKE '%' || $1 || '%')${sourceFilter}
+        ORDER BY similarity(claim_text, $1) DESC, take_key ASC
+        LIMIT $2`,
+      params,
+    );
+    return r.rows;
+  } catch {
+    return [];
+  }
+}
+
 export interface CalibrationProfileRow {
   generated_at: string;
   source_id: string;

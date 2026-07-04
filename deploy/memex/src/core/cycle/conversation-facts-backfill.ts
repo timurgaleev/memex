@@ -106,6 +106,10 @@ export async function conversationFactsBackfillPhase(
         AND p.type = ANY($1::text[])
         AND length(btrim(p.markdown_body)) >= 80
         AND p.slug NOT LIKE 'wiki/agents/%'
+        -- Synthesis-written pages are not transcripts; extracting facts from
+        -- them would pay to re-derive our own output on every run.
+        AND p.slug NOT LIKE 'reflections/%'
+        AND p.slug NOT LIKE 'patterns/%'
         AND NOT EXISTS (
           SELECT 1 FROM entity_facts f
            WHERE f.source_slug = p.slug AND f.written_by = $2

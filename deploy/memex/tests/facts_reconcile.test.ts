@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { putPage, deletePage } from "../src/core/pages.ts";
 import { addFact } from "../src/core/facts.ts";
+import { forgetFact } from "../src/core/facts-recall.ts";
 import { renderFactsFence, type ParsedFact } from "../src/core/facts-fence.ts";
 import {
   factsFenceEnabled,
@@ -192,6 +193,48 @@ describe("reconcileFactsForPage", () => {
     );
     expect(r).toEqual({ removed: 0, added: 0 });
     expect(await factsFor("people/alice")).toEqual([]);
+  });
+});
+
+describe("reconcile honors forget vs supersede tombstones (mig062)", () => {
+  async function tombstoneId(page: string, claim: string): Promise<number> {
+    const r = await storage.engine().query<{ id: number }>(
+      `SELECT id FROM entity_facts WHERE entity_slug = $1 AND fact = $2`,
+      [page, claim],
+    );
+    return r.rows[0]!.id;
+  }
+  async function liveCount(page: string, claim: string): Promise<number> {
+    const r = await storage.engine().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM entity_facts
+        WHERE entity_slug = $1 AND fact = $2 AND forgotten_at IS NULL`,
+      [page, claim],
+    );
+    return Number(r.rows[0]!.n);
+  }
+
+  it("a superseded fence claim RE-ENTERS on re-put (cause='supersede' excluded from skip-set)", async () => {
+    const body = fenceBody([{ rowNum: 1, claim: "title is CFO", confidence: 1, active: true }]);
+    await putAndReconcile("people/alice", body);
+    const id = await tombstoneId("people/alice", "title is CFO");
+    // A supersede (not an operator forget) tombstones the fence-owned claim.
+    await forgetFact(storage, id, { cause: "supersede", reason: "superseded by newer" });
+    expect(await liveCount("people/alice", "title is CFO")).toBe(0);
+    // Re-put the identical page — the fence still declares the claim, so it must
+    // re-enter (the operator never forgot it).
+    const r = await putAndReconcile("people/alice", body);
+    expect(await liveCount("people/alice", "title is CFO")).toBe(1);
+    expect(r.added).toBe(1);
+  });
+
+  it("a genuinely forgotten fence claim STAYS suppressed on re-put (cause='forget')", async () => {
+    const body = fenceBody([{ rowNum: 1, claim: "secret detail", confidence: 1, active: true }]);
+    await putAndReconcile("people/bob", body);
+    const id = await tombstoneId("people/bob", "secret detail");
+    await forgetFact(storage, id); // default cause = 'forget'
+    const r = await putAndReconcile("people/bob", body);
+    expect(await liveCount("people/bob", "secret detail")).toBe(0);
+    expect(r.added).toBe(0);
   });
 });
 

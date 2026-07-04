@@ -32,6 +32,7 @@ describe("doctor categorize", () => {
       "chunker-version-lag",
       "config",
       "cycle-freshness",
+      "eval-trend",
       "index-spread",
       "links-extraction-lag",
       "per-source-embed-coverage",

@@ -23,6 +23,7 @@ import {
   markPagesExtractedBatch,
   syncWikilinksForPage,
   syncVerbLinksForPage,
+  syncCodeRefsForPage,
   LINK_EXTRACTOR_VERSION_TS,
   type ExtractedPageRef,
 } from "./links.ts";
@@ -82,6 +83,7 @@ async function reExtractPage(
   };
   acc(await syncWikilinksForPage(storage, page.slug, page.markdown_body, src));
   acc(await syncMentionsForPage(storage, page.slug, page.markdown_body, src));
+  acc(await syncCodeRefsForPage(storage, page.slug, page.markdown_body, src));
   if (typedLinksEnabled()) {
     acc(
       await syncTypedLinksForPage(
