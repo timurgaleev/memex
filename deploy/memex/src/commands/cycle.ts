@@ -22,6 +22,7 @@ import {
   ALL_PHASES,
   SYNTHESIS_PHASES,
   FACTS_MAINT_PHASES,
+  CHUNKER_SWEEP_PHASES,
   runCycleOnce,
   type CycleOptions,
   type PhaseName,
@@ -49,12 +50,14 @@ export interface CycleCmdOptions {
   storage?: Storage;
 }
 
-// Accept the default phases PLUS the opt-in synthesis + facts-maintenance
-// phases (not in ALL_PHASES by design, but valid to request explicitly).
+// Accept the default phases PLUS the opt-in synthesis, facts-maintenance, and
+// chunker-sweep phases (not in ALL_PHASES by design, but valid to request
+// explicitly).
 const VALID_PHASES: readonly PhaseName[] = [
   ...ALL_PHASES,
   ...SYNTHESIS_PHASES,
   ...FACTS_MAINT_PHASES,
+  ...CHUNKER_SWEEP_PHASES,
 ];
 const PHASE_SET: ReadonlySet<string> = new Set(VALID_PHASES);
 

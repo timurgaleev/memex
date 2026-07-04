@@ -90,6 +90,10 @@ import {
   conversationFactsBackfillPhase,
   type ConversationFactsBackfillResult,
 } from "./conversation-facts-backfill.ts";
+import {
+  rechunkSweepPhase,
+  type RechunkSweepResult,
+} from "./rechunk-sweep.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 
 export type PhaseName =
@@ -125,7 +129,11 @@ export type PhaseName =
   // consolidate-facts is deterministic + free; conversation-facts-backfill is
   // paid (Sonnet) and additionally gated by MEMEX_FACTS_BACKFILL.
   | "consolidate-facts"
-  | "conversation-facts-backfill";
+  | "conversation-facts-backfill"
+  // Chunker-maintenance sweep — opt-in, default-OFF (NOT in ALL_PHASES). Spends
+  // Bedrock Titan re-embedding chunker-version-stale docs, so it is gated by its
+  // own env flag (MEMEX_RECHUNK_SWEEP) and count/char-capped per tick.
+  | "rechunk-sweep";
 
 export const ALL_PHASES: readonly PhaseName[] = [
   "lint",
@@ -178,6 +186,15 @@ export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
 ];
 
 /**
+ * Chunker-maintenance sweep phase. Like the other opt-in lists, deliberately
+ * NOT in ALL_PHASES — it re-embeds via Bedrock and only runs when explicitly
+ * requested (`memex cycle --phases rechunk-sweep`) AND enabled via its own env
+ * flag (MEMEX_RECHUNK_SWEEP). Requesting it without the flag is a safe no-op
+ * (the phase returns `ran:false`). Listed here so the CLI accepts the name.
+ */
+export const CHUNKER_SWEEP_PHASES: readonly PhaseName[] = ["rechunk-sweep"];
+
+/**
  * Three-state phase outcome (faithful to the reference's ok/warn/fail
  * envelope). `warn` = the phase COMPLETED (didn't throw) but reported
  * non-fatal issues — e.g. embed-stale re-embedded most chunks but a few hit
@@ -219,7 +236,8 @@ export interface PhaseResult {
     | AutoThinkPhaseResult
     | DriftPhaseResult
     | ConsolidateFactsResult
-    | ConversationFactsBackfillResult;
+    | ConversationFactsBackfillResult
+    | RechunkSweepResult;
   error?: string;
 }
 
@@ -256,7 +274,8 @@ export function deriveStatus(
     phase === "embed-facts" ||
     phase === "extract" ||
     phase === "mirror-pages" ||
-    phase === "resolve-symbol-edges"
+    phase === "resolve-symbol-edges" ||
+    phase === "rechunk-sweep"
   ) {
     const errs = (
       detail as
@@ -265,6 +284,7 @@ export function deriveStatus(
         | ExtractResult
         | MirrorPagesResult
         | ResolveSymbolEdgesResult
+        | RechunkSweepResult
         | undefined
     )?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
@@ -743,6 +763,12 @@ export async function runCycleOnce(
         );
         break;
       }
+      // Chunker-maintenance sweep — opt-in, default-OFF (MEMEX_RECHUNK_SWEEP).
+      // Reads its own caps from env; a safe no-op (ran:false) when the flag is
+      // unset, so requesting it explicitly never surprises with Bedrock spend.
+      case "rechunk-sweep":
+        r = await runPhase(engine, p, () => rechunkSweepPhase(engine, {}), progress);
+        break;
       default:
         r = {
           phase: p,

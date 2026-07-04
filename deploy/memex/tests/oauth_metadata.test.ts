@@ -45,24 +45,31 @@ afterEach(async () => {
   delete process.env.MEMEX_PUBLIC_URL;
 });
 
-describe("buildOAuthMetadata — shape (honest: only wired endpoints)", () => {
-  it("advertises the issuer + token endpoint + client_credentials only", () => {
+describe("buildOAuthMetadata — full standard surface", () => {
+  it("advertises issuer + all four endpoints", () => {
     const m = buildOAuthMetadata("https://brain.example") as unknown as Record<string, unknown>;
     expect(m.issuer).toBe("https://brain.example");
+    expect(m.authorization_endpoint).toBe("https://brain.example/authorize");
     expect(m.token_endpoint).toBe("https://brain.example/token");
+    expect(m.registration_endpoint).toBe("https://brain.example/register");
+    expect(m.revocation_endpoint).toBe("https://brain.example/revoke");
     expect(m.scopes_supported).toEqual([...ALLOWED_SCOPES_LIST]);
-    expect(m.grant_types_supported).toEqual(["client_credentials"]);
-    expect(m.token_endpoint_auth_methods_supported).toEqual(["client_secret_post"]);
   });
 
-  it("does NOT advertise unimplemented auth-code/DCR/revoke endpoints", () => {
+  it("advertises the auth-code + refresh + client_credentials grants and S256 PKCE", () => {
     const m = buildOAuthMetadata("https://brain.example") as unknown as Record<string, unknown>;
-    // These 404 today — advertising them would break a strict auth-code client.
-    expect(m.authorization_endpoint).toBeUndefined();
-    expect(m.registration_endpoint).toBeUndefined();
-    expect(m.revocation_endpoint).toBeUndefined();
-    expect(m.response_types_supported).toBeUndefined();
-    expect(m.code_challenge_methods_supported).toBeUndefined();
+    expect(m.response_types_supported).toEqual(["code"]);
+    expect(m.grant_types_supported).toEqual([
+      "authorization_code",
+      "refresh_token",
+      "client_credentials",
+    ]);
+    expect(m.token_endpoint_auth_methods_supported).toEqual([
+      "client_secret_post",
+      "client_secret_basic",
+      "none",
+    ]);
+    expect(m.code_challenge_methods_supported).toEqual(["S256"]);
   });
 });
 
@@ -96,8 +103,13 @@ describe("GET /.well-known/oauth-authorization-server — live route", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.issuer).toBe(base);
     expect(body.token_endpoint).toBe(`${base}/token`);
+    expect(body.authorization_endpoint).toBe(`${base}/authorize`);
     expect(body.scopes_supported).toEqual([...ALLOWED_SCOPES_LIST]);
-    expect(body.grant_types_supported).toEqual(["client_credentials"]);
+    expect(body.grant_types_supported).toEqual([
+      "authorization_code",
+      "refresh_token",
+      "client_credentials",
+    ]);
   });
 
   it("advertises the configured public issuer over the request host", async () => {

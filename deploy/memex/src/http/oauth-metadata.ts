@@ -3,14 +3,14 @@
  * served at `GET /.well-known/oauth-authorization-server`.
  *
  * A standard MCP OAuth client fetches this document first to auto-configure: it
- * learns the issuer, the token endpoint, the scopes it may request, and the
- * supported grant types. Without it, an operator has to hand-configure every
- * client. Only the endpoints memex actually serves are advertised (today:
- * `client_credentials` at `/token`); the auth-code/DCR/revoke fields are added
- * back once those routes are wired. The endpoints point at memex's OWN public
- * base URL so the
- * issuer claim matches the URL clients actually hit (RFC 8414 §3.3) — a
- * mismatch makes strict clients reject the minted tokens.
+ * learns the issuer, the endpoints, the scopes it may request, and the
+ * supported grant + PKCE methods. Without it, an operator has to hand-configure
+ * every client. memex now serves the full standard surface — `/authorize`
+ * (authorization-code + PKCE), `/token` (authorization_code / refresh_token /
+ * client_credentials), `/register` (RFC 7591 DCR), and `/revoke` (RFC 7009) —
+ * so all four are advertised. The endpoints point at memex's OWN public base
+ * URL so the issuer claim matches the URL clients actually hit (RFC 8414 §3.3)
+ * — a mismatch makes strict clients reject the minted tokens.
  *
  * This endpoint is PUBLIC (no bearer) — it is exempted in the public guard
  * exactly like `/health`, since a client must reach it BEFORE it holds any
@@ -23,23 +23,26 @@ export const OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server";
 /**
  * RFC 8414 authorization-server metadata. Only the fields memex actually
  * honors are advertised:
- *  - `client_credentials` (POST /token, live), plus `authorization_code` +
- *    `refresh_token` (the provider exposes both exchange paths).
- *  - `client_secret_post` (secret in the body) + `none` (public/PKCE clients);
- *    memex reads the secret from the form/JSON body, never HTTP Basic.
+ *  - grants: `authorization_code` + `refresh_token` (PKCE flow) and
+ *    `client_credentials` (machine-to-machine) — all live on POST /token.
+ *  - `response_types_supported: ["code"]` — the only response type /authorize
+ *    issues.
+ *  - auth methods: `client_secret_post` (secret in the body),
+ *    `client_secret_basic` (secret in an HTTP Basic header), and `none`
+ *    (public/PKCE clients).
  *  - `S256` PKCE only — plain is refused.
  */
 export interface OAuthMetadata {
   issuer: string;
+  authorization_endpoint: string;
   token_endpoint: string;
+  registration_endpoint: string;
+  revocation_endpoint: string;
   scopes_supported: string[];
+  response_types_supported: string[];
   grant_types_supported: string[];
   token_endpoint_auth_methods_supported: string[];
-  // authorization_endpoint / registration_endpoint / revocation_endpoint +
-  // authorization_code/refresh_token grants + code_challenge_methods are added
-  // back when the auth-code+PKCE / DCR / revoke HTTP routes are wired — the doc
-  // MUST advertise only endpoints that actually exist, or a strict client will
-  // try an auth-code flow that 404s. Today only client_credentials + /token live.
+  code_challenge_methods_supported: string[];
 }
 
 /**
@@ -60,10 +63,23 @@ export function resolveIssuer(url: URL, publicUrl?: string): string {
 export function buildOAuthMetadata(issuer: string): OAuthMetadata {
   return {
     issuer,
+    authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
+    registration_endpoint: `${issuer}/register`,
+    revocation_endpoint: `${issuer}/revoke`,
     scopes_supported: [...ALLOWED_SCOPES_LIST],
-    grant_types_supported: ["client_credentials"],
-    token_endpoint_auth_methods_supported: ["client_secret_post"],
+    response_types_supported: ["code"],
+    grant_types_supported: [
+      "authorization_code",
+      "refresh_token",
+      "client_credentials",
+    ],
+    token_endpoint_auth_methods_supported: [
+      "client_secret_post",
+      "client_secret_basic",
+      "none",
+    ],
+    code_challenge_methods_supported: ["S256"],
   };
 }
 

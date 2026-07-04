@@ -35,6 +35,7 @@ export const api = {
     apiFetch("/admin/api/grants", { method: "POST", body: JSON.stringify({ sub, source, ...(read ? { read } : {}) }) }),
   revokeGrant: (sub: string) =>
     apiFetch("/admin/api/revoke-grant", { method: "POST", body: JSON.stringify({ sub }) }),
+  agentConfig: (sub: string) => apiFetch(`/admin/api/agent-config?sub=${encodeURIComponent(sub)}`),
   requests: (page = 1) => apiFetch(`/admin/api/requests?page=${page}`),
   jobsWatch: () => apiFetch("/admin/api/jobs/watch"),
   calibrationProfile: () => apiFetch("/admin/api/calibration/profile"),

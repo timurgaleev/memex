@@ -242,6 +242,21 @@ export function evaluatePublicGuard(
     return { allow: true, isPublic: true };
   }
 
+  // OAuth 2.1 authorization endpoints (RFC 6749 /authorize + /token, RFC 7591
+  // /register, RFC 7009 /revoke). A client reaches these BEFORE it holds a
+  // token — the discovery doc above advertises them — so they are exempt from
+  // the public bearer. Each enforces its OWN validation downstream (client
+  // authentication, PKCE S256, and the exact-match redirect_uri allowlist), so
+  // exempting them here does not open an unauthenticated surface.
+  if (
+    (url.pathname === "/authorize" && req.method === "GET") ||
+    (url.pathname === "/token" && req.method === "POST") ||
+    (url.pathname === "/register" && req.method === "POST") ||
+    (url.pathname === "/revoke" && req.method === "POST")
+  ) {
+    return { allow: true, isPublic: true };
+  }
+
   // Admin surface — carries its OWN cookie + magic-link auth (http/admin.ts),
   // so the public bearer guard lets it through; the admin handler enforces the
   // session / bootstrap token / nonce on every route itself.

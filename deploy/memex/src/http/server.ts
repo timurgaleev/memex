@@ -31,6 +31,12 @@ import {
   OAuthProvider,
   InvalidTokenError,
 } from "../core/oauth-provider.ts";
+import {
+  handleTokenRoute,
+  handleAuthorizeRoute,
+  handleRegisterRoute,
+  handleRevokeRoute,
+} from "./oauth-endpoints.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
@@ -39,65 +45,12 @@ import { serveAdminStatic } from "./admin-static.ts";
 import { handleAdminEventsRoute } from "./admin-events.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
-/**
- * POST /token — OAuth 2.1 client_credentials grant (RFC 6749 §4.4). Accepts a
- * form-encoded or JSON body with `grant_type=client_credentials`, `client_id`,
- * `client_secret`, optional `scope`. Returns the RFC 6749 §5.1 token payload, or
- * a §5.2 error. Any client/secret failure collapses to a single `invalid_client`
- * 401 so the endpoint never reveals whether a client_id exists.
- */
-async function handleTokenRoute(
-  req: Request,
-  provider: OAuthProvider,
-): Promise<Response> {
-  let params: URLSearchParams;
-  try {
-    const ct = req.headers.get("content-type") ?? "";
-    if (ct.includes("application/json")) {
-      const j = (await req.json()) as Record<string, unknown>;
-      params = new URLSearchParams();
-      for (const [k, v] of Object.entries(j)) {
-        if (typeof v === "string") params.set(k, v);
-      }
-    } else {
-      params = new URLSearchParams(await req.text());
-    }
-  } catch {
-    return Response.json(
-      { error: "invalid_request", error_description: "malformed body" },
-      { status: 400 },
-    );
-  }
-
-  if (params.get("grant_type") !== "client_credentials") {
-    return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
-  }
-  const clientId = params.get("client_id");
-  const clientSecret = params.get("client_secret");
-  if (!clientId || !clientSecret) {
-    return Response.json(
-      {
-        error: "invalid_client",
-        error_description: "client_id and client_secret are required",
-      },
-      { status: 401 },
-    );
-  }
-
-  try {
-    const tokens = await provider.exchangeClientCredentials(
-      clientId,
-      clientSecret,
-      params.get("scope") ?? undefined,
-    );
-    return Response.json(tokens, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch {
-    // Never distinguish unknown-client from bad-secret from wrong-grant.
-    return Response.json({ error: "invalid_client" }, { status: 401 });
-  }
+/** RFC 6749 §5.2-style throttle response for the rate-limited OAuth endpoints. */
+function rateLimited(): Response {
+  return Response.json(
+    { error: "slow_down", error_description: "rate limit exceeded" },
+    { status: 429, headers: { "Retry-After": "60" } },
+  );
 }
 
 export interface ServerOptions {
@@ -166,11 +119,17 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const guardOpts: { bearerToken?: string } = {};
   if (opts.publicBearerToken) guardOpts.bearerToken = opts.publicBearerToken;
 
-  // Per-IP throttle for the unauthenticated POST /token endpoint — blunts
-  // client_secret brute-force and the DB-load DoS it would otherwise allow
-  // (10/min, capacity 10). Only created when the self-issued provider is on.
+  // Per-IP throttle for the unauthenticated OAuth endpoints (/token,
+  // /authorize, /revoke) — blunts client_secret brute-force and the DB-load DoS
+  // they would otherwise allow (10/min, capacity 10). A separate, stricter
+  // limiter guards /register (Dynamic Client Registration), which each request
+  // INSERTs a durable oauth_clients row, so it warrants a tighter cap (5/min).
+  // Both are only created when the self-issued provider is on.
   const tokenRateLimiter = opts.oauthProvider
     ? new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 })
+    : null;
+  const registerRateLimiter = opts.oauthProvider
+    ? new RateLimiter({ capacity: 5, refillPerSecond: 5 / 60 })
     : null;
 
   let adminAuth: AdminAuth | null = null;
@@ -197,25 +156,6 @@ export function startServer(opts: ServerOptions): ServerHandle {
     port: opts.port,
     fetch: async (req, server) => {
       const url = new URL(req.url);
-
-      // POST /token — OAuth 2.1 client_credentials endpoint. Authenticates via
-      // the client_id/client_secret in the body (NOT the public bearer), so it
-      // runs BEFORE the bearer guard. Only mounted when the self-issued provider
-      // is enabled. Per-IP rate-limited (brute-force / DoS defense).
-      if (
-        url.pathname === "/token" &&
-        req.method === "POST" &&
-        opts.oauthProvider
-      ) {
-        const ip = server.requestIP(req)?.address ?? "unknown";
-        if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
-          return Response.json(
-            { error: "slow_down", error_description: "rate limit exceeded" },
-            { status: 429, headers: { "Retry-After": "60" } },
-          );
-        }
-        return handleTokenRoute(req, opts.oauthProvider);
-      }
 
       let guard = evaluatePublicGuard(req, url, guardOpts);
       let oauthAuth: AuthInfo | undefined;
@@ -273,6 +213,45 @@ export function startServer(opts: ServerOptions): ServerHandle {
       // above already exempts this path from the bearer requirement.
       if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
         return handleOAuthMetadataRoute(url, opts.publicUrl);
+      }
+      // OAuth 2.1 authorization endpoints. Public (exempted in the guard) —
+      // authenticated by client_id/secret + PKCE downstream, NOT the public
+      // bearer. Only mounted when the self-issued provider is enabled; each is
+      // per-IP rate-limited (brute-force / DCR-abuse / DoS defense).
+      if (opts.oauthProvider) {
+        const oauthProvider = opts.oauthProvider;
+        const ip = server.requestIP(req)?.address ?? "unknown";
+        if (url.pathname === "/token" && req.method === "POST") {
+          if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+            return rateLimited();
+          }
+          return handleTokenRoute(req, oauthProvider);
+        }
+        if (url.pathname === "/authorize" && req.method === "GET") {
+          if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+            return rateLimited();
+          }
+          // Gate the authorization-code flow on a logged-in operator (the
+          // resource owner). Without an admin session mechanism there is no
+          // resource owner to authenticate, so /authorize issues nothing.
+          return handleAuthorizeRoute(
+            req,
+            oauthProvider,
+            adminAuth ? adminAuth.requireAdmin : () => false,
+          );
+        }
+        if (url.pathname === "/register" && req.method === "POST") {
+          if (registerRateLimiter && !registerRateLimiter.allow(ip)) {
+            return rateLimited();
+          }
+          return handleRegisterRoute(req, oauthProvider);
+        }
+        if (url.pathname === "/revoke" && req.method === "POST") {
+          if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+            return rateLimited();
+          }
+          return handleRevokeRoute(req, oauthProvider);
+        }
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         // Evaluate the internal-token gate once per request; the handler
