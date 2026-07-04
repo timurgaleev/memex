@@ -164,19 +164,19 @@ export async function reconcileFactsForPage(
     // page. A fence fact's identity here is its claim text (every fence row on
     // a page shares entity_slug = the page). Fetched BEFORE the wipe.
     //
-    // COUPLING: this set is `forgotten_at IS NOT NULL` regardless of WHY the row
-    // was tombstoned. The insert-time dedup supersede path (facts.ts, gated by
-    // MEMEX_FACTS_DEDUP, default-OFF) also stamps forgotten_at, so a supersede of
-    // a fence-sourced claim would suppress its re-insert here even while the
-    // operator still declares it in the fence. Contained (dedup is opt-in); a
-    // proper fix distinguishes a forget_fact tombstone from a supersede one. See
-    // TODO.md (facts backlog).
+    // The skip-set honors GENUINE forgets only — `forgotten_cause` (mig062)
+    // discriminates. A `forget_fact` stamps 'forget'; the insert-time dedup
+    // supersede path (facts.ts, MEMEX_FACTS_DEDUP) stamps 'supersede'. We exclude
+    // 'supersede' rows so a superseded fence claim can legitimately re-enter from
+    // its canonical fence, while 'forget' (and legacy NULL rows retired before
+    // mig062, all of which were forget_fact tombstones) stay suppressed.
     const tombParams: unknown[] = [pageSlug];
     if (scope !== null) tombParams.push(scope);
     const tomb = await tx.query<{ fact: string }>(
       `SELECT DISTINCT fact FROM entity_facts
         WHERE source_markdown_slug = $1
-          AND forgotten_at IS NOT NULL${delScope}`,
+          AND forgotten_at IS NOT NULL
+          AND forgotten_cause IS DISTINCT FROM 'supersede'${delScope}`,
       tombParams,
     );
     const forgotten = new Set(tomb.rows.map((r) => r.fact));

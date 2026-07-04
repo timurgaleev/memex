@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import { stripFactsFence } from "./facts-fence.ts";
-import { embedText } from "./embedding.ts";
+import { embedText, EMBED_DIMENSIONS } from "./embedding.ts";
 import { isEmbedSkipped } from "./embed-skip.ts";
 import {
   assessContentSanity,
@@ -24,6 +24,7 @@ import {
   sanityGateEnabled,
   sanityDisposition,
   resolveSanityThresholds,
+  resolveOperatorLiterals,
   ContentSanityBlockError,
 } from "./content-sanity.ts";
 import {
@@ -189,6 +190,7 @@ export async function indexDocument(
           ? (baseFrontmatter["title"] as string)
           : ""),
       page_kind: baseFrontmatter["kind"] === "code" ? "code" : undefined,
+      extra_literals: resolveOperatorLiterals(),
       ...resolveSanityThresholds(),
     });
     if (sanity.shouldQuarantine && sanityDisposition() === "reject") {
@@ -228,8 +230,66 @@ export async function indexDocument(
   const ctxBudget = llmActive
     ? new BudgetTracker(defaultContextualLlmBudget(), CONTEXTUAL_LLM_LABEL)
     : undefined;
+  // Unchanged-chunk embedding reuse: re-indexing a doc rewrites all its chunks
+  // (indexer-tx deletes + reinserts), but a chunk whose RAW text is byte-identical
+  // to the prior version at the same index — under the same embedding model —
+  // hasn't changed meaning, so we reuse its stored vector instead of paying
+  // Bedrock (and the paid contextual-LLM tier) again. Editing one line of a page
+  // then only re-embeds the chunk(s) that actually moved. The equality key is the
+  // canonical chunk text (chunks.content), matching what was stored; a global
+  // contextual-mode flip still needs a full `reindex --contextual` (guarded here
+  // by the model check — a mode change doesn't alter the model, so treat mode
+  // changes as out of scope for incremental reuse).
+  const prior = new Map<number, { content: string; vec: number[]; model: string }>();
+  if (!skipEmbed) {
+    try {
+      const priorRows = await storage.engine().query<{
+        chunk_index: number;
+        content: string;
+        vec: string | null;
+        model: string | null;
+      }>(
+        `SELECT c.chunk_index, c.content, e.vector::text AS vec, e.model
+           FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id
+          WHERE c.document_id = $1`,
+        [id],
+      );
+      for (const r of priorRows.rows) {
+        if (r.vec === null || r.model === null) continue;
+        prior.set(Number(r.chunk_index), {
+          content: r.content,
+          vec: JSON.parse(r.vec) as number[],
+          model: r.model,
+        });
+      }
+    } catch {
+      // A read failure just means no reuse this pass — re-embed everything.
+      prior.clear();
+    }
+  }
+
   const vectors: (number[] | null)[] = [];
-  for (const chunk of parsed.chunks) {
+  for (let i = 0; i < parsed.chunks.length; i++) {
+    const chunk = parsed.chunks[i]!;
+    if (!skipEmbed) {
+      const reuse = prior.get(i);
+      // Width is checked alongside model: MEMEX_EMBED_DIM can change the vector
+      // dimension without changing the Titan model id, and mixing widths inside
+      // one document breaks the `<=>` scan — so a stored vector of a different
+      // dimension is never reused. Note: under contextual retrieval a reused
+      // chunk keeps its prior document-level context (title/synopsis) even if an
+      // earlier chunk or the title changed — an accepted precision tradeoff; a
+      // full re-embed (`reindex --contextual`) refreshes it.
+      if (
+        reuse &&
+        reuse.model === model &&
+        reuse.vec.length === EMBED_DIMENSIONS &&
+        reuse.content === chunk
+      ) {
+        vectors.push(reuse.vec);
+        continue; // skip generateChunkContext + embed — the paid-call saving
+      }
+    }
     let prefix = deterministicPrefix;
     if (llmActive) {
       const llmCtx = await generateChunkContext(docText, chunk, {

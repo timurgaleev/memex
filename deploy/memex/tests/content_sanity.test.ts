@@ -5,12 +5,13 @@
  * then an end-to-end pass through the indexer chokepoint.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assessContentSanity,
   stampSanityMarkers,
+  resolveOperatorLiterals,
   ContentSanityBlockError,
   DEFAULT_BYTES_BLOCK,
 } from "../src/core/content-sanity.ts";
@@ -192,5 +193,47 @@ describe("indexDocument content-sanity wiring", () => {
     );
     const fm = await frontmatterOf("/junk3.md");
     expect(isQuarantined(fm)).toBe(false);
+  });
+
+  it("quarantines a page matching an operator-literal from MEMEX_SANITY_LITERALS_FILE", async () => {
+    const litFile = join(tmp, "junk-substrings.txt");
+    writeFileSync(litFile, "# operator junk list\n\nSPONSORED PARTNER CONTENT\n");
+    process.env.MEMEX_SANITY_LITERALS_FILE = litFile;
+    try {
+      const body =
+        "# Note\n\nThis page carries the SPONSORED PARTNER CONTENT banner the operator flagged as junk. " +
+        "It looks like a normal note otherwise but should be quarantined by the operator literal.";
+      await indexDocument(
+        storage,
+        { sourcePath: "/oplit.md", text: body },
+        { embedFn, inferFrontmatter: false },
+      );
+      const fm = await frontmatterOf("/oplit.md");
+      expect(isQuarantined(fm)).toBe(true);
+      expect(isEmbedSkipped(fm)).toBe(true);
+    } finally {
+      delete process.env.MEMEX_SANITY_LITERALS_FILE;
+    }
+  });
+});
+
+describe("resolveOperatorLiterals", () => {
+  it("parses one literal per line, skipping blanks and # comments", () => {
+    const dir = mkdtempSync(join(tmpdir(), "memex-oplit-"));
+    const f = join(dir, "list.txt");
+    writeFileSync(f, "# header comment\n\nFirst Junk String\n  Second Junk  \n# trailing comment\n");
+    try {
+      const lits = resolveOperatorLiterals(f);
+      expect(lits.map((l) => l.substring)).toEqual(["First Junk String", "Second Junk"]);
+      expect(lits.every((l) => l.applies_to === "both")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns [] for an unset var or an unreadable file (fail-open)", () => {
+    expect(resolveOperatorLiterals(undefined)).toEqual([]);
+    expect(resolveOperatorLiterals("")).toEqual([]);
+    expect(resolveOperatorLiterals("/no/such/file/anywhere.txt")).toEqual([]);
   });
 });

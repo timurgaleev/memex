@@ -841,6 +841,24 @@ export const OPERATIONS: readonly Operation[] = [
     },
   },
   {
+    name: "set_take_status",
+    description:
+      "Set a synthesized take's review status: mark it 'accepted' or 'rejected' by take_key. Advisory only — never mutates notes, only the take's own review flag. Tenant-scoped: a take_key that isn't yours is a no-op. Internal-only.",
+    params: {
+      take_key: str({ ...req, description: "The take's take_key (from list_takes)." }),
+      status: str({ ...req, enum: ["accepted", "rejected"], description: "New review status." }),
+    },
+  },
+  {
+    name: "takes_search",
+    description:
+      "Fuzzy-search synthesized 'takes' by claim text (pg_trgm similarity + substring fallback), ranked best-match first: take_key, claim_text, kind, weight, domain, status. Read-only; internal-only.",
+    params: {
+      q: str({ ...req, description: "Claim text to match." }),
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
+    },
+  },
+  {
     name: "get_calibration_profile",
     description:
       "The latest narrative calibration/bias profile (from the calibration-profile phase): grade tallies, accuracy, pattern statements, bias tags. Read-only; internal-only. Null when no profile has been generated yet.",

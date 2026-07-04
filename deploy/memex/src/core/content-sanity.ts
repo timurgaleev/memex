@@ -30,6 +30,8 @@
  * CALLER's (indexer's) so the assessor never surprises a consumer.
  */
 
+import { readFileSync } from "node:fs";
+
 /** Bytes of body scanned for pattern matches. Junk interstitials carry their
  *  telltale text at the top, so an O(2KB) head-slice covers the realistic
  *  cases regardless of page size. */
@@ -382,6 +384,41 @@ export function sanityDisposition(
 function resolveBytes(raw: string | undefined, fallback: number): number {
   const n = Number((raw ?? "").trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * Load the operator's junk-substring list from the file named by
+ * `MEMEX_SANITY_LITERALS_FILE` (one case-insensitive literal per line; blank
+ * lines and `#` comments skipped). Each becomes an OperatorLiteral scanned in
+ * BOTH title and body, so a site-specific boilerplate string the built-in
+ * patterns miss still quarantines. Fail-open: an unset var or an unreadable file
+ * yields no literals — this must never break ingest. Memoized per (path) so the
+ * file is read once, not on every page.
+ */
+let _literalsCache: { path: string; literals: OperatorLiteral[] } | null = null;
+export function resolveOperatorLiterals(
+  path: string | undefined = process.env["MEMEX_SANITY_LITERALS_FILE"],
+): OperatorLiteral[] {
+  const p = (path ?? "").trim();
+  if (!p) return [];
+  if (_literalsCache?.path === p) return _literalsCache.literals;
+  let literals: OperatorLiteral[] = [];
+  try {
+    const raw = readFileSync(p, "utf-8");
+    literals = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#"))
+      .map((substring, i) => ({
+        name: `operator_literal_${i + 1}`,
+        substring,
+        applies_to: "both" as const,
+      }));
+  } catch {
+    literals = []; // unreadable/missing → no literals, ingest continues
+  }
+  _literalsCache = { path: p, literals };
+  return literals;
 }
 
 /** Resolve effective thresholds from the env (call-site override for tests). */

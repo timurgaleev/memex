@@ -30,7 +30,7 @@
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { normalizeAlias } from "./page-aliases.ts";
-import { validateSlug } from "./links.ts";
+import { stripCodeBlocks, validateSlug } from "./links.ts";
 
 /** Entity page types eligible for gazetteer matching (named entities only). */
 const GAZETTEER_TYPES = ["person", "company"] as const;
@@ -202,9 +202,10 @@ export function scanMentions(
   if (typeof body !== "string" || body.length === 0 || entries.length === 0) {
     return [];
   }
-  // NFKC so the body matches the NFKC-normalized phrases; mask wikilink spans
-  // with same-length whitespace (offset-preserving, non-matching).
-  const text = body.slice(0, MAX_BODY_LEN).normalize("NFKC");
+  // NFKC so the body matches the NFKC-normalized phrases; blank code spans
+  // (a name inside a fence is a sample, not a mention) then mask wikilink spans
+  // — both replacements are offset-preserving so the positional scan stays valid.
+  const text = stripCodeBlocks(body.slice(0, MAX_BODY_LEN).normalize("NFKC"));
   const masked = text.replace(WIKILINK_SPAN_RE, (m) => " ".repeat(m.length));
   // One alternation, longest-first (entries pre-sorted) so the engine prefers
   // the longest phrase at each start offset. Unicode-aware boundaries via

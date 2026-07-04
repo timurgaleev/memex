@@ -7,6 +7,17 @@ introduces them.
 
 ---
 
+## LOW backlog (v1.76 review notes)
+
+- **`memex export` frontmatter round-trip is lossy.** The emitted header carries
+  only `title` + `type`, and the title `needsQuote` check omits newlines, a
+  leading `-`/`?`-space, and bare `true`/`false`/`null`/numeric titles — those
+  don't re-parse to the same string/type. Rare; the export is a
+  backup/portability dump, not a lossless serializer. Widen the quoting rule (or
+  emit the full frontmatter) if round-trip fidelity ever matters.
+
+---
+
 ## 2026-07-02 — full-parity + tiers session (v1.57 → v1.72) DONE
 
 Shipped + live-verified this session (see CHANGELOG for each):

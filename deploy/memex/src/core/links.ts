@@ -36,6 +36,11 @@ export const KNOWN_LINK_TYPES = [
   "related_to",
   "supersedes",
   "contradicts",
+  // Doc→code graph: a markdown page that cites `src/foo.ts:42` documents that
+  // code file. Only the forward edge exists here — a reverse `documented_by`
+  // would need the code file as source_slug, but that column is FK-bound to
+  // `pages` and code lives in `documents`, so the reverse is unrepresentable.
+  "documents",
 ] as const;
 
 export type KnownLinkType = (typeof KNOWN_LINK_TYPES)[number];
@@ -572,19 +577,101 @@ export async function traverseGraph(
 
 const WIKILINK_RE = /\[\[([^\]\n|]+?)(?:\|[^\]\n]+)?\]\]/g;
 
+// `[Name](path)` markdown link. No dir whitelist — the resolver's existence
+// check (below) is the gate. Captures the target path; an optional `../` prefix
+// and `.md` suffix are peeled in the scanner so filesystem-style and engine-slug
+// forms both land on the same slug.
+const MARKDOWN_LINK_RE = /\[[^\]\n]+?\]\(([^)\s]+?)\)/g;
+
+/** Upper bound on the body scanned by the deterministic extractors (parity with
+ *  the gazetteer's cap) — a pathological page can't turn the O(n) scan wasteful. */
+const MAX_SCAN_LEN = 1_000_000;
+
+/**
+ * Mask fenced (```...```) and inline (`...`) code spans with equal-length
+ * whitespace. Length-preserving on purpose: the gazetteer scans by offset, so a
+ * collapsing strip would shift every later match. A `[[foo]]` or `[Name](foo)`
+ * inside code is a sample, not a real reference — blanking the span keeps it out
+ * of the graph without disturbing surrounding positions.
+ */
+export function stripCodeBlocks(content: string): string {
+  let out = "";
+  let i = 0;
+  while (i < content.length) {
+    if (content.startsWith("```", i)) {
+      const end = content.indexOf("```", i + 3);
+      if (end === -1) {
+        out += " ".repeat(content.length - i);
+        break;
+      }
+      out += " ".repeat(end + 3 - i);
+      i = end + 3;
+      continue;
+    }
+    if (content[i] === "`") {
+      const end = content.indexOf("`", i + 1);
+      if (end === -1 || content.slice(i + 1, end).includes("\n")) {
+        out += content[i];
+        i++;
+        continue;
+      }
+      out += " ".repeat(end + 1 - i);
+      i = end + 1;
+      continue;
+    }
+    out += content[i];
+    i++;
+  }
+  return out;
+}
+
 /**
  * Extract every distinct [[wikilink]] surface form from a markdown
  * body. Returns the original surface forms (not yet slugified) so
  * callers can keep both raw and normalised values if needed.
+ *
+ * Code spans are masked first (a `[[foo]]` in a fence is a sample). A trailing
+ * `#section` anchor is dropped from the target — `[[people/alice#background]]`
+ * links the page, not a heading — while a `|display` alias is already handled by
+ * the capture group.
  */
 export function extractWikilinks(body: string): string[] {
   if (typeof body !== "string" || body.length === 0) return [];
+  const scannable = stripCodeBlocks(body);
   const seen = new Set<string>();
   let match: RegExpExecArray | null;
   WIKILINK_RE.lastIndex = 0;
-  while ((match = WIKILINK_RE.exec(body)) !== null) {
-    const raw = match[1]?.trim();
+  while ((match = WIKILINK_RE.exec(scannable)) !== null) {
+    const raw = match[1]?.replace(/#.*$/, "").trim();
     if (raw && raw.length > 0) seen.add(raw);
+  }
+  return [...seen];
+}
+
+/**
+ * Extract distinct `[Name](path)` markdown-link targets from a body. External
+ * URLs are skipped; a leading `../` and a trailing `.md` are peeled so both
+ * `[A](../people/alice.md)` and `[A](people/alice)` yield `people/alice`. A
+ * heading anchor is dropped. Code spans are masked as in extractWikilinks.
+ * Unlike a bare wikilink, a markdown link only becomes an edge when it resolves
+ * to a real page (see syncWikilinksForPage) — memex has no dir whitelist to
+ * pre-filter these.
+ */
+export function extractMarkdownLinks(body: string): string[] {
+  if (typeof body !== "string" || body.length === 0) return [];
+  const scannable = stripCodeBlocks(body.slice(0, MAX_SCAN_LEN));
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  MARKDOWN_LINK_RE.lastIndex = 0;
+  while ((match = MARKDOWN_LINK_RE.exec(scannable)) !== null) {
+    const captured = match[1];
+    if (!captured || captured.includes("://")) continue;
+    const target = captured
+      .replace(/^(?:\.\.\/)+/, "")
+      .replace(/#.*$/, "")
+      .replace(/\.md$/, "")
+      .trim();
+    if (target.length > 0) seen.add(target);
   }
   return [...seen];
 }
@@ -636,6 +723,16 @@ export async function syncWikilinksForPage(
     if (r.slug === sourceSlug) continue;
     const prior = byTarget.get(r.slug);
     byTarget.set(r.slug, (prior ?? false) || r.resolved);
+  }
+  // Markdown-style [Name](dir/slug.md) links. A bare wikilink may stay
+  // unqualified (a dangling `[[name]]` is an intentional placeholder), but a
+  // markdown path is only an edge when it lands on a real page — memex has no
+  // dir whitelist to pre-filter it, so the resolver's existence check is the
+  // gate. An unresolved path is treated as prose and dropped.
+  for (const path of extractMarkdownLinks(body)) {
+    const r = await resolver.resolve(path);
+    if (!r.resolved || r.slug === sourceSlug) continue;
+    byTarget.set(r.slug, true);
   }
 
   const engine = storage.engine();
@@ -769,6 +866,127 @@ export async function syncVerbLinksForPage(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
          VALUES ($1, $2, $3, $4, 'verb_ner'${insVal})
+         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
+         RETURNING (xmax = 0) AS inserted`,
+        insParams,
+      );
+      if (ins.rows[0]?.inserted) added += 1;
+    }
+    return { removed: del.rows[0]?.c ?? 0, added };
+  });
+}
+
+// --- Doc→code citations (a guide cites `src/foo.ts:42`) -------------------
+
+/** A code-path reference found in prose, e.g. `src/core/sync.ts:42`. */
+export interface CodeRef {
+  /** Repo-relative path as cited, without the `:line` suffix. */
+  path: string;
+  /** 1-based line number when the citation carried one (`path:NN`). */
+  line?: number;
+}
+
+// A cited code path is anchored on the common repo-layout dirs so bare prose
+// ("see foo/bar for context") never mints a ref; the extension set tracks the
+// code indexer's language coverage — a path with no code file behind it is
+// noise. Fresh RegExp per call keeps `lastIndex` from leaking across bodies.
+const CODE_REF_REGEX =
+  /\b((?:src|lib|app|test|tests|scripts|docs|packages|internal|cmd|examples)\/[\w\-./]+\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|cs|cpp|cc|hpp|c|h|php|swift|kt|scala|lua|ex|exs|elm|ml|dart|zig|sol|sh|bash|css|html|vue|json|yaml|yml|toml))(?::(\d+))?\b/g;
+
+/** Extract distinct cited code paths from prose, deduped by path. */
+export function extractCodeRefs(body: string): CodeRef[] {
+  if (typeof body !== "string" || body.length === 0) return [];
+  // Mask fenced + inline code first, like the wikilink/markdown/entity scans —
+  // a path shown inside a ``` example fence is illustration, not a citation, and
+  // must not mint a doc→code edge.
+  const scannable = stripCodeBlocks(body.slice(0, MAX_SCAN_LEN));
+  const seen = new Set<string>();
+  const refs: CodeRef[] = [];
+  const re = new RegExp(CODE_REF_REGEX.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(scannable)) !== null) {
+    const path = match[1]!;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    refs.push({ path, line: match[2] ? parseInt(match[2], 10) : undefined });
+  }
+  return refs;
+}
+
+/** Escape LIKE metacharacters so a cited path with `_`/`%` matches literally. */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, "\\$&");
+}
+
+/**
+ * Replace the doc→code (`type='documents'`, `link_kind='plain'`) edge set for
+ * `sourceSlug` with one edge per cited code path that resolves to an INDEXED
+ * code file. Deterministic, no LLM; idempotent DELETE-then-insert like the
+ * wikilink sync.
+ *
+ * A code file lives in `documents` (`frontmatter.kind='code'`) keyed by an
+ * absolute `source_path`, not in `pages` — so a cited repo-relative path
+ * resolves by suffix match (`…/src/foo.ts`). Only a resolving citation becomes
+ * an edge; an unindexed path is prose. The target is the cited path itself
+ * (free text — code is addressed by path, not by slug). No reverse
+ * `documented_by`: that edge would need the code file as `source_slug`, which
+ * is FK-bound to `pages` and cannot hold a code-document identifier.
+ */
+export async function syncCodeRefsForPage(
+  storage: Storage,
+  sourceSlug: string,
+  body: string,
+  sourceId?: string,
+): Promise<{ removed: number; added: number }> {
+  validateSlug(sourceSlug);
+  const scope =
+    typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
+  const engine = storage.engine();
+
+  // Keep only citations that point at an existing indexed code file. The lookup
+  // is deliberately whole-brain: `documents.source_id` is a path-prefix
+  // classification axis (repo / vault / memory), NOT the page's tenant source —
+  // a note in the `default` page source routinely documents code carrying a
+  // `repo` document source, so scoping this by the page's source_id would drop
+  // essentially every real citation. Tenancy on the resulting EDGE is still
+  // enforced: the links row is stamped with the page's source_id below.
+  const resolved: string[] = [];
+  for (const ref of extractCodeRefs(body)) {
+    const params: unknown[] = [ref.path, `%/${escapeLike(ref.path)}`];
+    const hit = await engine.query<{ one: number }>(
+      `SELECT 1 AS one FROM documents
+        WHERE frontmatter->>'kind' = 'code'
+          AND deleted_at IS NULL
+          AND (source_path = $1 OR source_path LIKE $2 ESCAPE '\\')
+        LIMIT 1`,
+      params,
+    );
+    if (hit.rows.length > 0) resolved.push(ref.path);
+  }
+
+  const delScope = scope !== null ? ` AND source_id = $2` : "";
+  const insCol = scope !== null ? ", source_id" : "";
+  const insVal = scope !== null ? ", $3" : "";
+  return engine.transaction(async (tx) => {
+    const delParams: unknown[] = [sourceSlug];
+    if (scope !== null) delParams.push(scope);
+    const del = await tx.query<{ c: number }>(
+      `WITH d AS (
+         DELETE FROM links
+          WHERE source_slug = $1 AND type = 'documents' AND link_kind = 'plain'${delScope}
+          RETURNING 1
+       )
+       SELECT COUNT(*)::int AS c FROM d`,
+      delParams,
+    );
+    let added = 0;
+    for (const target of resolved) {
+      const insParams: unknown[] = [sourceSlug, target];
+      if (scope !== null) insParams.push(scope);
+      const ins = await tx.query<{ inserted: boolean }>(
+        `INSERT INTO links
+           (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
+         VALUES ($1, $2, 'documents', 1.0, 'plain'${insVal})
          ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,

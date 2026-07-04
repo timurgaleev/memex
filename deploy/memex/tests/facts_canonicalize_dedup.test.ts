@@ -283,11 +283,14 @@ describe("addFact insert-time dedup (3)", () => {
     // Old fact tombstoned (superseded), new fact live.
     expect(await recallFact(storage, old.id!)).toBeNull();
     expect(await liveCount(E, "super-new title CEO")).toBe(1);
-    const oldRow = await storage.engine().query<{ reason: string | null }>(
-      `SELECT forgotten_reason AS reason FROM entity_facts WHERE id = $1`,
+    const oldRow = await storage.engine().query<{ reason: string | null; cause: string | null }>(
+      `SELECT forgotten_reason AS reason, forgotten_cause AS cause FROM entity_facts WHERE id = $1`,
       [old.id],
     );
     expect(oldRow.rows[0]!.reason).toMatch(/superseded/);
+    // The structured discriminator (mig062) — lets reconcile tell a supersede
+    // from a genuine forget so a superseded fence claim can re-enter.
+    expect(oldRow.rows[0]!.cause).toBe("supersede");
   });
 
   it("default (no dedup opts) preserves the legacy manual-insert behavior", async () => {

@@ -100,8 +100,10 @@ import { listBrainSkillpacks } from "../core/skillpack/brain-resident.ts";
 import {
   listConcepts,
   listTakes,
+  searchTakes,
   getCalibrationProfile,
 } from "../core/synthesis/reads.ts";
+import { setTakeStatus } from "../core/synthesis/takes.ts";
 import packageJson from "../../package.json" with { type: "json" };
 import {
   reconcileFactsForPage,
@@ -202,6 +204,7 @@ const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set([
   "add_timeline_event",
   "forget_fact",
   "purge_deleted_pages",
+  "set_take_status",
 ]);
 
 /**
@@ -451,6 +454,10 @@ async function dispatchToolInner(
         return await callListConcepts(storage, args, readSources);
       case "list_takes":
         return await callListTakes(storage, args, readSources);
+      case "set_take_status":
+        return await callSetTakeStatus(storage, args, writeSource);
+      case "takes_search":
+        return await callSearchTakes(storage, args, readSources);
       case "get_calibration_profile":
         return await callGetCalibrationProfile(storage, readSources);
       default:
@@ -1989,6 +1996,34 @@ async function callListTakes(
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const takes = await listTakes(storage.engine(), opts);
+  return jsonResult({ ok: true, takes });
+}
+
+async function callSetTakeStatus(
+  storage: Storage,
+  args: Record<string, unknown>,
+  writeSource?: string,
+): Promise<ToolCallResult> {
+  if (typeof args["take_key"] !== "string" || args["take_key"].length === 0)
+    return errResult("set_take_status: `take_key` is required");
+  if (args["status"] !== "accepted" && args["status"] !== "rejected")
+    return errResult("set_take_status: `status` must be 'accepted' or 'rejected'");
+  const sourceIds = writeSource ? [writeSource] : undefined;
+  const r = await setTakeStatus(storage.engine(), args["take_key"], args["status"], sourceIds);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callSearchTakes(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  if (typeof args["q"] !== "string" || args["q"].length === 0)
+    return errResult("takes_search: `q` is required");
+  const opts: Parameters<typeof searchTakes>[1] = { q: args["q"] };
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const takes = await searchTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
 }
 

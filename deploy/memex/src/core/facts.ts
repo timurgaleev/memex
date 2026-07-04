@@ -366,7 +366,7 @@ export async function addFact(
   if (inserted && supersededId !== null && newId !== null) {
     await storage.engine().query(
       `UPDATE entity_facts
-          SET forgotten_at = NOW(), forgotten_reason = $2
+          SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = 'supersede'
         WHERE id = $1 AND forgotten_at IS NULL`,
       [supersededId, `superseded by fact ${newId}`],
     );

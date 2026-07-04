@@ -184,6 +184,54 @@ describe("gradeTakesPhase", () => {
   });
 });
 
+describe("gradeTakesPhase — judge prompt carries real content (regression: [object Object])", () => {
+  async function seedTake(id: number, claim: string): Promise<void> {
+    await engine.query(
+      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id, generated_at)
+       VALUES ($1, 'd1', 'h', 'v1-nova', $2, 'prediction', 0.7, 'queued', 'm', now() - interval '365 days')`,
+      [`tk-${id}`, claim],
+    );
+  }
+
+  it("single-pass judge sees the claim + evidence text, never [object Object]", async () => {
+    await seedTake(1, "aluminium prices will fall in Q3");
+    let seen = "";
+    const capturingLlm: LlmFn = async (req) => {
+      seen = req.user;
+      return { text: `{"verdict":"correct","confidence":0.9,"reasoning":"r"}`, modelId: "fake-nova" };
+    };
+    await gradeTakesPhase(engine, {
+      evidenceFn: async () => "the futures curve inverted",
+      llmFn: capturingLlm,
+    });
+    expect(seen).not.toContain("[object Object]");
+    expect(seen).toContain("aluminium prices will fall in Q3");
+    expect(seen).toContain("the futures curve inverted");
+  });
+
+  it("ensemble judge sees the claim + evidence text, never [object Object]", async () => {
+    await seedTake(1, "copper demand will spike");
+    let seen = "";
+    const capturingSonnet: SonnetFn = async (req) => {
+      seen = req.user;
+      return {
+        text: `{"verdict":"correct","confidence":0.8,"reasoning":"a"}`,
+        modelId: "eu.anthropic.claude-sonnet-4-6",
+        usage: { inputTokens: 100, outputTokens: 50 },
+      };
+    };
+    await gradeTakesPhase(engine, {
+      ensemble: true,
+      evidenceFn: async () => "smelter outages reported",
+      sonnetFn: capturingSonnet,
+      judges: 1,
+    });
+    expect(seen).not.toContain("[object Object]");
+    expect(seen).toContain("copper demand will spike");
+    expect(seen).toContain("smelter outages reported");
+  });
+});
+
 describe("aggregateVerdicts", () => {
   it("returns null on no votes", () => {
     expect(aggregateVerdicts([])).toBeNull();

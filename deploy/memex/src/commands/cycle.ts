@@ -11,11 +11,10 @@
  * (embed-stale, embed-facts) call Bedrock, so scope with `--phases` to control
  * cost when you only need one backfill.
  *
- * Concurrency: there is no mutual exclusion with the periodic cycle loop -- the
- * phases are idempotent and use atomic per-row writes, so overlap can't corrupt
- * state, but running this WHILE the daemon is mid-tick can double Bedrock spend.
- * Prefer running it when the loop is idle (its first tick is one interval after
- * boot); it is the operator's responsibility for a deliberate one-shot.
+ * Concurrency: this shares the daemon's `memex-cycle` DB lock, so a one-shot
+ * run and a periodic tick can't overlap and double Bedrock spend. If the daemon
+ * is mid-tick when this runs, the one-shot skips with a message and exits 0
+ * (the phases are idempotent; the daemon's tick already covers the work).
  */
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
@@ -27,12 +26,27 @@ import {
   type CycleOptions,
   type PhaseName,
 } from "../core/cycle/index.ts";
+import {
+  CYCLE_LOCK_ID,
+  tryAcquireDbLock,
+  reapDeadHolderLocks,
+} from "../core/db-lock.ts";
+
+// Same TTL the daemon loop uses (recipes/cycle.ts) so the two contend on
+// identical terms — a crashed holder's row TTL-expires within this window.
+const LOCK_TTL_MINUTES = 5;
 
 export interface CycleCmdOptions {
   /** Limit to these phases (default: all). */
   phases?: PhaseName[];
   /** Forwarded to embed-stale. */
   staleDays?: number;
+  /**
+   * @internal Injected Storage for hermetic tests. When set, the caller owns
+   * its lifecycle (runCycle does NOT close it). Production leaves this unset and
+   * runCycle builds + closes its own from loadConfig().
+   */
+  storage?: Storage;
 }
 
 // Accept the default phases PLUS the opt-in synthesis + facts-maintenance
@@ -72,16 +86,47 @@ export function parsePhasesArg(raw: string): PhaseName[] {
 }
 
 export async function runCycle(opts: CycleCmdOptions = {}): Promise<void> {
-  const config = loadConfig();
-  const storage = new Storage(config);
-  await storage.init();
+  const injected = opts.storage;
+  const storage = injected ?? new Storage(loadConfig());
+  if (!injected) await storage.init();
   try {
-    const cycleOpts: CycleOptions = { storage };
-    if (opts.phases !== undefined) cycleOpts.phases = opts.phases;
-    if (opts.staleDays !== undefined) cycleOpts.staleDays = opts.staleDays;
-    const r = await runCycleOnce(storage.engine(), cycleOpts);
-    console.log(JSON.stringify(r, null, 2));
+    // Reclaim a lock stranded by a crashed holder, then contend for it. A null
+    // handle means a LIVE holder (the daemon mid-tick) owns it — skip rather
+    // than run a second overlapping cycle that would double Bedrock spend.
+    try {
+      await reapDeadHolderLocks(storage.engine());
+    } catch {
+      /* best-effort sweep */
+    }
+    const lock = await tryAcquireDbLock(
+      storage.engine(),
+      CYCLE_LOCK_ID,
+      LOCK_TTL_MINUTES,
+    );
+    if (!lock) {
+      console.log(
+        `[cycle] skipped: another holder owns ${CYCLE_LOCK_ID} (daemon mid-tick) — nothing to do`,
+      );
+      return;
+    }
+    // Heartbeat so a long one-shot (a heavy embed-stale pass) can't outlive the
+    // short TTL and let the daemon acquire concurrently. unref so it never pins
+    // the event loop past the run.
+    const refresher = setInterval(() => {
+      void lock.refresh().catch(() => {});
+    }, 30 * 1000);
+    (refresher as unknown as { unref?: () => void }).unref?.();
+    try {
+      const cycleOpts: CycleOptions = { storage };
+      if (opts.phases !== undefined) cycleOpts.phases = opts.phases;
+      if (opts.staleDays !== undefined) cycleOpts.staleDays = opts.staleDays;
+      const r = await runCycleOnce(storage.engine(), cycleOpts);
+      console.log(JSON.stringify(r, null, 2));
+    } finally {
+      clearInterval(refresher);
+      await lock.release();
+    }
   } finally {
-    await storage.close();
+    if (!injected) await storage.close();
   }
 }

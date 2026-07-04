@@ -21,6 +21,33 @@ import { recordEvalSnapshot } from "../core/eval-snapshot.ts";
 export interface EvalProbeOptions {
   /** Cap on queries replayed. Forwarded to replayAll (default 100 there). */
   limit?: number;
+  /**
+   * Per-run cost ceiling in USD. Converted to an effective query cap via a
+   * conservative per-query cost estimate (the probe embeds each query and runs
+   * the hybrid arm), then applied as `min(limit, floor(maxUsd / est))`. A cheap,
+   * deterministic guard so a large eval set can't run an unbounded paid probe.
+   */
+  maxUsd?: number;
+}
+
+/** Conservative estimate of one probe query's Bedrock cost (a Titan query embed
+ *  plus the hybrid arm). Deliberately high so the USD cap errs toward stopping
+ *  early rather than overspending. */
+export const PER_QUERY_USD_ESTIMATE = 0.001;
+
+/**
+ * Effective query cap from an optional explicit limit + an optional USD ceiling.
+ * The USD cap converts to a query count via {@link PER_QUERY_USD_ESTIMATE}; when
+ * both are set the tighter of the two wins. Returns undefined when neither is
+ * set (replayAll applies its own default).
+ */
+export function effectiveProbeLimit(
+  limit: number | undefined,
+  maxUsd: number | undefined,
+): number | undefined {
+  if (maxUsd === undefined) return limit;
+  const budgetCap = Math.max(1, Math.floor(maxUsd / PER_QUERY_USD_ESTIMATE));
+  return limit !== undefined ? Math.min(limit, budgetCap) : budgetCap;
 }
 
 export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
@@ -29,7 +56,8 @@ export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
   await storage.init();
   try {
     const replayOpts: Parameters<typeof replayAll>[1] = {};
-    if (opts.limit !== undefined) replayOpts.limit = opts.limit;
+    const effLimit = effectiveProbeLimit(opts.limit, opts.maxUsd);
+    if (effLimit !== undefined) replayOpts.limit = effLimit;
     const report = await replayAll(storage, replayOpts);
     const { id } = await recordEvalSnapshot(storage.engine(), report);
     console.log(

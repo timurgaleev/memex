@@ -81,6 +81,7 @@ describe("doctor", () => {
       "chunker-version-lag",
       "config",
       "cycle-freshness",
+      "eval-trend",
       "index-spread",
       "links-extraction-lag",
       "pglite",
@@ -88,6 +89,11 @@ describe("doctor", () => {
       "stats",
       "vault",
     ]);
+    // The eval-trend check is informational (ok) and reports the not-yet-run
+    // state on a fresh brain where the probe has never appended a snapshot.
+    const evalTrend = parsed.checks.find((c) => c.name === "eval-trend")!;
+    expect(evalTrend.ok).toBe(true);
+    expect(evalTrend.detail).toMatch(/has not run yet/);
     expect(process.exitCode).toBe(0);
 
     // Every check carries a category, and — the DRIFT GUARD — every name the

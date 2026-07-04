@@ -20,6 +20,7 @@ import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-healt
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
+import { latestEvalSnapshot } from "../core/eval-snapshot.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -281,6 +282,30 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ok: true,
       detail: "not configured (recipe disabled)",
     });
+  }
+
+  // 3c. retrieval-quality trend — the nightly eval probe's latest snapshot.
+  // Informational (never fails the doctor): a probe that has not run yet is a
+  // "not configured" state, not a broken brain. Surfaces the trend axes so the
+  // operator sees quality drift without re-running retrieval.
+  if (storage) {
+    try {
+      const snap = await latestEvalSnapshot(storage.engine());
+      checks.push({
+        name: "eval-trend",
+        ok: true,
+        detail: snap
+          ? `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)} ` +
+            `hit_rate=${snap.hit_rate.toFixed(3)} (scored ${snap.scored}/${snap.total_queries})`
+          : "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)",
+      });
+    } catch (e) {
+      checks.push({
+        name: "eval-trend",
+        ok: true,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   if (storage) {

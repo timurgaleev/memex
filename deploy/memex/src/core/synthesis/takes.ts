@@ -417,7 +417,7 @@ export async function gradeTakeEnsemble(
     modelId?: string;
   },
 ): Promise<EnsembleResult> {
-  const user = `Claim: ${sanitizeForPrompt(claim)}\n\nEvidence:\n${sanitizeForPrompt(evidence)}`;
+  const user = `Claim: ${sanitizeForPrompt(claim).text}\n\nEvidence:\n${sanitizeForPrompt(evidence).text}`;
   const probeModel = resolveFactsModel(opts.modelId);
   const estUsage = estimateJudgeUsage(claim, evidence);
   const votes: ParsedVerdict[] = [];
@@ -632,7 +632,7 @@ export async function gradeTakesPhase(
       } else {
         const resp = await llm({
           system: GRADE_SYSTEM_PROMPT,
-          user: `Claim: ${sanitizeForPrompt(take.claim_text)}\n\nEvidence:\n${sanitizeForPrompt(evidence)}`,
+          user: `Claim: ${sanitizeForPrompt(take.claim_text).text}\n\nEvidence:\n${sanitizeForPrompt(evidence).text}`,
           maxTokens: 500,
         });
         verdict = parseVerdictResponse(resp.text);
@@ -680,4 +680,54 @@ export async function gradeTakesPhase(
   }
 
   return result;
+}
+
+// --- set_take_status --------------------------------------------------------
+
+/**
+ * Operator review action: flip a take's review status (accepted/rejected).
+ * Tenant-scoped exactly like `listTakes` — when `sourceIds` is supplied the
+ * update only lands if the take's source document belongs to one of those
+ * tenants, so a caller can never touch a take that isn't theirs (a cross-tenant
+ * take_key is a silent no-op). `undefined`/empty leaves it unscoped
+ * (admin/internal). Returns whether a row was actually updated.
+ */
+/** Review statuses a take may be moved into by an operator action. */
+export const TAKE_REVIEW_STATUSES = ["accepted", "rejected"] as const;
+
+export async function setTakeStatus(
+  engine: Engine,
+  take_key: string,
+  status: string,
+  sourceIds?: string[],
+): Promise<{ updated: boolean }> {
+  // Validate at the function boundary too, not just the dispatch handler — any
+  // non-MCP caller (CLI, a future internal path) gets the same guarantee that
+  // only a review status can be written.
+  if (!(TAKE_REVIEW_STATUSES as readonly string[]).includes(status)) {
+    throw new Error(
+      `setTakeStatus: status must be one of ${TAKE_REVIEW_STATUSES.join("|")}, got ${JSON.stringify(status)}`,
+    );
+  }
+  const scoped =
+    Array.isArray(sourceIds) && sourceIds.length > 0
+      ? Array.from(new Set(sourceIds.filter((s) => typeof s === "string" && s.length > 0)))
+      : undefined;
+  const params: unknown[] = [status, take_key];
+  let sourceFilter = "";
+  if (scoped && scoped.length > 0) {
+    params.push(scoped);
+    sourceFilter = ` AND EXISTS (
+          SELECT 1 FROM documents d
+           WHERE d.id = synth_takes.source_ref
+             AND d.source_id = ANY($${params.length}::text[])
+        )`;
+  }
+  const { rows } = await engine.query<{ take_key: string }>(
+    `UPDATE synth_takes SET status = $1
+       WHERE take_key = $2${sourceFilter}
+     RETURNING take_key`,
+    params,
+  );
+  return { updated: rows.length > 0 };
 }
