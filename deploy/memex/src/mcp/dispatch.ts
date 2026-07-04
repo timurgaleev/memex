@@ -156,6 +156,7 @@ import {
 import { OperationError, isOperationError } from "../core/operation-error.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
 import { OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
+import { hasScope } from "../core/scope.ts";
 
 // Operation lookup by tool name, built once (the contract is static).
 const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
@@ -317,6 +318,22 @@ async function dispatchToolInner(
         `tool '${req.name}' is operator-only and not callable by a tenant token`,
         "Use the per-source 'source_health' tool for tenant-scoped health.",
       );
+    }
+    // Per-op scope gate (reference parity): an OAuth caller (`authInfo` present)
+    // may only invoke a tool its granted scope covers — a `read`-scoped token
+    // cannot call a `write` op. Each op declares `scope` ("write" for mutations),
+    // defaulting to "read". The static daily bearer + trusted-local path
+    // (`authInfo === undefined`) are the operator and are unaffected.
+    if (opts.authInfo !== undefined) {
+      const op = OPERATIONS.find((o) => o.name === req.name);
+      const requiredScope = op?.scope ?? "read";
+      if (!hasScope(opts.authInfo.scopes ?? [], requiredScope)) {
+        throw new OperationError(
+          "insufficient_scope",
+          `tool '${req.name}' requires the '${requiredScope}' scope`,
+          "Request a token granted the required scope.",
+        );
+      }
     }
     // Enforce the declared param contract (type / enum / min-max of present
     // params) before dispatch. Known tools only — an unknown name falls through

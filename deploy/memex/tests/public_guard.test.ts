@@ -166,6 +166,14 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("get_recent_transcripts")).toBe(true);
   });
 
+  it("blocks EVERY synth-takes surface — the read (takes_search) AND the write (set_take_status)", () => {
+    // takes_search returns the same private claim_text as list_takes; set_take_status
+    // is a tenancy-unscoped write. Both must be internal-only alongside their siblings.
+    expect(isPublicMcpToolForbidden("list_takes")).toBe(true);
+    expect(isPublicMcpToolForbidden("takes_search")).toBe(true);
+    expect(isPublicMcpToolForbidden("set_take_status")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);

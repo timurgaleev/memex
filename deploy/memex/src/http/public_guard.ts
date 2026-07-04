@@ -147,6 +147,13 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // only internally, same posture as the note surfaces it summarizes.
   "list_concepts",
   "list_takes",
+  // takes_search returns the SAME synth_takes.claim_text as list_takes (LLM-derived
+  // private opinions about real people/companies) — it slipped the list while its
+  // siblings were forbidden, re-opening the leak. set_take_status is a tenancy-
+  // unscoped WRITE ("Internal-only" by its own description) that could flip any
+  // take's review status brain-wide from the public bearer. Both internal-only.
+  "takes_search",
+  "set_take_status",
   "get_calibration_profile",
   // Take aggregates + on-demand fact extraction expose the same private-note-
   // derived signal as the reads above; extract_facts can even re-derive a

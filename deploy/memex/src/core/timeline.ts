@@ -81,6 +81,23 @@ export async function addTimelineEvent(
     typeof input.source_id === "string" && input.source_id.length > 0
       ? input.source_id
       : null;
+
+  // Ownership guard (reference parity): a scoped caller may only append to a page
+  // its OWN source owns. The FK slug->pages only asserts the slug exists somewhere
+  // (a global PK), so without this a tenant could write timeline events onto
+  // another tenant's page. Unscoped callers (source_id absent -> the DEFAULT
+  // 'default' tenant) keep the prior behavior.
+  if (sourceId !== null) {
+    const owns = await storage
+      .engine()
+      .query(`SELECT 1 FROM pages WHERE slug = $1 AND source_id = $2`, [
+        input.slug,
+        sourceId,
+      ]);
+    if (owns.rows.length === 0) {
+      throw new Error(`page not found: ${input.slug}`);
+    }
+  }
   const sourceCol = sourceId !== null ? ", source_id" : "";
 
   // ON CONFLICT does not fire when source_chunk_id IS NULL because the
