@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.79.0] — 2026-07-04
+
 ### Added — reference-parity wave 3
 - **Full OAuth 2.1 for standard MCP clients.** memex now serves the whole
   authorization surface a client like Claude.ai / ChatGPT / Cursor auto-discovers:
