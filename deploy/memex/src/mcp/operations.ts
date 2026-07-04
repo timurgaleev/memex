@@ -38,6 +38,13 @@ export interface ParamDef {
 export interface Operation {
   name: string;
   description: string;
+  /**
+   * Authorization scope, co-located with the op. A `"write"` op needs a write
+   * source grant (public callers without one are denied); default `"read"`.
+   * `WRITE_SCOPED_TOOLS` is DERIVED from this field (see below) so the write set
+   * has a single source of truth on the op itself, not a parallel hand-kept list.
+   */
+  scope?: "read" | "write";
   /** Declaration order is preserved into `properties` + `required`. */
   params: Record<string, ParamDef>;
 }
@@ -210,6 +217,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "index",
+    scope: "write",
     description:
       "Index a markdown document. Either pass `path` (an absolute path the daemon can read) or `sourcePath` + `text` (in-memory).",
     params: {
@@ -267,6 +275,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "page_put",
+    scope: "write",
     description:
       "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. WRITE — internal/MCP-stdio only.",
     params: {
@@ -294,6 +303,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "page_append",
+    scope: "write",
     description:
       "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). WRITE — internal/MCP-stdio only.",
     params: {
@@ -304,6 +314,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "page_delete",
+    scope: "write",
     description:
       "Soft-delete a page (sets deleted_at; the row + page_versions chain stays for audit). Idempotent. WRITE — internal/MCP-stdio only.",
     params: {
@@ -313,6 +324,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "page_restore",
+    scope: "write",
     description:
       "Undelete a soft-deleted page (clears deleted_at). The inverse of page_delete; no-op if the page is missing or already live. WRITE — internal/MCP-stdio only.",
     params: {
@@ -322,6 +334,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "page_revert",
+    scope: "write",
     description:
       "Roll a page's body back to a prior page_versions snapshot. Creates a NEW version with the old content (history is append-only). `version` is the target version_n (see page_versions). WRITE — internal/MCP-stdio only.",
     params: {
@@ -357,6 +370,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "link",
+    scope: "write",
     description:
       "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — internal/MCP-stdio only.",
     params: {
@@ -387,6 +401,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "unlink",
+    scope: "write",
     description:
       "Remove a typed link. Idempotent — returns removed=0 if no row matched. WRITE — internal/MCP-stdio only.",
     params: {
@@ -434,6 +449,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "add_fact",
+    scope: "write",
     description:
       "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
     params: {
@@ -451,6 +467,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "add_timeline_event",
+    scope: "write",
     description:
       "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
     params: {
@@ -578,6 +595,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "add_tag",
+    scope: "write",
     description:
       "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — internal/MCP-stdio only.",
     params: {
@@ -587,6 +605,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "remove_tag",
+    scope: "write",
     description:
       "Remove a tag from a page. Idempotent (removing an absent tag is a no-op). WRITE — internal/MCP-stdio only.",
     params: {
@@ -698,6 +717,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "forget_fact",
+    scope: "write",
     description:
       "Forget (soft-delete) a fact by id — stamps forgotten_at so the fact stops surfacing in recall; the row is retained for audit. Idempotent: a second forget is a no-op (forgotten=false), an unknown id reports found=false. Optional `reason` is stored on the tombstoned row. WRITE — internal/MCP-stdio only.",
     params: {
@@ -719,6 +739,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "purge_deleted_pages",
+    scope: "write",
     description:
       "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only.",
     params: {
@@ -842,6 +863,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "set_take_status",
+    scope: "write",
     description:
       "Set a synthesized take's review status: mark it 'accepted' or 'rejected' by take_key. Advisory only — never mutates notes, only the take's own review flag. Tenant-scoped: a take_key that isn't yours is a no-op. Internal-only.",
     params: {
@@ -865,3 +887,15 @@ export const OPERATIONS: readonly Operation[] = [
     params: {},
   },
 ];
+
+/**
+ * Tools that require a write source grant — DERIVED from each op's `scope: "write"`
+ * field (the single source of truth). A public caller with no write source is
+ * denied these at the dispatch write-scope gate. Previously a hand-maintained Set
+ * in dispatch.ts; deriving it from the op removes the parallel-list drift risk
+ * (a new write op could be added to OPERATIONS but forgotten in the Set). The
+ * dispatch gate imports this instead of keeping its own copy.
+ */
+export const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set(
+  OPERATIONS.filter((op) => op.scope === "write").map((op) => op.name),
+);

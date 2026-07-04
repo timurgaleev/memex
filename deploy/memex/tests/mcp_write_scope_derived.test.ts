@@ -1,0 +1,49 @@
+/**
+ * WRITE_SCOPED_TOOLS is now DERIVED from each op's `scope: "write"` field
+ * (operations.ts) instead of a hand-kept list in dispatch.ts. This is a
+ * security-critical set — a write tool missing from it would be callable by a
+ * public principal with no write grant. This test PINS the derived set to the
+ * exact golden roster so a mis-tag (a write op left `scope`-less, or a read op
+ * tagged write) fails loud. The golden list is the write set as of the port; add
+ * to it deliberately when a new write tool ships.
+ */
+import { describe, it, expect } from "bun:test";
+import { OPERATIONS, WRITE_SCOPED_TOOLS } from "../src/mcp/operations.ts";
+
+// Byte-for-byte the pre-port hand-maintained set from dispatch.ts. Behavior is
+// unchanged iff the derived set equals this exactly.
+const GOLDEN_WRITE_TOOLS = [
+  "index",
+  "page_put",
+  "page_append",
+  "page_delete",
+  "page_restore",
+  "page_revert",
+  "link",
+  "unlink",
+  "add_tag",
+  "remove_tag",
+  "add_fact",
+  "add_timeline_event",
+  "forget_fact",
+  "purge_deleted_pages",
+  "set_take_status",
+].sort();
+
+describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {
+  it("derived set equals the golden write roster exactly (no drift)", () => {
+    expect([...WRITE_SCOPED_TOOLS].sort()).toEqual(GOLDEN_WRITE_TOOLS);
+  });
+
+  it("every op tagged scope:'write' is a real registered op (no phantom)", () => {
+    const names = new Set(OPERATIONS.map((o) => o.name));
+    for (const w of WRITE_SCOPED_TOOLS) expect(names.has(w)).toBe(true);
+  });
+
+  it("no op outside the golden roster is silently tagged write", () => {
+    const golden = new Set(GOLDEN_WRITE_TOOLS);
+    for (const op of OPERATIONS) {
+      if (op.scope === "write") expect(golden.has(op.name)).toBe(true);
+    }
+  });
+});
