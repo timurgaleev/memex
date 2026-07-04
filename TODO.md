@@ -7,6 +7,32 @@ introduces them.
 
 ---
 
+## Deferred by stack — future upgrade paths (2026-07-04)
+
+Capabilities the reference implementation has that memex deliberately does NOT
+build today, because each is blocked by a stack constraint or a standing
+architecture decision — NOT because they were overlooked. Documented here with
+the exact condition that would unblock each, so a future session neither
+re-litigates the decision nor accidentally builds it. Everything else that was
+buildable has been shipped (see the reference-parity waves in CHANGELOG).
+
+| Capability | Why deferred (blocker) | What would unblock it |
+|---|---|---|
+| **Cross-encoder reranker tier** | Bedrock exposes no rerank API. A true cross-encoder needs a rerank model memex can't call under the AWS-Bedrock-only rule. | AWS shipping a Bedrock rerank model, OR relaxing the AWS/Anthropic-only rule to allow an external reranker. Today substituted by a paid Haiku index-reorder + Sonnet graph-rerank (both default-OFF) — capability present, mechanism different. |
+| **Autocut** (score-cliff result sizing) | Depends on a real cross-encoder score cliff; RRF has only mechanical decay, no trustworthy separatrix. | Falls out for free once a cross-encoder tier exists (above). Substitute today: intent-capped adaptive-return. |
+| **Image / multimodal + `search_by_image`** | Titan Text Embeddings v2 is text-only (1024-dim); the AWS-only stack has no multimodal embedder wired, and there is no image-asset substrate. | **AWS-buildable** — Titan Multimodal Embeddings G1 (native Bedrock, no rule change) + an image-asset page substrate + an image-embedding column + `search_by_image`. Worth doing IF an image corpus ever exists; no rule reversal needed. |
+| **Anthropic-only constraint itself** | Operator decision (2026-07-01): only Anthropic via Bedrock (Haiku/Sonnet) + Titan embeddings. Any feature needing a non-Anthropic model (external embedder like ZeroEntropy/Voyage, external reranker) is out. | An explicit operator reversal of the Anthropic-only rule. Firm today. |
+| **Minion / server-side subagent runtime** | memex has no multi-agent server runtime by design; it ports the reference's minion loops as a SINGLE Sonnet/Haiku call or onto memex's own durable job queue. | Only if a server-side multi-agent runtime is ever wanted (large architectural add). Not planned — the single-call ports cover the capability. |
+| **Schema-pack "cathedral"** (9 MCP ops + `schema-suggest` phase: typed-schema authoring, lint, graph, mutations) | A whole typed-schema-authoring subsystem memex deliberately skipped; a personal AWS brain uses a fixed type list, so ~0 payoff for a large surface. | Only if memex ever exposes operator-authored schema packs to multiple tenants. Deferred by scope, not blocked by stack. |
+| **File / S3 / raw-KV substrate + storage tiering** | memex is DB-canonical by design (RDS + EFS); the reference is filesystem-first (local markdown vault). | A decision to add an object-store tier (S3) for large/binary assets. Not needed for the DB-canonical model. |
+| **git-sync / federation / federated reads** | Operator deferred (future, not now) — needs a sync/federation model memex hasn't provisioned. | Explicit go on multi-brain federation. Deferred. |
+| **`skillopt` self-optimizing skill phase** | Adjacent to a skill-distribution subsystem memex doesn't run; default-OFF paid feature not ported. | Only if the skill subsystem grows a self-optimization loop. Low priority. |
+
+Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
+`image_of` `![[img]]` edges; calibration SVG charts / pattern drill-down admin.
+
+---
+
 ## LOW backlog (v1.76 review notes)
 
 - **`memex export` frontmatter round-trip is lossy.** The emitted header carries
