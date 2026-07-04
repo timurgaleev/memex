@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Backfill un-tagged content so it stops being invisible (migration 071).**
+  322 documents + 3014 chunks (mostly the Obsidian vault, ingested before source
+  tagging existed) carried a NULL `source_id`. A scoped read filters
+  `source_id = ANY(...)` and NULL matches nothing, so those notes were invisible
+  to every scoped reader. They are now stamped from their ingest path
+  (`/vault`,`/memory` → `obsidian-vault`; `/repo-source` → `repo-source-code`;
+  else `default`), rejoining the source they belong to. Idempotent.
+
 ## [1.79.2] — 2026-07-04
 
 ### Fixed
