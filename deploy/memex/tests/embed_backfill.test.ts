@@ -186,6 +186,81 @@ describe("embed backfill", () => {
     expect(await currentDocumentClock(storage.engine())).toBe(c1);
   });
 
+  it("pages through candidates in keyset batches, not a single in-memory load", async () => {
+    const engine = storage.engine();
+    let pageFetches = 0;
+    const origQuery = engine.query.bind(engine);
+    // Count only candidate PAGE fetches (the `SELECT c.id, c.content` walk),
+    // never the count query or the inserts.
+    (engine as unknown as { query: typeof engine.query }).query = ((
+      sql: string,
+      params?: unknown[],
+    ) => {
+      if (sql.includes("SELECT c.id, c.content") && sql.includes("em.chunk_id IS NULL")) {
+        pageFetches++;
+      }
+      return origQuery(sql, params);
+    }) as typeof engine.query;
+
+    const r = await runEmbedBackfill(engine, { embed: detEmbed, pageSize: 1 });
+    (engine as unknown as { query: typeof engine.query }).query = origQuery;
+
+    expect(r.embedded).toBe(2);
+    // pageSize 1 over 2 candidates: two full pages of one, then a third fetch
+    // that returns zero and terminates — three round-trips, never one big load.
+    expect(pageFetches).toBe(3);
+  });
+
+  it("startAfterId excludes ids at or before the cursor (keyset resume)", async () => {
+    const r = await runEmbedBackfill(storage.engine(), {
+      embed: detEmbed,
+      startAfterId: "doc_md_missing_c0",
+    });
+    // Only the chunk after the cursor is a candidate.
+    expect(r.candidates).toBe(1);
+    expect(r.embedded).toBe(1);
+    expect(r.lastId).toBe("doc_md_missing_c1");
+    // The cursor-skipped chunk stays un-embedded.
+    const c0 = await storage
+      .engine()
+      .query<{ n: number }>(
+        "SELECT COUNT(*)::int AS n FROM embeddings WHERE chunk_id = $1",
+        ["doc_md_missing_c0"],
+      );
+    expect(c0.rows[0]?.n).toBe(0);
+  });
+
+  it("resumes from a prior run's lastId and never double-embeds", async () => {
+    // First pass caps at one chunk and reports the cursor it stopped at.
+    const first = await runEmbedBackfill(storage.engine(), { embed: detEmbed, limit: 1 });
+    expect(first.embedded).toBe(1);
+    expect(first.lastId).not.toBeNull();
+
+    // Resume from that cursor: the remaining chunk embeds, nothing repeats.
+    const resumed = await runEmbedBackfill(storage.engine(), {
+      embed: detEmbed,
+      startAfterId: first.lastId!,
+    });
+    expect(resumed.candidates).toBe(1);
+    expect(resumed.embedded).toBe(1);
+    // 1 seed + 2 backfilled, none doubled.
+    expect(await embeddingCount()).toBe(3);
+  });
+
+  it("terminates cleanly at the end of the candidate set", async () => {
+    const r = await runEmbedBackfill(storage.engine(), { embed: detEmbed, pageSize: 1 });
+    expect(r.embedded).toBe(2);
+    expect(r.lastId).toBe("doc_md_missing_c1");
+    // A resume from the final cursor finds zero and stops without work.
+    const after = await runEmbedBackfill(storage.engine(), {
+      embed: detEmbed,
+      startAfterId: r.lastId!,
+    });
+    expect(after.candidates).toBe(0);
+    expect(after.embedded).toBe(0);
+    expect(after.lastId).toBeNull();
+  });
+
   it("counts per-chunk embed failures without aborting the run", async () => {
     let n = 0;
     const flaky = (t: string) => {

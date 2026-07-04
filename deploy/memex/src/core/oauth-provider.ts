@@ -323,7 +323,21 @@ export class OAuthProvider {
     for (const uri of client.redirect_uris || []) {
       validateRedirectUri(String(uri));
     }
-    assertAllowedScopes(parseScopeString(client.scope));
+    const requestedScopes = parseScopeString(client.scope);
+    assertAllowedScopes(requestedScopes);
+    // SECURITY: Dynamic Client Registration is UNAUTHENTICATED (public /register).
+    // A self-registered client must NEVER be able to request an elevated scope —
+    // otherwise anyone could POST /register {"scope":"admin"} and then mint an
+    // admin token via client_credentials, escalating past the public bearer +
+    // redaction. DCR clients get read/write only; an operator grants admin/*_admin
+    // via the CLI (registerClientManual), which is not reachable from the network.
+    const elevated = requestedScopes.filter((s) => s !== "read" && s !== "write");
+    if (elevated.length > 0) {
+      throw new Error(
+        `scope "${elevated[0]}" is not grantable via dynamic client registration ` +
+          `(only read/write); an operator grants elevated scopes via the CLI`,
+      );
+    }
     const authMethod = validateTokenEndpointAuthMethod(
       client.token_endpoint_auth_method,
     );
@@ -549,10 +563,13 @@ export class OAuthProvider {
 
     // Rotate atomically: bind client_id into the DELETE so a wrong-client
     // attempt cannot burn the legitimate client's refresh row (RFC 6749
-    // §10.4 stolen-token detection depends on second-use failure).
+    // §10.4 stolen-token detection depends on second-use failure). The
+    // `revoked_at IS NULL` guard makes soft-revoke (revokeToken) effective for
+    // refresh tokens too — a revoked refresh can't rotate a fresh access token.
     const rows = await this.rows<{ scopes: string[]; expires_at: unknown }>(
       `DELETE FROM oauth_tokens
        WHERE token_hash = $1 AND token_type = 'refresh' AND client_id = $2
+         AND revoked_at IS NULL
        RETURNING client_id, scopes, expires_at`,
       [tokenHash, client.client_id],
     );
@@ -688,10 +705,13 @@ export class OAuthProvider {
   ): Promise<void> {
     const tokenHash = hashToken(request.token);
     // Bind client_id so a client can only revoke its own tokens (RFC 7009
-    // §2.1). Hard-delete keeps revocation simple; verify also gates on
-    // revoked_at for rows that are soft-revoked out of band.
+    // §2.1). Soft-revoke (set revoked_at) rather than delete so the row keeps
+    // its audit trail: verifyAccessToken already gates on `revoked_at IS NULL`,
+    // and exchangeRefreshToken does the same, so a revoked access OR refresh
+    // token stops working immediately. Idempotent — a second revoke is a no-op.
     await this.engine.query(
-      `DELETE FROM oauth_tokens WHERE token_hash = $1 AND client_id = $2`,
+      `UPDATE oauth_tokens SET revoked_at = now()
+       WHERE token_hash = $1 AND client_id = $2 AND revoked_at IS NULL`,
       [tokenHash, client.client_id],
     );
   }

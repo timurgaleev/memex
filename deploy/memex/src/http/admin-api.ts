@@ -14,7 +14,7 @@
 import type { Storage } from "../core/storage.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { registerSource } from "../core/sources.ts";
-import { listGrants, upsertGrant, revokeGrant, validateGrantSourceIds } from "../core/tenant-grants.ts";
+import { listGrants, getGrant, upsertGrant, revokeGrant, validateGrantSourceIds } from "../core/tenant-grants.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
 import { getCalibrationProfile } from "../core/synthesis/reads.ts";
 
@@ -77,6 +77,96 @@ async function grantUsageBySubject(engine: Engine): Promise<Map<string, GrantUsa
   return map;
 }
 
+/** MCP server name the generated client configs register the brain under. */
+const CONFIG_SERVER_NAME = "memex";
+/** Never echo a real credential — every snippet ships a placeholder the
+ *  operator swaps for the subject's own bearer/JWT before pasting. */
+const CONFIG_TOKEN_PLACEHOLDER = "<paste-your-token>";
+/** Post-connect self-orientation, mirroring the reference's onboarding note but
+ *  written for memex's tool surface (no reference codename). */
+const CONFIG_LEARN_NOTE =
+  "Once connected, call `get_brain_identity` (whose brain this is) and `list_skills` " +
+  "(what it can do). Core tools always work: search, query, get_page, put_page, think, " +
+  "find_experts. Always search the brain before answering or writing.";
+
+/** Resolve the public MCP endpoint: the declared `MEMEX_PUBLIC_URL` (same env the
+ *  OAuth metadata trusts) if set, else the request origin. Always ends in `/mcp`. */
+function publicMcpUrl(url: URL): string {
+  const declared = (process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  const base = (declared || `${url.protocol}//${url.host}`).replace(/\/+$/, "");
+  return `${base}/mcp`;
+}
+
+export interface AgentConfigScope {
+  /** The grant's write source id (null for a read-only grant). */
+  write: string | null;
+  /** Source ids this subject may read across (federated read set). */
+  read: string[];
+}
+
+export interface AgentConfig {
+  mcp_url: string;
+  name: string;
+  sub: string;
+  scope: AgentConfigScope;
+  /** Client id → ready-to-paste snippet (CLI command or config JSON). */
+  snippets: Record<"claude-code" | "claude-desktop" | "chatgpt" | "cursor" | "json", string>;
+}
+
+/** The `mcpServers` entry shared by the JSON-config clients (Claude Desktop, Cursor). */
+function httpServerEntry(mcpUrl: string): Record<string, unknown> {
+  return { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${CONFIG_TOKEN_PLACEHOLDER}` } };
+}
+
+/**
+ * Build the per-subject onboarding config bundle: the same MCP URL + scope,
+ * rendered for each common client so onboarding a new agent is copy-paste. The
+ * token is always a placeholder — this endpoint never emits a live secret.
+ */
+export function buildAgentConfig(p: { mcpUrl: string; sub: string; scope: AgentConfigScope }): AgentConfig {
+  const { mcpUrl, sub, scope } = p;
+  const mcpServers = { mcpServers: { [CONFIG_SERVER_NAME]: httpServerEntry(mcpUrl) } };
+  const scopeLine = `# Provisioned for subject "${sub}" — writes to ${scope.write ?? "(read-only)"}, reads ${scope.read.join(", ") || "(none)"}.`;
+
+  const claudeCode = [
+    "# Paste into Claude Code:",
+    `claude mcp add ${CONFIG_SERVER_NAME} -t http ${mcpUrl} -H "Authorization: Bearer ${CONFIG_TOKEN_PLACEHOLDER}"`,
+    "",
+    scopeLine,
+    CONFIG_LEARN_NOTE,
+  ].join("\n");
+
+  const chatgpt = [
+    "# ChatGPT (Developer mode → Connectors) → add a remote MCP server:",
+    `#   URL:    ${mcpUrl}`,
+    "#   Auth:   Bearer token",
+    `#   Token:  ${CONFIG_TOKEN_PLACEHOLDER}`,
+    "",
+    scopeLine,
+    CONFIG_LEARN_NOTE,
+  ].join("\n");
+
+  return {
+    mcp_url: mcpUrl,
+    name: CONFIG_SERVER_NAME,
+    sub,
+    scope,
+    snippets: {
+      "claude-code": claudeCode,
+      // ~/Library/Application Support/Claude/claude_desktop_config.json
+      "claude-desktop": JSON.stringify(mcpServers, null, 2),
+      chatgpt,
+      // ~/.cursor/mcp.json
+      cursor: JSON.stringify(mcpServers, null, 2),
+      json: JSON.stringify(
+        { schema_version: 1, name: CONFIG_SERVER_NAME, mcp_url: mcpUrl, auth: "bearer", token: CONFIG_TOKEN_PLACEHOLDER, sub, scope },
+        null,
+        2,
+      ),
+    },
+  };
+}
+
 /**
  * Dispatch an `/admin/api/*` data route. Returns a Response, or null when the
  * path is not a data route (so the caller can fall through to 404).
@@ -127,6 +217,25 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       return Response.json({ count: enriched.length, grants: enriched });
     } catch (e) {
       return serverError("grants-list", e);
+    }
+  }
+
+  // GET /admin/api/agent-config?sub=… — per-subject onboarding config export
+  // (Agents page "config" drawer). Returns copy-paste MCP client snippets
+  // (Claude Code / Claude Desktop / ChatGPT / Cursor / raw JSON) filled with the
+  // public MCP URL (MEMEX_PUBLIC_URL, else request origin) and the subject's
+  // provisioned scope. The token is always a placeholder — no secret is emitted.
+  if (p === "/admin/api/agent-config" && req.method === "GET") {
+    if (!deps.requireAdmin(req)) return unauthorized();
+    const sub = (url.searchParams.get("sub") ?? "").trim();
+    if (!sub) return badRequest("sub required");
+    try {
+      const grant = await getGrant(engine, sub);
+      if (!grant) return Response.json({ error: `no grant for subject "${sub}"` }, { status: 404 });
+      const scope = { write: grant.source_id, read: grant.federated_read ?? [] };
+      return Response.json(buildAgentConfig({ mcpUrl: publicMcpUrl(url), sub, scope }));
+    } catch (e) {
+      return serverError("agent-config", e);
     }
   }
 

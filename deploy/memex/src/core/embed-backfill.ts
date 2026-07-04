@@ -37,6 +37,17 @@
  * partial pass only embeds what is still missing. A per-chunk embed failure is
  * caught and counted, never aborting the whole run — one bad row or a transient
  * Bedrock error does not strand the rest.
+ *
+ * Memory + resumability: candidates are NOT loaded in one query. The run walks
+ * them keyset-paginated by `chunk_id` (`WHERE c.id COLLATE "C" > $cursor ORDER
+ * BY c.id COLLATE "C" LIMIT pageSize`), embedding one page at a time, so a
+ * multi-million-chunk backfill has a peak footprint of one page, not the whole
+ * missing set. The keyset cursor only ever moves forward by id, and every page
+ * still filters `em.chunk_id IS NULL`, so rows embedded earlier this run (all
+ * with id <= cursor) never reappear — safe under the concurrent per-page
+ * inserts. `result.lastId` returns the last processed id; a caller can pass it
+ * back as `startAfterId` to RESUME a capped or interrupted run from where it
+ * stopped, and the `IS NULL` predicate makes a plain re-run resumable too.
  */
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
@@ -46,6 +57,8 @@ import { clearCache } from "./search/query-cache.ts";
 
 /** Default in-flight embed calls when `MEMEX_EMBED_CONCURRENCY` is unset. */
 const DEFAULT_CONCURRENCY = 8;
+/** Default keyset page size — chunks pulled from the DB per round-trip. */
+const DEFAULT_PAGE_SIZE = 500;
 /** Max retries for a throttled (429) embed call before it counts as failed. */
 const MAX_THROTTLE_RETRIES = 5;
 /** Base backoff (ms) for the first throttle retry; doubles each attempt. */
@@ -79,6 +92,19 @@ export interface EmbedBackfillOptions {
    * (see module docs) — never fires on a routine backfill.
    */
   reembedOnSignatureChange?: boolean;
+  /**
+   * Keyset page size — chunks loaded per DB round-trip. Default 500. Bounds
+   * peak memory: the run never materializes the whole candidate set, only one
+   * page at a time. Clamped to at least 1.
+   */
+  pageSize?: number;
+  /**
+   * Resume cursor: only consider chunks whose id sorts strictly after this one
+   * (`c.id COLLATE "C" > startAfterId`). Pass a prior run's `result.lastId` to
+   * continue a capped or interrupted backfill from where it stopped. Default:
+   * from the start of the id order.
+   */
+  startAfterId?: string;
 }
 
 export interface EmbedBackfillResult {
@@ -94,6 +120,12 @@ export interface EmbedBackfillResult {
    */
   signatureStale: number;
   dryRun: boolean;
+  /**
+   * Last chunk id processed this run — the keyset cursor to resume from. Pass
+   * it back as `startAfterId` to continue a capped/interrupted backfill. null
+   * when no candidate was processed (dry run, or nothing left to embed).
+   */
+  lastId: string | null;
 }
 
 interface CandidateRow {
@@ -101,27 +133,66 @@ interface CandidateRow {
   content: string;
 }
 
-/** Non-code chunks with no embeddings row and non-empty content, id-ordered. */
-async function findCandidates(
+/**
+ * The candidate predicate (a boolean SQL expression, no leading `AND`): a
+ * non-code, non-embed-skip chunk with non-empty content and no embeddings row.
+ * When `hasCursor` is set, `$1` bounds the keyset walk to ids after the cursor.
+ * Shared verbatim by the count and page-fetch queries so the two never drift.
+ */
+function candidateWhere(hasCursor: boolean): string {
+  return `em.chunk_id IS NULL
+        AND COALESCE(d.frontmatter->>'kind','') <> 'code'
+        AND ${embedSkipFilterFragment("d")}
+        AND length(btrim(c.content)) > 0${
+          hasCursor ? `\n        AND c.id COLLATE "C" > $1` : ""
+        }`;
+}
+
+/**
+ * One keyset page of candidates after `cursor` (exclusive), id-ordered under
+ * the same `COLLATE "C"` the cursor comparison uses. At most `pageLimit` rows.
+ */
+async function fetchCandidatePage(
   engine: Engine,
-  limit?: number,
+  cursor: string | undefined,
+  pageLimit: number,
 ): Promise<CandidateRow[]> {
-  // limit is validated as a positive integer by the caller; floor for safety.
-  const limitClause =
-    limit !== undefined && limit > 0 ? `LIMIT ${Math.floor(limit)}` : "";
+  const params = cursor !== undefined ? [cursor] : [];
   const r = await engine.query<CandidateRow>(
     `SELECT c.id, c.content
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
        LEFT JOIN embeddings em ON em.chunk_id = c.id
-      WHERE em.chunk_id IS NULL
-        AND COALESCE(d.frontmatter->>'kind','') <> 'code'
-        AND ${embedSkipFilterFragment("d")}
-        AND length(btrim(c.content)) > 0
+      WHERE ${candidateWhere(cursor !== undefined)}
       ORDER BY c.id COLLATE "C" ASC
-      ${limitClause}`,
+      LIMIT ${Math.max(1, Math.floor(pageLimit))}`,
+    params,
   );
   return r.rows;
+}
+
+/**
+ * Count candidates (after `cursor`), capped by `limit` — a cheap index-only
+ * pass that never materializes the rows, used for the dry-run total and the
+ * progress denominator.
+ */
+async function countCandidates(
+  engine: Engine,
+  cursor: string | undefined,
+  limit?: number,
+): Promise<number> {
+  const params = cursor !== undefined ? [cursor] : [];
+  const r = await engine.query<{ n: number | string }>(
+    `SELECT count(*)::int AS n
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       LEFT JOIN embeddings em ON em.chunk_id = c.id
+      WHERE ${candidateWhere(cursor !== undefined)}`,
+    params,
+  );
+  const raw = r.rows[0]?.n;
+  const n = typeof raw === "number" ? raw : Number(raw) || 0;
+  return limit !== undefined && limit > 0 ? Math.min(n, Math.floor(limit)) : n;
 }
 
 /**
@@ -210,6 +281,59 @@ function resolveConcurrency(opt?: number): number {
   return n >= 1 ? n : 1;
 }
 
+/** Resolve the keyset page size: option wins, else default; min 1. */
+function resolvePageSize(opt?: number): number {
+  const n = Number.isFinite(opt) ? Math.floor(opt as number) : DEFAULT_PAGE_SIZE;
+  return n >= 1 ? n : 1;
+}
+
+/**
+ * Embed one keyset page through the bounded worker pool. Each real insert calls
+ * `onEmbedded`, each per-chunk failure `onFailed`; neither aborts the page (one
+ * bad row never strands the rest). Mirrors the prior single-pass pool, now
+ * scoped to a page so peak memory stays at one page.
+ */
+async function embedPage(
+  engine: Engine,
+  page: CandidateRow[],
+  model: string,
+  embed: (text: string) => Promise<number[]>,
+  concurrency: number,
+  onEmbedded: () => void,
+  onFailed: () => void,
+): Promise<void> {
+  let next = 0;
+  const total = page.length;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= total) return;
+      const row = page[i]!;
+      try {
+        const vec = await embedWithRetry(embed, row.content);
+        const ins = await engine.query<{ chunk_id: string }>(
+          `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
+           VALUES ($1, $2::vector, $3, $4)
+           ON CONFLICT (chunk_id) DO NOTHING
+           RETURNING chunk_id`,
+          [row.id, JSON.stringify(vec), model, embeddingSignature(model, vec.length)],
+        );
+        // Count only a REAL insert: a concurrent indexer may have written the
+        // row first, in which case ON CONFLICT no-ops and we added nothing.
+        if (ins.rows.length > 0) onEmbedded();
+      } catch (err) {
+        onFailed();
+        console.error(
+          `embed-backfill: chunk ${row.id} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  };
+  const pool = Array.from({ length: Math.min(concurrency, total) }, () => worker());
+  await Promise.all(pool);
+}
+
 export async function runEmbedBackfill(
   engine: Engine,
   opts: EmbedBackfillOptions = {},
@@ -221,6 +345,7 @@ export async function runEmbedBackfill(
   const currentSig = embeddingSignature(model);
   const batch = opts.batch && opts.batch > 0 ? opts.batch : 50;
   const concurrency = resolveConcurrency(opts.concurrency);
+  const pageSize = resolvePageSize(opts.pageSize);
   const reembedOnSig =
     opts.reembedOnSignatureChange ??
     process.env.MEMEX_REEMBED_ON_SIGNATURE_CHANGE === "1";
@@ -235,51 +360,49 @@ export async function runEmbedBackfill(
       : await invalidateStaleSignatures(engine, currentSig);
   }
 
-  const candidates = await findCandidates(engine, opts.limit);
+  // Total up front via a cheap count (index-only, no rows materialized). Used
+  // for the dry-run result and as the progress denominator.
+  const total = await countCandidates(engine, opts.startAfterId, opts.limit);
 
   if (opts.dryRun) {
-    return { candidates: candidates.length, embedded: 0, failed: 0, signatureStale, dryRun: true };
+    return { candidates: total, embedded: 0, failed: 0, signatureStale, dryRun: true, lastId: null };
   }
 
   let embedded = 0;
   let failed = 0;
-  let next = 0;
+  let processed = 0;
+  let cursor = opts.startAfterId;
+  let lastId: string | null = null;
 
-  const total = candidates.length;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const i = next++;
-      if (i >= total) return;
-      const row = candidates[i]!;
-      try {
-        const vec = await embedWithRetry(embed, row.content);
-        const ins = await engine.query<{ chunk_id: string }>(
-          `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
-           VALUES ($1, $2::vector, $3, $4)
-           ON CONFLICT (chunk_id) DO NOTHING
-           RETURNING chunk_id`,
-          [row.id, JSON.stringify(vec), model, embeddingSignature(model, vec.length)],
-        );
-        // Count only a REAL insert: a concurrent indexer may have written the
-        // row first, in which case ON CONFLICT no-ops and we added nothing.
-        if (ins.rows.length > 0) {
-          embedded++;
-          if (opts.onProgress && embedded % batch === 0) {
-            opts.onProgress(embedded, total);
-          }
-        }
-      } catch (err) {
-        failed++;
-        console.error(
-          `embed-backfill: chunk ${row.id} failed:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
+  const onEmbedded = (): void => {
+    embedded++;
+    if (opts.onProgress && embedded % batch === 0) opts.onProgress(embedded, total);
+  };
+  const onFailed = (): void => {
+    failed++;
   };
 
-  const pool = Array.from({ length: Math.min(concurrency, total) }, () => worker());
-  await Promise.all(pool);
+  // Keyset walk: one page at a time, advancing the cursor by the last id seen.
+  // The cap (`opts.limit`) bounds the total rows processed across pages; the
+  // `em.chunk_id IS NULL` predicate + forward-only cursor keep it re-entrant.
+  for (;;) {
+    if (opts.limit !== undefined && opts.limit > 0 && processed >= opts.limit) break;
+    const remaining =
+      opts.limit !== undefined && opts.limit > 0 ? opts.limit - processed : undefined;
+    const pageLimit = remaining !== undefined ? Math.min(pageSize, remaining) : pageSize;
+
+    const page = await fetchCandidatePage(engine, cursor, pageLimit);
+    if (page.length === 0) break;
+
+    await embedPage(engine, page, model, embed, concurrency, onEmbedded, onFailed);
+
+    processed += page.length;
+    cursor = page[page.length - 1]!.id;
+    lastId = cursor;
+
+    // A short page means the candidate set is exhausted — no further round-trip.
+    if (page.length < pageLimit) break;
+  }
 
   // Repairing the vector arm changes what hybrid search returns, so the
   // query cache must be invalidated — otherwise a ranking cached BEFORE the
@@ -297,5 +420,5 @@ export async function runEmbedBackfill(
     await clearCache(engine);
   }
 
-  return { candidates: candidates.length, embedded, failed, signatureStale, dryRun: false };
+  return { candidates: processed, embedded, failed, signatureStale, dryRun: false, lastId };
 }

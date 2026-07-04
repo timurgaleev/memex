@@ -51,6 +51,7 @@ describe("admin-api auth gating", () => {
     expect((await call("/admin/api/sources", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/grants", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/revoke-grant", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/agent-config?sub=user-1"))?.status).toBe(401);
   });
   it("401s an unknown /admin/api path when unauthenticated (no path disclosure)", async () => {
     expect((await call("/admin/api/nope"))?.status).toBe(401);
@@ -164,5 +165,70 @@ describe("admin-api provisioning (authed)", () => {
     expect(r?.status).toBe(200);
     const body = (await r!.json()) as { profile: unknown };
     expect(body.profile).toBeNull(); // fresh brain — no synthesis calibration run yet
+  });
+});
+
+interface ConfigBody {
+  mcp_url: string;
+  name: string;
+  sub: string;
+  scope: { write: string | null; read: string[] };
+  snippets: Record<string, string>;
+}
+
+describe("admin-api agent-config export", () => {
+  const OLD_PUBLIC_URL = process.env.MEMEX_PUBLIC_URL;
+  afterEach(() => {
+    if (OLD_PUBLIC_URL === undefined) delete process.env.MEMEX_PUBLIC_URL;
+    else process.env.MEMEX_PUBLIC_URL = OLD_PUBLIC_URL;
+  });
+
+  it("400s without a sub", async () => {
+    const r = await call("/admin/api/agent-config", authed());
+    expect(r?.status).toBe(400);
+  });
+
+  it("404s for a subject with no grant", async () => {
+    const r = await call("/admin/api/agent-config?sub=ghost", authed());
+    expect(r?.status).toBe(404);
+  });
+
+  it("returns copy-paste snippets with the public MCP URL + subject scope", async () => {
+    delete process.env.MEMEX_PUBLIC_URL; // fall back to the request origin
+    await call("/admin/api/sources", authed({ method: "POST", body: JSON.stringify({ id: "acme" }) }));
+    await call("/admin/api/sources", authed({ method: "POST", body: JSON.stringify({ id: "shared" }) }));
+    await call("/admin/api/grants", authed({ method: "POST", body: JSON.stringify({ sub: "agent-x", source: "acme", read: ["acme", "shared"] }) }));
+
+    const r = await call("/admin/api/agent-config?sub=agent-x", authed());
+    expect(r?.status).toBe(200);
+    const body = (await r!.json()) as ConfigBody;
+
+    expect(body.sub).toBe("agent-x");
+    expect(body.mcp_url).toBe("http://localhost:8080/mcp"); // request origin + /mcp
+    expect(body.scope.write).toBe("acme");
+    expect(body.scope.read).toEqual(["acme", "shared"]);
+
+    // Every common client is covered and carries the MCP URL, never a live token.
+    for (const key of ["claude-code", "claude-desktop", "chatgpt", "cursor", "json"]) {
+      expect(body.snippets[key]).toContain("http://localhost:8080/mcp");
+      expect(body.snippets[key]).not.toContain("boot-secret");
+    }
+    expect(body.snippets["claude-code"]).toContain("claude mcp add memex");
+    // The JSON-config clients emit valid JSON with an http mcpServers entry.
+    const desktop = JSON.parse(body.snippets["claude-desktop"]!) as { mcpServers: Record<string, { type: string; url: string }> };
+    const entry = desktop.mcpServers.memex!;
+    expect(entry.type).toBe("http");
+    expect(entry.url).toBe("http://localhost:8080/mcp");
+  });
+
+  it("prefers MEMEX_PUBLIC_URL over the request origin", async () => {
+    process.env.MEMEX_PUBLIC_URL = "https://brain.example.test/";
+    await call("/admin/api/sources", authed({ method: "POST", body: JSON.stringify({ id: "acme" }) }));
+    await call("/admin/api/grants", authed({ method: "POST", body: JSON.stringify({ sub: "agent-z", source: "acme" }) }));
+
+    const r = await call("/admin/api/agent-config?sub=agent-z", authed());
+    const body = (await r!.json()) as ConfigBody;
+    expect(body.mcp_url).toBe("https://brain.example.test/mcp"); // declared issuer wins, trailing slash trimmed
+    expect(body.snippets["chatgpt"]).toContain("https://brain.example.test/mcp");
   });
 });

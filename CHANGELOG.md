@@ -6,6 +6,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — reference-parity wave 3
+- **Full OAuth 2.1 for standard MCP clients.** memex now serves the whole
+  authorization surface a client like Claude.ai / ChatGPT / Cursor auto-discovers:
+  `/authorize` (authorization-code + **PKCE S256**), `/token` (authorization_code
+  / refresh_token / client_credentials), `/register` (RFC 7591 Dynamic Client
+  Registration), and `/revoke` (RFC 7009 soft-revoke). The discovery document
+  now advertises all four so a client configures itself with no manual endpoint
+  entry. Codes are single-use, PKCE-verified, `redirect_uri`-allowlisted, and
+  scope-bounded; revocation invalidates both access and refresh tokens.
+  Authorization requires a logged-in operator (the resource owner) — `/authorize`
+  issues no code without an admin session — and Dynamic Client Registration can
+  only mint `read`/`write` clients (never `admin`), so the public registration
+  path can't self-escalate.
+- **Admin: one-click agent onboarding.** The Agents page gains a **Config** drawer
+  that emits ready-to-paste MCP client config (Claude Code / Claude Desktop /
+  ChatGPT / Cursor / raw JSON) filled with your brain's public URL + the agent's
+  scope. The token is always a placeholder — no secret is ever emitted.
+- **`rechunk-sweep` cycle phase.** When the markdown chunker version bumps, an
+  opt-in (`MEMEX_RECHUNK_SWEEP=1`), count- and budget-capped, resumable phase
+  re-chunks + re-embeds stale documents a bounded batch per tick — so a chunker
+  change propagates automatically instead of needing a manual full reindex.
+- **`memex merge` — merge a duplicate entity.** Re-points a stub page's facts,
+  links, timeline, tags, and aliases onto the canonical page, soft-deletes the
+  stub, and records a durable redirect (audit-trailed) — tenant-scoped, all in one
+  transaction. Fills the gap where `rename` refused when the target already existed.
+
+### Changed
+- **Embedding backfill is keyset-paginated + resumable.** The backfill walks
+  un-embedded chunks by an `id` cursor in bounded pages instead of a single
+  in-memory load, so a very large backfill can't spike memory and resumes from
+  where it left off.
+
 ## [1.78.0] — 2026-07-04
 
 ### Added — reference-parity wave 2
