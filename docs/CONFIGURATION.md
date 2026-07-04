@@ -124,8 +124,11 @@ to `environment:` before overriding.
 | `MEMEX_NEARDUP_JACCARD` | `0.85` | Jaccard threshold for near-duplicate collapse in results. A value `> 1.0` disables dedup. | free |
 | `MEMEX_TITLE_BOOST` | `1.25` (on) | Multiplier applied to hits whose title matches the query. A value in `(0,1)` is inert (boost only multiplies up). | free |
 | `MEMEX_CURATION_BOOST` | built-in map | Per-prefix score multipliers (`prefix:factor`, CSV). Set replaces the default map entirely. | free |
+| `MEMEX_BACKLINK_BOOST` | on (`=0` off) | Always-on log-scaled backlink-count boost (`1 + 0.05·ln(1+in_degree)`, floor-gated) so hub pages carry a standing lift. `=0` disables. | free |
+| `MEMEX_COSINE_RESCORE` | off (`=1` on) | Blend a query-chunk cosine term into the fused score (`0.7·RRF + 0.3·cosine`). Inert on the keyword-only fallback path. | free |
 | `MEMEX_SEARCH_EXCLUDE` | empty | CSV of path prefixes to exclude from search results (e.g. `.raw/`). | free |
 | `MEMEX_QUERY_CACHE` | on (`=0` off) | Cache query→results within a process. | free |
+| `MEMEX_QUERY_CACHE_SEMANTIC` | off (`=1` on) | Adds a paraphrase arm to the query cache — a near-identical query hits on query-embedding cosine instead of an exact-string match. Only ever *adds* hits; never suppresses a fresh search. (mig 065.) | free |
 | `MEMEX_QUERY_EMBED_TIMEOUT_MS` | `6000` | Wall-clock budget for the query-embed Bedrock call; on timeout search falls back to keyword-only (non-fatal). Floor 2000ms. | free |
 | `MEMEX_EMBED_DIM` | `1024` | Embedding vector width. Must match the `vector(...)` column width — changing it requires a schema migration + full re-embed. Fail-loud on a non-positive-integer value. | free |
 | `MEMEX_CHUNK_OVERLAP` | `0` (off) | Characters of tail-of-previous-chunk to prepend to each chunk. `0` = byte-identical to no overlap. Capped at half the previous chunk. | free |
@@ -154,6 +157,8 @@ you opt in.
 | `MEMEX_DREAM_SYNTHESIS_MAX_CONCEPTS` | `30` | Max concepts produced per run. | — |
 | `MEMEX_DREAM_SYNTHESIS_MAX_TAKES` | `25` | Max takes produced per run. | — |
 | `MEMEX_DREAM_SYNTHESIS_MIN_GRADED` | `5` | Minimum graded takes before the run is considered complete. | — |
+| `MEMEX_GRADE_MIN_AGE_DAYS` | `182` | Minimum age a take must reach before it becomes eligible for grading — lets a take settle before it is judged. `0` disables the gate. Fail-loud on a negative value. | free |
+| `MEMEX_TAKE_EMBED` | off (`=1` on) | Embed each synthesized take so takes are semantically searchable; off leaves the take's embedding column NULL. | cheap (embed) |
 | `MEMEX_DREAM_INTERVAL_S` | `21600` (6h) | Maintenance-cycle interval. | free |
 | `MEMEX_DREAM_STALE_DAYS` | `30` | Re-embed docs older than this many days during the cycle. | free |
 | `MEMEX_UTILITY_MODEL` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | Overrides the Haiku utility-tier model id (intent classification, query expansion, synthesis). | cheap (Haiku) |
@@ -170,6 +175,7 @@ that stops making calls once the budget is spent. All default OFF.
 |---|---|---|---|
 | `MEMEX_THINK` | off | Enables `memex think <q>` deep synthesis — **CLI-only**, does not fire on search. | **paid (Sonnet)** |
 | `MEMEX_THINK_BUDGET_USD` | `1.0` | USD ceiling for `think`. | — |
+| `MEMEX_THINK_AUTO_ANCHOR` | on (`=0` off) | When a temporal question ("when did X change, is it still…") names no anchor, `think` derives candidate entity slugs from the question + retrieved pages and anchors on them. Temporal/knowledge-update intents only, fail-soft. A behavior toggle inside the `think` flow — no extra billable call beyond `think` itself. | — |
 | `MEMEX_RELATIONAL_LLM` | off | Sonnet fallback for the relational retrieval arm when the cheap path is inconclusive. | **paid (Sonnet)** |
 | `MEMEX_RELATIONAL_LLM_BUDGET_USD` | `1.0` | USD ceiling for the relational arm. | — |
 | `MEMEX_GRAPH_RERANK` | off | Sonnet rerank over graph-expanded candidates — **fires on every search**, so the highest-frequency paid path. Enable deliberately. | **paid (Sonnet)** |
@@ -183,6 +189,18 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_FACTS_EXTRACTION` | off | Conversation → structured facts extraction via Sonnet. | **paid (Sonnet)** |
 | `MEMEX_FACTS_BUDGET_USD` | `1.0` | USD ceiling for facts extraction. | — |
 | `MEMEX_FACTS_MODEL` | `eu.anthropic.claude-sonnet-4-6` | Overrides the paid-tier Sonnet model id for the slices above. | **paid (Sonnet)** |
+| `MEMEX_REFLECTIONS` | off | `reflections` cycle phase: one budget-capped Sonnet pass over recent un-reflected transcripts writes cited `reflections/<topic-slug>` pages, giving the `patterns` phase a source to mine. Runs before `patterns`. | **paid (Sonnet)** |
+| `MEMEX_REFLECTIONS_BUDGET_USD` | `1.0` | USD ceiling for the reflections pass. | — |
+| `MEMEX_REFLECTIONS_LOOKBACK_DAYS` | `14` | How far back the pass scans for un-reflected transcripts. | — |
+| `MEMEX_REFLECTIONS_MAX_TRANSCRIPTS` | `20` | Max transcripts fed into one reflections pass. | — |
+| `MEMEX_PATTERNS` | off | `patterns` cycle phase: one budget-capped Sonnet pass mines recent `reflections/` pages for themes recurring across ≥`MIN_EVIDENCE` distinct reflections and writes one `patterns/<topic-slug>` page each (citing its evidence). The one synthesis phase that writes real pages; reads/writes pinned to a single `source_id` (no cross-tenant mining). | **paid (Sonnet)** |
+| `MEMEX_PATTERNS_BUDGET_USD` | `1.0` | USD ceiling for the patterns pass. | — |
+| `MEMEX_PATTERNS_REFLECTION_PREFIX` | `reflections/` | Slug prefix the miner reads (kept in lockstep with what the reflections phase writes). | — |
+| `MEMEX_PATTERNS_MIN_EVIDENCE` | `3` | Minimum distinct reflections a theme must span before a pattern page is written. | — |
+| `MEMEX_PROBE_CONTRADICTIONS` | off | Latent-contradiction probe (mig 064): a paid cycle phase that caches LLM-suspected fact conflicts so `find_contradictions` can surface them. Paired candidates stay `source_id`-scoped (no cross-tenant pairing). | **paid (Sonnet)** |
+| `MEMEX_PROBE_CONTRADICTIONS_BUDGET_USD` | `1.0` | USD ceiling for the contradiction probe. | — |
+| `MEMEX_FACTS_BACKFILL` | off | `conversation-facts-backfill` cycle phase: extracts facts from historical transcripts that predate on-write extraction. Synthesis-written pages (`reflections/`, `patterns/`) are excluded from the selector. No-ops unless set truthy. | **paid (Sonnet)** |
+| `MEMEX_FACTS_BACKFILL_BUDGET_USD` | `1.0` | Brain-wide USD ceiling for the backfill. | — |
 | `MEMEX_CONTEXTUAL_RETRIEVAL` | off | **LLM-free** contextual-embed wrapper. ⚠️ Enabling it changes only *future* embeds — **run a full re-embed after enabling**, or the vector space becomes a mix of wrapped and unwrapped vectors and search quality degrades. | free (but forces re-embed) |
 | `MEMEX_CONTEXTUAL_LLM` | off | **PAID per-chunk** contextual tier (Haiku): asks a utility model to write a short blurb situating EACH chunk within its whole document, replacing the deterministic synopsis before embedding. Fail-open — budget/errors fall back to the deterministic prefix. ⚠️ Same re-embed caveat as above; run `reindex --contextual` after enabling. | **paid (Haiku)** |
 | `MEMEX_CONTEXTUAL_LLM_BUDGET_USD` | `5.0` | USD ceiling for the per-chunk LLM tier. Shared across a whole `reindex --contextual` run; when spent mid-run, remaining chunks fall back to deterministic. A later `--force` re-run with more budget upgrades them. | — |
@@ -197,6 +215,7 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_PUBLIC_WRITE` | `0` | When `1`, the public `/mcp` path may call the constructive write tools (`index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`, `link`). Destructive ops + privacy-sensitive reads stay internal-only regardless. Pair with daily bearer rotation. | free |
 | `MEMEX_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. | free |
 | `MEMEX_ADMIN_BOOTSTRAP` | unset | One-shot admin/tenant bootstrap value consumed by `serve.ts` at start. | free |
+| `MEMEX_HOT_MEMORY_META` | off (`=1` on) | Surface a `_meta` block on `hot_memory` responses (non-public calls only). Stays dark — empty payload — until an operator opts in. | free |
 | `MEMEX_DOCTOR_PER_SOURCE` | off (`=1` on) | Makes `doctor` WARN per-source (per-tenant) when a single source has chunks but zero embeddings. | free |
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
@@ -227,11 +246,22 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMEX_PARSE_TIMEOUT_MS` | `5000` (5s) | Per-file chunker parse cap; `0` disables the cap. | free |
 | `MEMEX_JOB_TIMEOUT_MS` | off | Per-job wall-clock cap. Off unless set. | free |
 | `MEMEX_MAX_BODY_BYTES` | `1048576` (1 MiB) | HTTP request-body size cap; over-cap requests get 413. | free |
+| `MEMEX_NO_SANITY` | off (`=1` on) | Kill switch for the content-sanity ingest gate. Set truthy to skip junk/oversize/markup assessment entirely. The gate runs unless this is set. | free |
+| `MEMEX_SANITY_DISPOSITION` | `quarantine` | How a junk-flagged doc is handled: default quarantines + stamps `content_flag` (still stored, embed-skipped); `reject` hard-rejects it at ingest. | free |
+| `MEMEX_SANITY_LITERALS_FILE` | unset | Path to an operator literals file (one case-insensitive literal per line, blanks/`#` ignored) so site-specific boilerplate the built-in patterns miss is quarantined. Fail-open. | free |
+| `MEMEX_PAGE_WARN_BYTES` | `50000` | Byte size above which a page crosses into the markup prose-check window. | free |
+| `MEMEX_PAGE_BLOCK_BYTES` | `500000` | Byte size above which an oversize page is soft-blocked (no junk match required). | free |
+| `MEMEX_MAX_MARKUP_RATIO` | `0.85` | Markup-to-prose ratio above which a page is flagged `markup_heavy` (flagged, not hidden). | free |
 | `MEMEX_MIGRATION_LOCK_TIMEOUT` | `10s` | Per-migration advisory-lock timeout (e.g. `10s`, `500ms`, `5min`). Fail-loud on a malformed value. | free |
 | `MEMEX_LOCK_STEAL_GRACE_SECONDS` | `600` | Grace before a stale cycle-lock holder can be taken over. Auto-derived from TTL when unset. | free |
 | `MEMEX_EXTRACT_STALE_BATCH` | `50` | Batch size for the stale-links re-extract sweep. | free |
 | `MEMEX_EXTRACT_TIME_BUDGET_MS` | `1800000` (30m) | Wall-clock budget for one stale-extract invocation. `--catch-up` removes the cap. | free |
+| `MEMEX_EMBED_CONCURRENCY` | `8` | Max in-flight embed calls in the backfill fan-out pool; a full backfill is ~pool-size faster than serial. | free |
+| `MEMEX_REEMBED_ON_SIGNATURE_CHANGE` | off (`=1` on) | Re-embed a chunk when the embed signature (model/dim/wrapper) changes, not just when its text changes. Opt-in by design — a bare toggle can trigger a large re-embed. | free (Bedrock embed) |
 | `MEMEX_FACT_DECAY` | off (`=1` on) | Apply confidence decay to aging facts. | free |
+| `MEMEX_FACTS_DEDUP` | off (`=1` on) | Insert-time fact dedup/supersede: a cosine-0.95 fast-path collapses near-identical tuples; off means exact-tuple dedup only. | free |
+| `MEMEX_FACTS_DEDUP_LLM` | off (`=1` on) | Adds a paid classifier step to `MEMEX_FACTS_DEDUP` for the ambiguous near-duplicates the cosine fast-path can't decide. Inert unless `MEMEX_FACTS_DEDUP` is also on. | **paid (LLM)** |
+| `MEMEX_FACTS_FENCE` | on (`=0` off) | Fence guard: a dedup supersede never suppresses an operator's fenced fact claim. Kill switch — leave on. | free |
 | `MEMEX_TYPED_LINKS` | off (`=1` on) | Infer typed relations on links (opt-in; a wrong inferred relation is worse than none). | free |
 | `MEMEX_LINK_VERB_INFER` | off (`=1` on) | Infer link verbs from surrounding text. | free |
 | `MEMEX_GAZETTEER` | off (`=1` on) | Gazetteer-based auto-linking of known entities. | free |

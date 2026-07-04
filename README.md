@@ -138,7 +138,7 @@ Connecting Claude Code (or any MCP client):
 
 | Piece | What it does |
 |---|---|
-| **memex** | The brain: hybrid search, entity + code call graph, code/markdown indexers, MCP server, a built-in `advisor` that ranks what to fix, push-context that volunteers relevant pages, an opt-in (off-by-default) step that distils notes into concepts/opinions in a *separate* store (your original notes are never touched), and a self-maintaining background cycle. 61 MCP tools. |
+| **memex** | The brain: hybrid search, entity + code call graph, code/markdown indexers, MCP server, a built-in `advisor` that ranks what to fix, push-context that volunteers relevant pages, an opt-in (off-by-default) step that distils notes into concepts/opinions in a *separate* store (your original notes are never touched) with a take-review lifecycle (`list_takes` / `takes_search` / `set_take_status`), and a self-maintaining background cycle. 63 MCP tools. |
 | **cloudflared** | Public HTTPS ingress via Cloudflare Tunnel &mdash; no open EC2 ports. |
 | **Terraform** | All AWS infra (VPC, EC2, RDS, EFS, Secrets Manager) as one module. |
 | **AWS Bedrock** | Titan v2 embeddings + Claude Haiku for query intent and the optional, off-by-default note synthesis (Claude Sonnet for the paid opt-in deep-reasoning slices). Your agent still writes the answers. |
