@@ -44,6 +44,12 @@ When your MCP client searches, memex runs a hybrid pipeline
 The important part: steps 1, 3, and 8 use an LLM **internally** — not to *write
 an answer*, but to make *retrieval sharper*.
 
+One optional shortcut sits in front of all of this: a **semantic query cache**
+(off by default). Ask the same thing a second time — or a close paraphrase — and
+memex recognizes the two queries *mean* the same (their fingerprints nearly
+match) and returns the cached result instead of paying for the whole pipeline
+again.
+
 ## 3. Where the money goes
 
 Three cost layers, from pennies to real money:
@@ -76,8 +82,23 @@ reasons — and neither is "chatting with the user":
   distils your notes into concepts, opinions ("takes"), and a calibration profile
   — stored in a *separate* store; your original notes are never touched.
 - **Deep synthesis / take grading** (Sonnet): deepen and score those takes.
+- **Facts** — memex pulls concrete claims ("Acme's contract renews in March") out
+  of what you write, as you write it, and keeps them tidy: names are matched back
+  to the right page instead of spawning duplicates, and a superseded claim is
+  retired when a newer one lands. You can also *declare* facts yourself in a
+  `## Facts` block on a page — that block is a **fence**: those claims are yours,
+  and the brain won't quietly drop them even as it prunes its own.
+- **Reflections, then patterns** — over your recent sessions the brain writes short
+  **reflections** (what happened, what was decided), then makes a second pass that
+  reads across many reflections and surfaces the **patterns** — themes that keep
+  recurring — as their own pages. Both are paid and off by default; reflections
+  feed the pattern pass, so a run does both in order.
 - **`think`** (Sonnet): an on-demand "reason deeply about this question" command
-  that returns a synthesized, cited answer.
+  that returns a synthesized, cited answer. For a *time* question ("when did X
+  change, is it still true?") it figures out which entities you mean even if you
+  didn't name one, and pulls in each one's **trajectory** — the log of how that
+  thing changed over time — so the answer reflects the latest state, not a stale
+  snapshot.
 - **Contextual embeddings** (`MEMEX_CONTEXTUAL_LLM`, Haiku): before fingerprinting
   a chunk, prepend a short blurb situating it in its document ("from the note about
   the Acme deal…") so an otherwise-ambiguous chunk is found more reliably.
@@ -106,5 +127,14 @@ afternoon. Full topology in [ARCHITECTURE.md](../ARCHITECTURE.md).
 ## 7. It maintains itself
 
 A background cycle runs every few hours: it indexes new content, re-embeds stale
-documents, and (during quiet hours) runs the synthesis layer. No cron babysitting
-— the brain keeps itself current.
+documents, and (during quiet hours) runs the synthesis layer — distilling takes,
+writing reflections, and mining the patterns across them. It's careful not to
+waste effort: editing one line of a page re-embeds only the chunk that changed,
+not the whole document, and it won't turn its own reflections and patterns back
+into raw input for another pass. No cron babysitting — the brain keeps itself
+current.
+
+And it checks its own work. A nightly **eval probe** runs a fixed set of
+questions against the brain and records how good the retrieval was, so quality
+drift shows up as a trend you can read (`memex doctor`) rather than a surprise. It
+runs under a spend ceiling, so the self-check can't run up a bill.

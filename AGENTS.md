@@ -44,6 +44,23 @@ bun run src/cli.ts --help # CLI surface
 
 There is no `bun run build` step for runtime — the daemon starts via `bun run src/cli.ts serve`. The `build` script in `package.json` exists for diagnostic bundling, not deployment.
 
+## CLI commands worth knowing
+
+`bun run src/cli.ts <cmd>` (aka `memex <cmd>` in the container). `--help` lists them all; the ones you'll reach for most:
+
+```
+export [--dir DIR] [--source ID]     # dump every live page to a markdown tree (frontmatter + body,
+                                      #   slug dirs); --source scopes to one tenant. Backup / portability
+                                      #   escape hatch for the DB-only substrate.
+eval-probe [--limit N] [--max-usd N] # replay the eval set, append a row to eval_snapshots (nightly
+                                      #   probe); --max-usd caps per-run spend (converts to a query cap).
+cycle [--phases a,b,c] [--stale-days N]  # run one maintenance cycle on demand. Now takes the daemon's
+                                      #   `memex-cycle` advisory lock — a one-shot skips (with a message)
+                                      #   when the periodic loop holds it, so the two can't double-spend.
+```
+
+The take-review lifecycle is exposed over MCP, not the CLI: `list_takes` / `takes_search` (trigram search over take claims) to find takes, `set_take_status` to flip one to `accepted` / `rejected`.
+
 ## Build & test (full stack — Docker)
 
 The simplest "does my change build" check uses Docker locally (matches the EC2 architecture):

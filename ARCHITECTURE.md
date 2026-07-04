@@ -16,7 +16,8 @@
                             │
                           memex  (GET /health · POST /mcp)
                             │
-                  Bedrock Titan v2 (embeddings) + Nova Lite (intent)
+        Bedrock Titan v2 (embeddings) + Claude Haiku (intent/expansion)
+                  + opt-in Claude Sonnet (LLM synthesis)
                             │
                   RDS Postgres + pgvector
                             │
@@ -33,7 +34,7 @@ external message broker — the whole runtime fits in `t4g.medium`.
 
 | Container | Image | Owns |
 |---|---|---|
-| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search (+ graph-signals ranking), entity + code call graph, code/markdown chunkers, push-context, advisor, MCP server (55 tools), a maintenance cycle (~13 deterministic phases + 5 opt-in LLM-synthesis phases). Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Nova (intent/expansion + the opt-in, off-by-default note synthesis). Answer synthesis is the MCP client's job. |
+| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search (+ graph-signals ranking), entity + code call graph, code/markdown chunkers, fact extraction, push-context, advisor, MCP server (63 tools), a maintenance cycle (~15 deterministic phases + 8 opt-in LLM-synthesis phases). Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Claude Haiku (intent/expansion) + the opt-in, off-by-default Claude Sonnet note synthesis. Answer synthesis is the MCP client's job. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel). The dashboard routes `brain.<domain>/mcp` to memex on the internal docker bridge. |
 
 Inter-container ports are not exposed to the host. `cloudflared`
@@ -56,10 +57,16 @@ so future contributors don't reach for them blindly.
 | `mcp/http_transport.ts` | MCP JSON-RPC POST handler. Public and internal traffic key into separate `RateLimiter` instances — public uses Cloudflare's `Cf-Connecting-Ip`, internal collapses to a single "internal" bucket (XFF / X-Real-IP are attacker-controlled and would defeat per-IP limits). |
 | `mcp/rate_limit.ts` | Token-bucket limiter with periodic idle-bucket eviction + `maxKeys` cap — bounded memory under high public IP variety. |
 | `core/migrate.ts` | Single-tx migration runner: `engine.transaction(tx => { tx.exec(sql); tx.query("INSERT INTO migrations …") })`. A crash between the two phases used to leave the migration applied-but-unrecorded → re-run on next boot, breaking non-idempotent SQL. |
-| `core/code-graph.ts` + `core/chunkers/code.ts` | Code indexing + call graph. `memex index` auto-detects source files (TS/Python) and the `code_callers` / `code_callees` tools answer who-calls-what over `entity_mentions`. |
+| `core/code-graph.ts` + `core/code-edges.ts` + `core/code-entities.ts` + `core/code-walk.ts` + `core/chunkers/code.ts` | Code intelligence: indexing + call graph. `memex index` auto-detects source files (TS/Python), and the `code_callers` / `code_callees` / `code_def` / `code_refs` tools answer who-calls-what over `entity_mentions`, and `code_flow` / `code_blast` do a bounded transitive traversal (`walk_depth`). |
 | `core/context/*` | Push-context (deterministic, no LLM): `volunteer.ts` extracts entities from a conversation window and resolves them to pages by alias/title/slug; `volunteer-events.ts` logs what was volunteered for a feedback metric. Backs the `volunteer_context` tool + `memex watch`. |
 | `core/advisor/*` | Read-only diagnostics: ranks pending migrations / stalled jobs / low embed coverage / setup smells into `{severity, fix_command}` findings (the `advisor` tool). Reuses the doctor/status/jobs primitives. |
-| `core/synthesis/*` + `core/llm/nova.ts` | **Opt-in, off-by-default** LLM phases (extract-atoms → synthesize-concepts → propose-takes → grade-takes → calibration-profile). Output is written ONLY to dedicated `synth_*` tables — `documents`/`chunks`/`pages` are never mutated. `nova.ts` is the shared Bedrock-Nova helper with an injectable seam so tests run with zero Bedrock calls. |
+| `core/synthesis/*` + `core/llm/{haiku,sonnet}.ts` | **Opt-in, off-by-default** LLM synthesis phases: `extract-atoms → synthesize-concepts → propose-takes → grade-takes → calibration-profile`, plus `reflections`, `patterns` (theme miner), `probe-contradictions`, and `deep-synth`. `think` runs the same relational-LLM pass **CLI-only** (`memex think`, not an MCP tool) with an entity-extract auto-anchor. Output is written ONLY to dedicated `synth_*` tables — `documents`/`chunks`/`pages` are never mutated. `haiku.ts` (utility) and `sonnet.ts` (paid slices) are the shared Bedrock helpers, each with an injectable seam so tests run with zero Bedrock calls. |
+| `core/facts*` (`facts-extract` · `facts-classify` · `facts-reconcile` · `facts-recall` · `facts-decay` · `facts-fence` · `facts-queue`) | Structured entity facts. On-write extraction pulls `{subject, predicate, object}` triples into `entity_facts`; `facts-fence.ts` renders the deterministic "facts fence" block appended to a page; reconcile dedups + supersedes stale facts (with a `forgotten_cause` audit) and decays confidence over time. Paid Sonnet tier, default-OFF; the `entity_facts` tool reads them back and `add_fact` / `forget_fact` mutate them. |
+| `core/content-sanity.ts` | Ingest quality gate. Scores incoming chunk text against junk/boilerplate patterns (plus an operator literal channel, `MEMEX_SANITY_LITERALS_FILE`) and quarantines scraper garbage before it is embedded. Fail-open. |
+| `core/contextual-reembed.ts` + `core/search/contextual-llm.ts` | **Opt-in** contextual retrieval (LLM tier): before embedding, a Haiku pass prepends a short document-situating blurb to each chunk so the vector carries whole-doc context. Tracked by `chunks.contextual_embedded` (migration 057); `memex reindex --contextual` re-embeds the corpus. |
+| `core/search/query-cache.ts` | Semantic query cache (migration 065): a normalized-query + embedding-nearest lookup that returns a prior result set when a new query is semantically close enough, saving a full hybrid retrieval + embed round-trip. |
+| `core/embed-backfill.ts` + `core/embedding.ts` | Embed provenance. Every vector is stamped with an `embedding_signature` (model + dim + contextual flag, migration 066); the opt-in `MEMEX_REEMBED_ON_SIGNATURE_CHANGE` auto-invalidates + re-embeds any row whose stored signature drifts from the current one. `core/embed-skip.ts` marks oversize / junk frontmatter as keyword-only (indexed, never embedded). Re-indexing a doc reuses a chunk's stored vector when its text is unchanged, so an edit only pays to embed the chunks that actually moved. |
+| `core/scope.ts` + `core/tenant-grants.ts` + `core/visibility.ts` | Tenancy / scope. Every row carries a `source_id` tenant key; Postgres RLS (migration 049) + write-time fail-closed checks isolate tenants, `tenant-grants.ts` records cross-tenant read grants, and `scope.ts` defines the OAuth scope hierarchy (`read`/`write`/`admin`/`sources_admin`/`users_admin`/`agent`) the ingress gate enforces. |
 | `http/oauth.ts` | **Default-OFF** optional OAuth/JWT bearer path. When `auth.oauth.enabled`, a Bearer JWT is verified against the issuer JWKS (RS256/ES256 via WebCrypto, no new dep); a valid token maps to the **public, redacted** read scope only — never internal, never a write path. |
 
 ## Access — MCP only
@@ -100,7 +107,7 @@ Hard guarantees:
 | Storage | RDS Postgres 16 (`db.t4g.micro`) | `terraform/rds.tf` | Hosts the memex index; `pgvector` extension enabled. |
 | Storage | S3 — terraform state | `terraform/main.tf` (partial backend) | Bucket supplied via `terraform/backend.hcl` from `make init`. |
 | Storage | S3 — scripts | `terraform/ec2.tf` | `<project>-scripts-<account_id>`; holds `scripts/bootstrap.sh`. |
-| Identity | IAM role + instance profile | `terraform/iam.tf` | Bedrock invoke (Nova + Titan + Haiku), Secrets Manager read/rotate, CloudWatch Logs write. |
+| Identity | IAM role + instance profile | `terraform/iam.tf` | Bedrock invoke (Titan + Claude Haiku/Sonnet), Secrets Manager read/rotate, CloudWatch Logs write. |
 | Secrets | AWS Secrets Manager | `terraform/secrets.tf` | All credentials live here. Naming: `<secrets_prefix>/<name>`. |
 | Observability | CloudWatch log group | `terraform/cloudwatch.tf` | `/<project>/app`, 14-day retention. |
 | Observability | SNS topic + email subscription | `terraform/cloudwatch.tf` | Conditional on `alarm_email != ""`. |
@@ -115,6 +122,7 @@ unit references a script that exists in the repo.
 | Unit | Cadence | Owns |
 |---|---|---|
 | `memex-rotate-bearer.timer` | `*-*-* 06:00:00 Europe/Berlin` (daily) | Rotate `<secrets_prefix>/memex-public-bearer`, restage `.secrets/memex.env`, restart `memex` so it re-reads the new value. |
+| `memex-eval-probe.timer` | `*-*-* 04:30:00 Europe/Berlin` (daily) | Nightly retrieval-quality probe: replays a golden query set, records hit-rate / rank metrics into `eval_snapshots`, and surfaces the latest snapshot in `memex doctor`. Staggered clear of the 06:00 rotation so the two units never contend for the container; `Persistent=true` reruns a missed slot. Takes a per-run USD ceiling (`--max-usd`). |
 
 ## Storage layout
 
@@ -132,6 +140,26 @@ unit references a script that exists in the repo.
 The "code source" mount at `/mnt/<project>-efs/<project>-repo/` is a
 second git checkout used by the memex code chunkers as their index
 source. `scripts/bootstrap.sh` keeps it in sync on every boot.
+
+The authoritative store is RDS Postgres, evolved by the numbered
+migration runner (`core/migrate.ts`, through ~068). Beyond the core
+`documents` / `chunks` / `pages` / `entity_mentions` tables, the schema
+carries:
+
+- `synth_*` — the opt-in LLM-synthesis output (atoms, concepts, takes,
+  take grades, calibration profile, `synth_contradictions`); never mixed
+  into the source note tables.
+- `entity_facts` — structured `{subject, predicate, object}` facts with a
+  consolidation + `forgotten_cause` audit trail, rendered back onto pages
+  via the facts fence.
+- `slug_aliases` (migration 067) — canonical-slug redirects so a renamed
+  page keeps resolving from its old links.
+- `eval_snapshots` (migration 068) — per-run retrieval-quality metrics
+  from the nightly `eval-probe`.
+- `query_cache` (migration 065) — the semantic query cache.
+- typed `links` — edges carry a `kind`/`verb` (NER-inferred, migration
+  053) plus a `source_id` tenant key, and every row is tenant-scoped
+  under Postgres RLS (migration 049).
 
 ## Secrets — what goes where
 
@@ -181,18 +209,26 @@ The boot flow (cold start from a new instance):
 - **Cloudflare Tunnel, no public ports.** The EC2 SG opens nothing
   inbound. cloudflared dials out on tcp/7844 only. SSH is opt-in via
   `ssh_allowed_cidr`; SSM Session Manager is the default access path.
-- **Bedrock for inference.** Titan v2 supplies embeddings; Nova Lite
-  drives intent classification + query expansion; answer synthesis is
-  the MCP client's job. The stack costs ~$25-30/mo even with daily use.
+- **Bedrock for inference (Anthropic-only + Titan).** Titan v2 supplies
+  embeddings; Claude Haiku is the utility model (intent classification +
+  query expansion); the opt-in, default-OFF synthesis + facts slices use
+  Claude Sonnet. Answer synthesis is the MCP client's job. The
+  deterministic core costs ~$25-30/mo even with daily use; the paid LLM
+  slices only spend when explicitly enabled.
 - **MCP only, no agent framework.** memex speaks plain MCP JSON-RPC and
   nothing else — no chat surface, no bot, no bespoke API. One contract.
-- **Solo-deploy.** No multi-tenancy. The "stack" is one user's brain on
-  one account, by design.
+- **Single-operator default, multi-tenant-capable.** The default deploy
+  is one user's brain on one account. The substrate is nonetheless
+  tenant-isolated: every row carries a `source_id` tenant key enforced by
+  Postgres RLS + write-time fail-closed checks, so multiple sources can
+  share one instance without leaking across the boundary.
 
 ## Out-of-scope (deferred — see `TODO.md`)
 
 - Multi-region failover.
-- Multi-tenant deploy.
+- A managed multi-tenant control plane (self-service onboarding, per-tenant
+  billing). Row-level tenant isolation (`source_id` + RLS) ships today; the
+  operator surface for running memex *as* a multi-tenant service does not.
 - Read replicas / horizontal scaling.
 - ASG + spot fleet (a multi-instance variant not built today; the
   current shape is one on-demand instance with
