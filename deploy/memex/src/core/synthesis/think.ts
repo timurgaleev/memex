@@ -651,8 +651,16 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
       ? renderTrajectoryBlock(await gatherTrajectories(storage, anchors))
       : "";
 
-  // Anti-bias calibration profile (Item 4c). Fail-soft to "".
-  const calibrationBlock = renderCalibrationBlock(await getCalibrationProfile(engine));
+  // Anti-bias calibration profile (Item 4c). Fail-soft to "". Scope to the run's
+  // tenant like pages/takes/vector above — an unscoped fetch returns the newest
+  // profile across ALL tenants, which a scoped run (auto_think persists to a
+  // tenant-pinned draft) would leak into another tenant's synthesis.
+  const calibrationBlock = renderCalibrationBlock(
+    await getCalibrationProfile(
+      engine,
+      scopeIds && scopeIds.length ? [...scopeIds] : undefined,
+    ),
+  );
 
   const user = buildThinkUserMessage({
     question,

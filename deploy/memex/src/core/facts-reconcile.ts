@@ -184,14 +184,23 @@ export async function reconcileFactsForPage(
     // mig062, all of which were forget_fact tombstones) stay suppressed.
     const tombParams: unknown[] = [pageSlug];
     if (scope !== null) tombParams.push(scope);
-    const tomb = await tx.query<{ fact: string }>(
-      `SELECT DISTINCT fact FROM entity_facts
+    const tomb = await tx.query<{ fact: string; row_num: number | null }>(
+      `SELECT DISTINCT fact, row_num FROM entity_facts
         WHERE source_markdown_slug = $1
           AND forgotten_at IS NOT NULL
           AND forgotten_cause IS DISTINCT FROM 'supersede'${delScope}`,
       tombParams,
     );
-    const forgotten = new Set(tomb.rows.map((r) => r.fact));
+    // Key the tombstone skip-set on row_num — the fence's stable identity used
+    // everywhere else — so a forgotten row is suppressed WITHOUT collaterally
+    // dropping a same-text sibling on a different row. Legacy tombstones with a
+    // NULL row_num (retired pre-mig062) fall back to claim-text matching.
+    const forgottenRows = new Set<number>();
+    const forgottenLegacyText = new Set<string>();
+    for (const r of tomb.rows) {
+      if (typeof r.row_num === "number") forgottenRows.add(r.row_num);
+      else forgottenLegacyText.add(r.fact);
+    }
 
     const delParams: unknown[] = [pageSlug];
     if (scope !== null) delParams.push(scope);
@@ -207,8 +216,9 @@ export async function reconcileFactsForPage(
     );
     let added = 0;
     for (const f of facts) {
-      // A forgotten claim stays forgotten across a fence rebuild.
-      if (forgotten.has(f.claim)) continue;
+      // A forgotten row stays forgotten across a fence rebuild (by row_num; legacy
+      // NULL-row tombstones by text).
+      if (forgottenRows.has(f.rowNum) || forgottenLegacyText.has(f.claim)) continue;
       const insParams: unknown[] = [
         pageSlug,
         f.claim,

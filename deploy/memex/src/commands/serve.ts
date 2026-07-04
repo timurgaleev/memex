@@ -109,6 +109,15 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // the operator's terminal — never in a URL). Mounting the `/admin` auth routes
   // either way keeps parity with the reference.
   const adminBootstrap = process.env.MEMEX_ADMIN_BOOTSTRAP?.trim();
+  // The admin surface provisions the whole brain (sources, tenant grants), so an
+  // operator-set bootstrap token must meet a minimum entropy floor — reject a weak
+  // value at boot rather than lean on the login rate limiter alone (reference parity).
+  if (adminBootstrap && adminBootstrap.length > 0 && !/^[A-Za-z0-9_-]{32,}$/.test(adminBootstrap)) {
+    throw new Error(
+      "MEMEX_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +
+        "(e.g. `openssl rand -base64 32 | tr '+/' '-_'`), or unset it for an ephemeral per-run token.",
+    );
+  }
   const adminToken = adminBootstrap && adminBootstrap.length > 0 ? adminBootstrap : randomBytes(24).toString("hex");
   serverOpts.adminBootstrapToken = adminToken;
   if (!adminBootstrap) {

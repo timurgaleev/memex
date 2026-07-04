@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — cross-tenant + public-exposure divergences (reference audit)
+An exhaustive function-by-function audit of memex against the reference found
+seven behaviour/default/guard divergences of the same class as the OAuth default;
+all now match the reference:
+- **`takes_search` and `set_take_status` are no longer reachable from the public
+  bearer.** The take-search read returned the same private synthesized claims as
+  the already-forbidden `list_takes`, and `set_take_status` was a tenancy-unscoped
+  write — both are now internal-only.
+- **`think` / `auto_think` scope the calibration profile to the tenant.** It was
+  fetched whole-brain, so a scoped run could inject another tenant's forecasting
+  record into its prompt (and persist it). Now scoped like every other retrieval.
+- **`grade_takes` grades each take against its own source's evidence only** — the
+  evidence scan was whole-corpus, so a take could be graded against another
+  tenant's chunks.
+- **`add_timeline_event` verifies page ownership** before writing — a scoped
+  caller can only append to a page its own source owns.
+- **OAuth tool calls are scope-gated per operation** — a `read`-scoped token can
+  no longer invoke a `write` tool.
+- **The admin bootstrap token must be 32+ chars** (`[A-Za-z0-9_-]`); the server
+  refuses to start on a weak value instead of relying on the login rate limit.
+- **Facts-fence forget is keyed by row, not claim text** — forgetting one fence
+  row no longer collaterally drops a same-text sibling on another row.
+
 ### Changed — OAuth posture aligned to the reference
 - **Dynamic Client Registration is now OFF by default** (`MEMEX_ENABLE_DCR=1` to
   enable). With it off, `POST /register` returns 404 and the discovery document

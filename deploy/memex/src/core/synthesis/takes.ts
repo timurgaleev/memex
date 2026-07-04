@@ -324,7 +324,7 @@ export interface GradeTakesOptions {
    */
   minAgeDays?: number;
   /** Inject evidence retrieval (tests). Default: hybrid-search over the corpus. */
-  evidenceFn?: (claim: string) => Promise<string>;
+  evidenceFn?: (claim: string, sourceId?: string) => Promise<string>;
   /**
    * Opt-in multi-judge Sonnet ensemble (default from MEMEX_TAKE_ENSEMBLE). When
    * on, each take is graded by N Sonnet judges (temperature-diversified) and the
@@ -527,17 +527,30 @@ export function parseVerdictResponse(raw: string): ParsedVerdict | null {
  * inject a richer hybrid retriever; the default keeps grade_takes self-contained
  * and offline-testable. Fail-soft: returns a claim-only stub on query error.
  */
-async function defaultEvidence(engine: Engine, claim: string): Promise<string> {
+async function defaultEvidence(
+  engine: Engine,
+  claim: string,
+  sourceId?: string,
+): Promise<string> {
   try {
     // Escape LIKE wildcards so a `%`/`_` in the (LLM-derived) claim can't turn
     // the predicate into a match-everything scan.
     const needle = claim.slice(0, 60).replace(/[\\%_]/g, "\\$&");
+    // Scope the evidence to the take's OWN source when known — a take must never
+    // be graded against another tenant's chunks (reference parity). Unscoped
+    // (operator / legacy) takes keep the whole-corpus scan.
+    const params: unknown[] = [needle];
+    let scope = "";
+    if (typeof sourceId === "string" && sourceId.length > 0) {
+      params.push(sourceId);
+      scope = ` AND EXISTS (SELECT 1 FROM documents d WHERE d.id = chunks.document_id AND d.source_id = $${params.length})`;
+    }
     const { rows } = await engine.query<{ content: string }>(
       `SELECT content FROM chunks
-        WHERE content ILIKE '%' || $1 || '%' ESCAPE '\\'
+        WHERE content ILIKE '%' || $1 || '%' ESCAPE '\\'${scope}
         ORDER BY length(content) ASC
         LIMIT 5`,
-      [needle],
+      params,
     );
     if (rows.length === 0) return `No corpus evidence found for claim: ${claim}`;
     return rows.map((r, i) => `[${i + 1}] ${r.content.slice(0, 800)}`).join("\n\n");
@@ -557,7 +570,9 @@ export async function gradeTakesPhase(
     opts.promptVersion ??
     (useEnsemble ? GRADE_ENSEMBLE_PROMPT_VERSION : GRADE_TAKES_PROMPT_VERSION);
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
-  const evidenceFn = opts.evidenceFn ?? ((claim: string) => defaultEvidence(engine, claim));
+  const evidenceFn =
+    opts.evidenceFn ??
+    ((claim: string, sourceId?: string) => defaultEvidence(engine, claim, sourceId));
   // Ensemble path (paid Sonnet): one shared budget + injectable model seam.
   const sonnetFn = useEnsemble ? resolveSonnetFn(opts.sonnetFn) : null;
   const budget = useEnsemble
@@ -577,9 +592,16 @@ export async function gradeTakesPhase(
   // re-grade under the current version — the age gate + NOT EXISTS keep it
   // from being re-graded under the SAME version. `accepted`/`rejected` are
   // operator-terminal and excluded.
-  const { rows: takes } = await engine.query<{ id: number; claim_text: string }>(
-    `SELECT t.id, t.claim_text
+  const { rows: takes } = await engine.query<{
+    id: number;
+    claim_text: string;
+    source_id: string | null;
+  }>(
+    // The take's own source (via source_ref -> documents) scopes its evidence, so
+    // a take is never graded against another tenant's chunks.
+    `SELECT t.id, t.claim_text, d.source_id
        FROM synth_takes t
+       LEFT JOIN documents d ON d.id = t.source_ref
       WHERE t.status IN ('queued', 'graded')
         AND t.generated_at <= now() - ($2 * interval '1 day')
         AND NOT EXISTS (
@@ -595,7 +617,7 @@ export async function gradeTakesPhase(
     result.takesScanned += 1;
     let evidence: string;
     try {
-      evidence = await evidenceFn(take.claim_text);
+      evidence = await evidenceFn(take.claim_text, take.source_id ?? undefined);
     } catch (e) {
       result.errors.push(`take ${take.id} evidence: ${e instanceof Error ? e.message : String(e)}`);
       continue;
