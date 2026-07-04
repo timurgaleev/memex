@@ -134,6 +134,11 @@ services:
       - MEMEX_CONTEXTUAL_LLM_BUDGET_USD=${MEMEX_CONTEXTUAL_LLM_BUDGET_USD:-}
       # Override the paid-tier model (default eu.anthropic.claude-sonnet-4-6).
       - MEMEX_FACTS_MODEL=${MEMEX_FACTS_MODEL:-}
+      # Public base URL (Cloudflare tunnel origin). When set, the OAuth 2.1
+      # discovery document + issuer advertise this external https origin so a
+      # cloud MCP client auto-configures against the real host instead of the
+      # internal request Host. Unset -> falls back to the request Host.
+      - MEMEX_PUBLIC_URL=${MEMEX_PUBLIC_URL:-}
     env_file:
       # MEMEX_POSTGRES_URL (RDS endpoint) and MEMEX_PUBLIC_BEARER
       # (public-ingress auth) — written by deploy/secrets/fetch-secrets.sh
