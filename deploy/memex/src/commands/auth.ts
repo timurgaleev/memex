@@ -5,6 +5,10 @@
  *
  * Subcommands:
  *   register-client <name> [--grant-types G] [--scopes S] [--source SRC]
+ *                          [--redirect-uris u1,u2]
+ *              --redirect-uris makes it an authorization-code (browser) client
+ *              — e.g. a hosted MCP connector's callback. Grants then default to
+ *              authorization_code,refresh_token unless --grant-types is given.
  *                          [--federated-read a,b,c]
  *              Register a confidential client. Prints client_id (memex_cl_…) +
  *              client_secret (memex_cs_…) ONCE — only the SHA-256 hash persists.
@@ -75,7 +79,18 @@ async function withProvider<T>(
 async function registerClient(name: string, rest: string[]): Promise<void> {
   if (!name) throw new Error("Usage: auth register-client <name> [flags]");
   const { flags } = parseFlags(rest);
-  const grantTypes = (flags["grant-types"] ?? "client_credentials")
+  const redirectUris = flags["redirect-uris"]
+    ? flags["redirect-uris"].split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  // A client with a redirect_uri is an authorization-code (browser) client, so
+  // default its grants accordingly when the operator didn't say otherwise —
+  // mirrors the reference. Without a redirect_uri, default to client_credentials.
+  const grantTypes = (
+    flags["grant-types"] ??
+    (redirectUris.length > 0
+      ? "authorization_code,refresh_token"
+      : "client_credentials")
+  )
     .split(/[\s,]+/)
     .filter(Boolean);
   const scopes = flags["scopes"] ?? "read";
@@ -89,7 +104,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
       name,
       grantTypes,
       scopes,
-      [],
+      redirectUris,
       sourceId,
       federatedRead,
     ),

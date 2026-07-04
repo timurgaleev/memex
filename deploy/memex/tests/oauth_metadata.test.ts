@@ -46,14 +46,18 @@ afterEach(async () => {
 });
 
 describe("buildOAuthMetadata — full standard surface", () => {
-  it("advertises issuer + all four endpoints", () => {
+  it("advertises issuer + endpoints; registration_endpoint only when DCR is enabled", () => {
     const m = buildOAuthMetadata("https://brain.example") as unknown as Record<string, unknown>;
     expect(m.issuer).toBe("https://brain.example");
     expect(m.authorization_endpoint).toBe("https://brain.example/authorize");
     expect(m.token_endpoint).toBe("https://brain.example/token");
-    expect(m.registration_endpoint).toBe("https://brain.example/register");
     expect(m.revocation_endpoint).toBe("https://brain.example/revoke");
     expect(m.scopes_supported).toEqual([...ALLOWED_SCOPES_LIST]);
+    // DCR is OFF by default → the self-registration endpoint is NOT advertised.
+    expect(m.registration_endpoint).toBeUndefined();
+    // When DCR is enabled, it appears.
+    const withDcr = buildOAuthMetadata("https://brain.example", true) as unknown as Record<string, unknown>;
+    expect(withDcr.registration_endpoint).toBe("https://brain.example/register");
   });
 
   it("advertises the auth-code + refresh + client_credentials grants and S256 PKCE", () => {
