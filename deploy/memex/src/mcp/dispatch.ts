@@ -218,6 +218,12 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "jobs_get",
   "jobs_cancel",
   "jobs_logs",
+  // list_concepts reads synth_concepts, which has no source axis — its narratives
+  // are clustered across EVERY tenant's atoms. An OAuth tenant token is trusted
+  // (isPublic:false) so the public denylist doesn't cover it; gate it operator-only
+  // so one tenant can never read concepts derived from another tenant's notes.
+  // (Proper per-tenant concepts would need a source_id column on synth_concepts.)
+  "list_concepts",
 ]);
 
 /** Per-call options the transport supplies. */
