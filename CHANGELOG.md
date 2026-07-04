@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.76.0] — 2026-07-04
+
 ### Fixed
 - **Take grading fed the judge `[object Object]`.** Both grade paths interpolated
   the `sanitizeForPrompt` result object instead of its `.text`, so the ensemble
