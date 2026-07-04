@@ -28,6 +28,7 @@ import { timingSafeEqual } from "node:crypto";
 // Canonical definition lives in core so the MCP layer shares it without
 // importing this http/ module (which would create an import cycle).
 import { publicReadBodiesAllowed } from "../core/public_redaction.ts";
+import { OAUTH_METADATA_PATH } from "./oauth-metadata.ts";
 
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
@@ -147,6 +148,15 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "list_concepts",
   "list_takes",
   "get_calibration_profile",
+  // Take aggregates + on-demand fact extraction expose the same private-note-
+  // derived signal as the reads above; extract_facts can even re-derive a
+  // page's fact text (and spends Bedrock), so it must never be public.
+  "takes_scorecard",
+  "takes_calibration",
+  "extract_facts",
+  // Returns author-written slugs + titles of ingested transcripts — same
+  // slug-listing privacy posture as find_orphans / get_recent_salience.
+  "get_recent_transcripts",
   "jobs_submit",
   "jobs_cancel",
 ]);
@@ -223,6 +233,12 @@ export function evaluatePublicGuard(
   // Public — apply guard.
   if (url.pathname === "/health" && req.method === "GET") {
     // Open probe. No bearer required.
+    return { allow: true, isPublic: true };
+  }
+
+  // OAuth 2.1 authorization-server discovery (RFC 8414). A client must reach
+  // this BEFORE it holds any credential, so it is open exactly like /health.
+  if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
     return { allow: true, isPublic: true };
   }
 

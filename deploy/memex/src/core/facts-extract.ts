@@ -356,3 +356,69 @@ export async function extractFactsForPage(
     spentUsd: Number(budget.totalSpent().toFixed(6)),
   };
 }
+
+export interface OnDemandExtractOptions {
+  /** Test seam — inject a fake model; bypasses the enabled gate. */
+  sonnetFn?: SonnetFn;
+  modelId?: string;
+  maxBudgetUsd?: number;
+}
+
+export interface OnDemandExtractResult {
+  /** False when the paid extractor is gated OFF (no facts attempted). */
+  enabled: boolean;
+  facts: ExtractedFact[];
+  modelId: string | null;
+  spentUsd: number;
+  /** Present when nothing was extracted: why (disabled / empty / budget / error). */
+  skipped?: string;
+}
+
+/**
+ * On-demand fact extraction that RETURNS the facts WITHOUT persisting them — the
+ * read-only preview behind the `extract_facts` MCP tool. Reuses the same paid
+ * Bedrock turn extractor as the on-write hook, so the preview matches what a
+ * write would have captured, but never touches the entity_facts ledger.
+ *
+ * PAID + default-OFF: a live run needs MEMEX_FACTS_EXTRACTION=1. An injected
+ * `sonnetFn` (tests) bypasses the gate and never spends real Bedrock. Budget-
+ * guarded with the same per-call ceiling as the on-write path.
+ */
+export async function extractFactsOnDemand(
+  text: string,
+  opts: OnDemandExtractOptions = {},
+): Promise<OnDemandExtractResult> {
+  if (!opts.sonnetFn && !factsExtractionEnabled()) {
+    return { enabled: false, facts: [], modelId: null, spentUsd: 0, skipped: "extraction_disabled" };
+  }
+  if ((text ?? "").trim().length === 0) {
+    return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "empty_text" };
+  }
+  const modelId = resolveFactsModel(opts.modelId);
+  const cap = opts.maxBudgetUsd ?? perWriteBudgetUsd();
+  const budget = new BudgetTracker(cap, "facts-extract:on-demand");
+  if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+    return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "budget_exhausted" };
+  }
+  let result: ExtractTurnResult;
+  try {
+    result = await extractFactsFromTurn(text, {
+      ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
+      modelId,
+    });
+  } catch {
+    return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "model_error" };
+  }
+  try {
+    budget.record(result.modelId, result.usage);
+  } catch (e) {
+    if (!(e instanceof BudgetExhausted)) throw e;
+    // Over budget after the (already-paid) call — still return what we got.
+  }
+  return {
+    enabled: true,
+    facts: result.facts,
+    modelId: result.modelId,
+    spentUsd: Number(budget.totalSpent().toFixed(6)),
+  };
+}

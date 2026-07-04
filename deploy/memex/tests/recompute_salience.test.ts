@@ -105,6 +105,46 @@ describe("recomputeSaliencePhase", () => {
     expect(res.updated).toBe(0);
   });
 
+  it("raises salience from active takes attached via the page mirror", async () => {
+    await putPage(storage, { slug: "people/carol", type: "person" });
+    // Mirror document for the default-tenant page, plus two active takes.
+    const eng = storage.raw();
+    await eng.query(
+      `INSERT INTO documents (id, source_path, title)
+       VALUES ($1, $2, $3)`,
+      ["doc-carol", "page://people/carol", "Carol"],
+    );
+    await eng.query(
+      `INSERT INTO synth_takes
+         (take_key, source_ref, source_hash, prompt_version, claim_text, weight, status, model_id)
+       VALUES
+         ('k1', 'doc-carol', 'h1', 'v1', 'claim one', 0.8, 'queued', 'm'),
+         ('k2', 'doc-carol', 'h2', 'v1', 'claim two', 0.6, 'accepted', 'm'),
+         ('k3', 'doc-carol', 'h3', 'v1', 'rejected claim', 0.9, 'rejected', 'm')`,
+    );
+    await recomputeSaliencePhase(eng);
+    // 2 active takes (rejected excluded): density 0.10 + avg(0.7)*0.05 = 0.135
+    expect(await salienceOf("people/carol")).toBeCloseTo(0.135, 4);
+  });
+
+  it("excludes rejected takes and pages with no mirror from the take term", async () => {
+    await putPage(storage, { slug: "people/dave", type: "person" });
+    const eng = storage.raw();
+    await eng.query(
+      `INSERT INTO documents (id, source_path, title)
+       VALUES ('doc-dave', 'page://people/dave', 'Dave')`,
+    );
+    await eng.query(
+      `INSERT INTO synth_takes
+         (take_key, source_ref, source_hash, prompt_version, claim_text, weight, status, model_id)
+       VALUES ('dk1', 'doc-dave', 'h1', 'v1', 'only rejected', 0.9, 'rejected', 'm')`,
+    );
+    const res = await recomputeSaliencePhase(eng);
+    // all takes rejected → no take lift, page stays at default 0.0
+    expect(await salienceOf("people/dave")).toBe(0);
+    expect(res.updated).toBe(0);
+  });
+
   it("is idempotent — a second run updates nothing", async () => {
     await putPage(storage, {
       slug: "people/bob",

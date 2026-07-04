@@ -1,23 +1,26 @@
 /**
  * Page salience — a deterministic [0..1] importance score computed from a
- * page's high-emotion tags + graph connectivity (link-degree). Pure function,
- * no DB, no LLM. Recomputed by the `recompute-salience` cycle phase and
- * surfaced by the "what matters" salience query (`memex salience`).
+ * page's high-emotion tags, graph connectivity (link-degree), and the density
+ * of synthesised opinion "takes" attached to it. Pure function, no DB, no LLM.
+ * Recomputed by the `recompute-salience` cycle phase and surfaced by the
+ * "what matters" salience query (`memex salience`).
  *
  * The reference brain derives an analogous score from tags + "takes" (opinion
- * records). This brain has no takes table, so the takes-derived half of the
- * reference formula (take density / avg weight / holder ratio) is replaced by
- * link-degree — the strongest LLM-free "this entity gets a lot of attention"
- * signal available here. The tag-emotion half is kept faithfully: tags are an
- * explicit user act of categorisation, so a page tagged `wedding` is *about*
+ * records). This brain keeps link-degree as the base attention signal — the
+ * strongest LLM-free "this entity gets a lot of attention" signal — and now
+ * folds in a small take-density term from the `synth_takes` table (added by
+ * synthesis migration 045). The tag-emotion half is kept faithfully: tags are
+ * an explicit user act of categorisation, so a page tagged `wedding` is *about*
  * something weighty by construction.
  *
  * Formula (sum clamped to [0..1]):
  *   1) Tag-emotion boost   max 0.5  — any high-emotion tag (case-insensitive)
- *   2) Link-degree boost   max 0.5  — ln-scaled in+out degree, saturating
+ *   2) Link-degree boost   max 0.5  — ln-scaled in+out degree, saturating (base)
+ *   3) Take-density boost  max 0.2  — active takes on the page, additive:
+ *      take density (0.05/take, cap 0.15) + avg take weight scaled (max 0.05)
  *
- * A page with no high-emotion tag and no links scores exactly 0.0, so the
- * migration-036 default (0.0) survives the formula for an isolated page.
+ * A page with no high-emotion tag, no links, and no takes scores exactly 0.0,
+ * so the migration-036 default (0.0) survives the formula for an isolated page.
  */
 
 /**
@@ -54,11 +57,32 @@ const DEGREE_SATURATION = 20;
 const TAG_BOOST_MAX = 0.5;
 const DEGREE_BOOST_MAX = 0.5;
 
+/**
+ * Take-density term (mirrors the reference emotional-weight formula, scaled
+ * down so link-degree stays the base signal). Active takes on a page add a
+ * small, additive lift capped at TAKE_BOOST_MAX = 0.20:
+ *   - density: TAKE_DENSITY_PER (0.05) per active take, capped at 0.15
+ *   - avg weight: mean take conviction (0..1) scaled into 0..0.05
+ */
+const TAKE_DENSITY_PER = 0.05;
+const TAKE_DENSITY_MAX = 0.15;
+const TAKE_AVG_WEIGHT_MAX = 0.05;
+
 export interface SalienceInput {
   /** Page tags (from compiled_truth.tags). Case-insensitive matched. */
   tags: readonly string[];
   /** Distinct in+out link neighbours of the page. */
   linkDegree: number;
+  /**
+   * Count of active (non-rejected) `synth_takes` attached to the page via its
+   * mirror document. Optional — omitted/0 means no take signal (base formula).
+   */
+  takeCount?: number;
+  /**
+   * Mean conviction weight (0..1) across the page's active takes. Optional;
+   * only meaningful when {@link takeCount} > 0.
+   */
+  takeAvgWeight?: number;
 }
 
 export interface SalienceOpts {
@@ -113,6 +137,34 @@ export function computeSalience(
   );
   const degreeBoost = degreeFrac * DEGREE_BOOST_MAX;
 
-  const total = tagBoost + degreeBoost;
+  // 3) Take-density boost — small additive lift from active takes on the page.
+  const takeBoost = computeTakeBoost(input.takeCount, input.takeAvgWeight);
+
+  const total = tagBoost + degreeBoost + takeBoost;
   return Math.max(0, Math.min(1, total));
+}
+
+/**
+ * Take-density boost in [0..TAKE_BOOST_MAX]. Density (per-take, capped) plus a
+ * mean-conviction term. Tolerates missing/NaN/negative inputs as 0.
+ */
+function computeTakeBoost(
+  takeCount: number | undefined,
+  takeAvgWeight: number | undefined,
+): number {
+  const count =
+    Number.isFinite(takeCount) && (takeCount as number) > 0
+      ? Math.floor(takeCount as number)
+      : 0;
+  if (count === 0) return 0;
+
+  const density = Math.min(count * TAKE_DENSITY_PER, TAKE_DENSITY_MAX);
+
+  const avg =
+    Number.isFinite(takeAvgWeight) && (takeAvgWeight as number) > 0
+      ? Math.min(takeAvgWeight as number, 1)
+      : 0;
+  const avgBoost = avg * TAKE_AVG_WEIGHT_MAX;
+
+  return density + avgBoost;
 }

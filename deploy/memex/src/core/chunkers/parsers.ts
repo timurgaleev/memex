@@ -24,12 +24,21 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
-export type CodeLanguage = "typescript" | "tsx" | "python";
+export type CodeLanguage =
+  | "typescript"
+  | "tsx"
+  | "python"
+  | "bash"
+  | "go"
+  | "sql";
 
 const WASM_FILES: Record<CodeLanguage, string> = {
   typescript: "tree-sitter-typescript.wasm",
   tsx: "tree-sitter-tsx.wasm",
   python: "tree-sitter-python.wasm",
+  bash: "tree-sitter-bash.wasm",
+  go: "tree-sitter-go.wasm",
+  sql: "tree-sitter-sql.wasm",
 };
 
 const EXTENSION_TO_LANG: Record<string, CodeLanguage> = {
@@ -38,6 +47,10 @@ const EXTENSION_TO_LANG: Record<string, CodeLanguage> = {
   ".cts": "typescript",
   ".tsx": "tsx",
   ".py": "python",
+  ".sh": "bash",
+  ".bash": "bash",
+  ".go": "go",
+  ".sql": "sql",
 };
 
 /** Lowercase extensions (with dot) we know how to parse. */

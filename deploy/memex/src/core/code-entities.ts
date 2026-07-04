@@ -47,6 +47,13 @@ const CALL_NODE_TYPES: Record<CodeLanguage, ReadonlySet<string>> = {
   typescript: new Set(["call_expression", "new_expression"]),
   tsx: new Set(["call_expression", "new_expression"]),
   python: new Set(["call"]),
+  // Go: `foo()` exposes the callee via the `function` field. Package-qualified
+  // calls (`pkg.Fn()`, a selector_expression) resolve to null and are skipped —
+  // a bare-name graph would mis-key them. bash commands and SQL calls are too
+  // noisy / not name-graph edges, so they contribute no call entities.
+  go: new Set(["call_expression"]),
+  bash: new Set<string>(),
+  sql: new Set<string>(),
 };
 
 /**
@@ -71,6 +78,11 @@ const IMPORT_NODE_TYPES: Record<CodeLanguage, ReadonlySet<string>> = {
     "import_from_statement",
     "aliased_import",
   ]),
+  // Go/SQL/bash imports (package paths, `source`) are string literals, not
+  // identifier references — no `code-ref` names to extract.
+  go: new Set<string>(),
+  bash: new Set<string>(),
+  sql: new Set<string>(),
 };
 
 function surfaceFor(file: string, line: number, enclosing: string | null): string {
@@ -192,6 +204,16 @@ const NESTED_SCOPE_TYPES: Record<CodeLanguage, ReadonlySet<string>> = {
     "enum_declaration",
   ]),
   python: new Set(["function_definition", "class_definition"]),
+  // A nested scope inside a symbol's body is its own chunk elsewhere; stop the
+  // entity walk at its boundary so calls aren't double-counted.
+  go: new Set([
+    "function_declaration",
+    "method_declaration",
+    "func_literal",
+    "type_spec",
+  ]),
+  bash: new Set(["function_definition"]),
+  sql: new Set(["statement"]),
 };
 
 /**
