@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.79.2] — 2026-07-04
+
 ### Fixed
 - **`list_concepts` is operator-only.** Its table (`synth_concepts`) has no source
   axis — its narratives are clustered across every tenant's notes — so a tenant
