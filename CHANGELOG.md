@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.79.3] — 2026-07-04
+
 ### Fixed
 - **Backfill un-tagged content so it stops being invisible (migration 071).**
   322 documents + 3014 chunks (mostly the Obsidian vault, ingested before source
