@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.77.0] — 2026-07-04
+
 ### Added — reference-parity wave 1
 - **OAuth discovery endpoint.** `GET /.well-known/oauth-authorization-server`
   (RFC 8414, public/no-bearer) lets a standard MCP OAuth client auto-configure
