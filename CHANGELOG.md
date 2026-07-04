@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.78.0] — 2026-07-04
+
 ### Added — reference-parity wave 2
 - **Deeper calibration.** The calibration profile now reports a **Brier score**
   (how well-calibrated your confidence is, not just accuracy), a partial-rate, a
