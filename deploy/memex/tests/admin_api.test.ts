@@ -81,6 +81,39 @@ describe("admin-api provisioning (authed)", () => {
     expect((await rev!.json() as { removed: boolean }).removed).toBe(true);
   });
 
+  it("enriches each grant with per-subject usage joined on agent_name = sub", async () => {
+    await call("/admin/api/sources", authed({ method: "POST", body: JSON.stringify({ id: "acme" }) }));
+    await call("/admin/api/grants", authed({ method: "POST", body: JSON.stringify({ sub: "agent-x", source: "acme" }) }));
+    await call("/admin/api/grants", authed({ method: "POST", body: JSON.stringify({ sub: "agent-y", source: "acme" }) }));
+
+    const e = storage.engine();
+    // agent-x: 2 requests today + 1 old; agent-y: no logged calls.
+    await e.query(
+      `INSERT INTO mcp_request_log (agent_name, operation, status, created_at) VALUES
+         ('agent-x', 'search',   'success', now()),
+         ('agent-x', 'get_page', 'success', now()),
+         ('agent-x', 'search',   'success', now() - interval '3 days'),
+         ('other',   'search',   'success', now())`,
+    );
+
+    const list = await call("/admin/api/grants", authed());
+    const body = (await list!.json()) as {
+      count: number;
+      grants: Array<{
+        sub: string;
+        usage: { requests_today: number; total_requests: number; last_used_at: string | null };
+      }>;
+    };
+    expect(body.count).toBe(2);
+    const x = body.grants.find((g) => g.sub === "agent-x")!;
+    const y = body.grants.find((g) => g.sub === "agent-y")!;
+    expect(x.usage.total_requests).toBe(3);
+    expect(x.usage.requests_today).toBe(2);
+    expect(x.usage.last_used_at).not.toBeNull();
+    // A subject with no logged calls gets a zeroed block, never null.
+    expect(y.usage).toEqual({ requests_today: 0, total_requests: 0, last_used_at: null });
+  });
+
   it("rejects a grant to an unknown source (400)", async () => {
     const r = await call("/admin/api/grants", authed({ method: "POST", body: JSON.stringify({ sub: "u", source: "ghost" }) }));
     expect(r?.status).toBe(400);

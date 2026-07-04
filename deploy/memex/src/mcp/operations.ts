@@ -886,6 +886,56 @@ export const OPERATIONS: readonly Operation[] = [
       "The latest narrative calibration/bias profile (from the calibration-profile phase): grade tallies, accuracy, pattern statements, bias tags. Read-only; internal-only. Null when no profile has been generated yet.",
     params: {},
   },
+  {
+    name: "takes_scorecard",
+    description:
+      "Calibration scorecard for synthesized takes graded by the opt-in take-grading phase: total/graded/resolved counts, per-verdict tallies (correct/incorrect/partial/unresolvable), accuracy (correct/(correct+incorrect)), partial_rate, and a Brier score over decided correct∨incorrect bets (stated weight vs outcome). Reads synth_takes × each take's LATEST synth_take_grades row — never calls an LLM. Zero scorecard until takes have been graded. Optional `domain` filter; tenant-scoped via each take's source document. Read-only; internal-only.",
+    params: {
+      domain: str({ description: "Filter to takes tagged with this domain." }),
+    },
+  },
+  {
+    name: "takes_calibration",
+    description:
+      "Reliability-diagram data for graded takes: decided (correct∨incorrect) bets binned by their stated weight, with observed hit-rate vs predicted (mean weight) per bucket — the curve behind the scorecard's Brier. `bucket_size` sets the bin width in (0,1] (default 0.1). Reads synth_takes × latest synth_take_grades; no LLM. Empty until takes are graded. Optional `domain` filter; tenant-scoped. Read-only; internal-only.",
+    params: {
+      bucket_size: num({ minimum: 0, maximum: 1, description: "Bucket width in (0,1]. Default 0.1." }),
+      domain: str({ description: "Filter to takes tagged with this domain." }),
+    },
+  },
+  {
+    name: "extract_facts",
+    description:
+      "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand and RETURN them WITHOUT persisting — a preview of what the on-write extractor would capture. Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded; never writes the entity_facts ledger. Internal-only.",
+    params: {
+      text: str({ description: "Raw conversation/transcript text to extract from. Provide this OR `source_ref`." }),
+      source_ref: str({ description: "A page slug whose markdown_body is extracted (tenant-scoped). Provide this OR `text`." }),
+    },
+  },
+  {
+    name: "list_skills",
+    description:
+      "Enumerate the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description, byte-ordered. The flat companion to list_brain_skillpack; pair with get_skill to fetch a skill's full body. Read-only; no LLM.",
+    params: {},
+  },
+  {
+    name: "get_skill",
+    description:
+      "Fetch one brain-resident skill's full markdown body by slug (as returned by list_skills). Returns {slug, description, body}, or an error when the slug is unknown. Read-only; no LLM.",
+    params: {
+      name: str({ ...req, description: "Skill slug exactly as returned by list_skills." }),
+    },
+  },
+  {
+    name: "get_recent_transcripts",
+    description:
+      "Recently-ingested conversation transcript pages (types: meeting, email, journal, note), newest-first, within a day window. Returns each page's slug/type/title/updated_at plus a summary (first ~300 chars) or — with summary=false — the body capped at 100 KB. Tenant-scoped; limit-capped (default 50, max 200). Surfaces page bodies — internal/MCP-stdio only (bodies are stripped on public ingress). Read-only; no LLM.",
+    params: {
+      days: int({ minimum: 0, description: "Only pages updated within the last N days. Default 30." }),
+      summary: bool({ description: "true (default) returns a ~300-char summary; false returns the body capped at 100 KB." }),
+      limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
+    },
+  },
 ];
 
 /**

@@ -158,6 +158,201 @@ export async function searchTakes(
   }
 }
 
+export interface TakesScorecard {
+  /** Every take matching the filter (graded or not). */
+  total_takes: number;
+  /** Takes that carry at least one grade. */
+  graded: number;
+  /** Graded takes whose latest verdict is correct∨incorrect∨partial. */
+  resolved: number;
+  correct: number;
+  incorrect: number;
+  partial: number;
+  unresolvable: number;
+  /** correct / (correct + incorrect); null when nothing is decided. */
+  accuracy: number | null;
+  /** partial / resolved; null when nothing is resolved. */
+  partial_rate: number | null;
+  /** Mean (weight − outcome)² over decided (correct∨incorrect) bets; null when
+   *  none are decided. Lower is better-calibrated. */
+  brier: number | null;
+}
+
+const EMPTY_SCORECARD: TakesScorecard = {
+  total_takes: 0,
+  graded: 0,
+  resolved: 0,
+  correct: 0,
+  incorrect: 0,
+  partial: 0,
+  unresolvable: 0,
+  accuracy: null,
+  partial_rate: null,
+  brier: null,
+};
+
+/**
+ * Calibration scorecard over `synth_takes` × their LATEST `synth_take_grades`
+ * row (DISTINCT ON take_id, newest grade wins — re-grading with new evidence
+ * appends a row). Counts, accuracy, partial-rate, and Brier are all pure SQL —
+ * no LLM. Tenant scope mirrors `listTakes`: a scoped caller only sees takes
+ * whose source document is one of theirs (fail-closed via the documents join).
+ * Fail-open to a zero scorecard on a pre-045 brain.
+ */
+export async function getTakesScorecard(
+  engine: Engine,
+  opts: { domain?: string; sourceIds?: string[] } = {},
+): Promise<TakesScorecard> {
+  const sources = normalizeSourceIds(opts.sourceIds);
+  const params: unknown[] = [];
+  const clauses: string[] = [];
+  if (typeof opts.domain === "string" && opts.domain.length > 0) {
+    params.push(opts.domain);
+    clauses.push(`AND t.domain = $${params.length}`);
+  }
+  if (sources) {
+    params.push(sources);
+    clauses.push(
+      `AND EXISTS (SELECT 1 FROM documents d WHERE d.id = t.source_ref AND d.source_id = ANY($${params.length}::text[]))`,
+    );
+  }
+  const where = clauses.join(" ");
+  try {
+    const r = await engine.query<{
+      total_takes: number;
+      graded: number;
+      resolved: number;
+      correct: number;
+      incorrect: number;
+      partial: number;
+      unresolvable: number;
+      brier: number | null;
+    }>(
+      `WITH latest_grade AS (
+         SELECT DISTINCT ON (take_id) take_id, verdict
+           FROM synth_take_grades
+          ORDER BY take_id, generated_at DESC
+       )
+       SELECT
+         COUNT(*)::int                                                              AS total_takes,
+         COUNT(lg.verdict)::int                                                     AS graded,
+         COUNT(*) FILTER (WHERE lg.verdict IN ('correct','incorrect','partial'))::int AS resolved,
+         COUNT(*) FILTER (WHERE lg.verdict = 'correct')::int                        AS correct,
+         COUNT(*) FILTER (WHERE lg.verdict = 'incorrect')::int                      AS incorrect,
+         COUNT(*) FILTER (WHERE lg.verdict = 'partial')::int                        AS partial,
+         COUNT(*) FILTER (WHERE lg.verdict = 'unresolvable')::int                   AS unresolvable,
+         AVG(CASE WHEN lg.verdict IN ('correct','incorrect')
+                  THEN POWER(t.weight - (CASE lg.verdict WHEN 'correct' THEN 1 ELSE 0 END), 2)
+             END)::float                                                            AS brier
+         FROM synth_takes t
+         LEFT JOIN latest_grade lg ON lg.take_id = t.id
+        WHERE 1=1 ${where}`,
+      params,
+    );
+    const row = r.rows[0];
+    if (!row) return { ...EMPTY_SCORECARD };
+    const decided = row.correct + row.incorrect;
+    return {
+      total_takes: row.total_takes,
+      graded: row.graded,
+      resolved: row.resolved,
+      correct: row.correct,
+      incorrect: row.incorrect,
+      partial: row.partial,
+      unresolvable: row.unresolvable,
+      accuracy: decided > 0 ? row.correct / decided : null,
+      partial_rate: row.resolved > 0 ? row.partial / row.resolved : null,
+      brier: row.brier,
+    };
+  } catch {
+    return { ...EMPTY_SCORECARD };
+  }
+}
+
+export interface CalibrationBucket {
+  bucket_lo: number;
+  bucket_hi: number;
+  /** Decided bets whose weight fell in this bucket. */
+  n: number;
+  /** Observed hit-rate (AVG of verdict='correct'); null for an empty bucket. */
+  observed: number | null;
+  /** Predicted rate (AVG stated weight); null for an empty bucket. */
+  predicted: number | null;
+}
+
+/**
+ * Reliability-diagram data: decided (correct∨incorrect) takes binned by their
+ * stated `weight`, observed hit-rate vs predicted (mean weight) per bucket. The
+ * curve behind the scorecard's Brier. NUMERIC casts keep bucket boundaries exact
+ * at FP-edge weights (e.g. 0.7/0.1). Same tenant scope as `getTakesScorecard`.
+ * Fail-open to [] on a pre-045 brain.
+ */
+export async function getTakesCalibration(
+  engine: Engine,
+  opts: { bucketSize?: number; domain?: string; sourceIds?: string[] } = {},
+): Promise<CalibrationBucket[]> {
+  const bucketSize =
+    typeof opts.bucketSize === "number" && opts.bucketSize > 0 && opts.bucketSize <= 1
+      ? opts.bucketSize
+      : 0.1;
+  const maxIdx = Math.floor(1 / bucketSize) - 1;
+  const sources = normalizeSourceIds(opts.sourceIds);
+  const params: unknown[] = [bucketSize, maxIdx];
+  const clauses: string[] = [];
+  if (typeof opts.domain === "string" && opts.domain.length > 0) {
+    params.push(opts.domain);
+    clauses.push(`AND t.domain = $${params.length}`);
+  }
+  if (sources) {
+    params.push(sources);
+    clauses.push(
+      `AND EXISTS (SELECT 1 FROM documents d WHERE d.id = t.source_ref AND d.source_id = ANY($${params.length}::text[]))`,
+    );
+  }
+  const where = clauses.join(" ");
+  try {
+    const r = await engine.query<{
+      bucket_lo: number;
+      bucket_hi: number;
+      n: number;
+      observed: number | null;
+      predicted: number | null;
+    }>(
+      `WITH latest_grade AS (
+         SELECT DISTINCT ON (take_id) take_id, verdict
+           FROM synth_take_grades
+          ORDER BY take_id, generated_at DESC
+       ),
+       binned AS (
+         SELECT LEAST(FLOOR(t.weight::numeric / $1::numeric)::int, $2::int)::int AS bucket_idx,
+                t.weight,
+                (lg.verdict = 'correct')::int AS hit
+           FROM synth_takes t
+           JOIN latest_grade lg ON lg.take_id = t.id
+          WHERE lg.verdict IN ('correct','incorrect') ${where}
+       )
+       SELECT (bucket_idx::numeric * $1::numeric)::float        AS bucket_lo,
+              ((bucket_idx + 1)::numeric * $1::numeric)::float  AS bucket_hi,
+              COUNT(*)::int                                     AS n,
+              AVG(hit)::float                                   AS observed,
+              AVG(weight)::float                                AS predicted
+         FROM binned
+        GROUP BY bucket_idx
+        ORDER BY bucket_idx`,
+      params,
+    );
+    return r.rows.map((b) => ({
+      bucket_lo: b.bucket_lo,
+      bucket_hi: b.bucket_hi,
+      n: b.n,
+      observed: b.n > 0 ? b.observed : null,
+      predicted: b.n > 0 ? b.predicted : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export interface CalibrationProfileRow {
   generated_at: string;
   source_id: string;

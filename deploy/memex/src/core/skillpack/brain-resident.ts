@@ -94,3 +94,35 @@ export function listBrainSkillpacks(
 
   return { pack: "memex-skillpack", count: skills.length, skills };
 }
+
+export interface BrainSkillDetail {
+  slug: string;
+  description: string;
+  /** Full markdown body of the skill file (frontmatter included). */
+  body: string;
+}
+
+/**
+ * Fetch one brain-resident skill's full body by slug — backs the `get_skill`
+ * MCP tool. Returns null when the slug doesn't resolve to a skill file.
+ *
+ * The slug is joined into a filesystem path, so it is validated against a strict
+ * skill-slug shape first: a `/`, `.`, or `\` could escape the skills dir, so
+ * anything but `[A-Za-z0-9][A-Za-z0-9_-]*` is rejected before touching disk.
+ */
+export function getBrainSkill(
+  slug: string,
+  opts: ListBrainSkillpacksOptions = {},
+): BrainSkillDetail | null {
+  if (typeof slug !== "string" || !/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) return null;
+  const skillsDir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
+  const file = join(skillsDir, `${slug}.md`);
+  if (!existsSync(file)) return null;
+  let body: string;
+  try {
+    body = readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  return { slug, description: readSkillDescription(file), body };
+}

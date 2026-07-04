@@ -216,7 +216,61 @@ const SYMBOL_NODE_TYPES: Record<CodeLanguage, ReadonlyMap<string, SymbolKind>> =
     // Decorated definitions wrap a function_definition / class_definition;
     // we visit children and pick up the inner node.
   ]),
+  bash: new Map<string, SymbolKind>([
+    // `foo() { … }` and `function foo { … }` both parse to function_definition
+    // with a `name` field. A file-level `VAR=…` (variable_assignment) is left
+    // out on purpose — it is a config line, not a symbol worth its own chunk.
+    ["function_definition", "function"],
+  ]),
+  go: new Map<string, SymbolKind>([
+    ["function_declaration", "function"],
+    ["method_declaration", "method"],
+    // `type Foo struct/interface { … }` parses to a type_declaration wrapping
+    // one type_spec per name; the type_spec carries the `name` field, so we key
+    // on it directly (also covers grouped `type ( A …; B … )`).
+    ["type_spec", "class"],
+  ]),
+  // SQL has no fixed node→kind map: every top-level node is a `statement`
+  // wrapping the real DDL child, so kind + name are derived per-statement in
+  // visitSymbols (sqlSymbolFromStatement). Kept empty to satisfy the record.
+  sql: new Map<string, SymbolKind>([]),
 };
+
+/**
+ * SQL symbol extractor for the DerekStride grammar: a top-level `statement`
+ * wraps a single DDL/DML child whose type is the real kind (create_table,
+ * create_function, …). We chunk DDL *definitions* only — a table/view/function
+ * is a durable schema symbol worth `code-def`; a bare SELECT/INSERT is not.
+ * The target name is the first identifier / object_reference child (for
+ * create_index that is the index name, ahead of the ON-table reference).
+ */
+function sqlSymbolFromStatement(
+  stmt: TSNode,
+): { name: string; kind: SymbolKind } | null {
+  const inner = stmt.namedChild(0);
+  if (!inner) return null;
+  const t = inner.type;
+  let kind: SymbolKind | null = null;
+  if (/function|procedure|trigger/.test(t)) kind = "function";
+  else if (t.includes("index")) kind = "const";
+  else if (/^create_(table|view|type|schema|database|sequence|materialized)/.test(t)) {
+    kind = "class";
+  }
+  if (!kind) return null;
+  for (let i = 0; i < inner.namedChildCount; i++) {
+    const c = inner.namedChild(i);
+    if (!c) continue;
+    if (
+      c.type === "object_reference" ||
+      c.type === "identifier" ||
+      c.type.endsWith("_identifier")
+    ) {
+      const nm = (c.childForFieldName("name")?.text ?? c.text).trim();
+      if (nm) return { name: nm, kind };
+    }
+  }
+  return null;
+}
 
 /**
  * Extract a name from a symbol-bearing node. Tree-sitter uses different
@@ -312,6 +366,17 @@ function* visitSymbols(
       }
     }
 
+    // SQL: the `statement` wrapper carries no name/kind of its own — both live
+    // in its inner DDL child. Keep the whole statement as the chunk body.
+    if (!emittedName && lang === "sql" && node.type === "statement") {
+      const sqlSym = sqlSymbolFromStatement(node);
+      if (sqlSym) {
+        emittedName = sqlSym.name;
+        emittedKind = sqlSym.kind;
+        bodyNode = node;
+      }
+    }
+
     if (emittedName && emittedKind) {
       yield {
         name: emittedName,
@@ -346,6 +411,11 @@ const IMPORT_NODE_TYPES_PER_LANG: Record<CodeLanguage, ReadonlySet<string>> = {
   typescript: new Set(["import_statement"]),
   tsx: new Set(["import_statement"]),
   python: new Set(["import_statement", "import_from_statement"]),
+  // bash `source`/`.` and Go/SQL imports are path strings, not identifier
+  // graphs — nothing useful to hang a file-level import entity on.
+  bash: new Set<string>(),
+  go: new Set<string>(),
+  sql: new Set<string>(),
 };
 
 /**

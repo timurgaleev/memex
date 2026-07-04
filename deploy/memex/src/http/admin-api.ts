@@ -12,6 +12,7 @@
  * `/admin*`, so there is no ambient protection here.
  */
 import type { Storage } from "../core/storage.ts";
+import type { Engine } from "../core/engine/interface.ts";
 import { registerSource } from "../core/sources.ts";
 import { listGrants, upsertGrant, revokeGrant, validateGrantSourceIds } from "../core/tenant-grants.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
@@ -30,6 +31,50 @@ const badRequest = (msg: string) => Response.json({ error: msg }, { status: 400 
 function serverError(route: string, e: unknown): Response {
   console.error(`[admin-api] ${route} failed:`, e instanceof Error ? e.message : e);
   return Response.json({ error: "internal error" }, { status: 500 });
+}
+
+/** Per-subject MCP usage rollup shown on the Agents page. */
+export interface GrantUsage {
+  /** Requests since the start of today (server local `now()` day boundary). */
+  requests_today: number;
+  /** All-time request count logged for this subject. */
+  total_requests: number;
+  /** ISO timestamp of the most recent request, or null when never seen. */
+  last_used_at: string | null;
+}
+
+const EMPTY_USAGE: GrantUsage = { requests_today: 0, total_requests: 0, last_used_at: null };
+
+/**
+ * Aggregate `mcp_request_log` into a per-subject usage map keyed by the caller
+ * id (`agent_name`, which equals the grant `sub`). One grouped scan; rows with
+ * a NULL agent_name (unattributed public/internal traffic) are excluded since
+ * they map to no grant. Returns an empty map on a pre-046 brain.
+ */
+async function grantUsageBySubject(engine: Engine): Promise<Map<string, GrantUsage>> {
+  const { rows } = await engine.query<{
+    agent_name: string;
+    requests_today: number | string;
+    total_requests: number | string;
+    last_used_at: string | null;
+  }>(
+    `SELECT agent_name,
+            count(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS requests_today,
+            count(*)::int AS total_requests,
+            max(created_at)::text AS last_used_at
+       FROM mcp_request_log
+      WHERE agent_name IS NOT NULL
+      GROUP BY agent_name`,
+  );
+  const map = new Map<string, GrantUsage>();
+  for (const r of rows) {
+    map.set(r.agent_name, {
+      requests_today: Number(r.requests_today) || 0,
+      total_requests: Number(r.total_requests) || 0,
+      last_used_at: r.last_used_at,
+    });
+  }
+  return map;
 }
 
 /**
@@ -62,12 +107,24 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
   }
 
-  // GET /admin/api/grants — the provisioned JWT-subject grants (Agents page).
+  // GET /admin/api/grants — the provisioned JWT-subject grants (Agents page),
+  // each enriched with per-subject MCP usage (requests_today / total_requests /
+  // last_used_at). Usage is joined by `agent_name = sub`: the request logger
+  // stamps the caller's stable client id (== the JWT subject a grant is keyed
+  // on) into `mcp_request_log.agent_name`. A grant with no logged calls carries
+  // a zeroed usage block (never null) so the UI renders a uniform row. The join
+  // is a best-effort display aid — the request-log DB sink is opt-in
+  // (`MEMEX_REQUEST_LOG_DB`), so an empty log simply yields all-zero usage.
   if (p === "/admin/api/grants" && req.method === "GET") {
     if (!deps.requireAdmin(req)) return unauthorized();
     try {
       const grants = await listGrants(engine);
-      return Response.json({ count: grants.length, grants });
+      const usage = await grantUsageBySubject(engine);
+      const enriched = grants.map((g) => ({
+        ...g,
+        usage: usage.get(g.sub) ?? EMPTY_USAGE,
+      }));
+      return Response.json({ count: enriched.length, grants: enriched });
     } catch (e) {
       return serverError("grants-list", e);
     }

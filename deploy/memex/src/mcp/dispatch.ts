@@ -96,13 +96,16 @@ import {
   volunteerEventRowsFrom,
 } from "../core/context/volunteer-events.ts";
 import { runAdvisor } from "../core/advisor/run.ts";
-import { listBrainSkillpacks } from "../core/skillpack/brain-resident.ts";
+import { listBrainSkillpacks, getBrainSkill } from "../core/skillpack/brain-resident.ts";
 import {
   listConcepts,
   listTakes,
   searchTakes,
   getCalibrationProfile,
+  getTakesScorecard,
+  getTakesCalibration,
 } from "../core/synthesis/reads.ts";
+import { listRecentTranscripts } from "../core/transcripts-read.ts";
 import { setTakeStatus } from "../core/synthesis/takes.ts";
 import packageJson from "../../package.json" with { type: "json" };
 import {
@@ -113,6 +116,7 @@ import {
   factsExtractionEnabled,
   isFactsExtractionEligible,
   extractFactsForPage,
+  extractFactsOnDemand,
 } from "../core/facts-extract.ts";
 import { getFactsQueue } from "../core/facts-queue.ts";
 import {
@@ -447,6 +451,18 @@ async function dispatchToolInner(
         return await callSearchTakes(storage, args, readSources);
       case "get_calibration_profile":
         return await callGetCalibrationProfile(storage, readSources);
+      case "takes_scorecard":
+        return await callTakesScorecard(storage, args, readSources);
+      case "takes_calibration":
+        return await callTakesCalibration(storage, args, readSources);
+      case "extract_facts":
+        return await callExtractFacts(storage, args, readSources);
+      case "list_skills":
+        return callListSkills();
+      case "get_skill":
+        return callGetSkill(args);
+      case "get_recent_transcripts":
+        return await callGetRecentTranscripts(storage, args, redact, readSources);
       default:
         throw new OperationError(
           "not_found",
@@ -2021,4 +2037,100 @@ async function callGetCalibrationProfile(
   const sourceIds = readSources && readSources.length ? readSources : undefined;
   const profile = await getCalibrationProfile(storage.engine(), sourceIds);
   return jsonResult({ ok: true, profile });
+}
+
+async function callTakesScorecard(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof getTakesScorecard>[1] = {};
+  if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const scorecard = await getTakesScorecard(storage.engine(), opts);
+  return jsonResult({ ok: true, scorecard });
+}
+
+async function callTakesCalibration(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof getTakesCalibration>[1] = {};
+  if (typeof args["bucket_size"] === "number") opts.bucketSize = args["bucket_size"];
+  if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const buckets = await getTakesCalibration(storage.engine(), opts);
+  return jsonResult({ ok: true, buckets });
+}
+
+/**
+ * On-demand fact extraction preview. Accepts raw `text` OR a `source_ref` page
+ * slug (read tenant-scoped). Returns the extracted facts WITHOUT persisting;
+ * PAID + default-OFF, so the {enabled:false} envelope comes back until the
+ * MEMEX_FACTS_EXTRACTION gate is set. Cross-tenant `source_ref` is a no-op: the
+ * scoped getPage returns null and the tool errors not_found.
+ */
+async function callExtractFacts(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  let text = typeof args["text"] === "string" ? args["text"] : "";
+  const sourceRef = typeof args["source_ref"] === "string" ? args["source_ref"] : "";
+  if (!text && sourceRef) {
+    const page = await getPage(
+      storage,
+      sourceRef,
+      readSources && readSources.length ? readSources : undefined,
+    );
+    if (!page) {
+      throw new OperationError(
+        "not_found",
+        `extract_facts: page not found: ${sourceRef}`,
+        "Pass a valid page slug in `source_ref`, or pass `text` directly.",
+      );
+    }
+    text = page.markdown_body ?? "";
+  }
+  if (!text) {
+    throw new OperationError(
+      "invalid_params",
+      "extract_facts: provide `text` or `source_ref`",
+      "Pass conversation text in `text`, or a page slug in `source_ref`.",
+    );
+  }
+  const result = await extractFactsOnDemand(text);
+  return jsonResult({ ok: true, ...result });
+}
+
+function callListSkills(): ToolCallResult {
+  const pack = listBrainSkillpacks();
+  return jsonResult({ ok: true, ...pack });
+}
+
+function callGetSkill(args: Record<string, unknown>): ToolCallResult {
+  const name = typeof args["name"] === "string" ? args["name"] : "";
+  if (!name) return errResult("get_skill: `name` is required");
+  const skill = getBrainSkill(name);
+  if (!skill) return errResult(`get_skill: skill not found: ${name}`);
+  return jsonResult({ ok: true, skill });
+}
+
+async function callGetRecentTranscripts(
+  storage: Storage,
+  args: Record<string, unknown>,
+  redact: boolean,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof listRecentTranscripts>[1] = {};
+  if (typeof args["days"] === "number") opts.days = args["days"];
+  if (typeof args["summary"] === "boolean") opts.summary = args["summary"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const transcripts = await listRecentTranscripts(storage.engine(), opts);
+  // Public ingress: `content` is note body — strip it, mirroring the page_list
+  // body-redaction policy (slug/type/title metadata stays).
+  const out = redact ? transcripts.map((t) => ({ ...t, content: "" })) : transcripts;
+  return jsonResult({ ok: true, transcripts: out });
 }

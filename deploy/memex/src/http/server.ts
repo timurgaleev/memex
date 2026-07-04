@@ -19,6 +19,10 @@
 import type { Storage } from "../core/storage.ts";
 import { handleHealth } from "./health.ts";
 import {
+  handleOAuthMetadataRoute,
+  OAUTH_METADATA_PATH,
+} from "./oauth-metadata.ts";
+import {
   evaluatePublicGuard,
   evaluateInternalAuth,
   isPublicMcpToolForbidden,
@@ -263,6 +267,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
 
       if (url.pathname === "/health" && req.method === "GET") {
         return handleHealth(opts.storage);
+      }
+      // OAuth 2.1 discovery (RFC 8414) — public, lets a standard MCP OAuth
+      // client auto-configure from memex's own public base URL. The guard
+      // above already exempts this path from the bearer requirement.
+      if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
+        return handleOAuthMetadataRoute(url, opts.publicUrl);
       }
       if (url.pathname === "/mcp" && mcpHandler) {
         // Evaluate the internal-token gate once per request; the handler

@@ -158,6 +158,14 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("jobs_cancel")).toBe(true);
   });
 
+  it("blocks the take-aggregate + on-demand extraction + transcript reads", () => {
+    // Same private-note-derived posture as list_takes / get_calibration_profile.
+    expect(isPublicMcpToolForbidden("takes_scorecard")).toBe(true);
+    expect(isPublicMcpToolForbidden("takes_calibration")).toBe(true);
+    expect(isPublicMcpToolForbidden("extract_facts")).toBe(true);
+    expect(isPublicMcpToolForbidden("get_recent_transcripts")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`, `stats`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);

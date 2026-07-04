@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — reference-parity wave 1
+- **OAuth discovery endpoint.** `GET /.well-known/oauth-authorization-server`
+  (RFC 8414, public/no-bearer) lets a standard MCP OAuth client auto-configure
+  against your brain — issuer, token endpoint, scopes, and the supported grant
+  (today `client_credentials`). The issuer is your declared `MEMEX_PUBLIC_URL`;
+  a host-derived fallback is served `no-store` so a shared cache can't be
+  poisoned into pointing clients at another host. (Only wired endpoints are
+  advertised; the auth-code / DCR / revoke fields return once those routes land.)
+- **New MCP read tools:** `takes_scorecard` + `takes_calibration` (hit/miss +
+  accuracy/Brier/reliability rollups over your takes), `extract_facts` (run the
+  fact extractor on demand without persisting; paid, default-OFF), `list_skills`
+  + `get_skill` (browse the brain skillpack), `get_recent_transcripts` (recent
+  ingested transcripts as a retrieval surface). All read-scoped, tenant-scoped,
+  and internal-only (never exposed to the public bearer path).
+- **Code graph now indexes bash, Go, and SQL** (`.sh`/`.bash`/`.go`/`.sql`) in
+  addition to TypeScript/Python, so more of your own stack shows up in the code
+  call graph. (YAML + HCL/Terraform grammars are pending a wasm rebuild.)
+- **Page salience now counts takes.** The salience recompute feeds take density +
+  average take weight into the score, so pages you've formed opinions about rank
+  higher — link-degree stays the base signal.
+- **Admin: per-agent usage.** The Agents page now shows `requests_today`,
+  `total_requests`, and `last_used_at` per provisioned subject.
+
 ## [1.76.0] — 2026-07-04
 
 ### Fixed
