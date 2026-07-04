@@ -92,6 +92,14 @@ export interface ThinkOptions {
    * `null` disables the vector stream entirely.
    */
   embedFn?: ((text: string) => Promise<number[]>) | null;
+  /**
+   * Restrict retrieval (pages + takes) to these source ids. Set by any caller
+   * that PERSISTS think output pinned to a tenant (e.g. the auto_think phase) so
+   * one tenant's private pages/takes never feed — and get durably attributed to
+   * — another tenant's draft. Omitted → whole-brain retrieval (manual CLI think /
+   * deep-synth, which are operator-only and unscoped by design).
+   */
+  sourceIds?: readonly string[];
 }
 
 export interface ThinkResult {
@@ -174,9 +182,17 @@ export function renderTakesBlock(takes: TakeGatherRow[]): string {
 }
 
 /** Gather page evidence via hybrid search. Fail-soft to []. */
-async function gatherPages(storage: Storage, question: string, k: number): Promise<SearchHit[]> {
+async function gatherPages(
+  storage: Storage,
+  question: string,
+  k: number,
+  sourceIds?: readonly string[],
+): Promise<SearchHit[]> {
   try {
-    return await hybridSearch(storage, question, { k });
+    return await hybridSearch(storage, question, {
+      k,
+      ...(sourceIds && sourceIds.length > 0 ? { sourceIds } : {}),
+    });
   } catch {
     return [];
   }
@@ -187,16 +203,29 @@ async function gatherPages(storage: Storage, question: string, k: number): Promi
  * question. Deterministic, no LLM. Fail-soft to [] (pre-045 brain / no takes).
  * LIKE wildcards in the question are escaped so a `%`/`_` can't match-everything.
  */
-async function gatherTakes(engine: Engine, question: string, maxTakes: number): Promise<TakeGatherRow[]> {
+async function gatherTakes(
+  engine: Engine,
+  question: string,
+  maxTakes: number,
+  sourceIds?: readonly string[],
+): Promise<TakeGatherRow[]> {
   const needle = question.slice(0, 80).replace(/[\\%_]/g, "\\$&");
+  const params: unknown[] = [needle, maxTakes];
+  // synth_takes carries no source_id (mig045); scope by joining source_ref to
+  // documents.source_id, same as the tenant-scoped take reads.
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND EXISTS (SELECT 1 FROM documents d WHERE d.id = synth_takes.source_ref AND d.source_id = ANY($${params.length}::text[]))`;
+  }
   try {
     const { rows } = await engine.query<TakeGatherRow>(
       `SELECT take_key, claim_text, kind, weight, domain
          FROM synth_takes
-        WHERE claim_text ILIKE '%' || $1 || '%' ESCAPE '\\'
+        WHERE claim_text ILIKE '%' || $1 || '%' ESCAPE '\\'${scope}
         ORDER BY generated_at DESC, take_key ASC
         LIMIT $2`,
-      [needle, maxTakes],
+      params,
     );
     return rows;
   } catch {
@@ -213,15 +242,22 @@ async function gatherTakesVector(
   engine: Engine,
   embedding: number[],
   maxTakes: number,
+  sourceIds?: readonly string[],
 ): Promise<TakeGatherRow[]> {
+  const params: unknown[] = [JSON.stringify(embedding), maxTakes];
+  let scope = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scope = ` AND EXISTS (SELECT 1 FROM documents d WHERE d.id = synth_takes.source_ref AND d.source_id = ANY($${params.length}::text[]))`;
+  }
   try {
     const { rows } = await engine.query<TakeGatherRow>(
       `SELECT take_key, claim_text, kind, weight, domain
          FROM synth_takes
-        WHERE embedding IS NOT NULL
+        WHERE embedding IS NOT NULL${scope}
         ORDER BY embedding <=> $1::vector ASC
         LIMIT $2`,
-      [JSON.stringify(embedding), maxTakes],
+      params,
     );
     return rows;
   } catch {
@@ -590,11 +626,14 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     ? await embedFn(question).catch(() => null)
     : null;
 
-  const pagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk));
+  const scopeIds = opts.sourceIds;
+  const pagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk, scopeIds));
   const [pages, takesKw, takesVec] = await Promise.all([
     pagesFn(question, k),
-    gatherTakes(engine, question, maxTakes),
-    questionEmbedding ? gatherTakesVector(engine, questionEmbedding, maxTakes) : Promise.resolve<TakeGatherRow[]>([]),
+    gatherTakes(engine, question, maxTakes, scopeIds),
+    questionEmbedding
+      ? gatherTakesVector(engine, questionEmbedding, maxTakes, scopeIds)
+      : Promise.resolve<TakeGatherRow[]>([]),
   ]);
   // Fuse the keyword + vector take streams (RRF, dedup by take_key).
   const takes = takesVec.length > 0 ? fuseTakeStreams(takesKw, takesVec, maxTakes) : takesKw;

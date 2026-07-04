@@ -42,12 +42,38 @@ export interface CalibrationProfileOptions {
   minGraded?: number;
 }
 
+/** One take's domain scorecard within a calibration run. */
+export interface DomainScorecard {
+  /** Resolved (correct∨incorrect∨partial) takes in this domain. */
+  n: number;
+  correct: number;
+  incorrect: number;
+  partial: number;
+  /** correct / (correct + incorrect); null when nothing is decided. */
+  accuracy: number | null;
+  /** Mean (weight − outcome)² over decided bets; null when none are decided. */
+  brier: number | null;
+  /** partial / n; null when n === 0. */
+  partial_rate: number | null;
+}
+
+/** Per-domain scorecards keyed by the take's `domain`. */
+export type DomainScorecards = Record<string, DomainScorecard>;
+
 /** One tenant's outcome within a calibration run. */
 export interface CalibrationSourceProfile {
   sourceId: string;
   profileWritten: boolean;
   totalGraded: number;
   accuracy: number | null;
+  /** Mean (weight − outcome)² over decided bets; null when none are decided. */
+  brier: number | null;
+  /** partial / resolved; null when nothing is resolved. */
+  partialRate: number | null;
+  /** Graded / total takes for this tenant, in [0, 1]. */
+  gradeCompletion: number;
+  /** Per-domain breakdown keyed by take domain. */
+  domainScorecards: DomainScorecards;
   patternStatements: string[];
   biasTags: string[];
   skippedReason?: string;
@@ -77,7 +103,44 @@ interface Scorecard {
   partial: number;
   unresolvable: number;
   accuracy: number | null;
+  /** Mean (weight − outcome)² over decided (correct∨incorrect) bets. */
+  brier: number | null;
+  /** partial / resolved. */
+  partialRate: number | null;
+  /** Per-domain scorecards keyed by the take's `domain`. */
+  domainScorecards: DomainScorecards;
   gradedTakeIds: number[];
+}
+
+/** One graded take, carrying its conviction weight and domain for Brier +
+ *  per-domain aggregation. */
+interface GradedTake {
+  take_id: number;
+  verdict: string;
+  weight: number;
+  domain: string | null;
+}
+
+/** Takes with a NULL/empty domain aggregate under this bucket. */
+const UNCLASSIFIED_DOMAIN = "unclassified";
+
+/**
+ * Brier over decided (correct∨incorrect) takes: mean (weight − outcome)² with
+ * outcome = 1 for correct, 0 for incorrect. Partial/unresolvable are excluded
+ * (no crisp outcome). Returns null when nothing is decided. Matches the
+ * reads-side `getTakesScorecard` definition so the two surfaces never disagree.
+ */
+function brierOf(takes: GradedTake[]): number | null {
+  let sum = 0;
+  let decided = 0;
+  for (const t of takes) {
+    if (t.verdict !== "correct" && t.verdict !== "incorrect") continue;
+    const outcome = t.verdict === "correct" ? 1 : 0;
+    const w = Number.isFinite(t.weight) ? t.weight : 0.5;
+    sum += (w - outcome) ** 2;
+    decided += 1;
+  }
+  return decided > 0 ? sum / decided : null;
 }
 
 const PATTERNS_SYSTEM_PROMPT = `You summarize a forecaster's track record so they
@@ -98,9 +161,7 @@ late, well-calibrated) with a domain. Examples: "over-confident-macro",
 Output ONLY a JSON array of strings. If no clear pattern, return [].`;
 
 /** Most-recent grade per take, then tally. Pure aggregation over rows. */
-function buildScorecard(
-  rows: Array<{ take_id: number; verdict: string }>,
-): Scorecard {
+function buildScorecard(rows: GradedTake[]): Scorecard {
   // One verdict per take — the query already returns the latest per take.
   let correct = 0;
   let incorrect = 0;
@@ -132,8 +193,55 @@ function buildScorecard(
     partial,
     unresolvable,
     accuracy,
+    brier: brierOf(rows),
+    partialRate: resolved > 0 ? partial / resolved : null,
+    domainScorecards: buildDomainScorecards(rows),
     gradedTakeIds: ids,
   };
+}
+
+/**
+ * Split the graded takes by their `domain` and score each bucket the same way
+ * as the pooled scorecard (accuracy, Brier, partial_rate). A NULL/empty domain
+ * lands in the `unclassified` bucket so every graded take is represented.
+ */
+function buildDomainScorecards(rows: GradedTake[]): DomainScorecards {
+  const groups = new Map<string, GradedTake[]>();
+  for (const r of rows) {
+    const key =
+      typeof r.domain === "string" && r.domain.trim().length > 0
+        ? r.domain.trim()
+        : UNCLASSIFIED_DOMAIN;
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = [];
+      groups.set(key, bucket);
+    }
+    bucket.push(r);
+  }
+  const out: DomainScorecards = {};
+  for (const [domain, takes] of groups) {
+    let correct = 0;
+    let incorrect = 0;
+    let partial = 0;
+    for (const t of takes) {
+      if (t.verdict === "correct") correct += 1;
+      else if (t.verdict === "incorrect") incorrect += 1;
+      else if (t.verdict === "partial") partial += 1;
+    }
+    const decided = correct + incorrect;
+    const n = correct + incorrect + partial;
+    out[domain] = {
+      n,
+      correct,
+      incorrect,
+      partial,
+      accuracy: decided > 0 ? correct / decided : null,
+      brier: brierOf(takes),
+      partial_rate: n > 0 ? partial / n : null,
+    };
+  }
+  return out;
 }
 
 /** Parse newline-separated pattern statements. */
@@ -176,11 +284,43 @@ function templatePatterns(s: Scorecard): string[] {
   return [`Overall ${acc}% accurate across ${resolved} resolved takes (${s.correct} right, ${s.incorrect} wrong).`];
 }
 
+/**
+ * Count all takes (graded or not) per owning tenant — the grade_completion
+ * denominator. Same tenant-bucketing as the grade query: a take with no
+ * matching source document coalesces to the default tenant.
+ */
+async function loadTotalTakesBySource(
+  engine: Engine,
+): Promise<Map<string, number>> {
+  const { rows } = await engine.query<{ source_id: string | null; total: number }>(
+    `SELECT COALESCE(d.source_id, $1) AS source_id, COUNT(*)::int AS total
+       FROM synth_takes t
+       LEFT JOIN documents d ON d.id = t.source_ref
+      GROUP BY 1`,
+    [DEFAULT_SOURCE_ID],
+  );
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const key =
+      typeof r.source_id === "string" && r.source_id.length > 0
+        ? r.source_id
+        : DEFAULT_SOURCE_ID;
+    out.set(key, (out.get(key) ?? 0) + Number(r.total));
+  }
+  return out;
+}
+
 /** Bucket the latest-per-take grades by their owning tenant. */
 function groupGradesBySource(
-  rows: Array<{ take_id: number; verdict: string; source_id: string | null }>,
-): Map<string, Array<{ take_id: number; verdict: string }>> {
-  const groups = new Map<string, Array<{ take_id: number; verdict: string }>>();
+  rows: Array<{
+    take_id: number;
+    verdict: string;
+    weight: number;
+    domain: string | null;
+    source_id: string | null;
+  }>,
+): Map<string, GradedTake[]> {
+  const groups = new Map<string, GradedTake[]>();
   for (const r of rows) {
     const key =
       typeof r.source_id === "string" && r.source_id.length > 0
@@ -191,7 +331,12 @@ function groupGradesBySource(
       bucket = [];
       groups.set(key, bucket);
     }
-    bucket.push({ take_id: Number(r.take_id), verdict: r.verdict });
+    bucket.push({
+      take_id: Number(r.take_id),
+      verdict: r.verdict,
+      weight: typeof r.weight === "number" ? r.weight : Number(r.weight),
+      domain: r.domain,
+    });
   }
   return groups;
 }
@@ -265,6 +410,7 @@ async function writeProfileRow(
   engine: Engine,
   sourceId: string,
   scorecard: Scorecard,
+  gradeCompletion: number,
   patternStatements: string[],
   biasTags: string[],
   modelId: string,
@@ -272,8 +418,10 @@ async function writeProfileRow(
   await engine.query(
     `INSERT INTO synth_calibration_profile
        (generated_at, source_id, total_graded, correct, incorrect, partial,
-        unresolvable, accuracy, graded_take_ids, pattern_statements, bias_tags, model_id)
-     VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)`,
+        unresolvable, accuracy, brier, partial_rate, grade_completion,
+        domain_scorecards, graded_take_ids, pattern_statements, bias_tags, model_id)
+     VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
     [
       sourceId,
       scorecard.total,
@@ -282,6 +430,10 @@ async function writeProfileRow(
       scorecard.partial,
       scorecard.unresolvable,
       scorecard.accuracy,
+      scorecard.brier,
+      scorecard.partialRate,
+      gradeCompletion,
+      JSON.stringify(scorecard.domainScorecards),
       JSON.stringify(scorecard.gradedTakeIds),
       JSON.stringify(patternStatements),
       JSON.stringify(biasTags),
@@ -315,16 +467,24 @@ export async function calibrationProfilePhase(
   const { rows } = await engine.query<{
     take_id: number;
     verdict: string;
+    weight: number;
+    domain: string | null;
     source_id: string | null;
   }>(
     `SELECT DISTINCT ON (g.take_id)
-            g.take_id, g.verdict, COALESCE(d.source_id, $1) AS source_id
+            g.take_id, g.verdict, t.weight, t.domain,
+            COALESCE(d.source_id, $1) AS source_id
        FROM synth_take_grades g
        JOIN synth_takes t ON t.id = g.take_id
        LEFT JOIN documents d ON d.id = t.source_ref
       ORDER BY g.take_id, g.id DESC`,
     [DEFAULT_SOURCE_ID],
   );
+
+  // Total takes per tenant (graded or not) — the denominator for
+  // grade_completion. A take whose source_ref isn't a document coalesces to
+  // the default tenant, mirroring the grade query's bucketing exactly.
+  const totalsBySource = await loadTotalTakesBySource(engine);
 
   const groups = groupGradesBySource(rows);
   // Deterministic order keeps multi-source runs stable.
@@ -337,11 +497,20 @@ export async function calibrationProfilePhase(
   for (const sourceId of sourceIds) {
     const scorecard = buildScorecard(groups.get(sourceId) ?? []);
     result.totalGraded += scorecard.total;
+    // graded / total takes for the tenant; clamp to [0,1] and default to 1.0
+    // ("fully graded") when the denominator is missing/degenerate.
+    const totalTakes = totalsBySource.get(sourceId) ?? scorecard.total;
+    const gradeCompletion =
+      totalTakes > 0 ? Math.min(1, scorecard.total / totalTakes) : 1;
     const per: CalibrationSourceProfile = {
       sourceId,
       profileWritten: false,
       totalGraded: scorecard.total,
       accuracy: scorecard.accuracy,
+      brier: scorecard.brier,
+      partialRate: scorecard.partialRate,
+      gradeCompletion,
+      domainScorecards: scorecard.domainScorecards,
       patternStatements: [],
       biasTags: [],
     };
@@ -363,7 +532,7 @@ export async function calibrationProfilePhase(
     per.biasTags = biasTags;
 
     try {
-      await writeProfileRow(engine, sourceId, scorecard, patternStatements, biasTags, modelId);
+      await writeProfileRow(engine, sourceId, scorecard, gradeCompletion, patternStatements, biasTags, modelId);
       per.profileWritten = true;
       result.profileWritten = true;
       pooledCorrect += scorecard.correct;

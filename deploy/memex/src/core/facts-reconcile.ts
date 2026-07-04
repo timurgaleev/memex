@@ -125,6 +125,11 @@ export async function reconcileFactsForPage(
     notability?: string;
     validFrom?: string;
     validUntil?: string;
+    claimMetric?: string;
+    claimValue?: number;
+    claimUnit?: string;
+    claimPeriod?: string;
+    eventType?: string;
   }[] = [];
   for (const f of parsed) {
     if (!f.active) continue;
@@ -144,6 +149,13 @@ export async function reconcileFactsForPage(
     if (f.notability !== undefined) row.notability = f.notability;
     if (f.validFrom !== undefined) row.validFrom = f.validFrom;
     if (f.validUntil !== undefined) row.validUntil = f.validUntil;
+    // Typed-claim fields (mig070) — already normalized-or-undefined by the fence
+    // parser, so they reach the NUMERIC / TEXT columns clean or as NULL.
+    if (f.claimMetric !== undefined) row.claimMetric = f.claimMetric;
+    if (f.claimValue !== undefined) row.claimValue = f.claimValue;
+    if (f.claimUnit !== undefined) row.claimUnit = f.claimUnit;
+    if (f.claimPeriod !== undefined) row.claimPeriod = f.claimPeriod;
+    if (f.eventType !== undefined) row.eventType = f.eventType;
     facts.push(row);
     if (facts.length >= MAX_FACTS_FENCE_ROWS) break;
   }
@@ -154,7 +166,7 @@ export async function reconcileFactsForPage(
   // original whole-source behavior.
   const delScope = scope !== null ? ` AND source_id = $2` : "";
   const insCol = scope !== null ? ", source_id" : "";
-  const insVal = scope !== null ? ", $12" : "";
+  const insVal = scope !== null ? ", $17" : "";
   return engine.transaction(async (tx) => {
     // Preserve forget tombstones (mig043) across the rebuild: a fact the
     // operator explicitly forgot must not be resurrected by the next page
@@ -209,14 +221,21 @@ export async function reconcileFactsForPage(
         f.notability ?? null,
         f.validFrom ?? null,
         f.validUntil ?? null,
+        f.claimMetric ?? null,
+        f.claimValue ?? null,
+        f.claimUnit ?? null,
+        f.claimPeriod ?? null,
+        f.eventType ?? null,
       ];
       if (scope !== null) insParams.push(scope);
       await tx.query(
         `INSERT INTO entity_facts
            (entity_slug, fact, confidence, source_slug, source_chunk_id,
             written_by, source_markdown_slug, row_num,
-            kind, notability, valid_from, valid_until${insCol})
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11${insVal})`,
+            kind, notability, valid_from, valid_until,
+            claim_metric, claim_value, claim_unit, claim_period, event_type${insCol})
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11,
+                 $12, $13, $14, $15, $16${insVal})`,
         insParams,
       );
       added += 1;

@@ -18,6 +18,14 @@ export interface VectorSearchOptions {
    * See filters.ts.
    */
   filters?: ChunkFilters;
+  /**
+   * Per-page max-pool (opt-in, default OFF): collapse to ONE row per
+   * (source, document) — the page's NEAREST chunk — BEFORE the LIMIT cut, so
+   * the ANN budget returns N distinct pages (each by its closest chunk) instead
+   * of N chunks that collapse to fewer pages downstream. This is the arm that
+   * historically lacked the pooling the keyword arm always had. See hybrid.ts.
+   */
+  maxPool?: boolean;
 }
 
 export async function vectorSearch(
@@ -40,14 +48,32 @@ export async function vectorSearch(
   const filterClauses = chunkFilterClauses(params, opts.filters);
   params.push(limit);
   const limitParam = `$${params.length}`;
-  const r = await engine.query<{ chunk_id: string }>(
-    `SELECT e.chunk_id FROM embeddings e
-     JOIN chunks c     ON c.id = e.chunk_id
-     JOIN documents d  ON d.id = c.document_id
-     WHERE ${vis}${sourceFilter}${filterClauses}
-     ORDER BY e.vector <=> $1::vector
-     LIMIT ${limitParam}`,
-    params,
-  );
+  // Per-page max-pool (opt-in): pool to the NEAREST chunk per (source, document)
+  // BEFORE the LIMIT. Distance ascends (closer = better), so the inner
+  // DISTINCT ON keeps the min-distance chunk per page (tiebroken by chunk_id),
+  // and the outer query re-orders the pooled rows by distance. Without this the
+  // ANN cut can be filled by several chunks of one page, dropping other pages'
+  // best chunks before they rank.
+  const sql = opts.maxPool
+    ? `SELECT bpp.chunk_id FROM (
+         SELECT DISTINCT ON (COALESCE(d.source_id, 'default'), c.document_id)
+                e.chunk_id AS chunk_id,
+                (e.vector <=> $1::vector) AS dist
+           FROM embeddings e
+           JOIN chunks c    ON c.id = e.chunk_id
+           JOIN documents d ON d.id = c.document_id
+          WHERE ${vis}${sourceFilter}${filterClauses}
+          ORDER BY COALESCE(d.source_id, 'default'), c.document_id,
+                   dist ASC, e.chunk_id COLLATE "C" ASC
+       ) bpp
+       ORDER BY bpp.dist ASC, bpp.chunk_id COLLATE "C" ASC
+       LIMIT ${limitParam}`
+    : `SELECT e.chunk_id FROM embeddings e
+       JOIN chunks c     ON c.id = e.chunk_id
+       JOIN documents d  ON d.id = c.document_id
+       WHERE ${vis}${sourceFilter}${filterClauses}
+       ORDER BY e.vector <=> $1::vector
+       LIMIT ${limitParam}`;
+  const r = await engine.query<{ chunk_id: string }>(sql, params);
   return r.rows.map((row) => row.chunk_id);
 }

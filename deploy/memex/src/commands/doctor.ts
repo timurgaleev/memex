@@ -21,6 +21,13 @@ import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
 import { latestEvalSnapshot } from "../core/eval-snapshot.ts";
+import { Queue } from "../core/jobs/queue.ts";
+import {
+  buildRemediationPlan,
+  submitRemediation,
+  type BrokenSource,
+  type RemediationInput,
+} from "../core/remediation.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 interface Check {
@@ -39,6 +46,9 @@ export interface DoctorOptions {
    *  (Bun's `os.homedir()` caches at process start, so HOME env tricks
    *  don't work). Defaults to `~/.memex/config.json`. */
   configPath?: string;
+  /** Override argv (defaults to process.argv.slice(2)). Tests drive the
+   *  remediation flags through this without touching the global argv. */
+  argv?: string[];
 }
 
 export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
@@ -308,6 +318,16 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     }
   }
 
+  // Remediation layer (opt-in). The fast read-only probe above is the DEFAULT;
+  // these flags never change behavior unless explicitly passed. `--remediate`
+  // wins over `--remediation-plan` when both are given.
+  const argv = opts.argv ?? process.argv.slice(2);
+  if (argv.includes("--remediation-plan") || argv.includes("--remediate")) {
+    await emitRemediation(storage, checks, argv);
+    if (storage) await storage.close();
+    return;
+  }
+
   if (storage) {
     await storage.close();
   }
@@ -349,4 +369,125 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     ),
   );
   if (!pass) process.exitCode = 1;
+}
+
+/** Parse `--flag N` / `--flag=N` as a finite number, else undefined. */
+function parseNumFlag(argv: string[], flag: string): number | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === flag && i + 1 < argv.length) {
+      const n = Number(argv[i + 1]);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    if (a?.startsWith(`${flag}=`)) {
+      const n = Number(a.slice(flag.length + 1));
+      return Number.isFinite(n) ? n : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Gather the structured health signals the classifier needs. Kept off the
+ * default doctor path — only runs when a remediation flag is passed.
+ */
+async function gatherRemediationInput(
+  storage: Storage | null,
+  checks: Check[],
+): Promise<RemediationInput> {
+  const signals = checks.map((c) => ({
+    check: c.name,
+    ok: c.ok,
+    ...(c.detail !== undefined ? { detail: c.detail } : {}),
+  }));
+  const input: RemediationInput = { signals };
+  if (!storage) return input;
+  try {
+    const rows = await collectPerSourceHealth(storage.raw());
+    const broken: BrokenSource[] = rows
+      .filter((r) => r.embeddable_chunks > 0 && r.embedded_chunks === 0)
+      .map((r) => ({ source_id: r.source_id, embeddable_chunks: r.embeddable_chunks }));
+    if (broken.length > 0) input.brokenSources = broken;
+  } catch {
+    // best-effort — a probe failure just yields no source fixes.
+  }
+  try {
+    const fresh = await checkCycleFreshness(storage.raw());
+    input.cycleStale = !fresh.ok || fresh.detail.startsWith("WARN");
+  } catch {
+    // best-effort — leave cycleStale undefined.
+  }
+  return input;
+}
+
+/**
+ * Emit the remediation plan (read-only) or run `--remediate` (enqueue the safe
+ * subset, dry-run by default). Prints a stable JSON envelope. Never mutates on
+ * the plan path; `--remediate` submits nothing unless `--execute` (or `--yes`)
+ * is passed AND a working engine is available.
+ */
+async function emitRemediation(
+  storage: Storage | null,
+  checks: Check[],
+  argv: string[],
+): Promise<void> {
+  const input = await gatherRemediationInput(storage, checks);
+  const remediate = argv.includes("--remediate");
+  const plan = buildRemediationPlan(input);
+
+  if (!remediate) {
+    console.log(
+      JSON.stringify(
+        { mode: "remediation-plan", version: packageJson.version, ...plan },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  // --remediate: dry-run is the DEFAULT. Only --execute / --yes actually enqueue.
+  const dryRun = !(argv.includes("--execute") || argv.includes("--yes"));
+  const maxUsd = parseNumFlag(argv, "--max-usd");
+  const maxJobs = parseNumFlag(argv, "--max-jobs");
+
+  if (!storage) {
+    // No engine → nothing can be enqueued. Emit the plan + a clear note.
+    console.log(
+      JSON.stringify(
+        {
+          ok: false,
+          mode: "remediate",
+          version: packageJson.version,
+          note: "no working storage engine — fix config/pglite before remediation jobs can run",
+          plan,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const queue = new Queue(storage.engine());
+  const { report } = await submitRemediation(queue, input, {
+    dryRun,
+    ...(maxUsd !== undefined ? { maxUsd } : {}),
+    ...(maxJobs !== undefined ? { maxJobs } : {}),
+  });
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        mode: "remediate",
+        version: packageJson.version,
+        dry_run: report.dry_run,
+        plan,
+        report,
+      },
+      null,
+      2,
+    ),
+  );
 }

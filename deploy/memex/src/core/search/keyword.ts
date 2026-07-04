@@ -32,6 +32,15 @@ export interface KeywordSearchOptions {
    * filtered match ranking below the fanout is no longer dropped. See filters.ts.
    */
   filters?: ChunkFilters;
+  /**
+   * Per-page max-pool (opt-in, default OFF): collapse the candidate set to ONE
+   * row per (source, document) — the page's highest-ranking chunk — BEFORE the
+   * LIMIT cut, so the budget covers N distinct pages (each by its best chunk)
+   * instead of N chunks that may all belong to a few noisy pages. Deterministic
+   * DISTINCT ON; the surviving chunk is fully pinned by the `score DESC, id`
+   * tiebreak. See hybrid.ts (`maxPool`).
+   */
+  maxPool?: boolean;
 }
 
 export async function keywordSearch(
@@ -53,14 +62,33 @@ export async function keywordSearch(
   const filterClauses = chunkFilterClauses(params, opts.filters);
   params.push(limit);
   const limitParam = `$${params.length}`;
-  const r = await engine.query<{ id: string }>(
-    `SELECT c.id FROM chunks c
-     JOIN documents d ON d.id = c.document_id
-     WHERE c.search_vector @@ plainto_tsquery('simple', $1)
-       AND ${vis}${sourceFilter}${filterClauses}
-     ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
-     LIMIT ${limitParam}`,
-    params,
-  );
+  // Per-page max-pool (opt-in): pool the full match set to the best chunk per
+  // (source, document) BEFORE the LIMIT, so a page's top chunk can't be
+  // truncated out by weaker chunks of OTHER pages filling the early slots. The
+  // inner DISTINCT ON leads its ORDER BY with the collapse key (required), then
+  // the tiebreak `score DESC, id` pins the surviving chunk deterministically;
+  // the outer query re-ranks the pooled rows by score. Same matched set + WHERE
+  // as the flat path — only the per-page collapse differs.
+  const sql = opts.maxPool
+    ? `SELECT bpp.id FROM (
+         SELECT DISTINCT ON (COALESCE(d.source_id, 'default'), c.document_id)
+                c.id AS id,
+                ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) AS score
+           FROM chunks c
+           JOIN documents d ON d.id = c.document_id
+          WHERE c.search_vector @@ plainto_tsquery('simple', $1)
+            AND ${vis}${sourceFilter}${filterClauses}
+          ORDER BY COALESCE(d.source_id, 'default'), c.document_id,
+                   score DESC, c.id COLLATE "C" ASC
+       ) bpp
+       ORDER BY bpp.score DESC, bpp.id COLLATE "C" ASC
+       LIMIT ${limitParam}`
+    : `SELECT c.id FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE c.search_vector @@ plainto_tsquery('simple', $1)
+         AND ${vis}${sourceFilter}${filterClauses}
+       ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
+       LIMIT ${limitParam}`;
+  const r = await engine.query<{ id: string }>(sql, params);
   return r.rows.map((row) => row.id);
 }

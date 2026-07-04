@@ -362,6 +362,14 @@ export interface CalibrationProfileRow {
   partial: number;
   unresolvable: number;
   accuracy: number | null;
+  /** Mean (weight − outcome)² over decided bets (mig 069); null pre-069. */
+  brier: number | null;
+  /** partial / resolved (mig 069); null pre-069. */
+  partial_rate: number | null;
+  /** Graded / total takes for the tenant (mig 069); defaults 1.0. */
+  grade_completion: number | null;
+  /** Per-domain scorecards keyed by take domain (mig 069); {} pre-069. */
+  domain_scorecards: unknown;
   pattern_statements: unknown;
   bias_tags: unknown;
   model_id: string;
@@ -390,6 +398,7 @@ export async function getCalibrationProfile(
     const r = await engine.query<CalibrationProfileRow>(
       `SELECT generated_at::text AS generated_at, source_id, total_graded, correct,
               incorrect, partial, unresolvable, accuracy,
+              brier, partial_rate, grade_completion, domain_scorecards,
               pattern_statements, bias_tags, model_id
          FROM synth_calibration_profile${sourceFilter}
         ORDER BY generated_at DESC

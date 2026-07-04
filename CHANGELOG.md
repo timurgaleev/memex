@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — reference-parity wave 2
+- **Deeper calibration.** The calibration profile now reports a **Brier score**
+  (how well-calibrated your confidence is, not just accuracy), a partial-rate, a
+  **per-domain scorecard** (so "geography missed 4 of 6" is visible, not hidden
+  in a pooled average), and a grade-completion fraction. Surfaced through
+  `get_calibration_profile` / `takes_calibration`. (migration 069)
+- **Numeric metric claims + trajectory analysis.** Facts can now carry a typed
+  numeric claim (`metric` / `value` / `unit` / `period` / `event_type`), and
+  `find_trajectory` gains metric filters, **regression detection** (flags a ≥10%
+  drop across a metric's history) and an embedding **drift score**. The plain
+  chronological "how did X change" trajectory is unchanged by default. (migration 070)
+- **Three new opt-in synthesis phases** (paid, default-OFF, single-model, budget-
+  capped, tenant-scoped): **`enrich_thin`** trickle-develops thin/stub pages so the
+  brain gets smarter not just bigger; **`auto_think`** runs configured questions on
+  a schedule and saves each answer as a draft; **`drift`** flags takes whose
+  underlying evidence changed after the take was made. All excluded from paid
+  fact backfill (no synthesis-feeds-synthesis loop).
+- **Retrieval depth (deterministic, no new LLM cost):** an optional **relational
+  4th RRF arm** (fuses edge-derived candidates into a normal `query`,
+  `MEMEX_RELATIONAL_ARM=1`); **per-page max-pool** so a page's single strong chunk
+  can't be crowded out of the candidate set before ranking (`MEMEX_MAXPOOL=1`);
+  and a **`--explain`** search view that stamps which boost fired on each hit.
+- **`doctor` remediation.** `memex doctor --remediation-plan` maps ranked health
+  issues to fix actions (remediable / human-only / blocked); `--remediate` submits
+  the safe, deterministic fixes (re-run a stale phase, re-embed an empty source)
+  as jobs on memex's own durable queue — dry-run by default, budget-capped. The
+  fast read-only probe stays the default.
+
 ## [1.77.0] — 2026-07-04
 
 ### Added — reference-parity wave 1

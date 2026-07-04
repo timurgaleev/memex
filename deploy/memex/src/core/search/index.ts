@@ -10,3 +10,9 @@ export { applySourceBoost } from "./source-boost.ts";
 export { classifyIntent, VALID_INTENTS, type Intent } from "./intent.ts";
 export { expandQuery } from "./expansion.ts";
 export { rerank } from "./two-pass.ts";
+export {
+  formatExplain,
+  formatExplainList,
+  type SearchExplain,
+} from "./explain.ts";
+export { relationalArmChunkIds } from "./relational-recall.ts";
