@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex auth rescope-client <id> [--source S] [--federated-read a,b,c]`** —
+  re-point an existing OAuth client's write source and/or read federation in
+  place, without re-issuing its id/secret. Validates every referenced source
+  exists. This is the operator's supported way to widen a client's world (e.g.
+  let a Claude.ai connector read every one of your sources) instead of a raw
+  UPDATE.
+
 ## [1.79.3] — 2026-07-04
 
 ### Fixed
