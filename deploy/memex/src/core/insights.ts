@@ -526,6 +526,30 @@ export interface FindTrajectoryOptions {
    * only facts/events whose `source_id` is in the list.
    */
   sourceIds?: string[];
+  /**
+   * Metric filter (migration 070). When set, only entity_facts rows whose
+   * `claim_metric` equals this canonical label participate; timeline_events are
+   * excluded (a metric query is about typed fact claims). Normalized to the same
+   * lowercase snake_case the writer stores.
+   */
+  metric?: string;
+  /**
+   * Typed-claim shape filter (migration 070), reference-parity. Default `all`
+   * preserves the merged fact+event chronology.
+   *   - `metric`: only fact rows with `claim_metric IS NOT NULL`; timeline
+   *     events excluded.
+   *   - `event`:  only fact rows with `event_type IS NOT NULL`, plus timeline
+   *     events (both are "events").
+   *   - `all`:    both fact + event arms (current default).
+   */
+  claimKind?: "metric" | "event" | "all";
+  /**
+   * Fetch each fact point's raw embedding (migration 038) so the caller can
+   * compute a drift_score without a second round-trip. Default OFF — the plain
+   * chronological trajectory never pays the payload cost. `findTrajectoryStats`
+   * turns it on.
+   */
+  includeEmbedding?: boolean;
 }
 
 export interface TrajectoryPoint {
@@ -539,6 +563,22 @@ export interface TrajectoryPoint {
   kind: string | null;
   /** Underlying row id (entity_facts.id or timeline_events.id). */
   id: number;
+  /** Canonical metric label (mig070); null for events / non-typed facts. */
+  metric: string | null;
+  /** Numeric claim value (mig070); null when the row carries no metric. */
+  value: number | null;
+  /** Free-form unit string (mig070); null when absent. */
+  unit: string | null;
+  /** Free-form period string (mig070); null when absent. */
+  period: string | null;
+  /** Event-shaped row marker (mig070); null when absent. */
+  event_type: string | null;
+  /**
+   * Raw fact embedding for drift computation — only populated when
+   * `includeEmbedding` is set; null for events, unembedded facts, or when the
+   * option is off.
+   */
+  embedding: number[] | null;
 }
 
 /**
@@ -556,6 +596,13 @@ export async function findTrajectory(
 ): Promise<TrajectoryPoint[]> {
   validateSlug(entitySlug);
   const limit = clampLimit(opts.limit, 100, 500);
+  const claimKind = opts.claimKind ?? "all";
+  const metric = normalizeMetricFilter(opts.metric);
+  // A metric query is about typed fact claims — the timeline_events arm carries
+  // no metric, so it is dropped when a metric filter or `claimKind: 'metric'`
+  // is in play. Otherwise both arms merge as before.
+  const includeEvents = metric === undefined && claimKind !== "metric";
+  const wantEmbedding = opts.includeEmbedding === true;
   // $1 = entity slug; the bound params are shared across both arms of the UNION.
   const params: unknown[] = [entitySlug];
   let factBounds = "";
@@ -585,31 +632,66 @@ export async function findTrajectory(
     factBounds += ` AND f.source_id = ANY($${idx}::text[])`;
     eventBounds += ` AND ev.source_id = ANY($${idx}::text[])`;
   }
+  if (metric !== undefined) {
+    params.push(metric);
+    factBounds += ` AND f.claim_metric = $${params.length}`;
+  } else if (claimKind === "metric") {
+    factBounds += ` AND f.claim_metric IS NOT NULL`;
+  } else if (claimKind === "event") {
+    factBounds += ` AND f.event_type IS NOT NULL`;
+  }
   params.push(limit);
   const limitIdx = params.length;
+  // The event arm must project the same columns as the fact arm so the UNION
+  // type-checks; typed-claim columns are NULL for events. Embedding is fetched
+  // only when asked (payload cost).
+  const embSelectFact = wantEmbedding
+    ? "f.embedding::text AS embedding"
+    : "NULL::text AS embedding";
+  const eventArm = includeEvents
+    ? `
+       UNION ALL
+       SELECT 'event'::text AS source,
+              ev.occurred_at::text AS at,
+              ev.event AS text,
+              NULL::text AS kind,
+              ev.id AS id,
+              NULL::text AS metric,
+              NULL::numeric AS value,
+              NULL::text AS unit,
+              NULL::text AS period,
+              NULL::text AS event_type,
+              NULL::text AS embedding
+         FROM timeline_events ev
+         WHERE ev.slug = $1${eventBounds}`
+    : "";
   const r = await storage.engine().query<{
     source: "fact" | "event";
     at: string;
     text: string;
     kind: string | null;
     id: number | string;
+    metric: string | null;
+    value: number | string | null;
+    unit: string | null;
+    period: string | null;
+    event_type: string | null;
+    embedding: string | null;
   }>(
     `SELECT * FROM (
        SELECT 'fact'::text AS source,
               COALESCE(f.valid_from::timestamptz, f.written_at)::text AS at,
               f.fact AS text,
               f.kind AS kind,
-              f.id AS id
+              f.id AS id,
+              f.claim_metric AS metric,
+              f.claim_value AS value,
+              f.claim_unit AS unit,
+              f.claim_period AS period,
+              f.event_type AS event_type,
+              ${embSelectFact}
          FROM entity_facts f
-         WHERE f.entity_slug = $1${factBounds}
-       UNION ALL
-       SELECT 'event'::text AS source,
-              ev.occurred_at::text AS at,
-              ev.event AS text,
-              NULL::text AS kind,
-              ev.id AS id
-         FROM timeline_events ev
-         WHERE ev.slug = $1${eventBounds}
+         WHERE f.entity_slug = $1${factBounds}${eventArm}
      ) merged
      ORDER BY merged.at ASC, merged.source ASC, merged.id ASC
      LIMIT $${limitIdx}`,
@@ -621,5 +703,192 @@ export async function findTrajectory(
     text: row.text,
     kind: row.kind,
     id: Number(row.id),
+    metric: row.metric,
+    value: row.value === null ? null : Number(row.value),
+    unit: row.unit,
+    period: row.period,
+    event_type: row.event_type,
+    embedding: wantEmbedding ? parseEmbedding(row.embedding) : null,
   }));
+}
+
+// --- metric-trajectory derived stats (mig070) ------------------------------
+//
+// Pure functions over `TrajectoryPoint[]` — regression detection + embedding
+// drift_score. Faithful adaptation of the reference's `computeTrajectoryStats`
+// onto memex's point shape (ISO-string `at` instead of a Date `valid_from`,
+// `number[]` embeddings instead of Float32Array). The plain chronological
+// `findTrajectory` stays the default; these are additive.
+
+/** Default regression threshold — a 10% drop between consecutive metric values. */
+export const DEFAULT_REGRESSION_THRESHOLD = 0.1;
+
+/** Schema version for the trajectory-stats JSON contract. Additive-only. */
+export const TRAJECTORY_SCHEMA_VERSION = 1;
+
+export interface TrajectoryRegression {
+  metric: string;
+  from_value: number;
+  from_date: string; // YYYY-MM-DD
+  to_value: number;
+  to_date: string;
+  delta_pct: number; // negative for a drop; typically in [-1, 0)
+}
+
+export interface TrajectoryStats {
+  /** Every consecutive (metric, value) pair whose newer value dropped ≥ threshold. */
+  regressions: TrajectoryRegression[];
+  /** `1 - mean(cosine(emb[i], emb[i-1]))`, clamped [0,1]; null on < 3 embedded points. */
+  drift_score: number | null;
+}
+
+/** Normalize a caller metric filter the same way the writer stores it; empty → undefined. */
+function normalizeMetricFilter(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return v.length > 0 ? v : undefined;
+}
+
+/**
+ * Parse a pgvector text embedding (`[0.1,0.2,…]`) into a `number[]`. Returns
+ * null for a null cell or any parse failure — drift degrades gracefully.
+ */
+function parseEmbedding(raw: string | null): number[] | null {
+  if (raw === null || raw.length === 0) return null;
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const out = arr.map((x) => Number(x));
+    return out.every((x) => Number.isFinite(x)) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the regression threshold from env with a safe fallback to the default. */
+export function resolveRegressionThreshold(
+  env: string | undefined = process.env.MEMEX_TRAJECTORY_REGRESSION_THRESHOLD,
+): number {
+  if (!env) return DEFAULT_REGRESSION_THRESHOLD;
+  const n = Number.parseFloat(env);
+  if (!Number.isFinite(n) || n <= 0 || n >= 1) return DEFAULT_REGRESSION_THRESHOLD;
+  return n;
+}
+
+/** Cosine similarity of two equal-length vectors; 0 on any degenerate input. */
+function cosineSim(a: number[], b: number[]): number {
+  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+/**
+ * Detect chronological regressions across metric points. Groups by `metric` so
+ * interleaved metrics never trip a false cross-metric drop, then walks each
+ * metric's consecutive value pairs (points arrive sorted by anchor date ASC
+ * from findTrajectory) and fires when `(newer - older) / older <= -threshold`.
+ * A metric starting at exactly 0 can't yield a relative delta and is skipped.
+ */
+export function detectRegressions(
+  points: readonly TrajectoryPoint[],
+  threshold: number = DEFAULT_REGRESSION_THRESHOLD,
+): TrajectoryRegression[] {
+  const out: TrajectoryRegression[] = [];
+  const byMetric = new Map<string, TrajectoryPoint[]>();
+  for (const p of points) {
+    if (p.metric === null || p.value === null || !Number.isFinite(p.value)) continue;
+    if (!byMetric.has(p.metric)) byMetric.set(p.metric, []);
+    byMetric.get(p.metric)!.push(p);
+  }
+  for (const [metric, series] of byMetric) {
+    for (let i = 1; i < series.length; i++) {
+      const older = series[i - 1]!;
+      const newer = series[i]!;
+      const oldVal = older.value!;
+      const newVal = newer.value!;
+      if (oldVal === 0) continue;
+      const delta = (newVal - oldVal) / oldVal;
+      if (delta <= -threshold) {
+        out.push({
+          metric,
+          from_value: oldVal,
+          from_date: older.at.slice(0, 10),
+          to_value: newVal,
+          to_date: newer.at.slice(0, 10),
+          delta_pct: delta,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Drift score over the trajectory's embeddings: `1 - mean(cosine(emb[i],
+ * emb[i-1]))`, clamped to [0,1]. Null when fewer than 3 points carry an
+ * embedding (the statistic is meaningless on a tiny sample). Requires
+ * `findTrajectory(..., { includeEmbedding: true })` to have populated them.
+ */
+export function computeDriftScore(points: readonly TrajectoryPoint[]): number | null {
+  const withEmb = points.filter(
+    (p) => p.embedding !== null && p.embedding.length > 0,
+  );
+  if (withEmb.length < 3) return null;
+  let sumCos = 0;
+  let pairs = 0;
+  for (let i = 1; i < withEmb.length; i++) {
+    sumCos += cosineSim(withEmb[i - 1]!.embedding!, withEmb[i]!.embedding!);
+    pairs += 1;
+  }
+  if (pairs === 0) return null;
+  const drift = 1 - sumCos / pairs;
+  return drift < 0 ? 0 : drift > 1 ? 1 : drift;
+}
+
+/** Compose regressions + drift_score into one stats object. */
+export function computeTrajectoryStats(
+  points: readonly TrajectoryPoint[],
+  opts: { threshold?: number } = {},
+): TrajectoryStats {
+  const threshold = opts.threshold ?? resolveRegressionThreshold();
+  return {
+    regressions: detectRegressions(points, threshold),
+    drift_score: computeDriftScore(points),
+  };
+}
+
+/**
+ * Convenience read: fetch an entity's metric-claim trajectory (embeddings on)
+ * and compute its derived stats in one call. Defaults `claimKind` to `metric`
+ * so only typed numeric claims participate — the reference's metric-trajectory
+ * surface. LLM-free; deterministic. Not an MCP op (the raw `findTrajectory`
+ * stays the wired reader); this is the parity plumbing the eval + scorecard
+ * paths consume.
+ */
+export async function findTrajectoryStats(
+  storage: Storage,
+  entitySlug: string,
+  opts: FindTrajectoryOptions & { threshold?: number } = {},
+): Promise<{ points: TrajectoryPoint[]; stats: TrajectoryStats }> {
+  const points = await findTrajectory(storage, entitySlug, {
+    ...opts,
+    claimKind: opts.claimKind ?? "metric",
+    includeEmbedding: true,
+  });
+  const stats = computeTrajectoryStats(points, {
+    ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
+  });
+  return { points, stats };
 }

@@ -32,6 +32,7 @@
 import type { Storage } from "../storage.ts";
 import { KNOWN_LINK_TYPES, graphNeighbors, traverseGraph } from "../links.ts";
 import { makeSlugResolver } from "../slug-canonicalize.ts";
+import { visibilityClause } from "../visibility.ts";
 
 export type RelationalKind = "who_rel" | "who_at" | "connects" | "intro";
 export type RelationalDirection = "outbound" | "inbound" | "both";
@@ -397,5 +398,72 @@ export async function relationalRecall(
     );
     meta.errored = true;
     return finish([]);
+  }
+}
+
+/**
+ * Resolve a relational-recall run into a ranked list of CHUNK IDs, ready to fuse
+ * as a fourth RRF arm inside hybridSearch. Each edge-derived page slug maps to
+ * its page's HEAD chunk (lowest chunk id) via the `page://<slug>` bridge — the
+ * same representative chunk `applyAliasHop` injects — so a typed-edge answer
+ * competes in the same candidate space as the keyword/vector arms.
+ *
+ * Order-preserving: chunk ids come back in relational (ranked) order, so the
+ * arm's RRF rank reflects hop distance / relation strength. Pages with no live
+ * indexed chunk in scope (chunkless entity pages, or a page not mirrored into
+ * search) are silently skipped. Fail-open: a resolution error yields an empty
+ * arm, never breaking search. Scoped by `sourceIds` (tenant isolation) and the
+ * document visibility filter (never surface a hidden page).
+ */
+export async function relationalArmChunkIds(
+  storage: Storage,
+  query: string,
+  opts: RelationalRecallOptions = {},
+): Promise<string[]> {
+  const results = await relationalRecall(storage, query, opts);
+  if (results.length === 0) return [];
+
+  // De-dup the ordered slugs (keep first occurrence) → one page:chunk per slug.
+  const slugOrder: string[] = [];
+  const seenSlug = new Set<string>();
+  for (const r of results) {
+    if (seenSlug.has(r.slug)) continue;
+    seenSlug.add(r.slug);
+    slugOrder.push(r.slug);
+  }
+  const sourcePaths = slugOrder.map((s) => `page://${s}`);
+
+  try {
+    const engine = storage.engine();
+    const params: unknown[] = [sourcePaths];
+    let scopeFilter = "";
+    if (opts.sourceIds && opts.sourceIds.length > 0) {
+      params.push(opts.sourceIds);
+      scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+    }
+    // Head chunk (lowest id) per page, matching fetchPageHeadHit's choice.
+    const rows = await engine.query<{ id: string; source_path: string }>(
+      `SELECT DISTINCT ON (d.source_path) c.id, d.source_path
+         FROM chunks c
+         JOIN documents d ON d.id = c.document_id
+        WHERE d.source_path = ANY($1::text[])${scopeFilter}
+          AND ${visibilityClause("d")}
+        ORDER BY d.source_path, c.id COLLATE "C" ASC`,
+      params,
+    );
+    const chunkByPath = new Map(rows.rows.map((r) => [r.source_path, r.id]));
+    const out: string[] = [];
+    for (const sp of sourcePaths) {
+      const id = chunkByPath.get(sp);
+      if (id) out.push(id);
+    }
+    return out;
+  } catch (err) {
+    // Fail-open: a hydration fault drops the arm, never breaking search.
+    console.error(
+      "[relational-recall] chunk-id hydration failed, dropping arm:",
+      err instanceof Error ? err.message : err,
+    );
+    return [];
   }
 }

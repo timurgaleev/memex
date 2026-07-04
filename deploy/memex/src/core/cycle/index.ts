@@ -71,6 +71,18 @@ import {
   type PatternsPhaseResult,
 } from "../synthesis/patterns.ts";
 import {
+  enrichThinPhase,
+  type EnrichThinPhaseResult,
+} from "../synthesis/enrich-thin.ts";
+import {
+  autoThinkPhase,
+  type AutoThinkPhaseResult,
+} from "../synthesis/auto-think.ts";
+import {
+  driftPhase,
+  type DriftPhaseResult,
+} from "../synthesis/drift.ts";
+import {
   consolidateFactsPhase,
   type ConsolidateFactsResult,
 } from "./consolidate-facts.ts";
@@ -103,6 +115,12 @@ export type PhaseName =
   | "probe-contradictions"
   | "reflections"
   | "patterns"
+  // Autopilot synthesis phases — opt-in, paid, each default-OFF behind its own
+  // env flag (MEMEX_ENRICH_THIN / MEMEX_AUTO_THINK / MEMEX_DRIFT). NOT in
+  // ALL_PHASES.
+  | "enrich-thin"
+  | "auto-think"
+  | "drift"
   // Facts-maintenance phases — opt-in, default-OFF (NOT in ALL_PHASES).
   // consolidate-facts is deterministic + free; conversation-facts-backfill is
   // paid (Sonnet) and additionally gated by MEMEX_FACTS_BACKFILL.
@@ -141,6 +159,11 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
   // and then mine them for cross-session themes in the same tick.
   "reflections",
   "patterns",
+  // Autopilot page-writers — each no-ops unless its own env flag is set, so
+  // including them in the synthesis batch is safe (they self-gate).
+  "enrich-thin",
+  "auto-think",
+  "drift",
 ];
 
 /**
@@ -192,6 +215,9 @@ export interface PhaseResult {
     | ProbeContradictionsResult
     | ReflectionsPhaseResult
     | PatternsPhaseResult
+    | EnrichThinPhaseResult
+    | AutoThinkPhaseResult
+    | DriftPhaseResult
     | ConsolidateFactsResult
     | ConversationFactsBackfillResult;
   error?: string;
@@ -269,6 +295,9 @@ export function deriveStatus(
     phase === "probe-contradictions" ||
     phase === "reflections" ||
     phase === "patterns" ||
+    phase === "enrich-thin" ||
+    phase === "auto-think" ||
+    phase === "drift" ||
     phase === "consolidate-facts" ||
     phase === "conversation-facts-backfill"
   ) {
@@ -612,6 +641,74 @@ export async function runCycleOnce(
                   reason: "no storage handle",
                   reflectionsConsidered: 0,
                   patternsWritten: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
+      case "enrich-thin": {
+        // Paid Sonnet, default-OFF (MEMEX_ENRICH_THIN). Rewrites real pages in
+        // place, so it needs the Storage handle (putPage).
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? enrichThinPhase(storage, {})
+              : Promise.resolve<EnrichThinPhaseResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  thinPagesConsidered: 0,
+                  pagesEnriched: 0,
+                  pagesSkippedInsufficient: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
+      case "auto-think": {
+        // Paid Sonnet, default-OFF (MEMEX_AUTO_THINK). Writes drafts/think/ pages.
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? autoThinkPhase(storage, {})
+              : Promise.resolve<AutoThinkPhaseResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  questionsConsidered: 0,
+                  draftsWritten: 0,
+                  spentUsd: 0,
+                  budgetExhausted: false,
+                  errors: [],
+                }),
+          progress,
+        );
+        break;
+      }
+      case "drift": {
+        // Paid Sonnet, default-OFF (MEMEX_DRIFT). Writes a drift-reports/ page.
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? driftPhase(storage, {})
+              : Promise.resolve<DriftPhaseResult>({
+                  ran: false,
+                  reason: "no storage handle",
+                  candidatesConsidered: 0,
+                  driftedFlagged: 0,
                   spentUsd: 0,
                   budgetExhausted: false,
                   errors: [],

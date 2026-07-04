@@ -75,6 +75,23 @@ export interface ParsedFact {
   validFrom?: string;
   /** ISO date the fact stopped being valid (migration 037). Undefined if absent/invalid. */
   validUntil?: string;
+  /**
+   * Typed-claim fields (migration 070). Optional. Present when a fact is a
+   * numeric claim (`mrr`, `arr`, …); they drive the metric-trajectory
+   * regression + drift analysis in core/insights.ts. Absent on ordinary
+   * free-text facts — the renderer only widens the fence when at least one row
+   * carries one, so existing narrow fences are never churned.
+   *   - `claimMetric`: canonical metric label, lowercase snake_case.
+   *   - `claimValue`:  finite numeric value. Empty/non-numeric cell → undefined.
+   *   - `claimUnit`:   free-form unit string.
+   *   - `claimPeriod`: free-form period string, or undefined for non-periodic.
+   *   - `eventType`:   event-shaped row marker (`meeting`, `job_change`, …).
+   */
+  claimMetric?: string;
+  claimValue?: number;
+  claimUnit?: string;
+  claimPeriod?: string;
+  eventType?: string;
   /** False when the claim was wrapped in `~~ ~~` (retracted / forgotten). */
   active: boolean;
 }
@@ -96,6 +113,34 @@ function normalizeNotability(raw: string | undefined): FactNotability | undefine
   if (raw === undefined) return undefined;
   const v = raw.trim().toLowerCase();
   return NOTABILITY_VALUES.has(v) ? (v as FactNotability) : undefined;
+}
+
+/**
+ * Canonicalize a metric / event-type label to lowercase snake_case so the
+ * trajectory grouping is stable regardless of hand-edit casing (`Team Size`,
+ * `team-size`, `team_size` all collapse to `team_size`). Empty → undefined.
+ */
+function normalizeLabel(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const v = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return v.length > 0 ? v : undefined;
+}
+
+/**
+ * Parse a free-form numeric cell (typed-claim value). Tolerates plain numbers
+ * and scientific notation; strips thousands separators so `50,000` → 50000.
+ * Empty / non-numeric → undefined (the row is kept, its value just stays NULL).
+ */
+function parseNumericCell(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const n = Number.parseFloat(trimmed.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** Parse a strict `YYYY-MM-DD` cell; reject anything else (hand-edits degrade
@@ -160,6 +205,25 @@ function buildColMap(cells: readonly string[]): ColMap | null {
       case "source":
       case "src":
         map.source = idx;
+        break;
+      case "claim_metric":
+      case "metric":
+        map.claimMetric = idx;
+        break;
+      case "claim_value":
+      case "value":
+        map.claimValue = idx;
+        break;
+      case "claim_unit":
+      case "unit":
+        map.claimUnit = idx;
+        break;
+      case "claim_period":
+      case "period":
+        map.claimPeriod = idx;
+        break;
+      case "event_type":
+        map.eventType = idx;
         break;
       default:
         break;
@@ -258,26 +322,59 @@ export function parseFactsFence(markdown: string): ParsedFact[] {
     if (validFrom !== undefined) fact.validFrom = validFrom;
     const validUntil = normalizeDate(cellAt(cells, colMap.validUntil));
     if (validUntil !== undefined) fact.validUntil = validUntil;
+    // Typed-claim fields (migration 070). Only set when present so an ordinary
+    // fact row still `toEqual`s its narrow shape (no undefined keys leak in).
+    const claimMetric = normalizeLabel(cellAt(cells, colMap.claimMetric));
+    if (claimMetric !== undefined) fact.claimMetric = claimMetric;
+    const claimValue = parseNumericCell(cellAt(cells, colMap.claimValue));
+    if (claimValue !== undefined) fact.claimValue = claimValue;
+    const claimUnit = parseStringCell(cellAt(cells, colMap.claimUnit) ?? "");
+    if (claimUnit !== undefined) fact.claimUnit = claimUnit;
+    const claimPeriod = parseStringCell(cellAt(cells, colMap.claimPeriod) ?? "");
+    if (claimPeriod !== undefined) fact.claimPeriod = claimPeriod;
+    const eventType = normalizeLabel(cellAt(cells, colMap.eventType));
+    if (eventType !== undefined) fact.eventType = eventType;
     out.push(fact);
   }
   return out;
 }
 
-/** Render facts into the fenced markdown block (markers + wide table). */
+/**
+ * Render facts into the fenced markdown block (markers + table). The table
+ * widens to carry the migration-070 typed-claim columns ONLY when at least one
+ * row has a typed field set; otherwise it stays at the narrow 8-column shape so
+ * an ordinary fence is never churned on an unrelated rewrite.
+ */
 export function renderFactsFence(facts: readonly ParsedFact[]): string {
-  const header =
-    "| # | claim | kind | confidence | notability | valid_from | valid_until | source |";
-  const sep =
-    "|---|-------|------|------------|------------|------------|-------------|--------|";
+  const anyTyped = facts.some(
+    (f) =>
+      f.claimMetric !== undefined ||
+      f.claimValue !== undefined ||
+      f.claimUnit !== undefined ||
+      f.claimPeriod !== undefined ||
+      f.eventType !== undefined,
+  );
+  const header = anyTyped
+    ? "| # | claim | kind | confidence | notability | valid_from | valid_until | source | claim_metric | claim_value | claim_unit | claim_period | event_type |"
+    : "| # | claim | kind | confidence | notability | valid_from | valid_until | source |";
+  const sep = anyTyped
+    ? "|---|-------|------|------------|------------|------------|-------------|--------|--------------|-------------|------------|--------------|------------|"
+    : "|---|-------|------|------------|------------|------------|-------------|--------|";
   const rows = facts.map((f, idx) => {
     const claimCell = escapeFenceCell(f.claim);
     const claim = f.active ? claimCell : `~~${claimCell}~~`;
     const n = Number.isInteger(f.rowNum) && f.rowNum > 0 ? f.rowNum : idx + 1;
     const conf = clampConfidence(String(f.confidence));
-    return (
+    const base =
       `| ${n} | ${claim} | ${escapeFenceCell(f.kind ?? "")} | ${conf} | ` +
       `${escapeFenceCell(f.notability ?? "")} | ${escapeFenceCell(f.validFrom ?? "")} | ` +
-      `${escapeFenceCell(f.validUntil ?? "")} | ${escapeFenceCell(f.source ?? "")} |`
+      `${escapeFenceCell(f.validUntil ?? "")} | ${escapeFenceCell(f.source ?? "")} |`;
+    if (!anyTyped) return base;
+    const valueCell = f.claimValue === undefined ? "" : String(f.claimValue);
+    return (
+      `${base} ${escapeFenceCell(f.claimMetric ?? "")} | ${escapeFenceCell(valueCell)} | ` +
+      `${escapeFenceCell(f.claimUnit ?? "")} | ${escapeFenceCell(f.claimPeriod ?? "")} | ` +
+      `${escapeFenceCell(f.eventType ?? "")} |`
     );
   });
   return [FACTS_FENCE_BEGIN, header, sep, ...rows, FACTS_FENCE_END].join("\n");

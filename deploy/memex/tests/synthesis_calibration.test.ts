@@ -77,6 +77,41 @@ async function seedGradedTakeForSource(sourceId: string, verdict: string): Promi
   );
 }
 
+/** Seed a graded take with an explicit conviction weight and domain (default
+ *  tenant), for Brier + per-domain assertions. Leaves it graded. */
+async function seedGradedTakeFull(opts: {
+  verdict: string;
+  weight: number;
+  domain?: string | null;
+}): Promise<void> {
+  takeCounter += 1;
+  const { rows } = await engine.query<{ id: number }>(
+    `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, weight, domain, model_id)
+     VALUES ($1, 'd1', 'h', 'v1-nova', 'claim', $2, $3, 'm') RETURNING id`,
+    [`ct-${takeCounter}`, opts.weight, opts.domain ?? null],
+  );
+  await engine.query(
+    `INSERT INTO synth_take_grades (take_id, prompt_version, evidence_signature, verdict, confidence, model_id)
+     VALUES ($1, 'v1-nova', $2, $3, 0.8, 'm')`,
+    [Number(rows[0]?.id), `sig-${takeCounter}`, opts.verdict],
+  );
+}
+
+/** Seed an UNGRADED take (default tenant) — pulls grade_completion below 1. */
+async function seedUngradedTake(): Promise<void> {
+  takeCounter += 1;
+  await engine.query(
+    `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, model_id)
+     VALUES ($1, 'd1', 'h', 'v1-nova', 'claim', 'm')`,
+    [`ct-ung-${takeCounter}`],
+  );
+}
+
+/** JSONB round-trips as a string on some engines; normalise. */
+function asJson<T>(v: unknown): T {
+  return (typeof v === "string" ? JSON.parse(v) : v) as T;
+}
+
 const fakeLlm = (text: string): LlmFn => async () => ({ text, modelId: "fake-nova" });
 
 describe("parsers", () => {
@@ -172,5 +207,99 @@ describe("per-source calibration (tenancy)", () => {
     // A caller scoped to a tenant with no profile sees nothing — not tenant-a's.
     const other = await getCalibrationProfile(engine, ["tenant-z"]);
     expect(other).toBeNull();
+  });
+});
+
+describe("calibration depth (Brier, partial_rate, grade_completion)", () => {
+  it("computes Brier over decided takes' conviction vs outcome", async () => {
+    // Decided (correct/incorrect) contribute (weight - outcome)²; partial is
+    // excluded from Brier but still counted for partial_rate.
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.9 }); // (0.9-1)² = 0.01
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.8 }); // (0.8-1)² = 0.04
+    await seedGradedTakeFull({ verdict: "incorrect", weight: 0.2 }); // (0.2-0)² = 0.04
+    await seedGradedTakeFull({ verdict: "incorrect", weight: 0.7 }); // (0.7-0)² = 0.49
+    await seedGradedTakeFull({ verdict: "partial", weight: 0.5 }); // excluded
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    expect(r.profileWritten).toBe(true);
+    const p = r.profiles[0];
+    // Brier = (0.01 + 0.04 + 0.04 + 0.49) / 4 = 0.145
+    expect(p?.brier).toBeCloseTo(0.145, 6);
+    // partial_rate = partial / resolved = 1 / 5 = 0.2
+    expect(p?.partialRate).toBeCloseTo(0.2, 6);
+
+    const { rows } = await engine.query<{ brier: number; partial_rate: number }>(
+      `SELECT brier, partial_rate FROM synth_calibration_profile`,
+    );
+    expect(Number(rows[0]?.brier)).toBeCloseTo(0.145, 6);
+    expect(Number(rows[0]?.partial_rate)).toBeCloseTo(0.2, 6);
+  });
+
+  it("records grade_completion = graded / total takes for the tenant", async () => {
+    for (let i = 0; i < 5; i++) await seedGradedTakeFull({ verdict: "correct", weight: 0.7 });
+    await seedUngradedTake(); // 5 graded of 6 total → 0.8333…
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    const p = r.profiles[0];
+    expect(p?.gradeCompletion).toBeCloseTo(5 / 6, 6);
+
+    const { rows } = await engine.query<{ grade_completion: number }>(
+      `SELECT grade_completion FROM synth_calibration_profile`,
+    );
+    expect(Number(rows[0]?.grade_completion)).toBeCloseTo(5 / 6, 6);
+  });
+
+  it("null Brier when no take is decided (all partial/unresolvable)", async () => {
+    for (let i = 0; i < 3; i++) await seedGradedTakeFull({ verdict: "partial", weight: 0.5 });
+    for (let i = 0; i < 2; i++) await seedGradedTakeFull({ verdict: "unresolvable", weight: 0.5 });
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    const p = r.profiles[0];
+    expect(p?.brier).toBeNull();
+    // resolved = 3 partial; partial_rate = 3/3 = 1
+    expect(p?.partialRate).toBeCloseTo(1, 6);
+  });
+});
+
+describe("per-domain scorecards", () => {
+  it("splits the scorecard by take domain", async () => {
+    // macro: 2 correct + 1 incorrect; geo: 2 correct. Total 5 clears the gate.
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.9, domain: "macro" });
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.8, domain: "macro" });
+    await seedGradedTakeFull({ verdict: "incorrect", weight: 0.6, domain: "macro" });
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.7, domain: "geo" });
+    await seedGradedTakeFull({ verdict: "correct", weight: 0.5, domain: "geo" });
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    const ds = r.profiles[0]?.domainScorecards ?? {};
+    expect(Object.keys(ds).sort()).toEqual(["geo", "macro"]);
+
+    expect(ds.macro?.n).toBe(3);
+    expect(ds.macro?.correct).toBe(2);
+    expect(ds.macro?.incorrect).toBe(1);
+    // accuracy = correct / decided = 2 / 3
+    expect(ds.macro?.accuracy).toBeCloseTo(2 / 3, 6);
+    // Brier = ((0.9-1)² + (0.8-1)² + (0.6-0)²) / 3 = (0.01 + 0.04 + 0.36)/3
+    expect(ds.macro?.brier).toBeCloseTo(0.41 / 3, 6);
+
+    expect(ds.geo?.n).toBe(2);
+    expect(ds.geo?.accuracy).toBeCloseTo(1, 6);
+
+    // Persisted to the JSONB column and surfaced by the read.
+    const profile = await getCalibrationProfile(engine);
+    const persisted = asJson<Record<string, { n: number }>>(profile?.domain_scorecards);
+    expect(persisted.macro?.n).toBe(3);
+    expect(profile?.brier).not.toBeNull();
+    expect(profile?.partial_rate).not.toBeNull();
+    expect(Number(profile?.grade_completion)).toBeCloseTo(1, 6);
+  });
+
+  it("buckets NULL-domain takes under 'unclassified'", async () => {
+    for (let i = 0; i < 5; i++) await seedGradedTakeFull({ verdict: "correct", weight: 0.6 });
+
+    const r = await calibrationProfilePhase(engine, { llmFn: fakeLlm("pattern") });
+    const ds = r.profiles[0]?.domainScorecards ?? {};
+    expect(Object.keys(ds)).toEqual(["unclassified"]);
+    expect(ds.unclassified?.n).toBe(5);
   });
 });

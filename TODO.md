@@ -33,6 +33,21 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 
 ---
 
+## LOW backlog (v1.78 review notes)
+
+- **`insights.ts` `computeDriftScore` cosine length-mismatch → max drift.** A
+  mixed-dimension embedding ledger (after a dim migration) would read mismatched
+  pairs as drift_score 1. Harmless while the embedding dim is uniform; guard if
+  `MEMEX_EMBED_DIM` is ever changed on a live corpus.
+- **`remediation.ts` per-run budget: over-cap action `continue`s** (a cheaper
+  later action can still enqueue) rather than stopping, and the "already pending"
+  heuristic can double-count `est_usd`. Queue `ON CONFLICT` prevents real dup
+  rows; refine to a hard stop + de-dup on est if remediation is used heavily.
+- **`enrich_thin` / `drift` idempotency is a per-tenant cooldown, not per-item.**
+  A 12h phase cooldown bounds repeated paid spend, but the fully-idempotent form
+  is a per-item last-processed watermark (a small migration) so a resolved item
+  is never re-judged even within the window.
+
 ## LOW backlog (v1.76 review notes)
 
 - **`memex export` frontmatter round-trip is lossy.** The emitted header carries

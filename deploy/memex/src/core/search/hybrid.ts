@@ -85,6 +85,25 @@ import { expandAnchors } from "./structural-expand.ts";
 import { applyBacklinkBoost } from "./backlink-boost.ts";
 import { cosineReScore } from "./cosine-rescore.ts";
 import type { ChunkFilters } from "./filters.ts";
+import { relationalArmChunkIds } from "./relational-recall.ts";
+import {
+  snapshotScores,
+  recordStageFactor,
+  mergeExplain,
+  finalizeExplain,
+  type SearchExplain,
+} from "./explain.ts";
+
+/**
+ * RRF weight for the deterministic relational arm (opt-in 4th arm). A gentle
+ * multiplier on par with the keyword arm — a typed-edge answer should compete,
+ * not dominate. Env-overridable (MEMEX_RELATIONAL_ARM_WEIGHT); an invalid value
+ * falls back to the default.
+ */
+function relationalArmWeight(): number {
+  const n = Number(process.env.MEMEX_RELATIONAL_ARM_WEIGHT);
+  return Number.isFinite(n) && n > 0 ? n : 1.0;
+}
 
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
@@ -198,6 +217,31 @@ export interface SearchOptions {
    */
   nearSymbol?: string;
   /**
+   * Relational recall as a 4th RRF arm (opt-in, default OFF): parse the query
+   * for a typed-edge intent ("who founded X", "where does Y work") and fuse the
+   * deterministic edge fan-out's page head-chunks alongside keyword + vector, so
+   * a relationship answer competes for ranking instead of relying on lexical /
+   * vector overlap to surface it. Falls back to MEMEX_RELATIONAL_ARM=1. Bypasses
+   * the query cache (the arm widens the candidate set). No-op for non-relational
+   * queries. See relational-recall.ts.
+   */
+  relationalArm?: boolean;
+  /**
+   * Per-page max-pool (opt-in, default OFF): make each retrieval arm return its
+   * best chunk per (source, document) so the fanout budget covers N distinct
+   * pages, not N chunks that collapse to fewer pages downstream. Falls back to
+   * MEMEX_MAXPOOL=1. Auto-disabled for `exact` intent and structural walks
+   * (both deliberately want multiple chunks per page). See keyword/vector.ts.
+   */
+  maxPool?: boolean;
+  /**
+   * Per-signal ranking attribution (opt-in, default OFF): stamp each returned
+   * hit with a `explain` record — the base RRF score plus the factor every boost
+   * stage contributed (source/recency/salience/curation/title/backlink/graph)
+   * and the reranker's rank delta. Zero cost when off. See explain.ts.
+   */
+  explain?: boolean;
+  /**
    * @internal Set by the zero-result broadened retry to stop recursion after a
    * single re-run. Callers never set this.
    */
@@ -235,6 +279,11 @@ export interface SearchHit {
    * Stamped post-fusion by `stampContentFlags`. See content-flag.ts.
    */
   content_flag?: ContentFlag;
+  /**
+   * Per-signal ranking attribution — present ONLY when the search ran with the
+   * opt-in `explain` flag. See explain.ts / SearchOptions.explain.
+   */
+  explain?: SearchExplain;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -448,10 +497,27 @@ export async function hybridSearch(
   // beyond what the query alone produces, so its result must never be served
   // from — nor written to — the exact-match query cache.
   const structural = (opts.walkDepth ?? 0) > 0 || Boolean(opts.nearSymbol);
+  // Relational recall as a 4th RRF arm (opt-in). Like structural expansion it
+  // widens the candidate set beyond what the query alone produces, so its result
+  // must never be served from — nor written to — the exact-match query cache.
+  const relationalArmOn =
+    opts.relationalArm ?? process.env.MEMEX_RELATIONAL_ARM === "1";
+  // Per-signal explain (opt-in). Its stamping never changes ranking, but a
+  // cached hit re-hydrates ids without the per-stage factors, so an explain call
+  // bypasses the cache to guarantee the attribution is always populated.
+  const explainOn = opts.explain ?? false;
+  // Per-page max-pool (opt-in) changes the retrieval ranking but is NOT part of
+  // the query-cache key, so a max-pool call must bypass the cache rather than
+  // read/write a ranking that a non-pooled call could share. Resolved from the
+  // raw flag here (the intent/structural refinement below only ever narrows it).
+  const maxPoolRequested = opts.maxPool ?? process.env.MEMEX_MAXPOOL === "1";
   const cacheEnabled =
     !opts.noCache &&
     !hasFilters &&
     !structural &&
+    !relationalArmOn &&
+    !explainOn &&
+    !maxPoolRequested &&
     process.env.MEMEX_QUERY_CACHE !== "0";
   let cacheKey = "";
   let cacheClock = 0;
@@ -555,16 +621,23 @@ export async function hybridSearch(
     }
   }
 
+  // Per-page max-pool (opt-in) — make each arm return its best chunk per page.
+  // Auto-disabled for `exact` intent and structural walks, both of which
+  // deliberately want multiple chunks per page (the collapse would fight them).
+  const maxPoolOn = maxPoolRequested && intent !== "exact" && !structural;
+
   const [vectorIds, primaryKeywordIds] = await Promise.all([
     queryVector
       ? vectorSearch(engine, queryVector, fanout, {
           sourceIds: opts.sourceIds,
           filters: chunkFilters,
+          maxPool: maxPoolOn,
         })
       : Promise.resolve<string[]>([]),
     keywordSearch(engine, trimmed, fanout, {
       sourceIds: opts.sourceIds,
       filters: chunkFilters,
+      maxPool: maxPoolOn,
     }),
   ]);
 
@@ -578,6 +651,7 @@ export async function hybridSearch(
           keywordSearch(engine, v, fanout, {
             sourceIds: opts.sourceIds,
             filters: chunkFilters,
+            maxPool: maxPoolOn,
           }),
         ),
       );
@@ -585,9 +659,23 @@ export async function hybridSearch(
     }
   }
 
-  // 4. RRF fuse — weighted by intent (list order is [vector, keyword,
-  //    ...keywordExpansions], so keyword lists = lists.length - 1).
+  // 4. RRF fuse — weighted by intent (base list order is [vector, keyword,
+  //    ...keywordExpansions], so keyword lists = lists.length - 1). The optional
+  //    relational arm is fused as an extra list with its own gentle weight.
   const rrfWeights = rrfWeightsForLists(intent, lists.length - 1);
+  // 3b. Relational recall arm (opt-in, default OFF) — a deterministic 4th arm.
+  //     Built from the ORIGINAL query (never an expansion variant); empty for
+  //     non-relational queries → pure no-op. Fail-open inside the helper.
+  if (relationalArmOn) {
+    const relationalIds = await relationalArmChunkIds(storage, trimmed, {
+      ...(opts.sourceIds ? { sourceIds: [...opts.sourceIds] } : {}),
+      limit: fanout,
+    });
+    if (relationalIds.length > 0) {
+      lists.push(relationalIds);
+      rrfWeights.push(relationalArmWeight());
+    }
+  }
   const fused = reciprocalRankFusion(lists, {
     k: opts.rrfK,
     weights: rrfWeights,
@@ -761,8 +849,19 @@ export async function hybridSearch(
     scored = scored.filter((s) => !isExcludedPath(s.payload?.sourcePath ?? null, excludePrefixes));
   }
 
+  // Per-signal explain (opt-in) — accumulate each stage's factor keyed by
+  // chunkId. The base is the fused RRF (+cosine) score captured here, right
+  // before the first multiplicative boost. Only allocated/snapshotted when the
+  // flag is on, so a normal search pays nothing.
+  const explainAcc = explainOn ? new Map<string, Partial<SearchExplain>>() : null;
+  if (explainAcc) for (const s of scored) explainAcc.set(s.chunkId, { base: s.score });
+
   // 6. Source-boost.
+  const preSourceBoost = explainAcc ? snapshotScores(scored) : null;
   scored = applySourceBoost(scored);
+  if (explainAcc && preSourceBoost) {
+    recordStageFactor(explainAcc, preSourceBoost, scored, "source");
+  }
 
   // 6b. Recency (documents.effective_date) + salience (frontmatter pinned/weight)
   //     — gentle post-fusion multipliers on the LIVE model. Immutable like
@@ -788,28 +887,33 @@ export async function hybridSearch(
   // hit; inert entirely when MEMEX_TITLE_BOOST <= 1.0.
   const titleBoost = getTitleBoost();
   const titleBoostActive = Number.isFinite(titleBoost) && titleBoost > 1.0;
-  scored = scored.map((s) => ({
-    ...s,
-    score:
-      s.score *
-      (canonical
-        ? 1
-        : recencyMultiplierForPath(
-            // Decay on the content date (effective_date, already COALESCE'd with
-            // updated_at at hydrate), NOT the row's updated_at — a backfill /
-            // re-ingest / rechunk bumps updated_at and would otherwise make stale
-            // content score as fresh.
-            s.payload?.effective_date ?? s.payload?.updated_at ?? null,
-            nowMs,
-            s.payload?.sourcePath ?? null,
-            recencyMap,
-          )) *
-      (canonical ? 1 : salienceMultiplier(s.payload?.frontmatter)) *
-      curationMultiplierForPath(s.payload?.sourcePath ?? null, curationMap) *
-      (titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title)
-        ? titleBoost
-        : 1),
-  }));
+  scored = scored.map((s) => {
+    const recencyF = canonical
+      ? 1
+      : recencyMultiplierForPath(
+          // Decay on the content date (effective_date, already COALESCE'd with
+          // updated_at at hydrate), NOT the row's updated_at — a backfill /
+          // re-ingest / rechunk bumps updated_at and would otherwise make stale
+          // content score as fresh.
+          s.payload?.effective_date ?? s.payload?.updated_at ?? null,
+          nowMs,
+          s.payload?.sourcePath ?? null,
+          recencyMap,
+        );
+    const salienceF = canonical ? 1 : salienceMultiplier(s.payload?.frontmatter);
+    const curationF = curationMultiplierForPath(s.payload?.sourcePath ?? null, curationMap);
+    const titleF =
+      titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title) ? titleBoost : 1;
+    if (explainAcc) {
+      const patch: Partial<SearchExplain> = {};
+      if (recencyF !== 1) patch.recency = recencyF;
+      if (salienceF !== 1) patch.salience = salienceF;
+      if (curationF !== 1) patch.curation = curationF;
+      if (titleF !== 1) patch.title = titleF;
+      mergeExplain(explainAcc, s.chunkId, patch);
+    }
+    return { ...s, score: s.score * recencyF * salienceF * curationF * titleF };
+  });
 
   // 6c. Graph signals (opt-in, default OFF) — adjacency hub boost + session
   //     diversification over the link graph, applied pre-dedup on the full
@@ -825,11 +929,13 @@ export async function hybridSearch(
     // pre-floor call (the `floor === undefined` short-circuit), with no NaN-edge
     // divergence between the two.
     const floor = computeFloorThreshold(scored, graphFloorRatio);
+    const preGraph = explainAcc ? snapshotScores(scored) : null;
     await applyGraphSignals(scored, engine, {
       enabled: true,
       floorThreshold: Number.isFinite(floor) ? floor : undefined,
       ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
     });
+    if (explainAcc && preGraph) recordStageFactor(explainAcc, preGraph, scored, "graph");
   }
 
   // 6d. Backlink-count boost (default ON) — a standing hub signal: multiply each
@@ -844,10 +950,12 @@ export async function hybridSearch(
     opts.backlinkBoost ?? process.env.MEMEX_BACKLINK_BOOST !== "0";
   if (backlinkBoostOn) {
     const floor = computeFloorThreshold(scored, graphFloorRatio);
+    const preBacklink = explainAcc ? snapshotScores(scored) : null;
     await applyBacklinkBoost(scored, engine, {
       floorThreshold: Number.isFinite(floor) ? floor : undefined,
       ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
     });
+    if (explainAcc && preBacklink) recordStageFactor(explainAcc, preBacklink, scored, "backlink");
   }
 
   // Re-sort after boost + recency (RRF was already sorted but these flip).
@@ -870,9 +978,19 @@ export async function hybridSearch(
   //    both near-identical twins and decides their order; near-dup then drops
   //    the now-lower-ranked one (the reranker can't undo a drop, so it must
   //    come first).
+  const preRerankOrder =
+    explainAcc && rerankWanted ? new Map(perDoc.map((h, i) => [h.chunkId, i] as const)) : null;
   const reranked = rerankWanted
     ? await rerank(trimmed, perDoc.slice(0, k * 2))
     : perDoc;
+  if (explainAcc && preRerankOrder) {
+    reranked.forEach((h, i) => {
+      const prev = preRerankOrder.get(h.chunkId);
+      if (prev !== undefined && prev !== i) {
+        mergeExplain(explainAcc, h.chunkId, { rerank_delta: prev - i });
+      }
+    });
+  }
 
   // 8b. Near-dup dedup across documents (Jaccard on text) — two DIFFERENT docs
   //     can still carry near-identical text (a note + its `.bak`); drop the
@@ -917,6 +1035,17 @@ export async function hybridSearch(
 
   // 9. Trim to k (the ranked result, pre-token-budget).
   const ranked: SearchHit[] = organic.slice(0, k);
+
+  // 9·explain — stamp per-signal attribution on the FINAL ranked hits (opt-in).
+  //     Uses each hit's returned score as `final`; a hit with no accumulated
+  //     factors (e.g. an alias-injected page that skipped the boost stages)
+  //     finalizes to base=final with no boost lines. Pure-additive; no reorder.
+  if (explainAcc) {
+    for (let i = 0; i < ranked.length; i++) {
+      const h = ranked[i]!;
+      ranked[i] = { ...h, explain: finalizeExplain(explainAcc.get(h.chunkId), h.score) };
+    }
+  }
 
   // 9·evidence — stamp WHY each hit matched (which retrieval arm(s) surfaced
   //     it) + a conservative create_safety hint for the agent. Pure-additive:

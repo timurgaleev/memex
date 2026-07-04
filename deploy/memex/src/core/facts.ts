@@ -72,6 +72,18 @@ export interface AddFactInput {
    *  unrecognized value is dropped to NULL. */
   notability?: string;
   /**
+   * Typed-claim metadata (migration 070). Present when the fact is a numeric
+   * claim; drives the metric-trajectory regression + drift analysis. All
+   * optional and free-form. `claim_metric` is normalized to lowercase
+   * snake_case; a non-finite `claim_value` is dropped to NULL.
+   */
+  claim_metric?: string;
+  claim_value?: number;
+  claim_unit?: string;
+  claim_period?: string;
+  /** Event-shaped row marker (migration 070), e.g. `meeting`, `job_change`. */
+  event_type?: string;
+  /**
    * Insert-time dedup / supersede. Present -> opt in for this call; absent ->
    * governed by `MEMEX_FACTS_DEDUP` (default OFF, exact-tuple dedup only).
    */
@@ -102,6 +114,30 @@ function normaliseNotability(n: string | undefined): string | null {
   if (typeof n !== "string") return null;
   const v = n.trim().toLowerCase();
   return NOTABILITY_VALUES.has(v) ? v : null;
+}
+
+/** Canonicalize a free-form label (metric / event_type) to lowercase
+ *  snake_case so trajectory grouping is stable; empty/non-string → NULL. */
+function normaliseLabel(v: string | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const s = v
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return s.length > 0 ? s : null;
+}
+
+/** A finite numeric claim value, else NULL. */
+function normaliseClaimValue(v: number | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** A trimmed non-empty free-form string cell, else NULL. */
+function normaliseText(v: string | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s.length > 0 ? s : null;
 }
 
 /**
@@ -253,6 +289,12 @@ export async function addFact(
   const writtenBy = input.written_by ?? null;
   const kind = normaliseKind(input.kind);
   const notability = normaliseNotability(input.notability);
+  // Typed-claim metadata (mig070): normalized-or-NULL, stamped only when set.
+  const claimMetric = normaliseLabel(input.claim_metric);
+  const claimValue = normaliseClaimValue(input.claim_value);
+  const claimUnit = normaliseText(input.claim_unit);
+  const claimPeriod = normaliseText(input.claim_period);
+  const eventType = normaliseLabel(input.event_type);
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
   // column's DEFAULT 'default' applies otherwise (never pass NULL).
   const sourceId =
@@ -329,6 +371,26 @@ export async function addFact(
   if (notability !== null) {
     cols.push("notability");
     params.push(notability);
+  }
+  if (claimMetric !== null) {
+    cols.push("claim_metric");
+    params.push(claimMetric);
+  }
+  if (claimValue !== null) {
+    cols.push("claim_value");
+    params.push(claimValue);
+  }
+  if (claimUnit !== null) {
+    cols.push("claim_unit");
+    params.push(claimUnit);
+  }
+  if (claimPeriod !== null) {
+    cols.push("claim_period");
+    params.push(claimPeriod);
+  }
+  if (eventType !== null) {
+    cols.push("event_type");
+    params.push(eventType);
   }
   if (sourceId !== null) {
     cols.push("source_id");

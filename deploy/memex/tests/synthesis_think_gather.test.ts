@@ -92,9 +92,11 @@ describe("validateCitations", () => {
 });
 
 describe("renderTrajectoryBlock", () => {
+  // The mig070 metric fields are null for these non-numeric trajectory points.
+  const noMetric = { metric: null, value: null, unit: null, period: null, event_type: null, embedding: null };
   const pts = (): TrajectoryPoint[] => [
-    { source: "fact", at: "2024-01-02T00:00:00Z", text: "joined Acme", kind: "employment", id: 1 },
-    { source: "event", at: "2024-06-01T00:00:00Z", text: "left Acme", kind: null, id: 2 },
+    { source: "fact", at: "2024-01-02T00:00:00Z", text: "joined Acme", kind: "employment", id: 1, ...noMetric },
+    { source: "event", at: "2024-06-01T00:00:00Z", text: "left Acme", kind: null, id: 2, ...noMetric },
   ];
 
   it("renders one entity block with dated points", () => {
