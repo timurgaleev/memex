@@ -279,6 +279,66 @@ export class OAuthProvider {
   // Clients
   // -------------------------------------------------------------------------
 
+  /**
+   * Re-point an EXISTING client's write source and/or read federation in place
+   * (client_id + secret unchanged). Every referenced source must exist, so a
+   * client is never left pointed at a dangling source. Returns the updated row,
+   * or null when the client_id is unknown. Operator-only (CLI): the reads/writes
+   * a token can reach are exactly this client's `source_id` + `federated_read`.
+   */
+  async rescopeClient(
+    clientId: string,
+    opts: { sourceId?: string; federatedRead?: string[] },
+  ): Promise<
+    | {
+        client_id: string;
+        client_name: string;
+        source_id: string | null;
+        federated_read: string[] | null;
+      }
+    | null
+  > {
+    const refs = [
+      ...(opts.sourceId ? [opts.sourceId] : []),
+      ...(opts.federatedRead ?? []),
+    ];
+    if (refs.length > 0) {
+      const { rows } = await this.engine.query<{ id: string }>(
+        `SELECT id FROM sources WHERE id = ANY($1::text[])`,
+        [refs],
+      );
+      const known = new Set(rows.map((r) => r.id));
+      const missing = [...new Set(refs)].filter((r) => !known.has(r));
+      if (missing.length > 0) {
+        throw new Error(`unknown source(s): ${missing.join(", ")}`);
+      }
+    }
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (opts.sourceId !== undefined) {
+      params.push(opts.sourceId);
+      sets.push(`source_id = $${params.length}`);
+    }
+    if (opts.federatedRead !== undefined) {
+      params.push(opts.federatedRead);
+      sets.push(`federated_read = $${params.length}::text[]`);
+    }
+    if (sets.length === 0) throw new Error("rescopeClient: nothing to update");
+    params.push(clientId);
+    const { rows } = await this.engine.query<{
+      client_id: string;
+      client_name: string;
+      source_id: string | null;
+      federated_read: string[] | null;
+    }>(
+      `UPDATE oauth_clients SET ${sets.join(", ")}
+        WHERE client_id = $${params.length}
+        RETURNING client_id, client_name, source_id, federated_read`,
+      params,
+    );
+    return rows[0] ?? null;
+  }
+
   async getClient(clientId: string): Promise<OAuthClientInfo | undefined> {
     const rows = await this.rows(
       `SELECT client_id, client_secret_hash, client_name, redirect_uris,
