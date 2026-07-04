@@ -139,6 +139,19 @@ export function startServer(opts: ServerOptions): ServerHandle {
       ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
     });
   }
+  // Opt-in strict OAuth: require a logged-in operator on /authorize. Default OFF
+  // (auto-approve, reference parity) — see the /authorize handler below.
+  const oauthRequireLogin =
+    ((process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "true");
+  // Dynamic Client Registration is OFF by default (reference parity: the
+  // reference's `--enable-dcr`). With it off, /register is unavailable and the
+  // discovery doc omits registration_endpoint, so the ONLY way a client exists is
+  // an operator creating it via `memex auth register-client` — nobody can
+  // self-register a client over the network. Enable with MEMEX_ENABLE_DCR=1.
+  const dcrEnabled =
+    ((process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "true");
   const internalAuthOpts: { internalToken?: string } = {};
   if (opts.internalToken) {
     internalAuthOpts.internalToken = opts.internalToken;
@@ -212,7 +225,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
       // client auto-configure from memex's own public base URL. The guard
       // above already exempts this path from the bearer requirement.
       if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
-        return handleOAuthMetadataRoute(url, opts.publicUrl);
+        return handleOAuthMetadataRoute(url, opts.publicUrl, dcrEnabled);
       }
       // OAuth 2.1 authorization endpoints. Public (exempted in the guard) —
       // authenticated by client_id/secret + PKCE downstream, NOT the public
@@ -231,16 +244,26 @@ export function startServer(opts: ServerOptions): ServerHandle {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
             return rateLimited();
           }
-          // Gate the authorization-code flow on a logged-in operator (the
-          // resource owner). Without an admin session mechanism there is no
-          // resource owner to authenticate, so /authorize issues nothing.
-          return handleAuthorizeRoute(
-            req,
-            oauthProvider,
-            adminAuth ? adminAuth.requireAdmin : () => false,
-          );
+          // Auto-approve by default (reference parity), so a standard MCP client
+          // completes the flow unattended. Opt into the stricter operator-login
+          // gate with MEMEX_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted for
+          // a logged-in admin (and only when an admin session mechanism exists).
+          const requireLogin =
+            oauthRequireLogin && adminAuth ? adminAuth.requireAdmin : () => true;
+          return handleAuthorizeRoute(req, oauthProvider, requireLogin);
         }
         if (url.pathname === "/register" && req.method === "POST") {
+          // DCR off (default) → no self-registration surface at all.
+          if (!dcrEnabled) {
+            return Response.json(
+              {
+                error: "not_found",
+                error_description:
+                  "dynamic client registration is disabled; an operator registers clients via the CLI",
+              },
+              { status: 404, headers: { "Cache-Control": "no-store" } },
+            );
+          }
           if (registerRateLimiter && !registerRateLimiter.allow(ip)) {
             return rateLimited();
           }

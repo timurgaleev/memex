@@ -326,18 +326,18 @@ export class OAuthProvider {
     const requestedScopes = parseScopeString(client.scope);
     assertAllowedScopes(requestedScopes);
     // SECURITY: Dynamic Client Registration is UNAUTHENTICATED (public /register).
-    // A self-registered client must NEVER be able to request an elevated scope —
-    // otherwise anyone could POST /register {"scope":"admin"} and then mint an
-    // admin token via client_credentials, escalating past the public bearer +
-    // redaction. DCR clients get read/write only; an operator grants admin/*_admin
-    // via the CLI (registerClientManual), which is not reachable from the network.
-    const elevated = requestedScopes.filter((s) => s !== "read" && s !== "write");
-    if (elevated.length > 0) {
-      throw new Error(
-        `scope "${elevated[0]}" is not grantable via dynamic client registration ` +
-          `(only read/write); an operator grants elevated scopes via the CLI`,
-      );
-    }
+    // A self-registered client must NEVER hold an elevated scope — otherwise
+    // anyone could POST /register {"scope":"admin"} and mint an admin token via
+    // client_credentials, escalating past the public bearer + redaction. We CLAMP
+    // (not reject) to read/write: a real client like Claude.ai copies the whole
+    // advertised scope list (incl. admin/*_admin) into its DCR request, so a hard
+    // reject would break the standard flow — instead the elevated scopes are
+    // silently dropped, exactly as `authorize` clamps them. An operator grants
+    // admin/*_admin via the CLI (registerClientManual), unreachable from the net.
+    const grantableScopes = requestedScopes.filter(
+      (s) => s === "read" || s === "write",
+    );
+    const clampedScope = grantableScopes.join(" ");
     const authMethod = validateTokenEndpointAuthMethod(
       client.token_endpoint_auth_method,
     );
@@ -367,7 +367,7 @@ export class OAuthProvider {
         client.client_name || "unnamed",
         (client.redirect_uris || []).map(String),
         client.grant_types || ["client_credentials"],
-        client.scope || "",
+        clampedScope,
         authMethod,
         now,
         "default",
@@ -380,7 +380,7 @@ export class OAuthProvider {
       client_name: client.client_name || "unnamed",
       redirect_uris: (client.redirect_uris || []).map(String),
       grant_types: client.grant_types || ["client_credentials"],
-      scope: client.scope,
+      scope: clampedScope || undefined,
       token_endpoint_auth_method: authMethod,
       client_id_issued_at: now,
     };

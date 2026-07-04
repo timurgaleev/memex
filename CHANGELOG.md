@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — OAuth posture aligned to the reference
+- **Dynamic Client Registration is now OFF by default** (`MEMEX_ENABLE_DCR=1` to
+  enable). With it off, `POST /register` returns 404 and the discovery document
+  omits `registration_endpoint`, so no one can self-register a client over the
+  network — the only way a client exists is an operator creating it via
+  `memex auth register-client`. This matches the reference's `--enable-dcr` default
+  and closes an open self-registration surface.
+- **`/authorize` auto-approves by default** (reference parity), so a standard MCP
+  client completes the authorization-code flow unattended. The stricter
+  operator-login gate is now opt-in via `MEMEX_OAUTH_REQUIRE_LOGIN=1`.
+- **`auth register-client` gains `--redirect-uris`** (CSV). Passing one makes it an
+  authorization-code (browser) client and defaults its grants to
+  `authorization_code,refresh_token` — so an operator can hand-register a
+  confidential client for a hosted MCP connector (e.g. a Claude.ai callback).
+- When DCR is enabled, a registration requesting elevated scopes is **clamped** to
+  `read`/`write` (not rejected), so a real client that copies the full advertised
+  scope list still registers — but never as an elevated client.
+
 ## [1.79.0] — 2026-07-04
 
 ### Added — reference-parity wave 3

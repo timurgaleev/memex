@@ -111,6 +111,24 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     });
   }
 
+  // DCR is OFF by default; spin a DCR-enabled server for the tests that exercise
+  // /register, then tear it down + clear the env.
+  async function withDcr<T>(fn: (base: string) => Promise<T>): Promise<T> {
+    process.env.MEMEX_ENABLE_DCR = "1";
+    const s = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      oauthProvider: provider,
+    });
+    try {
+      return await fn(`http://127.0.0.1:${s.port}`);
+    } finally {
+      await s.stop();
+      delete process.env.MEMEX_ENABLE_DCR;
+    }
+  }
+
   it("PKCE happy path: authorize → code → token with the right verifier", async () => {
     const { verifier, challenge } = pkce();
     const authRes = await authorize({
@@ -151,49 +169,82 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(info.scopes).toContain("read");
   });
 
-  it("SECURITY: /authorize without an operator session issues NO code (302 → login)", async () => {
-    const { challenge } = pkce();
-    const q = new URLSearchParams({
-      response_type: "code",
-      client_id: pubClientId,
-      redirect_uri: REDIRECT,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
+  it("opt-in: with MEMEX_OAUTH_REQUIRE_LOGIN=1, /authorize without a session issues NO code (302 → login)", async () => {
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    const gsrv = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      oauthProvider: provider,
+      adminBootstrapToken: ADMIN_TOKEN,
     });
-    // No admin cookie → the resource-owner gate bounces to login, no code minted.
-    const res = await fetch(`${url}/authorize?${q}`, { redirect: "manual" });
-    expect(res.status).toBe(302);
-    const loc = res.headers.get("location") ?? "";
-    expect(loc.startsWith("/admin/login")).toBe(true);
-    expect(loc).not.toContain("code=");
+    try {
+      const { challenge } = pkce();
+      const q = new URLSearchParams({
+        response_type: "code",
+        client_id: pubClientId,
+        redirect_uri: REDIRECT,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      });
+      // Gate ON + no admin cookie → bounce to login, no code minted.
+      const res = await fetch(`http://127.0.0.1:${gsrv.port}/authorize?${q}`, {
+        redirect: "manual",
+      });
+      expect(res.status).toBe(302);
+      const loc = res.headers.get("location") ?? "";
+      expect(loc.startsWith("/admin/login")).toBe(true);
+      expect(loc).not.toContain("code=");
+    } finally {
+      await gsrv.stop();
+      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    }
   });
 
-  it("SECURITY: DCR cannot self-register an admin-scoped client", async () => {
+  it("SECURITY: DCR is disabled by default → /register returns 404 (no self-registration)", async () => {
     const res = await fetch(`${url}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        client_name: "attacker",
-        redirect_uris: [REDIRECT],
-        token_endpoint_auth_method: "none",
-        scope: "admin",
-      }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/invalid_client_metadata|invalid_scope/);
-    // A read/write DCR still succeeds.
-    const ok = await fetch(`${url}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_name: "legit",
+        client_name: "stranger",
         redirect_uris: [REDIRECT],
         token_endpoint_auth_method: "none",
         scope: "read write",
       }),
     });
-    expect(ok.status).toBe(201);
+    expect(res.status).toBe(404);
+  });
+
+  it("SECURITY: when DCR is enabled it clamps an elevated scope request to read/write", async () => {
+    process.env.MEMEX_ENABLE_DCR = "1";
+    const gsrv = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      oauthProvider: provider,
+    });
+    try {
+      // A real client copies the whole advertised scope list into its DCR
+      // request. We CLAMP (not reject): registration succeeds, elevated dropped.
+      const res = await fetch(`http://127.0.0.1:${gsrv.port}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "claude-like",
+          redirect_uris: [REDIRECT],
+          token_endpoint_auth_method: "none",
+          scope: "admin agent read sources_admin users_admin write",
+        }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { client_id: string; scope?: string };
+      const granted = (body.scope ?? "").split(/\s+/).filter(Boolean).sort();
+      expect(granted).toEqual(["read", "write"]);
+      expect(body.scope ?? "").not.toContain("admin");
+    } finally {
+      await gsrv.stop();
+      delete process.env.MEMEX_ENABLE_DCR;
+    }
   });
 
   it("PKCE mismatch is rejected AND does not consume the code", async () => {
@@ -300,56 +351,60 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it("DCR mints a public client and a confidential client", async () => {
-    // Public (PKCE) client — no secret in the response.
-    const pubRes = await fetch(`${url}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_name: "dcr-public",
-        redirect_uris: [REDIRECT],
-        grant_types: ["authorization_code"],
-        token_endpoint_auth_method: "none",
-        scope: "read",
-      }),
-    });
-    expect(pubRes.status).toBe(201);
-    const pubBody = (await pubRes.json()) as {
-      client_id: string;
-      client_secret?: string;
-    };
-    expect(pubBody.client_id).toMatch(/^memex_cl_/);
-    expect(pubBody.client_secret).toBeUndefined();
+  it("DCR (when enabled) mints a public client and a confidential client", async () => {
+    await withDcr(async (base) => {
+      // Public (PKCE) client — no secret in the response.
+      const pubRes = await fetch(`${base}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "dcr-public",
+          redirect_uris: [REDIRECT],
+          grant_types: ["authorization_code"],
+          token_endpoint_auth_method: "none",
+          scope: "read",
+        }),
+      });
+      expect(pubRes.status).toBe(201);
+      const pubBody = (await pubRes.json()) as {
+        client_id: string;
+        client_secret?: string;
+      };
+      expect(pubBody.client_id).toMatch(/^memex_cl_/);
+      expect(pubBody.client_secret).toBeUndefined();
 
-    // Confidential client — secret returned exactly once.
-    const confRes = await fetch(`${url}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_name: "dcr-conf",
-        redirect_uris: [REDIRECT],
-        grant_types: ["client_credentials"],
-        scope: "read",
-      }),
+      // Confidential client — secret returned exactly once.
+      const confRes = await fetch(`${base}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "dcr-conf",
+          redirect_uris: [REDIRECT],
+          grant_types: ["client_credentials"],
+          scope: "read",
+        }),
+      });
+      expect(confRes.status).toBe(201);
+      const confBody = (await confRes.json()) as { client_secret?: string };
+      expect(confBody.client_secret).toMatch(/^memex_cs_/);
     });
-    expect(confRes.status).toBe(201);
-    const confBody = (await confRes.json()) as { client_secret?: string };
-    expect(confBody.client_secret).toMatch(/^memex_cs_/);
   });
 
-  it("DCR rejects a non-loopback http:// redirect_uri", async () => {
-    const res = await fetch(`${url}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_name: "bad-redirect",
-        redirect_uris: ["http://evil.example/cb"],
-      }),
+  it("DCR (when enabled) rejects a non-loopback http:// redirect_uri", async () => {
+    await withDcr(async (base) => {
+      const res = await fetch(`${base}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "bad-redirect",
+          redirect_uris: ["http://evil.example/cb"],
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe(
+        "invalid_redirect_uri",
+      );
     });
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe(
-      "invalid_redirect_uri",
-    );
   });
 
   it("revoke invalidates an access token", async () => {
@@ -406,7 +461,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(still.clientId).toBe(confClientId);
   });
 
-  it("/authorize is reachable from the public ingress without a bearer (but gated on the operator session)", async () => {
+  it("/authorize is reachable from the public ingress without a bearer and auto-approves (default)", async () => {
     const { challenge } = pkce();
     const q = new URLSearchParams({
       response_type: "code",
@@ -415,16 +470,16 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       code_challenge: challenge,
       code_challenge_method: "S256",
     });
-    // Public ingress, no bearer AND no admin session: the route is reachable
-    // (not 401/503 from the public guard) but the resource-owner gate issues no
-    // code — it bounces to the operator login instead.
+    // Public ingress, no bearer: the route is exempt from the public guard and,
+    // by default (no MEMEX_OAUTH_REQUIRE_LOGIN), auto-approves — issuing a code
+    // back to the registered redirect_uri, matching the reference's flow.
     const res = await fetch(`${url}/authorize?${q}`, {
       redirect: "manual",
       headers: { "Cf-Connecting-Ip": "9.9.9.9" },
     });
     expect(res.status).toBe(302);
-    const loc = res.headers.get("location") ?? "";
-    expect(loc.startsWith("/admin/login")).toBe(true);
-    expect(loc).not.toContain("code=");
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT);
+    expect(loc.searchParams.get("code")).toMatch(/^memex_code_/);
   });
 });

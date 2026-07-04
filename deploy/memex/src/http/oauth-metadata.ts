@@ -36,7 +36,10 @@ export interface OAuthMetadata {
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
-  registration_endpoint: string;
+  /** Advertised only when Dynamic Client Registration is enabled (MEMEX_ENABLE_DCR).
+   *  Omitted by default so a client doesn't attempt (and a scanner doesn't find) a
+   *  self-registration endpoint that isn't there. */
+  registration_endpoint?: string;
   revocation_endpoint: string;
   scopes_supported: string[];
   response_types_supported: string[];
@@ -59,13 +62,17 @@ export function resolveIssuer(url: URL, publicUrl?: string): string {
   return base.replace(/\/+$/, "");
 }
 
-/** Build the RFC 8414 metadata object for a given issuer base URL. */
-export function buildOAuthMetadata(issuer: string): OAuthMetadata {
+/** Build the RFC 8414 metadata object for a given issuer base URL. `dcrEnabled`
+ *  controls whether the self-registration endpoint is advertised. */
+export function buildOAuthMetadata(
+  issuer: string,
+  dcrEnabled = false,
+): OAuthMetadata {
   return {
     issuer,
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
-    registration_endpoint: `${issuer}/register`,
+    ...(dcrEnabled ? { registration_endpoint: `${issuer}/register` } : {}),
     revocation_endpoint: `${issuer}/revoke`,
     scopes_supported: [...ALLOWED_SCOPES_LIST],
     response_types_supported: ["code"],
@@ -91,6 +98,7 @@ export function buildOAuthMetadata(issuer: string): OAuthMetadata {
 export function handleOAuthMetadataRoute(
   url: URL,
   publicUrl?: string,
+  dcrEnabled = false,
 ): Response {
   const declared = ((publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim()).length > 0;
   const issuer = resolveIssuer(url, publicUrl);
@@ -99,7 +107,7 @@ export function handleOAuthMetadataRoute(
   // poisoned by a spoofed Host so the advertised token_endpoint points at an
   // attacker — so a host-derived doc is `no-store`. Prod always declares the URL.
   const cache = declared ? "public, max-age=3600" : "no-store";
-  return Response.json(buildOAuthMetadata(issuer), {
+  return Response.json(buildOAuthMetadata(issuer, dcrEnabled), {
     status: 200,
     headers: { "Cache-Control": cache },
   });
