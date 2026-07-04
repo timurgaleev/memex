@@ -151,7 +151,7 @@ import {
 } from "../core/public_redaction.ts";
 import { OperationError, isOperationError } from "../core/operation-error.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
-import { OPERATIONS, validateParams } from "./operations.ts";
+import { OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
 
 // Operation lookup by tool name, built once (the contract is static).
 const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
@@ -185,27 +185,14 @@ const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
  * `writeSource` in the dispatch switch). Under the fail-closed policy an
  * authenticated public principal with NO write grant must be rejected on these
  * before any handler runs — never allowed to default to the 'default' tenant.
- * A non-write op is unaffected (reads keep their own scope resolver). Kept in
- * lock-step with the `writeSource`-consuming cases below; the source_id FK is
- * the backstop if one is ever missed (the sentinel can't reference a real row).
+ * A non-write op is unaffected (reads keep their own scope resolver).
+ *
+ * The set is DERIVED from each op's `scope: "write"` field in operations.ts (the
+ * single source of truth), so a new write op declares its scope once on the op
+ * and is automatically gated here — no separate list to keep in lock-step. The
+ * source_id FK is still the backstop if one is ever mis-tagged (the sentinel
+ * can't reference a real row).
  */
-const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set([
-  "index",
-  "page_put",
-  "page_append",
-  "page_delete",
-  "page_restore",
-  "page_revert",
-  "link",
-  "unlink",
-  "add_tag",
-  "remove_tag",
-  "add_fact",
-  "add_timeline_event",
-  "forget_fact",
-  "purge_deleted_pages",
-  "set_take_status",
-]);
 
 /**
  * Operator-only operational tools. These expose brain-wide state that has no
