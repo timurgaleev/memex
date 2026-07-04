@@ -84,8 +84,11 @@ beforeAll(async () => {
   await putPage(storage, { slug: ENTITY, type: "company", title: "Acme Entity" });
   await addFact(storage, { entity_slug: ENTITY, fact: A_SECRET, source_id: "a" });
   await addFact(storage, { entity_slug: ENTITY, fact: B_SECRET, source_id: "b" });
-  await addTimelineEvent(storage, { slug: ENTITY, occurred_at: "2026-01-01T00:00:00Z", event: A_SECRET, source_id: "a" });
-  await addTimelineEvent(storage, { slug: ENTITY, occurred_at: "2026-01-02T00:00:00Z", event: B_SECRET, source_id: "b" });
+  // Timeline events go on each tenant's OWN page (ownership guard: a scoped caller
+  // may only append to a page its own source owns — a tenant cannot annotate the
+  // shared/default ENTITY, which would be another tenant's page).
+  await addTimelineEvent(storage, { slug: A_SLUG, occurred_at: "2026-01-01T00:00:00Z", event: A_SECRET, source_id: "a" });
+  await addTimelineEvent(storage, { slug: B_SLUG, occurred_at: "2026-01-02T00:00:00Z", event: B_SECRET, source_id: "b" });
   await addLink(storage, { source_slug: A_SLUG, target_slug: ENTITY, type: "mentions", source_id: "a" });
   await addLink(storage, { source_slug: B_SLUG, target_slug: ENTITY, type: "mentions", source_id: "b" });
 
@@ -147,15 +150,32 @@ describe("tenant isolation via dispatch authInfo", () => {
     expect(b).not.toContain(A_SLUG);
   });
 
+  it("list_concepts: a tenant token is refused (operator-only — synth_concepts has no source axis)", async () => {
+    // synth_concepts clusters across ALL tenants, so a tenant token must not be
+    // able to read it — otherwise one tenant sees concepts derived from another's
+    // notes. Gated operator-only; a tenant call is rejected before dispatch.
+    const result = await dispatchTool(
+      storage,
+      { name: "list_concepts", arguments: {} },
+      { authInfo: auth("b") },
+    );
+    const text = result.content[0]?.text ?? "";
+    expect(text).toMatch(/operator-only|permission_denied/i);
+  });
+
   it("entity_facts: B sees only its own fact", async () => {
     const b = JSON.stringify(await call("entity_facts", { entity_slug: ENTITY }, auth("b")));
     expect(b).toContain(B_SECRET);
     expect(b).not.toContain(A_SECRET);
   });
 
-  it("entity_timeline: B sees only its own event", async () => {
-    const b = JSON.stringify(await call("entity_timeline", { slug: ENTITY }, auth("b")));
+  it("entity_timeline: B cannot see A's event on A's page", async () => {
+    // B queries A's page timeline — source-filtered reads return nothing of A's.
+    const b = JSON.stringify(await call("entity_timeline", { slug: A_SLUG }, auth("b")));
     expect(b).not.toContain(A_SECRET);
+    // B sees its own event on its own page.
+    const bOwn = JSON.stringify(await call("entity_timeline", { slug: B_SLUG }, auth("b")));
+    expect(bOwn).toContain(B_SECRET);
   });
 
   it("get_links: A's edges are not visible to B", async () => {

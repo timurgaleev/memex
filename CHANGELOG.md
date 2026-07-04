@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`list_concepts` is operator-only.** Its table (`synth_concepts`) has no source
+  axis — its narratives are clustered across every tenant's notes — so a tenant
+  token could read concepts derived from another tenant's notes. Now gated
+  operator-only, closing the last cross-tenant read for a multi-tenant setup.
+- **`add_timeline_event` ownership guard corrected against shared pages.** A scoped
+  caller may only append a timeline event to a page its own source owns (regression
+  test updated to the owned-page model).
+
 ## [1.79.1] — 2026-07-04
 
 ### Fixed — cross-tenant + public-exposure divergences (reference audit)
