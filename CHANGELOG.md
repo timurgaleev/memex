@@ -6,6 +6,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.80.0] — 2026-07-05
+
+### Added
+- **Personal access tokens — `auth create` / `auth list` / `auth revoke` /
+  `auth permissions`** (reference parity). `auth create <name>
+  [--takes-holders a,b]` mints a long-lived bearer (`memex_…`, printed once,
+  only the SHA-256 hash persists) into `access_tokens`; `list` shows tokens
+  without hashes; `revoke <name>` soft-revokes; `permissions <name>
+  set-takes-holders a,b` replaces the takes-visibility allow-list. Tenant
+  scope comes from the row's `permissions.source_id` (operator-set): a scalar
+  is write + sole read source, an array is a federated read set anchored on
+  its first element — resolved by the existing verify fallback.
+- **Migration 072**: `access_tokens.permissions JSONB NOT NULL DEFAULT
+  '{"takes_holders":["world"]}'` — the column the verify fallback already
+  read; without it every PAT fell to the `default` floor.
+
+### Fixed
+- **/mcp accepts personal access tokens**: the ingress offered only
+  `memex_at_…` bearers to the verifier, so `access_tokens` PATs could never
+  authenticate remotely. Every bearer now goes to `verifyAccessToken`
+  (reference parity: `/mcp` sits behind `requireBearerAuth` with no prefix
+  filter); a non-token string misses both hash lookups and still 401s.
+- **Stale systemd unit tests**: `tests/test_systemd_units.py` predated the
+  container-exec unit form and failed on `memex-eval-probe.service` since it
+  shipped — `/usr/bin/docker exec …` ExecStart and implicit-root (no `User=`)
+  are now accepted.
+
 ## [1.79.5] — 2026-07-05
 
 ### Reverted
