@@ -42,6 +42,10 @@ def test_service_exec_start_points_at_existing_script(name: str) -> None:
     matches = EXEC_START_RE.findall(text)
     assert matches, f"{name} has no ExecStart= line"
     for path in matches:
+        # Container-exec form: the binary is the host docker CLI and the real
+        # entrypoint lives inside the image, so there is no repo path to map.
+        if path == "/usr/bin/docker":
+            continue
         assert path.startswith("/opt/memex/"), (
             f"{name}: ExecStart path {path} must live under /opt/memex/"
         )
@@ -56,7 +60,12 @@ def test_service_exec_start_points_at_existing_script(name: str) -> None:
 @pytest.mark.parametrize("name", EXPECTED_SERVICES)
 def test_service_runs_as_root_with_persistent_log_dir(name: str) -> None:
     text = (UNITS / name).read_text()
-    assert "User=root" in text, f"{name} missing User=root"
+    # System units default to root when User= is absent — either spelling is
+    # the same principal.
+    assert "User=root" in text or "User=" not in text, (
+        f"{name} runs as a non-root User= — log paths under /var/log/memex "
+        f"assume root"
+    )
     # Every service appends to /var/log/memex/<name>.log — the dir must
     # be the same for both stdout + stderr so we don't miss anything.
     if "StandardOutput=" in text:
