@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.79.5] — 2026-07-05
+
+### Reverted
+- **`auth rescope-client` (added in 1.79.4) is removed** to keep the `auth`
+  command surface byte-for-byte with the reference, which has no in-place client
+  rescope (only register + revoke). Client read/write scope is a reference-parity
+  field (`federated_read`); to change it, re-register the client or edit the row.
+  No data change — any client already rescoped stays as-is.
+
 ## [1.79.3] — 2026-07-04
 
 ### Fixed
