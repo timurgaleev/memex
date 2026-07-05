@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.80.1] — 2026-07-05
+
+### Fixed
+- **PAT permissions were written double-encoded**: `auth create` and `auth
+  permissions` bound `JSON.stringify`'d strings to `$N::jsonb` params, which
+  postgres.js stores as a jsonb *string* — so `permissions.source_id` tenant
+  scope silently failed to resolve (the reference's documented double-encode
+  bug class; its `executeRawJsonb` binds raw objects for exactly this reason).
+  Both call sites now bind JS objects, and the tests assert
+  `jsonb_typeof(permissions) = 'object'` so a regression cannot hide behind
+  a lenient string-parse.
+
 ## [1.80.0] — 2026-07-05
 
 ### Added

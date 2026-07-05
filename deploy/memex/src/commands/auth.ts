@@ -216,10 +216,14 @@ async function createToken(name: string, rest: string[]): Promise<void> {
         `A token named "${name}" already exists. Revoke it first or use a different name.`,
       );
     }
+    // JSONB params must be JS objects, not pre-stringified JSON: postgres.js
+    // encodes a string bound to a jsonb position as a jsonb STRING (the
+    // reference's "double-encode bug class" its executeRawJsonb guards
+    // against), which breaks permissions.source_id scope resolution.
     await storage.raw().query(
       `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
        VALUES ($1, $2, $3::text[], $4::jsonb)`,
-      [name, tokenHash, ["read", "write"], JSON.stringify({ takes_holders: takesHolders })],
+      [name, tokenHash, ["read", "write"], { takes_holders: takesHolders }],
     );
   });
   console.log(
@@ -300,7 +304,7 @@ async function setPermissions(
         `UPDATE access_tokens
             SET permissions = COALESCE(permissions, '{}'::jsonb) || $2::jsonb
           WHERE name = $1 AND revoked_at IS NULL RETURNING id`,
-        [name, JSON.stringify({ takes_holders: list })],
+        [name, { takes_holders: list }],
       )
       .then((r) => r.rows.length),
   );
