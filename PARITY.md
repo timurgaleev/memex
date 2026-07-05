@@ -35,6 +35,13 @@ ingress via terraform (ops dir) + decides tenancy. See agent memory
 
 ---
 
+## Deliberate deviations (security-motivated, keep)
+- `auth permissions <name> set-takes-holders` MERGES into the permissions
+  JSONB instead of the reference's wholesale replace. Replacing would silently
+  drop an operator-set `permissions.source_id` tenant grant and floor the
+  token to the empty `default` source; the merge preserves it. The update also
+  targets only non-revoked rows.
+
 ## Operating rules (do not drift)
 - Find the answer in the reference; do not invent. Adapt to memex's stack
   (Bun + Postgres/PGLite, `documents`/`chunks`/`embeddings` + `pages`).

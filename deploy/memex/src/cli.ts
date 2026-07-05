@@ -189,6 +189,12 @@ function printUsage(): void {
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");
   console.log("                               mint an access token locally (= POST /token)");
+  console.log("  auth create <name> [--takes-holders a,b]");
+  console.log("                               mint a long-lived personal access token (prints once)");
+  console.log("  auth list                    JSON list of personal access tokens (no hashes)");
+  console.log("  auth revoke <name>           soft-revoke a personal access token");
+  console.log("  auth permissions <name> set-takes-holders a,b");
+  console.log("                               replace the token's takes-visibility allow-list");
   console.log("  think <question> [--k N] [--budget USD] [--json]");
   console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1)");
   console.log("  --help                       show this help");
