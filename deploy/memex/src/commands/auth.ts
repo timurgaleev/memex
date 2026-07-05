@@ -12,11 +12,6 @@
  *                          [--federated-read a,b,c]
  *              Register a confidential client. Prints client_id (memex_cl_…) +
  *              client_secret (memex_cs_…) ONCE — only the SHA-256 hash persists.
- *   rescope-client <client_id> [--source SRC] [--federated-read a,b,c]
- *              Re-point an EXISTING client's write source and/or read set
- *              in place (id/secret unchanged). Every referenced source must
- *              exist. Use to widen a client's read federation without re-issuing
- *              credentials.
  *   list-clients
  *              JSON list of registered clients (no secrets).
  *   revoke-client <client_id>
@@ -31,7 +26,6 @@ import { OAuthProvider } from "../core/oauth-provider.ts";
 
 export type AuthSub =
   | "register-client"
-  | "rescope-client"
   | "list-clients"
   | "revoke-client"
   | "grant-token";
@@ -134,37 +128,6 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
   );
 }
 
-async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
-  if (!clientId) {
-    throw new Error(
-      "Usage: auth rescope-client <client_id> [--source SRC] [--federated-read a,b,c]",
-    );
-  }
-  const { flags } = parseFlags(rest);
-  const sourceId = flags["source"];
-  const federatedRead = flags["federated-read"]
-    ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
-    : undefined;
-  if (sourceId === undefined && federatedRead === undefined) {
-    throw new Error(
-      "auth rescope-client: give --source and/or --federated-read",
-    );
-  }
-  const result = await withProvider((p) =>
-    p.rescopeClient(clientId, {
-      ...(sourceId !== undefined ? { sourceId } : {}),
-      ...(federatedRead !== undefined ? { federatedRead } : {}),
-    }),
-  );
-  if (!result) {
-    console.log(
-      JSON.stringify({ rescoped: false, reason: "client not found", client_id: clientId }),
-    );
-    return;
-  }
-  console.log(JSON.stringify({ rescoped: true, ...result }, null, 2));
-}
-
 async function listClients(): Promise<void> {
   const rows = await withProvider((_p, storage) =>
     storage
@@ -215,8 +178,6 @@ export async function runAuth(args: string[]): Promise<void> {
   switch (sub as AuthSub) {
     case "register-client":
       return registerClient(rest[0]!, rest.slice(1));
-    case "rescope-client":
-      return rescopeClient(rest[0]!, rest.slice(1));
     case "list-clients":
       return listClients();
     case "revoke-client":
@@ -225,7 +186,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     default:
       console.error(
-        "Usage: memex auth <register-client|rescope-client|list-clients|revoke-client|grant-token>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token>",
       );
       process.exitCode = 1;
   }
