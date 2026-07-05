@@ -74,12 +74,15 @@ describe("personal access tokens (access_tokens fallback)", () => {
         );
       return;
     }
+    // Object, NOT JSON.stringify — a string bound to a jsonb position becomes
+    // a jsonb string (double-encode), which is exactly the bug class these
+    // tests must catch.
     await storage
       .raw()
       .query(
         `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
          VALUES ($1, $2, $3::text[], $4::jsonb)`,
-        [name, hash, ["read", "write"], JSON.stringify(permissions)],
+        [name, hash, ["read", "write"], permissions],
       );
   }
 
@@ -102,13 +105,15 @@ describe("personal access tokens (access_tokens fallback)", () => {
     await insertPat("mig-default", hash);
     const r = await storage
       .raw()
-      .query<{ permissions: unknown }>(
-        "SELECT permissions FROM access_tokens WHERE name = $1",
+      .query<{ permissions: unknown; t: string }>(
+        "SELECT permissions, jsonb_typeof(permissions) AS t FROM access_tokens WHERE name = $1",
         ["mig-default"],
       );
+    // jsonb_typeof must be 'object' — a 'string' here means a double-encoded
+    // write slipped through and scope resolution would silently break.
+    expect(r.rows[0]!.t).toBe("object");
     const perms = r.rows[0]!.permissions as { takes_holders?: string[] };
-    const parsed = typeof perms === "string" ? JSON.parse(perms) : perms;
-    expect(parsed.takes_holders).toEqual(["world"]);
+    expect(perms.takes_holders).toEqual(["world"]);
   });
 
   it("a PAT clears the /mcp guard", async () => {
