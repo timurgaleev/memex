@@ -178,11 +178,16 @@ export function startServer(opts: ServerOptions): ServerHandle {
         // success the request is a TRUSTED registered client scoped to its own
         // `oauth_clients` row — unredacted read within that source scope
         // (isPublic:false); writes stay gated by the internal-token path.
+        // Every bearer is offered to the verifier (reference parity: /mcp sits
+        // behind requireBearerAuth with no prefix filter) — the provider's
+        // fallback resolves legacy access_tokens PATs (`memex_…`), whose tenant
+        // scope comes from `permissions.source_id`. A non-token string just
+        // misses both hash lookups and falls through to the 401 below.
         if (opts.oauthProvider && guard.status === 401) {
           const m = /^Bearer (.+)$/.exec(
             req.headers.get("Authorization") ?? "",
           );
-          if (m && m[1] && m[1].startsWith("memex_at_")) {
+          if (m && m[1]) {
             try {
               const info = await opts.oauthProvider.verifyAccessToken(m[1]);
               guard = { allow: true, isPublic: false };

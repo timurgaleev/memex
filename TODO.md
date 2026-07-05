@@ -33,6 +33,28 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 
 ---
 
+## LOW backlog (PAT port review, 2026-07-05)
+
+- **`permissions.takes_holders` is stored but not yet enforced at read time**
+  — the reference gates takes visibility per token; memex currently gates
+  takes ops operator-only, so the allow-list is dormant. Port the enforcement
+  half if takes ever open to tenant tokens.
+- **Legacy PAT verify grandfathers `['read','write','admin']`** ignoring the
+  stored `scopes` column (reference does the same). Harmless while no MCP op
+  requires `admin` and operator-only tools gate on `authInfo === undefined`;
+  tighten both together if that changes.
+- **`auth create` name uniqueness is check-then-insert** (no partial unique
+  index on active names; the reference allows duplicates outright). Racy only
+  under concurrent operator CLIs; add `CREATE UNIQUE INDEX ... ON
+  access_tokens(name) WHERE revoked_at IS NULL` if it ever matters.
+- **`auth test <url> --token` from the reference is not ported** (remote MCP
+  smoke test; we verify via curl in the ship loop instead).
+- **/mcp bearer verification does 2 unauthenticated hash lookups per garbage
+  bearer** with no per-IP limiter (unlike /token, /register). Indexed lookups;
+  add a limiter if abuse shows up in mcp_request_log.
+- **Verifier DB outage surfaces as 401** (fall-through) where the reference's
+  `requireBearerAuth` returns 500 — cosmetic error-path divergence.
+
 ## LOW backlog (v1.78 review notes)
 
 - **`insights.ts` `computeDriftScore` cosine length-mismatch → max drift.** A

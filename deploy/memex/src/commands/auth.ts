@@ -19,7 +19,19 @@
  *   grant-token <client_id> <client_secret> [--scopes S]
  *              Exchange client_credentials for an access token locally (for a
  *              handoff / smoke test) — equivalent to POST /token.
+ *   create <name> [--takes-holders a,b]
+ *              Mint a long-lived personal access token (access_tokens row).
+ *              Prints the token ONCE — only the SHA-256 hash persists. Tenant
+ *              scope comes from `permissions.source_id` (operator-set): a
+ *              scalar is write+read source, an array is a federated read set
+ *              anchored on its first element.
+ *   list       Table of personal access tokens (no hashes).
+ *   revoke <name>
+ *              Soft-revoke a personal access token by name.
+ *   permissions <name> set-takes-holders a,b
+ *              Replace the token's takes-visibility allow-list.
  */
+import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
@@ -28,7 +40,11 @@ export type AuthSub =
   | "register-client"
   | "list-clients"
   | "revoke-client"
-  | "grant-token";
+  | "grant-token"
+  | "create"
+  | "list"
+  | "revoke"
+  | "permissions";
 
 interface ClientRow {
   client_id: string;
@@ -173,6 +189,129 @@ async function grantToken(
   console.log(JSON.stringify(tokens, null, 2));
 }
 
+async function createToken(name: string, rest: string[]): Promise<void> {
+  if (!name) throw new Error("Usage: auth create <name> [--takes-holders a,b]");
+  const { flags } = parseFlags(rest);
+  // Default ['world'] keeps private takes hidden from MCP-bound tokens
+  // until the operator explicitly widens the allow-list (reference v0.28).
+  // A flag that parses to nothing (e.g. --takes-holders ",") falls back the
+  // same way, matching the reference's empty-list handling.
+  const parsedHolders = (flags["takes-holders"] ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const takesHolders = parsedHolders.length > 0 ? parsedHolders : ["world"];
+  const token = "memex_" + randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
+
+  await withProvider(async (_p, storage) => {
+    const existing = await storage
+      .raw()
+      .query<{ id: number }>(
+        "SELECT id FROM access_tokens WHERE name = $1 AND revoked_at IS NULL",
+        [name],
+      );
+    if (existing.rows.length > 0) {
+      throw new Error(
+        `A token named "${name}" already exists. Revoke it first or use a different name.`,
+      );
+    }
+    await storage.raw().query(
+      `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
+       VALUES ($1, $2, $3::text[], $4::jsonb)`,
+      [name, tokenHash, ["read", "write"], JSON.stringify({ takes_holders: takesHolders })],
+    );
+  });
+  console.log(
+    JSON.stringify(
+      {
+        name,
+        token,
+        takes_holders: takesHolders,
+        note: "Store the token now — only its hash persists. Revoke with: memex auth revoke <name>.",
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function listTokens(): Promise<void> {
+  const rows = await withProvider((_p, storage) =>
+    storage
+      .raw()
+      .query<{
+        name: string;
+        created_at: string;
+        last_used_at: string | null;
+        revoked_at: string | null;
+        permissions: unknown;
+      }>(
+        `SELECT name, created_at, last_used_at, revoked_at, permissions
+           FROM access_tokens ORDER BY created_at DESC`,
+      )
+      .then((r) => r.rows),
+  );
+  console.log(JSON.stringify(rows, null, 2));
+}
+
+async function revokeToken(name: string): Promise<void> {
+  if (!name) throw new Error("Usage: auth revoke <name>");
+  const revoked = await withProvider((_p, storage) =>
+    storage
+      .raw()
+      .query<{ id: number }>(
+        `UPDATE access_tokens SET revoked_at = now()
+          WHERE name = $1 AND revoked_at IS NULL RETURNING id`,
+        [name],
+      )
+      .then((r) => r.rows.length),
+  );
+  if (revoked === 0) {
+    throw new Error(`No active token found with name "${name}".`);
+  }
+  console.log(JSON.stringify({ revoked: true, name }, null, 2));
+}
+
+async function setPermissions(
+  name: string,
+  action: string,
+  value: string | undefined,
+): Promise<void> {
+  if (!name || action !== "set-takes-holders" || !value) {
+    throw new Error(
+      "Usage: auth permissions <name> set-takes-holders world,garry,brain",
+    );
+  }
+  const list = value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) {
+    throw new Error(
+      'takes-holders list cannot be empty (use "world" for default-deny on private)',
+    );
+  }
+  // Deliberate deviation from the reference's wholesale replace: a JSONB
+  // merge preserves an operator-set permissions.source_id tenant grant —
+  // replacing would silently drop it and floor the token to the empty
+  // 'default' source (see PARITY.md).
+  const updated = await withProvider((_p, storage) =>
+    storage
+      .raw()
+      .query<{ id: number }>(
+        `UPDATE access_tokens
+            SET permissions = COALESCE(permissions, '{}'::jsonb) || $2::jsonb
+          WHERE name = $1 AND revoked_at IS NULL RETURNING id`,
+        [name, JSON.stringify({ takes_holders: list })],
+      )
+      .then((r) => r.rows.length),
+  );
+  if (updated === 0) {
+    throw new Error(`Token "${name}" not found.`);
+  }
+  console.log(
+    JSON.stringify({ name, takes_holders: list, updated: true }, null, 2),
+  );
+}
+
 export async function runAuth(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   switch (sub as AuthSub) {
@@ -184,9 +323,17 @@ export async function runAuth(args: string[]): Promise<void> {
       return revokeClient(rest[0]!);
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
+    case "create":
+      return createToken(rest[0]!, rest.slice(1));
+    case "list":
+      return listTokens();
+    case "revoke":
+      return revokeToken(rest[0]!);
+    case "permissions":
+      return setPermissions(rest[0]!, rest[1]!, rest[2]);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token|create|list|revoke|permissions>",
       );
       process.exitCode = 1;
   }
