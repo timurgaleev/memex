@@ -85,7 +85,7 @@ export async function appendMessage(
   // SELECT to recover the winning row's id.
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO subagent_messages (job_id, turn_num, role, content)
-     VALUES ($1, $2, $3, $4::jsonb)
+     VALUES ($1, $2, $3, $4::text::jsonb)
      ON CONFLICT (job_id, turn_num) DO NOTHING
      RETURNING id`,
     [input.job_id, input.turn_num, input.role, contentJson],
@@ -194,7 +194,7 @@ export async function beginToolExecution(
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO subagent_tool_executions
        (job_id, turn_num, tool_name, input, status)
-     VALUES ($1, $2, $3, $4::jsonb, 'pending')
+     VALUES ($1, $2, $3, $4::text::jsonb, 'pending')
      RETURNING id`,
     [input.job_id, input.turn_num, input.tool_name, inputJson],
   );
@@ -237,7 +237,7 @@ export async function finishToolExecution(
     `WITH attempted AS (
        UPDATE subagent_tool_executions
          SET status = $2,
-             output = $3::jsonb,
+             output = $3::text::jsonb,
              error = $4,
              finished_at = NOW()
          WHERE id = $1 AND status = 'pending'

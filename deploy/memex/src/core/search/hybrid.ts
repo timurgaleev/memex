@@ -58,8 +58,6 @@ import { slugCandidatesForPath } from "./page-slug.ts";
 import { isTitlePhraseMatch, getTitleBoost } from "./title-match.ts";
 import { isCanonicalQuery } from "./recency-gate.ts";
 import {
-  getCurationBoostMap,
-  curationMultiplierForPath,
   getSearchExcludePrefixes,
   isExcludedPath,
 } from "./curation.ts";
@@ -1013,7 +1011,7 @@ export async function hybridSearch(
   }
 
   // 6-. Hard-exclude — drop fixtures / attachments / raw sidecars by slug
-  //     prefix (default none; MEMEX_SEARCH_EXCLUDE opts in). Cheap precision
+  //     prefix (default test/, attachments/, .raw/; MEMEX_SEARCH_EXCLUDE overrides). Cheap precision
   //     filter, applied before scoring so excluded hits never compete.
   const excludePrefixes = getSearchExcludePrefixes();
   if (excludePrefixes.length > 0) {
@@ -1061,7 +1059,6 @@ export async function hybridSearch(
   const canonical = isCanonicalQuery(trimmed);
   // Curation authority by slug prefix — curated originals outrank bulk feeds
   // inside one store. Orthogonal to recency decay; neutral (×1) off-prefix.
-  const curationMap = getCurationBoostMap();
   // Per-prefix recency decay (env-overridable); paths matching no prefix
   // (e.g. code chunks under `src/`) fall back to the original uniform decay.
   // Memoized: resolved once per process, so the env parse (and its fail-loud
@@ -1109,18 +1106,20 @@ export async function hybridSearch(
       : 1;
     const recencyF = decayF * boostF;
     const salienceF = canonical ? 1 : salienceMultiplier(s.payload?.frontmatter);
-    const curationF = curationMultiplierForPath(s.payload?.sourcePath ?? null, curationMap);
+    // Curation tiers act ONLY inside the arm SQL (reference parity: the
+    // prefix factor shapes per-arm LIMIT survival; runPostFusionStages has no
+    // curation stage). Multiplying the fused score again would double-apply
+    // the tier map and over-tilt low-tier prefixes like chat/ 0.5.
     const titleF =
       titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title) ? titleBoost : 1;
     if (explainAcc) {
       const patch: Partial<SearchExplain> = {};
       if (recencyF !== 1) patch.recency = recencyF;
       if (salienceF !== 1) patch.salience = salienceF;
-      if (curationF !== 1) patch.curation = curationF;
       if (titleF !== 1) patch.title = titleF;
       mergeExplain(explainAcc, s.chunkId, patch);
     }
-    return { ...s, score: s.score * recencyF * salienceF * curationF * titleF };
+    return { ...s, score: s.score * recencyF * salienceF * titleF };
   });
 
   // 6b2. Mattering-salience join (reference parity) — the cycle-computed

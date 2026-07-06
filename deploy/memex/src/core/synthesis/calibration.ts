@@ -464,7 +464,7 @@ async function writeProfileRow(
         domain_scorecards, graded_take_ids, pattern_statements, bias_tags, model_id,
         voice_gate_passed, voice_gate_attempts)
      VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17)`,
+             $11::text::jsonb, $12::text::jsonb, $13::text::jsonb, $14::text::jsonb, $15, $16, $17)`,
     [
       sourceId,
       scorecard.total,

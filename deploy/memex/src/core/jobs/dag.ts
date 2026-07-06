@@ -175,7 +175,7 @@ export async function submitJob(
       `INSERT INTO jobs
          (id, kind, payload, status, priority, retry_count, max_retries,
           next_attempt_at, parent_job_id, depth, idempotency_key, timeout_ms)
-       VALUES ($1, $2, $3::jsonb, 'pending', $4, 0, $5, $6::timestamptz,
+       VALUES ($1, $2, $3::text::jsonb, 'pending', $4, 0, $5, $6::timestamptz,
                $7, $8, $9, $10)`,
       [
         id,

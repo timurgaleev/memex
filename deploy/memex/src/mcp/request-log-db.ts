@@ -70,7 +70,7 @@ export function logToolCallToDb(engine: Engine, e: RequestLogEntry): void {
   void engine
     .query(
       `INSERT INTO mcp_request_log (token_name, agent_name, operation, latency_ms, status, error_message, params)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::text::jsonb)`,
       [
         e.tokenName ?? null,
         e.agentName,

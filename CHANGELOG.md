@@ -61,6 +61,19 @@ reference produced 77 ranked gaps; the 57 core/useful ones ship here
   force a DB write per 429; `auth test` refuses to send tokens over plain
   http to non-local hosts.
 
+### Fixed (post-review hardening, same release)
+- **The 1.80.1 jsonb double-encode bug class is now closed repo-wide**: 32
+  call sites bound `JSON.stringify`'d strings to bare `$N::jsonb` positions
+  (including `pages.compiled_truth` — double-encoded on live Postgres since
+  the column shipped). All string-param sites now cast `::text::jsonb`;
+  migration 092 repairs every already-double-encoded jsonb string scalar in
+  the database (information_schema-driven, try-parse guarded, idempotent);
+  a new guard test fails the suite if the unsafe pattern ever returns.
+- Curation tiers no longer apply twice (arm SQL + post-fusion) — the tier
+  factor acts only inside arm SQL, matching the reference.
+- `log_ingest` / `get_ingest_log` exposed over MCP (tenant-scoped), and
+  `POST /ingest` writes an audit row per accepted event.
+
 ## [1.80.1] — 2026-07-05
 
 ### Fixed

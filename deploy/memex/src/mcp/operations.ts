@@ -20,7 +20,7 @@
 // constraint is never silently dropped expecting the generator to carry it.
 import { OperationError } from "../core/operation-error.ts";
 
-export type ParamType = "string" | "integer" | "number" | "boolean" | "object";
+export type ParamType = "string" | "integer" | "number" | "boolean" | "object" | "array";
 
 export interface ParamDef {
   type: ParamType;
@@ -142,6 +142,11 @@ export function validateParams(
           fail(key, "must be an object", `Pass \`${key}\` as a JSON object.`);
         }
         break;
+      case "array":
+        if (!Array.isArray(v)) {
+          fail(key, "must be an array", `Pass \`${key}\` as a JSON array.`);
+        }
+        break;
     }
 
     if (def.enum && !(typeof v === "string" && def.enum.includes(v))) {
@@ -171,6 +176,7 @@ const int = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "integer", ..
 const num = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "number", ...o });
 const bool = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "boolean", ...o });
 const obj = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "object", ...o });
+const arr = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "array", ...o });
 const req = { required: true } as const;
 
 export const OPERATIONS: readonly Operation[] = [
@@ -1089,6 +1095,27 @@ export const OPERATIONS: readonly Operation[] = [
       slug: str(req),
       source: str({ description: "Filter to one data-source label." }),
       limit: int({ minimum: 1, maximum: 200 }),
+    },
+  },
+  {
+    name: "log_ingest",
+    scope: "write",
+    description:
+      "Append one ingestion-event row to the audit log (importer/webhook runs, absorb outcomes). Stamped with the caller's write source. WRITE.",
+    params: {
+      source_type: str({ ...req, description: "Event family, e.g. 'facts:absorb' or an importer name." }),
+      source_ref: str({ ...req, description: "What was ingested (path, URL, slug)." }),
+      pages_updated: arr({ description: "Slugs touched by the run (array of strings)." }),
+      summary: str({ description: "One-line human outcome summary." }),
+    },
+  },
+  {
+    name: "get_ingest_log",
+    description:
+      "Recent ingestion-log entries, newest first, scoped to the caller's read set. Optional `source_type` filter; `limit` (1..50, default 20). Read-only; no LLM.",
+    params: {
+      source_type: str({ description: "Filter to one event family." }),
+      limit: int({ minimum: 1, maximum: 50 }),
     },
   },
   {

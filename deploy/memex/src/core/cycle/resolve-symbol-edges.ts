@@ -92,7 +92,7 @@ export async function resolveSymbolEdgesPhase(
         if (candidates.length === 1) {
           await engine.query(
             `UPDATE code_edges_symbol
-                SET edge_metadata = edge_metadata || $2::jsonb
+                SET edge_metadata = edge_metadata || $2::text::jsonb
               WHERE id = $1`,
             [edge.id, JSON.stringify({ resolved_chunk_id: candidates[0] })],
           );
@@ -100,7 +100,7 @@ export async function resolveSymbolEdgesPhase(
         } else {
           await engine.query(
             `UPDATE code_edges_symbol
-                SET edge_metadata = edge_metadata || $2::jsonb
+                SET edge_metadata = edge_metadata || $2::text::jsonb
               WHERE id = $1`,
             [edge.id, JSON.stringify({ ambiguous: true, candidates })],
           );

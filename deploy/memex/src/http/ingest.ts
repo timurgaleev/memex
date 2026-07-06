@@ -35,6 +35,7 @@ import { Queue } from "../core/jobs/queue.ts";
 import { registerHandler } from "../core/jobs/handlers.ts";
 import { dispatchTool } from "../mcp/dispatch.ts";
 import { readBodyWithCap } from "./body_limit.ts";
+import { logIngest } from "../core/ingest-log.ts";
 
 export const INGEST_CAPTURE_JOB_KIND = "ingest_capture";
 
@@ -273,13 +274,24 @@ export async function handleIngestRoute(
       payload: { event, ...(callerSlug ? { slug: callerSlug } : {}) },
     });
 
+    // Ingestion audit trail (mig 087): one ingest_log row per ACCEPTED event,
+    // so webhook capture runs are inspectable via get_ingest_log alongside
+    // importer/absorb runs. Fire-and-forget — never blocks the 202.
+    void logIngest(deps.storage.engine(), {
+      source_type: "webhook:capture",
+      source_ref: sourceUri,
+      pages_updated: [],
+      summary: `accepted ${read.buf.byteLength}B ${contentType} -> job ${job.id}`,
+      source_id: event.source_id,
+    }).catch(() => {});
+
     // Fail-visible request log (fixed-shape safe params: no caller-controlled
     // keys, no content). Fire-and-forget — never blocks the 202.
     void deps.storage
       .engine()
       .query(
         `INSERT INTO mcp_request_log (token_name, agent_name, operation, latency_ms, status, params)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+         VALUES ($1, $2, $3, $4, $5, $6::text::jsonb)`,
         [
           auth.clientId,
           auth.clientId,

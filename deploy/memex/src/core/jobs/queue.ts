@@ -186,7 +186,7 @@ export class Queue {
     }
     const r = await this.engine.query<RawJobRow>(
       `INSERT INTO jobs (id, kind, payload, priority, max_retries, next_attempt_at, quiet_hours_skip, timeout_ms)
-       VALUES ($1, $2, $3::jsonb, $4, $5, COALESCE($6, NOW()), $7, $8)
+       VALUES ($1, $2, $3::text::jsonb, $4, $5, COALESCE($6, NOW()), $7, $8)
        ON CONFLICT (id) DO NOTHING
        RETURNING ${SELECT_COLS}`,
       [
@@ -358,7 +358,7 @@ export class Queue {
     const r = await this.engine.query<RawJobRow>(
       `UPDATE jobs
           SET status = 'succeeded',
-              result = $2::jsonb,
+              result = $2::text::jsonb,
               finished_at = NOW(),
               updated_at = NOW(),
               last_error = NULL,
@@ -489,7 +489,7 @@ export class Queue {
     progress: Record<string, unknown>,
   ): Promise<boolean> {
     const r = await this.engine.query<{ id: string }>(
-      `UPDATE jobs SET progress = $2::jsonb, updated_at = NOW()
+      `UPDATE jobs SET progress = $2::text::jsonb, updated_at = NOW()
         WHERE id = $1 AND status = 'running'
         RETURNING id`,
       [id, JSON.stringify(progress)],
