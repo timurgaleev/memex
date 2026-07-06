@@ -158,6 +158,7 @@ export function rankingSignature(): string {
     `cb=${env["MEMEX_CURATION_BOOST"] ?? ""}`,
     `sx=${env["MEMEX_SEARCH_EXCLUDE"] ?? ""}`,
     `mt=${getMaxTypeRatio()}`,
+    `rw=${env["MEMEX_RERANK_WINDOW"] ?? ""}`,
   ].join(":");
   return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}:ah=${aliasHopEnabled() ? 1 : 0}:${knobs}`;
 }

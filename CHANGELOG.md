@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.85.0] — 2026-07-06
+
+### Added
+- **Reranker candidate window (`MEMEX_RERANK_WINDOW`, default 30).** The opt-in
+  two-pass reranker now reorders a candidate window WIDER than the return size
+  (the reference's `top_n_in`), so a genuinely relevant hit fused below the
+  return cutoff can be promoted into the returned set instead of being stuck
+  there. The trim to `k` happens after the rerank; the un-reranked tail keeps
+  its fused order. The window is part of the query-cache ranking signature.
+- **Env-tunable Postgres pool + statement timeout.** `MEMEX_PG_POOL_MAX`
+  (default 10) and `MEMEX_PG_STATEMENT_TIMEOUT_MS` (default 30000) so a long
+  migration, a whole-corpus re-embed backfill, or a big rechunk transaction
+  isn't killed at the short interactive `statement_timeout`. Previously the
+  factory hard-coded both even though the engine already accepted overrides.
+
 ## [1.84.0] — 2026-07-06
 
 ### Changed
