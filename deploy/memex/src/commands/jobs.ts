@@ -1,5 +1,5 @@
 /**
- * `memex jobs <subcommand>` — inspect / retry / cancel queued jobs.
+ * `memex jobs <subcommand>` — inspect / retry / cancel / manage queued jobs.
  *
  * Subcommands:
  *   list       — print rows (filterable by --status / --kind, capped by --limit)
@@ -7,13 +7,35 @@
  *   retry <id> — flip failed/cancelled → pending, ready for the next claim
  *   cancel <id>— flip pending/running → cancelled
  *   show <id>  — full row for a single job
+ *   submit <kind> [--id X] [--priority N] [--max-retries N] [--payload '<json>']
+ *              — validated enqueue (core/jobs/lifecycle.ts submitJob)
+ *   progress <id> — status + handler-reported progress envelope
+ *   remove <id>   — delete one TERMINAL row (cancel first if still live)
+ *   prune [--older-than-days N] [--status s1,s2]
+ *                 — delete old terminal rows (default: all terminal, 30d)
+ *   smoke         — end-to-end queue self-test (enqueue → claim → complete)
  */
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { Queue } from "../core/jobs/queue.ts";
+import {
+  submitJob,
+  getJobProgress,
+  runJobsSmoke,
+} from "../core/jobs/lifecycle.ts";
 import type { JobStatus } from "../core/jobs/types.ts";
 
-export type JobsSubcommand = "list" | "stats" | "retry" | "cancel" | "show";
+export type JobsSubcommand =
+  | "list"
+  | "stats"
+  | "retry"
+  | "cancel"
+  | "show"
+  | "submit"
+  | "progress"
+  | "remove"
+  | "prune"
+  | "smoke";
 
 export interface JobsCmdOptions {
   sub: JobsSubcommand;
@@ -21,15 +43,86 @@ export interface JobsCmdOptions {
   kind?: string;
   limit?: number;
   id?: string;
+  /** submit: payload JSON object / priority / max retries. */
+  payload?: Record<string, unknown>;
+  priority?: number;
+  maxRetries?: number;
+  /** prune: age floor in days (default 30). */
+  olderThanDays?: number;
+  /** Test seam — config file path. */
+  configPath?: string;
 }
 
 export async function runJobs(opts: JobsCmdOptions): Promise<void> {
-  const config = loadConfig();
+  const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
   await storage.init();
   try {
     const queue = new Queue(storage.engine());
     switch (opts.sub) {
+      case "submit": {
+        if (!opts.kind) throw new Error("memex jobs submit: <kind> is required");
+        const job = await submitJob(queue, {
+          kind: opts.kind,
+          ...(opts.id ? { id: opts.id } : {}),
+          ...(opts.payload ? { payload: opts.payload } : {}),
+          ...(opts.priority !== undefined ? { priority: opts.priority } : {}),
+          ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+        });
+        console.log(JSON.stringify({ ok: true, job }, null, 2));
+        return;
+      }
+      case "progress": {
+        if (!opts.id) throw new Error("memex jobs progress: <id> is required");
+        const progress = await getJobProgress(queue, opts.id);
+        if (!progress) {
+          console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        console.log(JSON.stringify({ ok: true, ...progress }, null, 2));
+        return;
+      }
+      case "remove": {
+        if (!opts.id) throw new Error("memex jobs remove: <id> is required");
+        const removed = await queue.remove(opts.id);
+        if (!removed) {
+          console.log(
+            JSON.stringify(
+              {
+                ok: false,
+                error: "not-removable",
+                id: opts.id,
+                note: "only terminal jobs (succeeded/failed/cancelled) can be removed — cancel it first",
+              },
+              null,
+              2,
+            ),
+          );
+          process.exitCode = 1;
+          return;
+        }
+        console.log(JSON.stringify({ ok: true, removed: opts.id }, null, 2));
+        return;
+      }
+      case "prune": {
+        const pruneOpts: Parameters<typeof queue.prune>[0] = {};
+        if (opts.olderThanDays !== undefined) {
+          pruneOpts.olderThan = new Date(Date.now() - opts.olderThanDays * 86_400_000);
+        }
+        if (opts.status) {
+          pruneOpts.statuses = Array.isArray(opts.status) ? opts.status : [opts.status];
+        }
+        const pruned = await queue.prune(pruneOpts);
+        console.log(JSON.stringify({ ok: true, pruned }, null, 2));
+        return;
+      }
+      case "smoke": {
+        const result = await runJobsSmoke(storage.engine());
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
       case "list": {
         const listOpts: Parameters<typeof queue.list>[0] = {};
         if (opts.status) listOpts.status = opts.status;

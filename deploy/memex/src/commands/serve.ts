@@ -11,6 +11,8 @@ import { loadConfig } from "../core/config.ts";
 import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
+import { registerRemediationHandlers } from "../core/jobs/remediation-handlers.ts";
+import { registerIngestCaptureHandler } from "../http/ingest.ts";
 import { registerSource } from "../core/sources.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
@@ -102,7 +104,20 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
   // 046) already exist. The reference-faithful auth path.
   if (config.auth?.selfIssued?.enabled === true) {
-    serverOpts.oauthProvider = new OAuthProvider({ engine: storage.raw() });
+    const provider = new OAuthProvider({ engine: storage.raw() });
+    serverOpts.oauthProvider = provider;
+    // Sweep expired access/refresh tokens + auth codes at startup (reference
+    // parity) — the tables otherwise grow until a verify happens to hit the
+    // expired row. Best-effort: a sweep failure must never block serve.
+    try {
+      const swept = await provider.sweepExpiredTokens();
+      if (swept > 0) console.error(`[memex] swept ${swept} expired OAuth tokens/codes`);
+    } catch (e) {
+      console.error(
+        "[memex] token sweep failed (non-blocking):",
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
   // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
   // set; otherwise an ephemeral per-run token printed to stderr (lives only in
@@ -208,6 +223,12 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     const parsed = Number.parseInt(jobTimeoutRaw, 10);
     if (parsed > 0) workerOpts.jobTimeoutMs = parsed;
   }
+  // Register the `remediation` handler so `doctor --remediate` jobs actually
+  // run instead of dead-lettering with "no handler registered".
+  registerRemediationHandlers();
+  // Register the `ingest_capture` handler so POST /ingest submissions land
+  // as inbox pages instead of dead-lettering.
+  registerIngestCaptureHandler(storage);
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
   worker.start();
   console.log(

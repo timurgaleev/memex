@@ -55,6 +55,17 @@ import { runCall } from "./commands/call.ts";
 import { runStatus } from "./commands/status.ts";
 import { runEmbed } from "./commands/embed.ts";
 import { runSearchModes } from "./commands/search-modes.ts";
+import { runSearchStats, runSearchTune } from "./commands/search-stats.ts";
+import { runSearchDiagnose } from "./commands/search-diagnose.ts";
+import { runConfig, type ConfigSub } from "./commands/config.ts";
+import { runCapture } from "./commands/capture.ts";
+import { runQuarantine, type QuarantineSub } from "./commands/quarantine.ts";
+import {
+  runEvalRunAll,
+  runEvalCompareCmd,
+  runEvalGate,
+} from "./commands/eval-compare.ts";
+import { parseEvalConfig, type EvalKnobConfig } from "./commands/eval.ts";
 import { runSalience } from "./commands/salience.ts";
 import { runWatch } from "./commands/watch.ts";
 import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
@@ -99,8 +110,15 @@ function printUsage(): void {
   console.log("  serve --http --host H --port N");
   console.log("                               start HTTP server (loopback only)");
   console.log("  index <path>                 read a markdown file and index it");
-  console.log("  search <query> [--k N]       hybrid retrieve over the corpus");
+  console.log("  search <query> [--k N] [--explain]");
+  console.log("                               hybrid retrieve over the corpus (--explain = per-signal attribution)");
   console.log("  search modes                 read-only view of the active ranking knobs");
+  console.log("  search stats [--days N] [--json]");
+  console.log("                               telemetry rollup: volume, cache hit rate, intent/mode mix, rank-1 drift");
+  console.log("  search tune [--apply] [--json]");
+  console.log("                               ranking recommendations from the stats; --apply writes via `config`");
+  console.log("  search diagnose <query> --target <slug> [--source ID] [--json]");
+  console.log("                               arm-by-arm probe: where does the target surface (keyword/vector/alias/hybrid)?");
   console.log("  reindex [--all] [--vault P] [--source vault|code|all] [--paths CSV] [--rechunk-stale] [--reconcile-deletes]");
   console.log("  reindex --contextual [--force] [--dry-run] [--limit N]");
   console.log("                               whole-corpus from-DB re-embed under the contextual-retrieval wrapper");
@@ -113,7 +131,16 @@ function printUsage(): void {
   console.log("                               symbols called from inside the symbol covering <path>:<line>");
   console.log("  doctor                       self-diagnostics — exits 0 on healthy");
   console.log("  integrity [--vault P]        vault-vs-index drift report");
-  console.log("  eval [--k N]                 retrieval quality harness against tests/eval/qrels.json");
+  console.log("  eval [--k N] [--qrels P] [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]");
+  console.log("       [--graph-signals] [--cosine-rescore] [--relational-arm] [--dedup-type-ratio X]");
+  console.log("       [--config-a <json|path>] [--config-b <json|path>]");
+  console.log("                               retrieval quality harness; --config-b = A/B compare");
+  console.log("  eval run-all [--modes a,b,c] [--qrels P] [--k N] [--out P]");
+  console.log("                               run the suite once per search mode, append JSONL results");
+  console.log("  eval compare [--input P] [--json]");
+  console.log("                               per-mode comparison table from the results log");
+  console.log("  eval gate [--baseline P] [--max-drop X] [--min-recall X] [--write-baseline]");
+  console.log("                               regression gate vs a stored baseline (exit 1 on drop)");
   console.log("  eval-probe [--limit N]       replay eval set, append a row to eval_snapshots (nightly probe)");
   console.log("  backlinks <name> [--type T] [--limit N]");
   console.log("                               documents that mention this entity (default type=wikilink)");
@@ -129,6 +156,12 @@ function printUsage(): void {
   console.log("  jobs list [--status S] [--kind K] [--limit N]");
   console.log("  jobs stats                   counts grouped by status");
   console.log("  jobs show|retry|cancel <id>  inspect/reset/cancel a single job");
+  console.log("  jobs submit <kind> [--id X] [--priority N] [--max-retries N] [--payload '<json>']");
+  console.log("  jobs progress <id>           status + handler-reported progress");
+  console.log("  jobs remove <id>             delete one terminal job row");
+  console.log("  jobs prune [--older-than-days N] [--status s1,s2]");
+  console.log("                               delete old terminal jobs (default 30d)");
+  console.log("  jobs smoke                   end-to-end queue self-test");
   console.log("  cache stats                  query-cache rows: total/fresh/stale vs the clock");
   console.log("  cache prune|clear            drop only stale rows / drop every row");
   console.log("  call <tool> [--args '<json>']");
@@ -138,8 +171,9 @@ function printUsage(): void {
   console.log("                               pages ranked by deterministic salience score");
   console.log("  cycle [--phases a,b,c] [--stale-days N]");
   console.log("                               run one maintenance cycle on demand (backfills)");
-  console.log("  embed [--limit N] [--dry-run]");
-  console.log("                               backfill embeddings for non-code chunks missing a vector");
+  console.log("  embed [<slug>] [--slugs a,b] [--all] [--stale] [--source ID] [--limit N] [--dry-run]");
+  console.log("                               backfill missing vectors; <slug>/--slugs/--all re-embed targets,");
+  console.log("                               --stale also refreshes signature-stale rows");
   console.log("  eval-replay capture <id> --query Q --tag good|bad [--expected-doc D] [--k N] [--search-mode hybrid|keyword]");
   console.log("  eval-replay list [--tag T] [--limit N]");
   console.log("  eval-replay run [--tag T] [--limit N] [--promote]");
@@ -173,7 +207,8 @@ function printUsage(): void {
   console.log("                               Claude Haiku suggests skill-text edits to reduce friction");
   console.log("  orphans                      DB hygiene report + safe deletions");
   console.log("  pages [--limit N] [--filter S] catalogue of known wikilink targets");
-  console.log("  lint                         frontmatter conformance check");
+  console.log("  lint [<dir|file.md>] [--fix] [--dry-run]");
+  console.log("                               DB frontmatter conformance (no target) or file lint with auto-repair");
   console.log("  reports [--since H]          trend report from cycle_snapshots");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
@@ -184,7 +219,9 @@ function printUsage(): void {
   console.log("  tenant list                  JSON list of all subject grants");
   console.log("  tenant revoke <sub>          delete the grant for a JWT subject");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
-  console.log("                               register a client_credentials OAuth client (prints secret once)");
+  console.log("                               [--token-endpoint-auth-method none|client_secret_post|client_secret_basic]");
+  console.log("                               register a client_credentials OAuth client (prints secret once;");
+  console.log("                               'none' = public PKCE client, no secret)");
   console.log("  auth list-clients            JSON list of registered OAuth clients");
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");
@@ -195,8 +232,20 @@ function printUsage(): void {
   console.log("  auth revoke <name>           soft-revoke a personal access token");
   console.log("  auth permissions <name> set-takes-holders a,b");
   console.log("                               replace the token's takes-visibility allow-list");
-  console.log("  think <question> [--k N] [--budget USD] [--json]");
-  console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1)");
+  console.log("  auth test <url> --token <token>");
+  console.log("                               live MCP smoke: initialize + tools/list + a real stats call");
+  console.log("  think <question> [--k N] [--budget USD] [--json] [--save] [--take '<claim>']");
+  console.log("        [--since D] [--until D] [--anchor a,b] [--rounds N] [--model ID] [--with-calibration]");
+  console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1);");
+  console.log("                               --save persists a synthesis/ page, --take queues a take");
+  console.log("  config show|get|set|unset    DB-plane MEMEX_* knob overrides (no redeploy; env still wins)");
+  console.log("  config unset --pattern <pfx> bulk-delete keys by prefix");
+  console.log("  capture [<text>] [--stdin] [--file P] [--slug S] [--type T] [--source ID] [--title T]");
+  console.log("                               one-command note capture → page + search mirror");
+  console.log("  quarantine list [--include-flagged] [--json]");
+  console.log("  quarantine clear <slug|path> [--force]");
+  console.log("  quarantine scan [--limit N] [--apply]");
+  console.log("                               operator surface for the content-sanity gate");
   console.log("  --help                       show this help");
 }
 
@@ -301,12 +350,109 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "eval": {
+      // Sub-subcommands: run-all / compare / gate (aggregate instruments).
+      if (positional[0] === "run-all") {
+        const runAllOpts: Parameters<typeof runEvalRunAll>[0] = {};
+        const modesStr = values.get("--modes");
+        if (modesStr) {
+          runAllOpts.modes = modesStr.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        const qp = values.get("--qrels");
+        if (qp) runAllOpts.qrelsPath = qp;
+        const out = values.get("--out");
+        if (out) runAllOpts.out = out;
+        const kAll = values.get("--k");
+        if (kAll !== undefined) {
+          const n = Number(kAll);
+          if (!Number.isInteger(n) || n < 1 || n > 100) {
+            throw new Error(`memex eval run-all: invalid --k ${kAll}`);
+          }
+          runAllOpts.k = n;
+        }
+        return await runEvalRunAll(runAllOpts);
+      }
+      if (positional[0] === "compare") {
+        const cmpOpts: Parameters<typeof runEvalCompareCmd>[0] = {};
+        const input = values.get("--input");
+        if (input) cmpOpts.input = input;
+        if (flags.has("--json")) cmpOpts.json = true;
+        return await runEvalCompareCmd(cmpOpts);
+      }
+      if (positional[0] === "gate") {
+        const gateOpts: Parameters<typeof runEvalGate>[0] = {};
+        const baseline = values.get("--baseline");
+        if (baseline) gateOpts.baseline = baseline;
+        const maxDrop = values.get("--max-drop");
+        if (maxDrop !== undefined) {
+          const n = Number(maxDrop);
+          if (!Number.isFinite(n) || n < 0 || n > 1) {
+            throw new Error(`memex eval gate: invalid --max-drop ${maxDrop}`);
+          }
+          gateOpts.maxDrop = n;
+        }
+        const minRecall = values.get("--min-recall");
+        if (minRecall !== undefined) {
+          const n = Number(minRecall);
+          if (!Number.isFinite(n) || n < 0 || n > 1) {
+            throw new Error(`memex eval gate: invalid --min-recall ${minRecall}`);
+          }
+          gateOpts.minRecall = n;
+        }
+        if (flags.has("--write-baseline")) gateOpts.writeBaseline = true;
+        const qg = values.get("--qrels");
+        if (qg) gateOpts.qrelsPath = qg;
+        const kg = values.get("--k");
+        if (kg !== undefined) {
+          const n = Number(kg);
+          if (!Number.isInteger(n) || n < 1 || n > 100) {
+            throw new Error(`memex eval gate: invalid --k ${kg}`);
+          }
+          gateOpts.k = n;
+        }
+        return await runEvalGate(gateOpts);
+      }
+
       const kStr = values.get("--k");
       const k = kStr ? Number(kStr) : undefined;
       if (k !== undefined && (!Number.isInteger(k) || k < 1 || k > 100)) {
         throw new Error(`memex eval: invalid --k ${kStr}`);
       }
-      await runEval(k !== undefined ? { k } : {});
+      // Knob flags → the A-side config (reference parity: CLI overrides file).
+      const cfg: EvalKnobConfig = values.has("--config-a")
+        ? parseEvalConfig(values.get("--config-a")!)
+        : {};
+      const rrfKStr = values.get("--rrf-k");
+      if (rrfKStr !== undefined) {
+        const n = Number(rrfKStr);
+        if (!Number.isInteger(n) || n < 1 || n > 1000) {
+          throw new Error(`memex eval: invalid --rrf-k ${rrfKStr}`);
+        }
+        cfg.rrfK = n;
+      }
+      if (flags.has("--expand")) cfg.expansion = true;
+      if (flags.has("--no-expand")) cfg.expansion = false;
+      if (flags.has("--rerank")) cfg.rerank = true;
+      if (flags.has("--max-pool")) cfg.maxPool = true;
+      if (flags.has("--graph-signals")) cfg.graphSignals = true;
+      if (flags.has("--cosine-rescore")) cfg.cosineRescore = true;
+      if (flags.has("--relational-arm")) cfg.relationalArm = true;
+      const ratioStr = values.get("--dedup-type-ratio");
+      if (ratioStr !== undefined) {
+        const n = Number(ratioStr);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(`memex eval: invalid --dedup-type-ratio ${ratioStr}`);
+        }
+        cfg.dedupTypeRatio = n;
+      }
+      const evalOpts: Parameters<typeof runEval>[0] = {};
+      if (k !== undefined) evalOpts.k = k;
+      const qrels = values.get("--qrels");
+      if (qrels) evalOpts.qrelsPath = qrels;
+      if (Object.keys(cfg).length > 0) evalOpts.config = cfg;
+      if (values.has("--config-b")) {
+        evalOpts.configB = parseEvalConfig(values.get("--config-b")!);
+      }
+      await runEval(evalOpts);
       return 0;
     }
     case "eval-probe": {
@@ -505,6 +651,29 @@ async function main(argv: readonly string[]): Promise<number> {
         }
         args.maxBudgetUsd = n;
       }
+      // Persistence + gather knobs (map 1:1 onto ThinkOptions).
+      if (flags.has("--save")) args.save = true;
+      const takeClaim = values.get("--take");
+      if (takeClaim !== undefined) args.take = takeClaim;
+      const sinceStr = values.get("--since");
+      if (sinceStr) args.since = sinceStr;
+      const untilStr = values.get("--until");
+      if (untilStr) args.until = untilStr;
+      const anchorStr = values.get("--anchor");
+      if (anchorStr) {
+        args.anchors = anchorStr.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+      const roundsStr = values.get("--rounds");
+      if (roundsStr !== undefined) {
+        const n = Number(roundsStr);
+        if (!Number.isInteger(n) || n < 1 || n > 3) {
+          throw new Error(`memex think: invalid --rounds ${roundsStr} (1..3)`);
+        }
+        args.rounds = n;
+      }
+      const modelStr = values.get("--model");
+      if (modelStr) args.modelId = modelStr;
+      if (flags.has("--with-calibration")) args.withCalibration = true;
       await runThinkCli(args);
       return 0;
     }
@@ -700,6 +869,20 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.limit = n;
       }
       if (flags.has("--dry-run")) opts.dryRun = true;
+      // Targeting (G51): positional slug(s) and/or --slugs CSV re-embed those
+      // pages; --all re-embeds the whole embeddable corpus; --stale also
+      // refreshes signature-stale rows; --source scopes any of the above.
+      const slugSet = [
+        ...positional,
+        ...(values.get("--slugs")?.split(",") ?? []),
+      ]
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (slugSet.length > 0) opts.slugs = slugSet;
+      if (flags.has("--all")) opts.all = true;
+      if (flags.has("--stale")) opts.stale = true;
+      const embedSource = values.get("--source");
+      if (embedSource) opts.sourceId = embedSource;
       return await runEmbed(opts);
     }
     case "call": {
@@ -836,10 +1019,15 @@ async function main(argv: readonly string[]): Promise<number> {
         sub !== "stats" &&
         sub !== "retry" &&
         sub !== "cancel" &&
-        sub !== "show"
+        sub !== "show" &&
+        sub !== "submit" &&
+        sub !== "progress" &&
+        sub !== "remove" &&
+        sub !== "prune" &&
+        sub !== "smoke"
       ) {
         console.error(
-          `memex jobs: subcommand required (list|stats|show|retry|cancel)`,
+          `memex jobs: subcommand required (list|stats|show|retry|cancel|submit|progress|remove|prune|smoke)`,
         );
         return 1;
       }
@@ -865,13 +1053,76 @@ async function main(argv: readonly string[]): Promise<number> {
           }
           opts.limit = n;
         }
-      } else if (sub === "show" || sub === "retry" || sub === "cancel") {
+      } else if (
+        sub === "show" ||
+        sub === "retry" ||
+        sub === "cancel" ||
+        sub === "progress" ||
+        sub === "remove"
+      ) {
         const id = positional[1];
         if (!id) {
           console.error(`memex jobs ${sub}: <id> is required`);
           return 1;
         }
         opts.id = id;
+      } else if (sub === "submit") {
+        const kind = positional[1];
+        if (!kind) {
+          console.error("memex jobs submit: <kind> is required");
+          return 1;
+        }
+        opts.kind = kind;
+        const id = values.get("--id");
+        if (id) opts.id = id;
+        const prio = values.get("--priority");
+        if (prio !== undefined) {
+          const n = Number(prio);
+          if (!Number.isInteger(n) || n < 1 || n > 10) {
+            throw new Error(`memex jobs submit: invalid --priority ${prio}`);
+          }
+          opts.priority = n;
+        }
+        const retries = values.get("--max-retries");
+        if (retries !== undefined) {
+          const n = Number(retries);
+          if (!Number.isInteger(n) || n < 0 || n > 100) {
+            throw new Error(`memex jobs submit: invalid --max-retries ${retries}`);
+          }
+          opts.maxRetries = n;
+        }
+        const payloadJson = values.get("--payload");
+        if (payloadJson !== undefined) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(payloadJson);
+          } catch {
+            throw new Error("memex jobs submit: --payload must be valid JSON");
+          }
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("memex jobs submit: --payload must be a JSON object");
+          }
+          opts.payload = parsed as Record<string, unknown>;
+        }
+      } else if (sub === "prune") {
+        const days = values.get("--older-than-days");
+        if (days !== undefined) {
+          const n = Number(days);
+          if (!Number.isFinite(n) || n < 0 || n > 3650) {
+            throw new Error(`memex jobs prune: invalid --older-than-days ${days}`);
+          }
+          opts.olderThanDays = n;
+        }
+        const statusStr = values.get("--status");
+        if (statusStr) {
+          const parts = statusStr.split(",").map((s) => s.trim());
+          for (const p of parts) {
+            if (!VALID_JOB_STATUSES.has(p as JobStatus)) {
+              throw new Error(`memex jobs prune: invalid --status '${p}'`);
+            }
+          }
+          opts.status = parts as JobStatus[];
+        }
       }
       await runJobs(opts);
       return 0;
@@ -951,7 +1202,14 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "lint": {
-      await runLint();
+      const lintOpts: Parameters<typeof runLint>[0] = {};
+      // Accept the target in either order relative to the bare flags: a value
+      // swallowed by `--fix <target>` is still the target.
+      const target = positional[0] ?? values.get("--fix") ?? values.get("--dry-run");
+      if (target) lintOpts.target = target;
+      if (flags.has("--fix") || values.has("--fix")) lintOpts.fix = true;
+      if (flags.has("--dry-run") || values.has("--dry-run")) lintOpts.dryRun = true;
+      await runLint(lintOpts);
       return 0;
     }
     case "reports": {
@@ -1033,6 +1291,46 @@ async function main(argv: readonly string[]): Promise<number> {
         runSearchModes();
         return 0;
       }
+      // `search stats|tune|diagnose` — telemetry dashboard / recommendation
+      // loop / arm-by-arm probe, NOT a free-text search for those words.
+      // stats/tune only claim the EXACT single token (a query like
+      // "stats about x" stays a search); diagnose owns its tail (the query).
+      if (positional.length === 1 && positional[0] === "stats") {
+        const daysStr = values.get("--days");
+        const opts: Parameters<typeof runSearchStats>[0] = {};
+        if (daysStr !== undefined) {
+          const n = Number(daysStr);
+          if (!Number.isInteger(n) || n < 1 || n > 365) {
+            throw new Error(`memex search stats: invalid --days ${daysStr}`);
+          }
+          opts.days = n;
+        }
+        if (flags.has("--json")) opts.json = true;
+        return await runSearchStats(opts);
+      }
+      if (positional.length === 1 && positional[0] === "tune") {
+        const opts: Parameters<typeof runSearchTune>[0] = {};
+        if (flags.has("--apply")) opts.apply = true;
+        if (flags.has("--json")) opts.json = true;
+        return await runSearchTune(opts);
+      }
+      if (positional[0] === "diagnose") {
+        const target = values.get("--target");
+        if (!target) {
+          console.error(
+            'memex search diagnose: --target <slug> is required (usage: search diagnose "<query>" --target <slug>)',
+          );
+          return 2;
+        }
+        const diagOpts: Parameters<typeof runSearchDiagnose>[0] = {
+          query: positional.slice(1).join(" "),
+          target,
+        };
+        const src = values.get("--source");
+        if (src) diagOpts.sourceId = src;
+        if (flags.has("--json")) diagOpts.json = true;
+        return await runSearchDiagnose(diagOpts);
+      }
       const query = positional.join(" ");
       if (!query) {
         console.error("memex search: <query> is required");
@@ -1043,8 +1341,84 @@ async function main(argv: readonly string[]): Promise<number> {
       if (k !== undefined && (!Number.isInteger(k) || k < 1 || k > 100)) {
         throw new Error(`memex search: invalid --k ${kStr}`);
       }
-      await runSearch(k !== undefined ? { query, k } : { query });
+      await runSearch({
+        query,
+        ...(k !== undefined ? { k } : {}),
+        ...(flags.has("--explain") ? { explain: true } : {}),
+      });
       return 0;
+    }
+    case "config": {
+      const sub = positional[0];
+      if (sub !== "show" && sub !== "get" && sub !== "set" && sub !== "unset") {
+        console.error("memex config: subcommand required (show|get|set|unset)");
+        return 1;
+      }
+      const opts: Parameters<typeof runConfig>[0] = { sub: sub as ConfigSub };
+      if (sub === "get" || sub === "unset") {
+        if (positional[1]) opts.key = positional[1];
+      }
+      if (sub === "set") {
+        opts.key = positional[1];
+        opts.value = positional[2];
+        if (flags.has("--force")) opts.force = true;
+      }
+      if (sub === "unset") {
+        const pattern = values.get("--pattern");
+        if (pattern !== undefined) opts.pattern = pattern;
+      }
+      return await runConfig(opts);
+    }
+    case "capture": {
+      const opts: Parameters<typeof runCapture>[0] = {};
+      const inline = positional.join(" ").trim();
+      if (inline) opts.text = inline;
+      if (flags.has("--stdin")) opts.stdin = true;
+      const file = values.get("--file");
+      if (file) opts.file = file;
+      const slug = values.get("--slug");
+      if (slug) opts.slug = slug;
+      const type = values.get("--type");
+      if (type) opts.type = type;
+      const src = values.get("--source");
+      if (src) opts.sourceId = src;
+      const title = values.get("--title");
+      if (title) opts.title = title;
+      if (flags.has("--json")) opts.json = true;
+      return await runCapture(opts);
+    }
+    case "quarantine": {
+      const sub = positional[0];
+      if (sub !== "list" && sub !== "clear" && sub !== "scan") {
+        console.error("memex quarantine: subcommand required (list|clear|scan)");
+        return 1;
+      }
+      const opts: Parameters<typeof runQuarantine>[0] = {
+        sub: sub as QuarantineSub,
+      };
+      if (sub === "clear") {
+        const target = positional[1];
+        if (!target) {
+          console.error("memex quarantine clear: <slug|source_path> is required");
+          return 1;
+        }
+        opts.target = target;
+        if (flags.has("--force")) opts.force = true;
+      }
+      if (sub === "list" && flags.has("--include-flagged")) opts.includeFlagged = true;
+      if (sub === "scan") {
+        if (flags.has("--apply")) opts.apply = true;
+        const limitStr = values.get("--limit");
+        if (limitStr !== undefined) {
+          const n = Number(limitStr);
+          if (!Number.isInteger(n) || n < 1) {
+            throw new Error(`memex quarantine scan: invalid --limit ${limitStr}`);
+          }
+          opts.limit = n;
+        }
+      }
+      if (flags.has("--json")) opts.json = true;
+      return await runQuarantine(opts);
     }
     case undefined:
     case "--help":
