@@ -27,7 +27,8 @@ import type { Intent } from "./intent.ts";
 import type { SearchHit } from "./hybrid.ts";
 import { visibilityClause } from "../visibility.ts";
 import { normalizeAlias, resolveAliasCandidates } from "../page-aliases.ts";
-import { slugForSourcePath } from "./graph-signals.ts";
+import { pageSourcePath } from "../page-index.ts";
+import { slugCandidatesForPath } from "./page-slug.ts";
 import { createSafetyFor } from "./evidence.ts";
 
 /** Bounded boost when the canonical page is already in the results. */
@@ -96,7 +97,13 @@ export async function applyAliasHop(
   let injectScore = topScore > 0 ? topScore : 1.0;
 
   for (const ref of ordered) {
-    const idx = out.findIndex((r) => slugForSourcePath(r.sourcePath) === ref.slug);
+    // Present-check via slug candidates so a tenant mirror
+    // (`page://<sid>/<slug>`) matches its bare slug, not just default-tenant
+    // hits — otherwise a scoped tenant never sees the ×1.10 present boost and
+    // re-injects a duplicate.
+    const idx = out.findIndex((r) =>
+      slugCandidatesForPath(r.sourcePath, ref.source_id).includes(ref.slug),
+    );
     if (idx >= 0) {
       // Present → ×1.10 + alias_hit evidence. Immutable replace (memex style
       // rule) rather than the reference's in-place mutation.
@@ -112,13 +119,18 @@ export async function applyAliasHop(
     // Absent → fetch the canonical page's head chunk (in ITS source) + inject
     // at top-of-organic + ε. The ε increments per inject so multiple collision
     // claimants stack just above the organic top without leapfrogging.
+    // Build the exact mirror source_path per candidate source so the lookup
+    // matches tenant mirrors (`page://<sid>/<slug>`), not only the default
+    // `page://<slug>` form. `ref.source_id` (when set) pins one source; else
+    // the caller's read scope enumerates the candidates.
+    const headSources = ref.source_id ? [ref.source_id] : scope;
     const injected = opts.fetchHead
       ? await opts.fetchHead(ref.slug, ref.source_id)
       : await fetchPageHeadHit(
           storage.engine(),
           ref.slug,
           intent,
-          ref.source_id ? [ref.source_id] : scope,
+          headSources,
         );
     if (!injected) continue;
     injectScore += 1e-6;
@@ -143,12 +155,16 @@ async function fetchPageHeadHit(
   intent: Intent,
   scope: string[] | undefined,
 ): Promise<SearchHit | null> {
-  const params: unknown[] = [`page://${slug}`];
-  let scopeFilter = "";
-  if (scope && scope.length > 0) {
-    params.push(scope);
-    scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-  }
+  // Candidate mirror paths: one per scoped source (tenant-aware), plus the
+  // bare default form when scope is absent (operator/local path). Matching the
+  // path set — not `page://<slug>` alone — is what makes tenant alias-hops
+  // resolve; the path already encodes source_id, so no separate source filter
+  // is needed (and it can never widen past `scope`).
+  const candidatePaths =
+    scope && scope.length > 0
+      ? scope.map((s) => pageSourcePath(slug, s))
+      : [pageSourcePath(slug, null)];
+  const params: unknown[] = [candidatePaths];
   const r = await engine.query<{
     id: string;
     document_id: string;
@@ -159,7 +175,7 @@ async function fetchPageHeadHit(
     `SELECT c.id, c.document_id, c.content, d.source_path, d.title
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
-      WHERE d.source_path = $1${scopeFilter}
+      WHERE d.source_path = ANY($1::text[])
         AND ${visibilityClause("d")}
       ORDER BY c.id
       LIMIT 1`,

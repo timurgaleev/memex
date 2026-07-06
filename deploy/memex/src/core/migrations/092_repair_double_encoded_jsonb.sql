@@ -11,11 +11,16 @@
 -- Shape: an information_schema scan over EVERY public jsonb column — a frozen
 -- column list would miss exactly the stragglers this exists for. Per column,
 -- rewrite rows where the value is a jsonb string scalar whose contained text
--- parses as JSON: SET col = (col #>> '{}')::jsonb. String scalars whose text
--- is NOT valid JSON (legitimate plain-text values) are left untouched by the
--- per-row try-parse, and a per-column exception guard skips (NOTICE, never
--- abort) any column whose rewrite still fails. Idempotent: a repaired value
--- is no longer a string scalar, so a re-run matches zero rows.
+-- parses as JSON *AND the parsed value is an object or array*: SET col =
+-- (col #>> '{}')::jsonb. The object/array guard is deliberate — the
+-- double-encode bug ONLY ever wrapped JSON.stringify of objects/arrays, so a
+-- legitimate string scalar that happens to contain a JSON scalar literal
+-- (e.g. '"123"', '"true"', '"null"') is NOT a double-encode artifact and must
+-- be left alone rather than silently retyped to number/boolean/null. String
+-- scalars whose text is not valid JSON are already skipped by the try-parse;
+-- a per-column exception guard skips (NOTICE, never abort) any column whose
+-- rewrite still fails. Idempotent: a repaired value is no longer a string
+-- scalar, so a re-run matches zero rows.
 
 -- Per-row try-parse: jsonb on success, SQL NULL on any parse failure. Dropped
 -- at the end of the migration — repair-scoped, not a durable helper.
@@ -48,9 +53,10 @@ BEGIN
       EXECUTE format(
         'UPDATE %I SET %I = mx_092_try_jsonb(%I #>> ''{}'')
           WHERE jsonb_typeof(%I) = ''string''
-            AND mx_092_try_jsonb(%I #>> ''{}'') IS NOT NULL',
+            AND mx_092_try_jsonb(%I #>> ''{}'') IS NOT NULL
+            AND jsonb_typeof(mx_092_try_jsonb(%I #>> ''{}'')) IN (''object'', ''array'')',
         col.table_name, col.column_name, col.column_name,
-        col.column_name, col.column_name);
+        col.column_name, col.column_name, col.column_name);
       GET DIAGNOSTICS repaired = ROW_COUNT;
       IF repaired > 0 THEN
         RAISE NOTICE '092: repaired % double-encoded row(s) in %.%',
