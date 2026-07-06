@@ -2012,3 +2012,50 @@ emits a scalar when YAML parse doesn't yield a mapping. Investigate the code-gra
 indexer + gmail/gcal recipe ingest; reject/normalize non-object frontmatter at
 `indexDocument` (coerce to `{}` or parse correctly). Harmless to the cycle today
 (cap + incremental-extract + tags-only projection), so not urgent.
+
+## Parity recompare backlog (2026-07-06) — ready to build
+
+Full reference recompare done; v1.82–v1.84 live, v1.85/1.86 (parallel) tagged,
+v1.87 built+pushed (deploy pending SSO). Remaining, ranked:
+
+### Wave 2 — last core item (specced, not built)
+- **Fenced-code extraction** (`chunk_source='fenced_code'`). Migration 093:
+  `ALTER TABLE chunks ADD COLUMN chunk_source TEXT` (nullable). In `indexer.ts`
+  after `chunkMarkdown`, extract each ```lang fence; if the tag is in the
+  6-grammar set (parsers.ts CodeLanguage: typescript/tsx/python/bash/go/sql — map
+  aliases ts/py/sh) run `chunkCode(source, pseudoPath, lang)` and append the
+  code chunks as `ChunkWrite`s stamped `chunk_source='fenced_code'` with
+  language/symbol/start-end lines; other tags fall through as prose. Extend
+  `ChunkWrite` + the indexer-tx INSERT with `chunk_source`. Cap fences/page
+  (`MEMEX_MAX_FENCES_PER_PAGE` default 100 — embed-cost DOS guard). Bypass
+  contextual-retrieval wrapping for fenced_code chunks (like whole-code docs).
+  HIGH risk to hot ingest path → deploy + reindex + verify with SSO up.
+
+### Wave 3 — admin observability
+- `/admin/api/agents/spend` (per-OAuth-client daily spend vs budget — ledger
+  exists), `/admin/api/stats` + `/admin/api/health-indicators` (active tokens,
+  tokens expiring 24h, 24h error-rate), `/admin/api/requests` filters
+  (agent/op/status) + params column, per-token post-auth rate-limiter + env knobs.
+
+### Wave 4 — DB receipt/cache tables
+- drift_decisions (apply/audit trail), calibration holder-scoping, page-level
+  FTS / searchable timeline, code_traversal_cache, conversation_parser_llm_cache,
+  think_ab_results, eval_* receipt tables (mostly marginal).
+
+### Wave 5 — CLI DX breadth
+- op-registry CLI bridge, `publish` single-page HTML export, self-update family,
+  jobs --follow, generic backfill runner, frontmatter tooling, features scan.
+
+### Wave 6 — evals (non-CI, billable)
+- longmemeval harness, takes-quality judge eval, contradiction eval,
+  conversation-parser eval.
+
+### Wave 7 — ASK-items (operator approved all)
+- unified LLM gateway (retry/backoff/timeout/inflight/isAvailable), unified
+  model-routing resolver + deep/Opus tier, sense connectors + integrations CLI,
+  brainstorm/lsd/data-research paid slices, retrieval-reflex ambient layer.
+
+### Pre-existing red (investigate)
+- tests/facts_decay.test.ts "forces decay OFF on the public bearer path" returns
+  0 world facts (expected 3) — fails on baseline a3ebe89 (parallel rerank/doctor
+  commits), NOT from the recompare batch. Visibility-floor public path.
