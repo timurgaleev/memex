@@ -20,6 +20,10 @@ import { ALLOWED_SCOPES_LIST } from "../core/scope.ts";
 
 export const OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server";
 
+/** RFC 9728 protected-resource metadata path (served alongside the AS doc). */
+export const OAUTH_PROTECTED_RESOURCE_PATH =
+  "/.well-known/oauth-protected-resource";
+
 /**
  * RFC 8414 authorization-server metadata. Only the fields memex actually
  * honors are advertised:
@@ -111,4 +115,60 @@ export function handleOAuthMetadataRoute(
     status: 200,
     headers: { "Cache-Control": cache },
   });
+}
+
+/**
+ * RFC 9728 OAuth protected-resource metadata. memex is both the resource
+ * server (`/mcp`) and its own authorization server, so `resource` and the
+ * single `authorization_servers` entry are the same issuer. Standard MCP
+ * OAuth clients (Claude, ChatGPT, …) fetch this document when a 401's
+ * `WWW-Authenticate` challenge points at it, then discover the AS from it —
+ * closing the loop for clients that start at the resource instead of the
+ * authorization-server document.
+ */
+export interface ProtectedResourceMetadata {
+  resource: string;
+  authorization_servers: string[];
+  scopes_supported: string[];
+  bearer_methods_supported: string[];
+  resource_name: string;
+}
+
+export function buildProtectedResourceMetadata(
+  issuer: string,
+): ProtectedResourceMetadata {
+  return {
+    resource: issuer,
+    authorization_servers: [issuer],
+    scopes_supported: [...ALLOWED_SCOPES_LIST],
+    // Bearer tokens are accepted in the Authorization header only (RFC 6750
+    // §2.1) — never as query param or form field.
+    bearer_methods_supported: ["header"],
+    resource_name: "memex",
+  };
+}
+
+/** Route handler for `GET /.well-known/oauth-protected-resource`. Same
+ *  issuer + cache rules as the authorization-server document. */
+export function handleProtectedResourceRoute(
+  url: URL,
+  publicUrl?: string,
+): Response {
+  const declared = ((publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim()).length > 0;
+  const issuer = resolveIssuer(url, publicUrl);
+  const cache = declared ? "public, max-age=3600" : "no-store";
+  return Response.json(buildProtectedResourceMetadata(issuer), {
+    status: 200,
+    headers: { "Cache-Control": cache },
+  });
+}
+
+/**
+ * `WWW-Authenticate` challenge value for a 401 on `/mcp` (RFC 9728 §5.1).
+ * The `resource_metadata` parameter tells a standards-aware client exactly
+ * where to fetch the protected-resource document above, from which it
+ * discovers the authorization server and starts the OAuth flow unattended.
+ */
+export function wwwAuthenticateChallenge(issuer: string): string {
+  return `Bearer error="invalid_token", resource_metadata="${issuer}${OAUTH_PROTECTED_RESOURCE_PATH}"`;
 }

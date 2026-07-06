@@ -20,8 +20,19 @@ import type { Storage } from "../core/storage.ts";
 import { handleHealth } from "./health.ts";
 import {
   handleOAuthMetadataRoute,
+  handleProtectedResourceRoute,
+  resolveIssuer,
+  wwwAuthenticateChallenge,
   OAUTH_METADATA_PATH,
+  OAUTH_PROTECTED_RESOURCE_PATH,
 } from "./oauth-metadata.ts";
+import {
+  CORS_PATHS,
+  parseCorsAllowlist,
+  corsPreflightResponse,
+  applyCorsHeaders,
+} from "./cors.ts";
+import { handleIngestRoute } from "./ingest.ts";
 import {
   evaluatePublicGuard,
   evaluateInternalAuth,
@@ -131,6 +142,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const registerRateLimiter = opts.oauthProvider
     ? new RateLimiter({ capacity: 5, refillPerSecond: 5 / 60 })
     : null;
+  // POST /ingest webhook capture — 100 events / 10 s per IP (reference cap).
+  const ingestRateLimiter = new RateLimiter({ capacity: 100, refillPerSecond: 10 });
+  // Default-deny CORS allowlist for the OAuth + MCP surface (read once at boot).
+  const corsAllowlist = parseCorsAllowlist();
 
   let adminAuth: AdminAuth | null = null;
   if (opts.adminBootstrapToken && opts.adminBootstrapToken.length > 0) {
@@ -170,6 +185,15 @@ export function startServer(opts: ServerOptions): ServerHandle {
     fetch: async (req, server) => {
       const url = new URL(req.url);
 
+      // CORS preflight — answered BEFORE auth: preflights carry no
+      // credentials by design, so the bearer guard would 401 every browser
+      // client. 204 either way; grant headers only for allowlisted origins.
+      if (req.method === "OPTIONS" && CORS_PATHS.has(url.pathname)) {
+        return corsPreflightResponse(req, corsAllowlist);
+      }
+
+      const handle = async (): Promise<Response> => {
+
       let guard = evaluatePublicGuard(req, url, guardOpts);
       let oauthAuth: AuthInfo | undefined;
       if (!guard.allow) {
@@ -199,6 +223,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
                 ...(info.allowedSources != null
                   ? { allowedSources: info.allowedSources }
                   : {}),
+                ...(info.takesHolders != null
+                  ? { takesHolders: info.takesHolders }
+                  : {}),
                 isPublic: false,
               };
             } catch (e) {
@@ -217,9 +244,18 @@ export function startServer(opts: ServerOptions): ServerHandle {
         }
       }
       if (!guard.allow) {
+        // RFC 9728 §5.1: a 401 on the MCP resource carries a WWW-Authenticate
+        // challenge pointing at the protected-resource metadata, so a
+        // standards-aware OAuth client can bootstrap the flow unattended.
+        const headers: Record<string, string> = {};
+        if (url.pathname === "/mcp" && guard.status === 401) {
+          headers["WWW-Authenticate"] = wwwAuthenticateChallenge(
+            resolveIssuer(url, opts.publicUrl),
+          );
+        }
         return Response.json(
           { ok: false, error: guard.reason },
-          { status: guard.status },
+          { status: guard.status, headers },
         );
       }
 
@@ -231,6 +267,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
       // above already exempts this path from the bearer requirement.
       if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
         return handleOAuthMetadataRoute(url, opts.publicUrl, dcrEnabled);
+      }
+      // RFC 9728 protected-resource metadata — public for the same reason.
+      if (url.pathname === OAUTH_PROTECTED_RESOURCE_PATH && req.method === "GET") {
+        return handleProtectedResourceRoute(url, opts.publicUrl);
       }
       // OAuth 2.1 authorization endpoints. Public (exempted in the guard) —
       // authenticated by client_id/secret + PKCE downstream, NOT the public
@@ -281,6 +321,49 @@ export function startServer(opts: ServerOptions): ServerHandle {
           return handleRevokeRoute(req, oauthProvider);
         }
       }
+      // POST /ingest — webhook capture (OAuth write scope). The guard above
+      // resolved OAuth bearers on the public path; internal callers (no
+      // Cf-Connecting-Ip) present theirs here, so both ingress classes reach
+      // the handler with a resolved identity. Everything else — scope check,
+      // byte cap, content-type allowlist, idempotent job — lives in ingest.ts.
+      if (url.pathname === "/ingest" && req.method === "POST") {
+        let ingestAuth = oauthAuth;
+        if (!ingestAuth && opts.oauthProvider) {
+          const m = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
+          if (m && m[1]) {
+            try {
+              const info = await opts.oauthProvider.verifyAccessToken(m[1]);
+              ingestAuth = {
+                token: info.token,
+                clientId: info.clientId,
+                scopes: info.scopes,
+                ...(info.sourceId != null ? { sourceId: info.sourceId } : {}),
+                ...(info.allowedSources != null
+                  ? { allowedSources: info.allowedSources }
+                  : {}),
+                ...(info.takesHolders != null
+                  ? { takesHolders: info.takesHolders }
+                  : {}),
+                isPublic: guard.isPublic,
+              };
+            } catch (e) {
+              if (!(e instanceof InvalidTokenError)) {
+                console.error("[memex] /ingest token verification error:", e);
+              }
+            }
+          }
+        }
+        const ip =
+          req.headers.get("Cf-Connecting-Ip")?.trim() ||
+          server.requestIP(req)?.address ||
+          "unknown";
+        return handleIngestRoute(req, {
+          storage: opts.storage,
+          ...(ingestAuth !== undefined ? { authInfo: ingestAuth } : {}),
+          allowRequest: () => ingestRateLimiter.allow(ip),
+          clientIp: ip,
+        });
+      }
       if (url.pathname === "/mcp" && mcpHandler) {
         // Evaluate the internal-token gate once per request; the handler
         // enforces it only for write tools on the internal path (read
@@ -314,6 +397,14 @@ export function startServer(opts: ServerOptions): ServerHandle {
         }
       }
       return new Response("Not Found", { status: 404 });
+
+      };
+      const res = await handle();
+      // Stamp the allow-origin grant on actual responses for the OAuth/MCP
+      // surface (allowlisted origins only — default deny).
+      return CORS_PATHS.has(url.pathname)
+        ? applyCorsHeaders(res, req, corsAllowlist)
+        : res;
     },
     error(err) {
       console.error("[memex] server error:", err);

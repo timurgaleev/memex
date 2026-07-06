@@ -28,7 +28,10 @@ import { timingSafeEqual } from "node:crypto";
 // Canonical definition lives in core so the MCP layer shares it without
 // importing this http/ module (which would create an import cycle).
 import { publicReadBodiesAllowed } from "../core/public_redaction.ts";
-import { OAUTH_METADATA_PATH } from "./oauth-metadata.ts";
+import {
+  OAUTH_METADATA_PATH,
+  OAUTH_PROTECTED_RESOURCE_PATH,
+} from "./oauth-metadata.ts";
 
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
@@ -166,6 +169,20 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "get_recent_transcripts",
   "jobs_submit",
   "jobs_cancel",
+  // Stage-2 surface: think synthesizes over private notes (and spends Bedrock);
+  // fact_supersessions is fact free-text; raw_data carries importer payloads;
+  // job lifecycle + sources/status/doctor snapshots expose operational state.
+  // All internal-only, consistent with the sets above.
+  "think",
+  "fact_supersessions",
+  "put_raw_data",
+  "get_raw_data",
+  "retry_job",
+  "get_job_progress",
+  "sources_list",
+  "sources_status",
+  "get_status_snapshot",
+  "run_doctor",
 ]);
 
 /**
@@ -243,9 +260,14 @@ export function evaluatePublicGuard(
     return { allow: true, isPublic: true };
   }
 
-  // OAuth 2.1 authorization-server discovery (RFC 8414). A client must reach
-  // this BEFORE it holds any credential, so it is open exactly like /health.
-  if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
+  // OAuth 2.1 authorization-server discovery (RFC 8414) + protected-resource
+  // metadata (RFC 9728). A client must reach these BEFORE it holds any
+  // credential, so they are open exactly like /health.
+  if (
+    (url.pathname === OAUTH_METADATA_PATH ||
+      url.pathname === OAUTH_PROTECTED_RESOURCE_PATH) &&
+    req.method === "GET"
+  ) {
     return { allow: true, isPublic: true };
   }
 
