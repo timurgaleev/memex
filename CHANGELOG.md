@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.86.0] — 2026-07-06
+
+### Added
+- **Four ops-facing `memex doctor` probes.** `stale-locks` (cycle locks past
+  their TTL — an orphaned holder), `queue-health` (job queue depth plus a
+  wedged-running-job flag, threshold `MEMEX_DOCTOR_JOB_WEDGE_SEC`, default 1h),
+  `schema-version` (highest applied migration vs the highest bundled migration —
+  flags unapplied ones), and `embedding-width` (stored `vector(N)` width vs the
+  configured `EMBED_DIMENSIONS` — catches a `MEMEX_EMBED_DIM` change that never
+  reached the column). Surfaced in both `memex doctor` and the MCP `run_doctor`
+  tool. Read-only, no LLM — the substrate (cycle_locks, jobs, migrations,
+  embeddings) already existed; only the surfacing was missing.
+
 ## [1.85.0] — 2026-07-06
 
 ### Added
