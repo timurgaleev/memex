@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test";
 import { Storage } from "../src/core/storage.ts";
 import { startServer } from "../src/http/server.ts";
+import { probeLiveness } from "../src/http/health.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("GET /health returns 200 with valid JSON shape", async () => {
+test("GET /health returns 200 liveness-only (no corpus stats)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "tb-health-"));
   const storage = new Storage({ dbPath: dir });
   await storage.init();
@@ -18,12 +19,40 @@ test("GET /health returns 200 with valid JSON shape", async () => {
     expect(body.ok).toBe(true);
     expect(body.db).toBe("pglite");
     expect(typeof body.version).toBe("string");
-    expect(body.stats).toEqual({ documents: 0, chunks: 0, embeddings: 0 });
+    // Liveness only: corpus stats must NOT be disclosed on the anonymous
+    // probe (they live behind /admin/api/full-stats).
+    expect(body.stats).toBeUndefined();
   } finally {
     await server.stop();
     await storage.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("probeLiveness returns 503 when the DB query exceeds the timeout", async () => {
+  const hangingStorage = {
+    engine: () => ({
+      kind: "pglite",
+      query: () => new Promise(() => {}), // never resolves
+    }),
+  } as unknown as Storage;
+  const result = await probeLiveness(hangingStorage, 50);
+  expect(result.status).toBe(503);
+  expect(result.body.ok).toBe(false);
+  expect(String(result.body.error)).toContain("timed out");
+});
+
+test("probeLiveness returns 503 with a generic message on DB failure", async () => {
+  const failingStorage = {
+    engine: () => ({
+      kind: "pglite",
+      query: () => Promise.reject(new Error("connection to db-internal-host:5432 refused")),
+    }),
+  } as unknown as Storage;
+  const result = await probeLiveness(failingStorage, 1000);
+  expect(result.status).toBe(503);
+  // Never echo internals (DSN host / Postgres detail) to the anon probe.
+  expect(JSON.stringify(result.body)).not.toContain("db-internal-host");
 });
 
 test("non-/health routes return 404", async () => {

@@ -1,7 +1,8 @@
 /**
  * syncVerbLinksForPage (migration 053) — prose verb-context typed edges written
- * with link_kind='verb_ner'. Owns only its own edge set; yields to an explicit
- * edge on the same (source, target, type); never touches plain wikilink edges.
+ * with link_kind='verb_ner'. Owns only its own edge set; a same-triple explicit
+ * edge coexists as a separate row under the mig086 provenance key; never
+ * touches plain wikilink edges.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -56,13 +57,17 @@ describe("syncVerbLinksForPage", () => {
     expect(got).toContainEqual({ type: "founded", link_kind: "verb_ner" });
   });
 
-  it("yields to an explicit edge on the same (source, target, type)", async () => {
-    // An explicit founded edge (link_kind NULL) already exists.
+  it("coexists with an explicit edge on the same (source, target, type)", async () => {
+    // An explicit founded edge (link_kind NULL, link_source 'manual') exists.
     await addLink(storage, { source_slug: "people/alice", target_slug: "companies/acme", type: "founded" });
     const r = await syncVerbLinksForPage(storage, "people/alice", "person", "Alice founded [[companies/acme]].");
-    expect(r.added).toBe(0); // ON CONFLICT DO NOTHING — the explicit edge wins
+    // mig086: each writer owns its own row — the inferred edge lands as a
+    // SEPARATE 'mentions'-provenance row instead of being swallowed, and the
+    // explicit edge is untouched.
+    expect(r.added).toBe(1);
     const founded = (await edges()).filter((e) => e.type === "founded");
-    expect(founded).toEqual([{ type: "founded", link_kind: null }]);
+    expect(founded).toContainEqual({ type: "founded", link_kind: null });
+    expect(founded).toContainEqual({ type: "founded", link_kind: "verb_ner" });
   });
 
   it("is idempotent — re-sync replaces only its own verb_ner set", async () => {

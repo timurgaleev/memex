@@ -12,11 +12,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { hybridSearch } from "../src/core/search/index.ts";
+import {
+  resolveSearchKnobs,
+  knobsCacheSuffix,
+} from "../src/core/search/hybrid.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import {
   putCachedQuery,
   queryCacheKey,
+  rankingSignature,
 } from "../src/core/search/query-cache.ts";
+
+// The signature hybridSearch computes for a plain `{ k }` call: env-level
+// rankingSignature + the resolved per-call knob suffix (knobs-hash parity).
+const hybridSig = (): string =>
+  rankingSignature() + knobsCacheSuffix(resolveSearchKnobs({}));
 import {
   bumpDocumentClock,
   currentDocumentClock,
@@ -50,7 +60,7 @@ afterEach(async () => {
 describe("hybridSearch query cache (hit path, no Bedrock)", () => {
   it("returns the cached ranking on a hit and skips retrieval", async () => {
     const clock = await currentDocumentClock(storage.engine());
-    const key = queryCacheKey("my query", 5, undefined, false);
+    const key = queryCacheKey("my query", 5, undefined, false, hybridSig());
     await putCachedQuery(
       storage.engine(),
       key,
@@ -70,7 +80,7 @@ describe("hybridSearch query cache (hit path, no Bedrock)", () => {
 
   it("adaptive return-sizing trims the view without poisoning the cache", async () => {
     const clock = await currentDocumentClock(storage.engine());
-    const key = queryCacheKey("cap me", 5, undefined, false);
+    const key = queryCacheKey("cap me", 5, undefined, false, hybridSig());
     // Cached full order: beta, then alpha. Intent "factual" = single-answer.
     await putCachedQuery(
       storage.engine(),

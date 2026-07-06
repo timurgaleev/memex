@@ -163,13 +163,16 @@ describe("parseFactDate", () => {
 });
 
 describe("factDecayEnabled", () => {
-  it("is driven by MEMEX_FACT_DECAY", () => {
+  it("defaults ON; MEMEX_FACT_DECAY=0 opts out", () => {
     const prev = process.env.MEMEX_FACT_DECAY;
     process.env.MEMEX_FACT_DECAY = "1";
     expect(factDecayEnabled()).toBe(true);
     delete process.env.MEMEX_FACT_DECAY;
+    expect(factDecayEnabled()).toBe(true);
+    process.env.MEMEX_FACT_DECAY = "0";
     expect(factDecayEnabled()).toBe(false);
     if (prev !== undefined) process.env.MEMEX_FACT_DECAY = prev;
+    else delete process.env.MEMEX_FACT_DECAY;
   });
 });
 
@@ -236,13 +239,25 @@ describe("listFacts decay integration", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("orders by raw confidence with decay OFF (default)", async () => {
+  it("decays by default (internal default is ON)", async () => {
     const rows = await listFacts(storage, "people/alice");
-    expect(rows.map((r) => r.fact)).toEqual([
-      "expired-event",
-      "old-fact",
-      "fresh-fact",
-    ]);
+    expect(rows.map((r) => r.fact)).toEqual(["fresh-fact", "old-fact"]);
+  });
+
+  it("orders by raw confidence with MEMEX_FACT_DECAY=0 (opt-out)", async () => {
+    const prev = process.env.MEMEX_FACT_DECAY;
+    process.env.MEMEX_FACT_DECAY = "0";
+    try {
+      const rows = await listFacts(storage, "people/alice");
+      expect(rows.map((r) => r.fact)).toEqual([
+        "expired-event",
+        "old-fact",
+        "fresh-fact",
+      ]);
+    } finally {
+      if (prev === undefined) delete process.env.MEMEX_FACT_DECAY;
+      else process.env.MEMEX_FACT_DECAY = prev;
+    }
   });
 
   it("re-ranks by effective confidence and drops expired with decay ON", async () => {

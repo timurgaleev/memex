@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../api";
+import { CredentialsSection } from "./Credentials";
 
 // memex's provisioning model is tenant `sources` + JWT-subject `source_grants`
 // (the reference manages OAuth clients; same intent, different shape). This page
@@ -85,6 +86,8 @@ export function AgentsPage() {
           </tbody>
         </table>
       )}
+
+      <CredentialsSection setError={setError} />
 
       {modal === "source" && <RegisterSourceModal onClose={() => setModal(null)} onDone={load} setError={setError} />}
       {modal === "grant" && <ProvisionGrantModal onClose={() => setModal(null)} onDone={load} setError={setError} />}

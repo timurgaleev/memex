@@ -37,10 +37,12 @@ describe("isCanonicalQuery", () => {
 });
 
 describe("curationMultiplierForPath", () => {
-  it("applies the default authority weights by prefix", () => {
-    expect(curationMultiplierForPath("originals/note", DEFAULT_CURATION_BOOST)).toBe(1.3);
-    expect(curationMultiplierForPath("chat/log", DEFAULT_CURATION_BOOST)).toBe(0.7);
-    expect(curationMultiplierForPath("archive/old", DEFAULT_CURATION_BOOST)).toBe(0.6);
+  it("applies the default authority weights by prefix (reference tier map)", () => {
+    expect(curationMultiplierForPath("originals/note", DEFAULT_CURATION_BOOST)).toBe(1.5);
+    expect(curationMultiplierForPath("chat/log", DEFAULT_CURATION_BOOST)).toBe(0.5);
+    expect(curationMultiplierForPath("archive/old", DEFAULT_CURATION_BOOST)).toBe(0.5);
+    expect(curationMultiplierForPath("people/alice", DEFAULT_CURATION_BOOST)).toBe(1.2);
+    expect(curationMultiplierForPath("extracts/receipt", DEFAULT_CURATION_BOOST)).toBe(0.3);
   });
   it("is neutral (1.0) off-prefix or for null", () => {
     expect(curationMultiplierForPath("src/foo.ts", DEFAULT_CURATION_BOOST)).toBe(1.0);

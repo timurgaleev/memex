@@ -112,7 +112,7 @@ describe("writeExtractedFacts canonicalization (2a)", () => {
     const r = await writeExtractedFacts(storage, [
       { fact: "orphan", kind: "fact", entity: null, confidence: 0.5, notability: "low" },
     ]);
-    expect(r).toEqual({ written: 0, skipped: 1 });
+    expect(r).toEqual({ written: 0, skipped: 1, fact_ids: [] });
   });
 });
 
