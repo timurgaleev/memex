@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.83.0] — 2026-07-06
+
 ### Fixed
 - **DB-canonical pages now re-chunk on a chunker-version change.** The vault
   rechunk-sweep reads each document off disk, so `page://` mirror docs (which
