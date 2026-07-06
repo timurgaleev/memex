@@ -141,6 +141,20 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     const limiter = ctx.isPublic ? publicLimiter : internalLimiter;
     const clientId = keyFn(req);
     if (!limiter.allow(clientId)) {
+      // Fail-visible but NOT force-written: a hammering client must not turn
+      // every 429 into a guaranteed DB INSERT (the limiter would stop
+      // shedding DB load). Rejections land in the log only when the sink is
+      // enabled via MEMEX_REQUEST_LOG_DB, best-effort.
+      logToolCallToDb(opts.storage.engine(), {
+        tool: "rate_limited",
+        agentName:
+          ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal"),
+        ...(ctx.authInfo ? { tokenName: ctx.authInfo.clientId } : {}),
+        latencyMs: 0,
+        ok: false,
+        params: null,
+        errorMessage: "rate limit exceeded",
+      });
       return Response.json(
         rpcError(null, ERR_RATE_LIMITED, "rate limit exceeded"),
         {
@@ -191,6 +205,17 @@ async function handleSingle(
     return rpcError(id, ERR_INVALID_REQUEST, "invalid JSON-RPC request");
   }
 
+  // Shared identity for the DB request log. `force` makes the sink
+  // default-ON for OAuth-authenticated callers (fail-visible), while the
+  // static-bearer / internal paths stay behind MEMEX_REQUEST_LOG_DB.
+  const agentName =
+    ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal");
+  const logIdentity = {
+    agentName,
+    ...(ctx.authInfo ? { tokenName: ctx.authInfo.clientId } : {}),
+    force: ctx.authInfo !== undefined,
+  };
+
   switch (req.method) {
     case "initialize":
       return rpcOk(id, {
@@ -199,6 +224,15 @@ async function handleSingle(
         capabilities: { tools: {} },
       });
     case "tools/list":
+      // Log tools/list too — a client that only ever lists tools should
+      // still be visible in the admin Request Log (reference parity).
+      logToolCallToDb(storage.engine(), {
+        tool: "tools/list",
+        ...logIdentity,
+        latencyMs: 0,
+        ok: true,
+        params: null,
+      });
       // For public requests we filter the tool list so an external
       // client can't even DISCOVER the mutating tools.
       if (ctx.isPublic) {
@@ -216,6 +250,14 @@ async function handleSingle(
         return rpcError(id, ERR_INVALID_REQUEST, "tools/call: `name` required");
       }
       if (ctx.isPublic && forbidPublic(params.name)) {
+        logToolCallToDb(storage.engine(), {
+          tool: params.name,
+          ...logIdentity,
+          latencyMs: 0,
+          ok: false,
+          params: null,
+          errorMessage: `forbidden_public: tool ${params.name} is not callable from the public ingress`,
+        });
         return rpcError(
           id,
           ERR_INVALID_REQUEST,
@@ -232,6 +274,14 @@ async function handleSingle(
         forbidPublic(params.name) &&
         ctx.internalAuthOk === false
       ) {
+        logToolCallToDb(storage.engine(), {
+          tool: params.name,
+          ...logIdentity,
+          latencyMs: 0,
+          ok: false,
+          params: null,
+          errorMessage: `unauthorized_internal: tool ${params.name} requires the internal token`,
+        });
         return rpcError(
           id,
           ERR_UNAUTHORIZED,
@@ -248,15 +298,20 @@ async function handleSingle(
         // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
         // Names + counts + coarse size only — never raw param values.
         logToolCall(params.name, ctx.isPublic, params.arguments, !result.isError);
-        // Opt-in DB sink (MEMEX_REQUEST_LOG_DB) — feeds the admin Request Log
-        // page. Fire-and-forget + redacted; never blocks or fails the call.
-        const agentName = ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal");
+        // DB sink — feeds the admin Request Log page. Fire-and-forget +
+        // redacted; never blocks or fails the call. On error results the
+        // envelope's message/code is re-extracted so the admin reader's
+        // error_message column is populated (scope rejections land here).
+        const errMsg = result.isError
+          ? extractErrorMessage(result.content?.[0]?.text)
+          : undefined;
         logToolCallToDb(storage.engine(), {
           tool: params.name,
-          agentName,
+          ...logIdentity,
           latencyMs: Date.now() - startedAt,
           ok: !result.isError,
           params: params.arguments,
+          ...(errMsg !== undefined ? { errorMessage: errMsg } : {}),
         });
         // Push a redacted event to the admin SSE feed (deferred #2). No-op when
         // no admin browser is connected; never raw params.
@@ -273,6 +328,27 @@ async function handleSingle(
     default:
       return rpcError(id, ERR_METHOD_NOT_FOUND, `method not found: ${req.method}`);
   }
+}
+
+/**
+ * Best-effort short failure description from a tool result's error text.
+ * The dispatcher serializes either an OperationError envelope
+ * (`{error, message?, suggestion?}`) or a sanitized message string.
+ */
+function extractErrorMessage(text: string | undefined): string {
+  if (!text) return "op_error";
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.length > 0) {
+      return parsed.message;
+    }
+    if (typeof parsed.error === "string" && parsed.error.length > 0) {
+      return parsed.error;
+    }
+  } catch {
+    /* not an envelope — fall through to the raw text */
+  }
+  return text.slice(0, 300);
 }
 
 function rpcOk(

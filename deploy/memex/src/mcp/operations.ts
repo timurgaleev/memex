@@ -213,6 +213,21 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "Structural walk depth 0-2 (default 0 = off). Expands the anchors through code_edges_symbol with 1/(1+hop) score decay. Code corpora only; bypasses the query cache.",
       }),
+      explain: bool({
+        description:
+          "Stamp each hit with a per-signal ranking attribution (`explain`: base score + the factor every boost stage contributed + reranker delta). Bypasses the query cache.",
+      }),
+      offset: int({
+        minimum: 0,
+        maximum: 1000,
+        description:
+          "Skip the first N ranked hits (pagination). Applied after ranking; the widened fetch bypasses nothing else.",
+      }),
+      mode: str({
+        enum: ["conservative", "balanced", "tokenmax"],
+        description:
+          "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle) — reference behavior.",
+      }),
     },
   },
   {
@@ -346,17 +361,26 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "page_get",
     description:
-      "Read a page by slug. Returns an error if the page does not exist or is soft-deleted.",
-    params: { slug: str(req) },
+      "Read a page by slug. Returns an error if the page does not exist. `fuzzy:true` falls back to fuzzy slug resolution on a miss (a unique candidate is auto-read; multiple candidates return `ambiguous_slug` + the list). `include_deleted:true` surfaces a soft-deleted page with deleted_at populated (restore workflows).",
+    params: {
+      slug: str(req),
+      fuzzy: bool({ description: "Fuzzy slug resolution on a miss (default false)." }),
+      include_deleted: bool({ description: "Surface soft-deleted pages (default false)." }),
+    },
   },
   {
     name: "page_list",
     description:
-      "List pages, newest-first. Optional filters: `type` (string), `since` (ISO timestamp), `limit` (1..1000, default 50).",
+      "List pages, newest-first by default. Optional filters: `type`, `tag` (normalized), `since` (ISO timestamp), `limit` (1..100, default 50). `sort` picks the order (updated_desc default | updated_asc | created_desc | slug); `include_deleted:true` adds soft-deleted pages with deleted_at populated.",
     params: {
       type: str(),
       since: str(),
-      limit: int({ minimum: 1, maximum: 1000 }),
+      tag: str({ description: "Filter to pages carrying this tag." }),
+      sort: str({ enum: ["updated_desc", "updated_asc", "created_desc", "slug"] }),
+      include_deleted: bool({ description: "Include soft-deleted pages (default false)." }),
+      // Reference clamp: list_pages caps at 100 (default 50) — a 1000-row
+      // window is a needless enumeration amplifier for scoped tokens.
+      limit: int({ minimum: 1, maximum: 100 }),
     },
   },
   {
@@ -488,12 +512,26 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "entity_facts",
     description:
-      "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page.",
+      "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
     params: {
       entity_slug: str(req),
       since: str(),
       source_slug: str(),
       order: str({ enum: ["confidence", "recency"] }),
+      session: str({ description: "Filter to facts captured under this session id." }),
+      grep: str({ description: "Case-insensitive substring filter on the fact text." }),
+      visibility: str({ enum: ["private", "world"], description: "Filter by fact visibility." }),
+      include_forgotten: bool({ description: "Include tombstoned (forgotten) rows. Internal-only; default false." }),
+      limit: int({ minimum: 1, maximum: 1000 }),
+    },
+  },
+  {
+    name: "fact_supersessions",
+    description:
+      "Supersession audit log: facts retired WITH a replacement pointer (forgotten_at + superseded_by both set), newest retirement first. Each row is the RETIRED fact; superseded_by points at its replacement. Optional `entity_slug` / `since` (ISO, on the retirement time) / `limit` (1..1000, default 50). Tenant-scoped. Read-only; no LLM.",
+    params: {
+      entity_slug: str({ description: "Confine to one entity's ledger." }),
+      since: str({ description: "ISO lower bound on forgotten_at." }),
       limit: int({ minimum: 1, maximum: 1000 }),
     },
   },
@@ -523,6 +561,10 @@ export const OPERATIONS: readonly Operation[] = [
       redact_body: bool({
         description:
           "When true, strips markdown_body from the page row. The HTTP public-bearer path forces this on by default; internal MCP callers default false.",
+      }),
+      include_pending: bool({
+        description:
+          "Piggy-back `pending_consolidation_count` (live facts not yet folded into a consolidated take) on the response. One round trip; field omitted when false.",
       }),
     },
   },
@@ -663,6 +705,10 @@ export const OPERATIONS: readonly Operation[] = [
           "Optional topic query. When set, ranks person/company pages by expertise + recency + salience. When omitted, returns graph link-degree hubs.",
       }),
       type: str({ description: "Restrict to a single page type (overrides the person/company default in topic mode)." }),
+      explain: bool({
+        description:
+          "Topic mode only: include the per-result factor breakdown (expertise, recency, salience) behind `score`.",
+      }),
       limit: int({ minimum: 1, maximum: 200 }),
     },
   },
@@ -672,6 +718,10 @@ export const OPERATIONS: readonly Operation[] = [
       "Conflicts in the brain, two ways. `contradictions`: page pairs joined by an explicit `contradicts` edge (markers already asserted in the graph). `probed`: LLM-suspected fact conflicts cached by the opt-in probe-contradictions cycle phase (severity/axis/confidence/resolution_command; empty until that phase has run). This tool only READS caches — it never calls an LLM itself. Optional `slug` substring filter (edges only, matches either side); `limit` (1..200, default 20).",
     params: {
       slug: str({ description: "Substring filter; matches either side of the pair (case-insensitive)." }),
+      severity: str({
+        enum: ["low", "medium", "high"],
+        description: "Filter the probed findings by severity (edges have no severity axis).",
+      }),
       limit: int({ minimum: 1, maximum: 200 }),
     },
   },
@@ -681,6 +731,15 @@ export const OPERATIONS: readonly Operation[] = [
       "Chronological 'how did this entity change?' log for one slug — the merged, oldest-first view of its entity_facts ledger and its timeline_events. Each fact anchors at its valid_from (else written_at); each event at occurred_at. Optional `since`/`until` ISO bounds on that anchor; `limit` (1..500, default 100). Deterministic, no LLM.",
     params: {
       entity_slug: str({ ...req, description: "The entity to chart (e.g. companies/acme, people/alice)." }),
+      metric: str({
+        description:
+          "Filter to a single canonical metric label (mig070 claim_metric, e.g. 'mrr'); timeline events are excluded for a metric query.",
+      }),
+      kind: str({
+        enum: ["metric", "event", "all"],
+        description:
+          "Row-shape filter (mig070): 'metric' = typed-claim fact rows only, 'event' = event-shaped rows (event_type facts + timeline events), 'all' (default) = merged chronology.",
+      }),
       since: str({ description: "Lower bound (ISO timestamp) on the point's anchor date." }),
       until: str({ description: "Upper bound (ISO timestamp)." }),
       limit: int({ minimum: 1, maximum: 500 }),
@@ -693,6 +752,12 @@ export const OPERATIONS: readonly Operation[] = [
     params: {
       type: str({ description: "Filter to a single page type (exact match), e.g. person." }),
       days: int({ minimum: 1, description: "Only pages updated within the last N days. Omit for all-time." }),
+      slug_prefix: str({ description: "Optional slug-prefix filter, e.g. 'people' or 'projects/x'." }),
+      recency_bias: str({
+        enum: ["flat", "on"],
+        description:
+          "'flat' (default) = pure salience order (historical behavior). 'on' = rank by salience x 1/(1+days_old) — 'what's been salient lately'.",
+      }),
       limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 20)." }),
     },
   },
@@ -752,13 +817,49 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "query",
     description:
-      "Refinement search: hybrid-search `q`, then bias the ranking toward a second `refine` term via weighted RRF (a chunk strong for BOTH floats up). Reorders within the primary candidate set — never widens it. Deterministic (no LLM rerank). `primary_weight` / `refine_weight` tune the pull; omit `refine` to behave like plain search.",
+      "Flagship full-control retrieval (the reference `query` semantics): hybrid search over the corpus with every per-call knob exposed — `detail` result granularity (low = 1 chunk/page, medium = default dedup, high = all chunks + temporal treatment), `salience`/`recency` ranking bias (off|on|strong; omit = auto-detected from the query), `since`/`until` content-date window, `offset` pagination, `expand` LLM query expansion (paid; default follows the mode bundle), `mode` bundle override (operator-only), `adaptive_return` intent-sized tight result sets, plus the code filters (lang / symbol_kind / near_symbol / walk_depth). Legacy refinement: pass `refine` (+weights) for the deterministic weighted-RRF two-query blend instead.",
     params: {
-      q: str({ ...req, description: "Primary natural-language query." }),
-      refine: str({ description: "Second term to refine/intersect the ranking against." }),
-      k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 5." }),
-      primary_weight: num({ minimum: 0, description: "RRF weight for the primary query. Default 1." }),
-      refine_weight: num({ minimum: 0, description: "RRF weight for the refine term. Default 1." }),
+      q: str({ ...req, description: "Natural-language query." }),
+      k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 20." }),
+      offset: int({ minimum: 0, maximum: 1000, description: "Skip the first N ranked hits (pagination)." }),
+      expand: bool({
+        description:
+          "Force LLM query expansion on/off for this call (paid Haiku). Omit = mode-bundle default (OFF in conservative/balanced).",
+      }),
+      detail: str({
+        enum: ["low", "medium", "high"],
+        description:
+          "Result detail: low = compiled-truth-grade brevity (1 chunk per page), medium (default) = per-page dedup, high = all chunks + temporal source-boost bypass.",
+      }),
+      mode: str({
+        enum: ["conservative", "balanced", "tokenmax"],
+        description: "Search mode bundle for this call. Operator-only; a tenant token's mode is silently ignored.",
+      }),
+      salience: str({
+        enum: ["off", "on", "strong"],
+        description:
+          "Mattering bias (pages.salience: emotional weight + link degree + takes). Omit = auto-detect from the query phrasing.",
+      }),
+      recency: str({
+        enum: ["off", "on", "strong"],
+        description:
+          "Recency boost (per-prefix hyperbolic freshness lift). 'strong' for 'today / right now'. Omit = auto-detect.",
+      }),
+      since: str({ description: "Keep only hits whose content date is >= this ISO-8601 date." }),
+      until: str({ description: "Keep only hits whose content date is <= this ISO-8601 date." }),
+      lang: str({ description: "Filter to chunks of a source language (code corpora)." }),
+      symbol_kind: str({ description: "Filter to chunks of a symbol kind (code corpora)." }),
+      near_symbol: str({ description: "Anchor retrieval at this qualified symbol name (code corpora)." }),
+      walk_depth: int({ minimum: 0, maximum: 2, description: "Structural walk depth 0-2 (code corpora)." }),
+      token_budget: int({ minimum: 1, maximum: 200000, description: "Cap total returned content size (~chars/4 tokens)." }),
+      adaptive_return: bool({
+        description:
+          "Return a TIGHT intent-sized result set instead of the full top-K (never empty when there are matches; first page only).",
+      }),
+      explain: bool({ description: "Stamp per-hit ranking attribution. Bypasses the query cache." }),
+      refine: str({ description: "LEGACY refinement: second term for the deterministic weighted-RRF blend. When set, only k/weights apply." }),
+      primary_weight: num({ minimum: 0, description: "RRF weight for the primary query (refine mode). Default 1." }),
+      refine_weight: num({ minimum: 0, description: "RRF weight for the refine term (refine mode). Default 1." }),
     },
   },
   {
@@ -824,12 +925,17 @@ export const OPERATIONS: readonly Operation[] = [
     description:
       "Push-based context: given a rolling conversation window, deterministically extract entity candidates, resolve them to existing page pointers (alias 0.9 / title 0.8 / slug-suffix 0.6, + a 0.05 boost for newest-turn or >=2-turn mentions), gate by confidence, cap to N, and return volunteered pages [{slug,title,display,confidence,arm,rationale,synopsis}]. No LLM, no Bedrock. Surfaces page slugs/titles + synopses — internal/MCP-stdio only. Set `stats:true` for the per-arm used/volunteered precision feedback (approximate, derived from last_retrieved_at).",
     params: {
-      window: str({ ...req, description: "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn." }),
+      window: str({ description: "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn. Required unless stats:true." }),
+      prior_context: str({
+        description:
+          "Already-surfaced context (pointer blocks / opened page bodies). Pages whose slug appears here are not re-volunteered.",
+      }),
       max_pages: int({ minimum: 1, maximum: 5, description: "Max pages volunteered (default 3, cap 5)." }),
       min_confidence: num({ minimum: 0, maximum: 1, description: "Confidence gate 0..1 (default 0.7). At the default, slug-suffix matches never volunteer." }),
       session_id: str({ description: "Opaque session id stamped on each logged volunteer event." }),
       turn: int({ minimum: 0, description: "Turn number stamped on each logged volunteer event." }),
-      stats: bool({ description: "Return per-arm used/volunteered precision stats instead of volunteering (uses `turn` as the day window when set)." }),
+      stats: bool({ description: "Return per-arm used/volunteered precision stats instead of volunteering." }),
+      days: int({ minimum: 1, maximum: 3650, description: "Stats window in days (default 30; stats mode only)." }),
     },
   },
   {
@@ -855,9 +961,14 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "list_takes",
     description:
-      "List synthesized 'takes' (opinionated claims the propose-takes phase derived, optionally graded): take_key, claim_text, kind, weight, domain, status (queued/accepted/rejected). Advisory only — never mutates notes. Read-only; internal-only.",
+      "List synthesized 'takes' (opinionated claims the propose-takes phase derived, optionally graded): take_key, claim_text, kind, weight, domain, status (queued/accepted/rejected). Optional filters: `kind`, `domain`; `sort` (generated_at default | weight), `offset` for pagination. Advisory only — never mutates notes. Read-only; internal-only.",
     params: {
-      status: str({ enum: ["queued", "accepted", "rejected"], description: "Filter by review status." }),
+      status: str({ enum: ["queued", "accepted", "rejected", "graded"], description: "Filter by review status." }),
+      kind: str({ description: "Filter to one take kind (e.g. bet, judgment)." }),
+      domain: str({ description: "Filter to one domain tag." }),
+      holder: str({ description: "Filter to one holder (world | brain | people/<slug> | companies/<slug>)." }),
+      sort: str({ enum: ["generated_at", "weight"], description: "Sort key. Default generated_at (newest first)." }),
+      offset: int({ minimum: 0, maximum: 10000, description: "Skip the first N rows." }),
       limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
     },
   },
@@ -906,10 +1017,14 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "extract_facts",
     description:
-      "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand and RETURN them WITHOUT persisting — a preview of what the on-write extractor would capture. Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded; never writes the entity_facts ledger. Internal-only.",
+      "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand. Default is a PREVIEW (facts returned, nothing persisted); `persist:true` also writes them to the entity_facts ledger (requires a write grant; the caller's write source owns the rows). Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). `entity_hints` (comma/space-separated canonical slugs) steer the extractor; `session_id` + `visibility` stamp persisted facts (mig085). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded. Internal-only.",
     params: {
       text: str({ description: "Raw conversation/transcript text to extract from. Provide this OR `source_ref`." }),
       source_ref: str({ description: "A page slug whose markdown_body is extracted (tenant-scoped). Provide this OR `text`." }),
+      persist: bool({ description: "Write the extracted facts to the ledger (default false = preview only). Requires a write grant." }),
+      entity_hints: str({ description: "Comma/space-separated canonical entity slugs to steer the extractor." }),
+      session_id: str({ description: "Capture-session id stamped on persisted facts." }),
+      visibility: str({ enum: ["private", "world"], description: "Default visibility for persisted facts (default private)." }),
     },
   },
   {
@@ -935,6 +1050,91 @@ export const OPERATIONS: readonly Operation[] = [
       summary: bool({ description: "true (default) returns a ~300-char summary; false returns the body capped at 100 KB." }),
       limit: int({ minimum: 1, maximum: 200, description: "Max rows (default 50)." }),
     },
+  },
+  {
+    name: "think",
+    scope: "write",
+    description:
+      "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers, reference behavior). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
+    params: {
+      question: str({ ...req, description: "The question to think about." }),
+      anchor: str({ description: "Pull the entity subgraph + trajectory around this slug (required for take:true)." }),
+      rounds: int({ minimum: 1, maximum: 3, description: "Gather/synthesize rounds; each extra round is a fresh paid call under the run budget. Default 1." }),
+      save: bool({ description: "Persist the synthesis as a page + evidence rows. Operator-only; ignored otherwise." }),
+      take: bool({ description: "Queue the answer's headline claim as a synth_take on `anchor`. Operator-only; ignored otherwise." }),
+      model: str({ description: "Model id override for the synthesis call." }),
+      since: str({ description: "Only gather pages whose content date is >= this ISO date." }),
+      until: str({ description: "Only gather pages whose content date is <= this ISO date." }),
+      with_calibration: bool({ description: "Inject the calibration anti-bias block (opt-in, reference --with-calibration)." }),
+      k: int({ minimum: 1, maximum: 50, description: "Page hits to gather (default 12)." }),
+      max_takes: int({ minimum: 1, maximum: 100, description: "Take rows to gather (default 20)." }),
+    },
+  },
+  {
+    name: "put_raw_data",
+    scope: "write",
+    description:
+      "Attach a raw payload (API response, headers, importer sidecar) to a page, keyed (slug, source). Newest-wins upsert: re-putting the same key REPLACES the payload (a cache of the latest fetch, not a history). `source` is the DATA-source label ('crustdata', an importer name), NOT the tenant axis; a scoped caller may only attach to a page its own source owns. Payload capped at 1 MB. WRITE — internal/MCP-stdio only.",
+    params: {
+      slug: str({ ...req, description: "The owning page slug (must exist for scoped callers)." }),
+      source: str({ ...req, description: "Data-source label, e.g. an importer name." }),
+      data: obj({ ...req, description: "The raw payload (plain JSON object, <= 1 MB serialized)." }),
+    },
+  },
+  {
+    name: "get_raw_data",
+    description:
+      "Read a page's raw_data sidecar rows, newest first. Optional `source` filter to one data-source label; `limit` (1..200, default 50). Tenant-scoped via the owning page. Read-only; no LLM.",
+    params: {
+      slug: str(req),
+      source: str({ description: "Filter to one data-source label." }),
+      limit: int({ minimum: 1, maximum: 200 }),
+    },
+  },
+  {
+    name: "retry_job",
+    scope: "write",
+    description:
+      "Re-queue a failed or cancelled job for another attempt (status -> pending, next_attempt_at = now). Returns the refreshed row, or found:false when the id is unknown or the job is not in a retryable state. Operator-only. WRITE — internal/MCP-stdio only.",
+    params: {
+      id: str({ ...req, description: "Job id (see jobs_list)." }),
+    },
+  },
+  {
+    name: "get_job_progress",
+    description:
+      "Read a job's live progress envelope: status + the handler-reported `progress` JSON (mig083). Cheap poll target while a long job runs. Operator-only; read-only.",
+    params: {
+      id: str({ ...req, description: "Job id (see jobs_list)." }),
+    },
+  },
+  {
+    name: "sources_list",
+    description:
+      "List registered sources (id, kind, path_prefix, policies, boost weight). A scoped caller sees ONLY the sources its grant covers; the operator sees all. Read-only; no LLM.",
+    params: {
+      kind: str({ description: "Filter by source kind." }),
+    },
+  },
+  {
+    name: "sources_status",
+    description:
+      "Per-source diagnostic: the source row plus its live health (document/chunk counts, embed coverage, staleness lag, failed jobs). A scoped caller may only query a source inside its grant. Read-only; no LLM.",
+    params: {
+      id: str({ ...req, description: "Source id." }),
+    },
+  },
+  {
+    name: "get_status_snapshot",
+    description:
+      "One-shot operational snapshot for thin-client status: version, corpus stats, brain health (embed coverage, staleness, job queue), query-cache state, and the active job worker lock. Operator-only (exposes whole-brain operational state); read-only; no Bedrock.",
+    params: {},
+  },
+  {
+    name: "run_doctor",
+    description:
+      "Run the thin-client brain health checks and return a structured report: config-free engine checks only (stats, embed coverage/staleness, tenancy/federation health, OAuth client hygiene, source routing, job worker liveness). Operator-only; read-only; never mutates; no LLM.",
+    params: {},
   },
 ];
 
