@@ -19,8 +19,9 @@
  *     already enforces the unambiguous-single-slug rule and degrades on a
  *     pre-034 brain.
  *   - Synopsis source is `markdown_body` (memex's prose column) or a curated
- *     `compiled_truth.summary`; the takes-fence does not exist in memex, only
- *     the facts-fence is stripped.
+ *     `compiled_truth.summary`; both the facts-fence and the takes-fence are
+ *     stripped so no fenced metadata (including holder-scoped takes) leaks into
+ *     the ambient synopsis.
  */
 
 import type { Engine } from "../engine/interface.ts";
@@ -28,6 +29,7 @@ import type { Storage } from "../storage.ts";
 import { normalizeAlias, resolveAliasUnique } from "../page-aliases.ts";
 import { slugifyTarget } from "../links.ts";
 import { stripFactsFence } from "../facts-fence.ts";
+import { stripTakesFence } from "../synthesis/takes-fence.ts";
 import type { EntityCandidate } from "./entity-salience.ts";
 
 const SYNOPSIS_MAX = 160;
@@ -227,8 +229,9 @@ function displayForRow(row: PageRow, displayByNorm: Map<string, string>): string
 
 /**
  * Privacy-safe synopsis. Prefer a curated `compiled_truth.summary`; otherwise
- * strip the facts-fence from the body (the same boundary untrusted readers see)
- * and take the first prose sentence. Never returns raw fenced content.
+ * strip the facts- and takes-fences from the body (the same boundary untrusted
+ * readers see) and take the first prose sentence. Never returns raw fenced
+ * content.
  */
 function safeSynopsis(row: PageRow): string {
   const ct = row.compiled_truth ?? {};
@@ -238,7 +241,7 @@ function safeSynopsis(row: PageRow): string {
   }
   const body = row.markdown_body ?? "";
   if (!body) return "";
-  const stripped = stripFactsFence(body);
+  const stripped = stripTakesFence(stripFactsFence(body));
   const firstProse = stripped
     .replace(/^---[\s\S]*?---\s*/m, "")
     .split("\n")

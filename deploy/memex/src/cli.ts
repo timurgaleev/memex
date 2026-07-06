@@ -12,6 +12,7 @@ import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
 import { runEvalProbe } from "./commands/eval-probe.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
+import { runMerge } from "./commands/merge.ts";
 import { runExtract } from "./commands/extract.ts";
 import { runExtractConversationFactsCli } from "./commands/extract-conversation-facts.ts";
 import { runThinkCli } from "./commands/think.ts";
@@ -495,6 +496,21 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.limit = n;
       }
       await runBacklinks(opts);
+      return 0;
+    }
+    case "merge": {
+      const from = positional[0];
+      const to = positional[1];
+      if (!from || !to) {
+        console.error("memex merge: <from-slug> and <to-slug> are required");
+        return 1;
+      }
+      const opts: Parameters<typeof runMerge>[0] = { from, to };
+      const src = values.get("--source");
+      if (src) opts.sourceId = src;
+      const writtenBy = values.get("--written-by");
+      if (writtenBy) opts.writtenBy = writtenBy;
+      await runMerge(opts);
       return 0;
     }
     case "salience": {
