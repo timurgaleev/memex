@@ -11,6 +11,7 @@ import type { Storage } from "../core/storage.ts";
 import {
   type AuthInfo,
   effectiveReadSourceIdsForIngress,
+  effectiveTakesHolders,
   effectiveWriteSourceIdForIngress,
   tenantFailClosedEnabled,
   NO_SOURCE_SENTINEL,
@@ -107,6 +108,7 @@ import {
 } from "../core/synthesis/reads.ts";
 import { listRecentTranscripts } from "../core/transcripts-read.ts";
 import { setTakeStatus } from "../core/synthesis/takes.ts";
+import { syncTakesFromFence } from "../core/synthesis/takes-canon.ts";
 import packageJson from "../../package.json" with { type: "json" };
 import {
   reconcileFactsForPage,
@@ -127,10 +129,39 @@ import {
 import {
   addFact,
   listFacts,
+  listSupersessions,
   entityRecall,
   type ListFactsOptions,
+  type ListSupersessionsOptions,
   type EntityRecallOptions,
 } from "../core/facts.ts";
+import { putRawData, getRawData } from "../core/raw-data.ts";
+import { Queue } from "../core/jobs/queue.ts";
+import { getJobProgress } from "../core/jobs/lifecycle.ts";
+import { runThink, type ThinkOptions } from "../core/synthesis/think.ts";
+import {
+  persistThinkSynthesis,
+  saveThinkTake,
+} from "../core/synthesis/think-persist.ts";
+import { listSources, getSource, SOURCE_KINDS, type SourceKind } from "../core/sources.ts";
+import { cacheStats } from "../core/search/query-cache.ts";
+import { currentDocumentClock } from "../core/generation.ts";
+import {
+  readWorkerLock,
+  DEFAULT_WORKER_LOCK_ID,
+} from "../core/jobs/worker-lock.ts";
+import {
+  checkFederationHealth,
+  checkOauthClientHealth,
+  checkSourceRoutingHealth,
+  type TenancyCheck,
+} from "../core/doctor-tenancy.ts";
+import {
+  reserveSpend,
+  settleSpend,
+  releaseReservation,
+} from "../core/budget.ts";
+import { MODE_BUNDLES, isSearchMode } from "../core/search/mode.ts";
 import {
   cancelJob,
   getJob,
@@ -224,6 +255,16 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // so one tenant can never read concepts derived from another tenant's notes.
   // (Proper per-tenant concepts would need a source_id column on synth_concepts.)
   "list_concepts",
+  // Job lifecycle mutators/reads share the jobs_* posture: another tenant's
+  // job rows carry payload/progress free text.
+  "retry_job",
+  "get_job_progress",
+  // Whole-brain operational snapshots (reference scope: admin).
+  "get_status_snapshot",
+  "run_doctor",
+  // Hard-delete escape hatch: the reference keeps purge admin + local-only, so
+  // a tenant write token must not reach it (it was remote write-scoped before).
+  "purge_deleted_pages",
 ]);
 
 /** Per-call options the transport supplies. */
@@ -302,6 +343,12 @@ async function dispatchToolInner(
   });
   const writeDenied = writeSourceRaw === NO_SOURCE_SENTINEL;
   const writeSource = writeDenied ? undefined : writeSourceRaw;
+  // The operator identity: trusted-local / static-bearer over internal ingress.
+  // Per-call `mode` escalation and think save/take persistence key on this.
+  const isOperator = opts.authInfo === undefined && !(opts.isPublic ?? false);
+  // The token's takes-holder allow-list (mig 072, enforced since mig 091):
+  // undefined for the operator path and knobless credentials.
+  const takesHolders = effectiveTakesHolders(opts.authInfo);
   try {
     // Fail-closed write gate: reject a scopeless authenticated public principal
     // from every write op before dispatch (default-OFF unless
@@ -349,7 +396,7 @@ async function dispatchToolInner(
     if (op) validateParams(op, args);
     switch (req.name) {
       case "search":
-        return await callSearch(storage, args, redact, readSources);
+        return await callSearch(storage, args, redact, readSources, isOperator);
       case "index":
         return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
       case "backlinks":
@@ -445,7 +492,7 @@ async function dispatchToolInner(
       case "purge_deleted_pages":
         return await callPurgeDeletedPages(storage, args, writeSource);
       case "query":
-        return await callQuery(storage, args, readSources);
+        return await callQuery(storage, args, readSources, isOperator);
       case "code_callers":
         return await callCodeCallers(storage, args, readSources);
       case "code_callees":
@@ -467,19 +514,55 @@ async function dispatchToolInner(
       case "list_concepts":
         return await callListConcepts(storage, args, readSources);
       case "list_takes":
-        return await callListTakes(storage, args, readSources);
+        return await callListTakes(storage, args, readSources, takesHolders);
       case "set_take_status":
         return await callSetTakeStatus(storage, args, writeSource);
       case "takes_search":
-        return await callSearchTakes(storage, args, readSources);
+        return await callSearchTakes(storage, args, readSources, takesHolders);
       case "get_calibration_profile":
         return await callGetCalibrationProfile(storage, readSources);
       case "takes_scorecard":
-        return await callTakesScorecard(storage, args, readSources);
+        return await callTakesScorecard(storage, args, readSources, takesHolders);
       case "takes_calibration":
-        return await callTakesCalibration(storage, args, readSources);
-      case "extract_facts":
-        return await callExtractFacts(storage, args, readSources);
+        return await callTakesCalibration(storage, args, readSources, takesHolders);
+      case "extract_facts": {
+        const canPersist =
+          !writeDenied &&
+          (opts.authInfo === undefined ||
+            hasScope(opts.authInfo.scopes ?? [], "write"));
+        return await withClientSpend(storage, opts.authInfo, "extract_facts", () =>
+          callExtractFacts(storage, args, readSources, {
+            ...(writeSource ? { writeSource } : {}),
+            canPersist: canPersist && !(opts.isPublic ?? false),
+          }),
+        );
+      }
+      case "think":
+        return await withClientSpend(storage, opts.authInfo, "think", () =>
+          callThink(storage, args, {
+            isOperator,
+            ...(readSources ? { readSources } : {}),
+            ...(writeSource ? { writeSource } : {}),
+          }),
+        );
+      case "fact_supersessions":
+        return await callFactSupersessions(storage, args, redact, readSources);
+      case "put_raw_data":
+        return await callPutRawData(storage, args, writeSource);
+      case "get_raw_data":
+        return await callGetRawData(storage, args, readSources);
+      case "retry_job":
+        return await callRetryJob(storage, args);
+      case "get_job_progress":
+        return await callGetJobProgress(storage, args);
+      case "sources_list":
+        return await callSourcesList(storage, args, readSources);
+      case "sources_status":
+        return await callSourcesStatus(storage, args, readSources);
+      case "get_status_snapshot":
+        return await callStatusSnapshot(storage);
+      case "run_doctor":
+        return await callRunDoctor(storage);
       case "list_skills":
         return callListSkills();
       case "get_skill":
@@ -526,6 +609,7 @@ async function callSearch(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  isOperator = false,
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -567,7 +651,16 @@ async function callSearch(
     toolName: "mcp.search",
     remote: true,
   });
-  const searchOpts: SearchOptions = { k };
+  // Pagination: fetch offset extra hits in one ranked pass, slice below.
+  const offset =
+    typeof args["offset"] === "number"
+      ? Math.max(0, Math.floor(args["offset"] as number))
+      : 0;
+  const searchOpts: SearchOptions = { k: k + offset };
+  // Per-call mode bundle — OPERATOR ONLY (a tenant token cannot escalate to
+  // the paid tokenmax bundle; its mode is silently ignored, reference
+  // behavior). Mapped onto per-call knobs, which win over env + active bundle.
+  applyPerCallMode(searchOpts, args["mode"], isOperator);
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
   if (readSources && readSources.length) searchOpts.sourceIds = readSources;
@@ -603,7 +696,11 @@ async function callSearch(
   if (typeof args["walk_depth"] === "number") {
     searchOpts.walkDepth = Math.min(Math.max(args["walk_depth"], 0), 2);
   }
-  const hits = await hybridSearch(storage, q, searchOpts);
+  // Per-signal ranking attribution (search --explain parity). Validated as a
+  // boolean by the op contract; only an explicit true opts in.
+  if (args["explain"] === true) searchOpts.explain = true;
+  const hitsAll = await hybridSearch(storage, q, searchOpts);
+  const hits = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Public ingress: drop page-derived mirror hits entirely. A page slug
   // (`page://people/<name>`) and title are author-written identifiers — the
   // exact PII the redaction layer suppresses — and search is a free-text
@@ -860,6 +957,17 @@ async function callPagePut(
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
   // it re-reads the current body and guards on content_hash itself.
   await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
+  // Takes-fence canon sync (mig 090): the page fence is the operator-authored
+  // source of truth for takes — parse + upsert/supersede rows on every put.
+  // Best-effort: a malformed fence must never fail the page write.
+  try {
+    const fenceBody = (await getPage(storage, r.slug))?.markdown_body ?? "";
+    if (fenceBody.includes("memex:takes:begin")) {
+      await syncTakesFromFence(storage.engine(), r.slug, fenceBody);
+    }
+  } catch (e) {
+    console.error("[memex] takes-fence sync failed (non-fatal):", e);
+  }
   return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
 }
 
@@ -1070,7 +1178,35 @@ async function callPageGet(
   if (typeof args["slug"] !== "string") {
     return errResult("page_get: `slug` is required");
   }
-  const page = await getPage(storage, args["slug"], readSources && readSources.length ? readSources : undefined);
+  const scopeIds = readSources && readSources.length ? readSources : undefined;
+  const fuzzy = args["fuzzy"] === true;
+  const includeDeleted = args["include_deleted"] === true && !redact;
+  const getOpts = includeDeleted ? { includeDeleted: true } : {};
+  let page: Awaited<ReturnType<typeof getPage>> = null;
+  let resolvedSlug: string | undefined;
+  try {
+    page = await getPage(storage, args["slug"], scopeIds, getOpts);
+  } catch (e) {
+    // An informal string ("Alice Smith") fails slug validation — with fuzzy on
+    // that is the expected entry point, so fall through to resolution.
+    if (!fuzzy) throw e;
+  }
+  if (!page && fuzzy) {
+    const candidates = await resolveSlugs(storage, args["slug"], {
+      limit: 5,
+      ...(scopeIds ? { sourceIds: scopeIds } : {}),
+    });
+    if (candidates.length === 1) {
+      page = await getPage(storage, candidates[0]!.slug, scopeIds, getOpts);
+      resolvedSlug = candidates[0]!.slug;
+    } else if (candidates.length > 1) {
+      return jsonResult({
+        ok: false,
+        error: "ambiguous_slug",
+        candidates: candidates.map((c) => c.slug),
+      });
+    }
+  }
   if (!page) return errResult(`page not found: ${args["slug"]}`);
   // Retrieval write-back (mig 024): a user just surfaced this page — bump the
   // last_retrieved_at signal the context-volunteer "used" stat reads. Throttled
@@ -1081,6 +1217,7 @@ async function callPageGet(
   return jsonResult({
     ok: true,
     page: redact ? redactBody(page as unknown as Record<string, unknown>) : page,
+    ...(resolvedSlug ? { resolved_slug: resolvedSlug } : {}),
   });
 }
 
@@ -1093,6 +1230,17 @@ async function callPageList(
   const opts: Parameters<typeof listPages>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["since"] === "string") opts.since = args["since"];
+  if (typeof args["tag"] === "string" && args["tag"]) opts.tag = args["tag"];
+  if (
+    args["sort"] === "updated_desc" ||
+    args["sort"] === "updated_asc" ||
+    args["sort"] === "created_desc" ||
+    args["sort"] === "slug"
+  ) {
+    opts.sort = args["sort"];
+  }
+  // Soft-deleted rows are operator hygiene — never surfaced on public ingress.
+  if (args["include_deleted"] === true && !redact) opts.includeDeleted = true;
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const pages = await listPages(storage, opts);
@@ -1431,6 +1579,21 @@ async function callEntityFacts(
     opts.source_slug = args["source_slug"];
   if (args["order"] === "recency" || args["order"] === "confidence")
     opts.order = args["order"];
+  if (typeof args["session"] === "string" && args["session"])
+    opts.session = args["session"];
+  if (typeof args["grep"] === "string" && args["grep"]) opts.grep = args["grep"];
+  // mig-085 visibility gate, ENFORCED: any scoped principal (public ingress
+  // OR a tenant token carrying a read set) is floored to world-visible facts
+  // regardless of the requested filter; only the operator path may read
+  // private rows. Same floor gates the tombstone audit surface.
+  const scopedReader = redact || (readSources !== undefined && readSources.length > 0);
+  if (scopedReader) {
+    opts.visibility = ["world"];
+  } else if (args["visibility"] === "private" || args["visibility"] === "world") {
+    opts.visibility = [args["visibility"]];
+  }
+  if (args["include_forgotten"] === true && !scopedReader)
+    opts.include_forgotten = true;
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   // Confidence decay is INTERNAL ONLY (mirrors entity_recall `query`/`decay`).
   // It reorders facts and drops expired ones using hidden `kind`/`valid_until`;
@@ -1498,6 +1661,7 @@ async function callEntityRecall(
     opts.fact_limit = args["fact_limit"];
   if (typeof args["timeline_limit"] === "number")
     opts.timeline_limit = args["timeline_limit"];
+  if (args["include_pending"] === true) opts.include_pending = true;
   // Public ingress forces body redaction (omits page.markdown_body) via
   // the recall layer's native flag; an explicit `redact_body` arg still
   // wins for internal callers who want to override.
@@ -1684,6 +1848,7 @@ async function callFindExperts(
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["topic"] === "string") opts.topic = args["topic"];
+  if (args["explain"] === true) opts.explain = true;
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const experts = await findExperts(storage, opts);
   return jsonResult({ ok: true, experts });
@@ -1701,8 +1866,19 @@ async function callFindContradictions(
   // Asserted `contradicts` edges (deterministic graph) + LLM-suspected findings
   // cached by the probe-contradictions phase (migration 064; [] on a pre-064
   // brain or when the probe has never run). Same tenant scope for both.
-  const probedOpts: { limit?: number; sourceIds?: string[] } = {};
+  const probedOpts: {
+    limit?: number;
+    sourceIds?: string[];
+    severity?: "low" | "medium" | "high";
+  } = {};
   if (typeof args["limit"] === "number") probedOpts.limit = args["limit"];
+  if (
+    args["severity"] === "low" ||
+    args["severity"] === "medium" ||
+    args["severity"] === "high"
+  ) {
+    probedOpts.severity = args["severity"];
+  }
   if (readSources && readSources.length) probedOpts.sourceIds = readSources;
   const [contradictions, probed] = await Promise.all([
     findContradictions(storage, opts),
@@ -1722,6 +1898,10 @@ async function callFindTrajectory(
   const opts: FindTrajectoryOptions = {};
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["until"] === "string") opts.until = args["until"];
+  if (typeof args["metric"] === "string" && args["metric"])
+    opts.metric = args["metric"];
+  if (args["kind"] === "metric" || args["kind"] === "event" || args["kind"] === "all")
+    opts.claimKind = args["kind"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const points = await findTrajectory(storage, args["entity_slug"], opts);
@@ -1736,6 +1916,9 @@ async function callGetRecentSalience(
   const opts: Parameters<typeof getRecentSalience>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["days"] === "number") opts.days = args["days"];
+  if (typeof args["slug_prefix"] === "string" && args["slug_prefix"])
+    opts.slugPrefix = args["slug_prefix"];
+  if (args["recency_bias"] === "on") opts.recencyBias = "on";
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const pages = await getRecentSalience(storage, opts);
@@ -1839,10 +2022,16 @@ async function callPurgeDeletedPages(
   return jsonResult({ ok: true, ...r });
 }
 
+/**
+ * Flagship full-control retrieval (the reference `query` op semantics).
+ * Legacy compatibility: a non-empty `refine` keeps the deterministic
+ * weighted-RRF two-query blend the op originally shipped.
+ */
 async function callQuery(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  isOperator = false,
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -1852,18 +2041,66 @@ async function callQuery(
       "Pass a non-empty `q` string.",
     );
   }
-  const opts: Parameters<typeof queryRefine>[3] = {};
-  if (typeof args["k"] === "number") opts.k = args["k"];
-  if (typeof args["primary_weight"] === "number") opts.primaryWeight = args["primary_weight"];
-  if (typeof args["refine_weight"] === "number") opts.refineWeight = args["refine_weight"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
   const onCapture = makeCaptureCallback(storage.engine(), storage.config(), {
     toolName: "mcp.query",
     remote: true,
   });
-  if (onCapture) opts.search = { onCapture };
   const refine = typeof args["refine"] === "string" ? args["refine"] : "";
-  const hits = await queryRefine(storage, q, refine, opts);
+  if (refine) {
+    const opts: Parameters<typeof queryRefine>[3] = {};
+    if (typeof args["k"] === "number") opts.k = args["k"];
+    if (typeof args["primary_weight"] === "number") opts.primaryWeight = args["primary_weight"];
+    if (typeof args["refine_weight"] === "number") opts.refineWeight = args["refine_weight"];
+    if (readSources && readSources.length) opts.sourceIds = readSources;
+    if (onCapture) opts.search = { onCapture };
+    const hits = await queryRefine(storage, q, refine, opts);
+    return jsonResult({ ok: true, hits });
+  }
+
+  const k = typeof args["k"] === "number" ? (args["k"] as number) : 20;
+  const offset =
+    typeof args["offset"] === "number"
+      ? Math.max(0, Math.floor(args["offset"] as number))
+      : 0;
+  const searchOpts: SearchOptions = { k: k + offset };
+  if (onCapture) searchOpts.onCapture = onCapture;
+  if (readSources && readSources.length) searchOpts.sourceIds = readSources;
+  // Paid LLM expansion: explicit per-call value wins; omitted follows the
+  // env/mode-bundle chain (OFF in conservative/balanced — cost posture).
+  if (typeof args["expand"] === "boolean") searchOpts.expansion = args["expand"];
+  if (args["detail"] === "low" || args["detail"] === "medium" || args["detail"] === "high") {
+    searchOpts.detail = args["detail"];
+  }
+  const modeOf = (key: "salience" | "recency"): "off" | "on" | "strong" | undefined => {
+    const v = args[key];
+    return v === "off" || v === "on" || v === "strong" ? v : undefined;
+  };
+  const salience = modeOf("salience");
+  if (salience) searchOpts.salience = salience;
+  const recency = modeOf("recency");
+  if (recency) searchOpts.recency = recency;
+  const since = isoDateBound("query", args, "since");
+  const until = isoDateBound("query", args, "until");
+  if (since) searchOpts.since = since;
+  if (until) searchOpts.until = until;
+  if (typeof args["lang"] === "string" && args["lang"]) searchOpts.lang = args["lang"];
+  if (typeof args["symbol_kind"] === "string" && args["symbol_kind"]) {
+    searchOpts.symbolKind = args["symbol_kind"];
+  }
+  if (typeof args["near_symbol"] === "string" && args["near_symbol"]) {
+    searchOpts.nearSymbol = args["near_symbol"];
+  }
+  if (typeof args["walk_depth"] === "number") {
+    searchOpts.walkDepth = Math.min(Math.max(args["walk_depth"] as number, 0), 2);
+  }
+  if (typeof args["token_budget"] === "number") {
+    searchOpts.tokenBudget = args["token_budget"] as number;
+  }
+  if (args["adaptive_return"] === true) searchOpts.adaptiveReturn = true;
+  if (args["explain"] === true) searchOpts.explain = true;
+  applyPerCallMode(searchOpts, args["mode"], isOperator);
+  const hitsAll = await hybridSearch(storage, q, searchOpts);
+  const hits = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   return jsonResult({ ok: true, hits });
 }
 
@@ -1959,9 +2196,15 @@ async function callVolunteerContext(
   storage: Storage,
   args: Record<string, unknown>,
 ): Promise<ToolCallResult> {
-  // Stats mode: per-arm used/volunteered precision (feedback loop).
+  // Stats mode: per-arm used/volunteered precision (feedback loop). `days` is
+  // the documented window param; `turn` kept as the legacy fallback.
   if (args["stats"] === true) {
-    const days = typeof args["turn"] === "number" ? (args["turn"] as number) : 30;
+    const days =
+      typeof args["days"] === "number"
+        ? (args["days"] as number)
+        : typeof args["turn"] === "number"
+          ? (args["turn"] as number)
+          : 30;
     const stats = await volunteerUsageStats(storage, days);
     return jsonResult({ ok: true, ...stats });
   }
@@ -1974,6 +2217,8 @@ async function callVolunteerContext(
   const opts: Parameters<typeof volunteerContext>[1] = { window: turns };
   if (typeof args["max_pages"] === "number") opts.maxPages = args["max_pages"];
   if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
+  if (typeof args["prior_context"] === "string" && args["prior_context"])
+    opts.priorContext = args["prior_context"];
 
   const pages = await volunteerContext(storage, opts);
 
@@ -2016,11 +2261,21 @@ async function callListTakes(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  takesHolders?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listTakes>[1] = {};
   if (typeof args["status"] === "string") opts.status = args["status"];
+  if (typeof args["kind"] === "string" && args["kind"]) opts.kind = args["kind"];
+  if (typeof args["domain"] === "string" && args["domain"])
+    opts.domain = args["domain"];
+  if (typeof args["holder"] === "string" && args["holder"])
+    opts.holder = args["holder"];
+  if (args["sort"] === "weight" || args["sort"] === "generated_at")
+    opts.sort = args["sort"];
+  if (typeof args["offset"] === "number") opts.offset = args["offset"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (takesHolders) opts.holderAllowList = takesHolders;
   const takes = await listTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
 }
@@ -2043,12 +2298,14 @@ async function callSearchTakes(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  takesHolders?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["q"] !== "string" || args["q"].length === 0)
     return errResult("takes_search: `q` is required");
   const opts: Parameters<typeof searchTakes>[1] = { q: args["q"] };
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (takesHolders) opts.holderAllowList = takesHolders;
   const takes = await searchTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
 }
@@ -2066,10 +2323,12 @@ async function callTakesScorecard(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  takesHolders?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof getTakesScorecard>[1] = {};
   if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (takesHolders) opts.holderAllowList = takesHolders;
   const scorecard = await getTakesScorecard(storage.engine(), opts);
   return jsonResult({ ok: true, scorecard });
 }
@@ -2078,11 +2337,13 @@ async function callTakesCalibration(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  takesHolders?: string[],
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof getTakesCalibration>[1] = {};
   if (typeof args["bucket_size"] === "number") opts.bucketSize = args["bucket_size"];
   if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (takesHolders) opts.holderAllowList = takesHolders;
   const buckets = await getTakesCalibration(storage.engine(), opts);
   return jsonResult({ ok: true, buckets });
 }
@@ -2098,7 +2359,16 @@ async function callExtractFacts(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  persistCtx: { writeSource?: string; canPersist?: boolean } = {},
 ): Promise<ToolCallResult> {
+  const persist = args["persist"] === true;
+  if (persist && persistCtx.canPersist !== true) {
+    throw new OperationError(
+      "permission_denied",
+      "extract_facts: `persist` requires a write grant",
+      "Call without `persist` for the preview, or use a write-scoped token.",
+    );
+  }
   let text = typeof args["text"] === "string" ? args["text"] : "";
   const sourceRef = typeof args["source_ref"] === "string" ? args["source_ref"] : "";
   if (!text && sourceRef) {
@@ -2123,7 +2393,30 @@ async function callExtractFacts(
       "Pass conversation text in `text`, or a page slug in `source_ref`.",
     );
   }
-  const result = await extractFactsOnDemand(text);
+  // Hints are slug-shaped steering only; the extractor sanitizes them again.
+  const entityHints =
+    typeof args["entity_hints"] === "string"
+      ? args["entity_hints"].split(/[,\s]+/).filter(Boolean)
+      : undefined;
+  const visibility =
+    args["visibility"] === "world" || args["visibility"] === "private"
+      ? (args["visibility"] as "world" | "private")
+      : undefined;
+  const result = await extractFactsOnDemand(text, {
+    ...(entityHints && entityHints.length ? { entityHints } : {}),
+    ...(persist
+      ? {
+          persist: true,
+          storage,
+          ...(sourceRef ? { sourceSlug: sourceRef } : {}),
+          ...(persistCtx.writeSource ? { sourceId: persistCtx.writeSource } : {}),
+          ...(typeof args["session_id"] === "string" && args["session_id"]
+            ? { sessionId: args["session_id"] }
+            : {}),
+          ...(visibility ? { visibility } : {}),
+        }
+      : {}),
+  });
   return jsonResult({ ok: true, ...result });
 }
 
@@ -2156,4 +2449,438 @@ async function callGetRecentTranscripts(
   // body-redaction policy (slug/type/title metadata stays).
   const out = redact ? transcripts.map((t) => ({ ...t, content: "" })) : transcripts;
   return jsonResult({ ok: true, transcripts: out });
+}
+
+// ---------------------------------------------------------------------------
+// Stage-2 surface: shared helpers + the new operator/tenant tools.
+// ---------------------------------------------------------------------------
+
+/** Validate an optional ISO-8601 date/datetime arg; loud invalid_params on junk. */
+function isoDateBound(
+  tool: string,
+  args: Record<string, unknown>,
+  name: "since" | "until",
+): string | undefined {
+  const v = args[name];
+  if (v === undefined || v === null || v === "") return undefined;
+  if (
+    typeof v !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}([T ]|$)/.test(v) ||
+    Number.isNaN(Date.parse(v))
+  ) {
+    throw new OperationError(
+      "invalid_params",
+      `${tool}: \`${name}\` must be an ISO-8601 date (e.g. 2024-03-15 or 2024-03-15T10:00:00Z)`,
+      `Pass \`${name}\` as an ISO date or datetime.`,
+    );
+  }
+  return v;
+}
+
+/**
+ * Map a per-call `mode` bundle onto per-call SearchOptions knobs — which win
+ * over env + the active bundle in resolveSearchKnobs. Honored ONLY for the
+ * operator; a tenant/public caller's mode is silently ignored (it must not
+ * escalate to the paid tokenmax bundle — reference behavior).
+ */
+function applyPerCallMode(
+  searchOpts: SearchOptions,
+  mode: unknown,
+  isOperator: boolean,
+): void {
+  if (!isOperator || typeof mode !== "string" || !isSearchMode(mode)) return;
+  const b = MODE_BUNDLES[mode];
+  // A knob the caller set explicitly (e.g. `expand`) wins over the bundle.
+  if (searchOpts.expansion === undefined) searchOpts.expansion = b.expansion;
+  if (searchOpts.rerank === undefined) searchOpts.rerank = b.rerank;
+  if (searchOpts.graphSignals === undefined) searchOpts.graphSignals = b.graphSignals;
+  if (searchOpts.cosineRescore === undefined) searchOpts.cosineRescore = b.cosineRescore;
+  if (searchOpts.relationalArm === undefined) searchOpts.relationalArm = b.relationalArm;
+  if (b.tokenBudget !== undefined && searchOpts.tokenBudget === undefined) {
+    searchOpts.tokenBudget = b.tokenBudget;
+  }
+}
+
+/**
+ * Rough per-call reserve estimates (USD) for the client spend ledger. The
+ * settle records the ACTUAL cost the handler reports; the estimate only sizes
+ * the pre-flight hold, so precision is not required — it just has to be
+ * non-trivial enough that racing calls near the cap get caught.
+ */
+const PAID_OP_ESTIMATE_USD: Record<string, number> = {
+  think: 0.25,
+  extract_facts: 0.02,
+};
+
+/**
+ * Client-budget enforcement for paid ops (G5): before the call, reserve the
+ * estimate against oauth_clients.budget_usd_per_day (fail-CLOSED when the
+ * ledger says exceeded); after it, settle the reservation with the actual
+ * `spentUsd` the handler reported (releasing a zero-cost hold). Operator
+ * callers (no clientId) bypass the ledger — there is no per-client cap axis.
+ */
+async function withClientSpend(
+  storage: Storage,
+  authInfo: AuthInfo | undefined,
+  operation: string,
+  run: () => Promise<ToolCallResult>,
+): Promise<ToolCallResult> {
+  const clientId = authInfo?.clientId;
+  const estimate = PAID_OP_ESTIMATE_USD[operation];
+  if (!clientId || estimate === undefined) return run();
+  const engine = storage.engine();
+  const reserved = await reserveSpend(engine, {
+    clientId,
+    estimatedUsd: estimate,
+    model: "bedrock",
+    provider: "bedrock",
+  });
+  if (!reserved.reserved) {
+    const cap = reserved.check.capUsd;
+    throw new OperationError(
+      "budget_exhausted",
+      `daily budget exhausted for this client (spent $${reserved.check.spentUsd.toFixed(4)}` +
+        (cap !== null ? ` of $${cap.toFixed(2)}` : "") +
+        ")",
+      "Wait for the UTC day to roll over, or raise the client's budget_usd_per_day.",
+    );
+  }
+  let result: ToolCallResult;
+  try {
+    result = await run();
+  } catch (e) {
+    await releaseReservation(engine, reserved.reservationId).catch(() => {});
+    throw e;
+  }
+  let actual = 0;
+  try {
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>;
+    const v = payload["spentUsd"] ?? payload["spent_usd"];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) actual = v;
+  } catch {
+    // Non-JSON result — treat as zero-cost.
+  }
+  if (actual > 0) {
+    await settleSpend(engine, reserved.reservationId, actual, operation).catch(() => {});
+  } else {
+    await releaseReservation(engine, reserved.reservationId).catch(() => {});
+  }
+  return result;
+}
+
+/** First substantive line of a synthesis answer — the take's claim text. */
+function headlineClaim(answer: string): string {
+  for (const raw of answer.split(/\r?\n/)) {
+    const line = raw.replace(/^[#>*\-\s]+/, "").trim();
+    if (line.length > 0) return line.slice(0, 500);
+  }
+  return "";
+}
+
+async function callThink(
+  storage: Storage,
+  args: Record<string, unknown>,
+  ctx: { isOperator: boolean; readSources?: string[]; writeSource?: string },
+): Promise<ToolCallResult> {
+  const question = args["question"];
+  if (typeof question !== "string" || question.trim().length === 0) {
+    throw new OperationError(
+      "invalid_params",
+      "think: `question` is required",
+      "Pass a non-empty `question` string.",
+    );
+  }
+  const anchor =
+    typeof args["anchor"] === "string" && args["anchor"] ? args["anchor"] : undefined;
+  // Remote callers cannot persist via MCP (reference posture): save/take are
+  // honored for the operator only and silently ignored otherwise.
+  const safeSave = ctx.isOperator && args["save"] === true;
+  const safeTake = ctx.isOperator && args["take"] === true;
+  if (safeTake && !anchor) {
+    throw new OperationError(
+      "invalid_params",
+      "think: `take` requires `anchor`",
+      "Pass the anchor page slug the take should pin to.",
+    );
+  }
+  const thinkOpts: ThinkOptions = { question };
+  if (anchor) thinkOpts.anchors = [anchor];
+  if (typeof args["rounds"] === "number") thinkOpts.rounds = args["rounds"] as number;
+  if (typeof args["model"] === "string" && args["model"]) thinkOpts.modelId = args["model"];
+  const since = isoDateBound("think", args, "since");
+  const until = isoDateBound("think", args, "until");
+  if (since) thinkOpts.since = since;
+  if (until) thinkOpts.until = until;
+  if (args["with_calibration"] === true) thinkOpts.withCalibration = true;
+  if (typeof args["k"] === "number") thinkOpts.k = args["k"] as number;
+  if (typeof args["max_takes"] === "number") thinkOpts.maxTakes = args["max_takes"] as number;
+  if (ctx.readSources && ctx.readSources.length) thinkOpts.sourceIds = ctx.readSources;
+
+  const result = await runThink(storage, thinkOpts);
+
+  let saved: Awaited<ReturnType<typeof persistThinkSynthesis>> | undefined;
+  if (safeSave && result.synthesis) {
+    saved = await persistThinkSynthesis(storage, {
+      question,
+      result,
+      ...(ctx.writeSource ? { sourceId: ctx.writeSource } : {}),
+    });
+  }
+  let takeSaved: Awaited<ReturnType<typeof saveThinkTake>> | undefined;
+  if (safeTake && result.synthesis) {
+    const claim = headlineClaim(result.synthesis.answer);
+    if (claim) {
+      takeSaved = await saveThinkTake(storage.engine(), {
+        claim,
+        anchorSlug: anchor!,
+        ...(result.modelId ? { modelId: result.modelId } : {}),
+      });
+    }
+  }
+  return jsonResult({
+    ok: true,
+    ...result,
+    save_applied: safeSave,
+    take_applied: safeTake,
+    ...(saved ? { saved } : {}),
+    ...(takeSaved ? { take: takeSaved } : {}),
+  });
+}
+
+async function callFactSupersessions(
+  storage: Storage,
+  args: Record<string, unknown>,
+  redact = false,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const opts: ListSupersessionsOptions = {};
+  if (typeof args["entity_slug"] === "string" && args["entity_slug"]) {
+    opts.entity_slug = args["entity_slug"];
+  }
+  if (typeof args["since"] === "string" && args["since"]) opts.since = args["since"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const rows = await listSupersessions(storage, opts);
+  const out = redact ? redactFacts(rows as unknown as Record<string, unknown>[]) : rows;
+  return jsonResult({ ok: true, supersessions: out });
+}
+
+async function callPutRawData(
+  storage: Storage,
+  args: Record<string, unknown>,
+  writeSource?: string,
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string" || args["slug"].length === 0) {
+    return errResult("put_raw_data: `slug` is required");
+  }
+  if (typeof args["source"] !== "string" || args["source"].length === 0) {
+    return errResult("put_raw_data: `source` is required");
+  }
+  if (typeof args["data"] !== "object" || args["data"] === null || Array.isArray(args["data"])) {
+    return errResult("put_raw_data: `data` must be a JSON object");
+  }
+  try {
+    const r = await putRawData(
+      storage,
+      args["slug"],
+      args["source"],
+      args["data"] as Record<string, unknown>,
+      writeSource,
+    );
+    return jsonResult({ ok: true, ...r });
+  } catch (e) {
+    return errResult(`put_raw_data: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function callGetRawData(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  if (typeof args["slug"] !== "string" || args["slug"].length === 0) {
+    return errResult("get_raw_data: `slug` is required");
+  }
+  const opts: Parameters<typeof getRawData>[2] = {};
+  if (typeof args["source"] === "string" && args["source"]) opts.source = args["source"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const rows = await getRawData(storage, args["slug"], opts);
+  return jsonResult({ ok: true, slug: args["slug"], raw_data: rows });
+}
+
+async function callRetryJob(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string" || args["id"].length === 0) {
+    return errResult("retry_job: `id` is required");
+  }
+  const queue = new Queue(storage.engine());
+  const job = await queue.retry(args["id"]);
+  if (!job) {
+    return jsonResult({
+      ok: true,
+      retried: false,
+      note: "job not found or not in a retryable state (failed/cancelled)",
+    });
+  }
+  return jsonResult({ ok: true, retried: true, job });
+}
+
+async function callGetJobProgress(
+  storage: Storage,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string" || args["id"].length === 0) {
+    return errResult("get_job_progress: `id` is required");
+  }
+  const queue = new Queue(storage.engine());
+  const progress = await getJobProgress(queue, args["id"]);
+  if (!progress) return errResult(`get_job_progress: ${args["id"]} not found`);
+  return jsonResult({ ok: true, ...progress });
+}
+
+async function callSourcesList(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const kindArg = typeof args["kind"] === "string" && args["kind"] ? args["kind"] : undefined;
+  if (kindArg !== undefined && !(SOURCE_KINDS as readonly string[]).includes(kindArg)) {
+    return errResult(`sources_list: unknown kind '${kindArg}'`);
+  }
+  let rows = await listSources(
+    storage.engine(),
+    kindArg ? { kind: kindArg as SourceKind } : {},
+  );
+  // A scoped caller sees only the sources its grant covers (the fail-closed
+  // sentinel matches nothing, so a scopeless tenant sees an empty list).
+  if (readSources && readSources.length) {
+    rows = rows.filter((r) => readSources.includes(r.id));
+  }
+  return jsonResult({ ok: true, count: rows.length, sources: rows });
+}
+
+async function callSourcesStatus(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  if (typeof args["id"] !== "string" || args["id"].length === 0) {
+    return errResult("sources_status: `id` is required");
+  }
+  const id = args["id"];
+  // Out-of-grant ids answer not_found (not permission_denied) so a scoped
+  // caller cannot probe which source ids exist.
+  if (readSources && readSources.length && !readSources.includes(id)) {
+    throw new OperationError(
+      "not_found",
+      `sources_status: source not found: ${id}`,
+      "Pass a source id inside your grant (see sources_list).",
+    );
+  }
+  const engine = storage.engine();
+  const source = await getSource(engine, id);
+  if (!source) {
+    throw new OperationError(
+      "not_found",
+      `sources_status: source not found: ${id}`,
+      "Pass a registered source id (see sources_list).",
+    );
+  }
+  const health = (await collectPerSourceHealth(engine, [id]))[0] ?? null;
+  return jsonResult({ ok: true, source, health });
+}
+
+async function callStatusSnapshot(storage: Storage): Promise<ToolCallResult> {
+  const engine = storage.engine();
+  const stats = await storage.stats();
+  const health = await brainHealthMetrics(engine);
+  const clock = await currentDocumentClock(engine);
+  const cache = await cacheStats(engine, clock);
+  const worker = await readWorkerLock(engine, DEFAULT_WORKER_LOCK_ID);
+  return jsonResult({
+    ok: true,
+    schema_version: 1,
+    version: packageJson.version,
+    stats,
+    health,
+    cache,
+    worker,
+  });
+}
+
+/**
+ * Thin-client doctor: the engine-only check set (no config-file / filesystem
+ * checks — those are host concerns the full `memex doctor` CLI covers).
+ */
+async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
+  const engine = storage.engine();
+  const checks: TenancyCheck[] = [];
+  try {
+    const stats = await storage.stats();
+    checks.push({
+      name: "stats",
+      ok: true,
+      detail: `${stats.documents} documents / ${stats.chunks} chunks / ${stats.embeddings} embeddings`,
+    });
+  } catch (e) {
+    checks.push({
+      name: "stats",
+      ok: false,
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+  try {
+    const health = await brainHealthMetrics(engine);
+    const covPct = Math.round(health.embed_coverage_pct * 100);
+    checks.push({
+      name: "embed-coverage",
+      ok: health.embeddable_chunks === 0 || health.embed_coverage_pct >= 0.5,
+      detail: `${covPct}% (${health.embedded_chunks}/${health.embeddable_chunks} embeddable), queue ${health.queue_depth}, failed 24h ${health.failed_jobs_24h}`,
+    });
+  } catch (e) {
+    checks.push({
+      name: "embed-coverage",
+      ok: false,
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+  for (const check of [
+    checkFederationHealth,
+    checkOauthClientHealth,
+    checkSourceRoutingHealth,
+  ]) {
+    try {
+      checks.push(await check(engine));
+    } catch (e) {
+      checks.push({
+        name: check.name,
+        ok: false,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  try {
+    const worker = await readWorkerLock(engine, DEFAULT_WORKER_LOCK_ID);
+    checks.push(
+      worker === null
+        ? { name: "job-worker", ok: true, detail: "no worker has held the lock yet" }
+        : {
+            name: "job-worker",
+            ok: !worker.stale,
+            detail: worker.stale
+              ? `lock holder '${worker.holder}' heartbeat is stale (${worker.staleMs}ms)`
+              : `held by '${worker.holder}', heartbeat fresh`,
+          },
+    );
+  } catch (e) {
+    checks.push({
+      name: "job-worker",
+      ok: false,
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+  return jsonResult({ ok: checks.every((c) => c.ok), checks });
 }
