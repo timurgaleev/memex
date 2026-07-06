@@ -21,6 +21,12 @@ import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
 import {
+  checkStaleLocks,
+  checkQueueHealth,
+  checkSchemaVersion,
+  checkEmbeddingWidth,
+} from "../core/doctor-ops.ts";
+import {
   checkFederationHealth,
   checkOauthClientHealth,
   checkSourceRoutingHealth,
@@ -234,6 +240,28 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });
+    }
+
+    // Ops probes (substrate already exists): an orphaned cycle lock past TTL, a
+    // wedged job in the queue, an unapplied migration, or an embedding-width vs
+    // config drift. Each swallows its own probe error into a WARN so one bad
+    // probe can't abort the report.
+    for (const [name, probe] of [
+      ["stale-locks", checkStaleLocks],
+      ["queue-health", checkQueueHealth],
+      ["schema-version", checkSchemaVersion],
+      ["embedding-width", checkEmbeddingWidth],
+    ] as const) {
+      try {
+        const r = await probe(storage.raw());
+        checks.push({ name, ok: r.ok, detail: r.detail });
+      } catch (e) {
+        checks.push({
+          name,
+          ok: true,
+          detail: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
 
     // Tenancy / auth checks — the two subsystems where a silent misconfig is

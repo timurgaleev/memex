@@ -158,6 +158,12 @@ import {
   type TenancyCheck,
 } from "../core/doctor-tenancy.ts";
 import {
+  checkStaleLocks,
+  checkQueueHealth,
+  checkSchemaVersion,
+  checkEmbeddingWidth,
+} from "../core/doctor-ops.ts";
+import {
   reserveSpend,
   settleSpend,
   releaseReservation,
@@ -2925,6 +2931,23 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
       checks.push({
         name: check.name,
         ok: false,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  for (const [name, probe] of [
+    ["stale-locks", checkStaleLocks],
+    ["queue-health", checkQueueHealth],
+    ["schema-version", checkSchemaVersion],
+    ["embedding-width", checkEmbeddingWidth],
+  ] as const) {
+    try {
+      const r = await probe(engine);
+      checks.push({ name, ok: r.ok, detail: r.detail });
+    } catch (e) {
+      checks.push({
+        name,
+        ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });
     }

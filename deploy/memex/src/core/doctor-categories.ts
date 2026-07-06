@@ -34,6 +34,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "eval-trend",
   "federation-health",
   "source-routing-health",
+  "embedding-width",
 ]);
 
 /** Infrastructure / setup — "can the brain run here at all?" */
@@ -42,6 +43,9 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   "pglite",
   "vault",
   "oauth-client-health",
+  "stale-locks",
+  "queue-health",
+  "schema-version",
 ]);
 
 /** The doctor / runtime itself. Empty today; the fallthrough bucket. */
