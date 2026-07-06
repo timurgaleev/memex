@@ -41,6 +41,20 @@ ingress via terraform (ops dir) + decides tenancy. See agent memory
   drop an operator-set `permissions.source_id` tenant grant and floor the
   token to the empty `default` source; the merge preserves it. The update also
   targets only non-revoked rows.
+- Takes-fence `kind` vocabulary is WIDER than the reference's
+  (fact/take/bet/hunch + prediction/judgment): memex's LLM-propose path was
+  already writing prediction/judgment into synth_takes before the fence port,
+  so the fence parser accepts one merged namespace instead of breaking
+  existing rows.
+- `entity_facts`/fact recall floor EVERY scoped principal (public ingress or a
+  tenant token carrying a read set) to `visibility='world'` and deny
+  `include_forgotten`; only the operator path reads private/tombstoned rows.
+- Remote authenticated principals whose credential carries no takes-holder
+  allow-list are floored to `['world']` (the reference applies the same
+  fail-safe at its transport layer).
+- `rate_limited` request-log rows are best-effort (sink-gated), NOT
+  force-written per rejection — a hammering client must not convert every 429
+  into a guaranteed DB INSERT.
 
 ## Operating rules (do not drift)
 - Find the answer in the reference; do not invent. Adapt to memex's stack
@@ -164,3 +178,74 @@ faithful **port** of that model — now started: `docs/tenancy.md` (design +
 must-fix checklist), `src/core/scope.ts`, migration `046_oauth.sql`.
 Invasive `source_id` data-model migration is gated behind the checklist and a
 live-deploy decision.
+
+---
+
+## 2026-07-05 — SEARCH-cluster parity batch (accepted deviations recorded)
+
+Ranking parity ported into `core/search/*` (compiled-truth ×2 boost via the new
+`page-truth://` mirror, zero-LLM query taxonomy, k/weight RRF math, exact-match
+/ alias-resolved / mattering-salience / recency-boost stages, full arm-SQL
+curation tier map + default hard-excludes with temporal bypass, dedup cap 2 +
+0.6 type-diversity, full-window rerank head + rerank-failure audit + 5s
+timeout, full knobs-hash in the query-cache signature). Two deviations are
+DELIBERATE and accepted:
+
+- **Default-OFF cost posture (mode bundles).** `MEMEX_SEARCH_MODE` now ships
+  the reference's `conservative`/`balanced`/`tokenmax` bundles, but memex
+  **defaults to `conservative`**, and memex's `conservative` equals the
+  historical all-OFF defaults (no rerank / graph / relational / cosine, no
+  token cap) — the reference defaults to `balanced` (rerank + graph +
+  relational + contextual ON, 12000-token cap). Rationale: memex pays per
+  Bedrock call out of the operator's pocket; every paid stage stays one env
+  away (`MEMEX_SEARCH_MODE=balanced`) instead of on-by-default. LLM query
+  expansion follows the same posture: default OFF everywhere except
+  `tokenmax` (the reference measured negligible lift; kill-switch
+  `MEMEX_QUERY_EXPANSION=0/1`).
+- **Chunk FTS stays `to_tsvector('simple', …)` — no English stemming.** The
+  reference uses `'english'` (stemming: "running" matches "run"). memex's
+  corpus is deliberately multilingual (Russian + English prose in one store);
+  the `english` config would stem English while mangling nothing-but-ASCII
+  tokenization for Russian text and change the matched set corpus-wide, and a
+  language-split tsvector is not worth the migration + full re-vector today.
+  `'simple'` keeps exact-lexeme matching that behaves identically for both
+  languages; the vector arm carries the semantic slack. The reference's other
+  FTS half (symbol identity at weight 'A') already landed in migration 030/032
+  (`symbol_name` + `parent_symbol_path`). Revisit only with a per-language
+  column or a `russian`+`english` double-vector design.
+
+---
+
+## 2026-07-06 — MCP-surface stage-2 batch (accepted deviations recorded)
+
+The MCP surface caught up to the reference's op set: `think` is remote-exposed
+(save/take persistence honored for the operator only, like the reference's
+remote-caller block), `query` is rebuilt as the flagship full-control retrieval
+op (expand / detail / salience / recency / offset / mode / adaptive_return —
+the old weighted-RRF refinement survives behind the legacy `refine` param),
+read-param parity landed (page_list tag/sort/include_deleted, page_get
+fuzzy/include_deleted, search offset+mode, list_takes / volunteer_context /
+find_trajectory / find_contradictions / find_experts / get_recent_salience
+filters), the stage-1 core work is reachable (fact_supersessions + entity_facts
+lifecycle filters, extract_facts persist, put/get_raw_data, retry_job /
+get_job_progress), operator wrappers exist (sources_list, sources_status,
+get_status_snapshot, run_doctor), and paid ops (`think`, `extract_facts`)
+enforce `oauth_clients.budget_usd_per_day` fail-closed through the
+mcp_spend_log/mcp_spend_reservations ledger. Deviations that are DELIBERATE
+and accepted:
+
+- **`get_recent_transcripts` stays remote-exposed.** The reference marks it
+  `localOnly` (rejected for every remote caller at tool-list AND handler). In
+  memex the op is (a) forbidden on the PUBLIC bearer path
+  (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`) and (b) tenant-scoped for OAuth tokens —
+  a scoped client only ever sees its own sources' transcripts. memex's remote
+  OAuth clients are the operator's own devices (claude.ai), so the extra
+  local-only fence would only break the primary consumer. Audits should stop
+  re-flagging this: the exposure is intentional, scoped, and public-blocked.
+- **`purge_deleted_pages` is now operator-only** (reference: `admin` +
+  `localOnly`). Previously any write-scoped tenant token could hard-delete its
+  own soft-deleted pages remotely; it now sits in `OPERATOR_ONLY_TOOLS` next
+  to the jobs/advisor surface, and stays public-forbidden.
+- **`think` cost posture.** The reference runs think wherever a model resolves;
+  memex keeps the core `MEMEX_THINK=1` gate (default OFF, budget-tracked), so
+  the remote op returns `{ran:false, reason}` until the operator opts in.
