@@ -92,19 +92,26 @@ export function extractAliasNorms(
  * Replace the full alias set for one slug with `aliasNorms`. Runs on the
  * caller's transaction (the page write) so a page and its aliases commit
  * atomically. Empty `aliasNorms` just clears them. Idempotent against the
- * `(alias_norm, slug)` PK.
+ * `(alias_norm, source_id, slug)` PK (migration 084).
+ *
+ * `sourceId` stamps the owning tenant on each row (defaults to 'default',
+ * matching the page-write default). The per-slug DELETE is not source-filtered
+ * on purpose: `slug` is the global pages PK today, so the page's alias set is
+ * singular — and if the page's source ever changed, a source-filtered delete
+ * would strand rows under the old tenant.
  */
 export async function setPageAliases(
   engine: Engine,
   slug: string,
   aliasNorms: string[],
+  sourceId: string = "default",
 ): Promise<void> {
   await engine.query(`DELETE FROM page_aliases WHERE slug = $1`, [slug]);
   for (const aliasNorm of aliasNorms) {
     await engine.query(
-      `INSERT INTO page_aliases (alias_norm, slug) VALUES ($1, $2)
-       ON CONFLICT (alias_norm, slug) DO NOTHING`,
-      [aliasNorm, slug],
+      `INSERT INTO page_aliases (alias_norm, source_id, slug) VALUES ($1, $2, $3)
+       ON CONFLICT (alias_norm, source_id, slug) DO NOTHING`,
+      [aliasNorm, sourceId, slug],
     );
   }
 }
@@ -135,11 +142,13 @@ export async function resolveAliasUnique(
   try {
     const params: unknown[] = [aliasNorm];
     let scopeFilter = "";
-    // Tenant scope (mig047): confine collision detection + resolution to the
-    // given sources' pages when set; omitted/empty -> unscoped (whole-brain).
+    // Tenant scope (mig047/084): the alias row carries its own source_id, so
+    // collision detection + resolution filter the index DIRECTLY — a sibling
+    // tenant's declared alias can neither collide nor resolve. Omitted/empty
+    // -> unscoped (whole-brain).
     if (sourceIds && sourceIds.length > 0) {
       params.push(sourceIds);
-      scopeFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+      scopeFilter = ` AND pa.source_id = ANY($${params.length}::text[])`;
     }
     const r = await storage.engine().query<{ slug: string }>(
       `SELECT pa.slug AS slug
@@ -179,9 +188,10 @@ export async function resolveAliasCandidates(
   try {
     const params: unknown[] = [aliasNorm];
     let scopeFilter = "";
+    // mig084: filter the alias index's own source_id (see resolveAliasUnique).
     if (sourceIds && sourceIds.length > 0) {
       params.push(sourceIds);
-      scopeFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
+      scopeFilter = ` AND pa.source_id = ANY($${params.length}::text[])`;
     }
     // No LIMIT — return EVERY claimant of an exact alias, ordered, mirroring the
     // reference's `resolveAliases`. An exact-alias match has few claimants, and
@@ -189,7 +199,7 @@ export async function resolveAliasCandidates(
     // (`MAX_ALIAS_INJECT`). A prior `LIMIT 8` truncated before that sort, so with
     // >8 claimants the deterministic top-N could be missed.
     const r = await storage.engine().query<{ slug: string; source_id: string }>(
-      `SELECT pa.slug AS slug, COALESCE(p.source_id, 'default') AS source_id
+      `SELECT pa.slug AS slug, pa.source_id AS source_id
          FROM page_aliases pa
          JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
         WHERE pa.alias_norm = $1${scopeFilter}

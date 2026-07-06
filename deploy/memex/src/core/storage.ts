@@ -13,6 +13,7 @@ import { runMigrations, type MigrationResult } from "./migrate.ts";
 import type { Engine } from "./engine/interface.ts";
 import { makeEngine } from "./engine/factory.ts";
 import type { Config } from "./config.ts";
+import { applyRuntimeEnvOverlay } from "./runtime-config.ts";
 
 export interface StorageStats {
   documents: number;
@@ -59,7 +60,12 @@ export class Storage {
 
   async init(): Promise<MigrationResult> {
     await this._engine.ready();
-    return runMigrations(this._engine);
+    const result = await runMigrations(this._engine);
+    // DB-plane knob overlay (`memex config set`, migration 088): stored
+    // MEMEX_* keys fill env gaps the container did not set. Fail-open, env
+    // wins, MEMEX_NO_DB_CONFIG=1 skips. See core/runtime-config.ts.
+    await applyRuntimeEnvOverlay(this._engine);
+    return result;
   }
 
   /** Engine surface — issue arbitrary SQL via .query / .exec. */

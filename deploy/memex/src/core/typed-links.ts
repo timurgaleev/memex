@@ -202,9 +202,11 @@ export async function syncTypedLinksForPage(
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence,
-            link_kind, origin_slug, origin_field, resolution_type${insCol})
-         VALUES ($1, $2, $3, $4, '${FENCE_WRITER_KIND}', $5, $6, 'qualified'${insVal})
-         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
+            link_kind, origin_slug, origin_field, resolution_type,
+            link_source${insCol})
+         VALUES ($1, $2, $3, $4, '${FENCE_WRITER_KIND}', $5, $6, 'qualified',
+                 'frontmatter'${insVal})
+         ON CONFLICT (source_slug, target_slug, type, source_id, link_source) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );

@@ -105,6 +105,23 @@ export interface EmbedBackfillOptions {
    * from the start of the id order.
    */
   startAfterId?: string;
+  /**
+   * Restrict candidates to documents owned by this source (`memex embed
+   * --source <id>`). Combines with `slugs`.
+   */
+  sourceId?: string;
+  /**
+   * Restrict candidates to documents denoted by these slugs/paths — the raw
+   * source_path, the page:// / page-truth:// mirror forms (any tenant), or the
+   * `<slug>.md` file twin (`memex embed <slug>` / `--slugs a,b`).
+   */
+  slugs?: string[];
+  /**
+   * Delete the existing embeddings inside the scope FIRST so every scoped
+   * chunk re-embeds this run — the surgical `memex embed <slug>` / the
+   * whole-corpus `--all`. Off by default: a routine backfill only fills gaps.
+   */
+  forceReembed?: boolean;
 }
 
 export interface EmbedBackfillResult {
@@ -119,6 +136,11 @@ export interface EmbedBackfillResult {
    * one (migration 066). In a dry run this is the count that WOULD be deleted.
    */
   signatureStale: number;
+  /**
+   * Embeddings deleted by `forceReembed` so their chunks re-embed this run.
+   * In a dry run this is the count that WOULD be deleted.
+   */
+  forceCleared: number;
   dryRun: boolean;
   /**
    * Last chunk id processed this run — the keyset cursor to resume from. Pass
@@ -133,19 +155,72 @@ interface CandidateRow {
   content: string;
 }
 
+/** Escape LIKE metacharacters so a slug's `_`/`%` stays literal in patterns. */
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
+/** Document scope for a targeted run (`--source` / slug list). */
+export interface EmbedScope {
+  sourceId?: string;
+  slugs?: string[];
+}
+
+/**
+ * Append the document-scope predicates (no leading `AND` on the fragment
+ * boundaries; each clause carries its own). A slug matches its raw
+ * source_path, the page:// / page-truth:// mirror forms for any tenant, or
+ * the `<slug>.md` file twin — the same shapes page-slug.ts derives.
+ */
+function scopeFragment(params: unknown[], scope?: EmbedScope): string {
+  let sql = "";
+  if (scope?.sourceId) {
+    params.push(scope.sourceId);
+    sql += `\n        AND d.source_id = $${params.length}`;
+  }
+  if (scope?.slugs && scope.slugs.length > 0) {
+    const ors: string[] = [];
+    for (const slug of scope.slugs) {
+      params.push(slug);
+      const p = `$${params.length}`;
+      params.push(escapeLike(slug));
+      const pl = `$${params.length}`;
+      ors.push(
+        `d.source_path = ${p}` +
+          ` OR d.source_path = 'page://' || ${p}` +
+          ` OR d.source_path = 'page-truth://' || ${p}` +
+          ` OR d.source_path LIKE 'page://%/' || ${pl} ESCAPE '\\'` +
+          ` OR d.source_path LIKE 'page-truth://%/' || ${pl} ESCAPE '\\'` +
+          ` OR d.source_path = ${p} || '.md'` +
+          ` OR d.source_path LIKE '%/' || ${pl} || '.md' ESCAPE '\\'`,
+      );
+    }
+    sql += `\n        AND (${ors.join("\n         OR ")})`;
+  }
+  return sql;
+}
+
 /**
  * The candidate predicate (a boolean SQL expression, no leading `AND`): a
- * non-code, non-embed-skip chunk with non-empty content and no embeddings row.
- * When `hasCursor` is set, `$1` bounds the keyset walk to ids after the cursor.
+ * non-code, non-embed-skip chunk with non-empty content and no embeddings row,
+ * optionally scoped to a source and/or slug list, optionally keyset-bounded.
  * Shared verbatim by the count and page-fetch queries so the two never drift.
  */
-function candidateWhere(hasCursor: boolean): string {
-  return `em.chunk_id IS NULL
+function buildCandidateWhere(
+  cursor: string | undefined,
+  scope: EmbedScope | undefined,
+): { where: string; params: unknown[] } {
+  const params: unknown[] = [];
+  let where = `em.chunk_id IS NULL
         AND COALESCE(d.frontmatter->>'kind','') <> 'code'
         AND ${embedSkipFilterFragment("d")}
-        AND length(btrim(c.content)) > 0${
-          hasCursor ? `\n        AND c.id COLLATE "C" > $1` : ""
-        }`;
+        AND length(btrim(c.content)) > 0`;
+  where += scopeFragment(params, scope);
+  if (cursor !== undefined) {
+    params.push(cursor);
+    where += `\n        AND c.id COLLATE "C" > $${params.length}`;
+  }
+  return { where, params };
 }
 
 /**
@@ -156,14 +231,15 @@ async function fetchCandidatePage(
   engine: Engine,
   cursor: string | undefined,
   pageLimit: number,
+  scope?: EmbedScope,
 ): Promise<CandidateRow[]> {
-  const params = cursor !== undefined ? [cursor] : [];
+  const { where, params } = buildCandidateWhere(cursor, scope);
   const r = await engine.query<CandidateRow>(
     `SELECT c.id, c.content
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
        LEFT JOIN embeddings em ON em.chunk_id = c.id
-      WHERE ${candidateWhere(cursor !== undefined)}
+      WHERE ${where}
       ORDER BY c.id COLLATE "C" ASC
       LIMIT ${Math.max(1, Math.floor(pageLimit))}`,
     params,
@@ -180,19 +256,63 @@ async function countCandidates(
   engine: Engine,
   cursor: string | undefined,
   limit?: number,
+  scope?: EmbedScope,
 ): Promise<number> {
-  const params = cursor !== undefined ? [cursor] : [];
+  const { where, params } = buildCandidateWhere(cursor, scope);
   const r = await engine.query<{ n: number | string }>(
     `SELECT count(*)::int AS n
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
        LEFT JOIN embeddings em ON em.chunk_id = c.id
-      WHERE ${candidateWhere(cursor !== undefined)}`,
+      WHERE ${where}`,
     params,
   );
   const raw = r.rows[0]?.n;
   const n = typeof raw === "number" ? raw : Number(raw) || 0;
   return limit !== undefined && limit > 0 ? Math.min(n, Math.floor(limit)) : n;
+}
+
+/**
+ * The scoped embeddable-embeddings selector for `forceReembed`: every
+ * embeddings row whose chunk the backfill WOULD consider (non-code, not
+ * embed-skipped) inside the scope. Deleting these turns the scoped chunks
+ * back into candidates for this same run.
+ */
+function scopedEmbeddingsSelector(scope?: EmbedScope): {
+  where: string;
+  params: unknown[];
+} {
+  const params: unknown[] = [];
+  const where = `em.chunk_id IN (
+      SELECT c.id
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+       WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
+         AND ${embedSkipFilterFragment("d")}${scopeFragment(params, scope)}
+    )`;
+  return { where, params };
+}
+
+async function countScopedEmbeddings(engine: Engine, scope?: EmbedScope): Promise<number> {
+  const { where, params } = scopedEmbeddingsSelector(scope);
+  const r = await engine.query<{ n: number | string }>(
+    `SELECT count(*)::int AS n FROM embeddings em WHERE ${where}`,
+    params,
+  );
+  const n = r.rows[0]?.n;
+  return typeof n === "number" ? n : Number(n) || 0;
+}
+
+async function deleteScopedEmbeddings(engine: Engine, scope?: EmbedScope): Promise<number> {
+  const { where, params } = scopedEmbeddingsSelector(scope);
+  const r = await engine.query<{ n: number | string }>(
+    `WITH del AS (
+       DELETE FROM embeddings em WHERE ${where} RETURNING 1
+     ) SELECT count(*)::int AS n FROM del`,
+    params,
+  );
+  const n = r.rows[0]?.n;
+  return typeof n === "number" ? n : Number(n) || 0;
 }
 
 /**
@@ -349,6 +469,13 @@ export async function runEmbedBackfill(
   const reembedOnSig =
     opts.reembedOnSignatureChange ??
     process.env.MEMEX_REEMBED_ON_SIGNATURE_CHANGE === "1";
+  const scope: EmbedScope | undefined =
+    opts.sourceId || (opts.slugs && opts.slugs.length > 0)
+      ? {
+          ...(opts.sourceId ? { sourceId: opts.sourceId } : {}),
+          ...(opts.slugs && opts.slugs.length > 0 ? { slugs: opts.slugs } : {}),
+        }
+      : undefined;
 
   // Provenance auto-invalidation (migration 066), opt-in. Count always (so a
   // dry run reports it); delete only on a real run so the freed rows become
@@ -360,12 +487,31 @@ export async function runEmbedBackfill(
       : await invalidateStaleSignatures(engine, currentSig);
   }
 
+  // Targeted re-embed (`memex embed <slug>` / `--all`): drop the scoped
+  // embeddings first so their chunks become candidates for this same run.
+  let forceCleared = 0;
+  if (opts.forceReembed) {
+    forceCleared = opts.dryRun
+      ? await countScopedEmbeddings(engine, scope)
+      : await deleteScopedEmbeddings(engine, scope);
+  }
+
   // Total up front via a cheap count (index-only, no rows materialized). Used
   // for the dry-run result and as the progress denominator.
-  const total = await countCandidates(engine, opts.startAfterId, opts.limit);
+  const total = await countCandidates(engine, opts.startAfterId, opts.limit, scope);
 
   if (opts.dryRun) {
-    return { candidates: total, embedded: 0, failed: 0, signatureStale, dryRun: true, lastId: null };
+    return {
+      // A dry-run count can't see the rows forceReembed would free up —
+      // surface both numbers so the operator can add them up.
+      candidates: opts.forceReembed ? total + forceCleared : total,
+      embedded: 0,
+      failed: 0,
+      signatureStale,
+      forceCleared,
+      dryRun: true,
+      lastId: null,
+    };
   }
 
   let embedded = 0;
@@ -391,7 +537,7 @@ export async function runEmbedBackfill(
       opts.limit !== undefined && opts.limit > 0 ? opts.limit - processed : undefined;
     const pageLimit = remaining !== undefined ? Math.min(pageSize, remaining) : pageSize;
 
-    const page = await fetchCandidatePage(engine, cursor, pageLimit);
+    const page = await fetchCandidatePage(engine, cursor, pageLimit, scope);
     if (page.length === 0) break;
 
     await embedPage(engine, page, model, embed, concurrency, onEmbedded, onFailed);
@@ -415,10 +561,18 @@ export async function runEmbedBackfill(
   // cache refills organically). The clock bump is kept as the corpus-changed
   // signal other observers read. Fire when vectors were inserted OR a stale
   // signature swap deleted rows (both change what the vector arm returns).
-  if (embedded > 0 || signatureStale > 0) {
+  if (embedded > 0 || signatureStale > 0 || forceCleared > 0) {
     await bumpDocumentClock(engine);
     await clearCache(engine);
   }
 
-  return { candidates: processed, embedded, failed, signatureStale, dryRun: false, lastId };
+  return {
+    candidates: processed,
+    embedded,
+    failed,
+    signatureStale,
+    forceCleared,
+    dryRun: false,
+    lastId,
+  };
 }
