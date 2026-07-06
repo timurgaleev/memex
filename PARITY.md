@@ -263,3 +263,34 @@ and accepted:
 - **`think` cost posture.** The reference runs think wherever a model resolves;
   memex keeps the core `MEMEX_THINK=1` gate (default OFF, budget-tracked), so
   the remote op returns `{ran:false, reason}` until the operator opts in.
+
+## 2026-07-06 — full recompare + Wave 1/1.5/2-kickoff
+
+A fresh whole-surface recompare (12-dimension agent workflow + adversarial
+verify) drove three releases:
+
+- **v1.82.0 (parity-restoring, NOT deviations):** the indexer now strips the
+  `## Takes` fence before chunking like the reference's `chunkText` (operator
+  takes, incl. holder-scoped rows the read-path caps at `world`, no longer leak
+  into search chunks); untrusted callers can no longer plant gate-owned
+  frontmatter markers (`quarantine`/`content_flag`/`embed_skip`) — a `remote`
+  trust flag strips them before the content-sanity gate on the MCP `index`
+  inline path and the remote/public `page_put`/`page_append` mirror; the
+  `merge` (entity-merge) CLI command is wired into dispatch.
+- **v1.83.0 (correctness + historical purge):** `MARKDOWN_CHUNKER_VERSION` 1→2
+  and `reconcilePageMirrors` re-mirrors pages whose search doc is below the
+  current chunker version. This closes a latent gap — the vault rechunk-sweep
+  reads `source_path` off disk, so DB `page://` mirrors never re-chunked on any
+  chunker change. Drained on prod; verified 0 chunks carry the takes marker.
+- **v1.84.0 (Wave 2, now AT parity):** MCP `search` default `k` 5→20 to match
+  the reference's hybrid-search return width (autocut/adaptive-return still
+  trims the confident cluster). No longer a divergence.
+
+Accepted deviation recorded:
+
+- **Semantic query-cache arm default OFF.** memex ships the reference's 0.92
+  similarity / 3600s-TTL constants and the mig-065 bucket_key/query_embedding
+  columns, but the similar-query cache path stays dark by default (only
+  byte-identical queries hit) — consistent with memex's blanket default-OFF
+  cost posture (operator decision, 2026-07-06). Byte-identical caching and all
+  ranking parity are unaffected.
