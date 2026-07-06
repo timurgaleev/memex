@@ -20,6 +20,11 @@ import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-healt
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
+import {
+  checkFederationHealth,
+  checkOauthClientHealth,
+  checkSourceRoutingHealth,
+} from "../core/doctor-tenancy.ts";
 import { latestEvalSnapshot } from "../core/eval-snapshot.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import {
@@ -230,6 +235,14 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         detail: e instanceof Error ? e.message : String(e),
       });
     }
+
+    // Tenancy / auth checks — the two subsystems where a silent misconfig is
+    // a cross-tenant leak (broken confidential client, mis-routed writes) or
+    // an invisibly dead tenant (0% embed coverage inside the brain average).
+    // Each check swallows its own probe errors into a WARN detail.
+    checks.push(await checkFederationHealth(storage.raw()));
+    checks.push(await checkOauthClientHealth(storage.raw()));
+    checks.push(await checkSourceRoutingHealth(storage.raw()));
 
     // Per-source embed coverage (opt-in via MEMEX_DOCTOR_PER_SOURCE=1). In a
     // multi-tenant deploy one tenant's embedding can break (0% coverage while

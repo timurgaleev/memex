@@ -44,7 +44,8 @@ export type AuthSub =
   | "create"
   | "list"
   | "revoke"
-  | "permissions";
+  | "permissions"
+  | "test";
 
 interface ClientRow {
   client_id: string;
@@ -98,6 +99,10 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
   const redirectUris = flags["redirect-uris"]
     ? flags["redirect-uris"].split(",").map((s) => s.trim()).filter(Boolean)
     : [];
+  // RFC 7591 token_endpoint_auth_method. The provider already validates and
+  // supports 'none' (public client, PKCE-only, NO secret minted) — this flag
+  // finally makes it reachable from the CLI. Omitted → provider default.
+  const tokenEndpointAuthMethod = flags["token-endpoint-auth-method"];
   // A client with a redirect_uri is an authorization-code (browser) client, so
   // default its grants accordingly when the operator didn't say otherwise —
   // mirrors the reference. Without a redirect_uri, default to client_credentials.
@@ -123,6 +128,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
       redirectUris,
       sourceId,
       federatedRead,
+      tokenEndpointAuthMethod,
     ),
   );
   // The secret is shown ONCE — only its hash is stored.
@@ -136,7 +142,13 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
         scope: scopes,
         source_id: sourceId,
         federated_read: federatedRead ?? [sourceId],
-        note: "Store client_secret now — it is not recoverable.",
+        ...(tokenEndpointAuthMethod
+          ? { token_endpoint_auth_method: tokenEndpointAuthMethod }
+          : {}),
+        note:
+          clientSecret === undefined
+            ? "Public client (auth method 'none') — no secret minted; PKCE authenticates."
+            : "Store client_secret now — it is not recoverable.",
       },
       null,
       2,
@@ -316,6 +328,159 @@ async function setPermissions(
   );
 }
 
+export interface AuthTestStep {
+  step: "initialize" | "tools/list" | "tools/call";
+  ok: boolean;
+  detail?: string;
+}
+
+export interface AuthTestResult {
+  ok: boolean;
+  url: string;
+  steps: AuthTestStep[];
+  toolCount: number;
+  elapsedMs: number;
+}
+
+/** Parse an MCP HTTP response body (plain JSON or SSE `data:` lines). */
+function parseMcpBody(text: string): unknown {
+  if (text.includes("event:") || text.startsWith("data:")) {
+    for (const line of text.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      try {
+        return JSON.parse(line.slice(5));
+      } catch {
+        // non-JSON data line — keep scanning
+      }
+    }
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Live end-to-end MCP smoke against a deployed brain: initialize handshake,
+ * tools/list, then a real tools/call (`stats`). The ship-verify gate in CLI
+ * form. Exported with an injectable fetch so tests run hermetic.
+ */
+export async function runAuthTest(
+  url: string,
+  token: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<AuthTestResult> {
+  // The bearer goes into the Authorization header of every probe — refuse to
+  // leak it in cleartext to a non-local plain-http target.
+  const parsed = new URL(url);
+  const isLocal =
+    parsed.hostname === "localhost" ||
+    parsed.hostname === "127.0.0.1" ||
+    parsed.hostname === "::1";
+  if (parsed.protocol !== "https:" && !isLocal) {
+    throw new Error(
+      `auth test: refusing to send the token over ${parsed.protocol}// to a non-local host — use https://`,
+    );
+  }
+  const started = Date.now();
+  const steps: AuthTestStep[] = [];
+  const post = (body: Record<string, unknown>) =>
+    fetchFn(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(body),
+    });
+
+  let toolCount = 0;
+  // Step 1: initialize handshake.
+  try {
+    const res = await post({
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "memex-smoke-test", version: "1.0" },
+      },
+      id: 1,
+    });
+    if (!res.ok) {
+      steps.push({ step: "initialize", ok: false, detail: `${res.status} ${res.statusText}` });
+      return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+    }
+    steps.push({ step: "initialize", ok: true });
+  } catch (e) {
+    steps.push({ step: "initialize", ok: false, detail: e instanceof Error ? e.message : String(e) });
+    return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+  }
+
+  // Step 2: tools/list.
+  try {
+    const res = await post({ jsonrpc: "2.0", method: "tools/list", params: {}, id: 2 });
+    if (!res.ok) {
+      steps.push({ step: "tools/list", ok: false, detail: `${res.status}` });
+      return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+    }
+    const data = parseMcpBody(await res.text()) as {
+      result?: { tools?: unknown[] };
+    } | null;
+    toolCount = data?.result?.tools?.length ?? 0;
+    steps.push({ step: "tools/list", ok: true, detail: `${toolCount} tools` });
+  } catch (e) {
+    steps.push({ step: "tools/list", ok: false, detail: e instanceof Error ? e.message : String(e) });
+    return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+  }
+
+  // Step 3: a REAL tool call — `stats` is the cheap read every scope allows.
+  try {
+    const res = await post({
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { name: "stats", arguments: {} },
+      id: 3,
+    });
+    if (!res.ok) {
+      steps.push({ step: "tools/call", ok: false, detail: `${res.status}` });
+      return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+    }
+    steps.push({ step: "tools/call", ok: true, detail: "stats" });
+  } catch (e) {
+    steps.push({ step: "tools/call", ok: false, detail: e instanceof Error ? e.message : String(e) });
+    return { ok: false, url, steps, toolCount, elapsedMs: Date.now() - started };
+  }
+
+  return { ok: true, url, steps, toolCount, elapsedMs: Date.now() - started };
+}
+
+async function testCommand(rest: string[]): Promise<void> {
+  const { positional, flags } = parseFlags(rest);
+  const url = positional[0];
+  const token = flags["token"];
+  if (!url || !token) {
+    throw new Error("Usage: auth test <url> --token <token>");
+  }
+  console.log(`Testing MCP server at ${url}...\n`);
+  const result = await runAuthTest(url, token);
+  for (const s of result.steps) {
+    const mark = s.ok ? "ok " : "FAIL";
+    console.log(`  [${mark}] ${s.step}${s.detail ? ` — ${s.detail}` : ""}`);
+  }
+  if (!result.ok) {
+    console.error(`\nSmoke FAILED after ${(result.elapsedMs / 1000).toFixed(1)}s.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `\nBrain is live: ${result.toolCount} tools, round trip ${(result.elapsedMs / 1000).toFixed(1)}s.`,
+  );
+}
+
 export async function runAuth(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   switch (sub as AuthSub) {
@@ -335,9 +500,11 @@ export async function runAuth(args: string[]): Promise<void> {
       return revokeToken(rest[0]!);
     case "permissions":
       return setPermissions(rest[0]!, rest[1]!, rest[2]);
+    case "test":
+      return testCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token|create|list|revoke|permissions>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token|create|list|revoke|permissions|test>",
       );
       process.exitCode = 1;
   }

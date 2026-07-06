@@ -1,13 +1,25 @@
 /**
- * `memex embed [--limit N] [--dry-run]` — backfill embeddings for non-code
- * chunks that are missing a vector (see `core/embed-backfill.ts`).
+ * `memex embed [<slug>] [--slugs a,b] [--all] [--stale] [--source <id>]
+ *              [--limit N] [--dry-run]`
+ * — embedding backfill + surgical re-embed (see `core/embed-backfill.ts`).
  *
- * This is the operator remedy for a partial vector arm: `memex status` /
- * `memex doctor` (source-health) report `embed_coverage` below 100% when
- * markdown chunks lack an embedding. Run this to (re)embed them via Titan.
+ * Default (no targeting flags): backfill non-code chunks that are MISSING a
+ * vector — the operator remedy when `memex status` / `doctor` report
+ * embed_coverage below 100%.
  *
- *   --dry-run   count the missing chunks, write nothing (no Bedrock calls)
- *   --limit N   embed at most N this run (cap cost; re-run to continue)
+ * Targeting (reference parity):
+ *   <slug> / --slugs a,b  re-embed exactly these pages (drops their existing
+ *                         vectors first) — the after-an-edit / provider-hiccup
+ *                         surgical path. Slugs match the raw source_path, the
+ *                         page:// / page-truth:// mirrors, or the .md file twin.
+ *   --all                 re-embed the whole embeddable corpus (drops existing
+ *                         vectors first; combine with --source to bound it)
+ *   --stale               also re-embed rows whose embedding_signature no
+ *                         longer matches the current model/dimensions
+ *   --source <id>         restrict any of the above to one source (tenant)
+ *
+ *   --dry-run             count what would be embedded, write nothing
+ *   --limit N             embed at most N this run (cap cost; re-run resumes)
  *
  * Idempotent — a re-run only embeds what is still missing. Exits non-zero
  * only on TOTAL failure (candidates existed, none embedded), so a cron can
@@ -20,18 +32,37 @@ import { runEmbedBackfill } from "../core/embed-backfill.ts";
 export interface EmbedCmdOptions {
   limit?: number;
   dryRun?: boolean;
+  /** Re-embed exactly these slugs/paths (implies dropping their vectors). */
+  slugs?: string[];
+  /** Re-embed the whole embeddable corpus (scoped by `sourceId` when set). */
+  all?: boolean;
+  /** Also invalidate embeddings whose stored signature is stale. */
+  stale?: boolean;
+  /** Restrict to one source id. */
+  sourceId?: string;
+  /** Test seam — config file path. */
+  configPath?: string;
 }
 
 export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
-  const config = loadConfig();
+  if (opts.all && opts.slugs && opts.slugs.length > 0) {
+    console.error("memex embed: --all and <slug>/--slugs are mutually exclusive");
+    return 1;
+  }
+  const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
   // init() inside the try so a failed migration/connect still hits close().
   try {
     await storage.init();
     const engine = storage.engine();
+    const targeted = Boolean(opts.all || (opts.slugs && opts.slugs.length > 0));
     const result = await runEmbedBackfill(engine, {
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.dryRun ? { dryRun: true } : {}),
+      ...(opts.slugs && opts.slugs.length > 0 ? { slugs: opts.slugs } : {}),
+      ...(opts.sourceId ? { sourceId: opts.sourceId } : {}),
+      ...(targeted ? { forceReembed: true } : {}),
+      ...(opts.stale ? { reembedOnSignatureChange: true } : {}),
       onProgress: (done, total) =>
         console.error(`embed-backfill: ${done}/${total}`),
     });

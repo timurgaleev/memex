@@ -5,12 +5,22 @@
  * source_paths), runs each query through hybridSearch, computes
  * Recall@k and Mean Reciprocal Rank, prints a report.
  *
+ * Config-vs-config instrumentation (reference parity):
+ *   memex eval [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]
+ *              [--graph-signals] [--cosine-rescore] [--relational-arm]
+ *              [--dedup-type-ratio X] [--qrels PATH] [--k N]
+ *   memex eval --config-a '<json|path>' --config-b '<json|path>'
+ *              A/B: run both knob sets over the same qrels, print the delta.
+ *
+ * Eval queries always bypass the query cache — the metric must measure
+ * retrieval, not cache reuse.
+ *
  * No mocking — runs against the live brain so the metric reflects
  * production behaviour. That makes this command Bedrock-billable;
  * keep `qrels.json` small.
  *
- * Exit code: 0 if average recall@5 >= MIN_RECALL (default 0.6), else 1.
- * Suitable as a CI gate or a periodic dream-loop sanity check.
+ * Exit code (single-run mode): 0 if average recall@5 >= MIN_RECALL
+ * (default 0.6), else 1. Suitable as a CI gate.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -20,17 +30,17 @@ import { loadConfig } from "../core/config.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { wilsonCI, smallSampleNote, type WilsonCI } from "../core/wilson.ts";
 
-interface Qrel {
+export interface Qrel {
   id: string;
   query: string;
   expected_paths: string[];
   notes?: string;
 }
-interface Qrels {
+export interface Qrels {
   queries: Qrel[];
 }
 
-interface QueryReport {
+export interface QueryReport {
   id: string;
   query: string;
   recallAtK: number;
@@ -42,9 +52,10 @@ interface QueryReport {
   error?: string;
 }
 
-interface EvalReport {
+export interface EvalReport {
   ok: boolean;
   k: number;
+  configName: string;
   meanRecall: number;
   meanReciprocalRank: number;
   /** Fraction of queries that retrieved at least one expected path (a binomial
@@ -58,6 +69,40 @@ interface EvalReport {
   perQuery: QueryReport[];
 }
 
+/**
+ * One ranking-knob set for an eval run. Maps 1:1 onto hybridSearch per-call
+ * options; `dedupTypeRatio` is env-plane (MEMEX_MAX_TYPE_RATIO) and is
+ * wrapped around the run.
+ */
+export interface EvalKnobConfig {
+  name?: string;
+  k?: number;
+  rrfK?: number;
+  expansion?: boolean;
+  rerank?: boolean;
+  maxPool?: boolean;
+  graphSignals?: boolean;
+  cosineRescore?: boolean;
+  relationalArm?: boolean;
+  backlinkBoost?: boolean;
+  tokenBudget?: number;
+  dedupTypeRatio?: number;
+}
+
+/** Parse a knob config from inline JSON or a file path. */
+export function parseEvalConfig(pathOrJson: string): EvalKnobConfig {
+  const trimmed = pathOrJson.trimStart();
+  const raw =
+    trimmed.startsWith("{") || trimmed.startsWith("[")
+      ? pathOrJson
+      : readFileSync(pathOrJson, "utf-8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("eval config must be a JSON object");
+  }
+  return parsed as EvalKnobConfig;
+}
+
 export interface EvalOptions {
   /** Override path to the qrels file. Defaults to tests/eval/qrels.json. */
   qrelsPath?: string;
@@ -65,13 +110,36 @@ export interface EvalOptions {
   k?: number;
   /** Min average recall@k below which we exit non-zero. Default 0.6. */
   minRecall?: number;
+  /** Knob set for the (single or A-side) run. */
+  config?: EvalKnobConfig;
+  /** B-side knob set — presence turns on A/B comparison mode. */
+  configB?: EvalKnobConfig;
+  /** Test seam — replaces the live hybridSearch call; returns ranked paths. */
+  searchFn?: (
+    storage: Storage,
+    query: string,
+    cfg: EvalKnobConfig,
+    k: number,
+  ) => Promise<string[]>;
+  configPath?: string;
 }
 
-function defaultQrelsPath(): string {
+export function defaultQrelsPath(): string {
   // Resolve relative to the source file location — the harness ships in
   // the same package as the qrels and the tests dir is alongside src/.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, "../../tests/eval/qrels.json");
+}
+
+export function loadQrels(qrelsPath: string): Qrels {
+  if (!existsSync(qrelsPath)) {
+    throw new Error(`memex eval: qrels file not found at ${qrelsPath}`);
+  }
+  const qrels = JSON.parse(readFileSync(qrelsPath, "utf8")) as Qrels;
+  if (!qrels.queries || qrels.queries.length === 0) {
+    throw new Error(`memex eval: no queries in ${qrelsPath}`);
+  }
+  return qrels;
 }
 
 function recallAtK(found: string[], expected: string[]): number {
@@ -97,32 +165,52 @@ function reciprocalRank(found: string[], expected: string[]): number {
   return 0;
 }
 
-export async function runEval(opts: EvalOptions = {}): Promise<void> {
-  const qrelsPath = opts.qrelsPath ?? defaultQrelsPath();
-  const k = opts.k ?? 5;
-  const minRecall = opts.minRecall ?? 0.6;
+async function defaultSearchFn(
+  storage: Storage,
+  query: string,
+  cfg: EvalKnobConfig,
+  k: number,
+): Promise<string[]> {
+  const hits = await hybridSearch(storage, query, {
+    k,
+    noCache: true,
+    ...(cfg.rrfK !== undefined ? { rrfK: cfg.rrfK } : {}),
+    ...(cfg.expansion !== undefined ? { expansion: cfg.expansion } : {}),
+    ...(cfg.rerank !== undefined ? { rerank: cfg.rerank } : {}),
+    ...(cfg.maxPool !== undefined ? { maxPool: cfg.maxPool } : {}),
+    ...(cfg.graphSignals !== undefined ? { graphSignals: cfg.graphSignals } : {}),
+    ...(cfg.cosineRescore !== undefined ? { cosineRescore: cfg.cosineRescore } : {}),
+    ...(cfg.relationalArm !== undefined ? { relationalArm: cfg.relationalArm } : {}),
+    ...(cfg.backlinkBoost !== undefined ? { backlinkBoost: cfg.backlinkBoost } : {}),
+    ...(cfg.tokenBudget !== undefined ? { tokenBudget: cfg.tokenBudget } : {}),
+  });
+  return hits.map((h) => h.sourcePath);
+}
 
-  if (!existsSync(qrelsPath)) {
-    throw new Error(`memex eval: qrels file not found at ${qrelsPath}`);
+/**
+ * Run one knob config over the qrels set. Per-query isolation: one query
+ * throwing must not abort the run. `dedupTypeRatio` is applied by wrapping
+ * MEMEX_MAX_TYPE_RATIO for the duration (the knob is env-resolved per call).
+ */
+export async function evalRun(
+  storage: Storage,
+  qrels: Qrels,
+  cfg: EvalKnobConfig,
+  opts: { k?: number; searchFn?: EvalOptions["searchFn"] } = {},
+): Promise<EvalReport> {
+  const k = opts.k ?? cfg.k ?? 5;
+  const searchFn = opts.searchFn ?? defaultSearchFn;
+
+  const prevRatio = process.env["MEMEX_MAX_TYPE_RATIO"];
+  if (cfg.dedupTypeRatio !== undefined) {
+    process.env["MEMEX_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
   }
-  const qrels = JSON.parse(readFileSync(qrelsPath, "utf8")) as Qrels;
-  if (!qrels.queries || qrels.queries.length === 0) {
-    throw new Error(`memex eval: no queries in ${qrelsPath}`);
-  }
-
-  const config = loadConfig();
-  const storage = new Storage(config);
-  await storage.init();
-
   const perQuery: QueryReport[] = [];
   const errors: { id: string; error: string }[] = [];
   try {
     for (const q of qrels.queries) {
-      // Per-query isolation: one query throwing (a bad embed, a transient DB
-      // error) must not abort the whole run and lose every other measurement.
       try {
-        const hits = await hybridSearch(storage, q.query, { k });
-        const paths = hits.map((h) => h.sourcePath);
+        const paths = await searchFn(storage, q.query, cfg, k);
         perQuery.push({
           id: q.id,
           query: q.query,
@@ -148,13 +236,14 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
       }
     }
   } finally {
-    await storage.close();
+    if (cfg.dedupTypeRatio !== undefined) {
+      if (prevRatio === undefined) delete process.env["MEMEX_MAX_TYPE_RATIO"];
+      else process.env["MEMEX_MAX_TYPE_RATIO"] = prevRatio;
+    }
   }
 
-  const meanRecall =
-    perQuery.reduce((s, q) => s + q.recallAtK, 0) / perQuery.length;
-  const meanReciprocalRank =
-    perQuery.reduce((s, q) => s + q.mrr, 0) / perQuery.length;
+  const meanRecall = perQuery.reduce((s, q) => s + q.recallAtK, 0) / perQuery.length;
+  const meanReciprocalRank = perQuery.reduce((s, q) => s + q.mrr, 0) / perQuery.length;
   // Hit-rate: fraction of queries that retrieved at least one expected path.
   // A binomial proportion — bound it with a Wilson 95% CI so the score reads
   // as a measurement with uncertainty, not a bare number.
@@ -162,11 +251,11 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
   const hitRate = hitCount / perQuery.length;
   const wilsonCi95 = wilsonCI(hitCount, perQuery.length);
   const note = smallSampleNote(perQuery.length);
-  const ok = meanRecall >= minRecall;
 
-  const report: EvalReport = {
-    ok,
+  return {
+    ok: true,
     k,
+    configName: cfg.name ?? "default",
     meanRecall,
     meanReciprocalRank,
     hitRate,
@@ -175,6 +264,39 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
     errors,
     perQuery,
   };
-  console.log(JSON.stringify(report, null, 2));
-  if (!ok) process.exitCode = 1;
+}
+
+export async function runEval(opts: EvalOptions = {}): Promise<void> {
+  const qrels = loadQrels(opts.qrelsPath ?? defaultQrelsPath());
+  const k = opts.k ?? 5;
+  const minRecall = opts.minRecall ?? 0.6;
+  const cfgA: EvalKnobConfig = { name: "Config A", ...(opts.config ?? {}) };
+
+  const storage = new Storage(loadConfig(opts.configPath));
+  await storage.init();
+  try {
+    if (opts.configB) {
+      const cfgB: EvalKnobConfig = { name: "Config B", ...opts.configB };
+      const evalOpts = { k, ...(opts.searchFn ? { searchFn: opts.searchFn } : {}) };
+      const a = await evalRun(storage, qrels, cfgA, evalOpts);
+      const b = await evalRun(storage, qrels, cfgB, evalOpts);
+      const delta = {
+        meanRecall: b.meanRecall - a.meanRecall,
+        meanReciprocalRank: b.meanReciprocalRank - a.meanReciprocalRank,
+        hitRate: b.hitRate - a.hitRate,
+      };
+      console.log(JSON.stringify({ ok: true, mode: "ab", k, a, b, delta }, null, 2));
+      return;
+    }
+
+    const report = await evalRun(storage, qrels, cfgA, {
+      k,
+      ...(opts.searchFn ? { searchFn: opts.searchFn } : {}),
+    });
+    const ok = report.meanRecall >= minRecall;
+    console.log(JSON.stringify({ ...report, ok }, null, 2));
+    if (!ok) process.exitCode = 1;
+  } finally {
+    await storage.close();
+  }
 }
