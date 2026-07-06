@@ -10,8 +10,13 @@ import type { JobHandler } from "./types.ts";
 
 const REGISTRY = new Map<string, JobHandler>();
 
+/** Kind-name shape shared by registration and submit-side validation. */
+export function isValidKind(kind: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]*$/.test(kind);
+}
+
 export function registerHandler(kind: string, fn: JobHandler): void {
-  if (!kind || !/^[a-z0-9][a-z0-9._-]*$/.test(kind)) {
+  if (!kind || !isValidKind(kind)) {
     throw new Error(
       `registerHandler: invalid kind '${kind}' (lowercase, [a-z0-9._-])`,
     );

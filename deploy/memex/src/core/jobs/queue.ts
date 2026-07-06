@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { backoffMs } from "./backoff.ts";
 import { inQuietHours, type QuietWindow } from "./quiet-hours.ts";
-import type { EnqueueInput, JobRow, JobStatus } from "./types.ts";
+import type { EnqueueInput, JobRow, JobStatus, JobUsageDelta } from "./types.ts";
 
 interface RawJobRow {
   id: string;
@@ -32,6 +32,11 @@ interface RawJobRow {
   stall_count: number;
   max_stalled: number;
   timeout_ms: number | null;
+  progress: Record<string, unknown> | string | null;
+  tokens_input: number | string;
+  tokens_output: number | string;
+  tokens_cache_read: number | string;
+  cost_usd: number | string;
 }
 
 function toDate(v: string | Date): Date {
@@ -74,11 +79,23 @@ function rowToJob(r: RawJobRow): JobRow {
     stallCount: r.stall_count,
     maxStalled: r.max_stalled,
     timeoutMs: r.timeout_ms ?? null,
+    progress: toJson<Record<string, unknown>>(r.progress),
+    tokensInput: toNum(r.tokens_input),
+    tokensOutput: toNum(r.tokens_output),
+    tokensCacheRead: toNum(r.tokens_cache_read),
+    // NUMERIC comes back as a string from postgres-js.
+    costUsd: toNum(r.cost_usd),
   };
 }
 
+function toNum(v: number | string | null | undefined): number {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 const SELECT_COLS =
-  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms";
+  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms, progress, tokens_input, tokens_output, tokens_cache_read, cost_usd";
 
 const DEFAULT_LOCK_SECONDS = 300; // 5 min — comfortably bigger than any
                                   // realistic job duration we run today.
@@ -92,6 +109,12 @@ export interface ClaimOptions {
   quietWindow?: QuietWindow;
   /** Seconds the running claim is valid for before stall detection requeues it. */
   lockSeconds?: number;
+  /**
+   * Restrict the claim to these kinds. Lets an auxiliary worker (e.g. the
+   * jobs smoke self-test) process only its own kinds without draining the
+   * live queue. Omit for the normal any-kind claim.
+   */
+  kinds?: string[];
 }
 
 export interface HandleStalledOptions {
@@ -110,6 +133,13 @@ export interface ListOptions {
   kind?: string;
   /** Default 50, max 500. */
   limit?: number;
+}
+
+export interface PruneOptions {
+  /** Delete rows whose `updated_at` is before this. Default: 30 days ago. */
+  olderThan?: Date;
+  /** Terminal statuses to prune. Default: succeeded + failed + cancelled. */
+  statuses?: JobStatus[];
 }
 
 export interface FailOptions {
@@ -204,6 +234,12 @@ export class Queue {
     const lockUntil = new Date(now.getTime() + lockSeconds * 1000);
     const quiet = inQuietHours(now, opts.quietWindow);
     const quietClause = quiet ? "AND quiet_hours_skip = false" : "";
+    const params: unknown[] = [now, lockUntil];
+    let kindClause = "";
+    if (opts.kinds !== undefined && opts.kinds.length > 0) {
+      params.push(opts.kinds);
+      kindClause = `AND kind = ANY($${params.length}::text[])`;
+    }
     const r = await this.engine.query<RawJobRow>(
       `UPDATE jobs
           SET status = 'running',
@@ -215,12 +251,13 @@ export class Queue {
            WHERE status = 'pending'
              AND next_attempt_at <= $1
              ${quietClause}
+             ${kindClause}
            ORDER BY priority ASC, next_attempt_at ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED
         )
         RETURNING ${SELECT_COLS}`,
-      [now, lockUntil],
+      params,
     );
     return r.rows[0] ? rowToJob(r.rows[0]) : null;
   }
@@ -439,6 +476,93 @@ export class Queue {
       params,
     );
     return r.rows.map(rowToJob);
+  }
+
+  /**
+   * Replace a running job's structured progress. Status-gated on `running`
+   * (no lock token in memex's single-active-worker model): a late write after
+   * the claim is lost or the job finished is a no-op. Returns true when a row
+   * was updated.
+   */
+  async updateProgress(
+    id: string,
+    progress: Record<string, unknown>,
+  ): Promise<boolean> {
+    const r = await this.engine.query<{ id: string }>(
+      `UPDATE jobs SET progress = $2::jsonb, updated_at = NOW()
+        WHERE id = $1 AND status = 'running'
+        RETURNING id`,
+      [id, JSON.stringify(progress)],
+    );
+    return r.rows.length > 0;
+  }
+
+  /**
+   * Accumulate token/cost usage onto a running job's counters (migration 083).
+   * Deltas add; negative or non-finite inputs are clamped to 0. Running-gated
+   * like updateProgress. Returns true when a row was updated.
+   */
+  async recordUsage(id: string, usage: JobUsageDelta): Promise<boolean> {
+    const clamp = (v: number | undefined): number =>
+      v !== undefined && Number.isFinite(v) && v > 0 ? v : 0;
+    const inTok = Math.trunc(clamp(usage.tokensInput));
+    const outTok = Math.trunc(clamp(usage.tokensOutput));
+    const cacheTok = Math.trunc(clamp(usage.tokensCacheRead));
+    const cost = clamp(usage.costUsd);
+    if (inTok === 0 && outTok === 0 && cacheTok === 0 && cost === 0) {
+      return false;
+    }
+    const r = await this.engine.query<{ id: string }>(
+      `UPDATE jobs
+          SET tokens_input = tokens_input + $2,
+              tokens_output = tokens_output + $3,
+              tokens_cache_read = tokens_cache_read + $4,
+              cost_usd = cost_usd + $5,
+              updated_at = NOW()
+        WHERE id = $1 AND status = 'running'
+        RETURNING id`,
+      [id, inTok, outTok, cacheTok, cost],
+    );
+    return r.rows.length > 0;
+  }
+
+  /**
+   * Delete a single job row. Terminal statuses only — a pending/running row
+   * must be cancelled first so the worker can't complete into a void.
+   */
+  async remove(id: string): Promise<boolean> {
+    const r = await this.engine.query<{ id: string }>(
+      `DELETE FROM jobs
+        WHERE id = $1 AND status IN ('succeeded', 'failed', 'cancelled')
+        RETURNING id`,
+      [id],
+    );
+    return r.rows.length > 0;
+  }
+
+  /**
+   * Delete old terminal jobs (the table otherwise grows unbounded). Defaults:
+   * every terminal status, older than 30 days by `updated_at`. Returns the
+   * number of rows deleted.
+   */
+  async prune(opts: PruneOptions = {}): Promise<number> {
+    const statuses = opts.statuses ?? ["succeeded", "failed", "cancelled"];
+    const terminal: JobStatus[] = ["succeeded", "failed", "cancelled"];
+    for (const s of statuses) {
+      if (!terminal.includes(s)) {
+        throw new Error(`Queue.prune: '${s}' is not a terminal status`);
+      }
+    }
+    if (statuses.length === 0) return 0;
+    const olderThan =
+      opts.olderThan ?? new Date(Date.now() - 30 * 86_400_000);
+    const r = await this.engine.query<{ id: string }>(
+      `DELETE FROM jobs
+        WHERE status = ANY($1::text[]) AND updated_at < $2
+        RETURNING id`,
+      [statuses, olderThan],
+    );
+    return r.rows.length;
   }
 
   async stats(): Promise<Record<JobStatus, number>> {

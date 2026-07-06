@@ -64,6 +64,13 @@ export interface VolunteerOpts {
    * and starve new pages behind it.
    */
   excludeSlugs?: ReadonlySet<string>;
+  /**
+   * Already-surfaced context (pointer blocks / opened page bodies). A pointer
+   * whose slug appears verbatim in this text is suppressed before the gate and
+   * the cap — slug-only suppression, so a page the agent already holds never
+   * re-consumes a volunteer slot.
+   */
+  priorContext?: string;
 }
 
 /** Shared wire protocol for window turns — watch.ts imports this so the two
@@ -164,6 +171,7 @@ export async function volunteerContext(
   const out: VolunteeredPage[] = [];
   for (const p of pointers) {
     if (opts.excludeSlugs?.has(p.slug)) continue; // before gate + cap
+    if (opts.priorContext && opts.priorContext.includes(p.slug)) continue;
     const cand =
       (p.matchedNorm ? byNorm.get(p.matchedNorm) : undefined) ??
       byNorm.get(normalizeAlias(p.display));

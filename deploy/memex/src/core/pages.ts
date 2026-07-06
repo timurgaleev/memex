@@ -264,7 +264,7 @@ export async function putPage(
         [input.slug, hashNew, body, truthJson, writtenBy, sourceId],
       );
       await bumpPageGeneration(tx, input.slug);
-      await setPageAliases(tx, input.slug, aliasNorms);
+      await setPageAliases(tx, input.slug, aliasNorms, sourceId);
       return {
         slug: input.slug,
         version_n: 1,
@@ -324,7 +324,9 @@ export async function putPage(
       ],
     );
     await bumpPageGeneration(tx, input.slug);
-    await setPageAliases(tx, input.slug, aliasNorms);
+    // Re-puts keep the page's OWN source (cross-tenant overwrite is rejected
+    // above), so stamping the caller-effective sourceId is stamping the owner.
+    await setPageAliases(tx, input.slug, aliasNorms, sourceId);
     return {
       slug: input.slug,
       version_n: nextVersion,
@@ -399,13 +401,19 @@ export async function appendPage(
   });
 }
 
+export interface GetPageOptions {
+  /** Surface a soft-deleted page (deleted_at populated) instead of hiding it. */
+  includeDeleted?: boolean;
+}
+
 export async function getPage(
   storage: Storage,
   slug: string,
   sourceIds?: readonly string[],
+  opts: GetPageOptions = {},
 ): Promise<PageRow | null> {
   validateSlug(slug);
-  const row = await getPageExact(storage, slug, sourceIds);
+  const row = await getPageExact(storage, slug, sourceIds, opts);
   if (row) return row;
   // Miss — the slug may be an OLD name a rename/merge left a redirect for
   // (migration 067). Resolve one hop through the redirect registry and re-read.
@@ -414,7 +422,7 @@ export async function getPage(
   // slug (none registered / pre-067 brain) short-circuits without a re-query.
   const canonical = await resolveSlugWithAlias(storage, slug, sourceIds);
   if (canonical === slug) return null;
-  return getPageExact(storage, canonical, sourceIds);
+  return getPageExact(storage, canonical, sourceIds, opts);
 }
 
 /** Exact `pages` read by slug, tenant-scoped. No redirect resolution — the
@@ -423,6 +431,7 @@ async function getPageExact(
   storage: Storage,
   slug: string,
   sourceIds?: readonly string[],
+  opts: GetPageOptions = {},
 ): Promise<PageRow | null> {
   const params: unknown[] = [slug];
   let scope = "";
@@ -430,6 +439,7 @@ async function getPageExact(
     params.push([...sourceIds]);
     scope = ` AND source_id = ANY($${params.length}::text[])`;
   }
+  const deletedFilter = opts.includeDeleted === true ? "" : " AND deleted_at IS NULL";
   const r = await storage.engine().query<PageRow>(
     `SELECT slug, type, title, compiled_truth,
             markdown_body, content_hash, source_id,
@@ -437,16 +447,39 @@ async function getPageExact(
             updated_at::text AS updated_at,
             deleted_at::text AS deleted_at
        FROM pages
-       WHERE slug = $1 AND deleted_at IS NULL${scope}`,
+       WHERE slug = $1${deletedFilter}${scope}`,
     params,
   );
   return r.rows[0] ?? null;
 }
 
+export const LIST_PAGES_SORTS = [
+  "updated_desc",
+  "updated_asc",
+  "created_desc",
+  "slug",
+] as const;
+export type ListPagesSort = (typeof LIST_PAGES_SORTS)[number];
+
+// Whitelisted ORDER BY per sort key — the enum is validated at the boundary
+// AND mapped through this table so an unsupported string can never reach SQL.
+const PAGE_SORT_SQL: Record<ListPagesSort, string> = {
+  updated_desc: "updated_at DESC",
+  updated_asc: "updated_at ASC",
+  created_desc: "created_at DESC",
+  slug: `slug COLLATE "C" ASC`,
+};
+
 export interface ListPagesOptions {
   type?: string;
   since?: string;
   limit?: number;
+  /** Filter to pages carrying this tag (normalized: trim + lowercase). */
+  tag?: string;
+  /** Sort order. Default `updated_desc` (the historical ordering). */
+  sort?: ListPagesSort;
+  /** Include soft-deleted pages (deleted_at populated). Default false. */
+  includeDeleted?: boolean;
   /** Restrict to these owning sources. Omit/empty → unscoped (whole brain). */
   sourceIds?: readonly string[];
 }
@@ -460,7 +493,8 @@ export async function listPages(
       ? Math.floor(opts.limit)
       : 50;
   const params: unknown[] = [];
-  const where: string[] = ["deleted_at IS NULL"];
+  const where: string[] = [];
+  if (opts.includeDeleted !== true) where.push("deleted_at IS NULL");
   if (opts.type) {
     params.push(opts.type.toLowerCase());
     where.push(`type = $${params.length}`);
@@ -469,10 +503,19 @@ export async function listPages(
     params.push(opts.since);
     where.push(`updated_at >= $${params.length}::timestamptz`);
   }
+  if (opts.tag) {
+    // Same normalization as the tags CRUD boundary, so `Idea ` matches `idea`.
+    params.push(opts.tag.replace(/\s+/g, " ").trim().toLowerCase());
+    where.push(
+      `EXISTS (SELECT 1 FROM tags t WHERE t.slug = pages.slug AND t.tag = $${params.length})`,
+    );
+  }
   if (opts.sourceIds && opts.sourceIds.length > 0) {
     params.push([...opts.sourceIds]);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }
+  const order =
+    PAGE_SORT_SQL[opts.sort ?? "updated_desc"] ?? PAGE_SORT_SQL.updated_desc;
   params.push(limit);
   const sql = `
     SELECT slug, type, title, compiled_truth,
@@ -481,8 +524,8 @@ export async function listPages(
            updated_at::text AS updated_at,
            deleted_at::text AS deleted_at
       FROM pages
-      WHERE ${where.join(" AND ")}
-      ORDER BY updated_at DESC
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY ${order}
       LIMIT $${params.length}`;
   const r = await storage.engine().query<PageRow>(sql, params);
   return r.rows;

@@ -147,6 +147,13 @@ export interface FindExpertsOptions {
    * undefined and the real Titan embedder is used.
    */
   embedQuery?: (text: string) => Promise<number[]>;
+  /**
+   * Include the per-result factor breakdown (topic mode only): the raw
+   * expertise / recency / salience components behind `score`. Reference
+   * parity with find_experts' `explain` param. No cost — the factors are
+   * already computed; this just surfaces them.
+   */
+  explain?: boolean;
 }
 
 export interface ExpertRow {
@@ -160,6 +167,8 @@ export interface ExpertRow {
    * Absent in link-degree mode, where `degree` is the ranking key.
    */
   score?: number;
+  /** Factor breakdown behind `score` — present only with `explain` in topic mode. */
+  factors?: { expertise: number; recency: number; salience: number };
 }
 
 // Expertise-ranking constants (topic mode). Mirrors the locked whoknows spec:
@@ -352,13 +361,21 @@ async function findExpertsByTopic(
     const salienceFactor = 0.5 + 0.5 * salience;
 
     const score = expertise * recency * salienceFactor;
-    return {
+    const out: ExpertRow = {
       slug: row.slug,
       type: row.type,
       title: row.title,
       degree: 0,
       score: Number.isFinite(score) ? score : 0,
     };
+    if (opts.explain === true) {
+      out.factors = {
+        expertise: Number(expertise.toFixed(6)),
+        recency: Number(recency.toFixed(6)),
+        salience: Number(salienceFactor.toFixed(6)),
+      };
+    }
+    return out;
   });
 
   // 5. Rank by score DESC; tie-break on slug for a deterministic order.
@@ -472,7 +489,7 @@ export interface ProbedContradictionRow {
  */
 export async function listProbedContradictions(
   storage: Storage,
-  opts: { limit?: number; sourceIds?: string[] } = {},
+  opts: { limit?: number; sourceIds?: string[]; severity?: "low" | "medium" | "high" } = {},
 ): Promise<ProbedContradictionRow[]> {
   const limit = clampLimit(opts.limit, 20, 200);
   const params: unknown[] = [];
@@ -481,6 +498,10 @@ export async function listProbedContradictions(
   if (sources) {
     params.push(sources);
     sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
+  if (opts.severity === "low" || opts.severity === "medium" || opts.severity === "high") {
+    params.push(opts.severity);
+    sourceFilter += ` AND severity = $${params.length}`;
   }
   params.push(limit);
   try {

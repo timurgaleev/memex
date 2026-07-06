@@ -6,8 +6,12 @@ export type {
   JobStatus,
   JobHandler,
   EnqueueInput,
+  JobUsageDelta,
 } from "./types.ts";
 export { Queue } from "./queue.ts";
+export type { PruneOptions } from "./queue.ts";
+export { submitJob, getJobProgress, runJobsSmoke } from "./lifecycle.ts";
+export type { JobProgress, JobsSmokeResult, JobsSmokeOptions } from "./lifecycle.ts";
 export { Worker } from "./worker.ts";
 export type { WorkerOptions, WorkerStats } from "./worker.ts";
 export {

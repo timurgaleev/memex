@@ -60,6 +60,11 @@ export interface WorkerOptions {
   workerLockId?: string;
   /** Seconds before a missed heartbeat lets another worker steal. Default 60. */
   workerLockTtlSeconds?: number;
+  /**
+   * Only claim jobs of these kinds. Lets an auxiliary worker (e.g. the jobs
+   * smoke self-test) coexist with the live worker without draining its queue.
+   */
+  kinds?: string[];
 }
 
 export interface WorkerStats {
@@ -148,16 +153,23 @@ export class Worker {
   async drainOnce(): Promise<number> {
     let processed = 0;
     while (!this.stopping) {
-      const claimOpts: Parameters<typeof this.queue.claim>[0] = {};
-      if (this.opts.lockSeconds !== undefined) {
-        claimOpts.lockSeconds = this.opts.lockSeconds;
-      }
-      const job = await this.queue.claim(claimOpts);
+      const job = await this.queue.claim(this.claimOpts());
       if (!job) break;
       await this.runJob(job);
       processed++;
     }
     return processed;
+  }
+
+  private claimOpts(): Parameters<Queue["claim"]>[0] {
+    const claimOpts: Parameters<Queue["claim"]>[0] = {};
+    if (this.opts.lockSeconds !== undefined) {
+      claimOpts.lockSeconds = this.opts.lockSeconds;
+    }
+    if (this.opts.kinds !== undefined) {
+      claimOpts.kinds = this.opts.kinds;
+    }
+    return claimOpts;
   }
 
   /** Run one stall sweep. Public so tests can advance it deterministically. */
@@ -227,11 +239,7 @@ export class Worker {
         }
       }
       while (this.inflight < concurrency) {
-        const claimOpts: Parameters<typeof this.queue.claim>[0] = {};
-        if (this.opts.lockSeconds !== undefined) {
-          claimOpts.lockSeconds = this.opts.lockSeconds;
-        }
-        const job = await this.queue.claim(claimOpts);
+        const job = await this.queue.claim(this.claimOpts());
         if (!job) break;
         this.inflight++;
         // Fire-and-forget; runJob updates inflight on completion. runJob never
@@ -302,14 +310,23 @@ export class Worker {
         }
       }
     }
+    // Handler context: progress + token/cost usage persist onto the job row
+    // while it runs (running-gated, so a lost claim makes them no-ops).
+    const ctx = {
+      job,
+      updateProgress: (progress: Record<string, unknown>) =>
+        this.queue.updateProgress(job.id, progress),
+      recordUsage: (usage: Parameters<Queue["recordUsage"]>[1]) =>
+        this.queue.recordUsage(job.id, usage),
+    };
     // The whole body is guarded: a persistence failure (complete/fail) must
     // never crash the worker tick or escape as an unhandledRejection.
     try {
       try {
         const result =
           timeoutMs > 0
-            ? await runWithTimeout(() => handler(job.payload, { job }), timeoutMs)
-            : await handler(job.payload, { job });
+            ? await runWithTimeout(() => handler(job.payload, ctx), timeoutMs)
+            : await handler(job.payload, ctx);
         await this.queue.complete(
           job.id,
           result === undefined ? {} : (result as Record<string, unknown>),

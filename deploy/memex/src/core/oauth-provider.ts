@@ -201,6 +201,9 @@ export interface AuthInfo {
   resource?: URL;
   sourceId?: string;
   allowedSources?: string[];
+  /** Takes-holder allow-list from a legacy PAT's `permissions.takes_holders`
+   *  (mig 072). Undefined for OAuth clients, which carry no such knob. */
+  takesHolders?: string[];
 }
 
 export interface TokenRevocationRequest {
@@ -679,6 +682,15 @@ export class OAuthProvider {
           ? (permissions as Record<string, unknown>).source_id
           : undefined;
       const { sourceId, allowedSources } = parseLegacyTokenScope(sourceGrant);
+      // The mig-072 takes-holder knob: enforce what the token actually stores.
+      // Absent/malformed → no holder scope (holder reads stay unscoped).
+      const holdersRaw =
+        permissions && typeof permissions === "object"
+          ? (permissions as Record<string, unknown>).takes_holders
+          : undefined;
+      const takesHolders = Array.isArray(holdersRaw)
+        ? holdersRaw.filter((s): s is string => typeof s === "string" && s.length > 0)
+        : undefined;
       return {
         token,
         clientId: name,
@@ -689,6 +701,7 @@ export class OAuthProvider {
         expiresAt: Math.floor(Date.now() / 1000) + 365 * 24 * 3600,
         sourceId,
         allowedSources,
+        ...(takesHolders && takesHolders.length > 0 ? { takesHolders } : {}),
       };
     }
 
