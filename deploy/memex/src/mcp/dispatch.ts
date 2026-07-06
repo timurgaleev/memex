@@ -625,7 +625,10 @@ async function callSearch(
     );
   }
   const kArg = args["k"];
-  let k = 5;
+  // Default 20 to match the reference's hybrid-search return width — a client
+  // that passes no `k` gets the same recall as the reference (autocut/adaptive
+  // return still trims the confident cluster when the reranker runs).
+  let k = 20;
   if (kArg !== undefined) {
     if (!Number.isInteger(kArg) || (kArg as number) < 1 || (kArg as number) > 100) {
       throw new OperationError(

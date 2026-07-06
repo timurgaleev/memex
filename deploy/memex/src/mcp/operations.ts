@@ -186,7 +186,7 @@ export const OPERATIONS: readonly Operation[] = [
       "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache.",
     params: {
       q: str({ ...req, description: "Natural-language query." }),
-      k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 5." }),
+      k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 20." }),
       token_budget: int({
         minimum: 1,
         maximum: 200000,
