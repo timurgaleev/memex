@@ -17,12 +17,15 @@
  */
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
+import { Storage } from "../storage.ts";
+import { hybridSearch } from "../search/hybrid.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
 import { embedText } from "../embedding.ts";
+import { resolveTake } from "./takes-canon.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
 export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
@@ -90,6 +93,21 @@ export function gradeMinAgeDays(
   }
   return n;
 }
+
+/** Auto-resolve gate: when ON, a high-confidence judge verdict is APPLIED to
+ *  the take's resolution tuple (resolved_by='memex:grade_takes') instead of
+ *  staying advisory. Default OFF — calibration measures the human unless the
+ *  operator explicitly delegates resolution to the judge. */
+export function takeAutoResolveEnabled(): boolean {
+  return process.env.MEMEX_TAKE_AUTO_RESOLVE === "1";
+}
+
+/** Single-model verdicts auto-apply only at/above this confidence
+ *  (conservative by design). */
+const DEFAULT_AUTO_RESOLVE_THRESHOLD = 0.95;
+/** Ensemble verdicts auto-apply only when UNANIMOUS and at/above this
+ *  confidence — agreement substitutes for part of the confidence bar. */
+const DEFAULT_ENSEMBLE_APPLY_THRESHOLD = 0.85;
 
 /** Opt-in claim embedding at propose time (feeds `think`'s take VECTOR stream).
  *  Default-OFF: an un-embedded take still recalls via the keyword stream, so the
@@ -207,7 +225,11 @@ export function parseTakesResponse(raw: string): ParsedTake[] {
   return out;
 }
 
-async function discoverTakeDocuments(engine: Engine, maxDocs: number): Promise<SourceDoc[]> {
+async function discoverTakeDocuments(
+  engine: Engine,
+  maxDocs: number,
+  promptVersion: string,
+): Promise<SourceDoc[]> {
   const { rows } = await engine.query<{ id: string; text: string }>(
     `SELECT d.id,
             string_agg(c.content, E'\n\n' ORDER BY c.chunk_index) AS text
@@ -226,17 +248,38 @@ async function discoverTakeDocuments(engine: Engine, maxDocs: number): Promise<S
   if (candidates.length === 0) return [];
 
   // Pair via unnest (tuple match, not the cross-product of two ANY() arrays).
+  // The idempotency key includes prompt_version (reference parity): a prompt
+  // bump re-scans every doc; the same prompt over unchanged content skips.
   const refs = candidates.map((c) => c.id);
   const hashes = candidates.map((c) => c.contentHash16);
   const { rows: existing } = await engine.query<{ source_ref: string; source_hash: string }>(
     `SELECT DISTINCT t.source_ref, t.source_hash
        FROM synth_takes t
        JOIN unnest($1::text[], $2::text[]) AS w(source_ref, source_hash)
-         ON t.source_ref = w.source_ref AND t.source_hash = w.source_hash`,
-    [refs, hashes],
+         ON t.source_ref = w.source_ref AND t.source_hash = w.source_hash
+      WHERE t.prompt_version = $3`,
+    [refs, hashes, promptVersion],
   );
   const done = new Set(existing.map((e) => `${e.source_ref} ${e.source_hash}`));
   return candidates.filter((c) => !done.has(`${c.id} ${c.contentHash16}`)).slice(0, maxDocs);
+}
+
+/** Claims already extracted from this document (any hash / prompt version),
+ *  fed back to the extractor as already-captured so it never re-proposes the
+ *  same take after a content edit or prompt bump (reference F2 dedup). */
+async function existingClaimsForDoc(engine: Engine, sourceRef: string): Promise<string[]> {
+  try {
+    const { rows } = await engine.query<{ claim_text: string }>(
+      `SELECT DISTINCT claim_text FROM synth_takes
+        WHERE source_ref = $1
+        ORDER BY claim_text ASC
+        LIMIT 50`,
+      [sourceRef],
+    );
+    return rows.map((r) => r.claim_text);
+  } catch {
+    return [];
+  }
 }
 
 export async function proposeTakesPhase(
@@ -260,16 +303,25 @@ export async function proposeTakesPhase(
     errors: [],
   };
 
-  const docs = await discoverTakeDocuments(engine, maxDocs);
+  const docs = await discoverTakeDocuments(engine, maxDocs, promptVersion);
   result.documentsScanned = docs.length;
 
   for (const doc of docs) {
     let text: string;
     let modelId: string;
+    // Already-captured claims for this doc dedup the extractor's output at the
+    // prompt layer — a re-proposal of a known claim is instructed away.
+    const existingClaims = await existingClaimsForDoc(engine, doc.id);
+    const capturedBlock =
+      existingClaims.length > 0
+        ? `\n\nALREADY CAPTURED (do NOT re-propose these claims or trivial rephrasings):\n${existingClaims
+            .map((c) => `- ${sanitizeForPrompt(c).text}`)
+            .join("\n")}`
+        : "";
     try {
       const resp = await llm({
         system: PROPOSE_SYSTEM_PROMPT,
-        user: `Source: ${doc.id}\n\n---\n\n${doc.text.slice(0, MAX_DOC_CHARS_TO_LLM)}`,
+        user: `Source: ${doc.id}\n\n---\n\n${doc.text.slice(0, MAX_DOC_CHARS_TO_LLM)}${capturedBlock}`,
         maxTokens: 1200,
       });
       text = resp.text;
@@ -323,8 +375,15 @@ export interface GradeTakesOptions {
    * months (`MEMEX_GRADE_MIN_AGE_DAYS`, then 182). `0` disables the gate.
    */
   minAgeDays?: number;
-  /** Inject evidence retrieval (tests). Default: hybrid-search over the corpus. */
-  evidenceFn?: (claim: string, sourceId?: string) => Promise<string>;
+  /**
+   * Inject evidence retrieval (tests). Default: hybrid search over the corpus,
+   * restricted to the take's tenant AND to pages newer than the take (`since` =
+   * the take's generated_at date), keyword-scan fallback on error.
+   */
+  evidenceFn?: (claim: string, sourceId?: string, since?: string) => Promise<string>;
+  /** Test seam forwarded to the default hybrid evidence retriever's query
+   *  embedder (keeps tests off Bedrock). Production leaves unset. */
+  evidenceEmbedQuery?: (text: string) => Promise<number[]>;
   /**
    * Opt-in multi-judge Sonnet ensemble (default from MEMEX_TAKE_ENSEMBLE). When
    * on, each take is graded by N Sonnet judges (temperature-diversified) and the
@@ -338,6 +397,18 @@ export interface GradeTakesOptions {
   budget?: BudgetTracker;
   /** Judges per take (default from MEMEX_TAKE_ENSEMBLE_JUDGES, then 3). */
   judges?: number;
+  /**
+   * Gated auto-resolve (default from MEMEX_TAKE_AUTO_RESOLVE, OFF): apply a
+   * high-confidence verdict to the take's resolution tuple. Never overwrites
+   * an existing (human) resolution; 'unresolvable' never applies.
+   */
+  autoResolve?: boolean;
+  /** Single-model confidence bar for auto-apply (default 0.95). */
+  autoResolveThreshold?: number;
+  /** Ensemble bar: unanimous verdict at/above this confidence (default 0.85). */
+  ensembleApplyThreshold?: number;
+  /** resolved_by stamp for auto-applied resolutions. */
+  autoResolveLabel?: string;
 }
 
 export interface EnsembleGrade {
@@ -346,6 +417,8 @@ export interface EnsembleGrade {
   reasoning: string;
   /** How many judges actually returned a parseable verdict. */
   judgeCount: number;
+  /** True when every parseable vote agreed on the winning verdict. */
+  unanimous: boolean;
 }
 
 export interface EnsembleResult {
@@ -453,8 +526,10 @@ export async function gradeTakeEnsemble(
     if (overCap) break; // this call already tipped the ceiling — stop.
   }
   const agg = aggregateVerdicts(votes);
+  const unanimous =
+    agg !== null && votes.every((v) => v.verdict === agg.verdict);
   return {
-    grade: agg ? { ...agg, judgeCount: votes.length } : null,
+    grade: agg ? { ...agg, judgeCount: votes.length, unanimous } : null,
     callsMade,
     budgetHit,
     graderModel,
@@ -465,6 +540,8 @@ export interface GradeTakesResult {
   takesScanned: number;
   gradesWritten: number;
   cacheHits: number;
+  /** Verdicts applied to the take's resolution tuple by gated auto-resolve. */
+  autoApplied: number;
   errors: string[];
 }
 
@@ -522,12 +599,45 @@ export function parseVerdictResponse(raw: string): ParsedVerdict | null {
 }
 
 /**
- * Default evidence retriever — pulls the top corpus chunks matching the claim
- * via a keyword scan (deterministic, no LLM, no Bedrock). Production callers can
- * inject a richer hybrid retriever; the default keeps grade_takes self-contained
- * and offline-testable. Fail-soft: returns a claim-only stub on query error.
+ * Hybrid evidence retriever — full hybrid search over the corpus for chunks
+ * matching the claim, restricted to the take's own tenant and (crucially) to
+ * pages whose content date is NEWER than the take: a forecast can only be
+ * graded against the world AFTER it was made (reference parity — hybrid search
+ * over pages newer than the take's since_date). Bypasses the query cache
+ * (grade queries are one-off) and throws on failure so the caller can fall
+ * back to the keyword scan.
  */
-async function defaultEvidence(
+export async function hybridEvidence(
+  storage: Storage,
+  claim: string,
+  opts: {
+    sourceId?: string;
+    /** ISO date — only evidence with content date >= this participates. */
+    since?: string;
+    /** Test seam — deterministic query embedder (no Bedrock). */
+    embedQuery?: (text: string) => Promise<number[]>;
+  } = {},
+): Promise<string> {
+  const hits = await hybridSearch(storage, claim.slice(0, 300), {
+    k: 5,
+    noCache: true,
+    ...(opts.sourceId ? { sourceIds: [opts.sourceId] } : {}),
+    ...(opts.since ? { since: opts.since } : {}),
+    ...(opts.embedQuery ? { embedQuery: opts.embedQuery } : {}),
+  });
+  if (hits.length === 0) return `No corpus evidence found for claim: ${claim}`;
+  return hits
+    .map((h, i) => `[${i + 1}] (${h.sourcePath}) ${h.content.slice(0, 800)}`)
+    .join("\n\n");
+}
+
+/**
+ * Keyword fallback — the pre-073 deterministic scan (no LLM, no Bedrock).
+ * Kept as the fail-soft floor under the hybrid retriever: hybrid needs the
+ * full search stack; a brain where that path errors still grades against
+ * SOMETHING rather than nothing. Fail-soft: returns a claim-only stub on error.
+ */
+async function keywordEvidence(
   engine: Engine,
   claim: string,
   sourceId?: string,
@@ -559,6 +669,26 @@ async function defaultEvidence(
   }
 }
 
+/** Default retriever: hybrid (tenant-scoped, newer-than-the-take) with the
+ *  keyword scan as the error floor. */
+async function defaultEvidence(
+  engine: Engine,
+  claim: string,
+  sourceId?: string,
+  since?: string,
+  embedQuery?: (text: string) => Promise<number[]>,
+): Promise<string> {
+  try {
+    return await hybridEvidence(new Storage(engine), claim, {
+      ...(sourceId ? { sourceId } : {}),
+      ...(since ? { since } : {}),
+      ...(embedQuery ? { embedQuery } : {}),
+    });
+  } catch {
+    return keywordEvidence(engine, claim, sourceId);
+  }
+}
+
 export async function gradeTakesPhase(
   engine: Engine,
   opts: GradeTakesOptions = {},
@@ -572,17 +702,24 @@ export async function gradeTakesPhase(
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
   const evidenceFn =
     opts.evidenceFn ??
-    ((claim: string, sourceId?: string) => defaultEvidence(engine, claim, sourceId));
+    ((claim: string, sourceId?: string, since?: string) =>
+      defaultEvidence(engine, claim, sourceId, since, opts.evidenceEmbedQuery));
   // Ensemble path (paid Sonnet): one shared budget + injectable model seam.
   const sonnetFn = useEnsemble ? resolveSonnetFn(opts.sonnetFn) : null;
   const budget = useEnsemble
     ? opts.budget ?? new BudgetTracker(ensembleBudgetUsd(), "take-ensemble")
     : null;
   const judges = opts.judges ?? ensembleJudgeCount();
+  // Gated auto-resolve (reference D17: default OFF; D12: conservative bar).
+  const autoResolve = opts.autoResolve ?? takeAutoResolveEnabled();
+  const autoResolveThreshold = opts.autoResolveThreshold ?? DEFAULT_AUTO_RESOLVE_THRESHOLD;
+  const ensembleApplyThreshold = opts.ensembleApplyThreshold ?? DEFAULT_ENSEMBLE_APPLY_THRESHOLD;
+  const autoResolveLabel = opts.autoResolveLabel ?? "memex:grade_takes";
   const result: GradeTakesResult = {
     takesScanned: 0,
     gradesWritten: 0,
     cacheHits: 0,
+    autoApplied: 0,
     errors: [],
   };
 
@@ -594,15 +731,24 @@ export async function gradeTakesPhase(
   // operator-terminal and excluded.
   const { rows: takes } = await engine.query<{
     id: number;
+    take_key: string;
     claim_text: string;
     source_id: string | null;
+    generated_at: string | Date;
   }>(
     // The take's own source (via source_ref -> documents) scopes its evidence, so
-    // a take is never graded against another tenant's chunks.
-    `SELECT t.id, t.claim_text, d.source_id
+    // a take is never graded against another tenant's chunks. generated_at feeds
+    // the evidence retriever's newer-than-the-take date restriction.
+    // Pool (reference parity: unresolved ACTIVE takes): 'accepted' joins the
+    // eligible statuses because operator-authored fence rows enter as
+    // 'accepted' and are exactly the takes calibration wants judged; only
+    // 'rejected' stays out. A resolved or superseded take is never re-graded.
+    `SELECT t.id, t.take_key, t.claim_text, d.source_id, t.generated_at
        FROM synth_takes t
        LEFT JOIN documents d ON d.id = t.source_ref
-      WHERE t.status IN ('queued', 'graded')
+      WHERE t.status IN ('queued', 'graded', 'accepted')
+        AND t.active
+        AND t.resolved_at IS NULL
         AND t.generated_at <= now() - ($2 * interval '1 day')
         AND NOT EXISTS (
           SELECT 1 FROM synth_take_grades g
@@ -616,8 +762,14 @@ export async function gradeTakesPhase(
   for (const take of takes) {
     result.takesScanned += 1;
     let evidence: string;
+    // Evidence must postdate the take: pass the take's creation date so the
+    // retriever only surfaces pages written after the claim was made.
+    const sinceIso = (() => {
+      const d = new Date(take.generated_at);
+      return Number.isNaN(d.getTime()) ? undefined : d.toISOString().slice(0, 10);
+    })();
     try {
-      evidence = await evidenceFn(take.claim_text, take.source_id ?? undefined);
+      evidence = await evidenceFn(take.claim_text, take.source_id ?? undefined, sinceIso);
     } catch (e) {
       result.errors.push(`take ${take.id} evidence: ${e instanceof Error ? e.message : String(e)}`);
       continue;
@@ -628,6 +780,8 @@ export async function gradeTakesPhase(
     let graderModel: string | null = null;
     let judgeCount: number | null = null;
     let ensembleBudgetHit = false;
+    let ensembleUnanimous = false;
+    let usedEnsemble = false;
     try {
       if (sonnetFn && budget) {
         const ens = await gradeTakeEnsemble(take.claim_text, evidence, {
@@ -645,6 +799,8 @@ export async function gradeTakesPhase(
         modelId = ens.graderModel;
         judgeCount = ens.grade?.judgeCount ?? 0;
         graderModel = `ensemble:${judgeCount}`;
+        ensembleUnanimous = ens.grade?.unanimous ?? false;
+        usedEnsemble = true;
         // Judges ran but none parsed → verdict stays null so the unresolvable
         // fallback below writes a row (a real spend must not vanish silently).
         verdict = ens.grade
@@ -692,6 +848,36 @@ export async function gradeTakesPhase(
         `UPDATE synth_takes SET status = 'graded' WHERE id = $1 AND status = 'queued'`,
         [take.id],
       );
+      // Gated auto-resolve: apply the verdict to the take's resolution tuple.
+      // Eligibility (reference parity): the gate is ON, a NEW grade row was
+      // written, the verdict is decisive ('unresolvable' never applies), and
+      // it clears the bar — single-model needs confidence >= 0.95; an
+      // ensemble needs unanimity AND confidence >= 0.85. onlyIfUnresolved
+      // guarantees a human resolution is never overwritten.
+      if (autoResolve && written.length > 0 && v.verdict !== "unresolvable") {
+        const eligible = usedEnsemble
+          ? ensembleUnanimous && v.confidence >= ensembleApplyThreshold
+          : v.confidence >= autoResolveThreshold;
+        if (eligible) {
+          try {
+            const applied = await resolveTake(
+              engine,
+              take.take_key,
+              {
+                quality: v.verdict,
+                resolvedBy: autoResolveLabel,
+                source: `grade_takes:${promptVersion}`,
+              },
+              { onlyIfUnresolved: true },
+            );
+            if (applied.resolved) result.autoApplied += 1;
+          } catch (e) {
+            result.errors.push(
+              `take ${take.id} auto-resolve: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
+      }
     } catch (e) {
       result.errors.push(`take ${take.id} grade write: ${e instanceof Error ? e.message : String(e)}`);
     }

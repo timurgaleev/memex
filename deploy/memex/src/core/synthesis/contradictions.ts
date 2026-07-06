@@ -12,11 +12,15 @@
  * Safety: opt-in (`MEMEX_PROBE_CONTRADICTIONS=1`); paired candidates are
  * date-pre-filtered (a lookback window) and hard-capped (`maxPairs`) BEFORE any
  * LLM call; budget-capped (BudgetTracker with a pre-call wouldExceed gate);
- * cached (a pair already judged under this prompt_version is skipped — no
- * re-spend); fail-open (a per-pair judge/parse error is collected + skipped).
- * Sonnet injected via `sonnetFn`; NO live Bedrock in tests.
+ * cached BOTH ways (positives via synth_contradictions.pair_key, every verdict
+ * — negative included — via the TTL'd synth_contradiction_verdicts cache, so a
+ * negative pair is not re-spent until its verdict expires); fail-open (a
+ * per-pair judge/parse error is collected + skipped). Each run appends one
+ * trend row (Wilson 95% CI over the contradiction rate + cost) to
+ * synth_contradiction_runs. Sonnet injected via `sonnetFn`; NO live Bedrock in
+ * tests.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
@@ -30,14 +34,24 @@ const DEFAULT_BUDGET_USD = 1.0;
 const SEVERITIES = ["low", "medium", "high"] as const;
 type Severity = (typeof SEVERITIES)[number];
 
-/** A candidate pair of claims about the same entity. */
+/** What kind of row each side of a pair points at. */
+export type PairSideKind = "fact" | "take" | "page";
+
+/** A candidate pair of claims that plausibly conflict. */
 export interface CandidatePair {
   a_ref: string;
   a_text: string;
   b_ref: string;
   b_text: string;
   source_id: string | null;
+  /** Side kinds — default 'fact' (the pre-073 fact/fact pair shape). */
+  a_kind?: PairSideKind;
+  b_kind?: PairSideKind;
 }
+
+/** Typed resolution proposals — advisory; the probe never auto-applies. */
+export const RESOLUTION_KINDS = ["supersede", "debate", "synthesize", "manual"] as const;
+export type ResolutionKind = (typeof RESOLUTION_KINDS)[number];
 
 export interface ProbeContradictionsOptions {
   /** Injected Sonnet seam (tests). Default: the real Bedrock callSonnet. */
@@ -62,21 +76,28 @@ export interface ProbeContradictionsResult {
   budgetExhausted: boolean;
   /** Set when the phase was a clean no-op (default-OFF) rather than a failure. */
   skippedReason?: string;
+  /** The trend row id written for this run (absent when the phase no-op'd). */
+  runId?: string;
   errors: string[];
 }
 
-const JUDGE_SYSTEM_PROMPT = `You compare two claims (A and B) recorded about the
-SAME entity in a personal knowledge brain and decide whether they CONTRADICT —
-i.e. they cannot both be true of the same subject at the same time. A later
-claim that simply SUPERSEDES an earlier one (a value that changed over time) is
-NOT a contradiction unless both are asserted as currently true.
+const JUDGE_SYSTEM_PROMPT = `You compare two claims (A and B) recorded in a
+personal knowledge brain and decide whether they CONTRADICT — i.e. they cannot
+both be true of the same subject at the same time. A later claim that simply
+SUPERSEDES an earlier one (a value that changed over time) is NOT a
+contradiction unless both are asserted as currently true.
 
 Output ONLY one JSON object:
   {"contradicts": (true|false),
    "severity": ("low"|"medium"|"high"),
    "axis": (<=40 chars naming what they disagree on, e.g. "timing","value","stance"),
    "confidence": (0..1),
+   "resolution_kind": ("supersede"|"debate"|"synthesize"|"manual"),
    "resolution_command": (<=120 chars; a short suggestion, or "")}
+
+resolution_kind: "supersede" when one side is clearly outdated by the other,
+"debate" when both are defensible positions worth keeping, "synthesize" when
+they should be merged into one reconciled statement, "manual" otherwise.
 
 If they are compatible or merely a time-ordered update, return contradicts=false.`;
 
@@ -97,6 +118,8 @@ export interface ParsedJudgment {
   severity: Severity;
   axis: string;
   confidence: number;
+  /** The judge's typed-resolution hint; "" when it emitted none / an invalid one. */
+  resolution_kind: ResolutionKind | "";
   resolution_command: string;
 }
 
@@ -128,26 +151,106 @@ export function parseJudgment(raw: string): ParsedJudgment | null {
   const cRaw = typeof o.confidence === "number" ? o.confidence : Number.parseFloat(String(o.confidence ?? ""));
   const confidence = Number.isFinite(cRaw) ? Math.max(0, Math.min(1, cRaw)) : 0;
   const axis = typeof o.axis === "string" ? o.axis.slice(0, 40) : "";
+  const resolution_kind: ResolutionKind | "" = (RESOLUTION_KINDS as readonly string[]).includes(
+    String(o.resolution_kind),
+  )
+    ? (o.resolution_kind as ResolutionKind)
+    : "";
   const resolution_command = typeof o.resolution_command === "string" ? o.resolution_command.slice(0, 120) : "";
-  return { contradicts: o.contradicts, severity, axis, confidence, resolution_command };
+  return { contradicts: o.contradicts, severity, axis, confidence, resolution_kind, resolution_command };
 }
 
 /**
- * Default candidate generator — pairs of DISTINCT facts sharing an entity_slug,
- * both written within the lookback window. Same-entity facts are the natural
- * conflict locus (two claims about one subject). Bounded by maxPairs at the SQL
- * layer so we never materialize the full O(n^2) product. Fail-soft to [].
+ * Deterministic typed-resolution classifier (adapted from the reference's
+ * auto-supersession rules). The judge's hint wins when present — it has
+ * semantic context this structural pass doesn't; otherwise the pair shape
+ * decides: a take against a fact is the supersession locus, two takes are a
+ * debate, two facts about one entity want a synthesized reconciliation.
+ */
+export function classifyResolution(
+  pair: Pick<CandidatePair, "a_kind" | "b_kind">,
+  judgeHint: ResolutionKind | "",
+): ResolutionKind {
+  if (judgeHint) return judgeHint;
+  const a = pair.a_kind ?? "fact";
+  const b = pair.b_kind ?? "fact";
+  if (a === "take" && b === "take") return "debate";
+  if (a === "take" || b === "take") return "supersede";
+  if (a === "fact" && b === "fact") return "synthesize";
+  return "manual";
+}
+
+/** Paste-ready advisory command for the chosen resolution. Never auto-run. */
+export function renderResolutionCommand(pair: CandidatePair, kind: ResolutionKind): string {
+  const a = pair.a_kind ?? "fact";
+  const b = pair.b_kind ?? "fact";
+  switch (kind) {
+    case "supersede": {
+      // Prefer rejecting the take side (a fact is corpus-grounded; the take is
+      // the opinion that aged out).
+      const takeRef = a === "take" ? pair.a_ref : b === "take" ? pair.b_ref : pair.a_ref;
+      return `set_take_status take_key=${takeRef} status=rejected  # superseded`;
+    }
+    case "debate":
+      return `# debate: keep both ${pair.a_ref} and ${pair.b_ref}; regrade after new evidence`;
+    case "synthesize":
+      return `# synthesize: reconcile ${a} ${pair.a_ref} with ${b} ${pair.b_ref} into one statement`;
+    case "manual":
+    default:
+      return `# manual review: ${pair.a_ref} vs ${pair.b_ref}`;
+  }
+}
+
+/**
+ * Wilson 95% score interval over a contradiction rate: `found` positives in
+ * `judged` trials. Returns [0, 0]..[l, u] clamped to [0, 1]; zero trials yields
+ * the maximally-uninformative [0, 1].
+ */
+export function wilsonInterval(
+  found: number,
+  judged: number,
+  z = 1.96,
+): { lower: number; upper: number } {
+  if (judged <= 0) return { lower: 0, upper: 1 };
+  const p = found / judged;
+  const z2 = z * z;
+  const denom = 1 + z2 / judged;
+  const center = p + z2 / (2 * judged);
+  const margin = z * Math.sqrt((p * (1 - p) + z2 / (4 * judged)) / judged);
+  return {
+    lower: Math.max(0, (center - margin) / denom),
+    upper: Math.min(1, (center + margin) / denom),
+  };
+}
+
+/**
+ * Default candidate generator — three deterministic streams, concatenated and
+ * capped at maxPairs (facts first: the same-entity locus has the best prior):
+ *
+ *   1. fact/fact  — DISTINCT facts sharing an entity_slug (pre-073 behaviour).
+ *   2. take/take  — two takes in the SAME domain from DIFFERENT source docs
+ *                   (the cross-slug opinion-collision case).
+ *   3. take/fact  — a take whose claim mentions a fact's entity name (the
+ *                   opinion-vs-record case the reference probes as
+ *                   intra_page_chunk_take).
+ *
+ * All streams are same-tenant only and lookback-bounded at the SQL layer so we
+ * never materialize an O(n^2) product. Fail-soft to [] per stream.
  */
 async function defaultPairs(
   engine: Engine,
   maxPairs: number,
   lookbackDays: number,
 ): Promise<CandidatePair[]> {
+  const out: CandidatePair[] = [];
+
+  // Stream 1 — same-entity fact pairs.
   try {
     const { rows } = await engine.query<CandidatePair>(
       `SELECT f1.id::text AS a_ref, f1.fact AS a_text,
               f2.id::text AS b_ref, f2.fact AS b_text,
-              f1.source_id AS source_id
+              f1.source_id AS source_id,
+              'fact' AS a_kind, 'fact' AS b_kind
          FROM entity_facts f1
          JOIN entity_facts f2
            ON f2.entity_slug = f1.entity_slug
@@ -163,10 +266,68 @@ async function defaultPairs(
         LIMIT $2`,
       [lookbackDays, maxPairs],
     );
-    return rows;
+    out.push(...rows);
   } catch {
-    return [];
+    /* stream fail-soft */
   }
+  if (out.length >= maxPairs) return out.slice(0, maxPairs);
+
+  // Stream 2 — cross-slug take pairs in the same domain, same tenant.
+  try {
+    const { rows } = await engine.query<CandidatePair>(
+      `SELECT t1.take_key AS a_ref, t1.claim_text AS a_text,
+              t2.take_key AS b_ref, t2.claim_text AS b_text,
+              d1.source_id AS source_id,
+              'take' AS a_kind, 'take' AS b_kind
+         FROM synth_takes t1
+         JOIN synth_takes t2
+           ON t2.domain = t1.domain
+          AND t2.id > t1.id
+          AND t2.source_ref <> t1.source_ref
+          AND t2.claim_text <> t1.claim_text
+         LEFT JOIN documents d1 ON d1.id = t1.source_ref
+         LEFT JOIN documents d2 ON d2.id = t2.source_ref
+        WHERE t1.domain IS NOT NULL
+          AND d2.source_id IS NOT DISTINCT FROM d1.source_id
+          AND t1.generated_at >= now() - ($1 * interval '1 day')
+          AND t2.generated_at >= now() - ($1 * interval '1 day')
+        ORDER BY t1.domain ASC, t1.id ASC, t2.id ASC
+        LIMIT $2`,
+      [lookbackDays, maxPairs - out.length],
+    );
+    out.push(...rows);
+  } catch {
+    /* stream fail-soft (pre-045 brain / no takes) */
+  }
+  if (out.length >= maxPairs) return out.slice(0, maxPairs);
+
+  // Stream 3 — take vs fact where the claim names the fact's entity.
+  try {
+    const { rows } = await engine.query<CandidatePair>(
+      `SELECT t.take_key AS a_ref, t.claim_text AS a_text,
+              f.id::text AS b_ref, f.fact AS b_text,
+              f.source_id AS source_id,
+              'take' AS a_kind, 'fact' AS b_kind
+         FROM synth_takes t
+         LEFT JOIN documents d ON d.id = t.source_ref
+         JOIN entity_facts f
+           -- Facts default to the 'default' legacy tenant while an unstamped
+           -- document reads NULL — coalesce so the legacy world still pairs.
+           ON f.source_id IS NOT DISTINCT FROM COALESCE(d.source_id, 'default')
+        WHERE t.generated_at >= now() - ($1 * interval '1 day')
+          AND f.written_at >= now() - ($1 * interval '1 day')
+          AND length(regexp_replace(f.entity_slug, '.*/', '')) > 3
+          AND t.claim_text ILIKE
+              '%' || replace(regexp_replace(f.entity_slug, '.*/', ''), '-', ' ') || '%'
+        ORDER BY t.id ASC, f.id ASC
+        LIMIT $2`,
+      [lookbackDays, maxPairs - out.length],
+    );
+    out.push(...rows);
+  } catch {
+    /* stream fail-soft */
+  }
+  return out.slice(0, maxPairs);
 }
 
 function probeEnabled(): boolean {
@@ -178,6 +339,55 @@ function defaultBudget(): number {
   const raw = (process.env.MEMEX_PROBE_CONTRADICTIONS_BUDGET_USD ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
+}
+
+/** Verdict-cache TTL in days (default 30; MEMEX_PROBE_VERDICT_TTL_DAYS). */
+function verdictTtlDays(): number {
+  const n = Number((process.env.MEMEX_PROBE_VERDICT_TTL_DAYS ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : 30;
+}
+
+/** Unexpired cached verdict for a pair, or null. Fail-soft (pre-073 brain). */
+async function getCachedVerdict(
+  engine: Engine,
+  pairKeyHash: string,
+): Promise<{ contradicts: boolean } | null> {
+  try {
+    const { rows } = await engine.query<{ contradicts: boolean }>(
+      `SELECT contradicts FROM synth_contradiction_verdicts
+        WHERE pair_key = $1 AND expires_at > now()`,
+      [pairKeyHash],
+    );
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Upsert a verdict (positive or negative) with a fresh TTL. Fail-soft. */
+async function putCachedVerdict(
+  engine: Engine,
+  pairKeyHash: string,
+  judgment: ParsedJudgment,
+  modelId: string,
+  ttlDays: number,
+): Promise<void> {
+  try {
+    await engine.query(
+      `INSERT INTO synth_contradiction_verdicts
+         (pair_key, contradicts, verdict, model_id, judged_at, expires_at)
+       VALUES ($1, $2, $3::jsonb, $4, now(), now() + ($5 * interval '1 day'))
+       ON CONFLICT (pair_key) DO UPDATE SET
+         contradicts = EXCLUDED.contradicts,
+         verdict = EXCLUDED.verdict,
+         model_id = EXCLUDED.model_id,
+         judged_at = EXCLUDED.judged_at,
+         expires_at = EXCLUDED.expires_at`,
+      [pairKeyHash, judgment.contradicts, JSON.stringify(judgment), modelId, ttlDays],
+    );
+  } catch {
+    /* cache write is best-effort */
+  }
 }
 
 /**
@@ -209,13 +419,15 @@ export async function probeContradictionsPhase(
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: probeModel });
   const pairsFn = opts.pairsFn ?? defaultPairs;
 
+  const ttlDays = verdictTtlDays();
+  const startedAt = Date.now();
   const pairs = await pairsFn(engine, maxPairs, lookbackDays);
   result.pairsScanned = pairs.length;
 
   for (const pair of pairs) {
     const key = pairKey(pair.a_ref, pair.b_ref, promptVersion);
 
-    // Cache: already judged under this prompt version → skip (no re-spend).
+    // Cache 1: a stored (positive) finding under this prompt version → skip.
     try {
       const { rows: existing } = await engine.query<{ id: number }>(
         `SELECT id FROM synth_contradictions WHERE pair_key = $1`,
@@ -227,6 +439,14 @@ export async function probeContradictionsPhase(
       }
     } catch (e) {
       result.errors.push(`pair ${pair.a_ref}/${pair.b_ref} cache check: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+
+    // Cache 2: an unexpired verdict (negative included) → skip, no re-spend.
+    // Positives always have a synth_contradictions row (written in the same
+    // pass), so a hit here is almost always a cached negative.
+    if (await getCachedVerdict(engine, key)) {
+      result.cacheHits += 1;
       continue;
     }
 
@@ -264,20 +484,33 @@ export async function probeContradictionsPhase(
     }
     result.judged += 1;
 
-    // Only a SUSPECTED contradiction is stored (a false judgment is not noise
-    // worth persisting; the cache is the pair_key existence, so a non-storing
-    // pass will be re-judged next run — acceptable, it is the negative case).
+    // Cache every parsed verdict — negatives included — so an unchanged pair
+    // is not re-spent until the TTL expires.
+    if (judgment) {
+      await putCachedVerdict(engine, key, judgment, usedModel, ttlDays);
+    }
+
+    // Only a SUSPECTED contradiction is stored as a finding, now with a typed
+    // resolution proposal (judge hint wins; structural classifier otherwise).
     if (judgment && judgment.contradicts) {
+      const kind = classifyResolution(pair, judgment.resolution_kind);
+      const command =
+        judgment.resolution_command.length > 0
+          ? judgment.resolution_command
+          : renderResolutionCommand(pair, kind);
       try {
         await engine.query(
           `INSERT INTO synth_contradictions
              (pair_key, a_ref, a_kind, a_text, b_ref, b_kind, b_text,
-              severity, axis, confidence, resolution_command, source_id, prompt_version, model_id)
-           VALUES ($1, $2, 'fact', $3, $4, 'fact', $5, $6, $7, $8, $9, $10, $11, $12)
+              severity, axis, confidence, resolution_kind, resolution_command,
+              source_id, prompt_version, model_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (pair_key) DO NOTHING`,
           [
-            key, pair.a_ref, pair.a_text, pair.b_ref, pair.b_text,
-            judgment.severity, judgment.axis, judgment.confidence, judgment.resolution_command,
+            key, pair.a_ref, pair.a_kind ?? "fact", pair.a_text,
+            pair.b_ref, pair.b_kind ?? "fact", pair.b_text,
+            judgment.severity, judgment.axis, judgment.confidence,
+            kind, command,
             pair.source_id, promptVersion, usedModel,
           ],
         );
@@ -288,6 +521,29 @@ export async function probeContradictionsPhase(
     }
 
     if (overCap) break; // this call tipped the ceiling — stop.
+  }
+
+  // One trend row per run (Wilson 95% CI over the contradiction rate among the
+  // pairs actually judged this run). Best-effort — a trend write failure never
+  // fails the probe.
+  const runId = `probe-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")}-${randomUUID().slice(0, 8)}`;
+  const ci = wilsonInterval(result.contradictionsFound, result.judged);
+  try {
+    await engine.query(
+      `INSERT INTO synth_contradiction_runs
+         (run_id, model_id, prompt_version, pairs_scanned, judged, found,
+          cache_hits, wilson_ci_lower, wilson_ci_upper, cost_usd, duration_ms)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (run_id) DO NOTHING`,
+      [
+        runId, probeModel, promptVersion, result.pairsScanned, result.judged,
+        result.contradictionsFound, result.cacheHits, ci.lower, ci.upper,
+        Number(budget.totalSpent().toFixed(6)), Date.now() - startedAt,
+      ],
+    );
+    result.runId = runId;
+  } catch (e) {
+    result.errors.push(`trend row write: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return result;

@@ -16,7 +16,10 @@
  * deterministic narrative, never aborts).
  */
 import type { Engine } from "../engine/interface.ts";
+import type { Storage } from "../storage.ts";
+import { putPage } from "../pages.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
+import { synthPagesEnabled, slugifyTitle } from "./atoms.ts";
 
 const DEFAULT_MAX_CONCEPTS = 30;
 const TIER_T1_MIN = 10;
@@ -30,12 +33,20 @@ export interface SynthesizeConceptsOptions {
   maxConcepts?: number;
   llmFn?: LlmFn;
   modelId?: string;
+  /**
+   * Storage handle for the concept page mirror (`concepts/<slug>` via putPage)
+   * so concept narratives are retrievable through normal search. Absent →
+   * rows only. Gated globally by MEMEX_SYNTH_PAGES (default ON).
+   */
+  storage?: Storage;
 }
 
 export interface SynthesizeConceptsResult {
   atomsSeen: number;
   groupsFound: number;
   conceptsWritten: number;
+  /** Concept pages written via putPage (0 when no storage / gated off). */
+  pagesWritten: number;
   tierCounts: Record<ConceptTier, number>;
   errors: string[];
 }
@@ -97,10 +108,12 @@ export async function synthesizeConceptsPhase(
 ): Promise<SynthesizeConceptsResult> {
   const maxConcepts = opts.maxConcepts ?? DEFAULT_MAX_CONCEPTS;
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
+  const writePages = opts.storage !== undefined && synthPagesEnabled();
   const result: SynthesizeConceptsResult = {
     atomsSeen: 0,
     groupsFound: 0,
     conceptsWritten: 0,
+    pagesWritten: 0,
     tierCounts: { T1: 0, T2: 0, T3: 0 },
     errors: [],
   };
@@ -190,6 +203,27 @@ export async function synthesizeConceptsPhase(
       result.tierCounts[group.tier] += 1;
     } catch (e) {
       result.errors.push(`${group.slug} write: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+
+    // Page mirror — concepts become retrievable through normal search (the
+    // cycle's mirror phase indexes pages). Idempotent putPage upsert; a page
+    // failure never loses the synth_concepts row.
+    if (writePages && opts.storage) {
+      const pageSlug = `concepts/${slugifyTitle(group.slug)}`;
+      const mentions = group.titles.slice(0, 10).map((t) => `- ${t}`).join("\n");
+      try {
+        await putPage(opts.storage, {
+          slug: pageSlug,
+          type: "concept",
+          title,
+          markdown_body: `${narrative}\n\n## Atoms (${group.titles.length})\n${mentions}\n`,
+          written_by: "synthesize-concepts",
+        });
+        result.pagesWritten += 1;
+      } catch (e) {
+        result.errors.push(`${group.slug} page: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 

@@ -23,14 +23,18 @@ import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
 import { EXTRACTION_ELIGIBLE_TYPES } from "../facts-extract.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "../llm/sonnet.ts";
+import type { LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { filterWorthwhile, worthGateEnabled } from "./worth-gate.ts";
 
 export interface ReflectionsPhaseResult {
   ran: boolean;
   reason?: string;
   transcriptsConsidered: number;
   reflectionsWritten: number;
+  /** Transcripts the worth gate screened out before the Sonnet call. */
+  worthSkipped: number;
   spentUsd: number;
   budgetExhausted: boolean;
   errors: string[];
@@ -47,6 +51,13 @@ export interface ReflectionsPhaseOptions {
   /** Max transcripts fed to the model (bounds spend). Default 20. */
   maxTranscripts?: number;
   budget?: BudgetTracker;
+  /**
+   * Pre-screen transcripts with the cached Haiku worth gate before they join
+   * the paid Sonnet prompt. Default from MEMEX_WORTH_GATE (OFF); fail-open.
+   */
+  worthGate?: boolean;
+  /** Haiku seam for the worth gate (tests). */
+  worthLlmFn?: LlmFn;
 }
 
 interface TranscriptRef {
@@ -184,6 +195,7 @@ export async function reflectionsPhase(
     ran: false,
     transcriptsConsidered: 0,
     reflectionsWritten: 0,
+    worthSkipped: 0,
     spentUsd: 0,
     budgetExhausted: false,
     errors: [],
@@ -209,6 +221,22 @@ export async function reflectionsPhase(
 
   if (transcripts.length === 0) {
     return { ...base, reason: "no un-reflected transcripts in scope" };
+  }
+
+  // Worth gate (opt-in): drop low-signal transcripts BEFORE they join the paid
+  // Sonnet prompt. Fail-open — gate errors keep the transcript.
+  if (opts.worthGate ?? worthGateEnabled()) {
+    const gate = await filterWorthwhile(
+      engine,
+      transcripts.map((t) => ({ ref: t.slug, content: t.body })),
+      opts.worthLlmFn ? { llmFn: opts.worthLlmFn } : {},
+    );
+    base.worthSkipped = gate.skipped;
+    base.errors.push(...gate.errors);
+    transcripts = transcripts.filter((t) => gate.kept.has(t.slug));
+    if (transcripts.length === 0) {
+      return { ...base, reason: "all transcripts screened out by the worth gate" };
+    }
   }
 
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "reflections");
