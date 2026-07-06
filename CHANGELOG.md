@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.82.0] — 2026-07-06
+
 ### Fixed
 - **Operator takes no longer leak into search.** The indexer stripped the
   `## Facts` fence before chunking but not the `## Takes` fence, so
