@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **DB-canonical pages now re-chunk on a chunker-version change.** The vault
+  rechunk-sweep reads each document off disk, so `page://` mirror docs (which
+  have no file) were silently skipped — a change to the markdown chunker never
+  reached DB-authored pages. `reconcilePageMirrors` now also re-mirrors a page
+  whose search doc is stamped below the current chunker version, draining
+  through the existing bounded `mirror-pages` cycle backstop.
+
+### Changed
+- **Markdown chunker version → 2.** The indexer strips the `## Takes` fence
+  before chunking (v1.82.0); bumping the version re-chunks the existing corpus
+  so already-embedded pages purge any fenced-takes content from search. Vault
+  docs drain via the rechunk-sweep; DB pages via the page-mirror backstop.
+
 ## [1.82.0] — 2026-07-06
 
 ### Fixed
