@@ -7,6 +7,19 @@ introduces them.
 
 ---
 
+## Test coverage follow-ups (2026-07-06)
+
+- **Reranker candidate-window promotion — functional test.** `MEMEX_RERANK_WINDOW`
+  widens the two-pass rerank window so a hit fused below `k` can be promoted into
+  the returned set. The cache-signature plumbing is tested; the promotion itself
+  is only verified by review. A functional test needs `hybridSearch` with both
+  the query embedder AND `two-pass.rerank` stubbed (via `mock.module`) to inject
+  a permutation that lifts an item originally at rank >k, <window into the top-k.
+- **DB pool/statement-timeout factory branch.** `positiveIntEnv` +
+  `MEMEX_PG_POOL_MAX` / `MEMEX_PG_STATEMENT_TIMEOUT_MS` wiring in
+  `engine/factory.ts` has no direct test (trivial env-parse mirroring the
+  existing `QUERY_EMBED_TIMEOUT_MS` pattern; would assert garbage → default).
+
 ## Deferred by stack — future upgrade paths (2026-07-04)
 
 Capabilities the reference implementation has that memex deliberately does NOT

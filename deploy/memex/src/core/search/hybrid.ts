@@ -119,6 +119,16 @@ function relationalArmWeight(): number {
   return Number.isFinite(n) && n > 0 ? n : 1.0;
 }
 
+// Two-pass rerank candidate window (reference `top_n_in`, default 30). The
+// reranker sees this many top candidates and may promote one above the return
+// cutoff; the actual return size (k) trims afterward. Clamped to >= k and to the
+// available candidate count at the call site.
+const DEFAULT_RERANK_WINDOW = 30;
+function resolveRerankWindow(): number {
+  const n = Number.parseInt(process.env.MEMEX_RERANK_WINDOW ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_RERANK_WINDOW;
+}
+
 // Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
 // search, not on every query.
@@ -1254,16 +1264,26 @@ export async function hybridSearch(
   // 8. Two-pass rerank (opt-in) — runs BEFORE near-dup so the reranker sees
   //    both near-identical twins and decides their order; near-dup then drops
   //    the now-lower-ranked one (the reranker can't undo a drop, so it must
-  //    come first). Reference contract: the head sent upstream is exactly the
-  //    return window (k), so every returned hit carries a rerank decision, and
-  //    the un-reranked tail keeps its fused order behind the head instead of
-  //    being truncated away (it still feeds near-dup / alias-hop recall).
+  //    come first). Reference contract: rerank a CANDIDATE window WIDER than the
+  //    return size (top_n_in, default 30 via MEMEX_RERANK_WINDOW) so a hit fused
+  //    below the return cutoff can still be promoted into the top-k — the trim
+  //    to k happens after. The un-reranked tail keeps its fused order behind the
+  //    window instead of being truncated away (it still feeds near-dup /
+  //    alias-hop recall). The window is clamped to at least k and to the
+  //    available candidate count.
+  const rerankWindow = Math.min(
+    diversified.length,
+    Math.max(k, resolveRerankWindow()),
+  );
   const preRerankOrder =
     explainAcc && rerankWanted
       ? new Map(diversified.map((h, i) => [h.chunkId, i] as const))
       : null;
   const reranked = rerankWanted
-    ? [...(await rerank(trimmed, diversified.slice(0, k))), ...diversified.slice(k)]
+    ? [
+        ...(await rerank(trimmed, diversified.slice(0, rerankWindow))),
+        ...diversified.slice(rerankWindow),
+      ]
     : diversified;
   if (explainAcc && preRerankOrder) {
     reranked.forEach((h, i) => {

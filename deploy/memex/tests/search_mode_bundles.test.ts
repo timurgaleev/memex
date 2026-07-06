@@ -146,6 +146,15 @@ describe("knobs-hash in the cache signature (G14/G25)", () => {
     expect(rankingSignature()).toBe(base);
   });
 
+  it("rankingSignature changes when MEMEX_RERANK_WINDOW is set", () => {
+    clearAll();
+    const base = rankingSignature();
+    process.env.MEMEX_RERANK_WINDOW = "50";
+    expect(rankingSignature()).not.toBe(base);
+    delete process.env.MEMEX_RERANK_WINDOW;
+    expect(rankingSignature()).toBe(base);
+  });
+
   it("rankingSignature changes when the mode flips", () => {
     clearAll();
     const base = rankingSignature();
