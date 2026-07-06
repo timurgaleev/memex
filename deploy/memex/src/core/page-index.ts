@@ -27,6 +27,7 @@ import {
   type IndexFileOptions,
   type IndexResult,
 } from "./indexer.ts";
+import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import type { Storage } from "./storage.ts";
 
 /**
@@ -281,7 +282,12 @@ export async function reconcilePageMirrors(
     errors: [],
   };
 
-  // Pass 1 — missing or stale mirrors.
+  // Pass 1 — missing or stale mirrors. Staleness = missing doc, tenant drift,
+  // content/title drift, OR a chunker-version below the current markdown chunker
+  // ($2). The chunker-version arm is the ONLY way a page mirror re-chunks on a
+  // chunking-behavior change: the vault rechunk-sweep reads `source_path` off
+  // disk and skips `page://` docs (no file), so DB-canonical pages would
+  // otherwise never pick up a new chunker (e.g. the v2 takes-fence strip).
   const stale = await engine.query<{
     slug: string;
     title: string | null;
@@ -296,10 +302,11 @@ export async function reconcilePageMirrors(
         AND (d.id IS NULL
              OR d.source_id <> p.source_id
              OR COALESCE(d.frontmatter->>'page_content_hash', '') <> p.content_hash
-             OR COALESCE(d.frontmatter->>'page_title', '') <> COALESCE(p.title, ''))
+             OR COALESCE(d.frontmatter->>'page_title', '') <> COALESCE(p.title, '')
+             OR COALESCE(d.chunker_version, 0) < $2)
       ORDER BY p.updated_at DESC
       LIMIT $1`,
-    [limit],
+    [limit, MARKDOWN_CHUNKER_VERSION],
   );
   for (const p of stale.rows) {
     result.scanned++;

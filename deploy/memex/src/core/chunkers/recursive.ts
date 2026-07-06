@@ -27,7 +27,10 @@ export { parseFrontmatter };
  * surfaces the re-chunk backlog. Faithful adaptation of the reference's
  * MARKDOWN_CHUNKER_VERSION.
  */
-export const MARKDOWN_CHUNKER_VERSION = 1;
+// v2 (2026-07-06): the indexer now strips the `## Takes` fence before chunking
+// (alongside `## Facts`), so any page/doc chunked under v1 may carry fenced
+// takes content that must be re-chunked out of the search index.
+export const MARKDOWN_CHUNKER_VERSION = 2;
 
 export interface ChunkerOptions {
   /** Soft upper bound per chunk in characters. Default ≈ 4000 chars (~1000 tokens). */
