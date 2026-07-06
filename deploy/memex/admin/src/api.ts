@@ -36,6 +36,17 @@ export const api = {
   revokeGrant: (sub: string) =>
     apiFetch("/admin/api/revoke-grant", { method: "POST", body: JSON.stringify({ sub }) }),
   agentConfig: (sub: string) => apiFetch(`/admin/api/agent-config?sub=${encodeURIComponent(sub)}`),
+  agents: () => apiFetch("/admin/api/agents"),
+  mintApiKey: (name: string) =>
+    apiFetch("/admin/api/api-keys", { method: "POST", body: JSON.stringify({ name }) }),
+  revokeApiKey: (name: string) =>
+    apiFetch("/admin/api/api-keys/revoke", { method: "POST", body: JSON.stringify({ name }) }),
+  registerClient: (payload: Record<string, unknown>) =>
+    apiFetch("/admin/api/register-client", { method: "POST", body: JSON.stringify(payload) }),
+  updateClientTtl: (client_id: string, token_ttl: number | null) =>
+    apiFetch("/admin/api/update-client-ttl", { method: "POST", body: JSON.stringify({ client_id, token_ttl }) }),
+  revokeClient: (client_id: string) =>
+    apiFetch("/admin/api/revoke-client", { method: "POST", body: JSON.stringify({ client_id }) }),
   requests: (page = 1) => apiFetch(`/admin/api/requests?page=${page}`),
   jobsWatch: () => apiFetch("/admin/api/jobs/watch"),
   calibrationProfile: () => apiFetch("/admin/api/calibration/profile"),

@@ -28,6 +28,11 @@ const GOLDEN_WRITE_TOOLS = [
   "forget_fact",
   "purge_deleted_pages",
   "set_take_status",
+  // Stage-2 additions (deliberate): think can persist synthesis pages/takes,
+  // put_raw_data writes the sidecar, retry_job mutates job state.
+  "think",
+  "put_raw_data",
+  "retry_job",
 ].sort();
 
 describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {

@@ -3,8 +3,8 @@
  *
  * Covers slug FK constraint, ISO + Date input normalisation,
  * idempotent dedup on (slug, occurred_at, source_chunk_id), since /
- * until / limit filters, and the manual-entry (no chunk_id) path
- * that bypasses dedup.
+ * until / limit filters, and the manual-entry (no chunk_id) dedup on
+ * (slug, occurred_at, event, source_label, source_id) (mig079).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -98,7 +98,7 @@ describe("addTimelineEvent", () => {
     expect(b.inserted).toBe(false);
   });
 
-  it("manual entries (no chunk_id) skip dedup", async () => {
+  it("manual entries (no chunk_id) dedup on wording + label (mig079)", async () => {
     await putPage(storage, { slug: "x", type: "note" });
     await addTimelineEvent(storage, {
       slug: "x",
@@ -110,8 +110,42 @@ describe("addTimelineEvent", () => {
       occurred_at: "2024-01-01",
       event: "raw observation v1",
     });
-    // Both inserted — manual entries are deliberate, no dedup.
-    expect(second.inserted).toBe(true);
+    // Identical retry is a no-op — the reference-shaped manual dedup key.
+    expect(second.inserted).toBe(false);
+  });
+
+  it("manual entries with a distinct source_label coexist", async () => {
+    await putPage(storage, { slug: "y", type: "note" });
+    const a = await addTimelineEvent(storage, {
+      slug: "y",
+      occurred_at: "2024-01-01",
+      event: "same wording",
+      source_label: "granola",
+    });
+    const b = await addTimelineEvent(storage, {
+      slug: "y",
+      occurred_at: "2024-01-01",
+      event: "same wording",
+      source_label: "manual",
+    });
+    expect(a.inserted).toBe(true);
+    expect(b.inserted).toBe(true);
+    const rows = await getEntityTimeline(storage, "y");
+    expect(rows.length).toBe(2);
+    expect(rows.map((r) => r.source_label).sort()).toEqual(["granola", "manual"]);
+  });
+
+  it("stores and returns the detail split", async () => {
+    await putPage(storage, { slug: "z", type: "note" });
+    await addTimelineEvent(storage, {
+      slug: "z",
+      occurred_at: "2024-05-01",
+      event: "summary line",
+      detail: "the longer narrative under the summary",
+    });
+    const rows = await getEntityTimeline(storage, "z");
+    expect(rows[0]!.event).toBe("summary line");
+    expect(rows[0]!.detail).toBe("the longer narrative under the summary");
   });
 });
 

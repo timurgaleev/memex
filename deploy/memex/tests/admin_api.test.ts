@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { createAdminAuth } from "../src/http/admin.ts";
 import { handleAdminApi } from "../src/http/admin-api.ts";
+import { OAuthProvider } from "../src/core/oauth-provider.ts";
 
 const BOOT = "boot-secret";
 let tmp: string;
@@ -52,6 +53,13 @@ describe("admin-api auth gating", () => {
     expect((await call("/admin/api/grants", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/revoke-grant", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/agent-config?sub=user-1"))?.status).toBe(401);
+    expect((await call("/admin/api/agents"))?.status).toBe(401);
+    expect((await call("/admin/api/api-keys"))?.status).toBe(401);
+    expect((await call("/admin/api/api-keys", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/api-keys/revoke", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/register-client", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/update-client-ttl", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/revoke-client", { method: "POST", body: "{}" }))?.status).toBe(401);
   });
   it("401s an unknown /admin/api path when unauthenticated (no path disclosure)", async () => {
     expect((await call("/admin/api/nope"))?.status).toBe(401);
@@ -165,6 +173,211 @@ describe("admin-api provisioning (authed)", () => {
     expect(r?.status).toBe(200);
     const body = (await r!.json()) as { profile: unknown };
     expect(body.profile).toBeNull(); // fresh brain — no synthesis calibration run yet
+  });
+});
+
+interface AgentRow {
+  auth_type: "oauth" | "api_key";
+  id: string;
+  name: string;
+  scope: string | null;
+  token_ttl: number | null;
+  status: string;
+  usage: { requests_today: number; total_requests: number; last_used_at: string | null };
+}
+
+describe("admin-api credential management (authed)", () => {
+  it("mints, lists, and revokes an API key; the token verifies until revoked", async () => {
+    const mint = await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "key-1" }) }));
+    expect(mint?.status).toBe(200);
+    const minted = (await mint!.json()) as { ok: boolean; name: string; token: string };
+    expect(minted.ok).toBe(true);
+    expect(minted.token.startsWith("memex_")).toBe(true);
+
+    // Only the hash persists — the plaintext never touches the table.
+    const stored = await storage.engine().query<{ token_hash: string }>(
+      "SELECT token_hash FROM access_tokens WHERE name = 'key-1'",
+    );
+    expect(stored.rows[0]?.token_hash).not.toBe(minted.token);
+
+    // The minted token authenticates through the legacy verify path.
+    const provider = new OAuthProvider({ engine: storage.engine() });
+    const info = await provider.verifyAccessToken(minted.token);
+    expect(info.clientName).toBe("key-1");
+
+    // A second active key with the same name is rejected.
+    const dup = await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "key-1" }) }));
+    expect(dup?.status).toBe(400);
+
+    // List shows it active.
+    const list = await call("/admin/api/api-keys", authed());
+    const listBody = (await list!.json()) as { count: number; keys: Array<{ name: string; status: string }> };
+    expect(listBody.keys.find((k) => k.name === "key-1")?.status).toBe("active");
+
+    // Revoke; the token stops verifying and a second revoke 404s.
+    const rev = await call("/admin/api/api-keys/revoke", authed({ method: "POST", body: JSON.stringify({ name: "key-1" }) }));
+    expect(rev?.status).toBe(200);
+    await expect(provider.verifyAccessToken(minted.token)).rejects.toThrow();
+    const again = await call("/admin/api/api-keys/revoke", authed({ method: "POST", body: JSON.stringify({ name: "key-1" }) }));
+    expect(again?.status).toBe(404);
+  });
+
+  it("registers an OAuth client with a token_ttl the exchange honors", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-a", scopes: "read write", token_ttl: 120 }) }),
+    );
+    expect(reg?.status).toBe(200);
+    const body = (await reg!.json()) as {
+      ok: boolean;
+      client_id: string;
+      client_secret: string | null;
+      grant_types: string[];
+      token_ttl: number | null;
+    };
+    expect(body.client_id.startsWith("memex_cl_")).toBe(true);
+    expect(body.client_secret?.startsWith("memex_cs_")).toBe(true);
+    expect(body.grant_types).toEqual(["client_credentials"]); // no redirect_uris → machine client
+    expect(body.token_ttl).toBe(120);
+
+    // The half-wired TTL write side is closed: the exchange reads it back.
+    const provider = new OAuthProvider({ engine: storage.engine() });
+    const tokens = await provider.exchangeClientCredentials(body.client_id, body.client_secret!, "read");
+    expect(tokens.expires_in).toBe(120);
+  });
+
+  it("defaults browser clients to authorization_code grants and 400s malformed input", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({
+        method: "POST",
+        body: JSON.stringify({ name: "web", redirect_uris: ["https://example.com/cb"] }),
+      }),
+    );
+    const body = (await reg!.json()) as { grant_types: string[] };
+    expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
+
+    const badScope = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "x", scopes: ["read write"] }) }),
+    );
+    expect(badScope?.status).toBe(400); // space-in-element array shape
+
+    const badTtl = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "x", token_ttl: -5 }) }),
+    );
+    expect(badTtl?.status).toBe(400);
+
+    const ghostSource = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "x", source: "ghost" }) }),
+    );
+    expect(ghostSource?.status).toBe(400); // explicit tenancy grant is validated
+  });
+
+  it("update-client-ttl sets and clears the override, 404s unknown clients", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-b" }) }),
+    );
+    const { client_id } = (await reg!.json()) as { client_id: string };
+
+    const set = await call(
+      "/admin/api/update-client-ttl",
+      authed({ method: "POST", body: JSON.stringify({ client_id, token_ttl: 900 }) }),
+    );
+    expect(set?.status).toBe(200);
+    let row = await storage.engine().query<{ token_ttl: number | null }>(
+      "SELECT token_ttl FROM oauth_clients WHERE client_id = $1",
+      [client_id],
+    );
+    expect(Number(row.rows[0]?.token_ttl)).toBe(900);
+
+    // null clears back to the server default.
+    const clear = await call(
+      "/admin/api/update-client-ttl",
+      authed({ method: "POST", body: JSON.stringify({ client_id, token_ttl: null }) }),
+    );
+    expect(clear?.status).toBe(200);
+    row = await storage.engine().query<{ token_ttl: number | null }>(
+      "SELECT token_ttl FROM oauth_clients WHERE client_id = $1",
+      [client_id],
+    );
+    expect(row.rows[0]?.token_ttl).toBeNull();
+
+    const missing = await call(
+      "/admin/api/update-client-ttl",
+      authed({ method: "POST", body: JSON.stringify({ client_id: "nope", token_ttl: 60 }) }),
+    );
+    expect(missing?.status).toBe(404);
+
+    const bad = await call(
+      "/admin/api/update-client-ttl",
+      authed({ method: "POST", body: JSON.stringify({ client_id, token_ttl: "soon" }) }),
+    );
+    expect(bad?.status).toBe(400);
+  });
+
+  it("revoke-client soft-deletes and kills live tokens", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-c", scopes: "read" }) }),
+    );
+    const { client_id, client_secret } = (await reg!.json()) as { client_id: string; client_secret: string };
+
+    const provider = new OAuthProvider({ engine: storage.engine() });
+    const tokens = await provider.exchangeClientCredentials(client_id, client_secret);
+    await provider.verifyAccessToken(tokens.access_token); // live before revoke
+
+    const rev = await call(
+      "/admin/api/revoke-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id }) }),
+    );
+    expect(rev?.status).toBe(200);
+    const revBody = (await rev!.json()) as { revoked: boolean; tokens_deleted: number };
+    expect(revBody.revoked).toBe(true);
+    expect(revBody.tokens_deleted).toBeGreaterThan(0);
+
+    // Both the issued token and fresh exchanges are dead.
+    await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow();
+    await expect(provider.exchangeClientCredentials(client_id, client_secret)).rejects.toThrow();
+
+    const missing = await call(
+      "/admin/api/revoke-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id: "nope" }) }),
+    );
+    expect(missing?.status).toBe(404);
+  });
+
+  it("agents view unifies OAuth clients + API keys with per-credential usage", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-d", token_ttl: 60 }) }),
+    );
+    const { client_id } = (await reg!.json()) as { client_id: string };
+    await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "key-d" }) }));
+
+    // Usage joins on token_name (the credential id the request logger stamps).
+    await storage.engine().query(
+      `INSERT INTO mcp_request_log (token_name, agent_name, operation, status, created_at) VALUES
+         ($1, 'caller', 'search', 'success', now()),
+         ($1, 'caller', 'search', 'success', now() - interval '2 days'),
+         ('key-d', 'caller', 'get_page', 'success', now())`,
+      [client_id],
+    );
+
+    const r = await call("/admin/api/agents", authed());
+    expect(r?.status).toBe(200);
+    const body = (await r!.json()) as { count: number; agents: AgentRow[] };
+    const oauth = body.agents.find((a) => a.auth_type === "oauth" && a.id === client_id)!;
+    const key = body.agents.find((a) => a.auth_type === "api_key" && a.name === "key-d")!;
+    expect(oauth.status).toBe("active");
+    expect(oauth.token_ttl).toBe(60);
+    expect(oauth.usage.total_requests).toBe(2);
+    expect(oauth.usage.requests_today).toBe(1);
+    expect(key.usage.total_requests).toBe(1);
+    expect(key.usage.last_used_at).not.toBeNull();
   });
 });
 

@@ -82,10 +82,13 @@ describe("doctor", () => {
       "config",
       "cycle-freshness",
       "eval-trend",
+      "federation-health",
       "index-spread",
       "links-extraction-lag",
+      "oauth-client-health",
       "pglite",
       "source-health",
+      "source-routing-health",
       "stats",
       "vault",
     ]);

@@ -145,7 +145,7 @@ describe("syncTypedLinksForPage", () => {
     expect(links[0]!.target_slug).toBe("companies/globex");
   });
 
-  it("yields to an explicit edge of the same (source, target, type)", async () => {
+  it("coexists with an explicit edge of the same (source, target, type)", async () => {
     await putPage(storage, { slug: "companies/acme", type: "company", title: "Acme" });
     await putPage(storage, {
       slug: "people/erin",
@@ -159,12 +159,17 @@ describe("syncTypedLinksForPage", () => {
       type: "works_at",
     });
     const res = await sync("people/erin");
-    expect(res.added).toBe(0); // DO NOTHING — explicit wins
-    const all = await storage.engine().query<{ link_kind: string | null }>(
-      `SELECT link_kind FROM links WHERE source_slug = $1 AND target_slug = $2 AND type = 'works_at'`,
+    // mig086: separate rows per writer — the frontmatter edge lands under its
+    // own 'frontmatter' provenance; the explicit 'manual' edge is untouched.
+    expect(res.added).toBe(1);
+    const all = await storage.engine().query<{ link_kind: string | null; link_source: string }>(
+      `SELECT link_kind, link_source FROM links
+        WHERE source_slug = $1 AND target_slug = $2 AND type = 'works_at'
+        ORDER BY link_source`,
       ["people/erin", "companies/acme"],
     );
-    expect(all.rows).toHaveLength(1);
-    expect(all.rows[0]!.link_kind).toBeNull(); // the explicit edge, untouched
+    expect(all.rows).toHaveLength(2);
+    expect(all.rows[0]).toEqual({ link_kind: "typed_ner", link_source: "frontmatter" });
+    expect(all.rows[1]).toEqual({ link_kind: null, link_source: "manual" });
   });
 });

@@ -46,6 +46,25 @@
           "minimum": 0,
           "maximum": 2,
           "description": "Structural walk depth 0-2 (default 0 = off). Expands the anchors through code_edges_symbol with 1/(1+hop) score decay. Code corpora only; bypasses the query cache."
+        },
+        "explain": {
+          "type": "boolean",
+          "description": "Stamp each hit with a per-signal ranking attribution (`explain`: base score + the factor every boost stage contributed + reranker delta). Bypasses the query cache."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Skip the first N ranked hits (pagination). Applied after ranking; the widened fetch bypasses nothing else."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "conservative",
+            "balanced",
+            "tokenmax"
+          ],
+          "description": "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle) — reference behavior."
         }
       },
       "required": [
@@ -293,12 +312,20 @@
   },
   {
     "name": "page_get",
-    "description": "Read a page by slug. Returns an error if the page does not exist or is soft-deleted.",
+    "description": "Read a page by slug. Returns an error if the page does not exist. `fuzzy:true` falls back to fuzzy slug resolution on a miss (a unique candidate is auto-read; multiple candidates return `ambiguous_slug` + the list). `include_deleted:true` surfaces a soft-deleted page with deleted_at populated (restore workflows).",
     "inputSchema": {
       "type": "object",
       "properties": {
         "slug": {
           "type": "string"
+        },
+        "fuzzy": {
+          "type": "boolean",
+          "description": "Fuzzy slug resolution on a miss (default false)."
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "description": "Surface soft-deleted pages (default false)."
         }
       },
       "required": [
@@ -309,7 +336,7 @@
   },
   {
     "name": "page_list",
-    "description": "List pages, newest-first. Optional filters: `type` (string), `since` (ISO timestamp), `limit` (1..1000, default 50).",
+    "description": "List pages, newest-first by default. Optional filters: `type`, `tag` (normalized), `since` (ISO timestamp), `limit` (1..1000, default 50). `sort` picks the order (updated_desc default | updated_asc | created_desc | slug); `include_deleted:true` adds soft-deleted pages with deleted_at populated.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -318,6 +345,23 @@
         },
         "since": {
           "type": "string"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Filter to pages carrying this tag."
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "updated_desc",
+            "updated_asc",
+            "created_desc",
+            "slug"
+          ]
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "description": "Include soft-deleted pages (default false)."
         },
         "limit": {
           "type": "integer",
@@ -578,7 +622,7 @@
   },
   {
     "name": "entity_facts",
-    "description": "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page.",
+    "description": "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -598,6 +642,26 @@
             "recency"
           ]
         },
+        "session": {
+          "type": "string",
+          "description": "Filter to facts captured under this session id."
+        },
+        "grep": {
+          "type": "string",
+          "description": "Case-insensitive substring filter on the fact text."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "private",
+            "world"
+          ],
+          "description": "Filter by fact visibility."
+        },
+        "include_forgotten": {
+          "type": "boolean",
+          "description": "Include tombstoned (forgotten) rows. Internal-only; default false."
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -607,6 +671,29 @@
       "required": [
         "entity_slug"
       ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fact_supersessions",
+    "description": "Supersession audit log: facts retired WITH a replacement pointer (forgotten_at + superseded_by both set), newest retirement first. Each row is the RETIRED fact; superseded_by points at its replacement. Optional `entity_slug` / `since` (ISO, on the retirement time) / `limit` (1..1000, default 50). Tenant-scoped. Read-only; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "entity_slug": {
+          "type": "string",
+          "description": "Confine to one entity's ledger."
+        },
+        "since": {
+          "type": "string",
+          "description": "ISO lower bound on forgotten_at."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
       "additionalProperties": false
     }
   },
@@ -663,6 +750,10 @@
         "redact_body": {
           "type": "boolean",
           "description": "When true, strips markdown_body from the page row. The HTTP public-bearer path forces this on by default; internal MCP callers default false."
+        },
+        "include_pending": {
+          "type": "boolean",
+          "description": "Piggy-back `pending_consolidation_count` (live facts not yet folded into a consolidated take) on the response. One round trip; field omitted when false."
         }
       },
       "required": [
@@ -977,6 +1068,10 @@
           "type": "string",
           "description": "Restrict to a single page type (overrides the person/company default in topic mode)."
         },
+        "explain": {
+          "type": "boolean",
+          "description": "Topic mode only: include the per-result factor breakdown (expertise, recency, salience) behind `score`."
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -996,6 +1091,15 @@
           "type": "string",
           "description": "Substring filter; matches either side of the pair (case-insensitive)."
         },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Filter the probed findings by severity (edges have no severity axis)."
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -1014,6 +1118,19 @@
         "entity_slug": {
           "type": "string",
           "description": "The entity to chart (e.g. companies/acme, people/alice)."
+        },
+        "metric": {
+          "type": "string",
+          "description": "Filter to a single canonical metric label (mig070 claim_metric, e.g. 'mrr'); timeline events are excluded for a metric query."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "metric",
+            "event",
+            "all"
+          ],
+          "description": "Row-shape filter (mig070): 'metric' = typed-claim fact rows only, 'event' = event-shaped rows (event_type facts + timeline events), 'all' (default) = merged chronology."
         },
         "since": {
           "type": "string",
@@ -1049,6 +1166,18 @@
           "type": "integer",
           "minimum": 1,
           "description": "Only pages updated within the last N days. Omit for all-time."
+        },
+        "slug_prefix": {
+          "type": "string",
+          "description": "Optional slug-prefix filter, e.g. 'people' or 'projects/x'."
+        },
+        "recency_bias": {
+          "type": "string",
+          "enum": [
+            "flat",
+            "on"
+          ],
+          "description": "'flat' (default) = pure salience order (historical behavior). 'on' = rank by salience x 1/(1+days_old) — 'what's been salient lately'."
         },
         "limit": {
           "type": "integer",
@@ -1167,33 +1296,119 @@
   },
   {
     "name": "query",
-    "description": "Refinement search: hybrid-search `q`, then bias the ranking toward a second `refine` term via weighted RRF (a chunk strong for BOTH floats up). Reorders within the primary candidate set — never widens it. Deterministic (no LLM rerank). `primary_weight` / `refine_weight` tune the pull; omit `refine` to behave like plain search.",
+    "description": "Flagship full-control retrieval (the reference `query` semantics): hybrid search over the corpus with every per-call knob exposed — `detail` result granularity (low = 1 chunk/page, medium = default dedup, high = all chunks + temporal treatment), `salience`/`recency` ranking bias (off|on|strong; omit = auto-detected from the query), `since`/`until` content-date window, `offset` pagination, `expand` LLM query expansion (paid; default follows the mode bundle), `mode` bundle override (operator-only), `adaptive_return` intent-sized tight result sets, plus the code filters (lang / symbol_kind / near_symbol / walk_depth). Legacy refinement: pass `refine` (+weights) for the deterministic weighted-RRF two-query blend instead.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "q": {
           "type": "string",
-          "description": "Primary natural-language query."
-        },
-        "refine": {
-          "type": "string",
-          "description": "Second term to refine/intersect the ranking against."
+          "description": "Natural-language query."
         },
         "k": {
           "type": "integer",
           "minimum": 1,
           "maximum": 100,
-          "description": "Number of hits to return. Default 5."
+          "description": "Number of hits to return. Default 20."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Skip the first N ranked hits (pagination)."
+        },
+        "expand": {
+          "type": "boolean",
+          "description": "Force LLM query expansion on/off for this call (paid Haiku). Omit = mode-bundle default (OFF in conservative/balanced)."
+        },
+        "detail": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Result detail: low = compiled-truth-grade brevity (1 chunk per page), medium (default) = per-page dedup, high = all chunks + temporal source-boost bypass."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "conservative",
+            "balanced",
+            "tokenmax"
+          ],
+          "description": "Search mode bundle for this call. Operator-only; a tenant token's mode is silently ignored."
+        },
+        "salience": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "strong"
+          ],
+          "description": "Mattering bias (pages.salience: emotional weight + link degree + takes). Omit = auto-detect from the query phrasing."
+        },
+        "recency": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "strong"
+          ],
+          "description": "Recency boost (per-prefix hyperbolic freshness lift). 'strong' for 'today / right now'. Omit = auto-detect."
+        },
+        "since": {
+          "type": "string",
+          "description": "Keep only hits whose content date is >= this ISO-8601 date."
+        },
+        "until": {
+          "type": "string",
+          "description": "Keep only hits whose content date is <= this ISO-8601 date."
+        },
+        "lang": {
+          "type": "string",
+          "description": "Filter to chunks of a source language (code corpora)."
+        },
+        "symbol_kind": {
+          "type": "string",
+          "description": "Filter to chunks of a symbol kind (code corpora)."
+        },
+        "near_symbol": {
+          "type": "string",
+          "description": "Anchor retrieval at this qualified symbol name (code corpora)."
+        },
+        "walk_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Structural walk depth 0-2 (code corpora)."
+        },
+        "token_budget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000,
+          "description": "Cap total returned content size (~chars/4 tokens)."
+        },
+        "adaptive_return": {
+          "type": "boolean",
+          "description": "Return a TIGHT intent-sized result set instead of the full top-K (never empty when there are matches; first page only)."
+        },
+        "explain": {
+          "type": "boolean",
+          "description": "Stamp per-hit ranking attribution. Bypasses the query cache."
+        },
+        "refine": {
+          "type": "string",
+          "description": "LEGACY refinement: second term for the deterministic weighted-RRF blend. When set, only k/weights apply."
         },
         "primary_weight": {
           "type": "number",
           "minimum": 0,
-          "description": "RRF weight for the primary query. Default 1."
+          "description": "RRF weight for the primary query (refine mode). Default 1."
         },
         "refine_weight": {
           "type": "number",
           "minimum": 0,
-          "description": "RRF weight for the refine term. Default 1."
+          "description": "RRF weight for the refine term (refine mode). Default 1."
         }
       },
       "required": [
@@ -1364,7 +1579,11 @@
       "properties": {
         "window": {
           "type": "string",
-          "description": "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn."
+          "description": "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn. Required unless stats:true."
+        },
+        "prior_context": {
+          "type": "string",
+          "description": "Already-surfaced context (pointer blocks / opened page bodies). Pages whose slug appears here are not re-volunteered."
         },
         "max_pages": {
           "type": "integer",
@@ -1389,12 +1608,15 @@
         },
         "stats": {
           "type": "boolean",
-          "description": "Return per-arm used/volunteered precision stats instead of volunteering (uses `turn` as the day window when set)."
+          "description": "Return per-arm used/volunteered precision stats instead of volunteering."
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "Stats window in days (default 30; stats mode only)."
         }
       },
-      "required": [
-        "window"
-      ],
       "additionalProperties": false
     }
   },
@@ -1434,7 +1656,7 @@
   },
   {
     "name": "list_takes",
-    "description": "List synthesized 'takes' (opinionated claims the propose-takes phase derived, optionally graded): take_key, claim_text, kind, weight, domain, status (queued/accepted/rejected). Advisory only — never mutates notes. Read-only; internal-only.",
+    "description": "List synthesized 'takes' (opinionated claims the propose-takes phase derived, optionally graded): take_key, claim_text, kind, weight, domain, status (queued/accepted/rejected). Optional filters: `kind`, `domain`; `sort` (generated_at default | weight), `offset` for pagination. Advisory only — never mutates notes. Read-only; internal-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1443,9 +1665,36 @@
           "enum": [
             "queued",
             "accepted",
-            "rejected"
+            "rejected",
+            "graded"
           ],
           "description": "Filter by review status."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Filter to one take kind (e.g. bet, judgment)."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Filter to one domain tag."
+        },
+        "holder": {
+          "type": "string",
+          "description": "Filter to one holder (world | brain | people/<slug> | companies/<slug>)."
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "generated_at",
+            "weight"
+          ],
+          "description": "Sort key. Default generated_at (newest first)."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Skip the first N rows."
         },
         "limit": {
           "type": "integer",
@@ -1551,7 +1800,7 @@
   },
   {
     "name": "extract_facts",
-    "description": "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand and RETURN them WITHOUT persisting — a preview of what the on-write extractor would capture. Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded; never writes the entity_facts ledger. Internal-only.",
+    "description": "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand. Default is a PREVIEW (facts returned, nothing persisted); `persist:true` also writes them to the entity_facts ledger (requires a write grant; the caller's write source owns the rows). Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). `entity_hints` (comma/space-separated canonical slugs) steer the extractor; `session_id` + `visibility` stamp persisted facts (mig085). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded. Internal-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1562,6 +1811,26 @@
         "source_ref": {
           "type": "string",
           "description": "A page slug whose markdown_body is extracted (tenant-scoped). Provide this OR `text`."
+        },
+        "persist": {
+          "type": "boolean",
+          "description": "Write the extracted facts to the ledger (default false = preview only). Requires a write grant."
+        },
+        "entity_hints": {
+          "type": "string",
+          "description": "Comma/space-separated canonical entity slugs to steer the extractor."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Capture-session id stamped on persisted facts."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "private",
+            "world"
+          ],
+          "description": "Default visibility for persisted facts (default private)."
         }
       },
       "additionalProperties": false
@@ -1615,6 +1884,204 @@
           "description": "Max rows (default 50)."
         }
       },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "think",
+    "description": "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers, reference behavior). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "description": "The question to think about."
+        },
+        "anchor": {
+          "type": "string",
+          "description": "Pull the entity subgraph + trajectory around this slug (required for take:true)."
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Gather/synthesize rounds; each extra round is a fresh paid call under the run budget. Default 1."
+        },
+        "save": {
+          "type": "boolean",
+          "description": "Persist the synthesis as a page + evidence rows. Operator-only; ignored otherwise."
+        },
+        "take": {
+          "type": "boolean",
+          "description": "Queue the answer's headline claim as a synth_take on `anchor`. Operator-only; ignored otherwise."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model id override for the synthesis call."
+        },
+        "since": {
+          "type": "string",
+          "description": "Only gather pages whose content date is >= this ISO date."
+        },
+        "until": {
+          "type": "string",
+          "description": "Only gather pages whose content date is <= this ISO date."
+        },
+        "with_calibration": {
+          "type": "boolean",
+          "description": "Inject the calibration anti-bias block (opt-in, reference --with-calibration)."
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Page hits to gather (default 12)."
+        },
+        "max_takes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Take rows to gather (default 20)."
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "put_raw_data",
+    "description": "Attach a raw payload (API response, headers, importer sidecar) to a page, keyed (slug, source). Newest-wins upsert: re-putting the same key REPLACES the payload (a cache of the latest fetch, not a history). `source` is the DATA-source label ('crustdata', an importer name), NOT the tenant axis; a scoped caller may only attach to a page its own source owns. Payload capped at 1 MB. WRITE — internal/MCP-stdio only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "description": "The owning page slug (must exist for scoped callers)."
+        },
+        "source": {
+          "type": "string",
+          "description": "Data-source label, e.g. an importer name."
+        },
+        "data": {
+          "type": "object",
+          "description": "The raw payload (plain JSON object, <= 1 MB serialized)."
+        }
+      },
+      "required": [
+        "slug",
+        "source",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_raw_data",
+    "description": "Read a page's raw_data sidecar rows, newest first. Optional `source` filter to one data-source label; `limit` (1..200, default 50). Tenant-scoped via the owning page. Read-only; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "Filter to one data-source label."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "slug"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "retry_job",
+    "description": "Re-queue a failed or cancelled job for another attempt (status -> pending, next_attempt_at = now). Returns the refreshed row, or found:false when the id is unknown or the job is not in a retryable state. Operator-only. WRITE — internal/MCP-stdio only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Job id (see jobs_list)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_job_progress",
+    "description": "Read a job's live progress envelope: status + the handler-reported `progress` JSON (mig083). Cheap poll target while a long job runs. Operator-only; read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Job id (see jobs_list)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "sources_list",
+    "description": "List registered sources (id, kind, path_prefix, policies, boost weight). A scoped caller sees ONLY the sources its grant covers; the operator sees all. Read-only; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Filter by source kind."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "sources_status",
+    "description": "Per-source diagnostic: the source row plus its live health (document/chunk counts, embed coverage, staleness lag, failed jobs). A scoped caller may only query a source inside its grant. Read-only; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Source id."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_status_snapshot",
+    "description": "One-shot operational snapshot for thin-client status: version, corpus stats, brain health (embed coverage, staleness, job queue), query-cache state, and the active job worker lock. Operator-only (exposes whole-brain operational state); read-only; no Bedrock.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_doctor",
+    "description": "Run the thin-client brain health checks and return a structured report: config-free engine checks only (stats, embed coverage/staleness, tenancy/federation health, OAuth client hygiene, source routing, job worker liveness). Operator-only; read-only; never mutates; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
       "additionalProperties": false
     }
   }

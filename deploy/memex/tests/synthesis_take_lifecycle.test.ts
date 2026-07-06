@@ -92,9 +92,24 @@ describe("status advance (Item 4b)", () => {
   it("does not downgrade an operator-terminal status", async () => {
     await seedTake("t", 200);
     await engine.query(`UPDATE synth_takes SET status='accepted' WHERE take_key='t'`);
-    await gradeTakesPhase(engine, { minAgeDays: 0, evidenceFn: async () => "e", llmFn: correct });
-    // 'accepted' is not in the eligible pool, so it is never graded or advanced.
+    const r = await gradeTakesPhase(engine, { minAgeDays: 0, evidenceFn: async () => "e", llmFn: correct });
+    // An 'accepted' (operator-endorsed) take IS graded for calibration, but the
+    // status advance only fires on 'queued' — the review state never downgrades.
+    expect(r.gradesWritten).toBe(1);
     expect(await statusOf("t")).toBe("accepted");
+  });
+
+  it("never grades a resolved or rejected take", async () => {
+    await seedTake("resolved", 200);
+    await engine.query(
+      `UPDATE synth_takes SET resolved_at = now(), resolved_quality = 'correct', resolved_outcome = true
+        WHERE take_key = 'resolved'`,
+    );
+    await seedTake("rejected", 200);
+    await engine.query(`UPDATE synth_takes SET status='rejected' WHERE take_key='rejected'`);
+    const r = await gradeTakesPhase(engine, { minAgeDays: 0, evidenceFn: async () => "e", llmFn: correct });
+    expect(r.takesScanned).toBe(0);
+    expect(r.gradesWritten).toBe(0);
   });
 
   it("a graded take is still re-gradeable under a NEW prompt version", async () => {

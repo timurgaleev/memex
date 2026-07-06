@@ -112,7 +112,15 @@ function asJson<T>(v: unknown): T {
   return (typeof v === "string" ? JSON.parse(v) : v) as T;
 }
 
-const fakeLlm = (text: string): LlmFn => async () => ({ text, modelId: "fake-nova" });
+// The narrative generator now routes pattern statements through the voice
+// gate, so the fake must answer the gate's judge prompt too (conversational →
+// the generated text is accepted, matching the pre-gate expectations).
+const fakeLlm = (text: string): LlmFn => async (input) => ({
+  text: input.system.includes("voice gate")
+    ? `{"verdict":"conversational","reason":"ok"}`
+    : text,
+  modelId: "fake-nova",
+});
 
 describe("parsers", () => {
   it("parses pattern statements, stripping bullets", () => {
