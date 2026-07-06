@@ -37,7 +37,7 @@ describe("exactMatchIndices", () => {
   });
 
   it("does not fire on partial overlap or empty queries", () => {
-    expect(exactMatchIndices(cands, "ada").size).toBe(0);
+    expect(exactMatchIndices(cands, "grace").size).toBe(0);
     expect(exactMatchIndices(cands, "   ").size).toBe(0);
   });
 });

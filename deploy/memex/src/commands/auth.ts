@@ -296,7 +296,7 @@ async function setPermissions(
 ): Promise<void> {
   if (!name || action !== "set-takes-holders" || !value) {
     throw new Error(
-      "Usage: auth permissions <name> set-takes-holders world,ada,brain",
+      "Usage: auth permissions <name> set-takes-holders world,grace,brain",
     );
   }
   const list = value.split(",").map((s) => s.trim()).filter(Boolean);
