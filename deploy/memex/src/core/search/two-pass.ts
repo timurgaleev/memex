@@ -5,15 +5,32 @@
  * Opt-in via env `MEMEX_RERANK=1` because Haiku is paid (~$1-3/mo
  * for typical use). Cheap users keep the RRF + source-boost ordering.
  *
- * Designed to fail safe: any error returns the input order unchanged.
+ * Designed to fail safe: any error returns the input order unchanged AND is
+ * recorded to the rerank-failure audit JSONL (rerank-audit.ts, opt-in via
+ * MEMEX_AUDIT_DIR) so silent degradation is greppable. The Bedrock call runs
+ * under a per-call wall-clock timeout (MEMEX_RERANK_TIMEOUT_MS, default
+ * 5000ms — reference contract) so a hung connection can't stall search.
  */
 import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { ChunkScore } from "./dedup.ts";
+import {
+  hashQueryForAudit,
+  logRerankFailure,
+  type RerankFailureReason,
+} from "./rerank-audit.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+/** Per-call rerank timeout (ms). Reference default: 5000. */
+const DEFAULT_TIMEOUT_MS = 5_000;
+
+function rerankTimeoutMs(): number {
+  const n = Number(process.env.MEMEX_RERANK_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
+}
 
 let _client: BedrockRuntimeClient | null = null;
 function client(region: string): BedrockRuntimeClient {
@@ -30,6 +47,8 @@ export interface ChunkPayloadForRerank {
 export interface RerankOptions {
   modelId?: string;
   region?: string;
+  /** Per-call timeout override (ms). Defaults to MEMEX_RERANK_TIMEOUT_MS/5000. */
+  timeoutMs?: number;
 }
 
 const SYSTEM_PROMPT = `You are a relevance reranker. You see a search query and a list of candidate chunks (numbered 0..N-1). Output ONE LINE: a JSON array of indices, in the order most-to-least relevant to the query. Output nothing else. Example: [3,0,1,2,4]`;
@@ -50,7 +69,18 @@ export async function rerank<T extends ChunkPayloadForRerank>(
 
   const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
   const modelId = opts.modelId ?? DEFAULT_MODEL;
+  const timeoutMs = opts.timeoutMs ?? rerankTimeoutMs();
   const c = client(region);
+
+  const audit = (reason: RerankFailureReason, err: unknown): void => {
+    logRerankFailure({
+      model: modelId,
+      reason,
+      query_hash: hashQueryForAudit(query),
+      doc_count: hits.length,
+      error_summary: err instanceof Error ? err.message : String(err),
+    });
+  };
 
   try {
     const resp = await c.send(
@@ -60,12 +90,20 @@ export async function rerank<T extends ChunkPayloadForRerank>(
         messages: [{ role: "user", content: [{ text: userMessage }] }],
         inferenceConfig: { maxTokens: 200, temperature: 0 },
       }),
+      // Per-call deadline: a stuck upstream must not hold search hostage.
+      { abortSignal: AbortSignal.timeout(timeoutMs) },
     );
     const text = resp.output?.message?.content?.[0]?.text?.trim() ?? "[]";
     const match = text.match(/\[[^\]]*\]/);
-    if (!match) return [...hits];
+    if (!match) {
+      audit("parse", `no index array in model output (${text.slice(0, 80)})`);
+      return [...hits];
+    }
     const order = JSON.parse(match[0]) as unknown;
-    if (!Array.isArray(order)) return [...hits];
+    if (!Array.isArray(order)) {
+      audit("parse", "model output parsed to a non-array");
+      return [...hits];
+    }
     const seen = new Set<number>();
     const out: ChunkScore<T>[] = [];
     let rerankedScore = hits.length;
@@ -89,7 +127,11 @@ export async function rerank<T extends ChunkPayloadForRerank>(
       }
     }
     return out;
-  } catch {
+  } catch (err) {
+    const timedOut =
+      err instanceof Error &&
+      (err.name === "AbortError" || err.name === "TimeoutError");
+    audit(timedOut ? "timeout" : "upstream", err);
     return [...hits];
   }
 }

@@ -20,6 +20,7 @@
  * form so existing mirror documents are NOT orphaned by the new scheme (no
  * live re-mirror needed). See {@link pageSourcePath}.
  */
+import { createHash } from "node:crypto";
 import {
   indexDocument,
   removeDocument,
@@ -45,9 +46,63 @@ export function pageSourcePath(slug: string, sourceId?: string | null): string {
   return `page://${slug}`;
 }
 
-/** True for a source_path produced by {@link pageSourcePath}. */
+/** True for a page-derived mirror source_path — the body mirror
+ *  ({@link pageSourcePath}) or the compiled-truth mirror
+ *  ({@link pageTruthSourcePath}). Both carry author-written page content, so
+ *  every caller that suppresses page mirrors (public-ingress redaction) must
+ *  suppress both. */
 export function isPageSourcePath(sourcePath: string): boolean {
-  return sourcePath.startsWith("page://");
+  return sourcePath.startsWith("page://") || sourcePath.startsWith("page-truth://");
+}
+
+/**
+ * Reserved source_path namespace for a page's COMPILED-TRUTH mirror — the
+ * canonical per-page understanding (`pages.compiled_truth`) indexed as its own
+ * search document so canonical answers are retrievable (reference parity: the
+ * reference chunks compiled truth alongside the body and boosts it ×2 at
+ * fusion — see hybrid.ts COMPILED_TRUTH_BOOST). Tenant-keyed exactly like
+ * {@link pageSourcePath}.
+ */
+export function pageTruthSourcePath(slug: string, sourceId?: string | null): string {
+  if (sourceId && sourceId !== "default") {
+    return `page-truth://${sourceId}/${slug}`;
+  }
+  return `page-truth://${slug}`;
+}
+
+/** SQL twin of {@link pageTruthSourcePath} (`p` = the `pages` alias). */
+export const PAGE_TRUTH_PATH_SQL =
+  `CASE WHEN p.source_id = 'default' THEN 'page-truth://' || p.slug ` +
+  `ELSE 'page-truth://' || p.source_id || '/' || p.slug END`;
+
+/**
+ * Serialize a page's compiled_truth JSONB into the text indexed for its truth
+ * mirror: an H1 (title + marker, searchable) followed by one readable
+ * `key: value` line per entry, keys sorted so the serialization — and its
+ * hash — is deterministic. Empty / non-object truth serializes to "" (the
+ * caller removes the mirror instead of indexing a husk).
+ */
+export function serializeCompiledTruth(
+  title: string | null,
+  slug: string,
+  truth: unknown,
+): string {
+  if (!truth || typeof truth !== "object" || Array.isArray(truth)) return "";
+  const entries = Object.entries(truth as Record<string, unknown>)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  if (entries.length === 0) return "";
+  const lines = entries.map(([k, v]) => {
+    if (typeof v === "string") return `${k}: ${v}`;
+    if (Array.isArray(v)) return `${k}: ${v.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(", ")}`;
+    return `${k}: ${JSON.stringify(v)}`;
+  });
+  return `# ${title ?? slug} — compiled truth\n\n${lines.join("\n")}`;
+}
+
+/** SHA-256 of the serialized truth text — the staleness stamp for reconcile. */
+export function compiledTruthHash(serialized: string): string {
+  return createHash("sha256").update(serialized, "utf8").digest("hex");
 }
 
 /**
@@ -89,6 +144,15 @@ export interface PageIndexInput {
    * the page's content is search-isolated to its tenant. Defaults to 'default'.
    */
   source_id?: string;
+  /**
+   * The page's compiled_truth header. When provided (even `{}`) the
+   * compiled-truth mirror (`page-truth://…`) is synced too: non-empty truth is
+   * indexed as its own search document, empty truth removes the mirror. When
+   * OMITTED the truth mirror is left untouched — the reconcile backstop
+   * (`reconcilePageMirrors`) syncs it on the next cycle, so callers that only
+   * know the body don't churn the truth doc.
+   */
+  compiled_truth?: Record<string, unknown> | null;
 }
 
 /**
@@ -102,9 +166,19 @@ export async function indexPageIntoSearch(
   page: PageIndexInput,
   opts: IndexFileOptions = {},
 ): Promise<IndexResult | null> {
+  // Compiled-truth mirror — synced only when the caller passed the field
+  // (undefined = leave to the reconcile backstop). Best-effort relative to the
+  // body mirror: a truth-mirror failure must not lose the body write, so it is
+  // indexed first and its errors propagate the same way (caller/backstop retry).
+  if (page.compiled_truth !== undefined) {
+    await indexPageTruthIntoSearch(storage, page, opts);
+  }
   const text = pageText(page.title, page.markdown_body);
   if (text.trim().length === 0) {
-    await removePageFromSearch(storage, page.slug, page.source_id);
+    // Body mirror only — a body-less page can still carry compiled truth
+    // (handled above / by the backstop); full removal is page-delete's job
+    // via removePageFromSearch.
+    await removeDocument(storage, pageSourcePath(page.slug, page.source_id));
     return null;
   }
   // A page mirror is a page BODY (its title is already folded into `text` by
@@ -129,6 +203,42 @@ export async function indexPageIntoSearch(
             },
           }
         : {}),
+    },
+    indexOpts,
+  );
+}
+
+/**
+ * Sync a page's compiled-truth mirror: index the serialized truth as its own
+ * `page-truth://` document (stamped with the serialization hash for the
+ * reconcile backstop), or drop the mirror when the truth is empty. Returns
+ * the index result, or null when the mirror was removed / left absent.
+ */
+export async function indexPageTruthIntoSearch(
+  storage: Storage,
+  page: Pick<PageIndexInput, "slug" | "title" | "source_id" | "compiled_truth">,
+  opts: IndexFileOptions = {},
+): Promise<IndexResult | null> {
+  const serialized = serializeCompiledTruth(
+    page.title ?? null,
+    page.slug,
+    page.compiled_truth ?? null,
+  );
+  const path = pageTruthSourcePath(page.slug, page.source_id);
+  if (serialized.length === 0) {
+    await removeDocument(storage, path);
+    return null;
+  }
+  const indexOpts: IndexFileOptions = { ...opts, inferFrontmatter: false };
+  return indexDocument(
+    storage,
+    {
+      sourcePath: path,
+      text: serialized,
+      sourceId: page.source_id ?? null,
+      extraFrontmatter: {
+        page_truth_hash: compiledTruthHash(serialized),
+      },
     },
     indexOpts,
   );
@@ -214,7 +324,76 @@ export async function reconcilePageMirrors(
     }
   }
 
-  // Pass 2 — orphan mirrors (page soft-deleted or gone).
+  // Pass 1t — missing or stale COMPILED-TRUTH mirrors. The staleness stamp
+  // (`page_truth_hash`) is a JS-side hash of the serialized truth, so the
+  // candidate set (every truth-bearing page + its mirror's stamp) is fetched
+  // and compared here rather than in SQL. Page counts are ~10^3 and the rows
+  // are header-sized — a full scan per cycle is cheap; the re-index work
+  // itself stays bounded by `limit`.
+  const truthRows = await engine.query<{
+    slug: string;
+    title: string | null;
+    compiled_truth: unknown;
+    source_id: string;
+    doc_source_id: string | null;
+    stamp: string | null;
+  }>(
+    `SELECT p.slug, p.title, p.compiled_truth, p.source_id,
+            d.source_id AS doc_source_id,
+            d.frontmatter->>'page_truth_hash' AS stamp
+       FROM pages p
+       LEFT JOIN documents d ON d.source_path = ${PAGE_TRUTH_PATH_SQL}
+      WHERE p.deleted_at IS NULL
+        AND p.compiled_truth IS NOT NULL
+        AND p.compiled_truth <> '{}'::jsonb
+      ORDER BY p.updated_at DESC`,
+  );
+  let truthBudget = limit;
+  for (const p of truthRows.rows) {
+    if (truthBudget <= 0) break;
+    let truth: unknown = p.compiled_truth;
+    if (typeof truth === "string") {
+      try {
+        truth = JSON.parse(truth);
+      } catch {
+        truth = null;
+      }
+    }
+    const serialized = serializeCompiledTruth(
+      p.title,
+      p.slug,
+      truth,
+    );
+    const fresh =
+      serialized.length > 0 &&
+      p.stamp === compiledTruthHash(serialized) &&
+      p.doc_source_id === p.source_id;
+    if (fresh) continue;
+    truthBudget--;
+    result.scanned++;
+    try {
+      const r = await indexPageTruthIntoSearch(
+        storage,
+        {
+          slug: p.slug,
+          title: p.title,
+          source_id: p.source_id,
+          compiled_truth: (truth ?? null) as Record<string, unknown> | null,
+        },
+        indexOpts,
+      );
+      if (r === null) result.removed++;
+      else result.mirrored++;
+    } catch (e) {
+      result.errors.push(
+        `${p.slug} (truth): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  // Pass 2 — orphan mirrors (page soft-deleted or gone). Two sweeps, one per
+  // mirror namespace: body mirrors joined on their path, truth mirrors joined
+  // on theirs AND requiring the page still carries non-empty truth.
   const orphans = await engine.query<{ source_path: string }>(
     `SELECT d.source_path
        FROM documents d
@@ -224,7 +403,19 @@ export async function reconcilePageMirrors(
       LIMIT $1`,
     [limit],
   );
-  for (const o of orphans.rows) {
+  const truthOrphans = await engine.query<{ source_path: string }>(
+    `SELECT d.source_path
+       FROM documents d
+       LEFT JOIN pages p
+         ON ${PAGE_TRUTH_PATH_SQL} = d.source_path
+        AND p.deleted_at IS NULL
+        AND p.compiled_truth IS NOT NULL
+        AND p.compiled_truth <> '{}'::jsonb
+      WHERE d.source_path LIKE 'page-truth://%' AND p.slug IS NULL
+      LIMIT $1`,
+    [limit],
+  );
+  for (const o of [...orphans.rows, ...truthOrphans.rows]) {
     try {
       const r = await removeDocument(storage, o.source_path);
       if (r.removed) result.removed++;
@@ -239,14 +430,17 @@ export async function reconcilePageMirrors(
 }
 
 /**
- * Drop a page's mirror document (idempotent). `sourceId` selects the tenant's
- * mirror id — omitted/'default' targets the legacy `page://<slug>` document, so
- * existing single-tenant callers are unchanged.
+ * Drop a page's mirror documents — body AND compiled-truth — (idempotent).
+ * `sourceId` selects the tenant's mirror ids — omitted/'default' targets the
+ * legacy `page://<slug>` document, so existing single-tenant callers are
+ * unchanged. `removed` reports the body mirror (the pre-truth contract).
  */
 export async function removePageFromSearch(
   storage: Storage,
   slug: string,
   sourceId?: string | null,
 ): Promise<{ removed: boolean }> {
-  return removeDocument(storage, pageSourcePath(slug, sourceId));
+  const body = await removeDocument(storage, pageSourcePath(slug, sourceId));
+  await removeDocument(storage, pageTruthSourcePath(slug, sourceId));
+  return body;
 }

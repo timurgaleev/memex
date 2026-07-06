@@ -45,9 +45,10 @@
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { getTitleBoost } from "./title-match.ts";
-import { getNearDupThreshold } from "./dedup.ts";
+import { getNearDupThreshold, getMaxTypeRatio } from "./dedup.ts";
 import { getGraphSignalsFloorRatio } from "./graph-signals.ts";
 import { aliasHopEnabled } from "./alias-hop.ts";
+import { resolveSearchMode } from "./mode.ts";
 
 export interface CachedQuery {
   intent: string | null;
@@ -107,9 +108,13 @@ export function resolveSemanticCacheConfig(
  * stage (v1.3.25); `4` = the graph-signals score-floor ratio
  * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts;
  * `5` = the alias-hop stage (MEMEX_ALIAS_HOP), which can boost or inject the
- * canonical page for an exact-alias query.
+ * canonical page for an exact-alias query; `6` = the reference-parity ranking
+ * batch (k/weight RRF math, zero-LLM intent taxonomy, arm-SQL curation boost +
+ * default hard-excludes, compiled-truth ×2, exact-match / alias-resolved /
+ * mattering-salience / recency-boost stages, per-doc dedup cap 2 + type
+ * diversity, full-window rerank head).
  */
-const RANKING_VERSION = "5";
+const RANKING_VERSION = "6";
 
 /**
  * Signature of the ranking inputs that are NOT function arguments, so a change
@@ -123,15 +128,38 @@ const RANKING_VERSION = "5";
  *   - the graph-signals score-floor ratio (`MEMEX_GRAPH_SIGNALS_FLOOR`), which
  *     changes which hits are eligible for a graph boost;
  *   - the alias-hop on/off flag (`MEMEX_ALIAS_HOP`), which can boost or inject
- *     the canonical page for an exact-alias query.
+ *     the canonical page for an exact-alias query;
+ *   - the full ranking-knob set (the reference's knobs-hash): the resolved
+ *     search MODE (`MEMEX_SEARCH_MODE`) plus every stage-toggling env —
+ *     graph-signals (`MEMEX_GRAPH_SIGNALS`), cosine re-score
+ *     (`MEMEX_COSINE_RESCORE`), backlink boost (`MEMEX_BACKLINK_BOOST`),
+ *     expansion (`MEMEX_QUERY_EXPANSION`), recency boost
+ *     (`MEMEX_RECENCY_BOOST`), curation boost/excludes (`MEMEX_CURATION_BOOST`
+ *     / `MEMEX_SEARCH_EXCLUDE`), and the type-diversity ratio
+ *     (`MEMEX_MAX_TYPE_RATIO`). A flag flip re-keys the cache instead of
+ *     serving the pre-flip ranking until the TTL/clock catches up. Per-call
+ *     overrides of the same knobs are appended by hybrid.ts on top of this
+ *     env-level signature.
  * NOTE: time-based recency (a hit ages between writes) still drifts the true
  * order within a cache lifetime — that is inherent to caching a wall-clock
  * ranking and is accepted by design (the cache is gated on the document
  * generation clock, so any document write refreshes it).
  */
 export function rankingSignature(): string {
-  const recency = process.env["MEMEX_RECENCY_DECAY"] ?? "";
-  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}:ah=${aliasHopEnabled() ? 1 : 0}`;
+  const env = process.env;
+  const recency = env["MEMEX_RECENCY_DECAY"] ?? "";
+  const knobs = [
+    `mode=${resolveSearchMode()}`,
+    `gs=${env["MEMEX_GRAPH_SIGNALS"] ?? ""}`,
+    `cr=${env["MEMEX_COSINE_RESCORE"] ?? ""}`,
+    `bb=${env["MEMEX_BACKLINK_BOOST"] ?? ""}`,
+    `xp=${env["MEMEX_QUERY_EXPANSION"] ?? ""}`,
+    `rb=${env["MEMEX_RECENCY_BOOST"] ?? ""}`,
+    `cb=${env["MEMEX_CURATION_BOOST"] ?? ""}`,
+    `sx=${env["MEMEX_SEARCH_EXCLUDE"] ?? ""}`,
+    `mt=${getMaxTypeRatio()}`,
+  ].join(":");
+  return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}:ah=${aliasHopEnabled() ? 1 : 0}:${knobs}`;
 }
 
 /**

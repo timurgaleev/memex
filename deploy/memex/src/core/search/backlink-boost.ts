@@ -14,10 +14,11 @@
  *   10 links → ×1.12
  *   100 links→ ×1.23
  *
- * `type = 'mentions'` links are EXCLUDED: those are auto-linked body-text
- * mentions (graph-completeness signal), not an intentional human reference, and
- * counting them would let popular-mention pages dominate ranking. Self-links are
- * excluded too. The boost is floor-ratio-gated exactly like graph-signals
+ * `link_source = 'mentions'` links are EXCLUDED (mig086 provenance; the
+ * reference's exact filter): those are auto-linked body-text mentions and
+ * verb-inferred edges (graph-completeness signal), not an intentional human
+ * reference, and counting them would let popular-mention pages dominate
+ * ranking. Self-links are excluded too. The boost is floor-ratio-gated exactly like graph-signals
  * (reusing computeFloorThreshold): a hit must score within `ratio` of the top
  * hit to be eligible, so a weak tail hit can't be lifted past a strong primary
  * one. Fail-open: any links-query error leaves scores untouched.
@@ -70,7 +71,7 @@ export async function defaultBacklinkCounts(
        JOIN pages sp ON sp.slug = l.source_slug AND sp.deleted_at IS NULL
       WHERE l.target_slug = ANY($1::text[])
         AND l.source_slug <> l.target_slug
-        AND l.type <> 'mentions'${sourceFilter}
+        AND l.link_source <> 'mentions'${sourceFilter}
       GROUP BY l.target_slug`,
     params,
   );
