@@ -124,8 +124,13 @@ export async function conversationFactsBackfillPhase(
         AND p.slug NOT LIKE 'reflections/%'
         AND p.slug NOT LIKE 'patterns/%'
         AND NOT EXISTS (
+          -- Match on (source_slug, source_id): a same-slug page in ANOTHER
+          -- source must not mask THIS page's un-extracted facts (pages are
+          -- keyed by (slug, source_id), so slug alone over-skips cross-source).
           SELECT 1 FROM entity_facts f
-           WHERE f.source_slug = p.slug AND f.written_by = $2
+           WHERE f.source_slug = p.slug
+             AND f.source_id = p.source_id
+             AND f.written_by = $2
         )
       ORDER BY p.updated_at DESC
       LIMIT $3`,

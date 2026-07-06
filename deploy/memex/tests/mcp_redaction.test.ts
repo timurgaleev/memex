@@ -53,7 +53,14 @@ beforeAll(async () => {
     markdown_body: SECRET_BODY,
     compiled_truth: { sector: "widgets" },
   });
-  await addFact(storage, { entity_slug: SLUG, fact: SECRET_FACT });
+  // World-visible fact: it survives the public path's visibility=['world']
+  // floor (mig-085 default is 'private'), so it exercises TEXT redaction —
+  // the free-text `fact` is still stripped on public, metadata kept.
+  await addFact(storage, {
+    entity_slug: SLUG,
+    fact: SECRET_FACT,
+    visibility: "world",
+  });
   await addTimelineEvent(storage, {
     slug: SLUG,
     occurred_at: "2026-02-01T00:00:00Z",

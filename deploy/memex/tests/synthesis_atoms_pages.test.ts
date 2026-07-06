@@ -93,7 +93,11 @@ describe("extractAtomsPhase provenance + page mirror", () => {
       `SELECT slug, markdown_body, type FROM pages WHERE slug LIKE 'atoms/%'`,
     );
     expect(pages.length).toBe(1);
-    expect(pages[0]?.slug).toBe(`atoms/${day}/ship-gates-beat-retro-fixes`);
+    // Slug carries an 8-char atom_key suffix so same-title/same-day atoms
+    // don't collide on the pages PK.
+    expect(pages[0]?.slug).toMatch(
+      new RegExp(`^atoms/${day}/ship-gates-beat-retro-fixes-[0-9a-f]{8}$`),
+    );
     expect(pages[0]?.type).toBe("atom");
     expect(pages[0]?.markdown_body).toContain("we caught it at the gate");
     expect(pages[0]?.markdown_body).toContain("Lesson:");
