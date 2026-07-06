@@ -8,15 +8,23 @@
  * handlers call the SAME provisioning core (`core/sources.ts` +
  * `core/tenant-grants.ts`) so the API and CLI never drift, plus the brain stats.
  *
+ * Credential management (Agents page) wraps the same OAuth provider + PAT
+ * store the `auth` CLI uses: a unified `agents` view over oauth_clients +
+ * access_tokens with per-credential usage, PAT mint/list/revoke, OAuth client
+ * register/revoke, and the per-client token_ttl write side.
+ *
  * EVERY route gates on `requireAdmin` itself — the public bearer guard exempts
  * `/admin*`, so there is no ambient protection here.
  */
+import { createHash, randomBytes } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { registerSource } from "../core/sources.ts";
 import { listGrants, getGrant, upsertGrant, revokeGrant, validateGrantSourceIds } from "../core/tenant-grants.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
 import { getCalibrationProfile } from "../core/synthesis/reads.ts";
+import { OAuthProvider, validateTokenEndpointAuthMethod } from "../core/oauth-provider.ts";
+import { normalizeScopesInput } from "../core/scope.ts";
 
 export interface AdminApiDeps {
   storage: Storage;
@@ -75,6 +83,57 @@ async function grantUsageBySubject(engine: Engine): Promise<Map<string, GrantUsa
     });
   }
   return map;
+}
+
+/**
+ * Same rollup keyed by CREDENTIAL identity (`token_name`) instead of caller
+ * identity. The request logger stamps the OAuth client id (or the legacy
+ * PAT name) into `token_name`, so this map joins the credentials table on
+ * the Agents page. One grouped scan, like `grantUsageBySubject`.
+ */
+async function usageByTokenName(engine: Engine): Promise<Map<string, GrantUsage>> {
+  const { rows } = await engine.query<{
+    token_name: string;
+    requests_today: number | string;
+    total_requests: number | string;
+    last_used_at: string | null;
+  }>(
+    `SELECT token_name,
+            count(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS requests_today,
+            count(*)::int AS total_requests,
+            max(created_at)::text AS last_used_at
+       FROM mcp_request_log
+      WHERE token_name IS NOT NULL
+      GROUP BY token_name`,
+  );
+  const map = new Map<string, GrantUsage>();
+  for (const r of rows) {
+    map.set(r.token_name, {
+      requests_today: Number(r.requests_today) || 0,
+      total_requests: Number(r.total_requests) || 0,
+      last_used_at: r.last_used_at,
+    });
+  }
+  return map;
+}
+
+/** SHA-256 hex digest — same shape the OAuth provider and `auth create` store. */
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+/**
+ * Coerce a `token_ttl` body value to seconds or null (= server default).
+ * `null`/`0` clear the override; anything else must be a positive integer.
+ * Throws on malformed input so the route can 400 instead of storing junk.
+ */
+function parseTokenTtl(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === 0) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error("token_ttl must be a positive integer (seconds), or null/0 to clear");
+  }
+  return n;
 }
 
 /** MCP server name the generated client configs register the brain under. */
@@ -316,6 +375,329 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
   }
 
+  // GET /admin/api/agents — unified credentials view (Agents page): OAuth
+  // clients + legacy API keys (access_tokens) in one list, each with status
+  // and per-credential usage. Usage joins on `token_name` (the credential id
+  // the request logger stamps); a legacy key with no logged calls falls back
+  // to its own `last_used_at` column (bumped by the legacy verify path).
+  if (p === "/admin/api/agents" && req.method === "GET") {
+    try {
+      const usage = await usageByTokenName(engine);
+      const clients = await engine.query<{
+        id: string;
+        name: string;
+        grant_types: string[] | null;
+        scope: string | null;
+        token_ttl: number | null;
+        source_id: string | null;
+        federated_read: string[] | null;
+        status: string;
+        created_at: string;
+      }>(
+        `SELECT client_id AS id, client_name AS name, grant_types, scope,
+                token_ttl, source_id, federated_read,
+                CASE WHEN deleted_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status,
+                created_at::text AS created_at
+           FROM oauth_clients
+          ORDER BY created_at DESC`,
+      );
+      const keys = await engine.query<{
+        id: number | string;
+        name: string;
+        status: string;
+        created_at: string;
+        last_used_at: string | null;
+      }>(
+        `SELECT id, name,
+                CASE WHEN revoked_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status,
+                created_at::text AS created_at, last_used_at::text AS last_used_at
+           FROM access_tokens
+          ORDER BY created_at DESC`,
+      );
+      const agents = [
+        ...clients.rows.map((c) => ({ auth_type: "oauth" as const, ...c, usage: usage.get(c.id) ?? EMPTY_USAGE })),
+        ...keys.rows.map((k) => {
+          const u = usage.get(k.name) ?? EMPTY_USAGE;
+          return {
+            auth_type: "api_key" as const,
+            id: String(k.id),
+            name: k.name,
+            grant_types: null,
+            scope: null,
+            token_ttl: null,
+            source_id: null,
+            federated_read: null,
+            status: k.status,
+            created_at: k.created_at,
+            usage: { ...u, last_used_at: u.last_used_at ?? k.last_used_at },
+          };
+        }),
+      ];
+      return Response.json({ count: agents.length, agents });
+    } catch (e) {
+      return serverError("agents", e);
+    }
+  }
+
+  // GET /admin/api/api-keys — legacy personal access tokens (no hashes).
+  if (p === "/admin/api/api-keys" && req.method === "GET") {
+    try {
+      const { rows } = await engine.query<Record<string, unknown>>(
+        `SELECT id, name,
+                CASE WHEN revoked_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status,
+                created_at::text AS created_at, last_used_at::text AS last_used_at
+           FROM access_tokens
+          ORDER BY created_at DESC`,
+      );
+      return Response.json({ count: rows.length, keys: rows });
+    } catch (e) {
+      return serverError("api-keys-list", e);
+    }
+  }
+
+  // POST /admin/api/api-keys — mint a personal access token (= `auth create`).
+  // The plaintext token is returned ONCE; only the SHA-256 hash persists. The
+  // default permissions block matches the CLI: takes_holders ['world'] keeps
+  // private takes hidden until the operator widens the allow-list.
+  if (p === "/admin/api/api-keys" && req.method === "POST") {
+    let body: { name?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return badRequest("name required");
+    try {
+      const dup = await engine.query<{ id: number }>(
+        "SELECT id FROM access_tokens WHERE name = $1 AND revoked_at IS NULL",
+        [name],
+      );
+      if (dup.rows.length > 0) {
+        return badRequest(`an active token named "${name}" already exists — revoke it first`);
+      }
+      const token = "memex_" + randomBytes(32).toString("hex");
+      // JSONB params are JS objects, never pre-stringified (double-encode bug class).
+      const inserted = await engine.query<{ id: number | string }>(
+        `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
+         VALUES ($1, $2, $3::text[], $4::jsonb) RETURNING id`,
+        [name, sha256Hex(token), ["read", "write"], { takes_holders: ["world"] }],
+      );
+      return Response.json({
+        ok: true,
+        id: String(inserted.rows[0]?.id ?? ""),
+        name,
+        token,
+        note: "Store the token now — only its hash persists.",
+      });
+    } catch (e) {
+      return serverError("api-keys-mint", e);
+    }
+  }
+
+  // POST /admin/api/api-keys/revoke — soft-revoke a PAT by name (= `auth revoke`).
+  if (p === "/admin/api/api-keys/revoke" && req.method === "POST") {
+    let body: { name?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.name !== "string" || body.name.length === 0) return badRequest("name required");
+    try {
+      const r = await engine.query<{ id: number }>(
+        `UPDATE access_tokens SET revoked_at = now()
+          WHERE name = $1 AND revoked_at IS NULL RETURNING id`,
+        [body.name],
+      );
+      if (r.rows.length === 0) {
+        return Response.json({ error: `no active token named "${body.name}"` }, { status: 404 });
+      }
+      return Response.json({ ok: true, revoked: true, name: body.name });
+    } catch (e) {
+      return serverError("api-keys-revoke", e);
+    }
+  }
+
+  // POST /admin/api/register-client — operator-trusted OAuth client
+  // registration (= `auth register-client`). Same defaults as the CLI: a
+  // client with redirect_uris is an authorization-code (browser) client;
+  // without, client_credentials. The secret is returned ONCE. An optional
+  // `token_ttl` closes the write side of the per-client TTL the token
+  // exchange already honors.
+  if (p === "/admin/api/register-client" && req.method === "POST") {
+    let body: {
+      name?: unknown;
+      scopes?: unknown;
+      scope?: unknown;
+      grant_types?: unknown;
+      redirect_uris?: unknown;
+      token_endpoint_auth_method?: unknown;
+      token_ttl?: unknown;
+      source?: unknown;
+      read?: unknown;
+    };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return badRequest("name required");
+
+    // Accept both `scopes` (SPA convention) and `scope` (OAuth wire
+    // convention) — string or string[]; malformed shapes 400, never coerced.
+    let scopeString: string;
+    try {
+      scopeString = normalizeScopesInput(body.scopes ?? body.scope);
+    } catch (e) {
+      return badRequest(e instanceof Error ? e.message : "invalid scopes");
+    }
+    let authMethod: string;
+    try {
+      authMethod = validateTokenEndpointAuthMethod(body.token_endpoint_auth_method);
+    } catch (e) {
+      return badRequest(e instanceof Error ? e.message : "invalid token_endpoint_auth_method");
+    }
+    let tokenTtl: number | null;
+    try {
+      tokenTtl = parseTokenTtl(body.token_ttl);
+    } catch (e) {
+      return badRequest(e instanceof Error ? e.message : "invalid token_ttl");
+    }
+    const redirectUris = Array.isArray(body.redirect_uris)
+      ? body.redirect_uris.filter((u): u is string => typeof u === "string" && u.length > 0)
+      : [];
+    const grantTypes =
+      Array.isArray(body.grant_types) && body.grant_types.length > 0
+        ? body.grant_types.filter((g): g is string => typeof g === "string" && g.length > 0)
+        : redirectUris.length > 0
+          ? ["authorization_code", "refresh_token"]
+          : ["client_credentials"];
+    const sourceId = typeof body.source === "string" && body.source.length > 0 ? body.source : "default";
+    let federatedRead: string[] | undefined;
+    if (body.read !== undefined) {
+      if (
+        !Array.isArray(body.read) ||
+        body.read.length === 0 ||
+        !body.read.every((x) => typeof x === "string" && x.length > 0)
+      ) {
+        return badRequest("read must be a non-empty array of source ids");
+      }
+      federatedRead = body.read as string[];
+    }
+
+    try {
+      // Validate the tenancy grant only when explicitly scoped — the
+      // implicit 'default' floor mirrors the CLI, which does not validate.
+      if (body.source !== undefined || federatedRead !== undefined) {
+        const missing = await validateGrantSourceIds(engine, sourceId, federatedRead ?? [sourceId]);
+        if (missing.length > 0) return badRequest(`unknown source id(s): ${missing.join(", ")}`);
+      }
+      const provider = new OAuthProvider({ engine });
+      const { clientId, clientSecret } = await provider.registerClientManual(
+        name,
+        grantTypes,
+        scopeString,
+        redirectUris,
+        sourceId,
+        federatedRead,
+        authMethod,
+      );
+      if (tokenTtl !== null) {
+        await engine.query("UPDATE oauth_clients SET token_ttl = $1 WHERE client_id = $2", [tokenTtl, clientId]);
+      }
+      return Response.json({
+        ok: true,
+        client_id: clientId,
+        client_secret: clientSecret ?? null,
+        client_name: name,
+        grant_types: grantTypes,
+        scope: scopeString,
+        source_id: sourceId,
+        federated_read: federatedRead ?? [sourceId],
+        token_ttl: tokenTtl,
+        note:
+          clientSecret === undefined
+            ? "Public client (auth method 'none') — no secret minted; PKCE authenticates."
+            : "Store client_secret now — it is not recoverable.",
+      });
+    } catch (e) {
+      return serverError("register-client", e);
+    }
+  }
+
+  // POST /admin/api/update-client-ttl — set/clear a client's per-token TTL
+  // override. The exchange path already reads `oauth_clients.token_ttl`;
+  // this is the missing write surface.
+  if (p === "/admin/api/update-client-ttl" && req.method === "POST") {
+    let body: { client_id?: unknown; token_ttl?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
+    let ttl: number | null;
+    try {
+      ttl = parseTokenTtl(body.token_ttl);
+    } catch (e) {
+      return badRequest(e instanceof Error ? e.message : "invalid token_ttl");
+    }
+    try {
+      const r = await engine.query<{ client_id: string }>(
+        "UPDATE oauth_clients SET token_ttl = $1 WHERE client_id = $2 RETURNING client_id",
+        [ttl, body.client_id],
+      );
+      if (r.rows.length === 0) {
+        return Response.json({ error: `no client "${body.client_id}"` }, { status: 404 });
+      }
+      return Response.json({ ok: true, client_id: body.client_id, token_ttl: ttl });
+    } catch (e) {
+      return serverError("update-client-ttl", e);
+    }
+  }
+
+  // POST /admin/api/revoke-client — soft-delete an OAuth client and kill its
+  // live tokens. Soft-delete (not the CLI's hard DELETE) keeps the audit row;
+  // deleting the oauth_tokens rows makes every issued access/refresh token
+  // fail verification immediately.
+  if (p === "/admin/api/revoke-client" && req.method === "POST") {
+    let body: { client_id?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
+    try {
+      const exists = await engine.query<{ client_id: string }>(
+        "SELECT client_id FROM oauth_clients WHERE client_id = $1",
+        [body.client_id],
+      );
+      if (exists.rows.length === 0) {
+        return Response.json({ error: `no client "${body.client_id}"` }, { status: 404 });
+      }
+      const soft = await engine.query<{ client_id: string }>(
+        `UPDATE oauth_clients SET deleted_at = now()
+          WHERE client_id = $1 AND deleted_at IS NULL RETURNING client_id`,
+        [body.client_id],
+      );
+      const tokens = await engine.query<{ n: number }>(
+        "DELETE FROM oauth_tokens WHERE client_id = $1 RETURNING 1 AS n",
+        [body.client_id],
+      );
+      return Response.json({
+        ok: true,
+        revoked: soft.rows.length > 0,
+        client_id: body.client_id,
+        tokens_deleted: tokens.rows.length,
+      });
+    } catch (e) {
+      return serverError("revoke-client", e);
+    }
+  }
+
   // GET /admin/api/requests?page=N — recent MCP request log rows (RequestLog
   // page). The table (mig 046) exists; a request-logger populates it. Paginated.
   if (p === "/admin/api/requests" && req.method === "GET") {
@@ -325,7 +707,7 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       const rows = await engine.query<Record<string, unknown>>(
         // error_message capped (left(...,300)) — admin-only, but it can carry
         // upstream payload/path text; no need to ship the raw blob to the UI.
-        `SELECT id, agent_name, operation, latency_ms, status,
+        `SELECT id, token_name, agent_name, operation, latency_ms, status,
                 left(error_message, 300) AS error_message, created_at::text AS created_at
            FROM mcp_request_log
           ORDER BY created_at DESC, id DESC

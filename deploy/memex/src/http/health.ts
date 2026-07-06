@@ -1,32 +1,76 @@
 /**
- * /health endpoint — daemon liveness + DB stats + active engine kind.
+ * /health endpoint — liveness only.
  *
- * Reports the engine's `kind` (`pglite` or `postgres`) so monitoring
+ * A bare `SELECT 1` raced against a 3 s timeout. Two reasons (both from
+ * the reference's v0.28.10 incident):
+ *   1. Corpus stats behind an unauthenticated internet-reachable probe
+ *      disclose the brain's size to anonymous callers — stats now live
+ *      only behind `/admin/api/full-stats` (admin auth).
+ *   2. Full `stats()` runs several count(*) queries; on a saturated
+ *      pool those can hang past the orchestrator's health deadline and
+ *      trigger restart cascades. A liveness probe must answer fast or
+ *      503, never hang.
+ *
+ * Still reports the engine `kind` (`pglite` or `postgres`) so monitoring
  * can tell at a glance which backend is in use after a cutover.
  */
 import type { Storage } from "../core/storage.ts";
 import packageJson from "../../package.json" with { type: "json" };
-import { publicSafeErrorMessage } from "../core/public_redaction.ts";
 
-export async function handleHealth(storage: Storage): Promise<Response> {
+/** 3 s leaves headroom under the usual 5 s orchestrator health deadline. */
+export const HEALTH_TIMEOUT_MS = 3000;
+
+export interface LivenessResult {
+  status: 200 | 503;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Pure probe: race `SELECT 1` against the timeout, return a tagged
+ * result. No Response coupling so tests can drive it with a mock
+ * storage. The timer is cleared when the query wins so fast probes
+ * don't accumulate pending timers.
+ */
+export async function probeLiveness(
+  storage: Storage,
+  timeoutMs: number = HEALTH_TIMEOUT_MS,
+): Promise<LivenessResult> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const stats = await storage.stats();
-    return Response.json({
-      ok: true,
-      db: storage.engine().kind,
-      version: packageJson.version,
-      stats,
-    });
+    await Promise.race([
+      storage.engine().query("SELECT 1"),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("health_timeout")), timeoutMs);
+      }),
+    ]);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        db: storage.engine().kind,
+        version: packageJson.version,
+      },
+    };
   } catch (e) {
     // /health is unauthenticated and internet-reachable — never echo the
     // raw exception (it would leak the DSN host / Postgres internals on a
-    // DB outage). Log the detail server-side; return a generic message.
-    return Response.json(
-      {
+    // DB outage). Distinguish only timeout vs failure.
+    const timedOut = e instanceof Error && e.message === "health_timeout";
+    return {
+      status: 503,
+      body: {
         ok: false,
-        error: publicSafeErrorMessage(e, true),
+        error: timedOut
+          ? "health check timed out (database pool may be saturated)"
+          : "database connection failed",
       },
-      { status: 503 },
-    );
+    };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
+}
+
+export async function handleHealth(storage: Storage): Promise<Response> {
+  const result = await probeLiveness(storage);
+  return Response.json(result.body, { status: result.status });
 }
