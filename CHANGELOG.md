@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.87.0] — 2026-07-06
+
 ### Added
 - **`memex version` / `--version`** — prints the build stamp (a `git describe`
   baked into the image at build time via `MEMEX_VERSION`, or `dev` locally).
