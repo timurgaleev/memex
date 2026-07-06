@@ -39,7 +39,7 @@ export async function setRecipeState<T>(
 ): Promise<void> {
   await engine.query(
     `INSERT INTO recipe_state (recipe_id, key, value, updated_at)
-     VALUES ($1, $2, $3::jsonb, NOW())
+     VALUES ($1, $2, $3::text::jsonb, NOW())
      ON CONFLICT (recipe_id, key) DO UPDATE SET
        value = EXCLUDED.value,
        updated_at = NOW()`,

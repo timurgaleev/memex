@@ -117,7 +117,7 @@ export async function putWorthVerdict(
     await engine.query(
       `INSERT INTO synth_worth_verdicts
          (source_ref, content_hash, worth_processing, reasons, model_id)
-       VALUES ($1, $2, $3, $4::jsonb, $5)
+       VALUES ($1, $2, $3, $4::text::jsonb, $5)
        ON CONFLICT (source_ref, content_hash) DO NOTHING`,
       [sourceRef, contentHash, verdict.worth_processing, JSON.stringify(verdict.reasons), modelId],
     );

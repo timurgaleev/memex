@@ -476,7 +476,7 @@ export async function putCachedQuery(
       : null;
   await engine.query(
     `INSERT INTO query_cache (cache_key, query, k, intent, result_ids, clock_value, doc_generations, bucket_key, query_embedding)
-     SELECT $1, $2, $3, $4, $5::jsonb, $6,
+     SELECT $1, $2, $3, $4, $5::text::jsonb, $6,
        COALESCE(
          (SELECT jsonb_object_agg(d.id, d.generation)
             FROM documents d WHERE d.id = ANY($7::text[])),

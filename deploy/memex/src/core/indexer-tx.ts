@@ -126,7 +126,7 @@ export async function writeDocumentTransaction(
   await engine.transaction(async (tx) => {
     await tx.query(
       `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
-       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
+       VALUES ($1, $6, $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          -- Keep the existing source on reindex unless the caller passes one
          -- explicitly. A null write leaves classification to the path-prefix

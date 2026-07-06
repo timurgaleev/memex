@@ -164,7 +164,7 @@ export async function captureEvalCandidate(
          expand_enabled, detail, job_id, subagent_id
        ) VALUES (
          $1, $2, $3, $4, $5,
-         $6::jsonb, $7, $8, $9::jsonb, $10,
+         $6::text::jsonb, $7, $8, $9::text::jsonb, $10,
          $11, $12, $13, $14
        ) RETURNING id`,
       [

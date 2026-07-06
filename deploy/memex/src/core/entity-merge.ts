@@ -348,7 +348,7 @@ async function appendMarker(
     `INSERT INTO page_versions
        (slug, version_n, hash_prev, hash_new,
         body_snapshot, compiled_truth_snapshot, written_by, written_at, source_id)
-     VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW(), $6)`,
+     VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW(), $6)`,
     [slug, nextN.rows[0]!.n, contentHash, JSON.stringify(marker), writtenBy, sourceId],
   );
 }

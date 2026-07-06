@@ -68,7 +68,7 @@ export async function putRawData(
   }
   const r = await storage.engine().query<{ inserted: boolean }>(
     `INSERT INTO raw_data (slug, source, data)
-     VALUES ($1, $2, $3::jsonb)
+     VALUES ($1, $2, $3::text::jsonb)
      ON CONFLICT (slug, source) DO UPDATE
        SET data = EXCLUDED.data,
            created_at = NOW()

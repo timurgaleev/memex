@@ -297,7 +297,7 @@ export async function extractAtomsPhase(
         await engine.query(
           `INSERT INTO synth_atoms
              (atom_key, source_ref, source_kind, source_hash, title, body, atom_type, concepts, source_quote, lesson, model_id)
-           VALUES ($1, $2, 'document', $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+           VALUES ($1, $2, 'document', $3, $4, $5, $6, $7::text::jsonb, $8, $9, $10)
            ON CONFLICT (atom_key) DO NOTHING`,
           [
             key, doc.id, doc.contentHash16, atom.title, atom.body, atom.atom_type,

@@ -84,7 +84,7 @@ export async function logFriction(
   }
   await engine.query(
     `INSERT INTO friction_events (kind, query, reason, source_path, severity, extra)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6::text::jsonb)`,
     [
       input.kind,
       input.query ?? null,

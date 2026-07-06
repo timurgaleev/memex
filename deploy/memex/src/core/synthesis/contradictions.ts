@@ -376,7 +376,7 @@ async function putCachedVerdict(
     await engine.query(
       `INSERT INTO synth_contradiction_verdicts
          (pair_key, contradicts, verdict, model_id, judged_at, expires_at)
-       VALUES ($1, $2, $3::jsonb, $4, now(), now() + ($5 * interval '1 day'))
+       VALUES ($1, $2, $3::text::jsonb, $4, now(), now() + ($5 * interval '1 day'))
        ON CONFLICT (pair_key) DO UPDATE SET
          contradicts = EXCLUDED.contradicts,
          verdict = EXCLUDED.verdict,

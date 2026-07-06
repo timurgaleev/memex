@@ -51,15 +51,16 @@ export async function logIngest(
       : "default";
   const r = await engine.query<{ id: number }>(
     `INSERT INTO ingest_log (source_id, source_type, source_ref, pages_updated, summary)
-     VALUES ($1, $2, $3, $4::jsonb, $5)
+     VALUES ($1, $2, $3, $4::text::jsonb, $5)
      RETURNING id`,
     [
       sourceId,
       entry.source_type,
       entry.source_ref ?? null,
-      // JSON text + explicit ::jsonb cast — the house convention for jsonb
-      // params (see pages.ts truthJson); a bare JS array would be read as a
-      // Postgres array, not jsonb.
+      // JSON text through a ::text::jsonb cast: a bare JS array would be read
+      // as a Postgres array, and a string bound to a bare ::jsonb position
+      // double-encodes on real Postgres (postgres.js wraps it into a jsonb
+      // string scalar). ::text::jsonb parses the text instead.
       JSON.stringify(pages),
       entry.summary ?? null,
     ],

@@ -40,7 +40,7 @@ export async function recordEvalSnapshot(
   const r = await engine.query<{ id: number }>(
     `INSERT INTO eval_snapshots
        (ran_at, total_queries, scored, mean_rr, hit_rate, detail)
-     VALUES ($1::timestamptz, $2, $3, $4, $5, $6::jsonb)
+     VALUES ($1::timestamptz, $2, $3, $4, $5, $6::text::jsonb)
      RETURNING id`,
     [
       report.ranAt,

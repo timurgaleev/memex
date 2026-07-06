@@ -393,7 +393,7 @@ export async function replayAll(
     if (opts.promote && q.expectedDocId) {
       await engine.query(
         `UPDATE eval_queries
-            SET baseline_doc_ids = $2::jsonb,
+            SET baseline_doc_ids = $2::text::jsonb,
                 baseline_rank = $3,
                 baseline_hit = $4,
                 baseline_rr = $5,

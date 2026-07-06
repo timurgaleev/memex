@@ -253,14 +253,14 @@ export async function putPage(
       await tx.query(
         `INSERT INTO pages (slug, type, title, compiled_truth,
                             markdown_body, content_hash, source_id)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+         VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, $7)`,
         [input.slug, type, title, truthJson, body, hashNew, sourceId],
       );
       await tx.query(
         `INSERT INTO page_versions
            (slug, version_n, hash_prev, hash_new,
             body_snapshot, compiled_truth_snapshot, written_by, source_id)
-         VALUES ($1, 1, NULL, $2, $3, $4::jsonb, $5, $6)`,
+         VALUES ($1, 1, NULL, $2, $3, $4::text::jsonb, $5, $6)`,
         [input.slug, hashNew, body, truthJson, writtenBy, sourceId],
       );
       await bumpPageGeneration(tx, input.slug);
@@ -300,7 +300,7 @@ export async function putPage(
       `UPDATE pages
          SET type = $2,
              title = $3,
-             compiled_truth = $4::jsonb,
+             compiled_truth = $4::text::jsonb,
              markdown_body = $5,
              content_hash = $6,
              updated_at = NOW()
@@ -311,7 +311,7 @@ export async function putPage(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
           body_snapshot, compiled_truth_snapshot, written_by, source_id)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7, $8)`,
       [
         input.slug,
         nextVersion,
@@ -621,7 +621,7 @@ export async function deletePage(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
           body_snapshot, compiled_truth_snapshot, written_by, written_at)
-       VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW())`,
+       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW())`,
       [
         slug,
         nextN.rows[0]!.n,
@@ -689,7 +689,7 @@ export async function restorePage(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
           body_snapshot, compiled_truth_snapshot, written_by, written_at)
-       VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW())`,
+       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW())`,
       [slug, nextN.rows[0]!.n, r.rows[0]!.content_hash, marker, writtenBy ?? null],
     );
     await bumpPageGeneration(tx, slug);
@@ -978,7 +978,7 @@ export async function renamePage(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
           body_snapshot, compiled_truth_snapshot, written_by, written_at, source_id)
-       VALUES ($1, $2, $3, $3, '', $4::jsonb, $5, NOW(), $6)`,
+       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW(), $6)`,
       [toSlug, nextN.rows[0]!.n, src.rows[0]!.content_hash, marker, writtenBy, ownerSource],
     );
     await bumpPageGeneration(tx, toSlug);

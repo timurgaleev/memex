@@ -136,6 +136,7 @@ import {
   type EntityRecallOptions,
 } from "../core/facts.ts";
 import { putRawData, getRawData } from "../core/raw-data.ts";
+import { logIngest, getIngestLog } from "../core/ingest-log.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { getJobProgress } from "../core/jobs/lifecycle.ts";
 import { runThink, type ThinkOptions } from "../core/synthesis/think.ts";
@@ -551,6 +552,10 @@ async function dispatchToolInner(
         return await callPutRawData(storage, args, writeSource);
       case "get_raw_data":
         return await callGetRawData(storage, args, readSources);
+      case "log_ingest":
+        return await callLogIngest(storage, args, writeSource);
+      case "get_ingest_log":
+        return await callGetIngestLog(storage, args, readSources);
       case "retry_job":
         return await callRetryJob(storage, args);
       case "get_job_progress":
@@ -2707,6 +2712,46 @@ async function callGetRawData(
   if (readSources && readSources.length) opts.sourceIds = readSources;
   const rows = await getRawData(storage, args["slug"], opts);
   return jsonResult({ ok: true, slug: args["slug"], raw_data: rows });
+}
+
+async function callLogIngest(
+  storage: Storage,
+  args: Record<string, unknown>,
+  writeSource?: string,
+): Promise<ToolCallResult> {
+  if (typeof args["source_type"] !== "string" || args["source_type"].length === 0) {
+    return errResult("log_ingest: `source_type` is required");
+  }
+  if (typeof args["source_ref"] !== "string" || args["source_ref"].length === 0) {
+    return errResult("log_ingest: `source_ref` is required");
+  }
+  const pages = Array.isArray(args["pages_updated"])
+    ? (args["pages_updated"] as unknown[]).filter(
+        (p): p is string => typeof p === "string",
+      )
+    : [];
+  const r = await logIngest(storage.engine(), {
+    source_type: args["source_type"],
+    source_ref: args["source_ref"],
+    pages_updated: pages,
+    ...(typeof args["summary"] === "string" ? { summary: args["summary"] } : {}),
+    ...(writeSource ? { source_id: writeSource } : {}),
+  });
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callGetIngestLog(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const opts: Parameters<typeof getIngestLog>[1] = {};
+  if (typeof args["source_type"] === "string" && args["source_type"])
+    opts.source_type = args["source_type"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  if (readSources && readSources.length) opts.sourceIds = readSources;
+  const entries = await getIngestLog(storage.engine(), opts);
+  return jsonResult({ ok: true, entries });
 }
 
 async function callRetryJob(
