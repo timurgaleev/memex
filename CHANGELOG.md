@@ -6,6 +6,61 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.81.0] — 2026-07-06
+
+The overnight reference-parity wave: a 10-subsystem comparison against the
+reference produced 77 ranked gaps; the 57 core/useful ones ship here
+(migrations 073-091). Highlights by area:
+
+### Added
+- **Retrieval**: compiled-truth pages mirrored into search with a ×2.0 boost;
+  exact slug/title-match, alias-canonical and mattering-salience boosts;
+  boost-capable hyperbolic recency (fresh content can now win); full 14-prefix
+  source-boost tier map applied inside arm SQL + default hard-excludes;
+  reranker scores the full return window with a 5s timeout + failure audit;
+  dedup allows 2 chunks/doc with a 0.6 type-diversity cap; zero-LLM regex
+  intent classifier (drops a paid Haiku call per search); search mode bundles
+  (conservative/balanced/tokenmax); `search --explain` wired end to end.
+- **Synthesis**: operator-authored takes model (page-fence canon, resolution
+  tuple, active/superseded lifecycle, holder allow-list enforcement at every
+  read path); grade evidence via time-bounded hybrid search; wider
+  contradiction probe with typed resolution proposals + trend rows; voice gate
+  and take-commit bias nudges; `think --save` persists synthesis pages with
+  citation rows; atoms are written as searchable pages with provenance.
+- **Facts**: lifecycle columns (visibility, superseded_by, consolidated_into,
+  context, session), supersession audit surface, confidence decay default-ON
+  internally, `extract_facts` opt-in persistence, durable ingest failure log.
+- **MCP**: `think` and a reference-semantics `query` op; sources/status/doctor
+  operator wraps; jobs retry/progress; raw_data put/get; page_list/page_get
+  and insights/takes param parity; DB-backed spend ledger with per-client
+  daily budget enforcement on paid ops.
+- **HTTP**: `POST /ingest` webhook capture (write-scope, rate-limited,
+  byte-capped, idempotent by content hash); liveness-only `/health`;
+  streaming body cap; CORS/OPTIONS on OAuth + MCP routes; RFC 9728
+  protected-resource discovery + WWW-Authenticate challenge.
+- **CLI**: `config show|get|set`, `capture`, `quarantine`, `search
+  stats|tune|diagnose`, `eval compare|run-all`, `embed` targeting
+  (slug/--stale/--source), `lint --fix`, jobs prune/delete/submit, `auth test`
+  HTTPS-only smoke.
+- **Admin**: unified credentials view over OAuth clients + personal tokens
+  with usage, api-key mint/list/revoke, client register/revoke, token-TTL
+  editor.
+
+### Fixed
+- Remediation job handlers are registered at worker startup (doctor
+  --remediate jobs no longer dead-letter).
+- Query-cache ranking signature covers all ranking knobs; per-call flag flips
+  can no longer serve stale cached orderings.
+- Remote credentials without a takes-holder allow-list are floored to
+  `world`; scoped fact reads are floored to world-visible rows; `/ingest`
+  honors the tenant fail-closed policy; spend reservations serialize under a
+  per-client lock.
+
+### Security
+- page_list clamps at 100 rows (was 1000); rate-limit rejections no longer
+  force a DB write per 429; `auth test` refuses to send tokens over plain
+  http to non-local hosts.
+
 ## [1.80.1] — 2026-07-05
 
 ### Fixed

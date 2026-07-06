@@ -33,6 +33,32 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 
 ---
 
+## LOW backlog (v1.81.0 parity-build review, 2026-07-06)
+
+- **Budget caps are opt-in**: `oauth_clients.budget_usd_per_day` defaults NULL
+  (unlimited); neither register-client nor the admin API sets one at mint.
+  Consider a conservative default for new clients.
+- **Spend settle trusts the handler's self-reported spentUsd**; error paths
+  release the reservation without logging actuals — the daily ledger
+  undercounts on failures. Settle from the tracker's actuals instead.
+- **Cf-Connecting-Ip is trusted for rate-limit keys and public/internal
+  classification** (ingest + public_guard). Safe only while the origin is
+  reachable exclusively via the Cloudflare tunnel — the invariant is
+  documented, not enforced.
+- **/ingest limiter consumes a token before auth** — unauthenticated 401s can
+  drain a shared-NAT bucket. Key on client_id post-auth.
+- **set_take_status is not holder-gated** (write-source-scoped only): a token
+  whose allow-list hides a take can still accept/reject it by key.
+- **gradeTakes evidence for NULL-source takes runs an unscoped hybrid search**
+  (operator fence/think takes) — judge sees whole-corpus text; reasoning rows
+  are operator-visible only, so impact is contained.
+- **Admin-minted PATs are tenant-unscoped by default** (Agents page /api-keys)
+  — matches CLI default; mint with permissions.source_id when the Agents UI
+  grows a tenant picker.
+- **take-commit nudge module (mig 074) wired only to set_take_status accepts**
+  via fence sync; the reference also nudges on fence-authored commits —
+  broaden when operator-authored takes become the primary path.
+
 ## LOW backlog (PAT port review, 2026-07-05)
 
 - **`permissions.takes_holders` is stored but not yet enforced at read time**
