@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.84.0] — 2026-07-06
+
 ### Changed
 - **MCP `search` default `k` 5 → 20.** A client that passes no `k` now gets the
   same recall width as the reference's hybrid search (the reranker's
