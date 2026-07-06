@@ -33,6 +33,23 @@ function toIso(value: unknown): string | null {
 }
 
 /**
+ * Where a resolved effective_date came from (mig080 sentinel, reference
+ * parity). 'fallback' = nothing parsed; the read path COALESCEs to updated_at.
+ */
+export type EffectiveDateSource =
+  | "date"
+  | "event_date"
+  | "published"
+  | "filename"
+  | "fallback";
+
+export interface ResolvedEffectiveDate {
+  /** ISO-8601 UTC string, or null when nothing parsed ('fallback'). */
+  iso: string | null;
+  source: EffectiveDateSource;
+}
+
+/**
  * Resolve an effective (content) date from a document's frontmatter and path.
  * @returns ISO-8601 UTC string, or null when no date can be parsed.
  */
@@ -40,18 +57,36 @@ export function resolveEffectiveDate(
   frontmatter: Record<string, unknown> | null | undefined,
   sourcePath?: string | null,
 ): string | null {
+  return resolveEffectiveDateWithSource(frontmatter, sourcePath).iso;
+}
+
+/**
+ * As `resolveEffectiveDate`, but also reports WHICH derivation won (the
+ * mig080 provenance sentinel the doctor's effective_date_health reads).
+ */
+export function resolveEffectiveDateWithSource(
+  frontmatter: Record<string, unknown> | null | undefined,
+  sourcePath?: string | null,
+): ResolvedEffectiveDate {
   if (frontmatter) {
     for (const key of FM_DATE_KEYS) {
       const iso = toIso(frontmatter[key]);
-      if (iso) return iso;
+      if (iso) return { iso, source: key };
     }
   }
   if (typeof sourcePath === "string") {
     const m = sourcePath.match(FILENAME_DATE_RE);
     if (m) {
       const iso = toIso(`${m[1]}-${m[2]}-${m[3]}`);
-      if (iso) return iso;
+      if (iso) return { iso, source: "filename" };
     }
   }
-  return null;
+  return { iso: null, source: "fallback" };
+}
+
+/** Basename of the ingested path (mig080 `import_filename`), or null. */
+export function importFilename(sourcePath?: string | null): string | null {
+  if (typeof sourcePath !== "string" || sourcePath.length === 0) return null;
+  const base = sourcePath.split("/").pop() ?? "";
+  return base.length > 0 ? base.slice(0, 512) : null;
 }

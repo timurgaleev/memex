@@ -204,9 +204,10 @@ export async function mergePage(
     );
 
     // ── timeline_events ───────────────────────────────────────────────────
-    // Dedup key (mig017): (slug, occurred_at, source_chunk_id) WHERE chunk NOT
-    // NULL. FK slug→pages; the stub row survives (soft-delete), so the re-point
-    // is a plain column move.
+    // Dedup keys: (slug, occurred_at, source_chunk_id) WHERE chunk NOT NULL
+    // (mig017) and (slug, occurred_at, event, source_label, source_id) WHERE
+    // chunk IS NULL (mig079). FK slug→pages; the stub row survives
+    // (soft-delete), so the re-point is a plain column move.
     await tx.query(
       `DELETE FROM timeline_events s
         WHERE s.slug = $1 AND s.source_id = $3
@@ -216,6 +217,21 @@ export async function mergePage(
              WHERE x.slug = $2 AND x.source_id = $3
                AND x.occurred_at = s.occurred_at
                AND x.source_chunk_id = s.source_chunk_id)`,
+      [fromSlug, toSlug, owner],
+    );
+    // Manual rows (no chunk id): drop a stub row that would collide with an
+    // identical canonical manual event under the mig079 key.
+    await tx.query(
+      `DELETE FROM timeline_events s
+        WHERE s.slug = $1 AND s.source_id = $3
+          AND s.source_chunk_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM timeline_events x
+             WHERE x.slug = $2 AND x.source_id = $3
+               AND x.source_chunk_id IS NULL
+               AND x.occurred_at = s.occurred_at
+               AND x.event = s.event
+               AND x.source_label = s.source_label)`,
       [fromSlug, toSlug, owner],
     );
     await move(
@@ -242,9 +258,11 @@ export async function mergePage(
       [fromSlug, toSlug, owner],
     );
 
-    // ── page_aliases (declared free-text names → slug, mig034) ────────────
-    // PK (alias_norm, slug); no source_id column. Drop colliding aliases, then
-    // re-point the stub's declared names at the canonical.
+    // ── page_aliases (declared free-text names → slug, mig034/073) ────────
+    // PK (alias_norm, source_id, slug). The guard matches on (alias_norm,
+    // canonical slug) across sources — broader than the key, so a re-point can
+    // never collide (an over-delete of a cross-source duplicate name is the
+    // safe side; slugs are brain-global today).
     await tx.query(
       `DELETE FROM page_aliases s
         WHERE s.slug = $1

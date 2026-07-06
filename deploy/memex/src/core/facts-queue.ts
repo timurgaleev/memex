@@ -34,9 +34,15 @@ export interface FactsQueueOptions {
 /** A job body — cooperatively runs to completion; the queue awaits it. */
 export type FactsJob = () => Promise<void>;
 
+/** Best-effort failure hook — e.g. the durable facts:absorb writer
+ *  (core/ingest-log.ts). Its own failure is swallowed: observability must
+ *  never cascade into the queue. */
+export type FactsJobErrorHook = (err: unknown) => Promise<void> | void;
+
 interface QueueEntry {
   job: FactsJob;
   sessionId: string;
+  onError?: FactsJobErrorHook;
 }
 
 export class FactsQueue {
@@ -61,12 +67,12 @@ export class FactsQueue {
    * Drop-oldest-on-overflow (the dropped job never runs — enqueue is
    * fire-and-forget by contract). Non-blocking: the pump runs on a microtask.
    */
-  enqueue(job: FactsJob, sessionId: string): number {
+  enqueue(job: FactsJob, sessionId: string, onError?: FactsJobErrorHook): number {
     if (this.pending.length >= this.cap) {
       this.pending.shift();
       this.counters.dropped_overflow += 1;
     }
-    this.pending.push({ job, sessionId });
+    this.pending.push({ job, sessionId, ...(onError ? { onError } : {}) });
     this.counters.enqueued += 1;
     queueMicrotask(() => this.pump());
     return this.pending.length;
@@ -111,6 +117,13 @@ export class FactsQueue {
         `[facts-queue] extraction job failed for session=${entry.sessionId}: ` +
           (err instanceof Error ? err.message : String(err)),
       );
+      if (entry.onError) {
+        try {
+          await entry.onError(err);
+        } catch {
+          // The hook is observability-only; its failure never cascades.
+        }
+      }
     } finally {
       const remaining = (this.inflightBySession.get(entry.sessionId) ?? 1) - 1;
       if (remaining <= 0) this.inflightBySession.delete(entry.sessionId);

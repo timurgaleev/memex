@@ -29,6 +29,8 @@ import {
   extractFactsForPage,
 } from "../facts-extract.ts";
 import type { SonnetFn } from "../llm/sonnet.ts";
+import type { LlmFn } from "../llm/haiku.ts";
+import { filterWorthwhile, worthGateEnabled } from "../synthesis/worth-gate.ts";
 
 export interface ConversationFactsBackfillOptions {
   /** Cap on pages processed per run. Default 50. */
@@ -38,6 +40,14 @@ export interface ConversationFactsBackfillOptions {
   /** Test seam — inject a fake model; also bypasses the MEMEX_FACTS_BACKFILL gate. */
   sonnetFn?: SonnetFn;
   modelId?: string;
+  /**
+   * Pre-screen each page with the cached Haiku worth gate before paying Sonnet
+   * on it. Default from MEMEX_WORTH_GATE (OFF). The gate is fail-open — a judge
+   * error keeps the page.
+   */
+  worthGate?: boolean;
+  /** Haiku seam for the worth gate (tests). */
+  worthLlmFn?: LlmFn;
 }
 
 export interface ConversationFactsBackfillResult {
@@ -46,6 +56,8 @@ export interface ConversationFactsBackfillResult {
   pagesConsidered: number;
   pagesProcessed: number;
   factsWritten: number;
+  /** Pages the worth gate screened out before any Sonnet spend. */
+  worthSkipped: number;
   spentUsd: number;
   budgetExhausted: boolean;
   errors: { slug: string; message: string }[];
@@ -82,6 +94,7 @@ export async function conversationFactsBackfillPhase(
     pagesConsidered: 0,
     pagesProcessed: 0,
     factsWritten: 0,
+    worthSkipped: 0,
     spentUsd: 0,
     budgetExhausted: false,
     errors: [],
@@ -122,7 +135,27 @@ export async function conversationFactsBackfillPhase(
   const result: ConversationFactsBackfillResult = { ...empty, ran: true };
   let spent = 0;
 
-  for (const page of rows.rows) {
+  // Worth gate (opt-in): screen out low-signal pages with the cached Haiku
+  // judge BEFORE any Sonnet spend. Fail-open — gate errors keep the page.
+  let pages = rows.rows;
+  if (opts.worthGate ?? worthGateEnabled()) {
+    const gate = await filterWorthwhile(
+      storage.engine(),
+      pages.map((p) => ({ ref: p.slug, content: p.markdown_body })),
+      opts.worthLlmFn ? { llmFn: opts.worthLlmFn } : {},
+    );
+    result.worthSkipped = gate.skipped;
+    for (const e of gate.errors) {
+      const idx = e.indexOf(": ");
+      result.errors.push({
+        slug: idx > 0 ? e.slice(0, idx) : "worth-gate",
+        message: idx > 0 ? e.slice(idx + 2) : e,
+      });
+    }
+    pages = pages.filter((p) => gate.kept.has(p.slug));
+  }
+
+  for (const page of pages) {
     result.pagesConsidered += 1;
     // Brain-wide budget stop: if the prior spend already reached the cap, stop
     // before dispatching another paid call.

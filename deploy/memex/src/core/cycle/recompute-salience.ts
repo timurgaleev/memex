@@ -152,9 +152,13 @@ export async function recomputeSaliencePhase(
       params.push(c.slug, c.salience);
       return `($${params.length - 1}, $${params.length}::real)`;
     });
+    // salience_touched_at (mig080) stamps only rows whose score CHANGED, so a
+    // salience-window consumer can pick up newly-salient old pages without
+    // diffing scores. Unchanged pages keep their prior stamp (no churn).
     await engine.query(
       `UPDATE pages AS p
-       SET salience = v.salience
+       SET salience = v.salience,
+           salience_touched_at = NOW()
        FROM (VALUES ${tuples.join(", ")}) AS v(slug, salience)
        WHERE p.slug = v.slug`,
       params,

@@ -1,10 +1,11 @@
 /**
- * Timeline events — per-page append-only event log over migration
- * 017_timeline.
+ * Timeline events — per-page append-only event log over migrations
+ * 017_timeline + 079 (manual dedup, summary/detail split, source label).
  *
  * Writes are append-only with idempotency on
- * (slug, occurred_at, source_chunk_id) for chunk-sourced events.
- * Manually-entered events (no source_chunk_id) bypass dedup.
+ * (slug, occurred_at, source_chunk_id) for chunk-sourced events and on
+ * (slug, occurred_at, event, source_label, source_id) for manual/API events
+ * (mig079, reference parity — a retried `timeline_add` no longer duplicates).
  *
  * No update or delete surface — corrections become new events. A
  * future dream-cycle phase can mark superseded events but it never
@@ -17,7 +18,13 @@ export interface AddTimelineEventInput {
   slug: string;
   /** ISO-8601 timestamp string OR a Date. */
   occurred_at: string | Date;
+  /** One-line summary (the reference's `summary`). */
   event: string;
+  /** Longer narrative under the summary (mig079; '' when omitted). */
+  detail?: string;
+  /** Provenance label — an importer name, 'manual', … (mig079; '' when
+   *  omitted). Part of the manual dedup key so distinct provenance survives. */
+  source_label?: string;
   source_chunk_id?: string;
   /**
    * Tenant source scope (migration 047). Omitted -> the column DEFAULT
@@ -31,6 +38,8 @@ export interface TimelineEventRow {
   slug: string;
   occurred_at: string;
   event: string;
+  detail: string;
+  source_label: string;
   source_chunk_id: string | null;
   written_at: string;
 }
@@ -75,6 +84,11 @@ export async function addTimelineEvent(
   }
   const occurred = normaliseOccurredAt(input.occurred_at);
   const chunkId = input.source_chunk_id ?? null;
+  // mig079 columns — NOT NULL DEFAULT '' in the schema; normalize here so the
+  // manual dedup key compares deterministically.
+  const detail = typeof input.detail === "string" ? input.detail : "";
+  const sourceLabel =
+    typeof input.source_label === "string" ? input.source_label.trim() : "";
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
   // column's DEFAULT 'default' applies otherwise (never pass NULL).
   const sourceId =
@@ -100,15 +114,20 @@ export async function addTimelineEvent(
   }
   const sourceCol = sourceId !== null ? ", source_id" : "";
 
-  // ON CONFLICT does not fire when source_chunk_id IS NULL because the
-  // partial UNIQUE index excludes nulls. So `inserted` is always true
-  // for null-chunk inserts (the operator's deliberate choice).
+  // Manual/API events (no chunk id) dedup on the mig079 key: a retried write
+  // with identical (slug, time, wording, label, tenant) is a no-op. Distinct
+  // provenance (source_label) still coexists — the reference widened its key
+  // for exactly that.
   if (chunkId === null) {
-    const params: unknown[] = [input.slug, occurred, input.event];
+    const params: unknown[] = [input.slug, occurred, input.event, detail, sourceLabel];
     if (sourceId !== null) params.push(sourceId);
     const r = await storage.engine().query<{ id: number }>(
-      `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id${sourceCol})
-       VALUES ($1, $2::timestamptz, $3, NULL${sourceId !== null ? ", $4" : ""})
+      `INSERT INTO timeline_events
+         (slug, occurred_at, event, detail, source_label, source_chunk_id${sourceCol})
+       VALUES ($1, $2::timestamptz, $3, $4, $5, NULL${sourceId !== null ? ", $6" : ""})
+       ON CONFLICT (slug, occurred_at, event, source_label, source_id)
+         WHERE source_chunk_id IS NULL
+         DO NOTHING
        RETURNING id`,
       params,
     );
@@ -116,14 +135,15 @@ export async function addTimelineEvent(
       id: r.rows[0]?.id ?? null,
       slug: input.slug,
       occurred_at: occurred,
-      inserted: true,
+      inserted: r.rows.length > 0,
     };
   }
-  const params: unknown[] = [input.slug, occurred, input.event, chunkId];
+  const params: unknown[] = [input.slug, occurred, input.event, detail, sourceLabel, chunkId];
   if (sourceId !== null) params.push(sourceId);
   const r = await storage.engine().query<{ id: number }>(
-    `INSERT INTO timeline_events (slug, occurred_at, event, source_chunk_id${sourceCol})
-     VALUES ($1, $2::timestamptz, $3, $4${sourceId !== null ? ", $5" : ""})
+    `INSERT INTO timeline_events
+       (slug, occurred_at, event, detail, source_label, source_chunk_id${sourceCol})
+     VALUES ($1, $2::timestamptz, $3, $4, $5, $6${sourceId !== null ? ", $7" : ""})
      ON CONFLICT (slug, occurred_at, source_chunk_id)
        WHERE source_chunk_id IS NOT NULL
        DO NOTHING
@@ -178,6 +198,7 @@ export async function getEntityTimeline(
   params.push(limit);
   const r = await storage.engine().query<TimelineEventRow>(
     `SELECT id, slug, occurred_at::text AS occurred_at, event,
+            detail, source_label,
             source_chunk_id, written_at::text AS written_at
        FROM timeline_events
        WHERE ${where.join(" AND ")}

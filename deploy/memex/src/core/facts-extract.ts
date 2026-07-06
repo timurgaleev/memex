@@ -15,6 +15,10 @@ import { sanitizeForPrompt } from "./llm/sanitize.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "./llm/sonnet.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 import { BudgetTracker, BudgetExhausted } from "./budget.ts";
+import {
+  classifyFactsAbsorbError,
+  writeFactsAbsorbLog,
+} from "./ingest-log.ts";
 
 export const FACT_KINDS = [
   "event",
@@ -106,6 +110,29 @@ export interface ExtractTurnOptions {
   modelId?: string;
   region?: string;
   maxTokens?: number;
+  /**
+   * Canonical entity slugs the caller has already resolved (reference
+   * `entity_hints`): steers the extractor toward existing slugs instead of
+   * minting display-name variants. Sanitized to slug-safe strings, capped.
+   */
+  entityHints?: string[];
+}
+
+/** Cap + sanitize caller-supplied entity hints before they reach the prompt:
+ *  slug-alphabet only (no injection surface), deduped, bounded. */
+export function sanitizeEntityHints(hints: unknown): string[] {
+  if (!Array.isArray(hints)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const h of hints) {
+    if (typeof h !== "string") continue;
+    const s = h.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9/-]{0,255}$/.test(s) || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 export interface ExtractTurnResult {
@@ -129,7 +156,12 @@ export async function extractFactsFromTurn(
     ...(opts.region ? { region: opts.region } : {}),
   });
   const { text: clean } = sanitizeForPrompt(turnText, 12_000);
-  const user = `<turn>\n${clean}\n</turn>`;
+  const hints = sanitizeEntityHints(opts.entityHints);
+  const hintBlock =
+    hints.length > 0
+      ? `Known canonical entity slugs (prefer these over inventing new names): ${hints.join(", ")}\n`
+      : "";
+  const user = `${hintBlock}<turn>\n${clean}\n</turn>`;
   const resp = await fn({
     system: EXTRACTOR_SYSTEM,
     user,
@@ -173,12 +205,17 @@ export async function writeExtractedFacts(
     sourceSlug?: string;
     writtenBy?: string;
     sourceId?: string;
+    /** Capture-session id stamped on each fact (mig085 `source_session`). */
+    sessionId?: string;
+    /** Default visibility for the batch (mig085; 'private' when omitted). */
+    visibility?: string;
     /** Insert-time dedup / supersede knobs threaded to addFact (default OFF). */
     dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
   } = {},
-): Promise<{ written: number; skipped: number }> {
+): Promise<{ written: number; skipped: number; fact_ids: number[] }> {
   let written = 0;
   let skipped = 0;
+  const factIds: number[] = [];
   // Exclude the transcript's own page from the candidate set, and scope
   // resolution to the writing tenant when one is given.
   const resolver = makeSlugResolver(storage, opts.sourceSlug ?? "", {
@@ -211,15 +248,18 @@ export async function writeExtractedFacts(
         notability: f.notability,
         ...(opts.sourceSlug ? { source_slug: opts.sourceSlug } : {}),
         ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
+        ...(opts.sessionId ? { source_session: opts.sessionId } : {}),
+        ...(opts.visibility ? { visibility: opts.visibility } : {}),
         ...(opts.dedup ? { dedup: opts.dedup } : {}),
         written_by: opts.writtenBy ?? "facts-extract",
       });
       if (r.inserted) written += 1;
+      if (r.inserted && r.id !== null) factIds.push(r.id);
     } catch {
       skipped += 1;
     }
   }
-  return { written, skipped };
+  return { written, skipped, fact_ids: factIds };
 }
 // MEMEX_FACTS_EXTRACTION gate + BudgetTracker as the CLI batch path.
 // ---------------------------------------------------------------------------
@@ -316,9 +356,11 @@ export interface ExtractForPageResult {
  * Best-effort single-page extraction: price-guard, one budgeted Sonnet call over
  * the page body, write the facts scoped to the page's source. Absorbs a model or
  * budget error into a zero-write result — the caller (the queue) treats it as
- * fire-and-forget. Does NOT re-check the enabled gate: the page-write hook
- * checks `factsExtractionEnabled()` + eligibility BEFORE enqueuing, and tests
- * drive it directly with an injected `sonnetFn`.
+ * fire-and-forget — while filing a DURABLE facts:absorb row (mig087) so the
+ * failure survives a restart and the doctor can count it by reason code.
+ * Does NOT re-check the enabled gate: the page-write hook checks
+ * `factsExtractionEnabled()` + eligibility BEFORE enqueuing, and tests drive it
+ * directly with an injected `sonnetFn`.
  */
 export async function extractFactsForPage(
   storage: Storage,
@@ -328,6 +370,13 @@ export async function extractFactsForPage(
   const cap = opts.maxBudgetUsd ?? perWriteBudgetUsd();
   const budget = new BudgetTracker(cap, "facts-extract:on-write");
   if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+    await writeFactsAbsorbLog(
+      storage.engine(),
+      opts.slug,
+      "budget_exhausted",
+      `per-write cap $${cap} leaves no room for a worst-case call`,
+      opts.sourceId ?? "default",
+    );
     return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
   }
   let result: ExtractTurnResult;
@@ -336,7 +385,14 @@ export async function extractFactsForPage(
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
       modelId,
     });
-  } catch {
+  } catch (e) {
+    await writeFactsAbsorbLog(
+      storage.engine(),
+      opts.slug,
+      classifyFactsAbsorbError(e),
+      e instanceof Error ? e.message : String(e),
+      opts.sourceId ?? "default",
+    );
     return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
   }
   try {
@@ -362,6 +418,25 @@ export interface OnDemandExtractOptions {
   sonnetFn?: SonnetFn;
   modelId?: string;
   maxBudgetUsd?: number;
+  /**
+   * Opt-in persistence (reference parity: the reference's `extract_facts` IS
+   * a write path). When true, the extracted facts are written to the
+   * entity_facts ledger via `writeExtractedFacts`; `storage` is then required.
+   * Default false — the preview-only behavior is unchanged.
+   */
+  persist?: boolean;
+  /** Required when `persist` is set. */
+  storage?: Storage;
+  /** Provenance page for persisted facts (`source_slug`). */
+  sourceSlug?: string;
+  /** Tenant the persisted facts are written to (mig047). */
+  sourceId?: string;
+  /** Capture-session id stamped on persisted facts (mig085). */
+  sessionId?: string;
+  /** Canonical slugs to steer the extractor (reference `entity_hints`). */
+  entityHints?: string[];
+  /** Default visibility for persisted facts ('private' | 'world', mig085). */
+  visibility?: string;
 }
 
 export interface OnDemandExtractResult {
@@ -372,13 +447,19 @@ export interface OnDemandExtractResult {
   spentUsd: number;
   /** Present when nothing was extracted: why (disabled / empty / budget / error). */
   skipped?: string;
+  /** Persist-mode outcome (present only when `persist` was requested). */
+  written?: number;
+  write_skipped?: number;
+  fact_ids?: number[];
 }
 
 /**
- * On-demand fact extraction that RETURNS the facts WITHOUT persisting them — the
- * read-only preview behind the `extract_facts` MCP tool. Reuses the same paid
- * Bedrock turn extractor as the on-write hook, so the preview matches what a
- * write would have captured, but never touches the entity_facts ledger.
+ * On-demand fact extraction behind the `extract_facts` MCP tool. By default it
+ * RETURNS the facts WITHOUT persisting them (the read-only preview); with
+ * `persist: true` it also writes them to the entity_facts ledger — the
+ * reference's `extract_facts` semantics, where a reference-trained client
+ * calling the tool expects the facts to be STORED. Reuses the same paid
+ * Bedrock turn extractor as the on-write hook.
  *
  * PAID + default-OFF: a live run needs MEMEX_FACTS_EXTRACTION=1. An injected
  * `sonnetFn` (tests) bypasses the gate and never spends real Bedrock. Budget-
@@ -388,6 +469,9 @@ export async function extractFactsOnDemand(
   text: string,
   opts: OnDemandExtractOptions = {},
 ): Promise<OnDemandExtractResult> {
+  if (opts.persist === true && !opts.storage) {
+    throw new Error("extractFactsOnDemand: persist requires storage");
+  }
   if (!opts.sonnetFn && !factsExtractionEnabled()) {
     return { enabled: false, facts: [], modelId: null, spentUsd: 0, skipped: "extraction_disabled" };
   }
@@ -404,6 +488,7 @@ export async function extractFactsOnDemand(
   try {
     result = await extractFactsFromTurn(text, {
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
+      ...(opts.entityHints ? { entityHints: opts.entityHints } : {}),
       modelId,
     });
   } catch {
@@ -415,10 +500,23 @@ export async function extractFactsOnDemand(
     if (!(e instanceof BudgetExhausted)) throw e;
     // Over budget after the (already-paid) call — still return what we got.
   }
-  return {
+  const out: OnDemandExtractResult = {
     enabled: true,
     facts: result.facts,
     modelId: result.modelId,
     spentUsd: Number(budget.totalSpent().toFixed(6)),
   };
+  if (opts.persist === true && opts.storage) {
+    const w = await writeExtractedFacts(opts.storage, result.facts, {
+      writtenBy: "extract-facts",
+      ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
+      ...(opts.sourceId ? { sourceId: opts.sourceId } : {}),
+      ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+      ...(opts.visibility ? { visibility: opts.visibility } : {}),
+    });
+    out.written = w.written;
+    out.write_skipped = w.skipped;
+    out.fact_ids = w.fact_ids;
+  }
+  return out;
 }

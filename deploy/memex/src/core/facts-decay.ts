@@ -20,13 +20,13 @@
  * The half-life table is keyed by memex's own `FactKind` enum (the same five
  * categories the `## Facts` fence parses), so it cannot drift from the schema.
  *
- * Application is gated behind `MEMEX_FACT_DECAY=1` (default OFF) to match
- * memex's opt-in posture for ranking-changing retrieval features -- when the
- * flag is off, recall ordering is byte-for-byte unchanged. Decay is applied on
- * INTERNAL ingress only: the dispatch layer forces it off on the public-bearer
- * path, because reordering/dropping facts by hidden `valid_until`/`kind` over
- * stable redacted rows would be a content oracle (a caller could diff the
- * decayed order against `order:"recency"` to infer which fact expired). See
+ * Application is default ON internally (`MEMEX_FACT_DECAY=0` disables) —
+ * matching the reference, whose decay is unconditional: without it a stale
+ * event ranks as fresh in fact recall. Decay is applied on INTERNAL ingress
+ * only: the dispatch layer forces it off on the public-bearer path, because
+ * reordering/dropping facts by hidden `valid_until`/`kind` over stable
+ * redacted rows would be a content oracle (a caller could diff the decayed
+ * order against `order:"recency"` to infer which fact expired). See
  * `mcp/dispatch.ts` callEntityFacts / callEntityRecall.
  */
 import type { FactKind } from "./facts-fence.ts";
@@ -65,9 +65,11 @@ export interface DecayableFact {
   written_at: string;
 }
 
-/** True when fact decay is enabled (opt-in, default OFF). */
+/** True when fact decay is enabled (default ON; MEMEX_FACT_DECAY=0 opts out).
+ *  The public-ingress force-off in dispatch is unaffected — it passes an
+ *  explicit `decay: false` that overrides this default. */
 export function factDecayEnabled(): boolean {
-  return process.env.MEMEX_FACT_DECAY === "1";
+  return process.env.MEMEX_FACT_DECAY !== "0";
 }
 
 /**

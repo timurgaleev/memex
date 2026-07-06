@@ -49,6 +49,14 @@ export interface AuthInfo {
    * False for the internal-token ingress and local CLI callers.
    */
   isPublic: boolean;
+  /**
+   * Takes-holder allow-list from the token's `permissions.takes_holders`
+   * (mig 072). When present, the takes read paths only surface takes whose
+   * `holder` is in the list. Undefined = no knob on the credential → holder
+   * reads stay unscoped (the operator path and OAuth clients, which carry no
+   * takes_holders grant).
+   */
+  takesHolders?: string[];
 }
 
 /**
@@ -120,6 +128,28 @@ export function effectiveReadSourceIdsForIngress(
     return [NO_SOURCE_SENTINEL];
   }
   return undefined;
+}
+
+/**
+ * The caller's effective takes-holder allow-list, or `undefined` when holder
+ * reads are unscoped (no authInfo = operator/trusted-local, or an explicit
+ * `*` wildcard entry — the operator's "all holders" escape hatch).
+ *
+ * Fail-safe (reference parity): a REMOTE authenticated principal whose
+ * credential carries no holder knob is floored to ['world'] — the reference
+ * defaults any remote token without the allow-list the same way. Only the
+ * operator path is unscoped by absence.
+ */
+export function effectiveTakesHolders(
+  auth: AuthInfo | undefined,
+): string[] | undefined {
+  const remoteFloor = auth === undefined ? undefined : ["world"];
+  const list = auth?.takesHolders;
+  if (!Array.isArray(list) || list.length === 0) return remoteFloor;
+  const cleaned = list.filter((s) => typeof s === "string" && s.length > 0);
+  if (cleaned.length === 0) return remoteFloor;
+  if (cleaned.includes("*")) return undefined;
+  return Array.from(new Set(cleaned));
 }
 
 /** The source a caller is authorized to WRITE to, or `undefined` if unscoped. */
