@@ -19,13 +19,13 @@ describe("exactMatchBoostForTaxonomy", () => {
 
 describe("exactMatchIndices", () => {
   const cands = [
-    { slugs: ["people/garry-tan"], title: "Garry Tan" },
+    { slugs: ["people/ada-lovelace"], title: "Ada Lovelace" },
     { slugs: ["companies/acme"], title: "Acme Corp" },
     { slugs: [], title: null },
   ];
 
   it("matches the kebab form of a spaced query against slug tails", () => {
-    expect([...exactMatchIndices(cands, "garry tan")]).toEqual([0]);
+    expect([...exactMatchIndices(cands, "ada lovelace")]).toEqual([0]);
   });
 
   it("matches an exact title (case-insensitive)", () => {
@@ -37,7 +37,7 @@ describe("exactMatchIndices", () => {
   });
 
   it("does not fire on partial overlap or empty queries", () => {
-    expect(exactMatchIndices(cands, "garry").size).toBe(0);
+    expect(exactMatchIndices(cands, "grace").size).toBe(0);
     expect(exactMatchIndices(cands, "   ").size).toBe(0);
   });
 });

@@ -168,7 +168,7 @@ describe("personal access tokens (access_tokens fallback)", () => {
         `UPDATE access_tokens
             SET permissions = COALESCE(permissions, '{}'::jsonb) || $2::jsonb
           WHERE name = $1 AND revoked_at IS NULL`,
-        ["merge-keeps-scope", JSON.stringify({ takes_holders: ["world", "garry"] })],
+        ["merge-keeps-scope", JSON.stringify({ takes_holders: ["world", "grace"] })],
       );
     const info = await provider.verifyAccessToken(token);
     expect(info.sourceId).toBe("timur");
