@@ -14,10 +14,12 @@ export interface RrfOptions {
   /** Smoothing constant. Higher = lower-ranked items contribute more. */
   k?: number;
   /**
-   * Per-list multiplier, parallel to `lists`. A list's rank contributions
-   * are scaled by its weight, so a heavier list pulls its items up the
-   * fused ranking. Missing entries (or no `weights` at all) default to 1,
-   * which reproduces the classic equal-weight RRF.
+   * Per-list weight, parallel to `lists`. Applied as an effective smoothing
+   * constant k/weight for THAT list (the reference's math): a heavier list
+   * gets a LOWER k, so its top ranks contribute meaningfully more while its
+   * long tail stays flat — rank-shaping rather than flat score scaling.
+   * Missing entries (or no `weights` at all) default to 1, which reproduces
+   * the classic equal-weight RRF. Non-positive weights are treated as 1.
    */
   weights?: readonly number[];
 }
@@ -37,11 +39,14 @@ export function reciprocalRankFusion(
   for (let li = 0; li < lists.length; li++) {
     const list = lists[li]!;
     const weight = opts.weights?.[li] ?? 1;
+    // Effective per-list k (reference parity): k / weight. weight > 1 lowers
+    // the smoothing constant → stronger top-rank contribution for that list.
+    const listK = weight > 0 ? k / weight : k;
     for (let i = 0; i < list.length; i++) {
       const id = list[i];
       if (!id) continue;
       const rank = i + 1; // ranks are 1-based in the formula
-      const contribution = weight * (1 / (k + rank));
+      const contribution = 1 / (listK + rank);
       acc.set(id, (acc.get(id) ?? 0) + contribution);
     }
   }

@@ -2,14 +2,17 @@
  * Hybrid search orchestrator — coordinates the pieces in core/search/*.
  *
  * Pipeline:
- *   1. classify intent (Claude Haiku, opt-in cache via heuristics)
+ *   1. classify intent (zero-LLM regex taxonomy; Haiku only via MEMEX_INTENT_LLM=1)
  *   2. (parallel) embed query → vector retrieval; keyword retrieval
- *   3. (optional) query expansion → extra keyword passes
- *   4. RRF fuse all retrieval lists
+ *      (both arms carry the curation prefix boost + default hard-excludes)
+ *   3. (opt-in) query expansion → extra keyword passes
+ *   4. RRF fuse all retrieval lists (per-list k/weight)
  *   5. hydrate top-(k * 3) chunks with parent doc + source kind
- *   6. apply source-boost
- *   7. dedup per documentId (skipped for `exact` intent)
- *   8. (opt-in) two-pass Haiku rerank if MEMEX_RERANK=1
+ *   6. boosts: compiled-truth ×2, source, recency (decay + temporal boost),
+ *      salience (+ mattering join), curation, title, graph/backlink,
+ *      exact-match, alias-resolved
+ *   7. dedup per documentId (cap 2; skipped for `exact` intent) + type diversity
+ *   8. (opt-in) two-pass Haiku rerank over the return window if MEMEX_RERANK=1
  *   9. trim to k
  *
  * The exported `hybridSearch(storage, query, k)` API stays compatible
@@ -27,6 +30,7 @@ import {
   dedupByDocument,
   dedupByTextSimilarity,
   getNearDupThreshold,
+  enforceTypeDiversity,
   type ChunkScore,
 } from "./dedup.ts";
 import {
@@ -34,12 +38,23 @@ import {
   type BoostablePayload,
 } from "./source-boost.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
-import { rrfWeightsForLists } from "./intent-weights.ts";
+import {
+  rrfWeightsForLists,
+  exactMatchBoostForTaxonomy,
+  exactMatchIndices,
+} from "./intent-weights.ts";
+import { classifyQuerySuggestions } from "./query-intent.ts";
+import { activeModeBundle, resolveKnob, resolveSearchMode } from "./mode.ts";
+import { recordSearchTelemetry } from "./telemetry.ts";
 import {
   recencyMultiplierForPath,
   resolveRecencyDecayMap,
+  resolveRecencyBoostMap,
+  recencyBoostMultiplierForPath,
 } from "./recency.ts";
-import { salienceMultiplier } from "./salience.ts";
+import { salienceMultiplier, applyMatteringBoost } from "./salience.ts";
+import { applyAliasResolvedBoost, ALIAS_RESOLVED_BOOST } from "./alias-resolved.ts";
+import { slugCandidatesForPath } from "./page-slug.ts";
 import { isTitlePhraseMatch, getTitleBoost } from "./title-match.ts";
 import { isCanonicalQuery } from "./recency-gate.ts";
 import {
@@ -66,6 +81,7 @@ import {
   putCachedQuery,
   queryCacheKey,
   queryCacheBucketKey,
+  rankingSignature,
   resolveSemanticCacheConfig,
   type CachedQuery,
 } from "./query-cache.ts";
@@ -113,6 +129,81 @@ function getRecencyDecayMap(): ReturnType<typeof resolveRecencyDecayMap> {
   return (_recencyDecayMap ??= resolveRecencyDecayMap());
 }
 
+// Recency BOOST map (defaults ∪ MEMEX_RECENCY_BOOST) — same memoization
+// contract as the decay map. Only consulted when the zero-LLM classifier
+// suggests a temporal tilt (recency 'on'/'strong').
+let _recencyBoostMap: ReturnType<typeof resolveRecencyBoostMap> | null = null;
+function getRecencyBoostMap(): ReturnType<typeof resolveRecencyBoostMap> {
+  return (_recencyBoostMap ??= resolveRecencyBoostMap());
+}
+
+/**
+ * Compiled-truth boost (reference parity): chunks of a page's compiled-truth
+ * mirror (`page-truth://…`, see page-index.ts) are the canonical per-page
+ * answers, multiplied ×2 after fusion. The reference applies this right after
+ * RRF max-normalization; memex applies it on the raw fused score — a uniform
+ * multiplier is scale-invariant, so the resulting ORDER is identical.
+ * Bypassed for temporal queries (suggestedDetail 'high'), matching the
+ * reference's detail=high gate — freshness queries want the record, not the
+ * distilled truth.
+ */
+const COMPILED_TRUTH_BOOST = 2.0;
+const PAGE_TRUTH_PREFIX = "page-truth://";
+
+/** The resolved per-call ranking knob set (see {@link resolveSearchKnobs}). */
+export interface ResolvedSearchKnobs {
+  rerankWanted: boolean;
+  expansionEnabled: boolean;
+  graphSignalsOn: boolean;
+  cosineRescoreOn: boolean;
+  relationalArmOn: boolean;
+  backlinkBoostOn: boolean;
+  tokenBudget: number | undefined;
+}
+
+/**
+ * Resolve the ranking knobs for one search call — per-call opts win, then an
+ * explicit per-knob env ("1"/"0"), then the active mode bundle
+ * (MEMEX_SEARCH_MODE; the default `conservative` bundle equals memex's
+ * historical all-OFF defaults). Exported so tests and cache-key callers can
+ * reproduce exactly what hybridSearch resolves.
+ *
+ * Expansion default OFF (the reference measured negligible lift; each call is
+ * a paid Haiku request). The hermetic `expandQueryFn` seam implies ON — a test
+ * that injects an expander wants the expansion path exercised. `noExpansion`
+ * is the hard veto either way.
+ */
+export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnobs {
+  const bundle = activeModeBundle();
+  const env = process.env;
+  return {
+    rerankWanted: resolveKnob(opts.rerank, env.MEMEX_RERANK, bundle.rerank),
+    expansionEnabled:
+      !opts.noExpansion &&
+      (opts.expansion ??
+        (opts.expandQueryFn !== undefined ||
+          resolveKnob(undefined, env.MEMEX_QUERY_EXPANSION, bundle.expansion))),
+    graphSignalsOn: resolveKnob(opts.graphSignals, env.MEMEX_GRAPH_SIGNALS, bundle.graphSignals),
+    cosineRescoreOn: resolveKnob(opts.cosineRescore, env.MEMEX_COSINE_RESCORE, bundle.cosineRescore),
+    relationalArmOn: resolveKnob(opts.relationalArm, env.MEMEX_RELATIONAL_ARM, bundle.relationalArm),
+    // Backlink boost keeps its default-ON contract in every mode.
+    backlinkBoostOn: opts.backlinkBoost ?? env.MEMEX_BACKLINK_BOOST !== "0",
+    tokenBudget: opts.tokenBudget ?? bundle.tokenBudget,
+  };
+}
+
+/**
+ * The per-call resolved-knob suffix appended to the env-level
+ * rankingSignature() for the query-cache key — a caller flipping a knob per
+ * call must never share a cached ordering with one that didn't.
+ */
+export function knobsCacheSuffix(kn: ResolvedSearchKnobs): string {
+  return (
+    `:RXP=${kn.expansionEnabled ? 1 : 0}:RGS=${kn.graphSignalsOn ? 1 : 0}` +
+    `:RCR=${kn.cosineRescoreOn ? 1 : 0}:RBB=${kn.backlinkBoostOn ? 1 : 0}`
+  );
+}
+
 // Title-boost factor: memoized in title-match.ts (single source shared with the
 // query-cache ranking signature) so the key and the ranking can never diverge.
 
@@ -138,10 +229,18 @@ export interface SearchOptions {
    * from `rerank` (the Haiku two-pass text reranker). See graph-rerank.ts.
    */
   graphRerank?: boolean;
-  /** Override Claude Haiku intent classification — for tests / cheap fallback. */
+  /** Override the zero-LLM intent classification — for tests / callers that know. */
   intent?: Intent;
   /** Skip query expansion. */
   noExpansion?: boolean;
+  /**
+   * Force LLM query expansion on/off for this call. Default OFF (reference
+   * parity — the measured lift is negligible and each expansion is a paid
+   * Haiku call): resolution is `expansion` → MEMEX_QUERY_EXPANSION ("1"/"0")
+   * → the active mode bundle (only `tokenmax` turns it on). Passing
+   * `expandQueryFn` (the hermetic test seam) implies ON unless `noExpansion`.
+   */
+  expansion?: boolean;
   /**
    * Optional query-expander injection. Defaults to the real Bedrock expander;
    * set ONLY by hermetic tests to drive the expansion pass with deterministic
@@ -241,6 +340,26 @@ export interface SearchOptions {
    * and the reranker's rank delta. Zero cost when off. See explain.ts.
    */
   explain?: boolean;
+  /**
+   * Per-call detail override (reference `query` op parity). Overrides the
+   * zero-LLM classifier's suggestion: `high` gets the temporal treatment
+   * (source-boost bypass) AND lifts the per-document chunk cap (all chunks);
+   * `low` collapses to one chunk per document; `medium` keeps the default
+   * cap. Bypasses the query cache (it changes the returned set).
+   */
+  detail?: "low" | "medium" | "high";
+  /**
+   * Per-call mattering-salience bias (reference `query` op parity): overrides
+   * BOTH the classifier suggestion and the canonical-query gate. `strong`
+   * uses the aggressive mattering coefficient. Bypasses the query cache.
+   */
+  salience?: "off" | "on" | "strong";
+  /**
+   * Per-call recency-boost bias (reference `query` op parity): overrides BOTH
+   * the classifier suggestion and the canonical-query gate. Bypasses the
+   * query cache.
+   */
+  recency?: "off" | "on" | "strong";
   /**
    * @internal Set by the zero-result broadened retry to stop recursion after a
    * single re-run. Callers never set this.
@@ -468,12 +587,30 @@ export async function hybridSearch(
   // memoized value inside that block.
   const graphFloorRatio = getGraphSignalsFloorRatio();
 
+  // Zero-LLM query suggestions (reference parity, query-intent.ts): one regex
+  // pass drives the temporal source-boost bypass, the recency-boost strength,
+  // the mattering-salience gate, and the exact-match boost magnitude.
+  const suggestions = classifyQuerySuggestions(trimmed);
+  // Agent-explicit detail wins over the classifier (reference: the query op's
+  // explicit detail/salience/recency params override the heuristic).
+  const detailResolved = opts.detail ?? suggestions.suggestedDetail;
+  const temporalQuery = detailResolved === "high";
+
+  const {
+    rerankWanted,
+    expansionEnabled,
+    graphSignalsOn,
+    cosineRescoreOn,
+    relationalArmOn,
+    backlinkBoostOn,
+    tokenBudget,
+  } = resolveSearchKnobs(opts);
+
   // 0. Exact-match query cache (fail-open). A hit skips intent + embed +
   //    retrieval + fusion entirely. Validity is gated on the live-model
   //    generation clock, so any document write invalidates it. Any cache
   //    error falls through to a normal search — the cache is pure
   //    optimization and must never break retrieval.
-  const rerankWanted = opts.rerank ?? process.env.MEMEX_RERANK === "1";
   // Per-call post-hydrate filters (lang / symbol_kind / since / until) are NOT
   // part of the cache key, so a filtered query bypasses the query cache
   // entirely — it never reads a cached unfiltered set nor writes a filtered one.
@@ -497,11 +634,9 @@ export async function hybridSearch(
   // beyond what the query alone produces, so its result must never be served
   // from — nor written to — the exact-match query cache.
   const structural = (opts.walkDepth ?? 0) > 0 || Boolean(opts.nearSymbol);
-  // Relational recall as a 4th RRF arm (opt-in). Like structural expansion it
-  // widens the candidate set beyond what the query alone produces, so its result
-  // must never be served from — nor written to — the exact-match query cache.
-  const relationalArmOn =
-    opts.relationalArm ?? process.env.MEMEX_RELATIONAL_ARM === "1";
+  // Relational recall (resolved above) widens the candidate set beyond what
+  // the query alone produces, so its result must never be served from — nor
+  // written to — the exact-match query cache.
   // Per-signal explain (opt-in). Its stamping never changes ranking, but a
   // cached hit re-hydrates ids without the per-stage factors, so an explain call
   // bypasses the cache to guarantee the attribution is always populated.
@@ -511,6 +646,10 @@ export async function hybridSearch(
   // read/write a ranking that a non-pooled call could share. Resolved from the
   // raw flag here (the intent/structural refinement below only ever narrows it).
   const maxPoolRequested = opts.maxPool ?? process.env.MEMEX_MAXPOOL === "1";
+  // Per-call ranking overrides (detail / salience / recency) change the
+  // returned set or its order but are NOT part of the cache key — bypass the
+  // cache rather than share a ranking a default call could re-serve.
+  const rankingOverrides = Boolean(opts.detail || opts.salience || opts.recency);
   const cacheEnabled =
     !opts.noCache &&
     !hasFilters &&
@@ -518,6 +657,7 @@ export async function hybridSearch(
     !relationalArmOn &&
     !explainOn &&
     !maxPoolRequested &&
+    !rankingOverrides &&
     process.env.MEMEX_QUERY_CACHE !== "0";
   let cacheKey = "";
   let cacheClock = 0;
@@ -531,8 +671,8 @@ export async function hybridSearch(
     const cachedIntent = (cached.intent as Intent) ?? "topic";
     const hydrated = await hydrateByIds(engine, cached.resultIds, cachedIntent, opts.sourceIds);
     const hits =
-      opts.tokenBudget !== undefined
-        ? applyTokenBudget(hydrated, opts.tokenBudget)
+      tokenBudget !== undefined
+        ? applyTokenBudget(hydrated, tokenBudget)
         : hydrated;
     // Cache hits have no arm membership to classify — stamp the conservative
     // default so the evidence contract is uniform (always present) and never a
@@ -557,15 +697,38 @@ export async function hybridSearch(
         // capture failures never surface
       }
     }
+    // Per-day rollup (migration 089) — sync bucket bump, flushed off the hot
+    // path; fail-open by construction.
+    recordSearchTelemetry(
+      engine,
+      { mode: resolveSearchMode(), intent: cachedIntent, cache: "hit" },
+      hits,
+      hydrated.length - hits.length,
+    );
     // Adaptive return-sizing (opt-in, default OFF) — the FINAL view, applied
     // after the cache read served the full stored set and after capture saw it,
     // so the cap never poisons the cache or shrinks the eval window.
     return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
   };
+  // Ranking signature for the cache key: the env-level signature plus the
+  // per-call RESOLVED knob values (the reference's knobs-hash) — a caller that
+  // flips graph-signals/cosine/backlink/expansion per call must never share a
+  // cached ordering with a caller that didn't.
+  const rankingSig =
+    rankingSignature() +
+    knobsCacheSuffix({
+      rerankWanted,
+      expansionEnabled,
+      graphSignalsOn,
+      cosineRescoreOn,
+      relationalArmOn,
+      backlinkBoostOn,
+      tokenBudget,
+    });
   if (cacheEnabled) {
     try {
       cacheClock = await currentDocumentClock(engine);
-      cacheKey = queryCacheKey(trimmed, k, opts.sourceIds, rerankWanted);
+      cacheKey = queryCacheKey(trimmed, k, opts.sourceIds, rerankWanted, rankingSig);
       const cached = await getCachedQuery(engine, cacheKey, cacheClock);
       cacheReady = true;
       if (cached) return await serveCachedRanking(cached);
@@ -606,7 +769,7 @@ export async function hybridSearch(
     const semCfg = resolveSemanticCacheConfig();
     if (semCfg.enabled) {
       try {
-        const bucket = queryCacheBucketKey(k, opts.sourceIds, rerankWanted);
+        const bucket = queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig);
         const sem = await getSemanticCachedQuery(
           engine,
           bucket,
@@ -626,24 +789,32 @@ export async function hybridSearch(
   // deliberately want multiple chunks per page (the collapse would fight them).
   const maxPoolOn = maxPoolRequested && intent !== "exact" && !structural;
 
+  // Curation prefix boost inside the arm SQL (reference parity): shapes which
+  // rows survive the per-arm LIMIT. Bypassed for temporal queries — freshness
+  // queries must not be steered toward evergreen curated tiers.
+  const armSourceBoost = !temporalQuery;
+
   const [vectorIds, primaryKeywordIds] = await Promise.all([
     queryVector
       ? vectorSearch(engine, queryVector, fanout, {
           sourceIds: opts.sourceIds,
           filters: chunkFilters,
           maxPool: maxPoolOn,
+          sourceBoost: armSourceBoost,
         })
       : Promise.resolve<string[]>([]),
     keywordSearch(engine, trimmed, fanout, {
       sourceIds: opts.sourceIds,
       filters: chunkFilters,
       maxPool: maxPoolOn,
+      sourceBoost: armSourceBoost,
     }),
   ]);
 
-  // 3. Expansion (skip for exact intent or when caller opted out).
+  // 3. Expansion (default OFF — see SearchOptions.expansion; skipped for
+  //    exact intent regardless).
   const lists: string[][] = [vectorIds, primaryKeywordIds];
-  if (intent !== "exact" && !opts.noExpansion) {
+  if (intent !== "exact" && expansionEnabled) {
     const variants = await (opts.expandQueryFn ?? expandQuery)(trimmed, { max: 3 });
     if (variants.length > 0) {
       const extra = await Promise.all(
@@ -652,6 +823,7 @@ export async function hybridSearch(
             sourceIds: opts.sourceIds,
             filters: chunkFilters,
             maxPool: maxPoolOn,
+            sourceBoost: armSourceBoost,
           }),
         ),
       );
@@ -718,14 +890,15 @@ export async function hybridSearch(
     // add rows that don't exist. So when an `exact`-intent pass found nothing and
     // expansion was permitted (the caller didn't opt out), re-run as `topic`,
     // which re-enables the synonym expansion pass. Gated OFF for filtered /
-    // structural queries (an empty filtered set is correct semantics) and for
-    // `noExpansion` callers (they explicitly declined the LLM expansion — honor
-    // it), and capped at one retry via `_zeroRetried`.
+    // structural queries (an empty filtered set is correct semantics) and when
+    // expansion is disabled (default OFF / `noExpansion` — a topic re-run
+    // without the synonym pass would fuse the same empty lists), and capped at
+    // one retry via `_zeroRetried`.
     const canBroaden =
       !opts._zeroRetried &&
       !hasFilters &&
       !structural &&
-      !opts.noExpansion &&
+      expansionEnabled &&
       intent === "exact";
     if (canBroaden) {
       return await hybridSearch(storage, query, {
@@ -835,8 +1008,6 @@ export async function hybridSearch(
   //     collapse. Runs only when the vector arm produced a query vector (nothing
   //     to blend on the keyword-only fallback). Fail-open: a fetch error leaves
   //     the RRF scores intact.
-  const cosineRescoreOn =
-    opts.cosineRescore ?? process.env.MEMEX_COSINE_RESCORE === "1";
   if (cosineRescoreOn && queryVector !== null) {
     await cosineReScore(scored, engine, queryVector, opts.sourceIds);
   }
@@ -855,6 +1026,22 @@ export async function hybridSearch(
   // flag is on, so a normal search pays nothing.
   const explainAcc = explainOn ? new Map<string, Partial<SearchExplain>>() : null;
   if (explainAcc) for (const s of scored) explainAcc.set(s.chunkId, { base: s.score });
+
+  // 5d. Compiled-truth boost — a page's canonical answers (its compiled-truth
+  //     mirror chunks) get ×2 so the distilled truth outranks body prose for
+  //     the same page. Skipped for temporal queries (reference detail=high
+  //     gate). Pre-dedup like every other boost, so the truth chunk wins the
+  //     per-doc collapse of its own mirror document.
+  if (!temporalQuery) {
+    for (const s of scored) {
+      if (s.payload?.sourcePath?.startsWith(PAGE_TRUTH_PREFIX)) {
+        s.score *= COMPILED_TRUTH_BOOST;
+        if (explainAcc) {
+          mergeExplain(explainAcc, s.chunkId, { compiled_truth: COMPILED_TRUTH_BOOST });
+        }
+      }
+    }
+  }
 
   // 6. Source-boost.
   const preSourceBoost = explainAcc ? snapshotScores(scored) : null;
@@ -887,19 +1074,40 @@ export async function hybridSearch(
   // hit; inert entirely when MEMEX_TITLE_BOOST <= 1.0.
   const titleBoost = getTitleBoost();
   const titleBoostActive = Number.isFinite(titleBoost) && titleBoost > 1.0;
+  // Recency BOOST activation (reference parity): the zero-LLM classifier's
+  // off/on/strong suggestion. 'off' keeps the historical penalty-only decay;
+  // 'on'/'strong' additionally LIFT fresh content hyperbolically so a
+  // this-week note can win a "what's going on" query. Canonical queries stay
+  // fully recency-neutral (both decay and boost skipped).
+  // An explicit per-call recency bias overrides both the classifier and the
+  // canonical gate (the agent asserted the temporal intent).
+  const recencyBoostMode =
+    opts.recency ?? (canonical ? "off" : suggestions.suggestedRecency);
+  const recencyBoostMap = recencyBoostMode === "off" ? null : getRecencyBoostMap();
   scored = scored.map((s) => {
-    const recencyF = canonical
+    const contentDate = s.payload?.effective_date ?? s.payload?.updated_at ?? null;
+    const decayF = canonical
       ? 1
       : recencyMultiplierForPath(
           // Decay on the content date (effective_date, already COALESCE'd with
           // updated_at at hydrate), NOT the row's updated_at — a backfill /
           // re-ingest / rechunk bumps updated_at and would otherwise make stale
           // content score as fresh.
-          s.payload?.effective_date ?? s.payload?.updated_at ?? null,
+          contentDate,
           nowMs,
           s.payload?.sourcePath ?? null,
           recencyMap,
         );
+    const boostF = recencyBoostMap
+      ? recencyBoostMultiplierForPath(
+          contentDate,
+          nowMs,
+          s.payload?.sourcePath ?? null,
+          recencyBoostMode as "on" | "strong",
+          recencyBoostMap,
+        )
+      : 1;
+    const recencyF = decayF * boostF;
     const salienceF = canonical ? 1 : salienceMultiplier(s.payload?.frontmatter);
     const curationF = curationMultiplierForPath(s.payload?.sourcePath ?? null, curationMap);
     const titleF =
@@ -915,12 +1123,38 @@ export async function hybridSearch(
     return { ...s, score: s.score * recencyF * salienceF * curationF * titleF };
   });
 
+  // 6b2. Mattering-salience join (reference parity) — the cycle-computed
+  //      pages.salience score (emotional-weight tags + link degree + takes)
+  //      lifts "what matters" pages when the query asks for current context
+  //      (meeting prep / catch-up phrasings). Classifier-gated; canonical
+  //      queries never fire it. Fail-open; floor-gated like the other
+  //      metadata boosts.
+  // Explicit per-call salience bias wins over classifier + canonical gate;
+  // 'strong' selects the aggressive mattering coefficient.
+  const matteringOn =
+    opts.salience !== undefined
+      ? opts.salience !== "off"
+      : !canonical && suggestions.suggestedSalience === "on";
+  if (matteringOn) {
+    const floor = computeFloorThreshold(scored, graphFloorRatio);
+    const preMattering = explainAcc ? snapshotScores(scored) : null;
+    try {
+      await applyMatteringBoost(scored, engine, {
+        strength: opts.salience === "strong" ? "strong" : "on",
+        ...(Number.isFinite(floor) ? { floorThreshold: floor } : {}),
+      });
+    } catch {
+      // A pages lookup error leaves scores intact.
+    }
+    if (explainAcc && preMattering) {
+      recordStageFactor(explainAcc, preMattering, scored, "mattering");
+    }
+  }
+
   // 6c. Graph signals (opt-in, default OFF) — adjacency hub boost + session
   //     diversification over the link graph, applied pre-dedup on the full
   //     scored set so a hub's chunk can rise before per-doc collapse. Mutates
   //     score in place; fail-open (a links query error leaves scores intact).
-  const graphSignalsOn =
-    opts.graphSignals ?? process.env.MEMEX_GRAPH_SIGNALS === "1";
   if (graphSignalsOn) {
     // Relative score floor (MEMEX_GRAPH_SIGNALS_FLOOR): a hit must score within
     // `ratio` of the top hit to be eligible for a graph signal. Unset → the
@@ -946,8 +1180,6 @@ export async function hybridSearch(
   //     MEMEX_GRAPH_SIGNALS_FLOOR ratio (undefined → no gate, every hit
   //     eligible). Pre-dedup so the boost decides which chunk survives per-doc
   //     collapse; fail-open on a links query error.
-  const backlinkBoostOn =
-    opts.backlinkBoost ?? process.env.MEMEX_BACKLINK_BOOST !== "0";
   if (backlinkBoostOn) {
     const floor = computeFloorThreshold(scored, graphFloorRatio);
     const preBacklink = explainAcc ? snapshotScores(scored) : null;
@@ -958,31 +1190,82 @@ export async function hybridSearch(
     if (explainAcc && preBacklink) recordStageFactor(explainAcc, preBacklink, scored, "backlink");
   }
 
+  // 6e. Exact-match boost (reference parity) — a hit whose slug / kebab-slug /
+  //     title IS the query wins the tie on entity/event queries (the user
+  //     typed the thing's name). Lexical-relevance signal: NOT floor-gated,
+  //     mirroring the reference's placement outside the metadata gate.
+  const exactBoost = exactMatchBoostForTaxonomy(suggestions.taxonomy);
+  if (exactBoost > 1.0) {
+    const cands = scored.map((s) => ({
+      slugs: slugCandidatesForPath(s.payload?.sourcePath ?? null, s.payload?.source_id ?? null),
+      title: s.payload?.title ?? null,
+    }));
+    for (const i of exactMatchIndices(cands, trimmed)) {
+      const s = scored[i]!;
+      s.score *= exactBoost;
+      if (explainAcc) mergeExplain(explainAcc, s.chunkId, { exact: exactBoost });
+    }
+  }
+
+  // 6f. Alias-resolved canonical boost (reference parity, ×1.05) — pages that
+  //     old slugs forward to (slug_aliases canonical side) are the explicitly
+  //     disambiguated authority. Fail-open: a pre-migration store no-ops.
+  try {
+    const touched = await applyAliasResolvedBoost(scored, engine);
+    if (explainAcc) {
+      for (const i of touched) {
+        mergeExplain(explainAcc, scored[i]!.chunkId, { alias: ALIAS_RESOLVED_BOOST });
+      }
+    }
+  } catch {
+    // Non-fatal — the boost is a nudge, never a dependency.
+  }
+
   // Re-sort after boost + recency (RRF was already sorted but these flip).
   scored.sort((a, b) => b.score - a.score);
 
-  // 7. Per-document dedup (one chunk per document) — skip for `exact` intent
-  //    ("show me everything about this note").
+  // 7. Per-document dedup — cap 2 chunks per document (reference parity:
+  //    maxPerPage 2; one strong page may show its two best chunks, the rest
+  //    yield slots to other pages). Skip for `exact` intent ("show me
+  //    everything about this note").
   // Structural walks deliberately surface multiple neighbor chunks from the
   // same document/class (sibling methods, the call-site + its callee), so the
   // one-chunk-per-doc collapse is widened proportionally to the walk depth.
   const maxPerDoc = structural
     ? Math.min(10, Math.max((opts.walkDepth ?? 0) * 5, 5))
-    : 1;
+    : opts.detail === "low"
+      ? 1
+      : 2;
+  // detail 'high' = the reference's all-chunks view: skip the per-doc collapse
+  // entirely (like `exact` intent), so every matching chunk of a page returns.
   const perDoc =
-    intent === "exact"
+    intent === "exact" || opts.detail === "high"
       ? scored
       : dedupByDocument(scored, { enabled: true, maxPerDoc });
+
+  // 7b. Type-diversity layer (reference parity): no page type may exceed
+  //     MEMEX_MAX_TYPE_RATIO (default 0.6) of the candidate set, so one noisy
+  //     shape (chat exports, dailies) can't monopolise every slot. Skipped for
+  //     `exact` intent and structural walks (both deliberately homogeneous).
+  const diversified =
+    intent === "exact" || structural || opts.detail === "high"
+      ? perDoc
+      : enforceTypeDiversity(perDoc);
 
   // 8. Two-pass rerank (opt-in) — runs BEFORE near-dup so the reranker sees
   //    both near-identical twins and decides their order; near-dup then drops
   //    the now-lower-ranked one (the reranker can't undo a drop, so it must
-  //    come first).
+  //    come first). Reference contract: the head sent upstream is exactly the
+  //    return window (k), so every returned hit carries a rerank decision, and
+  //    the un-reranked tail keeps its fused order behind the head instead of
+  //    being truncated away (it still feeds near-dup / alias-hop recall).
   const preRerankOrder =
-    explainAcc && rerankWanted ? new Map(perDoc.map((h, i) => [h.chunkId, i] as const)) : null;
+    explainAcc && rerankWanted
+      ? new Map(diversified.map((h, i) => [h.chunkId, i] as const))
+      : null;
   const reranked = rerankWanted
-    ? await rerank(trimmed, perDoc.slice(0, k * 2))
-    : perDoc;
+    ? [...(await rerank(trimmed, diversified.slice(0, k))), ...diversified.slice(k)]
+    : diversified;
   if (explainAcc && preRerankOrder) {
     reranked.forEach((h, i) => {
       const prev = preRerankOrder.get(h.chunkId);
@@ -1078,7 +1361,7 @@ export async function hybridSearch(
     const semCfg = resolveSemanticCacheConfig();
     const semantic = semCfg.enabled
       ? {
-          bucketKey: queryCacheBucketKey(k, opts.sourceIds, rerankWanted),
+          bucketKey: queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig),
           queryEmbedding: queryVector,
         }
       : undefined;
@@ -1098,10 +1381,10 @@ export async function hybridSearch(
     ).catch(() => {});
   }
 
-  // 9b. Token budget (opt-in) — cap total returned context size.
+  // 9b. Token budget (opt-in / mode-resolved) — cap total returned context size.
   let hits: SearchHit[] = ranked;
-  if (opts.tokenBudget !== undefined) {
-    hits = applyTokenBudget(hits, opts.tokenBudget);
+  if (tokenBudget !== undefined) {
+    hits = applyTokenBudget(hits, tokenBudget);
   }
 
   // 10. Side-channel: optional capture hook for eval-capture wiring.
@@ -1116,13 +1399,22 @@ export async function hybridSearch(
         intent,
         latencyMs: Date.now() - startedAt,
         rerank: rerankWanted,
-        expansion: intent !== "exact" && !opts.noExpansion,
+        expansion: intent !== "exact" && expansionEnabled,
       });
     } catch {
       // Capture failures must not surface; classifier in eval-capture
       // already categorises them for the caller's logging.
     }
   }
+
+  // 10b. Per-day telemetry rollup (migration 089) — sync bucket bump, flushed
+  //      off the hot path; "miss" only when the cache was in play this call.
+  recordSearchTelemetry(
+    engine,
+    { mode: resolveSearchMode(), intent, cache: cacheEnabled ? "miss" : "off" },
+    hits,
+    ranked.length - hits.length,
+  );
 
   // 11. Adaptive return-sizing (opt-in, default OFF) — the FINAL step. Applied
   //     after the cache write (9a stored the full `ranked` set) AND after the

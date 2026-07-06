@@ -184,3 +184,147 @@ export function recencyMultiplierForPath(
     resolveRecencyConfig(path, map, fallback),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Recency BOOST — the reference's hyperbolic freshness model (>= 1.0).
+//
+// The decay above is penalty-only (caps at ×1.0): old content is nudged down,
+// fresh content merely escapes the nudge. The reference additionally lets a
+// temporal query LIFT fresh content — `1 + strength × coefficient × halflife /
+// (halflife + daysOld)` — so a this-week note can outrank an old-but-strong
+// hit when the user asked "what's going on". Activation is off/on/strong,
+// driven by the zero-LLM query classifier (query-intent.ts): 'off' for
+// canonical queries (no boost at all), 'on' ×1.0, 'strong' ×1.5.
+//
+// The boost map is keyed by slug prefix (longest match wins) like the decay
+// map, with the reference's coefficients. `coefficient: 0` or
+// `halfLifeDays: 0` marks a prefix evergreen (factor 1.0). Env override:
+// MEMEX_RECENCY_BOOST=prefix:halfLifeDays:coefficient,... — fail-loud like
+// the decay parser.
+// ---------------------------------------------------------------------------
+
+export interface RecencyBoostConfig {
+  /** Days at which the boost contribution halves. 0 = evergreen (no boost). */
+  halfLifeDays: number;
+  /** Max boost contribution at age 0. 0 = evergreen (no boost). */
+  coefficient: number;
+}
+
+export type RecencyBoostMap = Record<string, RecencyBoostConfig>;
+
+/** Generic prefixes only — never fork-specific names (privacy). */
+export const DEFAULT_RECENCY_BOOST: RecencyBoostMap = {
+  "concepts/": { halfLifeDays: 0, coefficient: 0 }, // evergreen
+  "originals/": { halfLifeDays: 180, coefficient: 0.5 },
+  "writing/": { halfLifeDays: 365, coefficient: 0.4 },
+  "daily/": { halfLifeDays: 14, coefficient: 1.5 },
+  "meetings/": { halfLifeDays: 60, coefficient: 1.0 },
+  "chat/": { halfLifeDays: 7, coefficient: 1.0 },
+  "media/x/": { halfLifeDays: 7, coefficient: 1.5 },
+  "media/articles/": { halfLifeDays: 90, coefficient: 0.5 },
+  "people/": { halfLifeDays: 365, coefficient: 0.3 },
+  "companies/": { halfLifeDays: 365, coefficient: 0.3 },
+  "deals/": { halfLifeDays: 180, coefficient: 0.5 },
+};
+
+/** Applied to paths that match no boost prefix (reference fallback). */
+export const DEFAULT_RECENCY_BOOST_FALLBACK: RecencyBoostConfig = {
+  halfLifeDays: 90,
+  coefficient: 0.5,
+};
+
+/**
+ * Parse `MEMEX_RECENCY_BOOST`: comma-separated `prefix:halfLifeDays:coefficient`
+ * triples. Fails loud on a bad value (RecencyDecayParseError, same class as
+ * the decay parser — one error surface for both recency knobs).
+ */
+export function parseRecencyBoostEnv(env: string | undefined): RecencyBoostMap {
+  if (!env) return {};
+  const out: RecencyBoostMap = {};
+  for (const raw of env.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const last = raw.lastIndexOf(":");
+    const mid = last > 0 ? raw.lastIndexOf(":", last - 1) : -1;
+    if (last <= 0 || mid <= 0) {
+      throw new RecencyDecayParseError(
+        `MEMEX_RECENCY_BOOST entry ${JSON.stringify(raw)} must be prefix:halfLifeDays:coefficient`,
+      );
+    }
+    const prefix = raw.slice(0, mid).trim();
+    const halfLifeRaw = raw.slice(mid + 1, last).trim();
+    const coefficientRaw = raw.slice(last + 1).trim();
+    const NUM = /^\d+(\.\d+)?$/;
+    if (!prefix) {
+      throw new RecencyDecayParseError(`empty prefix in ${JSON.stringify(raw)}`);
+    }
+    if (!NUM.test(halfLifeRaw) || !NUM.test(coefficientRaw)) {
+      throw new RecencyDecayParseError(
+        `non-numeric halfLifeDays/coefficient in ${JSON.stringify(raw)} (expected prefix:halfLifeDays:coefficient)`,
+      );
+    }
+    const halfLifeDays = Number.parseFloat(halfLifeRaw);
+    const coefficient = Number.parseFloat(coefficientRaw);
+    if (!Number.isFinite(halfLifeDays) || halfLifeDays < 0) {
+      throw new RecencyDecayParseError(
+        `bad halfLifeDays in ${JSON.stringify(raw)} (number >= 0; 0 = evergreen)`,
+      );
+    }
+    if (!Number.isFinite(coefficient) || coefficient < 0) {
+      throw new RecencyDecayParseError(
+        `bad coefficient in ${JSON.stringify(raw)} (number >= 0; 0 = evergreen)`,
+      );
+    }
+    out[prefix] = { halfLifeDays, coefficient };
+  }
+  return out;
+}
+
+/** Merge defaults + env into the effective boost map (later wins). */
+export function resolveRecencyBoostMap(
+  envValue: string | undefined = process.env["MEMEX_RECENCY_BOOST"],
+): RecencyBoostMap {
+  return { ...DEFAULT_RECENCY_BOOST, ...parseRecencyBoostEnv(envValue) };
+}
+
+/** Longest-prefix-match the path against the boost map; fallback otherwise. */
+function resolveRecencyBoostConfig(
+  path: string | null | undefined,
+  map: RecencyBoostMap,
+  fallback: RecencyBoostConfig = DEFAULT_RECENCY_BOOST_FALLBACK,
+): RecencyBoostConfig {
+  if (!path) return fallback;
+  if (path.startsWith("page://")) path = path.slice("page://".length);
+  let best: { prefix: string; cfg: RecencyBoostConfig } | null = null;
+  for (const [prefix, cfg] of Object.entries(map)) {
+    if (
+      path.startsWith(prefix) &&
+      (!best || prefix.length > best.prefix.length)
+    ) {
+      best = { prefix, cfg };
+    }
+  }
+  return best ? best.cfg : fallback;
+}
+
+/**
+ * Hyperbolic recency-boost multiplier (>= 1.0) for a hit:
+ * `1 + strengthMul × coefficient × halfLife / (halfLife + daysOld)`.
+ * `strength` 'strong' multiplies the contribution by 1.5. A missing /
+ * unparseable / future date, or an evergreen prefix, returns 1.0.
+ */
+export function recencyBoostMultiplierForPath(
+  contentDateIso: string | null | undefined,
+  nowMs: number,
+  path: string | null | undefined,
+  strength: "on" | "strong",
+  map: RecencyBoostMap = DEFAULT_RECENCY_BOOST,
+  fallback: RecencyBoostConfig = DEFAULT_RECENCY_BOOST_FALLBACK,
+): number {
+  if (!contentDateIso) return 1;
+  const t = Date.parse(contentDateIso);
+  if (Number.isNaN(t)) return 1;
+  const cfg = resolveRecencyBoostConfig(path, map, fallback);
+  if (cfg.halfLifeDays <= 0 || cfg.coefficient <= 0) return 1; // evergreen
+  const daysOld = Math.max(0, (nowMs - t) / DAY_MS);
+  const strengthMul = strength === "strong" ? 1.5 : 1.0;
+  return 1 + strengthMul * cfg.coefficient * (cfg.halfLifeDays / (cfg.halfLifeDays + daysOld));
+}

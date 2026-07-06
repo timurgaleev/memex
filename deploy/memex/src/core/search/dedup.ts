@@ -139,3 +139,90 @@ let _nearDupThreshold: number | null = null;
 export function getNearDupThreshold(): number {
   return (_nearDupThreshold ??= resolveNearDupThreshold());
 }
+
+// ---------------------------------------------------------------------------
+// Type-diversity layer (reference parity): no page type may exceed
+// MAX_TYPE_RATIO of the result set, so a corpus dominated by one shape (chat
+// exports, daily notes) can't monopolise every slot. Greedy in rank order —
+// the strongest hits of the over-represented type survive; the tail yields
+// slots to other types. `maxRatio >= 1` disables the layer.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MAX_TYPE_RATIO = 0.6;
+
+export class TypeRatioParseError extends Error {}
+
+/** `MEMEX_MAX_TYPE_RATIO` override; >= 1 disables. Fail-loud on garbage. */
+export function resolveMaxTypeRatio(
+  envValue: string | undefined = process.env["MEMEX_MAX_TYPE_RATIO"],
+): number {
+  if (envValue === undefined || envValue.trim() === "") return DEFAULT_MAX_TYPE_RATIO;
+  const raw = envValue.trim();
+  if (!/^\d+(\.\d+)?$/.test(raw)) {
+    throw new TypeRatioParseError(`invalid MEMEX_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
+  }
+  const v = Number.parseFloat(raw);
+  if (!Number.isFinite(v) || v <= 0) {
+    throw new TypeRatioParseError(`invalid MEMEX_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
+  }
+  return v;
+}
+
+let _maxTypeRatio: number | null = null;
+export function getMaxTypeRatio(): number {
+  return (_maxTypeRatio ??= resolveMaxTypeRatio());
+}
+
+interface TypedPayload {
+  frontmatter?: unknown;
+  sourcePath?: string;
+}
+
+/**
+ * Derive a hit's page type: explicit `frontmatter.type` wins; otherwise the
+ * first path segment of the (scheme-stripped) source path — `people/x` →
+ * "people". Untyped, segment-less paths group under "note".
+ */
+export function pageTypeOf(payload: TypedPayload | undefined): string {
+  const fm = payload?.frontmatter;
+  if (fm && typeof fm === "object" && !Array.isArray(fm)) {
+    const t = (fm as Record<string, unknown>)["type"];
+    if (typeof t === "string" && t.trim().length > 0) return t.trim();
+  }
+  let path = payload?.sourcePath ?? "";
+  if (path.startsWith("page-truth://")) path = path.slice("page-truth://".length);
+  else if (path.startsWith("page://")) path = path.slice("page://".length);
+  path = path.replace(/^\/+/, "");
+  const slash = path.indexOf("/");
+  if (slash > 0) return path.slice(0, slash);
+  return "note";
+}
+
+/**
+ * Enforce the type-diversity cap: keep at most `ceil(n × maxRatio)` hits per
+ * page type (floor 1), in rank order. `maxRatio >= 1` returns the input as-is.
+ *
+ * Memex adaptation: a SINGLE-type candidate set passes through untouched —
+ * there is nothing to diversify toward, so truncating it (as the reference's
+ * raw math would) only loses recall on uniform corpora.
+ */
+export function enforceTypeDiversity<T extends TypedPayload>(
+  hits: readonly ChunkScore<T>[],
+  maxRatio: number = getMaxTypeRatio(),
+): ChunkScore<T>[] {
+  if (!(maxRatio < 1) || hits.length === 0) return [...hits];
+  const types = hits.map((h) => pageTypeOf(h.payload));
+  if (new Set(types).size <= 1) return [...hits];
+  const maxPerType = Math.max(1, Math.ceil(hits.length * maxRatio));
+  const counts = new Map<string, number>();
+  const kept: ChunkScore<T>[] = [];
+  for (let i = 0; i < hits.length; i++) {
+    const t = types[i]!;
+    const c = counts.get(t) ?? 0;
+    if (c < maxPerType) {
+      kept.push(hits[i]!);
+      counts.set(t, c + 1);
+    }
+  }
+  return kept;
+}

@@ -19,18 +19,45 @@
 
 export type CurationBoostMap = Record<string, number>;
 
-/** Gentle authority weights; fallback (no prefix match) is 1.0. */
+/**
+ * Authority weights by slug prefix — the reference's full tier map (generic
+ * prefixes only, fork-specific names stay out for privacy). Curated originals
+ * outrank entity pages outrank bulk feeds; archived + machine-extracted
+ * content is demoted, never hidden. Fallback (no prefix match) is 1.0.
+ */
 export const DEFAULT_CURATION_BOOST: CurationBoostMap = {
-  "originals/": 1.3,
-  "writing/": 1.2,
-  "daily/": 0.9,
-  "chat/": 0.7,
-  "archive/": 0.6,
+  // Curated, opinionated, high-signal.
+  "originals/": 1.5,
+  "writing/": 1.4,
+  // Reusable knowledge frameworks.
+  "concepts/": 1.3,
+  // Entity pages.
+  "people/": 1.2,
+  "companies/": 1.2,
+  "deals/": 1.2,
+  // Notes from real meetings.
+  "meetings/": 1.1,
+  // Ingested third-party content.
+  "media/articles/": 1.1,
+  "media/repos/": 1.1,
+  // Bulk / noisy.
+  "daily/": 0.8,
+  "media/x/": 0.7,
+  // Chat transcripts — massive, noisy, swamp keyword queries.
+  "chat/": 0.5,
+  // Archived history — findable, ranked below curated (demote-not-exclude).
+  "archive/": 0.5,
+  // Machine-extracted receipts — never dominate user content.
+  "extracts/": 0.3,
 };
 
-/** Suggested exclusions for an operator: "test/", "tests/", "attachments/",
- *  ".raw/". Left EMPTY by default — set MEMEX_SEARCH_EXCLUDE to opt in. */
-export const DEFAULT_SEARCH_EXCLUDE: readonly string[] = [];
+/** Genuine noise, excluded by default (reference parity): test fixtures,
+ *  binary attachments, raw sidecars. MEMEX_SEARCH_EXCLUDE overrides. */
+export const DEFAULT_SEARCH_EXCLUDE: readonly string[] = [
+  "test/",
+  "attachments/",
+  ".raw/",
+];
 
 export class CurationParseError extends Error {
   constructor(message: string) {
@@ -108,4 +135,82 @@ export function isExcludedPath(
 export function _resetCurationForTests(): void {
   _boostMap = null;
   _excludePrefixes = null;
+}
+
+// ---------------------------------------------------------------------------
+// SQL fragments — reference parity: the prefix boost is applied INSIDE each
+// retrieval arm's ORDER BY so it shapes which rows survive the per-arm LIMIT
+// (a curated hit ranking just below the fanout is no longer dropped), and the
+// hard-excludes are pushed into the WHERE so noise never eats LIMIT budget.
+//
+// Raw fragments by design (same contract as the reference's sql-ranking
+// builders): prefixes come from code defaults or the operator's env — both
+// LIKE-escaped AND string-escaped before inlining; factors are validated
+// finite numbers. The column expression is supplied by the arm, never by
+// user input.
+// ---------------------------------------------------------------------------
+
+/** Escape `%`, `_`, `\` so a string is a literal LIKE prefix. */
+function escapeLikePattern(s: string): string {
+  return s.replace(/[%_\\]/g, "\\$&");
+}
+
+/** Escape a SQL string literal (single-quote doubling). */
+function escapeSqlLiteral(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
+function likePrefixLiteral(prefix: string): string {
+  return `'${escapeSqlLiteral(escapeLikePattern(prefix))}%'`;
+}
+
+/**
+ * SQL expression normalizing a document source_path for prefix matching:
+ * page-mirror docs (`page://<slug>`, `page-truth://<slug>`) shed their scheme
+ * so a mirrored `people/x` page matches the same tier as its file twin.
+ * `pathColumn` must be an engine-supplied column reference.
+ */
+export function normalizedPathSql(pathColumn: string): string {
+  return (
+    `CASE WHEN ${pathColumn} LIKE 'page-truth://%' THEN substr(${pathColumn}, 14) ` +
+    `WHEN ${pathColumn} LIKE 'page://%' THEN substr(${pathColumn}, 8) ` +
+    `ELSE ${pathColumn} END`
+  );
+}
+
+/**
+ * Build the CASE expression returning the curation factor for a path.
+ * Longest-prefix-first so `media/articles/` wins over `media/`. Returns
+ * `'1.0'` when the map is empty (or every entry invalid), so callers can
+ * multiply unconditionally.
+ */
+export function buildCurationBoostCaseSql(
+  pathColumn: string,
+  map: CurationBoostMap = getCurationBoostMap(),
+): string {
+  const expr = normalizedPathSql(pathColumn);
+  const entries = Object.entries(map)
+    .filter(([prefix, factor]) => prefix.length > 0 && Number.isFinite(factor) && factor > 0)
+    .sort((a, b) => b[0].length - a[0].length);
+  if (entries.length === 0) return "1.0";
+  const whens = entries
+    .map(([prefix, factor]) => `WHEN ${expr} LIKE ${likePrefixLiteral(prefix)} THEN ${factor}`)
+    .join(" ");
+  return `(CASE ${whens} ELSE 1.0 END)`;
+}
+
+/**
+ * Build the hard-exclude clause (` AND NOT (path LIKE 'p1%' OR ...)`), or an
+ * empty string when no prefixes are configured — callers interpolate
+ * unconditionally.
+ */
+export function buildHardExcludeClauseSql(
+  pathColumn: string,
+  prefixes: readonly string[] = getSearchExcludePrefixes(),
+): string {
+  const valid = prefixes.filter((p) => p.length > 0);
+  if (valid.length === 0) return "";
+  const expr = normalizedPathSql(pathColumn);
+  const likes = valid.map((p) => `${expr} LIKE ${likePrefixLiteral(p)}`).join(" OR ");
+  return ` AND NOT (${likes})`;
 }

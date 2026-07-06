@@ -30,14 +30,22 @@ export interface SearchExplain {
   base: number;
   /** Source-kind / per-source weight factor (source-boost.ts). */
   source?: number;
-  /** Per-prefix recency-decay factor (recency.ts). */
+  /** Compiled-truth ×2 factor (page-truth:// mirror chunks, hybrid.ts). */
+  compiled_truth?: number;
+  /** Per-prefix recency factor — decay × temporal boost (recency.ts). */
   recency?: number;
   /** Frontmatter pinned/weight salience factor (salience.ts). */
   salience?: number;
+  /** Cycle-computed mattering-salience factor (pages.salience join). */
+  mattering?: number;
   /** Curation-authority-by-prefix factor (curation.ts). */
   curation?: number;
   /** Title-phrase-match factor (title-match.ts). */
   title?: number;
+  /** Exact slug/kebab/title match factor (intent-weights.ts). */
+  exact?: number;
+  /** Alias-resolved canonical factor (alias-resolved.ts). */
+  alias?: number;
   /** Global in-degree backlink factor (backlink-boost.ts). */
   backlink?: number;
   /** Graph-signals adjacency/session factor (graph-signals.ts). */
@@ -66,7 +74,7 @@ export function recordStageFactor(
   acc: Map<string, Partial<SearchExplain>>,
   before: ReadonlyMap<string, number>,
   scored: ReadonlyArray<{ chunkId: string; score: number }>,
-  key: "source" | "backlink" | "graph",
+  key: "source" | "backlink" | "graph" | "mattering",
 ): void {
   for (const s of scored) {
     const b = before.get(s.chunkId);
@@ -131,10 +139,14 @@ export function formatExplain(
     lines.push(`   ${sign} ${label} ×${fmt(f)}`);
   };
   boost("source", explain.source);
+  boost("compiled_truth", explain.compiled_truth);
   boost("recency", explain.recency);
   boost("salience", explain.salience);
+  boost("mattering", explain.mattering);
   boost("curation", explain.curation);
   boost("title", explain.title);
+  boost("exact", explain.exact);
+  boost("alias", explain.alias);
   boost("backlink", explain.backlink);
   boost("graph", explain.graph);
   if (explain.rerank_delta !== undefined && explain.rerank_delta !== 0) {

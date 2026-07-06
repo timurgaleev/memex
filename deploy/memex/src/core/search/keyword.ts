@@ -23,6 +23,10 @@
 import type { Engine } from "../engine/interface.ts";
 import { visibilityClause } from "../visibility.ts";
 import { chunkFilterClauses, type ChunkFilters } from "./filters.ts";
+import {
+  buildCurationBoostCaseSql,
+  buildHardExcludeClauseSql,
+} from "./curation.ts";
 
 export interface KeywordSearchOptions {
   sourceIds?: readonly string[];
@@ -41,6 +45,14 @@ export interface KeywordSearchOptions {
    * tiebreak. See hybrid.ts (`maxPool`).
    */
   maxPool?: boolean;
+  /**
+   * Curation prefix boost inside the arm SQL (reference parity): multiply the
+   * FTS rank by the per-prefix authority factor BEFORE the LIMIT cut, so a
+   * curated page's chunk survives the fanout over bulk-feed noise. The caller
+   * (hybrid.ts) disables it for temporal queries — freshness queries must not
+   * be steered toward evergreen tiers. Default OFF preserves prior ordering.
+   */
+  sourceBoost?: boolean;
 }
 
 export async function keywordSearch(
@@ -60,6 +72,12 @@ export async function keywordSearch(
     sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
   }
   const filterClauses = chunkFilterClauses(params, opts.filters);
+  // Default hard-excludes (test fixtures / attachments / raw sidecars) are
+  // pushed into the WHERE so noise never consumes LIMIT budget.
+  const excludeClause = buildHardExcludeClauseSql("d.source_path");
+  // Per-prefix authority factor folded into the ranking expression (LIMIT
+  // shaping); '1.0' when disabled so the SQL shape stays uniform.
+  const boostCase = opts.sourceBoost ? buildCurationBoostCaseSql("d.source_path") : "1.0";
   params.push(limit);
   const limitParam = `$${params.length}`;
   // Per-page max-pool (opt-in): pool the full match set to the best chunk per
@@ -73,11 +91,11 @@ export async function keywordSearch(
     ? `SELECT bpp.id FROM (
          SELECT DISTINCT ON (COALESCE(d.source_id, 'default'), c.document_id)
                 c.id AS id,
-                ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) AS score
+                ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) * ${boostCase} AS score
            FROM chunks c
            JOIN documents d ON d.id = c.document_id
           WHERE c.search_vector @@ plainto_tsquery('simple', $1)
-            AND ${vis}${sourceFilter}${filterClauses}
+            AND ${vis}${sourceFilter}${filterClauses}${excludeClause}
           ORDER BY COALESCE(d.source_id, 'default'), c.document_id,
                    score DESC, c.id COLLATE "C" ASC
        ) bpp
@@ -86,8 +104,8 @@ export async function keywordSearch(
     : `SELECT c.id FROM chunks c
        JOIN documents d ON d.id = c.document_id
        WHERE c.search_vector @@ plainto_tsquery('simple', $1)
-         AND ${vis}${sourceFilter}${filterClauses}
-       ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) DESC, c.id COLLATE "C" ASC
+         AND ${vis}${sourceFilter}${filterClauses}${excludeClause}
+       ORDER BY ts_rank_cd(c.search_vector, plainto_tsquery('simple', $1)) * ${boostCase} DESC, c.id COLLATE "C" ASC
        LIMIT ${limitParam}`;
   const r = await engine.query<{ id: string }>(sql, params);
   return r.rows.map((row) => row.id);
