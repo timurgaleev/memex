@@ -201,7 +201,9 @@ export async function resolveAliasCandidates(
     const r = await storage.engine().query<{ slug: string; source_id: string }>(
       `SELECT pa.slug AS slug, pa.source_id AS source_id
          FROM page_aliases pa
-         JOIN pages p ON p.slug = pa.slug AND p.deleted_at IS NULL
+         JOIN pages p ON p.slug = pa.slug
+                     AND p.source_id = pa.source_id
+                     AND p.deleted_at IS NULL
         WHERE pa.alias_norm = $1${scopeFilter}
         ORDER BY source_id, pa.slug`,
       params,

@@ -52,6 +52,20 @@ ingress via terraform (ops dir) + decides tenancy. See agent memory
 - Remote authenticated principals whose credential carries no takes-holder
   allow-list are floored to `['world']` (the reference applies the same
   fail-safe at its transport layer).
+- `synth_takes.holder` DEFAULT + mig-091 backfill = `'world'`, NOT the
+  reference's `'brain'`-for-AI convention. memex retrofits the holder onto
+  pre-existing MACHINE-proposed takes that were world-visible (unfiltered)
+  before the column existed; the operator reads them daily through a REMOTE
+  client (claude.ai / ChatGPT), which the holder floor caps to `['world']`.
+  Backfilling to `'brain'` would retroactively hide the operator's entire live
+  take history from their own primary client — a regression, not a privacy
+  win. So machine-proposed takes stay `'world'` (consensus CANDIDATES for the
+  human to grade) and only fence-authored takes the operator marks otherwise
+  carry a non-world holder — the genuinely-private rows the floor gates. Not a
+  divergence from a reference STEP (the reference authored takes with explicit
+  holders from day one and never backfilled machine takes). **OPEN taste call
+  for operator ratification** — the stricter alternative is `'brain'` backfill
+  + grant `claude-web`/`timur-chatgpt` `takes_holders=['*']`.
 - `rate_limited` request-log rows are best-effort (sink-gated), NOT
   force-written per rejection — a hammering client must not convert every 429
   into a guaranteed DB INSERT.

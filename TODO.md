@@ -33,6 +33,20 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 
 ---
 
+## LOW backlog (v1.81 cycle-3 verify, 2026-07-06)
+
+- **mig 085 entity_facts_superseded_by_fkey has no ON DELETE action** — a
+  hard-delete that removes a fact still referenced by a tombstoned row's
+  superseded_by now FK-violates where it succeeded pre-085. Add ON DELETE SET
+  NULL (or CASCADE) when a purge path exercises it.
+- **postgres.ts onnotice is a no-op** — migration NOTICEs (082 RLS trigger
+  skipped, 092 repaired/skipped counts) are invisible on live RDS deploys.
+  Route NOTICE to the migrate log so the operator can confirm 082/092 outcomes.
+- **`MEMEX_TENANT_FAIL_CLOSED=1` must be verified/set on the live container**
+  before handing out any second-tenant credential — a scopeless client
+  otherwise reads whole-brain and writes 'default'. (Action item, not code:
+  confirm on SSO restore.)
+
 ## LOW backlog (v1.81.0 parity-build review, 2026-07-06)
 
 - **Budget caps are opt-in**: `oauth_clients.budget_usd_per_day` defaults NULL
