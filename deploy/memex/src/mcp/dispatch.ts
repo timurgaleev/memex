@@ -409,15 +409,15 @@ async function dispatchToolInner(
       case "log_friction":
         return await callLogFriction(storage, args);
       case "page_put":
-        return await callPagePut(storage, args, writeSource);
+        return await callPagePut(storage, args, writeSource, opts.isPublic ?? false);
       case "page_append":
-        return await callPageAppend(storage, args, writeSource);
+        return await callPageAppend(storage, args, writeSource, opts.isPublic ?? false);
       case "page_delete":
         return await callPageDelete(storage, args, writeSource);
       case "page_restore":
-        return await callPageRestore(storage, args, writeSource);
+        return await callPageRestore(storage, args, writeSource, opts.isPublic ?? false);
       case "page_revert":
-        return await callPageRevert(storage, args, writeSource);
+        return await callPageRevert(storage, args, writeSource, opts.isPublic ?? false);
       case "page_get":
         return await callPageGet(storage, args, redact, readSources);
       case "page_list":
@@ -764,7 +764,15 @@ async function callIndex(
   const sourcePath = args["sourcePath"];
   const text = args["text"];
   if (typeof sourcePath === "string" && typeof text === "string") {
-    const r = await indexDocument(storage, { sourcePath, text, ...(writeSource ? { sourceId: writeSource } : {}) });
+    // Trust boundary: the inline `sourcePath`+`text` form is the remote-reachable
+    // ingest. Fail-closed — anything on the public path or carrying a scoped
+    // write source is untrusted, so gate-owned frontmatter markers get stripped.
+    const remote = isPublic || writeSource !== undefined;
+    const r = await indexDocument(
+      storage,
+      { sourcePath, text, ...(writeSource ? { sourceId: writeSource } : {}) },
+      { remote },
+    );
     return jsonResult({ ok: true, ...r });
   }
   return errResult("index: pass either `path` or both `sourcePath` and `text`");
@@ -883,11 +891,13 @@ async function callLogFriction(
 }
 
 // ---------------------------------------------------------------------------
-// Page tools — DB-canonical page store. Writes (page_put, page_append,
-// page_delete) are listed in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC so the
-// public bearer cannot reach them; the HTTP routes additionally require
-// the internal-token. MCP dispatch trusts the transport layer to have
-// already enforced those gates.
+// Page tools — DB-canonical page store. page_put / page_append are
+// PUBLIC_WRITE_TOOLS: the public bearer CAN reach them when
+// MEMEX_PUBLIC_WRITE=1, so their content is untrusted — `isPublic` is threaded
+// into the search mirror to strip gate-owned frontmatter markers (see
+// indexer.ts trust boundary). page_delete / page_restore / page_revert are in
+// FORBIDDEN_MCP_TOOLS_FROM_PUBLIC and never reachable from the public bearer.
+// MCP dispatch trusts the transport layer to have already enforced those gates.
 // ---------------------------------------------------------------------------
 
 function asPageInput(args: Record<string, unknown>): PageInput | string {
@@ -919,6 +929,7 @@ async function callPagePut(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   const input = asPageInput(args);
   if (typeof input === "string") return errResult(input);
@@ -953,7 +964,7 @@ async function callPagePut(
     // committed and is the source of truth — an embed failure must not fail
     // the write. The cycle backstop reconciles unindexed pages later.
     if (page) {
-      searchIndexed = await mirrorPageToSearch(storage, page);
+      searchIndexed = await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
       // On-write fact extraction (default-OFF, best-effort). Only on a real
       // content change and only for prose-eligible pages.
       maybeEnqueueFactExtraction(storage, page, writeSource);
@@ -1024,15 +1035,20 @@ async function mirrorPageToSearch(
     content_hash?: string;
     source_id?: string;
   },
+  remote = false,
 ): Promise<boolean> {
   try {
-    await indexPageIntoSearch(storage, {
-      slug: page.slug,
-      title: page.title,
-      markdown_body: page.markdown_body,
-      ...(page.content_hash ? { content_hash: page.content_hash } : {}),
-      ...(page.source_id ? { source_id: page.source_id } : {}),
-    });
+    await indexPageIntoSearch(
+      storage,
+      {
+        slug: page.slug,
+        title: page.title,
+        markdown_body: page.markdown_body,
+        ...(page.content_hash ? { content_hash: page.content_hash } : {}),
+        ...(page.source_id ? { source_id: page.source_id } : {}),
+      },
+      { remote },
+    );
     return true;
   } catch (e) {
     console.error(
@@ -1047,6 +1063,7 @@ async function callPageAppend(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_append: `slug` is required");
@@ -1076,7 +1093,7 @@ async function callPageAppend(
     }
     await stampLinksExtracted(storage.engine(), r.slug, writeSource); // watermark (mig 051)
     if (fresh) {
-      searchIndexed = await mirrorPageToSearch(storage, fresh);
+      searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined);
       maybeEnqueueFactExtraction(storage, fresh, writeSource);
     }
   }
@@ -1117,6 +1134,7 @@ async function callPageRestore(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_restore: `slug` is required");
@@ -1132,7 +1150,7 @@ async function callPageRestore(
     const page = await getPage(storage, r.slug);
     if (page) {
       await reconcileFactsForPage(storage, r.slug, page.content_hash);
-      await mirrorPageToSearch(storage, page);
+      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
     }
   }
   return jsonResult({ ok: true, ...r });
@@ -1142,6 +1160,7 @@ async function callPageRevert(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_revert: `slug` is required");
@@ -1168,7 +1187,7 @@ async function callPageRevert(
       }
       await stampLinksExtracted(storage.engine(), r.slug); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash);
-      await mirrorPageToSearch(storage, page);
+      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
     }
   }
   return jsonResult({ ok: true, ...r });

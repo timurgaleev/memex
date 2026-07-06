@@ -480,9 +480,21 @@ export function supersedeRow(
  */
 export function stripTakesFence(body: string): string {
   if (typeof body !== "string") return body;
-  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
-  if (beginIdx === -1) return body;
-  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
-  if (endIdx === -1) return body;
-  return body.slice(0, beginIdx) + body.slice(endIdx + TAKES_FENCE_END.length);
+  if (!body.includes(TAKES_FENCE_BEGIN)) return body;
+  const lines = body.split(/\r?\n/);
+  const begin = lines.findIndex((l) => l.trim() === TAKES_FENCE_BEGIN);
+  const end = lines.findIndex((l) => l.trim() === TAKES_FENCE_END);
+  if (begin === -1 || end === -1 || end <= begin) return body;
+
+  // Also drop a `## Takes` heading directly above the fence (and any blank lines
+  // between them), so stripping doesn't leave a dangling header that chunks as
+  // search noise — mirrors stripFactsFence.
+  let from = begin;
+  let probe = begin - 1;
+  while (probe >= 0 && (lines[probe] ?? "").trim() === "") probe--;
+  if (probe >= 0 && /^#{1,6}\s+takes\s*$/i.test((lines[probe] ?? "").trim())) {
+    from = probe;
+  }
+  const kept = [...lines.slice(0, from), ...lines.slice(end + 1)];
+  return kept.join("\n");
 }

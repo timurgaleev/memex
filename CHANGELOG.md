@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Operator takes no longer leak into search.** The indexer stripped the
+  `## Facts` fence before chunking but not the `## Takes` fence, so
+  operator-authored takes — including holder-scoped rows the takes read-path
+  caps at `world` — were chunked, embedded, and retrievable by any principal
+  with read scope on the source. The indexer and the ambient-context synopsis
+  now strip both fences. Existing pages heal on their next re-index (a
+  `reindex --force` or edit purges already-embedded fence content eagerly).
+- **Untrusted callers can no longer plant gate-owned frontmatter markers.** A
+  write-scoped or public-bearer caller could send `quarantine` (hide a page
+  from search), `embed_skip` (keep content out of the vector arm), or a
+  `content_flag.detail` (inject text into the agent-trusted "this looks odd"
+  channel) in a page's frontmatter, and the content-sanity gate — which only
+  *adds* markers, never removes caller-supplied ones — let them through. The
+  ingest path now carries a trust flag: the remote MCP `index` inline form and
+  the remote/public `page_put`/`page_append` search mirror strip those three
+  keys before the gate runs, so only the gate and trusted local CLIs own them.
+- **`memex merge` is reachable again.** The entity-merge command shipped in the
+  v1.81 parity wave but was never wired into the CLI dispatch, so `memex merge
+  <from> <to>` printed `unknown command`. The case is connected; the CLI now
+  folds a duplicate/stub page onto its canonical.
+
 ## [1.81.0] — 2026-07-06
 
 The overnight reference-parity wave: a 10-subsystem comparison against the

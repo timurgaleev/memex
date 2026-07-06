@@ -16,8 +16,10 @@ import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import { stripFactsFence } from "./facts-fence.ts";
+import { stripTakesFence } from "./synthesis/takes-fence.ts";
 import { embedText, EMBED_DIMENSIONS } from "./embedding.ts";
-import { isEmbedSkipped } from "./embed-skip.ts";
+import { isEmbedSkipped, EMBED_SKIP_KEY } from "./embed-skip.ts";
+import { QUARANTINE_KEY, CONTENT_FLAG_KEY } from "./quarantine.ts";
 import {
   assessContentSanity,
   stampSanityMarkers,
@@ -88,6 +90,19 @@ export interface IndexFileOptions {
    * markdown file needing path-based inference (e.g. a page-body mirror).
    */
   inferFrontmatter?: boolean;
+  /**
+   * Trust boundary. When `true` (untrusted caller — the remote MCP `index`
+   * inline path and the remote `page_put` mirror), gate-owned frontmatter
+   * markers (`quarantine`, `content_flag`, `embed_skip`) are STRIPPED from the
+   * incoming content before the content-sanity gate runs, so only the gate
+   * itself and trusted local CLIs can set them. Without this a write-scoped
+   * caller could plant `quarantine` to hide a page from search, `embed_skip` to
+   * keep content out of the vector arm, or a `content_flag.detail` to inject
+   * text into the agent-trusted "this looks odd" channel — all on clean
+   * content. Fail-closed: pass `true` for anything not strictly local; trusted
+   * callers (CLI reindex, sync, capture, cycle) leave it unset.
+   */
+  remote?: boolean;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -161,18 +176,35 @@ export async function indexDocument(
     if (!meta.skipped) text = inferred;
   }
 
-  // Strip the `## Facts` fence before chunking: the fence is a structured
-  // metadata table projected into entity_facts (facts-reconcile), not prose —
-  // indexing it as chunk text would duplicate it as noisy search content.
-  // Frontmatter sits above the fence, so stripping it leaves parsing intact.
-  const parsed = chunkMarkdown(stripFactsFence(text), opts.chunker);
+  // Strip the `## Facts` and `## Takes` fences before chunking: each is a
+  // structured metadata table projected into its own store (entity_facts via
+  // facts-reconcile; synth_takes via takes-canon), not prose. Indexing a fence
+  // as chunk text would duplicate it as noisy search content — and for takes it
+  // would leak operator opinions (including non-`world` holders capped by the
+  // takes read-path) into chunks retrievable by any read-scope principal. Both
+  // fence syncs read the raw body on their own paths, so stripping here is safe.
+  // Frontmatter sits above the fences, so stripping leaves parsing intact.
+  const parsed = chunkMarkdown(stripTakesFence(stripFactsFence(text)), opts.chunker);
   const id = docId(input.sourcePath);
   const model = opts.embeddingModel ?? EMBED_MODEL;
   const embed = opts.embedFn ?? embedText;
 
-  const baseFrontmatter = input.extraFrontmatter
+  let baseFrontmatter = input.extraFrontmatter
     ? { ...parsed.frontmatter, ...input.extraFrontmatter }
     : parsed.frontmatter;
+
+  // Trust boundary (#1699): strip gate-owned markers from UNTRUSTED input so
+  // only the content-sanity gate below and trusted local CLIs can set them.
+  if (opts.remote === true) {
+    const stripKeys = [QUARANTINE_KEY, CONTENT_FLAG_KEY, EMBED_SKIP_KEY].filter(
+      (k) => Object.hasOwn(baseFrontmatter, k),
+    );
+    if (stripKeys.length > 0) {
+      const cleaned = { ...baseFrontmatter };
+      for (const k of stripKeys) delete cleaned[k];
+      baseFrontmatter = cleaned;
+    }
+  }
 
   // Content-sanity gate (deterministic, free): stamp quarantine / content_flag
   // / embed_skip markers BEFORE embedding so scraper junk, oversize dumps, and
