@@ -235,8 +235,13 @@ export function fixContent(content: string): string {
     pattern.lastIndex = 0;
     fixed = fixed.replace(pattern, "");
   }
-  fixed = fixed.replace(/^```(?:markdown|md)\s*\n/, "");
-  fixed = fixed.replace(/\n```\s*$/, "");
+  // Unwrap a whole page the LLM fenced in ```markdown … ``` — but ONLY as a
+  // matched pair. Stripping the trailing ``` unconditionally would corrupt a
+  // page that legitimately ENDS in a real fenced code block.
+  if (/^```(?:markdown|md)\s*\n/.test(fixed) && /\n```\s*$/.test(fixed)) {
+    fixed = fixed.replace(/^```(?:markdown|md)\s*\n/, "");
+    fixed = fixed.replace(/\n```\s*$/, "");
+  }
   // Collapse the blank-line craters the removals leave behind.
   fixed = fixed.replace(/\n{3,}/g, "\n\n");
   return fixed.trim() + "\n";

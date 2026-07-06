@@ -33,6 +33,31 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 
 ---
 
+## Deferred (v1.81 line-by-line review, 2026-07-06)
+
+- **takes-fence.ts:415** — upsertTakeRow/supersedeRow re-render the fence from
+  parseTakesFence output only, so a row the parser SKIPS (unknown kind,
+  non-numeric weight, dup row_num, <6 cells) is silently dropped from the
+  markdown source-of-truth. Preserve unparsed rows verbatim before deferring
+  to the parser. (Low blast radius: operator hasn't authored fence takes yet.)
+- **nudge.ts** — nudgeOnTakeCommit / evaluateAndFireNudge (mig-074) have NO
+  production caller; the take-commit bias nudge is dead until wired to a commit
+  hook. Default-off feature, no behavior today.
+- **takes-canon.ts:125 / takes-fence.ts:395 (LOW)** — resolveTake source guard
+  joins documents.id=source_ref (fence takes store a page slug there, not a doc
+  id); renderTakesFence rounds resolvedValue via formatWeight (2 dp) — corrupts
+  fractional resolution values. Fix when fence-authored takes go live.
+- **conversation-facts-backfill.ts:155 (LOW)** — worth-gate `gate.kept.has(p.slug)`
+  keys on slug only; two same-slug pages in different sources collide in the
+  gate. Use a (slug, source_id) composite ref.
+- **volunteer.ts:174 (LOW)** — priorContext suppression uses substring
+  `includes(p.slug)`, so a short slug that is a substring of a longer one is
+  wrongly suppressed. Match on token boundaries.
+- **contradictions.ts:316 (LOW)** — Stream-3 orphan take coalesces missing doc
+  tenant to 'default'; a foreign-tenant take could pair. Skip orphans instead.
+- **search-stats.ts:267 (LOW)** — runSearchTune JSON prints applied commands
+  before they run; label as "proposed" in report-only mode.
+
 ## LOW backlog (v1.81 cycle-3 verify, 2026-07-06)
 
 - **mig 085 entity_facts_superseded_by_fkey has no ON DELETE action** — a

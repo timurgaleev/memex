@@ -49,6 +49,16 @@ export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
     console.error("memex embed: --all and <slug>/--slugs are mutually exclusive");
     return 1;
   }
+  // --all force-deletes every vector up front, then re-embeds; a --limit would
+  // cap the re-embed and leave the rest of the corpus permanently vectorless.
+  // Reject the combination (a dry-run plans nothing destructive, so it's fine).
+  if (opts.all && opts.limit !== undefined && !opts.dryRun) {
+    console.error(
+      "memex embed: --all wipes and rebuilds the whole corpus — --limit would " +
+        "leave the remainder unembedded. Drop --limit, or use --slugs/--source to scope.",
+    );
+    return 1;
+  }
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
   // init() inside the try so a failed migration/connect still hits close().

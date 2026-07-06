@@ -95,6 +95,11 @@ const ERR_INTERNAL = -32603;
 const ERR_RATE_LIMITED = -32000; // server-defined band
 const ERR_UNAUTHORIZED = -32001; // server-defined band — internal token
 
+// Upper bound on JSON-RPC batch length. Each element is a full dispatch (and a
+// paid embed for search-shaped tools), so an unbounded batch is a cost/DoS
+// amplifier even after per-element rate-limit charging.
+const MAX_BATCH_SIZE = 50;
+
 function defaultClientKey(req: Request): string {
   // Trust hierarchy:
   //   1. `Cf-Connecting-Ip` — set by the Cloudflare edge for traffic
@@ -177,6 +182,27 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     const raw: unknown = parsedBody.body;
 
     if (Array.isArray(raw)) {
+      // A JSON-RPC batch runs N dispatches but only spent ONE rate-limit token
+      // at the top. Cap the batch, then charge the remaining N-1 tokens up front
+      // so a single POST of thousands of tools/call (each a paid Bedrock embed)
+      // can't amplify past the limiter's capacity.
+      if (raw.length > MAX_BATCH_SIZE) {
+        return Response.json(
+          rpcError(null, ERR_INVALID_REQUEST, `batch too large (max ${MAX_BATCH_SIZE})`),
+          { status: 400 },
+        );
+      }
+      for (let i = 1; i < raw.length; i++) {
+        if (!limiter.allow(clientId)) {
+          return Response.json(
+            rpcError(null, ERR_RATE_LIMITED, "rate limit exceeded (batch)"),
+            {
+              status: 429,
+              headers: { "Retry-After": String(limiter.retryAfterSeconds(clientId)) },
+            },
+          );
+        }
+      }
       const responses = await Promise.all(
         raw.map((r) =>
           handleSingle(opts.storage, r as JsonRpcRequest, ctx, forbidPublic),

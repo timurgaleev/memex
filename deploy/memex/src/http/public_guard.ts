@@ -183,6 +183,12 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "sources_status",
   "get_status_snapshot",
   "run_doctor",
+  // get_ingest_log returns source_ref (author-written file paths / URLs / slugs)
+  // + summary free-text across sources — the same private identifiers the public
+  // path suppresses; on the unscoped public bearer it would read the whole-brain
+  // ingest log. log_ingest is a WRITE (appends audit rows). Both internal-only.
+  "get_ingest_log",
+  "log_ingest",
 ]);
 
 /**

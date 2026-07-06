@@ -316,7 +316,11 @@ export async function extractAtomsPhase(
       // failure never loses the synth_atoms row.
       if (writePages && opts.storage) {
         const day = new Date().toISOString().slice(0, 10);
-        const slug = `atoms/${day}/${slugifyTitle(atom.title)}`;
+        // Suffix the atom_key hash so two atoms whose titles slugify to the
+        // same string on the same day don't collide on the pages PK (which
+        // would last-write-wins and lose the first atom). Mirrors the
+        // content-hash disambiguator on the ingest inbox slug.
+        const slug = `atoms/${day}/${slugifyTitle(atom.title)}-${key.slice(0, 8)}`;
         const bodyParts = [
           atom.body,
           atom.source_quote ? `\n> ${atom.source_quote}` : "",
