@@ -20,6 +20,7 @@ import { join } from "node:path";
 import {
   discoverMigrations,
   resolveLockTimeout,
+  resolveMigrationStatementTimeout,
   runMigrations,
 } from "../src/core/migrate.ts";
 import { PGliteEngine } from "../src/core/engine/pglite.ts";
@@ -106,6 +107,15 @@ describe("resolveLockTimeout", () => {
     expect(() => resolveLockTimeout("5secs")).toThrow(/malformed/);
     expect(() => resolveLockTimeout("-5s")).toThrow(/malformed/);
     expect(() => resolveLockTimeout("5s; DROP TABLE x")).toThrow(/malformed/);
+  });
+
+  it("resolveMigrationStatementTimeout defaults to 30min and validates", () => {
+    expect(resolveMigrationStatementTimeout(undefined)).toBe("30min");
+    expect(resolveMigrationStatementTimeout("")).toBe("30min");
+    expect(resolveMigrationStatementTimeout("600s")).toBe("600s");
+    expect(resolveMigrationStatementTimeout(" 1800000 ")).toBe("1800000");
+    expect(() => resolveMigrationStatementTimeout("soon")).toThrow(/malformed/);
+    expect(() => resolveMigrationStatementTimeout("30s; DROP TABLE x")).toThrow(/malformed/);
   });
 });
 

@@ -126,3 +126,32 @@ describe("getTakesCalibration", () => {
     expect(a[0]?.observed).toBe(1);
   });
 });
+
+describe("getTakesScorecard holder filter (fail-closed)", () => {
+  it("filters by holder and stays fail-closed against the allow-list", async () => {
+    const e = storage.engine();
+    await e.query(
+      `INSERT INTO documents (id, source_path, title, source_id) VALUES ($1, $2, $3, $4)`,
+      ["doc-h", "/tenant-a/doc-h.md", "doc-h", A],
+    );
+    const r = await e.query<{ id: number }>(
+      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id, holder)
+       VALUES ('t/h', 'doc-h', 'h', 'v1', 't/h', 'bet', 0.7, 'queued', 'fake', 'brain') RETURNING id`,
+    );
+    await e.query(
+      `INSERT INTO synth_take_grades (take_id, prompt_version, evidence_signature, verdict, confidence, model_id)
+       VALUES ($1, 'v1', 'sig-h', 'correct', 0.9, 'fake')`,
+      [r.rows[0]!.id],
+    );
+
+    const brain = await getTakesScorecard(e, { holder: "brain" });
+    expect(brain.total_takes).toBe(1); // only the brain-held take
+
+    // Fail-closed: asking for a holder outside the token allow-list → empty.
+    const denied = await getTakesScorecard(e, {
+      holder: "brain",
+      holderAllowList: ["world"],
+    });
+    expect(denied.total_takes).toBe(0);
+  });
+});

@@ -45,11 +45,16 @@ RUN chmod +x /app/entrypoint.sh
 # AWS profile dir or IMDS without an additional privilege exploit.
 RUN chown -R bun:bun /app
 
+# Build-time version stamp — the deploy host passes `git describe` via compose;
+# a plain `docker build` falls back to 'dev'. Read at runtime by src/version.ts.
+ARG MEMEX_VERSION=dev
+
 ENV NODE_ENV=production \
     AWS_REGION=eu-west-1 \
     AWS_PROFILE=default \
     MEMEX_HOST=0.0.0.0 \
     BRAIN_PORT=18790 \
+    MEMEX_VERSION=$MEMEX_VERSION \
     HOME=/home/bun
 
 EXPOSE 18790

@@ -518,9 +518,9 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "entity_facts",
     description:
-      "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
+      "List facts about an entity, ordered by confidence (default) or recency. `entity_slug` is OPTIONAL: omit it for a cross-entity recall (\"what did I learn recently / this session\") across all entities. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
     params: {
-      entity_slug: str(req),
+      entity_slug: str({ description: "Entity to scope to. Omit for a cross-entity recall." }),
       since: str(),
       source_slug: str(),
       order: str({ enum: ["confidence", "recency"] }),
@@ -1006,18 +1006,22 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "takes_scorecard",
     description:
-      "Calibration scorecard for synthesized takes graded by the opt-in take-grading phase: total/graded/resolved counts, per-verdict tallies (correct/incorrect/partial/unresolvable), accuracy (correct/(correct+incorrect)), partial_rate, and a Brier score over decided correct∨incorrect bets (stated weight vs outcome). Reads synth_takes × each take's LATEST synth_take_grades row — never calls an LLM. Zero scorecard until takes have been graded. Optional `domain` filter; tenant-scoped via each take's source document. Read-only; internal-only.",
+      "Calibration scorecard for synthesized takes graded by the opt-in take-grading phase: total/graded/resolved counts, per-verdict tallies (correct/incorrect/partial/unresolvable), accuracy (correct/(correct+incorrect)), partial_rate, and a Brier score over decided correct∨incorrect bets (stated weight vs outcome). Reads synth_takes × each take's LATEST synth_take_grades row — never calls an LLM. Zero scorecard until takes have been graded. Optional `domain` / `holder` filter and a `since`/`until` generated-date window; tenant-scoped via each take's source document, and a scoped token stays confined to its allowed holders. Read-only; internal-only.",
     params: {
       domain: str({ description: "Filter to takes tagged with this domain." }),
+      holder: str({ description: "Filter to this holder (world|brain|<slug>). Still gated by the token's takes-holder allow-list." }),
+      since: str({ description: "Only takes generated on/after this ISO date (YYYY-MM-DD)." }),
+      until: str({ description: "Only takes generated on/before this ISO date (YYYY-MM-DD)." }),
     },
   },
   {
     name: "takes_calibration",
     description:
-      "Reliability-diagram data for graded takes: decided (correct∨incorrect) bets binned by their stated weight, with observed hit-rate vs predicted (mean weight) per bucket — the curve behind the scorecard's Brier. `bucket_size` sets the bin width in (0,1] (default 0.1). Reads synth_takes × latest synth_take_grades; no LLM. Empty until takes are graded. Optional `domain` filter; tenant-scoped. Read-only; internal-only.",
+      "Reliability-diagram data for graded takes: decided (correct∨incorrect) bets binned by their stated weight, with observed hit-rate vs predicted (mean weight) per bucket — the curve behind the scorecard's Brier. `bucket_size` sets the bin width in (0,1] (default 0.1). Reads synth_takes × latest synth_take_grades; no LLM. Empty until takes are graded. Optional `domain` / `holder` filter; tenant-scoped. Read-only; internal-only.",
     params: {
       bucket_size: num({ minimum: 0, maximum: 1, description: "Bucket width in (0,1]. Default 0.1." }),
       domain: str({ description: "Filter to takes tagged with this domain." }),
+      holder: str({ description: "Filter to this holder (world|brain|<slug>). Still gated by the token's takes-holder allow-list." }),
     },
   },
   {

@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex version` / `--version`** — prints the build stamp (a `git describe`
+  baked into the image at build time via `MEMEX_VERSION`, or `dev` locally).
+- **`entity_facts` `entity_slug` is now optional** — omit it for a cross-entity
+  recall ("what did I learn recently / this session") across all entities. The
+  visibility floor and source scoping still gate a scoped reader's entity-less
+  scan, so it can never widen exposure.
+- **`takes_scorecard` gains `holder` + `since`/`until`; `takes_calibration`
+  gains `holder`.** Grading accuracy can now be sliced per belief-holder and per
+  time window over MCP. The explicit holder filter ANDs with the token's
+  takes-holder allow-list (fail-closed: asking for a holder outside the
+  allow-list returns an empty scorecard, never a bypass).
+
+### Changed
+- **Migrations run under a generous `statement_timeout`** (default `30min`,
+  override `MEMEX_MIGRATION_STATEMENT_TIMEOUT`) applied as a transaction-scoped
+  `SET LOCAL`, so a large `ADD COLUMN` backfill or `CREATE INDEX` isn't killed
+  at the 30s interactive limit. Interactive queries are unaffected.
+- **Bulk DB writes retry transient connection errors.** The indexer transaction
+  and the embed-backfill insert now retry a dropped RDS socket / "too many
+  clients" blip with decorrelated backoff instead of dropping the batch.
+  Statement/lock timeouts are excluded (a retry would just re-wait).
+  `MEMEX_BULK_MAX_RETRIES=0` disables retries.
+
 ## [1.86.0] — 2026-07-06
 
 ### Added

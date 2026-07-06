@@ -283,7 +283,14 @@ const EMPTY_SCORECARD: TakesScorecard = {
  */
 export async function getTakesScorecard(
   engine: Engine,
-  opts: { domain?: string; sourceIds?: string[]; holderAllowList?: string[] } = {},
+  opts: {
+    domain?: string;
+    holder?: string;
+    since?: string;
+    until?: string;
+    sourceIds?: string[];
+    holderAllowList?: string[];
+  } = {},
 ): Promise<TakesScorecard> {
   const sources = normalizeSourceIds(opts.sourceIds);
   const params: unknown[] = [];
@@ -291,6 +298,22 @@ export async function getTakesScorecard(
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
     params.push(opts.domain);
     clauses.push(`AND t.domain = $${params.length}`);
+  }
+  // Explicit holder filter — ANDs with the token allow-list below (fail-closed:
+  // asking for a holder outside the allow-list yields zero, never a bypass).
+  if (typeof opts.holder === "string" && opts.holder.length > 0) {
+    params.push(opts.holder);
+    clauses.push(`AND t.holder = $${params.length}`);
+  }
+  // since/until window the take's synthesis date (memex has no per-take
+  // belief-as-of date; see PARITY.md — deviation from the reference's since_date).
+  if (typeof opts.since === "string" && opts.since.length > 0) {
+    params.push(opts.since);
+    clauses.push(`AND t.generated_at::date >= $${params.length}::date`);
+  }
+  if (typeof opts.until === "string" && opts.until.length > 0) {
+    params.push(opts.until);
+    clauses.push(`AND t.generated_at::date <= $${params.length}::date`);
   }
   const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
   if (holderAllowList) {
@@ -382,7 +405,13 @@ export interface CalibrationBucket {
  */
 export async function getTakesCalibration(
   engine: Engine,
-  opts: { bucketSize?: number; domain?: string; sourceIds?: string[]; holderAllowList?: string[] } = {},
+  opts: {
+    bucketSize?: number;
+    domain?: string;
+    holder?: string;
+    sourceIds?: string[];
+    holderAllowList?: string[];
+  } = {},
 ): Promise<CalibrationBucket[]> {
   const bucketSize =
     typeof opts.bucketSize === "number" && opts.bucketSize > 0 && opts.bucketSize <= 1
@@ -395,6 +424,11 @@ export async function getTakesCalibration(
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
     params.push(opts.domain);
     clauses.push(`AND t.domain = $${params.length}`);
+  }
+  // Explicit holder filter — ANDs with the token allow-list (fail-closed).
+  if (typeof opts.holder === "string" && opts.holder.length > 0) {
+    params.push(opts.holder);
+    clauses.push(`AND t.holder = $${params.length}`);
   }
   const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
   if (holderAllowList) {

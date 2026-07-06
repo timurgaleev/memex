@@ -54,6 +54,7 @@ import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts"
 import { embedSkipFilterFragment } from "./embed-skip.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { clearCache } from "./search/query-cache.ts";
+import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
 
 /** Default in-flight embed calls when `MEMEX_EMBED_CONCURRENCY` is unset. */
 const DEFAULT_CONCURRENCY = 8;
@@ -431,12 +432,20 @@ async function embedPage(
       const row = page[i]!;
       try {
         const vec = await embedWithRetry(embed, row.content);
-        const ins = await engine.query<{ chunk_id: string }>(
-          `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
+        // Connection-retry the DB insert (transient RDS socket reset) — distinct
+        // from embedWithRetry (Bedrock 429), which already ran. Idempotent
+        // (ON CONFLICT DO NOTHING + RETURNING), so a replay after a drop still
+        // counts a real insert exactly once.
+        const ins = await withRetry(
+          () =>
+            engine.query<{ chunk_id: string }>(
+              `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
            VALUES ($1, $2::vector, $3, $4)
            ON CONFLICT (chunk_id) DO NOTHING
            RETURNING chunk_id`,
-          [row.id, JSON.stringify(vec), model, embeddingSignature(model, vec.length)],
+              [row.id, JSON.stringify(vec), model, embeddingSignature(model, vec.length)],
+            ),
+          BULK_RETRY_OPTS,
         );
         // Count only a REAL insert: a concurrent indexer may have written the
         // row first, in which case ON CONFLICT no-ops and we added nothing.

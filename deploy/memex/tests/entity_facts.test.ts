@@ -248,3 +248,34 @@ describe("entityRecall", () => {
     expect(r.page!.markdown_body).toBe("internal-only text");
   });
 });
+
+// ---------------------------------------------------------------------------
+// listFacts — cross-entity recall (entity_slug omitted)
+// ---------------------------------------------------------------------------
+
+describe("listFacts cross-entity (no entity_slug)", () => {
+  it("returns facts across all entities when slug is omitted", async () => {
+    await addFact(storage, { entity_slug: "alice", fact: "alice likes tea", confidence: 0.9 });
+    await addFact(storage, { entity_slug: "bob", fact: "bob likes coffee", confidence: 0.9 });
+    const all = await listFacts(storage, undefined);
+    const facts = all.map((f) => f.fact).sort();
+    expect(facts).toContain("alice likes tea");
+    expect(facts).toContain("bob likes coffee");
+  });
+
+  it("applies grep across entities without a slug", async () => {
+    await addFact(storage, { entity_slug: "alice", fact: "alice likes tea", confidence: 0.9 });
+    await addFact(storage, { entity_slug: "bob", fact: "bob likes coffee", confidence: 0.9 });
+    const hits = await listFacts(storage, undefined, { grep: "coffee" });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.fact).toBe("bob likes coffee");
+  });
+
+  it("still scopes to a single entity when slug is given", async () => {
+    await addFact(storage, { entity_slug: "alice", fact: "alice likes tea", confidence: 0.9 });
+    await addFact(storage, { entity_slug: "bob", fact: "bob likes coffee", confidence: 0.9 });
+    const only = await listFacts(storage, "alice");
+    expect(only).toHaveLength(1);
+    expect(only[0]?.fact).toBe("alice likes tea");
+  });
+});
