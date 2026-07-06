@@ -1,0 +1,488 @@
+/**
+ * Parser/renderer for fenced takes tables — the operator-authored takes canon.
+ *
+ * Markdown is the source of truth (the page body is canonical). The
+ * `synth_takes` rows derived from a fence are an index; this module is the
+ * boundary between them.
+ *
+ * Fence shape (HTML-comment markers):
+ *
+ *   ## Takes
+ *
+ *   <!--- memex:takes:begin -->
+ *   | # | claim | kind | who | weight | since | source |
+ *   |---|-------|------|-----|--------|-------|--------|
+ *   | 1 | CEO of Acme | fact | world | 1.0 | 2017-01 | Crustdata |
+ *   | 2 | Strong technical founder | take | operator | 0.85 | 2026-04-29 | OH |
+ *   | 3 | ~~Will reach $50B~~ | bet | operator | 0.7 | 2026-04 → 2026-06 | superseded by #4 |
+ *   | 4 | Will reach $30B | bet | operator | 0.55 | 2026-06 | revised after Q2 |
+ *   <!--- memex:takes:end -->
+ *
+ * Parsing rules (strict on canonical shape, lenient on hand-edits):
+ *
+ * - Strikethrough `~~claim~~` → active=false; the inner text is parsed.
+ * - Date ranges in `since` (`2022-01 → 2026-06` or `2022-01 -> 2026-06`)
+ *   split into `sinceDate` + `untilDate`.
+ * - Weight parses as a float here; out-of-range values are clamped at the
+ *   DB-write layer (normalizeWeightForStorage), not in the parser.
+ * - Malformed rows (wrong cell count, non-numeric weight, unknown kind) are
+ *   skipped; the parser returns the parsed-OK rows + a `warnings` list so
+ *   callers can surface TAKES_TABLE_MALFORMED.
+ *
+ * Append-only semantics: `upsertTakeRow` always appends to the end of the
+ * table; `supersedeRow` strikes through the target row's claim + appends a
+ * replacement. Row numbers never shift, so cross-references (`slug#N`) stay
+ * valid forever.
+ *
+ * Resolution columns: when ANY row carries a resolution quality, the renderer
+ * widens the table with `resolved | quality | evidence | value | unit | by`
+ * columns; unresolved pages keep the narrow 7-column shape. Round-trip
+ * preservation through upsert/supersede is the safety net against silently
+ * dropping resolution data on unrelated edits.
+ */
+
+export type FenceTakeKind = string;
+
+export type TakeQuality = "correct" | "incorrect" | "partial" | "unresolvable";
+
+export interface ParsedFenceTake {
+  rowNum: number;
+  /** Strikethrough markers stripped; inner text only. */
+  claim: string;
+  kind: FenceTakeKind;
+  /**
+   * Who HOLDS this belief — the person asserting/endorsing it, NOT the person
+   * the belief is about. Values: 'world' (consensus fact) | 'brain'
+   * (AI-inferred) | 'people/<slug>' | 'companies/<slug>' | a legacy bare slug.
+   */
+  holder: string;
+  /** 0..1 raw — may be out of range; the DB write layer clamps. */
+  weight: number;
+  sinceDate?: string;
+  untilDate?: string;
+  source?: string;
+  /** false when the claim was wrapped in ~~ ~~ (superseded/retracted). */
+  active: boolean;
+  // Resolution fields — undefined on unresolved rows.
+  resolvedAt?: string;
+  resolvedQuality?: TakeQuality;
+  resolvedOutcome?: boolean;
+  resolvedEvidence?: string;
+  resolvedValue?: number;
+  resolvedUnit?: string;
+  resolvedBy?: string;
+}
+
+export interface FenceParseResult {
+  takes: ParsedFenceTake[];
+  warnings: string[];
+}
+
+export const TAKES_FENCE_BEGIN = "<!--- memex:takes:begin -->";
+export const TAKES_FENCE_END = "<!--- memex:takes:end -->";
+
+/** Slug character class for holder segments (matches memex page-slug grammar:
+ *  lowercase alphanumerics plus `._-`). */
+const SLUG_SEGMENT = "[a-z0-9][a-z0-9._-]*";
+
+/**
+ * Holder grammar. Canonical: `world` | `brain` | `people/<slug>` |
+ * `companies/<slug>`. A legacy bare slug (single lowercase segment) is
+ * tolerated with a warning — the markdown source-of-truth contract preserves
+ * the row either way.
+ */
+export const HOLDER_REGEX = new RegExp(
+  `^(?:world|brain|(?:people|companies)/${SLUG_SEGMENT}|${SLUG_SEGMENT})$`,
+);
+
+export function isValidHolder(holder: string): boolean {
+  return HOLDER_REGEX.test(holder);
+}
+
+/** Fence kinds: the operator vocabulary (fact/take/bet/hunch) plus the
+ *  LLM-propose vocabulary (prediction/judgment) so both stay one namespace. */
+const KIND_VALUES: ReadonlySet<string> = new Set([
+  "fact",
+  "take",
+  "bet",
+  "hunch",
+  "prediction",
+  "judgment",
+]);
+const QUALITY_VALUES: ReadonlySet<string> = new Set([
+  "correct",
+  "incorrect",
+  "partial",
+  "unresolvable",
+]);
+
+// Header tokens that mark a resolution-shape fence. Presence of any widens
+// the parser to read the extra cells; absence keeps the 7-column shape.
+const RESOLUTION_HEADER_TOKENS = [
+  "resolved",
+  "quality",
+  "evidence",
+  "value",
+  "unit",
+  "by",
+] as const;
+type ResolutionColumn = (typeof RESOLUTION_HEADER_TOKENS)[number];
+
+// --- shared pipe-table primitives -------------------------------------------
+
+/** Split a markdown table row into trimmed cells (outer pipes stripped), or
+ *  null when the line is not a table row. Does NOT unescape `\|`. */
+export function parseRowCells(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.includes("|", 1)) return null;
+  const inner = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  return inner.split("|").map((c) => c.trim());
+}
+
+/** True for a `|---|:--:|` header-separator row. */
+export function isSeparatorRow(cells: string[]): boolean {
+  return cells.every((c) => /^[-:\s]+$/.test(c)) && cells.length > 0;
+}
+
+/** `~~text~~` → { text, struck: true }; plain text passes through. */
+export function stripStrikethrough(s: string): { text: string; struck: boolean } {
+  const m = s.match(/^~~(.+?)~~$/);
+  if (m && m[1] !== undefined) return { text: m[1].trim(), struck: true };
+  return { text: s, struck: false };
+}
+
+/** Escape literal pipes so a cell can't break the table layout. */
+export function escapeFenceCell(s: string): string {
+  return s.replace(/\|/g, "\\|");
+}
+
+// --- cell parsers ------------------------------------------------------------
+
+function parseQualityCell(raw: string): TakeQuality | undefined {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  return QUALITY_VALUES.has(trimmed) ? (trimmed as TakeQuality) : undefined;
+}
+
+function parseFloatCell(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const n = Number.parseFloat(trimmed);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseStringCell(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function parseSinceCell(raw: string): { since?: string; until?: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+  // Range syntax: `2022-01 → 2026-06` or `2022-01 -> 2026-06`.
+  const rangeMatch = trimmed.match(/^(.+?)\s*(?:→|->)\s*(.+)$/);
+  if (rangeMatch && rangeMatch[1] !== undefined && rangeMatch[2] !== undefined) {
+    return { since: rangeMatch[1].trim(), until: rangeMatch[2].trim() };
+  }
+  return { since: trimmed };
+}
+
+/**
+ * Normalize a weight for storage. Single source of truth for every takes
+ * write site.
+ *
+ *   1. NaN / ±Infinity → 0.5 (default), clamped=true.
+ *   2. Out of [0, 1] → clamp, clamped=true.
+ *   3. Round to the 0.05 grid (finer values are false precision relative to
+ *      actual calibration accuracy). Rounding alone does NOT set `clamped`.
+ *
+ * `undefined`/`null` return 0.5 with clamped=false (the default weight when a
+ * fence row omits the column).
+ */
+export function normalizeWeightForStorage(
+  raw: number | null | undefined,
+): { weight: number; clamped: boolean } {
+  let w = raw ?? 0.5;
+  let clamped = false;
+  if (!Number.isFinite(w)) {
+    clamped = true;
+    w = 0.5;
+  } else if (w < 0 || w > 1) {
+    clamped = true;
+    w = Math.max(0, Math.min(1, w));
+  }
+  return { weight: Math.round(w * 20) / 20, clamped };
+}
+
+// --- parse -------------------------------------------------------------------
+
+/**
+ * Slice the body between the fence markers and parse the table. Returns empty
+ * takes + empty warnings when no fence is present.
+ */
+export function parseTakesFence(body: string): FenceParseResult {
+  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
+  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  const warnings: string[] = [];
+
+  if (beginIdx === -1 && endIdx === -1) return { takes: [], warnings };
+  if (beginIdx === -1 || endIdx === -1) {
+    warnings.push("TAKES_FENCE_UNBALANCED: missing begin or end marker");
+    return { takes: [], warnings };
+  }
+
+  const inner = body.slice(beginIdx + TAKES_FENCE_BEGIN.length, endIdx);
+  const lines = inner.split("\n");
+  const takes: ParsedFenceTake[] = [];
+  let sawHeader = false;
+  // Resolution column name → cell index. Empty for the 7-column shape.
+  const resolutionColIdx: Partial<Record<ResolutionColumn, number>> = {};
+  const seenRowNums = new Set<number>();
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cells = parseRowCells(line);
+    if (!cells) continue;
+
+    if (!sawHeader) {
+      const lower = cells.map((c) => c.toLowerCase());
+      if (lower.includes("claim") && lower.includes("kind")) {
+        sawHeader = true;
+        for (const tok of RESOLUTION_HEADER_TOKENS) {
+          const idx = lower.indexOf(tok);
+          if (idx !== -1) resolutionColIdx[tok] = idx;
+        }
+        continue;
+      }
+      warnings.push(`TAKES_TABLE_MALFORMED: row before header: "${line.trim()}"`);
+      continue;
+    }
+
+    if (isSeparatorRow(cells)) continue;
+
+    // 7 cells expected: row_num, claim, kind, holder, weight, since, source
+    // (source may be omitted → 6).
+    if (cells.length < 6) {
+      warnings.push(
+        `TAKES_TABLE_MALFORMED: only ${cells.length} cells in row "${line.trim()}"`,
+      );
+      continue;
+    }
+
+    const [rowNumStr = "", claimRaw = "", kindRaw = "", holderRaw = "", weightRaw = "", sinceRaw = "", sourceRaw = ""] =
+      cells;
+    const rowNum = Number.parseInt(rowNumStr, 10);
+    if (!Number.isFinite(rowNum) || rowNum <= 0) {
+      warnings.push(`TAKES_TABLE_MALFORMED: invalid row_num "${rowNumStr}"`);
+      continue;
+    }
+    if (seenRowNums.has(rowNum)) {
+      warnings.push(`TAKES_ROW_NUM_COLLISION: duplicate row_num ${rowNum}`);
+      continue;
+    }
+    seenRowNums.add(rowNum);
+
+    const kind = kindRaw.trim().toLowerCase();
+    if (!KIND_VALUES.has(kind)) {
+      warnings.push(
+        `TAKES_TABLE_MALFORMED: unknown kind "${kindRaw}" (expected fact|take|bet|hunch|prediction|judgment)`,
+      );
+      continue;
+    }
+
+    // Holder grammar check — warning only; the row is still parsed + stored
+    // (markdown source-of-truth contract).
+    const holderTrimmed = holderRaw.trim();
+    if (!isValidHolder(holderTrimmed)) {
+      warnings.push(
+        `TAKES_HOLDER_INVALID: "${holderTrimmed}" in row ${rowNumStr} (expected: world | brain | people/<slug> | companies/<slug>)`,
+      );
+    }
+
+    const weight = Number.parseFloat(weightRaw);
+    if (!Number.isFinite(weight)) {
+      warnings.push(`TAKES_TABLE_MALFORMED: non-numeric weight "${weightRaw}"`);
+      continue;
+    }
+
+    const { text: claimText, struck } = stripStrikethrough(claimRaw);
+    const { since, until } = parseSinceCell(sinceRaw);
+
+    const cellAt = (col: ResolutionColumn): string | undefined => {
+      const idx = resolutionColIdx[col];
+      if (idx === undefined) return undefined;
+      return idx < cells.length ? cells[idx] : undefined;
+    };
+    const resolvedAtRaw = cellAt("resolved");
+    const qualityRaw = cellAt("quality");
+    const evidenceRaw = cellAt("evidence");
+    const valueRaw = cellAt("value");
+    const unitRaw = cellAt("unit");
+    const byRaw = cellAt("by");
+    const resolvedQuality = qualityRaw !== undefined ? parseQualityCell(qualityRaw) : undefined;
+    // Derive the boolean outcome so the parsed shape is self-consistent for
+    // callers reading either field.
+    const resolvedOutcome =
+      resolvedQuality === "correct" ? true : resolvedQuality === "incorrect" ? false : undefined;
+
+    const take: ParsedFenceTake = {
+      rowNum,
+      claim: claimText,
+      kind,
+      holder: holderTrimmed,
+      weight,
+      active: !struck,
+    };
+    if (since !== undefined) take.sinceDate = since;
+    if (until !== undefined) take.untilDate = until;
+    const source = sourceRaw.trim();
+    if (source) take.source = source;
+    const resolvedAt = resolvedAtRaw ? parseStringCell(resolvedAtRaw) : undefined;
+    if (resolvedAt !== undefined) take.resolvedAt = resolvedAt;
+    if (resolvedQuality !== undefined) take.resolvedQuality = resolvedQuality;
+    if (resolvedOutcome !== undefined) take.resolvedOutcome = resolvedOutcome;
+    const evidence = evidenceRaw ? parseStringCell(evidenceRaw) : undefined;
+    if (evidence !== undefined) take.resolvedEvidence = evidence;
+    const value = valueRaw ? parseFloatCell(valueRaw) : undefined;
+    if (value !== undefined) take.resolvedValue = value;
+    const unit = unitRaw ? parseStringCell(unitRaw) : undefined;
+    if (unit !== undefined) take.resolvedUnit = unit;
+    const by = byRaw ? parseStringCell(byRaw) : undefined;
+    if (by !== undefined) take.resolvedBy = by;
+    takes.push(take);
+  }
+
+  if (!sawHeader && takes.length === 0 && lines.some((l) => l.trim().startsWith("|"))) {
+    warnings.push("TAKES_TABLE_MALFORMED: pipe-rows present but no recognizable header");
+  }
+
+  return { takes, warnings };
+}
+
+// --- render ------------------------------------------------------------------
+
+function formatWeight(w: number): string {
+  if (Number.isInteger(w)) return w.toFixed(1);
+  return String(Number.parseFloat(w.toFixed(2)));
+}
+
+/**
+ * Render a takes array back to a fenced markdown table. Round-trip safe with
+ * parseTakesFence. When ANY take has `resolvedQuality` set, the table widens
+ * to the resolution shape; otherwise it keeps the narrow 7-column shape.
+ */
+export function renderTakesFence(takes: ParsedFenceTake[]): string {
+  const hasAnyResolution = takes.some((t) => t.resolvedQuality !== undefined);
+  const header = hasAnyResolution
+    ? `| # | claim | kind | who | weight | since | source | resolved | quality | evidence | value | unit | by |`
+    : `| # | claim | kind | who | weight | since | source |`;
+  const separator = hasAnyResolution
+    ? `|---|-------|------|-----|--------|-------|--------|----------|---------|----------|-------|------|----|`
+    : `|---|-------|------|-----|--------|-------|--------|`;
+  const rows = takes.map((t) => {
+    const claimCell = t.active ? t.claim : `~~${t.claim}~~`;
+    const sinceCell = t.untilDate
+      ? `${t.sinceDate ?? ""} → ${t.untilDate}`
+      : (t.sinceDate ?? "");
+    const w = formatWeight(t.weight);
+    const source = t.source ?? "";
+    const safe = escapeFenceCell;
+    const baseCells = `| ${t.rowNum} | ${safe(claimCell)} | ${t.kind} | ${safe(t.holder)} | ${w} | ${safe(sinceCell)} | ${safe(source)} |`;
+    if (!hasAnyResolution) return baseCells;
+    const resolved = t.resolvedAt ? safe(t.resolvedAt) : "";
+    const quality = t.resolvedQuality ?? "";
+    const evidence = t.resolvedEvidence ? safe(t.resolvedEvidence) : "";
+    const value = t.resolvedValue !== undefined ? formatWeight(t.resolvedValue) : "";
+    const unit = t.resolvedUnit ? safe(t.resolvedUnit) : "";
+    const by = t.resolvedBy ? safe(t.resolvedBy) : "";
+    return `${baseCells} ${resolved} | ${quality} | ${evidence} | ${value} | ${unit} | ${by} |`;
+  });
+  const inner = ["", header, separator, ...rows, ""].join("\n");
+  return `${TAKES_FENCE_BEGIN}${inner}${TAKES_FENCE_END}`;
+}
+
+// --- body edits --------------------------------------------------------------
+
+/**
+ * Append a new take row to the body. If a fenced takes table exists the row is
+ * added at its end; otherwise a new `## Takes` section + fence is created at
+ * the end of the body. Append-only: row_num = max existing + 1, stable forever.
+ */
+export function upsertTakeRow(
+  body: string,
+  newRow: Omit<ParsedFenceTake, "rowNum"> & { rowNum?: number },
+): { body: string; rowNum: number } {
+  const { takes } = parseTakesFence(body);
+  const nextRowNum =
+    newRow.rowNum ?? (takes.length > 0 ? Math.max(...takes.map((t) => t.rowNum)) + 1 : 1);
+
+  const appended: ParsedFenceTake = {
+    ...newRow,
+    rowNum: nextRowNum,
+    weight: newRow.weight ?? 0.5,
+    active: newRow.active ?? true,
+  };
+  const newFence = renderTakesFence([...takes, appended]);
+
+  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
+  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  let out: string;
+  if (beginIdx !== -1 && endIdx !== -1) {
+    out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + TAKES_FENCE_END.length);
+  } else {
+    const sep = body.endsWith("\n") ? "\n" : "\n\n";
+    out = `${body}${sep}## Takes\n\n${newFence}\n`;
+  }
+  return { body: out, rowNum: nextRowNum };
+}
+
+/**
+ * Supersede an existing row: strike through the target row's claim AND append
+ * a new row with the replacement. Both rows stay in the markdown for git-blame
+ * archaeology. Throws when the target row is not in the fence.
+ */
+export function supersedeRow(
+  body: string,
+  oldRowNum: number,
+  replacement: Omit<ParsedFenceTake, "rowNum" | "active">,
+): { body: string; oldRowNum: number; newRowNum: number } {
+  const { takes } = parseTakesFence(body);
+  const idx = takes.findIndex((t) => t.rowNum === oldRowNum);
+  if (idx === -1) {
+    throw new Error(`supersedeRow: row #${oldRowNum} not found in takes fence`);
+  }
+  const newRowNum = takes.length > 0 ? Math.max(...takes.map((t) => t.rowNum)) + 1 : 1;
+
+  const updatedTakes: ParsedFenceTake[] = takes.map((t, i) =>
+    i === idx ? { ...t, active: false } : t,
+  );
+  updatedTakes.push({
+    ...replacement,
+    rowNum: newRowNum,
+    source: replacement.source ?? `superseded by #${newRowNum}`,
+    active: true,
+  });
+
+  const newFence = renderTakesFence(updatedTakes);
+  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
+  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  if (beginIdx === -1 || endIdx === -1) {
+    throw new Error("supersedeRow: fence markers missing in body");
+  }
+  const out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + TAKES_FENCE_END.length);
+  return { body: out, oldRowNum, newRowNum };
+}
+
+/**
+ * Strip the fenced takes block from a body — used so takes content lives only
+ * in the takes table, not duplicated into page chunks. No-op when no fence is
+ * present or the input is not a string.
+ */
+export function stripTakesFence(body: string): string {
+  if (typeof body !== "string") return body;
+  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
+  if (beginIdx === -1) return body;
+  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  if (endIdx === -1) return body;
+  return body.slice(0, beginIdx) + body.slice(endIdx + TAKES_FENCE_END.length);
+}

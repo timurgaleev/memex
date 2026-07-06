@@ -32,6 +32,15 @@ export interface RecentSalienceOptions {
   days?: number;
   /** Max rows. Default 20, clamped to [1, 200]. */
   limit?: number;
+  /** Optional slug-prefix filter, e.g. 'people' or 'people/al'. */
+  slugPrefix?: string;
+  /**
+   * Recency weighting of the ranking (reference parity):
+   *   'flat' (DEFAULT) — pure `salience` order, memex's historical behavior.
+   *   'on'             — rank by salience x 1/(1+days_old), so equally-salient
+   *                      pages surface freshest-first ("salient lately").
+   */
+  recencyBias?: "flat" | "on";
   /**
    * Tenant scope. `undefined`/empty → unscoped (all sources, back-compat).
    * Non-empty → only pages whose `source_id` is in the list.
@@ -93,6 +102,11 @@ export async function getRecentSalience(
     params.push(opts.days);
     where.push(`updated_at >= NOW() - ($${params.length} || ' days')::interval`);
   }
+  if (typeof opts.slugPrefix === "string" && opts.slugPrefix.length > 0) {
+    // Literal prefix, not a pattern: escape LIKE metacharacters.
+    params.push(`${opts.slugPrefix.replace(/[\\%_]/g, "\\$&")}%`);
+    where.push(`slug LIKE $${params.length} ESCAPE '\\'`);
+  }
   const sources = normalizeSourceIds(opts.sourceIds);
   if (sources) {
     params.push(sources);
@@ -101,11 +115,17 @@ export async function getRecentSalience(
   params.push(limit);
   const limitParam = `$${params.length}`;
 
+  // 'on' folds page age into the rank: salience x 1/(1+days_old). 'flat'
+  // keeps the pure salience order (historical default).
+  const rank =
+    opts.recencyBias === "on"
+      ? `salience / (1 + GREATEST(0, EXTRACT(EPOCH FROM (NOW() - updated_at)) / 86400))`
+      : `salience`;
   const res = await storage.engine().query<SalienceQueryRow>(
     `SELECT slug, type, title, salience, updated_at::text AS updated_at
        FROM pages
        WHERE ${where.join(" AND ")}
-       ORDER BY salience DESC, updated_at DESC
+       ORDER BY ${rank} DESC, updated_at DESC
        LIMIT ${limitParam}`,
     params,
   );

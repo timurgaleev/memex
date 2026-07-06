@@ -24,6 +24,18 @@ function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefin
   return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
 }
 
+/**
+ * Normalise a token's takes-holders allow-list (mig 072 knob, enforced since
+ * mig 091 added the holder column). `undefined`/empty stays unscoped; a `*`
+ * entry is the operator's explicit "all holders" escape hatch.
+ */
+function normalizeHolderAllowList(holders: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(holders) || holders.length === 0) return undefined;
+  const cleaned = holders.filter((s) => typeof s === "string" && s.length > 0);
+  if (cleaned.length === 0 || cleaned.includes("*")) return undefined;
+  return Array.from(new Set(cleaned));
+}
+
 export interface ConceptRow {
   concept_slug: string;
   title: string;
@@ -64,15 +76,45 @@ export interface TakeRow {
   take_key: string;
   claim_text: string;
   kind: string;
+  /** Who holds the belief: world | brain | people/<slug> | companies/<slug>. */
+  holder: string;
   weight: number;
   domain: string | null;
   status: string;
+  /** false = superseded/retracted (struck through in the page fence). */
+  active: boolean;
+  /** Human (or gated auto-resolve) resolution; null while unresolved. */
+  resolved_quality: string | null;
+  resolved_at: string | null;
   generated_at: string;
+}
+
+export const LIST_TAKES_SORTS = ["generated_at", "weight"] as const;
+export type ListTakesSort = (typeof LIST_TAKES_SORTS)[number];
+
+export interface ListTakesOptions {
+  status?: string;
+  /** Filter to one take kind (fact/take/bet/hunch/judgment...). */
+  kind?: string;
+  /** Filter to one domain tag. */
+  domain?: string;
+  /** Filter to one holder (exact match). */
+  holder?: string;
+  /** Filter on lifecycle state; undefined returns both. */
+  active?: boolean;
+  /** Sort key: `generated_at` (default, newest first) or `weight` (DESC). */
+  sort?: ListTakesSort;
+  limit?: number;
+  /** Skip the first N rows (pagination). */
+  offset?: number;
+  sourceIds?: string[];
+  /** Token-level holder allow-list (mig 072); rows outside it are invisible. */
+  holderAllowList?: string[];
 }
 
 export async function listTakes(
   engine: Engine,
-  opts: { status?: string; limit?: number; sourceIds?: string[] } = {},
+  opts: ListTakesOptions = {},
 ): Promise<TakeRow[]> {
   const n = clampLimit(opts.limit, 200, 50);
   const status = typeof opts.status === "string" ? opts.status : null;
@@ -81,24 +123,55 @@ export async function listTakes(
   // A take whose source_ref isn't a document of a listed tenant is excluded
   // fail-closed — the same posture mig 047 takes for unclassified rows.
   const sources = normalizeSourceIds(opts.sourceIds);
-  const params: unknown[] = [status, n];
-  let sourceFilter = "";
+  const offset =
+    typeof opts.offset === "number" && opts.offset > 0
+      ? Math.floor(opts.offset)
+      : 0;
+  const params: unknown[] = [status, n, offset];
+  let extraFilter = "";
+  if (typeof opts.kind === "string" && opts.kind.length > 0) {
+    params.push(opts.kind);
+    extraFilter += ` AND kind = $${params.length}`;
+  }
+  if (typeof opts.domain === "string" && opts.domain.length > 0) {
+    params.push(opts.domain);
+    extraFilter += ` AND domain = $${params.length}`;
+  }
+  if (typeof opts.holder === "string" && opts.holder.length > 0) {
+    params.push(opts.holder);
+    extraFilter += ` AND holder = $${params.length}`;
+  }
+  if (typeof opts.active === "boolean") {
+    params.push(opts.active);
+    extraFilter += ` AND active = $${params.length}`;
+  }
+  const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
+  if (holderAllowList) {
+    params.push(holderAllowList);
+    extraFilter += ` AND holder = ANY($${params.length}::text[])`;
+  }
   if (sources) {
     params.push(sources);
-    sourceFilter = ` AND EXISTS (
+    extraFilter += ` AND EXISTS (
           SELECT 1 FROM documents d
            WHERE d.id = synth_takes.source_ref
              AND d.source_id = ANY($${params.length}::text[])
         )`;
   }
+  // Whitelisted ORDER BY — the enum is the only path into the SQL.
+  const order =
+    opts.sort === "weight"
+      ? "weight DESC, generated_at DESC, take_key ASC"
+      : "generated_at DESC, take_key ASC";
   try {
     const r = await engine.query<TakeRow>(
-      `SELECT take_key, claim_text, kind, weight, domain, status,
+      `SELECT take_key, claim_text, kind, holder, weight, domain, status, active,
+              resolved_quality, resolved_at::text AS resolved_at,
               generated_at::text AS generated_at
          FROM synth_takes
-        WHERE ($1::text IS NULL OR status = $1)${sourceFilter}
-        ORDER BY generated_at DESC, take_key ASC
-        LIMIT $2`,
+        WHERE ($1::text IS NULL OR status = $1)${extraFilter}
+        ORDER BY ${order}
+        LIMIT $2 OFFSET $3`,
       params,
     );
     return r.rows;
@@ -111,6 +184,7 @@ export interface TakeSearchRow {
   take_key: string;
   claim_text: string;
   kind: string;
+  holder: string;
   weight: number;
   domain: string | null;
   status: string;
@@ -127,7 +201,7 @@ export interface TakeSearchRow {
  */
 export async function searchTakes(
   engine: Engine,
-  opts: { q: string; limit?: number; sourceIds?: string[] },
+  opts: { q: string; limit?: number; sourceIds?: string[]; holderAllowList?: string[] },
 ): Promise<TakeSearchRow[]> {
   const q = typeof opts.q === "string" ? opts.q.trim() : "";
   if (q.length === 0) return [];
@@ -135,9 +209,14 @@ export async function searchTakes(
   const sources = normalizeSourceIds(opts.sourceIds);
   const params: unknown[] = [q, n];
   let sourceFilter = "";
+  const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
+  if (holderAllowList) {
+    params.push(holderAllowList);
+    sourceFilter += ` AND holder = ANY($${params.length}::text[])`;
+  }
   if (sources) {
     params.push(sources);
-    sourceFilter = ` AND EXISTS (
+    sourceFilter += ` AND EXISTS (
           SELECT 1 FROM documents d
            WHERE d.id = synth_takes.source_ref
              AND d.source_id = ANY($${params.length}::text[])
@@ -145,7 +224,7 @@ export async function searchTakes(
   }
   try {
     const r = await engine.query<TakeSearchRow>(
-      `SELECT take_key, claim_text, kind, weight, domain, status
+      `SELECT take_key, claim_text, kind, holder, weight, domain, status
          FROM synth_takes
         WHERE (similarity(claim_text, $1) >= 0.3 OR claim_text ILIKE '%' || $1 || '%')${sourceFilter}
         ORDER BY similarity(claim_text, $1) DESC, take_key ASC
@@ -194,14 +273,17 @@ const EMPTY_SCORECARD: TakesScorecard = {
 /**
  * Calibration scorecard over `synth_takes` × their LATEST `synth_take_grades`
  * row (DISTINCT ON take_id, newest grade wins — re-grading with new evidence
- * appends a row). Counts, accuracy, partial-rate, and Brier are all pure SQL —
- * no LLM. Tenant scope mirrors `listTakes`: a scoped caller only sees takes
- * whose source document is one of theirs (fail-closed via the documents join).
- * Fail-open to a zero scorecard on a pre-045 brain.
+ * appends a row). The take's OWN resolution tuple wins over the judge grade
+ * (mig 090): once a human (or gated auto-resolve) resolves a take, calibration
+ * measures that verdict, and the judge grade stays advisory. Counts, accuracy,
+ * partial-rate, and Brier are all pure SQL — no LLM. Tenant scope mirrors
+ * `listTakes`: a scoped caller only sees takes whose source document is one of
+ * theirs (fail-closed via the documents join). Fail-open to a zero scorecard
+ * on a pre-045 brain.
  */
 export async function getTakesScorecard(
   engine: Engine,
-  opts: { domain?: string; sourceIds?: string[] } = {},
+  opts: { domain?: string; sourceIds?: string[]; holderAllowList?: string[] } = {},
 ): Promise<TakesScorecard> {
   const sources = normalizeSourceIds(opts.sourceIds);
   const params: unknown[] = [];
@@ -209,6 +291,11 @@ export async function getTakesScorecard(
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
     params.push(opts.domain);
     clauses.push(`AND t.domain = $${params.length}`);
+  }
+  const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
+  if (holderAllowList) {
+    params.push(holderAllowList);
+    clauses.push(`AND t.holder = ANY($${params.length}::text[])`);
   }
   if (sources) {
     params.push(sources);
@@ -232,21 +319,27 @@ export async function getTakesScorecard(
          SELECT DISTINCT ON (take_id) take_id, verdict
            FROM synth_take_grades
           ORDER BY take_id, generated_at DESC
+       ),
+       scored AS (
+         SELECT t.weight,
+                lg.verdict AS grade_verdict,
+                COALESCE(t.resolved_quality, lg.verdict) AS verdict
+           FROM synth_takes t
+           LEFT JOIN latest_grade lg ON lg.take_id = t.id
+          WHERE 1=1 ${where}
        )
        SELECT
-         COUNT(*)::int                                                              AS total_takes,
-         COUNT(lg.verdict)::int                                                     AS graded,
-         COUNT(*) FILTER (WHERE lg.verdict IN ('correct','incorrect','partial'))::int AS resolved,
-         COUNT(*) FILTER (WHERE lg.verdict = 'correct')::int                        AS correct,
-         COUNT(*) FILTER (WHERE lg.verdict = 'incorrect')::int                      AS incorrect,
-         COUNT(*) FILTER (WHERE lg.verdict = 'partial')::int                        AS partial,
-         COUNT(*) FILTER (WHERE lg.verdict = 'unresolvable')::int                   AS unresolvable,
-         AVG(CASE WHEN lg.verdict IN ('correct','incorrect')
-                  THEN POWER(t.weight - (CASE lg.verdict WHEN 'correct' THEN 1 ELSE 0 END), 2)
-             END)::float                                                            AS brier
-         FROM synth_takes t
-         LEFT JOIN latest_grade lg ON lg.take_id = t.id
-        WHERE 1=1 ${where}`,
+         COUNT(*)::int                                                            AS total_takes,
+         COUNT(grade_verdict)::int                                                AS graded,
+         COUNT(*) FILTER (WHERE verdict IN ('correct','incorrect','partial'))::int AS resolved,
+         COUNT(*) FILTER (WHERE verdict = 'correct')::int                         AS correct,
+         COUNT(*) FILTER (WHERE verdict = 'incorrect')::int                       AS incorrect,
+         COUNT(*) FILTER (WHERE verdict = 'partial')::int                         AS partial,
+         COUNT(*) FILTER (WHERE verdict = 'unresolvable')::int                    AS unresolvable,
+         AVG(CASE WHEN verdict IN ('correct','incorrect')
+                  THEN POWER(weight - (CASE verdict WHEN 'correct' THEN 1 ELSE 0 END), 2)
+             END)::float                                                          AS brier
+         FROM scored`,
       params,
     );
     const row = r.rows[0];
@@ -289,7 +382,7 @@ export interface CalibrationBucket {
  */
 export async function getTakesCalibration(
   engine: Engine,
-  opts: { bucketSize?: number; domain?: string; sourceIds?: string[] } = {},
+  opts: { bucketSize?: number; domain?: string; sourceIds?: string[]; holderAllowList?: string[] } = {},
 ): Promise<CalibrationBucket[]> {
   const bucketSize =
     typeof opts.bucketSize === "number" && opts.bucketSize > 0 && opts.bucketSize <= 1
@@ -302,6 +395,11 @@ export async function getTakesCalibration(
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
     params.push(opts.domain);
     clauses.push(`AND t.domain = $${params.length}`);
+  }
+  const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
+  if (holderAllowList) {
+    params.push(holderAllowList);
+    clauses.push(`AND t.holder = ANY($${params.length}::text[])`);
   }
   if (sources) {
     params.push(sources);
@@ -326,10 +424,10 @@ export async function getTakesCalibration(
        binned AS (
          SELECT LEAST(FLOOR(t.weight::numeric / $1::numeric)::int, $2::int)::int AS bucket_idx,
                 t.weight,
-                (lg.verdict = 'correct')::int AS hit
+                (COALESCE(t.resolved_quality, lg.verdict) = 'correct')::int AS hit
            FROM synth_takes t
-           JOIN latest_grade lg ON lg.take_id = t.id
-          WHERE lg.verdict IN ('correct','incorrect') ${where}
+           LEFT JOIN latest_grade lg ON lg.take_id = t.id
+          WHERE COALESCE(t.resolved_quality, lg.verdict) IN ('correct','incorrect') ${where}
        )
        SELECT (bucket_idx::numeric * $1::numeric)::float        AS bucket_lo,
               ((bucket_idx + 1)::numeric * $1::numeric)::float  AS bucket_hi,

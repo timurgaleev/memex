@@ -13,10 +13,12 @@
  * brain — think REPORTS across the corpus with citations; it does not instruct.
  *
  * Adapted from the reference's think pipeline (GATHER → MERGE → SYNTHESIZE),
- * trimmed to memex's data model: page citations key on the chunk's source path
- * (memex has no slug#row take model), and the anchor-graph / calibration /
- * trajectory / take-vector streams are omitted — none have a memex backing store
- * yet. Sonnet injected via `sonnetFn`; NO live Bedrock in tests.
+ * mapped to memex's data model: page citations key on the chunk's source path
+ * (memex has no slug#row take model). The take keyword+vector streams, the
+ * anchor-subgraph graph stream (traverseGraph, RRF-fused), trajectory
+ * injection, the opt-in calibration block (withCalibration), and gap-fed
+ * rounds are wired; persistence (--save/--take) lives in think-persist.ts.
+ * Sonnet injected via `sonnetFn`; NO live Bedrock in tests.
  */
 import type { Storage } from "../storage.ts";
 import type { Engine } from "../engine/interface.ts";
@@ -31,6 +33,8 @@ import { extractCandidateEntities } from "./entity-extract.ts";
 import { makeSlugResolver } from "../slug-canonicalize.ts";
 import { findTrajectory, type TrajectoryPoint } from "../insights.ts";
 import { getCalibrationProfile } from "./reads.ts";
+import { traverseGraph } from "../links.ts";
+import { pageSourcePath } from "../page-index.ts";
 
 export const THINK_PROMPT_VERSION = "v2-sonnet";
 
@@ -100,6 +104,24 @@ export interface ThinkOptions {
    * deep-synth, which are operator-only and unscoped by design).
    */
   sourceIds?: readonly string[];
+  /** Only gather pages whose content date is >= this ISO date (temporal focus). */
+  since?: string;
+  /** Only gather pages whose content date is <= this ISO date. */
+  until?: string;
+  /**
+   * Gather/synthesize rounds (1..3, default 1). Rounds after the first feed the
+   * previous round's `gaps` back into retrieval (extra page gather on the gap
+   * text) and re-synthesize over the widened evidence. Each round is a fresh
+   * paid call, so the whole loop stays under the run's USD budget; the loop
+   * stops early when a round reports no gaps or the budget is out.
+   */
+  rounds?: number;
+  /**
+   * Inject the calibration anti-bias block (reference parity: opt-in, like the
+   * reference's --with-calibration). Default false — a plain think run carries
+   * no calibration context.
+   */
+  withCalibration?: boolean;
 }
 
 export interface ThinkResult {
@@ -187,15 +209,122 @@ async function gatherPages(
   question: string,
   k: number,
   sourceIds?: readonly string[],
+  window?: { since?: string; until?: string },
 ): Promise<SearchHit[]> {
   try {
     return await hybridSearch(storage, question, {
       k,
       ...(sourceIds && sourceIds.length > 0 ? { sourceIds } : {}),
+      ...(window?.since ? { since: window.since } : {}),
+      ...(window?.until ? { until: window.until } : {}),
     });
   } catch {
     return [];
   }
+}
+
+/**
+ * Anchor-subgraph gather stream — walk the link graph 2 hops out from each
+ * anchor (reusing traverseGraph) and surface those pages as evidence, so an
+ * entity-focused question sees the anchor's neighborhood even when the text
+ * query matched none of it. Deterministic, no LLM. Fail-soft to [].
+ */
+export async function gatherGraphPages(
+  storage: Storage,
+  anchors: readonly string[],
+  limit: number,
+  sourceIds?: readonly string[],
+): Promise<SearchHit[]> {
+  const engine = storage.engine();
+  const slugDepth = new Map<string, number>();
+  for (const anchor of anchors.slice(0, 3)) {
+    if (typeof anchor !== "string" || anchor.length === 0) continue;
+    slugDepth.set(anchor, 0);
+    try {
+      const hits = await traverseGraph(storage, anchor, {
+        maxDepth: 2,
+        direction: "both",
+        limit,
+        ...(sourceIds && sourceIds.length > 0 ? { sourceIds: [...sourceIds] } : {}),
+      });
+      for (const h of hits) {
+        const prev = slugDepth.get(h.slug);
+        if (prev === undefined || h.depth < prev) slugDepth.set(h.slug, h.depth);
+      }
+    } catch {
+      /* skip a bad anchor (invalid slug / no graph) */
+    }
+  }
+  if (slugDepth.size === 0) return [];
+  const slugs = Array.from(slugDepth.keys());
+  try {
+    const params: unknown[] = [slugs];
+    let scope = "";
+    if (sourceIds && sourceIds.length > 0) {
+      params.push(sourceIds);
+      scope = ` AND source_id = ANY($${params.length}::text[])`;
+    }
+    const { rows } = await engine.query<{
+      slug: string;
+      title: string | null;
+      markdown_body: string | null;
+      source_id: string | null;
+    }>(
+      `SELECT slug, title, markdown_body, source_id
+         FROM pages
+        WHERE slug = ANY($1::text[]) AND deleted_at IS NULL${scope}`,
+      params,
+    );
+    const hits: SearchHit[] = [];
+    for (const r of rows) {
+      const body = (r.markdown_body ?? "").trim();
+      if (body.length === 0) continue;
+      const depth = slugDepth.get(r.slug) ?? 2;
+      hits.push({
+        chunkId: `graph:${r.slug}`,
+        documentId: `page:${r.slug}`,
+        sourcePath: pageSourcePath(r.slug, r.source_id),
+        title: r.title,
+        content: body.slice(0, PAGE_EXCERPT_CHARS),
+        score: 1 / (1 + depth),
+        // Graph-gathered hits have no classified query intent; "topic" is the
+        // neutral member of the SearchHit union (nothing branches on it here).
+        intent: "topic",
+      });
+    }
+    hits.sort((a, b) => b.score - a.score || (a.sourcePath < b.sourcePath ? -1 : 1));
+    return hits.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * RRF-fuse the hybrid + graph page streams, keyed by sourcePath (same k as the
+ * take-stream fusion). The fused score replaces the per-stream scores so the
+ * prompt's rank attribute reflects the merged order.
+ */
+export function fusePageStreams(
+  hybrid: SearchHit[],
+  graph: SearchHit[],
+  limit: number,
+): SearchHit[] {
+  const scores = new Map<string, { hit: SearchHit; score: number }>();
+  const add = (hits: SearchHit[]) => {
+    for (let i = 0; i < hits.length; i++) {
+      const hit = hits[i]!;
+      const prev = scores.get(hit.sourcePath);
+      const inc = 1 / (RRF_K + i + 1);
+      if (prev) prev.score += inc;
+      else scores.set(hit.sourcePath, { hit, score: inc });
+    }
+  };
+  add(hybrid);
+  add(graph);
+  return Array.from(scores.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.hit);
 }
 
 /**
@@ -627,8 +756,12 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     : null;
 
   const scopeIds = opts.sourceIds;
-  const pagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk, scopeIds));
-  const [pages, takesKw, takesVec] = await Promise.all([
+  const window =
+    opts.since || opts.until
+      ? { ...(opts.since ? { since: opts.since } : {}), ...(opts.until ? { until: opts.until } : {}) }
+      : undefined;
+  const pagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk, scopeIds, window));
+  const [hybridPages, takesKw, takesVec] = await Promise.all([
     pagesFn(question, k),
     gatherTakes(engine, question, maxTakes, scopeIds),
     questionEmbedding
@@ -644,72 +777,105 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
   // Best-effort + timeout-guarded; never blocks the run.
   let anchors: string[] = opts.anchors && opts.anchors.length > 0 ? opts.anchors : [];
   if (intent !== "other" && anchors.length === 0 && autoAnchorEnabled()) {
-    anchors = await autoAnchors(storage, question, pages);
+    anchors = await autoAnchors(storage, question, hybridPages);
   }
   const trajectoryBlock =
     intent !== "other" && anchors.length > 0
       ? renderTrajectoryBlock(await gatherTrajectories(storage, anchors))
       : "";
 
-  // Anti-bias calibration profile (Item 4c). Fail-soft to "". Scope to the run's
-  // tenant like pages/takes/vector above — an unscoped fetch returns the newest
-  // profile across ALL tenants, which a scoped run (auto_think persists to a
-  // tenant-pinned draft) would leak into another tenant's synthesis.
-  const calibrationBlock = renderCalibrationBlock(
-    await getCalibrationProfile(
-      engine,
-      scopeIds && scopeIds.length ? [...scopeIds] : undefined,
-    ),
-  );
-
-  const user = buildThinkUserMessage({
-    question,
-    pagesBlock: renderPagesBlock(pages),
-    takesBlock: renderTakesBlock(takes),
-    trajectoryBlock,
-    calibrationBlock,
-  });
-
-  // Pre-flight: a paid call must fit the budget (also stops unpriced models).
-  if (budget.wouldExceed(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens))) {
-    return {
-      ran: true,
-      reason: "budget exhausted before synthesis",
-      synthesis: null,
-      pagesGathered: pages.length,
-      takesGathered: takes.length,
-      spentUsd: 0,
-      modelId: null,
-      budgetExhausted: true,
-      intent,
-    };
+  // Anchor-subgraph gather stream: the anchors' 2-hop link neighborhood joins
+  // the page evidence via RRF fusion, so an entity question sees the subgraph
+  // even when the text query missed it. Skipped when a test injects pagesFn
+  // WITHOUT anchors (hermetic paths stay hermetic).
+  let pages = hybridPages;
+  if (anchors.length > 0) {
+    const graphPages = await gatherGraphPages(storage, anchors, k, scopeIds);
+    if (graphPages.length > 0) pages = fusePageStreams(hybridPages, graphPages, Math.max(k, hybridPages.length));
   }
 
-  let synthesis: ThinkSynthesis | null;
-  let usedModel: string;
+  // Anti-bias calibration profile — OPT-IN (reference's --with-calibration).
+  // Fail-soft to "". Scope to the run's tenant like pages/takes/vector above —
+  // an unscoped fetch returns the newest profile across ALL tenants, which a
+  // scoped run (auto_think persists to a tenant-pinned draft) would leak into
+  // another tenant's synthesis.
+  const calibrationBlock = opts.withCalibration
+    ? renderCalibrationBlock(
+        await getCalibrationProfile(
+          engine,
+          scopeIds && scopeIds.length ? [...scopeIds] : undefined,
+        ),
+      )
+    : "";
+
+  // Synthesis rounds (1..3): round N+1 feeds round N's gaps back into page
+  // retrieval and re-synthesizes over the widened evidence. Budget-gated per
+  // round; stops early on no-gaps or budget-out.
+  const rounds = Math.min(3, Math.max(1, Math.floor(opts.rounds ?? 1)));
+  let synthesis: ThinkSynthesis | null = null;
+  let usedModel: string | null = null;
   let exhausted = false;
-  try {
-    const resp = await sonnetFn({ system: THINK_SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
-    usedModel = resp.modelId;
-    try {
-      budget.record(resp.modelId, resp.usage);
-    } catch (e) {
-      if (e instanceof BudgetExhausted) exhausted = true;
-      else throw e;
+  for (let round = 1; round <= rounds; round++) {
+    if (round > 1) {
+      if (!synthesis || synthesis.gaps.length === 0 || exhausted) break;
+      const gapQuery = `${question}\n${synthesis.gaps.join("\n")}`.slice(0, 400);
+      const gapPages = await pagesFn(gapQuery, k);
+      pages = fusePageStreams(pages, gapPages, Math.max(k, pages.length));
     }
-    synthesis = parseThinkResponse(resp.text);
-  } catch (e) {
-    return {
-      ran: true,
-      reason: `synthesis call failed: ${e instanceof Error ? e.message : String(e)}`,
-      synthesis: null,
-      pagesGathered: pages.length,
-      takesGathered: takes.length,
-      spentUsd: Number(budget.totalSpent().toFixed(6)),
-      modelId: null,
-      budgetExhausted: false,
-      intent,
-    };
+
+    const user = buildThinkUserMessage({
+      question,
+      pagesBlock: renderPagesBlock(pages),
+      takesBlock: renderTakesBlock(takes),
+      trajectoryBlock,
+      calibrationBlock,
+    });
+
+    // Pre-flight: a paid call must fit the budget (also stops unpriced models).
+    if (budget.wouldExceed(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens))) {
+      if (round === 1) {
+        return {
+          ran: true,
+          reason: "budget exhausted before synthesis",
+          synthesis: null,
+          pagesGathered: pages.length,
+          takesGathered: takes.length,
+          spentUsd: 0,
+          modelId: null,
+          budgetExhausted: true,
+          intent,
+        };
+      }
+      exhausted = true;
+      break;
+    }
+
+    try {
+      const resp = await sonnetFn({ system: THINK_SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
+      usedModel = resp.modelId;
+      try {
+        budget.record(resp.modelId, resp.usage);
+      } catch (e) {
+        if (e instanceof BudgetExhausted) exhausted = true;
+        else throw e;
+      }
+      const parsed = parseThinkResponse(resp.text);
+      // A later round that fails to parse keeps the previous round's answer.
+      if (parsed || round === 1) synthesis = parsed;
+    } catch (e) {
+      if (round > 1) break; // keep the earlier round's synthesis
+      return {
+        ran: true,
+        reason: `synthesis call failed: ${e instanceof Error ? e.message : String(e)}`,
+        synthesis: null,
+        pagesGathered: pages.length,
+        takesGathered: takes.length,
+        spentUsd: Number(budget.totalSpent().toFixed(6)),
+        modelId: null,
+        budgetExhausted: false,
+        intent,
+      };
+    }
   }
 
   // Validate citations against the evidence actually gathered. A model ref that

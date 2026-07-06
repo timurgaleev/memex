@@ -20,6 +20,7 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
+import { gateVoice } from "./voice-gate.ts";
 
 export const CALIBRATION_PROMPT_VERSION = "v1-nova";
 
@@ -76,6 +77,10 @@ export interface CalibrationSourceProfile {
   domainScorecards: DomainScorecards;
   patternStatements: string[];
   biasTags: string[];
+  /** Voice-gate audit: did an LLM generation pass the conversational rubric?
+   *  false = template fallback was used; attempts = generations consumed. */
+  voiceGatePassed: boolean;
+  voiceGateAttempts: number;
   skippedReason?: string;
 }
 
@@ -342,9 +347,13 @@ function groupGradesBySource(
 }
 
 /**
- * Turn a scorecard into pattern statements + bias tags via two Haiku calls.
- * Fail-open: an LLM error keeps the deterministic template and records the
- * error; the caller still writes a profile.
+ * Turn a scorecard into pattern statements + bias tags via Haiku, with the
+ * pattern statements passing through the VOICE GATE: a Haiku judge scores the
+ * generation conversational-vs-academic, a reject regenerates (feedback in the
+ * prompt) up to 2 attempts, then the deterministic template wins. The gate's
+ * outcome is returned for the profile row's audit fields. Fail-open: an LLM
+ * error keeps the deterministic template and records the error; the caller
+ * still writes a profile.
  */
 async function generateNarrative(
   llm: LlmFn,
@@ -352,36 +361,61 @@ async function generateNarrative(
   fallbackModelId: string,
   errors: string[],
   errorPrefix: string,
-): Promise<{ patternStatements: string[]; biasTags: string[]; modelId: string }> {
+): Promise<{
+  patternStatements: string[];
+  biasTags: string[];
+  modelId: string;
+  voiceGatePassed: boolean;
+  voiceGateAttempts: number;
+}> {
   let patternStatements = templatePatterns(scorecard);
   let biasTags: string[] = [];
   let modelId = fallbackModelId;
 
-  try {
-    const resp = await llm({
-      system: PATTERNS_SYSTEM_PROMPT,
-      user: JSON.stringify(
-        {
-          total: scorecard.total,
-          correct: scorecard.correct,
-          incorrect: scorecard.incorrect,
-          partial: scorecard.partial,
-          unresolvable: scorecard.unresolvable,
-          accuracy: scorecard.accuracy,
-        },
-        null,
-        2,
-      ),
-      maxTokens: 400,
-    });
-    const parsed = parsePatternStatements(resp.text);
-    if (parsed.length > 0) {
-      patternStatements = parsed;
+  const scorecardJson = JSON.stringify(
+    {
+      total: scorecard.total,
+      correct: scorecard.correct,
+      incorrect: scorecard.incorrect,
+      partial: scorecard.partial,
+      unresolvable: scorecard.unresolvable,
+      accuracy: scorecard.accuracy,
+    },
+    null,
+    2,
+  );
+
+  const gate = await gateVoice({
+    mode: "pattern_statement",
+    llmFn: llm,
+    generate: async ({ feedback }) => {
+      const resp = await llm({
+        system: PATTERNS_SYSTEM_PROMPT,
+        user:
+          scorecardJson +
+          (feedback
+            ? `\n\nYour previous attempt was rejected by the voice check (${feedback}). Rewrite in a warmer, more conversational register.`
+            : ""),
+        maxTokens: 400,
+      });
+      const parsed = parsePatternStatements(resp.text);
+      if (parsed.length === 0) return "";
       modelId = resp.modelId;
+      return parsed.join("\n");
+    },
+    templateFallback: () => templatePatterns(scorecard).join("\n"),
+  });
+  const gated = parsePatternStatements(gate.text);
+  if (gated.length > 0) {
+    patternStatements = gated;
+  }
+  if (!gate.passed) {
+    // Audit trail only — the template fallback is a valid outcome, not an
+    // abort. modelId stays deterministic when no generation was accepted.
+    if (gate.lastReason) {
+      errors.push(`${errorPrefix}voice_gate: fell back to template (${gate.lastReason})`);
     }
-  } catch (e) {
-    // Fail-open: keep the template patterns.
-    errors.push(`${errorPrefix}patterns: ${e instanceof Error ? e.message : String(e)}`);
+    modelId = fallbackModelId;
   }
 
   if (patternStatements.length > 0) {
@@ -402,7 +436,13 @@ async function generateNarrative(
     }
   }
 
-  return { patternStatements, biasTags, modelId };
+  return {
+    patternStatements,
+    biasTags,
+    modelId,
+    voiceGatePassed: gate.passed,
+    voiceGateAttempts: gate.attempts,
+  };
 }
 
 /** Append one immutable profile snapshot for a tenant. */
@@ -414,14 +454,17 @@ async function writeProfileRow(
   patternStatements: string[],
   biasTags: string[],
   modelId: string,
+  voiceGatePassed: boolean,
+  voiceGateAttempts: number,
 ): Promise<void> {
   await engine.query(
     `INSERT INTO synth_calibration_profile
        (generated_at, source_id, total_graded, correct, incorrect, partial,
         unresolvable, accuracy, brier, partial_rate, grade_completion,
-        domain_scorecards, graded_take_ids, pattern_statements, bias_tags, model_id)
+        domain_scorecards, graded_take_ids, pattern_statements, bias_tags, model_id,
+        voice_gate_passed, voice_gate_attempts)
      VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
+             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17)`,
     [
       sourceId,
       scorecard.total,
@@ -438,6 +481,8 @@ async function writeProfileRow(
       JSON.stringify(patternStatements),
       JSON.stringify(biasTags),
       modelId,
+      voiceGatePassed,
+      voiceGateAttempts,
     ],
   );
 }
@@ -513,6 +558,8 @@ export async function calibrationProfilePhase(
       domainScorecards: scorecard.domainScorecards,
       patternStatements: [],
       biasTags: [],
+      voiceGatePassed: false,
+      voiceGateAttempts: 0,
     };
 
     if (scorecard.total < minGraded) {
@@ -521,18 +568,25 @@ export async function calibrationProfilePhase(
       continue;
     }
 
-    const { patternStatements, biasTags, modelId } = await generateNarrative(
-      llm,
-      scorecard,
-      fallbackModelId,
-      result.errors,
-      `${sourceId}: `,
-    );
+    const { patternStatements, biasTags, modelId, voiceGatePassed, voiceGateAttempts } =
+      await generateNarrative(llm, scorecard, fallbackModelId, result.errors, `${sourceId}: `);
     per.patternStatements = patternStatements;
     per.biasTags = biasTags;
+    per.voiceGatePassed = voiceGatePassed;
+    per.voiceGateAttempts = voiceGateAttempts;
 
     try {
-      await writeProfileRow(engine, sourceId, scorecard, gradeCompletion, patternStatements, biasTags, modelId);
+      await writeProfileRow(
+        engine,
+        sourceId,
+        scorecard,
+        gradeCompletion,
+        patternStatements,
+        biasTags,
+        modelId,
+        voiceGatePassed,
+        voiceGateAttempts,
+      );
       per.profileWritten = true;
       result.profileWritten = true;
       pooledCorrect += scorecard.correct;
