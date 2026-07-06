@@ -548,12 +548,19 @@ function normaliseSince(v: string | Date): string {
 
 export async function listFacts(
   storage: Storage,
-  entitySlug: string,
+  entitySlug: string | null | undefined,
   opts: ListFactsOptions = {},
 ): Promise<FactRow[]> {
-  validateSlug(entitySlug);
-  const params: unknown[] = [entitySlug];
-  const where: string[] = ["entity_slug = $1"];
+  const params: unknown[] = [];
+  const where: string[] = [];
+  // entity_slug is OPTIONAL: omit it for a cross-entity "what did I learn"
+  // recall (the reference's entity-less filtered recall). The visibility floor
+  // + source scoping applied by the caller still gate an entity-less scan.
+  if (entitySlug !== null && entitySlug !== undefined && entitySlug !== "") {
+    validateSlug(entitySlug);
+    params.push(entitySlug);
+    where.push(`entity_slug = $${params.length}`);
+  }
   if (opts.since !== undefined) {
     // `since` is a record-time predicate (written_at), independent of decay's
     // validity-time anchoring (valid_from): "facts recorded since X, then
@@ -643,7 +650,7 @@ export async function listFacts(
             context, source_session,
             forgotten_at::text AS forgotten_at
        FROM entity_facts
-       WHERE ${where.join(" AND ")}
+       WHERE ${where.length > 0 ? where.join(" AND ") : "1=1"}
        ORDER BY ${order}
        LIMIT $${params.length}`,
     params,

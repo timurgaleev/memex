@@ -1604,8 +1604,12 @@ async function callEntityFacts(
   redact = false,
   readSources?: string[],
 ): Promise<ToolCallResult> {
-  if (typeof args["entity_slug"] !== "string")
-    return errResult("entity_facts: `entity_slug` is required");
+  // entity_slug is optional: omit for a cross-entity recall. When present it
+  // must be a string.
+  const entitySlug =
+    typeof args["entity_slug"] === "string" && args["entity_slug"]
+      ? (args["entity_slug"] as string)
+      : undefined;
   const opts: ListFactsOptions = {};
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["source_slug"] === "string")
@@ -1636,13 +1640,13 @@ async function callEntityFacts(
   // public; internal callers get it via the `MEMEX_FACT_DECAY` env default.
   if (redact) opts.decay = false;
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const facts = await listFacts(storage, args["entity_slug"], opts);
+  const facts = await listFacts(storage, entitySlug, opts);
   // Public ingress: `fact` is note-derived private content — strip it,
   // mirroring the search/page body redaction policy.
   const out = redact
     ? redactFacts(facts as unknown as Record<string, unknown>[])
     : facts;
-  return jsonResult({ ok: true, entity_slug: args["entity_slug"], facts: out });
+  return jsonResult({ ok: true, entity_slug: entitySlug ?? null, facts: out });
 }
 
 async function callEntityTimeline(
@@ -2360,6 +2364,9 @@ async function callTakesScorecard(
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof getTakesScorecard>[1] = {};
   if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
+  if (typeof args["holder"] === "string" && args["holder"]) opts.holder = args["holder"];
+  if (typeof args["since"] === "string" && args["since"]) opts.since = args["since"];
+  if (typeof args["until"] === "string" && args["until"]) opts.until = args["until"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const scorecard = await getTakesScorecard(storage.engine(), opts);
@@ -2375,6 +2382,7 @@ async function callTakesCalibration(
   const opts: Parameters<typeof getTakesCalibration>[1] = {};
   if (typeof args["bucket_size"] === "number") opts.bucketSize = args["bucket_size"];
   if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
+  if (typeof args["holder"] === "string" && args["holder"]) opts.holder = args["holder"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const buckets = await getTakesCalibration(storage.engine(), opts);

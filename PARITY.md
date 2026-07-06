@@ -294,3 +294,32 @@ Accepted deviation recorded:
   byte-identical queries hit) — consistent with memex's blanket default-OFF
   cost posture (operator decision, 2026-07-06). Byte-identical caching and all
   ranking parity are unaffected.
+
+## 2026-07-06 — Wave-2 core batch (accepted deviations recorded)
+
+CLI `version`/`--version`, cross-entity `entity_facts` (optional `entity_slug`),
+`takes_scorecard`/`takes_calibration` holder+window filters, per-migration
+`statement_timeout`, and a bulk-write connection-retry primitive landed. Three
+adaptations are DELIBERATE deviations from the reference:
+
+- **Takes `since`/`until` window `generated_at`, not the reference's per-take
+  `since_date`.** memex has no belief-as-of date column on a take, so the
+  scorecard's date window filters when the take was SYNTHESIZED. Same UX intent;
+  do not add a `since_date` column (it would be NULL on every machine-derived
+  take and buy nothing).
+- **Takes `domain` stays an exact-match TEXT column, not the reference's
+  page-slug `domain_prefix` LIKE.** memex's `domain` is a scalar column on the
+  take with no pages/slug join, so exact match is the faithful adaptation.
+- **Facts-fence `## Facts` block is stripped whole from search chunks; the
+  reference keeps `visibility='world'` rows searchable.** memex's fence parser
+  carries no `visibility` field (visibility lives only on the `entity_facts` DB
+  row, mig 085), so keeping world rows searchable would require a markdown-format
+  change AND re-adds fact content to the harder-to-audit search index — the
+  exposure memex deliberately keeps out. World facts remain reachable via
+  `entity_facts` (world-only for scoped readers) and the new cross-entity recall.
+  Deliberate SKIP; the read API is the sanctioned path.
+
+The rerank candidate window (`MEMEX_RERANK_WINDOW`, default 30), the PG
+pool/statement-timeout env knobs (`MEMEX_PG_POOL_MAX` /
+`MEMEX_PG_STATEMENT_TIMEOUT_MS`), and the four ops doctor probes shipped in
+v1.85.0/v1.86.0 already close their respective reference gaps — no deviation.

@@ -76,6 +76,31 @@ export function resolveLockTimeout(
   return v;
 }
 
+// A migration runs under a generous statement_timeout so a large ADD COLUMN
+// backfill or CREATE INDEX isn't killed at the short interactive limit (30s).
+// Applied as a transaction-scoped `SET LOCAL`, so it never leaks to normal
+// queries. The engine session's own statement_timeout (MEMEX_PG_STATEMENT_TIMEOUT_MS)
+// still governs interactive traffic.
+const DEFAULT_MIGRATION_STMT_TIMEOUT = "30min";
+
+/**
+ * Resolve the per-migration statement timeout, validating any env override.
+ * Same fail-loud policy as {@link resolveLockTimeout}.
+ */
+export function resolveMigrationStatementTimeout(
+  env: string | undefined = process.env.MEMEX_MIGRATION_STATEMENT_TIMEOUT,
+): string {
+  const v = env?.trim();
+  if (v === undefined || v === "") return DEFAULT_MIGRATION_STMT_TIMEOUT;
+  if (!LOCK_TIMEOUT_RE.test(v)) {
+    throw new Error(
+      `MEMEX_MIGRATION_STATEMENT_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
+        `(expected e.g. "30min", "600s", "1800000")`,
+    );
+  }
+  return v;
+}
+
 /**
  * Discover migration files in a directory. Returns them sorted by id ascending.
  * Throws if a filename doesn't match the grammar so we never silently skip
@@ -135,6 +160,7 @@ export async function runMigrations(
 
   const files = discoverMigrations(dir);
   const lockTimeout = resolveLockTimeout();
+  const stmtTimeout = resolveMigrationStatementTimeout();
   const applied: { id: number; name: string }[] = [];
   let skipped = 0;
 
@@ -153,6 +179,7 @@ export async function runMigrations(
     // transactional DDL on the surfaces we use.
     await engine.transaction(async (tx) => {
       await tx.exec(`SET LOCAL lock_timeout = '${lockTimeout}';`);
+      await tx.exec(`SET LOCAL statement_timeout = '${stmtTimeout}';`);
       await tx.exec(f.sql);
       await tx.query(
         "INSERT INTO migrations (id, name) VALUES ($1, $2)",

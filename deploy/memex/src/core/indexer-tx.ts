@@ -22,6 +22,7 @@ import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { embeddingSignature } from "./embedding.ts";
+import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
 import { wellFormJsonbObject } from "./well-form.ts";
 import {
   importFilename,
@@ -123,7 +124,14 @@ export async function writeDocumentTransaction(
     doc.sourcePath,
   );
 
-  await engine.transaction(async (tx) => {
+  // Wrap the whole transaction (not individual queries) in a connection-retry:
+  // a dropped socket kills the tx, so retry must restart from BEGIN on a fresh
+  // connection. The body is idempotent (documents upsert → DELETE chunks →
+  // re-insert), so a replay reproduces the same end state — but the counters
+  // must reset per attempt so a retried tx doesn't double-count.
+  await withRetry(() => engine.transaction(async (tx) => {
+    embeddingsWritten = 0;
+    entitiesWritten = 0;
     await tx.query(
       `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
        VALUES ($1, $6, $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
@@ -243,7 +251,7 @@ export async function writeDocumentTransaction(
 
       entitiesWritten += await persistEntitiesViaTx(tx, cid, ch.entities);
     }
-  });
+  }), BULK_RETRY_OPTS);
 
   return {
     documentId: doc.documentId,

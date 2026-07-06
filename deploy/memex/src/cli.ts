@@ -2,6 +2,7 @@
 /**
  * memex CLI entrypoint.
  */
+import { VERSION } from "./version.ts";
 import { runInit } from "./commands/init.ts";
 import { runServe } from "./commands/serve.ts";
 import { runIndex } from "./commands/index.ts";
@@ -247,6 +248,7 @@ function printUsage(): void {
   console.log("  quarantine clear <slug|path> [--force]");
   console.log("  quarantine scan [--limit N] [--apply]");
   console.log("                               operator surface for the content-sanity gate");
+  console.log("  version | --version          print build version (git tag+sha, or 'dev')");
   console.log("  --help                       show this help");
 }
 
@@ -1436,6 +1438,10 @@ async function main(argv: readonly string[]): Promise<number> {
       if (flags.has("--json")) opts.json = true;
       return await runQuarantine(opts);
     }
+    case "version":
+    case "--version":
+      console.log(`memex ${VERSION}`);
+      return 0;
     case undefined:
     case "--help":
     case "-h":
