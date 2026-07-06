@@ -249,13 +249,17 @@ export async function addLink(
   if (sourceId !== null) params.push(sourceId);
   // On an idempotent re-add, provenance is STICKY: an omitted field (empty
   // context / NULL enum) preserves the prior value so a bare `link` re-call
-  // never wipes enrichment-written provenance.
+  // never wipes enrichment-written provenance. `link_source='manual'` (mig086):
+  // an explicit call owns the manual edge row; a same-triple edge from a
+  // derived writer (markdown / frontmatter / mentions) is a SEPARATE row under
+  // the widened key, so re-adding never tampers with a derived writer's edge.
   const r = await storage.engine().query<{ inserted: boolean }>(
     `INSERT INTO links
        (source_slug, target_slug, type, inferred_confidence, source_chunk_id,
-        context, link_kind, origin_slug, origin_field, resolution_type${sourceCol})
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10${sourceVal})
-     ON CONFLICT (source_slug, target_slug, type, source_id) DO UPDATE
+        context, link_kind, origin_slug, origin_field, resolution_type,
+        link_source${sourceCol})
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'manual'${sourceVal})
+     ON CONFLICT (source_slug, target_slug, type, source_id, link_source) DO UPDATE
        SET inferred_confidence = EXCLUDED.inferred_confidence,
            source_chunk_id     = EXCLUDED.source_chunk_id,
            context             = CASE WHEN EXCLUDED.context <> ''
@@ -768,9 +772,9 @@ export async function syncWikilinksForPage(
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
            (source_slug, target_slug, type, inferred_confidence,
-            link_kind, resolution_type${insCol})
-         VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3${insVal})
-         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
+            link_kind, resolution_type, link_source${insCol})
+         VALUES ($1, $2, 'wikilink', 1.0, 'plain', $3, 'markdown'${insVal})
+         ON CONFLICT (source_slug, target_slug, type, source_id, link_source) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );
@@ -862,11 +866,15 @@ export async function syncVerbLinksForPage(
     for (const [target, type] of byTarget) {
       const insParams: unknown[] = [sourceSlug, target, type, VERB_INFER_CONFIDENCE];
       if (scope !== null) insParams.push(scope);
+      // link_source='mentions' (mig086): the reference files verb-derived typed
+      // edges under the mentions provenance; link_kind='verb_ner' keeps the
+      // sweep's ownership discriminator.
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
-           (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
-         VALUES ($1, $2, $3, $4, 'verb_ner'${insVal})
-         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
+           (source_slug, target_slug, type, inferred_confidence, link_kind,
+            link_source${insCol})
+         VALUES ($1, $2, $3, $4, 'verb_ner', 'mentions'${insVal})
+         ON CONFLICT (source_slug, target_slug, type, source_id, link_source) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );
@@ -985,9 +993,10 @@ export async function syncCodeRefsForPage(
       if (scope !== null) insParams.push(scope);
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
-           (source_slug, target_slug, type, inferred_confidence, link_kind${insCol})
-         VALUES ($1, $2, 'documents', 1.0, 'plain'${insVal})
-         ON CONFLICT (source_slug, target_slug, type, source_id) DO NOTHING
+           (source_slug, target_slug, type, inferred_confidence, link_kind,
+            link_source${insCol})
+         VALUES ($1, $2, 'documents', 1.0, 'plain', 'markdown'${insVal})
+         ON CONFLICT (source_slug, target_slug, type, source_id, link_source) DO NOTHING
          RETURNING (xmax = 0) AS inserted`,
         insParams,
       );

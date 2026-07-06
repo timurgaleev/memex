@@ -23,7 +23,10 @@ import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { embeddingSignature } from "./embedding.ts";
 import { wellFormJsonbObject } from "./well-form.ts";
-import { resolveEffectiveDate } from "./effective-date.ts";
+import {
+  importFilename,
+  resolveEffectiveDateWithSource,
+} from "./effective-date.ts";
 
 export interface ChunkWrite {
   /** Chunk body text (will land in chunks.content). */
@@ -114,11 +117,16 @@ export async function writeDocumentTransaction(
   const engine = storage.raw();
   let embeddingsWritten = 0;
   let entitiesWritten = 0;
+  // Content date + its mig080 provenance, derived once outside the tx.
+  const effectiveDate = resolveEffectiveDateWithSource(
+    doc.frontmatter,
+    doc.sourcePath,
+  );
 
   await engine.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, updated_at)
-       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), $8, NOW())
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
+       VALUES ($1, $6, $2, $3, $4::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          -- Keep the existing source on reindex unless the caller passes one
          -- explicitly. A null write leaves classification to the path-prefix
@@ -128,8 +136,11 @@ export async function writeDocumentTransaction(
          title              = EXCLUDED.title,
          frontmatter        = EXCLUDED.frontmatter,
          last_indexed_mtime = EXCLUDED.last_indexed_mtime,
-         -- Content date re-parsed from the fresh frontmatter on every re-index.
+         -- Content date re-parsed from the fresh frontmatter on every re-index;
+         -- the mig080 provenance pair moves with it.
          effective_date     = EXCLUDED.effective_date,
+         effective_date_source = EXCLUDED.effective_date_source,
+         import_filename    = EXCLUDED.import_filename,
          -- Re-index re-chunks under the CURRENT chunker, so advance the stamp;
          -- a metadata-only re-put that omits the version preserves the prior one.
          chunker_version    = COALESCE($7, documents.chunker_version),
@@ -153,7 +164,9 @@ export async function writeDocumentTransaction(
         doc.mtimeMs ?? null,
         doc.sourceId ?? null,
         doc.chunkerVersion ?? null,
-        resolveEffectiveDate(doc.frontmatter, doc.sourcePath),
+        effectiveDate.iso,
+        effectiveDate.source,
+        importFilename(doc.sourcePath),
       ],
     );
 

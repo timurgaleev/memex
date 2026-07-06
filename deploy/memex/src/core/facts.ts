@@ -84,6 +84,16 @@ export interface AddFactInput {
   /** Event-shaped row marker (migration 070), e.g. `meeting`, `job_change`. */
   event_type?: string;
   /**
+   * Lifecycle metadata (migration 085). `visibility` gates remote reads
+   * ('private' default | 'world'); `context` is a free-text situational note;
+   * `source_session` is the opaque capture-session id behind the recall
+   * session filter. All optional; an unrecognized visibility falls back to
+   * the column DEFAULT 'private'.
+   */
+  visibility?: string;
+  context?: string;
+  source_session?: string;
+  /**
    * Insert-time dedup / supersede. Present -> opt in for this call; absent ->
    * governed by `MEMEX_FACTS_DEDUP` (default OFF, exact-tuple dedup only).
    */
@@ -100,6 +110,8 @@ const KIND_VALUES: ReadonlySet<string> = new Set([
 ]);
 /** Allowed `notability` values — mirrors the migration 037 CHECK constraint. */
 const NOTABILITY_VALUES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+/** Allowed `visibility` values — mirrors the migration 085 CHECK constraint. */
+const VISIBILITY_VALUES: ReadonlySet<string> = new Set(["private", "world"]);
 
 /** Normalize a caller-supplied kind to an allowed value, else NULL (never let a
  *  bad value reach — and abort on — the CHECK constraint). */
@@ -114,6 +126,13 @@ function normaliseNotability(n: string | undefined): string | null {
   if (typeof n !== "string") return null;
   const v = n.trim().toLowerCase();
   return NOTABILITY_VALUES.has(v) ? v : null;
+}
+
+/** Normalize a caller-supplied visibility, else NULL (column DEFAULT applies). */
+function normaliseVisibility(v: string | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().toLowerCase();
+  return VISIBILITY_VALUES.has(s) ? s : null;
 }
 
 /** Canonicalize a free-form label (metric / event_type) to lowercase
@@ -248,6 +267,14 @@ export interface FactRow {
   /** DATE text `YYYY-MM-DD` or NULL. */
   valid_from: string | null;
   valid_until: string | null;
+  /** mig085 lifecycle. 'private' on every pre-085 row (backfilled DEFAULT). */
+  visibility: string;
+  superseded_by: number | null;
+  consolidated_into: number | null;
+  context: string | null;
+  source_session: string | null;
+  /** mig043 tombstone; NULL on every live row (the default read set). */
+  forgotten_at: string | null;
 }
 
 export interface AddFactResult {
@@ -295,6 +322,11 @@ export async function addFact(
   const claimUnit = normaliseText(input.claim_unit);
   const claimPeriod = normaliseText(input.claim_period);
   const eventType = normaliseLabel(input.event_type);
+  // Lifecycle metadata (mig085): normalized-or-NULL, stamped only when set so
+  // the columns' DEFAULTs apply otherwise.
+  const visibility = normaliseVisibility(input.visibility);
+  const factContext = normaliseText(input.context);
+  const sourceSession = normaliseText(input.source_session);
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
   // column's DEFAULT 'default' applies otherwise (never pass NULL).
   const sourceId =
@@ -392,6 +424,18 @@ export async function addFact(
     cols.push("event_type");
     params.push(eventType);
   }
+  if (visibility !== null) {
+    cols.push("visibility");
+    params.push(visibility);
+  }
+  if (factContext !== null) {
+    cols.push("context");
+    params.push(factContext);
+  }
+  if (sourceSession !== null) {
+    cols.push("source_session");
+    params.push(sourceSession);
+  }
   if (sourceId !== null) {
     cols.push("source_id");
     params.push(sourceId);
@@ -422,15 +466,16 @@ export async function addFact(
   const inserted = chunkId === null ? true : r.rows.length > 0;
 
   // Retire the superseded fact only once the replacement actually landed. The
-  // tombstone reuses the mig043 forget columns (no dedicated supersede link),
-  // and — paired with the reconcile tombstone-preservation — survives a fence
-  // rebuild rather than resurrecting.
+  // tombstone reuses the mig043 forget columns plus the mig085 `superseded_by`
+  // pointer (so chains are SQL-traversable), and — paired with the reconcile
+  // tombstone-preservation — survives a fence rebuild rather than resurrecting.
   if (inserted && supersededId !== null && newId !== null) {
     await storage.engine().query(
       `UPDATE entity_facts
-          SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = 'supersede'
+          SET forgotten_at = NOW(), forgotten_reason = $2,
+              forgotten_cause = 'supersede', superseded_by = $3
         WHERE id = $1 AND forgotten_at IS NULL`,
-      [supersededId, `superseded by fact ${newId}`],
+      [supersededId, `superseded by fact ${newId}`, newId],
     );
   }
   return { id: newId, entity_slug: input.entity_slug, inserted };
@@ -466,6 +511,21 @@ export interface ListFactsOptions {
    * (whole-brain), preserving current behavior.
    */
   sourceIds?: string[];
+  /**
+   * Include tombstoned rows (mig043 `forgotten_at IS NOT NULL`). Default
+   * false — the mig043 contract: a forgotten fact is invisible to recall.
+   */
+  include_forgotten?: boolean;
+  /** Filter to facts captured under this session id (mig085). */
+  session?: string;
+  /** Case-insensitive substring filter on the fact text. */
+  grep?: string;
+  /**
+   * Visibility gate (mig085). When a non-empty list is given, only facts
+   * whose visibility is in it are returned (a remote reader passes
+   * ['world']). Omitted/empty -> all visibilities (operator view).
+   */
+  visibility?: string[];
 }
 
 /** When decay re-ranks in TS we fetch a wide candidate set first, then trim. */
@@ -510,6 +570,24 @@ export async function listFacts(
   if (opts.sourceIds && opts.sourceIds.length > 0) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
+  }
+  // Tombstones are invisible by default (the mig043 contract); the audit
+  // surfaces opt in explicitly.
+  if (opts.include_forgotten !== true) {
+    where.push("forgotten_at IS NULL");
+  }
+  if (typeof opts.session === "string" && opts.session.length > 0) {
+    params.push(opts.session);
+    where.push(`source_session = $${params.length}`);
+  }
+  if (typeof opts.grep === "string" && opts.grep.length > 0) {
+    // Literal substring, not a pattern: escape LIKE metacharacters.
+    params.push(`%${opts.grep.replace(/[\\%_]/g, "\\$&")}%`);
+    where.push(`fact ILIKE $${params.length} ESCAPE '\\'`);
+  }
+  if (opts.visibility && opts.visibility.length > 0) {
+    params.push(opts.visibility);
+    where.push(`visibility = ANY($${params.length}::text[])`);
   }
   const hasQueryVector = !!(opts.queryVector && opts.queryVector.length > 0);
   // Decay re-ranks in TS, so it only applies to the plain confidence path:
@@ -560,7 +638,10 @@ export async function listFacts(
             written_at::text AS written_at,
             kind, notability,
             valid_from::text  AS valid_from,
-            valid_until::text AS valid_until
+            valid_until::text AS valid_until,
+            visibility, superseded_by, consolidated_into,
+            context, source_session,
+            forgotten_at::text AS forgotten_at
        FROM entity_facts
        WHERE ${where.join(" AND ")}
        ORDER BY ${order}
@@ -596,6 +677,98 @@ function rankByDecay(rows: FactRow[], limit: number): FactRow[] {
 }
 
 // ---------------------------------------------------------------------------
+// Lifecycle read surface (mig085 consumers) — supersession audit + the
+// pending-consolidation count.
+// ---------------------------------------------------------------------------
+
+export interface ListSupersessionsOptions {
+  /** Confine to one entity's ledger. Omitted -> brain/scope-wide. */
+  entity_slug?: string;
+  /** ISO lower bound on the retirement time (`forgotten_at`). */
+  since?: string | Date;
+  limit?: number;
+  /** Tenant source scope (mig047). Omitted/empty -> unscoped. */
+  sourceIds?: string[];
+}
+
+/**
+ * Supersession audit log: facts that were retired WITH a replacement pointer
+ * (`forgotten_at` + `superseded_by` both set), newest retirement first.
+ * Mirrors the reference's `listSupersessions`. Each row is the RETIRED fact;
+ * `superseded_by` points at its replacement.
+ */
+export async function listSupersessions(
+  storage: Storage,
+  opts: ListSupersessionsOptions = {},
+): Promise<FactRow[]> {
+  const params: unknown[] = [];
+  const where: string[] = [
+    "forgotten_at IS NOT NULL",
+    "superseded_by IS NOT NULL",
+  ];
+  if (opts.entity_slug !== undefined) {
+    validateSlug(opts.entity_slug);
+    params.push(opts.entity_slug);
+    where.push(`entity_slug = $${params.length}`);
+  }
+  if (opts.since !== undefined) {
+    params.push(normaliseSince(opts.since));
+    where.push(`forgotten_at >= $${params.length}::timestamptz`);
+  }
+  if (opts.sourceIds && opts.sourceIds.length > 0) {
+    params.push(opts.sourceIds);
+    where.push(`source_id = ANY($${params.length}::text[])`);
+  }
+  const limit =
+    typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
+      ? Math.floor(opts.limit)
+      : 50;
+  params.push(limit);
+  const r = await storage.engine().query<FactRow>(
+    `SELECT id, entity_slug, fact, confidence,
+            source_slug, source_chunk_id, written_by,
+            written_at::text AS written_at,
+            kind, notability,
+            valid_from::text  AS valid_from,
+            valid_until::text AS valid_until,
+            visibility, superseded_by, consolidated_into,
+            context, source_session,
+            forgotten_at::text AS forgotten_at
+       FROM entity_facts
+       WHERE ${where.join(" AND ")}
+       ORDER BY forgotten_at DESC
+       LIMIT $${params.length}`,
+    params,
+  );
+  return r.rows;
+}
+
+/**
+ * Count live facts not yet folded into a consolidated take by the
+ * consolidate-facts cycle phase (mig061 `consolidated = false`). Mirrors the
+ * reference's `countUnconsolidatedFacts`; drives the recall `include_pending`
+ * piggy-back.
+ */
+export async function countUnconsolidatedFacts(
+  storage: Storage,
+  sourceIds?: string[],
+): Promise<number> {
+  const params: unknown[] = [];
+  let scopeFilter = "";
+  if (sourceIds && sourceIds.length > 0) {
+    params.push(sourceIds);
+    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+  }
+  const r = await storage.engine().query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM entity_facts
+      WHERE consolidated = false AND forgotten_at IS NULL${scopeFilter}`,
+    params,
+  );
+  return r.rows[0]?.n ?? 0;
+}
+
+// ---------------------------------------------------------------------------
 // entityRecall — the combined "what do I know about X?" answer.
 // ---------------------------------------------------------------------------
 
@@ -626,6 +799,12 @@ export interface EntityRecallOptions {
    * timeline reads. Omitted/empty -> unscoped (whole-brain).
    */
   sourceIds?: string[];
+  /**
+   * Piggy-back the scope's pending-consolidation count on the response (one
+   * round trip, reference `recall --pending` parity). Best-effort: a count
+   * failure leaves the field undefined rather than failing the recall.
+   */
+  include_pending?: boolean;
 }
 
 export interface EntityRecallResult {
@@ -634,6 +813,8 @@ export interface EntityRecallResult {
   page: PageRow | null;
   facts: FactRow[];
   timeline: TimelineEventRow[];
+  /** Present only when `include_pending` was requested AND the count worked. */
+  pending_consolidation_count?: number;
 }
 
 /**
@@ -694,5 +875,22 @@ export async function entityRecall(
     const { markdown_body: _omit, ...rest } = page;
     outPage = rest as PageRow;
   }
-  return { slug, page: outPage, facts, timeline };
+  const out: EntityRecallResult = { slug, page: outPage, facts, timeline };
+  if (opts.include_pending === true) {
+    try {
+      out.pending_consolidation_count = await countUnconsolidatedFacts(
+        storage,
+        scoped,
+      );
+    } catch (e) {
+      // Best-effort: the recall payload still returns; an undefined field
+      // tells the caller "couldn't ask" apart from "0 pending".
+      console.warn(
+        `entityRecall: countUnconsolidatedFacts failed: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+  }
+  return out;
 }

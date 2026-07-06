@@ -577,7 +577,13 @@ export async function runCycleOnce(
         r = await runPhase(
           engine,
           p,
-          () => extractAtomsPhase(engine, options.synthesis ?? {}),
+          // Storage enables the atoms/<date>/<slug> page mirror (retrievable
+          // atoms); without it the phase writes synth_atoms rows only.
+          () =>
+            extractAtomsPhase(engine, {
+              ...(options.synthesis ?? {}),
+              ...(options.storage ? { storage: options.storage } : {}),
+            }),
           progress,
         );
         break;
@@ -585,7 +591,12 @@ export async function runCycleOnce(
         r = await runPhase(
           engine,
           p,
-          () => synthesizeConceptsPhase(engine, options.synthesis ?? {}),
+          // Storage enables the concepts/<slug> page mirror.
+          () =>
+            synthesizeConceptsPhase(engine, {
+              ...(options.synthesis ?? {}),
+              ...(options.storage ? { storage: options.storage } : {}),
+            }),
           progress,
         );
         break;
@@ -638,6 +649,7 @@ export async function runCycleOnce(
                   reason: "no storage handle",
                   transcriptsConsidered: 0,
                   reflectionsWritten: 0,
+                  worthSkipped: 0,
                   spentUsd: 0,
                   budgetExhausted: false,
                   errors: [],
@@ -755,6 +767,7 @@ export async function runCycleOnce(
                   pagesConsidered: 0,
                   pagesProcessed: 0,
                   factsWritten: 0,
+                  worthSkipped: 0,
                   spentUsd: 0,
                   budgetExhausted: false,
                   errors: [],

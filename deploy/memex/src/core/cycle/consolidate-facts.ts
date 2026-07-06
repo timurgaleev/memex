@@ -292,15 +292,30 @@ async function promoteCluster(
       [bucket.entity_slug, best.fact, avg, bucket.source_id],
     );
     const takeWritten = ins.rows.length > 0;
-    // Mark the contributing facts consolidated (never delete). Scoped by id +
-    // the bucket's source_id so a concurrent cross-tenant row can never be
-    // swept. `consolidated = false` guard keeps it idempotent.
+    // The consolidated_into pointer (mig085) targets the promoted take; on an
+    // idempotent re-run the take already exists, so look its id up.
+    let takeId = ins.rows[0]?.id ?? null;
+    if (takeId === null) {
+      const existing = await tx.query<{ id: number }>(
+        `SELECT id FROM entity_facts
+          WHERE entity_slug = $1 AND source_id = $2 AND fact = $3
+            AND written_by = 'facts-consolidate'
+          ORDER BY id LIMIT 1`,
+        [bucket.entity_slug, bucket.source_id, best.fact],
+      );
+      takeId = existing.rows[0]?.id ?? null;
+    }
+    // Mark the contributing facts consolidated (never delete) and point them
+    // at their take. Scoped by id + the bucket's source_id so a concurrent
+    // cross-tenant row can never be swept. `consolidated = false` guard keeps
+    // it idempotent.
     const upd = await tx.query<{ id: number }>(
       `UPDATE entity_facts
-          SET consolidated = true, consolidated_at = NOW()
+          SET consolidated = true, consolidated_at = NOW(),
+              consolidated_into = COALESCE($3, consolidated_into)
         WHERE id = ANY($1::bigint[]) AND source_id = $2 AND consolidated = false
         RETURNING id`,
-      [ids, bucket.source_id],
+      [ids, bucket.source_id, takeId],
     );
     return { takeWritten, factsConsolidated: upd.rows.length };
   });

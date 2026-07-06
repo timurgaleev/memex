@@ -42,6 +42,12 @@ export interface RecalledFact {
   notability: string | null;
   valid_from: string | null;
   valid_until: string | null;
+  /** mig085 lifecycle metadata. */
+  visibility: string;
+  superseded_by: number | null;
+  consolidated_into: number | null;
+  context: string | null;
+  source_session: string | null;
   /** Tombstone timestamp; NULL for every live row recall returns. */
   forgotten_at: string | null;
 }
@@ -78,6 +84,8 @@ export async function recallFact(
             kind, notability,
             valid_from::text   AS valid_from,
             valid_until::text  AS valid_until,
+            visibility, superseded_by, consolidated_into,
+            context, source_session,
             forgotten_at::text AS forgotten_at
        FROM entity_facts
        WHERE id = $1 AND forgotten_at IS NULL${scopeFilter}`,
