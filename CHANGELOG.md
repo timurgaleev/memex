@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.89.0] — 2026-07-07
+
 ### Added
 - **Admin observability endpoints.** `/admin/api/agents/spend` (per-OAuth-client
   committed + pending spend today vs `budget_usd_per_day` — the mig-081 ledger
