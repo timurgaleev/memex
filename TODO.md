@@ -2059,3 +2059,11 @@ v1.87 built+pushed (deploy pending SSO). Remaining, ranked:
 - tests/facts_decay.test.ts "forces decay OFF on the public bearer path" returns
   0 world facts (expected 3) — fails on baseline a3ebe89 (parallel rerank/doctor
   commits), NOT from the recompare batch. Visibility-floor public path.
+
+## Deferred real gap (Wave 4, 2026-07-07) — page/timeline FTS
+memex FTS indexes only chunks.search_vector; second-brain `pages`
+(compiled_truth+markdown_body) and `timeline_events` text are NOT keyword/recall
+searchable (only exact-slug or graph walk). Real blind spot. Build = pages.search_vector
+(weighted title A / truth+body B / timeline C, trigger-maintained) + a new page arm in
+core/search/hybrid.ts alongside the chunk arm. MEDIUM-HIGH risk (touches live ranking) —
+needs its own spec + careful eval, not a schema-only change. HIGH value.
