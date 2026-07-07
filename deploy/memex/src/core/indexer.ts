@@ -15,6 +15,9 @@ import { lstatSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
+import { extractFencedCode } from "./chunkers/fenced-code.ts";
+import { chunkCode } from "./chunkers/code.ts";
+import { qualifiedSymbolName } from "./code-edges.ts";
 import { stripFactsFence } from "./facts-fence.ts";
 import { stripTakesFence } from "./synthesis/takes-fence.ts";
 import { embedText, EMBED_DIMENSIONS } from "./embedding.ts";
@@ -345,6 +348,39 @@ export async function indexDocument(
       entities: extractEntities(text, fm),
     };
   });
+
+  // Fenced-code extraction (chunk_source='fenced_code'): lift each ```lang fence
+  // whose tag maps to a supported grammar, tree-sitter-chunk it, and append the
+  // symbols as extra searchable chunks so a code example ranks as code, not
+  // prose. Skipped when the whole doc is already code (symbol-chunked elsewhere)
+  // or embeddings are off. Bounded by MEMEX_MAX_FENCES_PER_PAGE; a parse failure
+  // on one fence is swallowed so it can never fail the page ingest.
+  if (!skipEmbed && !isCode) {
+    for (const fence of extractFencedCode(text)) {
+      try {
+        const parsedCode = await chunkCode(fence.source, `fence.${fence.lang}`, fence.lang);
+        for (const sym of parsedCode.symbols) {
+          const vec = await embed(sym.body, { modelId: model });
+          chunkWrites.push({
+            text: sym.body,
+            startLine: sym.startLine,
+            endLine: sym.endLine,
+            embedding: vec,
+            symbolName: sym.name,
+            symbolNameQualified: qualifiedSymbolName(sym.parentSymbolPath, sym.name),
+            symbolType: sym.kind,
+            parentSymbolPath: sym.parentSymbolPath,
+            docComment: sym.docComment,
+            language: fence.lang,
+            chunkSource: "fenced_code",
+            entities: [],
+          });
+        }
+      } catch {
+        // parse timeout / grammar error — skip this fence, keep the page.
+      }
+    }
+  }
 
   return writeDocumentTransaction(
     storage,
