@@ -22,6 +22,9 @@ import {
   ValidationException,
   type ContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { resolveModel } from "./resolve-model.ts";
+import { withInflightCap } from "./gateway.ts";
 
 /** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
 export const DEFAULT_HAIKU_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -81,7 +84,17 @@ const _clients = new Map<string, BedrockRuntimeClient>();
 function client(region: string): BedrockRuntimeClient {
   let c = _clients.get(region);
   if (!c) {
-    c = new BedrockRuntimeClient({ region });
+    c = new BedrockRuntimeClient({
+      region,
+      // Tuned retry/backoff/timeout — the SDK gives this natively, so memex
+      // doesn't hand-roll it. Adaptive retry backs off on 429/5xx; the request
+      // timeout (MEMEX_LLM_TIMEOUT_MS, default 30s) bounds a hung call.
+      maxAttempts: 4,
+      retryMode: "adaptive",
+      requestHandler: new NodeHttpHandler({
+        requestTimeout: Number(process.env.MEMEX_LLM_TIMEOUT_MS ?? 30000),
+      }),
+    });
     _clients.set(region, c);
   }
   return c;
@@ -127,20 +140,22 @@ export async function callHaiku(
   opts: LlmCallOptions = {},
 ): Promise<LlmCallResult> {
   const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
-  const modelId = opts.modelId ?? process.env.MEMEX_UTILITY_MODEL ?? DEFAULT_HAIKU_MODEL;
+  const modelId = resolveModel("utility", opts.modelId);
   const c = client(region);
 
   const send = (withCache: boolean) =>
-    c.send(
-      new ConverseCommand({
-        modelId,
-        system: [{ text: input.system }],
-        messages: [{ role: "user", content: buildUserContent(input, withCache) }],
-        inferenceConfig: {
-          maxTokens: input.maxTokens,
-          temperature: input.temperature ?? 0,
-        },
-      }),
+    withInflightCap(() =>
+      c.send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: input.system }],
+          messages: [{ role: "user", content: buildUserContent(input, withCache) }],
+          inferenceConfig: {
+            maxTokens: input.maxTokens,
+            temperature: input.temperature ?? 0,
+          },
+        }),
+      ),
     );
 
   let resp;

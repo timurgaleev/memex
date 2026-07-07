@@ -23,7 +23,7 @@
 import type { Storage } from "../storage.ts";
 import type { SearchHit } from "../search/hybrid.ts";
 import type { SonnetFn } from "../llm/sonnet.ts";
-import { resolveFactsModel } from "../llm/sonnet.ts";
+import { resolveModel } from "../llm/resolve-model.ts";
 import { resolveSonnetFn } from "../llm/sonnet.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import type { SonnetUsage } from "../llm/sonnet.ts";
@@ -154,7 +154,7 @@ export async function runDeepSynthPhase(
     return { ...blank("no standing questions (empty synth_concepts and none supplied)"), ran: true };
   }
 
-  const modelId = resolveFactsModel(opts.modelId);
+  const modelId = resolveModel("deep", opts.modelId);
   const budget = opts.budget ?? new BudgetTracker(opts.maxBudgetUsd ?? defaultBudget(), "deep-synth");
 
   // Recording wrapper: charge each real (paid) call to the SHARED phase budget
