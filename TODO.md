@@ -20,7 +20,23 @@ pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
   `invested_in` triple from a second origin (breaks memex's single-origin
   invariant, same reason `key_people` is skipped); `source` is often a provenance
   string, not a slug. Test `typed_links.test.ts` (8/8). Default-OFF feature.
-- **[DONE — v1.94.0, the valuable+safe slice] HNSW / invalid-index lifecycle.**
+- **[DONE — v1.95.0, FULL faithful port (operator asked 2026-07-07)] HNSW index
+  lifecycle manager.** Ported the reference's entire `vector-index.ts` surface to
+  `core/vector-index.ts`, adapted to memex's `Engine` (query/exec/transaction vs
+  the reference's executeRaw/withReservedConnection; CONCURRENTLY routes through
+  `engine.exec` = simple-protocol single statement) and memex's real index
+  (`embeddings_vector_idx` on `embeddings(vector)`, mig 001) + RDS (not Supabase):
+  `checkActiveBuild`, `dropZombieIndexes`, `dropAndRebuild` (temp CONCURRENTLY
+  build → DROP+RENAME atomic swap; old index intact on failure), `monitorBuild`,
+  `isExternalMaintenanceBuild`. Exposed via `memex hnsw <status|sweep|rebuild>`
+  (commands/hnsw.ts) + an opt-in startup zombie-sweep (`MEMEX_HNSW_ZOMBIE_SWEEP=1`,
+  default-OFF — the one deviation from the reference's always-on connect sweep,
+  per memex's no-surprise-mutation posture; `doctor`'s invalid-indexes check
+  already surfaces the condition). CONCURRENTLY rebuild verified against LIVE RDS.
+  Tests `vector_index.test.ts` (PGLite guards + classifier; the real Postgres path
+  verified on prod). Supersedes the v1.94.0 detection-only slice below.
+
+- **[DONE — v1.94.0, detection slice] HNSW / invalid-index doctor check.**
   The real risk the reference's `vector-index.ts` guards is a failed/interrupted
   index build (a killed `CREATE INDEX CONCURRENTLY`, or an OOM mid-build — memex has
   OOM history) leaving `indisvalid=false`: Postgres keeps the index but never uses

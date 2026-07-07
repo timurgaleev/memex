@@ -72,6 +72,26 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   const storage = new Storage(config);
   await storage.init();
 
+  // Startup zombie-index sweep (ported from the reference, which runs it
+  // unconditionally on connect). memex gates it default-OFF per its no-surprise-
+  // mutation posture — an aborted CONCURRENTLY leaving an invalid index is rare,
+  // and `doctor`'s invalid-indexes check already surfaces it. Flip
+  // MEMEX_HNSW_ZOMBIE_SWEEP=1 to auto-drop invalid indexes at boot (postgres
+  // only; best-effort, never fails startup).
+  if (process.env.MEMEX_HNSW_ZOMBIE_SWEEP === "1") {
+    try {
+      const { dropZombieIndexes } = await import("../core/vector-index.ts");
+      const { dropped } = await dropZombieIndexes(storage.engine());
+      if (dropped.length > 0) {
+        console.error(
+          `[hnsw] startup sweep dropped ${dropped.length} invalid index(es): ${dropped.join(", ")}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[hnsw] startup sweep failed: ${(err as Error).message}`);
+    }
+  }
+
   const serverOpts: Parameters<typeof startServer>[0] = {
     host: opts.host,
     port: opts.port,

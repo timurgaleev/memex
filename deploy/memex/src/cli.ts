@@ -8,6 +8,7 @@ import { runServe } from "./commands/serve.ts";
 import { runIndex } from "./commands/index.ts";
 import { runSearch } from "./commands/search.ts";
 import { runReindex } from "./commands/reindex.ts";
+import { runHnsw } from "./commands/hnsw.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
@@ -341,6 +342,11 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "doctor": {
       await runDoctor();
+      return 0;
+    }
+    case "hnsw": {
+      const sub = positional[0] ?? "status";
+      await runHnsw(sub, flags.has("--force") ? { force: true } : {});
       return 0;
     }
     case "status": {
