@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.88.0] — 2026-07-07
+
 ### Added
 - **Fenced-code extraction.** A ```lang code fence in a markdown page whose tag
   maps to a supported grammar (typescript/tsx/python/bash/go/sql, plus common
