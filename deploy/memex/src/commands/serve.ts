@@ -83,6 +83,14 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (config.mcp?.rate_limit_per_minute !== undefined) {
     serverOpts.mcpRateLimitPerMinute = config.mcp.rate_limit_per_minute;
   }
+  // Per-token-id cap (post-auth) — defeats IP rotation by an authed client.
+  const perToken = Number.parseInt(
+    process.env.MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE ?? "",
+    10,
+  );
+  if (Number.isInteger(perToken) && perToken > 0) {
+    serverOpts.mcpRateLimitPerTokenPerMinute = perToken;
+  }
   // follow-up: public Cloudflare Tunnel ingress. When the
   // bearer token is present (via MEMEX_PUBLIC_BEARER env populated
   // by fetch-secrets.sh) we accept authenticated read requests; the

@@ -445,3 +445,41 @@ describe("admin-api agent-config export", () => {
     expect(body.snippets["chatgpt"]).toContain("https://brain.example.test/mcp");
   });
 });
+
+describe("admin-api observability endpoints", () => {
+  it("agents/spend reports today's spend + pending vs cap", async () => {
+    const e = storage.engine();
+    await e.query(`INSERT INTO oauth_clients (client_id, client_name, budget_usd_per_day) VALUES ('c1','Client One',1.00)`);
+    await e.query(`INSERT INTO mcp_spend_log (client_id, operation, spend_cents) VALUES ('c1', 'think', 50)`);
+    await e.query(`INSERT INTO mcp_spend_reservations (reservation_id, client_id, estimated_cents, model, provider, status, expires_at) VALUES ('r1', 'c1', 20, 'm', 'p', 'pending', now() + interval '1 hour')`);
+    const r = await call("/admin/api/agents/spend", authed());
+    const body = (await r!.json()) as { agents: Record<string, unknown>[] };
+    const row = body.agents.find((a) => a.client_id === "c1")!;
+    expect(Number(row.spent_cents_today)).toBe(50);
+    expect(Number(row.pending_cents)).toBe(20);
+    expect(Number(row.cap_usd_per_day)).toBe(1);
+  });
+
+  it("requests filters by operation and returns redacted params", async () => {
+    const e = storage.engine();
+    await e.query(`INSERT INTO mcp_request_log (operation, status, params) VALUES ('search','success','{"q":"hi"}'::jsonb)`);
+    await e.query(`INSERT INTO mcp_request_log (operation, status) VALUES ('page_put','success')`);
+    const r = await call("/admin/api/requests?operation=search", authed());
+    const body = (await r!.json()) as { rows: Record<string, unknown>[]; total: number };
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]?.operation).toBe("search");
+    expect(body.rows[0]?.params).toBeTruthy();
+    expect(body.total).toBe(1);
+  });
+
+  it("stats + health-indicators return auth rollups", async () => {
+    const e = storage.engine();
+    await e.query(`INSERT INTO oauth_clients (client_id, client_name) VALUES ('c2','C2')`);
+    await e.query(`INSERT INTO mcp_request_log (operation, status) VALUES ('x','error')`);
+    const stats = (await (await call("/admin/api/stats", authed()))!.json()) as Record<string, number>;
+    expect(stats.connected_agents).toBeGreaterThanOrEqual(1);
+    expect(stats.requests_today).toBeGreaterThanOrEqual(1);
+    const hi = (await (await call("/admin/api/health-indicators", authed()))!.json()) as Record<string, number>;
+    expect(hi.error_rate_24h).toBeGreaterThan(0);
+  });
+});

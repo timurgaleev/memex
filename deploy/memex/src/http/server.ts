@@ -72,6 +72,9 @@ export interface ServerOptions {
   mcpEnabled?: boolean;
   /** Per-IP request limit. Default 60/min (capacity 30, refill 1/s). */
   mcpRateLimitPerMinute?: number;
+  /** Per-OAuth-token-id request limit (post-auth), so an authed client can't
+   *  rotate IPs to defeat the per-IP cap. Unset → no per-token limiting. */
+  mcpRateLimitPerTokenPerMinute?: number;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
    * the `MEMEX_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
@@ -121,6 +124,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
           ? new RateLimiter({
               refillPerSecond: opts.mcpRateLimitPerMinute / 60,
               capacity: Math.max(10, Math.floor(opts.mcpRateLimitPerMinute / 2)),
+            })
+          : undefined,
+        perTokenRateLimiter: opts.mcpRateLimitPerTokenPerMinute
+          ? new RateLimiter({
+              refillPerSecond: opts.mcpRateLimitPerTokenPerMinute / 60,
+              capacity: Math.max(10, Math.floor(opts.mcpRateLimitPerTokenPerMinute / 2)),
             })
           : undefined,
         forbidPublicTool: isPublicMcpToolForbidden,

@@ -45,7 +45,7 @@ describe("HTTP 429 carries an integer Retry-After", () => {
   test("a throttled request gets 429 + Retry-After >= 1", async () => {
     const limiter = new RateLimiter({ capacity: 1, refillPerSecond: 0.5 });
     const handler = makeMcpHandler({
-      storage: {} as never,
+      storage: { engine: () => ({ query: async () => ({ rows: [] }) }) } as never,
       publicRateLimiter: limiter,
       clientKey: () => "fixed-key",
     });
