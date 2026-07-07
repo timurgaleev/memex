@@ -1,8 +1,13 @@
 /**
- * Small FIFO semaphore used by the file sweep to bound the
- * number of concurrent indexFile() calls. A polling loop (`while
- * (inFlight.size >= N) await sleep(50)`) gives non-deterministic
- * ordering and busy-waits; this gives FIFO + zero latency floor.
+ * Small FIFO semaphore for bounding the number of concurrent async
+ * calls (e.g. indexFile() during a sweep, or a batched embed pass).
+ * A polling loop (`while (inFlight.size >= N) await sleep(50)`) gives
+ * non-deterministic ordering and busy-waits; this gives FIFO + zero
+ * latency floor.
+ *
+ * Currently unwired — the per-process inflight cap in the LLM gateway
+ * covers today's concurrency ceiling; kept as a generic primitive for
+ * embed-batch gating when a bounded local fan-out is next needed.
  *
  * Single-threaded JS so no locking is needed — acquire() returns a
  * Promise that resolves when a slot opens; release() drains the next

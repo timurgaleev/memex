@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`facts_decay` public-bearer test.** The "forces decay OFF on the public
+  bearer path" case seeded facts at the column default `visibility='private'`
+  then expected them visible on the public path; the mig-085 world-visibility
+  floor (a deliberate deviation) correctly hid them, so the test failed on clean
+  main. It now seeds `visibility='world'` to match its real intent (decay OFF on
+  the public path, ON internally). No production behavior change.
+
+### Removed
+- **Dead `output/transcript.ts` stub.** A 30-line empty-interface placeholder
+  ("friction adds real persistence") with zero importers in `src/` or tests,
+  long superseded by `transcripts-read.ts` / `subagent_ledger.ts` /
+  `eval-capture.ts`. Deleted.
+
+### Changed
+- **`concurrency.ts` doc comment corrected.** Its header claimed the `Semaphore`
+  was "used by the file sweep"; no sweep/indexer path imports it (the v1.90 LLM
+  gateway inflight cap covers today's concurrency ceiling). The comment now
+  states it is an unwired generic primitive kept for future embed-batch gating.
+
 ## [1.91.0] — 2026-07-07
 
 ### Added
