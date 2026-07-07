@@ -20,17 +20,23 @@ pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
   `invested_in` triple from a second origin (breaks memex's single-origin
   invariant, same reason `key_people` is skipped); `source` is often a provenance
   string, not a slug. Test `typed_links.test.ts` (8/8). Default-OFF feature.
-- **[DEFER — needs a live-RDS session] `CREATE INDEX CONCURRENTLY` runner + HNSW
-  lifecycle.** These are the two real operational-hardening gaps, but: (a)
-  CONCURRENTLY CANNOT run inside a transaction and must be a single simple-protocol
-  statement — memex always wraps migrations in `engine.transaction()`
-  (`migrate.ts:180`), so a no-transaction escape hatch changes the runner's most
-  sensitive path; (b) PGLite (the local test engine) is single-connection and
-  cannot exercise CONCURRENTLY, so the new path is UNVERIFIABLE in the local suite
-  — it needs the live RDS to prove. And it is NOT urgent: the corpus is small (4.4k
-  chunks), so index builds are effectively instant with no meaningful lock today.
-  Build deliberately when the corpus grows, with live-RDS verification. Reference
-  `core/migrate.ts:29`, `core/vector-index.ts:63-247`.
+- **[DONE — v1.94.0, the valuable+safe slice] HNSW / invalid-index lifecycle.**
+  The real risk the reference's `vector-index.ts` guards is a failed/interrupted
+  index build (a killed `CREATE INDEX CONCURRENTLY`, or an OOM mid-build — memex has
+  OOM history) leaving `indisvalid=false`: Postgres keeps the index but never uses
+  it, so the vector arm silently seq-scans with NO error. Closed with a **read-only
+  `invalid-indexes` doctor check** (`doctor-ops.ts checkInvalidIndexes`, wired into
+  both the MCP + CLI doctor registries, category `ops`) that flips ok:false and
+  names the index; recovery is a one-liner `REINDEX INDEX CONCURRENTLY <name>`
+  (online, no write lock). Tests `doctor_ops.test.ts` (valid + simulated-invalid).
+  Deliberately did NOT port the reference's full dropAndRebuild/monitorBuild/temp+
+  RENAME module — over-engineering for a single small RDS where REINDEX recovers in
+  one command; and NOT the `CREATE INDEX CONCURRENTLY` migration-runner escape hatch
+  (index rebuild is a runtime maintenance op, not a migration — so PGLite never has
+  to run CONCURRENTLY, and the runner's most sensitive path stays untouched). The
+  runner escape hatch remains available to build IF a future *migration* ever needs
+  a concurrent index on a large live corpus — deferred, not needed now (4.4k chunks,
+  index builds instant). Reference `core/vector-index.ts:63-247`.
 - **[DEFER — reasoned] schema-verify full column-drift.** memex already has
   migration-version drift detection (`doctor-ops.ts checkSchemaVersion`: applied
   MAX(id) vs discovered files), which catches the realistic failure (unapplied

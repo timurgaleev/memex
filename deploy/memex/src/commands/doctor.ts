@@ -25,6 +25,7 @@ import {
   checkQueueHealth,
   checkSchemaVersion,
   checkEmbeddingWidth,
+  checkInvalidIndexes,
 } from "../core/doctor-ops.ts";
 import {
   checkFederationHealth,
@@ -252,6 +253,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ["queue-health", checkQueueHealth],
       ["schema-version", checkSchemaVersion],
       ["embedding-width", checkEmbeddingWidth],
+      ["invalid-indexes", checkInvalidIndexes],
     ] as const) {
       try {
         const r = await probe(storage.raw());

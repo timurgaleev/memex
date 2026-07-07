@@ -162,6 +162,7 @@ import {
   checkQueueHealth,
   checkSchemaVersion,
   checkEmbeddingWidth,
+  checkInvalidIndexes,
 } from "../core/doctor-ops.ts";
 import {
   reserveSpend,
@@ -2948,6 +2949,7 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     ["queue-health", checkQueueHealth],
     ["schema-version", checkSchemaVersion],
     ["embedding-width", checkEmbeddingWidth],
+    ["invalid-indexes", checkInvalidIndexes],
   ] as const) {
     try {
       const r = await probe(engine);
