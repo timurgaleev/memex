@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **HNSW index lifecycle manager (`core/vector-index.ts`) + `memex hnsw`.** A full
+  faithful port of the reference's pgvector index lifecycle surface, adapted to
+  memex's Engine + its `embeddings_vector_idx` (mig 001): `checkActiveBuild`
+  (pg_stat_activity probe), `dropZombieIndexes` (sweep of `indisvalid=false`
+  indexes, guarded against an active build), `dropAndRebuild` (build a temp index
+  `CONCURRENTLY` then DROP+RENAME atomically — the old index stays intact and
+  search keeps serving if the build fails), and `monitorBuild`. Exposed as
+  `memex hnsw <status|sweep|rebuild>`. Recovers an HNSW index left invalid by an
+  aborted `CREATE INDEX CONCURRENTLY` or an OOM mid-build. An opt-in startup sweep
+  (`MEMEX_HNSW_ZOMBIE_SWEEP=1`, default-OFF) auto-drops invalid indexes at boot.
+
 ### Fixed
 - **`tool_defs` contract test (pre-existing CI red).** The frozen
   `tool_defs.snapshot.json` had drifted from the live `TOOL_DEFS` — two MCP tools
