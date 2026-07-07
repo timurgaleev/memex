@@ -59,6 +59,12 @@ export interface ChunkWrite {
   docComment?: string | null;
   /** Source language (typescript/python/…) — code only, NULL for markdown. */
   language?: string | null;
+  /**
+   * How this chunk was derived (migration 093). `'fenced_code'` for a code
+   * example lifted out of a markdown page; NULL for ordinary prose + whole-file
+   * code chunks. Persisted to `chunks.chunk_source`.
+   */
+  chunkSource?: string | null;
   /** Entities to attach to this chunk's row in entity_mentions. */
   entities: readonly ExtractedEntity[];
 }
@@ -208,8 +214,8 @@ export async function writeDocumentTransaction(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
             symbol_name, symbol_type, parent_symbol_path, doc_comment, language,
-            symbol_name_qualified, source_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $13)`,
+            symbol_name_qualified, source_id, chunk_source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $13, $14)`,
         [
           cid,
           doc.documentId,
@@ -231,6 +237,7 @@ export async function writeDocumentTransaction(
           // Mirror the parent doc's authoritative source (migration 058) — NULL
           // stays NULL so unclassified docs don't freeze to 'default'.
           effSource,
+          ch.chunkSource ?? null,
         ],
       );
 

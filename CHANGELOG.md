@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Fenced-code extraction.** A ```lang code fence in a markdown page whose tag
+  maps to a supported grammar (typescript/tsx/python/bash/go/sql, plus common
+  aliases) is now chunked by the tree-sitter code chunker and stored as a
+  searchable `chunk_source='fenced_code'` chunk with its language and symbol —
+  so "how do we import from the engine" ranks the actual code example above the
+  prose about it. Bounded by `MEMEX_MAX_FENCES_PER_PAGE` (default 100); a parse
+  failure on one fence never fails the page. Migration 093 adds
+  `chunks.chunk_source`. Existing pages gain fenced chunks on their next edit /
+  reindex (no forced corpus re-embed).
+
 ## [1.87.0] — 2026-07-06
 
 ### Added
