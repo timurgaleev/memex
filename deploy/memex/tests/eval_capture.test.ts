@@ -78,6 +78,22 @@ describe("scrubPii", () => {
     expect(r.text).toContain("[ip]");
   });
 
+  it("masks a JWT", () => {
+    const jwt =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const r = scrubPii(`token is ${jwt} keep it secret`);
+    expect(r.text).toContain("[token]");
+    expect(r.text).not.toContain("eyJhbGci");
+    expect(r.counts["jwt"]).toBe(1);
+  });
+
+  it("masks a Bearer token whole (opaque + JWT forms)", () => {
+    const r = scrubPii("Authorization: Bearer sk-abc123XYZ._~+/def456");
+    expect(r.text).toContain("[token]");
+    expect(r.text).not.toContain("sk-abc123");
+    expect(r.counts["bearer"]).toBe(1);
+  });
+
   it("leaves project codenames + dates alone", () => {
     const r = scrubPii("ACME-42 workshop on 2026-01-15 in capital city");
     expect(r.text).toBe("ACME-42 workshop on 2026-01-15 in capital city");

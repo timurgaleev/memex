@@ -7,6 +7,49 @@ introduces them.
 
 ---
 
+## Full-recompare actionable gaps (2026-07-07 session 2, 16-subsystem workflow)
+
+Deferred to a careful session — these touch live migration / HNSW / DB machinery
+(real prod-RDS risk), so NOT rushed into the same batch as the tested additive
+fixes (JWT/Bearer scrub + typed-claim extractor, both shipped). Ranked:
+
+- **[M] `CREATE INDEX CONCURRENTLY` in the migration runner.** memex always wraps
+  every migration in `engine.transaction()` (`core/migrate.ts:180`) → can never
+  build an index concurrently → every index migration takes a blocking lock on
+  live RDS. Add a `transaction:false` escape hatch + per-migration flag; audit
+  which existing index migrations should use it. Reference `core/migrate.ts:29`.
+- **[M/L] HNSW index lifecycle manager** (depends on CONCURRENTLY above). Atomic
+  rebuild (CONCURRENTLY build temp → RENAME swap), zombie-index startup sweep
+  (`indisvalid=false`), build monitor. memex ships only the static `CREATE INDEX
+  ... USING hnsw` in mig 001; an interrupted build (OOM history) can leave an
+  invalid index that silently degrades the vector arm. Reference `core/vector-index.ts:63-247`.
+- **[M] schema-verify drift detection.** Compare the live RDS schema against the
+  migration-expected shape, surface a `MigrationDriftError`, optional self-heal.
+  memex has no drift check. Reference `core/schema-verify.ts:1`.
+- **[S] frontmatter→typed-edge mapping coverage.** Add `related_to`/`see_also`/
+  `investors→invested_in`/`sources→discussed_in` to `typed-links.ts` FIELD_MAPPINGS
+  (currently person/meeting basics only). Default-OFF feature, low blast radius.
+  Reference `link-extraction.ts:777-797`.
+- **[LOW] dead `resolveRequestedScope`/`sourceScopeOpts` in `auth-info.ts`.** 0 call
+  sites (memex resolves scope centrally in dispatch, exposes no per-call
+  `source_id` read param). Delete or wire; ADD a regression test asserting no read
+  tool honors a caller-supplied `source_id` (latent IDOR trap if a future handler
+  adds the param). From the OAuth/tenancy adversarial re-audit — the ONLY finding,
+  and memex was at parity or AHEAD on every other security axis.
+
+**Two deviations surfaced (operator decision, NOT changed):**
+- `stats` + `jobs_list/get/logs` reachable from the public bearer (reference =
+  `admin`). DELIBERATE in memex (explicit tests + jobs-metadata redaction). A flip
+  to forbid was built then REVERTED (would break a thin-client status reader +
+  needs 2 tests rewritten). Decide: keep (thin-client) or match reference.
+- Notability keep-all on the facts write path (reference drops LOW / defers
+  MEDIUM). memex keeps all + ranks by notability — arguably better for a
+  remember-everything brain. Left as deviation.
+
+Lower-value/skip: cross-slug dedup (`findDuplicatePage` — memex ingest isn't
+overlapping vault roots), background-work drain (PGLite-only; prod is RDS Postgres),
+runtime/wall-clock budget cap, `import` resumable checkpoint.
+
 ## Prod-audit findings (2026-07-07 session 2)
 
 A live prod audit (SSM → container + RDS) found prod **healthy and in sync**:
