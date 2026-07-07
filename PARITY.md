@@ -414,3 +414,58 @@ restart) is the overnight downtime. Fixed by projecting only the 4 linted fields
 surface), eval-conversation-parser (cheap pure-fn eval), publish (single-page
 HTML export — adds a `marked` dep), brainstorm+lsd (paid slice; data-research
 DEFERred).
+
+## 2026-07-07 (session 2) — backlog closure + housekeeping
+
+Fresh audit run against the FROZEN reference (dir untouched since 2026-06-26, still
+v0.42.53 — the same baseline waves 5-7 already 18-agent-compared). No new reference
+surface to chase; a full re-compare only reproduces the settled verdicts above.
+Focus was verification + cleanup, not new porting.
+
+**Backlog closed — the three "still BUILD" items re-verified against ACTUAL code
+both sides and dispositioned:**
+- **eval-conversation-parser → SKIP.** The parser itself is ported and live
+  (`core/conversation-parser.ts`); the reference's `eval.ts` fixture-recall scorer
+  is a dev-only quality harness with zero consumer on a 3-user brain. Not built.
+- **publish → SKIP.** Reference `commands/publish.ts` inlines `marked` as a runtime
+  dep to emit an AES-encrypted single-page HTML share. memex's `commands/export.ts`
+  already covers md/JSON dumps; no user needs public-HTML sharing. Adding a runtime
+  dep for it fails the laziness test.
+- **brainstorm + lsd → ASK (operator-gated).** Absent entirely in memex. Paid Sonnet
+  slice (`core/brainstorm/` orchestrator + judges + domain-bank + `brainstorm`/`lsd`
+  CLI + a doctor check). ASK-scope: needs an explicit operator "build it" before any
+  work, like every paid slice.
+
+A CLI-command diff (reference ~30 commands absent from memex's CLI) confirmed **no
+hidden 4th gap**: each absent command is either surfaced as an MCP tool instead
+(`whoknows`→`find_experts`, `founder`→`takes_scorecard`, recall/query/anomalies/
+advisor/graph-query/forget all live MCP tools) or an already-dispositioned deviation.
+
+**Housekeeping (no behavioral change):**
+- **Red test fixed** — `tests/facts_decay.test.ts` "forces decay OFF on the public
+  bearer path" seeded facts at the column default `visibility='private'` then expected
+  them visible on the public path; the mig-085 world-visibility floor (a deliberate
+  deviation, top of this file) correctly hid them. Test now seeds `'world'` to match
+  its real intent (decay OFF on public, ON internally). 23/23 green.
+- **Dead code removed** — `src/core/output/transcript.ts` (30-line empty-interface
+  stub, "friction adds real persistence", 0 importers in src OR tests, superseded by
+  `transcripts-read.ts`/`subagent_ledger.ts`/`eval-capture.ts`). Deleted.
+- **Stale worktrees pruned** — three `wf/b2-*` throwaway workflow branches
+  (cycle-lock / embed-deadline / retry-after) whose features already shipped on main
+  via different commits (mig 050 + `db-lock.ts`, `embedQueryBounded`, `Retry-After`).
+
+**Surfaced + dispositioned (operator, 2026-07-07): KEEP — may be re-adopted /
+reference-aligned:**
+- `src/core/throttle.ts` (200 L, full test suite) — 0 src callers; superseded by the
+  v1.90 LLM-gateway inflight cap. Orphaned-but-tested. KEPT.
+- `src/core/concurrency.ts` (`Semaphore`, 53 L) — 0 src callers; its header comment
+  falsely claimed "used by the file sweep". KEPT; the **stale doc comment is fixed**
+  to state it is currently unwired (gateway covers the concurrency ceiling) and kept
+  as a generic primitive for embed-batch gating.
+- Staged/deferred-but-kept (mirror reference structure, wired later): `nudge.ts`
+  (mig-074, default-OFF), `subagent_ledger.ts`, `recipe-state.ts` (mig-013),
+  `chunkers/semantic.ts` (documented placeholder).
+
+**brainstorm+lsd disposition (operator, 2026-07-07): SKIP for now** — stays in the
+backlog as an ASK item. Paid Sonnet feature, 3-user brain, no interactive-brainstorm
+demand; revive on an explicit operator "build it".

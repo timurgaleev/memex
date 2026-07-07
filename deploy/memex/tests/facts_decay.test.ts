@@ -195,8 +195,8 @@ describe("listFacts decay integration", () => {
       .engine()
       .query(
         `INSERT INTO entity_facts
-           (entity_slug, fact, confidence, kind, valid_from, valid_until)
-         VALUES ('people/alice', $1, $2, $3, $4, $5)`,
+           (entity_slug, fact, confidence, kind, valid_from, valid_until, visibility)
+         VALUES ('people/alice', $1, $2, $3, $4, $5, 'world')`,
         [
           p.fact,
           p.confidence,
