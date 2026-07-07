@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`tool_defs` contract test (pre-existing CI red).** The frozen
+  `tool_defs.snapshot.json` had drifted from the live `TOOL_DEFS` — two MCP tools
+  (`log_ingest`, `get_ingest_log`) plus five param-schema updates (search,
+  page_list, entity_facts, takes_scorecard, takes_calibration) shipped after the
+  snapshot was frozen but the fixture was never regenerated, so the contract test
+  failed on deployed-and-working code. Re-baselined the snapshot to the current
+  81-tool surface; the test now guards future accidental drift again.
+
 ## [1.94.0] — 2026-07-07
 
 ### Added
