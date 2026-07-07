@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.92.0] — 2026-07-07
+
 ### Added
 - **Typed-claim fields on the LLM turn-extractor.** The conversation fact
   extractor now emits + parses `metric`/`value`/`unit`/`period` and threads them
