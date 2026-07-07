@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.95.0] — 2026-07-07
+
 ### Added
 - **HNSW index lifecycle manager (`core/vector-index.ts`) + `memex hnsw`.** A full
   faithful port of the reference's pgvector index lifecycle surface, adapted to
