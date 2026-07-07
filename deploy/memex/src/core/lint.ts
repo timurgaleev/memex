@@ -49,8 +49,21 @@ export function lintFrontmatter(fm: Record<string, unknown> | null): string[] {
 
 /** Scan every document's frontmatter and return a conformance report. */
 export async function lintCorpus(engine: Engine): Promise<LintReport> {
+  // Project ONLY the four fields `lintFrontmatter` reads, never the whole
+  // `frontmatter` column: voicenote/gcal docs carry 18–30 MB frontmatter, and
+  // materializing the full column for the entire corpus into one array is the
+  // frontmatter-inference OOM (the `lint` phase runs first + default-ON every
+  // cycle tick → ~3.4 GB RSS → cgroup OOM-kill). Mirrors the same fix already
+  // applied in extract.ts. `jsonb_build_object` runs on Postgres and PGLite.
   const r = await engine.query<DocRow>(
-    `SELECT id, source_path, frontmatter FROM documents`,
+    `SELECT id, source_path,
+            jsonb_build_object(
+              'title',   frontmatter->'title',
+              'tags',    frontmatter->'tags',
+              'created', frontmatter->'created',
+              'updated', frontmatter->'updated'
+            ) AS frontmatter
+       FROM documents`,
   );
   const issues: LintIssue[] = [];
   for (const d of r.rows) {
