@@ -36,6 +36,16 @@ export interface ExtractedFact {
   entity: string | null;
   confidence: number;
   notability: "high" | "medium" | "low";
+  /**
+   * Optional typed-claim decomposition for quantitative facts ("burn rate
+   * $80k monthly" → metric=burn_rate, value=80000, unit=USD, period=monthly).
+   * Populated only when the model emits them; `addFact` normalizes + stores
+   * into the claim_* columns (mig 070) that trajectory/drift analysis reads.
+   */
+  claim_metric?: string;
+  claim_value?: number;
+  claim_unit?: string;
+  claim_period?: string;
 }
 
 const EXTRACTOR_SYSTEM = [
@@ -44,7 +54,9 @@ const EXTRACTOR_SYSTEM = [
   "Output strictly one JSON object on a single line:",
   '{"facts":[{"fact":"<terse claim>","kind":"event|preference|commitment|belief|fact",',
   '"entity":"<canonical slug or display name or null>","confidence":<0..1>,',
-  '"notability":"high|medium|low"}]}.',
+  '"notability":"high|medium|low",',
+  '"metric":"<lowercase snake_case or null>","value":<number or null>,',
+  '"unit":"<USD|people|pct|... or null>","period":"<monthly|annual|quarterly|null>"}]}.',
   "No prose, no code fences. An empty facts array is valid when nothing claim-worthy was said.",
   "",
   "Rules:",
@@ -56,6 +68,8 @@ const EXTRACTOR_SYSTEM = [
   '- "fact": an objective claim that does not fit the above.',
   "- Skip greetings, operational chatter, and questions.",
   "- One fact per atomic claim. Cap at 10 facts per turn.",
+  "- metric/value/unit/period: fill ONLY for a quantitative claim (a number with",
+  "  a named measure). Otherwise set all four to null. Do not invent numbers.",
 ].join("\n");
 
 /** Strip a ```json fence if the model wrapped its output. */
@@ -99,7 +113,37 @@ export function parseFactsResponse(text: string): ExtractedFact[] {
       o["notability"] === "high" || o["notability"] === "low"
         ? o["notability"]
         : "medium";
-    out.push({ fact, kind, entity, confidence, notability });
+    // Typed-claim decomposition — kept only when the model emitted a real
+    // measure. addFact normalizes (lowercase snake_case metric, non-finite
+    // value → NULL); we pre-trim so a NULL/"" field never fabricates a claim.
+    const claimMetric =
+      typeof o["metric"] === "string" && o["metric"].trim().length > 0
+        ? o["metric"].trim().slice(0, 100)
+        : undefined;
+    const claimValueRaw = o["value"];
+    const claimValue =
+      typeof claimValueRaw === "number" && Number.isFinite(claimValueRaw)
+        ? claimValueRaw
+        : undefined;
+    const claimUnit =
+      typeof o["unit"] === "string" && o["unit"].trim().length > 0
+        ? o["unit"].trim().slice(0, 50)
+        : undefined;
+    const claimPeriod =
+      typeof o["period"] === "string" && o["period"].trim().length > 0
+        ? o["period"].trim().slice(0, 50)
+        : undefined;
+    out.push({
+      fact,
+      kind,
+      entity,
+      confidence,
+      notability,
+      claim_metric: claimMetric,
+      claim_value: claimValue,
+      claim_unit: claimUnit,
+      claim_period: claimPeriod,
+    });
   }
   return out;
 }
@@ -246,6 +290,10 @@ export async function writeExtractedFacts(
         confidence: f.confidence,
         kind: f.kind,
         notability: f.notability,
+        ...(f.claim_metric ? { claim_metric: f.claim_metric } : {}),
+        ...(f.claim_value !== undefined ? { claim_value: f.claim_value } : {}),
+        ...(f.claim_unit ? { claim_unit: f.claim_unit } : {}),
+        ...(f.claim_period ? { claim_period: f.claim_period } : {}),
         ...(opts.sourceSlug ? { source_slug: opts.sourceSlug } : {}),
         ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
         ...(opts.sessionId ? { source_session: opts.sessionId } : {}),

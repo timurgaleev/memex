@@ -469,3 +469,69 @@ reference-aligned:**
 **brainstorm+lsd disposition (operator, 2026-07-07): SKIP for now** — stays in the
 backlog as an ASK item. Paid Sonnet feature, 3-user brain, no interactive-brainstorm
 demand; revive on an explicit operator "build it".
+
+## 2026-07-07 (session 2) — FULL line-level recompare (16-subsystem workflow)
+
+Operator directed a fresh exhaustive line-by-line compare regardless of the frozen
+reference. A 17-agent workflow (one high-effort agent per subsystem reading BOTH
+trees + adversarial re-audit of the 2 security cells + synthesis) confirmed
+**brain-core behavioral parity** and surfaced a short, real actionable list. This
+run was worth it — it found genuine gaps the doc-driven passes had not itemized.
+
+**VERDICT: at parity for the deterministic brain-core; memex ahead on tenancy
+(RLS+grants), durable jobs/DAG, host-survival (OOM-hardening), 6-stage slug canon,
+real take-evidence retrieval (reference ships a placeholder stub), page-mirror
+self-heal, per-row embedding provenance.** Behind only on operational hardening +
+one telemetry-scrub gap + one facts-completeness miss (all below).
+
+### BUILT this session (clean, additive, tested — shipped)
+- **eval-scrub JWT/Bearer masking** (`eval-capture-scrub.ts`). The PII scrubber
+  masked email/IBAN/CC/phone/IP but NOT JWT / Bearer tokens; on a bearer-authed
+  system a token pasted into a query landed unmasked in `eval_candidates`. Ported
+  the reference's two regexes (`[token]` placeholder, bearer-before-jwt order).
+  Test: 24/24. Reference `core/eval-capture-scrub.ts:30-104`.
+- **Typed-claim extractor fields** (`facts-extract.ts`). The LLM turn-extractor
+  omitted metric/value/unit/period, so conversation-extracted facts always landed
+  with NULL `claim_*` even though `addFact` (mig070 columns), the fence, and
+  trajectory/drift all consume them. Added the 4 fields to the prompt + parser +
+  the `writeExtractedFacts`→`addFact` thread (additive; non-quantitative facts pass
+  all-null, behavior-neutral). Test: 11/11. Reference `core/facts/extract.ts:101`.
+
+### DEVIATIONS confirmed (NOT bugs — surfaced, operator decision, NOT changed)
+- **`stats` + `jobs_list`/`jobs_get`/`jobs_logs` reachable from the public bearer.**
+  The reference marks all four `admin`. In memex they are NOT in
+  `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` and rely on `OPERATOR_ONLY_TOOLS`, which only
+  gates OAuth-tenant callers (`authInfo` present) — the static public bearer is
+  `authInfo===undefined`, so they are reachable. This is DELIBERATE: explicit tests
+  assert it (`public_guard.test.ts:180` stats→false, `:200` "allows jobs reads") and
+  jobs reads are redacted to metadata (`mcp_backlinks_jobs_redaction.test.ts`).
+  `stats` leaks whole-brain COUNTS unredacted (low sensitivity). A prior public_guard
+  edit to forbid all four was REVERTED — flipping a tested public-API behavior would
+  break a thin-client status reader. **OPEN operator call: keep the deviation (thin-
+  client status) or match the reference (forbid + rewrite the 2 tests)?**
+- **Notability keep-all on the facts write path.** The reference's `notabilityFilter
+  ='high-only'` drops LOW facts + defers MEDIUM. memex writes every extracted fact
+  with its notability recorded (ranks by it, never drops). For a "remember
+  everything" second brain, keep-all is arguably BETTER — dropping the operator's
+  LOW facts is lossy. Left as a deliberate deviation, NOT ported.
+
+### Actionable gaps NOT built — ranked, deferred to a careful session (see TODO.md)
+These touch the live migration / HNSW / DB machinery — real risk on prod RDS, so
+NOT rushed into this batch:
+1. **`CREATE INDEX CONCURRENTLY` in the migration runner** (M) — memex always wraps
+   every migration in `engine.transaction()` (`migrate.ts:180`), so it can never
+   build an index concurrently; every index migration takes a blocking lock on live
+   RDS. Add a `transaction:false` escape hatch. Reference `core/migrate.ts:29`.
+2. **HNSW index lifecycle manager** (M/L, depends on #1) — atomic rebuild via
+   CONCURRENTLY+RENAME, zombie-index sweep, build monitor. memex has only the static
+   `CREATE INDEX` in mig 001; an interrupted build (OOM history) can leave an invalid
+   index that silently degrades the vector arm. Reference `core/vector-index.ts:63`.
+3. **schema-verify drift detection** (M) — compare live RDS schema vs migrations,
+   surface `MigrationDriftError`. Reference `core/schema-verify.ts:1`.
+4. **frontmatter→typed-edge mapping coverage** (S) — add related_to/see_also/
+   investors mappings to `typed-links.ts` FIELD_MAPPINGS (default-OFF, low risk).
+5. **auth-info.ts dead `resolveRequestedScope`/`sourceScopeOpts`** (LOW) — 0 call
+   sites; delete or wire + add a regression test that no read tool honors a
+   caller-supplied `source_id` (latent IDOR trap if a future handler adds the param).
+Lower-value/skip: cross-slug dedup (memex ingest isn't overlapping vault roots),
+background-work drain (PGLite-only; prod is RDS), runtime budget cap, import-checkpoint.

@@ -13,6 +13,8 @@
  *
  * Categories masked:
  *   - email           → [email]
+ *   - Bearer token    → [token]  (Authorization: Bearer <opaque>)
+ *   - JWT             → [token]  (three base64url segments joined by '.')
  *   - phone (intl)    → [phone]
  *   - phone (national 7+ digits, hyphenated/spaced) → [phone]
  *   - IBAN (EU)       → [iban]
@@ -47,6 +49,19 @@ const PATTERNS: Pattern[] = [
     // Conservative: ASCII local part, dot in domain, 2+ char TLD.
     regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
     placeholder: "[email]",
+  },
+  {
+    // Bearer runs before JWT so `Bearer <jwt>` masks whole; the token
+    // charset excludes the `[`/`]` a prior placeholder would leave.
+    name: "bearer",
+    regex: /\b(?:bearer|Bearer)\s+[A-Za-z0-9._~+/-]{10,}=*/g,
+    placeholder: "[token]",
+  },
+  {
+    // JWT: three base64url segments, distinctive `eyJ` header prefix.
+    name: "jwt",
+    regex: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+    placeholder: "[token]",
   },
   {
     name: "iban",

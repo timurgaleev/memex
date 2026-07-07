@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Typed-claim fields on the LLM turn-extractor.** The conversation fact
+  extractor now emits + parses `metric`/`value`/`unit`/`period` and threads them
+  through `writeExtractedFacts`→`addFact` into the `claim_*` columns (mig 070)
+  that the fence and trajectory/drift analysis already consume. Previously
+  conversation-extracted facts always landed with NULL `claim_*` — the
+  quantitative-fact pipeline was starved on the automated path. Additive:
+  non-quantitative facts pass all-null and are unchanged.
+
+### Security
+- **eval-capture PII scrubber now masks JWT + Bearer tokens.** The scrubber
+  masked email/IBAN/card/phone/IP but not auth tokens; on a bearer/JWT-authed
+  system a token pasted into a query could land unmasked in the persisted
+  `eval_candidates` table. Added the two token patterns (`[token]` placeholder,
+  Bearer matched before JWT so `Bearer <jwt>` masks whole).
+
 ### Fixed
 - **`facts_decay` public-bearer test.** The "forces decay OFF on the public
   bearer path" case seeded facts at the column default `visibility='private'`
