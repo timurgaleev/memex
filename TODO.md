@@ -9,33 +9,44 @@ introduces them.
 
 ## Full-recompare actionable gaps (2026-07-07 session 2, 16-subsystem workflow)
 
-Deferred to a careful session — these touch live migration / HNSW / DB machinery
-(real prod-RDS risk), so NOT rushed into the same batch as the tested additive
-fixes (JWT/Bearer scrub + typed-claim extractor, both shipped). Ranked:
+Dispositioned 2026-07-07 (session 2, continued). One shipped; the DB-machinery
+pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
 
-- **[M] `CREATE INDEX CONCURRENTLY` in the migration runner.** memex always wraps
-  every migration in `engine.transaction()` (`core/migrate.ts:180`) → can never
-  build an index concurrently → every index migration takes a blocking lock on
-  live RDS. Add a `transaction:false` escape hatch + per-migration flag; audit
-  which existing index migrations should use it. Reference `core/migrate.ts:29`.
-- **[M/L] HNSW index lifecycle manager** (depends on CONCURRENTLY above). Atomic
-  rebuild (CONCURRENTLY build temp → RENAME swap), zombie-index startup sweep
-  (`indisvalid=false`), build monitor. memex ships only the static `CREATE INDEX
-  ... USING hnsw` in mig 001; an interrupted build (OOM history) can leave an
-  invalid index that silently degrades the vector arm. Reference `core/vector-index.ts:63-247`.
-- **[M] schema-verify drift detection.** Compare the live RDS schema against the
-  migration-expected shape, surface a `MigrationDriftError`, optional self-heal.
-  memex has no drift check. Reference `core/schema-verify.ts:1`.
-- **[S] frontmatter→typed-edge mapping coverage.** Add `related_to`/`see_also`/
-  `investors→invested_in`/`sources→discussed_in` to `typed-links.ts` FIELD_MAPPINGS
-  (currently person/meeting basics only). Default-OFF feature, low blast radius.
-  Reference `link-extraction.ts:777-797`.
-- **[LOW] dead `resolveRequestedScope`/`sourceScopeOpts` in `auth-info.ts`.** 0 call
-  sites (memex resolves scope centrally in dispatch, exposes no per-call
-  `source_id` read param). Delete or wire; ADD a regression test asserting no read
-  tool honors a caller-supplied `source_id` (latent IDOR trap if a future handler
-  adds the param). From the OAuth/tenancy adversarial re-audit — the ONLY finding,
-  and memex was at parity or AHEAD on every other security axis.
+- **[DONE — v1.93.0] frontmatter→typed-edge `related_to`.** Added
+  `related`/`see_also` → `related_to` (outgoing) as an ANY-page-type bucket in
+  `typed-links.ts` (per-type rules win on collision). Symmetric-safe (A→B and B→A
+  are distinct rows — no single-origin breach). `investors→invested_in` and
+  `source`/`sources` DELIBERATELY not ported: investors re-derives the person-side
+  `invested_in` triple from a second origin (breaks memex's single-origin
+  invariant, same reason `key_people` is skipped); `source` is often a provenance
+  string, not a slug. Test `typed_links.test.ts` (8/8). Default-OFF feature.
+- **[DEFER — needs a live-RDS session] `CREATE INDEX CONCURRENTLY` runner + HNSW
+  lifecycle.** These are the two real operational-hardening gaps, but: (a)
+  CONCURRENTLY CANNOT run inside a transaction and must be a single simple-protocol
+  statement — memex always wraps migrations in `engine.transaction()`
+  (`migrate.ts:180`), so a no-transaction escape hatch changes the runner's most
+  sensitive path; (b) PGLite (the local test engine) is single-connection and
+  cannot exercise CONCURRENTLY, so the new path is UNVERIFIABLE in the local suite
+  — it needs the live RDS to prove. And it is NOT urgent: the corpus is small (4.4k
+  chunks), so index builds are effectively instant with no meaningful lock today.
+  Build deliberately when the corpus grows, with live-RDS verification. Reference
+  `core/migrate.ts:29`, `core/vector-index.ts:63-247`.
+- **[DEFER — reasoned] schema-verify full column-drift.** memex already has
+  migration-version drift detection (`doctor-ops.ts checkSchemaVersion`: applied
+  MAX(id) vs discovered files), which catches the realistic failure (unapplied
+  migrations). A full column-level drift detector needs an expected-schema artifact
+  memex doesn't maintain (the reference derives it from a 72KB `schema-embedded.ts`
+  consolidated CREATE) — high cost, low marginal value on a single-app-managed RDS
+  where hand-schema-drift can't happen. Reference `core/schema-verify.ts:1`.
+- **[KEEP — no change] `resolveRequestedScope` in `auth-info.ts`.** The OAuth
+  adversarial re-audit's ONLY finding, and it is NOT a trap: it is the correct,
+  documented, tested single resolver for a per-call `source_id`/`all_sources`
+  param — with the IDOR guard baked in (a tenant can only name a source in its
+  grant; trusted-local keys on `auth === undefined`, not `isPublic`). memex exposes
+  no such param today, so it is inert — but it is exactly what a future per-call
+  scope param SHOULD route through, not code to delete. Retained intentionally.
+  (memex was at parity or AHEAD on every other security axis — closes IDOR/DCR/array-
+  injection leaks the reference still has.)
 
 **Two deviations surfaced (operator decision, NOT changed):**
 - `stats` + `jobs_list/get/logs` reachable from the public bearer (reference =

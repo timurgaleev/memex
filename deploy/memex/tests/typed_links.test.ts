@@ -111,6 +111,24 @@ describe("syncTypedLinksForPage", () => {
     });
   });
 
+  it("derives related_to from see_also on ANY page type (note)", async () => {
+    await putPage(storage, { slug: "notes/topic-b", type: "note", title: "Topic B" });
+    await putPage(storage, {
+      slug: "notes/topic-a",
+      type: "note",
+      compiled_truth: { see_also: ["Topic B"] },
+    });
+    const res = await sync("notes/topic-a");
+    expect(res.added).toBe(1);
+    const links = await linksFor("notes/topic-a");
+    expect(links[0]).toMatchObject({
+      source_slug: "notes/topic-a",
+      target_slug: "notes/topic-b",
+      type: "related_to",
+      link_kind: "typed_ner",
+    });
+  });
+
   it("skips values that do not resolve to a real page (resolved-only)", async () => {
     await putPage(storage, {
       slug: "people/carol",

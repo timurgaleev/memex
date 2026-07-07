@@ -87,6 +87,20 @@ const FIELD_MAPPINGS: Record<string, Record<string, FieldRule>> = {
 };
 
 /**
+ * Applied to EVERY page type (merged under the per-type rules, which win on a
+ * field-name collision). `related`/`see_also` are symmetric-safe: A→B and a
+ * reciprocal B→A are distinct (source|target|type) rows, so this does NOT breach
+ * the single-origin invariant the way `investors`/`key_people` would (those
+ * re-derive a triple the person side already owns). Reference parity:
+ * `related`/`see_also` → related_to. `investors`/`source` are DELIBERATELY not
+ * ported (single-origin risk / provenance-string not a slug).
+ */
+const ANY_FIELD_MAPPINGS: Record<string, FieldRule> = {
+  related: { type: "related_to", direction: "outgoing" },
+  see_also: { type: "related_to", direction: "outgoing" },
+};
+
+/**
  * Resolver stages precise enough to stamp a FACTUAL typed relation. Excludes
  * `trgm` (fuzzy near-name) and `slugify` (floor guess) -- both fine for a
  * generic wikilink target but a precision hazard for a typed edge.
@@ -228,8 +242,10 @@ async function collectEdges(
   compiledTruth: Record<string, unknown> | null | undefined,
   sourceIds?: string[],
 ): Promise<InferredEdge[]> {
-  const rules = FIELD_MAPPINGS[pageType];
-  if (!rules || !compiledTruth || typeof compiledTruth !== "object") return [];
+  // Per-type rules win on a field-name collision; ANY_FIELD_MAPPINGS
+  // (related/see_also) apply to every page type.
+  const rules = { ...ANY_FIELD_MAPPINGS, ...(FIELD_MAPPINGS[pageType] ?? {}) };
+  if (!compiledTruth || typeof compiledTruth !== "object") return [];
 
   // Lower-case field index of the page's compiled_truth for case-insensitive
   // field matching.

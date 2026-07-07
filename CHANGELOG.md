@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`related_to` typed-link inference from `related`/`see_also` frontmatter.** The
+  typed-link schema-pack now derives a `related_to` edge from a `related:` or
+  `see_also:` frontmatter list on ANY page type (an ANY-type bucket merged under
+  the per-type rules). Symmetric-safe — a reciprocal edge is a distinct row, so it
+  does not breach the single-origin invariant that keeps `investors`/`key_people`
+  out. Default-OFF (`MEMEX_TYPED_LINKS`), so no behavior change until enabled.
+
 ## [1.92.0] — 2026-07-07
 
 ### Added
