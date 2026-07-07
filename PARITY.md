@@ -358,3 +358,59 @@ state. Recorded deviations:
   content. Building it = a `pages.search_vector` (weighted title/truth/body/
   timeline) PLUS a new arm wired into `hybrid.ts` — MEDIUM-HIGH risk (live
   ranking). Tracked in TODO.md for its own focused spec, not this batch.
+
+## 2026-07-07 — Waves 5-7 disposition (18-agent recompare) + OOM fix
+
+**OOM incident:** the `lint` cycle phase load-all of the full `frontmatter`
+column (18-30 MB voicenote/gcal docs → ~3.4 GB RSS > 3000m cap → cgroup OOM →
+restart) is the overnight downtime. Fixed by projecting only the 4 linted fields
+(mirrors extract.ts). Not a parity item — a memex-specific regression.
+
+**BUILT (Bedrock-only adaptations of the reference behavior):**
+- **Unified model-tier resolver** (`resolve-model.ts`) + opt-in `deep`/Opus tier
+  — ported the reference's routing SEAM, NOT its 6-tier config-table/alias/
+  subagent machinery (dead schema on an Anthropic-only stack).
+- **LLM gateway** (`gateway.ts`) — per-process inflight cap + isAvailable + SDK
+  retry/timeout in the client factory. The reference's 138 KB multi-provider
+  gateway (capability classification, stop-reason, provider recipes) is NOT
+  ported — memex has one provider and one choke point already.
+
+**SKIP / DEFER (verified against ACTUAL code both sides):**
+- **page/timeline FTS — SKIP.** Premise was false: memex mirrors page body +
+  compiled_truth into the unified chunk index (`page-index.ts`), so pages are
+  ALREADY keyword+vector searchable with the ×2 truth-chunk fusion boost. A
+  separate `pages.search_vector` (reference schema.sql:811) would duplicate
+  content and skew RRF. (Supersedes the earlier "deferred real gap" note — that
+  was a shallower agent's stale premise.) Sub-gap: `timeline_events.event` text
+  isn't mirrored — DEFER (short, carries source_chunk_id back to a searchable
+  chunk, reachable via entity_timeline).
+- **features-scan — SKIP.** memex's `advisor` MCP tool already surfaces
+  usage/unused-feature guidance under a different name.
+- **self-update — SKIP.** Deploy-model deviation: memex ships via docker/SSM, not
+  `bun install -g`; the upgrade/heartbeat family is moot.
+- **eval-takes-quality — SKIP.** Redundant with the shipped calibration/Brier
+  scorecard; a separate offline judge eval adds no signal at current scale.
+- **retrieval-reflex — SKIP.** Push-context is OUT (Claude Code IS the agent);
+  volunteer_context already covers the pull path.
+- **jobs-follow — DEFER.** The reference's `jobs watch` dashboard reads minion/
+  budget schema memex lacks (cargo-cult); single-job follow is a `watch -n2
+  memex jobs progress <id>` away. Marginal DX, no data gap.
+- **backfill-runner — DEFER.** A unified keyset+checkpoint registry over memex's
+  already-working scattered backfills — DX consolidation, no capability gap.
+- **frontmatter-tooling — DEFER.** Vault-workflow (synthesize/install-hook/
+  reindex-frontmatter); memex is server-ingest, `lint --fix` covers the writable
+  subset.
+- **op-registry-cli — DEFER.** Pure DX (`memex call <tool>` already reaches every
+  op); auto-exposing ops as first-class CLI commands is a convenience, not lost
+  capability.
+- **eval-longmemeval — DEFER (ASK).** ~1000-line research/publication harness;
+  worth a dedicated session + operator sign-off, not a batch item.
+- **sense-connectors — DEFER (ASK).** email/calendar/x-to-brain collectors +
+  integrations CLI — a real feature (memex has the jobs substrate, zero
+  collectors). Build the scaffold + one collector deliberately, operator's call
+  on which source first.
+
+**Still BUILD, pending the deploy pipeline (SSO):** eval-contradiction (thin read
+surface), eval-conversation-parser (cheap pure-fn eval), publish (single-page
+HTML export — adds a `marked` dep), brainstorm+lsd (paid slice; data-research
+DEFERred).
