@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.94.0] — 2026-07-07
+
 ### Added
 - **`invalid-indexes` doctor check.** A failed or interrupted index build (a
   killed `CREATE INDEX CONCURRENTLY`, or an OOM mid-build) leaves the index
