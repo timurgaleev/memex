@@ -37,6 +37,7 @@ describe("doctor categorize", () => {
       "eval-trend",
       "federation-health",
       "index-spread",
+      "invalid-indexes",
       "links-extraction-lag",
       "oauth-client-health",
       "per-source-embed-coverage",

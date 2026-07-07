@@ -47,6 +47,7 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   "stale-locks",
   "queue-health",
   "schema-version",
+  "invalid-indexes",
 ]);
 
 /** The doctor / runtime itself. Empty today; the fallthrough bucket. */

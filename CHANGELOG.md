@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`invalid-indexes` doctor check.** A failed or interrupted index build (a
+  killed `CREATE INDEX CONCURRENTLY`, or an OOM mid-build) leaves the index
+  `indisvalid=false`: Postgres keeps it but never uses it, so the HNSW vector arm
+  (or any indexed lookup) silently falls back to a sequential scan with no error —
+  a quiet retrieval-quality regression. `memex doctor` now flips ok:false and names
+  the index; recover with `REINDEX INDEX CONCURRENTLY <name>` (online, no write
+  lock). Read-only; wired into both the MCP and CLI doctor surfaces.
+
 ## [1.93.0] — 2026-07-07
 
 ### Added

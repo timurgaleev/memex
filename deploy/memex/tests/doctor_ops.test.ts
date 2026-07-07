@@ -14,6 +14,7 @@ import {
   checkQueueHealth,
   checkSchemaVersion,
   checkEmbeddingWidth,
+  checkInvalidIndexes,
 } from "../src/core/doctor-ops.ts";
 
 let tmp: string;
@@ -82,5 +83,28 @@ describe("checkEmbeddingWidth", () => {
     const r = await checkEmbeddingWidth(storage.engine());
     expect(r.ok).toBe(true);
     expect(r.detail).toContain("no embeddings");
+  });
+});
+
+describe("checkInvalidIndexes", () => {
+  it("reports all valid on a freshly-migrated store", async () => {
+    const r = await checkInvalidIndexes(storage.engine());
+    expect(r.ok).toBe(true);
+    expect(r.detail).toContain("all indexes valid");
+  });
+
+  it("flips ok:false when an index is marked indisvalid=false", async () => {
+    // Simulate a failed/interrupted build: build a throwaway index, then flip
+    // its pg_index.indisvalid to false (what an aborted CONCURRENTLY leaves).
+    const e = storage.engine();
+    await e.exec(
+      "CREATE INDEX IF NOT EXISTS doctor_test_idx ON documents(source_path)",
+    );
+    await e.exec(
+      "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'doctor_test_idx'::regclass",
+    );
+    const r = await checkInvalidIndexes(e);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain("doctor_test_idx");
   });
 });

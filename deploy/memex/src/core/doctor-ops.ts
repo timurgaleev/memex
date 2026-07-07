@@ -103,6 +103,40 @@ export async function checkSchemaVersion(
 }
 
 /**
+ * Invalid indexes: any index left `indisvalid = false` — the fingerprint of a
+ * failed or interrupted build (a killed `CREATE INDEX CONCURRENTLY`, or an OOM
+ * mid-build, which memex has a live history of). Postgres keeps such an index
+ * present but NEVER uses it for query planning, so the HNSW vector arm (or any
+ * indexed lookup) silently falls back to a sequential scan with no error — a
+ * quiet retrieval-quality regression. Flips ok:false so it surfaces in `doctor`
+ * instead of hiding as slow searches. Recover by rebuilding the index (a manual
+ * `CREATE INDEX CONCURRENTLY` + drop of the invalid one). Read-only.
+ */
+export async function checkInvalidIndexes(
+  engine: Engine,
+): Promise<OpsCheckResult> {
+  const r = await engine.query<{ indexname: string; tablename: string }>(
+    `SELECT c.relname AS indexname, t.relname AS tablename
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indexrelid
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE i.indisvalid = false
+        AND n.nspname = 'public'
+      ORDER BY c.relname`,
+  );
+  const bad = r.rows;
+  if (bad.length === 0) {
+    return { ok: true, detail: "all indexes valid" };
+  }
+  const names = bad.map((b) => `${b.indexname} (on ${b.tablename})`).join(", ");
+  return {
+    ok: false,
+    detail: `${bad.length} invalid index(es) — Postgres ignores these, so lookups silently seq-scan: ${names}. Recover with \`REINDEX INDEX CONCURRENTLY <name>\` (online, no write lock)`,
+  };
+}
+
+/**
  * Embedding-width consistency: the stored vector width vs the configured
  * EMBED_DIMENSIONS (MEMEX_EMBED_DIM). The `vector(N)` column is fixed-width, so
  * a mismatch means the config was changed without migrating the column — new
