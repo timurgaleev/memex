@@ -24,6 +24,9 @@ export interface ModelPricing {
 
 /** Bedrock per-1M pricing by model-family substring (lowercased match). */
 export const MODEL_PRICING: { match: string; price: ModelPricing }[] = [
+  // `opus` must precede `sonnet`/`haiku`: first substring match wins, and the
+  // deep tier's opus id must not fall through to a cheaper row's pricing.
+  { match: "opus", price: { inputPer1M: 15.0, outputPer1M: 75.0 } },
   { match: "sonnet", price: { inputPer1M: 3.0, outputPer1M: 15.0 } },
   { match: "haiku", price: { inputPer1M: 1.0, outputPer1M: 5.0 } },
 ];

@@ -16,6 +16,9 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { resolveModel } from "./resolve-model.ts";
+import { withInflightCap } from "./gateway.ts";
 
 /** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
  *  invokable in eu-west-1 (no version suffix). Override via MEMEX_FACTS_MODEL
@@ -47,7 +50,16 @@ const _clients = new Map<string, BedrockRuntimeClient>();
 function client(region: string): BedrockRuntimeClient {
   let c = _clients.get(region);
   if (!c) {
-    c = new BedrockRuntimeClient({ region });
+    c = new BedrockRuntimeClient({
+      // Tuned retry/backoff/timeout via the SDK (adaptive retry on 429/5xx +
+      // MEMEX_LLM_TIMEOUT_MS request timeout, default 30s) — see gateway.ts.
+      region,
+      maxAttempts: 4,
+      retryMode: "adaptive",
+      requestHandler: new NodeHttpHandler({
+        requestTimeout: Number(process.env.MEMEX_LLM_TIMEOUT_MS ?? 30000),
+      }),
+    });
     _clients.set(region, c);
   }
   return c;
@@ -68,7 +80,7 @@ export interface CallSonnetOptions {
  * exhausted before the call"). Every paid slice resolves its model through here.
  */
 export function resolveFactsModel(override?: string): string {
-  return override || process.env["MEMEX_FACTS_MODEL"] || DEFAULT_SONNET_MODEL;
+  return resolveModel("reasoning", override);
 }
 
 /** Production Sonnet call. Throws on any Bedrock/network error — the caller's
@@ -80,16 +92,18 @@ export async function callSonnet(
   const region = opts.region ?? process.env["AWS_REGION"] ?? "eu-west-1";
   const modelId = resolveFactsModel(opts.modelId);
   const c = client(region);
-  const resp = await c.send(
-    new ConverseCommand({
-      modelId,
-      system: [{ text: input.system }],
-      messages: [{ role: "user", content: [{ text: input.user }] }],
-      inferenceConfig: {
-        maxTokens: input.maxTokens,
-        temperature: input.temperature ?? 0,
-      },
-    }),
+  const resp = await withInflightCap(() =>
+    c.send(
+      new ConverseCommand({
+        modelId,
+        system: [{ text: input.system }],
+        messages: [{ role: "user", content: [{ text: input.user }] }],
+        inferenceConfig: {
+          maxTokens: input.maxTokens,
+          temperature: input.temperature ?? 0,
+        },
+      }),
+    ),
   );
   const text = resp.output?.message?.content?.[0]?.text ?? "";
   return {
