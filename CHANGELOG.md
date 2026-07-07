@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.93.0] — 2026-07-07
+
 ### Added
 - **`related_to` typed-link inference from `related`/`see_also` frontmatter.** The
   typed-link schema-pack now derives a `related_to` edge from a `related:` or
