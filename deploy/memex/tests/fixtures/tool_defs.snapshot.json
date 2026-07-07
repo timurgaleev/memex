@@ -13,7 +13,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 100,
-          "description": "Number of hits to return. Default 5."
+          "description": "Number of hits to return. Default 20."
         },
         "token_budget": {
           "type": "integer",
@@ -336,7 +336,7 @@
   },
   {
     "name": "page_list",
-    "description": "List pages, newest-first by default. Optional filters: `type`, `tag` (normalized), `since` (ISO timestamp), `limit` (1..1000, default 50). `sort` picks the order (updated_desc default | updated_asc | created_desc | slug); `include_deleted:true` adds soft-deleted pages with deleted_at populated.",
+    "description": "List pages, newest-first by default. Optional filters: `type`, `tag` (normalized), `since` (ISO timestamp), `limit` (1..100, default 50). `sort` picks the order (updated_desc default | updated_asc | created_desc | slug); `include_deleted:true` adds soft-deleted pages with deleted_at populated.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -366,7 +366,7 @@
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 1000
+          "maximum": 100
         }
       },
       "additionalProperties": false
@@ -622,12 +622,13 @@
   },
   {
     "name": "entity_facts",
-    "description": "List facts about an entity, ordered by confidence (default) or recency. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
+    "description": "List facts about an entity, ordered by confidence (default) or recency. `entity_slug` is OPTIONAL: omit it for a cross-entity recall (\"what did I learn recently / this session\") across all entities. Optional `since` filter on written_at and `source_slug` filter to narrow to facts derived from a single page. Lifecycle filters (mig085): `session` (capture-session id), `grep` (case-insensitive substring on the fact text), `visibility` (private|world), `include_forgotten` (surface tombstoned rows for audit; internal callers only — forced off on public ingress).",
     "inputSchema": {
       "type": "object",
       "properties": {
         "entity_slug": {
-          "type": "string"
+          "type": "string",
+          "description": "Entity to scope to. Omit for a cross-entity recall."
         },
         "since": {
           "type": "string"
@@ -668,9 +669,6 @@
           "maximum": 1000
         }
       },
-      "required": [
-        "entity_slug"
-      ],
       "additionalProperties": false
     }
   },
@@ -1766,13 +1764,25 @@
   },
   {
     "name": "takes_scorecard",
-    "description": "Calibration scorecard for synthesized takes graded by the opt-in take-grading phase: total/graded/resolved counts, per-verdict tallies (correct/incorrect/partial/unresolvable), accuracy (correct/(correct+incorrect)), partial_rate, and a Brier score over decided correct∨incorrect bets (stated weight vs outcome). Reads synth_takes × each take's LATEST synth_take_grades row — never calls an LLM. Zero scorecard until takes have been graded. Optional `domain` filter; tenant-scoped via each take's source document. Read-only; internal-only.",
+    "description": "Calibration scorecard for synthesized takes graded by the opt-in take-grading phase: total/graded/resolved counts, per-verdict tallies (correct/incorrect/partial/unresolvable), accuracy (correct/(correct+incorrect)), partial_rate, and a Brier score over decided correct∨incorrect bets (stated weight vs outcome). Reads synth_takes × each take's LATEST synth_take_grades row — never calls an LLM. Zero scorecard until takes have been graded. Optional `domain` / `holder` filter and a `since`/`until` generated-date window; tenant-scoped via each take's source document, and a scoped token stays confined to its allowed holders. Read-only; internal-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "domain": {
           "type": "string",
           "description": "Filter to takes tagged with this domain."
+        },
+        "holder": {
+          "type": "string",
+          "description": "Filter to this holder (world|brain|<slug>). Still gated by the token's takes-holder allow-list."
+        },
+        "since": {
+          "type": "string",
+          "description": "Only takes generated on/after this ISO date (YYYY-MM-DD)."
+        },
+        "until": {
+          "type": "string",
+          "description": "Only takes generated on/before this ISO date (YYYY-MM-DD)."
         }
       },
       "additionalProperties": false
@@ -1780,7 +1790,7 @@
   },
   {
     "name": "takes_calibration",
-    "description": "Reliability-diagram data for graded takes: decided (correct∨incorrect) bets binned by their stated weight, with observed hit-rate vs predicted (mean weight) per bucket — the curve behind the scorecard's Brier. `bucket_size` sets the bin width in (0,1] (default 0.1). Reads synth_takes × latest synth_take_grades; no LLM. Empty until takes are graded. Optional `domain` filter; tenant-scoped. Read-only; internal-only.",
+    "description": "Reliability-diagram data for graded takes: decided (correct∨incorrect) bets binned by their stated weight, with observed hit-rate vs predicted (mean weight) per bucket — the curve behind the scorecard's Brier. `bucket_size` sets the bin width in (0,1] (default 0.1). Reads synth_takes × latest synth_take_grades; no LLM. Empty until takes are graded. Optional `domain` / `holder` filter; tenant-scoped. Read-only; internal-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1793,6 +1803,10 @@
         "domain": {
           "type": "string",
           "description": "Filter to takes tagged with this domain."
+        },
+        "holder": {
+          "type": "string",
+          "description": "Filter to this holder (world|brain|<slug>). Still gated by the token's takes-holder allow-list."
         }
       },
       "additionalProperties": false
@@ -1999,6 +2013,55 @@
       "required": [
         "slug"
       ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "log_ingest",
+    "description": "Append one ingestion-event row to the audit log (importer/webhook runs, absorb outcomes). Stamped with the caller's write source. WRITE.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "description": "Event family, e.g. 'facts:absorb' or an importer name."
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "What was ingested (path, URL, slug)."
+        },
+        "pages_updated": {
+          "type": "array",
+          "description": "Slugs touched by the run (array of strings)."
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line human outcome summary."
+        }
+      },
+      "required": [
+        "source_type",
+        "source_ref"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_ingest_log",
+    "description": "Recent ingestion-log entries, newest first, scoped to the caller's read set. Optional `source_type` filter; `limit` (1..50, default 20). Read-only; no LLM.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "description": "Filter to one event family."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
       "additionalProperties": false
     }
   },
