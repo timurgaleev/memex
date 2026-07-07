@@ -80,6 +80,7 @@ describe("doctor", () => {
     expect(names).toEqual([
       "chunker-version-lag",
       "config",
+      "contradiction-trend",
       "cycle-freshness",
       "embedding-width",
       "eval-trend",

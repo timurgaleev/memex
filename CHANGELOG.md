@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`contradiction-trend` doctor check.** The suspected-contradictions probe
+  already writes per-run Wilson-CI rows to `synth_contradiction_runs`, but they
+  were written and never read back. `memex doctor` now surfaces the last run's
+  detection rate + 95% CI + cost so an operator sees quality drift without
+  re-running the paid probe (informational, never fails the report).
+
 ## [1.90.0] — 2026-07-07
 
 ### Added

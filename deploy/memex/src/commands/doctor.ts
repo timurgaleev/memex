@@ -32,6 +32,7 @@ import {
   checkSourceRoutingHealth,
 } from "../core/doctor-tenancy.ts";
 import { latestEvalSnapshot } from "../core/eval-snapshot.ts";
+import { latestContradictionRun } from "../core/synthesis/contradictions.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import {
   buildRemediationPlan,
@@ -353,6 +354,31 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     } catch (e) {
       checks.push({
         name: "eval-trend",
+        ok: true,
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  // Contradiction-probe trend — surfaces the last suspected-contradictions run's
+  // rate + Wilson 95% CI so the operator sees quality drift without re-running
+  // the paid probe. Informational (ok:true), like eval-trend; the runs table was
+  // written but never read back before.
+  if (storage) {
+    try {
+      const run = await latestContradictionRun(storage.engine());
+      checks.push({
+        name: "contradiction-trend",
+        ok: true,
+        detail: run
+          ? `last run ${run.ran_at}: rate=${run.found}/${run.judged} ` +
+            `(95% CI ${run.wilson_ci_lower.toFixed(3)}–${run.wilson_ci_upper.toFixed(3)}), ` +
+            `$${run.cost_usd.toFixed(4)}`
+          : "contradiction probe has not run yet (memex cycle --phases probe-contradictions)",
+      });
+    } catch (e) {
+      checks.push({
+        name: "contradiction-trend",
         ok: true,
         detail: e instanceof Error ? e.message : String(e),
       });

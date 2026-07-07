@@ -32,6 +32,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "cycle-freshness",
   "per-source-embed-coverage",
   "eval-trend",
+  "contradiction-trend",
   "federation-health",
   "source-routing-health",
   "embedding-width",

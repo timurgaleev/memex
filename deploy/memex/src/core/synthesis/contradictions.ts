@@ -390,6 +390,33 @@ async function putCachedVerdict(
   }
 }
 
+export interface ContradictionRunRow {
+  ran_at: string;
+  found: number;
+  judged: number;
+  wilson_ci_lower: number;
+  wilson_ci_upper: number;
+  cost_usd: number;
+}
+
+/**
+ * Most-recent contradiction-probe run (Wilson-CI trend row), or null if the
+ * probe has never run. Read-side for the `contradiction-trend` doctor check —
+ * the runs table was written but never read back before.
+ */
+export async function latestContradictionRun(
+  engine: Engine,
+): Promise<ContradictionRunRow | null> {
+  const r = await engine.query<ContradictionRunRow>(
+    `SELECT ran_at::text AS ran_at, found, judged,
+            wilson_ci_lower, wilson_ci_upper, cost_usd
+       FROM synth_contradiction_runs
+      ORDER BY ran_at DESC
+      LIMIT 1`,
+  );
+  return r.rows[0] ?? null;
+}
+
 /**
  * Run the probe. Default-OFF: a live (paid) run needs MEMEX_PROBE_CONTRADICTIONS=1;
  * tests inject a sonnetFn (bypasses the gate, no spend).
