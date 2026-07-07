@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.91.0] — 2026-07-07
+
 ### Added
 - **`contradiction-trend` doctor check.** The suspected-contradictions probe
   already writes per-run Wilson-CI rows to `synth_contradiction_runs`, but they
