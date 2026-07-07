@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Cycle OOM that took the brain down.** The `lint` cycle phase (first in the
+  phase list, default-ON, runs every tick) loaded the entire `frontmatter` JSONB
+  column for every document into one array. Voicenote/gcal docs carry 18–30 MB
+  frontmatter each, so materializing the whole corpus spiked RSS to ~3.4 GB and
+  tripped the 3000 MB container cgroup limit → OOM-kill → restart, recurring
+  roughly every 40 minutes (the intermittent downtime). `lintCorpus` now
+  projects only the four fields it actually reads (`title`/`tags`/`created`/
+  `updated`) via `jsonb_build_object`, bounding each row to a few bytes —
+  mirroring the identical fix already applied in `extract.ts`.
+
 ## [1.89.0] — 2026-07-07
 
 ### Added
