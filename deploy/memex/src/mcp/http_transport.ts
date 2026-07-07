@@ -49,6 +49,14 @@ export interface McpHandlerOptions {
    *  (mutating ones — `index`, `log_friction`). The server route layer
    *  passes per-request `isPublic` and we cross-reference. */
   forbidPublicTool?: (toolName: string) => boolean;
+  /**
+   * Per-token-id limiter (one bucket per OAuth `clientId`), applied AFTER the
+   * per-IP check. A single greedy OAuth client rotating egress IPs (claude.ai /
+   * ChatGPT fleets do) would otherwise get a fresh per-IP bucket per IP and
+   * never trip a cap. Absent → no per-token limiting (behaviour unchanged).
+   * Only consulted when `ctx.authInfo.clientId` is present.
+   */
+  perTokenRateLimiter?: RateLimiter;
 }
 
 /** Per-request context the server passes to handleMcp. */
@@ -135,6 +143,7 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     new RateLimiter({ capacity: 300, refillPerSecond: 10 });
   const keyFn = opts.clientKey ?? defaultClientKey;
   const forbidPublic = opts.forbidPublicTool ?? (() => false);
+  const perTokenLimiter = opts.perTokenRateLimiter;
 
   return async function handleMcp(
     req: Request,
@@ -165,6 +174,29 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
         {
           status: 429,
           headers: { "Retry-After": String(limiter.retryAfterSeconds(clientId)) },
+        },
+      );
+    }
+    // Per-token-id cap (post-auth): an authenticated OAuth client is capped by
+    // its clientId regardless of how many IPs it rotates through. Skipped for
+    // unauthenticated callers (no clientId — never collapse them into a shared
+    // "undefined" bucket).
+    const tokenId = ctx.authInfo?.clientId;
+    if (perTokenLimiter && tokenId && !perTokenLimiter.allow(tokenId)) {
+      logToolCallToDb(opts.storage.engine(), {
+        tool: "rate_limited",
+        agentName: tokenId,
+        tokenName: tokenId,
+        latencyMs: 0,
+        ok: false,
+        params: null,
+        errorMessage: "per-token rate limit exceeded",
+      });
+      return Response.json(
+        rpcError(null, ERR_RATE_LIMITED, "rate limit exceeded"),
+        {
+          status: 429,
+          headers: { "Retry-After": String(perTokenLimiter.retryAfterSeconds(tokenId)) },
         },
       );
     }

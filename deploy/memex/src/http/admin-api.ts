@@ -704,17 +704,34 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     try {
       const PER = 25;
       const page = Math.max(1, Math.floor(Number(url.searchParams.get("page")) || 1));
+      // Optional filters (all parameterized) so an operator can isolate one
+      // agent's traffic, one operation, or the failures. `total` honours the
+      // same filter so pagination stays correct.
+      const filters: unknown[] = [];
+      const clauses: string[] = [];
+      const agent = url.searchParams.get("agent");
+      if (agent) { filters.push(agent); clauses.push(`agent_name = $${filters.length}`); }
+      const operation = url.searchParams.get("operation");
+      if (operation) { filters.push(operation); clauses.push(`operation = $${filters.length}`); }
+      const status = url.searchParams.get("status");
+      if (status) { filters.push(status); clauses.push(`status = $${filters.length}`); }
+      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const rows = await engine.query<Record<string, unknown>>(
         // error_message capped (left(...,300)) — admin-only, but it can carry
         // upstream payload/path text; no need to ship the raw blob to the UI.
-        `SELECT id, token_name, agent_name, operation, latency_ms, status,
+        // `params` is stored already-redacted (param-redaction.ts), so shipping
+        // it lets the operator see WHAT a misbehaving agent called.
+        `SELECT id, token_name, agent_name, operation, latency_ms, status, params,
                 left(error_message, 300) AS error_message, created_at::text AS created_at
-           FROM mcp_request_log
+           FROM mcp_request_log ${where}
           ORDER BY created_at DESC, id DESC
-          LIMIT $1 OFFSET $2`,
-        [PER, (page - 1) * PER],
+          LIMIT $${filters.length + 1} OFFSET $${filters.length + 2}`,
+        [...filters, PER, (page - 1) * PER],
       );
-      const total = await engine.query<{ n: number }>("SELECT count(*)::int AS n FROM mcp_request_log");
+      const total = await engine.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM mcp_request_log ${where}`,
+        filters,
+      );
       return Response.json({ page, per_page: PER, total: total.rows[0]?.n ?? 0, rows: rows.rows });
     } catch (e) {
       return serverError("requests", e);
@@ -750,6 +767,74 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       return Response.json({ profile });
     } catch (e) {
       return serverError("calibration-profile", e);
+    }
+  }
+
+  // GET /admin/api/agents/spend — per-OAuth-client daily spend vs budget cap.
+  // The mig-081 spend ledger enforces budget_usd_per_day on paid ops; this is
+  // the read side so an operator can see who is near their cap.
+  if (p === "/admin/api/agents/spend" && req.method === "GET") {
+    try {
+      const rows = await engine.query<Record<string, unknown>>(
+        `SELECT c.client_id, c.client_name, c.budget_usd_per_day AS cap_usd_per_day,
+                COALESCE((SELECT SUM(spend_cents) FROM mcp_spend_log
+                            WHERE client_id = c.client_id
+                              AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), 0) AS spent_cents_today,
+                COALESCE((SELECT SUM(estimated_cents) FROM mcp_spend_reservations
+                            WHERE client_id = c.client_id AND status = 'pending'
+                              AND expires_at > now()), 0) AS pending_cents
+           FROM oauth_clients c
+          WHERE c.deleted_at IS NULL
+          ORDER BY c.client_name`,
+      );
+      return Response.json({ agents: rows.rows });
+    } catch (e) {
+      return serverError("agents-spend", e);
+    }
+  }
+
+  // GET /admin/api/stats — dashboard rollup counts (auth surface).
+  if (p === "/admin/api/stats" && req.method === "GET") {
+    try {
+      const r = await engine.query<Record<string, number>>(
+        `SELECT
+           (SELECT count(*)::int FROM oauth_clients WHERE deleted_at IS NULL) AS connected_agents,
+           (SELECT count(*)::int FROM oauth_tokens WHERE token_type = 'access' AND revoked_at IS NULL
+               AND expires_at > extract(epoch FROM now())) AS active_tokens,
+           (SELECT count(*)::int FROM access_tokens WHERE revoked_at IS NULL) AS active_api_keys,
+           (SELECT count(*)::int FROM mcp_request_log WHERE created_at > now() - interval '24 hours') AS requests_today`,
+      );
+      return Response.json(r.rows[0] ?? {});
+    } catch (e) {
+      return serverError("stats", e);
+    }
+  }
+
+  // GET /admin/api/health-indicators — token-expiry + error-rate tiles.
+  if (p === "/admin/api/health-indicators" && req.method === "GET") {
+    try {
+      const r = await engine.query<{
+        tokens_expiring_24h: number;
+        total_24h: number;
+        errors_24h: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM oauth_tokens WHERE token_type = 'access' AND revoked_at IS NULL
+               AND expires_at > extract(epoch FROM now())
+               AND expires_at <= extract(epoch FROM now() + interval '24 hours')) AS tokens_expiring_24h,
+           (SELECT count(*)::int FROM mcp_request_log WHERE created_at > now() - interval '24 hours') AS total_24h,
+           (SELECT count(*)::int FROM mcp_request_log WHERE created_at > now() - interval '24 hours'
+               AND status <> 'success') AS errors_24h`,
+      );
+      const row = r.rows[0];
+      const total = row?.total_24h ?? 0;
+      const errRate = total > 0 ? ((row?.errors_24h ?? 0) / total) * 100 : 0;
+      return Response.json({
+        tokens_expiring_24h: row?.tokens_expiring_24h ?? 0,
+        error_rate_24h: Math.round(errRate * 10) / 10,
+      });
+    } catch (e) {
+      return serverError("health-indicators", e);
     }
   }
 

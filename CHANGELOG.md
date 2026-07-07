@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Admin observability endpoints.** `/admin/api/agents/spend` (per-OAuth-client
+  committed + pending spend today vs `budget_usd_per_day` — the mig-081 ledger
+  finally has a read surface), `/admin/api/stats` (connected agents, active
+  tokens/API keys, requests in the last 24h), and `/admin/api/health-indicators`
+  (OAuth tokens expiring within 24h, 24h error-rate %). Read-only.
+- **Per-token-id rate limiter.** After the per-IP check, an authenticated OAuth
+  client is additionally capped by its `clientId`
+  (`MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE`, off by default) — so a client
+  rotating egress IPs (claude.ai / ChatGPT fleets do) can no longer defeat the
+  per-IP bucket. Unauthenticated callers are unaffected.
+
+### Changed
+- **`/admin/api/requests` gains `agent` / `operation` / `status` filters and the
+  redacted `params` column**, so an operator can isolate and inspect exactly
+  what one agent called; `total` honours the same filter.
+- Migration 094 adds `oauth_clients.deleted_at` (reference-parity soft-delete
+  column the admin reads filter on; memex probed for it defensively before).
+
 ## [1.88.0] — 2026-07-07
 
 ### Added
