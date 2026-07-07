@@ -323,3 +323,38 @@ The rerank candidate window (`MEMEX_RERANK_WINDOW`, default 30), the PG
 pool/statement-timeout env knobs (`MEMEX_PG_POOL_MAX` /
 `MEMEX_PG_STATEMENT_TIMEOUT_MS`), and the four ops doctor probes shipped in
 v1.85.0/v1.86.0 already close their respective reference gaps — no deviation.
+
+## 2026-07-07 — Wave-4 DB-table pass (all deviations / deferrals, no code)
+
+A recompare of the reference's receipt/cache tables found none worth porting as
+schema — building them would cargo-cult the reference's own dead or diverged
+state. Recorded deviations:
+
+- **`drift_decisions` — not ported.** The reference's apply-trail table is
+  unconsumed dead schema; its own drift phase is still the v0.28 report-only
+  scaffold (no `INSERT`/`SELECT` on the table anywhere in its `src/`). memex's
+  drift phase matches that ACTUAL behavior (writes a `drift-reports/<date>`
+  page, no table), not the reference's unbuilt aspiration.
+- **Calibration `(source_id, holder)` scoping — not ported.** Already decided in
+  mig 060: memex scopes calibration by `source_id` only, being single-holder
+  per tenant. `synth_takes.holder` (mig 091) is for take-visibility fencing, not
+  calibration cohorts. Revisit only if a tenant gains multiple distinct holders.
+- **`code_traversal_cache` — not ported.** Pure latency memoization of
+  `code_blast`/`code_flow` BFS walks with nontrivial xmin-snapshot correctness
+  machinery; memex's uncached `code-walk.ts` already works — no functional gain
+  at current scale.
+- **`conversation_parser_llm_cache` — moot.** memex's conversation parser is
+  deterministic regex-only (no LLM call), so there is nothing to cache.
+- **`think_ab_results` — deferred.** Backs a `think --ab` baseline-vs-calibrated
+  comparison harness memex has no counterpart for; a table without the feature
+  is pointless. Revisit if calibration-augmented answers need measured A/B
+  validation.
+
+### Deferred REAL gap (not a deviation)
+- **Page/timeline content is not keyword/FTS-searchable.** memex FTS runs only
+  over `chunks.search_vector`; `pages` (compiled_truth + markdown_body) and
+  `timeline_events` text are reachable only by exact-slug lookup or graph walk,
+  never by `search`/`recall`. Genuine blind spot for synthesis-written page
+  content. Building it = a `pages.search_vector` (weighted title/truth/body/
+  timeline) PLUS a new arm wired into `hybrid.ts` — MEDIUM-HIGH risk (live
+  ranking). Tracked in TODO.md for its own focused spec, not this batch.
