@@ -183,8 +183,19 @@ beforeAll(async () => {
   const fb = await addFact(storage, { entity_slug: ENTITY_SLUG, fact: B_FACT, source_id: B });
   factIdA = fa.id as number;
   factIdB = fb.id as number;
-  await addTimelineEvent(storage, { slug: ENTITY_SLUG, occurred_at: "2026-01-01T00:00:00Z", event: A_EVENT, source_id: A });
-  await addTimelineEvent(storage, { slug: ENTITY_SLUG, occurred_at: "2026-01-02T00:00:00Z", event: B_EVENT, source_id: B });
+  // The shared entity page is owned by 'default', so addTimelineEvent's ownership
+  // guard (a scoped caller may only annotate a page its own source owns) blocks a
+  // per-source append here. Seed the two events directly to build the cross-source
+  // ledger this test asserts find_trajectory keeps READ-scoped.
+  const seedEvent = (occurredAt: string, event: string, sourceId: string) =>
+    storage.engine().query(
+      `INSERT INTO timeline_events
+         (slug, occurred_at, event, detail, source_label, source_chunk_id, source_id)
+       VALUES ($1, $2::timestamptz, $3, '', '', NULL, $4)`,
+      [ENTITY_SLUG, occurredAt, event, sourceId],
+    );
+  await seedEvent("2026-01-01T00:00:00Z", A_EVENT, A);
+  await seedEvent("2026-01-02T00:00:00Z", B_EVENT, B);
 
   // --- resolve_slugs: distinct slugs, SAME title -----------------------------
   await putPage(storage, { slug: "team-a/alice", type: "person", title: SHARED_TITLE, markdown_body: A_BODY, source_id: A });
@@ -479,14 +490,14 @@ describe("contract: synthesis reads + search + identity", () => {
     expect(all).toContain(B_TAKE);
   });
 
-  it("list_concepts: GLOBAL aggregate — no tenant axis (documented no-op)", async () => {
-    // synth_concepts has no source_id (migrations/045_synthesis.sql) — concepts
-    // cluster atoms across every source. Scope is accepted for API symmetry but
-    // NOT applied (synthesis/reads.ts:42). This is by-design global visibility,
-    // NOT a leak: both scoped and unscoped callers see the same global set.
+  it("list_concepts: operator-only — a tenant token is denied, operator sees the global set", async () => {
+    // synth_concepts is a GLOBAL aggregate with no source_id axis
+    // (migrations/045_synthesis.sql) — concepts cluster atoms across every source.
+    // Rather than leak that cross-tenant set to a scoped caller, list_concepts is
+    // operator-only (v1.79.2): a tenant token is refused; the unscoped operator
+    // path sees the whole-brain set.
     const a = JSON.stringify(await call("list_concepts", {}, auth(A)));
-    expect(a).toContain("AAA_CONCEPT_narrative");
-    expect(a).toContain("BBB_CONCEPT_narrative");
+    expect(a).toContain("permission_denied");
     const all = JSON.stringify(await call("list_concepts", {}));
     expect(all).toContain("AAA_CONCEPT_narrative");
     expect(all).toContain("BBB_CONCEPT_narrative");

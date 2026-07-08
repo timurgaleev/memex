@@ -91,12 +91,16 @@ describe("MCP write-tools gate (internal token configured)", () => {
     expect(r.error?.code).toBe(ERR_UNAUTHORIZED);
   });
 
-  it("internal READ tool WITHOUT token → allowed (gate is write-only)", async () => {
+  it("internal READ tool WITHOUT token → allowed (gate is forbid-public-only)", async () => {
+    // whoami is a normal read tool (not in FORBIDDEN_MCP_TOOLS_FROM_PUBLIC), so
+    // the internal-token gate lets it through with no token — the bridge's read
+    // calls keep working. (stats/jobs are now forbidden-from-public and DO need
+    // the token on the bridge, so they no longer make a "public read" example.)
     const r = await rpc(url, {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "stats" },
+      params: { name: "whoami" },
     });
     expect(r.error).toBeUndefined();
     const parsed = JSON.parse(r.result.content[0].text);

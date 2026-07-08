@@ -39,6 +39,8 @@ function validValue(def: ParamDef): unknown {
       return true;
     case "object":
       return {};
+    case "array":
+      return [];
     default:
       return "x";
   }

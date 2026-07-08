@@ -86,6 +86,7 @@ describe("doctor", () => {
       "eval-trend",
       "federation-health",
       "index-spread",
+      "invalid-indexes",
       "links-extraction-lag",
       "oauth-client-health",
       "pglite",

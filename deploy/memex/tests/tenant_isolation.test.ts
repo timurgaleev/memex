@@ -82,8 +82,11 @@ beforeAll(async () => {
   await putPage(storage, { slug: B_SLUG, type: "company", title: "Acme B", markdown_body: B_SECRET, source_id: "b" });
   // Entity page needed for FK on timeline_events.slug and facts.entity_slug
   await putPage(storage, { slug: ENTITY, type: "company", title: "Acme Entity" });
-  await addFact(storage, { entity_slug: ENTITY, fact: A_SECRET, source_id: "a" });
-  await addFact(storage, { entity_slug: ENTITY, fact: B_SECRET, source_id: "b" });
+  // visibility:"world" — a scoped tenant reader is floored to world-visible
+  // facts (mig-085); the tenant isolation here is enforced by source_id, so the
+  // facts must clear the world floor to be readable at all.
+  await addFact(storage, { entity_slug: ENTITY, fact: A_SECRET, source_id: "a", visibility: "world" });
+  await addFact(storage, { entity_slug: ENTITY, fact: B_SECRET, source_id: "b", visibility: "world" });
   // Timeline events go on each tenant's OWN page (ownership guard: a scoped caller
   // may only append to a page its own source owns — a tenant cannot annotate the
   // shared/default ENTITY, which would be another tenant's page).
