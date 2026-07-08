@@ -211,11 +211,11 @@ describe("defaultBacklinkCounts (global in-degree over links)", () => {
         ('src-a', 'note', 'a'),
         ('src-b', 'note', 'b'),
         ('src-c', 'note', 'c');
-      INSERT INTO links (source_slug, target_slug, type) VALUES
-        ('src-a', 'hub', 'wikilink'),
-        ('src-b', 'hub', 'related_to'),
-        ('src-c', 'hub', 'mentions'),
-        ('hub',   'hub', 'wikilink');
+      INSERT INTO links (source_slug, target_slug, type, link_source) VALUES
+        ('src-a', 'hub', 'wikilink',   'markdown'),
+        ('src-b', 'hub', 'related_to', 'frontmatter'),
+        ('src-c', 'hub', 'mentions',   'mentions'),
+        ('hub',   'hub', 'wikilink',   'markdown');
     `);
   });
 

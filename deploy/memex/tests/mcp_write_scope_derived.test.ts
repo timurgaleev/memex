@@ -33,6 +33,9 @@ const GOLDEN_WRITE_TOOLS = [
   "think",
   "put_raw_data",
   "retry_job",
+  // log_ingest appends an ingestion-event row to the audit log, stamped with
+  // the caller's write source — a mutation, correctly scope:"write".
+  "log_ingest",
 ].sort();
 
 describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {
