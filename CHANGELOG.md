@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.96.0] — 2026-07-08
+
 ### Security
 - **`stats` + `jobs_list`/`jobs_get`/`jobs_logs` forbidden from the public bearer.**
   The reference marks all four `admin`; they previously leaned on
