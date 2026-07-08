@@ -35,7 +35,7 @@ function fakeServer(opts: {
 describe("runAuthTest", () => {
   it("passes the three-step smoke and counts tools (JSON shape)", async () => {
     const { fetchFn, seen } = fakeServer({});
-    const r = await runAuthTest("http://brain/mcp", "tok", fetchFn);
+    const r = await runAuthTest("https://brain/mcp", "tok", fetchFn);
     expect(r.ok).toBe(true);
     expect(r.toolCount).toBe(2);
     expect(r.steps.map((s) => s.step)).toEqual(["initialize", "tools/list", "tools/call"]);
@@ -47,14 +47,14 @@ describe("runAuthTest", () => {
 
   it("parses SSE-framed tools/list responses", async () => {
     const { fetchFn } = fakeServer({ sse: true });
-    const r = await runAuthTest("http://brain/mcp", "tok", fetchFn);
+    const r = await runAuthTest("https://brain/mcp", "tok", fetchFn);
     expect(r.ok).toBe(true);
     expect(r.toolCount).toBe(2);
   });
 
   it("fails fast when initialize is rejected", async () => {
     const { fetchFn, seen } = fakeServer({ failOn: "initialize" });
-    const r = await runAuthTest("http://brain/mcp", "bad", fetchFn);
+    const r = await runAuthTest("https://brain/mcp", "bad", fetchFn);
     expect(r.ok).toBe(false);
     expect(r.steps.length).toBe(1);
     expect(r.steps[0]!.ok).toBe(false);
@@ -63,9 +63,26 @@ describe("runAuthTest", () => {
 
   it("reports a tools/call failure as the failing step", async () => {
     const { fetchFn } = fakeServer({ failOn: "tools/call", status: 500 });
-    const r = await runAuthTest("http://brain/mcp", "tok", fetchFn);
+    const r = await runAuthTest("https://brain/mcp", "tok", fetchFn);
     expect(r.ok).toBe(false);
     expect(r.steps[2]!.step).toBe("tools/call");
     expect(r.steps[2]!.ok).toBe(false);
+  });
+
+  it("refuses to send the bearer over http:// to a non-local host", async () => {
+    // The guard must fire BEFORE any request goes out — inject a fetch that
+    // throws if it is ever reached.
+    const boom = (() => {
+      throw new Error("fetch must not run when the guard rejects");
+    }) as FetchLike;
+    await expect(runAuthTest("http://brain/mcp", "tok", boom)).rejects.toThrow(
+      /refusing to send the token/,
+    );
+  });
+
+  it("allows http:// for a local host (dev loopback)", async () => {
+    const { fetchFn } = fakeServer({});
+    const r = await runAuthTest("http://localhost:8080/mcp", "tok", fetchFn);
+    expect(r.ok).toBe(true);
   });
 });
