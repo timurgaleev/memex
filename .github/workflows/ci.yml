@@ -112,6 +112,8 @@ jobs:
             # Default bun per-test timeout (5s) — amd64 is the gate, so
             # keep it tight to catch genuine perf regressions.
             test_timeout_ms: 5000
+            # 0 = no wall-clock budget: the GATE always runs every shard.
+            max_seconds: 0
           - arch: arm64
             runner: ubuntu-24.04-arm
             # Free arm64 runners are 3-4x slower; PGLite cold-init +
@@ -122,6 +124,15 @@ jobs:
             # arm64 is continue-on-error, so do not read its green as a
             # perf signal.
             test_timeout_ms: 30000
+            # Wall-clock budget for the WHOLE sharded loop. The grown suite now
+            # runs past the 90-min job cap on the slow arm64 runner, and a job
+            # that hits timeout-minutes is CANCELLED — which continue-on-error
+            # does NOT absorb, so it reddened the whole run's badge even though
+            # the amd64 gate was green. Stop the canary early (well under the
+            # cap) so it exits normally: a real shard failure is then a tolerated
+            # `failure`, and a pure time-overrun is a clean partial signal —
+            # neither cancels the run. 4200s = 70 min.
+            max_seconds: 4200
     defaults:
       run:
         working-directory: deploy/memex
@@ -148,6 +159,7 @@ jobs:
         # it is memory-constrained.
         env:
           TEST_TIMEOUT: ${{ matrix.test_timeout_ms }}
+          MAX_SECONDS: ${{ matrix.max_seconds }}
           SHARD_SIZE: "20"
         run: |
           mapfile -t files < <(find tests -name '*.test.ts' | sort)
@@ -156,6 +168,13 @@ jobs:
           for ((i = 0; i < ${#files[@]}; i += SHARD_SIZE)); do
             slice=("${files[@]:i:SHARD_SIZE}")
             shard=$((i / SHARD_SIZE))
+            # Non-gating canary self-limit: stop before the job's timeout-minutes
+            # cap so a slow run exits normally instead of being CANCELLED (which
+            # would redden the whole run). MAX_SECONDS=0 (the amd64 gate) never trips.
+            if [ "${MAX_SECONDS}" -gt 0 ] && [ "${SECONDS}" -ge "${MAX_SECONDS}" ]; then
+              echo "::warning::wall-clock budget ${MAX_SECONDS}s reached after ${SECONDS}s; stopping the canary at shard ${shard} (non-gating)"
+              break
+            fi
             echo "::group::bun test shard ${shard} (${#slice[@]} files, first: ${slice[0]})"
             if ! bun test --timeout "${TEST_TIMEOUT}" "${slice[@]}"; then
               fail=1
