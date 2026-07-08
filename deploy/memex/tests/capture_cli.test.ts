@@ -85,7 +85,9 @@ describe("runCapture", () => {
     } finally {
       await storage.close();
     }
-  });
+    // A real PGLite write + full search mirror can exceed bun's 5s default on a
+    // slow/loaded machine — give it headroom so a slow local run isn't a false fail.
+  }, 15000);
 
   it("reads the body from --stdin via the seam", async () => {
     const code = await runCapture({
