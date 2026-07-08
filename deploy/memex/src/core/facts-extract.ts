@@ -255,17 +255,32 @@ export async function writeExtractedFacts(
     visibility?: string;
     /** Insert-time dedup / supersede knobs threaded to addFact (default OFF). */
     dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
+    /**
+     * Notability write policy (reference facts-backstop D4). `'all'` (default)
+     * writes every extracted fact; `'high-only'` writes HIGH now and drops the
+     * rest. The reference passes `'high-only'` ONLY on its file-vault sync path
+     * (which memex, being DB-canonical, does not have) — so memex's default
+     * `'all'` matches the reference's default for every surface memex actually
+     * runs. Exposed for parity + a future bulk surface that wants the filter.
+     */
+    notabilityFilter?: "all" | "high-only";
   } = {},
 ): Promise<{ written: number; skipped: number; fact_ids: number[] }> {
   let written = 0;
   let skipped = 0;
   const factIds: number[] = [];
+  const notabilityFilter = opts.notabilityFilter ?? "all";
   // Exclude the transcript's own page from the candidate set, and scope
   // resolution to the writing tenant when one is given.
   const resolver = makeSlugResolver(storage, opts.sourceSlug ?? "", {
     ...(opts.sourceId ? { sourceIds: [opts.sourceId] } : {}),
   });
   for (const f of facts) {
+    // Notability gate (reference backstop.ts:325): high-only drops non-HIGH.
+    if (notabilityFilter === "high-only" && f.notability !== "high") {
+      skipped += 1;
+      continue;
+    }
     if (!f.entity) {
       skipped += 1;
       continue;

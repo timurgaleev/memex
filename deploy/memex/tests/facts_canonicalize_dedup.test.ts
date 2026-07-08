@@ -114,6 +114,31 @@ describe("writeExtractedFacts canonicalization (2a)", () => {
     ]);
     expect(r).toEqual({ written: 0, skipped: 1, fact_ids: [] });
   });
+
+  it("notabilityFilter 'high-only' drops non-high facts (reference backstop D4)", async () => {
+    await putPage(storage, { slug: "people/bob", type: "person", title: "Bob" });
+    const facts: ExtractedFact[] = [
+      { fact: "Bob got married", kind: "event", entity: "Bob", confidence: 1, notability: "high" },
+      { fact: "Bob ordered coffee", kind: "fact", entity: "Bob", confidence: 0.8, notability: "low" },
+      { fact: "Bob likes jazz", kind: "preference", entity: "Bob", confidence: 0.7, notability: "medium" },
+    ];
+    const r = await writeExtractedFacts(storage, facts, { notabilityFilter: "high-only" });
+    expect(r.written).toBe(1);
+    expect(r.skipped).toBe(2);
+    expect((await listFacts(storage, "people/bob")).map((f) => f.fact)).toEqual([
+      "Bob got married",
+    ]);
+  });
+
+  it("default (all) keeps every notability level", async () => {
+    await putPage(storage, { slug: "people/carol", type: "person", title: "Carol" });
+    const facts: ExtractedFact[] = [
+      { fact: "Carol claim H", kind: "fact", entity: "Carol", confidence: 1, notability: "high" },
+      { fact: "Carol claim L", kind: "fact", entity: "Carol", confidence: 1, notability: "low" },
+    ];
+    const r = await writeExtractedFacts(storage, facts);
+    expect(r.written).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
