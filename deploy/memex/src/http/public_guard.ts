@@ -179,6 +179,15 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "get_raw_data",
   "retry_job",
   "get_job_progress",
+  // Job-queue reads + whole-brain counts expose operational state (the reference
+  // marks get_stats / get_job / list_jobs / job_logs `admin`). They previously
+  // relied on OPERATOR_ONLY_TOOLS, which only gates OAuth-tenant callers
+  // (authInfo present) — the static public bearer is authInfo===undefined, so
+  // only this denylist covers it. Match the reference: forbid from public.
+  "jobs_list",
+  "jobs_get",
+  "jobs_logs",
+  "stats",
   "sources_list",
   "sources_status",
   "get_status_snapshot",

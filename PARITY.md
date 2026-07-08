@@ -497,7 +497,27 @@ one telemetry-scrub gap + one facts-completeness miss (all below).
   the `writeExtractedFacts`→`addFact` thread (additive; non-quantitative facts pass
   all-null, behavior-neutral). Test: 11/11. Reference `core/facts/extract.ts:101`.
 
-### DEVIATIONS confirmed (NOT bugs — surfaced, operator decision, NOT changed)
+### DEVIATIONS RESOLVED 2026-07-08 — operator: "match the reference, don't ask"
+The operator's standing rule is match the reference for every such question. Both
+of the surfaced deviations below are now CLOSED to match the reference (v1.96.0):
+- **A — public `stats`/`jobs_list`/`jobs_get`/`jobs_logs` → NOW FORBIDDEN from the
+  public bearer.** The reference marks all four `admin` (`operations.ts:2160`
+  get_stats, `:3021` get_job). Added to `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`; the two
+  tests that encoded the old "public-allowed" deviation were flipped to assert
+  rejection. The public bearer no longer sees whole-brain counts or the job queue.
+- **B — notability write policy: ported the reference's `notabilityFilter`.**
+  `writeExtractedFacts` gained `notabilityFilter?: 'all' | 'high-only'` (reference
+  `facts/backstop.ts:62/305/325`). memex DEFAULTS to `'all'` (keep every fact) —
+  which is exactly the reference's default for every surface: the reference only
+  passes `'high-only'` on its file-vault SYNC path, and memex (DB-canonical) has
+  no such path. So memex's keep-all already matched the reference; the port adds
+  the exact knob for parity + a future bulk surface. Behavior-neutral by default.
+- **C — `source_grants` federation: no change (already matches).** The reference
+  is single-holder-by-default (each tenant reads only its own source); memex's
+  `source_grants=0` is the same siloed default. Cross-tenant read stays an
+  explicit opt-in the operator enables per grant.
+
+### (historical) DEVIATIONS surfaced 2026-07-07 — since resolved above
 - **`stats` + `jobs_list`/`jobs_get`/`jobs_logs` reachable from the public bearer.**
   The reference marks all four `admin`. In memex they are NOT in
   `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` and rely on `OPERATOR_ONLY_TOOLS`, which only

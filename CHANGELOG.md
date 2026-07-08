@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **`stats` + `jobs_list`/`jobs_get`/`jobs_logs` forbidden from the public bearer.**
+  The reference marks all four `admin`; they previously leaned on
+  `OPERATOR_ONLY_TOOLS` (which only gates OAuth-tenant callers), leaving them
+  reachable by the static public bearer — whole-brain counts (`stats`, unredacted)
+  and the job queue (redacted to metadata). Added to
+  `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` to match the reference. The public read surface
+  no longer exposes operational state.
+
+### Added
+- **Notability write policy (`notabilityFilter`) on `writeExtractedFacts`.** Ported
+  the reference's facts-backstop D4 knob (`'all'` | `'high-only'`). memex defaults
+  to `'all'` (keep every extracted fact) — the reference's own default for every
+  surface except its file-vault sync path, which memex (DB-canonical) does not
+  have. Behavior-neutral; adds the filter for parity + a future bulk surface.
+
 ## [1.95.0] — 2026-07-07
 
 ### Added

@@ -174,10 +174,13 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("set_take_status")).toBe(true);
   });
 
-  it("allows `search`, `backlinks`, `stats`", () => {
+  it("allows `search`, `backlinks`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
-    expect(isPublicMcpToolForbidden("stats")).toBe(false);
+  });
+
+  it("forbids `stats` (whole-brain counts — reference marks get_stats admin)", () => {
+    expect(isPublicMcpToolForbidden("stats")).toBe(true);
   });
 
   it("allows page reads (page_get, page_list, page_versions)", () => {
@@ -197,10 +200,10 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("entity_recall")).toBe(false);
   });
 
-  it("allows jobs reads (jobs_list, jobs_get, jobs_logs)", () => {
-    expect(isPublicMcpToolForbidden("jobs_list")).toBe(false);
-    expect(isPublicMcpToolForbidden("jobs_get")).toBe(false);
-    expect(isPublicMcpToolForbidden("jobs_logs")).toBe(false);
+  it("forbids jobs reads (reference marks get_job/list_jobs/job_logs admin)", () => {
+    expect(isPublicMcpToolForbidden("jobs_list")).toBe(true);
+    expect(isPublicMcpToolForbidden("jobs_get")).toBe(true);
+    expect(isPublicMcpToolForbidden("jobs_logs")).toBe(true);
   });
 });
 
@@ -307,7 +310,7 @@ describe("HTTP server end-to-end with public guard", () => {
     expect(body.error?.message).toMatch(/not callable from the public/);
   });
 
-  it("public MCP tools/call name=stats works with bearer", async () => {
+  it("public MCP tools/call name=stats is rejected (whole-brain counts — admin)", async () => {
     const r = await fetch(`${url}/mcp`, {
       method: "POST",
       headers: {
@@ -322,9 +325,9 @@ describe("HTTP server end-to-end with public guard", () => {
         params: { name: "stats" },
       }),
     });
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { result: { content: { text: string }[] } };
-    expect(body.result.content[0]?.text).toMatch(/documents/);
+    const body = (await r.json()) as { error?: { code: number; message: string } };
+    expect(body.error?.code).toBe(-32600);
+    expect(body.error?.message).toMatch(/not callable from the public/);
   });
 });
 
