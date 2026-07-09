@@ -582,20 +582,23 @@ deliberate deviation.
   (`http-transport.ts:361`). Intercepted in `makeMcpHandler` after parse,
   single (non-batch) only. Test added.
 
-**DELIBERATE DEVIATION (recorded, NOT ported) — migration-runner retry.**
-The reference retries a migration 3× on a statement-timeout / retryable
-connection error (5/15/45s backoff) and, on final failure, surfaces the blocking
+**SHIPPED (parity-restoring) — migration-runner retry.** The reference retries a
+migration 3× on a statement-timeout (57014) / retryable connection error
+(5/15/45s backoff) and, on final failure, surfaces the blocking
 idle-in-transaction PID with a paste-ready `pg_terminate_backend()` hint
-(`core/migrate.ts` runMigrationSQLWithRetry / getIdleBlockers). memex runs each
-migration once, fail-fast, inside one `engine.transaction()` with
-`SET LOCAL lock_timeout='10s'` + `statement_timeout='30min'`. NOT ported because:
-(1) it touches the single most sensitive path on live RDS; (2) the
-statement-timeout-retry half *reverses* memex's documented fail-fast
-`lock_timeout` stance — `core/retry.ts:48` deliberately classifies 57014
-(statement_timeout) and 55P03 (lock_timeout) as NON-retryable; (3) the current
-failure mode is already safe — a transient blip aborts the deploy and the
-operator re-runs SSM, and migrations are transactional + idempotent, so a
-re-run is clean. The connection-reset-only slice (wire `runMigrations` through
-the existing `withRetry`, which already retries class-08/ECONNRESET without
-touching the timeout stance) is the one non-conflicting piece worth revisiting —
-left as an operator-gated option, low value at current deploy cadence.
+(`core/migrate.ts` runMigrationSQLWithRetry / getIdleBlockers, matcher in
+`core/retry-matcher.ts`). Ported faithfully, adapted to memex's file-based
+runner: `getIdleBlockers`, `MigrationRetryExhausted`, and `applyOneWithRetry`
+now wrap memex's bundled `engine.transaction()` (SET LOCAL lock_timeout +
+statement_timeout + SQL + bookkeeping INSERT). A rolled-back attempt records
+nothing, so a retry re-runs atomically. `isStatementTimeoutError` added to
+`core/retry.ts` (the migration path retries 57014; the bulk-write
+`isRetryableConnError` still doesn't). NO conflict with memex's fail-fast
+`lock_timeout` stance — the reference also leaves lock_timeout (55P03)
+non-retryable in migrations; only statement_timeout + connection reset retry.
+Backoff collapsible via `MEMEX_MIGRATE_BACKOFF_MS` for tests. Superseded the
+earlier "keep fail-fast, don't port" call after the operator reaffirmed strict
+reference parity (match the reference, don't deviate). The `transaction:false`
+CONCURRENTLY escape hatch stays DEFERRED — memex has no migration that uses
+CONCURRENTLY (index rebuilds run out-of-band via the `hnsw` CLI), so porting it
+would be dead code (the one adapt-to-stack exception).

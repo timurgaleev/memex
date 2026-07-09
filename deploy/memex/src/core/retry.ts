@@ -61,6 +61,21 @@ export function isRetryableConnError(err: unknown): boolean {
   );
 }
 
+/**
+ * SQLSTATE 57014: query_canceled / statement_timeout. Postgres signals this
+ * when a statement exceeds `statement_timeout`. Deliberately NOT part of
+ * {@link isRetryableConnError} (a bulk write shouldn't blindly re-run a query
+ * that timed out) — the migration runner opts into it explicitly, because a
+ * long `ADD COLUMN` backfill or index build can trip a transient timeout that
+ * a re-attempt clears. Mirrors the reference's `retry-matcher.ts`.
+ */
+export function isStatementTimeoutError(err: unknown): boolean {
+  if (errCode(err) === "57014") return true;
+  return /statement_timeout|canceling statement due to statement timeout/i.test(
+    errMessage(err),
+  );
+}
+
 /** Next backoff delay (ms), bounded by delayMaxMs. Pure. */
 export function computeNextDelay(
   jitter: Jitter,
