@@ -1026,6 +1026,7 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "extract_facts",
+    scope: "write",
     description:
       "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand. Default is a PREVIEW (facts returned, nothing persisted); `persist:true` also writes them to the entity_facts ledger (requires a write grant; the caller's write source owns the rows). Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). `entity_hints` (comma/space-separated canonical slugs) steer the extractor; `session_id` + `visibility` stamp persisted facts (mig085). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded. Internal-only.",
     params: {
