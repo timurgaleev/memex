@@ -213,6 +213,17 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     }
     const raw: unknown = parsedBody.body;
 
+    // A JSON-RPC notification carries no `id` and expects no response body.
+    // The standard MCP post-initialize `notifications/initialized` is
+    // acknowledged with an empty 204 (reference parity); without this it would
+    // fall through to the switch default and return a -32601 method-not-found.
+    if (
+      !Array.isArray(raw) &&
+      (raw as { method?: string })?.method === "notifications/initialized"
+    ) {
+      return new Response(null, { status: 204 });
+    }
+
     if (Array.isArray(raw)) {
       // A JSON-RPC batch runs N dispatches but only spent ONE rate-limit token
       // at the top. Cap the batch, then charge the remaining N-1 tokens up front

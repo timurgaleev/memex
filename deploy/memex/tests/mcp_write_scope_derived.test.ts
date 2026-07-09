@@ -36,6 +36,10 @@ const GOLDEN_WRITE_TOOLS = [
   // log_ingest appends an ingestion-event row to the audit log, stamped with
   // the caller's write source — a mutation, correctly scope:"write".
   "log_ingest",
+  // extract_facts runs the paid Bedrock extractor even in preview and can
+  // persist to the entity_facts ledger; the reference marks the whole op
+  // write, so a read-scoped token cannot reach the paid path.
+  "extract_facts",
 ].sort();
 
 describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {

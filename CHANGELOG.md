@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.97.0] — 2026-07-09
+
+### Security
+- **`extract_facts` is now `scope:"write"`.** The op declared no scope, so the
+  per-op scope gate defaulted it to `read`, letting a read-scoped OAuth tenant
+  reach the paid Bedrock extractor in preview mode (the persist path was already
+  write-gated, the preview was not). It now folds into the derived
+  `WRITE_SCOPED_TOOLS` and the per-op gate, so a read token is rejected before
+  the paid call — matching the reference, which marks the whole op write. The
+  operator path and the public bearer (already forbidden from `extract_facts`)
+  are unaffected; the op stays default-OFF (`MEMEX_FACTS_EXTRACTION`).
+
+### Fixed
+- **MCP `notifications/initialized` is acknowledged with an empty HTTP 204.**
+  The standard post-`initialize` notification previously fell through to a
+  JSON-RPC `-32601` method-not-found (wrapped at HTTP 200); it now returns a
+  bodiless 204, matching the reference and the MCP handshake contract. Tolerated
+  by existing clients, but now spec-conformant.
+
 ## [1.96.0] — 2026-07-08
 
 ### Security
