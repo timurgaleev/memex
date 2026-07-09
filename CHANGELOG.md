@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.98.0] — 2026-07-09
+
+### Added
+- **Migration runner retries a transient statement_timeout / connection reset.**
+  A migration whose SQL trips a `statement_timeout` (57014) or a connection
+  reset is now retried up to 3 times (5s/15s backoff) instead of aborting the
+  whole deploy on the first blip; the SQL and its bookkeeping `INSERT` share one
+  transaction, so a rolled-back attempt records nothing and the retry re-runs
+  atomically. A `lock_timeout` (55P03) stays fail-fast. On exhaustion the runner
+  throws `MigrationRetryExhausted`, naming the idle-in-transaction PID most
+  likely holding the lock with a paste-ready `pg_terminate_backend(<pid>)`.
+  Backoff is collapsible via `MEMEX_MIGRATE_BACKOFF_MS` for tests. Faithful port
+  of the reference's migration retry, adapted to memex's file-based runner.
+
 ## [1.97.0] — 2026-07-09
 
 ### Security
