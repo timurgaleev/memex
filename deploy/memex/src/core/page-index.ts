@@ -344,10 +344,12 @@ export async function reconcilePageMirrors(
     source_id: string;
     doc_source_id: string | null;
     stamp: string | null;
+    doc_chunker_version: number | null;
   }>(
     `SELECT p.slug, p.title, p.compiled_truth, p.source_id,
             d.source_id AS doc_source_id,
-            d.frontmatter->>'page_truth_hash' AS stamp
+            d.frontmatter->>'page_truth_hash' AS stamp,
+            d.chunker_version AS doc_chunker_version
        FROM pages p
        LEFT JOIN documents d ON d.source_path = ${PAGE_TRUTH_PATH_SQL}
       WHERE p.deleted_at IS NULL
@@ -371,10 +373,15 @@ export async function reconcilePageMirrors(
       p.slug,
       truth,
     );
+    // Freshness mirrors Pass 1: hash + tenant + chunker version. The version
+    // arm is the ONLY way a truth mirror re-chunks on a chunking-behavior
+    // change — without it a MARKDOWN_CHUNKER_VERSION bump drained body
+    // mirrors but left truth mirrors stamped at the old version forever.
     const fresh =
       serialized.length > 0 &&
       p.stamp === compiledTruthHash(serialized) &&
-      p.doc_source_id === p.source_id;
+      p.doc_source_id === p.source_id &&
+      (p.doc_chunker_version ?? 0) >= MARKDOWN_CHUNKER_VERSION;
     if (fresh) continue;
     truthBudget--;
     result.scanned++;
