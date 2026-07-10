@@ -105,6 +105,23 @@ docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
   grant, so each reads only its own source. Confirm this is intended isolation vs
   a pending operator federate SQL (agent prod auth-writes are guardrail-blocked;
   operator runs the 1-line grant if federation is wanted).
+- **[LOW 2026-07-10, codex P2] Relative-path docs skip orphan disk-probe.**
+  `memex index foo.ts` persists the caller's relative source_path unchanged;
+  the orphans-purge disk probe now only checks absolute paths, so a vanished
+  relative-path file is never flagged. Right fix = normalize to absolute at
+  ingest (indexFile/callIndex), not in the probe. Rare (operator ingests use
+  absolute paths / schemes); do when touching the ingest path.
+- **[LOW 2026-07-10, codex P2] Legitimately-empty code files still produce
+  zero-chunk docs** (fallback requires non-blank text), so a tracked empty
+  file keeps `orphans-purge=warn` alive. Consider excluding 0-byte sources at
+  sweep time or exempting empty-content docs from the zero-chunk flag. None
+  exist on prod today.
+- **[LOW 2026-07-10, codex P2] Code sweep is not chunker-version-aware.**
+  `sweepCodeRoots` mtime-skips unchanged files, so a CODE_CHUNKER_VERSION bump
+  drains only via a manual `reindex --source code --all`. If bumps become
+  regular, teach the sweep to force files whose doc rows are version-stale
+  (listStaleChunkerDocIds ∩ walked paths, like the vault sweep's
+  forceStaleChunker).
 - **[LOW — re-scoped 2026-07-10] Typecheck debt is toolchain drift, not 2 files.**
   `bunx tsc --noEmit` now reports 56 errors across src+tests — `typescript` is
   pinned `^5.6.0` but bunx resolves 5.9.3, and `@types/bun: latest` floats

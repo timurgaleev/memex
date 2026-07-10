@@ -12,6 +12,7 @@ import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import { chunkCode, CODE_CHUNKER_VERSION } from "./chunkers/code.ts";
+import { chunkPlainText } from "./chunkers/recursive.ts";
 import { languageForFile, type CodeLanguage } from "./chunkers/parsers.ts";
 import { extractCodeEntities } from "./code-entities.ts";
 import {
@@ -129,17 +130,28 @@ export async function indexCodeDocument(
     }
   }
 
-  // Edge case: file has imports but no symbols. We still want the imports
-  // searchable, so emit a synthetic chunk covering the import-only region.
-  if (parsed.symbols.length === 0 && fileImportRefs.length > 0) {
-    chunkWrites.push({
-      text: input.text,
-      startLine: 1,
-      endLine: input.text.split(/\r?\n/).length,
-      embedding: null,
-      language, // import-only region: not a symbol, but still this language
-      entities: fileImportRefs,
-    });
+  // Fallback: a file with no extractable symbols (a barrel of re-exports, a
+  // config-only script, a DML-only SQL file) still gets plain text-window
+  // chunks so its content is searchable — the reference's chunker falls back
+  // to windowed module chunks whenever symbol extraction yields nothing, so a
+  // symbol-less file NEVER produces a zero-chunk (unretrievable) document.
+  // chunkPlainText (NOT chunkMarkdown): a markdown parse would eat a leading
+  // `--- … ---` block as YAML frontmatter — those are valid SQL comment
+  // separators. Line stamps mirror the reference's fallback: startLine 1,
+  // endLine = the window's own line count (window offsets aren't tracked).
+  // File-level imports, when present, attach to the first fallback chunk.
+  if (parsed.symbols.length === 0 && input.text.trim().length > 0) {
+    const windows = chunkPlainText(input.text);
+    for (let i = 0; i < windows.length; i++) {
+      chunkWrites.push({
+        text: windows[i]!,
+        startLine: 1,
+        endLine: windows[i]!.split(/\r?\n/).length,
+        embedding: null,
+        language, // not a symbol, but still this language
+        entities: i === 0 ? fileImportRefs : [],
+      });
+    }
   }
 
   const result = await writeDocumentTransaction(

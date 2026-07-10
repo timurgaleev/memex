@@ -136,6 +136,24 @@ describe("orphans-purge phase", () => {
     expect(flagged).not.toContain("vg1");
     expect(flagged).not.toContain("vc1");
   });
+
+  it("skips docs whose path root does not exist on this host (remote namespace)", async () => {
+    const e = storage.engine();
+    // A missing file under an EXISTING root (the OS tmpdir's top-level dir,
+    // e.g. /tmp or /var) must still be flagged — the positive path.
+    const missingLocal = `${tmpdir()}/memex-test-definitely-missing-${Date.now()}.md`;
+    await e.exec(`
+      INSERT INTO documents (id, source_path, title) VALUES
+        ('remote1', '/nonexistent-root-xyz/notes/foo.md', 'R'),
+        ('local1', '${missingLocal}', 'L');
+    `);
+    const r = await orphansPurgePhase(e);
+    const flagged = r.flagged.docs_missing_on_disk.map((d) => d.id);
+    // /nonexistent-root-xyz is absent entirely → the namespace is remote,
+    // not orphaned; the doc must not be flagged.
+    expect(flagged).not.toContain("remote1");
+    expect(flagged).toContain("local1");
+  });
 });
 
 // frontmatter inference moved to ingest (core/frontmatter-inference.ts +

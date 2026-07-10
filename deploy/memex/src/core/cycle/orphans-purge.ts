@@ -61,6 +61,8 @@ export async function orphansPurgePhase(
     `SELECT id, source_path FROM documents`,
   );
   const missing: { id: string; sourcePath: string }[] = [];
+  // Roots probed once per run: "/vault" → does /vault exist here at all?
+  const rootExists = new Map<string, boolean>();
   for (const d of allDocs.rows) {
     // Virtual documents (page:// and page-truth:// mirrors, gmail:/gcal:
     // channel items) live only in the DB — they never have a file on disk, so
@@ -69,6 +71,21 @@ export async function orphansPurgePhase(
     // the mirror-pages phase / their channel's ingest. Same latent class as
     // the v1.83.0 rechunk-sweep fix.
     if (!d.source_path.startsWith("/")) continue;
+    // Remote-ingested docs carry the CLIENT's path namespace (e.g. /vault/…
+    // from the operator's laptop) — a root that does not exist on this host
+    // says nothing about any individual doc, so skip the whole namespace.
+    // Only a file missing under a root that IS present here is a real signal.
+    // A depth-1 path (/x.md) has no namespace root; it is probed directly.
+    const parts = d.source_path.split("/");
+    if (parts.length > 2) {
+      const root = "/" + parts[1]!;
+      let ok = rootExists.get(root);
+      if (ok === undefined) {
+        ok = existsSync(root);
+        rootExists.set(root, ok);
+      }
+      if (!ok) continue;
+    }
     if (!existsSync(d.source_path)) {
       missing.push({ id: d.id, sourcePath: d.source_path });
     }

@@ -279,6 +279,27 @@ function mergeShort(chunks: string[], minChars: number): string[] {
   return out;
 }
 
+/**
+ * Plain-text window splitter: size-bounded windows over raw text with the
+ * short-tail merge, but NO frontmatter parse and NO heading sectioning. The
+ * fallback path for symbol-less CODE files goes through this — running code
+ * through `chunkMarkdown` would eat a leading `--- … ---` block as YAML
+ * frontmatter (e.g. `---` SQL comment separators) and silently drop content.
+ * Mirrors the reference chunker's raw `recursiveChunk` fallback.
+ */
+export function chunkPlainText(
+  text: string,
+  opts: ChunkerOptions = {},
+): string[] {
+  const maxChars = opts.maxChars ?? DEFAULT_MAX;
+  const minChars = opts.minChars ?? DEFAULT_MIN;
+  const pieces = splitBySize(text, maxChars).map((s) => s.trim());
+  return mergeShort(
+    pieces.filter((s) => s.length > 0),
+    minChars,
+  );
+}
+
 function findFirstH1(body: string): string | null {
   const m = body.match(/^#\s+(.+)$/m);
   return m && m[1] ? m[1].trim() : null;

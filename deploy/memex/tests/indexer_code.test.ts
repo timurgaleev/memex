@@ -61,6 +61,46 @@ export function beta() { return 2; }
     expect(emb.rows[0]?.n).toBe(0);
   });
 
+  it("a symbol-less file (re-export barrel) still gets fallback chunks", async () => {
+    // Pure re-exports: export_statement only — no function/class/method, no
+    // import_statement. Pre-fix this produced a ZERO-chunk document (dead to
+    // search, flagged by orphans-purge); the reference falls back to windowed
+    // module chunks whenever symbol extraction yields nothing.
+    const src = `export * from "./alpha.ts";
+export * from "./beta.ts";
+export { gamma } from "./gamma.ts";
+`;
+    const r = await indexCodeDocument(storage, {
+      sourcePath: "src/barrel.ts",
+      text: src,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.chunks).toBeGreaterThan(0);
+    const rows = await storage.raw().query<{ content: string }>(
+      "SELECT content FROM chunks WHERE document_id = $1 ORDER BY chunk_index",
+      [r.documentId],
+    );
+    expect(rows.rows.length).toBeGreaterThan(0);
+    expect(rows.rows[0]!.content).toContain("gamma");
+  });
+
+  it("fallback keeps content of a file whose leading --- lines look like frontmatter", async () => {
+    // `---` is a valid SQL comment/separator. A markdown-style frontmatter
+    // parse would strip everything between the first two `---` lines and
+    // silently drop the INSERT — the fallback must window RAW text.
+    const src = `---\nINSERT INTO eval_modes (name) VALUES ('conservative');\n---\n`;
+    const r = await indexCodeDocument(storage, {
+      sourcePath: "src/migrations/999_dml_only.sql",
+      text: src,
+    });
+    expect(r.chunks).toBeGreaterThan(0);
+    const rows = await storage.raw().query<{ content: string }>(
+      "SELECT content FROM chunks WHERE document_id = $1",
+      [r.documentId],
+    );
+    expect(rows.rows.map((x) => x.content).join("\n")).toContain("INSERT INTO eval_modes");
+  });
+
   it("re-indexing the same source replaces all prior chunks (idempotent)", async () => {
     const path = "src/idem.ts";
     const r1 = await indexCodeDocument(storage, {
