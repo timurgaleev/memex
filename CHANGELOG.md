@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.98.1] — 2026-07-10
+
+### Fixed
+- **`orphans-purge` no longer flags virtual documents as missing on disk.** The
+  cycle phase disk-probed every `documents.source_path`, including DB-only rows
+  (`page://` and `page-truth://` mirrors, `gmail:`/`gcal:` channel items) that
+  never have a file — so the report carried dozens of permanently-unactionable
+  entries and wasted an `existsSync` per virtual doc every tick (the tick's
+  `warn` status itself is driven by `docs_with_zero_chunks`, not this list).
+  Only absolute filesystem paths are probed now; virtual document lifecycles
+  belong to the mirror-pages phase and each channel's ingest. Same latent class
+  as the v1.83.0 rechunk-sweep `page://` fix.
+
 ## [1.98.0] — 2026-07-09
 
 ### Added

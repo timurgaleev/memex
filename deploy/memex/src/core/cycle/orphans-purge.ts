@@ -62,6 +62,13 @@ export async function orphansPurgePhase(
   );
   const missing: { id: string; sourcePath: string }[] = [];
   for (const d of allDocs.rows) {
+    // Virtual documents (page:// and page-truth:// mirrors, gmail:/gcal:
+    // channel items) live only in the DB — they never have a file on disk, so
+    // the disk-existence probe would flag every one of them forever. Only an
+    // absolute filesystem path is checkable; virtual lifecycles are owned by
+    // the mirror-pages phase / their channel's ingest. Same latent class as
+    // the v1.83.0 rechunk-sweep fix.
+    if (!d.source_path.startsWith("/")) continue;
     if (!existsSync(d.source_path)) {
       missing.push({ id: d.id, sourcePath: d.source_path });
     }

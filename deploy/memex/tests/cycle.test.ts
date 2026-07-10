@@ -119,6 +119,23 @@ describe("orphans-purge phase", () => {
       r.flagged.docs_with_zero_chunks.map((d) => d.id),
     ).toContain("empty");
   });
+
+  it("never flags virtual (non-file) documents as missing on disk", async () => {
+    const e = storage.engine();
+    await e.exec(`
+      INSERT INTO documents (id, source_path, title) VALUES
+        ('vp1', 'page://timur/notes/foo', 'P'),
+        ('vp2', 'page-truth://timur/notes/foo', 'PT'),
+        ('vg1', 'gmail:19e418cb5755fa00', 'G'),
+        ('vc1', 'gcal:someone@example.com/evt1', 'C');
+    `);
+    const r = await orphansPurgePhase(e);
+    const flagged = r.flagged.docs_missing_on_disk.map((d) => d.id);
+    expect(flagged).not.toContain("vp1");
+    expect(flagged).not.toContain("vp2");
+    expect(flagged).not.toContain("vg1");
+    expect(flagged).not.toContain("vc1");
+  });
 });
 
 // frontmatter inference moved to ingest (core/frontmatter-inference.ts +

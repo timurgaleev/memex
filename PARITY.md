@@ -602,3 +602,34 @@ reference parity (match the reference, don't deviate). The `transaction:false`
 CONCURRENTLY escape hatch stays DEFERRED — memex has no migration that uses
 CONCURRENTLY (index rebuilds run out-of-band via the `hnsw` CLI), so porting it
 would be dead code (the one adapt-to-stack exception).
+
+## 2026-07-10 — day-check + orphans-purge virtual-doc fix
+
+Daily verify: prod healthy (restarts=0, doctor 12/0+8/0, both 2026-07-09 fixes
+live-smoked), no new OOM (all dmesg events date to 2026-06-28, pre-v1.90 fix),
+prod git tags fetched (`memex version` now accurate). The 2026-07-09 CI red was
+GitHub runner-acquisition infra failure (zero jobs started) — rerun, not a code
+issue.
+
+**Fixed — `orphans-purge` flagged virtual documents as missing on disk.** The
+phase ran `existsSync()` over EVERY `documents.source_path`, including
+`page://` (28), `page-truth://` (14), `gmail:` and `gcal:` rows — DB-only
+documents that never have a file, so the report carried ~48 permanently-
+unactionable entries every tick (the tick `warn` itself comes from
+`docs_with_zero_chunks` — see below). Now only absolute filesystem paths
+(`/…`) are disk-probed; virtual lifecycles belong to the mirror-pages phase /
+channel ingest. Same latent class as the v1.83.0 rechunk-sweep `page://` fix.
+
+**Surfaced — the actual `orphans-purge=warn` driver is 5 zero-chunk legacy
+docs.** `deriveStatus` warns only on `docs_with_zero_chunks`; prod has 5:
+four `/repo-source/**/index.ts` barrels + one tiny migration SQL (ingested
+2026-06-09), files whose code-chunker legitimately yields no symbols → not
+corruption, just unretrievable dead rows. No sanctioned deletion path exists
+(`orphans` CLI reports, never mutates flagged classes — by design). Operator
+call pending: delete the 5 rows (1 SQL) or accept the standing warn. NOT a reference deviation: the reference
+has no docs-missing-on-disk scan at all (its `existsSync` calls touch only
+paths it constructs as real files, e.g. `cycle/phantom-redirect.ts:301`);
+the whole phase is a memex-specific adaptation for memex's file-ingest side,
+and the guard aligns it with the reference's own practice. The remaining
+`lint=warn` is accurate data reporting (700/712 vault docs lack `tags:`
+frontmatter) — working as intended, not code.
