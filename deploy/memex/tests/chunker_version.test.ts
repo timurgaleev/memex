@@ -13,6 +13,7 @@ import { countStaleChunkerDocs, listStaleChunkerDocIds } from "../src/core/chunk
 import { sweepVault } from "../src/core/sweep.ts";
 import { mkdtempSync as mkVault } from "node:fs";
 import { MARKDOWN_CHUNKER_VERSION } from "../src/core/chunkers/recursive.ts";
+import { CODE_CHUNKER_VERSION } from "../src/core/chunkers/code.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -78,11 +79,11 @@ describe("countStaleChunkerDocs", () => {
 
   it("branches on kind — a code doc is judged against the code namespace, not markdown", async () => {
     const e = storage.engine();
-    // A code doc at version 1 with the code current = 1 → not stale even though
-    // we lower it below the markdown current would be (same number, different axis).
+    // A code doc AT the current code version → not stale; the check judges it
+    // against the code namespace, not the markdown constant (different axis).
     await writeDocumentTransaction(
       storage,
-      { documentId: "d_code", sourcePath: "/x.ts", title: "x.ts", frontmatter: { kind: "code" }, embeddingModel: null, chunkerVersion: 1 },
+      { documentId: "d_code", sourcePath: "/x.ts", title: "x.ts", frontmatter: { kind: "code" }, embeddingModel: null, chunkerVersion: CODE_CHUNKER_VERSION },
       [{ text: "fn()", entities: [], symbolName: "fn" }],
     );
     expect(await countStaleChunkerDocs(e)).toBe(0);

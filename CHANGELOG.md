@@ -6,18 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.98.1] — 2026-07-10
+## [1.99.0] — 2026-07-10
 
 ### Fixed
-- **`orphans-purge` no longer flags virtual documents as missing on disk.** The
-  cycle phase disk-probed every `documents.source_path`, including DB-only rows
-  (`page://` and `page-truth://` mirrors, `gmail:`/`gcal:` channel items) that
-  never have a file — so the report carried dozens of permanently-unactionable
-  entries and wasted an `existsSync` per virtual doc every tick (the tick's
-  `warn` status itself is driven by `docs_with_zero_chunks`, not this list).
-  Only absolute filesystem paths are probed now; virtual document lifecycles
-  belong to the mirror-pages phase and each channel's ingest. Same latent class
-  as the v1.83.0 rechunk-sweep `page://` fix.
+- **Symbol-less code files no longer produce zero-chunk (unretrievable)
+  documents.** A file whose symbol extraction yields nothing — a re-export
+  barrel `index.ts`, a DML-only migration SQL — used to write a `documents` row
+  with no chunks: dead to search and flagged as corrupt by `orphans-purge` on
+  every cycle tick. The code indexer now falls back to plain text-window chunks
+  (reference-parity: the reference chunker's `fallbackChunks` does the same).
+  The windows are cut by a raw splitter, NOT the markdown chunker — a markdown
+  parse would eat a leading `--- … ---` block as YAML frontmatter, silently
+  dropping content from SQL files that use `---` comment separators.
+  `CODE_CHUNKER_VERSION` bumped 1→2; existing zero-chunk docs drain via
+  `reindex --source code --all` (the mtime-skipping code sweep does not force
+  on a version bump — recorded as a follow-up).
+- **`orphans-purge` no longer flags virtual or remote-namespace documents as
+  missing on disk.** The cycle phase disk-probed every `documents.source_path`:
+  DB-only rows (`page://` and `page-truth://` mirrors, `gmail:`/`gcal:` channel
+  items) and remote-ingested docs whose path namespace (e.g. `/vault/…` from
+  the operator's laptop) does not exist on the host were all permanently
+  flagged — hundreds of unactionable report entries per tick. Now only
+  absolute paths whose top-level root exists on this host are probed; a
+  missing file under a present root is still flagged (the real signal). Same
+  latent class as the v1.83.0 rechunk-sweep `page://` fix.
 
 ## [1.98.0] — 2026-07-09
 
