@@ -90,24 +90,30 @@ container healthy/running/restarts=0 (OOM resolved, cycle rss 122MB), doctor all
 green (brain 12/0, ops 7/0), migrations prod hi=94 == code 094, 0 NULL-source
 docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
 
-- **[LOW] Prod git is missing recent tags.** `memex version` reports
-  `v1.87.0-10-gcbef5e8` because the live `/opt/memex` clone lacks tags v1.88–v1.91
-  (git-describe falls back to v1.87.0); the running CODE is current (cbef5e8 =
-  v1.91.0 content). Run `git -C /opt/memex fetch --tags` on the next deploy so the
-  version string reports accurately. Cosmetic — no behavior impact.
-- **[LOW] Cycle soft warns.** The live tick reports `lint=warn` and
-  `orphans-purge=warn` (tick status=warn, all phases complete, no failure).
-  Investigate what each warns about (likely frontmatter lint findings + orphan
-  candidates) and either clear the underlying data or downgrade to informational.
+- **[DONE 2026-07-10] Prod git is missing recent tags.** `git -C /opt/memex
+  fetch --tags` run on the live host; `git describe` now reports `v1.98.0`.
+- **[DONE 2026-07-10] Cycle soft warns — investigated, one real bug fixed.**
+  `lint=warn` is accurate data reporting (700/712 vault docs lack `tags:`
+  frontmatter, 89-91 lack title/created/updated) — working as intended, the
+  warn IS the report; clear it by fixing vault frontmatter, not code.
+  `orphans-purge=warn` was a real false-positive bug: the phase disk-probed
+  EVERY `documents.source_path` including virtual rows (`page://`,
+  `page-truth://`, `gmail:`, `gcal:`) that never exist on disk → perpetual
+  flags. Fixed: only absolute paths are probed (orphans-purge.ts; see
+  PARITY.md 2026-07-10).
 - **[INFO] `source_grants=0`.** The timur/zukhra tenants hold no federated-read
   grant, so each reads only its own source. Confirm this is intended isolation vs
   a pending operator federate SQL (agent prod auth-writes are guardrail-blocked;
   operator runs the 1-line grant if federation is wanted).
-- **[LOW] Pre-existing typecheck errors in test files.** `bunx tsc --noEmit`
-  flags `tests/search_graph_signals.test.ts:214-233` (Object possibly undefined)
-  and `tests/tool_defs_contract.test.ts:21` (inputSchema unknown vs
-  Record<string,unknown>). Test-only, non-blocking (runtime + prod unaffected);
-  tighten the test types when touching those files.
+- **[LOW — re-scoped 2026-07-10] Typecheck debt is toolchain drift, not 2 files.**
+  `bunx tsc --noEmit` now reports 56 errors across src+tests — `typescript` is
+  pinned `^5.6.0` but bunx resolves 5.9.3, and `@types/bun: latest` floats
+  (Dirent<NonSharedBuffer>, `toWellFormed` wants lib es2024, ParameterOrJSON).
+  Runtime unaffected (bun strips types; CI has no tsc gate). The two
+  real-looking smells were hand-verified false alarms: `subagent_ledger.ts:225`
+  is a deliberate runtime guard against untyped callers; `jobs/dag.ts:273` is
+  index-access strictness with correct bounds. Close by pinning typescript +
+  bumping tsconfig lib to es2024 in one hygiene pass — not urgent.
 
 ---
 
