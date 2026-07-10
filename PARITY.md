@@ -639,7 +639,21 @@ normalization + empty-file rows recorded in TODO.md (codex P2s).
 **Process note (operator standing rule, 2026-07-10):** every substantive diff
 now gets an additional-LLM review (codex) before ship, on top of the repo's
 subagent reviewers. Proven immediately: codex found both P1s above that the
-first-pass reviewers missed. NOT a reference deviation: the reference
+first-pass reviewers missed.
+
+**Whole-DB audit (operator request, 2026-07-10) — 4 read-only rounds.** Core
+integrity CLEAN: 0 orphans across chunks/embeddings/mentions, 0 zero-chunk
+docs, 0 NULL search_vector, 0 dup chunk_index, uniform 1024-dim/one-model
+embeddings with full markdown coverage, 0 NULL source_id anywhere, mirrors
+consistent, 0 stuck jobs, 0 dangling links. The "189 facts + 18 timeline
+events dangling vs entities" first read was a FALSE alarm — facts/timeline key
+on page-style slugs while `entities` holds mention ids (different namespaces
+by design; reads go straight to the column). One real find fixed (v1.99.1):
+`reconcilePageMirrors` Pass 1t lacked the chunker-version arm Pass 1 has, so
+truth mirrors never re-chunked on a version bump (12 stale v1 rows). Residual
+known-cosmetic: 409 /vault + 84 gmail/gcal chunker-stale docs (sources not on
+the box, undrainable), 5 relative-path docs (TODO: normalize at ingest), 5
+expired oauth refresh-token rows. NOT a reference deviation: the reference
 has no docs-missing-on-disk scan at all (its `existsSync` calls touch only
 paths it constructs as real files, e.g. `cycle/phantom-redirect.ts:301`);
 the whole phase is a memex-specific adaptation for memex's file-ingest side,

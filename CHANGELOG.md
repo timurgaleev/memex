@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.99.1] — 2026-07-10
+
+### Fixed
+- **Compiled-truth mirrors now re-chunk on a chunker-version bump.** The
+  mirror reconcile's truth pass compared only content hash + tenant, so a
+  `MARKDOWN_CHUNKER_VERSION` bump drained `page://` body mirrors but left
+  `page-truth://` mirrors stamped at the old version forever (12 such v1
+  mirrors found by a whole-DB audit). Freshness now also requires the
+  mirror's `chunker_version` to be current, matching the body-mirror pass.
+
 ## [1.99.0] — 2026-07-10
 
 ### Fixed

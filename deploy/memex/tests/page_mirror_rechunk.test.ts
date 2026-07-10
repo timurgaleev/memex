@@ -76,6 +76,31 @@ describe("reconcilePageMirrors chunker-version staleness", () => {
     expect(await chunkerVersionOf("page://note-x")).toBe(MARKDOWN_CHUNKER_VERSION);
   });
 
+  it("re-mirrors a TRUTH mirror below the current chunker version (Pass 1t)", async () => {
+    await storage.engine().exec(
+      `INSERT INTO pages (slug, type, title, markdown_body, content_hash, source_id, compiled_truth)
+       VALUES ('note-t', 'note', 'Note T', 'Body t.', 'h3', 'default', '{"summary":"truth about t"}'::jsonb)`,
+    );
+    // First reconcile writes the truth mirror at the current version.
+    await reconcilePageMirrors(storage, { embedFn });
+    expect(await chunkerVersionOf("page-truth://note-t")).toBe(
+      MARKDOWN_CHUNKER_VERSION,
+    );
+
+    // Simulate a pre-bump truth mirror: stamp one version behind. The hash
+    // stamp is still fresh, so ONLY the version arm can trigger the re-mirror.
+    await storage
+      .engine()
+      .exec(
+        `UPDATE documents SET chunker_version = ${MARKDOWN_CHUNKER_VERSION - 1} WHERE source_path = 'page-truth://note-t'`,
+      );
+    const r = await reconcilePageMirrors(storage, { embedFn });
+    expect(r.mirrored).toBeGreaterThanOrEqual(1);
+    expect(await chunkerVersionOf("page-truth://note-t")).toBe(
+      MARKDOWN_CHUNKER_VERSION,
+    );
+  });
+
   it("leaves a current-version mirror untouched", async () => {
     await storage.engine().exec(
       `INSERT INTO pages (slug, type, title, markdown_body, content_hash, source_id)
