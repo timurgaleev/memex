@@ -23,7 +23,7 @@
 --     generation is unchanged — so a write to an UNRELATED document no longer
 --     evicts this query.
 --
--- Accepted tradeoff (faithful to the reference design): a brand-NEW document
+-- Accepted tradeoff: a brand-NEW document
 -- that would now rank into an already-cached query does NOT invalidate that
 -- row (its referenced docs are unchanged), so the cache can serve a result
 -- missing the new doc until one of its referenced docs changes or the row is

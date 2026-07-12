@@ -1,11 +1,11 @@
 -- 080_effective_date_provenance.sql — where a content date came from, plus the
--- salience-window touch stamp (reference parity: effective_date_source /
--- import_filename / salience_touched_at).
+-- salience-window touch stamp (adds effective_date_source / import_filename /
+-- salience_touched_at).
 --
 -- documents.effective_date (mig055) records WHAT the content date is but not
 -- WHERE it came from, so a doctor effective_date_health check cannot tell
 -- "parsed from frontmatter" apart from "guessed off the filename" apart from
--- "no date at all (fallback to updated_at)". The reference stores a sentinel:
+-- "no date at all (fallback to updated_at)". memex stores a sentinel:
 --   'date' | 'event_date' | 'published'  — the winning frontmatter key
 --   'filename'                           — YYYY-MM-DD parsed from the path
 --   'fallback'                           — nothing parsed; COALESCE uses

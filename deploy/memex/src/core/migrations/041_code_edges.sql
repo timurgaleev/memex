@@ -6,7 +6,7 @@
 -- whose targets are resolved to a SPECIFIC defining chunk by the
 -- `resolve-symbol-edges` cycle phase, disambiguating within a document.
 --
--- Design mirrors the reference: one unresolved table; resolution writes the
+-- Design: one unresolved table; resolution writes the
 -- defining chunk id into edge_metadata.resolved_chunk_id (or marks ambiguous),
 -- rather than promoting rows between tables.
 
@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS chunks_edges_backfill_idx
 
 -- Unresolved code edges. `to_chunk_id` is filled by the resolution phase into
 -- edge_metadata.resolved_chunk_id (JSONB) — no row promotion, no typed
--- to_chunk_id column (faithful to the reference).
+-- to_chunk_id column.
 CREATE TABLE IF NOT EXISTS code_edges_symbol (
   id                    SERIAL PRIMARY KEY,
   from_chunk_id         TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,

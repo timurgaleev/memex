@@ -1,24 +1,22 @@
 -- 079_timeline_dedup_detail.sql — manual-write dedup + summary/detail split
--- for timeline_events (reference parity: idx_timeline_dedup + source label).
+-- for timeline_events (adds a manual-write dedup index + source label).
 --
 -- The mig017 dedup key (slug, occurred_at, source_chunk_id) is PARTIAL —
 -- `WHERE source_chunk_id IS NOT NULL` — so manual/API writes (no chunk id)
 -- have NO dedup at all: an agent that retries `timeline_add`, or two recipes
 -- emitting the same event without chunk provenance, duplicate rows forever.
--- The reference's idx_timeline_dedup is unconditional over
--- (page, date, summary, source). memex keeps the chunk-keyed index for
--- chunk-sourced rows (a chunk id is a stronger identity than wording) and
--- adds the reference-shaped key for the NULL-chunk rows.
+-- memex keeps the chunk-keyed index for chunk-sourced rows (a chunk id is a
+-- stronger identity than wording) and adds an unconditional key over
+-- (page, date, summary, source) for the NULL-chunk rows.
 --
 -- New columns (both NOT NULL DEFAULT '' so legacy rows keep behavior):
---   - detail       — the reference's summary/detail split: `event` stays the
---                    one-line summary; `detail` carries the longer narrative.
---   - source_label — the reference's `source` provenance label ('granola',
+--   - detail       — summary/detail split: `event` stays the one-line
+--                    summary; `detail` carries the longer narrative.
+--   - source_label — a `source` provenance label ('granola',
 --                    'manual', an importer name). Named source_label because
 --                    memex already uses source_id for the tenant axis and
 --                    source_chunk_id for chunk provenance. Part of the dedup
---                    key so distinct provenance survives (the reference
---                    widened its key for exactly this).
+--                    key so distinct provenance survives.
 --
 -- Pre-clean: existing manual duplicates (same slug/time/wording/label/tenant)
 -- collapse to the OLDEST row (lowest id) — append-only ledger, first write is

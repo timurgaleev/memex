@@ -1,11 +1,11 @@
 -- 089: search_telemetry — per-day (date, mode, intent) search rollup.
 --
--- Reference-parity observability substrate for `memex search stats|tune`:
+-- Observability substrate for `memex search stats|tune`:
 -- rows are SUMS + COUNTS only, never averages — read-time derives averages, so
 -- concurrent ON CONFLICT adds from multiple processes accumulate correctly.
 -- PK (date, mode, intent) bounds growth to ~4–5K rows/year.
 --
--- rank-1 drift columns (the reference's follow-up wave, folded in here since
+-- rank-1 drift columns (a follow-up wave, folded in here since
 -- both land together): sum/count of the top hit's fused score plus three
 -- coarse bands derived from the evidence class (memex has no calibrated 0..1
 -- cosine base_score — see core/search/telemetry.ts for the band mapping).

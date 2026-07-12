@@ -1,15 +1,14 @@
--- 078_raw_data_unique.sql — upsert key for the raw-data sidecar (reference
--- parity: UNIQUE(page, source)).
+-- 078_raw_data_unique.sql — upsert key for the raw-data sidecar
+-- (UNIQUE(page, source)).
 --
 -- raw_data (mig023) was laid down as a passive store with no constraint, so a
 -- writer re-fetching the same API payload for the same page appends forever —
--- and there is no conflict target for an upsert. The reference keys the
--- sidecar UNIQUE(page_id, source) and REPLACES the payload on re-put; memex's
--- analog is (slug, source).
+-- and there is no conflict target for an upsert. The sidecar is keyed
+-- UNIQUE(slug, source) and REPLACES the payload on re-put.
 --
 -- Pre-clean: the table had no constraint, so duplicates may exist. The row
 -- kept is the NEWEST (highest id) — a raw sidecar is a cache of the latest
--- fetched payload, not a history (the reference's upsert has the same
+-- fetched payload, not a history (the upsert has the same
 -- newest-wins semantics). Older duplicates carry no product data that the
 -- newest row doesn't supersede.
 

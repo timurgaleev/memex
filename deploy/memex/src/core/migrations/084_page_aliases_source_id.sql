@@ -1,5 +1,5 @@
 -- 084_page_aliases_source_id.sql — tenant-scope the declared free-text alias
--- index (reference parity: page_aliases carries its own source_id).
+-- index (adds page_aliases.source_id).
 --
 -- WHY: page_aliases (mig034) is keyed (alias_norm, slug) with NO tenancy
 -- column. Scoped resolution today rides a JOIN onto pages.source_id, which
@@ -15,10 +15,9 @@
 -- back to 'default'. NOT NULL DEFAULT 'default' matches the mig047 idiom.
 --
 -- Key widening: PK (alias_norm, slug) → (alias_norm, source_id, slug).
--- alias_norm stays the LEADING column (memex deviation from the reference's
--- (source_id, alias_norm, slug) order) because memex resolvers look up by
--- alias first and are only sometimes scoped — a leading alias_norm serves
--- both the scoped and the unscoped (operator, whole-brain) probe. Appending
+-- alias_norm stays the LEADING column (deliberate) because memex resolvers
+-- look up by alias first and are only sometimes scoped — a leading alias_norm
+-- serves both the scoped and the unscoped (operator, whole-brain) probe. Appending
 -- columns to a key that was already unique cannot introduce duplicates, so
 -- the swap is collision-safe on live data.
 

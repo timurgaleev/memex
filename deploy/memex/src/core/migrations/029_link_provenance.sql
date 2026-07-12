@@ -9,8 +9,8 @@
 --   * context        — NOT NULL DEFAULT '' (a missing window is '', never NULL)
 --   * link_kind      — CHECK plain | typed_ner (NULL = pre-provenance edge)
 --   * resolution_type— CHECK qualified | unqualified
---   * origin_page_id — RENAMED to origin_slug. 024 mis-named it after the
---                      reference's integer page id, but this brain is
+--   * origin_page_id — RENAMED to origin_slug. 024 mis-named it after an
+--                      integer page id, but this brain is
 --                      slug-keyed (pages PK is the slug, like
 --                      source_slug/target_slug). The column is an unused stub
 --                      (all NULL on live), so the rename is metadata-only.

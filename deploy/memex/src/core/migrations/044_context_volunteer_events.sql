@@ -1,6 +1,6 @@
 -- 044_context_volunteer_events.sql — push-based context feedback log.
 --
--- Wave-3 (reference parity): the brain VOLUNTEERS relevant pages from a
+-- Wave-3: the brain VOLUNTEERS relevant pages from a
 -- rolling conversation window (the volunteer_context op + `memex watch`)
 -- instead of waiting to be asked. One row per page volunteered, written
 -- fire-and-forget so logging can never fail the read.
@@ -17,9 +17,9 @@
 -- entity's surface form (which by construction resolved to an existing
 -- alias/title/slug) — never free conversation text.
 --
--- memex adaptation vs the reference: memex is a SINGLE-source flat vault, so
--- there is no `source_id` page scoping. The column is retained (nullable) to
--- keep the row shape parity-compatible, but every memex write leaves it NULL.
+-- memex is a SINGLE-source flat vault, so there is no `source_id` page
+-- scoping. The column is retained (nullable) to keep the row shape stable,
+-- but every memex write leaves it NULL.
 
 CREATE TABLE IF NOT EXISTS context_volunteer_events (
   id              BIGSERIAL PRIMARY KEY,

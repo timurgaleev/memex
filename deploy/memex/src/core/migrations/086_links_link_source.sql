@@ -1,23 +1,22 @@
 -- 086_links_link_source.sql — per-edge writer provenance + widened unique key
--- (reference parity: links.link_source).
+-- (adds links.link_source).
 --
 -- WHY: the mig059 unique key (source_slug, target_slug, type, source_id) makes
 -- edges from DIFFERENT writers collide on the same triple — a manual `link`
 -- call, a frontmatter typed edge, and a body-mention edge all fight over one
 -- row (today the collision is resolved by ON CONFLICT DO NOTHING /
--- last-writer-wins on confidence). The reference keeps them as separate rows
--- keyed by `link_source`, so each writer owns — and can sweep — its own edge
+-- last-writer-wins on confidence). Keeping them as separate rows
+-- keyed by `link_source` lets each writer own — and sweep — its own edge
 -- set, and ranking can exclude auto-mention edges by provenance rather than by
 -- the `type='mentions'` proxy (which misses verb-derived typed mentions).
 --
--- Values (mirroring the reference's vocabulary):
+-- Values:
 --   manual      — explicit addLink / MCP `link` call
 --   markdown    — body-derived: wikilink scanner, markdown links, doc→code refs
 --   frontmatter — typed edges projected from compiled_truth fields
 --   mentions    — auto-linked body-text mentions (gazetteer) AND verb-inferred
---                 typed edges (the reference files verb edges under 'mentions'
---                 with a distinguishing link_kind; memex keeps link_kind
---                 'verb_ner' for that)
+--                 typed edges (verb edges file under 'mentions' with a
+--                 distinguishing link_kind 'verb_ner')
 --
 -- Backfill maps each existing row to its writer via link_kind/type — the
 -- writers stamp those deterministically, so provenance is fully recoverable:
@@ -27,10 +26,9 @@
 --   plain (rest)              → markdown   (wikilink / markdown / code-ref sync)
 --   everything else           → manual     (explicit calls, pre-provenance rows)
 --
--- MEMEX ADAPTATION: the reference's key is UNIQUE NULLS NOT DISTINCT with a
--- nullable link_source; memex makes the column NOT NULL DEFAULT 'manual'
--- instead, which yields identical collision semantics on a plain UNIQUE
--- without requiring PG15's NULLS NOT DISTINCT on both engines.
+-- memex makes the column NOT NULL DEFAULT 'manual', which yields clean
+-- collision semantics on a plain UNIQUE without requiring PG15's NULLS NOT
+-- DISTINCT on both engines.
 --
 -- Collision safety: the old key was unique; appending a deterministic
 -- backfilled column cannot introduce duplicates, so the widened constraint
@@ -53,7 +51,7 @@ UPDATE links SET link_source = 'manual' WHERE link_source IS NULL;
 ALTER TABLE links ALTER COLUMN link_source SET DEFAULT 'manual';
 ALTER TABLE links ALTER COLUMN link_source SET NOT NULL;
 
--- Same kebab-case + length guard the reference enforces on the column.
+-- Kebab-case + length guard enforced on the column.
 DO $$
 BEGIN
   IF NOT EXISTS (

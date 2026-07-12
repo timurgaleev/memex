@@ -24,7 +24,7 @@
 -- NOTHING). Bumping a prompt version invalidates a key cleanly.
 --
 -- Single-source brain: memex is a flat vault, so there is no `source_id`
--- scoping here (unlike the reference's federated brains). `source_ref` holds
+-- scoping here (no federated brains). `source_ref` holds
 -- the document id / page slug the atom came from.
 
 -- ---------------------------------------------------------------------------

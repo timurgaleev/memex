@@ -1,4 +1,4 @@
--- 091: holder column on synth_takes — who HOLDS the belief (reference parity).
+-- 091: holder column on synth_takes — who HOLDS the belief.
 --
 -- Migration 072 shipped the per-token `permissions.takes_holders` allow-list
 -- knob (default ['world']) but nothing filtered by it: the column it gates
@@ -19,9 +19,8 @@
 -- stay 'world' (they are the brain's consensus CANDIDATES, surfaced for the
 -- human to grade), and only fence-authored takes the operator marks otherwise
 -- carry a non-world holder — the genuinely-private rows the floor must gate.
--- This is a memex-specific backfill choice, not a divergence from a reference
--- step (the reference authored takes with explicit holders from day one and
--- never backfilled machine takes).
+-- This is a deliberate memex-specific backfill choice for takes that predate
+-- the holder column.
 
 ALTER TABLE synth_takes
   ADD COLUMN IF NOT EXISTS holder TEXT NOT NULL DEFAULT 'world';

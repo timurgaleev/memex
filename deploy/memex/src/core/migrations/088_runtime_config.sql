@@ -1,8 +1,8 @@
 -- 088: runtime_config — DB-plane knob overrides (`memex config set|get|unset`).
 --
--- The reference keeps a config table the engine merges at connect time so an
+-- A config table lets the engine merge overrides at connect time so an
 -- operator can mutate ranking/behavior knobs without a redeploy. memex's knobs
--- are MEMEX_* env vars, so the adaptation stores env-shaped keys here and
+-- are MEMEX_* env vars, so this stores env-shaped keys here and
 -- Storage.init() overlays them onto process.env for keys the real environment
 -- did NOT set — container env always wins, the DB plane fills the gaps. This
 -- is also the substrate `memex search tune --apply` writes through.

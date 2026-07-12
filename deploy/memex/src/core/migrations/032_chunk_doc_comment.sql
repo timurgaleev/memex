@@ -17,10 +17,9 @@
 --
 -- Config stays 'simple' to match the existing keyword read path
 -- (plainto_tsquery('simple', …)) — so the matched SET for markdown is
--- identical and only code-chunk weighting changes. (The reference uses
--- 'english'; memex deliberately keeps 'simple' for tokenization parity with
--- migrations 001/030 — switching stemming/stopwords is a separate recall
--- change, out of scope here.)
+-- identical and only code-chunk weighting changes. (memex deliberately keeps
+-- 'simple' for consistent tokenization with migrations 001/030 — switching
+-- stemming/stopwords is a separate recall change, out of scope here.)
 --
 -- Mechanism mirrors 030: a BEFORE trigger (not a generated column —
 -- array_to_string over parent_symbol_path is not IMMUTABLE). CREATE OR REPLACE

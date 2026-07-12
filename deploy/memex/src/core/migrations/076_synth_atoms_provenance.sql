@@ -1,8 +1,8 @@
--- 076: restore the atom provenance fields the reference extracts.
+-- 076: restore the atom provenance fields on synth_atoms.
 --
--- The reference's atom extractor captures a verbatim `source_quote` (<=200
+-- The atom extractor should capture a verbatim `source_quote` (<=200
 -- chars, the exact line the atom was distilled from) and a one-sentence
--- `lesson` alongside title/body. memex's port dropped both; this adds the
+-- `lesson` alongside title/body. An earlier version dropped both; this adds the
 -- columns so extract-atoms can persist them (and surface them on the atom's
 -- page mirror). Nullable — pre-076 atoms simply predate the fields.
 --

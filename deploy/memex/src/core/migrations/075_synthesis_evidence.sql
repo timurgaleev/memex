@@ -2,10 +2,9 @@
 --
 -- `think --save` (and any caller of persistThinkSynthesis) writes the synthesis
 -- as a real `synthesis/<slug>` page; this table records WHICH evidence the
--- answer rested on, one row per validated citation. Unlike the reference's
--- take-FK shape (its citations key on pages(id) + takes(page_id,row_num)),
--- memex citations are a page source path OR a synth_takes take_key — both TEXT
--- refs — so the table stores the ref + kind directly. No FK: a cited page path
+-- answer rested on, one row per validated citation. memex citations are a page
+-- source path OR a synth_takes take_key — both TEXT refs — so the table stores
+-- the ref + kind directly. No FK: a cited page path
 -- may belong to the documents mirror rather than the pages graph, and a pruned
 -- take must not cascade away the synthesis's provenance record.
 --
