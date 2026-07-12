@@ -257,17 +257,28 @@ export interface OAuthProviderOptions {
   tokenTtl?: number;
   /** Default refresh-token TTL in seconds (default: 30 days). */
   refreshTtl?: number;
+  /**
+   * Allow a self-registered (DCR) client to request the `client_credentials`
+   * grant. Off by default: a self-registered client gets the consent-bearing
+   * `authorization_code` grant, so an unauthenticated /register caller can
+   * never mint a token that skips the /authorize step. Operators open the
+   * machine-to-machine path with `MEMEX_ENABLE_DCR_INSECURE=1`. The trusted
+   * CLI path (registerClientManual) is unaffected.
+   */
+  allowClientCredentialsDcr?: boolean;
 }
 
 export class OAuthProvider {
   private engine: Engine;
   private tokenTtl: number;
   private refreshTtl: number;
+  private allowClientCredentialsDcr: boolean;
 
   constructor(options: OAuthProviderOptions) {
     this.engine = options.engine;
     this.tokenTtl = options.tokenTtl || 3600;
     this.refreshTtl = options.refreshTtl || 30 * 24 * 3600;
+    this.allowClientCredentialsDcr = options.allowClientCredentialsDcr ?? false;
   }
 
   private async rows<T = Record<string, unknown>>(
@@ -345,6 +356,30 @@ export class OAuthProvider {
       client.token_endpoint_auth_method,
     );
 
+    // A self-registered client defaults to the consent-bearing
+    // authorization_code grant. client_credentials mints a token WITHOUT the
+    // /authorize step, so an unauthenticated /register caller must not obtain
+    // it unless the operator has explicitly opened machine-to-machine
+    // self-registration. NOTE: this message must stay free of "redirect_uri" so
+    // the /register handler maps it to invalid_client_metadata, not
+    // invalid_redirect_uri.
+    const grantTypes =
+      client.grant_types && client.grant_types.length > 0
+        ? client.grant_types
+        : ["authorization_code"];
+    if (
+      !this.allowClientCredentialsDcr &&
+      grantTypes.includes("client_credentials")
+    ) {
+      throw new Error(
+        "self-registered clients receive the authorization_code grant; the " +
+          "client_credentials grant is not available through dynamic " +
+          "registration. Set MEMEX_ENABLE_DCR_INSECURE=1 to allow " +
+          "machine-to-machine self-registration, or register a trusted client " +
+          "with `memex auth register-client`.",
+      );
+    }
+
     const clientId = generateToken("memex_cl_");
     // Public clients (auth method 'none') authenticate via PKCE alone — the
     // server must NOT issue a secret for them (RFC 7591 §2). Confidential
@@ -369,7 +404,7 @@ export class OAuthProvider {
         secretHash,
         client.client_name || "unnamed",
         (client.redirect_uris || []).map(String),
-        client.grant_types || ["client_credentials"],
+        grantTypes,
         clampedScope,
         authMethod,
         now,
@@ -382,7 +417,7 @@ export class OAuthProvider {
       client_id: clientId,
       client_name: client.client_name || "unnamed",
       redirect_uris: (client.redirect_uris || []).map(String),
-      grant_types: client.grant_types || ["client_credentials"],
+      grant_types: grantTypes,
       scope: clampedScope || undefined,
       token_endpoint_auth_method: authMethod,
       client_id_issued_at: now,

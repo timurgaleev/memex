@@ -173,9 +173,51 @@ export function startServer(opts: ServerOptions): ServerHandle {
   // discovery doc omits registration_endpoint, so the ONLY way a client exists is
   // an operator creating it via `memex auth register-client` — nobody can
   // self-register a client over the network. Enable with MEMEX_ENABLE_DCR=1.
+  // MEMEX_ENABLE_DCR_INSECURE additionally lets a self-registered client request
+  // the client_credentials grant, which mints a token WITHOUT the /authorize
+  // consent step. It implies DCR (there is nothing to loosen otherwise).
+  const dcrInsecure =
+    ((process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true");
   const dcrEnabled =
-    ((process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
-      (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "true");
+    dcrInsecure ||
+    (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
+    (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "true";
+  // A self-registered (DCR) client that completes the authorization_code flow
+  // still receives a real, default-tenant token. That grant only carries
+  // operator consent when /authorize is gated on a logged-in operator — i.e.
+  // MEMEX_OAUTH_REQUIRE_LOGIN=1 AND an admin mechanism is configured. When
+  // /authorize auto-approves, an unauthenticated caller can register + run PKCE
+  // + walk away with read/write on the default tenant, no operator in the loop.
+  // Fail closed: refuse to boot with DCR on and consent off unless the operator
+  // has explicitly acknowledged the machine-to-machine posture.
+  const authorizeAutoApproves = !(oauthRequireLogin && adminAuth);
+  if (dcrEnabled && authorizeAutoApproves && !dcrInsecure) {
+    throw new Error(
+      "MEMEX_ENABLE_DCR is set but /authorize auto-approves, so a self-" +
+        "registered client would obtain a token with no operator consent. " +
+        "Set MEMEX_OAUTH_REQUIRE_LOGIN=1 (with MEMEX_ADMIN_BOOTSTRAP) to gate " +
+        "/authorize on a logged-in operator, or set MEMEX_ENABLE_DCR_INSECURE=1 " +
+        "to accept unauthenticated self-registration.",
+    );
+  }
+  if (dcrEnabled) {
+    console.error(
+      "[memex] WARNING: Dynamic Client Registration is ON — any network " +
+        "caller can self-register an OAuth client via POST /register. " +
+        "Self-registered clients get the authorization_code grant; that grant " +
+        "carries operator consent only while MEMEX_OAUTH_REQUIRE_LOGIN=1 gates " +
+        "/authorize on a logged-in operator.",
+    );
+  }
+  if (dcrInsecure) {
+    console.error(
+      "[memex] WARNING: MEMEX_ENABLE_DCR_INSECURE is ON — self-registered " +
+        "clients may request the client_credentials grant, and /authorize " +
+        "consent is not required, so an unauthenticated caller can obtain a " +
+        "default-tenant token with no operator in the loop.",
+    );
+  }
   const internalAuthOpts: { internalToken?: string } = {};
   if (opts.internalToken) {
     internalAuthOpts.internalToken = opts.internalToken;
