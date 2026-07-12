@@ -18,7 +18,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
-import { withInflightCap } from "./gateway.ts";
+import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
 
 /** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
  *  invokable in eu-west-1 (no version suffix). Override via MEMEX_FACTS_MODEL
@@ -57,7 +57,7 @@ function client(region: string): BedrockRuntimeClient {
       maxAttempts: 4,
       retryMode: "adaptive",
       requestHandler: new NodeHttpHandler({
-        requestTimeout: Number(process.env.MEMEX_LLM_TIMEOUT_MS ?? 30000),
+        requestTimeout: llmRequestTimeoutMs(),
       }),
     });
     _clients.set(region, c);
@@ -89,7 +89,7 @@ export async function callSonnet(
   input: SonnetCallInput,
   opts: CallSonnetOptions = {},
 ): Promise<SonnetCallResult> {
-  const region = opts.region ?? process.env["AWS_REGION"] ?? "eu-west-1";
+  const region = opts.region ?? awsRegion();
   const modelId = resolveFactsModel(opts.modelId);
   const c = client(region);
   const resp = await withInflightCap(() =>

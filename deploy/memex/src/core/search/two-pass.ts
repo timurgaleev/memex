@@ -21,6 +21,7 @@ import {
   logRerankFailure,
   type RerankFailureReason,
 } from "./rerank-audit.ts";
+import { awsRegion } from "../llm/gateway.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -67,7 +68,7 @@ export async function rerank<T extends ChunkPayloadForRerank>(
   });
   const userMessage = `QUERY: ${query}\n\nCANDIDATES:\n${items.join("\n")}`;
 
-  const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
+  const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const timeoutMs = opts.timeoutMs ?? rerankTimeoutMs();
   const c = client(region);

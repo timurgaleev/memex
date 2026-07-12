@@ -24,6 +24,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { classifyQueryTaxonomy } from "./query-intent.ts";
+import { awsRegion } from "../llm/gateway.ts";
 
 export type Intent = "factual" | "topic" | "howto" | "personal" | "exact";
 
@@ -84,7 +85,7 @@ export async function classifyIntent(
     return taxonomyToIntent(trimmed);
   }
 
-  const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
+  const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const c = client(region);
   try {

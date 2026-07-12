@@ -10,23 +10,31 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { awsRegion } from "./llm/gateway.ts";
 
 /** Canonical Titan v2 model id — the default for `embedText` and the model
  *  recorded by the embedding backfill, so the two never drift apart. */
 export const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
 
-/** Titan v2's native output width and the brain's stored `vector(N)` column
- *  width. The provider/model swap (a higher-dim embedder + full re-embed +
- *  column migration) is gated; until then this stays 1024. Surfaced as config
- *  so a future swap is an env change here, not a hunt for hardcoded literals —
- *  the swap must move this default AND the `vector(...)` column width together. */
-const FALLBACK_DIMENSIONS = 1024;
+/** Width of the stored `vector(N)` column in every embeddings table — a fixed
+ *  literal in the schema (migrations/001_initial.sql plus 038/063/065), NOT
+ *  templated from config. Titan v2 can emit 256/512/1024, but only 1024 fits
+ *  this column, so any other width would boot fine and then fail on the first
+ *  DB insert. A provider/model swap to a different width edits THIS constant,
+ *  `DEFAULT_MODEL_ID`, and the `vector(...)` column migrations together. */
+const STORED_VECTOR_DIM = 1024;
+
+/** The width used when `MEMEX_EMBED_DIM` is unset — the stored column width. */
+const FALLBACK_DIMENSIONS = STORED_VECTOR_DIM;
 
 /** Resolve the embedding width from `MEMEX_EMBED_DIM` (fail-loud) or the
- *  Titan-v2 default. Validated once at module load so a bad env fails the
- *  process, not a silent wrong-width vector deep in the index path. */
+ *  stored-column default. Validated once at module load so a bad env fails the
+ *  process, not a silent wrong-width vector deep in the index path. For the
+ *  default model the width MUST match the fixed `vector(N)` column; a future
+ *  embedder passed explicitly is left to its own coordinated schema swap. */
 export function resolveEmbedDimensions(
   raw: string | undefined = process.env.MEMEX_EMBED_DIM,
+  modelId: string = DEFAULT_MODEL_ID,
 ): number {
   if (raw === undefined || raw.trim() === "") return FALLBACK_DIMENSIONS;
   const n = Number(raw);
@@ -35,11 +43,18 @@ export function resolveEmbedDimensions(
       `MEMEX_EMBED_DIM must be a positive integer, got: ${JSON.stringify(raw)}`,
     );
   }
+  if (modelId === DEFAULT_MODEL_ID && n !== STORED_VECTOR_DIM) {
+    throw new Error(
+      `MEMEX_EMBED_DIM=${n} does not match the stored vector(${STORED_VECTOR_DIM}) ` +
+        `column (migrations/001_initial.sql) — a different width needs a schema ` +
+        `migration widening the embeddings vector columns first, else every insert fails.`,
+    );
+  }
   return n;
 }
 
 export const EMBED_DIMENSIONS = resolveEmbedDimensions();
-const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
+const DEFAULT_REGION = awsRegion();
 
 /** Provider tag folded into the embedding signature. Titan is served through
  *  Bedrock; a future provider swap changes this AND the model id together. */

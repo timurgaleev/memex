@@ -19,6 +19,7 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { awsRegion } from "../llm/gateway.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -108,7 +109,7 @@ export async function expandQuery(
   }
   const max = opts.max ?? 3;
 
-  const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
+  const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const c = client(region);
   try {
