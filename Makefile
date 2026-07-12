@@ -31,7 +31,8 @@ audit: ## Fail if any PII pattern matches a git-tracked file
 scrub-audit: ## Broader pre-publication audit — categorised report, fails on HIGH hits
 	@bash scripts/scrub-audit.sh
 
-test: ## Run bash unit tests under tests/*.test.sh
+test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
+	@bash scripts/check-search-path.sh
 	@status=0; \
 	for f in tests/*.test.sh; do \
 	  [ -e "$$f" ] || { echo "(no bash tests found)"; break; }; \
