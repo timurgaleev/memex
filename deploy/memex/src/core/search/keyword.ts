@@ -46,7 +46,7 @@ export interface KeywordSearchOptions {
    */
   maxPool?: boolean;
   /**
-   * Curation prefix boost inside the arm SQL (reference parity): multiply the
+   * Curation prefix boost inside the arm SQL: multiply the
    * FTS rank by the per-prefix authority factor BEFORE the LIMIT cut, so a
    * curated page's chunk survives the fanout over bulk-feed noise. The caller
    * (hybrid.ts) disables it for temporal queries — freshness queries must not

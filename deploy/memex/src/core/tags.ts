@@ -53,8 +53,8 @@ async function pageExists(storage: Storage, slug: string): Promise<boolean> {
 
 /**
  * Tag a page. Idempotent: re-adding an existing tag is a no-op. Throws when
- * the page does not exist (or is soft-deleted) — the same fail-fast contract
- * the reference implementation uses, so a caller never plants an orphan tag.
+ * the page does not exist (or is soft-deleted) — fail-fast, so a caller never
+ * plants an orphan tag.
  */
 export async function addTag(
   storage: Storage,

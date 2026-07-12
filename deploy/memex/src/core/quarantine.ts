@@ -1,6 +1,6 @@
 /**
  * Quarantine — a frontmatter marker (no DB column) that hides a document from
- * search without deleting it. Faithful port of the reference's two-tier model:
+ * search without deleting it. Two-tier model:
  *
  *   * `quarantine`   — HIDE: high-confidence junk; excluded from search.
  *   * `content_flag` — WARN: stays searchable; surfaced to the reader, no SQL

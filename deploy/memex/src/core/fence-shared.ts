@@ -9,8 +9,8 @@
  * fence; the domain-specific column parsing lives in each fence's own module
  * (today: `facts-fence.ts`).
  *
- * Ported faithfully from the reference's `fence-shared.ts` — these primitives
- * are model-agnostic, so they carry over verbatim.
+ * These primitives are model-agnostic — pure row-shape parsing, no domain
+ * coupling.
  */
 
 /**
@@ -20,10 +20,9 @@
  *
  * Splits on UNESCAPED pipes only and unescapes `\|` → `|`, so it is the exact
  * inverse of `escapeFenceCell`: a cell whose text contains a literal `|`
- * survives the round-trip intact instead of fracturing the row. (The reference
- * left pipe round-tripping as a "separate concern"; making the pair symmetric
- * here is a small correctness improvement — escaping on write is otherwise
- * pointless if the read splits on the escaped pipe anyway.)
+ * survives the round-trip intact instead of fracturing the row. (Making the
+ * read/write pair symmetric is a small correctness improvement — escaping on
+ * write is otherwise pointless if the read splits on the escaped pipe anyway.)
  */
 export function parseRowCells(line: string): string[] | null {
   const trimmed = line.trim();

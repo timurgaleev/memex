@@ -74,13 +74,12 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
 ]);
 
 // Constructive knowledge-writes the public/authenticated ingress MAY perform
-// when MEMEX_PUBLIC_WRITE=1. Mirrors the reference's remote-write surface:
-// remote callers can ADD knowledge (pages, facts, links, tags), but the
-// destructive ops (page_delete/restore/revert, unlink, remove_tag,
-// purge_deleted_pages, forget_fact) stay local-only — the reference keeps hard
-// deletes "Local CLI only (not exposed over HTTP MCP)" too. These appear in the
-// public tools/list and are reachable ONLY while the flag is on; with the flag
-// off they are forbidden exactly as before.
+// when MEMEX_PUBLIC_WRITE=1. Remote callers can ADD knowledge (pages, facts,
+// links, tags), but the destructive ops (page_delete/restore/revert, unlink,
+// remove_tag, purge_deleted_pages, forget_fact) stay local-only — hard deletes
+// are CLI-only, never exposed over HTTP MCP. These appear in the public
+// tools/list and are reachable ONLY while the flag is on; with the flag off
+// they are forbidden exactly as before.
 const PUBLIC_WRITE_TOOLS: ReadonlySet<string> = new Set([
   "index",
   "page_put",
@@ -179,11 +178,11 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "get_raw_data",
   "retry_job",
   "get_job_progress",
-  // Job-queue reads + whole-brain counts expose operational state (the reference
-  // marks get_stats / get_job / list_jobs / job_logs `admin`). They previously
+  // Job-queue reads + whole-brain counts expose operational state (get_stats /
+  // get_job / list_jobs / job_logs are admin-tier). They previously
   // relied on OPERATOR_ONLY_TOOLS, which only gates OAuth-tenant callers
   // (authInfo present) — the static public bearer is authInfo===undefined, so
-  // only this denylist covers it. Match the reference: forbid from public.
+  // only this denylist covers it: forbid from public.
   "jobs_list",
   "jobs_get",
   "jobs_logs",

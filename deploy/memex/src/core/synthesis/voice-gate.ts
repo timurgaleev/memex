@@ -1,7 +1,7 @@
 /**
- * Voice gate — one function, multiple calibration UX surfaces (adapted from
- * the reference's single-gate design: mode-specific tuning lives in the rubric
- * the gate ships to its Haiku judge, never in forked gate implementations).
+ * Voice gate — one function, multiple calibration UX surfaces. A single gate:
+ * mode-specific tuning lives in the rubric the gate ships to its Haiku judge,
+ * never in forked gate implementations.
  *
  * A surface that wants to show LLM-generated voice to the user runs its
  * candidate through the gate: a small Haiku judge classifies it as

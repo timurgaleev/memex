@@ -132,12 +132,12 @@ export async function indexCodeDocument(
 
   // Fallback: a file with no extractable symbols (a barrel of re-exports, a
   // config-only script, a DML-only SQL file) still gets plain text-window
-  // chunks so its content is searchable — the reference's chunker falls back
-  // to windowed module chunks whenever symbol extraction yields nothing, so a
-  // symbol-less file NEVER produces a zero-chunk (unretrievable) document.
+  // chunks so its content is searchable — windowed module chunks whenever
+  // symbol extraction yields nothing, so a symbol-less file NEVER produces a
+  // zero-chunk (unretrievable) document.
   // chunkPlainText (NOT chunkMarkdown): a markdown parse would eat a leading
   // `--- … ---` block as YAML frontmatter — those are valid SQL comment
-  // separators. Line stamps mirror the reference's fallback: startLine 1,
+  // separators. Line stamps for the fallback: startLine 1,
   // endLine = the window's own line count (window offsets aren't tracked).
   // File-level imports, when present, attach to the first fallback chunk.
   if (parsed.symbols.length === 0 && input.text.trim().length > 0) {

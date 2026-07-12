@@ -1,7 +1,7 @@
 /**
  * `memex auth <subcommand>` — manage the self-issued OAuth 2.1 provider
- * (client_credentials). The reference-faithful auth surface: register a client,
- * mint a token, present it as `Authorization: Bearer memex_at_…` on `/mcp`.
+ * (client_credentials). The auth surface: register a client, mint a token,
+ * present it as `Authorization: Bearer memex_at_…` on `/mcp`.
  *
  * Subcommands:
  *   register-client <name> [--grant-types G] [--scopes S] [--source SRC]
@@ -104,8 +104,8 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
   // finally makes it reachable from the CLI. Omitted → provider default.
   const tokenEndpointAuthMethod = flags["token-endpoint-auth-method"];
   // A client with a redirect_uri is an authorization-code (browser) client, so
-  // default its grants accordingly when the operator didn't say otherwise —
-  // mirrors the reference. Without a redirect_uri, default to client_credentials.
+  // default its grants accordingly when the operator didn't say otherwise.
+  // Without a redirect_uri, default to client_credentials.
   const grantTypes = (
     flags["grant-types"] ??
     (redirectUris.length > 0
@@ -205,9 +205,9 @@ async function createToken(name: string, rest: string[]): Promise<void> {
   if (!name) throw new Error("Usage: auth create <name> [--takes-holders a,b]");
   const { flags } = parseFlags(rest);
   // Default ['world'] keeps private takes hidden from MCP-bound tokens
-  // until the operator explicitly widens the allow-list (reference v0.28).
+  // until the operator explicitly widens the allow-list.
   // A flag that parses to nothing (e.g. --takes-holders ",") falls back the
-  // same way, matching the reference's empty-list handling.
+  // same way — an empty list stays default-deny.
   const parsedHolders = (flags["takes-holders"] ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -230,8 +230,8 @@ async function createToken(name: string, rest: string[]): Promise<void> {
     }
     // JSONB params must be JS objects, not pre-stringified JSON: postgres.js
     // encodes a string bound to a jsonb position as a jsonb STRING (the
-    // reference's "double-encode bug class" its executeRawJsonb guards
-    // against), which breaks permissions.source_id scope resolution.
+    // "double-encode bug class"), which breaks permissions.source_id scope
+    // resolution.
     await storage.raw().query(
       `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
        VALUES ($1, $2, $3::text[], $4::jsonb)`,

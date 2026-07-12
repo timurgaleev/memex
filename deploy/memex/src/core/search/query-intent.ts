@@ -1,5 +1,5 @@
 /**
- * Zero-LLM query classifier — the reference's regex taxonomy, adapted.
+ * Zero-LLM query classifier — a regex taxonomy over the query.
  *
  * One regex pass over the query yields:
  *   - taxonomy:          'entity' | 'temporal' | 'event' | 'general'
@@ -7,15 +7,15 @@
  *                        bypass the source-prefix boost — see curation.ts)
  *   - suggestedSalience: 'off' | 'on'      — mattering (pages.salience) boost
  *   - suggestedRecency:  'off' | 'on' | 'strong' — hyperbolic recency boost
- *   - suggestedModality: 'text' | 'image'  — computed for parity; memex has no
- *                        image arm today, so it is advisory only
+ *   - suggestedModality: 'text' | 'image'  — computed but memex has no image
+ *                        arm today, so it is advisory only
  *
  * Canonical/definitional phrasings force salience + recency to 'off' UNLESS an
  * explicit temporal bound is present ("who is X today" → recency 'on').
  *
  * Pure module: no DB, no LLM, no async. This replaces the paid Haiku intent
- * call on the search hot path (see intent.ts) — the reference defaults to this
- * classifier and reserves the LLM for opt-in escalation.
+ * call on the search hot path (see intent.ts) — the default classifier, with
+ * the LLM reserved for opt-in escalation.
  */
 
 export type QueryTaxonomy = "entity" | "temporal" | "event" | "general";

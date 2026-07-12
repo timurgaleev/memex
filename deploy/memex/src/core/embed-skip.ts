@@ -1,8 +1,7 @@
 /**
  * Embed-skip — a frontmatter marker (no DB column) that excludes a document
  * from EMBEDDING while leaving it fully searchable via the keyword arm.
- * Faithful port of the reference's `embed-skip` predicate, sibling to the
- * `quarantine`/`content_flag` markers in `quarantine.ts`:
+ * Sibling to the `quarantine`/`content_flag` markers in `quarantine.ts`:
  *
  *   * `quarantine`   — HIDE from search (visibility filter).
  *   * `content_flag` — WARN but stay searchable (marker only).
@@ -12,10 +11,9 @@
  * (e.g. oversized — the deferred content-sanity writer stamps it) or when the
  * operator hand-declares `embed_skip` in the markdown frontmatter. Either way
  * the predicate is key-existence: marker CONTENTS are diagnostic, not
- * functional, so a future marker-shape change never breaks the filter (the
- * reference's stated contract).
+ * functional, so a future marker-shape change never breaks the filter.
  *
- * Two surfaces, mirroring the reference:
+ * Two surfaces:
  *   - `isEmbedSkipped(frontmatter)` for callers holding an in-memory page
  *     object (the inline indexer embed path).
  *   - `embedSkipFilterFragment(docAlias)` for callers splicing into ranking /
@@ -25,11 +23,11 @@
  *
  * Faithful note: only the embed PATHS honour this marker. The embed-coverage
  * METRIC (source-health / advisor) still counts an embed-skip page's chunks in
- * its denominator — same as the reference, whose `getHealth` coverage does not
- * filter the marker. An operator with embed-skip pages accepts a coverage
- * number below 100%, or splits the page.
+ * its denominator — the coverage metric does not filter the marker. An operator
+ * with embed-skip pages accepts a coverage number below 100%, or splits the
+ * page.
  *
- * Scope: this is a CHUNK marker, matching the reference. The page's `## Facts`
+ * Scope: this is a CHUNK marker. The page's `## Facts`
  * fence still embeds into `entity_facts.embedding` (a separate derived vector
  * arm, stripped before chunking) — `embed_skip` is "don't embed this page's
  * chunks", not "no vector arm at all".

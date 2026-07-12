@@ -1,5 +1,5 @@
 /**
- * Query intent classifier — zero-LLM regex by default (reference parity).
+ * Query intent classifier — zero-LLM regex by default.
  *
  * Distinguishes between:
  *   - factual:    "when did X happen", "what is X"
@@ -12,12 +12,12 @@
  * benefit from broader recall) and dedup (exact queries skip dedup —
  * user might want all matching fragments).
  *
- * The reference classifies with a pure regex taxonomy and never spends an
- * LLM call on the search hot path; memex follows. The cheap heuristics run
- * first, then the query-intent taxonomy maps onto memex's intent set
- * (entity→factual, temporal→personal, event/general→topic). The old Claude
- * Haiku fallback survives behind MEMEX_INTENT_LLM=1 for operators who want
- * the paid tie-break on unmatched queries.
+ * Classification is a pure regex taxonomy that never spends an LLM call on the
+ * search hot path. The cheap heuristics run first, then the query-intent
+ * taxonomy maps onto memex's intent set (entity→factual, temporal→personal,
+ * event/general→topic). The old Claude Haiku fallback survives behind
+ * MEMEX_INTENT_LLM=1 for operators who want the paid tie-break on unmatched
+ * queries.
  */
 import {
   BedrockRuntimeClient,
@@ -51,10 +51,9 @@ export interface ClassifyIntentOptions {
 const SYSTEM_PROMPT = `You are a search-intent classifier. Given a user query, output exactly one word from this set: factual, topic, howto, personal, exact. Output nothing else.`;
 
 /**
- * Map the reference taxonomy onto memex's intent set. `temporal` leans
- * `personal` (diary/journal recall — the vector-leaning RRF profile the
- * reference's recency tilt approximates); `event`/`general` stay `topic`
- * (broad recall).
+ * Map the query taxonomy onto memex's intent set. `temporal` leans
+ * `personal` (diary/journal recall — a vector-leaning RRF profile with a
+ * recency tilt); `event`/`general` stay `topic` (broad recall).
  */
 function taxonomyToIntent(query: string): Intent {
   switch (classifyQueryTaxonomy(query)) {
@@ -79,8 +78,8 @@ export async function classifyIntent(
   if (/\bhow (do|to|can|should)\b/i.test(trimmed)) return "howto";
   if (/\b(when|what|who|where|which) (is|was|did)\b/i.test(trimmed)) return "factual";
 
-  // Zero-LLM default (reference parity): the regex taxonomy decides. The paid
-  // Haiku call fires ONLY when the operator opted back in via MEMEX_INTENT_LLM=1.
+  // Zero-LLM default: the regex taxonomy decides. The paid Haiku call fires
+  // ONLY when the operator opted back in via MEMEX_INTENT_LLM=1.
   if (process.env.MEMEX_INTENT_LLM !== "1") {
     return taxonomyToIntent(trimmed);
   }

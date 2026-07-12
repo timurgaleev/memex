@@ -1,6 +1,6 @@
 /**
  * `memex search diagnose "<query>" --target <slug> [--source <id>] [--json]`
- * — arm-by-arm retrieval debugger (reference parity).
+ * — arm-by-arm retrieval debugger.
  *
  * Traces WHERE a target page surfaces (or fails to) across the pipeline so an
  * operator can pin the responsible layer:

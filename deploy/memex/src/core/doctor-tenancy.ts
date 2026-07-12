@@ -1,5 +1,5 @@
 /**
- * doctor-tenancy.ts — tenancy / auth doctor checks (reference parity).
+ * doctor-tenancy.ts — tenancy / auth doctor checks.
  *
  * The two subsystems where a silent misconfig equals a cross-tenant leak or a
  * dead tenant get their own checks:
@@ -7,9 +7,9 @@
  *   - federation-health   : per-source embed coverage on a multi-source brain.
  *     One tenant's embedding can break to 0% invisibly inside the whole-brain
  *     average. Fails on the severe fingerprint (coverage < 50% with a large
- *     corpus); warns below 95%. The reference also gates on sync lag — memex
- *     has no federated sync puller (sources are ingest channels), so document
- *     age is not a failure signal and lag is deliberately omitted.
+ *     corpus); warns below 95%. memex has no federated sync puller (sources
+ *     are ingest channels), so document age is not a failure signal and lag is
+ *     deliberately omitted.
  *   - oauth-client-health : a confidential OAuth client (auth method other
  *     than 'none') with a NULL/empty secret hash authenticates nobody — or,
  *     worse, whatever the verify path falls back to. Fails on any such row.

@@ -8,8 +8,7 @@
  * LLM, no I/O — so it can run in the chunker strip path and in a CI invariant
  * check without pulling a DB-shaped dependency graph.
  *
- * Adapted from the reference's `facts-fence.ts`. The reference carries a 10–14
- * column schema; memex carries the subset its `entity_facts` models: the
+ * memex carries the column subset its `entity_facts` models: the
  * always-present `claim / confidence / source` plus the optional v1.3.45
  * metadata `kind / notability / valid_from / valid_until`. Columns are matched
  * by HEADER NAME (not fixed position), so a narrow legacy fence
@@ -41,7 +40,7 @@ import {
 export const FACTS_FENCE_BEGIN = "<!--- memex:facts:begin -->";
 export const FACTS_FENCE_END = "<!--- memex:facts:end -->";
 
-/** Fact category — what kind of claim this is. Faithful to the reference set. */
+/** Fact category — what kind of claim this is. */
 export type FactKind = "event" | "preference" | "commitment" | "belief" | "fact";
 /** How notable / important the fact is — ordinal, drives recall ranking. */
 export type FactNotability = "high" | "medium" | "low";

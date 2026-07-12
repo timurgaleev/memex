@@ -1,6 +1,6 @@
 /**
- * `_meta.brain_hot_memory` MCP injection helper (mirrors the reference's
- * getBrainHotMemoryMeta, adapted to memex's `hot_memory` table, migration 020).
+ * `_meta.brain_hot_memory` MCP injection helper (over memex's `hot_memory`
+ * table, migration 020).
  *
  * The `hot_memory` inbox (recent, unvetted observations the brain just heard)
  * has no MCP surface today. This helper lets the dispatcher attach a decay-

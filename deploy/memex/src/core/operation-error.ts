@@ -6,8 +6,7 @@
  * hint. `OperationError` carries a stable machine code, a human message, and
  * optional `suggestion` / `docs` so the caller can act.
  *
- * Adapted from the reference's `OperationError`. The memex difference is the
- * PUBLIC-INGRESS redaction contract (`toEnvelope`): on the public boundary the
+ * The PUBLIC-INGRESS redaction contract (`toEnvelope`): on the public boundary the
  * free-text `message` is withheld — it is the only field that could carry
  * runtime-interpolated detail — while the constrained `error` code and the
  * author-authored static `suggestion` / `docs` pass through. So a public

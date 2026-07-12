@@ -74,7 +74,7 @@ export const collectMigration: AdvisorCollector = {
  * (this import) and the running version are the same package.json, so they never
  * differ in production. The comparison is correct + unit-tested, and fires the
  * moment a caller feeds a distinct runtime version (e.g. a future
- * running-vs-on-disk split); retained for that + reference parity.
+ * running-vs-on-disk split); retained for that.
  */
 export const collectVersion: AdvisorCollector = {
   id: "version",
@@ -96,8 +96,8 @@ export const collectVersion: AdvisorCollector = {
 
 /**
  * Stalled / dead jobs + a failed-job signal. memex's queue uses status
- * 'running' + `lock_until` (the reference's 'active' + minion_jobs). A running
- * row whose lock lapsed, or whose stall_count has climbed, is wedged and stops
+ * 'running' + `lock_until`. A running row whose lock lapsed, or whose
+ * stall_count has climbed, is wedged and stops
  * backfill/sync from progressing. Failed jobs in the last 24h are the one
  * unambiguous "something broke" signal — read from brainHealthMetrics so the
  * advisor and the doctor agree.
@@ -186,28 +186,26 @@ export const collectEmbedCoverage: AdvisorCollector = {
 };
 
 /**
- * Usage shape — the graph-hygiene half of the reference's `usage-shape`
- * collector. The embedding-coverage finding it also carries lives in
- * `collectEmbedCoverage` here, so this collector adds only the two link-graph
- * gaps: islanded pages (no inbound AND no outbound link — invisible to graph
- * traversal) and dead links (a `target_slug` that resolves to no live page).
+ * Usage shape — the graph-hygiene link-graph collector. The embedding-coverage
+ * finding lives in `collectEmbedCoverage` here, so this collector adds only the
+ * two link-graph gaps: islanded pages (no inbound AND no outbound link —
+ * invisible to graph traversal) and dead links (a `target_slug` that resolves
+ * to no live page).
  *
- * Definitions match the reference's getHealth: orphan = islanded (a hub that
- * only links out is working as intended, not an orphan); dead link = a link
- * whose `target_slug` resolves to no live page. Both counts come from ONE round
- * trip; this scan is heavier than the metric collectors, so — like the reference
- * — it belongs to the explicit `advisor` run, not a hot sync-cadence path.
+ * Definitions: orphan = islanded (a hub that only links out is working as
+ * intended, not an orphan); dead link = a link whose `target_slug` resolves to
+ * no live page. Both counts come from ONE round trip; this scan is heavier than
+ * the metric collectors, so it belongs to the explicit `advisor` run, not a hot
+ * sync-cadence path.
  *
- * Soft-delete adaptation: the reference HARD-deletes pages (the link rows
- * cascade away with them), so a dead page contributes no edges to either count.
- * memex SOFT-deletes (sets `deleted_at`, the link rows survive), so to preserve
- * the reference's semantics a link to/from a soft-deleted page must count as a
- * NON-edge. Both counts therefore gate every edge on a live page at both ends:
+ * Soft-delete semantics: memex SOFT-deletes pages (sets `deleted_at`, the link
+ * rows survive), so a link to/from a soft-deleted page must count as a NON-edge.
+ * Both counts therefore gate every edge on a live page at both ends:
  * orphan = no inbound edge FROM a live page and no outbound edge TO a live page;
  * dead link = a live-source link whose target is not a live page (a link from a
  * dead source is itself unreachable, so it is not a "dead link" to fix). A
- * self-loop reads as non-orphan — faithful to the reference, whose orphan check
- * is satisfied by either direction of any edge, self-loop included.
+ * self-loop reads as non-orphan — the orphan check is satisfied by either
+ * direction of any edge, self-loop included.
  */
 export const collectUsageShape: AdvisorCollector = {
   id: "usage-shape",

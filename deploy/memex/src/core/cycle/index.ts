@@ -195,8 +195,8 @@ export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
 export const CHUNKER_SWEEP_PHASES: readonly PhaseName[] = ["rechunk-sweep"];
 
 /**
- * Three-state phase outcome (faithful to the reference's ok/warn/fail
- * envelope). `warn` = the phase COMPLETED (didn't throw) but reported
+ * Three-state phase outcome (ok/warn/fail envelope). `warn` = the phase
+ * COMPLETED (didn't throw) but reported
  * non-fatal issues — e.g. embed-stale re-embedded most chunks but a few hit
  * a transient Bedrock error, or snapshot computed but couldn't persist. A
  * warn does NOT fail the cycle; it surfaces a partial success that the old

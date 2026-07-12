@@ -2,7 +2,7 @@
  * /health endpoint — liveness only.
  *
  * A bare `SELECT 1` raced against a 3 s timeout. Two reasons (both from
- * the reference's v0.28.10 incident):
+ * a past incident):
  *   1. Corpus stats behind an unauthenticated internet-reachable probe
  *      disclose the brain's size to anonymous callers — stats now live
  *      only behind `/admin/api/full-stats` (admin auth).

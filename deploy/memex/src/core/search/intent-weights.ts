@@ -14,15 +14,14 @@
  *                  semantically-related chunks keyword misses. Lean vector.
  *   - `personal` — diary/journal recall: paraphrase-heavy, lean vector.
  *
- * Magnitudes are aligned with the reference's conservative tuning (max 1.25
- * nudge): the point isn't to flip rankings, it's to break ties in favor of
- * the user's plausible intent. The weight is applied as an effective RRF k
- * (k / weight) inside rrf.ts, matching the reference's math — a heavier list
- * gets a LOWER k, so its top ranks contribute more.
+ * Magnitudes are deliberately conservative (max 1.25 nudge): the point isn't
+ * to flip rankings, it's to break ties in favor of the user's plausible intent.
+ * The weight is applied as an effective RRF k (k / weight) inside rrf.ts — a
+ * heavier list gets a LOWER k, so its top ranks contribute more.
  *
  * The exact-match boost multiplies a hit whose slug / kebab-slug / title
- * exactly equals the query — the reference's entity-query signal ("the user
- * knows the name; the page named that wins the tie").
+ * exactly equals the query — the entity-query signal ("the user knows the
+ * name; the page named that wins the tie").
  */
 import type { Intent } from "./intent.ts";
 import type { QueryTaxonomy } from "./query-intent.ts";
@@ -62,7 +61,7 @@ export function rrfWeightsForLists(
 }
 
 /**
- * Exact slug/title match boost per query taxonomy (reference magnitudes):
+ * Exact slug/title match boost per query taxonomy:
  * entity ×1.25 (the user typed the thing's name), event ×1.10, else neutral.
  */
 export function exactMatchBoostForTaxonomy(taxonomy: QueryTaxonomy): number {

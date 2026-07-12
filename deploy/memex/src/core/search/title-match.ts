@@ -1,16 +1,15 @@
 /**
  * title-match.ts — title-phrase matching for the title boost.
  *
- * Adapted from the reference's title-superstring matcher. The disease it cures:
- * a query that is literally a phrase from a page's title ("memex master plan" →
- * page titled "Memex — master plan") matching a weak body chunk instead of
- * being recognized as a title hit. Names of things deserve weight.
+ * Title-superstring matching. The disease it cures: a query that is literally
+ * a phrase from a page's title ("memex master plan" → page titled "Memex —
+ * master plan") matching a weak body chunk instead of being recognized as a
+ * title hit. Names of things deserve weight.
  *
  * Pure + zero-I/O so the production boost, the evidence classifier, and the
- * unit tests share ONE definition (no drift). Faithful port — this is
- * deterministic text matching, so unlike score thresholds there is no memex
- * score-scale concern to adapt (a multiplier is scale-invariant; see
- * `resolveTitleBoost` below).
+ * unit tests share ONE definition (no drift). Deterministic text matching, so
+ * unlike score thresholds there is no score-scale concern here (a multiplier is
+ * scale-invariant; see `resolveTitleBoost` below).
  *
  * Guard rails (avoid promoting generic pages on stopword-y queries):
  *   - require >= MIN_CONTENT_TOKENS non-stopword tokens in the query, OR an
@@ -100,8 +99,8 @@ export function isTitlePhraseMatch(query: string, title: string | null | undefin
 
 /**
  * Resolve the title-boost factor from `MEMEX_TITLE_BOOST` (default 1.25, ON).
- * A multiplier is scale-invariant, so unlike the reference's cosine floors this
- * adopts cleanly onto memex's RRF score. A value <= 1.0 disables the boost
+ * A multiplier is scale-invariant, so it applies cleanly onto memex's RRF
+ * score. A value <= 1.0 disables the boost
  * (the multiplier becomes a no-op). Malformed env → throw (fail-loud), matching
  * the recency-decay parse contract.
  */

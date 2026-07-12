@@ -1,11 +1,10 @@
 /**
- * LLM gateway helpers — the small, memex-specific slice of the reference's
- * multi-provider gateway that actually applies here. memex is Bedrock-only, so
- * the reference's provider recipes, capability classification, and stop-reason
- * machinery are dead schema; retry/backoff/timeout are delegated to the AWS SDK
- * (tuned in the haiku.ts / sonnet.ts client factories). What was genuinely
- * missing: a per-process inflight concurrency cap so the many synthesis phases
- * that fan out in parallel can't stampede Bedrock, plus an availability probe.
+ * LLM gateway helpers. memex is Bedrock-only, so multi-provider recipes,
+ * capability classification, and stop-reason machinery don't apply here;
+ * retry/backoff/timeout are delegated to the AWS SDK (tuned in the haiku.ts /
+ * sonnet.ts client factories). What this adds: a per-process inflight
+ * concurrency cap so the many synthesis phases that fan out in parallel can't
+ * stampede Bedrock, plus an availability probe.
  */
 
 const DEFAULT_MAX_INFLIGHT = 4;
@@ -39,7 +38,7 @@ export async function withInflightCap<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** Cheap probe that a Bedrock call could plausibly authenticate (region/creds
- *  present). Not a live reachability check — mirrors the reference's isAvailable. */
+ *  present). Not a live reachability check. */
 export function isLlmAvailable(): boolean {
   return !!(
     process.env.AWS_REGION ||

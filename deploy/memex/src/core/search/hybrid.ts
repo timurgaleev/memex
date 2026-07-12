@@ -119,7 +119,7 @@ function relationalArmWeight(): number {
   return Number.isFinite(n) && n > 0 ? n : 1.0;
 }
 
-// Two-pass rerank candidate window (reference `top_n_in`, default 30). The
+// Two-pass rerank candidate window (`top_n_in`, default 30). The
 // reranker sees this many top candidates and may promote one above the return
 // cutoff; the actual return size (k) trims afterward. Clamped to >= k and to the
 // available candidate count at the call site.
@@ -146,14 +146,12 @@ function getRecencyBoostMap(): ReturnType<typeof resolveRecencyBoostMap> {
 }
 
 /**
- * Compiled-truth boost (reference parity): chunks of a page's compiled-truth
- * mirror (`page-truth://…`, see page-index.ts) are the canonical per-page
- * answers, multiplied ×2 after fusion. The reference applies this right after
- * RRF max-normalization; memex applies it on the raw fused score — a uniform
- * multiplier is scale-invariant, so the resulting ORDER is identical.
- * Bypassed for temporal queries (suggestedDetail 'high'), matching the
- * reference's detail=high gate — freshness queries want the record, not the
- * distilled truth.
+ * Compiled-truth boost: chunks of a page's compiled-truth mirror
+ * (`page-truth://…`, see page-index.ts) are the canonical per-page answers,
+ * multiplied ×2 after fusion. Applied on the raw fused score — a uniform
+ * multiplier is scale-invariant, so the resulting ORDER is unchanged.
+ * Bypassed for temporal queries (suggestedDetail 'high') — freshness queries
+ * want the record, not the distilled truth.
  */
 const COMPILED_TRUTH_BOOST = 2.0;
 const PAGE_TRUTH_PREFIX = "page-truth://";
@@ -176,7 +174,7 @@ export interface ResolvedSearchKnobs {
  * historical all-OFF defaults). Exported so tests and cache-key callers can
  * reproduce exactly what hybridSearch resolves.
  *
- * Expansion default OFF (the reference measured negligible lift; each call is
+ * Expansion default OFF (the measured lift is negligible; each call is
  * a paid Haiku request). The hermetic `expandQueryFn` seam implies ON — a test
  * that injects an expander wants the expansion path exercised. `noExpansion`
  * is the hard veto either way.
@@ -242,9 +240,9 @@ export interface SearchOptions {
   /** Skip query expansion. */
   noExpansion?: boolean;
   /**
-   * Force LLM query expansion on/off for this call. Default OFF (reference
-   * parity — the measured lift is negligible and each expansion is a paid
-   * Haiku call): resolution is `expansion` → MEMEX_QUERY_EXPANSION ("1"/"0")
+   * Force LLM query expansion on/off for this call. Default OFF (the measured
+   * lift is negligible and each expansion is a paid Haiku call): resolution is
+   * `expansion` → MEMEX_QUERY_EXPANSION ("1"/"0")
    * → the active mode bundle (only `tokenmax` turns it on). Passing
    * `expandQueryFn` (the hermetic test seam) implies ON unless `noExpansion`.
    */
@@ -349,7 +347,7 @@ export interface SearchOptions {
    */
   explain?: boolean;
   /**
-   * Per-call detail override (reference `query` op parity). Overrides the
+   * Per-call detail override. Overrides the
    * zero-LLM classifier's suggestion: `high` gets the temporal treatment
    * (source-boost bypass) AND lifts the per-document chunk cap (all chunks);
    * `low` collapses to one chunk per document; `medium` keeps the default
@@ -357,13 +355,13 @@ export interface SearchOptions {
    */
   detail?: "low" | "medium" | "high";
   /**
-   * Per-call mattering-salience bias (reference `query` op parity): overrides
+   * Per-call mattering-salience bias: overrides
    * BOTH the classifier suggestion and the canonical-query gate. `strong`
    * uses the aggressive mattering coefficient. Bypasses the query cache.
    */
   salience?: "off" | "on" | "strong";
   /**
-   * Per-call recency-boost bias (reference `query` op parity): overrides BOTH
+   * Per-call recency-boost bias: overrides BOTH
    * the classifier suggestion and the canonical-query gate. Bypasses the
    * query cache.
    */
@@ -595,11 +593,11 @@ export async function hybridSearch(
   // memoized value inside that block.
   const graphFloorRatio = getGraphSignalsFloorRatio();
 
-  // Zero-LLM query suggestions (reference parity, query-intent.ts): one regex
+  // Zero-LLM query suggestions (query-intent.ts): one regex
   // pass drives the temporal source-boost bypass, the recency-boost strength,
   // the mattering-salience gate, and the exact-match boost magnitude.
   const suggestions = classifyQuerySuggestions(trimmed);
-  // Agent-explicit detail wins over the classifier (reference: the query op's
+  // Agent-explicit detail wins over the classifier (the query op's
   // explicit detail/salience/recency params override the heuristic).
   const detailResolved = opts.detail ?? suggestions.suggestedDetail;
   const temporalQuery = detailResolved === "high";
@@ -719,7 +717,7 @@ export async function hybridSearch(
     return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
   };
   // Ranking signature for the cache key: the env-level signature plus the
-  // per-call RESOLVED knob values (the reference's knobs-hash) — a caller that
+  // per-call RESOLVED knob values — a caller that
   // flips graph-signals/cosine/backlink/expansion per call must never share a
   // cached ordering with a caller that didn't.
   const rankingSig =
@@ -797,7 +795,7 @@ export async function hybridSearch(
   // deliberately want multiple chunks per page (the collapse would fight them).
   const maxPoolOn = maxPoolRequested && intent !== "exact" && !structural;
 
-  // Curation prefix boost inside the arm SQL (reference parity): shapes which
+  // Curation prefix boost inside the arm SQL: shapes which
   // rows survive the per-arm LIMIT. Bypassed for temporal queries — freshness
   // queries must not be steered toward evergreen curated tiers.
   const armSourceBoost = !temporalQuery;
@@ -1037,8 +1035,8 @@ export async function hybridSearch(
 
   // 5d. Compiled-truth boost — a page's canonical answers (its compiled-truth
   //     mirror chunks) get ×2 so the distilled truth outranks body prose for
-  //     the same page. Skipped for temporal queries (reference detail=high
-  //     gate). Pre-dedup like every other boost, so the truth chunk wins the
+  //     the same page. Skipped for temporal queries (detail=high).
+  //     Pre-dedup like every other boost, so the truth chunk wins the
   //     per-doc collapse of its own mirror document.
   if (!temporalQuery) {
     for (const s of scored) {
@@ -1081,7 +1079,7 @@ export async function hybridSearch(
   // hit; inert entirely when MEMEX_TITLE_BOOST <= 1.0.
   const titleBoost = getTitleBoost();
   const titleBoostActive = Number.isFinite(titleBoost) && titleBoost > 1.0;
-  // Recency BOOST activation (reference parity): the zero-LLM classifier's
+  // Recency BOOST activation: the zero-LLM classifier's
   // off/on/strong suggestion. 'off' keeps the historical penalty-only decay;
   // 'on'/'strong' additionally LIFT fresh content hyperbolically so a
   // this-week note can win a "what's going on" query. Canonical queries stay
@@ -1116,7 +1114,7 @@ export async function hybridSearch(
       : 1;
     const recencyF = decayF * boostF;
     const salienceF = canonical ? 1 : salienceMultiplier(s.payload?.frontmatter);
-    // Curation tiers act ONLY inside the arm SQL (reference parity: the
+    // Curation tiers act ONLY inside the arm SQL (the
     // prefix factor shapes per-arm LIMIT survival; runPostFusionStages has no
     // curation stage). Multiplying the fused score again would double-apply
     // the tier map and over-tilt low-tier prefixes like chat/ 0.5.
@@ -1132,7 +1130,7 @@ export async function hybridSearch(
     return { ...s, score: s.score * recencyF * salienceF * titleF };
   });
 
-  // 6b2. Mattering-salience join (reference parity) — the cycle-computed
+  // 6b2. Mattering-salience join — the cycle-computed
   //      pages.salience score (emotional-weight tags + link degree + takes)
   //      lifts "what matters" pages when the query asks for current context
   //      (meeting prep / catch-up phrasings). Classifier-gated; canonical
@@ -1199,10 +1197,10 @@ export async function hybridSearch(
     if (explainAcc && preBacklink) recordStageFactor(explainAcc, preBacklink, scored, "backlink");
   }
 
-  // 6e. Exact-match boost (reference parity) — a hit whose slug / kebab-slug /
+  // 6e. Exact-match boost — a hit whose slug / kebab-slug /
   //     title IS the query wins the tie on entity/event queries (the user
   //     typed the thing's name). Lexical-relevance signal: NOT floor-gated,
-  //     mirroring the reference's placement outside the metadata gate.
+  //     applied outside the metadata gate.
   const exactBoost = exactMatchBoostForTaxonomy(suggestions.taxonomy);
   if (exactBoost > 1.0) {
     const cands = scored.map((s) => ({
@@ -1216,7 +1214,7 @@ export async function hybridSearch(
     }
   }
 
-  // 6f. Alias-resolved canonical boost (reference parity, ×1.05) — pages that
+  // 6f. Alias-resolved canonical boost (×1.05) — pages that
   //     old slugs forward to (slug_aliases canonical side) are the explicitly
   //     disambiguated authority. Fail-open: a pre-migration store no-ops.
   try {
@@ -1233,9 +1231,9 @@ export async function hybridSearch(
   // Re-sort after boost + recency (RRF was already sorted but these flip).
   scored.sort((a, b) => b.score - a.score);
 
-  // 7. Per-document dedup — cap 2 chunks per document (reference parity:
-  //    maxPerPage 2; one strong page may show its two best chunks, the rest
-  //    yield slots to other pages). Skip for `exact` intent ("show me
+  // 7. Per-document dedup — cap 2 chunks per document (maxPerPage 2; one
+  //    strong page may show its two best chunks, the rest yield slots to other
+  //    pages). Skip for `exact` intent ("show me
   //    everything about this note").
   // Structural walks deliberately surface multiple neighbor chunks from the
   // same document/class (sibling methods, the call-site + its callee), so the
@@ -1245,14 +1243,14 @@ export async function hybridSearch(
     : opts.detail === "low"
       ? 1
       : 2;
-  // detail 'high' = the reference's all-chunks view: skip the per-doc collapse
+  // detail 'high' = the all-chunks view: skip the per-doc collapse
   // entirely (like `exact` intent), so every matching chunk of a page returns.
   const perDoc =
     intent === "exact" || opts.detail === "high"
       ? scored
       : dedupByDocument(scored, { enabled: true, maxPerDoc });
 
-  // 7b. Type-diversity layer (reference parity): no page type may exceed
+  // 7b. Type-diversity layer: no page type may exceed
   //     MEMEX_MAX_TYPE_RATIO (default 0.6) of the candidate set, so one noisy
   //     shape (chat exports, dailies) can't monopolise every slot. Skipped for
   //     `exact` intent and structural walks (both deliberately homogeneous).
@@ -1264,7 +1262,7 @@ export async function hybridSearch(
   // 8. Two-pass rerank (opt-in) — runs BEFORE near-dup so the reranker sees
   //    both near-identical twins and decides their order; near-dup then drops
   //    the now-lower-ranked one (the reranker can't undo a drop, so it must
-  //    come first). Reference contract: rerank a CANDIDATE window WIDER than the
+  //    come first). Contract: rerank a CANDIDATE window WIDER than the
   //    return size (top_n_in, default 30 via MEMEX_RERANK_WINDOW) so a hit fused
   //    below the return cutoff can still be promoted into the top-k — the trim
   //    to k happens after. The un-reranked tail keeps its fused order behind the

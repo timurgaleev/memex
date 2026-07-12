@@ -59,10 +59,9 @@ export function isPageSourcePath(sourcePath: string): boolean {
 /**
  * Reserved source_path namespace for a page's COMPILED-TRUTH mirror — the
  * canonical per-page understanding (`pages.compiled_truth`) indexed as its own
- * search document so canonical answers are retrievable (reference parity: the
- * reference chunks compiled truth alongside the body and boosts it ×2 at
- * fusion — see hybrid.ts COMPILED_TRUTH_BOOST). Tenant-keyed exactly like
- * {@link pageSourcePath}.
+ * search document so canonical answers are retrievable (compiled truth is
+ * chunked alongside the body and boosted ×2 at fusion — see hybrid.ts
+ * COMPILED_TRUTH_BOOST). Tenant-keyed exactly like {@link pageSourcePath}.
  */
 export function pageTruthSourcePath(slug: string, sourceId?: string | null): string {
   if (sourceId && sourceId !== "default") {

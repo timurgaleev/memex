@@ -1,7 +1,7 @@
 /**
  * `memex capture [<text...>] [--stdin] [--file P] [--slug S] [--type T]
  *                [--source ID] [--title T]`
- * — one-command thought capture (reference parity): turn a note into a page
+ * — one-command thought capture: turn a note into a page
  * and mirror it into search in a single shot.
  *
  * Content source (exactly one): inline positional text, `--stdin`, or

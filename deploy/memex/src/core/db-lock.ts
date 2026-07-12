@@ -1,11 +1,8 @@
 /**
  * Generic DB-backed lock primitive.
  *
- * Faithful port of the reference's `db-lock`, adapted to memex's single unified
- * engine: the reference branches postgres (`sql`) vs PGLite (`db.query`) and
- * routes the refresh through a separate DIRECT session pool
- * (`executeRawDirect`) to survive a transaction-pooler exhaustion. memex has ONE
- * `engine.query` path and no second pool, so every branch collapses to it.
+ * memex has ONE `engine.query` path across postgres and PGLite — no separate
+ * DIRECT session pool for the refresh — so every DB branch collapses to it.
  *
  * Reuses the `cycle_locks` table (id PK + holder_pid + holder_host +
  * acquired_at + ttl_expires_at + last_refreshed_at) with a parameterized lock
@@ -215,9 +212,8 @@ export async function tryAcquireDbLock(
     return {
       id: lockId,
       refresh: async () => {
-        // Bump BOTH ttl_expires_at AND last_refreshed_at. The reference routes
-        // this through a DIRECT session pool to survive pooler exhaustion;
-        // memex has a single pool, so engine.query is the faithful adaptation.
+        // Bump BOTH ttl_expires_at AND last_refreshed_at. memex has a single
+        // pool, so engine.query is the path here.
         await engine.query(
           `UPDATE cycle_locks
               SET ttl_expires_at = NOW() + ($1)::interval,

@@ -19,13 +19,11 @@
  * page body via `extractFirstTwoSentences`. There is NO LLM call here; the
  * paid per-chunk-synopsis tier is deferred and NOT built.
  *
- * Ported from the reference's contextual-retrieval wrapper helpers
- * (`buildContextualPrefix` / `wrapChunkForEmbedding` / title+synopsis
- * sanitization / `extractFirstTwoSentences`, ref embedding-context.ts:54-171).
- * memex has no shared CJK module, so the CJK sentence delimiters are inlined
- * (the same BMP set the reference kept in its `cjk.ts`); the reference's
- * `modeRequiresHaiku` / `modeRequiresWrapper` guards belong to the deferred
- * paid tier and are intentionally omitted.
+ * This tier's wrapper helpers — `buildContextualPrefix`,
+ * `wrapChunkForEmbedding`, title+synopsis sanitization, and
+ * `extractFirstTwoSentences`. memex has no shared CJK module, so the CJK
+ * sentence delimiters (BMP set) are inlined here; the mode-gating guards for
+ * the deferred paid tier are intentionally omitted.
  *
  * SANITIZER SCOPE: `sanitizeTitle`/`sanitizeSynopsis` only strip the closing
  * `</context>` tag + collapse whitespace + cap length — enough to keep a title
@@ -50,20 +48,20 @@ export function contextualRetrievalEnabled(
 /**
  * Hard cap on the title-only block per chunk. Generous — high-signal titles
  * are typically 30-80 chars; the cap only protects against pathological
- * frontmatter. (ref embedding-context.ts:33)
+ * frontmatter.
  */
 export const TITLE_HARD_CAP_CHARS = 300;
 
 /**
  * Hard cap on the per-page summary lifted via `extractFirstTwoSentences`.
  * Keeps the embedding payload bounded even when the first two sentences are
- * unusually long. (ref embedding-context.ts:40)
+ * unusually long.
  */
 export const SUMMARY_HARD_CAP_CHARS = 300;
 
 /**
  * CJK sentence delimiters (BMP set: 。！？). Inlined because memex has no
- * shared CJK module; matches the reference's `CJK_SENTENCE_DELIMITERS`.
+ * shared CJK module.
  */
 const CJK_SENTENCE_DELIMITERS = ["。", "！", "？"];
 
@@ -82,9 +80,8 @@ export interface ContextualPrefixOptions {
  *   opts.isCode                → null (code bypass, always)
  *
  * The wrapper text is asymmetric (document side only): queries embed clean, so
- * the prefix never lands on the query arm. Ported from
- * ref embedding-context.ts:54-97 (buildContextualPrefix + the fenced-code
- * bypass folded in here rather than in a separate wrap step).
+ * the prefix never lands on the query arm. The fenced-code bypass is folded in
+ * here rather than in a separate wrap step.
  */
 export function buildContextualPrefix(
   title: string | null | undefined,
@@ -110,7 +107,7 @@ export function buildContextualPrefix(
  *   else          → prefix + chunkText
  *
  * Invariant: use this for the embedding INPUT only. The original chunk text
- * MUST land in `chunks.content` unchanged (ref embedding-context.ts:85-97).
+ * MUST land in `chunks.content` unchanged.
  */
 export function wrapChunkForEmbedding(
   chunkText: string,
@@ -129,8 +126,6 @@ export function wrapChunkForEmbedding(
  *   - newlines / tabs collapse to a single space (titles shouldn't be
  *     multi-line; defensive against frontmatter oddities)
  *   - trim + cap at TITLE_HARD_CAP_CHARS
- *
- * (ref embedding-context.ts:107-114)
  */
 export function sanitizeTitle(title: string): string {
   if (!title) return "";
@@ -144,7 +139,6 @@ export function sanitizeTitle(title: string): string {
 /**
  * Same sanitization as title plus the summary cap. Strips `</context>` so a
  * synopsis lifted from body prose can never break out of the wrapper tag.
- * (ref embedding-context.ts:121-128)
  */
 export function sanitizeSynopsis(synopsis: string): string {
   if (!synopsis) return "";
@@ -159,7 +153,6 @@ export function sanitizeSynopsis(synopsis: string): string {
  * Pure regex first-two-sentences extractor. Handles English `.!?` followed by
  * whitespace AND the CJK `。！？` delimiters. Hard-capped at
  * SUMMARY_HARD_CAP_CHARS so a single run-on sentence can't blow the payload.
- * (ref embedding-context.ts:139-167)
  */
 export function extractFirstTwoSentences(text: string): string {
   if (!text) return "";

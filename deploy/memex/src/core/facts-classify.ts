@@ -5,8 +5,8 @@
  * (entity_slug, fact, source_chunk_id) only catches byte-identical re-emits
  * from the same chunk. Two paraphrases of the same fact ("lives in Gotham" /
  * "is based in Gotham") both land, and a stale fact is never retired when a
- * newer one contradicts it. This module ports the reference's
- * classify-before-insert cascade to close that gap:
+ * newer one contradicts it. This module runs a classify-before-insert cascade
+ * to close that gap:
  *
  *   1. Candidates are entity-prefiltered nearest neighbours (the caller runs
  *      the pgvector query; we receive them already scored by cosine).

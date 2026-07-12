@@ -2,8 +2,8 @@
  * Search visibility filter — the single source of truth for which documents
  * are eligible to appear in search results.
  *
- * Faithful to the reference's `buildVisibilityClause`: a document is hidden
- * when it is soft-deleted, archived, or quarantined. The fragment is spliced
+ * A document is hidden when it is soft-deleted, archived, or quarantined.
+ * The fragment is spliced
  * (with a leading `AND`) into every ranking SQL (keyword + vector arms) so the
  * exclusion can never be bypassed by a detail/verbosity flag — it sits in the
  * WHERE, not the post-processing.

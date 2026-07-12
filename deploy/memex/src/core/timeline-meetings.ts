@@ -4,8 +4,7 @@
  * (migration 017) for the meeting itself and for each resolved attendee, so a
  * person's timeline shows the meetings they attended.
  *
- * Faithful adaptation of the reference's extract-timeline-from-meetings. Two
- * divergences for this brain:
+ * Two design choices for this brain:
  *   - reads attendees from the meeting's `attendees` / `attended_by`
  *     compiled_truth fields DIRECTLY (self-contained -- does not depend on the
  *     opt-in typed-link `attended` edges being enabled);

@@ -265,8 +265,8 @@ export async function handleAuthorizeRoute(
   provider: OAuthProvider,
   /**
    * Resource-owner authentication gate. By DEFAULT this auto-approves (returns
-   * true) — matching the reference's `mcpAuthRouter`, so a standard MCP client
-   * (Claude.ai etc.) completes the authorization-code flow with no extra step.
+   * true), so a standard MCP client (Claude.ai etc.) completes the
+   * authorization-code flow with no extra step.
    * An operator who wants the stricter posture sets `MEMEX_OAUTH_REQUIRE_LOGIN=1`
    * (wired in server.ts), which passes `adminAuth.requireAdmin` here: then a code
    * is only ever minted for a logged-in operator and an unauthenticated browser

@@ -1,9 +1,9 @@
 /**
  * USD budget tracker for paid Bedrock LLM calls (the conversation→facts
  * extractor). A hard ceiling, not a suggestion: once cumulative spend reaches
- * the cap, `record()` throws BudgetExhausted and the caller stops. Adapted from
- * the reference's BudgetTracker, trimmed to memex's single use — no
- * AsyncLocalStorage, no rerank/embed tiers, just chat cost.
+ * the cap, `record()` throws BudgetExhausted and the caller stops. Trimmed to
+ * memex's single use — no AsyncLocalStorage, no rerank/embed tiers, just chat
+ * cost.
  *
  * Pricing is per-1M tokens on Bedrock (eu-west-1 cross-region inference),
  * matched by model-family substring so an exact version suffix doesn't have to

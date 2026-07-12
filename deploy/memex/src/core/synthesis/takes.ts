@@ -248,8 +248,8 @@ async function discoverTakeDocuments(
   if (candidates.length === 0) return [];
 
   // Pair via unnest (tuple match, not the cross-product of two ANY() arrays).
-  // The idempotency key includes prompt_version (reference parity): a prompt
-  // bump re-scans every doc; the same prompt over unchanged content skips.
+  // The idempotency key includes prompt_version: a prompt bump re-scans every
+  // doc; the same prompt over unchanged content skips.
   const refs = candidates.map((c) => c.id);
   const hashes = candidates.map((c) => c.contentHash16);
   const { rows: existing } = await engine.query<{ source_ref: string; source_hash: string }>(
@@ -266,7 +266,7 @@ async function discoverTakeDocuments(
 
 /** Claims already extracted from this document (any hash / prompt version),
  *  fed back to the extractor as already-captured so it never re-proposes the
- *  same take after a content edit or prompt bump (reference F2 dedup). */
+ *  same take after a content edit or prompt bump. */
 async function existingClaimsForDoc(engine: Engine, sourceRef: string): Promise<string[]> {
   try {
     const { rows } = await engine.query<{ claim_text: string }>(
@@ -602,8 +602,8 @@ export function parseVerdictResponse(raw: string): ParsedVerdict | null {
  * Hybrid evidence retriever — full hybrid search over the corpus for chunks
  * matching the claim, restricted to the take's own tenant and (crucially) to
  * pages whose content date is NEWER than the take: a forecast can only be
- * graded against the world AFTER it was made (reference parity — hybrid search
- * over pages newer than the take's since_date). Bypasses the query cache
+ * graded against the world AFTER it was made (hybrid search over pages newer
+ * than the take's since_date). Bypasses the query cache
  * (grade queries are one-off) and throws on failure so the caller can fall
  * back to the keyword scan.
  */
@@ -647,7 +647,7 @@ async function keywordEvidence(
     // the predicate into a match-everything scan.
     const needle = claim.slice(0, 60).replace(/[\\%_]/g, "\\$&");
     // Scope the evidence to the take's OWN source when known — a take must never
-    // be graded against another tenant's chunks (reference parity). Unscoped
+    // be graded against another tenant's chunks. Unscoped
     // (operator / legacy) takes keep the whole-corpus scan.
     const params: unknown[] = [needle];
     let scope = "";
@@ -710,7 +710,7 @@ export async function gradeTakesPhase(
     ? opts.budget ?? new BudgetTracker(ensembleBudgetUsd(), "take-ensemble")
     : null;
   const judges = opts.judges ?? ensembleJudgeCount();
-  // Gated auto-resolve (reference D17: default OFF; D12: conservative bar).
+  // Gated auto-resolve: default OFF, conservative bar.
   const autoResolve = opts.autoResolve ?? takeAutoResolveEnabled();
   const autoResolveThreshold = opts.autoResolveThreshold ?? DEFAULT_AUTO_RESOLVE_THRESHOLD;
   const ensembleApplyThreshold = opts.ensembleApplyThreshold ?? DEFAULT_ENSEMBLE_APPLY_THRESHOLD;
@@ -739,7 +739,7 @@ export async function gradeTakesPhase(
     // The take's own source (via source_ref -> documents) scopes its evidence, so
     // a take is never graded against another tenant's chunks. generated_at feeds
     // the evidence retriever's newer-than-the-take date restriction.
-    // Pool (reference parity: unresolved ACTIVE takes): 'accepted' joins the
+    // Pool (unresolved ACTIVE takes): 'accepted' joins the
     // eligible statuses because operator-authored fence rows enter as
     // 'accepted' and are exactly the takes calibration wants judged; only
     // 'rejected' stays out. A resolved or superseded take is never re-graded.
@@ -849,7 +849,7 @@ export async function gradeTakesPhase(
         [take.id],
       );
       // Gated auto-resolve: apply the verdict to the take's resolution tuple.
-      // Eligibility (reference parity): the gate is ON, a NEW grade row was
+      // Eligibility: the gate is ON, a NEW grade row was
       // written, the verdict is decisive ('unresolvable' never applies), and
       // it clears the bar — single-model needs confidence >= 0.95; an
       // ensemble needs unanimity AND confidence >= 0.85. onlyIfUnresolved

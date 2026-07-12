@@ -1,11 +1,11 @@
 /**
  * raw_data sidecar (migrations 023 + 078) — per-page raw payload store
- * (API responses, headers) keyed UNIQUE(slug, source), reference parity for
+ * (API responses, headers) keyed UNIQUE(slug, source), backing
  * put_raw_data / get_raw_data.
  *
  * Newest-wins upsert: re-putting the same (slug, source) REPLACES the payload
- * (the sidecar is a cache of the latest fetch, not a history — the reference's
- * semantics). `source` here is the DATA source label ('crustdata', an importer
+ * (the sidecar is a cache of the latest fetch, not a history). `source` here is
+ * the DATA source label ('crustdata', an importer
  * name), NOT the tenant axis; tenancy rides the owning page's source_id via an
  * ownership guard on write and a pages join on read.
  */

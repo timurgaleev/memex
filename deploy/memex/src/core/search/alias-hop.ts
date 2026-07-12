@@ -5,9 +5,8 @@
  * that bridges true synonyms with zero surface overlap ("Bobby" → `people/bob`)
  * — neither keyword nor title-boost can.
  *
- * Faithful port of the reference's `applyAliasHop`, adapted to memex's stack
- * (chunk-level SearchHit + the `page://<slug>` page→document bridge instead of
- * page-level SearchResult). Precision guards (verbatim from the reference):
+ * Built on memex's stack: chunk-level SearchHit + the `page://<slug>`
+ * page→document bridge (not a page-level SearchResult). Precision guards:
  *   - FULL normalized-query exact match only (not substring / not n-grams);
  *   - skip queries longer than MAX_ALIAS_QUERY_TOKENS (prose, not a name);
  *   - bounded: present-boost is ×1.10; an injected page lands at
@@ -106,7 +105,7 @@ export async function applyAliasHop(
     );
     if (idx >= 0) {
       // Present → ×1.10 + alias_hit evidence. Immutable replace (memex style
-      // rule) rather than the reference's in-place mutation.
+      // rule) rather than an in-place mutation.
       const h = out[idx]!;
       out[idx] = {
         ...h,

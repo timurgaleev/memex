@@ -10,8 +10,8 @@
  *             (config present + parses, DB engine opens, vault path readable)
  *   - meta  : the doctor / runtime itself; the fallthrough bucket.
  *
- * memex is brain-only, so the reference's fourth `skill` category (agent skill
- * dispatcher) is intentionally absent — there is no skill layer to diagnose.
+ * memex is brain-only, so there is no fourth `skill` category (agent skill
+ * dispatcher) — there is no skill layer to diagnose.
  *
  * Drift contract: every check name that ships in `commands/doctor.ts` MUST
  * appear in exactly one set below. `tests/doctor_categories.test.ts` enforces

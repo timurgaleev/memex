@@ -41,7 +41,7 @@ export function matteringSalienceFactor(
 }
 
 /**
- * Mattering-salience boost (reference parity) — join the cycle-computed
+ * Mattering-salience boost — join the cycle-computed
  * `pages.salience` score (high-emotion tags + link degree + take count, see
  * cycle/recompute-salience.ts) into the hybrid multiplier:
  * `1 + k × ln(1 + salience)`, k = 0.15 ('on') / 0.30 ('strong').

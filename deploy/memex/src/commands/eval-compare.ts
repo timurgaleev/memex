@@ -1,6 +1,6 @@
 /**
  * `memex eval run-all|compare|gate` — the aggregate instrument that proves a
- * ranking change (reference parity, adapted to memex's qrels harness):
+ * ranking change over memex's qrels harness:
  *
  *   eval run-all [--modes a,b,c] [--qrels PATH] [--k N] [--out PATH]
  *       Run the qrels suite once per search mode (knobs from MODE_BUNDLES,

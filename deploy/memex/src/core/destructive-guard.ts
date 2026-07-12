@@ -1,7 +1,7 @@
 /**
  * Destructive-guard — soft-delete / archive / restore / purge for documents,
- * with an impact preview and a confirmation gate. Faithful port of the
- * reference's destructive-guard model, adapted to memex's `documents` store.
+ * with an impact preview and a confirmation gate, over memex's `documents`
+ * store.
  *
  * Soft-delete and archive flip columns (migration 040); nothing is hard-deleted
  * until it has aged past the TTL, at which point the `purge` cycle phase reaps

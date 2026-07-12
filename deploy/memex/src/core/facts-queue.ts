@@ -1,8 +1,8 @@
 /**
  * Bounded in-memory queue for best-effort, on-write fact extraction.
  *
- * A trimmed adaptation of the reference's facts queue: the page-write path
- * enqueues a fire-and-forget extraction job instead of blocking the write on a
+ * The page-write path enqueues a fire-and-forget extraction job instead of
+ * blocking the write on a
  * paid Sonnet call. The queue's only responsibilities are order, concurrency,
  * and shedding load:
  *   - cap `cap` pending jobs; drop the OLDEST on overflow (a counter records it),

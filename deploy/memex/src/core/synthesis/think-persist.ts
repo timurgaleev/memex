@@ -1,7 +1,6 @@
 /**
- * think persistence — `think --save` / `--take` core (adapted from the
- * reference's persistSynthesis). The CLI/MCP flags live with their own
- * surfaces; these are the functions they call:
+ * think persistence — `think --save` / `--take` core. The CLI/MCP flags live
+ * with their own surfaces; these are the functions they call:
  *
  *   persistThinkSynthesis  write the synthesis as a real `synthesis/<slug>`
  *                          page (putPage, idempotent) + one synthesis_evidence

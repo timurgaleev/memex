@@ -149,9 +149,8 @@ export interface FindExpertsOptions {
   embedQuery?: (text: string) => Promise<number[]>;
   /**
    * Include the per-result factor breakdown (topic mode only): the raw
-   * expertise / recency / salience components behind `score`. Reference
-   * parity with find_experts' `explain` param. No cost — the factors are
-   * already computed; this just surfaces them.
+   * expertise / recency / salience components behind `score`. No cost — the
+   * factors are already computed; this just surfaces them.
    */
   explain?: boolean;
 }
@@ -555,8 +554,8 @@ export interface FindTrajectoryOptions {
    */
   metric?: string;
   /**
-   * Typed-claim shape filter (migration 070), reference-parity. Default `all`
-   * preserves the merged fact+event chronology.
+   * Typed-claim shape filter (migration 070). Default `all` preserves the
+   * merged fact+event chronology.
    *   - `metric`: only fact rows with `claim_metric IS NOT NULL`; timeline
    *     events excluded.
    *   - `event`:  only fact rows with `event_type IS NOT NULL`, plus timeline
@@ -736,10 +735,9 @@ export async function findTrajectory(
 // --- metric-trajectory derived stats (mig070) ------------------------------
 //
 // Pure functions over `TrajectoryPoint[]` — regression detection + embedding
-// drift_score. Faithful adaptation of the reference's `computeTrajectoryStats`
-// onto memex's point shape (ISO-string `at` instead of a Date `valid_from`,
-// `number[]` embeddings instead of Float32Array). The plain chronological
-// `findTrajectory` stays the default; these are additive.
+// drift_score over memex's point shape (ISO-string `at`, `number[]`
+// embeddings). The plain chronological `findTrajectory` stays the default;
+// these are additive.
 
 /** Default regression threshold — a 10% drop between consecutive metric values. */
 export const DEFAULT_REGRESSION_THRESHOLD = 0.1;
@@ -893,10 +891,9 @@ export function computeTrajectoryStats(
 /**
  * Convenience read: fetch an entity's metric-claim trajectory (embeddings on)
  * and compute its derived stats in one call. Defaults `claimKind` to `metric`
- * so only typed numeric claims participate — the reference's metric-trajectory
- * surface. LLM-free; deterministic. Not an MCP op (the raw `findTrajectory`
- * stays the wired reader); this is the parity plumbing the eval + scorecard
- * paths consume.
+ * so only typed numeric claims participate — the metric-trajectory surface.
+ * LLM-free; deterministic. Not an MCP op (the raw `findTrajectory` stays the
+ * wired reader); this is the plumbing the eval + scorecard paths consume.
  */
 export async function findTrajectoryStats(
   storage: Storage,

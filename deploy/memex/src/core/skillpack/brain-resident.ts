@@ -3,8 +3,8 @@
  * skillpack for the `list_brain_skillpack` MCP tool.
  *
  * memex is single-holder / single-source: it ships ONE local skillpack (the
- * `deploy/skills/` directory `memex skillpack` bundles), not the reference's
- * per-federated-source packs. So discovery collapses to "read the local skills
+ * `deploy/skills/` directory `memex skillpack` bundles), not per-federated-source
+ * packs. So discovery collapses to "read the local skills
  * dir and surface its offerings as a read" — there is no in-DB source tenancy
  * to scope by, and no git-remote scaffold spec to hand a thin client.
  *

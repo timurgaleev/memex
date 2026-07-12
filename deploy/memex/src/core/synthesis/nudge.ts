@@ -1,13 +1,13 @@
 /**
- * Take-commit nudge — real-time bias pattern surfacing (adapted from the
- * reference's on-commit nudge). When a newly-committed high-conviction take
- * matches an active bias tag on the holder's latest calibration profile, tap
+ * Take-commit nudge — real-time bias pattern surfacing on commit. When a
+ * newly-committed high-conviction take matches an active bias tag on the
+ * holder's latest calibration profile, tap
  * the operator on the shoulder with a short conversational line.
  *
  * This is the payoff surface of the calibration loop: bias_tags were written
  * by the calibration phase but nothing consumed them at write time until now.
  *
- * Rules (reference parity):
+ * Rules:
  *   - conviction weight must exceed 0.7,
  *   - the take's domain must match an active bias tag on the SAME tenant's
  *     latest profile (memex takes carry a real `domain` column, so no slug

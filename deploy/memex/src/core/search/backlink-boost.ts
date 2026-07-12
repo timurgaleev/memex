@@ -14,8 +14,8 @@
  *   10 links → ×1.12
  *   100 links→ ×1.23
  *
- * `link_source = 'mentions'` links are EXCLUDED (mig086 provenance; the
- * reference's exact filter): those are auto-linked body-text mentions and
+ * `link_source = 'mentions'` links are EXCLUDED (mig086 provenance): those are
+ * auto-linked body-text mentions and
  * verb-inferred edges (graph-completeness signal), not an intentional human
  * reference, and counting them would let popular-mention pages dominate
  * ranking. Self-links are excluded too. The boost is floor-ratio-gated exactly like graph-signals

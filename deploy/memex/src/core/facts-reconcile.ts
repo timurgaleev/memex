@@ -2,9 +2,9 @@
  * Facts-fence reconciliation — make the entity_facts DB index match a page's
  * `## Facts` fence (the system of record). LLM-FREE: the fence is canonical
  * structured markdown; this deterministically parses it and re-projects it
- * into the DB. (Faithful adaptation of the reference's extract_facts cycle
- * phase, minus its optional fact-text embedding — memex can add that later via
- * its existing Bedrock path; the reconcile itself never needs a model.)
+ * into the DB. (The extract_facts cycle phase, minus optional fact-text
+ * embedding — memex can add that later via its existing Bedrock path; the
+ * reconcile itself never needs a model.)
  *
  * Per page write, `reconcileFactsForPage`:
  *   1. RE-READS the page's CURRENT body + content_hash, and skips if the page

@@ -4,9 +4,8 @@
  *
  * memex already TRACKS chunker staleness (`documents.chunker_version` vs
  * MARKDOWN_CHUNKER_VERSION — see chunker-version.ts) and exposes a MANUAL
- * `reindex --rechunk-stale` that walks the whole vault. What it lacked — and
- * what the reference's post-upgrade re-embed flow provides — is the AUTOMATIC
- * drain: when the markdown chunker constant bumps, every markdown doc is stale
+ * `reindex --rechunk-stale` that walks the whole vault. What it lacked is the
+ * AUTOMATIC drain: when the markdown chunker constant bumps, every markdown doc is stale
  * and needs a re-chunk + re-embed, but doing that all at once is a surprise
  * Bedrock bill and a long wall-clock stall. This phase spreads the work across
  * ticks under a hard per-tick cap.
@@ -25,7 +24,7 @@
  * the next batch. IDEMPOTENT: a doc already at the current version never matches
  * the staleness predicate, so a fresh doc is never re-done.
  *
- * MARKDOWN-ONLY, matching the reference's re-embed scope. `indexDocument` is the
+ * MARKDOWN-ONLY. `indexDocument` is the
  * markdown ingest path (it stamps MARKDOWN_CHUNKER_VERSION and markdown-chunks
  * the body); running a `kind='code'` doc through it would mis-stamp and
  * mis-chunk it. Code docs re-chunk lazily on their own reindex. The predicate is

@@ -1,23 +1,20 @@
 /**
  * Frontmatter inference — synthesize a YAML frontmatter header for a document
- * that has none, at INGEST time (per file), exactly like the reference brain.
+ * that has none, at INGEST time (per file).
  *
- * The reference runs this ONCE per file in its import pipeline (a pure function
- * over a single `(path, content)`), NOT as a recurring cycle phase. memex
- * previously had a recurring DB cycle phase that scanned every document each
- * tick — a divergence that caused repeated OOM-SIGKILLs. This module restores
- * the reference's structure: `applyInference(path, content)` prepends an inferred
- * `---…---` block to the in-memory content before chunking; a file that already
- * has a leading `---` is returned untouched (skipped). It is wired into
- * `indexDocument` (the ingest path), so new content carries well-formed
+ * This runs ONCE per file in the import pipeline (a pure function over a single
+ * `(path, content)`), NOT as a recurring cycle phase. memex previously had a
+ * recurring DB cycle phase that scanned every document each tick — a design
+ * that caused repeated OOM-SIGKILLs. `applyInference(path, content)` prepends
+ * an inferred `---…---` block to the in-memory content before chunking; a file
+ * that already has a leading `---` is returned untouched (skipped). It is wired
+ * into `indexDocument` (the ingest path), so new content carries well-formed
  * frontmatter and no recurring full-corpus scan is needed.
  *
- * Faithful copy-paste-adapt of the reference's `core/frontmatter-inference.ts`.
- * The ONLY divergence: `DIRECTORY_RULES` ships EMPTY — the reference's table
- * encodes its author's private vault folder names, which must not enter this
- * public repo. The operator extends it locally for their own vault conventions;
- * the default rule (`{type:'note', titleStrategy:'heading'}`) makes inference
- * path-agnostic out of the box.
+ * `DIRECTORY_RULES` ships EMPTY in this public repo — a populated table would
+ * encode private vault folder names. The operator extends it locally for their
+ * own vault conventions; the default rule (`{type:'note',
+ * titleStrategy:'heading'}`) makes inference path-agnostic out of the box.
  */
 import { basename } from "node:path";
 
@@ -43,8 +40,8 @@ export interface DirectoryRule {
   titleStrategy?: "filename" | "heading" | "filename-full";
 }
 
-// Ordered most-specific-first; first match wins. EMPTY in the public repo — the
-// reference's table names a private vault. Operators add their own conventions.
+// Ordered most-specific-first; first match wins. EMPTY in the public repo — a
+// populated table would name a private vault. Operators add their own conventions.
 export const DIRECTORY_RULES: DirectoryRule[] = [];
 
 const DEFAULT_RULE: DirectoryRule = {

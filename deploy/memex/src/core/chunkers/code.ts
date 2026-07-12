@@ -26,12 +26,11 @@ import { getParser, parseWithBudget, type CodeLanguage } from "./parsers.ts";
  * for code documents. BUMP THIS whenever the symbol-splitting logic changes in a
  * way that should re-chunk the existing code corpus. Independent of
  * MARKDOWN_CHUNKER_VERSION — the stale check branches on document kind. Starts at
- * 1 (the grandfather DEFAULT). Faithful adaptation of the reference's
- * code-chunker CHUNKER_VERSION.
+ * 1 (the grandfather DEFAULT).
  *
  * v2: symbol-less files (re-export barrels, DML-only SQL) now emit windowed
- * fallback chunks instead of a zero-chunk document (reference parity) — bump
- * re-chunks the code corpus so existing zero-chunk docs gain their chunks.
+ * fallback chunks instead of a zero-chunk document — bump re-chunks the code
+ * corpus so existing zero-chunk docs gain their chunks.
  */
 export const CODE_CHUNKER_VERSION = 2;
 import type { Node as TSNode } from "web-tree-sitter";

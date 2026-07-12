@@ -3,7 +3,7 @@
  * (migration 089), the observability substrate behind `memex search
  * stats|tune`.
  *
- * Reference-faithful architecture: a per-process in-memory bucket map,
+ * Architecture: a per-process in-memory bucket map,
  * flushed every 60 s OR 100 calls (whichever first) by an unref'd timer.
  * `record()` is sync — the search hot path never waits on the write — and
  * every DB failure is swallowed (telemetry must never break retrieval).
@@ -13,10 +13,9 @@
  * Rows store SUMS + COUNTS only; the reader derives averages, so concurrent
  * ON CONFLICT adds from several processes accumulate correctly.
  *
- * rank-1 drift adaptation: the reference bands the top hit's calibrated 0..1
- * cosine base_score. memex's fused score is RRF-based (rank math, not a
- * similarity), so the three bands key off the top hit's EVIDENCE class
- * instead — high = exact_title_match / high_vector_match / alias_hit,
+ * rank-1 drift: memex's fused score is RRF-based (rank math, not a
+ * similarity), so the three bands key off the top hit's EVIDENCE class —
+ * high = exact_title_match / high_vector_match / alias_hit,
  * solid = keyword_exact, lt_solid = weak_semantic (or unclassified) — while
  * sum_rank1_score still accumulates the raw fused score as a directional
  * drift signal within a fixed corpus.
@@ -110,7 +109,7 @@ class TelemetryWriter {
 
     b.count += 1;
     b.sum_results += hits.length;
-    // char/4 token heuristic over the returned content (reference parity).
+    // char/4 token heuristic over the returned content.
     let chars = 0;
     for (const h of hits) chars += h.content.length;
     b.sum_tokens += Math.floor(chars / 4);

@@ -1,7 +1,7 @@
 /**
  * http/admin-events.ts — the SSE live-activity feed for the admin Dashboard
- * (deferred item #2). A faithful adaptation of the reference's `/admin/events`:
- * a process-local pub/sub bus + a `text/event-stream` route.
+ * (deferred item #2). A `/admin/events` route: a process-local pub/sub bus +
+ * a `text/event-stream` response.
  *
  * memex has no event bus, so this adds a tiny one. Tool calls publish a REDACTED
  * event (the MCP dispatch site, next to the DB request-log sink); each connected

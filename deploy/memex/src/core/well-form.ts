@@ -16,8 +16,8 @@
  * and drops NUL, leaving all valid text untouched. `wellFormJsonbValue`
  * deep-applies it to every string key/value of an object before serialization.
  *
- * Mirrors the reference's "well-form lone UTF-16 surrogates before jsonb" fix,
- * generalized to a reusable sanitizer + the NUL case.
+ * Well-forms lone UTF-16 surrogates before the jsonb cast, generalized to a
+ * reusable sanitizer + the NUL case.
  */
 
 const REPLACEMENT = "�";

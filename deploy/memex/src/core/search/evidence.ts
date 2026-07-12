@@ -1,11 +1,10 @@
 /**
  * evidence.ts — tell the caller WHY a hit matched, not just a number.
  *
- * Adapted from the reference's evidence/create_safety contract. The reference
- * keys this off a calibrated 0..1 cosine `base_score` (HIGH/SOLID floors).
- * memex has no such score — its hybrid `score` is RRF-fused (rank-based, not a
- * similarity), so those floors are meaningless here. Instead we classify on a
- * signal memex DOES have: which retrieval ARM(s) surfaced the chunk.
+ * memex has no calibrated 0..1 cosine score — its hybrid `score` is RRF-fused
+ * (rank-based, not a similarity), so similarity floors are meaningless here.
+ * Instead we classify on a signal memex DOES have: which retrieval ARM(s)
+ * surfaced the chunk.
  *
  *   - in BOTH the vector AND the keyword arm → both methods independently
  *     surfaced it → the strongest "this is the page" signal.
@@ -15,8 +14,7 @@
  *
  * `create_safety` is the derived "is this page already here?" hint an MCP agent
  * keys its don't-duplicate decision off — conservatively, so a soft signal
- * never reads as "exists" (the failure the reference's contract was built to
- * fix). Pure + deterministic.
+ * never reads as "exists". Pure + deterministic.
  *
  * `exact_title_match` fires when the query is a contiguous phrase in the page
  * title (the title boost). It is arm-independent and the strongest signal here
