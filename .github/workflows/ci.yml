@@ -24,6 +24,8 @@ jobs:
         run: make audit
       - name: make scrub-audit
         run: make scrub-audit
+      - name: migration search_path guard
+        run: bash scripts/check-search-path.sh
 
   bash-tests:
     name: Bash unit tests
