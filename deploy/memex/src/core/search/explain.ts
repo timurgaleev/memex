@@ -42,6 +42,9 @@ export interface SearchExplain {
   curation?: number;
   /** Title-phrase-match factor (title-match.ts). */
   title?: number;
+  /** Life-Chronicle recency lift for life/events + life/diary hits (hybrid.ts).
+   *  Only stamped on temporal searches (recency boost mode on/strong). */
+  chronicle?: number;
   /** Exact slug/kebab/title match factor (intent-weights.ts). */
   exact?: number;
   /** Alias-resolved canonical factor (alias-resolved.ts). */
@@ -145,6 +148,7 @@ export function formatExplain(
   boost("mattering", explain.mattering);
   boost("curation", explain.curation);
   boost("title", explain.title);
+  boost("chronicle", explain.chronicle);
   boost("exact", explain.exact);
   boost("alias", explain.alias);
   boost("backlink", explain.backlink);

@@ -1168,6 +1168,110 @@ export const OPERATIONS: readonly Operation[] = [
       "Run the thin-client brain health checks and return a structured report: config-free engine checks only (stats, embed coverage/staleness, tenancy/federation health, OAuth client hygiene, source routing, job worker liveness). Operator-only; read-only; never mutates; no LLM.",
     params: {},
   },
+  // --- Life Chronicle: timeline reads + per-entity dimensional ontology -------
+  // Reads project event pages (life/events/…) into a day/week/since/on-this-day
+  // timeline; the ontology surfaces sourced, bi-temporal dimension=value claims
+  // per entity. Diary interiority (life/diary/…) is never mined here and is
+  // stripped for non-operator callers. The whole surface is internal-only (see
+  // FORBIDDEN_MCP_TOOLS_FROM_PUBLIC) — the public bearer reaches none of it.
+  {
+    name: "chronicle_day",
+    description:
+      "Life-chronicle timeline for one UTC calendar day (or the ISO week containing it, with `week:true`). Returns the projected events — each a summary/detail joined to its depth page and, for an event projection, the event kind. `narrative:true` also returns a day-by-day prose rendering. Tenant-scoped. Read-only; no LLM.",
+    params: {
+      date: str({ ...req, description: "UTC calendar day, YYYY-MM-DD." }),
+      week: bool({ description: "Expand to the ISO week (Mon–Sun) containing `date`." }),
+      kind: str({ description: "Filter event projections by event.kind (e.g. 'meeting')." }),
+      narrative: bool({ description: "Also return a readable day-by-day prose summary." }),
+      limit: int({ minimum: 1, maximum: 1000, description: "Max events (default 200)." }),
+    },
+  },
+  {
+    name: "chronicle_since",
+    description:
+      "Life-chronicle events on or after a date, oldest-first. Returns the projected timeline rows. Tenant-scoped. Read-only; no LLM.",
+    params: {
+      since: str({ ...req, description: "Lower-bound UTC date, YYYY-MM-DD (inclusive)." }),
+      kind: str({ description: "Filter event projections by event.kind." }),
+      limit: int({ minimum: 1, maximum: 1000, description: "Max events (default 20)." }),
+    },
+  },
+  {
+    name: "chronicle_on_this_day",
+    description:
+      "Life-chronicle 'on this day': events from the same month+day in prior years, most-recent-first. `date` defaults to today (UTC). Tenant-scoped. Read-only; no LLM.",
+    params: {
+      date: str({ description: "Target day, YYYY-MM-DD. Defaults to today (UTC)." }),
+      limit: int({ minimum: 1, maximum: 1000, description: "Max events (default 50)." }),
+    },
+  },
+  {
+    name: "chronicle_last_seen",
+    description:
+      "When an entity last appeared in the life chronicle — the most recent timeline day its own page or an event's `who` array references it, plus days_ago. Tenant-scoped. Read-only; no LLM.",
+    params: {
+      entity: str({ ...req, description: "Entity slug (e.g. people/alice) or name to match." }),
+    },
+  },
+  {
+    name: "ontology_get",
+    description:
+      "The live per-dimension ontology for an entity: the current value on each axis (role, employer, location, …), confidence, provenance, and bi-temporal validity. `asof` time-travels to a past date; `min_confidence` floors the rows; `include_quarantined` surfaces novel/unconfirmed dimensions. Non-operator callers see world-visible rows only and never diary-sourced values. Tenant-scoped. Read-only; no LLM.",
+    params: {
+      entity: str({ ...req, description: "Entity slug (e.g. people/alice)." }),
+      asof: str({ description: "Resolve the ontology as of this YYYY-MM-DD (valid-time travel)." }),
+      min_confidence: num({ minimum: 0, maximum: 1, description: "Drop rows below this confidence." }),
+      include_quarantined: bool({ description: "Include quarantined (novel/unconfirmed) dimensions." }),
+    },
+  },
+  {
+    name: "ontology_propose",
+    scope: "write",
+    description:
+      "Record a dimensional observation about an entity (entity has dimension=value, e.g. role=advisor). Sourced, confidence-weighted, and bi-temporal: a novel dimension lands quarantined, a same-value re-observation corroborates, a different value supersedes forward (or closes a backdated interval). WRITE — internal/MCP-stdio only.",
+    params: {
+      entity: str({ ...req, description: "Entity slug the claim is about (e.g. people/alice)." }),
+      dimension: str({ ...req, description: "Axis name (e.g. role, employer, location)." }),
+      value: str({ ...req, description: "The value on that axis." }),
+      source: str({ description: "Provenance page slug (source_slug); omit for a manual claim." }),
+      confidence: num({ minimum: 0, maximum: 1, description: "0..1, default 0.7." }),
+      valid_from: str({ description: "Start of validity, YYYY-MM-DD. Default today; null = -infinity." }),
+      visibility: str({ enum: ["private", "world"], description: "Row visibility (default private)." }),
+    },
+  },
+  {
+    name: "ontology_dimensions",
+    description:
+      "Which dimension axes exist across the (scoped) corpus and how heavily each is used — [{dimension, entities, observations}], busiest first. Tenant-scoped. Read-only; no LLM.",
+    params: {},
+  },
+  {
+    name: "ontology_conflicts",
+    description:
+      "Entities whose currently-open observations on one dimension disagree — at least two distinct values from at least two distinct sources. For non-operator callers, diary-sourced values are stripped and a conflict that no longer disagrees after that stripping is dropped. Tenant-scoped. Read-only; no LLM.",
+    params: {
+      min_confidence: num({ minimum: 0, maximum: 1, description: "Floor the observations considered." }),
+    },
+  },
+  {
+    name: "volunteer_chronicle",
+    description:
+      "Push-based chronicle context: the recent timeline plus the validity-resolved ontology for the named entities, composed with zero LLM. Non-operator callers get a redacted view (diary-sourced + private-visibility ontology stripped). Tenant-scoped. Read-only; no LLM.",
+    params: {
+      days: int({ minimum: 1, maximum: 50, description: "Lookback window for the recent timeline (default 7, cap 50)." }),
+      entities: arr({ description: "Entity slugs to resolve current ontology for (array or comma-separated string)." }),
+    },
+  },
+  {
+    name: "chronicle_backfill",
+    scope: "write",
+    description:
+      "Sweep conversation-shape pages in scope and enqueue a chronicle-extract job per eligible page (diary/event pages are skipped). Each enqueued page costs one paid extraction — the response reports `pages_enqueued` and the per-page USD budget (MEMEX_CHRONICLE_WRITE_BUDGET_USD) so worst-case spend is computable before a real run. `dry_run:true` returns counts only. Operator-only. WRITE — internal/MCP-stdio only.",
+    params: {
+      dry_run: bool({ description: "Count eligible pages without enqueuing (default false)." }),
+      limit: int({ minimum: 1, maximum: 500, description: "Max pages to sweep (default 100, hard cap 500)." }),
+    },
+  },
 ];
 
 /**

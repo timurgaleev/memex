@@ -12,6 +12,7 @@ import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { registerRemediationHandlers } from "../core/jobs/remediation-handlers.ts";
+import { registerChronicleHandler } from "../core/jobs/chronicle-handler.ts";
 import { registerIngestCaptureHandler } from "../http/ingest.ts";
 import { registerSource } from "../core/sources.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
@@ -131,7 +132,16 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
   // 046) already exist.
   if (config.auth?.selfIssued?.enabled === true) {
-    const provider = new OAuthProvider({ engine: storage.raw() });
+    // MEMEX_ENABLE_DCR_INSECURE lets self-registered (DCR) clients request the
+    // consent-bypassing client_credentials grant; default off keeps them on the
+    // authorization_code grant. The route-level DCR gate lives in server.ts.
+    const dcrInsecure =
+      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true";
+    const provider = new OAuthProvider({
+      engine: storage.raw(),
+      allowClientCredentialsDcr: dcrInsecure,
+    });
     serverOpts.oauthProvider = provider;
     // Sweep expired access/refresh tokens + auth codes at startup — the tables
     // otherwise grow until a verify happens to hit the expired row.
@@ -256,6 +266,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Register the `ingest_capture` handler so POST /ingest submissions land
   // as inbox pages instead of dead-lettering.
   registerIngestCaptureHandler(storage);
+  // Register the `chronicle_extract` handler so timeline extraction runs off
+  // the write path instead of dead-lettering with "no handler registered".
+  registerChronicleHandler(storage);
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
   worker.start();
   console.log(

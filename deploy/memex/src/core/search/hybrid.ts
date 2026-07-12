@@ -52,6 +52,7 @@ import {
   resolveRecencyBoostMap,
   recencyBoostMultiplierForPath,
 } from "./recency.ts";
+import { chronicleBoostMultiplier } from "./chronicle-boost.ts";
 import { salienceMultiplier, applyMatteringBoost } from "./salience.ts";
 import { applyAliasResolvedBoost, ALIAS_RESOLVED_BOOST } from "./alias-resolved.ts";
 import { slugCandidatesForPath } from "./page-slug.ts";
@@ -1120,14 +1121,22 @@ export async function hybridSearch(
     // the tier map and over-tilt low-tier prefixes like chat/ 0.5.
     const titleF =
       titleBoostActive && isTitlePhraseMatch(trimmed, s.payload?.title) ? titleBoost : 1;
+    // Life-Chronicle lift for life/events + life/diary hits — gated on the same
+    // recency-boost activation, so a non-temporal query leaves every hit at ×1
+    // (bit-for-bit unchanged). Pure ranking; the diary read-fence lives elsewhere.
+    const chronicleF = chronicleBoostMultiplier(
+      s.payload?.sourcePath,
+      recencyBoostMode as "off" | "on" | "strong",
+    );
     if (explainAcc) {
       const patch: Partial<SearchExplain> = {};
       if (recencyF !== 1) patch.recency = recencyF;
       if (salienceF !== 1) patch.salience = salienceF;
       if (titleF !== 1) patch.title = titleF;
+      if (chronicleF !== 1) patch.chronicle = chronicleF;
       mergeExplain(explainAcc, s.chunkId, patch);
     }
-    return { ...s, score: s.score * recencyF * salienceF * titleF };
+    return { ...s, score: s.score * recencyF * salienceF * titleF * chronicleF };
   });
 
   // 6b2. Mattering-salience join — the cycle-computed

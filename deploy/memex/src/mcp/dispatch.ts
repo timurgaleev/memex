@@ -122,6 +122,29 @@ import {
 } from "../core/facts-extract.ts";
 import { getFactsQueue } from "../core/facts-queue.ts";
 import {
+  getTimelineForDate,
+  getSince,
+  getOnThisDay,
+  getLastSeen,
+} from "../core/chronicle.ts";
+import {
+  mergeOntologyFact,
+  getOntology,
+  discoverOntologyDimensions,
+  findOntologyConflicts,
+} from "../core/ontology-facts.ts";
+import { loadChronicleContext } from "../core/context/chronicle-context.ts";
+import { renderTimelineNarrative } from "../core/chronicle/narrative.ts";
+import { chronicleEnabled } from "../core/chronicle/config.ts";
+import { isChronicleEligible } from "../core/chronicle/eligibility.ts";
+import type {
+  ChronicleTimelineOpts,
+  OntologyConflict,
+  OntologyObservationInput,
+  OntologyReadOpts,
+  OntologyValue,
+} from "../core/chronicle/types.ts";
+import {
   addTimelineEvent,
   getEntityTimeline,
   type ListTimelineOptions,
@@ -273,6 +296,10 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // Hard-delete escape hatch: purge is admin + local-only, so a tenant write
   // token must not reach it (it was remote write-scoped before).
   "purge_deleted_pages",
+  // chronicle_backfill sweeps EVERY conversation-shape page in scope and spends
+  // (queued) chronicle-extract work — an operator maintenance action, not a
+  // tenant-reachable one.
+  "chronicle_backfill",
 ]);
 
 /** Per-call options the transport supplies. */
@@ -354,6 +381,11 @@ async function dispatchToolInner(
   // The operator identity: trusted-local / static-bearer over internal ingress.
   // Per-call `mode` escalation and think save/take persistence key on this.
   const isOperator = opts.authInfo === undefined && !(opts.isPublic ?? false);
+  // Untrusted caller for the chronicle surface: any public-ingress OR OAuth
+  // tenant principal. Drives diary/private redaction in the ontology reads —
+  // defence-in-depth on top of the public denylist (the public bearer can't
+  // reach chronicle tools at all).
+  const remote = (opts.isPublic ?? false) || opts.authInfo !== undefined;
   // The token's takes-holder allow-list (mig 072, enforced since mig 091):
   // undefined for the operator path and knobless credentials.
   const takesHolders = effectiveTakesHolders(opts.authInfo);
@@ -408,7 +440,7 @@ async function dispatchToolInner(
       case "index":
         return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
       case "backlinks":
-        return await callBacklinks(storage, args, redact, readSources);
+        return await callBacklinks(storage, args, redact, readSources, remote);
       case "stats":
         return await callStats(storage);
       case "source_health":
@@ -426,25 +458,25 @@ async function dispatchToolInner(
       case "page_revert":
         return await callPageRevert(storage, args, writeSource, opts.isPublic ?? false);
       case "page_get":
-        return await callPageGet(storage, args, redact, readSources);
+        return await callPageGet(storage, args, redact, readSources, remote);
       case "page_list":
-        return await callPageList(storage, args, redact, readSources);
+        return await callPageList(storage, args, redact, readSources, remote);
       case "page_versions":
-        return await callPageVersions(storage, args, redact, readSources);
+        return await callPageVersions(storage, args, redact, readSources, remote);
       case "link":
         return await callLink(storage, args, writeSource);
       case "unlink":
         return await callUnlink(storage, args, writeSource);
       case "graph_neighbors":
-        return await callGraphNeighbors(storage, args, redactGraph, readSources);
+        return await callGraphNeighbors(storage, args, redactGraph, readSources, remote);
       case "graph_query":
-        return await callGraphQuery(storage, args, redactGraph, readSources);
+        return await callGraphQuery(storage, args, redactGraph, readSources, remote);
       case "traverse_graph":
-        return await callTraverseGraph(storage, args, readSources);
+        return await callTraverseGraph(storage, args, readSources, remote);
       case "get_chunks":
-        return await callGetChunks(storage, args, readSources);
+        return await callGetChunks(storage, args, readSources, remote);
       case "resolve_slugs":
-        return await callResolveSlugs(storage, args, readSources);
+        return await callResolveSlugs(storage, args, readSources, remote);
       case "add_tag":
         return await callAddTag(storage, args, writeSource);
       case "remove_tag":
@@ -462,7 +494,7 @@ async function dispatchToolInner(
       case "entity_timeline":
         return await callEntityTimeline(storage, args, redact, readSources);
       case "entity_recall":
-        return await callEntityRecall(storage, args, redact, readSources);
+        return await callEntityRecall(storage, args, redact, readSources, remote);
       case "jobs_submit":
         return await callJobsSubmit(storage, args);
       case "jobs_list":
@@ -474,7 +506,7 @@ async function dispatchToolInner(
       case "jobs_logs":
         return await callJobsLogs(storage, args, redact);
       case "get_links":
-        return await callGetLinks(storage, args, readSources);
+        return await callGetLinks(storage, args, readSources, remote);
       case "list_link_sources":
         return await callListLinkSources(storage, readSources);
       case "find_orphans":
@@ -516,7 +548,7 @@ async function dispatchToolInner(
       case "volunteer_context":
         return await callVolunteerContext(storage, args);
       case "advisor":
-        return await callAdvisor(storage);
+        return await callAdvisor(storage, readSources);
       case "list_brain_skillpack":
         return await callListBrainSkillpack();
       case "list_concepts":
@@ -558,7 +590,7 @@ async function dispatchToolInner(
       case "put_raw_data":
         return await callPutRawData(storage, args, writeSource);
       case "get_raw_data":
-        return await callGetRawData(storage, args, readSources);
+        return await callGetRawData(storage, args, readSources, remote);
       case "log_ingest":
         return await callLogIngest(storage, args, writeSource);
       case "get_ingest_log":
@@ -580,7 +612,27 @@ async function dispatchToolInner(
       case "get_skill":
         return callGetSkill(args);
       case "get_recent_transcripts":
-        return await callGetRecentTranscripts(storage, args, redact, readSources);
+        return await callGetRecentTranscripts(storage, args, redact, readSources, remote);
+      case "chronicle_day":
+        return await callChronicleDay(storage, args, readSources, remote);
+      case "chronicle_since":
+        return await callChronicleSince(storage, args, readSources, remote);
+      case "chronicle_on_this_day":
+        return await callChronicleOnThisDay(storage, args, readSources, remote);
+      case "chronicle_last_seen":
+        return await callChronicleLastSeen(storage, args, readSources, remote);
+      case "ontology_get":
+        return await callOntologyGet(storage, args, readSources, remote);
+      case "ontology_propose":
+        return await callOntologyPropose(storage, args, writeSource);
+      case "ontology_dimensions":
+        return await callOntologyDimensions(storage, readSources, remote);
+      case "ontology_conflicts":
+        return await callOntologyConflicts(storage, args, readSources, remote);
+      case "volunteer_chronicle":
+        return await callVolunteerChronicle(storage, args, readSources, remote);
+      case "chronicle_backfill":
+        return await callChronicleBackfill(storage, args, readSources);
       default:
         throw new OperationError(
           "not_found",
@@ -715,7 +767,12 @@ async function callSearch(
   // boolean by the op contract; only an explicit true opts in.
   if (args["explain"] === true) searchOpts.explain = true;
   const hitsAll = await hybridSearch(storage, q, searchOpts);
-  const hits = offset > 0 ? hitsAll.slice(offset) : hitsAll;
+  const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
+  // Diary fence: a non-operator caller (public bearer OR OAuth tenant, even one
+  // scoped into the diary's own source) must never receive life/diary/* page
+  // chunks. Public also drops ALL page:// hits just below; this additionally
+  // covers the OAuth tenant, whose page hits are otherwise returned verbatim.
+  const hits = fenceDiaryHits(hitsOffset, isOperator);
   // Public ingress: drop page-derived mirror hits entirely. A page slug
   // (`page://people/<name>`) and title are author-written identifiers — the
   // exact PII the redaction layer suppresses — and search is a free-text
@@ -793,6 +850,7 @@ async function callBacklinks(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const name = args["name"];
   if (typeof name !== "string" || name.length === 0) {
@@ -818,7 +876,10 @@ async function callBacklinks(
     opts.limit = limit as number;
   }
   if (readSources?.length) opts.sourceIds = readSources;
-  const hits = await findBacklinks(storage, name, opts);
+  let hits = await findBacklinks(storage, name, opts);
+  // Diary fence: drop backlinks originating from a diary page (its mirror
+  // source_path carries the life/diary/* slug) for a non-operator caller.
+  if (remote) hits = hits.filter((h) => !isDiarySourcePath(h.sourcePath));
   // Public ingress: `surfaceForm` is note-authored free text — strip it,
   // mirroring the search/page/fact body redaction policy.
   const out = redact
@@ -946,6 +1007,7 @@ async function callPagePut(
   if (writeSource) input.source_id = writeSource;
   const r = await putPage(storage, input);
   let searchIndexed: boolean | undefined;
+  let chronicleBackstop = false;
   if (r.changed) {
     // Fetch the canonical row once: an omitted-title/-body re-put preserves
     // the stored values, so `input` alone may not reflect what's searchable.
@@ -978,6 +1040,13 @@ async function callPagePut(
       // On-write fact extraction (default-OFF, best-effort). Only on a real
       // content change and only for prose-eligible pages.
       maybeEnqueueFactExtraction(storage, page, writeSource);
+      // On-write chronicle backstop (default-OFF, operator-trusted only).
+      chronicleBackstop = await maybeEnqueueChronicleExtract(
+        storage,
+        page,
+        writeSource,
+        isPublic,
+      );
     }
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
@@ -994,7 +1063,12 @@ async function callPagePut(
   } catch (e) {
     console.error("[memex] takes-fence sync failed (non-fatal):", e);
   }
-  return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
+  return jsonResult({
+    ok: true,
+    ...r,
+    ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}),
+    ...(chronicleBackstop ? { chronicle_backstop: true } : {}),
+  });
 }
 
 /**
@@ -1012,6 +1086,9 @@ function maybeEnqueueFactExtraction(
   writeSource?: string,
 ): void {
   if (!factsExtractionEnabled()) return;
+  // Diary interiority is never mined for facts — a hard privacy invariant that
+  // sits above the generic prose gate (which admits type 'journal').
+  if (isDiaryPage(page.type, page.slug)) return;
   const eligible = isFactsExtractionEligible(
     page.type,
     page.markdown_body,
@@ -1029,6 +1106,109 @@ function maybeEnqueueFactExtraction(
       }).then(() => undefined),
     sessionId,
   );
+}
+
+/** A diary/journal page. Its interiority is kept verbatim and never re-derived
+ *  into facts OR chronicle events — a privacy invariant above the generic gates
+ *  (facts admits type 'journal'; this refuses it). */
+function isDiaryPage(type: string | undefined, slug: string): boolean {
+  const t = (type ?? "").trim().toLowerCase();
+  return t === "diary" || t === "journal" || slug.startsWith("life/diary/");
+}
+
+/** A search-mirror source_path pointing at a diary page. Mirror ids are
+ *  `page://<slug>` (default tenant) or `page://<sourceId>/<slug>` (scoped), so a
+ *  diary page (slug `life/diary/…`) appears either right after the scheme or
+ *  after a tenant prefix — match the slug segment, not just the scheme. */
+function isDiarySourcePath(sourcePath: string): boolean {
+  return (
+    sourcePath.startsWith("page://life/diary/") ||
+    sourcePath.startsWith("page-truth://life/diary/") ||
+    sourcePath.includes("/life/diary/")
+  );
+}
+
+/** Drop life/diary/* page-mirror hits for a non-operator caller (the diary
+ *  fence over the raw-chunk search surfaces). Operator keeps everything. */
+function fenceDiaryHits<T>(hits: T[], isOperator: boolean): T[] {
+  if (isOperator) return hits;
+  return (hits as unknown as Record<string, unknown>[]).filter(
+    (h) => !(typeof h["sourcePath"] === "string" && isDiarySourcePath(h["sourcePath"])),
+  ) as unknown as T[];
+}
+
+/**
+ * Direct page-body reads must not confirm a diary page even exists to a
+ * non-operator caller. Resolve whether `slug` names diary content in the
+ * caller's scope: a life/diary/* slug is diary without a fetch; otherwise a
+ * scoped read decides on the page's type (diary/journal). Returns false when
+ * the page is missing/out-of-scope (the read then no-ops on its own). Callers
+ * translate `true` into the SAME not_found the miss path returns, so a diary
+ * page is indistinguishable from an absent one.
+ */
+async function isRemoteDiaryFenced(
+  storage: Storage,
+  slug: string,
+  readSources: string[] | undefined,
+): Promise<boolean> {
+  if (isDiaryPage(undefined, slug)) return true;
+  const scopeIds = readSources && readSources.length ? readSources : undefined;
+  const pg = await getPage(storage, slug, scopeIds);
+  return pg !== null && isDiaryPage(pg.type, pg.slug);
+}
+
+/**
+ * Best-effort, default-OFF on-write chronicle backstop. When MEMEX_AUTO_CHRONICLE
+ * is enabled AND the page is chronicle-eligible (conversation-shape, not diary/
+ * event/dream), enqueue one durable `chronicle_extract` job so the timeline gets
+ * projected. Operator-trusted writes ONLY: a public or tenant-scoped write must
+ * never feed the operator's life chronicle (writeSource undefined + not public =
+ * the unscoped local/internal operator). Failures are logged + swallowed — the
+ * backstop can never break the triggering write. Returns whether it enqueued.
+ */
+/**
+ * Dedup id for a chronicle-extract job. Includes an 8-char content-hash prefix
+ * so the id is CONTENT-addressed: re-extracting the SAME body collapses onto the
+ * prior job (idempotent), but an EDIT changes the hash → a fresh id → a new job.
+ * Without the hash the id would collide with a long-finished succeeded/failed
+ * row forever (Queue.enqueue is ON CONFLICT DO NOTHING), so edits would never
+ * re-extract and a backfill would falsely report work enqueued.
+ */
+function chronicleJobId(sourceId: string, slug: string, contentHash: string | undefined): string {
+  const h = (contentHash ?? "").slice(0, 8) || "nohash";
+  return `chronicle_extract:${sourceId}:${slug}:${h}`;
+}
+
+async function maybeEnqueueChronicleExtract(
+  storage: Storage,
+  page: { slug: string; type: string; markdown_body: string; source_id?: string; content_hash?: string },
+  writeSource: string | undefined,
+  isPublic: boolean,
+): Promise<boolean> {
+  if (!chronicleEnabled()) return false;
+  if (isPublic || writeSource !== undefined) return false;
+  const eligible = isChronicleEligible({
+    type: page.type,
+    slug: page.slug,
+    body: page.markdown_body,
+  });
+  if (!eligible.ok) return false;
+  try {
+    const sourceId = page.source_id ?? "default";
+    await new Queue(storage.engine()).enqueue({
+      kind: "chronicle_extract",
+      payload: { slug: page.slug, sourceId },
+      id: chronicleJobId(sourceId, page.slug, page.content_hash),
+      timeoutMs: 600_000,
+    });
+    return true;
+  } catch (e) {
+    console.error(
+      `[chronicle] backstop enqueue failed for ${page.slug} (non-fatal):`,
+      e instanceof Error ? e.message : e,
+    );
+    return false;
+  }
 }
 
 /**
@@ -1090,6 +1270,7 @@ async function callPageAppend(
     ...(writeSource ? { source_id: writeSource } : {}),
   });
   let searchIndexed: boolean | undefined;
+  let chronicleBackstop = false;
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
     const body = fresh?.markdown_body ?? "";
@@ -1105,10 +1286,21 @@ async function callPageAppend(
     if (fresh) {
       searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined);
       maybeEnqueueFactExtraction(storage, fresh, writeSource);
+      chronicleBackstop = await maybeEnqueueChronicleExtract(
+        storage,
+        fresh,
+        writeSource,
+        isPublic,
+      );
     }
   }
   await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
-  return jsonResult({ ok: true, ...r, ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}) });
+  return jsonResult({
+    ok: true,
+    ...r,
+    ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}),
+    ...(chronicleBackstop ? { chronicle_backstop: true } : {}),
+  });
 }
 
 async function callPageDelete(
@@ -1208,6 +1400,7 @@ async function callPageGet(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_get: `slug` is required");
@@ -1226,10 +1419,21 @@ async function callPageGet(
     if (!fuzzy) throw e;
   }
   if (!page && fuzzy) {
-    const candidates = await resolveSlugs(storage, args["slug"], {
+    let candidates = await resolveSlugs(storage, args["slug"], {
       limit: 5,
       ...(scopeIds ? { sourceIds: scopeIds } : {}),
     });
+    // Diary fence: a non-operator caller must not learn diary slugs even through
+    // the ambiguity list. Drop diary candidates (life/diary/* slug OR type
+    // diary/journal) BEFORE branching — if exactly one survives, resolve to it;
+    // if none, fall through to the normal not-found shape.
+    if (remote && candidates.length > 0) {
+      const kept: typeof candidates = [];
+      for (const c of candidates) {
+        if (!(await isRemoteDiaryFenced(storage, c.slug, scopeIds))) kept.push(c);
+      }
+      candidates = kept;
+    }
     if (candidates.length === 1) {
       page = await getPage(storage, candidates[0]!.slug, scopeIds, getOpts);
       resolvedSlug = candidates[0]!.slug;
@@ -1242,6 +1446,11 @@ async function callPageGet(
     }
   }
   if (!page) return errResult(`page not found: ${args["slug"]}`);
+  // Diary fence: a non-operator caller must not even learn a diary page exists.
+  // Return the SAME not_found as a genuine miss (never permission_denied).
+  if (remote && isDiaryPage(page.type, page.slug)) {
+    return errResult(`page not found: ${args["slug"]}`);
+  }
   // Retrieval write-back (mig 024): a user just surfaced this page — bump the
   // last_retrieved_at signal the context-volunteer "used" stat reads. Throttled
   // + best-effort; awaited because memex is single-holder (no fire-and-forget
@@ -1260,6 +1469,7 @@ async function callPageList(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listPages>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
@@ -1277,7 +1487,9 @@ async function callPageList(
   if (args["include_deleted"] === true && !redact) opts.includeDeleted = true;
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const pages = await listPages(storage, opts);
+  let pages = await listPages(storage, opts);
+  // Diary fence: a non-operator caller never sees diary pages in the listing.
+  if (remote) pages = pages.filter((p) => !isDiaryPage(p.type, p.slug));
   const out = redact
     ? pages.map((p) => redactBody(p as unknown as Record<string, unknown>))
     : pages;
@@ -1289,9 +1501,16 @@ async function callPageVersions(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_versions: `slug` is required");
+  }
+  // Diary fence: the version chain carries body snapshots. Mirror the miss
+  // shape (empty list, not an error) so a diary page is indistinguishable from
+  // a slug the caller can't see — pageVersions returns [] for an unknown slug.
+  if (remote && (await isRemoteDiaryFenced(storage, args["slug"], readSources))) {
+    return jsonResult({ ok: true, versions: [] });
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
   const sourceIds = readSources && readSources.length ? readSources : undefined;
@@ -1364,9 +1583,14 @@ async function callGraphNeighbors(
   args: Record<string, unknown>,
   redact: boolean,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("graph_neighbors: `slug` is required");
+  // Diary fence: never confirm a diary node even by echoing its neighbours.
+  if (remote && isDiarySlug(args["slug"])) {
+    return jsonResult({ ok: true, slug: args["slug"], links: [] });
+  }
   const opts: GraphNeighborsOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (
@@ -1377,7 +1601,9 @@ async function callGraphNeighbors(
     opts.direction = args["direction"] as GraphNeighborsOptions["direction"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const links = await graphNeighbors(storage, args["slug"], opts);
+  let links = await graphNeighbors(storage, args["slug"], opts);
+  // Drop edges whose OTHER endpoint is a diary page.
+  if (remote) links = links.filter((l) => !isDiaryLink(l));
   return jsonResult({
     ok: true,
     slug: args["slug"],
@@ -1387,11 +1613,17 @@ async function callGraphNeighbors(
   });
 }
 
+/** True when either endpoint of a graph edge is a diary slug. */
+function isDiaryLink(link: { source_slug?: string; target_slug?: string }): boolean {
+  return isDiarySlug(link.source_slug) || isDiarySlug(link.target_slug);
+}
+
 async function callGraphQuery(
   storage: Storage,
   args: Record<string, unknown>,
   redact: boolean,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["type"] !== "string")
     return errResult("graph_query: `type` is required");
@@ -1406,8 +1638,13 @@ async function callGraphQuery(
       "graph_query: at least one of `source_slug` or `target_slug` is required",
     );
   }
+  // Diary fence: a diary slug on either side must not resolve for a tenant.
+  if (remote && (isDiarySlug(opts.source_slug) || isDiarySlug(opts.target_slug))) {
+    return jsonResult({ ok: true, links: [] });
+  }
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const links = await graphQuery(storage, opts);
+  let links = await graphQuery(storage, opts);
+  if (remote) links = links.filter((l) => !isDiaryLink(l));
   return jsonResult({
     ok: true,
     links: redact
@@ -1420,9 +1657,14 @@ async function callTraverseGraph(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["start_slug"] !== "string" || args["start_slug"].length === 0) {
     return errResult("traverse_graph: `start_slug` is required");
+  }
+  // Diary fence: a diary start node yields nothing for a non-operator caller.
+  if (remote && isDiarySlug(args["start_slug"])) {
+    return jsonResult({ ok: true, start: args["start_slug"], hits: [] });
   }
   const opts: TraverseGraphOptions = {};
   if (typeof args["direction"] === "string")
@@ -1432,9 +1674,10 @@ async function callTraverseGraph(
   if (Number.isInteger(args["limit"])) opts.limit = args["limit"] as number;
   if (readSources && readSources.length) opts.sourceIds = readSources;
   try {
-    // Returns only {slug, depth} — slugs are already public for the graph read
-    // surface (graph_neighbors/graph_query expose them), so no extra redaction.
-    const hits = await traverseGraph(storage, args["start_slug"], opts);
+    // Returns only {slug, depth}. Drop any diary node reached along the walk
+    // for a non-operator caller.
+    let hits = await traverseGraph(storage, args["start_slug"], opts);
+    if (remote) hits = hits.filter((h) => !isDiarySlug(h.slug));
     return jsonResult({ ok: true, start: args["start_slug"], hits });
   } catch (e) {
     return errResult(
@@ -1447,12 +1690,21 @@ async function callGetChunks(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const hasSlug = typeof args["slug"] === "string" && args["slug"].length > 0;
   const hasSrc =
     typeof args["source_path"] === "string" && args["source_path"].length > 0;
   if (!hasSlug && !hasSrc) {
     return errResult("get_chunks: provide `slug` or `source_path`");
+  }
+  // Diary fence: a non-operator caller gets no diary chunk content. Return an
+  // empty set (indistinguishable from a chunk-less / unknown page).
+  if (remote) {
+    const fenced = hasSlug
+      ? await isRemoteDiaryFenced(storage, args["slug"] as string, readSources)
+      : isDiarySourcePath(args["source_path"] as string);
+    if (fenced) return jsonResult({ ok: true, chunks: [] });
   }
   const sourceIds = readSources && readSources.length ? readSources : undefined;
   const chunks = hasSlug
@@ -1465,6 +1717,7 @@ async function callResolveSlugs(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["query"] !== "string" || args["query"].length === 0) {
     return errResult("resolve_slugs: `query` is required");
@@ -1472,8 +1725,9 @@ async function callResolveSlugs(
   const opts: Parameters<typeof resolveSlugs>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  // Only slugs/titles/scores returned — already public via page_get/search.
-  const hits = await resolveSlugs(storage, args["query"], opts);
+  let hits = await resolveSlugs(storage, args["query"], opts);
+  // Diary fence: never resolve a query to a diary slug for a non-operator caller.
+  if (remote) hits = hits.filter((h) => !isDiarySlug(h.slug));
   return jsonResult({ ok: true, query: args["query"], hits });
 }
 
@@ -1676,9 +1930,15 @@ async function callEntityRecall(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string")
     return errResult("entity_recall: `slug` is required");
+  // Diary fence: entity_recall returns the page body — hide a diary entity from
+  // a non-operator caller, mirroring the soft-stub miss (page null, no rows).
+  if (remote && (await isRemoteDiaryFenced(storage, args["slug"], readSources))) {
+    return jsonResult({ ok: true, page: null, facts: [], timeline: [] });
+  }
   const opts: EntityRecallOptions = {};
   // `query` re-orders facts by semantic similarity to caller-supplied text.
   // INTERNAL ONLY: on the public-bearer path (redact) the fact text is stripped
@@ -1848,14 +2108,25 @@ async function callGetLinks(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("get_links: `slug` is required");
   }
+  // Diary fence: a diary node's edge set is hidden from a non-operator caller.
+  if (remote && isDiarySlug(args["slug"])) {
+    return jsonResult({ ok: true, slug: args["slug"], groups: [] });
+  }
   const opts: Parameters<typeof getLinks>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const groups = await getLinks(storage, args["slug"], opts);
+  let groups = await getLinks(storage, args["slug"], opts);
+  // Drop edges to a diary page, then any group left empty.
+  if (remote) {
+    groups = groups
+      .map((g) => ({ ...g, links: g.links.filter((l) => !isDiaryLink(l)) }))
+      .filter((g) => g.links.length > 0);
+  }
   return jsonResult({ ok: true, slug: args["slug"], groups });
 }
 
@@ -2092,7 +2363,7 @@ async function callQuery(
     if (readSources && readSources.length) opts.sourceIds = readSources;
     if (onCapture) opts.search = { onCapture };
     const hits = await queryRefine(storage, q, refine, opts);
-    return jsonResult({ ok: true, hits });
+    return jsonResult({ ok: true, hits: fenceDiaryHits(hits, isOperator) });
   }
 
   const k = typeof args["k"] === "number" ? (args["k"] as number) : 20;
@@ -2138,8 +2409,9 @@ async function callQuery(
   if (args["explain"] === true) searchOpts.explain = true;
   applyPerCallMode(searchOpts, args["mode"], isOperator);
   const hitsAll = await hybridSearch(storage, q, searchOpts);
-  const hits = offset > 0 ? hitsAll.slice(offset) : hitsAll;
-  return jsonResult({ ok: true, hits });
+  const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
+  // Diary fence for the non-operator caller (mirrors callSearch).
+  return jsonResult({ ok: true, hits: fenceDiaryHits(hitsOffset, isOperator) });
 }
 
 async function callCodeCallers(
@@ -2271,11 +2543,18 @@ async function callVolunteerContext(
   return jsonResult({ ok: true, pages });
 }
 
-async function callAdvisor(storage: Storage): Promise<ToolCallResult> {
+async function callAdvisor(
+  storage: Storage,
+  readSources?: string[],
+): Promise<ToolCallResult> {
   const report = await runAdvisor({
     engine: storage.raw(),
     version: packageJson.version,
     now: new Date(),
+    // Forward the caller's read scope so tenant-owned collectors (chronicle
+    // coverage / ontology conflicts) stay source-scoped; a scopeless caller
+    // leaves it unset and those collectors fail closed (silent, no leak).
+    ...(readSources && readSources.length > 0 ? { sourceIds: readSources } : {}),
   });
   return jsonResult({ ok: true, ...report });
 }
@@ -2480,13 +2759,17 @@ async function callGetRecentTranscripts(
   args: Record<string, unknown>,
   redact: boolean,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof listRecentTranscripts>[1] = {};
   if (typeof args["days"] === "number") opts.days = args["days"];
   if (typeof args["summary"] === "boolean") opts.summary = args["summary"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const transcripts = await listRecentTranscripts(storage.engine(), opts);
+  let transcripts = await listRecentTranscripts(storage.engine(), opts);
+  // Diary fence: `journal` is a listed transcript type — a non-operator caller
+  // never sees diary/journal interiority in the recent-transcripts feed.
+  if (remote) transcripts = transcripts.filter((t) => !isDiaryPage(t.type, t.slug));
   // Public ingress: `content` is note body — strip it, mirroring the page_list
   // body-redaction policy (slug/type/title metadata stays).
   const out = redact ? transcripts.map((t) => ({ ...t, content: "" })) : transcripts;
@@ -2739,9 +3022,14 @@ async function callGetRawData(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string" || args["slug"].length === 0) {
     return errResult("get_raw_data: `slug` is required");
+  }
+  // Diary fence: raw_data sidecars are page-backed. Mirror the miss (empty rows).
+  if (remote && (await isRemoteDiaryFenced(storage, args["slug"], readSources))) {
+    return jsonResult({ ok: true, slug: args["slug"], raw_data: [] });
   }
   const opts: Parameters<typeof getRawData>[2] = {};
   if (typeof args["source"] === "string" && args["source"]) opts.source = args["source"];
@@ -2983,4 +3271,350 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     });
   }
   return jsonResult({ ok: checks.every((c) => c.ok), checks });
+}
+
+// ---------------------------------------------------------------------------
+// Life Chronicle tools — timeline reads + per-entity dimensional ontology.
+// The whole surface is internal-only (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC). Every
+// chronicle read REQUIRES an explicit tenant scope (the core refuses an empty
+// scope by design); `resolveChronicleScope` resolves the unscoped operator to
+// the whole-brain source set so a legitimate operator read never trips that
+// guard while a scoped tenant stays confined to its grant. The ontology reads
+// additionally strip diary-sourced + private rows for non-operator callers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the concrete source scope for a chronicle read. A scoped caller keeps
+ * its grant (the fail-closed sentinel matches nothing → empty results). The
+ * unscoped operator gets every known source id (union of pages + entity_facts),
+ * so a whole-brain read is deliberate — never an accidental blanket sweep.
+ */
+async function resolveChronicleScope(
+  storage: Storage,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<string[]> {
+  if (readSources && readSources.length) return readSources;
+  // A remote (public bearer / OAuth tenant) caller that resolved to NO scope
+  // must FAIL CLOSED — whole-brain expansion is the operator's privilege alone.
+  // A grantless authed token reads nothing (sentinel matches no row), never the
+  // entire corpus.
+  if (remote) return [NO_SOURCE_SENTINEL];
+  const r = await storage.engine().query<{ source_id: string }>(
+    `SELECT source_id FROM pages WHERE source_id IS NOT NULL
+     UNION
+     SELECT source_id FROM entity_facts WHERE source_id IS NOT NULL`,
+  );
+  const ids = r.rows.map((row) => row.source_id).filter(Boolean);
+  return ids.length ? ids : [NO_SOURCE_SENTINEL];
+}
+
+/** Require a strict YYYY-MM-DD calendar date; loud invalid_params on junk. */
+function chronicleDate(v: unknown, tool: string, field: string): string {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    throw new OperationError(
+      "invalid_params",
+      `${tool}: \`${field}\` must be a YYYY-MM-DD date`,
+      `Pass \`${field}\` as a calendar date, e.g. 2026-07-12.`,
+    );
+  }
+  return v;
+}
+
+/** True when an ontology row is diary-sourced (privacy redaction target). */
+function isDiarySourced(sourceSlug: string | null | undefined): boolean {
+  return (sourceSlug ?? "").startsWith("life/diary/");
+}
+
+/** True when a page slug is diary interiority (slug-prefix only — the cheap
+ *  fence for slug-emitting graph/backlink reads; no scoped type lookup). */
+function isDiarySlug(slug: string | null | undefined): boolean {
+  return typeof slug === "string" && slug.startsWith("life/diary/");
+}
+
+async function callChronicleDay(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  const date = chronicleDate(args["date"], "chronicle_day", "date");
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const opts: ChronicleTimelineOpts = { sourceIds: scope };
+  // Non-operator callers never see life/diary/* projections (SQL-level).
+  if (remote) opts.excludeDiary = true;
+  if (args["week"] === true) opts.week = true;
+  if (typeof args["kind"] === "string" && args["kind"]) opts.kind = args["kind"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const events = await getTimelineForDate(storage, date, opts);
+  const payload: Record<string, unknown> = { ok: true, date, events };
+  if (args["narrative"] === true) payload.narrative = renderTimelineNarrative(events);
+  return jsonResult(payload);
+}
+
+async function callChronicleSince(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  const since = chronicleDate(args["since"], "chronicle_since", "since");
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const opts: ChronicleTimelineOpts = { sourceIds: scope };
+  if (remote) opts.excludeDiary = true;
+  if (typeof args["kind"] === "string" && args["kind"]) opts.kind = args["kind"];
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const events = await getSince(storage, since, opts);
+  return jsonResult({ ok: true, since, events });
+}
+
+async function callChronicleOnThisDay(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  // `date` defaults to today (UTC) when omitted.
+  const date =
+    args["date"] === undefined
+      ? new Date().toISOString().slice(0, 10)
+      : chronicleDate(args["date"], "chronicle_on_this_day", "date");
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const opts: ChronicleTimelineOpts = { sourceIds: scope };
+  if (remote) opts.excludeDiary = true;
+  if (typeof args["limit"] === "number") opts.limit = args["limit"];
+  const events = await getOnThisDay(storage, date, opts);
+  return jsonResult({ ok: true, date, events });
+}
+
+async function callChronicleLastSeen(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  if (typeof args["entity"] !== "string" || args["entity"].length === 0) {
+    return errResult("chronicle_last_seen: `entity` is required");
+  }
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const result = await getLastSeen(storage, args["entity"], {
+    sourceIds: scope,
+    ...(remote ? { excludeDiary: true } : {}),
+  });
+  return jsonResult({ ok: true, ...result });
+}
+
+async function callOntologyGet(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  if (typeof args["entity"] !== "string" || args["entity"].length === 0) {
+    return errResult("ontology_get: `entity` is required");
+  }
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const opts: OntologyReadOpts = { sourceIds: scope };
+  // Validate before the value reaches getOntology's `::date` cast — a junk
+  // string must fail as clean invalid_params, not a Postgres cast 500.
+  if (args["asof"] !== undefined && args["asof"] !== null && args["asof"] !== "") {
+    opts.asof = chronicleDate(args["asof"], "ontology_get", "asof");
+  }
+  if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
+  if (args["include_quarantined"] === true) opts.includeQuarantined = true;
+  // Non-operator callers: restrict to world-visible rows (private never
+  // fetched) AND drop any diary-sourced value on top.
+  if (remote) opts.worldOnly = true;
+  let values: OntologyValue[] = await getOntology(storage, args["entity"], opts);
+  if (remote) values = values.filter((v) => !isDiarySourced(v.source_slug));
+  return jsonResult({ ok: true, entity: args["entity"], ontology: values });
+}
+
+async function callOntologyPropose(
+  storage: Storage,
+  args: Record<string, unknown>,
+  writeSource?: string,
+): Promise<ToolCallResult> {
+  if (typeof args["entity"] !== "string" || args["entity"].length === 0) {
+    return errResult("ontology_propose: `entity` is required");
+  }
+  if (typeof args["dimension"] !== "string" || args["dimension"].length === 0) {
+    return errResult("ontology_propose: `dimension` is required");
+  }
+  if (typeof args["value"] !== "string" || args["value"].length === 0) {
+    return errResult("ontology_propose: `value` is required");
+  }
+  // The fail-closed write gate already rejects a scopeless authenticated public
+  // principal; the unscoped operator writes to the 'default' tenant (matching
+  // the page/fact write default).
+  const obs: OntologyObservationInput & { sourceId: string } = {
+    entitySlug: args["entity"],
+    dimension: args["dimension"],
+    value: args["value"],
+    sourceId: writeSource ?? "default",
+  };
+  if (typeof args["source"] === "string" && args["source"]) obs.source_slug = args["source"];
+  if (typeof args["confidence"] === "number") obs.confidence = args["confidence"];
+  // Validate before the value reaches mergeOntologyFact's `::date` cast.
+  if (args["valid_from"] !== undefined && args["valid_from"] !== null && args["valid_from"] !== "") {
+    obs.validFrom = chronicleDate(args["valid_from"], "ontology_propose", "valid_from");
+  }
+  if (args["visibility"] === "private" || args["visibility"] === "world") {
+    obs.visibility = args["visibility"];
+  }
+  const r = await mergeOntologyFact(storage, obs);
+  return jsonResult({ ok: true, ...r });
+}
+
+async function callOntologyDimensions(
+  storage: Storage,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  // Non-operator callers count only world-visible rows, so a diary-only or
+  // private-only axis never surfaces in the dimension list.
+  const dimensions = await discoverOntologyDimensions(storage, {
+    sourceIds: scope,
+    ...(remote ? { worldOnly: true } : {}),
+  });
+  return jsonResult({ ok: true, dimensions });
+}
+
+async function callOntologyConflicts(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  const opts: { sourceIds: string[]; minConfidence?: number; worldOnly?: boolean } = {
+    sourceIds: scope,
+  };
+  if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
+  // Non-operator callers: only world-visible observations enter the conflict
+  // detection at all, so a private value never reaches the caller (the diary
+  // post-strip below is the second, source-slug-based layer).
+  if (remote) opts.worldOnly = true;
+  let conflicts: OntologyConflict[] = await findOntologyConflicts(storage, opts);
+  if (remote) {
+    // Strip diary-sourced values, then re-apply the SAME disagreement predicate
+    // findOntologyConflicts uses (>=2 distinct values AND >=2 distinct sources).
+    // A conflict that degenerates on either axis after stripping is dropped — a
+    // survivor would leak that a diary value existed (hard security requirement).
+    conflicts = conflicts
+      .map((c) => ({
+        ...c,
+        values: c.values.filter((v) => !isDiarySourced(v.source_slug)),
+      }))
+      .filter(
+        (c) =>
+          new Set(c.values.map((v) => v.value)).size >= 2 &&
+          new Set(c.values.map((v) => v.source_slug)).size >= 2,
+      );
+  }
+  return jsonResult({ ok: true, conflicts });
+}
+
+async function callVolunteerChronicle(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources: string[] | undefined,
+  remote: boolean,
+): Promise<ToolCallResult> {
+  const scope = await resolveChronicleScope(storage, readSources, remote);
+  // `entities` accepts a string array or a comma/space-separated string.
+  const raw = args["entities"];
+  const entities = Array.isArray(raw)
+    ? raw.filter((e): e is string => typeof e === "string" && e.length > 0)
+    : typeof raw === "string"
+      ? raw.split(/[,\s]+/).filter(Boolean)
+      : [];
+  const opts: Parameters<typeof loadChronicleContext>[1] = {
+    sourceIds: scope,
+    remote,
+  };
+  if (typeof args["days"] === "number") opts.days = args["days"];
+  if (entities.length) opts.entities = entities;
+  const context = await loadChronicleContext(storage, opts);
+  return jsonResult({ ok: true, ...context });
+}
+
+/**
+ * Operator maintenance sweep: enqueue a `chronicle_extract` job per eligible
+ * conversation-shape page in scope. `dry_run` counts only. Per-page enqueue
+ * errors are collected (never swallowed, never abort the sweep). Operator-only
+ * (see OPERATOR_ONLY_TOOLS) — reached with an unscoped whole-brain listing.
+ */
+async function callChronicleBackfill(
+  storage: Storage,
+  args: Record<string, unknown>,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const dryRun = args["dry_run"] === true;
+  // Cost guardrail: default 100, hard cap 500 — one paid extraction per eligible
+  // page, so the sweep's worst-case spend must be operator-legible.
+  const requested = typeof args["limit"] === "number" ? Math.floor(args["limit"]) : 100;
+  const limit = Math.min(Math.max(requested, 1), 500);
+  const perPageBudgetUsd = chronicleWriteBudgetUsd();
+  const listOpts: Parameters<typeof listPages>[1] = { limit };
+  if (readSources && readSources.length) listOpts.sourceIds = readSources;
+  const pages = await listPages(storage, listOpts);
+  const eligible = pages.filter(
+    (p) =>
+      isChronicleEligible({
+        type: p.type,
+        slug: p.slug,
+        body: p.markdown_body,
+      }).ok,
+  );
+  // Worst-case spend the operator can multiply out before a real run.
+  const budget = {
+    per_page_budget_usd: perPageBudgetUsd,
+    per_page_budget_env: "MEMEX_CHRONICLE_WRITE_BUDGET_USD",
+  };
+  if (dryRun) {
+    return jsonResult({
+      ok: true,
+      dry_run: true,
+      scanned: pages.length,
+      eligible: eligible.length,
+      pages_enqueued: 0,
+      ...budget,
+    });
+  }
+  const queue = new Queue(storage.engine());
+  const errors: { slug: string; error: string }[] = [];
+  let pagesEnqueued = 0;
+  for (const p of eligible) {
+    const sourceId = p.source_id ?? "default";
+    try {
+      await queue.enqueue({
+        kind: "chronicle_extract",
+        payload: { slug: p.slug, sourceId },
+        id: chronicleJobId(sourceId, p.slug, p.content_hash),
+        timeoutMs: 600_000,
+      });
+      pagesEnqueued++;
+    } catch (e) {
+      errors.push({ slug: p.slug, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return jsonResult({
+    ok: true,
+    dry_run: false,
+    scanned: pages.length,
+    eligible: eligible.length,
+    pages_enqueued: pagesEnqueued,
+    ...budget,
+    ...(errors.length ? { errors } : {}),
+  });
+}
+
+/** Per-page USD ceiling one chronicle extraction can spend (report-only here;
+ *  the extractor enforces it). Mirrors the extractor's default. */
+function chronicleWriteBudgetUsd(): number {
+  const raw = (process.env["MEMEX_CHRONICLE_WRITE_BUDGET_USD"] ?? "").trim();
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0.05;
 }

@@ -31,6 +31,16 @@ export interface CaptureCmdOptions {
   title?: string;
   json?: boolean;
   configPath?: string;
+  /** Participant slugs/names for the `event:` frontmatter block. */
+  who?: string[];
+  /** One-clause summary for the `event:` block. */
+  what?: string;
+  /** Location for the `event:` block. */
+  where?: string;
+  /** Event kind (meeting|call|…) for the `event:` block. */
+  kind?: string;
+  /** Depth-page slug this event came from, for the `event:` block. */
+  depth?: string;
   /** Test seam — stdin reader. */
   readStdin?: () => Promise<string>;
   /** Test seam — deterministic embedder for the search mirror (no Bedrock). */
@@ -48,13 +58,41 @@ export function captureSlugSegment(line: string): string {
   return kebab.length > 0 ? kebab : "note";
 }
 
-export function defaultCaptureSlug(body: string, date: Date = new Date()): string {
+/** Slug prefix for a capture type: diary/event route into the Life-Chronicle
+ *  namespace so eligibility, the search boost, and the read-fence recognise
+ *  them; everything else keeps the `capture/` inbox prefix. */
+export function capturePrefix(type: string | undefined): string {
+  if (type === "diary") return "life/diary";
+  if (type === "event") return "life/events";
+  return "capture";
+}
+
+export function defaultCaptureSlug(
+  body: string,
+  date: Date = new Date(),
+  prefix = "capture",
+): string {
   const firstLine =
     body
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "note";
-  return `capture/${date.toISOString().slice(0, 10)}-${captureSlugSegment(firstLine)}`;
+  return `${prefix}/${date.toISOString().slice(0, 10)}-${captureSlugSegment(firstLine)}`;
+}
+
+/** Assemble the `event:` frontmatter block from the declared flags. Only keys
+ *  the user supplied are set (declared keys win per-key on merge); returns null
+ *  when no event flag was given. */
+export function buildEventBlock(
+  opts: Pick<CaptureCmdOptions, "who" | "what" | "where" | "kind" | "depth">,
+): Record<string, unknown> | null {
+  const event: Record<string, unknown> = {};
+  if (opts.who && opts.who.length > 0) event.who = opts.who;
+  if (opts.what) event.what = opts.what;
+  if (opts.where) event.where = opts.where;
+  if (opts.kind) event.kind = opts.kind;
+  if (opts.depth) event.depth = opts.depth;
+  return Object.keys(event).length > 0 ? event : null;
 }
 
 async function readAllStdin(): Promise<string> {
@@ -90,7 +128,8 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
     return 1;
   }
 
-  const slug = opts.slug ?? defaultCaptureSlug(body);
+  const slug = opts.slug ?? defaultCaptureSlug(body, new Date(), capturePrefix(opts.type));
+  const event = buildEventBlock(opts);
   const storage = new Storage(loadConfig(opts.configPath));
   await storage.init();
   try {
@@ -101,6 +140,7 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
       ...(opts.type ? { type: opts.type } : {}),
       ...(opts.title ? { title: opts.title } : {}),
       ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
+      ...(event ? { compiled_truth: { event } } : {}),
     });
 
     // Mirror into search (best-effort — the DB-canonical page is the source
