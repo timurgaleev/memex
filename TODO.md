@@ -99,8 +99,7 @@ docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
   `orphans-purge=warn` was a real false-positive bug: the phase disk-probed
   EVERY `documents.source_path` including virtual rows (`page://`,
   `page-truth://`, `gmail:`, `gcal:`) that never exist on disk → perpetual
-  flags. Fixed: only absolute paths are probed (orphans-purge.ts; see
-  PARITY.md 2026-07-10).
+  flags. Fixed: only absolute paths are probed (orphans-purge.ts).
 - **[INFO] `source_grants=0`.** The timur/zukhra tenants hold no federated-read
   grant, so each reads only its own source. Confirm this is intended isolation vs
   a pending operator federate SQL (agent prod auth-writes are guardrail-blocked;

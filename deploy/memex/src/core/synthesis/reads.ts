@@ -306,7 +306,7 @@ export async function getTakesScorecard(
     clauses.push(`AND t.holder = $${params.length}`);
   }
   // since/until window the take's synthesis date (memex has no per-take
-  // belief-as-of date; see PARITY.md — deviation from the reference's since_date).
+  // belief-as-of date column).
   if (typeof opts.since === "string" && opts.since.length > 0) {
     params.push(opts.since);
     clauses.push(`AND t.generated_at::date >= $${params.length}::date`);

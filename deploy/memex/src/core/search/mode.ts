@@ -1,5 +1,5 @@
 /**
- * Search mode bundles — conservative / balanced / tokenmax (reference parity).
+ * Search mode bundles — conservative / balanced / tokenmax.
  *
  * One env (`MEMEX_SEARCH_MODE`) picks a complete knob set so an operator
  * stops flipping per-knob envs. Resolution chain per knob, later never wins
@@ -7,16 +7,15 @@
  *
  *   per-call SearchOptions → per-knob env (explicit "1"/"0") → mode bundle
  *
- * DELIBERATE DEVIATION (recorded in PARITY.md): the default mode is
- * `conservative`, and memex's `conservative` equals today's defaults — every
- * paid/experimental stage OFF and NO token cap — where the reference defaults
- * to `balanced` (graph + rerank + relational ON, 12000-token cap). memex's
- * cost posture is default-OFF; `balanced`/`tokenmax` are one env away.
+ * DELIBERATE: the default mode is `conservative`, which equals today's
+ * defaults — every paid/experimental stage OFF and NO token cap. memex's
+ * cost posture is default-OFF; `balanced` (graph + rerank + relational ON,
+ * 12000-token cap) and `tokenmax` are one env away.
  *
  * The resolved flag set is folded into the query-cache ranking signature
- * (the reference's knobs-hash) so flipping a mode or knob re-keys the cache
- * instead of serving a stale pre-flip ordering — see query-cache.ts and the
- * suffix hybrid.ts appends for per-call resolved values.
+ * so flipping a mode or knob re-keys the cache instead of serving a stale
+ * pre-flip ordering — see query-cache.ts and the suffix hybrid.ts appends
+ * for per-call resolved values.
  */
 
 export type SearchMode = "conservative" | "balanced" | "tokenmax";

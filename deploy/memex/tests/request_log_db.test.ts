@@ -165,7 +165,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
   });
 
   it("rate-limit rejections are best-effort: NOT force-written while the sink is off", async () => {
-    // Deliberate (PARITY.md): a hammering client must not convert every 429
+    // Deliberate: a hammering client must not convert every 429
     // into a guaranteed DB INSERT — the limiter must keep shedding DB load.
     const handler = makeMcpHandler({
       storage,
