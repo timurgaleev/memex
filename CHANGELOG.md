@@ -2234,7 +2234,7 @@ all now match the reference:
     relationship question, resolves the seed entity, fans out typed edges — no
     LLM. Standalone (does not touch the hybrid search hot path).
     `core/search/relational-recall.ts`.
-  Completes the PARITY.md gap list (#4–#7). 34 MCP tools total.
+  Completes the deterministic read-tool gap list (#4–#7). 34 MCP tools total.
 
 ## [1.8.0] — 2026-06-22
 
@@ -2247,8 +2247,7 @@ all now match the reference:
   on the current path is never re-entered), returns each reachable node once at
   its shortest `depth`. `direction` = outbound|inbound|both (both = undirected),
   optional `type` edge filter, `limit` 1..1000. Deterministic; recursive CTE
-  without LATERAL for PGLite/Postgres portability. Found via the reference
-  comparison; tracked in `PARITY.md`.
+  without LATERAL for PGLite/Postgres portability.
 
 ## [1.7.0] — 2026-06-22
 
@@ -2265,9 +2264,7 @@ all now match the reference:
     creating a NEW version (history stays append-only). Reuses `page_put` so
     type/title are preserved and links/facts/search refresh. Refuses to revert
     to a delete/restore event version or a missing version.
-  Both are in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` (internal/stdio only). Found by
-  a fresh comparison against the reference implementation, which has the
-  equivalent restore/revert ops; logged in `PARITY.md`.
+  Both are in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` (internal/stdio only).
 
 ## [1.6.1] — 2026-06-22
 

@@ -305,10 +305,9 @@ async function setPermissions(
       'takes-holders list cannot be empty (use "world" for default-deny on private)',
     );
   }
-  // Deliberate deviation from the reference's wholesale replace: a JSONB
-  // merge preserves an operator-set permissions.source_id tenant grant —
-  // replacing would silently drop it and floor the token to the empty
-  // 'default' source (see PARITY.md).
+  // Deliberate: a JSONB merge preserves an operator-set permissions.source_id
+  // tenant grant — a wholesale replace would silently drop it and floor the
+  // token to the empty 'default' source.
   const updated = await withProvider((_p, storage) =>
     storage
       .raw()
