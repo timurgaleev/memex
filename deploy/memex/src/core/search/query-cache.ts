@@ -23,8 +23,8 @@
  * covers empty-result queries and pre-migration-031 rows (which default to
  * `{}`) — they invalidate on the first post-write lookup, then refill.
  *
- * Accepted tradeoff (faithful to the reference design): the snapshot records
- * only the documents in the cached RESULT set. Any document NOT in that set —
+ * Accepted tradeoff: the snapshot records only the documents in the cached
+ * RESULT set. Any document NOT in that set —
  * whether brand-new or an existing one edited into relevance for this query —
  * does NOT invalidate the row, so it can serve a result that omits a now-
  * relevant document until one of its referenced docs changes or it is pruned.
@@ -108,7 +108,7 @@ export function resolveSemanticCacheConfig(
  * stage (v1.3.25); `4` = the graph-signals score-floor ratio
  * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts;
  * `5` = the alias-hop stage (MEMEX_ALIAS_HOP), which can boost or inject the
- * canonical page for an exact-alias query; `6` = the reference-parity ranking
+ * canonical page for an exact-alias query; `6` = the ranking
  * batch (k/weight RRF math, zero-LLM intent taxonomy, arm-SQL curation boost +
  * default hard-excludes, compiled-truth ×2, exact-match / alias-resolved /
  * mattering-salience / recency-boost stages, per-doc dedup cap 2 + type
@@ -129,7 +129,7 @@ const RANKING_VERSION = "6";
  *     changes which hits are eligible for a graph boost;
  *   - the alias-hop on/off flag (`MEMEX_ALIAS_HOP`), which can boost or inject
  *     the canonical page for an exact-alias query;
- *   - the full ranking-knob set (the reference's knobs-hash): the resolved
+ *   - the full ranking-knob set (the knobs-hash): the resolved
  *     search MODE (`MEMEX_SEARCH_MODE`) plus every stage-toggling env —
  *     graph-signals (`MEMEX_GRAPH_SIGNALS`), cosine re-score
  *     (`MEMEX_COSINE_RESCORE`), backlink boost (`MEMEX_BACKLINK_BOOST`),
@@ -209,7 +209,7 @@ export function cacheFreshClause(clockParam: string): string {
  *
  * `current.docGenerations[id] === undefined` means the document no longer
  * exists (deleted). An empty stored snapshot returns false unless Layer 1
- * already matched — empty maps cannot disprove staleness (CDX-6 parity).
+ * already matched — empty maps cannot disprove staleness.
  */
 export function validateCacheRow(
   stored: { clockValue: number; docGenerations: Record<string, number> },

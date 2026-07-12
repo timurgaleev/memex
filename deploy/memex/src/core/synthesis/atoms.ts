@@ -3,10 +3,10 @@
  * into atomic claims ("atoms"), written ONLY to `synth_atoms`.
  *
  * Architecture guard: this phase READS from `documents` + `chunks` (the
- * authored vault) and WRITES to `synth_atoms`, plus — matching the reference,
- * which stores every atom as a page — an `atoms/<date>/<slug>` page mirror per
- * atom (via putPage) so atoms are retrievable through normal search. The page
- * write needs a Storage handle and can be disabled with MEMEX_SYNTH_PAGES=0.
+ * authored vault) and WRITES to `synth_atoms`, plus an `atoms/<date>/<slug>`
+ * page mirror per atom (via putPage) so atoms are retrievable through normal
+ * search. The page write needs a Storage handle and can be disabled with
+ * MEMEX_SYNTH_PAGES=0.
  * Source notes remain sacrosanct: documents/chunks are never touched.
  *
  * Safety properties:
@@ -22,8 +22,8 @@
  * The LLM is injected via `opts.llmFn` (see core/llm/haiku.ts). Tests pass a
  * fake; production resolves `callHaiku`. NO live Bedrock in tests.
  *
- * Ported faithfully from the reference's extract-atoms phase, adapted to
- * memex's flat single-source vault (no source_id) and own-namespace tables.
+ * Written for memex's flat single-source vault (no source_id) and
+ * own-namespace tables.
  */
 import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
@@ -310,7 +310,7 @@ export async function extractAtomsPhase(
         continue;
       }
 
-      // Page mirror — the reference stores every atom as a page; this is what
+      // Page mirror — storing every atom as a page is what
       // makes atoms retrievable via normal search (the cycle's mirror phase
       // indexes pages into documents/chunks). Idempotent via putPage; a page
       // failure never loses the synth_atoms row.

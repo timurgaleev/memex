@@ -139,8 +139,7 @@ export function discoverMigrations(dir: string = DEFAULT_DIR): MigrationFile[] {
  * needs. Surface such blockers so the operator has a paste-ready
  * `pg_terminate_backend(<pid>)` when a migration retries or exhausts.
  * Postgres-only; returns `[]` on PGLite or if `pg_stat_activity` is restricted
- * (some managed configs deny it — a partial view still helps). Faithful
- * adaptation of the reference's `getIdleBlockers`.
+ * (some managed configs deny it — a partial view still helps).
  */
 export interface IdleBlocker {
   pid: number;
@@ -169,7 +168,6 @@ export async function getIdleBlockers(engine: Engine): Promise<IdleBlocker[]> {
 /**
  * Retry-exhausted envelope: names the idle blocker most likely holding the
  * lock so the failure message carries a paste-ready recovery command.
- * Adapted from the reference's `MigrationRetryExhausted`.
  */
 export class MigrationRetryExhausted extends Error {
   constructor(
@@ -209,9 +207,9 @@ function migrationBackoffs(): number[] {
  * a 3-attempt retry on a transient statement_timeout (57014) or connection
  * reset. The whole transaction rolls back on failure, so a retry re-runs it
  * atomically — nothing is half-recorded. A lock_timeout (55P03) stays
- * fail-fast (not retryable): a held lock won't clear by re-waiting. Faithful
- * adaptation of the reference's `runMigrationSQLWithRetry`, wrapping memex's
- * bundled-transaction runner instead of the reference's separate SQL step.
+ * fail-fast (not retryable): a held lock won't clear by re-waiting. Wraps
+ * memex's bundled-transaction runner so the SQL + bookkeeping INSERT retry
+ * atomically.
  */
 async function applyOneWithRetry(
   engine: Engine,

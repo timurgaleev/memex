@@ -1,8 +1,7 @@
 /**
  * content-flag.ts — surface a page's `content_flag` WARN marker on search hits.
  *
- * Faithful adaptation of the reference's `getContentFlagsByPageIds` +
- * `stampContentFlags` agent-warning channel. The `content_flag` frontmatter
+ * An agent-warning channel. The `content_flag` frontmatter
  * marker (the WARN tier of `quarantine.ts`, vs the HIDE tier `quarantine`)
  * leaves a page fully searchable but tells the agent "this looks odd
  * (markup-heavy / oversize) — examine it before trusting it".
@@ -11,11 +10,10 @@
  * batched query over the FINAL sliced hits' document ids (bounded by `k`, not
  * the candidate pool), and a fetch failure never breaks retrieval.
  *
- * Stack adaptation: the reference reads `pages` keyed by int page ids via a
- * bespoke engine method; memex search is chunk→`documents`-keyed, the marker
+ * Stack design: memex search is chunk→`documents`-keyed, the marker
  * lives on `documents.frontmatter.content_flag`, document ids are TEXT, and
  * memex's unified `engine.query` takes the SQL directly. `reason`/`detail` are
- * extracted in SQL with `->>` exactly as the reference does.
+ * extracted in SQL with `->>`.
  */
 import type { Engine } from "../engine/interface.ts";
 import type { SearchHit } from "./hybrid.ts";
@@ -26,9 +24,8 @@ export interface ContentFlag {
 }
 
 /**
- * Read the `{reason, detail}` content_flag for a set of document ids. Faithful
- * adaptation of the reference's `getContentFlagsByPageIds`: a row with no
- * `reason` is skipped, `detail` defaults to ''.
+ * Read the `{reason, detail}` content_flag for a set of document ids: a row
+ * with no `reason` is skipped, `detail` defaults to ''.
  */
 async function getContentFlagsByDocumentIds(
   engine: Engine,

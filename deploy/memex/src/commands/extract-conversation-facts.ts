@@ -1,8 +1,8 @@
 /**
  * `memex extract-conversation-facts` — parse a chat transcript into turns and
  * extract structured facts from each via paid Bedrock Sonnet, bounded by a USD
- * budget. Opt-in, default-OFF (set MEMEX_FACTS_EXTRACTION=1 to run live), the
- * agent-layer slice the operator chose for reference parity.
+ * budget. Opt-in, default-OFF (set MEMEX_FACTS_EXTRACTION=1 to run live), an
+ * agent-layer slice the operator chose to enable.
  *
  * Pipeline: parseConversation (deterministic) → per-turn Sonnet extraction
  * (budget-gated) → addFact into entity_facts. Stops cleanly when the budget is

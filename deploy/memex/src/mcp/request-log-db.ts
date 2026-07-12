@@ -11,8 +11,8 @@
  *   - `force: true` on an entry logs it regardless of the flag. The OAuth
  *     ingress passes this so authenticated-client traffic — including
  *     REJECTIONS (scope, public-forbidden, internal-token, rate-limit) —
- *     is fail-visible by default, matching the reference's always-on
- *     request log on its OAuth surface.
+ *     is fail-visible by default: the OAuth surface keeps an always-on
+ *     request log.
  *
  * Fire-and-forget + fully swallowed: a logging failure must never turn a
  * successful tool call into an error. Redacted: only the param SUMMARY

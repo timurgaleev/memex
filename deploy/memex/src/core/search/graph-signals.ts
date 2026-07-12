@@ -11,7 +11,7 @@
  *   2. Cross-source adjacency (×1.10): a top-K page linked-to from >=2
  *      distinct OTHER sources is a federated-team hub. DORMANT on memex:
  *      the brain is single-source and `pages` carries no per-page source,
- *      so `cross_source_hits` is always 0. The arm is wired for parity and
+ *      so `cross_source_hits` is always 0. The arm is wired ahead of time and
  *      activates only if memex ever becomes multi-source.
  *
  *   3. Session diversification (×0.95): when several top-K results share a
@@ -26,14 +26,14 @@
  * immutable unless explicitly enabled). Fail-open: any SQL error leaves the
  * caller's results untouched.
  *
- * Adaptation note vs the reference: memex links are keyed by page SLUG
+ * Implementation note: memex links are keyed by page SLUG
  * (`links.source_slug`/`target_slug`), not by page id, so the adjacency query
  * runs on slugs and the engine interface stays untouched (inline SQL via the
  * generic `engine.query`). On memex's mostly file-indexed corpus the adjacency
  * arm only fires for page-derived hits (`page://<slug>`) whose slug is in the
- * link graph — coverage grows as the brain becomes page-centric. The
- * reference's score-distribution probe + JSONL failure audit (telemetry for a
- * future calibration wave) are intentionally omitted here.
+ * link graph — coverage grows as the brain becomes page-centric. A
+ * score-distribution probe + JSONL failure audit (telemetry for a future
+ * calibration wave) are intentionally omitted here.
  */
 import type { Engine } from "../engine/interface.ts";
 
@@ -285,8 +285,8 @@ export async function applyGraphSignals(
   // pre-dedup chunk list (and `exact` intent skips per-doc dedup entirely), so
   // without this a hub with N in-band chunks would be boosted N times. The
   // representative is the chunk that survives per-doc dedup downstream, so
-  // boosting it is the page-granular equivalent of the reference's per-page
-  // post-fusion pool.
+  // boosting it is the page-granular equivalent of a per-page post-fusion
+  // pool.
   const repBySlug = new Map<string, GraphSignalScorable>();
   for (const r of topK) {
     const slug = slugForSourcePath(r.payload?.sourcePath ?? "");

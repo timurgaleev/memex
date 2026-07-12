@@ -22,9 +22,9 @@
  *     so the caller falls back exactly as if the regex arm had missed. Never
  *     throws upstream; the Sonnet seam is injectable (NO live Bedrock in tests).
  *
- * There is no reference implementation of an LLM relational arm to copy — the
- * reference's arm is regex-only — so this is composed from memex's own proven
- * primitives (the think slice's budget/parse shape + fanoutRelational).
+ * The deterministic relational arm is regex-only, so this LLM arm is composed
+ * from memex's own proven primitives (the think slice's budget/parse shape +
+ * fanoutRelational).
  */
 import type { Storage } from "../storage.ts";
 import { KNOWN_LINK_TYPES } from "../links.ts";

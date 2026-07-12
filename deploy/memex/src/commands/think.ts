@@ -1,11 +1,11 @@
 /**
  * `memex think` — answer a question by paid Sonnet synthesis across the brain,
  * bounded by a USD budget. Opt-in, default-OFF (set MEMEX_THINK=1 to run live),
- * the deep-synthesis slice of the agent-layer reference parity.
+ * the deep-synthesis slice of the agent layer.
  *
  * Thin CLI wrapper over runThink: open storage, synthesize, print the answer
- * (or the structured report with --json). Persistence wiring (reference
- * parity): `--save` writes the synthesis to a synthesis/<slug> page +
+ * (or the structured report with --json). Persistence wiring: `--save` writes
+ * the synthesis to a synthesis/<slug> page +
  * synthesis_evidence rows; `--take "<claim>"` queues a take pinned to the
  * saved page (or the first --anchor). `--since/--until/--anchor/--rounds/
  * --model/--with-calibration` map 1:1 onto ThinkOptions.

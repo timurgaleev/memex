@@ -793,9 +793,8 @@ const VERB_INFER_CONFIDENCE = 0.6;
 /**
  * Derive typed edges (works_at / invested_in / founded / advises) from the prose
  * around a page's `[[wikilinks]]` and persist them with `link_kind='verb_ner'`.
- * A faithful adaptation of the reference's verb-context extraction, wired as a
- * SEPARATE edge source (like gazetteer / typed-links) behind
- * `MEMEX_LINK_VERB_INFER`. Opt-in, default OFF.
+ * Verb-context extraction wired as a SEPARATE edge source (like gazetteer /
+ * typed-links) behind `MEMEX_LINK_VERB_INFER`. Opt-in, default OFF.
  *
  * Ownership: DELETE-replaces ONLY this source's `verb_ner` edges, so it never
  * touches `plain` (wikilink + gazetteer) or `typed_ner` (frontmatter) edges. An
@@ -815,8 +814,8 @@ const VERB_INFER_CONFIDENCE = 0.6;
  * entity inside the wide radius (mislabel). The edges are stamped at confidence
  * 0.6 with the `verb_ner` provenance so a consumer can treat them as soft
  * signals, and the person→company role prior backstops verb-less mentions. This
- * matches the reference's regex-NER precision class; an LLM pass would be the
- * accuracy ceiling, out of memex's brain-only scope.
+ * is a regex-NER precision class; an LLM pass would be the accuracy ceiling, out
+ * of memex's brain-only scope.
  */
 export async function syncVerbLinksForPage(
   storage: Storage,
@@ -866,8 +865,8 @@ export async function syncVerbLinksForPage(
     for (const [target, type] of byTarget) {
       const insParams: unknown[] = [sourceSlug, target, type, VERB_INFER_CONFIDENCE];
       if (scope !== null) insParams.push(scope);
-      // link_source='mentions' (mig086): the reference files verb-derived typed
-      // edges under the mentions provenance; link_kind='verb_ner' keeps the
+      // link_source='mentions' (mig086): verb-derived typed edges are filed
+      // under the mentions provenance; link_kind='verb_ner' keeps the
       // sweep's ownership discriminator.
       const ins = await tx.query<{ inserted: boolean }>(
         `INSERT INTO links
@@ -1013,16 +1012,16 @@ export async function syncCodeRefsForPage(
  * this is STALE — re-extracting it would apply newer extractor logic. BUMP THIS
  * to the ship date whenever the link-extraction logic (the wikilink scanner,
  * gazetteer, or typed-NER rules) changes in a way that should re-run over the
- * whole corpus. Faithful adaptation of the reference's LINK_EXTRACTOR_VERSION_TS.
+ * whole corpus.
  *
- * REMEDIATION CAVEAT (stack difference): the watermark only advances on a
- * `page_put`/`page_append`/`page_revert` that actually changes the page. The
- * reference clears version-staleness with a batch `extract --stale` sweep;
- * memex has no such sweep yet, so bumping this constant is DETECT-ONLY — the
- * `links-extraction-lag` doctor count rises for every untouched page and only
- * falls as each is next written. Port a stale-sweep command before relying on a
- * version bump to auto-remediate. (The NULL and `updated_at >` staleness arms
- * are fully remediated by the inline stamp; only the version arm is detect-only.)
+ * REMEDIATION CAVEAT: the watermark only advances on a
+ * `page_put`/`page_append`/`page_revert` that actually changes the page. There
+ * is no batch `extract --stale` sweep yet, so bumping this constant is
+ * DETECT-ONLY — the `links-extraction-lag` doctor count rises for every
+ * untouched page and only falls as each is next written. Add a stale-sweep
+ * command before relying on a version bump to auto-remediate. (The NULL and
+ * `updated_at >` staleness arms are fully remediated by the inline stamp; only
+ * the version arm is detect-only.)
  */
 export const LINK_EXTRACTOR_VERSION_TS = "2026-06-27T00:00:00Z";
 
@@ -1032,11 +1031,10 @@ export const LINK_EXTRACTOR_VERSION_TS = "2026-06-27T00:00:00Z";
  * revert, so the watermark advances past the page's own `updated_at` and the
  * staleness predicate reads clean until the next edit or a version bump.
  *
- * Keyed on slug AND (when given) source_id, mirroring the reference's
- * `markPagesExtractedBatch`. `slug` is the global PK today, so the source filter
- * is redundant now — it pre-empts the migration-047 composite `(source_id,
- * slug)` PK, under which a slug is no longer globally unique and a source-blind
- * UPDATE would over-stamp a sibling source's row.
+ * Keyed on slug AND (when given) source_id. `slug` is the global PK today, so
+ * the source filter is redundant now — it pre-empts the migration-047 composite
+ * `(source_id, slug)` PK, under which a slug is no longer globally unique and a
+ * source-blind UPDATE would over-stamp a sibling source's row.
  */
 export async function stampLinksExtracted(engine: Engine, slug: string, sourceId?: string): Promise<void> {
   const params: unknown[] = [slug];
@@ -1058,8 +1056,7 @@ export interface StaleExtractionOpts {
 /**
  * Count live pages whose link edges are stale for extraction — never extracted,
  * extracted under an older extractor version, or edited since the last extract.
- * Faithful adaptation of the reference's `countStalePagesForExtraction` (single
- * engine.query, no postgres/pglite branch).
+ * Single engine.query, no postgres/pglite branch.
  */
 export async function countStalePagesForExtraction(
   engine: Engine,
@@ -1110,9 +1107,7 @@ export interface ListStaleExtractionOpts extends StaleExtractionOpts {
 
 /**
  * One keyset batch of live pages whose link edges are stale for extraction.
- * Faithful adaptation of the reference's `listStalePagesForExtraction`; memex
- * keysets on the `slug` PK (the reference uses a numeric `id`). Single
- * engine.query, no postgres/pglite branch.
+ * Keysets on the `slug` PK. Single engine.query, no postgres/pglite branch.
  */
 export async function listStalePagesForExtraction(
   engine: Engine,
@@ -1158,16 +1153,15 @@ export interface ExtractedPageRef {
 /**
  * Batch-stamp `links_extracted_at` for swept pages. Per-ref timestamp (D4 race
  * fix): each ref carries the row's read `updated_at`; refs that omit it fall
- * back to `defaultExtractedAt`. Faithful adaptation of the reference's
- * `markPagesExtractedBatch` — 3-arg `unnest` (PGLite-proven, cf. synthesis
+ * back to `defaultExtractedAt`. 3-arg `unnest` (PGLite-proven, cf. synthesis
  * atoms/takes), keyed on `(slug, source_id)` to pre-empt the mig-047 composite
  * PK.
  *
- * STACK DIFFERENCE (`floorTs`): the reference's staleness predicate has only
- * the NULL + `updated_at >` arms, so it stamps the raw read `updated_at`. memex
- * added a THIRD arm — `links_extracted_at < versionTs` (the version-bump
- * trigger, v1.26.0) — so stamping a raw `updated_at` that predates the version
- * would leave the version arm true and the page stale forever. `floorTs` (=
+ * `floorTs`: the base staleness predicate has only the NULL + `updated_at >`
+ * arms, so it would stamp the raw read `updated_at`. memex added a THIRD arm —
+ * `links_extracted_at < versionTs` (the version-bump trigger, v1.26.0) — so
+ * stamping a raw `updated_at` that predates the version would leave the version
+ * arm true and the page stale forever. `floorTs` (=
  * {@link LINK_EXTRACTOR_VERSION_TS}) lifts the stamp to `GREATEST(read
  * updated_at, versionTs)`: clears all three arms, yet a later edit advancing
  * `updated_at` past the floor re-stales the page (D4 preserved).

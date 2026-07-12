@@ -6,14 +6,12 @@
  * questions and REPORTS across the corpus with citations.
  *
  * Standing questions: supplied explicitly, else the top `synth_concepts` titles
- * (memex's own primitive — listConcepts) treated as questions. This mirrors the
- * reference's auto-think dream phase, which runs `think` over a configured
- * `questions[]` list, budget-capped, default-OFF, and (by default) returns/stages
- * the syntheses rather than committing them. Adapted from the reference cycle's
- * auto-think phase (core/cycle/auto-think.ts:94 runPhaseAutoThink) — the config
- * store is replaced by memex's synth_concepts read, and the reference's external
- * BudgetMeter is replaced by memex's BudgetTracker driven through a recording
- * wrapper so the SHARED cap holds across every question without touching runThink.
+ * (memex's own primitive — listConcepts) treated as questions. The auto-think
+ * phase runs `think` over each question, budget-capped, default-OFF, and (by
+ * default) returns/stages the syntheses rather than committing them. Questions
+ * come from memex's synth_concepts read, and a BudgetTracker driven through a
+ * recording wrapper holds the SHARED cap across every question without touching
+ * runThink.
  *
  * memex stance: synthesis READS the corpus + synth_* store; it writes NOTHING
  * back here — the syntheses are RETURNED. No new schema, no migration. A caller
@@ -39,8 +37,8 @@ const DEFAULT_BUDGET_USD = 1.0;
 const ESTIMATE_OUTPUT_TOKENS = 1500;
 /** Conservative input-side allowance (chars) for the pre-flight budget guard:
  *  the think system prompt + a full <pages>/<takes> evidence blob. ~5K tokens at
- *  ~4 chars/token, mirroring the reference auto-think's 5K-input estimate. A
- *  fixed floor so a near-empty budget can't slip one more paid question past. */
+ *  ~4 chars/token. A fixed floor so a near-empty budget can't slip one more paid
+ *  question past. */
 const ESTIMATE_INPUT_CHARS = 20_000;
 
 export interface DeepSynthItem {

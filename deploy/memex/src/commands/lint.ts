@@ -4,7 +4,7 @@
  * Two modes:
  *   - no target: the original DB-corpus frontmatter conformance report
  *     (`core/lint.ts` lintCorpus — also the cycle lint phase's ruleset).
- *   - with a target: deterministic FILE lint (reference parity) — LLM
+ *   - with a target: deterministic FILE lint — LLM
  *     preamble artifacts, ```markdown fence wraps, placeholder dates, missing
  *     frontmatter fields, broken citations, empty sections. `--fix` repairs
  *     the fixable subset in place; `--fix --dry-run` previews without writing.

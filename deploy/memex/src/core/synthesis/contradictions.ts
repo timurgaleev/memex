@@ -161,8 +161,8 @@ export function parseJudgment(raw: string): ParsedJudgment | null {
 }
 
 /**
- * Deterministic typed-resolution classifier (adapted from the reference's
- * auto-supersession rules). The judge's hint wins when present — it has
+ * Deterministic typed-resolution classifier. The judge's hint wins when
+ * present — it has
  * semantic context this structural pass doesn't; otherwise the pair shape
  * decides: a take against a fact is the supersession locus, two takes are a
  * debate, two facts about one entity want a synthesized reconciliation.
@@ -231,8 +231,7 @@ export function wilsonInterval(
  *   2. take/take  — two takes in the SAME domain from DIFFERENT source docs
  *                   (the cross-slug opinion-collision case).
  *   3. take/fact  — a take whose claim mentions a fact's entity name (the
- *                   opinion-vs-record case the reference probes as
- *                   intra_page_chunk_take).
+ *                   opinion-vs-record case).
  *
  * All streams are same-tenant only and lookback-bounded at the SQL layer so we
  * never materialize an O(n^2) product. Fail-soft to [] per stream.

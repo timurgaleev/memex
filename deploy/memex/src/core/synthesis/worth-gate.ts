@@ -1,9 +1,9 @@
 /**
  * Worth gate — cached Haiku significance verdicts in front of the paid Sonnet
- * transcript consumers (conversation-facts backfill, reflections). Adapted
- * from the reference's dream-verdict cache: judge "is this transcript worth
- * synthesizing?" with the cheap utility model, cache the verdict per
- * (source_ref, content_hash) in synth_worth_verdicts (migration 077), and only
+ * transcript consumers (conversation-facts backfill, reflections). Judge "is
+ * this transcript worth synthesizing?" with the cheap utility model, cache the
+ * verdict per (source_ref, content_hash) in synth_worth_verdicts (migration
+ * 077), and only
  * let worthwhile transcripts through to the Sonnet spend. The cache sits
  * BEFORE the spend: a re-run never re-pays the judge for unchanged content.
  *

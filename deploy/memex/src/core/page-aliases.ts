@@ -193,8 +193,8 @@ export async function resolveAliasCandidates(
       params.push(sourceIds);
       scopeFilter = ` AND pa.source_id = ANY($${params.length}::text[])`;
     }
-    // No LIMIT — return EVERY claimant of an exact alias, ordered, mirroring the
-    // reference's `resolveAliases`. An exact-alias match has few claimants, and
+    // No LIMIT — return EVERY claimant of an exact alias, ordered. An
+    // exact-alias match has few claimants, and
     // the caller (`applyAliasHop`) is what caps the injected set
     // (`MAX_ALIAS_INJECT`). A prior `LIMIT 8` truncated before that sort, so with
     // >8 claimants the deterministic top-N could be missed.

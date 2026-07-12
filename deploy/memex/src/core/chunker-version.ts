@@ -5,18 +5,17 @@
  * A document is STALE for re-chunking when its stamped chunker version is below
  * the CURRENT version of the chunker that produced it. The two chunkers carry
  * independent version namespaces (markdown vs code), so the staleness check
- * branches on document kind. The reference positively gates `page_kind='markdown'`;
- * memex treats markdown as the NEGATION of code (`frontmatter->>'kind' <> 'code'`)
- * because markdown frontmatter is user-shaped and usually carries no `kind`. This
- * holds for memex's two-kind (markdown + code) corpus — if a third doc kind is
- * ever indexed it would fall into the markdown comparison; split the predicate
- * then.
+ * branches on document kind. memex treats markdown as the NEGATION of code
+ * (`frontmatter->>'kind' <> 'code'`) because markdown frontmatter is user-shaped
+ * and usually carries no `kind`. This holds for memex's two-kind (markdown +
+ * code) corpus — if a third doc kind is ever indexed it would fall into the
+ * markdown comparison; split the predicate then.
  *
- * DETECT-ONLY (stack difference, same as the LINK_EXTRACTOR_VERSION watermark):
- * this only COUNTS stale docs. The reference's post-upgrade flow also TRIGGERS a
- * re-embed sweep; memex has no such sweep, so a bumped chunker constant raises
- * the doctor count but performs no work — a stale doc re-chunks lazily on its
- * next natural reindex. A batch re-chunk sweep is the shared follow-up (TODO).
+ * DETECT-ONLY (same as the LINK_EXTRACTOR_VERSION watermark): this only COUNTS
+ * stale docs — there is no post-upgrade re-embed sweep, so a bumped chunker
+ * constant raises the doctor count but performs no work — a stale doc re-chunks
+ * lazily on its next natural reindex. A batch re-chunk sweep is a follow-up
+ * (TODO).
  */
 import type { Engine } from "./engine/interface.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";

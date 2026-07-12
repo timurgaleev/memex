@@ -52,9 +52,9 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> =
       relationalArm: false,
       tokenBudget: undefined,
     }),
-    // The reference's balanced posture mapped onto memex knobs: deterministic
-    // + paid-rerank stages on, expansion still off (negligible measured lift),
-    // Sonnet-sized token cap.
+    // Balanced posture mapped onto memex knobs: deterministic + paid-rerank
+    // stages on, expansion still off (negligible measured lift), Sonnet-sized
+    // token cap.
     balanced: Object.freeze({
       expansion: false,
       rerank: true,

@@ -2,8 +2,8 @@
  * consolidate-facts — deterministic, LLM-FREE dream-cycle phase that folds an
  * entity's near-duplicate facts into a single consolidated "take" fact.
  *
- * Adapted from the reference's `consolidate` phase, trimmed to memex's model:
- * the "take" is a promoted row in the SAME `entity_facts` ledger (memex has no
+ * memex's consolidate model: the "take" is a promoted row in the SAME
+ * `entity_facts` ledger (memex has no
  * per-fact `takes` table with tenant scoping; synth_takes is the LLM-synthesis
  * surface and carries no source_id), so consolidation stays inside the facts
  * ledger and inherits its source_id tenant scoping for free.

@@ -2,8 +2,7 @@
  * Unified model-tier resolver — the single seam for choosing a Bedrock model id
  * by tier, replacing the per-helper env lookups duplicated across haiku.ts and
  * sonnet.ts. memex is Anthropic-only via Bedrock, so this is env + code only —
- * NOT the reference's multi-provider config-table / alias-map / subagent
- * machinery (dead schema here).
+ * no multi-provider config-table / alias-map / subagent machinery.
  *
  * Tiers:
  *   - `utility`   → Haiku (fast/cheap classification, extraction).

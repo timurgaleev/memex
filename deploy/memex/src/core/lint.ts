@@ -88,7 +88,7 @@ export function summariseLint(issues: LintIssue[]): Record<string, number> {
   return tally;
 }
 
-// ── File-content lint (reference parity) ────────────────────────────────────
+// ── File-content lint ───────────────────────────────────────────────────────
 //
 // Deterministic page-quality rules over RAW markdown text — LLM artifacts,
 // placeholder dates, missing frontmatter, broken citations, empty sections —

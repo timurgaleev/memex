@@ -7,12 +7,10 @@
  * flat markdown chunks; this is the brain-only primitive that gives a
  * per-(speaker, timestamp, text) structure for timeline + per-person facts.
  *
- * Adapted from the reference's conversation-parser: the pure pattern core only.
- * The reference's optional LLM polish / LLM fallback are deliberately NOT
- * ported — memex routes utility work through Claude Haiku (Bedrock) and a
- * deterministic parser is the retrieval brain's job. Patterns are a curated
- * subset covering the common export
- * formats; add entries to BUILTIN_PATTERNS as new formats appear.
+ * The pure pattern core only — no optional LLM polish / LLM fallback: memex
+ * routes utility work through Claude Haiku (Bedrock) and a deterministic parser
+ * is the retrieval brain's job. Patterns are a curated subset covering the
+ * common export formats; add entries to BUILTIN_PATTERNS as new formats appear.
  */
 
 export interface ConversationMessage {

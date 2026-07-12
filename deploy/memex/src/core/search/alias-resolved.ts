@@ -1,5 +1,5 @@
 /**
- * Alias-resolved canonical boost (reference parity) — a hit whose page slug
+ * Alias-resolved canonical boost — a hit whose page slug
  * is the `canonical_slug` of one or more `slug_aliases` rows (migration 067)
  * gets a gentle ×1.05: old slugs forward to it, i.e. the user (or a merge)
  * explicitly disambiguated this page as the authoritative version.

@@ -64,7 +64,7 @@ export function recencyMultiplier(
 
 export type RecencyDecayMap = Record<string, RecencyOptions>;
 
-/** Generic prefixes only — never fork-specific names (privacy). */
+/** Generic prefixes only — never install-specific names (privacy). */
 export const DEFAULT_RECENCY_DECAY: RecencyDecayMap = {
   "concepts/": { halfLifeDays: 0, floor: 1 }, // evergreen, no decay
   "originals/": { halfLifeDays: 180, floor: 0.7 },
@@ -186,10 +186,10 @@ export function recencyMultiplierForPath(
 }
 
 // ---------------------------------------------------------------------------
-// Recency BOOST — the reference's hyperbolic freshness model (>= 1.0).
+// Recency BOOST — a hyperbolic freshness model (>= 1.0).
 //
 // The decay above is penalty-only (caps at ×1.0): old content is nudged down,
-// fresh content merely escapes the nudge. The reference additionally lets a
+// fresh content merely escapes the nudge. The boost additionally lets a
 // temporal query LIFT fresh content — `1 + strength × coefficient × halflife /
 // (halflife + daysOld)` — so a this-week note can outrank an old-but-strong
 // hit when the user asked "what's going on". Activation is off/on/strong,
@@ -197,7 +197,7 @@ export function recencyMultiplierForPath(
 // canonical queries (no boost at all), 'on' ×1.0, 'strong' ×1.5.
 //
 // The boost map is keyed by slug prefix (longest match wins) like the decay
-// map, with the reference's coefficients. `coefficient: 0` or
+// map. `coefficient: 0` or
 // `halfLifeDays: 0` marks a prefix evergreen (factor 1.0). Env override:
 // MEMEX_RECENCY_BOOST=prefix:halfLifeDays:coefficient,... — fail-loud like
 // the decay parser.
@@ -212,7 +212,7 @@ export interface RecencyBoostConfig {
 
 export type RecencyBoostMap = Record<string, RecencyBoostConfig>;
 
-/** Generic prefixes only — never fork-specific names (privacy). */
+/** Generic prefixes only — never install-specific names (privacy). */
 export const DEFAULT_RECENCY_BOOST: RecencyBoostMap = {
   "concepts/": { halfLifeDays: 0, coefficient: 0 }, // evergreen
   "originals/": { halfLifeDays: 180, coefficient: 0.5 },
@@ -227,7 +227,7 @@ export const DEFAULT_RECENCY_BOOST: RecencyBoostMap = {
   "deals/": { halfLifeDays: 180, coefficient: 0.5 },
 };
 
-/** Applied to paths that match no boost prefix (reference fallback). */
+/** Applied to paths that match no boost prefix (fallback). */
 export const DEFAULT_RECENCY_BOOST_FALLBACK: RecencyBoostConfig = {
   halfLifeDays: 90,
   coefficient: 0.5,

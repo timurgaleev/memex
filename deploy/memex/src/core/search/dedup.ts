@@ -46,10 +46,9 @@ export function dedupByDocument<T>(
  * higher-ranked already-kept hit. Greedy + rank-order-preserving (the first,
  * higher-scored occurrence wins).
  *
- * Adapted from the reference's Layer-2 text-similarity dedup. The reference's
- * other layers are NOT ported: type-diversity needs a page-type taxonomy memex
- * doesn't have, and the compiled-truth guarantee is an LLM-cycle artifact memex
- * doesn't produce.
+ * A text-similarity dedup stage. Other dedup layers are not folded in here:
+ * type-diversity needs a page-type taxonomy this stage doesn't carry, and the
+ * compiled-truth guarantee is an LLM-cycle artifact memex doesn't produce.
  */
 const DEFAULT_NEARDUP_JACCARD = 0.85;
 
@@ -141,7 +140,7 @@ export function getNearDupThreshold(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Type-diversity layer (reference parity): no page type may exceed
+// Type-diversity layer: no page type may exceed
 // MAX_TYPE_RATIO of the result set, so a corpus dominated by one shape (chat
 // exports, daily notes) can't monopolise every slot. Greedy in rank order —
 // the strongest hits of the over-represented type survive; the tail yields
@@ -202,9 +201,8 @@ export function pageTypeOf(payload: TypedPayload | undefined): string {
  * Enforce the type-diversity cap: keep at most `ceil(n × maxRatio)` hits per
  * page type (floor 1), in rank order. `maxRatio >= 1` returns the input as-is.
  *
- * Memex adaptation: a SINGLE-type candidate set passes through untouched —
- * there is nothing to diversify toward, so truncating it (as the reference's
- * raw math would) only loses recall on uniform corpora.
+ * A SINGLE-type candidate set passes through untouched — there is nothing to
+ * diversify toward, so truncating it would only lose recall on uniform corpora.
  */
 export function enforceTypeDiversity<T extends TypedPayload>(
   hits: readonly ChunkScore<T>[],

@@ -1,8 +1,8 @@
 /**
  * http/admin.ts — admin auth core (increment A1 of the admin surface).
  *
- * A faithful port of the reference's `/admin` cookie + magic-link auth, adapted
- * from express to memex's Bun.serve. Trust model (unchanged from the reference):
+ * A cookie + magic-link auth surface for `/admin`, built on memex's Bun.serve.
+ * Trust model:
  *   - A long-term BOOTSTRAP token is the server admin secret, from
  *     `MEMEX_ADMIN_BOOTSTRAP` (or a generated ephemeral one printed to stderr).
  *     PROD: set `MEMEX_ADMIN_BOOTSTRAP` explicitly — in a container the ephemeral

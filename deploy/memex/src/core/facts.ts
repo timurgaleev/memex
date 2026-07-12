@@ -554,7 +554,7 @@ export async function listFacts(
   const params: unknown[] = [];
   const where: string[] = [];
   // entity_slug is OPTIONAL: omit it for a cross-entity "what did I learn"
-  // recall (the reference's entity-less filtered recall). The visibility floor
+  // recall (an entity-less filtered recall). The visibility floor
   // + source scoping applied by the caller still gate an entity-less scan.
   if (entitySlug !== null && entitySlug !== undefined && entitySlug !== "") {
     validateSlug(entitySlug);
@@ -701,8 +701,7 @@ export interface ListSupersessionsOptions {
 /**
  * Supersession audit log: facts that were retired WITH a replacement pointer
  * (`forgotten_at` + `superseded_by` both set), newest retirement first.
- * Mirrors the reference's `listSupersessions`. Each row is the RETIRED fact;
- * `superseded_by` points at its replacement.
+ * Each row is the RETIRED fact; `superseded_by` points at its replacement.
  */
 export async function listSupersessions(
   storage: Storage,
@@ -752,9 +751,8 @@ export async function listSupersessions(
 
 /**
  * Count live facts not yet folded into a consolidated take by the
- * consolidate-facts cycle phase (mig061 `consolidated = false`). Mirrors the
- * reference's `countUnconsolidatedFacts`; drives the recall `include_pending`
- * piggy-back.
+ * consolidate-facts cycle phase (mig061 `consolidated = false`). Drives the
+ * recall `include_pending` piggy-back.
  */
 export async function countUnconsolidatedFacts(
   storage: Storage,
@@ -808,7 +806,7 @@ export interface EntityRecallOptions {
   sourceIds?: string[];
   /**
    * Piggy-back the scope's pending-consolidation count on the response (one
-   * round trip, reference `recall --pending` parity). Best-effort: a count
+   * round trip, the `recall --pending` surface). Best-effort: a count
    * failure leaves the field undefined rather than failing the recall.
    */
   include_pending?: boolean;

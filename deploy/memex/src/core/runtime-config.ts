@@ -1,7 +1,6 @@
 /**
  * Runtime config — the DB-plane knob store behind `memex config` (migration
- * 088), the reference's engine-config surface adapted to memex's env-shaped
- * knobs.
+ * 088), an engine-config surface over memex's env-shaped knobs.
  *
  * memex knobs are MEMEX_* env vars read all over the codebase, so instead of
  * threading a config object through every resolver, the DB plane stores
@@ -28,7 +27,7 @@ export function isRuntimeConfigKey(key: string): boolean {
 
 /**
  * Sensitive-key detector shared by every display surface so `show` and the
- * `set` confirmation can't drift (the reference's #892 fix). Word-segment
+ * `set` confirmation can't drift. Word-segment
  * match: `MEMEX_PUBLIC_BEARER` and `FOO_TOKEN` hit, `MEMEX_MAX_TOKENS`-style
  * budget knobs deliberately do NOT (TOKENS ≠ TOKEN).
  */

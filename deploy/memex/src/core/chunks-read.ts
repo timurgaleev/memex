@@ -25,7 +25,7 @@ export interface ChunkRow {
  * Return every chunk belonging to the document at `sourcePath`, ordered by
  * `chunk_index`. An unknown / chunk-less source yields an empty array — the
  * absence of a document is not an error here (the caller decides what that
- * means), mirroring the reference implementation's `getChunks`.
+ * means).
  */
 export async function getChunksForSource(
   storage: Storage,

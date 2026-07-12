@@ -31,7 +31,7 @@ export interface VectorSearchOptions {
    */
   maxPool?: boolean;
   /**
-   * Curation prefix boost inside the arm SQL (reference parity): rank by
+   * Curation prefix boost inside the arm SQL: rank by
    * boosted cosine similarity `(1 - dist) × factor` so a curated page's chunk
    * survives the ANN LIMIT over bulk-feed noise. Disabled by the caller for
    * temporal queries. Default OFF preserves the pure-distance ordering.

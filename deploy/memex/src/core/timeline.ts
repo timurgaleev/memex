@@ -5,7 +5,7 @@
  * Writes are append-only with idempotency on
  * (slug, occurred_at, source_chunk_id) for chunk-sourced events and on
  * (slug, occurred_at, event, source_label, source_id) for manual/API events
- * (mig079, reference parity — a retried `timeline_add` no longer duplicates).
+ * (mig079 — a retried `timeline_add` no longer duplicates).
  *
  * No update or delete surface — corrections become new events. A
  * future dream-cycle phase can mark superseded events but it never
@@ -18,7 +18,7 @@ export interface AddTimelineEventInput {
   slug: string;
   /** ISO-8601 timestamp string OR a Date. */
   occurred_at: string | Date;
-  /** One-line summary (the reference's `summary`). */
+  /** One-line summary. */
   event: string;
   /** Longer narrative under the summary (mig079; '' when omitted). */
   detail?: string;
@@ -96,7 +96,7 @@ export async function addTimelineEvent(
       ? input.source_id
       : null;
 
-  // Ownership guard (reference parity): a scoped caller may only append to a page
+  // Ownership guard: a scoped caller may only append to a page
   // its OWN source owns. The FK slug->pages only asserts the slug exists somewhere
   // (a global PK), so without this a tenant could write timeline events onto
   // another tenant's page. Unscoped callers (source_id absent -> the DEFAULT
@@ -116,8 +116,8 @@ export async function addTimelineEvent(
 
   // Manual/API events (no chunk id) dedup on the mig079 key: a retried write
   // with identical (slug, time, wording, label, tenant) is a no-op. Distinct
-  // provenance (source_label) still coexists — the reference widened its key
-  // for exactly that.
+  // provenance (source_label) still coexists — the key was widened for exactly
+  // that.
   if (chunkId === null) {
     const params: unknown[] = [input.slug, occurred, input.event, detail, sourceLabel];
     if (sourceId !== null) params.push(sourceId);

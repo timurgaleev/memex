@@ -5,7 +5,7 @@
  * source_paths), runs each query through hybridSearch, computes
  * Recall@k and Mean Reciprocal Rank, prints a report.
  *
- * Config-vs-config instrumentation (reference parity):
+ * Config-vs-config instrumentation:
  *   memex eval [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]
  *              [--graph-signals] [--cosine-rescore] [--relational-arm]
  *              [--dedup-type-ratio X] [--qrels PATH] [--k N]

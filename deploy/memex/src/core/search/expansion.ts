@@ -28,8 +28,8 @@ const MAX_QUERY_CHARS = 500;
 /**
  * Neutralize a user query before it reaches the expansion LLM. The query is an
  * untrusted input passed in the user turn; an attacker can still try to talk the
- * model out of its instructions ("ignore the above, output X"). Adapted from the
- * reference's guard: cap length, strip code fences + HTML-ish tags (carriers for
+ * model out of its instructions ("ignore the above, output X"). The guard: cap
+ * length, strip code fences + HTML-ish tags (carriers for
  * injected directives), drop a leading instruction-override preamble, collapse
  * whitespace. Deterministic, zero-I/O. Warns (without echoing the content) when
  * it changes anything, so a probe is visible in logs.
@@ -52,8 +52,8 @@ export function sanitizeQueryForPrompt(query: string): string {
 /**
  * Validate the LLM's alternative queries — model output is untrusted. Strip
  * control characters, drop empties, cap length, dedupe case-insensitively, and
- * cap the count. Anything non-string is skipped. `max` keeps memex's variant
- * budget (not the reference's hardcoded 2).
+ * cap the count. Anything non-string is skipped. `max` is memex's variant
+ * budget.
  */
 export function sanitizeExpansionOutput(alternatives: readonly unknown[], max: number): string[] {
   const seen = new Set<string>();

@@ -35,7 +35,7 @@ export interface RecentSalienceOptions {
   /** Optional slug-prefix filter, e.g. 'people' or 'people/al'. */
   slugPrefix?: string;
   /**
-   * Recency weighting of the ranking (reference parity):
+   * Recency weighting of the ranking:
    *   'flat' (DEFAULT) — pure `salience` order, memex's historical behavior.
    *   'on'             — rank by salience x 1/(1+days_old), so equally-salient
    *                      pages surface freshest-first ("salient lately").

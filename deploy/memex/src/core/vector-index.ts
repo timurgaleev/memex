@@ -1,18 +1,15 @@
 /**
  * pgvector HNSW index lifecycle manager.
  *
- * A faithful port of the reference's `vector-index.ts` lifecycle surface,
- * adapted to memex's stack:
- *   - `Engine` (query/exec/transaction) instead of the reference's `BrainEngine`
- *     (executeRaw/withReservedConnection). CONCURRENTLY routes through
+ * The HNSW index lifecycle surface for memex's stack:
+ *   - `Engine` (query/exec/transaction). CONCURRENTLY routes through
  *     `engine.exec` — its simple-query protocol runs a single statement outside
  *     any transaction, which is exactly what `CREATE INDEX CONCURRENTLY` needs
  *     (`engine.query` uses the extended protocol, which CONCURRENTLY rejects).
  *   - memex's real HNSW index: `embeddings_vector_idx` on `embeddings(vector)`
- *     (migration 001), not the reference's `idx_chunks_embedding` on
- *     `content_chunks(embedding)`.
- *   - RDS, not Supabase — the external-maintenance detector matches the managed
- *     app names memex could see (rdsadmin / autovacuum / pg_cron).
+ *     (migration 001).
+ *   - RDS — the external-maintenance detector matches the managed app names
+ *     memex could see (rdsadmin / autovacuum / pg_cron).
  *
  * The functions:
  *   - checkActiveBuild:   pre-op probe of pg_stat_activity.
@@ -252,8 +249,7 @@ export async function monitorBuild(
 /**
  * Detect whether an active build is managed-Postgres auto-maintenance (RDS)
  * rather than a memex process — so dropAndRebuild can back off and let the
- * platform finish the rebuild. (The reference checks Supabase app names; memex
- * runs on RDS.)
+ * platform finish the rebuild. (memex runs on RDS.)
  */
 export function isExternalMaintenanceBuild(active: ActiveBuildInfo): boolean {
   if (!active.active) return false;

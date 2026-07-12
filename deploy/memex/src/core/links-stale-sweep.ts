@@ -1,19 +1,19 @@
 /**
  * `memex extract --stale` — incremental link re-extraction sweep.
  *
- * Faithful adaptation of the reference's `extractStaleFromDB`. Bumping
- * {@link LINK_EXTRACTOR_VERSION_TS} (or any page edit) marks pages stale; this
+ * Bumping {@link LINK_EXTRACTOR_VERSION_TS} (or any page edit) marks pages
+ * stale; this
  * sweep re-runs the SAME link-sync set the MCP `page_put` path runs
  * (wikilinks + gazetteer mentions + typed-NER + verb-context, each behind its
  * own opt-in gate) over every stale page, then advances the watermark. Without
  * it a version bump is detect-only — the `links-extraction-lag` doctor count
  * rises and only falls as each page is next written.
  *
- * memex stack adaptations vs the reference:
- *  - re-uses memex's per-page `sync*ForPage` functions (the dispatch put path),
- *    not the reference's `extractPageLinks` + `addLinksBatch` — same edges, one
- *    code path. No timeline arm (memex's put path extracts links only).
- *  - keysets on the `slug` PK (the reference uses a numeric `id`).
+ * memex stack notes:
+ *  - re-uses memex's per-page `sync*ForPage` functions (the dispatch put path)
+ *    — same edges, one code path. No timeline arm (memex's put path extracts
+ *    links only).
+ *  - keysets on the `slug` PK.
  *  - `engine.query` everywhere ($N), no postgres/pglite branch.
  */
 import type { Storage } from "./storage.ts";
@@ -41,7 +41,7 @@ const STALE_BATCH_SIZE = Math.max(
 );
 
 // Wall-clock budget for one invocation (default 30 min). `--catch-up` removes
-// the cap (loops until 0 stale). Mirrors the reference's time-budget shape.
+// the cap (loops until 0 stale).
 const STALE_TIME_BUDGET_MS = Math.max(
   1000,
   Number(process.env.MEMEX_EXTRACT_TIME_BUDGET_MS) || 30 * 60 * 1000,

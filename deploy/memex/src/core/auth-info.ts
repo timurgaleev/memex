@@ -135,10 +135,10 @@ export function effectiveReadSourceIdsForIngress(
  * reads are unscoped (no authInfo = operator/trusted-local, or an explicit
  * `*` wildcard entry — the operator's "all holders" escape hatch).
  *
- * Fail-safe (reference parity): a REMOTE authenticated principal whose
- * credential carries no holder knob is floored to ['world'] — the reference
- * defaults any remote token without the allow-list the same way. Only the
- * operator path is unscoped by absence.
+ * Fail-safe: a REMOTE authenticated principal whose credential carries no
+ * holder knob is floored to ['world'] — any remote token without the
+ * allow-list is defaulted the same way. Only the operator path is unscoped
+ * by absence.
  */
 export function effectiveTakesHolders(
   auth: AuthInfo | undefined,

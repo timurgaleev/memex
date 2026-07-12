@@ -1,6 +1,6 @@
 /**
  * ingest_log substrate (migrations 023 + 087) — the durable ingestion /
- * absorb-failure audit trail, adapted from the reference's absorb-log.
+ * absorb-failure audit trail.
  *
  * Two consumer classes:
  *   - Recipes / importers log a row per ingestion run (`logIngest`) and the
@@ -118,8 +118,8 @@ export async function getIngestLog(
 /** The source_type every facts-absorb row is filed under. */
 export const FACTS_ABSORB_SOURCE_TYPE = "facts:absorb";
 
-/** Stable reason codes (the reference's set; eligibility skips are
- *  intentionally NOT logged — high cardinality, low signal). */
+/** Stable reason codes (eligibility skips are intentionally NOT logged —
+ *  high cardinality, low signal). */
 export const FACTS_ABSORB_REASONS = [
   "gateway_error",
   "parse_failure",
@@ -134,8 +134,8 @@ export type FactsAbsorbReason = (typeof FACTS_ABSORB_REASONS)[number];
 
 /**
  * Classify an arbitrary absorbed error into a stable reason code. Heuristic
- * name/message match, falling back to 'pipeline_error'. Ported from the
- * reference's classifier with memex's Bedrock error shapes added.
+ * name/message match, falling back to 'pipeline_error'. Covers memex's
+ * Bedrock error shapes.
  */
 export function classifyFactsAbsorbError(err: unknown): FactsAbsorbReason {
   if (!err) return "pipeline_error";

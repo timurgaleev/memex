@@ -2,8 +2,8 @@
  * source-health.ts — brain-level operational health metrics.
  *
  * memex is single-holder / effectively single-source, so these are reported at
- * the brain level rather than per-source (the reference's per-source breakdown
- * collapses to one row here). They answer "is the brain ingesting + embedding
+ * the brain level rather than per-source (a per-source breakdown collapses to
+ * one row here). They answer "is the brain ingesting + embedding
  * its data, and is the job queue healthy?":
  *
  *   - embed_coverage_pct : of the chunks that SHOULD carry a vector (markdown /

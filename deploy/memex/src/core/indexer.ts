@@ -84,8 +84,8 @@ export interface IndexFileOptions {
    */
   contextualLlmFn?: LlmFn;
   /**
-   * Infer a frontmatter header at ingest for content that lacks one (the
-   * reference's import-time inference). Default ON. The inferred block is NOT
+   * Infer a frontmatter header at ingest for content that lacks one
+   * (import-time inference). Default ON. The inferred block is NOT
    * persisted to disk or the body, so re-index MUST re-infer (it is pure +
    * deterministic — the same header every time) — do NOT pass `false` on a
    * reindex, or a headerless doc re-chunks bare and silently loses its inferred
@@ -142,14 +142,12 @@ export interface IndexInput {
  * the same sourcePath replaces all prior chunks (cascade also wipes their
  * embeddings + entity_mentions).
  */
-// Cap any single document at 5 MiB. The reference enforces this at BOTH ingest
-// entry points — the file path AND the in-memory content path (its
-// `importFromContent` guard, added specifically because the remote MCP write
-// passes caller-supplied content straight in and bypasses the file-size check).
-// memex had only the file-path cap (`indexFile` below); this is the missing
-// content-path half — without it the remote `index` tool, page mirror, and
-// embed-stale could store an unbounded document (the live brain accumulated
-// 18–30 MB-frontmatter voicenote/gcal docs this way → cycle OOM).
+// Cap any single document at 5 MiB. Enforced at BOTH ingest entry points — the
+// file path (`indexFile` below) AND this in-memory content path, which the
+// remote MCP write passes caller-supplied content straight into, bypassing the
+// file-size check. Without the content-path cap the remote `index` tool, page
+// mirror, and embed-stale could store an unbounded document (the live brain
+// accumulated 18–30 MB-frontmatter voicenote/gcal docs this way → cycle OOM).
 const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
 
 export async function indexDocument(
@@ -169,9 +167,9 @@ export async function indexDocument(
     );
   }
 
-  // Infer a frontmatter header at ingest for content that has none (the
-  // reference's import-time inference — a per-file pure step, NOT a recurring
-  // cycle phase). A doc that already starts with `---` is returned untouched.
+  // Infer a frontmatter header at ingest for content that has none (import-time
+  // inference — a per-file pure step, NOT a recurring cycle phase). A doc that
+  // already starts with `---` is returned untouched.
   let text = input.text;
   if (opts.inferFrontmatter !== false) {
     const { applyInference } = await import("./frontmatter-inference.ts");
@@ -388,9 +386,9 @@ export async function indexDocument(
       documentId: id,
       sourcePath: input.sourcePath,
       // Title column: the H1, else the frontmatter `title` (an explicit header
-      // or one synthesized by ingest inference) — mirrors the reference folding
-      // a frontmatter title into the title column, so an inferred title for a
-      // headerless, H1-less doc still reaches `documents.title`.
+      // or one synthesized by ingest inference) — folding a frontmatter title
+      // into the title column so an inferred title for a headerless, H1-less
+      // doc still reaches `documents.title`.
       title:
         parsed.title ??
         (typeof frontmatter["title"] === "string"

@@ -8,8 +8,6 @@
  * Errs toward 'other': a false positive wastes prompt tokens on an irrelevant
  * trajectory block; a false negative just misses the trajectory boost on a few
  * questions. Precision over recall at this surface.
- *
- * Adapted from the reference's think intent classifier, trimmed to memex.
  */
 
 export type Intent = "temporal" | "knowledge_update" | "other";

@@ -14,14 +14,14 @@
  * parser fails LOUD on a malformed value rather than silently degrading
  * rankings — the throw surfaces the first time the map is resolved.
  *
- * Generic prefixes only — never fork-specific names (privacy).
+ * Generic prefixes only — never install-specific names (privacy).
  */
 
 export type CurationBoostMap = Record<string, number>;
 
 /**
- * Authority weights by slug prefix — the reference's full tier map (generic
- * prefixes only, fork-specific names stay out for privacy). Curated originals
+ * Authority weights by slug prefix — the full tier map (generic prefixes
+ * only, install-specific names stay out for privacy). Curated originals
  * outrank entity pages outrank bulk feeds; archived + machine-extracted
  * content is demoted, never hidden. Fallback (no prefix match) is 1.0.
  */
@@ -51,8 +51,8 @@ export const DEFAULT_CURATION_BOOST: CurationBoostMap = {
   "extracts/": 0.3,
 };
 
-/** Genuine noise, excluded by default (reference parity): test fixtures,
- *  binary attachments, raw sidecars. MEMEX_SEARCH_EXCLUDE overrides. */
+/** Genuine noise, excluded by default: test fixtures, binary attachments,
+ *  raw sidecars. MEMEX_SEARCH_EXCLUDE overrides. */
 export const DEFAULT_SEARCH_EXCLUDE: readonly string[] = [
   "test/",
   "attachments/",
@@ -138,13 +138,13 @@ export function _resetCurationForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
-// SQL fragments — reference parity: the prefix boost is applied INSIDE each
-// retrieval arm's ORDER BY so it shapes which rows survive the per-arm LIMIT
-// (a curated hit ranking just below the fanout is no longer dropped), and the
-// hard-excludes are pushed into the WHERE so noise never eats LIMIT budget.
+// SQL fragments — the prefix boost is applied INSIDE each retrieval arm's
+// ORDER BY so it shapes which rows survive the per-arm LIMIT (a curated hit
+// ranking just below the fanout is no longer dropped), and the hard-excludes
+// are pushed into the WHERE so noise never eats LIMIT budget.
 //
-// Raw fragments by design (same contract as the reference's sql-ranking
-// builders): prefixes come from code defaults or the operator's env — both
+// Raw fragments by design: prefixes come from code defaults or the
+// operator's env — both
 // LIKE-escaped AND string-escaped before inlining; factors are validated
 // finite numbers. The column expression is supplied by the arm, never by
 // user input.

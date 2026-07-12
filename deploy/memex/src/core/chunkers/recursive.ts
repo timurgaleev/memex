@@ -24,8 +24,7 @@ export { parseFrontmatter };
  * should re-chunk + re-embed the existing markdown corpus — a document whose
  * stamp is below the current value reads stale for the doctor `chunker-version-lag`
  * check. Starts at 1 (the grandfather DEFAULT), so the first bump is what
- * surfaces the re-chunk backlog. Faithful adaptation of the reference's
- * MARKDOWN_CHUNKER_VERSION.
+ * surfaces the re-chunk backlog.
  */
 // v2 (2026-07-06): the indexer now strips the `## Takes` fence before chunking
 // (alongside `## Facts`), so any page/doc chunked under v1 may carry fenced
@@ -68,7 +67,7 @@ const DEFAULT_MIN = 200;
 const MIN_OVERLAP_CHARS = 16;
 /**
  * Default trailing overlap (chars) for NEWLY indexed pages — ~50 words of
- * sentence-aware bridge, matching the reference's default. ON by default so a
+ * sentence-aware bridge. ON by default so a
  * boundary-straddling fact stays retrievable from both size-split chunks. This
  * changes only what a fresh index/reindex produces: chunks already stored keep
  * their current (overlap-off) content until the document is re-indexed, so no
@@ -285,7 +284,6 @@ function mergeShort(chunks: string[], minChars: number): string[] {
  * fallback path for symbol-less CODE files goes through this — running code
  * through `chunkMarkdown` would eat a leading `--- … ---` block as YAML
  * frontmatter (e.g. `---` SQL comment separators) and silently drop content.
- * Mirrors the reference chunker's raw `recursiveChunk` fallback.
  */
 export function chunkPlainText(
   text: string,

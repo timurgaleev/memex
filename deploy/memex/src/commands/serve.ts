@@ -72,8 +72,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   const storage = new Storage(config);
   await storage.init();
 
-  // Startup zombie-index sweep (ported from the reference, which runs it
-  // unconditionally on connect). memex gates it default-OFF per its no-surprise-
+  // Startup zombie-index sweep. memex gates it default-OFF per its no-surprise-
   // mutation posture — an aborted CONCURRENTLY leaving an invalid index is rare,
   // and `doctor`'s invalid-indexes check already surfaces it. Flip
   // MEMEX_HNSW_ZOMBIE_SWEEP=1 to auto-drop invalid indexes at boot (postgres
@@ -130,13 +129,13 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // memex's own OAuth 2.1 provider (client_credentials). When enabled, mounts
   // POST /token and verifies self-issued `memex_at_…` tokens on /mcp. Shares the
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
-  // 046) already exist. The reference-faithful auth path.
+  // 046) already exist.
   if (config.auth?.selfIssued?.enabled === true) {
     const provider = new OAuthProvider({ engine: storage.raw() });
     serverOpts.oauthProvider = provider;
-    // Sweep expired access/refresh tokens + auth codes at startup (reference
-    // parity) — the tables otherwise grow until a verify happens to hit the
-    // expired row. Best-effort: a sweep failure must never block serve.
+    // Sweep expired access/refresh tokens + auth codes at startup — the tables
+    // otherwise grow until a verify happens to hit the expired row.
+    // Best-effort: a sweep failure must never block serve.
     try {
       const swept = await provider.sweepExpiredTokens();
       if (swept > 0) console.error(`[memex] swept ${swept} expired OAuth tokens/codes`);
@@ -149,12 +148,12 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
   // set; otherwise an ephemeral per-run token printed to stderr (lives only in
-  // the operator's terminal — never in a URL). Mounting the `/admin` auth routes
-  // either way keeps parity with the reference.
+  // the operator's terminal — never in a URL). The `/admin` auth routes mount
+  // either way.
   const adminBootstrap = process.env.MEMEX_ADMIN_BOOTSTRAP?.trim();
   // The admin surface provisions the whole brain (sources, tenant grants), so an
   // operator-set bootstrap token must meet a minimum entropy floor — reject a weak
-  // value at boot rather than lean on the login rate limiter alone (reference parity).
+  // value at boot rather than lean on the login rate limiter alone.
   if (adminBootstrap && adminBootstrap.length > 0 && !/^[A-Za-z0-9_-]{32,}$/.test(adminBootstrap)) {
     throw new Error(
       "MEMEX_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +

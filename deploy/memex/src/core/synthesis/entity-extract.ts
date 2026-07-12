@@ -13,7 +13,6 @@
  *      drops anything that only resolves via the slugify fallback.
  *
  * Capped at 5 candidates so the extra trajectory calls don't dilute the prompt.
- * Adapted from the reference implementation (same tokenizer + stop-word set).
  */
 
 // Single-word tokenizer: letters, hyphens, apostrophes (length 1-40). The

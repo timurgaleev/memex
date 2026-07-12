@@ -1,10 +1,8 @@
 /**
  * Conversation turn → structured facts, via a paid Bedrock Claude (Sonnet)
- * call. The opt-in, default-OFF agent-layer slice the operator chose for
- * reference parity. Adapted from the reference's turn-extractor: the PROMPT is
- * ported faithfully; the model binding is memex's Bedrock Sonnet helper, and
- * the write path reuses the existing `addFact` ledger (entity_facts, not the
- * RLS-without-source_id hot_memory table).
+ * call. The opt-in, default-OFF agent-layer slice. The model binding is memex's
+ * Bedrock Sonnet helper, and the write path reuses the existing `addFact` ledger
+ * (entity_facts, not the RLS-without-source_id hot_memory table).
  *
  * Untrusted turn text is run through the shared prompt-injection sanitizer and
  * fenced in <turn>…</turn> before the model sees it.
@@ -155,9 +153,9 @@ export interface ExtractTurnOptions {
   region?: string;
   maxTokens?: number;
   /**
-   * Canonical entity slugs the caller has already resolved (reference
-   * `entity_hints`): steers the extractor toward existing slugs instead of
-   * minting display-name variants. Sanitized to slug-safe strings, capped.
+   * Canonical entity slugs the caller has already resolved: steers the
+   * extractor toward existing slugs instead of minting display-name variants.
+   * Sanitized to slug-safe strings, capped.
    */
   entityHints?: string[];
 }
@@ -256,12 +254,11 @@ export async function writeExtractedFacts(
     /** Insert-time dedup / supersede knobs threaded to addFact (default OFF). */
     dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
     /**
-     * Notability write policy (reference facts-backstop D4). `'all'` (default)
-     * writes every extracted fact; `'high-only'` writes HIGH now and drops the
-     * rest. The reference passes `'high-only'` ONLY on its file-vault sync path
-     * (which memex, being DB-canonical, does not have) — so memex's default
-     * `'all'` matches the reference's default for every surface memex actually
-     * runs. Exposed for parity + a future bulk surface that wants the filter.
+     * Notability write policy. `'all'` (default) writes every extracted fact;
+     * `'high-only'` writes HIGH now and drops the rest. memex is DB-canonical
+     * with no file-vault sync path, so the default `'all'` is what every surface
+     * memex actually runs uses. Exposed for a future bulk surface that wants the
+     * filter.
      */
     notabilityFilter?: "all" | "high-only";
   } = {},
@@ -276,7 +273,7 @@ export async function writeExtractedFacts(
     ...(opts.sourceId ? { sourceIds: [opts.sourceId] } : {}),
   });
   for (const f of facts) {
-    // Notability gate (reference backstop.ts:325): high-only drops non-HIGH.
+    // Notability gate: high-only drops non-HIGH facts.
     if (notabilityFilter === "high-only" && f.notability !== "high") {
       skipped += 1;
       continue;
@@ -333,8 +330,8 @@ export const ON_WRITE_WRITER = "facts-extract";
 /**
  * Page types whose body is prose worth extracting conversation-shaped facts
  * from. Entity pages (person/company/concept) and structured stubs (task/event)
- * are excluded — they carry attributes, not narrated claims. Mirrors the intent
- * of the reference's eligibility type set, mapped onto memex's KNOWN_PAGE_TYPES.
+ * are excluded — they carry attributes, not narrated claims. Drawn from memex's
+ * KNOWN_PAGE_TYPES.
  */
 export const EXTRACTION_ELIGIBLE_TYPES: readonly string[] = [
   "note",
@@ -482,10 +479,10 @@ export interface OnDemandExtractOptions {
   modelId?: string;
   maxBudgetUsd?: number;
   /**
-   * Opt-in persistence (reference parity: the reference's `extract_facts` IS
-   * a write path). When true, the extracted facts are written to the
-   * entity_facts ledger via `writeExtractedFacts`; `storage` is then required.
-   * Default false — the preview-only behavior is unchanged.
+   * Opt-in persistence: `extract_facts` doubles as a write path. When true, the
+   * extracted facts are written to the entity_facts ledger via
+   * `writeExtractedFacts`; `storage` is then required. Default false — the
+   * preview-only behavior is unchanged.
    */
   persist?: boolean;
   /** Required when `persist` is set. */
@@ -496,7 +493,7 @@ export interface OnDemandExtractOptions {
   sourceId?: string;
   /** Capture-session id stamped on persisted facts (mig085). */
   sessionId?: string;
-  /** Canonical slugs to steer the extractor (reference `entity_hints`). */
+  /** Canonical slugs to steer the extractor. */
   entityHints?: string[];
   /** Default visibility for persisted facts ('private' | 'world', mig085). */
   visibility?: string;
@@ -519,8 +516,7 @@ export interface OnDemandExtractResult {
 /**
  * On-demand fact extraction behind the `extract_facts` MCP tool. By default it
  * RETURNS the facts WITHOUT persisting them (the read-only preview); with
- * `persist: true` it also writes them to the entity_facts ledger — the
- * reference's `extract_facts` semantics, where a reference-trained client
+ * `persist: true` it also writes them to the entity_facts ledger — a client
  * calling the tool expects the facts to be STORED. Reuses the same paid
  * Bedrock turn extractor as the on-write hook.
  *

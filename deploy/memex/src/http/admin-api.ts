@@ -1,10 +1,9 @@
 /**
  * http/admin-api.ts — admin data + provisioning endpoints (increment A2).
  *
- * The `/admin/api/*` data routes the admin SPA reads, on Bun.serve. Faithful to
- * the reference's admin API in SHAPE, adapted to memex's tenancy model: the
- * reference provisions OAuth `oauth_clients`; memex provisions tenant `sources`
- * + JWT-subject `source_grants` (the same thing the `tenant` CLI does). These
+ * The `/admin/api/*` data routes the admin SPA reads, on Bun.serve. Shaped to
+ * memex's tenancy model: memex provisions tenant `sources` + JWT-subject
+ * `source_grants` (the same thing the `tenant` CLI does). These
  * handlers call the SAME provisioning core (`core/sources.ts` +
  * `core/tenant-grants.ts`) so the API and CLI never drift, plus the brain stats.
  *
@@ -141,8 +140,7 @@ const CONFIG_SERVER_NAME = "memex";
 /** Never echo a real credential — every snippet ships a placeholder the
  *  operator swaps for the subject's own bearer/JWT before pasting. */
 const CONFIG_TOKEN_PLACEHOLDER = "<paste-your-token>";
-/** Post-connect self-orientation, mirroring the reference's onboarding note but
- *  written for memex's tool surface (no reference codename). */
+/** Post-connect self-orientation, written for memex's tool surface. */
 const CONFIG_LEARN_NOTE =
   "Once connected, call `get_brain_identity` (whose brain this is) and `list_skills` " +
   "(what it can do). Core tools always work: search, query, get_page, put_page, think, " +

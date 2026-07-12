@@ -5,13 +5,11 @@
  * Recomputed by the `recompute-salience` cycle phase and surfaced by the
  * "what matters" salience query (`memex salience`).
  *
- * The reference brain derives an analogous score from tags + "takes" (opinion
- * records). This brain keeps link-degree as the base attention signal — the
- * strongest LLM-free "this entity gets a lot of attention" signal — and now
- * folds in a small take-density term from the `synth_takes` table (added by
- * synthesis migration 045). The tag-emotion half is kept faithfully: tags are
- * an explicit user act of categorisation, so a page tagged `wedding` is *about*
- * something weighty by construction.
+ * Link-degree is the base attention signal — the strongest LLM-free "this
+ * entity gets a lot of attention" signal — and a small take-density term from
+ * the `synth_takes` table (added by synthesis migration 045) folds in on top.
+ * The tag-emotion half: tags are an explicit user act of categorisation, so a
+ * page tagged `wedding` is *about* something weighty by construction.
  *
  * Formula (sum clamped to [0..1]):
  *   1) Tag-emotion boost   max 0.5  — any high-emotion tag (case-insensitive)
@@ -58,9 +56,8 @@ const TAG_BOOST_MAX = 0.5;
 const DEGREE_BOOST_MAX = 0.5;
 
 /**
- * Take-density term (mirrors the reference emotional-weight formula, scaled
- * down so link-degree stays the base signal). Active takes on a page add a
- * small, additive lift capped at TAKE_BOOST_MAX = 0.20:
+ * Take-density term (scaled down so link-degree stays the base signal). Active
+ * takes on a page add a small, additive lift capped at TAKE_BOOST_MAX = 0.20:
  *   - density: TAKE_DENSITY_PER (0.05) per active take, capped at 0.15
  *   - avg weight: mean take conviction (0..1) scaled into 0..0.05
  */

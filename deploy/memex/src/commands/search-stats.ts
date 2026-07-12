@@ -114,9 +114,9 @@ export interface TuneRecommendation {
 }
 
 /**
- * Pure recommendation engine (exported for tests). Mirrors the reference's
- * rule set mapped onto memex knobs; every apply command routes through the
- * DB-plane `memex config`, so `--apply` needs no redeploy.
+ * Pure recommendation engine (exported for tests). Maps a fixed rule set onto
+ * memex knobs; every apply command routes through the DB-plane `memex config`,
+ * so `--apply` needs no redeploy.
  */
 export function buildTuneRecommendations(
   stats: StatsWindow,

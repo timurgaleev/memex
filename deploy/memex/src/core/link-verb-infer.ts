@@ -2,15 +2,15 @@
  * link-verb-infer.ts — deterministic (LLM-free) verb-context inference of a
  * wikilink edge's TYPE from the prose around the mention.
  *
- * Faithful port of the reference's `inferLinkType`. memex resolves a
- * `[[target]]` wikilink to a slug and writes `type='wikilink'`; with verb
+ * memex resolves a `[[target]]` wikilink to a slug and writes
+ * `type='wikilink'`; with verb
  * inference ON (opt-in, `MEMEX_LINK_VERB_INFER=1`), the ~240-char window around
  * the mention is scanned for employment / investment / founder / advisor verbs
  * and the edge is upgraded to the matching typed relationship
  * (`works_at` / `invested_in` / `founded` / `advises`). When no verb matches it
  * stays `mentions` (the caller keeps `wikilink`).
  *
- * Two layers, exactly as the reference:
+ * Two layers:
  *   1. Per-edge: explicit verbs in the local window
  *      (FOUNDED > INVESTED > ADVISES > WORKS_AT).
  *   2. Page-role prior: when the per-edge pass falls through, a person page
@@ -18,8 +18,7 @@
  *      employee biases its outbound `companies/*` refs
  *      (PARTNER > ADVISOR > EMPLOYEE).
  *
- * The regexes are copied verbatim from the reference (calibrated against a
- * rich-prose corpus); only the surrounding plumbing is memex's.
+ * The regexes are calibrated against a rich-prose corpus.
  */
 
 // Employment context: position + at/of, or explicit work verbs.
@@ -51,7 +50,6 @@ export type InferredLinkType = "founded" | "invested_in" | "advises" | "works_at
 
 /**
  * Infer a wikilink edge's type from page context. Deterministic, no LLM.
- * Faithful to the reference's `inferLinkType`:
  *   - per-edge window verbs: founded > invested_in > advises > works_at;
  *   - then a person→company page-role prior: investor > advisor > employee;
  *   - else `mentions`.
@@ -86,7 +84,7 @@ export function inferLinkType(
 
 /**
  * The ~240-char window around the FIRST occurrence of a `[[surface]]` mention
- * in the body — the per-edge context the reference feeds `inferLinkType`. The
+ * in the body — the per-edge context fed to `inferLinkType`. The
  * wider window (vs the original 80) catches verbs that sit a clause away in
  * narrative prose. Returns the whole body when the surface isn't found
  * (defensive — the caller resolved it from this body).

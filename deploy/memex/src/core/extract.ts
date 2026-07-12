@@ -20,8 +20,7 @@ import {
 // Bump to the ship date whenever extractEntities()'s logic changes in a way that
 // should re-run over the whole corpus — a doc whose entities_extracted_at predates
 // this is treated as stale (migration 054). Mirrors links.ts's
-// LINK_EXTRACTOR_VERSION_TS, the memex-native equivalent of the reference's
-// incremental-extract change-set.
+// LINK_EXTRACTOR_VERSION_TS.
 export const ENTITY_EXTRACTOR_VERSION_TS = "2026-06-29T00:00:00Z";
 
 export interface ExtractOptions {
@@ -29,8 +28,8 @@ export interface ExtractOptions {
    * Force a FULL walk of every document. Default false → INCREMENTAL: only docs
    * stale per the migration-054 watermark (never extracted, extractor version
    * bumped, or re-indexed since last extract). The cycle runs incremental; the
-   * CLI `extract --all` forces the full walk. Mirrors the reference's
-   * "changed-slugs ⇒ incremental, absent ⇒ full walk".
+   * CLI `extract --all` forces the full walk (changed-slugs ⇒ incremental,
+   * absent ⇒ full walk).
    */
   all?: boolean;
   /**
@@ -88,8 +87,8 @@ export async function extractAll(
   result.mentionsBefore = before.rows[0]?.c ?? 0;
 
   // Incremental by default (migration 054): only docs stale per the watermark.
-  // $1=all-flag bypass (mirrors the reference's "no changed-slugs ⇒ full walk");
-  // $2=the extractor-version arm. A full walk on the first run (all NULL).
+  // $1=all-flag bypass (no changed-slugs ⇒ full walk); $2=the extractor-version
+  // arm. A full walk on the first run (all NULL).
   const params: unknown[] = [opts.all ?? false, ENTITY_EXTRACTOR_VERSION_TS];
   let limit = "";
   if (opts.maxDocs) {

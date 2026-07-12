@@ -97,7 +97,7 @@ export interface ServerOptions {
    * `config.auth.selfIssued.enabled`. When set, the server mounts POST `/token`
    * and verifies self-issued `memex_at_…` bearer tokens on the `/mcp` ingress,
    * scoping each request to its registered `oauth_clients` row. This is the
-   * reference-faithful auth path that replaces the external-IdP JWT overlay.
+   * auth path that replaces the external-IdP JWT overlay.
    */
   oauthProvider?: OAuthProvider;
   /**
@@ -151,7 +151,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const registerRateLimiter = opts.oauthProvider
     ? new RateLimiter({ capacity: 5, refillPerSecond: 5 / 60 })
     : null;
-  // POST /ingest webhook capture — 100 events / 10 s per IP (reference cap).
+  // POST /ingest webhook capture — 100 events / 10 s per IP.
   const ingestRateLimiter = new RateLimiter({ capacity: 100, refillPerSecond: 10 });
   // Default-deny CORS allowlist for the OAuth + MCP surface (read once at boot).
   const corsAllowlist = parseCorsAllowlist();
@@ -164,12 +164,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
     });
   }
   // Opt-in strict OAuth: require a logged-in operator on /authorize. Default OFF
-  // (auto-approve, reference parity) — see the /authorize handler below.
+  // (auto-approve) — see the /authorize handler below.
   const oauthRequireLogin =
     ((process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "1" ||
       (process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "true");
-  // Dynamic Client Registration is OFF by default (reference parity: the
-  // reference's `--enable-dcr`). With it off, /register is unavailable and the
+  // Dynamic Client Registration is OFF by default. With it off, /register is
+  // unavailable and the
   // discovery doc omits registration_endpoint, so the ONLY way a client exists is
   // an operator creating it via `memex auth register-client` — nobody can
   // self-register a client over the network. Enable with MEMEX_ENABLE_DCR=1.
@@ -211,8 +211,8 @@ export function startServer(opts: ServerOptions): ServerHandle {
         // success the request is a TRUSTED registered client scoped to its own
         // `oauth_clients` row — unredacted read within that source scope
         // (isPublic:false); writes stay gated by the internal-token path.
-        // Every bearer is offered to the verifier (reference parity: /mcp sits
-        // behind requireBearerAuth with no prefix filter) — the provider's
+        // Every bearer is offered to the verifier (/mcp sits behind
+        // requireBearerAuth with no prefix filter) — the provider's
         // fallback resolves legacy access_tokens PATs (`memex_…`), whose tenant
         // scope comes from `permissions.source_id`. A non-token string just
         // misses both hash lookups and falls through to the 401 below.
@@ -298,7 +298,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
             return rateLimited();
           }
-          // Auto-approve by default (reference parity), so a standard MCP client
+          // Auto-approve by default, so a standard MCP client
           // completes the flow unattended. Opt into the stricter operator-login
           // gate with MEMEX_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted for
           // a logged-in admin (and only when an admin session mechanism exists).

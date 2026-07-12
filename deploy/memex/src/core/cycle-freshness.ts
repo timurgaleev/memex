@@ -6,9 +6,8 @@
  * tick (core/cycle/snapshot.ts), but nothing watched its liveness: a wedged
  * loop (stuck db-lock, exception loop) surfaced only via downstream proxies
  * (links-extraction-lag). This probes `MAX(captured_at)` against a warn/fail
- * age, the brain-only sibling of the reference's `cycle_freshness` check
- * (adapted: memex is single-source, so it checks the one snapshot stream, not
- * a per-federated-source `last_full_cycle_at`).
+ * age. memex is single-source, so it checks the one snapshot stream, not a
+ * per-federated-source `last_full_cycle_at`.
  *
  * Zero snapshots = informational, NOT a failure: a fresh brain or a deploy that
  * never enabled the cycle loop (serve only starts it when the interval is set)
@@ -41,7 +40,7 @@ export interface CycleFreshnessResult {
 /**
  * Classify cycle liveness from the newest `cycle_snapshots.captured_at`.
  * `nowMs` is injectable for deterministic tests. Warn/fail ages default to
- * 6h/24h (the reference's defaults), overridable via
+ * 6h/24h, overridable via
  * `MEMEX_CYCLE_FRESHNESS_WARN_HOURS` / `_FAIL_HOURS`.
  */
 export async function checkCycleFreshness(

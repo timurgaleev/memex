@@ -5,25 +5,23 @@
  * producer, so `last_retrieved_at` stayed NULL and the volunteer `used` count
  * was structurally always 0. This bumps it when a user-facing op surfaces a page.
  *
- * Faithful adaptation of the reference's `bumpLastRetrievedAt`, with two stack
- * adaptations:
- *  - keyed on the `slug` PK (the reference uses a numeric page id); the
- *    volunteer consumer joins on slug, so this matches it.
- *  - the reference is fire-and-forget + a CLI drain helper (PGLite hung on
- *    dangling promises raced by `disconnect()`). memex is single-holder / low
- *    QPS, so the op-handler simply AWAITS this throttled best-effort UPDATE —
- *    negligible added latency, and it sidesteps the dangling-promise hang
- *    entirely instead of porting the drain/background-work-sink apparatus.
+ * Two stack notes:
+ *  - keyed on the `slug` PK; the volunteer consumer joins on slug, so this
+ *    matches it.
+ *  - memex is single-holder / low QPS, so the op-handler simply AWAITS this
+ *    throttled best-effort UPDATE — negligible added latency, and it sidesteps
+ *    any dangling-promise hang entirely instead of a background-work-sink
+ *    apparatus.
  *
  * Best-effort: any error (column missing on a pre-mig-024 brain, statement
  * timeout, blip) is swallowed with a warn — the op result is never affected.
- * Default-on; `MEMEX_TRACK_RETRIEVAL=0` opts out (the reference's
- * `search.track_retrieval` config escape hatch, as a memex env flag).
+ * Default-on; `MEMEX_TRACK_RETRIEVAL=0` opts out (the track-retrieval escape
+ * hatch, as a memex env flag).
  */
 import type { Engine } from "./engine/interface.ts";
 
 /**
- * Per the reference's D2 throttle — collapse repeat surfaces within 5 min.
+ * Throttle — collapse repeat surfaces within 5 min.
  * Precision trade-off (accepted; the "used" stat is labelled approximate):
  * a page retrieved <5 min BEFORE it is volunteered and re-retrieved just after
  * has its second (genuine post-volunteer) retrieval throttled away, so the

@@ -14,9 +14,8 @@ import type { Engine } from "../engine/interface.ts";
 /**
  * Severity ladder. `high` is the only "act before relying on the brain" tier;
  * `medium`/`low` are quality gaps; `info` is FYI. (memex uses high/medium/low/
- * info rather than the reference's critical/warn/info — it matches the doctor's
- * own categorization vocabulary and the eval-gate severity language already in
- * the codebase.)
+ * info — it matches the doctor's own categorization vocabulary and the
+ * eval-gate severity language already in the codebase.)
  */
 export type AdvisorSeverity = "high" | "medium" | "low" | "info";
 

@@ -267,11 +267,11 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // job rows carry payload/progress free text.
   "retry_job",
   "get_job_progress",
-  // Whole-brain operational snapshots (reference scope: admin).
+  // Whole-brain operational snapshots (admin scope).
   "get_status_snapshot",
   "run_doctor",
-  // Hard-delete escape hatch: the reference keeps purge admin + local-only, so
-  // a tenant write token must not reach it (it was remote write-scoped before).
+  // Hard-delete escape hatch: purge is admin + local-only, so a tenant write
+  // token must not reach it (it was remote write-scoped before).
   "purge_deleted_pages",
 ]);
 
@@ -380,7 +380,7 @@ async function dispatchToolInner(
         "Use the per-source 'source_health' tool for tenant-scoped health.",
       );
     }
-    // Per-op scope gate (reference parity): an OAuth caller (`authInfo` present)
+    // Per-op scope gate: an OAuth caller (`authInfo` present)
     // may only invoke a tool its granted scope covers — a `read`-scoped token
     // cannot call a `write` op. Each op declares `scope` ("write" for mutations),
     // defaulting to "read". The static daily bearer + trusted-local path
@@ -632,9 +632,9 @@ async function callSearch(
     );
   }
   const kArg = args["k"];
-  // Default 20 to match the reference's hybrid-search return width — a client
-  // that passes no `k` gets the same recall as the reference (autocut/adaptive
-  // return still trims the confident cluster when the reranker runs).
+  // Default 20 — the hybrid-search return width a client that passes no `k`
+  // gets (autocut/adaptive return still trims the confident cluster when the
+  // reranker runs).
   let k = 20;
   if (kArg !== undefined) {
     if (!Number.isInteger(kArg) || (kArg as number) < 1 || (kArg as number) > 100) {
@@ -673,8 +673,8 @@ async function callSearch(
       : 0;
   const searchOpts: SearchOptions = { k: k + offset };
   // Per-call mode bundle — OPERATOR ONLY (a tenant token cannot escalate to
-  // the paid tokenmax bundle; its mode is silently ignored, reference
-  // behavior). Mapped onto per-call knobs, which win over env + active bundle.
+  // the paid tokenmax bundle; its mode is silently ignored). Mapped onto
+  // per-call knobs, which win over env + active bundle.
   applyPerCallMode(searchOpts, args["mode"], isOperator);
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
@@ -711,7 +711,7 @@ async function callSearch(
   if (typeof args["walk_depth"] === "number") {
     searchOpts.walkDepth = Math.min(Math.max(args["walk_depth"], 0), 2);
   }
-  // Per-signal ranking attribution (search --explain parity). Validated as a
+  // Per-signal ranking attribution (search --explain). Validated as a
   // boolean by the op contract; only an explicit true opts in.
   if (args["explain"] === true) searchOpts.explain = true;
   const hitsAll = await hybridSearch(storage, q, searchOpts);
@@ -2061,7 +2061,7 @@ async function callPurgeDeletedPages(
 }
 
 /**
- * Flagship full-control retrieval (the reference `query` op semantics).
+ * Flagship full-control retrieval (the `query` op semantics).
  * Legacy compatibility: a non-empty `refine` keeps the deterministic
  * weighted-RRF two-query blend the op originally shipped.
  */
@@ -2523,7 +2523,7 @@ function isoDateBound(
  * Map a per-call `mode` bundle onto per-call SearchOptions knobs — which win
  * over env + the active bundle in resolveSearchKnobs. Honored ONLY for the
  * operator; a tenant/public caller's mode is silently ignored (it must not
- * escalate to the paid tokenmax bundle — reference behavior).
+ * escalate to the paid tokenmax bundle).
  */
 function applyPerCallMode(
   searchOpts: SearchOptions,
@@ -2634,7 +2634,7 @@ async function callThink(
   }
   const anchor =
     typeof args["anchor"] === "string" && args["anchor"] ? args["anchor"] : undefined;
-  // Remote callers cannot persist via MCP (reference posture): save/take are
+  // Remote callers cannot persist via MCP: save/take are
   // honored for the operator only and silently ignored otherwise.
   const safeSave = ctx.isOperator && args["save"] === true;
   const safeTake = ctx.isOperator && args["take"] === true;

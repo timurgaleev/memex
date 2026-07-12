@@ -10,14 +10,13 @@
  * corpus carries ~0 code chunks, so this is dormant until code is ingested;
  * it adds candidates, never removes them, so a brain with no edges is a no-op.
  *
- * memex's edge model is SYMBOL-anchored (no resolved `to_chunk_id` like the
- * reference's chunk-edge table), so neighbors resolve differently per
- * direction:
+ * memex's edge model is SYMBOL-anchored (no resolved `to_chunk_id` on the edge
+ * row), so neighbors resolve differently per direction:
  *   - callers: `to_symbol_qualified = sym` → the caller IS `from_chunk_id`.
  *   - callees: `from_symbol_qualified = sym` → the callee is a symbol name,
  *     resolved to its definition chunk via `chunks.symbol_name_qualified`.
  *
- * Caps (faithful to the reference): depth ≤ 2, ≤ 50 neighbors per hop.
+ * Caps: depth ≤ 2, ≤ 50 neighbors per hop.
  */
 import type { Engine } from "../engine/interface.ts";
 

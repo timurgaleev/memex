@@ -2,8 +2,7 @@
  * conversation-facts-backfill — opt-in, default-OFF cycle phase that runs the
  * on-write fact extractor over prose pages that have never been extracted, so a
  * transcript imported outside the MCP write path (bulk import, sync) still gets
- * its facts unattended. Mirrors the reference's `conversation_facts_backfill`
- * phase, mapped onto memex's per-page extractor.
+ * its facts unattended, mapped onto memex's per-page extractor.
  *
  * PAID (Bedrock Sonnet) and default-OFF on TWO independent guards:
  *   1. it is NOT in ALL_PHASES — a normal cycle never runs it; it runs only via

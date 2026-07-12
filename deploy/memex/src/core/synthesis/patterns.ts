@@ -1,13 +1,12 @@
 /**
- * Patterns phase — cross-session theme detection (adapted from the reference).
+ * Patterns phase — cross-session theme detection.
  *
  * Reads recent "reflection" pages (slug prefix, within a lookback window), runs
  * ONE Sonnet call to surface themes that recur across >= min_evidence distinct
  * reflections, and writes one `patterns/<topic-slug>` page per theme (idempotent
  * via putPage).
  *
- * DELIBERATE DEVIATIONS from the reference (which uses a server-side subagent
- * runtime memex does not have):
+ * DELIBERATE design choices:
  *   - Single Sonnet call returning structured JSON, then memex writes the pages
  *     directly — no minion/subagent tool loop, no reverse-write to a filesystem
  *     mirror (memex is DB-canonical).
@@ -16,7 +15,7 @@
  *
  * ARCHITECTURE NOTE: this is the ONE synthesis phase that writes real `pages`
  * (every other synth_* phase writes only the synth_* namespace, mig 045). The
- * operator explicitly authorized matching the reference's behavior. Reads and
+ * operator explicitly authorized this behavior. Reads and
  * writes are pinned to a single source_id so one tenant's reflections can never
  * be mined into another tenant's pattern page.
  *

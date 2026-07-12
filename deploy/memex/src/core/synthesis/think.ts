@@ -12,9 +12,9 @@
  * opt-in, default-OFF (MEMEX_THINK=1), USD-budget-capped. memex is a retrieval
  * brain — think REPORTS across the corpus with citations; it does not instruct.
  *
- * Adapted from the reference's think pipeline (GATHER → MERGE → SYNTHESIZE),
- * mapped to memex's data model: page citations key on the chunk's source path
- * (memex has no slug#row take model). The take keyword+vector streams, the
+ * The pipeline is GATHER → MERGE → SYNTHESIZE: page citations key on the
+ * chunk's source path (memex has no slug#row take model). The take
+ * keyword+vector streams, the
  * anchor-subgraph graph stream (traverseGraph, RRF-fused), trajectory
  * injection, the opt-in calibration block (withCalibration), and gap-fed
  * rounds are wired; persistence (--save/--take) lives in think-persist.ts.
@@ -117,9 +117,8 @@ export interface ThinkOptions {
    */
   rounds?: number;
   /**
-   * Inject the calibration anti-bias block (reference parity: opt-in, like the
-   * reference's --with-calibration). Default false — a plain think run carries
-   * no calibration context.
+   * Inject the calibration anti-bias block (opt-in, via --with-calibration).
+   * Default false — a plain think run carries no calibration context.
    */
   withCalibration?: boolean;
 }
@@ -469,7 +468,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
   });
 }
 
-/** Auto-anchor is default-ON (matches the reference); disable with =0. */
+/** Auto-anchor is default-ON; disable with =0. */
 function autoAnchorEnabled(): boolean {
   return (process.env.MEMEX_THINK_AUTO_ANCHOR ?? "").trim() !== "0";
 }
@@ -484,8 +483,8 @@ function mirrorSlug(sourcePath: string): string | null {
 /**
  * Derive trajectory anchors when the caller named none: candidate entities from
  * the question + retrieved entity-page slugs, resolved to canonical slugs
- * (fallback-slugify matches are dropped, mirroring the reference's
- * resolution_source gate). Pure-ish, fail-soft — returns [] on any error.
+ * (fallback-slugify matches are dropped via the resolution_source gate).
+ * Pure-ish, fail-soft — returns [] on any error.
  */
 async function autoAnchors(
   storage: Storage,
@@ -794,7 +793,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     if (graphPages.length > 0) pages = fusePageStreams(hybridPages, graphPages, Math.max(k, hybridPages.length));
   }
 
-  // Anti-bias calibration profile — OPT-IN (reference's --with-calibration).
+  // Anti-bias calibration profile — OPT-IN (via --with-calibration).
   // Fail-soft to "". Scope to the run's tenant like pages/takes/vector above —
   // an unscoped fetch returns the newest profile across ALL tenants, which a
   // scoped run (auto_think persists to a tenant-pinned draft) would leak into

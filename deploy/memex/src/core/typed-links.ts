@@ -10,8 +10,7 @@
  * Names are resolved to canonical slugs via the slug resolver (#1), so a field
  * value may be a slug or a display name.
  *
- * Faithful adaptation of the reference's FRONTMATTER_FIELD_MAPPINGS. Two
- * deliberate divergences for safety on memex's flat vault:
+ * Two deliberate choices for safety on memex's flat vault:
  *   - DEFAULT OFF (`MEMEX_TYPED_LINKS=1` to enable) -- a wrong inferred relation
  *     silently pollutes the graph, same posture as the gazetteer.
  *   - RESOLVED-ONLY -- an edge is written only when the value resolves to a real
@@ -91,9 +90,9 @@ const FIELD_MAPPINGS: Record<string, Record<string, FieldRule>> = {
  * field-name collision). `related`/`see_also` are symmetric-safe: A→B and a
  * reciprocal B→A are distinct (source|target|type) rows, so this does NOT breach
  * the single-origin invariant the way `investors`/`key_people` would (those
- * re-derive a triple the person side already owns). Reference parity:
- * `related`/`see_also` → related_to. `investors`/`source` are DELIBERATELY not
- * ported (single-origin risk / provenance-string not a slug).
+ * re-derive a triple the person side already owns).
+ * `related`/`see_also` → related_to. `investors`/`source` are DELIBERATELY
+ * excluded (single-origin risk / provenance-string not a slug).
  */
 const ANY_FIELD_MAPPINGS: Record<string, FieldRule> = {
   related: { type: "related_to", direction: "outgoing" },

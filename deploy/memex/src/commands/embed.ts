@@ -7,7 +7,7 @@
  * vector — the operator remedy when `memex status` / `doctor` report
  * embed_coverage below 100%.
  *
- * Targeting (reference parity):
+ * Targeting:
  *   <slug> / --slugs a,b  re-embed exactly these pages (drops their existing
  *                         vectors first) — the after-an-edit / provider-hiccup
  *                         surgical path. Slugs match the raw source_path, the

@@ -46,7 +46,7 @@ const DEFAULT_QUIET_END = 8;
 // TTL-expires within 5 min and the next tick's host-agnostic tryAcquireDbLock
 // upsert reclaims it — instead of a dead container's lock blocking the cycle for
 // the full 30 min. Healthy long runs stay alive via the sub-TTL refresher (every
-// 30s). Mirrors the reference's drop from 30→5 min + active in-phase refresh.
+// 30s).
 const LOCK_TTL_MINUTES = 5;
 
 // The first tick fires after THIS short delay (boot CPU headroom), not the full
