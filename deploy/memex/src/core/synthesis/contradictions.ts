@@ -261,6 +261,8 @@ async function defaultPairs(
           AND f2.source_id IS NOT DISTINCT FROM f1.source_id
         WHERE f1.written_at >= now() - ($1 * interval '1 day')
           AND f2.written_at >= now() - ($1 * interval '1 day')
+          -- dimensional ontology rows have their own read path, not the probe.
+          AND f1.dimension IS NULL AND f2.dimension IS NULL
         ORDER BY f1.entity_slug ASC, f1.id ASC, f2.id ASC
         LIMIT $2`,
       [lookbackDays, maxPairs],
@@ -315,6 +317,8 @@ async function defaultPairs(
            ON f.source_id IS NOT DISTINCT FROM COALESCE(d.source_id, 'default')
         WHERE t.generated_at >= now() - ($1 * interval '1 day')
           AND f.written_at >= now() - ($1 * interval '1 day')
+          -- dimensional ontology rows have their own read path, not the probe.
+          AND f.dimension IS NULL
           AND length(regexp_replace(f.entity_slug, '.*/', '')) > 3
           AND t.claim_text ILIKE
               '%' || replace(regexp_replace(f.entity_slug, '.*/', ''), '-', ' ') || '%'

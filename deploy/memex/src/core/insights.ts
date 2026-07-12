@@ -625,7 +625,9 @@ export async function findTrajectory(
   const wantEmbedding = opts.includeEmbedding === true;
   // $1 = entity slug; the bound params are shared across both arms of the UNION.
   const params: unknown[] = [entitySlug];
-  let factBounds = "";
+  // Dimensional ontology rows (mig097) have their own read path (getOntology);
+  // keep them out of the free-text fact-trajectory arm.
+  let factBounds = " AND f.dimension IS NULL";
   let eventBounds = "";
   if (opts.since !== undefined) {
     if (typeof opts.since !== "string" || opts.since.length === 0) {
