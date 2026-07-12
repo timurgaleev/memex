@@ -78,6 +78,7 @@ describe("doctor", () => {
     expect(parsed.version).toMatch(/\d+\.\d+\.\d+/);
     const names = parsed.checks.map((c) => c.name).sort();
     expect(names).toEqual([
+      "chronicle-projection-health",
       "chunker-version-lag",
       "config",
       "contradiction-trend",

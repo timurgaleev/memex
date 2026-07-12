@@ -12,6 +12,7 @@ import { runHnsw } from "./commands/hnsw.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
+import { runEvalChronicle } from "./commands/eval-chronicle.ts";
 import { runEvalProbe } from "./commands/eval-probe.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
 import { runMerge } from "./commands/merge.ts";
@@ -144,6 +145,7 @@ function printUsage(): void {
   console.log("                               per-mode comparison table from the results log");
   console.log("  eval gate [--baseline P] [--max-drop X] [--min-recall X] [--write-baseline]");
   console.log("                               regression gate vs a stored baseline (exit 1 on drop)");
+  console.log("  eval chronicle [--json]      deterministic Life Chronicle feature eval (own DB, no LLM)");
   console.log("  eval-probe [--limit N]       replay eval set, append a row to eval_snapshots (nightly probe)");
   console.log("  backlinks <name> [--type T] [--limit N]");
   console.log("                               documents that mention this entity (default type=wikilink)");
@@ -359,6 +361,11 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "eval": {
+      // `eval chronicle` brings its own in-memory DB — run it BEFORE any engine
+      // connect (it needs no config and no gateway).
+      if (positional[0] === "chronicle") {
+        return await runEvalChronicle(positional.slice(1));
+      }
       // Sub-subcommands: run-all / compare / gate (aggregate instruments).
       if (positional[0] === "run-all") {
         const runAllOpts: Parameters<typeof runEvalRunAll>[0] = {};
@@ -1408,6 +1415,21 @@ async function main(argv: readonly string[]): Promise<number> {
       if (src) opts.sourceId = src;
       const title = values.get("--title");
       if (title) opts.title = title;
+      // Life-Chronicle event frontmatter. --who is comma-separated (the arg
+      // parser keeps only the last of a repeated flag).
+      const who = values.get("--who");
+      if (who) {
+        const names = who.split(",").map((s) => s.trim()).filter(Boolean);
+        if (names.length > 0) opts.who = names;
+      }
+      const what = values.get("--what");
+      if (what) opts.what = what;
+      const where = values.get("--where");
+      if (where) opts.where = where;
+      const kind = values.get("--kind");
+      if (kind) opts.kind = kind;
+      const depth = values.get("--depth");
+      if (depth) opts.depth = depth;
       if (flags.has("--json")) opts.json = true;
       return await runCapture(opts);
     }

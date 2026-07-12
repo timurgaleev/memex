@@ -42,6 +42,14 @@ export interface AdvisorContext {
   /** Serving memex version (package.json). */
   version: string;
   now: Date;
+  /**
+   * Caller's tenant read scope. Collectors that read tenant-owned data (the
+   * chronicle collector) MUST scope to it and stay silent when it is absent —
+   * a source-scoped read never leaks another tenant's rows. The brain-health
+   * collectors (migration / jobs / embed coverage) are whole-brain operator
+   * signals and ignore this.
+   */
+  sourceIds?: readonly string[];
 }
 
 export interface AdvisorCollector {

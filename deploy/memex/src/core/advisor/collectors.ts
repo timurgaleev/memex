@@ -19,7 +19,36 @@
 import { discoverMigrations } from "../migrate.ts";
 import { brainHealthMetrics } from "../source-health.ts";
 import packageJson from "../../../package.json" with { type: "json" };
+import type { Engine } from "../engine/interface.ts";
 import type { AdvisorCollector, AdvisorFinding } from "./types.ts";
+
+/**
+ * Every source that owns pages or ontology rows — the operator's whole-brain
+ * scope for the chronicle collector when no explicit read scope is supplied.
+ * Degrades gracefully: on a pre-ontology brain the UNION falls back to pages
+ * alone, and on any failure to an empty scope (the collector then stays silent).
+ */
+async function resolveWholeBrainScope(engine: Engine): Promise<string[]> {
+  const pick = (rows: { source_id: string | null }[]): string[] =>
+    rows.map((r) => r.source_id).filter((s): s is string => !!s);
+  try {
+    const r = await engine.query<{ source_id: string | null }>(
+      `SELECT source_id FROM pages WHERE source_id IS NOT NULL
+       UNION
+       SELECT source_id FROM entity_facts WHERE source_id IS NOT NULL`,
+    );
+    return pick(r.rows);
+  } catch {
+    try {
+      const r = await engine.query<{ source_id: string | null }>(
+        `SELECT DISTINCT source_id FROM pages WHERE source_id IS NOT NULL`,
+      );
+      return pick(r.rows);
+    } catch {
+      return [];
+    }
+  }
+}
 
 /**
  * Pending schema migrations — the one high-severity signal. An un-migrated brain
@@ -265,6 +294,107 @@ export const collectUsageShape: AdvisorCollector = {
         collector: "usage-shape",
       });
     }
+    return findings;
+  },
+};
+
+/**
+ * Chronicle health — two Life-Chronicle signals, both source-scoped to the
+ * caller's read scope (never whole-brain: an entity slug is tenant-owned). With
+ * no scope the collector stays silent (fail-closed). Each signal runs in its own
+ * try/catch so a pre-migration brain (no ontology columns / no event_slug)
+ * contributes nothing rather than aborting the report.
+ *
+ *   (a) unresolved ontology conflicts — an entity/dimension whose currently-open
+ *       observations disagree (>=2 values from >=2 sources). A forward
+ *       supersession closes the prior, so this is genuine standing disagreement,
+ *       not a resolved change. Medium: it degrades entity-context resolution.
+ *   (b) coverage gap — a recent (30d) conversation-shape page with no projected
+ *       timeline events. Info: sweepable with the chronicle_backfill op (or by
+ *       enabling MEMEX_AUTO_CHRONICLE). The eligible type/prefix shape mirrors
+ *       chronicle/eligibility.ts (diary + event pages excluded).
+ *
+ * Scope resolution: an explicit `ctx.sourceIds` (a future scoped caller) always
+ * wins. When it is absent the advisor is the operator (the `advisor` op is
+ * operator-only), whose scope IS the whole brain — so we resolve every source
+ * that owns pages or ontology rows. An empty brain resolves to no scope and the
+ * collector stays silent.
+ */
+export const collectChronicle: AdvisorCollector = {
+  id: "chronicle",
+  collect: async (ctx) => {
+    let scope: string[] | null =
+      ctx.sourceIds && ctx.sourceIds.length > 0 ? [...ctx.sourceIds] : null;
+    if (!scope) {
+      scope = await resolveWholeBrainScope(ctx.engine);
+    }
+    if (!scope || scope.length === 0) return []; // no data in scope → nothing to advise
+    const findings: AdvisorFinding[] = [];
+
+    try {
+      const r = await ctx.engine.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM (
+           SELECT entity_slug, dimension
+             FROM entity_facts
+            WHERE dimension IS NOT NULL AND forgotten_at IS NULL AND valid_until IS NULL
+              AND (dim_status IS NULL OR dim_status = 'active')
+              AND confidence >= 0.5 AND source_id = ANY($1::text[])
+            GROUP BY entity_slug, dimension
+           HAVING count(DISTINCT value) >= 2 AND count(DISTINCT source_slug) >= 2
+         ) t`,
+        [scope],
+      );
+      const n = Number(r.rows[0]?.n ?? 0);
+      if (n > 0) {
+        findings.push({
+          id: "ontology_conflicts",
+          severity: "medium",
+          title: `${n} entity dimension(s) have conflicting current values from multiple sources.`,
+          detail:
+            "Two or more open observations disagree, so entity context can't resolve to one value. Review the disagreements with the ontology_conflicts op.",
+          fix_command: "ontology_conflicts",
+          collector: "chronicle",
+        });
+      }
+    } catch {
+      /* entity_facts ontology columns absent (pre-migration) → no conflict finding */
+    }
+
+    try {
+      const r = await ctx.engine.query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM pages p
+          WHERE p.deleted_at IS NULL
+            AND p.source_id = ANY($1::text[])
+            AND p.updated_at > now() - interval '30 days'
+            AND (p.type IN ('meeting','conversation','calendar-event')
+                 OR p.slug LIKE 'meetings/%' OR p.slug LIKE 'conversations/%'
+                 OR p.slug LIKE 'cal/%' OR p.slug LIKE 'calendar/%')
+            AND p.type NOT IN ('diary','journal','event')
+            AND p.slug NOT LIKE 'life/diary/%' AND p.slug NOT LIKE 'life/events/%'
+            AND NOT EXISTS (
+              SELECT 1 FROM timeline_events te
+               WHERE te.slug = p.slug AND te.event_slug IS NOT NULL
+                 AND te.source_id = ANY($1::text[])
+            )`,
+        [scope],
+      );
+      const gap = Number(r.rows[0]?.n ?? 0);
+      if (gap > 0) {
+        findings.push({
+          id: "chronicle_coverage_gap",
+          severity: "info",
+          title: `${gap} recent conversation page(s) have no timeline events yet.`,
+          detail:
+            "Sweep them into the chronicle with the chronicle_backfill op, or enable MEMEX_AUTO_CHRONICLE so new pages project automatically.",
+          fix_command: "chronicle_backfill",
+          collector: "chronicle",
+        });
+      }
+    } catch {
+      /* timeline_events.event_slug absent (pre-migration) → no coverage finding */
+    }
+
     return findings;
   },
 };

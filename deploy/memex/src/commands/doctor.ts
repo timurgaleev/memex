@@ -275,6 +275,43 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     checks.push(await checkOauthClientHealth(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
 
+    // Chronicle projection health — timeline_events rows projected from an event
+    // page that has since been soft-deleted. The read path hides these (it joins
+    // on the event page's deleted_at IS NULL), so they are dangling projections
+    // invisible at query time: a cleanup backlog, not a live fault. Always
+    // ok:true; per-source so a multi-tenant operator sees which tenant to purge.
+    // Wrapped so a pre-migration brain (no event_slug column) reports rather
+    // than fails.
+    try {
+      const r = await storage.raw().query<{ source_id: string | null; n: number }>(
+        `SELECT ep.source_id AS source_id, count(*)::int AS n
+           FROM timeline_events te
+           JOIN pages ep ON ep.slug = te.event_slug
+          WHERE te.event_slug IS NOT NULL AND ep.deleted_at IS NOT NULL
+          GROUP BY ep.source_id
+          ORDER BY n DESC, source_id`,
+      );
+      const total = r.rows.reduce((s, row) => s + Number(row.n), 0);
+      const perSource = r.rows
+        .map((row) => `${row.source_id ?? "(unclassified)"}: ${Number(row.n)}`)
+        .join(", ");
+      checks.push({
+        name: "chronicle-projection-health",
+        ok: true,
+        detail:
+          total === 0
+            ? "no orphaned timeline projections"
+            : `${total} timeline projection(s) reference a soft-deleted event page ` +
+              `(${perSource}) — hidden at read time; purge to clear the backlog`,
+      });
+    } catch (e) {
+      checks.push({
+        name: "chronicle-projection-health",
+        ok: true,
+        detail: `pre-migration schema (${e instanceof Error ? e.message : String(e)})`,
+      });
+    }
+
     // Per-source embed coverage (opt-in via MEMEX_DOCTOR_PER_SOURCE=1). In a
     // multi-tenant deploy one tenant's embedding can break (0% coverage while
     // it has embeddable chunks) invisibly inside the whole-brain average. This

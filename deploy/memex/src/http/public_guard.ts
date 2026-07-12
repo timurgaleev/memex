@@ -197,6 +197,22 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // ingest log. log_ingest is a WRITE (appends audit rows). Both internal-only.
   "get_ingest_log",
   "log_ingest",
+  // Life Chronicle surface — timeline reads + per-entity dimensional ontology.
+  // The whole surface is internal-only: it projects diary/event interiority and
+  // author-written entity slugs the public path suppresses everywhere else, and
+  // diary interiority must never be publicly reachable even in a redacted form.
+  // ontology_propose / chronicle_backfill are WRITES; the rest are reads over
+  // private-note-derived signal.
+  "chronicle_day",
+  "chronicle_since",
+  "chronicle_on_this_day",
+  "chronicle_last_seen",
+  "ontology_get",
+  "ontology_propose",
+  "ontology_dimensions",
+  "ontology_conflicts",
+  "volunteer_chronicle",
+  "chronicle_backfill",
 ]);
 
 /**
