@@ -7,6 +7,34 @@ introduces them.
 
 ---
 
+## Chronicle follow-ups (2026-07-12 session, deferred small tail)
+
+- **Chronicle CLI read commands.** `chronicle_day`/`chronicle_since`/
+  `chronicle_last_seen`/`ontology_get`/`volunteer_chronicle` exist as MCP ops
+  only; `memex day <date>`-style CLI wrappers deferred (MCP-first surface;
+  add when terminal ergonomics matter). `memex eval chronicle` and
+  `capture --type diary/event` DID land.
+- **Ontology transaction-time history.** `valid_from`/`valid_until` model
+  valid time; a superseded row's update is not itself versioned
+  (`recorded_from`/`recorded_until`). Append-only revisions would allow
+  "what did the brain believe last Tuesday" queries. Deliberately skipped —
+  day-granularity valid time covers the agent use cases; revisit if a
+  calibration/audit need appears.
+- **`export.ts` containment via realpath.** Export path containment uses a
+  lexical `resolve().startsWith` check; the shared realpath-both-sides guard
+  would also defuse symlinked export targets. Low risk (operator-only
+  surface), small change.
+- **Empty-env hardening tail.** `MEMEX_PATTERNS_REFLECTION_PREFIX` (empty →
+  empty prefix after trim) and `MEMEX_HOST`/`MEMEX_BRAIN_PORT` CLI reads
+  tolerate `""` oddly; same class as the fixed AWS_REGION reads, lower blast
+  radius.
+- **Chronicle boost floor.** The temporal-mode chronicle lift rides the
+  existing post-fusion multiplier chain without a separate floor threshold;
+  memex's arm-survival gating is the equivalent guard today. If ranking
+  regressions surface on temporal queries, add a floor before the multiplier.
+
+---
+
 ## Full-recompare actionable gaps (2026-07-07 session 2, 16-subsystem workflow)
 
 Dispositioned 2026-07-07 (session 2, continued). One shipped; the DB-machinery

@@ -6,6 +6,91 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.100.0] — 2026-07-12
+
+### Added
+- **Life Chronicle: a temporal spine for the brain.** Meetings and transcripts
+  project into a queryable timeline, entities gain a per-entity dimensional
+  ontology (sourced, confidence-weighted values that supersede over time), and
+  a diary page type captures private interiority — so an agent can answer
+  "what happened the week of X", "when did I last interact with Y", and "how
+  did this entity's role change" without re-deriving chronology every session.
+  Built entirely on existing primitives (pages, `entity_facts`,
+  `timeline_events`) — no new datastore.
+  - **Timeline events + reads.** Eligible conversation-shape pages emit
+    `type: event` atoms (when·where·who·what) under `life/events/`, projected
+    into a date index that backlinks to the depth page. New MCP reads:
+    `chronicle_day` (day or ISO-week window, optional narrative prose),
+    `chronicle_since`, `chronicle_on_this_day`, `chronicle_last_seen`
+    (with `days_ago` at UTC midnight). Deleted event pages hide their
+    projections at read time; every read is source-scoped.
+  - **Per-entity dimensional ontology riding `entity_facts`** (migration 097:
+    `dimension`/`value`/`value_hash`/`dim_status`). A new value supersedes the
+    prior across a validity window (`valid_from`/`valid_until`), same-value
+    corroboration from a second source bumps confidence, backdated
+    observations are recorded without rewriting the present, and novel
+    LLM-proposed dimensions quarantine until confirmed. New MCP ops:
+    `ontology_get` (with `asof` time travel), `ontology_propose` (write),
+    `ontology_dimensions`, `ontology_conflicts` (two-source disagreement).
+    Merges take a per-`(source, entity, dimension)` advisory lock, so
+    concurrent writers cannot double-open a value.
+  - **Diary capture + agent orientation.** `memex capture --type diary`
+    (routes to `life/diary/`) and `--type event` with `--who/--what/--where/
+    --kind`; `volunteer_chronicle` hands an agent the recent timeline plus
+    resolved-entity ontology in one zero-LLM payload.
+  - **Auto-extraction, default-OFF.** `MEMEX_AUTO_CHRONICLE=1` enables a
+    fire-and-forget `chronicle_extract` job (durable queue, 10-min budget) on
+    eligible trusted writes; `chronicle_backfill` (operator-only) sweeps
+    existing meetings. The LLM judge's proposals pass an all-or-nothing parse
+    barrier — one malformed event rejects the whole batch with zero writes.
+    Event pages are content-addressed (`life/events/<day>-<hash8>`), so
+    re-extraction updates instead of duplicating. `MEMEX_CHRONICLE_TZ` pins
+    the calendar timezone (default UTC).
+  - **Ambient surfaces.** Temporal-mode searches lift `life/events/` and
+    `life/diary/` hits (bounded ×1.15–1.25, non-temporal rankings bit-for-bit
+    unchanged, attribution in `--explain`); the advisor flags unresolved
+    ontology conflicts and recent meetings missing from the timeline; doctor
+    gains `chronicle-projection-health`; a deterministic `memex eval
+    chronicle` (6 tasks incl. source isolation) gates the feature in CI.
+
+### Security
+- **Diary content stays private.** Diary pages are excluded from fact
+  extraction (the `journal` type joins the same never-mined invariant), all
+  chronicle/ontology tools are unreachable from the public bearer, and
+  non-operator callers get diary-sourced ontology values stripped — including
+  conflicts that would degenerate to a single value after stripping (a
+  surviving one-value "conflict" would leak that a diary value exists).
+- **Self-registered OAuth clients now default to the consent-bearing
+  `authorization_code` grant.** With Dynamic Client Registration enabled, a
+  DCR client that asks for `client_credentials` — the grant that skips the
+  `/authorize` approval screen — is refused (`invalid_client_metadata`)
+  unless the operator opts in with `MEMEX_ENABLE_DCR_INSECURE=1` (implies
+  `MEMEX_ENABLE_DCR`). Startup now prints a loud warning whenever DCR is
+  open, and a second one in insecure mode. Clients registered via
+  `memex auth register-client` or the admin API are unaffected.
+- **Trigger functions pin their schema search path.** Migration 095 sets
+  `search_path = pg_catalog, public` on memex-owned trigger/event-trigger
+  functions (`chunks_update_search_vector`, `auto_enable_rls`), and a new CI
+  guard (`scripts/check-search-path.sh`) fails any future trigger function
+  that ships without a pinned search path. The same migration re-runs the
+  RLS backfill with a privilege probe that recognizes superuser and
+  inherited-role privileges, not just the role's own flag.
+
+### Fixed
+- **Empty environment values no longer clobber working defaults.** An empty
+  `AWS_REGION` (as some hosts inject into subprocesses) used to reach the
+  SDK as region `""`, and `MEMEX_LLM_TIMEOUT_MS=""` parsed to `0`, silently
+  disabling the LLM request timeout. Trimmed-empty now means unset across
+  the region/timeout reads (one shared helper).
+- **An unsupported `MEMEX_EMBED_DIM` fails at startup, not mid-index.** The
+  default Titan v2 embedder supports {256, 512, 1024}; other values used to
+  boot fine and fail at the first embed call. The resolver now rejects them
+  with a message naming the supported set.
+- **Dimensional ontology rows are fenced out of the free-text fact
+  pipelines.** Embedding backlog, consolidation, recall/list, supersession
+  listing, pending counts, and contradiction mining all exclude
+  `dimension IS NOT NULL` rows — ontology has its own read paths.
+
 ## [1.99.1] — 2026-07-10
 
 ### Fixed
