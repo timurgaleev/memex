@@ -10,11 +10,11 @@
  * USD BudgetTracker caps the run (MEMEX_GRAPH_RERANK_BUDGET_USD, default 1.0).
  * An injected `sonnetFn` (tests) bypasses the env gate AND avoids any spend.
  *
- * Fail-OPEN posture, mirrored from the reference reranker's call-site
+ * Fail-OPEN posture at the reranker's call-site
  * abstraction (applyReranker: slice head/tail, reorder head by model output,
  * preserve the tail, and on ANY failure return the input unchanged): search
- * reliability beats reranker quality. The reference reorders by a cross-encoder
- * gateway's relevance scores; memex has no such gateway, so the "model" here is
+ * reliability beats reranker quality. Where a cross-encoder gateway would
+ * reorder by relevance scores, memex has no such gateway, so the "model" here is
  * a Sonnet Converse call returning a ranked index list, augmented with the
  * graph-degree hint. Any error, budget skip, or parse miss returns the ORIGINAL
  * order. Sonnet injected via `sonnetFn`; NO live Bedrock in tests.

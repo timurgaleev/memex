@@ -426,7 +426,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (k !== undefined && (!Number.isInteger(k) || k < 1 || k > 100)) {
         throw new Error(`memex eval: invalid --k ${kStr}`);
       }
-      // Knob flags → the A-side config (reference parity: CLI overrides file).
+      // Knob flags → the A-side config (CLI overrides file).
       const cfg: EvalKnobConfig = values.has("--config-a")
         ? parseEvalConfig(values.get("--config-a")!)
         : {};

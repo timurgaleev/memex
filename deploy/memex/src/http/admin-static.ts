@@ -1,9 +1,8 @@
 /**
  * http/admin-static.ts — serve the built admin SPA at /admin (increment C).
  *
- * The reference embeds its compiled SPA into a `bun build --compile` binary via
- * a `with { type: 'file' }` manifest. memex runs from source (`bun run`), so it
- * serves the Vite `dist/` straight from disk — simpler, same result. The dist is
+ * memex runs from source (`bun run`), so it serves the built admin SPA from the
+ * Vite `dist/` straight from disk. The dist is
  * produced by `cd admin && bun run build` (the Dockerfile builder stage) and
  * lives at `<repo>/deploy/memex/admin/dist`, resolved here relative to this
  * module so it works both in the container (`/app/admin/dist`) and locally.

@@ -12,9 +12,9 @@
  *   3. slug-suffix   — slug equals the slugified candidate OR ends with `/<slug>`
  *      (real slugs are namespaced people/alice; a bare slugify misses).
  *
- * memex adaptations vs the reference:
+ * memex specifics:
  *   - SINGLE-source flat vault: NO source_id federation. One engine, one scope.
- *   - DB access via `engine.query` (-> {rows}), not the reference `executeRaw`.
+ *   - DB access via `engine.query` (-> {rows}).
  *   - Alias arm uses memex's `resolveAliasUnique` (page-aliases.ts), which
  *     already enforces the unambiguous-single-slug rule and degrades on a
  *     pre-034 brain.

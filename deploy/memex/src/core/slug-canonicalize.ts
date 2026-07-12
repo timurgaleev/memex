@@ -24,8 +24,8 @@
  *                    returns a slug so an edge is still created; the caller
  *                    stamps it `unqualified`.
  *
- * SAFE-BY-DEFAULT (security-engineer / ai-engineer review). The reference
- * resolver earned its safety from source-scoping + dir/page-type hints,
+ * SAFE-BY-DEFAULT (security-engineer / ai-engineer review). A source-scoped
+ * resolver would earn its safety from source-scoping + dir/page-type hints,
  * which memex's single flat vault does not have. To compensate for the
  * lost scoping this resolver:
  *   - runs the fuzzy stage LAST (a structurally-exact tail/prefix never
@@ -94,7 +94,7 @@ const TRGM_MARGIN = 0.1;
 const MIN_TAIL_LEN = 2;
 
 /**
- * Canonicalization is on by default (faithful to the reference). Set
+ * Canonicalization is on by default. Set
  * `MEMEX_WIKILINK_CANONICALIZE=0` to fall straight through to the legacy
  * slugify behavior — a kill switch for a corpus where fuzzy resolution
  * would mis-link.

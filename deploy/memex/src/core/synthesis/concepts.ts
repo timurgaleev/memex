@@ -3,7 +3,7 @@
  * pages, written ONLY to `synth_concepts` (+ the `synth_concept_atoms`
  * provenance link). Reads `synth_atoms`; never touches authored notes.
  *
- * Algorithm (faithful to the reference, adapted to memex tables):
+ * Algorithm (adapted to memex tables):
  *   1. Read all atoms with concept tags from `synth_atoms`.
  *   2. Group by concept tag.
  *   3. Filter to groups with >= 2 atoms; tier by count (T1 >=10, T2 >=5, T3 >=2).

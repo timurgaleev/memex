@@ -3,9 +3,9 @@
  *
  * The reranker is fail-open (any error returns the input order), which makes
  * silent degradation invisible: a wedged model or an expired credential can
- * disable reranking for weeks with zero signal. The reference persists every
- * rerank failure to an audit JSONL that doctor can grep; memex mirrors that
- * with the same opt-in surface as the MCP audit trail (`MEMEX_AUDIT_DIR`) and
+ * disable reranking for weeks with zero signal. So memex persists every
+ * rerank failure to an audit JSONL that doctor can grep, using the same
+ * opt-in surface as the MCP audit trail (`MEMEX_AUDIT_DIR`) and
  * an ISO-week-rotated `rerank-failures-<week>.jsonl`.
  *
  * Best-effort by contract: any write failure is swallowed — the audit trail

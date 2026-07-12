@@ -348,7 +348,7 @@ export interface AutoFixOptions {
  *   - idempotency (the action id is the job id → a repeat run dedups via the
  *     queue's ON CONFLICT DO NOTHING; a pre-existing row reports `duplicate`).
  *
- * Named `autoFixDryViolations` to mirror the reference doctor's safe-autofix
+ * Named `autoFixDryViolations` for the doctor's safe-autofix
  * surface: "dry" == the dry, deterministic fixes (no LLM judgement), and the
  * default is itself a dry-run.
  */
