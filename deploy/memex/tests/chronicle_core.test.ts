@@ -1,0 +1,242 @@
+/**
+ * Life Chronicle core — eligibility matrix + event extractor (with a stubbed
+ * judge, so no Bedrock). Covers the privacy/anti-loop exclusions, the
+ * deterministic write path, the all-or-nothing parse barrier, and idempotency.
+ */
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Storage } from "../src/core/storage.ts";
+import { getPage, putPage } from "../src/core/pages.ts";
+import { getTimelineForDate } from "../src/core/chronicle.ts";
+import { isChronicleEligible } from "../src/core/chronicle/eligibility.ts";
+import {
+  runChronicleExtract,
+  type ChronicleJudge,
+  type ChronicleEventProposal,
+} from "../src/core/chronicle/extract-events.ts";
+import {
+  registerChronicleHandler,
+  CHRONICLE_EXTRACT_JOB_KIND,
+} from "../src/core/jobs/chronicle-handler.ts";
+import { getHandler, _resetHandlersForTesting } from "../src/core/jobs/handlers.ts";
+
+let tmp: string;
+let storage: Storage;
+
+beforeEach(async () => {
+  tmp = mkdtempSync(join(tmpdir(), "memex-chron-core-"));
+  storage = new Storage({ dbPath: join(tmp, "db") });
+  await storage.init();
+});
+
+afterEach(async () => {
+  await storage.close();
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+const LONG_BODY = "x".repeat(120);
+
+/** A judge that returns a fixed proposal list, ignoring its input. */
+function stubJudge(events: ChronicleEventProposal[]): ChronicleJudge {
+  return async () => ({ events });
+}
+
+describe("isChronicleEligible", () => {
+  it("accepts a conversation-shape meeting", () => {
+    expect(isChronicleEligible({ type: "meeting", slug: "meetings/a", body: LONG_BODY }).ok).toBe(true);
+  });
+
+  it("rescues a note under a meetings/ prefix", () => {
+    expect(isChronicleEligible({ type: "note", slug: "meetings/b", body: LONG_BODY }).ok).toBe(true);
+  });
+
+  it("excludes diary pages (privacy invariant)", () => {
+    expect(isChronicleEligible({ type: "diary", slug: "life/diary/2026-01-01", body: LONG_BODY }))
+      .toEqual({ ok: false, reason: "diary_excluded" });
+    expect(isChronicleEligible({ type: "note", slug: "life/diary/x", body: LONG_BODY }).ok).toBe(false);
+  });
+
+  it("excludes event pages (anti-loop)", () => {
+    expect(isChronicleEligible({ type: "event", slug: "life/events/x", body: LONG_BODY }))
+      .toEqual({ ok: false, reason: "event_self" });
+  });
+
+  it("excludes too-short bodies", () => {
+    expect(isChronicleEligible({ type: "meeting", slug: "meetings/c", body: "short" }))
+      .toEqual({ ok: false, reason: "too_short" });
+  });
+
+  it("excludes subagent scratch pages", () => {
+    expect(isChronicleEligible({ type: "meeting", slug: "wiki/agents/x", body: LONG_BODY }))
+      .toEqual({ ok: false, reason: "subagent_scratch" });
+  });
+
+  it("excludes dream/synth-generated pages", () => {
+    expect(isChronicleEligible({ type: "meeting", slug: "meetings/d", body: LONG_BODY, dreamGenerated: true }))
+      .toEqual({ ok: false, reason: "dream_generated" });
+  });
+
+  it("excludes non-conversation types", () => {
+    expect(isChronicleEligible({ type: "note", slug: "notes/x", body: LONG_BODY }).ok).toBe(false);
+  });
+});
+
+describe("runChronicleExtract", () => {
+  async function seedDepth(slug = "meetings/2026-01-10"): Promise<string> {
+    await putPage(storage, {
+      slug,
+      type: "meeting",
+      title: "Kickoff",
+      compiled_truth: { date: "2026-01-10", attendees: ["people/alice"] },
+      markdown_body: LONG_BODY,
+    });
+    return slug;
+  }
+
+  it("writes an event page + timeline projection on the happy path", async () => {
+    const slug = await seedDepth();
+    const res = await runChronicleExtract(storage, {
+      slug,
+      sourceId: "default",
+      judge: stubJudge([
+        { when: "2026-01-10", who: ["people/alice"], what: "Kickoff call", kind: "call" },
+      ]),
+    });
+    expect(res.status).toBe("extracted");
+    expect(res.events_written).toBe(1);
+
+    const rows = await getTimelineForDate(storage, "2026-01-10", { sourceIds: ["default"] });
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.summary).toBe("Kickoff call");
+    expect(rows[0]!.kind).toBe("call");
+    expect(rows[0]!.event_slug).toMatch(/^life\/events\/2026-01-10-/);
+    expect(rows[0]!.slug).toBe(slug);
+
+    const ev = await getPage(storage, rows[0]!.event_slug!, ["default"]);
+    expect(ev).not.toBeNull();
+    expect(ev!.type).toBe("event");
+  });
+
+  it("rejects the WHOLE batch when ONE proposal has a malformed date", async () => {
+    const slug = await seedDepth();
+    const res = await runChronicleExtract(storage, {
+      slug,
+      judge: stubJudge([
+        { when: "2026-01-10", who: [], what: "good", kind: "call" },
+        { when: "not-a-date", who: [], what: "bad", kind: "call" },
+      ]),
+    });
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("malformed_proposal");
+    expect(res.events_written).toBe(0);
+    // No partial writes: nothing projected.
+    const rows = await getTimelineForDate(storage, "2026-01-10", { sourceIds: ["default"] });
+    expect(rows.length).toBe(0);
+  });
+
+  it("returns no_events on an empty judge result", async () => {
+    const slug = await seedDepth();
+    const res = await runChronicleExtract(storage, { slug, judge: stubJudge([]) });
+    expect(res.status).toBe("no_events");
+    expect(res.events_written).toBe(0);
+  });
+
+  it("skips a missing page", async () => {
+    const res = await runChronicleExtract(storage, { slug: "meetings/ghost", judge: stubJudge([]) });
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("page_not_found");
+  });
+
+  it("is idempotent — a re-run reuses the same slug with no duplicate rows", async () => {
+    const slug = await seedDepth();
+    const judge = stubJudge([
+      { when: "2026-01-10", who: ["people/alice"], what: "Kickoff call", kind: "call" },
+    ]);
+    const first = await runChronicleExtract(storage, { slug, judge });
+    const second = await runChronicleExtract(storage, { slug, judge });
+    expect(first.events_written).toBe(1);
+    expect(second.events_written).toBe(1);
+
+    const rows = await getTimelineForDate(storage, "2026-01-10", { sourceIds: ["default"] });
+    expect(rows.length).toBe(1);
+    const events = await storage.engine().query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM pages WHERE type = 'event' AND deleted_at IS NULL",
+    );
+    expect(events.rows[0]!.n).toBe(1);
+  });
+
+  it("caps events at 10 per page (whole batch still validated)", async () => {
+    const slug = await seedDepth();
+    const many: ChronicleEventProposal[] = Array.from({ length: 12 }, (_, i) => ({
+      when: "2026-01-10", who: [], what: `Event ${i}`, kind: "call",
+    }));
+    const res = await runChronicleExtract(storage, { slug, judge: stubJudge(many) });
+    expect(res.events_written).toBe(10);
+    const n = await storage.engine().query<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM pages WHERE type = 'event' AND deleted_at IS NULL",
+    );
+    expect(n.rows[0]!.n).toBe(10);
+  });
+
+  it("propagates a TRANSIENT judge error so the job can retry", async () => {
+    const slug = await seedDepth();
+    const throttled: ChronicleJudge = async () => {
+      throw new Error("ThrottlingException: too many requests");
+    };
+    await expect(
+      runChronicleExtract(storage, { slug, judge: throttled }),
+    ).rejects.toThrow(/Throttling/);
+  });
+
+  it("absorbs a PERMANENT judge error as a skipped result (job DONE)", async () => {
+    const slug = await seedDepth();
+    const denied: ChronicleJudge = async () => {
+      throw new Error("AccessDeniedException: not authorized for this model");
+    };
+    const res = await runChronicleExtract(storage, { slug, judge: denied });
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("judge_error");
+    expect(res.events_written).toBe(0);
+  });
+});
+
+describe("chronicle_extract job handler", () => {
+  async function seedDepth(slug = "meetings/handler"): Promise<string> {
+    await putPage(storage, {
+      slug, type: "meeting", markdown_body: "x".repeat(120), compiled_truth: {},
+    });
+    return slug;
+  }
+
+  // The registered handler ignores its ctx arg; call it with the payload only.
+  function invoke(payload: Record<string, unknown>) {
+    const h = getHandler(CHRONICLE_EXTRACT_JOB_KIND)!;
+    return (h as (p: Record<string, unknown>) => Promise<unknown>)(payload);
+  }
+
+  it("re-throws a transient judge error out of the handler (worker retries)", async () => {
+    _resetHandlersForTesting();
+    const slug = await seedDepth();
+    registerChronicleHandler(storage, {
+      judge: async () => {
+        throw new Error("ThrottlingException: slow down");
+      },
+    });
+    await expect(invoke({ slug, sourceId: "default" })).rejects.toThrow(/Throttling/);
+  });
+
+  it("returns a skipped result on a permanent judge error (no throw)", async () => {
+    _resetHandlersForTesting();
+    const slug = await seedDepth();
+    registerChronicleHandler(storage, {
+      judge: async () => {
+        throw new Error("AccessDeniedException");
+      },
+    });
+    const res = (await invoke({ slug, sourceId: "default" })) as { status: string; reason?: string };
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("judge_error");
+  });
+});

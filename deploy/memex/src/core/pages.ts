@@ -34,6 +34,7 @@ export const KNOWN_PAGE_TYPES = [
   "note",
   "email",
   "event",
+  "diary",
   "decision",
   "task",
   "source",
@@ -62,10 +63,24 @@ const SLUG_PREFIX_TYPE: Record<string, KnownPageType> = {
   sources: "source", source: "source",
 };
 
-/** Infer a page type from a slug's first path segment, or null if unknown. */
+// Life Chronicle namespaces are two-segment: a page under `life/events/…` is an
+// event projection, one under `life/diary/…` is private interiority. The plain
+// first-segment `life` is ambiguous, so these two-segment prefixes are matched
+// ahead of the single-segment table.
+const SLUG_PREFIX2_TYPE: Record<string, KnownPageType> = {
+  "life/events": "event",
+  "life/diary": "diary",
+};
+
+/** Infer a page type from a slug's leading path segments, or null if unknown.
+ *  A two-segment Life Chronicle prefix (life/events, life/diary) wins over the
+ *  first-segment convention. */
 export function inferPageType(slug: string): KnownPageType | null {
   if (typeof slug !== "string") return null;
-  const seg = slug.split("/")[0]?.toLowerCase() ?? "";
+  const parts = slug.toLowerCase().split("/");
+  const seg2 = parts.slice(0, 2).join("/");
+  if (SLUG_PREFIX2_TYPE[seg2]) return SLUG_PREFIX2_TYPE[seg2];
+  const seg = parts[0] ?? "";
   return SLUG_PREFIX_TYPE[seg] ?? null;
 }
 
