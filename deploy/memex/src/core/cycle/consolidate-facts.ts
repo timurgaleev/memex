@@ -151,6 +151,8 @@ export async function consolidateFactsPhase(
         AND forgotten_at IS NULL
         AND embedding IS NOT NULL
         AND btrim(fact) <> ''
+        -- dimensional ontology rows have their own read path, not consolidation.
+        AND dimension IS NULL
       GROUP BY source_id, entity_slug
      HAVING COUNT(*) >= $1
       ORDER BY source_id, entity_slug
@@ -218,6 +220,8 @@ async function consolidateBucket(
         AND forgotten_at IS NULL
         AND embedding IS NOT NULL
         AND btrim(fact) <> ''
+        -- dimensional ontology rows have their own read path, not consolidation.
+        AND dimension IS NULL
       ORDER BY written_at DESC
       LIMIT $3`,
     [bucket.source_id, bucket.entity_slug, cfg.maxFacts],

@@ -240,6 +240,8 @@ async function fetchDedupCandidates(
         AND forgotten_at IS NULL
         AND embedding IS NOT NULL
         AND source_id = $3
+        -- dimensional ontology rows have their own read path; never a dedup match.
+        AND dimension IS NULL
       ORDER BY embedding <=> $2::vector
       LIMIT $4`,
     [entitySlug, vecJson, effectiveSource, limit],
@@ -583,6 +585,9 @@ export async function listFacts(
   if (opts.include_forgotten !== true) {
     where.push("forgotten_at IS NULL");
   }
+  // Dimensional ontology rows (mig097) are read through getOntology, not the
+  // free-text fact list — keep them out of every recall/list result.
+  where.push("dimension IS NULL");
   if (typeof opts.session === "string" && opts.session.length > 0) {
     params.push(opts.session);
     where.push(`source_session = $${params.length}`);
@@ -711,6 +716,8 @@ export async function listSupersessions(
   const where: string[] = [
     "forgotten_at IS NOT NULL",
     "superseded_by IS NOT NULL",
+    // Dimensional ontology rows have their own read path, not the fact audit.
+    "dimension IS NULL",
   ];
   if (opts.entity_slug !== undefined) {
     validateSlug(opts.entity_slug);
@@ -767,7 +774,8 @@ export async function countUnconsolidatedFacts(
   const r = await storage.engine().query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM entity_facts
-      WHERE consolidated = false AND forgotten_at IS NULL${scopeFilter}`,
+      WHERE consolidated = false AND forgotten_at IS NULL
+        AND dimension IS NULL${scopeFilter}`,
     params,
   );
   return r.rows[0]?.n ?? 0;

@@ -49,6 +49,9 @@ export async function embedFactsPhase(
     `SELECT id, fact
        FROM entity_facts
       WHERE embedding IS NULL AND btrim(fact) <> ''
+        -- dimensional ontology rows (mig097) have their own read path; never
+        -- embed them into the free-text fact flow.
+        AND dimension IS NULL
       ORDER BY written_at DESC
       LIMIT $1`,
     [maxPerCycle],
