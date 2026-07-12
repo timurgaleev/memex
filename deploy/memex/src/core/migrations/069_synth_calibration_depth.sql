@@ -1,12 +1,12 @@
 -- 069_synth_calibration_depth.sql — deepen the calibration profile to parity.
 --
--- The calibration phase wrote only an `accuracy` figure per tenant. The
--- reference's per-(source_id, holder) calibration table carries a richer
--- scorecard: a Brier score over the forecaster's stated conviction vs the
--- realized outcome, a partial_rate, a per-domain breakdown, and the fraction
--- of gradable takes the grade phase actually processed. This adds those four
--- fields to `synth_calibration_profile` so a profile row is a full scorecard,
--- not just one accuracy number.
+-- The calibration phase wrote only an `accuracy` figure per tenant. A richer
+-- per-(source_id, holder) scorecard carries more: a Brier score over the
+-- forecaster's stated conviction vs the realized outcome, a partial_rate, a
+-- per-domain breakdown, and the fraction of gradable takes the grade phase
+-- actually processed. This adds those four fields to
+-- `synth_calibration_profile` so a profile row is a full scorecard, not just
+-- one accuracy number.
 --
 -- Additive + idempotent: every column is `ADD COLUMN IF NOT EXISTS` and
 -- nullable (or NOT NULL DEFAULT for grade_completion, which backfills every

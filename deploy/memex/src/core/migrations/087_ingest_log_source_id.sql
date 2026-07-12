@@ -1,5 +1,5 @@
 -- 087_ingest_log_source_id.sql — tenant axis on the ingestion audit log
--- (reference parity: ingest_log.source_id).
+-- (adds ingest_log.source_id).
 --
 -- ingest_log (mig023) predates the mig047 tenancy sweep and never got the
 -- column — so per-source failure accounting (the facts:absorb durable writer,

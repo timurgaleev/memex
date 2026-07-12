@@ -1,4 +1,4 @@
--- 090: operator-authored takes lifecycle on synth_takes (reference parity).
+-- 090: operator-authored takes lifecycle on synth_takes.
 --
 -- Today every synth_takes row is LLM-proposed and LLM-graded; the operator's
 -- own claims have no home and calibration measures the judge model, not the

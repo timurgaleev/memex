@@ -21,14 +21,13 @@
 -- is unchanged (its matched set is a strict superset of `ts` only in that the
 -- empty 'A' segment adds no lexemes).
 --
--- Adapted from the reference's weighted chunk FTS, which weights
--- doc_comment + symbol_name_qualified at 'A'. memex has neither column yet
--- (separate backlog items); its equivalent symbol identity is
--- symbol_name + parent_symbol_path. When doc_comment lands, fold it into the
--- 'A' segment of the function below.
+-- memex weights its symbol identity — symbol_name + parent_symbol_path — at
+-- 'A'. A doc_comment + symbol_name_qualified pair would be the fuller signal,
+-- but memex has neither column yet (separate backlog items). When doc_comment
+-- lands, fold it into the 'A' segment of the function below.
 --
--- Mechanism: a BEFORE trigger, matching the reference (NOT a STORED GENERATED
--- column like the existing `ts`). A generated column's expression must be
+-- Mechanism: a BEFORE trigger (NOT a STORED GENERATED column like the
+-- existing `ts`). A generated column's expression must be
 -- IMMUTABLE, and `array_to_string(parent_symbol_path, ' ')` — needed to fold
 -- the array scope into the tsvector with 'simple' normalization so it matches
 -- a lowercased plainto_tsquery — is not immutable on the engines we run. A
@@ -37,7 +36,7 @@
 -- BEFORE INSERT trigger always recomputes from fresh column values; the
 -- `UPDATE OF` clause additionally covers any future in-place column update.
 --
--- Config stays 'simple' (not the reference's 'english') to match the existing
+-- Config stays 'simple' (not 'english') to match the existing
 -- `ts` tokenization exactly: the keyword read path still uses
 -- plainto_tsquery('simple', …), so the matched SET is identical for markdown
 -- chunks and only the rank weighting changes. Switching to 'english' would

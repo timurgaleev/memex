@@ -1,10 +1,9 @@
--- 085_entity_facts_lifecycle.sql — fact lifecycle columns (reference parity).
+-- 085_entity_facts_lifecycle.sql — fact lifecycle columns.
 --
--- The reference's facts table carries a full lifecycle contract that memex's
--- entity_facts only partially mirrors (043 forgotten_at, 061 consolidated,
--- 062 forgotten_cause). This adds the missing five, all additive + NULLABLE
--- (or NOT NULL with a backfilling DEFAULT), no behavior change for existing
--- rows:
+-- entity_facts carries only part of a full fact lifecycle contract so far
+-- (043 forgotten_at, 061 consolidated, 062 forgotten_cause). This adds the
+-- missing five, all additive + NULLABLE (or NOT NULL with a backfilling
+-- DEFAULT), no behavior change for existing rows:
 --
 --   - visibility        — 'private' (default) | 'world'. The remote-read gate:
 --                         a public/scoped reader is limited to world facts at

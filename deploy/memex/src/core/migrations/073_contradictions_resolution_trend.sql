@@ -4,8 +4,8 @@
 -- Three additions, all advisory (nothing here mutates a fact/take/edge):
 --   1. `resolution_kind` on synth_contradictions — the probe now classifies each
 --      finding into a typed resolution proposal (supersede | debate | synthesize
---      | manual) alongside the free-text resolution_command, mirroring the
---      reference's deterministic resolution classifier.
+--      | manual) alongside the free-text resolution_command, via a
+--      deterministic resolution classifier.
 --   2. synth_contradiction_verdicts — a TTL'd cache of EVERY judge verdict
 --      (positive AND negative). Pre-073 only positives persisted (via the
 --      synth_contradictions pair_key), so every negative pair was re-judged —

@@ -1,5 +1,5 @@
 -- 081_spend_ledger.sql — DB-backed spend accounting for paid LLM calls
--- (reference parity: mcp_spend_log + mcp_spend_reservations).
+-- (adds mcp_spend_log + mcp_spend_reservations).
 --
 -- The mig046 oauth_clients.budget_usd_per_day column was carried "for
 -- forward-compatibility but unused in the MVP": the paid Sonnet slices track
@@ -17,16 +17,16 @@
 --                              reserve and settle is cleaned by the
 --                              expires_at TTL sweep ('expired').
 --
--- The reference's resolver-scoped budget_ledger table is intentionally NOT
--- ported: memex has no resolver subsystem — the reservation table above IS
--- the ledger for the one spender class (client-attributed MCP/LLM calls).
+-- memex has no resolver subsystem, so there is no separate resolver-scoped
+-- budget ledger — the reservation table above IS the ledger for the one
+-- spender class (client-attributed MCP/LLM calls).
 --
--- Amounts are NUMERIC(12,4) cents, matching the reference (fractional cents
--- matter at per-call granularity; float never touches money).
+-- Amounts are NUMERIC(12,4) cents (fractional cents matter at per-call
+-- granularity; float never touches money).
 --
 -- No date_trunc index: TIMESTAMPTZ truncation is session-timezone-dependent
 -- (not IMMUTABLE); the (client_id, created_at) BTREE covers the day-window
--- rollup via range scan — same reasoning as the reference migration.
+-- rollup via range scan.
 
 CREATE TABLE IF NOT EXISTS mcp_spend_log (
   id          BIGSERIAL PRIMARY KEY,

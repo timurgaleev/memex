@@ -1,13 +1,12 @@
 -- 083: jobs lifecycle surface — progress + per-job token/cost accounting.
 --
 -- The jobs table grows unbounded (no prune path existed) and a paid job's
--- Bedrock spend is invisible once it finishes. Reference parity:
+-- Bedrock spend is invisible once it finishes. This adds:
 --
 --   - `progress`           : structured handler-reported progress (JSONB),
 --     readable while the job runs (MCP get_job_progress).
 --   - `tokens_input/output/cache_read` : per-job LLM token tally, accumulated
---     by the handler via the worker context (reference carries the same three
---     columns on its job rows).
+--     by the handler via the worker context.
 --   - `cost_usd`           : accumulated dollar estimate for paid calls, so
 --     `jobs list` / stats can answer "what did this job cost?" without
 --     re-deriving prices from token counts later.

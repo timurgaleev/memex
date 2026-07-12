@@ -1,17 +1,17 @@
--- 082_rls_integrity.sql — DB integrity pair (reference parity):
+-- 082_rls_integrity.sql — DB integrity pair:
 --   1. auto-RLS event trigger — every FUTURE public.* table gets ROW LEVEL
 --      SECURITY enabled at CREATE time, closing the gap where a table shipped
 --      after the frozen mig049 snapshot silently lacks the marker.
 --   2. one-time RLS backfill over EVERY public table still lacking it — the
 --      post-049 stragglers: cycle_locks (050), synth_contradictions (064),
 --      slug_aliases (067), eval_snapshots (068), the 081 spend pair, and any
---      other table that landed between 049 and this migration. A catalog scan
---      (the reference's backfill shape), not a frozen list — 049's frozen
+--      other table that landed between 049 and this migration. A catalog scan,
+--      not a frozen list — 049's frozen
 --      45-table snapshot is exactly the gap this closes.
 --   3. UNIQUE fence key on entity_facts — the mig035 source_markdown index was
 --      non-unique, so nothing in the DB enforced one live row per fence line.
 --
--- Posture matches mig049, NOT the reference's fail-loud Supabase variant:
+-- Posture matches mig049, NOT a fail-loud Supabase variant:
 -- memex's RLS is a defense-in-depth marker (no policies, no FORCE; isolation
 -- is the app-layer source_id filter), so both the trigger install and the
 -- enables are guarded + NOTICE-skipped rather than aborting a deploy on a
@@ -86,7 +86,7 @@ END $$;
 --    a superseded fence claim legitimately re-enters — so the uniqueness
 --    contract is one LIVE row per (source, page, fence line). The
 --    forgotten_at IS NULL arm keeps preserved tombstones out of the key
---    (memex adaptation; the reference has no tombstone-preserving reconcile).
+--    (memex preserves tombstones through the reconcile).
 --    Pre-clean any live duplicates first (keep the oldest row).
 DELETE FROM entity_facts a
  USING entity_facts b

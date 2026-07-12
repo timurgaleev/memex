@@ -5,9 +5,8 @@
 -- `get_calibration_profile` handed that global aggregate to any caller. In the
 -- multi-tenant deployment that (1) blended tenants' track records and (2) leaked
 -- a figure derived from other tenants' graded takes. This adds the missing
--- `source_id` axis so a profile is scoped to the tenant whose takes it grades —
--- mirroring the reference's per-(source_id, holder) calibration table (memex has
--- no `holder` axis; source_id is the tenant boundary).
+-- `source_id` axis so a profile is scoped to the tenant whose takes it grades.
+-- memex has no `holder` axis; source_id is the tenant boundary.
 --
 -- Additive + idempotent: ADD COLUMN IF NOT EXISTS is metadata-only, the NOT NULL
 -- DEFAULT 'default' backfills every existing row to the legacy tenant (mig 047
@@ -22,7 +21,7 @@ ALTER TABLE synth_calibration_profile
     REFERENCES sources(id);
 
 -- 2. Per-tenant recency lookup: get_calibration_profile filters by the caller's
---    effective source set and takes the newest row. Mirrors the reference's
---    (source_id, holder, generated_at DESC) recency index, minus the holder axis.
+--    effective source set and takes the newest row. Indexed on
+--    (source_id, generated_at DESC) — memex has no holder axis.
 CREATE INDEX IF NOT EXISTS synth_calibration_profile_source_time_idx
   ON synth_calibration_profile (source_id, generated_at DESC);

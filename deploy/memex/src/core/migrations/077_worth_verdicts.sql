@@ -4,8 +4,8 @@
 -- reflections) can pre-screen each transcript with a cheap Haiku significance
 -- judge before spending Sonnet on it. The verdict is cached per
 -- (source_ref, content_hash) so a re-run — and every later phase looking at the
--- same unchanged transcript — never re-pays the judge. Mirrors the reference's
--- dream-verdict cache; the cache sits BEFORE the spend.
+-- same unchanged transcript — never re-pays the judge. The cache sits BEFORE
+-- the spend.
 --
 -- source_ref is a page slug (memex transcripts are pages, not files);
 -- content_hash is the 16-char body hash, so an edited transcript is re-judged.

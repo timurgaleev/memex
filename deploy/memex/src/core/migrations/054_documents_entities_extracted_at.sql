@@ -1,6 +1,5 @@
 -- 054_documents_entities_extracted_at.sql — entity-extraction freshness
--- watermark (the memex-native equivalent of the reference's incremental
--- extract, which threads sync's changed-slug list into extract).
+-- watermark: an incremental extract that only re-walks changed docs.
 --
 -- Adds a per-document timestamp recording when the doc's entity_mentions were
 -- last (re)extracted. A document is STALE for entity extraction when:
