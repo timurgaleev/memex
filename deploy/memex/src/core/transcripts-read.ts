@@ -2,12 +2,11 @@
  * Read-side accessor for recently-ingested conversation transcript pages —
  * backs the `get_recent_transcripts` MCP tool.
  *
- * The reference reads raw `.txt` transcript files off the dream-cycle corpus
- * dirs. memex has no such on-disk corpus: transcripts are ingested as pages in
- * RDS Postgres. So this adapts the op to "recent transcript-typed pages",
+ * memex has no on-disk transcript corpus: transcripts are ingested as pages in
+ * RDS Postgres. So this op returns "recent transcript-typed pages",
  * newest-first, scoped to the caller's tenant, with a summary/full-body toggle
- * and a day window — the same shape the reference returns, over the DB instead
- * of the filesystem. Deterministic SELECT; no LLM, no Bedrock.
+ * and a day window — over the DB instead of the filesystem.
+ * Deterministic SELECT; no LLM, no Bedrock.
  */
 import type { Engine } from "./engine/interface.ts";
 

@@ -13,9 +13,7 @@
  * simply "return a tight set"; intent is the (coarse) prior on how many answers
  * the query wants. The mechanism is a cap.
  *
- * Adaptation note: the reference keys this off its own intent union
- * (entity/temporal/event/general). memex's `Intent` is
- * factual|topic|howto|personal|exact, so the mapping is adapted, NOT ported:
+ * memex's `Intent` is factual|topic|howto|personal|exact, so:
  * the single-answer-ish intents (`factual`, `exact`) get the tight cap;
  * everything else gets the recall-preserving cap.
  *

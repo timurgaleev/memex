@@ -21,7 +21,7 @@
  * categories the `## Facts` fence parses), so it cannot drift from the schema.
  *
  * Application is default ON internally (`MEMEX_FACT_DECAY=0` disables) —
- * matching the reference, whose decay is unconditional: without it a stale
+ * decay is unconditional: without it a stale
  * event ranks as fresh in fact recall. Decay is applied on INTERNAL ingress
  * only: the dispatch layer forces it off on the public-bearer path, because
  * reordering/dropping facts by hidden `valid_until`/`kind` over stable

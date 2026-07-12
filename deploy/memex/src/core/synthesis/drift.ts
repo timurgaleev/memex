@@ -10,13 +10,13 @@
  * takes are skipped. Every candidate is tenant-scoped through the take's source
  * document's source_id.
  *
- * Judge (ONE Sonnet call — the "single-LLM judge" the reference scaffold deferred):
+ * Judge (ONE Sonnet call — a single-LLM judge):
  * the current source text for each candidate is gathered and a single batched
  * call decides, per take, whether the claim STILL HOLDS. Drifted takes (claim no
  * longer supported) are written into one `drift-reports/<date>` page for operator
  * review — this phase never mutates a take's weight itself.
  *
- * DELIBERATE DEVIATION from the reference: memex has no minion runtime, so the
+ * DELIBERATE: memex has no minion runtime, so the
  * per-take judge fan-out becomes one batched Sonnet call.
  *
  * Anti-loop: the report is written with the ad-hoc page type "drift-report" (not

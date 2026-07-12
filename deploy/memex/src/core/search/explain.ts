@@ -7,7 +7,7 @@
  * reranker's rank delta. This module owns the shape of that record and its
  * human-readable renderer.
  *
- * Adapted from the reference `search --explain` formatter, mapped onto memex's
+ * The `search --explain` formatter, mapped onto memex's
  * boost stack (source-boost + recency + salience + curation + title-phrase +
  * backlink + graph-signals + two-pass rerank). A boost is only stamped when it
  * moved the score (factor != 1); a stage that stayed neutral leaves no line, so
