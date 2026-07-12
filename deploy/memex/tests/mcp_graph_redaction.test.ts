@@ -6,7 +6,7 @@
  * and DROP the relationship-provenance bundle (`source_chunk_id`,
  * `written_at`), the raw confidence signal, and the internal row `id`.
  * Internal ingress keeps the full row. Surfaced by the 2026-06-09
- * cross-model audit (independent reviewers + the reference parity diff).
+ * cross-model audit (independent reviewers).
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

@@ -1,9 +1,9 @@
 /**
  * `extract --stale` incremental link re-extraction sweep — auto-remediates the
  * watermark (migration 051) that the inline put-path stamp leaves detect-only
- * after a version bump or for never-extracted pages. Mirrors the reference's
- * `extractStaleFromDB`: stamp clears the staleness predicate, idempotent on
- * re-run, dry-run is read-only.
+ * after a version bump or for never-extracted pages. Incremental extract: the
+ * stamp clears the staleness predicate, idempotent on re-run, dry-run is
+ * read-only.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

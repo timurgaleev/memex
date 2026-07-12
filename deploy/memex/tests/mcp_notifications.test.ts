@@ -2,7 +2,7 @@
  * MCP post-initialize notification handling. The standard MCP handshake sends a
  * `notifications/initialized` JSON-RPC notification (no `id`) after `initialize`.
  * A notification expects no response body — the transport acknowledges it with an
- * empty HTTP 204 (reference parity), NOT a -32601 method-not-found error.
+ * empty HTTP 204, NOT a -32601 method-not-found error.
  */
 import { describe, expect, test } from "bun:test";
 import { makeMcpHandler } from "../src/mcp/http_transport.ts";

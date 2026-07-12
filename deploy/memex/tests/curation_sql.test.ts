@@ -1,5 +1,5 @@
 /**
- * Curation tier map + arm-SQL builders (G21 reference parity) — pure, no DB.
+ * Curation tier map + arm-SQL builders (G21) — pure, no DB.
  * The SQL fragments themselves are exercised end-to-end by the retrieval
  * suites (every keyword/vector call now interpolates them).
  */
@@ -21,8 +21,8 @@ afterEach(() => {
   _resetCurationForTests();
 });
 
-describe("full tier map (reference parity)", () => {
-  it("carries the reference's tiers: curated > entities > meetings > bulk > extracts", () => {
+describe("full tier map", () => {
+  it("carries the full tier order: curated > entities > meetings > bulk > extracts", () => {
     expect(DEFAULT_CURATION_BOOST["originals/"]).toBe(1.5);
     expect(DEFAULT_CURATION_BOOST["writing/"]).toBe(1.4);
     expect(DEFAULT_CURATION_BOOST["concepts/"]).toBe(1.3);
@@ -40,7 +40,7 @@ describe("full tier map (reference parity)", () => {
     expect(Object.keys(DEFAULT_CURATION_BOOST).length).toBe(14);
   });
 
-  it("ships the reference's default hard-excludes", () => {
+  it("ships the default hard-excludes", () => {
     expect([...DEFAULT_SEARCH_EXCLUDE]).toEqual(["test/", "attachments/", ".raw/"]);
     _resetCurationForTests();
     delete process.env.MEMEX_SEARCH_EXCLUDE;

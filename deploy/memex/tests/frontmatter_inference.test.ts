@@ -1,6 +1,6 @@
 /**
- * Ingest-time frontmatter inference (the reference's per-file pure step, now in
- * memex's indexer instead of a recurring cycle phase). Verify skip-on-existing,
+ * Ingest-time frontmatter inference (a per-file pure step, in memex's indexer
+ * instead of a recurring cycle phase). Verify skip-on-existing,
  * title/date derivation, the prepend, and that indexDocument carries it.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";

@@ -1,5 +1,5 @@
 /**
- * Hyperbolic recency BOOST (G20 reference parity) — pure math + env parsing.
+ * Hyperbolic recency BOOST — pure math + env parsing.
  * The penalty-only decay keeps its own tests in recency.test.ts.
  */
 import { describe, expect, it } from "bun:test";
@@ -55,7 +55,7 @@ describe("recencyBoostMultiplierForPath", () => {
     expect(recencyBoostMultiplierForPath("garbage", NOW, "daily/x", "on")).toBe(1);
   });
 
-  it("a boosted fresh hit can exceed the old ×1.0 ceiling (the G20 point)", () => {
+  it("a boosted fresh hit can exceed the old ×1.0 ceiling", () => {
     const f = recencyBoostMultiplierForPath(iso(1), NOW, "media/x/post", "strong");
     expect(f).toBeGreaterThan(1.5);
   });

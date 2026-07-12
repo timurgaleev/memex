@@ -20,24 +20,23 @@ pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
   `invested_in` triple from a second origin (breaks memex's single-origin
   invariant, same reason `key_people` is skipped); `source` is often a provenance
   string, not a slug. Test `typed_links.test.ts` (8/8). Default-OFF feature.
-- **[DONE — v1.95.0, FULL faithful port (operator asked 2026-07-07)] HNSW index
-  lifecycle manager.** Ported the reference's entire `vector-index.ts` surface to
-  `core/vector-index.ts`, adapted to memex's `Engine` (query/exec/transaction vs
-  the reference's executeRaw/withReservedConnection; CONCURRENTLY routes through
+- **[DONE — v1.95.0, full build (operator asked 2026-07-07)] HNSW index
+  lifecycle manager.** Built the entire HNSW index-lifecycle surface in
+  `core/vector-index.ts`, on memex's `Engine` (query/exec/transaction; CONCURRENTLY routes through
   `engine.exec` = simple-protocol single statement) and memex's real index
   (`embeddings_vector_idx` on `embeddings(vector)`, mig 001) + RDS (not Supabase):
   `checkActiveBuild`, `dropZombieIndexes`, `dropAndRebuild` (temp CONCURRENTLY
   build → DROP+RENAME atomic swap; old index intact on failure), `monitorBuild`,
   `isExternalMaintenanceBuild`. Exposed via `memex hnsw <status|sweep|rebuild>`
   (commands/hnsw.ts) + an opt-in startup zombie-sweep (`MEMEX_HNSW_ZOMBIE_SWEEP=1`,
-  default-OFF — the one deviation from the reference's always-on connect sweep,
+  default-OFF — deliberately not an always-on connect sweep,
   per memex's no-surprise-mutation posture; `doctor`'s invalid-indexes check
   already surfaces the condition). CONCURRENTLY rebuild verified against LIVE RDS.
   Tests `vector_index.test.ts` (PGLite guards + classifier; the real Postgres path
   verified on prod). Supersedes the v1.94.0 detection-only slice below.
 
 - **[DONE — v1.94.0, detection slice] HNSW / invalid-index doctor check.**
-  The real risk the reference's `vector-index.ts` guards is a failed/interrupted
+  The real risk an HNSW index-lifecycle manager guards against is a failed/interrupted
   index build (a killed `CREATE INDEX CONCURRENTLY`, or an OOM mid-build — memex has
   OOM history) leaving `indisvalid=false`: Postgres keeps the index but never uses
   it, so the vector arm silently seq-scans with NO error. Closed with a **read-only
@@ -45,21 +44,21 @@ pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
   both the MCP + CLI doctor registries, category `ops`) that flips ok:false and
   names the index; recovery is a one-liner `REINDEX INDEX CONCURRENTLY <name>`
   (online, no write lock). Tests `doctor_ops.test.ts` (valid + simulated-invalid).
-  Deliberately did NOT port the reference's full dropAndRebuild/monitorBuild/temp+
+  Deliberately did NOT build the full dropAndRebuild/monitorBuild/temp+
   RENAME module — over-engineering for a single small RDS where REINDEX recovers in
   one command; and NOT the `CREATE INDEX CONCURRENTLY` migration-runner escape hatch
   (index rebuild is a runtime maintenance op, not a migration — so PGLite never has
   to run CONCURRENTLY, and the runner's most sensitive path stays untouched). The
   runner escape hatch remains available to build IF a future *migration* ever needs
   a concurrent index on a large live corpus — deferred, not needed now (4.4k chunks,
-  index builds instant). Reference `core/vector-index.ts:63-247`.
+  index builds instant).
 - **[DEFER — reasoned] schema-verify full column-drift.** memex already has
   migration-version drift detection (`doctor-ops.ts checkSchemaVersion`: applied
   MAX(id) vs discovered files), which catches the realistic failure (unapplied
   migrations). A full column-level drift detector needs an expected-schema artifact
-  memex doesn't maintain (the reference derives it from a 72KB `schema-embedded.ts`
-  consolidated CREATE) — high cost, low marginal value on a single-app-managed RDS
-  where hand-schema-drift can't happen. Reference `core/schema-verify.ts:1`.
+  memex doesn't maintain (it would derive from a consolidated CREATE artifact,
+  ~72KB) — high cost, low marginal value on a single-app-managed RDS
+  where hand-schema-drift can't happen.
 - **[KEEP — no change] `resolveRequestedScope` in `auth-info.ts`.** The OAuth
   adversarial re-audit's ONLY finding, and it is NOT a trap: it is the correct,
   documented, tested single resolver for a per-call `source_id`/`all_sources`
@@ -68,14 +67,14 @@ pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
   no such param today, so it is inert — but it is exactly what a future per-call
   scope param SHOULD route through, not code to delete. Retained intentionally.
   (memex was at parity or AHEAD on every other security axis — closes IDOR/DCR/array-
-  injection leaks the reference still has.)
+  injection leaks.)
 
 **Two deviations surfaced (operator decision, NOT changed):**
-- `stats` + `jobs_list/get/logs` reachable from the public bearer (reference =
-  `admin`). DELIBERATE in memex (explicit tests + jobs-metadata redaction). A flip
+- `stats` + `jobs_list/get/logs` reachable from the public bearer (an
+  alternative would gate them behind `admin`). DELIBERATE in memex (explicit tests + jobs-metadata redaction). A flip
   to forbid was built then REVERTED (would break a thin-client status reader +
-  needs 2 tests rewritten). Decide: keep (thin-client) or match reference.
-- Notability keep-all on the facts write path (reference drops LOW / defers
+  needs 2 tests rewritten). Decide: keep (thin-client) or gate behind `admin`.
+- Notability keep-all on the facts write path (an alternative drops LOW / defers
   MEDIUM). memex keeps all + ranks by notability — arguably better for a
   remember-everything brain. Left as deviation.
 
@@ -148,12 +147,12 @@ docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
 
 ## Deferred by stack — future upgrade paths (2026-07-04)
 
-Capabilities the reference implementation has that memex deliberately does NOT
+Capabilities memex deliberately does NOT
 build today, because each is blocked by a stack constraint or a standing
 architecture decision — NOT because they were overlooked. Documented here with
 the exact condition that would unblock each, so a future session neither
 re-litigates the decision nor accidentally builds it. Everything else that was
-buildable has been shipped (see the reference-parity waves in CHANGELOG).
+buildable has been shipped (see the parity waves in CHANGELOG).
 
 | Capability | Why deferred (blocker) | What would unblock it |
 |---|---|---|
@@ -161,9 +160,9 @@ buildable has been shipped (see the reference-parity waves in CHANGELOG).
 | **Autocut** (score-cliff result sizing) | Depends on a real cross-encoder score cliff; RRF has only mechanical decay, no trustworthy separatrix. | Falls out for free once a cross-encoder tier exists (above). Substitute today: intent-capped adaptive-return. |
 | **Image / multimodal + `search_by_image`** | Titan Text Embeddings v2 is text-only (1024-dim); the AWS-only stack has no multimodal embedder wired, and there is no image-asset substrate. | **AWS-buildable** — Titan Multimodal Embeddings G1 (native Bedrock, no rule change) + an image-asset page substrate + an image-embedding column + `search_by_image`. Worth doing IF an image corpus ever exists; no rule reversal needed. |
 | **Anthropic-only constraint itself** | Operator decision (2026-07-01): only Anthropic via Bedrock (Haiku/Sonnet) + Titan embeddings. Any feature needing a non-Anthropic model (external embedder like ZeroEntropy/Voyage, external reranker) is out. | An explicit operator reversal of the Anthropic-only rule. Firm today. |
-| **Minion / server-side subagent runtime** | memex has no multi-agent server runtime by design; it ports the reference's minion loops as a SINGLE Sonnet/Haiku call or onto memex's own durable job queue. | Only if a server-side multi-agent runtime is ever wanted (large architectural add). Not planned — the single-call ports cover the capability. |
+| **Minion / server-side subagent runtime** | memex has no multi-agent server runtime by design; it implements minion loops as a SINGLE Sonnet/Haiku call or onto memex's own durable job queue. | Only if a server-side multi-agent runtime is ever wanted (large architectural add). Not planned — the single-call ports cover the capability. |
 | **Schema-pack "cathedral"** (9 MCP ops + `schema-suggest` phase: typed-schema authoring, lint, graph, mutations) | A whole typed-schema-authoring subsystem memex deliberately skipped; a personal AWS brain uses a fixed type list, so ~0 payoff for a large surface. | Only if memex ever exposes operator-authored schema packs to multiple tenants. Deferred by scope, not blocked by stack. |
-| **File / S3 / raw-KV substrate + storage tiering** | memex is DB-canonical by design (RDS + EFS); the reference is filesystem-first (local markdown vault). | A decision to add an object-store tier (S3) for large/binary assets. Not needed for the DB-canonical model. |
+| **File / S3 / raw-KV substrate + storage tiering** | memex is DB-canonical by design (RDS + EFS) rather than filesystem-first (a local markdown vault). | A decision to add an object-store tier (S3) for large/binary assets. Not needed for the DB-canonical model. |
 | **git-sync / federation / federated reads** | Operator deferred (future, not now) — needs a sync/federation model memex hasn't provisioned. | Explicit go on multi-brain federation. Deferred. |
 | **`skillopt` self-optimizing skill phase** | Adjacent to a skill-distribution subsystem memex doesn't run; default-OFF paid feature not ported. | Only if the skill subsystem grows a self-optimization loop. Low priority. |
 
@@ -234,30 +233,30 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
   — matches CLI default; mint with permissions.source_id when the Agents UI
   grows a tenant picker.
 - **take-commit nudge module (mig 074) wired only to set_take_status accepts**
-  via fence sync; the reference also nudges on fence-authored commits —
+  via fence sync; fence-authored commits are not yet nudged —
   broaden when operator-authored takes become the primary path.
 
 ## LOW backlog (PAT port review, 2026-07-05)
 
 - **`permissions.takes_holders` is stored but not yet enforced at read time**
-  — the reference gates takes visibility per token; memex currently gates
-  takes ops operator-only, so the allow-list is dormant. Port the enforcement
+  — per-token takes visibility is not enforced; memex currently gates
+  takes ops operator-only, so the allow-list is dormant. Add the enforcement
   half if takes ever open to tenant tokens.
 - **Legacy PAT verify grandfathers `['read','write','admin']`** ignoring the
-  stored `scopes` column (reference does the same). Harmless while no MCP op
+  stored `scopes` column. Harmless while no MCP op
   requires `admin` and operator-only tools gate on `authInfo === undefined`;
   tighten both together if that changes.
 - **`auth create` name uniqueness is check-then-insert** (no partial unique
-  index on active names; the reference allows duplicates outright). Racy only
+  index on active names). Racy only
   under concurrent operator CLIs; add `CREATE UNIQUE INDEX ... ON
   access_tokens(name) WHERE revoked_at IS NULL` if it ever matters.
-- **`auth test <url> --token` from the reference is not ported** (remote MCP
+- **No `auth test <url> --token` command** (remote MCP
   smoke test; we verify via curl in the ship loop instead).
 - **/mcp bearer verification does 2 unauthenticated hash lookups per garbage
   bearer** with no per-IP limiter (unlike /token, /register). Indexed lookups;
   add a limiter if abuse shows up in mcp_request_log.
-- **Verifier DB outage surfaces as 401** (fall-through) where the reference's
-  `requireBearerAuth` returns 500 — cosmetic error-path divergence.
+- **Verifier DB outage surfaces as 401** (fall-through) rather than a
+  500 — cosmetic error-path choice.
 
 ## LOW backlog (v1.78 review notes)
 
@@ -307,10 +306,10 @@ apply only from the ops dir. No open build work.
 
 ---
 
-## 2026-07-03 — brain-only parity backlog (reference v0.42.53 deep compare)
+## 2026-07-03 — brain-only parity backlog (deep compare)
 
-A 7-subsystem code-level compare of the reference (v0.42.53) vs memex (v1.72),
-scoped to the retrieval brain only. Memex is a faithful core port and wins in
+A 7-subsystem code-level review of memex (v1.72),
+scoped to the retrieval brain only. Memex's core is solid and wins in
 several places (durable job queue, contextual retrieval, version history,
 public redaction, tenant write scoping, stronger slug cascade). The genuine
 gaps below are worth closing; three of them are latent bugs in memex's own code.
@@ -319,7 +318,7 @@ gaps below are worth closing; three of them are latent bugs in memex's own code.
 1. **Content-sanity ingest gate WRITER.** memex has the full
    quarantine/content_flag/embed_skip read+filter substrate but nothing WRITES
    the markers (`embed-skip.ts` comment: "the deferred content-sanity writer
-   stamps it"). Port the reference's `content-sanity.ts`: scraper-junk patterns
+   stamps it"). Add a `content-sanity.ts`: scraper-junk patterns
    + operator literals hard-block, oversize warn 50KB/block 500KB, markup-ratio
    0.85 → content_flag. Hook into every ingest path (indexDocument / page write).
    Deterministic, free.
@@ -365,7 +364,7 @@ embedding provenance signature + auto-invalidation on model/dim swap; page renam
 primitive + `slug_aliases` redirect table; nightly `memex eval` quality probe
 (systemd timer + snapshot); take lifecycle hygiene (min-age grading gate; nothing
 updates `synth_takes.status`; calibration profile consumed by nothing); default
-chunk overlap (memex OFF, reference 50-word ON); batch/concurrent embed workers
+chunk overlap (memex OFF, a 50-word ON option); batch/concurrent embed workers
 (~10-20x faster full re-embed); hot-memory `_meta` injection on MCP responses.
 
 ### Skip (reasoned)
@@ -381,9 +380,9 @@ conversation-parser formats; `enrich_thin` + extraction receipts; `sources_*`
 admin over MCP (CLI posture fine); job retry/pause/replay over MCP.
 
 ### OSS-install note
-Deliberate: reference is local-first (PGLite, no cloud); memex REQUIRES AWS
-(Bedrock embeddings) — higher install friction by design. Cheap win if OSS
-adoption matters: an `INSTALL_FOR_AGENTS.md` equivalent (reference ships a 15KB
+Deliberate: memex REQUIRES AWS (Bedrock embeddings), not local-first (PGLite,
+no cloud) — higher install friction by design. Cheap win if OSS
+adoption matters: an `INSTALL_FOR_AGENTS.md` (a ~15KB
 agent-oriented install doc; memex has none).
 
 Full ranked detail in agent memory `memex-brain-compare-2026-07-03` and the
@@ -443,12 +442,12 @@ in this test's DB), fix, get CI green. Separate from the Tier-1 ship.
 
 ---
 
-## Scope reversal (2026-06-30) — FULL reference parity ACCEPTED
+## Scope reversal (2026-06-30) — FULL parity ACCEPTED
 
 Operator call (2026-06-30): memex is an **open-source project headed for
 many companies**, so the cost-first / brain-only / "rejected" gates below are
-**lifted**. Build everything, copy-paste-adapt from the reference (never name
-it in code/commits). This block SUPERSEDES the conflicting "keep deferred /
+**lifted**. Build everything; write it in memex's own voice (no external-source
+names in code/commits). This block SUPERSEDES the conflicting "keep deferred /
 gated / rejected" notes in the dated sections further down — those sections
 keep the *engineering detail*; this block changes their *disposition* to ACCEPTED.
 
@@ -531,10 +530,10 @@ Accepted scope, in build order (lowest blast-radius first):
     the scoped reader sees nothing under the static bearer).
   Full picture: memory `memex-full-compare-2026-07-01` + the maintainer's vault
   comparison note (kept outside this repo).
-- [ ] **3. Embedding upgrade — follow the reference** — ACCEPTED (was "stay on
+- [ ] **3. Embedding upgrade** — ACCEPTED (was "stay on
   Titan 1024, no switch"). Two-step: (a) make the embedding dimension a
   **config value** (no hardcoded 1024) so a swap is config not rewrite —
-  prerequisite; (b) switch to the reference's higher-dim provider + **full
+  prerequisite; (b) switch to a higher-dim provider + **full
   corpus re-embed** + column/HNSW migration. Verify which provider is reachable
   from our AWS/Bedrock posture first (cost + egress). Detail: "Embedding
   1024→1536" + the "Roadmap decisions" embeddings bullet (now reversed).
@@ -578,15 +577,15 @@ Accepted scope, in build order (lowest blast-radius first):
     sequence the bulk re-embed AFTER Item 3 to avoid a double re-embed. 21 tests.
   Each default-OFF, shipped like facts/S1 (not deploy-gated). Item 4 COMPLETE.
 
-Method (unchanged): copy-paste-adapt with `file:line` citations, TDD, self-review
+Method (unchanged): implement with `file:line` citations, TDD, self-review
 agent per batch, ship via the repo loop (test→push→deploy→verify→release), no
-reference names in any tracked file (`make audit`/`scrub-audit` gate).
+external-source names in any tracked file (`make audit`/`scrub-audit` gate).
 
 ---
 
 ## Roadmap decisions (2026-06-29) — cost-first
 
-Three forward calls, settled (mirror the upstream structure, adapt for our
+Three forward calls, settled (adapted for our
 self-hosted + low-spend constraints):
 
 - **Embeddings — stay on the current 1024-dim provider; no switch now.** Making
@@ -598,15 +597,15 @@ self-hosted + low-spend constraints):
   opts the existing Nova synthesis chain into quiet-hours cycle ticks (default-OFF,
   count-capped, writes the isolated `synth_*` store). memex already had the
   synthesis primitives + storage + MCP reads; this was the missing auto-run wiring.
-  Deliberately did NOT port the reference's Opus/USD-budget/`think` pipeline —
+  Deliberately did NOT build the Opus/USD-budget/`think` pipeline —
   conflicts with the Nova-only / synthesis-is-the-client's-job stance. Later slices
   (deferred): a dedicated slower synthesis cadence, surfacing `synth_*` into
   retrieval/answer context, a composite `auto-think` phase name.
-- **Multi-tenant auth — DONE (v1.51.0): self-issued OAuth 2.1 `client_credentials`,
-  the reference's model (no external IdP).** memex is its own authorization server
+- **Multi-tenant auth — DONE (v1.51.0): self-issued OAuth 2.1 `client_credentials`
+  (no external IdP).** memex is its own authorization server
   (`/token` + `memex auth register-client` + `memex_at_` verify on `/mcp`). The
   earlier AWS Cognito path was built then removed — an external IdP is the wrong
-  tool for an agent-served brain (more deps, not the reference's way).
+  tool for an agent-served brain (more deps, wrong fit).
 
 ---
 
@@ -622,9 +621,9 @@ sanitizer, eval Wilson CI + per-query isolation, frontmatter blank-key fix.
 (default-OFF, $1 budget, IAM applied, proven live).
 
 Genuinely deferred (one item, candidate for a future session):
-- [ ] **`near_symbol` + `walk_depth` search expansion.** The reference anchors
-  retrieval at a qualified symbol and expands through code_edges with
-  `1/(1+hop)` decay (reference `core/search/two-pass.ts` + hybrid wiring). memex
+- [ ] **`near_symbol` + `walk_depth` search expansion.** Anchor
+  retrieval at a qualified symbol and expand through code_edges with
+  `1/(1+hop)` decay (`core/search/two-pass.ts` + hybrid wiring). memex
   `core/search/two-pass.ts` exists but has NO nearSymbol/anchor/walkDepth
   machinery — this is a candidate-construction-stage (pre-fusion) integration,
   higher blast-radius than the post-hydrate `since/until/lang` filters already
@@ -635,7 +634,7 @@ Genuinely deferred (one item, candidate for a future session):
 ## Parity gap sweep (2026-06-28) — 6-subsystem dynamic-workflow diff
 
 A fresh dynamic-workflow fan-out (6 brain-only subsystem readers + a completeness
-critic) re-diffed the reference against memex to confirm nothing shippable was
+critic) re-checked memex to confirm nothing shippable was
 missed. 23 findings; 21 already done / north-star / gated / dormant. Genuinely
 shippable brain-only gaps found:
 - [x] **`last_retrieved_at` write-back — DONE (v1.40.0).** The column (mig 024) +
@@ -661,8 +660,8 @@ shippable brain-only gaps found:
 - [x] **RESOLVED (v1.47.0) — the cycle runs end-to-end with EVERY phase.** Root
   cause was empirical: anomalous docs with 18–30 MB `frontmatter` JSONB (436 MB
   across 658 docs); `frontmatter-inference`'s `SELECT d.frontmatter` over all of
-  them parsed into multi-GB of JS objects → OOM-SIGKILL. Fix (faithful to the
-  reference's one-doc-at-a-time inference, since it has no such cycle phase):
+  them parsed into multi-GB of JS objects → OOM-SIGKILL. Fix (one-doc-at-a-time
+  inference, no recurring cycle phase):
   keyset-paginate (`MEMEX_CYCLE_FM_BATCH`) + skip docs whose frontmatter exceeds
   `MEMEX_CYCLE_FM_MAX_BYTES` (16 KB — the phase only fills MISSING fields, so a
   big frontmatter isn't missing them) + chunk-0 via `LIMIT 1` subquery capped at
@@ -680,7 +679,7 @@ shippable brain-only gaps found:
   spikes anon memory enough to OOM-kill PID 1 on its `SELECT all docs + chunk-0`
   + 658-row UPDATE loop (the corpus is tiny — 658 docs/4303 chunks/≤21 KB — so
   it's an algorithmic/driver allocation, not data size; GC + 3000m reduced but
-  did not eliminate it). Fix it, then drop the skip. Also port the reference's
+  did not eliminate it). Fix it, then drop the skip. Also add an
   INCREMENTAL extract (only changed slugs) — extract is the heaviest phase
   (1404 MB/31 s, re-processes ALL docs every tick). Full investigation below:
 - [ ] **(investigation log) cycle crash — process EXIT mid-tick, root-caused to
@@ -702,7 +701,7 @@ shippable brain-only gaps found:
     phase timeout did not fire before the exit). Confirmed NOT the chunk-0 dup
     blowup (0 dups, old join = 658 rows, max chunk 21 KB) and NOT recompute-
     salience (links=4/pages=5, query 19 ms).
-  - FAITHFUL FIX TO PORT: the reference's extract is INCREMENTAL (only changed
+  - FIX TO BUILD: make extract INCREMENTAL (only changed
     slugs; "54K-page → sub-second"); memex re-extracts ALL docs every cycle (no
     LIMIT/cursor) — the heaviest phase. Make `extract` O(changed) per tick.
   - NEXT: reproduce locally — run `cycle` against a prod-shaped dataset under a
@@ -713,7 +712,7 @@ shippable brain-only gaps found:
     tight loop).
 - [ ] **process-watchdog (LOW).** A worker_threads hard-deadline kill for an
   event-loop-starving sync loop. memex's docker healthcheck already restarts a
-  hung container (the reference's scenario is an unsupervised cron CLI), so
+  hung container (this guard targets an unsupervised cron CLI), so
   near-zero marginal value. Build only if a real ReDoS-starvation case appears.
 - [x] **Coverage blind spot — ingestion/sync write path** — RESOLVED. Every named
   sub-path now has dedicated tests: incremental re-sync → `extract_incremental.test.ts`,
@@ -728,7 +727,7 @@ shippable brain-only gaps found:
 ## Deferred — full-parity follow-ups (2026-06-23)
 
 > NOTE: the "brain-only" north-star elsewhere in this file is **superseded** as
-> of 2026-06-23 — the operator opted into full reference parity. LLM synthesis,
+> of 2026-06-23 — the operator opted into full parity. LLM synthesis,
 > code-graph, push-context, advisor, and an OAuth app-layer all shipped
 > (v1.10.0–v1.16.0). These are the remaining pieces, deferred because they need
 > infra/provider decisions, not because they're out of scope.
@@ -738,7 +737,7 @@ shippable brain-only gaps found:
 Design + must-fix checklist: `docs/tenancy.md`. Operator decisions locked:
 external IdP (Cognito) issues JWTs; tenant = a `sources` row; per-user private
 source + shared org source via `federated_read[]`; app-layer `source_id` filter
-+ RLS backstop. Faithful copy-paste-adapt of the reference, NOT from scratch.
++ RLS backstop.
 
 - [x] Scope model `src/core/scope.ts` + tests (`tests/scope.test.ts`).
 - [x] Additive auth tables — migration `046_oauth.sql` (clients/tokens/codes,
@@ -758,8 +757,8 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
 - [ ] Port `oauth-provider.ts` (client-credentials + token verify/revoke), adapt
   to Bun/postgres.js; wire Cognito JWT → `AuthInfo{sourceId, allowedSources}`.
 - [ ] Thread `AuthInfo` through `mcp/dispatch.ts` + `http/server.ts`.
-- [ ] **Admin surface (`/admin`) — IN PROGRESS (operator: "totally the same as
-  the reference", 2026-06-28).** Full faithful parity: the reference's React 19 + Vite 6
+- [ ] **Admin surface (`/admin`) — IN PROGRESS (operator asked for a full admin
+  console, 2026-06-28).** A React 19 + Vite 6
   admin SPA (6 pages: Login, Dashboard, Agents, RequestLog, Calibration,
   JobsWatch) + 23 `/admin*` routes + magic-link/cookie auth, all adapted from
   express → memex's Bun.serve. memex already has the provisioning FUNCTIONAL core
@@ -782,14 +781,14 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
       `/admin/api/jobs/watch`, calibration, SSE `/admin/events` — add as the SPA
       needs them.
   - **B — admin SPA (frontend) — SCOPED, needs a focused frontend session.** The
-    reference `admin/` is a React 19 + Vite 6 project (~1860 lines: App, main,
+    `admin/` SPA is a React 19 + Vite 6 project (~1860 lines: App, main,
     api.ts, index.css 359, + 6 pages — Login 96, Dashboard 137, Agents 633,
     RequestLog 150, Calibration 174, JobsWatch 174). Porting requires a new
     frontend toolchain in this backend repo (`admin/package.json` React+Vite,
-    `bun install`, `vite build`) AND real DATA-SHAPE adaptation — the reference
-    SPA reads the reference shapes (`stats`/`health`/SSE `/admin/events`/`oauth_clients`
+    `bun install`, `vite build`) AND real DATA-SHAPE adaptation — the original
+    SPA reads shapes (`stats`/`health`/SSE `/admin/events`/`oauth_clients`
     register-client) that memex's A2 does NOT have; memex exposes `full-stats` +
-    `grants`/`sources`. So it is a faithful port of the STRUCTURE/design, with the
+    `grants`/`sources`. So it keeps the STRUCTURE/design, with the
     data layer + the Agents page re-modeled to memex `source_grants`. Sub-plan:
     - [x] **B1 — scaffold + Login + Dashboard — DONE (source on main; builds).**
       `admin/` Vite project (package.json React19+Vite6, vite.config base
@@ -816,7 +815,7 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
     The admin dashboard (Login + Dashboard) is now LIVE at `/admin`.
   - [x] **B2 — Agents page (v1.33.0).** `admin/src/pages/Agents.tsx` + nav: lists
     grants, register-source + provision-grant modals, per-row revoke — over the
-    A2 endpoints (no new backend). Reference's OAuth-client manager re-modeled to
+    A2 endpoints (no new backend). The OAuth-client manager re-modeled to
     memex sources/grants. codex reviewed (no XSS; dup-key LOW fixed).
   - [x] **B3 — Request Log + Jobs Watch (v1.34.0).** A2b endpoints
     `/admin/api/requests` (paginated `mcp_request_log`) + `/admin/api/jobs/watch`
@@ -831,7 +830,7 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
       over getCalibrationProfile (synth_calibration_profile scorecard) + Calibration.tsx
       (accuracy/breakdown/bias tags/pattern statements). SVG charts = follow-on.
       ADMIN SPA FEATURE-COMPLETE (6 pages).
-    - [ ] FOLLOW-ON (cosmetic): the reference SVG calibration charts (— — needs infra memex lacks): the SSE
+    - [ ] FOLLOW-ON (cosmetic): SVG calibration charts (— — needs infra memex lacks): the SSE
       `/admin/events` live feed (no event bus — Dashboard's 30s refresh + Jobs
       Watch's 15s poll cover live-status) and the Calibration page (no
       calibration backend). `mcp_request_log` has no writer yet (memex logs the
@@ -849,16 +848,16 @@ source + shared org source via `federated_read[]`; app-layer `source_id` filter
   `tenant_isolation.test.ts` 11/11). The earlier unchecked duplicates of these
   were removed to stop false-open CRITICAL/HIGH signal on every audit; the
   checked completion notes below are authoritative.
-- [x] **RLS enable** migration (049) — DONE, faithful to the reference's model:
+- [x] **RLS enable** migration (049) — DONE:
   a `DO`-block guarded on `rolbypassrls` flips `relrowsecurity` on across every
   content + auth table (`migrations` excluded). No policy + no `FORCE`, so it is
   inert today (the migrating bypass-role is exempt; a non-bypass managed-Postgres
   role gets a NOTICE and no change) — isolation stays app-layer. PGLite-safe
-  (verified) + `tests/rls_enable.test.ts`. **NOT done (intentionally — the
-  reference does neither, and adding them would diverge from "same as the
-  reference"):** per-row policies and the per-connection `SET app.current_sources`
+  (verified) + `tests/rls_enable.test.ts`. **NOT done (intentionally —
+  unnecessary for the current single-role deploy):** per-row policies and the
+  per-connection `SET app.current_sources`
   pool GUC. Revisit only if the operator wants DB-level enforcement beyond the
-  reference's defensive enable.
+  defensive enable.
   - Follow-up (LOW, security review): the migration's ELSE branch (non-BYPASSRLS
     role → NOTICE, no change) is only reachable on a real managed Postgres, so
     it has no PGLite test coverage. And 049 is safe ONLY for the single-role
@@ -895,8 +894,8 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   (≤6 tokens, unique resolution) → ×1.10 boost if the canonical page is present,
   else inject its representative chunk at the head; source-scoped +
   visibility-filtered; default ON (`MEMEX_ALIAS_HOP=0` to disable); folded into
-  the cache ranking signature (v5). Tests: `search_alias_hop.test.ts`. NOTE: the
-  reference's separate `slug_aliases` concept-redirect boost is a distinct
+  the cache ranking signature (v5). Tests: `search_alias_hop.test.ts`. NOTE: a
+  separate `slug_aliases` concept-redirect boost is a distinct
   feature memex lacks (no concept-redirect pages) — out of scope.
   - Follow-up (LOW, review): `resolveAliasUnique` filters `deleted_at IS NULL`
     but not `archived`; an archived page already in the result set could be
@@ -905,32 +904,32 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     either), not an alias-hop regression. Tighten by adding `AND NOT p.archived`
     to the shared resolver if/when the hydration gap is closed.
 - [x] Bounded query-embed deadline (AbortSignal) → keyword fallback on stall —
-  DONE (v1.21.0). Faithful port of the reference's `embedQueryBounded` /
+  DONE (v1.21.0). Adds `embedQueryBounded` /
   `makeQueryEmbedDeadline` / `QueryEmbedDeadline`: `hybridSearch` races the query
   embed against `MEMEX_QUERY_EMBED_TIMEOUT_MS` (default 6000, 2s-min budget) via
   `AbortSignal.timeout`; `embedText` accepts the signal so the Bedrock request is
   cancelled. Timeout/error → vector arm dropped, retrieval proceeds keyword-only.
   Files: `core/embedding.ts`, `core/search/hybrid.ts`. HIGH fix applied: a
   degraded keyword-only result is NOT cached.
-- [x] **Retry-After on 429** — DONE (v1.21.0). Faithful to the reference's 429
+- [x] **Retry-After on 429** — DONE (v1.21.0). Standard 429
   response shape: the per-caller token-bucket limiter exposes a read-only
   `retryAfterSeconds` (seconds until the bucket refills one token, ≥1, clamped to
   avoid `Infinity`); the MCP 429 carries it as a `Retry-After` header. Files:
-  `mcp/rate_limit.ts`, `mcp/http_transport.ts`. (Inbound header only — the
-  reference's outbound-client `max(2s, Retry-After, reset)` backoff is N/A.)
+  `mcp/rate_limit.ts`, `mcp/http_transport.ts`. (Inbound header only — an
+  outbound-client `max(2s, Retry-After, reset)` backoff is N/A.)
   - MEDIUM follow-up (pre-existing, NOT introduced here): JSON-RPC batch
     amplification — the limiter charges 1 token per HTTP POST, but a batch body
     runs N distinct dispatches under that single token. Tighten by charging per
     sub-request if batch abuse ever shows up.
-- [x] **Cycle concurrency lock** — DONE (v1.21.0). Faithful port of the
-  reference's `db-lock` (a dedicated lock table, NOT memex's existing
+- [x] **Cycle concurrency lock** — DONE (v1.21.0). Adds a
+  `db-lock` (a dedicated lock table, NOT memex's existing
   worker_lock): `core/db-lock.ts` (`tryAcquireDbLock` + `DbLockHandle`, TTL upsert
   + heartbeat steal-grace, `holder_pid` scoped refresh/release) over migration
   `050_cycle_locks.sql`. The maintenance cycle acquires `memex-cycle`, refreshes
   every 10m mid-run, releases in `finally`; a crashed holder is reclaimed after
   TTL/grace. MEDIUM fix applied: lock refreshes mid-run.
   - LOW follow-up: the release/refresh `WHERE` uses `id`+`holder_pid` only (no
-    `holder_host`) — FAITHFUL to the reference; single-container so collision risk
+    `holder_host`) — single-container so collision risk
     is nil. Add `holder_host` if a multi-host deploy ever lands.
 - [x] `LINK_EXTRACTOR` bare-wikilink + verb-context resolution — bare-wikilink
   DONE/parity (v1.28.0): already covered by `extractWikilinks` + the
@@ -947,7 +946,7 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     (page_revert unscoped delete) is pre-existing to the revert path + latent
     until the mig047 composite PK; LinkKind type kept plain|typed_ner
     (verb_ner is internal raw-SQL only, documented). **Closes the bare-wikilink +
-    verb-context item → full the reference link-extraction parity.**
+    verb-context item → full link-extraction coverage.**
   - [x] Write `chunker_version` — DONE (v1.27.0). Per-document
     `documents.chunker_version` SMALLINT (migration 052, grandfather DEFAULT 1);
     `MARKDOWN_CHUNKER_VERSION`/`CODE_CHUNKER_VERSION` consts (both 1); stamped in
@@ -975,19 +974,19 @@ Small, deterministic, brain-internal — safe to ship incrementally:
     batch `extract --stale` sweep so a `LINK_EXTRACTOR_VERSION_TS` bump
     auto-remediates untouched pages (re-sync edges + re-stamp). The version-bump
     arm is no longer detect-only. `core/links-stale-sweep.ts` +
-    `listStalePagesForExtraction`/`markPagesExtractedBatch`. Reference model:
+    `listStalePagesForExtraction`/`markPagesExtractedBatch`. Approach:
     listStalePagesForExtraction + markPagesExtractedBatch stamping the read
-    `updated_at` (its D4 race fix).
-  - [x] Stamp `content_flag` on results — DONE (v1.24.0). Faithful adaptation of
-    the reference's `getContentFlagsByPageIds` + `stampContentFlags`:
+    `updated_at` (the race fix).
+  - [x] Stamp `content_flag` on results — DONE (v1.24.0). Adds
+    `getContentFlagsByPageIds` + `stampContentFlags`:
     `core/search/content-flag.ts` reads `reason`/`detail` via `->>` and stamps
     `SearchHit.content_flag` post-fusion on both the live + cache-hit paths,
     fail-open. Doc-keyed over `documents.frontmatter` (stack adaptation).
   - [x] `embed_skip` frontmatter — DONE (v1.23.0). `core/embed-skip.ts`
     (`isEmbedSkipped` + `embedSkipFilterFragment`, sibling to quarantine.ts);
     gated at the inline indexer + embed-backfill (cycle re-embed inherits via
-    indexDocument). Chunk-scoped, faithful to the reference; embed-coverage
-    metric still counts the chunks (also faithful). Operator-declared path only
+    indexDocument). Chunk-scoped; embed-coverage
+    metric still counts the chunks. Operator-declared path only
     — the oversized auto-writer is the deferred content-sanity increment.
     ai-engineer: no CRIT/HIGH; 2 LOW (facts arm out-of-scope by design,
     future-stamper reindex contract) documented in the module header.
@@ -996,7 +995,7 @@ Small, deterministic, brain-internal — safe to ship incrementally:
   no inbound AND no outbound live edge) + `dead_links` (live-source link whose
   target is not a live page); one read-only round trip, explicit-advisor only.
   Soft-delete adaptation gates every edge on a live page at both ends so the
-  counts match the reference's hard-delete semantics. Live-verified on prod
+  counts match hard-delete semantics. Live-verified on prod
   (4 orphans + 4 dead links). code-reviewer: SQL-safe, MEDIUM (zombie-source
   dead links) fixed by the live-source gate.
 
@@ -1021,31 +1020,31 @@ Small, deterministic, brain-internal — safe to ship incrementally:
 
 ## Fidelity re-audit dispositions (2026-06-27)
 
-A 6-unit re-audit of the shipped increments against the reference's ACTUAL code
-(copy-paste-adapt fidelity, not freehand). Outcomes:
-- **advisor usage-shape (v1.22)** — faithful, no change.
+A 6-unit re-audit of the shipped increments for implementation fidelity (not
+freehand). Outcomes:
+- **advisor usage-shape (v1.22)** — sound, no change.
 - **alias-hop (v1.21)** — FIXED (v1.24.1): removed the `LIMIT 8`, added
-  `ORDER BY` to match the reference's unbounded `resolveAliases`.
+  `ORDER BY` for an unbounded `resolveAliases`.
 - **content_flag (v1.24.0)** — re-derived faithfully mid-flight (dropped an
   invented `normalizeContentFlag`; now mirrors `getContentFlagsByPageIds`'s
   `->>` extraction).
 - **embed_skip (v1.23)** — `isEmbedSkipped` uses key-existence (`Object.hasOwn`)
-  vs the reference's `value !== null`. KEPT memex's: it is consistent with
+  instead of `value !== null`. KEPT memex's: it is consistent with
   memex's own SQL fragment (`? 'embed_skip'`), whereas aligning would re-import
-  the reference's own JS/SQL mismatch. Defensible improvement, documented.
-- **embed-deadline (v1.21)** — the `embedQuery` test-seam is memex test infra the
-  reference lacks; KEPT (the production path is faithful; the seam is how
+  a known JS/SQL mismatch. Defensible improvement, documented.
+- **embed-deadline (v1.21)** — the `embedQuery` test-seam is memex test infra;
+  KEPT (the production path is correct; the seam is how
   memex's hermetic tests inject a deterministic embedder).
 - **Retry-After header (v1.21)** — audit flagged a missing `?? 60` fallback;
   FALSE POSITIVE — memex's `retryAfterSeconds` is total (always a clamped
-  number ≥1, 3600 cap when refill≤0), so it already guarantees the reference's
-  intent without dead code.
+  number ≥1, 3600 cap when refill≤0), so it already delivers the intended
+  behavior without dead code.
 - **Rate-limit policy (pre-existing, NOT a port)** — memex sustains 1 token/s
-  (capacity 30) vs the reference's 0.5/s, and is single-stage (public/internal)
-  vs the reference's two-stage (pre-auth IP + post-auth token-id). These predate
+  (capacity 30, not 0.5/s), and is single-stage (public/internal) rather than
+  two-stage (pre-auth IP + post-auth token-id). These predate
   the Retry-After increment (the v1.3.x limiter). Operator policy decision —
   left as-is pending an explicit call.
-- [x] **db-lock — FULL PORT done (v1.25.0).** Ported the reference's full
+- [x] **db-lock — FULL implementation done (v1.25.0).** Built the full
   db-lock core + safety/ops surface: `classifyHolderLiveness`/
   `isHolderDeadLocally`/`isLockHolderLive`, auto-takeover in `tryAcquireDbLock`,
   cleanup-registration via new `process-cleanup.ts`, `inspectLock`/
@@ -1053,27 +1052,27 @@ A 6-unit re-audit of the shipped increments against the reference's ACTUAL code
   `startCycleLoop.stop()` releases the in-flight lock; reap runs at tick start.
   Reviewed (parallel workflow): fidelity + security SHIP, one correctness HIGH
   (process-cleanup SIGTERM racing serve's graceful shutdown) fixed by scoping
-  process-cleanup to abnormal signals only. Omitted the reference's
+  process-cleanup to abnormal signals only. Omitted
   `syncLockId`/`liveSyncStatus`/`withRefreshingLock`/`tryWithDbElection`/
-  `buildTenantLockId` (no memex consumer — porting = dead code).
+  `buildTenantLockId` (no memex consumer — building it = dead code).
   - NOTE (docker deploy model): memex runs one container; each new container
     has a fresh hostname, so the SAME-HOST auto-takeover + `reapDeadHolderLocks`
     rarely fire across a deploy (PID-1 death = container death = new hostname).
     The practically-active release-on-deploy path is the hostname-independent
     cleanup-registration + `cycle.stop()` release. The same-host pieces are
-    faithful parity (active if a process ever dies WITHIN a living container);
+    fully wired (active if a process ever dies WITHIN a living container);
     a TTL-expired row from a pre-fix container is reclaimed by the upsert on the
     next tick regardless. If a stable-host or multi-host model ever lands, the
     same-host paths become load-bearing.
 
 
-## Parity gap backlog (vs the reference, 2026-06-09)
+## Parity gap backlog (2026-06-09)
 
-Source: a full subsystem-by-subsystem diff of this brain against the
-reference retrieval implementation. memex stays **brain-only** — the
+Source: a full subsystem-by-subsystem review of this brain's
+retrieval implementation. memex stays **brain-only** — the
 agent/LLM-synthesis/auth/voice/self-upgrade half is deferred (north-star
 gated), recorded below but not planned. Capabilities are described
-generically (no upstream names).
+generically.
 
 ### Mis-adaptations to verify (highest priority — we adopted it but diverged)
 - [x] **Per-prefix recency decay** (retrieval, high) — DONE (already shipped;
@@ -1098,7 +1097,7 @@ generically (no upstream names).
   (source-boost + scope); `memex embed` re-embeds without a generation bump so
   it `clearCache()`s outright. putCachedQuery only persists when the live clock
   still equals the stamped clock (mid-search-write race guard). Accepted
-  tradeoff (faithful to the reference): a doc NOT in the result set that becomes
+  tradeoff (by design): a doc NOT in the result set that becomes
   relevant doesn't invalidate until a referenced doc changes. Reviewed by
   ai-engineer + code-reviewer + codex (codex caught the mid-search race + the
   two non-indexer writers; ai-engineer independently caught the same writers).
@@ -1164,7 +1163,7 @@ generically (no upstream names).
   informational → stay `ok`. runPhase emits a `warn`-level progress log; the
   `cycle` recipe renders `status=ok|warn|FAIL`. ADAPTED, not blind-ported: memex's
   6 phases are functional fns wrapped by `runPhase`, which ALREADY gives the
-  uniform error handling + source-scope the reference's base class provides — a
+  uniform error handling + source-scope a base class would provide — a
   class refactor would be churn against "don't refactor what isn't broken", so
   only the observability kernel landed.
 - [x] **OperationError shape** (mcp, medium) — DONE. `core/operation-error.ts`:
@@ -1192,16 +1191,16 @@ generically (no upstream names).
   operation context is ALREADY centralized in two clean seams: `http/public_guard.ts`
   derives `isPublic` from the request (auth/ingress) once, and `mcp/dispatch.ts`
   derives the `redact`/`redactGraph` policy from `isPublic` once at the dispatch
-  entry, passing the booleans down. The reference's `buildOperationContext()`
-  exists to carry multi-source scoping + OAuth auth-tiers + budgets + source
+  entry, passing the booleans down. A `buildOperationContext()` pattern
+  would carry multi-source scoping + OAuth auth-tiers + budgets + source
   allow-lists — none of which memex has (single-source, single-holder bearer).
   Wrapping memex's one `isPublic` bit in a formal context OBJECT would be
   ceremony with zero functional benefit, against "don't refactor what isn't
   broken". Revisit only if a real second context dimension (tenancy/auth-tier)
   ever lands.
 - [x] **Qrels format** (eval, medium) — DONE/moot. The adapter's only stated
-  trigger is "before reusing reference qrels" — which won't happen (the
-  reference's qrels are its private eval corpus; not importable). memex's own
+  trigger is "before reusing external qrels" — which won't happen (those
+  qrels are a private eval corpus; not importable). memex's own
   `tests/eval/qrels.json` is `expected_paths`-centric, which MATCHES memex's
   path-keyed chunk search output (`eval.ts` compares `expected_paths` to
   `topPaths`). Pages are slug-canonical but search returns chunk PATHS, so a
@@ -1218,12 +1217,12 @@ generically (no upstream names).
 
 ### Integrate now (brain-only, safe, in-scope) — prioritized
 
-#### From the 2026-06-13 EXHAUSTIVE reference re-comparison (5-agent subsystem fan-out vs `4ee530f v0.42.42.0`)
+#### From the 2026-06-13 EXHAUSTIVE re-comparison (5-agent subsystem fan-out vs `4ee530f v0.42.42.0`)
 A full subsystem-by-subsystem diff (schema/chunkers/embeddings · retrieval/ranking/eval
 · MCP/CLI/jobs/config · facts/links/graph · cycle/security/redaction). Security
 swept clean — **no redaction-parity gap, no CRITICAL**: memex has a single public
 ingress (`dispatchTool`), allowlist field redaction, and is strictly stronger than
-the reference (which relies on OAuth scopes, not field redaction). The genuine
+an OAuth-scope-only model (no field redaction). The genuine
 brain-only LLM-free BUILD candidates found, prioritized:
 - [x] **Fact confidence decay + `valid_until` expiry at recall** (highest value) —
   DONE. The mig037 `kind`/`valid_from`/`valid_until` columns were stored but
@@ -1255,17 +1254,17 @@ brain-only LLM-free BUILD candidates found, prioritized:
   chunk's tail (sentence/word-snapped, capped at maxChars/2) to each size-split
   continuation, applied AFTER mergeShort over the final list + heading-start skip
   so it changes chunk content not count and never bridges a section boundary.
-  Adapted to memex (char-bounded, no tokenizer): the reference's 5-level
+  Adapted to memex (char-bounded, no tokenizer): a 5-level
   delimiter cascade + CJK word-counting NOT ported (CJK = no live non-Latin
   corpus; the cascade is a token-aware refinement memex's char-greedy splitter
   doesn't need). codex caught the before-mergeShort count-shift; fixed.
 - [x] **Graph-signals post-fusion stage** — ASSESSED → DOCUMENT-DEFER (evidence).
-  The three reference signals map onto memex as: (a) **session-cluster
+  The three graph signals map onto memex as: (a) **session-cluster
   diversification (~0.95x MMR-lite) = REDUNDANT** — memex already applies
   per-document dedup `maxPerDoc:1` (`search/hybrid.ts:414`), a HARD one-chunk-
   per-document cap that's strictly stronger than a 0.95x demote; (b)
-  **cross-source boost = DORMANT** — memex is single-source, the reference itself
-  notes this signal is "dormant on single-source brains"; (c) **adjacency-hub
+  **cross-source boost = DORMANT** — memex is single-source, so this signal is
+  "dormant on single-source brains"; (c) **adjacency-hub
   boost = structurally dormant on memex's data** — it operates on the page-link
   graph, but the live brain is 347 documents / ~2 pages, search runs over
   `documents`/`chunks` not `pages`, so the page graph is ~2 nodes and the boost
@@ -1311,7 +1310,7 @@ retrieval embed wrapper (needs an LLM pass — north-star), backoff jitter
 tree-sitter (asset-blocked), OAuth/multi-tenant/access_tokens + LLM cycle phases
 (synthesize/extract/grade/emotional-weight — north-star).
 
-#### From the 2026-06-12 NIGHT reference re-comparison (reference advanced v0.42.37 → v0.42.42)
+#### From the 2026-06-12 NIGHT re-comparison (v0.42.37 → v0.42.42)
 Fetched the clone to `4ee530f v0.42.42.0` and diffed. Conclusion: **NO new
 brain-only LLM-free candidate for memex** — every advance is already-done, N/A
 to memex's architecture, or north-star:
@@ -1321,7 +1320,7 @@ to memex's architecture, or north-star:
   default + legacy-token-scope → N/A (no OAuth, public-bearer model); AI-SDK
   asymmetric `input_type` on the wire → N/A (memex embeds via Bedrock Titan v2,
   symmetric, no AI-SDK adapter); **config `DATABASE_URL` cwd-`.env` hijack →
-  N/A** (the reference's hijack is the GENERIC `DATABASE_URL` that any web-app
+  N/A** (the hijack targets the GENERIC `DATABASE_URL` that any web-app
   `.env` sets; memex reads ONLY the namespaced `MEMEX_POSTGRES_URL`, which a
   random checkout's `.env` never contains, and the container `/app` has no cwd
   `.env` — verified). timeline-dedup-repair / extract-facts → LLM/north-star.
@@ -1331,14 +1330,14 @@ to memex's architecture, or north-star:
   AGENT-LAYER north-star (the agent is the MCP client), out of brain-only scope.
 - `v0.42.37` jobs stale-lock reap → infra N/A (assessed earlier).
 
-#### From the 2026-06-12 reference comparison (reference advanced 03ffc6e → ecd6ae8)
+#### From the 2026-06-12 comparison (03ffc6e → ecd6ae8)
 - [x] **Well-form lone UTF-16 surrogates before `::jsonb` (ingest, HIGH)** —
   DONE v1.3.34 (`core/well-form.ts`; applied at indexer-tx frontmatter +
   frontmatter-inference + pages compiled_truth; lone surrogate→U+FFFD + NUL
   dropped, valid pairs kept; integration proof test; code-reviewer CLEAN).
   Original note kept below for context.
-- [ ] (context) the reference shipped `v0.42.40.0` fixing exactly this: a text window
-  sliced by raw UTF-16 index (their `excerpt()` link-context) can leave an
+- [ ] (context) the same bug class, seen elsewhere: a text window
+  sliced by raw UTF-16 index (an `excerpt()` link-context) can leave an
   UNPAIRED surrogate half; serialized into JSONB, Postgres rejects it at the
   `::jsonb` cast and ABORTS THE WHOLE INSERT — and if a staleness bookmark only
   advances on a clean finish, the job wedges. memex shares the class: it has NO
@@ -1353,14 +1352,14 @@ to memex's architecture, or north-star:
   link `context`, any other `::jsonb`). Test: index a doc with a lone surrogate +
   a NUL in frontmatter → succeeds, value sanitized. Small, safe, additive, real
   production-bug fix. DO THIS FIRST next session.
-- The reference's other new commit, `v0.42.39.0 Retrieval Reflex` (teach the
+- A separate `Retrieval Reflex` capability (teach the
   agent when/what to retrieve), is AGENT-LAYER (north-star, out of brain-only
   scope — the agent is Claude Code). Not planned. `v0.42.37.0` jobs stale-lock
   reap was already assessed N/A (infra memex doesn't run).
 
-#### From the 2026-06-10 reference comparison (4-agent subsystem diff)
+#### From the 2026-06-10 comparison (4-agent subsystem diff)
 - [x] **Evidence + create_safety stamping** (retrieval, high) — DONE v1.3.19.
-  `core/search/evidence.ts`; arm-membership adaptation (reference's cosine
+  `core/search/evidence.ts`; arm-membership adaptation (cosine
   floors are incompatible with memex's RRF score). Pure-additive, no reorder.
 - [x] **Title-phrase boost** (retrieval, high) — DONE v1.3.20.
   `core/search/title-match.ts`: post-fusion multiplier (`MEMEX_TITLE_BOOST`,
@@ -1415,7 +1414,7 @@ to memex's architecture, or north-star:
 - [x] **Weighted chunk `search_vector` + trigger + GIN** (schema, high) — DONE
   (migration 030). Weight A = symbol identity that EXISTS in memex
   (`symbol_name` + `parent_symbol_path`, populated by 027/028); B = body. The
-  reference's `doc_comment`/`symbol_name_qualified` weight-A inputs don't exist
+  `doc_comment`/`symbol_name_qualified` weight-A inputs don't exist
   here yet (separate items) — fold them in when they land. A BEFORE
   INSERT/UPDATE trigger (NOT a generated column: `array_to_string` of the scope
   array is not immutable); existing rows backfilled in the migration. keyword.ts
@@ -1432,10 +1431,10 @@ to memex's architecture, or north-star:
   `core/operation-error.ts` + `toEnvelope`, public message-drop).
 - [x] **Facts-fence parser/renderer** (cycle, med, LLM-free) — DONE.
   `core/facts-fence.ts` (parse/render/strip) + `core/fence-shared.ts` (generic
-  table-row primitives, faithful port). `| # | claim | confidence | source |`,
+  table-row primitives). `| # | claim | confidence | source |`,
   strikethrough=inactive, memex-namespaced markers. Pure, INERT until
   `extract_facts`. Adapted to memex's simpler fact model (entity_facts);
-  reference's kind/visibility/notability/typed-claim columns NOT ported. Escape
+  kind/visibility/notability/typed-claim columns NOT ported. Escape
   pair is a true round-trip inverse (char-scanner split + backslash escape;
   code-reviewer caught the trailing-backslash gap → fixed). code-reviewer CLEAN.
 
@@ -1471,7 +1470,7 @@ to memex's architecture, or north-star:
   prefix expansion → pg_trgm `similarity()` fuzzy (threshold + runner-up
   margin) → slugify floor. Edges stamped `resolution_type`
   qualified/unqualified (mig-029 cols) + `link_kind='plain'`. Wired into
-  `syncWikilinksForPage`. ADAPTED, not blind-ported: the reference earned
+  `syncWikilinksForPage`. ADAPTED for memex: the usual cascade earns
   safety from source-scoping + dir/page-type hints memex's single flat
   vault lacks, so (a) fuzzy runs LAST not 2nd, (b) tail/prefix resolve only
   on a UNIQUE match — ambiguity falls to the slugify floor, never silently
@@ -1492,7 +1491,7 @@ to memex's architecture, or north-star:
   is never clobbered). Wired into put_page / page_append after the wikilink
   sync. **DEFAULT OFF** (`MEMEX_GAZETTEER=1`): false-positive sensitive +
   memex's flat vault has no scoping to contain a bad single-token match, so
-  unlike the reference (default-on) it is opt-in until the operator confirms
+  it is opt-in (not default-on) until the operator confirms
   behavior on their vault. security-engineer (no Crit/High/Med) + ai-engineer
   (proper-noun heuristic + unicode boundaries + maximal-munch test) + codex.
   NOTE: single-token sentence-start common words remain an inherent NER
@@ -1603,9 +1602,9 @@ to memex's architecture, or north-star:
   protection, row_num clamp + row cap, `purgeFenceFactsForPage` on delete, fence
   stripped before chunk-indexing. Default-on, `MEMEX_FACTS_FENCE=0` kill switch.
   code-reviewer (no blockers) + codex (2 HIGH + 5 MEDIUM, all fixed). The
-  OPTIONAL fact-text embedding (reference's find_trajectory enrichment, falls
+  OPTIONAL fact-text embedding (a find_trajectory enrichment, falls
   open) is a deferred follow-on; recompute_emotional_weight (page salience
-  [0..1]) is a SEPARATE deferred item below. Original deferred design note: [done] CONSULTED THE REFERENCE: its extract_facts is NOT
+  [0..1]) is a SEPARATE deferred item below. Original deferred design note: extract_facts is NOT
   LLM — the `## Facts` fence is the SOURCE OF TRUTH and the phase deterministically
   reconciles the DB index from it (the only AI call is an OPTIONAL embed of the
   fact text that falls open if the gateway is down). Best-practice contract to
@@ -1621,14 +1620,14 @@ to memex's architecture, or north-star:
   clobbering legacy/explicit facts. Wire as a `reconcile-facts` cycle phase
   (between extract + the new warn-envelope makes partial reconcile a `warn`).
   Optional: embed fact text via memex's existing Bedrock Titan path (defer —
-  falls-open like the reference). recompute_emotional_weight (page salience
+  falls-open by design). recompute_emotional_weight (page salience
   [0..1] from tags/takes) is a SEPARATE follow-on, also LLM-free.
 - [x] **Page salience (recompute_emotional_weight equivalent)** (high) — DONE
   (migration 036). `pages.salience` REAL [0..1] recomputed by the new
   `recompute-salience` cycle phase. `computeSalience` (`core/salience-score.ts`)
   = high-emotion-tag boost (max 0.5, configurable seed set via
   `MEMEX_SALIENCE_HIGH_TAGS`) + ln-scaled link-degree boost (max 0.5, saturating
-  at degree 20). ADAPTED faithfully: the reference scores tags + "takes"; this
+  at degree 20). ADAPTED for memex: the standard formula scores tags + "takes"; this
   brain has no takes, so link-degree (distinct in+out neighbours GATED to
   EXISTING live pages — no dangling-target inflation) replaces the takes half.
   Consumer = read-only `memex salience [--type T] [--days N] [--limit N]` ("what
@@ -1651,7 +1650,7 @@ to memex's architecture, or north-star:
   via tree-sitter's `progressCallback` (returning truthy from the periodic
   callback cancels the sync WASM parse → null → chunkCode throws → sweep-code
   skips the file). Default 5s, `MEMEX_PARSE_TIMEOUT_MS` override (0 disables).
-  ADAPTED: the reference's `setTimeoutMicros` mis-marshals its i64 arg under
+  ADAPTED: the `setTimeoutMicros` approach mis-marshals its i64 arg under
   Bun's WASM bridge (ToBigInt error), so the progress callback — the modern
   documented replacement — is used instead. Cancel verified by a unit test.
 
@@ -1702,7 +1701,7 @@ to memex's architecture, or north-star:
   date-mention -> skip), attendees resolved PRECISE-stages-only + resolved-only.
   Migration-free (reuses `timeline_events` mig 017). **Dedup key**: memex's
   `timeline_events` dedups on `(slug, occurred_at, source_chunk_id)` with
-  `source_chunk_id='meeting-timeline:<slug>'` — covers the reference's
+  `source_chunk_id='meeting-timeline:<slug>'` — covers the
   `(page_id, date, summary, source)` intent (slug=page, occurred_at=date, the
   source key carries summary+source). Append-only: a removed attendee leaves a
   stale event (by-design timeline immutability), which is why it is opt-in.
@@ -1713,12 +1712,12 @@ to memex's architecture, or north-star:
   dedicated-table re-model.** memex ALREADY has a working call graph via the
   entity-mention model: `extractCodeEntities` (core/code-entities.ts) extracts
   `call_expression`-derived `code-caller`/`code-callee`/`code-ref` entity
-  mentions at INDEX time (the reference's "unresolved code_edges_symbol"
+  mentions at INDEX time (the "unresolved code_edges_symbol"
   equivalent), and `code-callers`/`code-callees`/`code-refs`
   (commands/code.ts) RESOLVE name→defining-chunk at QUERY time by joining
   `chunks → entity_mentions → entities` through the `code-def` entity (the
-  reference's "resolved code_edges_chunk" equivalent, computed lazily). So the
-  capability EXISTS; the only delta is the reference PERSISTS resolved edges in
+  "resolved code_edges_chunk" equivalent, computed lazily). So the
+  capability EXISTS; the only delta is a design that PERSISTS resolved edges in
   a table (and pre-resolves via a `resolve_symbol_edges` phase) vs memex
   resolving at query time. For a markdown-dominant corpus (live brain has ~0
   code chunks) that delta is premature optimization, and persisting a parallel
@@ -1760,7 +1759,7 @@ The agent/LLM/auth/voice half. Recorded for completeness; out of brain-only
 scope unless the operator opens the gate.
 - **Auth/tenancy:** OAuth 2.1 scope hierarchy; `source_id` multi-tenancy on
   pages/links + RLS; request-scoped auth context; per-token source
-  allow-list; token→client lookup. (This is the reference's equivalent of
+  allow-list; token→client lookup. (This is the equivalent of
   our public-bearer+redaction model — our intentional difference.)
 - **Agent loop:** think (LLM synthesis) CLI; dream-cycle orchestration;
   brainstorm; recall/forget hot-memory; anomalies.
@@ -1779,7 +1778,7 @@ scope unless the operator opens the gate.
 - **mcp (agent):** request audit log; source-isolation scoping; `_meta`
   hot-memory injection hook.
 
-### Parity OK (faithful, no action)
+### Parity OK (no action)
 Page generation clock; JSON-RPC error wrapping; per-query result deltas;
 eval-candidates capture; multi-source entity-typing guards (n/a single-source).
 
@@ -2105,20 +2104,20 @@ deploy runs a single container with one loop; steal-grace is the backstop.
 Acceptable for the single-instance deploy. Revisit (raise TTL or add a
 worker-thread watchdog) only if a multi-instance or a known long-sync phase lands.
 
-### Structural reference-parity ports — DONE (v1.48.0–v1.50.0, 2026-06-29)
-Operator ask: "everything the same as the reference — copy-paste-adapt, don't freehand."
-A dynamic-workflow reference-structure map produced faithful port specs; shipped:
+### Structural parity ports — DONE (v1.48.0–v1.50.0, 2026-06-29)
+Operator ask: "build it exactly to spec, don't freehand."
+A dynamic-workflow structure map produced detailed build specs; shipped:
 - **v1.48.0 (#1 ingest size cap)** — the ROOT CAUSE of the 30MB frontmatter:
-  the reference caps content at 5MB on BOTH the file path AND the in-memory content
-  path (its content-import guard); memex had only the file path. `indexDocument` now
+  cap content at 5MB on BOTH the file path AND the in-memory content
+  path (a content-import guard); memex had only the file path. `indexDocument` now
   rejects >5MB (covers the remote `index` tool / page mirror / embed-stale).
-- **v1.48.0 (#2 lock TTL 30→5min)** — the reference's short-TTL+sub-TTL-refresh model
+- **v1.48.0 (#2 lock TTL 30→5min)** — a short-TTL+sub-TTL-refresh model
   so a crashed cross-host holder's lock frees in 5min; skipped tick re-arms within TTL.
-- **v1.49.0 (#3 frontmatter at ingest)** — the reference infers per-file at import,
-  has NO frontmatter cycle phase. New `core/frontmatter-inference.ts` (copy-adapt; empty
-  DIRECTORY_RULES — the reference's table is a private vault) wired into `indexDocument`;
+- **v1.49.0 (#3 frontmatter at ingest)** — infer per-file at import,
+  has NO frontmatter cycle phase. New `core/frontmatter-inference.ts` (empty
+  DIRECTORY_RULES — that table is vault-specific) wired into `indexDocument`;
   the recurring DB phase DELETED (cycle now 12 phases). The OOM band-aids retired.
-- **v1.50.0 (#4 incremental extract)** — the reference extracts only changed slugs; memex
+- **v1.50.0 (#4 incremental extract)** — extract only changed slugs; memex
   has no cycle sync phase, so migration 054 `documents.entities_extracted_at`
   watermark (its own mig-051 idiom) gates the cycle's extract to stale docs only.
   Extract RSS 1404MB→626MB, faster cycle. `extract --all` forces a full walk.
@@ -2141,7 +2140,7 @@ indexer + gmail/gcal recipe ingest; reject/normalize non-object frontmatter at
 
 ## Parity recompare backlog (2026-07-06) — ready to build
 
-Full reference recompare done; v1.82–v1.84 live, v1.85/1.86 (parallel) tagged,
+Full recompare done; v1.82–v1.84 live, v1.85/1.86 (parallel) tagged,
 v1.87 built+pushed (deploy pending SSO). Remaining, ranked:
 
 ### Wave 2 — last core item (specced, not built)

@@ -87,7 +87,7 @@ describe("classifyQuerySuggestions — recency/salience axes", () => {
   });
 });
 
-describe("classifyIntent — zero-LLM default (reference parity)", () => {
+describe("classifyIntent — zero-LLM default", () => {
   it("resolves without Bedrock and maps the taxonomy onto memex intents", async () => {
     delete process.env.MEMEX_INTENT_LLM; // default: no LLM call
     // Heuristics first.

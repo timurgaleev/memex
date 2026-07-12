@@ -20,10 +20,9 @@ async function apiFetch(path: string, options?: RequestInit) {
   return res.json();
 }
 
-// memex A2 endpoints (http/admin-api.ts). The reference's separate
-// stats/health/oauth-client endpoints collapse onto memex's full-stats +
-// source_grants provisioning surface; the feed/calibration endpoints (B3) are
-// added with their pages.
+// memex A2 endpoints (http/admin-api.ts). Separate stats/health/oauth-client
+// endpoints collapse onto memex's full-stats + source_grants provisioning
+// surface; the feed/calibration endpoints (B3) are added with their pages.
 export const api = {
   login: (token: string) => apiFetch("/admin/login", { method: "POST", body: JSON.stringify({ token }) }),
   signOutEverywhere: () => apiFetch("/admin/api/sign-out-everywhere", { method: "POST" }),

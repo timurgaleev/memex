@@ -110,7 +110,7 @@ describe("addTimelineEvent", () => {
       occurred_at: "2024-01-01",
       event: "raw observation v1",
     });
-    // Identical retry is a no-op — the reference-shaped manual dedup key.
+    // Identical retry is a no-op — the manual dedup key.
     expect(second.inserted).toBe(false);
   });
 

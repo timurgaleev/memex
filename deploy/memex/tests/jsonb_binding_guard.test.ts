@@ -13,7 +13,7 @@
  *   - SQL literals like `'{}'::jsonb` (no param)
  *   - a `jsonb-guard-ok` comment anywhere in the call span (explicit opt-out)
  *
- * Heuristic (precision over recall, mirrors the reference's span scanner):
+ * Heuristic (precision over recall, a balanced-span scanner):
  * flag a query/exec/unsafe call whose balanced argument span contains a bare
  * positional `$N::jsonb` cast AND either a direct `JSON.stringify(` in the
  * span or an identifier the same file assigns from `JSON.stringify(...)`

@@ -2,10 +2,9 @@ import React, { useState, useEffect } from "react";
 import { api } from "../api";
 import { CredentialsSection } from "./Credentials";
 
-// memex's provisioning model is tenant `sources` + JWT-subject `source_grants`
-// (the reference manages OAuth clients; same intent, different shape). This page
-// lists the grants and drives the A2 endpoints: register a source, provision a
-// subject grant, revoke one.
+// memex's provisioning model is tenant `sources` + JWT-subject `source_grants`.
+// This page lists the grants and drives the A2 endpoints: register a source,
+// provision a subject grant, revoke one.
 
 interface Grant {
   sub: string;

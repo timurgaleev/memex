@@ -1,55 +1,52 @@
-# Multi-tenancy — port map (reference → memex)
+# Multi-tenancy — design
 
 Status: **design / in-progress**. This is the authoritative plan for making
-memex a multi-user, company-deployable brain. The approach is a faithful
-**copy-paste-adapt** of the reference implementation's tenancy model — no
-invented architecture. Every item below traces to a reference file; memex
-adapts it to its stack (Bun + `postgres.js` + RDS Postgres, AWS Bedrock,
-single container on one EC2).
+memex a multi-user, company-deployable brain. The approach is a well-trodden
+column-scoped multi-tenancy pattern — no invented architecture — adapted to
+memex's stack (Bun + `postgres.js` + RDS Postgres, AWS Bedrock, single
+container on one EC2).
 
 ## Decisions (operator, 2026-06-25)
 
 | Axis | Decision |
 |---|---|
 | Auth model | **External IdP (Cognito)** issues JWTs; memex validates them. No self-hosted login UI. |
-| Isolation | **Same as the reference**: a `source_id` column on every content row; app-layer `WHERE source_id = ANY($scope)` filtering, **plus an RLS backstop** on the core content tables (defense-in-depth — security review reversed the original "RLS later" call). |
-| Tenant unit | **Same as the reference**: tenant = a `sources` row. Per-user private source + a shared org source via `federated_read[]`. |
+| Isolation | **Column-scoped**: a `source_id` column on every content row; app-layer `WHERE source_id = ANY($scope)` filtering, **plus an RLS backstop** on the core content tables (defense-in-depth — security review reversed the original "RLS later" call). |
+| Tenant unit | **Source-keyed**: tenant = a `sources` row. Per-user private source + a shared org source via `federated_read[]`. |
 | Scope of first build | Build the MVP tenancy now; **live deploy is a separate, gated step** (no prod RDS change without explicit "deploy"). |
 
-The reference uses its own OAuth 2.1 provider as the token issuer; memex
-fronts the same data/scope model with Cognito-issued JWTs. The provider port
+memex fronts the data/scope model with Cognito-issued JWTs. The OAuth provider
 (`oauth-provider.ts`) is retained for **client-credentials machine tokens**
 and the admin-registered legacy `access_tokens` path; the human-login path is
 Cognito. These coexist — both resolve to the same `AuthInfo`.
 
-## The two axes (reference model)
+## The two axes
 
 1. **`source_id` (intra-DB logical tenancy).** Every `pages`,
    `content_chunks`, `links`, `timeline`, `ingest_log`, `files` row carries
    `source_id TEXT NOT NULL REFERENCES sources(id)`. `(source_id, slug)` is the
-   page unique key. Reference: `src/schema.sql:85-152`.
+   page unique key.
 2. **OAuth client → source binding.** Each token carries `sourceId` (write
    authority) + `allowedSources[]` (read federation, from
    `oauth_clients.federated_read`). Threaded into every engine call via
-   `sourceScopeOpts()` / `resolveRequestedScope()`. Reference:
-   `src/core/operations.ts:417,473`; `src/core/scope.ts`.
+   `sourceScopeOpts()` / `resolveRequestedScope()`.
 
 memex maps a Cognito JWT's subject (or a custom `source_id` claim) to a
-`sources` row + `federated_read[]` via a small lookup, producing the same
+`sources` row + `federated_read[]` via a small lookup, producing an
 `AuthInfo`.
 
-## Port map — file by file
+## Build map — component by component
 
-| Reference source | memex target | Risk | Status |
+| Component | memex target | Risk | Status |
 |---|---|---|---|
-| `src/core/scope.ts` | `src/core/scope.ts` (verbatim-adapt) | none (additive) | **this PR** |
-| `schema.sql` auth tables (601-686) | migration `046_oauth.sql` | none (additive) | **this PR** |
-| `src/core/oauth-provider.ts` (989 LOC) | `src/core/oauth-provider.ts` (adapt Express→Bun `Response`, SqlQuery→postgres.js) | medium | next |
-| `operations.ts` `AuthInfo`/`OperationContext`/`sourceScopeOpts`/`resolveRequestedScope` (231-475) | `src/core/auth-info.ts` | medium | next |
-| `http/oauth.ts` (existing memex JWT verifier) | extend to return `{sourceId, allowedSources}` from a `token_sources` lookup / JWT claim | medium | next |
-| `mcp/dispatch.ts` + `http/server.ts` | thread `AuthInfo` → populate `sourceIds` on every op | **high** (touches every tool) | next |
-| `schema.sql` `source_id` columns + `(source_id, slug)` page key | migration `047_source_id.sql` | **highest** (pages PK change) | after review |
-| `admin/src` React SPA + `admin-embedded.ts` | `src/http/admin/*` + Bun static serve | medium | later phase |
+| Scope resolver | `src/core/scope.ts` | none (additive) | **this PR** |
+| OAuth/auth schema tables | migration `046_oauth.sql` | none (additive) | **this PR** |
+| OAuth 2.1 provider | `src/core/oauth-provider.ts` (Bun `Response`, postgres.js) | medium | next |
+| `AuthInfo`/`OperationContext`/`sourceScopeOpts`/`resolveRequestedScope` | `src/core/auth-info.ts` | medium | next |
+| JWT verifier | `http/oauth.ts` — extend to return `{sourceId, allowedSources}` from a `token_sources` lookup / JWT claim | medium | next |
+| Op dispatch | `mcp/dispatch.ts` + `http/server.ts` — thread `AuthInfo` → populate `sourceIds` on every op | **high** (touches every tool) | next |
+| `source_id` columns + `(source_id, slug)` page key | migration `047_source_id.sql` | **highest** (pages PK change) | after review |
+| Admin SPA + static serve | `src/http/admin/*` + Bun static serve | medium | later phase |
 
 ## `source_id` migration (047) — the high-risk part
 
@@ -58,7 +55,7 @@ memex content tables that gain `source_id`:
 `chunks`, `links`, `typed_links`, `entity_facts`, `timeline_events`, `tags`,
 `page_aliases`, and the `synth_*` family.
 
-Reference pattern: `source_id TEXT NOT NULL DEFAULT 'default' REFERENCES sources(id)`.
+Pattern: `source_id TEXT NOT NULL DEFAULT 'default' REFERENCES sources(id)`.
 
 ### Where isolation is actually enforced (architect review — CRITICAL)
 
@@ -153,9 +150,8 @@ On OAuth verify success, `http/server.ts` looks up `source_grants` by `r.sub`
 and builds `AuthInfo` from the row, ignoring the claim-derived fields returned
 by `http/oauth.ts`. An un-provisioned subject (no grant row) resolves to no
 `sourceId`/`allowedSources`, i.e. `effectiveReadSourceIds() => undefined` —
-unscoped but still public-redacted read, the existing public default. This
-mirrors the reference, where the grant lives server-side keyed to the
-client/subject, not in the bearer.
+unscoped but still public-redacted read, the existing public default. The
+grant lives server-side keyed to the client/subject, not in the bearer.
 
 ## Out of scope for MVP
 

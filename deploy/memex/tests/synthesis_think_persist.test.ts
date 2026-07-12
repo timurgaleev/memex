@@ -135,14 +135,14 @@ describe("persistThinkSynthesis", () => {
 describe("saveThinkTake", () => {
   it("queues an idempotent take pinned to the anchor", async () => {
     const first = await saveThinkTake(engine, {
-      claim: "memex will outgrow the reference",
+      claim: "memex will outgrow its current scope",
       anchorSlug: "projects/memex",
       weight: 0.8,
       domain: "product",
     });
     expect(first.inserted).toBe(true);
     const second = await saveThinkTake(engine, {
-      claim: "memex will outgrow the reference",
+      claim: "memex will outgrow its current scope",
       anchorSlug: "projects/memex",
     });
     expect(second.inserted).toBe(false);

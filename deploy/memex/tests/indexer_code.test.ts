@@ -64,8 +64,8 @@ export function beta() { return 2; }
   it("a symbol-less file (re-export barrel) still gets fallback chunks", async () => {
     // Pure re-exports: export_statement only — no function/class/method, no
     // import_statement. Pre-fix this produced a ZERO-chunk document (dead to
-    // search, flagged by orphans-purge); the reference falls back to windowed
-    // module chunks whenever symbol extraction yields nothing.
+    // search, flagged by orphans-purge); we fall back to windowed module chunks
+    // whenever symbol extraction yields nothing.
     const src = `export * from "./alpha.ts";
 export * from "./beta.ts";
 export { gamma } from "./gamma.ts";
