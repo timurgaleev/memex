@@ -112,20 +112,25 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   }
 
   // DCR is OFF by default; spin a DCR-enabled server for the tests that exercise
-  // /register, then tear it down + clear the env.
+  // /register, then tear it down + clear the env. DCR only boots when /authorize
+  // enforces operator consent, so pair MEMEX_ENABLE_DCR with
+  // MEMEX_OAUTH_REQUIRE_LOGIN + an admin token (the secure production posture).
   async function withDcr<T>(fn: (base: string) => Promise<T>): Promise<T> {
     process.env.MEMEX_ENABLE_DCR = "1";
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
     const s = startServer({
       host: "127.0.0.1",
       port: 0,
       storage,
       oauthProvider: provider,
+      adminBootstrapToken: ADMIN_TOKEN,
     });
     try {
       return await fn(`http://127.0.0.1:${s.port}`);
     } finally {
       await s.stop();
       delete process.env.MEMEX_ENABLE_DCR;
+      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
     }
   }
 
@@ -217,11 +222,13 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
 
   it("SECURITY: when DCR is enabled it clamps an elevated scope request to read/write", async () => {
     process.env.MEMEX_ENABLE_DCR = "1";
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
     const gsrv = startServer({
       host: "127.0.0.1",
       port: 0,
       storage,
       oauthProvider: provider,
+      adminBootstrapToken: ADMIN_TOKEN,
     });
     try {
       // A real client copies the whole advertised scope list into its DCR
@@ -244,6 +251,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     } finally {
       await gsrv.stop();
       delete process.env.MEMEX_ENABLE_DCR;
+      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
     }
   });
 
@@ -373,14 +381,15 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(pubBody.client_id).toMatch(/^memex_cl_/);
       expect(pubBody.client_secret).toBeUndefined();
 
-      // Confidential client — secret returned exactly once.
+      // Confidential client — secret returned exactly once. A self-registered
+      // client is held to the consent-bearing authorization_code grant.
       const confRes = await fetch(`${base}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_name: "dcr-conf",
           redirect_uris: [REDIRECT],
-          grant_types: ["client_credentials"],
+          grant_types: ["authorization_code"],
           scope: "read",
         }),
       });
@@ -388,6 +397,155 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       const confBody = (await confRes.json()) as { client_secret?: string };
       expect(confBody.client_secret).toMatch(/^memex_cs_/);
     });
+  });
+
+  it("SECURITY: DCR refuses a client_credentials registration (consent bypass)", async () => {
+    await withDcr(async (base) => {
+      const res = await fetch(`${base}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "m2m-wannabe",
+          redirect_uris: [REDIRECT],
+          grant_types: ["client_credentials"],
+          scope: "read",
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe(
+        "invalid_client_metadata",
+      );
+    });
+  });
+
+  it("DCR defaults an omitted grant_types to authorization_code", async () => {
+    await withDcr(async (base) => {
+      const res = await fetch(`${base}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "dcr-default-grant",
+          redirect_uris: [REDIRECT],
+          token_endpoint_auth_method: "none",
+          scope: "read",
+        }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        client_id: string;
+        grant_types: string[];
+      };
+      expect(body.grant_types).toEqual(["authorization_code"]);
+      const stored = await provider.getClient(body.client_id);
+      expect(stored?.grant_types).toEqual(["authorization_code"]);
+    });
+  });
+
+  it("SECURITY: insecure DCR mode permits a client_credentials registration", async () => {
+    // MEMEX_ENABLE_DCR_INSECURE=1 both opts the provider into the
+    // machine-to-machine path and satisfies the DCR consent boot check without
+    // MEMEX_OAUTH_REQUIRE_LOGIN. Mirror that env with an insecure provider.
+    const insecureProvider = new OAuthProvider({
+      engine: storage.raw(),
+      allowClientCredentialsDcr: true,
+    });
+    process.env.MEMEX_ENABLE_DCR_INSECURE = "1";
+    const s = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      oauthProvider: insecureProvider,
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${s.port}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "m2m-allowed",
+          redirect_uris: [REDIRECT],
+          grant_types: ["client_credentials"],
+          scope: "read",
+        }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        client_secret?: string;
+        grant_types: string[];
+      };
+      expect(body.grant_types).toEqual(["client_credentials"]);
+      expect(body.client_secret).toMatch(/^memex_cs_/);
+    } finally {
+      await s.stop();
+      delete process.env.MEMEX_ENABLE_DCR_INSECURE;
+    }
+  });
+
+  it("registerClient (unit) allows client_credentials when opted in", async () => {
+    const insecureProvider = new OAuthProvider({
+      engine: storage.raw(),
+      allowClientCredentialsDcr: true,
+    });
+    const client = await insecureProvider.registerClient({
+      client_name: "unit-m2m",
+      grant_types: ["client_credentials"],
+      scope: "read",
+    });
+    expect(client.grant_types).toEqual(["client_credentials"]);
+    expect(client.client_secret).toMatch(/^memex_cs_/);
+  });
+
+  it("SECURITY: refuses to boot with DCR on while /authorize auto-approves", async () => {
+    process.env.MEMEX_ENABLE_DCR = "1";
+    try {
+      expect(() =>
+        startServer({
+          host: "127.0.0.1",
+          port: 0,
+          storage,
+          oauthProvider: provider,
+          adminBootstrapToken: ADMIN_TOKEN,
+        }),
+      ).toThrow(/auto-approve/i);
+    } finally {
+      delete process.env.MEMEX_ENABLE_DCR;
+    }
+  });
+
+  it("boots with DCR on when MEMEX_OAUTH_REQUIRE_LOGIN gates /authorize", async () => {
+    process.env.MEMEX_ENABLE_DCR = "1";
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    let s: ServerHandle | undefined;
+    try {
+      s = startServer({
+        host: "127.0.0.1",
+        port: 0,
+        storage,
+        oauthProvider: provider,
+        adminBootstrapToken: ADMIN_TOKEN,
+      });
+      expect(s.port).toBeGreaterThan(0);
+    } finally {
+      if (s) await s.stop();
+      delete process.env.MEMEX_ENABLE_DCR;
+      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    }
+  });
+
+  it("boots with DCR on when MEMEX_ENABLE_DCR_INSECURE acknowledges the risk", async () => {
+    process.env.MEMEX_ENABLE_DCR_INSECURE = "1";
+    let s: ServerHandle | undefined;
+    try {
+      s = startServer({
+        host: "127.0.0.1",
+        port: 0,
+        storage,
+        oauthProvider: provider,
+      });
+      expect(s.port).toBeGreaterThan(0);
+    } finally {
+      if (s) await s.stop();
+      delete process.env.MEMEX_ENABLE_DCR_INSECURE;
+    }
   });
 
   it("DCR (when enabled) rejects a non-loopback http:// redirect_uri", async () => {
