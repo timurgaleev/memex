@@ -23,10 +23,11 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import type { Engine } from "./engine/interface.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
+import { awsRegion } from "./llm/gateway.ts";
 
 const DEFAULT_MODEL_ID =
   process.env.SKILLIFY_MODEL_ID ?? "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
-const DEFAULT_REGION = process.env.AWS_REGION ?? "eu-west-1";
+const DEFAULT_REGION = awsRegion();
 const DEFAULT_SKILLS_DIR =
   process.env.SKILLIFY_SKILLS_DIR ?? "deploy/skills";
 

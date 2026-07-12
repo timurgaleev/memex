@@ -24,7 +24,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
-import { withInflightCap } from "./gateway.ts";
+import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
 
 /** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
 export const DEFAULT_HAIKU_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -92,7 +92,7 @@ function client(region: string): BedrockRuntimeClient {
       maxAttempts: 4,
       retryMode: "adaptive",
       requestHandler: new NodeHttpHandler({
-        requestTimeout: Number(process.env.MEMEX_LLM_TIMEOUT_MS ?? 30000),
+        requestTimeout: llmRequestTimeoutMs(),
       }),
     });
     _clients.set(region, c);
@@ -139,7 +139,7 @@ export async function callHaiku(
   input: LlmCallInput,
   opts: LlmCallOptions = {},
 ): Promise<LlmCallResult> {
-  const region = opts.region ?? process.env.AWS_REGION ?? "eu-west-1";
+  const region = opts.region ?? awsRegion();
   const modelId = resolveModel("utility", opts.modelId);
   const c = client(region);
 

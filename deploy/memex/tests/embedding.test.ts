@@ -45,9 +45,21 @@ test("resolveEmbedDimensions defaults to 1024 when unset/blank", () => {
   expect(resolveEmbedDimensions("   ")).toBe(1024);
 });
 
-test("resolveEmbedDimensions reads a valid positive integer", () => {
-  expect(resolveEmbedDimensions("1536")).toBe(1536);
-  expect(resolveEmbedDimensions("256")).toBe(256);
+test("resolveEmbedDimensions accepts the stored column width (1024)", () => {
+  expect(resolveEmbedDimensions("1024")).toBe(1024);
+});
+
+test("resolveEmbedDimensions rejects a width that won't fit the vector(1024) column", () => {
+  // 256/512 are valid Titan outputs but don't fit the fixed column, so they
+  // must fail at resolution — not on the first DB insert.
+  expect(() => resolveEmbedDimensions("512")).toThrow(/vector\(1024\)/);
+  expect(() => resolveEmbedDimensions("256")).toThrow(/migration/);
+});
+
+test("resolveEmbedDimensions accepts any positive width for a non-default model", () => {
+  // The stored-column gate only binds the default model; a future embedder
+  // (passed explicitly) owns its own coordinated schema swap.
+  expect(resolveEmbedDimensions("1536", "some.future.embedder:0")).toBe(1536);
 });
 
 test("resolveEmbedDimensions fails loud on a bad value", () => {

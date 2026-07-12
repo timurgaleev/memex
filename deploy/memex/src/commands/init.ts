@@ -18,6 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
 import type { Config } from "../core/config.ts";
+import { awsRegion } from "../core/llm/gateway.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = resolve(__dirname, "..", "..", "templates");
@@ -86,7 +87,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
     embedding: {
       provider: "bedrock-titan",
       model: "amazon.titan-embed-text-v2:0",
-      region: process.env.AWS_REGION ?? "eu-west-1",
+      region: awsRegion(),
     },
     storage: {},
   };
