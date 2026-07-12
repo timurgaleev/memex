@@ -1,6 +1,6 @@
 /**
  * Entity merge — fold a duplicate/phantom stub page onto an existing canonical
- * page (reference-parity phantom-redirect, DB-canonical port).
+ * page (phantom-redirect, DB-canonical).
  *
  * `renamePage` (pages.ts) carries a page's substrate onto a NEW slug and REFUSES
  * when the target slug is already taken. A merge is exactly that refusal lifted:

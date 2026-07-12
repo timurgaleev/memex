@@ -40,7 +40,7 @@ without the closing bracket
 `;
 
 describe("lintContent", () => {
-  it("flags the reference rule set with stable rule names", () => {
+  it("flags the full rule set with stable rule names", () => {
     const issues = lintContent(BAD, "bad.md");
     const rules = issues.map((i) => i.rule);
     expect(rules).toContain("llm-preamble");

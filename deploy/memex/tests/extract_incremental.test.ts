@@ -2,7 +2,7 @@
  * Incremental entity extraction (migration 054 watermark) — the cycle's extract
  * phase no longer re-walks the whole corpus every tick. A doc is processed only
  * when never extracted, the extractor version bumped, or it was re-indexed
- * since. `--all` forces a full walk. Mirrors the reference's incremental extract.
+ * since. `--all` forces a full walk.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

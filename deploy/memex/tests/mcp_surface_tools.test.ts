@@ -1,5 +1,5 @@
 /**
- * MCP surface tools added for reference parity — takes_scorecard, takes_calibration,
+ * MCP surface tools — takes_scorecard, takes_calibration,
  * extract_facts, list_skills, get_skill, get_recent_transcripts. Drives the real
  * `dispatchTool` path over PGLite (no Bedrock): each op is registered in TOOL_DEFS,
  * returns real data, and (for the tenant-scoped ones) is a no-op for a

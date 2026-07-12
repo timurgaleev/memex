@@ -472,7 +472,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     });
     // Public ingress, no bearer: the route is exempt from the public guard and,
     // by default (no MEMEX_OAUTH_REQUIRE_LOGIN), auto-approves — issuing a code
-    // back to the registered redirect_uri, matching the reference's flow.
+    // back to the registered redirect_uri.
     const res = await fetch(`${url}/authorize?${q}`, {
       redirect: "manual",
       headers: { "Cf-Connecting-Ip": "9.9.9.9" },

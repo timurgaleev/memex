@@ -1,5 +1,5 @@
 /**
- * Type-diversity dedup layer (G23 reference parity) — pure, no DB.
+ * Type-diversity dedup layer — pure, no DB.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import {
@@ -71,7 +71,7 @@ describe("MEMEX_MAX_TYPE_RATIO", () => {
     else process.env.MEMEX_MAX_TYPE_RATIO = savedEnv;
   });
 
-  it("defaults to the reference's 0.6", () => {
+  it("defaults to 0.6", () => {
     expect(resolveMaxTypeRatio(undefined)).toBe(0.6);
   });
   it("accepts an override and fails loud on garbage", () => {

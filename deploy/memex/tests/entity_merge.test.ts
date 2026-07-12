@@ -1,7 +1,7 @@
 /**
  * Entity merge (phantom-redirect) — folds a duplicate/phantom stub page onto an
  * existing canonical page: re-points facts/links/timeline/tags/aliases, soft-
- * deletes the stub, records a durable redirect. Reference-parity, PGLite-backed.
+ * deletes the stub, records a durable redirect. PGLite-backed.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

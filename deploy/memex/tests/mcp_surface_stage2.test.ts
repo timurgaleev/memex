@@ -1,5 +1,5 @@
 /**
- * Stage-2 MCP surface — the reference-parity op batch: think exposure,
+ * Stage-2 MCP surface — the op batch: think exposure,
  * rebuilt flagship `query`, read-param parity (page_list/page_get/search),
  * facts lifecycle reads, raw_data ops, job lifecycle ops, operator wrappers
  * (sources_list/sources_status/get_status_snapshot/run_doctor), the
@@ -426,7 +426,7 @@ describe("query rebuild (G4)", () => {
     expect(Array.isArray(r.hits)).toBe(true);
   });
 
-  it("flagship path accepts the reference params (keyword-only fallback)", async () => {
+  it("flagship path accepts the flagship params (keyword-only fallback)", async () => {
     const r = payload(
       await call("query", {
         q: "alice",

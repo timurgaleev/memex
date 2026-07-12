@@ -360,7 +360,7 @@ describe("takes-holder allow-list on the read paths", () => {
     expect(effectiveTakesHolders(undefined)).toBeUndefined();
     const base = { token: "t", clientId: "c", scopes: [], isPublic: false };
     // Fail-safe: a REMOTE credential without the knob is floored to ['world']
-    // (reference parity) — only the operator path is unscoped by absence.
+    // (fail-closed) — only the operator path is unscoped by absence.
     expect(effectiveTakesHolders({ ...base })).toEqual(["world"]);
     expect(effectiveTakesHolders({ ...base, takesHolders: [] })).toEqual(["world"]);
     expect(effectiveTakesHolders({ ...base, takesHolders: ["world", "world"] })).toEqual(["world"]);
