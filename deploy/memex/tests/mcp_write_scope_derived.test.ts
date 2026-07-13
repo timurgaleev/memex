@@ -40,6 +40,10 @@ const GOLDEN_WRITE_TOOLS = [
   // persist to the entity_facts ledger; the whole op is marked write, so a
   // read-scoped token cannot reach the paid path.
   "extract_facts",
+  // ontology_propose writes a dimensional observation to entity_facts;
+  // chronicle_backfill enqueues paid extraction jobs (also operator-only).
+  "ontology_propose",
+  "chronicle_backfill",
 ].sort();
 
 describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {
