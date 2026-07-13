@@ -66,7 +66,7 @@ so future contributors don't reach for them blindly.
 | `core/contextual-reembed.ts` + `core/search/contextual-llm.ts` | **Opt-in** contextual retrieval (LLM tier): before embedding, a Haiku pass prepends a short document-situating blurb to each chunk so the vector carries whole-doc context. Tracked by `chunks.contextual_embedded` (migration 057); `memex reindex --contextual` re-embeds the corpus. |
 | `core/search/query-cache.ts` | Semantic query cache (migration 065): a normalized-query + embedding-nearest lookup that returns a prior result set when a new query is semantically close enough, saving a full hybrid retrieval + embed round-trip. |
 | `core/embed-backfill.ts` + `core/embedding.ts` | Embed provenance. Every vector is stamped with an `embedding_signature` (model + dim + contextual flag, migration 066); the opt-in `MEMEX_REEMBED_ON_SIGNATURE_CHANGE` auto-invalidates + re-embeds any row whose stored signature drifts from the current one. `core/embed-skip.ts` marks oversize / junk frontmatter as keyword-only (indexed, never embedded). Re-indexing a doc reuses a chunk's stored vector when its text is unchanged, so an edit only pays to embed the chunks that actually moved. |
-| `core/scope.ts` + `core/tenant-grants.ts` + `core/visibility.ts` | Tenancy / scope. Every row carries a `source_id` tenant key; Postgres RLS (migration 049) + write-time fail-closed checks isolate tenants, `tenant-grants.ts` records cross-tenant read grants, and `scope.ts` defines the OAuth scope hierarchy (`read`/`write`/`admin`/`sources_admin`/`users_admin`/`agent`) the ingress gate enforces. |
+| `core/scope.ts` + `core/visibility.ts` | Source scoping. Every row carries a `source_id` key; Postgres RLS (migration 049) + write-time fail-closed checks confine each remote credential (OAuth client / PAT) to its granted sources, and `scope.ts` defines the OAuth scope hierarchy (`read`/`write`/`admin`/`sources_admin`/`users_admin`/`agent`) the ingress gate enforces. |
 | `http/oauth.ts` | **Default-OFF** optional OAuth/JWT bearer path. When `auth.oauth.enabled`, a Bearer JWT is verified against the issuer JWKS (RS256/ES256 via WebCrypto, no new dep); a valid token maps to the **public, redacted** read scope only — never internal, never a write path. |
 
 ## Access — MCP only
@@ -217,11 +217,12 @@ The boot flow (cold start from a new instance):
   slices only spend when explicitly enabled.
 - **MCP only, no agent framework.** memex speaks plain MCP JSON-RPC and
   nothing else — no chat surface, no bot, no bespoke API. One contract.
-- **Single-operator default, multi-tenant-capable.** The default deploy
-  is one user's brain on one account. The substrate is nonetheless
-  tenant-isolated: every row carries a `source_id` tenant key enforced by
-  Postgres RLS + write-time fail-closed checks, so multiple sources can
-  share one instance without leaking across the boundary.
+- **One person's brain, scoped credentials.** A deploy is one user's
+  brain on one account. The substrate is nonetheless source-isolated:
+  every row carries a `source_id` key enforced by Postgres RLS +
+  write-time fail-closed checks, so each remote credential (OAuth app,
+  PAT) sees only its granted sources — a leaked app token never exposes
+  the whole brain.
 
 ## Out-of-scope (deferred — see `TODO.md`)
 

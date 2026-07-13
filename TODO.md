@@ -115,7 +115,7 @@ runtime/wall-clock budget cap, `import` resumable checkpoint.
 A live prod audit (SSM → container + RDS) found prod **healthy and in sync**:
 container healthy/running/restarts=0 (OOM resolved, cycle rss 122MB), doctor all
 green (brain 12/0, ops 7/0), migrations prod hi=94 == code 094, 0 NULL-source
-docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
+docs, 8 sources, no errors in 24h logs. Follow-ups surfaced:
 
 - **[DONE 2026-07-10] Prod git is missing recent tags.** `git -C /opt/memex
   fetch --tags` run on the live host; `git describe` now reports `v1.98.0`.
@@ -127,10 +127,9 @@ docs, 8 sources incl. timur/zukhra, no errors in 24h logs. Follow-ups surfaced:
   EVERY `documents.source_path` including virtual rows (`page://`,
   `page-truth://`, `gmail:`, `gcal:`) that never exist on disk → perpetual
   flags. Fixed: only absolute paths are probed (orphans-purge.ts).
-- **[INFO] `source_grants=0`.** The timur/zukhra tenants hold no federated-read
-  grant, so each reads only its own source. Confirm this is intended isolation vs
-  a pending operator federate SQL (agent prod auth-writes are guardrail-blocked;
-  operator runs the 1-line grant if federation is wanted).
+- **[RESOLVED 2026-07-13] `source_grants=0`.** Moot: the brain is
+  single-person by decision — the second tenant was removed from prod and the
+  `source_grants` table dropped (migration 098).
 - **[LOW 2026-07-10, codex P2] Relative-path docs skip orphan disk-probe.**
   `memex index foo.ts` persists the caller's relative source_path unchanged;
   the orphans-purge disk probe now only checks absolute paths, so a vanished
@@ -760,12 +759,19 @@ shippable brain-only gaps found:
 > (v1.10.0–v1.16.0). These are the remaining pieces, deferred because they need
 > infra/provider decisions, not because they're out of scope.
 
-### Multi-tenancy (company multi-user) — IN PROGRESS (2026-06-25)
+### Multi-tenancy (company multi-user) — CLOSED (2026-07-13: single-person brain)
 
-Design + must-fix checklist: `docs/tenancy.md`. Operator decisions locked:
-external IdP (Cognito) issues JWTs; tenant = a `sources` row; per-user private
-source + shared org source via `federated_read[]`; app-layer `source_id` filter
-+ RLS backstop.
+> **Resolution (operator, 2026-07-13):** the brain serves exactly ONE person.
+> The second tenant was removed from prod, the `tenant` CLI + `source_grants`
+> table (migration 098) + provisioning endpoints + `docs/tenancy.md` were
+> retired. Per-credential source scoping (`oauth_clients.source_id` /
+> `federated_read`, PAT `permissions.source_id`) and all read fences STAY —
+> they confine the operator's own remote clients. The historical worklog below
+> is kept for the record.
+
+Original design decisions (superseded): external IdP (Cognito) issues JWTs;
+tenant = a `sources` row; per-user private source + shared org source via
+`federated_read[]`; app-layer `source_id` filter + RLS backstop.
 
 - [x] Scope model `src/core/scope.ts` + tests (`tests/scope.test.ts`).
 - [x] Additive auth tables — migration `046_oauth.sql` (clients/tokens/codes,

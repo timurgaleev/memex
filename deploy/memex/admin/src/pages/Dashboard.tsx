@@ -10,7 +10,7 @@ interface FullStats {
     queue_depth: number;
     failed_jobs_24h: number;
   } | null;
-  counts: { documents: number; pages: number; chunks: number; grants: number } | null;
+  counts: { documents: number; pages: number; chunks: number } | null;
 }
 
 interface FeedEvent {
@@ -73,10 +73,6 @@ export function DashboardPage() {
         <div className="metric">
           <div className="metric-value">{c?.chunks ?? "—"}</div>
           <div className="metric-label">Chunks</div>
-        </div>
-        <div className="metric">
-          <div className="metric-value">{c?.grants ?? "—"}</div>
-          <div className="metric-label">Tenant Grants</div>
         </div>
       </div>
 

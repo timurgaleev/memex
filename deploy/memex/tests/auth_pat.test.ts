@@ -141,11 +141,11 @@ describe("personal access tokens (access_tokens fallback)", () => {
     const { token, hash } = mintPat();
     await insertPat("scoped-scalar", hash, {
       takes_holders: ["world"],
-      source_id: "zukhra",
+      source_id: "guest",
     });
     const info = await provider.verifyAccessToken(token);
-    expect(info.sourceId).toBe("zukhra");
-    expect(info.allowedSources).toEqual(["zukhra"]);
+    expect(info.sourceId).toBe("guest");
+    expect(info.allowedSources).toEqual(["guest"]);
   });
 
   it("a PAT without a source grant falls back to the 'default' floor", async () => {

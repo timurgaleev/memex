@@ -59,9 +59,8 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
   pages most likely relevant &mdash; deterministic, no AI guessing.
 - **Small and boring on purpose.** No orchestrator, no SaaS to depend on. It
   fits on one small EC2 box, and you can read the whole thing in an afternoon.
-  Multi-source tenant isolation is built in (each source scoped, opt-in
-  fail-closed) so one box can serve more than one person &mdash; see
-  [docs/tenancy.md](./docs/tenancy.md).
+  One brain serves one person; every remote credential (OAuth client, PAT) is
+  scoped to the sources it may read (opt-in fail-closed).
 
 ## How it's different
 
@@ -147,7 +146,6 @@ Connecting Claude Code (or any MCP client):
 [ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [Deployment](./docs/DEPLOYMENT.md) ·
 [Configuration](./docs/CONFIGURATION.md) ·
-[Tenancy](./docs/tenancy.md) ·
 [API / MCP tools](./deploy/memex/docs/API.md) ·
 [Operations](./deploy/memex/docs/OPERATIONS.md) ·
 [Privacy](./PRIVACY.md) · [Changelog](./CHANGELOG.md)

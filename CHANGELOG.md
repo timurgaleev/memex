@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+- **Single-person brain: the multi-person tenant provisioning surface is
+  gone.** One brain serves one person; per-credential source scoping stays.
+  Removed the `tenant` CLI (`add`/`grant`/`list`/`revoke`), the
+  `source_grants` table (migration 098 drops it — it was the entitlement
+  floor for an external-IdP JWT path that was never wired into ingress),
+  `core/tenant-grants.ts`, the admin provisioning endpoints
+  (`GET|POST /admin/api/grants`, `POST /admin/api/sources`,
+  `POST /admin/api/revoke-grant`, `GET /admin/api/agent-config`) and the
+  grants UI on the admin Agents page (the credentials view remains), plus
+  `docs/tenancy.md`. What STAYS is the security layer that also protects a
+  single person's own remote clients: `oauth_clients.source_id` /
+  `federated_read` scoping, PAT `permissions.source_id`, the per-op scope
+  gate, fail-closed tenancy mode, operator-only tools, and the diary/takes
+  fences.
+
+### Fixed
+- `full-stats` no longer counts `source_grants`; the admin dashboard drops
+  the tenant-grants metric.
+
 ## [1.100.0] — 2026-07-12
 
 ### Added

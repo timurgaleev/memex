@@ -207,11 +207,11 @@ that stops making calls once the budget is spent. All default OFF.
 
 ---
 
-## 5. Multi-tenancy & auth
+## 5. Auth & source scoping
 
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
-| `MEMEX_TENANT_FAIL_CLOSED` | off (`=1` on) | When on, an authenticated PUBLIC principal with no source grant reads/writes **nothing** instead of the redacted whole brain. The static bearer (no `authInfo`) is unaffected. Flip once a real remote OAuth tenant with a grant exists. | free |
+| `MEMEX_TENANT_FAIL_CLOSED` | off (`=1` on) | When on, an authenticated PUBLIC principal with no source grant reads/writes **nothing** instead of the redacted whole brain. The static bearer (no `authInfo`) is unaffected. Flip once a real remote OAuth client with a grant exists. | free |
 | `MEMEX_PUBLIC_WRITE` | `0` | When `1`, the public `/mcp` path may call the constructive write tools (`index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`, `link`). Destructive ops + privacy-sensitive reads stay internal-only regardless. Pair with daily bearer rotation. | free |
 | `MEMEX_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. | free |
 | `MEMEX_ADMIN_BOOTSTRAP` | unset | Admin-panel bootstrap token consumed by `serve.ts` at start. Must be 32+ chars from `[A-Za-z0-9_-]` or the server refuses to boot; unset ⇒ an ephemeral per-run token is printed to stderr. | free |
@@ -223,8 +223,6 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_DOCTOR_PER_SOURCE` | off (`=1` on) | Makes `doctor` WARN per-source (per-tenant) when a single source has chunks but zero embeddings. | free |
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
-
-See `docs/tenancy.md` for the full multi-tenant model.
 
 ---
 

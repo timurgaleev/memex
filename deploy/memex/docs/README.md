@@ -43,9 +43,9 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
   layered with `pages`, `links`, `entity_facts`, `timeline_events`,
   `hot_memory`, `jobs`, and `subagent_*` ledgers added in phases
   A.1–A.5.
-- Multi-source tenant isolation (each source scoped; opt-in fail-closed via
-  `MEMEX_TENANT_FAIL_CLOSED`). One deployment can serve more than one person;
-  see `../../docs/tenancy.md`.
+- Per-credential source scoping (each remote client confined to its sources;
+  opt-in fail-closed via `MEMEX_TENANT_FAIL_CLOSED`). One brain serves one
+  person.
 
 ## Quick CLI surface
 

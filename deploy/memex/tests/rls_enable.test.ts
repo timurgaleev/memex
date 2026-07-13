@@ -51,7 +51,6 @@ describe("migration 049 — RLS enable", () => {
       "timeline_events",
       "tags",
       "sources",
-      "source_grants",
       "oauth_clients",
       "oauth_tokens",
       "access_tokens",
@@ -72,9 +71,8 @@ describe("migration 049 — RLS enable", () => {
       "SELECT COUNT(*)::int AS n FROM pages",
     );
     expect(read.rows[0]?.n).toBe(0);
-    // kind='other' + path_prefix='tenant:<id>' is exactly how the `tenant add`
-    // CLI provisions a tenant source (commands/tenant.ts), so this mirrors a
-    // real write against an RLS-enabled table.
+    // kind='other' + path_prefix='tenant:<id>' mirrors a real source-registry
+    // write against an RLS-enabled table.
     const ins = await engine.query<{ id: string }>(
       `INSERT INTO sources (id, kind, path_prefix)
        VALUES ('rls-probe', 'other', 'tenant:rls-probe')
