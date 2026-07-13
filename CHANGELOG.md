@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.101.0] — 2026-07-13
+
 ### Removed
 - **Single-person brain: the multi-person tenant provisioning surface is
   gone.** One brain serves one person; per-credential source scoping stays.
