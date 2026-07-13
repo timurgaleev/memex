@@ -38,7 +38,6 @@ import {
   isIndexedPolicy,
 } from "./commands/sources.ts";
 import { runCode, type CodeSub } from "./commands/code.ts";
-import { runTenant, type TenantSub } from "./commands/tenant.ts";
 import { runAuth } from "./commands/auth.ts";
 
 const VALID_JOB_STATUSES: ReadonlySet<JobStatus> = new Set([
@@ -218,11 +217,6 @@ function printUsage(): void {
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
-  console.log("  tenant add <id> [--name D]   register a tenant source (idempotent)");
-  console.log("  tenant grant <sub> --source <id> [--read <id1,id2,...>]");
-  console.log("                               upsert a write-source + federated-read grant for a JWT subject");
-  console.log("  tenant list                  JSON list of all subject grants");
-  console.log("  tenant revoke <sub>          delete the grant for a JWT subject");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
   console.log("                               [--token-endpoint-auth-method none|client_secret_post|client_secret_basic]");
   console.log("                               register a client_credentials OAuth client (prints secret once;");
@@ -1286,28 +1280,6 @@ async function main(argv: readonly string[]): Promise<number> {
       const batch = values.get("--batch-size");
       if (batch) opts.batchSize = Number(batch);
       await runMigrateEngine(opts);
-      return 0;
-    }
-    case "tenant": {
-      const sub = positional[0];
-      if (sub !== "add" && sub !== "grant" && sub !== "list" && sub !== "revoke") {
-        console.error("memex tenant: subcommand required (add|grant|list|revoke)");
-        return 1;
-      }
-      const opts: Parameters<typeof runTenant>[0] = { sub: sub as TenantSub };
-      if (sub === "add") {
-        opts.id = positional[1];
-        const name = values.get("--name");
-        if (name) opts.name = name;
-      } else if (sub === "grant") {
-        opts.sub_jwt = positional[1];
-        opts.source = values.get("--source");
-        const readStr = values.get("--read");
-        if (readStr) opts.read = readStr.split(",").map((s) => s.trim()).filter(Boolean);
-      } else if (sub === "revoke") {
-        opts.sub_jwt = positional[1];
-      }
-      await runTenant(opts);
       return 0;
     }
     case "auth": {

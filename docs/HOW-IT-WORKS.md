@@ -107,13 +107,13 @@ So internal models make search *more accurate* and let the brain *understand its
 own content* — the final answer is still written by your MCP client using what was
 retrieved.
 
-## 5. Multi-tenant by design
+## 5. One person, scoped clients
 
-One deployment can serve more than one person or company. Each is an isolated
-`source_id`; sharing is explicit (`federated_read` grants). Reads and writes are
-scoped to the caller's grant, and operational tools (`stats`, `advisor`, the job
-queue) are operator-only. A blind clone stays single-user; the isolation only
-matters once you provision a second tenant. See [tenancy.md](./tenancy.md).
+A brain serves exactly one person. What IS scoped is every remote credential:
+an OAuth client or PAT carries a write source and a `federated_read` set, and
+reads/writes are confined to that grant, so a leaked app token never exposes
+the whole brain. Operational tools (`stats`, `advisor`, the job queue) are
+operator-only. A blind clone is single-user out of the box.
 
 ## 6. The shape (and why)
 

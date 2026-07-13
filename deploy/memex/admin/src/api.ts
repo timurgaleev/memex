@@ -21,20 +21,12 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 // memex A2 endpoints (http/admin-api.ts). Separate stats/health/oauth-client
-// endpoints collapse onto memex's full-stats + source_grants provisioning
-// surface; the feed/calibration endpoints (B3) are added with their pages.
+// endpoints collapse onto memex's full-stats + credentials surface; the
+// feed/calibration endpoints (B3) are added with their pages.
 export const api = {
   login: (token: string) => apiFetch("/admin/login", { method: "POST", body: JSON.stringify({ token }) }),
   signOutEverywhere: () => apiFetch("/admin/api/sign-out-everywhere", { method: "POST" }),
   fullStats: () => apiFetch("/admin/api/full-stats"),
-  grants: () => apiFetch("/admin/api/grants"),
-  registerSource: (id: string, name?: string) =>
-    apiFetch("/admin/api/sources", { method: "POST", body: JSON.stringify({ id, name }) }),
-  grant: (sub: string, source: string, read?: string[]) =>
-    apiFetch("/admin/api/grants", { method: "POST", body: JSON.stringify({ sub, source, ...(read ? { read } : {}) }) }),
-  revokeGrant: (sub: string) =>
-    apiFetch("/admin/api/revoke-grant", { method: "POST", body: JSON.stringify({ sub }) }),
-  agentConfig: (sub: string) => apiFetch(`/admin/api/agent-config?sub=${encodeURIComponent(sub)}`),
   agents: () => apiFetch("/admin/api/agents"),
   mintApiKey: (name: string) =>
     apiFetch("/admin/api/api-keys", { method: "POST", body: JSON.stringify({ name }) }),
