@@ -337,7 +337,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_delete",
     scope: "write",
     description:
-      "Soft-delete a page (sets deleted_at; the row + page_versions chain stays for audit). Idempotent. WRITE — internal/MCP-stdio only.",
+      "Soft-delete a page (sets deleted_at; the row + page_versions chain stays for audit). Idempotent. WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       slug: str(req),
       written_by: str(),
@@ -347,7 +347,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_restore",
     scope: "write",
     description:
-      "Undelete a soft-deleted page (clears deleted_at). The inverse of page_delete; no-op if the page is missing or already live. WRITE — internal/MCP-stdio only.",
+      "Undelete a soft-deleted page (clears deleted_at). The inverse of page_delete; no-op if the page is missing or already live. WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       slug: str(req),
       written_by: str(),
@@ -357,7 +357,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_revert",
     scope: "write",
     description:
-      "Roll a page's body back to a prior page_versions snapshot. Creates a NEW version with the old content (history is append-only). `version` is the target version_n (see page_versions). WRITE — internal/MCP-stdio only.",
+      "Roll a page's body back to a prior page_versions snapshot. Creates a NEW version with the old content (history is append-only). `version` is the target version_n (see page_versions). WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       slug: str(req),
       version: int({ ...req, minimum: 1 }),
@@ -433,7 +433,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "unlink",
     scope: "write",
     description:
-      "Remove a typed link. Idempotent — returns removed=0 if no row matched. WRITE — internal/MCP-stdio only.",
+      "Remove a typed link. Idempotent — returns removed=0 if no row matched. WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       source_slug: str(req),
       target_slug: str(req),
@@ -655,7 +655,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "remove_tag",
     scope: "write",
     description:
-      "Remove a tag from a page. Idempotent (removing an absent tag is a no-op). WRITE — internal/MCP-stdio only.",
+      "Remove a tag from a page. Idempotent (removing an absent tag is a no-op). WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       slug: str(req),
       tag: str(req),
@@ -790,7 +790,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "forget_fact",
     scope: "write",
     description:
-      "Forget (soft-delete) a fact by id — stamps forgotten_at so the fact stops surfacing in recall; the row is retained for audit. Idempotent: a second forget is a no-op (forgotten=false), an unknown id reports found=false. Optional `reason` is stored on the tombstoned row. WRITE — internal/MCP-stdio only.",
+      "Forget (soft-delete) a fact by id — stamps forgotten_at so the fact stops surfacing in recall; the row is retained for audit. Idempotent: a second forget is a no-op (forgotten=false), an unknown id reports found=false. Optional `reason` is stored on the tombstoned row. WRITE — static public bearer: forbidden; authenticated token: requires the `write` scope (source-scoped); internal token: allowed.",
     params: {
       id: int({ ...req, minimum: 1, description: "Fact id to forget (entity_facts.id)." }),
       reason: str({ description: "Optional audit note stored on the forgotten row." }),
@@ -812,7 +812,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "purge_deleted_pages",
     scope: "write",
     description:
-      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only.",
+      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only (the irreversible hard-delete is never token-reachable, unlike the reversible page_delete).",
     params: {
       older_than_hours: num({
         minimum: 0,

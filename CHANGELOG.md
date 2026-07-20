@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Reversible destructive page/graph/fact tools are now reachable by a
+  `write`-scoped token, not only the internal token.** `page_delete`,
+  `page_restore`, `page_revert`, `unlink`, `remove_tag`, and `forget_fact`
+  were callable over HTTP only with the shared internal token; an
+  authenticated OAuth/PAT caller may now invoke them when its grant covers the
+  op (`write` scope), and every mutation is scoped to the token's own source.
+  This matches the reference model (delete/restore = `write`) and lets a
+  remote client manage its own pages. The static public bearer stays forbidden
+  from all of them, and the bare docker-bridge path still requires the
+  internal token. `page_delete` remains a soft-delete with the 72h recovery
+  window; the irreversible `purge_deleted_pages` hard-delete stays
+  internal-token-only and is never token-reachable.
+
 ## [1.101.0] — 2026-07-13
 
 ### Removed

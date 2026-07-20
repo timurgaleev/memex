@@ -22,6 +22,7 @@ import { publishToolCallEvent } from "../http/admin-events.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
+import { TOKEN_SCOPED_DESTRUCTIVE_TOOLS } from "../http/public_guard.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -338,10 +339,20 @@ async function handleSingle(
       // compromised sibling on the docker bridge calls `tools/call
       // name=index` to poison the RAG corpus. Read tools are unaffected,
       // so the bridge's `search` calls keep working with no token.
+      //
+      // Exception (reference parity): an AUTHENTICATED token principal
+      // (ctx.authInfo present — OAuth/PAT, never the static public bearer or
+      // a bare bridge sibling) may reach the destructive write set; the
+      // per-op scope gate in dispatch enforces write/admin and the token's
+      // writeSource scopes the mutation to its own source.
       if (
         !ctx.isPublic &&
         forbidPublic(params.name) &&
-        ctx.internalAuthOk === false
+        ctx.internalAuthOk === false &&
+        !(
+          ctx.authInfo !== undefined &&
+          TOKEN_SCOPED_DESTRUCTIVE_TOOLS.has(params.name)
+        )
       ) {
         logToolCallToDb(storage.engine(), {
           tool: params.name,
