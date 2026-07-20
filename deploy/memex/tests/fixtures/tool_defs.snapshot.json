@@ -1279,7 +1279,7 @@
   },
   {
     "name": "purge_deleted_pages",
-    "description": "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only (the irreversible hard-delete is never token-reachable, unlike the reversible page_delete).",
+    "description": "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Reference parity (delete_page = write, purge = admin).",
     "inputSchema": {
       "type": "object",
       "properties": {

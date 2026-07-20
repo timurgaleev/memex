@@ -180,16 +180,36 @@ describe("write-scoped token on destructive tools", () => {
   });
 });
 
-describe("purge_deleted_pages stays internal-token-only", () => {
-  // The irreversible hard-delete is deliberately NOT in the token exemption
-  // set, so even a fully-scoped token hits the internal-token wall — it is not
-  // a reversible op a remote client should reach. (The legacy-PAT grandfather
-  // grants every PAT admin, which is exactly why an admin-scoped exemption
-  // would be an over-grant.)
-  it("a token cannot hard-purge — internal token required", async () => {
+describe("purge_deleted_pages needs the admin scope (reference parity)", () => {
+  it("a write-only token is refused with insufficient_scope", async () => {
+    const writer = await mint("read write");
+    const r = await call("purge_deleted_pages", {}, writer);
+    expect(toolError(r)).toBe("insufficient_scope");
+  });
+
+  it("an admin-scoped token hard-purges its own source only", async () => {
     const admin = await mint("read write admin");
+    await call("page_put", { slug: "notes/reapme", type: "note" }, admin);
+    await call("page_delete", { slug: "notes/reapme" }, admin);
+
     const r = await call("purge_deleted_pages", { older_than_hours: 0 }, admin);
-    expect(r.error?.code).toBe(ERR_UNAUTHORIZED);
-    expect(r.error.message).toMatch(/internal token/);
+    expect(toolError(r)).toBeUndefined();
+    expect(JSON.parse(r.result.content[0].text).ok).toBe(true);
+
+    const gone = await getPage(storage, "notes/reapme", undefined, {
+      includeDeleted: true,
+    });
+    expect(gone).toBeNull();
+  });
+
+  it("the static public bearer stays forbidden from purge", async () => {
+    const r = await call(
+      "purge_deleted_pages",
+      {},
+      PUB_TOKEN,
+      { "Cf-Connecting-Ip": "1.2.3.4" },
+    );
+    expect(r.error).toBeDefined();
+    expect(r.error.message).toMatch(/not callable from the public ingress/);
   });
 });

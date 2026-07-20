@@ -3,7 +3,7 @@
  * rebuilt flagship `query`, read-param parity (page_list/page_get/search),
  * facts lifecycle reads, raw_data ops, job lifecycle ops, operator wrappers
  * (sources_list/sources_status/get_status_snapshot/run_doctor), the
- * operator-only purge gate, and the client spend-ledger enforcement on paid
+ * admin-scoped purge gate, and the client spend-ledger enforcement on paid
  * ops. Drives the real dispatchTool path over PGLite; no Bedrock (paid cores
  * stay default-OFF, embed calls fail soft to keyword-only).
  */
@@ -335,11 +335,17 @@ describe("operator wrappers (G42)", () => {
 });
 
 describe("exposure tightening (G47)", () => {
-  it("purge_deleted_pages is operator-only now", async () => {
-    const denied = await call("purge_deleted_pages", { older_than_hours: 0 }, auth(A));
+  it("purge_deleted_pages needs the admin scope (reference parity)", async () => {
+    // A read/write tenant token lacks admin → per-op scope gate refuses it.
+    const denied = await call("purge_deleted_pages", { older_than_hours: 0 }, auth(A, ["read", "write"]));
     expect(denied.isError).toBe(true);
-    expect(JSON.parse(denied.content[0]!.text).error).toBe("permission_denied");
-    // The operator path still works (nothing old enough to reap here).
+    expect(JSON.parse(denied.content[0]!.text).error).toBe("insufficient_scope");
+    // An admin-scoped token reaches it (nothing old enough to reap here).
+    const okAdmin = payload(
+      await call("purge_deleted_pages", { older_than_hours: 9999 }, auth(A, ["read", "write", "admin"])),
+    );
+    expect(okAdmin.ok).toBe(true);
+    // The operator path (no authInfo) still works.
     const ok = payload(await call("purge_deleted_pages", { older_than_hours: 9999 }));
     expect(ok.ok).toBe(true);
   });
