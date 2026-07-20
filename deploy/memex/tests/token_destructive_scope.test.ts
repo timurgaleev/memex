@@ -15,6 +15,7 @@ import { Storage } from "../src/core/storage.ts";
 import { startServer, type ServerHandle } from "../src/http/server.ts";
 import { OAuthProvider } from "../src/core/oauth-provider.ts";
 import { getPage } from "../src/core/pages.ts";
+import { registerSource } from "../src/core/sources.ts";
 
 const PUB_TOKEN = "pub-bearer-xyz789";
 const INT_TOKEN = "internal-shared-token-abcdef";
@@ -98,6 +99,14 @@ beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-tok-destr-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
+  // A second source for the cross-source isolation test. `oauth_clients.source_id`
+  // has an FK to `sources`, so the row must exist before minting a client for it
+  // (Postgres enforces this; PGLite is laxer — this keeps CI + local in step).
+  await registerSource(storage.engine(), {
+    id: "othersrc",
+    kind: "vault",
+    pathPrefix: "/other",
+  });
   provider = new OAuthProvider({ engine: storage.raw() });
   server = startServer({
     host: "127.0.0.1",
