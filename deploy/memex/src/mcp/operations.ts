@@ -40,11 +40,13 @@ export interface Operation {
   description: string;
   /**
    * Authorization scope, co-located with the op. A `"write"` op needs a write
-   * source grant (public callers without one are denied); default `"read"`.
-   * `WRITE_SCOPED_TOOLS` is DERIVED from this field (see below) so the write set
-   * has a single source of truth on the op itself, not a parallel hand-kept list.
+   * source grant (public callers without one are denied); an `"admin"` op needs
+   * the admin scope; default `"read"`. Mirrors the reference scope hierarchy
+   * (see core/scope.ts). `WRITE_SCOPED_TOOLS` is DERIVED from this field (see
+   * below) so the write set has a single source of truth on the op itself, not
+   * a parallel hand-kept list.
    */
-  scope?: "read" | "write";
+  scope?: "read" | "write" | "admin";
   /** Declaration order is preserved into `properties` + `required`. */
   params: Record<string, ParamDef>;
 }
@@ -810,9 +812,9 @@ export const OPERATIONS: readonly Operation[] = [
   },
   {
     name: "purge_deleted_pages",
-    scope: "write",
+    scope: "admin",
     description:
-      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — internal/MCP-stdio only (the irreversible hard-delete is never token-reachable, unlike the reversible page_delete).",
+      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Reference parity (delete_page = write, purge = admin).",
     params: {
       older_than_hours: num({
         minimum: 0,
@@ -1283,5 +1285,10 @@ export const OPERATIONS: readonly Operation[] = [
  * dispatch gate imports this instead of keeping its own copy.
  */
 export const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set(
-  OPERATIONS.filter((op) => op.scope === "write").map((op) => op.name),
+  // Admin-scoped mutations (purge_deleted_pages) are included: the fail-closed
+  // write gate must reject a scopeless authenticated public principal for them
+  // too, before the per-op scope gate even runs.
+  OPERATIONS.filter((op) => op.scope === "write" || op.scope === "admin").map(
+    (op) => op.name,
+  ),
 );

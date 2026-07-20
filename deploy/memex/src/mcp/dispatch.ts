@@ -293,11 +293,10 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // Whole-brain operational snapshots (admin scope).
   "get_status_snapshot",
   "run_doctor",
-  // Hard-delete escape hatch: purge is local-only, so a tenant token must not
-  // reach it. It also stays out of TOKEN_SCOPED_DESTRUCTIVE_TOOLS, so the
-  // transport's internal-token wall already blocks it for tokens — this line
-  // is the defence-in-depth for the OAuth-tenant path.
-  "purge_deleted_pages",
+  // purge_deleted_pages is NOT operator-only: reference parity gates it at the
+  // `admin` scope (the per-op scope gate below enforces it), reachable by an
+  // admin-scoped token — matching gbrain. The static bearer + internal path
+  // are never gated here anyway.
   // chronicle_backfill sweeps EVERY conversation-shape page in scope and spends
   // (queued) chronicle-extract work — an operator maintenance action, not a
   // tenant-reachable one.

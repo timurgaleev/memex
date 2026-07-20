@@ -399,20 +399,21 @@ export function isPublicMcpToolForbidden(toolName: string): boolean {
 }
 
 /**
- * Reversible destructive writes an AUTHENTICATED token principal may call when
- * its `write` grant covers the op (per-op scope gate in dispatch). The
- * transport's internal-token wall exempts exactly this set for token callers;
- * the static public bearer (authInfo === undefined on the public ingress)
- * never reaches them. Every write here is source-scoped via the token's
- * writeSource, so a token cannot touch another source's rows.
+ * Destructive writes an AUTHENTICATED token principal may call when its grant
+ * covers the op (per-op scope gate in dispatch: `write` for the reversible six,
+ * `admin` for purge_deleted_pages). The transport's internal-token wall exempts
+ * exactly this set for token callers; the static public bearer (authInfo ===
+ * undefined on the public ingress) never reaches them. Every write here is
+ * source-scoped via the token's writeSource, so a token cannot touch another
+ * source's rows.
  *
- * `purge_deleted_pages` is deliberately NOT here: it is the irreversible
- * HARD-delete primitive and stays internal-token-only. A soft page_delete
- * plus the autopilot purge cycle already reaps a token's own deletions after
- * the recovery window — a remote client never needs the manual hard-purge.
- * (Keeping purge out also sidesteps the legacy-PAT scope grandfather, which
- * grants every PAT `admin` — see oauth-provider.ts — so a token exemption on
- * an admin-scoped op would be an over-grant.)
+ * Reference parity: gbrain gates delete/restore/revert/remove_link/remove_tag/
+ * forget_fact at `write` and purge_deleted_pages at `admin`, each reachable by
+ * a token whose scope covers it. Note the legacy-PAT grandfather grants every
+ * PAT `admin` (oauth-provider.ts) — the same as the reference — so a PAT can
+ * hard-purge; an OAuth client_credentials token can only purge if registered
+ * with `admin`. purge stays a source-scoped reaper of already-soft-deleted
+ * rows past the recovery window.
  */
 export const TOKEN_SCOPED_DESTRUCTIVE_TOOLS: ReadonlySet<string> = new Set([
   "page_delete",
@@ -421,6 +422,7 @@ export const TOKEN_SCOPED_DESTRUCTIVE_TOOLS: ReadonlySet<string> = new Set([
   "unlink",
   "remove_tag",
   "forget_fact",
+  "purge_deleted_pages",
 ]);
 
 export const PUBLIC_GUARD_INTERNALS = {
