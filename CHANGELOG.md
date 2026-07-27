@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **The note corpus is now the `memory` source** (migration 099). It was
+  registered as `obsidian-vault` with `path_prefix = '/vault'` back when the
+  notes lived in a vault mounted there; the files are mounted at `/memory`
+  today, which is also what `MEMEX_VAULT_PATHS` points at. Stored
+  `source_path`s are rewritten from `/vault/…` to `/memory/…` in the same
+  migration — without that an index pass over the configured vault path would
+  have inserted a duplicate document for every file instead of matching the
+  existing row. PAT grants naming the old source are rewritten too.
+
 ## [1.103.0] — 2026-07-27
 
 ### Fixed
