@@ -6,6 +6,51 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.105.0] — 2026-07-27
+
+### Fixed
+- **The zero-yield cycle phases stopped re-paying for the same pages.**
+  `extract_atoms` and `propose_takes` keyed idempotency on a result row
+  existing, so a document that cleanly extracted NOTHING wrote no row and was
+  rediscovered — and billed — on every run. Since discovery orders by recency
+  and slices to a per-run cap, a stable set of such documents could hold the
+  run's slots indefinitely and starve everything behind them. Both phases now
+  memoize a clean empty extraction: atoms stamp `atoms_scan_hash` into the
+  document's frontmatter (self-invalidating when the content changes), takes
+  persist a sentinel row on the same idempotency tuple. A malformed or
+  truncated model response is NOT memoized — it stays retryable — and for
+  takes the memo and the retirement of the claims the document no longer
+  supports land in one transaction, so a failure between them cannot leave a
+  document permanently memoized with stale takes still active.
+- **A truncated fact extraction no longer passes as complete, and its retry
+  cannot outspend the budget.** The extractor capped output tokens without
+  checking whether the model stopped because it hit that cap. It now surfaces
+  the stop reason; the retry it triggers is checked against the same budget the
+  first call was pre-flighted against, so a truncated page cannot bill past the
+  operator's cap.
+- **An operator job retry restores a real budget.** `retry` re-queued a
+  terminal job without resetting `retry_count`/`stall_count`, so the first
+  ordinary failure — or the next stall sweep — terminal-failed it again
+  immediately. Both counters and the stale error now reset.
+- **`putPage` resurrects a soft-deleted page instead of colliding with it**,
+  and refuses to resurrect (or create) a slug that now holds a redirect, which
+  would otherwise shadow the canonical page a merge or rename produced.
+- **`get_last_seen` no longer reports a future-dated event as "seen today"** —
+  the query is bounded by `asof`, defaulting to today.
+- **Facts extracted from a conversation carry the time the conversation
+  happened**, not the time of extraction, and a turn whose speaker is an
+  anonymous placeholder no longer becomes an entity.
+- **`think` selects page excerpts around the query** instead of always taking
+  the leading characters, and renders its Gaps section once rather than twice.
+- **`doctor` stops reporting a healthy brain when checks failed** but produced
+  no auto-remediation, names the failing checks, and its pending-migrations
+  hint points at a command that exists.
+- **The generated admin bootstrap token is no longer printed to a non-TTY
+  stderr**, where it would persist in container or systemd logs. A headless
+  install supplies `MEMEX_ADMIN_BOOTSTRAP` itself.
+- **The opt-in LLM arm of `relational_recall` settles its real cost** against
+  the client budget rather than releasing the hold as zero.
+
 ## [1.104.0] — 2026-07-27
 
 ### Changed
