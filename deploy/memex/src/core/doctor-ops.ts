@@ -76,7 +76,8 @@ export async function checkQueueHealth(engine: Engine): Promise<OpsCheckResult> 
 /**
  * Applied vs available schema version: the highest migration id recorded in the
  * `migrations` table against the highest migration file on disk. Unapplied
- * migrations flip ok:false — a real, actionable drift (run `memex migrate`).
+ * migrations flip ok:false — a real, actionable drift (run `memex
+ * apply-migrations`).
  */
 export async function checkSchemaVersion(
   engine: Engine,
@@ -97,7 +98,7 @@ export async function checkSchemaVersion(
   return {
     ok: !pending,
     detail: pending
-      ? `schema at migration ${applied} (${appliedCount} applied) — ${available - applied} unapplied through ${available}; run \`memex migrate\``
+      ? `schema at migration ${applied} (${appliedCount} applied) — ${available - applied} unapplied through ${available}; run \`memex apply-migrations\``
       : `schema at migration ${applied} (${appliedCount} applied), up to date`,
   };
 }

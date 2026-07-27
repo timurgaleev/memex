@@ -40,6 +40,7 @@ import {
   submitRemediation,
   type BrokenSource,
   type RemediationInput,
+  type RemediationPlan,
 } from "../core/remediation.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -526,11 +527,49 @@ async function gatherRemediationInput(
   return input;
 }
 
+/** The plan envelope as emitted: the plan plus the honesty fields. */
+export interface RemediationPlanEnvelope extends RemediationPlan {
+  /** Names of the checks that failed, present only when some did. */
+  failing_checks?: string[];
+}
+
+/**
+ * Fold the checks' own verdict into the plan envelope.
+ *
+ * `plan.ok` only ever meant "the classifier produced no actions" — and most
+ * check names map to no action at all, so an empty plan was reported as an
+ * all-clear while the doctor itself was failing. The honest signal is the
+ * checks: a failing check keeps `ok:false` and names itself, so the operator
+ * sees the gap that autonomous remediation can't close instead of a blanket
+ * green.
+ *
+ * Pure + exported so the honesty contract is asserted on the envelope rather
+ * than through console.log.
+ */
+export function buildRemediationEnvelope(
+  plan: RemediationPlan,
+  checks: readonly { name: string; ok: boolean }[],
+): RemediationPlanEnvelope {
+  const failing = checks.filter((c) => !c.ok).map((c) => c.name);
+  return {
+    ...plan,
+    ok: plan.ok && failing.length === 0,
+    ...(failing.length > 0 ? { failing_checks: failing } : {}),
+  };
+}
+
 /**
  * Emit the remediation plan (read-only) or run `--remediate` (enqueue the safe
  * subset, dry-run by default). Prints a stable JSON envelope. Never mutates on
  * the plan path; `--remediate` submits nothing unless `--execute` (or `--yes`)
  * is passed AND a working engine is available.
+ *
+ * Exit code follows the same contract as the default report: the checks decide.
+ * A remediation run that submitted cleanly while a check is red is still a red
+ * brain, and a cron probe reads the exit code, not the JSON. The classifier's
+ * own verdict stays where it belongs — inside `plan.ok` — because a proposed
+ * action can exist for a check that deliberately never gates (per-source embed
+ * coverage), and that must not turn a healthy brain's exit code red.
  */
 async function emitRemediation(
   storage: Storage | null,
@@ -539,7 +578,8 @@ async function emitRemediation(
 ): Promise<void> {
   const input = await gatherRemediationInput(storage, checks);
   const remediate = argv.includes("--remediate");
-  const plan = buildRemediationPlan(input);
+  const plan = buildRemediationEnvelope(buildRemediationPlan(input), checks);
+  const checksOk = checks.every((c) => c.ok);
 
   if (!remediate) {
     console.log(
@@ -549,6 +589,7 @@ async function emitRemediation(
         2,
       ),
     );
+    if (!checksOk) process.exitCode = 1;
     return;
   }
 
@@ -563,6 +604,7 @@ async function emitRemediation(
       JSON.stringify(
         {
           ok: false,
+          submitted: false,
           mode: "remediate",
           version: packageJson.version,
           note: "no working storage engine — fix config/pglite before remediation jobs can run",
@@ -582,10 +624,14 @@ async function emitRemediation(
     ...(maxUsd !== undefined ? { maxUsd } : {}),
     ...(maxJobs !== undefined ? { maxJobs } : {}),
   });
+  // `submitted` is the old `ok:true` — "the submission ran". `ok` is the
+  // brain's verdict, so the two stay separable: a clean submission against a
+  // failing brain reads submitted:true / ok:false.
   console.log(
     JSON.stringify(
       {
-        ok: true,
+        ok: checksOk,
+        submitted: true,
         mode: "remediate",
         version: packageJson.version,
         dry_run: report.dry_run,
@@ -596,4 +642,5 @@ async function emitRemediation(
       2,
     ),
   );
+  if (!checksOk) process.exitCode = 1;
 }

@@ -5,7 +5,7 @@
  * storage.init().
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
@@ -16,6 +16,8 @@ import {
   checkEmbeddingWidth,
   checkInvalidIndexes,
 } from "../src/core/doctor-ops.ts";
+import { buildRemediationEnvelope, runDoctor } from "../src/commands/doctor.ts";
+import { buildRemediationPlan } from "../src/core/remediation.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -76,6 +78,21 @@ describe("checkSchemaVersion", () => {
     expect(r.ok).toBe(true);
     expect(r.detail).toContain("up to date");
   });
+
+  it("points the pending-migration hint at a verb the CLI actually dispatches", async () => {
+    // Drop the top applied row so `available` outruns `applied` and the hint
+    // branch fires.
+    await storage
+      .engine()
+      .exec("DELETE FROM migrations WHERE id = (SELECT MAX(id) FROM migrations)");
+    const r = await checkSchemaVersion(storage.engine());
+    expect(r.ok).toBe(false);
+
+    const verb = /run `memex ([a-z-]+)`/.exec(r.detail)?.[1];
+    expect(verb).toBeDefined();
+    const cli = readFileSync(join(import.meta.dir, "../src/cli.ts"), "utf8");
+    expect(cli).toContain(`case "${verb}":`);
+  });
 });
 
 describe("checkEmbeddingWidth", () => {
@@ -106,5 +123,132 @@ describe("checkInvalidIndexes", () => {
     const r = await checkInvalidIndexes(e);
     expect(r.ok).toBe(false);
     expect(r.detail).toContain("doctor_test_idx");
+  });
+});
+
+describe("buildRemediationEnvelope", () => {
+  it("stays green when every check passed and the plan is empty", () => {
+    const checks = [
+      { name: "config", ok: true },
+      { name: "schema-version", ok: true },
+    ];
+    const env = buildRemediationEnvelope(
+      buildRemediationPlan({ signals: checks.map((c) => ({ check: c.name, ok: c.ok })) }),
+      checks,
+    );
+    expect(env.ok).toBe(true);
+    expect(env.failing_checks).toBeUndefined();
+  });
+
+  it("cannot report an all-clear for a failing check the classifier has no action for", () => {
+    // schema-version is not one of the check names classifyRemediation acts on,
+    // so the plan comes back empty even though the brain is unhealthy.
+    const checks = [
+      { name: "config", ok: true },
+      { name: "schema-version", ok: false },
+    ];
+    const plan = buildRemediationPlan({
+      signals: checks.map((c) => ({ check: c.name, ok: c.ok })),
+    });
+    expect(plan.actions).toHaveLength(0);
+
+    const env = buildRemediationEnvelope(plan, checks);
+    expect(env.ok).toBe(false);
+    expect(env.failing_checks).toEqual(["schema-version"]);
+  });
+
+  it("names every failing check, not just the first", () => {
+    const checks = [
+      { name: "pglite", ok: false },
+      { name: "queue-health", ok: false },
+      { name: "eval-trend", ok: true },
+    ];
+    const env = buildRemediationEnvelope(
+      buildRemediationPlan({ signals: checks.map((c) => ({ check: c.name, ok: c.ok })) }),
+      checks,
+    );
+    expect(env.ok).toBe(false);
+    expect(env.failing_checks).toEqual(["pglite", "queue-health"]);
+  });
+});
+
+/** The emitted `--remediate` envelope plus the exit code the run left behind. */
+interface RemediateRun {
+  emitted: {
+    ok: boolean;
+    submitted: boolean;
+    mode: string;
+    dry_run?: boolean;
+    plan: { ok: boolean; failing_checks?: string[] };
+  };
+  exitCode: number | undefined;
+}
+
+/**
+ * Drive the real `runDoctor` against a throwaway brain and capture what it
+ * printed. Asserting on the envelope builder alone is what let the top-level
+ * `ok` and the exit code drift from the plan's verdict, so the contract is
+ * pinned on what a monitoring wrapper actually sees.
+ */
+async function runRemediate(dir: string, breakVault: boolean): Promise<RemediateRun> {
+  mkdirSync(dir, { recursive: true });
+  const dbPath = join(dir, "brain.pglite");
+  const cfgPath = join(dir, "config.json");
+  writeFileSync(
+    cfgPath,
+    JSON.stringify({
+      database: { type: "pglite", path: dbPath },
+      embedding: {
+        provider: "bedrock-titan",
+        model: "amazon.titan-embed-text-v2:0",
+        region: "eu-west-1",
+      },
+      // An unreadable vault reds the `vault` check while the engine underneath
+      // stays perfectly healthy — the case that used to report a green brain.
+      storage: breakVault ? { vault: join(dir, "no-such-vault") } : {},
+    }),
+  );
+
+  // os.homedir() caches at process start in Bun, so the config path is passed
+  // explicitly; the vault env is cleared so the config's own value decides.
+  const prevVault = process.env.MEMEX_VAULT_PATH;
+  delete process.env.MEMEX_VAULT_PATH;
+  const prevExit = process.exitCode;
+  process.exitCode = 0;
+  const captured: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    captured.push(args.map(String).join(" "));
+  };
+  let exitCode: number | undefined;
+  try {
+    await runDoctor({ configPath: cfgPath, argv: ["--remediate"] });
+    exitCode = process.exitCode;
+  } finally {
+    console.log = origLog;
+    process.exitCode = prevExit;
+    if (prevVault !== undefined) process.env.MEMEX_VAULT_PATH = prevVault;
+  }
+  return { emitted: JSON.parse(captured.join("\n")), exitCode };
+}
+
+describe("doctor --remediate envelope", () => {
+  it("reports ok and exits zero on a healthy brain", async () => {
+    const { emitted, exitCode } = await runRemediate(join(tmp, "healthy"), false);
+    expect(emitted.mode).toBe("remediate");
+    expect(emitted.submitted).toBe(true);
+    expect(emitted.dry_run).toBe(true); // no --execute / --yes
+    expect(emitted.ok).toBe(true);
+    expect(exitCode).toBe(0);
+  });
+
+  it("exits non-zero and reports ok:false when a check failed, while still saying the submission ran", async () => {
+    const { emitted, exitCode } = await runRemediate(join(tmp, "broken"), true);
+    expect(emitted.plan.failing_checks).toContain("vault");
+    // The brain is not healthy, and a cron probe reads the exit code…
+    expect(emitted.ok).toBe(false);
+    expect(exitCode).toBe(1);
+    // …while the submission itself ran fine, and that stays visible.
+    expect(emitted.submitted).toBe(true);
   });
 });

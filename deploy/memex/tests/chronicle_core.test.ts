@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { getPage, putPage } from "../src/core/pages.ts";
-import { getTimelineForDate } from "../src/core/chronicle.ts";
+import { getLastSeen, getTimelineForDate } from "../src/core/chronicle.ts";
 import { isChronicleEligible } from "../src/core/chronicle/eligibility.ts";
 import {
   runChronicleExtract,
@@ -199,6 +199,55 @@ describe("runChronicleExtract", () => {
     expect(res.status).toBe("skipped");
     expect(res.reason).toBe("judge_error");
     expect(res.events_written).toBe(0);
+  });
+});
+
+describe("getLastSeen date bound", () => {
+  // A scheduled call or a planned milestone is a legitimate chronicle row, but
+  // it is not an appearance — "last seen" must stay on the past side of the
+  // reference day, or the future row lands as last_date and days_ago clamps to 0.
+  async function seedPastAndFuture(): Promise<void> {
+    await putPage(storage, {
+      slug: "meetings/2026-01-10",
+      type: "meeting",
+      title: "Kickoff",
+      markdown_body: LONG_BODY,
+    });
+    const res = await runChronicleExtract(storage, {
+      slug: "meetings/2026-01-10",
+      sourceId: "default",
+      judge: stubJudge([
+        { when: "2026-01-10", who: ["people/alice"], what: "Kickoff call", kind: "call" },
+        { when: "2099-05-05", who: ["people/alice"], what: "Planned launch", kind: "call" },
+      ]),
+    });
+    expect(res.events_written).toBe(2);
+  }
+
+  it("skips a future-dated event and returns the most recent PAST one", async () => {
+    await seedPastAndFuture();
+    const seen = await getLastSeen(storage, "people/alice", {
+      sourceIds: ["default"],
+      asof: "2026-01-20",
+    });
+    expect(seen.last_date).toBe("2026-01-10");
+    expect(seen.days_ago).toBe(10);
+  });
+
+  it("defaults the bound to today when no asof is given", async () => {
+    await seedPastAndFuture();
+    const seen = await getLastSeen(storage, "people/alice", { sourceIds: ["default"] });
+    expect(seen.last_date).toBe("2026-01-10");
+  });
+
+  it("lets the event through once asof passes it (time travel)", async () => {
+    await seedPastAndFuture();
+    const seen = await getLastSeen(storage, "people/alice", {
+      sourceIds: ["default"],
+      asof: "2099-05-06",
+    });
+    expect(seen.last_date).toBe("2099-05-05");
+    expect(seen.days_ago).toBe(1);
   });
 });
 
