@@ -7,6 +7,24 @@ introduces them.
 
 ---
 
+## Upstream-delta sweep tail (2026-07-27)
+
+- **`set_take_status` can flip a zero-yield memo into a belief.** The memo the
+  takes phase writes for a document that extracted no claims is fenced out of
+  every read that lists or counts takes, but `set_take_status` addresses a row
+  by `take_key`, so a caller that knows (or recomputes) a memo's key can mark it
+  `accepted`; `recompute-salience` then counts it because it ignores `active`.
+  No surface hands that key out, so this needs the caller to derive the hash
+  itself — internal-only, not a leak. Closing it means either fencing the
+  mutator or teaching salience the `active` axis, which widens the diff past the
+  batch it was found in. Deferred deliberately.
+- **A forced re-index re-pays one atom extraction.** The indexer replaces
+  `documents.frontmatter` wholesale, so a rechunk or re-embed of unchanged
+  content clears the `atoms_scan_hash` stamp and the phase scans that document
+  once more. This fails in the safe direction (a re-scan, never permanent
+  suppression) and matches the reference's own behaviour; revisit only if
+  forced re-indexes become routine.
+
 ## Chronicle follow-ups (2026-07-12 session, deferred small tail)
 
 - **Chronicle CLI read commands.** `chronicle_day`/`chronicle_since`/
