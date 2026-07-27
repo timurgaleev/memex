@@ -13,10 +13,16 @@ import {
   costUsd,
   priceFor,
 } from "../src/core/budget.ts";
-import { parseFactsResponse, slugifyEntity } from "../src/core/facts-extract.ts";
+import {
+  DEFAULT_EXTRACTION_MAX_TOKENS,
+  extractFactsFromTurn,
+  isUnknownSpeakerLabel,
+  parseFactsResponse,
+  slugifyEntity,
+} from "../src/core/facts-extract.ts";
 import { runExtractConversationFacts } from "../src/commands/extract-conversation-facts.ts";
 import { listFacts } from "../src/core/facts.ts";
-import type { SonnetFn } from "../src/core/llm/sonnet.ts";
+import type { SonnetFn, SonnetUsage } from "../src/core/llm/sonnet.ts";
 
 setDefaultTimeout(25000);
 
@@ -94,6 +100,160 @@ describe("parseFactsResponse", () => {
   });
 });
 
+describe("truncated extractor output", () => {
+  const GOOD = JSON.stringify({
+    facts: [
+      { fact: "Alice gave up coffee", kind: "commitment", entity: "Alice", confidence: 1, notability: "high" },
+    ],
+  });
+  const CUT_OFF = '{"facts":[{"fact":"Alice gave up cof';
+
+  /** Records every call; replies per the canned script. */
+  function scriptedFn(replies: { text: string; stopReason?: string }[]) {
+    const seen: { maxTokens: number }[] = [];
+    const fn: SonnetFn = async (input) => {
+      const r = replies[Math.min(seen.length, replies.length - 1)]!;
+      seen.push({ maxTokens: input.maxTokens });
+      return {
+        text: r.text,
+        modelId: "eu.anthropic.claude-sonnet-4-6-v1:0",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        ...(r.stopReason ? { stopReason: r.stopReason } : {}),
+      };
+    };
+    return { fn, seen };
+  }
+
+  it("does not retry a complete response", async () => {
+    const { fn, seen } = scriptedFn([{ text: GOOD, stopReason: "end_turn" }]);
+    const result = await extractFactsFromTurn("Alice: I quit coffee", { sonnetFn: fn });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.maxTokens).toBe(DEFAULT_EXTRACTION_MAX_TOKENS);
+    expect(result.facts).toHaveLength(1);
+  });
+
+  it("retries once at double the cap when the model hit max_tokens", async () => {
+    const { fn, seen } = scriptedFn([
+      { text: CUT_OFF, stopReason: "max_tokens" },
+      { text: GOOD, stopReason: "end_turn" },
+    ]);
+    const result = await extractFactsFromTurn("Alice: I quit coffee", {
+      sonnetFn: fn,
+      canAffordRetry: () => true,
+    });
+    expect(seen.map((s) => s.maxTokens)).toEqual([
+      DEFAULT_EXTRACTION_MAX_TOKENS,
+      DEFAULT_EXTRACTION_MAX_TOKENS * 2,
+    ]);
+    // The truncated first parse yields nothing; the retry recovers the fact.
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]!.fact).toBe("Alice gave up coffee");
+    // Both calls were paid for, so both are priced.
+    expect(result.usage).toEqual({ inputTokens: 200, outputTokens: 100 });
+  });
+
+  it("gives up after one retry when the output is still truncated", async () => {
+    const { fn, seen } = scriptedFn([{ text: CUT_OFF, stopReason: "max_tokens" }]);
+    const result = await extractFactsFromTurn("Alice: I quit coffee", {
+      sonnetFn: fn,
+      canAffordRetry: () => true,
+    });
+    expect(seen).toHaveLength(2);
+    expect(result.facts).toEqual([]);
+  });
+
+  it("skips the retry when the caller has no budget for a second call", async () => {
+    const { fn, seen } = scriptedFn([
+      { text: CUT_OFF, stopReason: "max_tokens" },
+      { text: GOOD, stopReason: "end_turn" },
+    ]);
+    const projected: SonnetUsage[] = [];
+    const result = await extractFactsFromTurn("Alice: I quit coffee", {
+      sonnetFn: fn,
+      canAffordRetry: (u) => {
+        projected.push(u);
+        return false;
+      },
+    });
+    expect(seen).toHaveLength(1);
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+    expect(result.facts).toEqual([]);
+    // The gate is asked about the TOTAL the turn would reach: the first call's
+    // input replayed, plus its output plus the doubled output cap.
+    expect(projected).toEqual([
+      { inputTokens: 200, outputTokens: 50 + DEFAULT_EXTRACTION_MAX_TOKENS * 2 },
+    ]);
+  });
+
+  it("does not consult the budget gate when nothing was truncated", async () => {
+    const { fn } = scriptedFn([{ text: GOOD, stopReason: "end_turn" }]);
+    let asked = 0;
+    await extractFactsFromTurn("Alice: I quit coffee", {
+      sonnetFn: fn,
+      canAffordRetry: () => {
+        asked += 1;
+        return true;
+      },
+    });
+    expect(asked).toBe(0);
+  });
+});
+
+describe("anonymous-speaker attribution gate", () => {
+  it("recognizes placeholder speaker labels", () => {
+    for (const label of [
+      "Speaker A",
+      "Speaker Z9",
+      "Speaker 12",
+      "SPEAKER_00",
+      "Participant 2",
+      "**Participant 2:**",
+      "spk_0",
+      "Unknown",
+      "user",
+      "Me",
+      "?",
+      "Guest",
+    ]) {
+      expect(isUnknownSpeakerLabel(label)).toBe(true);
+    }
+  });
+
+  it("leaves real entities alone", () => {
+    for (const label of [
+      "acme",
+      "companies/acme",
+      "people/alice-example",
+      "Alice",
+      "Speaker Pelosi",
+      "Speaker Deck",
+      "Guesthouse Ventures",
+      "Participant Capital",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(isUnknownSpeakerLabel(label)).toBe(false);
+    }
+  });
+
+  it("drops the attribution but keeps the claim for an anonymous speaker", () => {
+    const facts = parseFactsResponse(
+      '{"facts":[{"fact":"speaker is joining Acme","kind":"event","entity":"Speaker A","confidence":1,"notability":"high"}]}',
+    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.fact).toBe("speaker is joining Acme");
+    expect(facts[0]!.entity).toBeNull();
+  });
+
+  it("keeps a third-person entity from an anonymous turn", () => {
+    const facts = parseFactsResponse(
+      '{"facts":[{"fact":"Acme raised $5M","kind":"fact","entity":"companies/acme","confidence":0.9,"notability":"high"}]}',
+    );
+    expect(facts[0]!.entity).toBe("companies/acme");
+  });
+});
+
 describe("runExtractConversationFacts (stubbed model)", () => {
   const dbDir = mkdtempSync(join(tmpdir(), "tb-facts-extract-"));
   let storage: Storage;
@@ -151,6 +311,64 @@ describe("runExtractConversationFacts (stubbed model)", () => {
     // Pre-flight guard fires before the first paid call — nothing dispatched.
     expect(report.factsWritten).toBe(0);
     expect(report.spentUsd).toBe(0);
+  });
+
+  it("never lets a truncation retry spend past the run's USD cap", async () => {
+    // Always truncates, and bills output in proportion to the cap it was given
+    // — so an unbudgeted retry at double the cap costs double to match.
+    const calls: number[] = [];
+    const truncating: SonnetFn = async (input) => {
+      calls.push(input.maxTokens);
+      return {
+        text: '{"facts":[{"fact":"Alice gave up cof',
+        modelId: "eu.anthropic.claude-sonnet-4-6-v1:0",
+        usage: { inputTokens: 1000, outputTokens: input.maxTokens },
+        stopReason: "max_tokens",
+      };
+    };
+    // Room for one worst-case call ($0.024), not for that call plus a retry.
+    const cap = 0.03;
+    const report = await runExtractConversationFacts(storage, {
+      text: "Alice: I really enjoy a cup of tea",
+      maxBudgetUsd: cap,
+      sonnetFn: truncating,
+    });
+    expect(report.ran).toBe(true);
+    expect(report.spentUsd).toBeLessThanOrEqual(cap);
+    expect(calls).toEqual([DEFAULT_EXTRACTION_MAX_TOKENS]);
+    expect(report.budgetExhausted).toBe(false);
+  });
+
+  it("retries a truncated turn when the run's cap covers both calls", async () => {
+    const calls: number[] = [];
+    const truncatingThenGood: SonnetFn = async (input) => {
+      calls.push(input.maxTokens);
+      const truncated = calls.length === 1;
+      return {
+        text: truncated
+          ? '{"facts":[{"fact":"Grace gave up cof'
+          : JSON.stringify({
+              facts: [
+                { fact: "Grace likes tea", kind: "preference", entity: "Grace", confidence: 0.9, notability: "medium" },
+              ],
+            }),
+        modelId: "eu.anthropic.claude-sonnet-4-6-v1:0",
+        usage: { inputTokens: 1000, outputTokens: input.maxTokens },
+        ...(truncated ? { stopReason: "max_tokens" } : {}),
+      };
+    };
+    const cap = 1.0;
+    const report = await runExtractConversationFacts(storage, {
+      text: "Grace: I really enjoy a cup of tea",
+      maxBudgetUsd: cap,
+      sonnetFn: truncatingThenGood,
+    });
+    expect(calls).toEqual([
+      DEFAULT_EXTRACTION_MAX_TOKENS,
+      DEFAULT_EXTRACTION_MAX_TOKENS * 2,
+    ]);
+    expect(report.factsWritten).toBe(1);
+    expect(report.spentUsd).toBeLessThanOrEqual(cap);
   });
 
   it("is default-OFF without the env gate and no injected model", async () => {

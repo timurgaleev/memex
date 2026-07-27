@@ -53,6 +53,19 @@ function liveEnabled(): boolean {
   return v === "1" || v === "true";
 }
 
+/**
+ * Calendar date a turn was spoken, for the fact's validity anchor. Without it
+ * every fact from a backfilled transcript claims to have become true on the day
+ * it was extracted. An epoch-anchored parse (a time-only format with no
+ * `dateContext`) carries no real date, so it keeps the NULL fallback rather
+ * than asserting 1970.
+ */
+function turnValidFrom(timestamp: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(timestamp)) return null;
+  if (timestamp.startsWith("1970-")) return null;
+  return timestamp.slice(0, 10);
+}
+
 function defaultBudget(): number {
   const raw = (process.env["MEMEX_FACTS_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
@@ -94,6 +107,11 @@ export async function runExtractConversationFacts(
   for (const msg of messages) {
     const turn = `${msg.speaker}: ${msg.text}`.trim();
     if (!turn) continue;
+    const validFrom = turnValidFrom(msg.timestamp);
+    const writeOpts = {
+      ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
+      ...(validFrom ? { validFrom } : {}),
+    };
     // Pre-flight: don't dispatch a paid call when the worst-case cost would
     // breach the cap (also stops unpriced models — wouldExceed returns true).
     if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
@@ -105,6 +123,10 @@ export async function runExtractConversationFacts(
       result = await extractFactsFromTurn(turn, {
         ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
         modelId,
+        // The pre-flight above sized ONE call against the cap; a truncation
+        // retry is a second paid call, so it clears the same cap or is dropped.
+        // `budget` has not recorded this turn yet — hence the projected TOTAL.
+        canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
       });
     } catch {
       // A model/network error skips this turn; never abort the batch.
@@ -116,18 +138,14 @@ export async function runExtractConversationFacts(
       if (e instanceof BudgetExhausted) {
         exhausted = true;
         // Still persist this last turn's facts (already paid for), then stop.
-        const w = await writeExtractedFacts(storage, result.facts, {
-          ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
-        });
+        const w = await writeExtractedFacts(storage, result.facts, writeOpts);
         factsWritten += w.written;
         factsSkipped += w.skipped;
         break;
       }
       throw e;
     }
-    const w = await writeExtractedFacts(storage, result.facts, {
-      ...(opts.sourceSlug ? { sourceSlug: opts.sourceSlug } : {}),
-    });
+    const w = await writeExtractedFacts(storage, result.facts, writeOpts);
     factsWritten += w.written;
     factsSkipped += w.skipped;
   }

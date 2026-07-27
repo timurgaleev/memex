@@ -72,6 +72,14 @@ export interface AddFactInput {
    *  unrecognized value is dropped to NULL. */
   notability?: string;
   /**
+   * Validity anchor (migration 037 `valid_from`): the calendar date the claim
+   * became true, which is NOT the same as when it was recorded. A backfilled
+   * transcript carries the conversation's own date; omitted -> NULL, and the
+   * decay/recency surfaces fall back to `written_at` as before. Accepts
+   * `YYYY-MM-DD` or a full ISO timestamp (reduced to its UTC calendar date).
+   */
+  valid_from?: string;
+  /**
    * Typed-claim metadata (migration 070). Present when the fact is a numeric
    * claim; drives the metric-trajectory regression + drift analysis. All
    * optional and free-form. `claim_metric` is normalized to lowercase
@@ -145,6 +153,17 @@ function normaliseLabel(v: string | undefined): string | null {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return s.length > 0 ? s : null;
+}
+
+/** Reduce a caller-supplied date to the `YYYY-MM-DD` the DATE column stores.
+ *  A full ISO timestamp is anchored in UTC so the stored day never drifts with
+ *  the process timezone; anything unparseable is dropped to NULL. */
+function normaliseDate(v: string | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 /** A finite numeric claim value, else NULL. */
@@ -301,7 +320,9 @@ function normaliseConfidence(c: number | undefined): number {
  * Append a fact about an entity. Idempotent on
  * (entity_slug, fact, source_chunk_id) — a recipe re-emitting the
  * same fact from the same chunk does not duplicate. Manual entries
- * (no source_chunk_id) always insert.
+ * (no source_chunk_id) always insert. A re-emit that carries a
+ * different `valid_from` corrects the stored date in place instead
+ * of being swallowed by the dedup.
  */
 export async function addFact(
   storage: Storage,
@@ -318,6 +339,7 @@ export async function addFact(
   const writtenBy = input.written_by ?? null;
   const kind = normaliseKind(input.kind);
   const notability = normaliseNotability(input.notability);
+  const validFrom = normaliseDate(input.valid_from);
   // Typed-claim metadata (mig070): normalized-or-NULL, stamped only when set.
   const claimMetric = normaliseLabel(input.claim_metric);
   const claimValue = normaliseClaimValue(input.claim_value);
@@ -406,6 +428,10 @@ export async function addFact(
     cols.push("notability");
     params.push(notability);
   }
+  if (validFrom !== null) {
+    cols.push("valid_from");
+    params.push(validFrom);
+  }
   if (claimMetric !== null) {
     cols.push("claim_metric");
     params.push(claimMetric);
@@ -466,6 +492,23 @@ export async function addFact(
   );
   const newId = r.rows[0]?.id ?? null;
   const inserted = chunkId === null ? true : r.rows.length > 0;
+
+  // A re-emitted chunk fact collapses onto the row already on file, so a
+  // CORRECTED validity date would otherwise never land — exactly the backfill
+  // `valid_from` exists for. The identity stays (entity, fact, chunk): it is
+  // the same claim, only its anchor moved, and widening the key would spawn a
+  // second row per correction instead. Two rules keep the re-run honest: an
+  // omitted date means "no opinion", never "erase the one on file", and an
+  // unchanged date touches nothing.
+  if (!inserted && validFrom !== null) {
+    await storage.engine().query(
+      `UPDATE entity_facts
+          SET valid_from = $4::date
+        WHERE entity_slug = $1 AND fact = $2 AND source_chunk_id = $3
+          AND valid_from IS DISTINCT FROM $4::date`,
+      [input.entity_slug, input.fact, chunkId, validFrom],
+    );
+  }
 
   // Retire the superseded fact only once the replacement actually landed. The
   // tombstone reuses the mig043 forget columns plus the mig085 `superseded_by`

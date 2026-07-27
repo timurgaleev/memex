@@ -41,7 +41,17 @@ export interface SonnetCallResult {
   text: string;
   modelId: string;
   usage: SonnetUsage;
+  /**
+   * Bedrock Converse's `stopReason` — "end_turn", "max_tokens",
+   * "stop_sequence", … A caller that parses structured output needs it to tell
+   * a complete answer from one the output cap cut in half. Optional so the
+   * injected test seams that predate it keep typechecking.
+   */
+  stopReason?: string;
 }
+
+/** Converse's stop reason when the model ran into the output-token cap. */
+export const STOP_REASON_MAX_TOKENS = "max_tokens";
 
 /** Injectable seam — production wires `callSonnet`; tests pass a fake. */
 export type SonnetFn = (input: SonnetCallInput) => Promise<SonnetCallResult>;
@@ -113,6 +123,7 @@ export async function callSonnet(
       inputTokens: resp.usage?.inputTokens ?? 0,
       outputTokens: resp.usage?.outputTokens ?? 0,
     },
+    ...(resp.stopReason ? { stopReason: resp.stopReason } : {}),
   };
 }
 
