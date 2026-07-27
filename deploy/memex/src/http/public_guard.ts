@@ -78,12 +78,12 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
 // links, tags). The destructive ops (page_delete/restore/revert, unlink,
 // remove_tag, purge_deleted_pages, forget_fact) are never reachable from the
 // static public bearer, but ARE callable by an authenticated token whose
-// granted scope covers them (write; purge_deleted_pages: admin) — see
-// TOKEN_SCOPED_DESTRUCTIVE_TOOLS. This mirrors the reference model, where
-// delete/restore are `scope: write` and purge is `scope: admin`; the delete
-// stays a soft-delete with a recovery window, purge is the admin-only hard
-// delete. These appear in the public tools/list and are reachable ONLY while
-// the flag is on; with the flag off they are forbidden exactly as before.
+// granted scope covers them (write; purge_deleted_pages: admin). This mirrors
+// the reference model, where delete/restore are `scope: write` and purge is
+// `scope: admin`; the delete stays a soft-delete with a recovery window, purge
+// is the admin-only hard delete. These appear in the public tools/list and are
+// reachable ONLY while the flag is on; with the flag off they are forbidden
+// exactly as before.
 const PUBLIC_WRITE_TOOLS: ReadonlySet<string> = new Set([
   "index",
   "page_put",
@@ -397,33 +397,6 @@ export function isPublicMcpToolForbidden(toolName: string): boolean {
   if (PUBLIC_WRITE_TOOLS.has(toolName)) return !publicWriteAllowed();
   return false;
 }
-
-/**
- * Destructive writes an AUTHENTICATED token principal may call when its grant
- * covers the op (per-op scope gate in dispatch: `write` for the reversible six,
- * `admin` for purge_deleted_pages). The transport's internal-token wall exempts
- * exactly this set for token callers; the static public bearer (authInfo ===
- * undefined on the public ingress) never reaches them. Every write here is
- * source-scoped via the token's writeSource, so a token cannot touch another
- * source's rows.
- *
- * Reference parity: gbrain gates delete/restore/revert/remove_link/remove_tag/
- * forget_fact at `write` and purge_deleted_pages at `admin`, each reachable by
- * a token whose scope covers it. Note the legacy-PAT grandfather grants every
- * PAT `admin` (oauth-provider.ts) — the same as the reference — so a PAT can
- * hard-purge; an OAuth client_credentials token can only purge if registered
- * with `admin`. purge stays a source-scoped reaper of already-soft-deleted
- * rows past the recovery window.
- */
-export const TOKEN_SCOPED_DESTRUCTIVE_TOOLS: ReadonlySet<string> = new Set([
-  "page_delete",
-  "page_restore",
-  "page_revert",
-  "unlink",
-  "remove_tag",
-  "forget_fact",
-  "purge_deleted_pages",
-]);
 
 export const PUBLIC_GUARD_INTERNALS = {
   isPublicRequest,

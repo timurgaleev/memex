@@ -152,16 +152,39 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
     expect(row?.error_message ?? "").toContain("forbidden_public");
   });
 
-  it("logs an internal-token rejection", async () => {
+  it("logs an internal-token rejection for the anonymous bridge caller", async () => {
+    // No authInfo: this is the caller the wall exists for — a peer on the docker
+    // bridge with no credential at all. That caller is not force-logged (only
+    // authenticated ones are), so the sink has to be on for the row to land.
+    process.env["MEMEX_REQUEST_LOG_DB"] = "1";
+    try {
+      const handler = makeMcpHandler({ storage, forbidPublicTool: (n) => n === "index" });
+      await handler(
+        rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "index", arguments: {} } }),
+        { isPublic: false, internalAuthOk: false },
+      );
+      await new Promise((r) => setTimeout(r, 50));
+      const row = (await rows()).find((r) => r.operation === "index");
+      expect(row?.status).toBe("error");
+      expect(row?.error_message ?? "").toContain("internal token");
+    } finally {
+      delete process.env["MEMEX_REQUEST_LOG_DB"];
+    }
+  });
+
+  it("an authenticated principal is NOT walled — it reaches the scope gate", async () => {
     const handler = makeMcpHandler({ storage, forbidPublicTool: (n) => n === "index" });
     await handler(
-      rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "index", arguments: {} } }),
+      rpc({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "index", arguments: {} } }),
       { ...oauthCtx(), internalAuthOk: false },
     );
     await new Promise((r) => setTimeout(r, 50));
     const row = (await rows()).find((r) => r.operation === "index");
     expect(row?.status).toBe("error");
-    expect(row?.error_message ?? "").toContain("internal token");
+    // `index` is scope:write and this token holds only `read`, so the refusal
+    // must come from the per-op scope gate, never from the transport wall.
+    expect(row?.error_message ?? "").not.toContain("internal token");
+    expect(row?.error_message ?? "").toContain("scope");
   });
 
   it("rate-limit rejections are best-effort: NOT force-written while the sink is off", async () => {

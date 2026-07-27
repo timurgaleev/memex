@@ -242,10 +242,20 @@ export function parseRelationalQuery(query: string): RelationalQuery | null {
 
 /** Resolve a seed phrase to a REAL page slug, or null when it only
  *  slugify-falls-back (confidence gate: never traverse from an invented slug). */
-async function resolveSeed(storage: Storage, phrase: string): Promise<string | null> {
+async function resolveSeed(
+  storage: Storage,
+  phrase: string,
+  sourceIds?: string[],
+): Promise<string | null> {
   // sourceSlug "" excludes nothing from the candidate sets — we're resolving a
   // query seed, not a page's own outbound mention, so there is no self to skip.
-  const resolver = makeSlugResolver(storage, "");
+  // The caller's read scope IS forwarded: without it the seed stage resolves
+  // against the whole brain, so a scoped caller could confirm the existence of
+  // another source's page (an existence oracle) even though the fanout that
+  // follows is scoped and returns nothing.
+  const resolver = makeSlugResolver(storage, "", {
+    ...(sourceIds && sourceIds.length > 0 ? { sourceIds } : {}),
+  });
   const r = await resolver.resolve(phrase);
   return r.resolved ? r.slug : null;
 }
@@ -300,8 +310,8 @@ export async function fanoutRelational(
   // connects — resolve BOTH endpoints, then intersect their reachable sets
   // (the shared midpoints), ordered by combined hop distance.
   if (parsed.kind === "connects" && parsed.seeds.length === 2) {
-    const a = await resolveSeed(storage, parsed.seeds[0]!);
-    const b = await resolveSeed(storage, parsed.seeds[1]!);
+    const a = await resolveSeed(storage, parsed.seeds[0]!, sourceIds);
+    const b = await resolveSeed(storage, parsed.seeds[1]!, sourceIds);
     if (!a || !b) return [];
     opts.onSeedsResolved?.(2);
     const [fromA, fromB] = await Promise.all([
@@ -319,7 +329,7 @@ export async function fanoutRelational(
   }
 
   // Single-seed archetypes (who_rel / who_at / intro).
-  const seedSlug = await resolveSeed(storage, parsed.seeds[0]!);
+  const seedSlug = await resolveSeed(storage, parsed.seeds[0]!, sourceIds);
   if (!seedSlug) return [];
   opts.onSeedsResolved?.(1);
 

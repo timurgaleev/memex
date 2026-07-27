@@ -72,6 +72,12 @@ export interface ReflexPointer {
 
 export interface ResolvePointersOpts {
   maxPointers?: number;
+  /**
+   * Tenant read scope. Every arm (alias index + the two page lookups) filters on
+   * it, so a scoped caller can never resolve a pointer to a page outside its
+   * grant. Omitted/empty -> unscoped (local CLI / operator path).
+   */
+  sourceIds?: string[];
 }
 
 interface PageRow {
@@ -97,6 +103,7 @@ export async function resolveEntitiesToPointers(
   if (!candidates.length) return [];
   const maxPointers = opts.maxPointers ?? DEFAULT_MAX_POINTERS;
   const engine = storage.engine();
+  const scope = opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
 
   // Derive lookup keys once. displayByNorm recovers a human surface form for a
   // resolved slug; titleToNorm / slugToNorm give arm-2 provenance.
@@ -138,7 +145,7 @@ export async function resolveEntitiesToPointers(
   // single-slug rule and degrades to null on a pre-034 brain. excludeSlug is a
   // sentinel that matches no real page (so nothing is excluded).
   for (const norm of aliasNorms) {
-    const slug = await resolveAliasUnique(storage, norm, "");
+    const slug = await resolveAliasUnique(storage, norm, "", scope);
     if (slug) push(slug, "alias", norm);
   }
 
@@ -147,14 +154,20 @@ export async function resolveEntitiesToPointers(
   // misses; match lower(title) exactly OR the slug suffix.
   let rows: PageRow[] = [];
   try {
+    const params: unknown[] = [titlesLc, exactSlugs, slugSuffixes];
+    let scopeFilter = "";
+    if (scope) {
+      params.push(scope);
+      scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+    }
     const r = await engine.query<PageRow>(
       `SELECT slug, title, type, compiled_truth, markdown_body
          FROM pages
         WHERE deleted_at IS NULL
           AND ( lower(title) = ANY($1::text[])
              OR slug = ANY($2::text[])
-             OR slug LIKE ANY($3::text[]) )`,
-      [titlesLc, exactSlugs, slugSuffixes],
+             OR slug LIKE ANY($3::text[]) )${scopeFilter}`,
+      params,
     );
     rows = r.rows;
   } catch {
@@ -167,11 +180,17 @@ export async function resolveEntitiesToPointers(
   const aliasOnly = resolved.filter((p) => !rowBySlug.has(p.slug));
   if (aliasOnly.length) {
     try {
+      const params: unknown[] = [aliasOnly.map((p) => p.slug)];
+      let scopeFilter = "";
+      if (scope) {
+        params.push(scope);
+        scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
+      }
       const extra = await engine.query<PageRow>(
         `SELECT slug, title, type, compiled_truth, markdown_body
            FROM pages
-          WHERE deleted_at IS NULL AND slug = ANY($1::text[])`,
-        [aliasOnly.map((p) => p.slug)],
+          WHERE deleted_at IS NULL AND slug = ANY($1::text[])${scopeFilter}`,
+        params,
       );
       for (const r of extra.rows) rowBySlug.set(r.slug, r);
     } catch {

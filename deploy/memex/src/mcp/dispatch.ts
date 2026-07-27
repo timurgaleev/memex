@@ -295,8 +295,8 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "run_doctor",
   // purge_deleted_pages is NOT operator-only: reference parity gates it at the
   // `admin` scope (the per-op scope gate below enforces it), reachable by an
-  // admin-scoped token — matching gbrain. The static bearer + internal path
-  // are never gated here anyway.
+  // admin-scoped token — matching the reference. The static bearer + internal
+  // path are never gated here anyway.
   // chronicle_backfill sweeps EVERY conversation-shape page in scope and spends
   // (queued) chronicle-extract work — an operator maintenance action, not a
   // tenant-reachable one.
@@ -485,7 +485,13 @@ async function dispatchToolInner(
       case "get_tags":
         return await callGetTags(storage, args, readSources);
       case "relational_recall":
-        return await callRelationalRecall(storage, args, readSources);
+        return await callRelationalRecall(
+          storage,
+          args,
+          readSources,
+          opts.authInfo,
+          remote,
+        );
       case "add_fact":
         return await callAddFact(storage, args, writeSource);
       case "add_timeline_event":
@@ -511,19 +517,19 @@ async function dispatchToolInner(
       case "list_link_sources":
         return await callListLinkSources(storage, readSources);
       case "find_orphans":
-        return await callFindOrphans(storage, args, readSources);
+        return await callFindOrphans(storage, args, readSources, remote);
       case "find_experts":
-        return await callFindExperts(storage, args, readSources);
+        return await callFindExperts(storage, args, readSources, remote);
       case "find_contradictions":
-        return await callFindContradictions(storage, args, readSources);
+        return await callFindContradictions(storage, args, readSources, remote);
       case "find_trajectory":
         return await callFindTrajectory(storage, args, readSources);
       case "get_recent_salience":
-        return await callGetRecentSalience(storage, args, readSources);
+        return await callGetRecentSalience(storage, args, readSources, remote);
       case "find_anomalies":
-        return await callFindAnomalies(storage, args, readSources);
+        return await callFindAnomalies(storage, args, readSources, remote);
       case "recall":
-        return await callRecall(storage, args, readSources);
+        return await callRecall(storage, args, readSources, remote);
       case "forget_fact":
         return await callForgetFact(storage, args, writeSource);
       case "get_brain_identity":
@@ -547,7 +553,7 @@ async function dispatchToolInner(
       case "code_flow":
         return await callCodeWalk(storage, args, readSources, "callees");
       case "volunteer_context":
-        return await callVolunteerContext(storage, args);
+        return await callVolunteerContext(storage, args, readSources, remote);
       case "advisor":
         return await callAdvisor(storage, readSources);
       case "list_brain_skillpack":
@@ -1773,15 +1779,22 @@ async function callRelationalRecall(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  authInfo?: AuthInfo,
+  remote = false,
 ): Promise<ToolCallResult> {
   if (typeof args["query"] !== "string" || args["query"].length === 0) {
     return errResult("relational_recall: `query` is required");
   }
+  const query = args["query"];
   const opts: Parameters<typeof relationalRecall>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["depth"] === "number") opts.depth = args["depth"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  let hits = await relationalRecall(storage, args["query"], opts);
+  // Diary fence, same rule as resolve_slugs: a non-operator caller is never
+  // handed a diary slug, whichever arm produced it.
+  const fence = (list: { slug: string }[]) =>
+    remote ? list.filter((h) => !isDiarySlug(h.slug)) : list;
+  const hits = await relationalRecall(storage, query, opts);
   // Opt-in paid fallback (default OFF): when the deterministic regex arm found
   // nothing, ask Sonnet to classify the edge-question and re-run the SAME
   // fanout. Reachable only when MEMEX_RELATIONAL_LLM=1 — live MCP stays free.
@@ -1792,9 +1805,21 @@ async function callRelationalRecall(
     if (opts.limit !== undefined) llmOpts.limit = opts.limit;
     if (opts.depth !== undefined) llmOpts.depth = opts.depth;
     if (opts.sourceIds !== undefined) llmOpts.sourceIds = [...opts.sourceIds];
-    hits = await relationalRecallLlm(storage, args["query"], llmOpts);
+    // Only THIS arm spends Bedrock, so the client-budget hold wraps it alone —
+    // the deterministic arm above stays free and unmetered. The arm reports its
+    // real cost through onMeta; echo it as `spentUsd` so withClientSpend settles
+    // the reservation with the ACTUAL spend. Without that echo the hold is
+    // released as zero-cost and the daily cap never accumulates.
+    let spentUsd = 0;
+    llmOpts.onMeta = (meta) => {
+      spentUsd = typeof meta.spentUsd === "number" ? meta.spentUsd : 0;
+    };
+    return await withClientSpend(storage, authInfo, "relational_recall", async () => {
+      const llmHits = await relationalRecallLlm(storage, query, llmOpts);
+      return jsonResult({ ok: true, query, hits: fence(llmHits), spentUsd });
+    });
   }
-  return jsonResult({ ok: true, query: args["query"], hits });
+  return jsonResult({ ok: true, query, hits: fence(hits) });
 }
 
 // ---------------------------------------------------------------------------
@@ -2140,12 +2165,16 @@ async function callFindOrphans(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: FindOrphansOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const pages = await findOrphans(storage, opts);
+  let pages = await findOrphans(storage, opts);
+  // Diary fence: these are page rows (slug + title) — a diary page must not
+  // surface as an enrichment target for a non-operator caller.
+  if (remote) pages = pages.filter((p) => !isDiarySlug(p.slug));
   return jsonResult({ ok: true, pages });
 }
 
@@ -2153,6 +2182,7 @@ async function callFindExperts(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: FindExpertsOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
@@ -2160,7 +2190,10 @@ async function callFindExperts(
   if (typeof args["topic"] === "string") opts.topic = args["topic"];
   if (args["explain"] === true) opts.explain = true;
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const experts = await findExperts(storage, opts);
+  let experts = await findExperts(storage, opts);
+  // Diary fence: the link-degree arm ranks EVERY page type, so a diary page can
+  // rank as a hub (and `type: "diary"` reaches the topic arm too).
+  if (remote) experts = experts.filter((e) => !isDiarySlug(e.slug));
   return jsonResult({ ok: true, experts });
 }
 
@@ -2168,6 +2201,7 @@ async function callFindContradictions(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: FindContradictionsOptions = {};
   if (typeof args["slug"] === "string") opts.slug = args["slug"];
@@ -2190,10 +2224,14 @@ async function callFindContradictions(
     probedOpts.severity = args["severity"];
   }
   if (readSources && readSources.length) probedOpts.sourceIds = readSources;
-  const [contradictions, probed] = await Promise.all([
+  const [asserted, probed] = await Promise.all([
     findContradictions(storage, opts),
     listProbedContradictions(storage, probedOpts),
   ]);
+  // Diary fence: an asserted `contradicts` row carries both page slugs and both
+  // page titles, so drop the pair when either endpoint is diary. The probed rows
+  // reference facts/takes by id (a_ref/b_ref), never a page — untouched.
+  const contradictions = remote ? asserted.filter((c) => !isDiaryLink(c)) : asserted;
   return jsonResult({ ok: true, contradictions, probed });
 }
 
@@ -2222,6 +2260,7 @@ async function callGetRecentSalience(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof getRecentSalience>[1] = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
@@ -2231,7 +2270,10 @@ async function callGetRecentSalience(
   if (args["recency_bias"] === "on") opts.recencyBias = "on";
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const pages = await getRecentSalience(storage, opts);
+  let pages = await getRecentSalience(storage, opts);
+  // Diary fence: page rows (slug + title), and `slug_prefix` lets a caller ask
+  // for `life/diary/` outright.
+  if (remote) pages = pages.filter((p) => !isDiarySlug(p.slug));
   return jsonResult({ ok: true, pages });
 }
 
@@ -2239,6 +2281,7 @@ async function callFindAnomalies(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const opts: Parameters<typeof findAnomalies>[1] = {};
   if (typeof args["sigma"] === "number") opts.sigma = args["sigma"];
@@ -2246,7 +2289,9 @@ async function callFindAnomalies(
   if (typeof args["salienceFloor"] === "number") opts.salienceFloor = args["salienceFloor"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (readSources && readSources.length) opts.sourceIds = readSources;
-  const anomalies = await findAnomalies(storage, opts);
+  let anomalies = await findAnomalies(storage, opts);
+  // Diary fence: each anomaly is a page row (slug + title).
+  if (remote) anomalies = anomalies.filter((a) => !isDiarySlug(a.slug));
   return jsonResult({ ok: true, anomalies });
 }
 
@@ -2254,13 +2299,17 @@ async function callRecall(
   storage: Storage,
   args: Record<string, unknown>,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   const id = args["id"];
   if (!Number.isInteger(id) || (id as number) < 1) {
     return errResult("recall: `id` must be a positive integer");
   }
   const fact = await recallFact(storage, id as number, readSources && readSources.length ? readSources : undefined);
-  if (!fact) {
+  // Diary fence: the row carries `source_slug` — the page the fact was extracted
+  // from. A diary-sourced fact reads as unknown to a non-operator caller, the
+  // same posture the ontology read takes (isDiarySourced).
+  if (!fact || (remote && isDiarySourced(fact.source_slug))) {
     throw new OperationError(
       "not_found",
       `recall: fact ${id} not found`,
@@ -2506,9 +2555,14 @@ async function callCodeWalk(
 async function callVolunteerContext(
   storage: Storage,
   args: Record<string, unknown>,
+  readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   // Stats mode: per-arm used/volunteered precision (feedback loop). `days` is
-  // the documented window param; `turn` kept as the legacy fallback.
+  // the documented window param; `turn` kept as the legacy fallback. The read
+  // scope is threaded so a scoped caller is refused the whole-brain aggregate
+  // (permission_denied) instead of being handed every tenant's telemetry — the
+  // event log has no source axis to narrow it by (see volunteerUsageStats).
   if (args["stats"] === true) {
     const days =
       typeof args["days"] === "number"
@@ -2516,7 +2570,7 @@ async function callVolunteerContext(
         : typeof args["turn"] === "number"
           ? (args["turn"] as number)
           : 30;
-    const stats = await volunteerUsageStats(storage, days);
+    const stats = await volunteerUsageStats(storage, days, readSources);
     return jsonResult({ ok: true, ...stats });
   }
   if (typeof args["window"] !== "string" || args["window"].length === 0) {
@@ -2530,8 +2584,12 @@ async function callVolunteerContext(
   if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
   if (typeof args["prior_context"] === "string" && args["prior_context"])
     opts.priorContext = args["prior_context"];
+  if (readSources && readSources.length > 0) opts.sourceIds = readSources;
 
-  const pages = await volunteerContext(storage, opts);
+  let pages = await volunteerContext(storage, opts);
+  // Diary fence: a non-operator caller is never volunteered a diary page, the
+  // same rule resolve_slugs and the chronicle reads apply.
+  if (remote) pages = pages.filter((p) => !isDiarySlug(p.slug));
 
   // Fire-and-forget feedback log (channel 'op').
   const sessionId = typeof args["session_id"] === "string" ? args["session_id"] : null;
@@ -2836,6 +2894,9 @@ function applyPerCallMode(
 const PAID_OP_ESTIMATE_USD: Record<string, number> = {
   think: 0.25,
   extract_facts: 0.02,
+  // Charged only when the opt-in LLM fallback arm actually runs (see
+  // callRelationalRecall) — one Sonnet classification per call.
+  relational_recall: 0.02,
 };
 
 /**
