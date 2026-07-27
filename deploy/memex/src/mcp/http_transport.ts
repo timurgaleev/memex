@@ -22,7 +22,6 @@ import { publishToolCallEvent } from "../http/admin-events.ts";
 import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
-import { TOKEN_SCOPED_DESTRUCTIVE_TOOLS } from "../http/public_guard.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -334,25 +333,26 @@ async function handleSingle(
           `tool ${params.name} is not callable from the public ingress`,
         );
       }
-      // Internal path: the write tools (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC)
+      // Anonymous bridge path: the write tools (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC)
       // require the shared internal token, closing the kill-chain where a
       // compromised sibling on the docker bridge calls `tools/call
       // name=index` to poison the RAG corpus. Read tools are unaffected,
       // so the bridge's `search` calls keep working with no token.
       //
-      // Exception (reference parity): an AUTHENTICATED token principal
-      // (ctx.authInfo present — OAuth/PAT, never the static public bearer or
-      // a bare bridge sibling) may reach the destructive write set; the
-      // per-op scope gate in dispatch enforces write/admin and the token's
-      // writeSource scopes the mutation to its own source.
+      // An AUTHENTICATED principal (ctx.authInfo present — OAuth/PAT, never
+      // the static public bearer nor a bare bridge sibling) is NOT what this
+      // wall defends against, and reference parity gates such a caller on
+      // scope alone. Letting the wall catch it also made `tools/list` and the
+      // callable set disagree: the list is filtered on `isPublic`, which a
+      // token request is not, so every token client was advertised ~60 tools
+      // it could never call. Authorization for these callers rests in
+      // dispatch — the per-op scope gate, OPERATOR_ONLY_TOOLS, the token's
+      // source scoping, and the public-redaction bit.
       if (
         !ctx.isPublic &&
         forbidPublic(params.name) &&
         ctx.internalAuthOk === false &&
-        !(
-          ctx.authInfo !== undefined &&
-          TOKEN_SCOPED_DESTRUCTIVE_TOOLS.has(params.name)
-        )
+        ctx.authInfo === undefined
       ) {
         logToolCallToDb(storage.engine(), {
           tool: params.name,

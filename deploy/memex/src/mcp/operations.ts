@@ -275,6 +275,9 @@ export const OPERATIONS: readonly Operation[] = [
     name: "log_friction",
     description:
       "Record a friction event — used by the agent to flag when retrieval missed, an answer felt wrong, a tool errored out, OR when a recall produced an unexpectedly good hit (`delight`). When invoked from a skill, include extra.skill = '<skill-slug>' so `memex friction propose-fix` can group the event with the skill that fired it. Set `severity` to confused/error/blocker/nit on negative kinds for triage.",
+    // Appends a friction_events row that has no source axis, so a read-scoped
+    // token must not reach it — the op is a mutation and is tagged as one.
+    scope: "write",
     params: {
       kind: str({
         ...req,

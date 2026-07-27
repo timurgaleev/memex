@@ -44,6 +44,10 @@ const GOLDEN_WRITE_TOOLS = [
   // chronicle_backfill enqueues paid extraction jobs (also operator-only).
   "ontology_propose",
   "chronicle_backfill",
+  // log_friction appends a friction_events row and carries no source axis;
+  // reachable by a token principal since the internal-token wall stopped
+  // covering authenticated callers, so it needs the write scope.
+  "log_friction",
 ].sort();
 
 describe("WRITE_SCOPED_TOOLS derivation (security-critical)", () => {

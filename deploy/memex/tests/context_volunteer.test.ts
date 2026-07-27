@@ -25,6 +25,7 @@ import {
   purgeStaleVolunteerEvents,
   _resetPendingVolunteerEventWritesForTests,
 } from "../src/core/context/volunteer-events.ts";
+import { isOperationError, type OperationError } from "../src/core/operation-error.ts";
 import { runWatch } from "../src/commands/watch.ts";
 import type { WindowTurn } from "../src/core/context/entity-salience.ts";
 
@@ -191,6 +192,29 @@ describe("volunteer-events", () => {
     const stats = await volunteerUsageStats(storage, 30);
     expect(stats.total_volunteered).toBe(1);
     expect(stats.approximate).toBe(true);
+  });
+
+  it("refuses whole-brain stats for a source-scoped caller", async () => {
+    await insertVolunteerEvents(
+      storage,
+      volunteerEventRowsFrom(
+        [{ slug: "people/alice", confidence: 0.95, arm: "alias", rationale: "x" }],
+        { channel: "op" },
+      ),
+    );
+    // Operator paths stay unscoped: undefined and [] both see the aggregate.
+    expect((await volunteerUsageStats(storage, 30)).total_volunteered).toBe(1);
+    expect((await volunteerUsageStats(storage, 30, [])).total_volunteered).toBe(1);
+
+    let caught: unknown;
+    try {
+      await volunteerUsageStats(storage, 30, ["tenant-a"]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(isOperationError(caught)).toBe(true);
+    expect((caught as OperationError).code).toBe("permission_denied");
+    expect((caught as OperationError).message).toContain("operator-only");
   });
 
   it("drains fire-and-forget writes", async () => {

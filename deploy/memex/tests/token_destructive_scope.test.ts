@@ -189,6 +189,165 @@ describe("write-scoped token on destructive tools", () => {
   });
 });
 
+describe("token principal reaches the rest of the walled surface", () => {
+  // Before this, the internal-token wall exempted only the destructive set, so
+  // a token client was advertised every tool in tools/list (that filter keys on
+  // isPublic, which a token request is not) and then refused at call time with
+  // "requires the internal token" — the mobile/web clients' phantom-tool bug.
+  async function listedTools(bearer: string): Promise<string[]> {
+    const r = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+        "Cf-Connecting-Ip": "1.2.3.4",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const body = (await r.json()) as { result: { tools: { name: string }[] } };
+    return body.result.tools.map((t) => t.name);
+  }
+
+  it("resolve_slugs: a read token gets results, not the internal-token wall", async () => {
+    const reader = await mint("read write");
+    await call("page_put", { slug: "notes/findable", type: "note" }, reader);
+
+    const r = await call("resolve_slugs", { query: "notes/findable" }, reader);
+    expect(r.error?.code).not.toBe(ERR_UNAUTHORIZED);
+    expect(toolError(r)).toBeUndefined();
+    const parsed = JSON.parse(r.result.content[0].text);
+    expect(parsed.hits?.[0]?.slug).toBe("notes/findable");
+  });
+
+  it("log_friction: a write token records the event", async () => {
+    const writer = await mint("read write");
+    const r = await call(
+      "log_friction",
+      { kind: "tool-error", reason: "regression probe" },
+      writer,
+    );
+    expect(r.error?.code).not.toBe(ERR_UNAUTHORIZED);
+    expect(toolError(r)).toBeUndefined();
+  });
+
+  it("log_friction: a read token is refused with insufficient_scope", async () => {
+    const reader = await mint("read");
+    const r = await call(
+      "log_friction",
+      { kind: "tool-error", reason: "read token probe" },
+      reader,
+    );
+    // The refusal must come from the per-op scope gate, not the transport wall:
+    // a read token reaches dispatch and is turned away for lacking `write`.
+    expect(r.error?.code).not.toBe(ERR_UNAUTHORIZED);
+    expect(toolError(r)).toBe("insufficient_scope");
+  });
+
+  it("relational_recall: the LLM arm reserves against the client's daily budget", async () => {
+    const caller = await mint("read write");
+    // No provider API sets the cap, so pin it on the row directly. The DB is
+    // per-test, so the only clients here are the ones this test minted.
+    await storage
+      .engine()
+      .query(`UPDATE oauth_clients SET budget_usd_per_day = 0`);
+
+    const prev = process.env["MEMEX_RELATIONAL_LLM"];
+    process.env["MEMEX_RELATIONAL_LLM"] = "1";
+    try {
+      // Nothing in this brain can seed the deterministic arm, so it returns
+      // zero hits and the paid fallback is entered — where the zero cap makes
+      // reserveSpend refuse before any Bedrock call is made.
+      const r = await call(
+        "relational_recall",
+        { query: "who does zzqqxnobody report to?" },
+        caller,
+      );
+      expect(r.error?.code).not.toBe(ERR_UNAUTHORIZED);
+      expect(toolError(r)).toBe("budget_exhausted");
+    } finally {
+      if (prev === undefined) delete process.env["MEMEX_RELATIONAL_LLM"];
+      else process.env["MEMEX_RELATIONAL_LLM"] = prev;
+    }
+  });
+
+  it("volunteer_context stays inside the token's read grant", async () => {
+    const owner = await mint("read write"); // source: default
+    await call(
+      "page_put",
+      { slug: "people/alice", type: "person", title: "Alice" },
+      owner,
+    );
+
+    const stranger = await mint("read write", "othersrc");
+    const r = await call(
+      "volunteer_context",
+      { window: "user: what did Alice say about the contract?" },
+      stranger,
+    );
+    expect(toolError(r)).toBeUndefined();
+    expect(JSON.parse(r.result.content[0].text).pages).toEqual([]);
+
+    // The owning token still gets it — the scope filter is not a blanket mute.
+    const own = await call(
+      "volunteer_context",
+      { window: "user: what did Alice say about the contract?" },
+      owner,
+    );
+    const pages = JSON.parse(own.result.content[0].text).pages;
+    expect(pages.map((p: { slug: string }) => p.slug)).toContain("people/alice");
+  });
+
+  it("volunteer_context never volunteers a diary page to a remote caller", async () => {
+    const owner = await mint("read write");
+    await call(
+      "page_put",
+      {
+        slug: "life/diary/2026-07-27",
+        type: "journal",
+        title: "Reflection",
+        allowAdHocType: true,
+      },
+      owner,
+    );
+
+    const r = await call(
+      "volunteer_context",
+      { window: "user: pull up my Reflection notes" },
+      owner,
+    );
+    expect(toolError(r)).toBeUndefined();
+    const slugs = JSON.parse(r.result.content[0].text).pages.map(
+      (p: { slug: string }) => p.slug,
+    );
+    expect(slugs).not.toContain("life/diary/2026-07-27");
+  });
+
+  it("listed walled tools no longer answer with the internal-token wall", async () => {
+    const admin = await mint("read write admin");
+    const names = await listedTools(admin);
+
+    // Cheap, LLM-free members of FORBIDDEN_MCP_TOOLS_FROM_PUBLIC, plus the two
+    // the mobile client actually tripped over. Whatever they answer
+    // (invalid_params, operator-only, an empty result) proves the transport let
+    // them reach dispatch.
+    const probes = [
+      "resolve_slugs",
+      "get_links",
+      "get_ingest_log",
+      "find_orphans",
+      "log_friction",
+    ];
+    for (const name of probes) expect(names).toContain(name);
+
+    const walled: string[] = [];
+    for (const name of probes) {
+      const r = await call(name, {}, admin);
+      if (r.error?.code === ERR_UNAUTHORIZED) walled.push(name);
+    }
+    expect(walled).toEqual([]);
+  });
+});
+
 describe("purge_deleted_pages needs the admin scope (reference parity)", () => {
   it("a write-only token is refused with insufficient_scope", async () => {
     const writer = await mint("read write");

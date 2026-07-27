@@ -17,13 +17,17 @@
  * silence. At the default gate, slug-suffix matches (0.6 + 0.05 < 0.7) never
  * volunteer — they need an explicit lower min_confidence.
  *
- * memex adaptation: SINGLE-source flat vault, so there is no source scoping;
- * the usage-stats join derives "used" from `pages.last_retrieved_at`
- * (migration 024) and is APPROXIMATE by design.
+ * The pointer path is source-scoped: `opts.sourceIds` reaches every resolver
+ * arm, so a scoped caller is never volunteered a page outside its grant. The
+ * usage-stats path has no such axis (its event rows keep `source_id` NULL by
+ * construction) and therefore REFUSES a scoped caller rather than answering
+ * from the whole brain — see volunteerUsageStats. That join derives "used"
+ * from `pages.last_retrieved_at` (migration 024) and is APPROXIMATE by design.
  */
 
 import type { Storage } from "../storage.ts";
 import { normalizeAlias } from "../page-aliases.ts";
+import { OperationError } from "../operation-error.ts";
 import {
   extractCandidatesFromWindow,
   type WindowTurn,
@@ -71,6 +75,11 @@ export interface VolunteerOpts {
    * re-consumes a volunteer slot.
    */
   priorContext?: string;
+  /**
+   * Tenant read scope, threaded into the pointer resolver. Omitted/empty ->
+   * unscoped (local CLI / `memex watch`, which run as the operator).
+   */
+  sourceIds?: string[];
 }
 
 /** Shared wire protocol for window turns — watch.ts imports this so the two
@@ -165,6 +174,9 @@ export async function volunteerContext(
   // gated-out alias hit must not shadow a passing title hit behind it.
   const pointers = await resolveEntitiesToPointers(storage, candidates, {
     maxPointers: VOLUNTEER_MAX_PAGES_CAP * 2,
+    ...(opts.sourceIds && opts.sourceIds.length > 0
+      ? { sourceIds: opts.sourceIds }
+      : {}),
   });
   if (!pointers.length) return [];
 
@@ -239,14 +251,36 @@ interface UsageRow {
   used: string | number;
 }
 
+export const VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE =
+  "volunteer_context: whole-brain volunteer stats are operator-only — the " +
+  "event log carries no per-source axis, so the aggregate cannot be narrowed " +
+  "to a scoped caller's read grant";
+
 /**
  * Per-arm/channel precision over the last N days. Read-only; returns zeroed
  * stats on a pre-044 brain (no table).
+ *
+ * `sourceIds` is the caller's read scope, threaded in the same shape as every
+ * other read (see resolveAliasUnique) — omitted/empty means unscoped, the
+ * operator / local CLI path. A SCOPED caller is REFUSED rather than served a
+ * narrowed answer: `context_volunteer_events` keeps a `source_id` column for
+ * row-shape parity (migration 044) but every memex write leaves it NULL
+ * (volunteer-events.ts), so there is no axis to filter on. Filtering the dead
+ * column would answer "nothing was ever volunteered" — a silent lie — while
+ * returning the unfiltered aggregate would leak whole-brain telemetry.
  */
 export async function volunteerUsageStats(
   storage: Storage,
   days = 30,
+  sourceIds?: string[],
 ): Promise<VolunteerUsageStats> {
+  if (sourceIds && sourceIds.length > 0) {
+    throw new OperationError(
+      "permission_denied",
+      VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE,
+      "Call volunteer_context without `stats` for scoped pointers, or use an operator credential.",
+    );
+  }
   const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
   let rows: UsageRow[] = [];
   try {
