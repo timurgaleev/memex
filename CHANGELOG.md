@@ -7,14 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- **The note corpus is now the `memory` source** (migration 099). It was
-  registered as `obsidian-vault` with `path_prefix = '/vault'` back when the
-  notes lived in a vault mounted there; the files are mounted at `/memory`
-  today, which is also what `MEMEX_VAULT_PATHS` points at. Stored
-  `source_path`s are rewritten from `/vault/…` to `/memory/…` in the same
-  migration — without that an index pass over the configured vault path would
-  have inserted a duplicate document for every file instead of matching the
-  existing row. PAT grants naming the old source are rewritten too.
+- **The vault source id is now `memory`, renamed from `obsidian-vault`**
+  (migration 099). The old id came from the path→source mapping this project
+  has shipped since migration 071, which routed both `/vault/…` and `/memory/…`
+  to `obsidian-vault` — a name that described the editor the files happened to
+  sit in rather than what the source holds. The migration also rewrites stored
+  `/vault/…` document paths to `/memory/…`, matching `MEMEX_VAULT_PATHS`: with
+  the id renamed but the paths left alone, the next index pass would insert a
+  duplicate document for every file instead of updating the existing row.
+
+  **If your install carries an `obsidian-vault` source, it is renamed on
+  upgrade** and any grant naming it is rewritten with it. Update scripts,
+  recipes, or client token requests that reference the old id. Installs without
+  that source are unaffected — the migration is a guarded no-op.
 
 ## [1.103.0] — 2026-07-27
 

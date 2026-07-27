@@ -1,16 +1,15 @@
--- 099_rename_vault_source_to_memory.sql — the note corpus is called `memory`.
+-- 099_rename_vault_source_to_memory.sql — `obsidian-vault` becomes `memory`.
 --
--- The source was registered as `obsidian-vault` with `path_prefix = '/vault'`
--- back when the notes lived in an Obsidian vault mounted there. The vault is
--- gone: the same 370 files are mounted read-only at `/memory`, which is also
--- what `MEMEX_VAULT_PATHS` points at, and the notes now live in this brain
--- rather than in the editor that used to own them.
+-- Migration 071 shipped the path→source mapping this project has used since:
+-- `/vault/…` and `/memory/…` both route to `obsidian-vault`. That id names the
+-- editor the files happened to live in, not what the source holds, and the
+-- mount the vault path actually points at is `/memory` (MEMEX_VAULT_PATHS).
 --
--- The mismatch was not cosmetic. Documents carry `source_path = '/vault/…'`
+-- The mismatch is not cosmetic. Documents carry `source_path = '/vault/…'`
 -- while the files sit at `/memory/…`, so an indexer pass over the configured
--- vault path would have inserted 370 duplicate documents instead of matching
--- the existing rows. Renaming the source AND rewriting the stored paths makes
--- the next pass idempotent.
+-- vault path inserts a duplicate document per file instead of matching the
+-- existing row. Renaming the source AND rewriting the stored paths makes the
+-- next pass idempotent.
 --
 -- `sources.id` is referenced by nine FKs, all ON UPDATE NO ACTION, so the
 -- rename is insert-new → repoint children → delete-old inside one transaction
