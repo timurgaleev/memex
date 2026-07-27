@@ -11,6 +11,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
+import { mergePage } from "../src/core/entity-merge.ts";
+import { setSlugAlias } from "../src/core/slug-aliases.ts";
 import {
   appendPage,
   deletePage,
@@ -19,6 +21,7 @@ import {
   listPages,
   pageVersions,
   putPage,
+  renamePage,
   validateSlug,
 } from "../src/core/pages.ts";
 
@@ -406,6 +409,429 @@ describe("deletePage", () => {
   it("delete of unknown slug returns already_deleted=true", async () => {
     const r = await deletePage(storage, "ghost");
     expect(r.already_deleted).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// putPage over a soft-deleted slug
+// ---------------------------------------------------------------------------
+
+describe("putPage — resurrect a soft-deleted page", () => {
+  const pageRowCount = async (slug: string): Promise<number> => {
+    const r = await storage
+      .engine()
+      .query<{ c: number }>(
+        "SELECT COUNT(*)::int AS c FROM pages WHERE slug = $1",
+        [slug],
+      );
+    return r.rows[0]!.c;
+  };
+
+  it("re-put of a deleted slug undeletes it in place", async () => {
+    await putPage(storage, {
+      slug: "alice",
+      type: "person",
+      title: "Alice",
+      markdown_body: "v1",
+    });
+    await deletePage(storage, "alice");
+    expect(await getPage(storage, "alice")).toBeNull();
+
+    const r = await putPage(storage, {
+      slug: "alice",
+      type: "person",
+      title: "Alice",
+      markdown_body: "v2",
+    });
+    expect(r.created).toBe(false);
+    expect(r.changed).toBe(true);
+
+    const got = await getPage(storage, "alice");
+    expect(got).not.toBeNull();
+    expect(got!.deleted_at).toBeNull();
+    expect(got!.markdown_body).toBe("v2");
+    expect(await pageRowCount("alice")).toBe(1);
+  });
+
+  it("continues the version chain across the delete", async () => {
+    await putPage(storage, {
+      slug: "alice",
+      type: "person",
+      markdown_body: "v1",
+    });
+    await deletePage(storage, "alice");
+    const r = await putPage(storage, {
+      slug: "alice",
+      type: "person",
+      markdown_body: "v2",
+    });
+    // v1, tombstone, v2 — the resurrect appends, it does not restart at 1.
+    expect(r.version_n).toBe(3);
+    const v = await pageVersions(storage, "alice");
+    expect(v.map((x) => x.version_n)).toEqual([3, 2, 1]);
+    expect(v[0]!.body_snapshot).toBe("v2");
+  });
+
+  it("re-put with identical content still brings the page back", async () => {
+    const input = {
+      slug: "alice",
+      type: "person",
+      title: "Alice",
+      compiled_truth: { tier: 1 },
+      markdown_body: "same body",
+    };
+    await putPage(storage, input);
+    await deletePage(storage, "alice");
+    const r = await putPage(storage, input);
+    expect(r.changed).toBe(true);
+
+    const got = await getPage(storage, "alice");
+    expect(got).not.toBeNull();
+    expect(got!.deleted_at).toBeNull();
+    expect(await pageRowCount("alice")).toBe(1);
+  });
+
+  it("a resurrected page shows up in listPages again", async () => {
+    await putPage(storage, { slug: "gone", type: "note", markdown_body: "a" });
+    await deletePage(storage, "gone");
+    expect(await listPages(storage)).toEqual([]);
+    await putPage(storage, {
+      slug: "gone",
+      type: "note",
+      markdown_body: "b",
+    });
+    const r = await listPages(storage);
+    expect(r.map((p) => p.slug)).toEqual(["gone"]);
+  });
+
+  it("preserves the deleted page's type when the re-put omits it", async () => {
+    await putPage(storage, { slug: "alice", type: "person" });
+    await deletePage(storage, "alice");
+    await putPage(storage, {
+      slug: "alice",
+      markdown_body: "back",
+    });
+    expect((await getPage(storage, "alice"))?.type).toBe("person");
+  });
+
+  it("refuses to resurrect a slug owned by another source", async () => {
+    for (const id of ["src-a", "src-b"]) {
+      await storage
+        .engine()
+        .query(
+          "INSERT INTO sources (id, kind, path_prefix) VALUES ($1, 'other', $2) ON CONFLICT (id) DO NOTHING",
+          [id, `/${id}`],
+        );
+    }
+    await putPage(storage, {
+      slug: "alice",
+      type: "person",
+      source_id: "src-a",
+    });
+    await deletePage(storage, "alice");
+    await expect(
+      putPage(storage, {
+        slug: "alice",
+        type: "person",
+        source_id: "src-b",
+        markdown_body: "hostile",
+      }),
+    ).rejects.toThrow(/owned by another source/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resurrection is unconditional: ANY re-put of the slug brings the page back,
+// including a background writer's, which therefore undoes an operator delete.
+// ---------------------------------------------------------------------------
+
+describe("putPage — background re-put of a deleted page", () => {
+  it("resurrects the page and continues its history", async () => {
+    await putPage(storage, {
+      slug: "takes/hot",
+      type: "note",
+      title: "Hot take",
+      markdown_body: "v1",
+    });
+    await deletePage(storage, "takes/hot", "operator");
+
+    // The atoms/takes mirror re-deriving the page on the next cycle.
+    const r = await putPage(storage, {
+      slug: "takes/hot",
+      type: "note",
+      title: "Hot take",
+      markdown_body: "re-derived",
+      written_by: "atoms",
+    });
+    expect(r.changed).toBe(true);
+    expect(r.created).toBe(false);
+    // v1, tombstone, re-derived — one row, one continuing version chain.
+    expect(r.version_n).toBe(3);
+
+    const got = await getPage(storage, "takes/hot");
+    expect(got!.deleted_at).toBeNull();
+    expect(got!.markdown_body).toBe("re-derived");
+    expect((await listPages(storage)).map((p) => p.slug)).toEqual(["takes/hot"]);
+
+    const rows = await storage
+      .engine()
+      .query<{ c: number }>(
+        "SELECT COUNT(*)::int AS c FROM pages WHERE slug = $1",
+        ["takes/hot"],
+      );
+    expect(rows.rows[0]!.c).toBe(1);
+  });
+
+  it("writes a version row for the resurrecting write", async () => {
+    await putPage(storage, { slug: "gone", type: "note", markdown_body: "v1" });
+    await deletePage(storage, "gone");
+    const before = await pageVersions(storage, "gone");
+
+    await putPage(storage, {
+      slug: "gone",
+      type: "note",
+      markdown_body: "re-derived",
+    });
+    const after = await pageVersions(storage, "gone");
+    expect(after.length).toBe(before.length + 1);
+    expect(after[0]!.body_snapshot).toBe("re-derived");
+  });
+
+  it("still writes normally to a live page", async () => {
+    await putPage(storage, { slug: "alive", type: "note", markdown_body: "v1" });
+    const r = await putPage(storage, {
+      slug: "alive",
+      type: "note",
+      markdown_body: "v2",
+    });
+    expect(r.changed).toBe(true);
+    expect((await getPage(storage, "alive"))!.markdown_body).toBe("v2");
+  });
+
+  it("appendPage to a deleted page fails rather than reviving it", async () => {
+    await putPage(storage, { slug: "gone", type: "note", markdown_body: "v1" });
+    await deletePage(storage, "gone");
+    await expect(
+      appendPage(storage, { slug: "gone", content: "more" }),
+    ).rejects.toThrow(/does not exist/);
+    expect(await getPage(storage, "gone")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// putPage over a slug that was MERGED away — the stub row survives soft-deleted
+// and carries a redirect, so an unconditional resurrect would shadow the
+// canonical page and undo the merge.
+// ---------------------------------------------------------------------------
+
+describe("putPage — merged-away slug", () => {
+  const seedMerged = async (): Promise<void> => {
+    await putPage(storage, {
+      slug: "people/bob",
+      type: "person",
+      title: "Bob",
+      markdown_body: "canonical",
+    });
+    await putPage(storage, {
+      slug: "people/bob-smith",
+      type: "person",
+      title: "Bob Smith",
+      markdown_body: "stub",
+    });
+    const m = await mergePage(storage, "people/bob-smith", "people/bob");
+    expect(m.merged).toBe(true);
+  };
+
+  it("refuses to resurrect the stub", async () => {
+    await seedMerged();
+    await expect(
+      putPage(storage, {
+        slug: "people/bob-smith",
+        type: "person",
+        markdown_body: "re-derived",
+        written_by: "atoms",
+      }),
+    ).rejects.toThrow(/redirects to 'people\/bob'/);
+  });
+
+  it("keeps the merge intact — no shadow page for the entity", async () => {
+    await seedMerged();
+    await putPage(storage, {
+      slug: "people/bob-smith",
+      type: "person",
+      markdown_body: "re-derived",
+    }).catch(() => {});
+
+    // The stub stays folded: `page_get stub` still forwards to the canonical,
+    // whose body is untouched, and only one live page exists for the entity.
+    const got = await getPage(storage, "people/bob-smith");
+    expect(got!.slug).toBe("people/bob");
+    expect(got!.markdown_body).toBe("canonical");
+    expect((await listPages(storage)).map((p) => p.slug)).toEqual([
+      "people/bob",
+    ]);
+    const live = await storage
+      .engine()
+      .query<{ c: number }>(
+        "SELECT COUNT(*)::int AS c FROM pages WHERE slug = $1 AND deleted_at IS NULL",
+        ["people/bob-smith"],
+      );
+    expect(live.rows[0]!.c).toBe(0);
+  });
+
+  it("resurrects again once the canonical is gone (no page left to shadow)", async () => {
+    await seedMerged();
+    await deletePage(storage, "people/bob");
+    const r = await putPage(storage, {
+      slug: "people/bob-smith",
+      type: "person",
+      markdown_body: "re-derived",
+    });
+    expect(r.changed).toBe(true);
+    expect((await getPage(storage, "people/bob-smith"))!.markdown_body).toBe(
+      "re-derived",
+    );
+  });
+
+  it("a plain soft-deleted slug still resurrects unconditionally", async () => {
+    await putPage(storage, { slug: "people/bob", type: "person", markdown_body: "v1" });
+    await deletePage(storage, "people/bob");
+    const r = await putPage(storage, {
+      slug: "people/bob",
+      type: "person",
+      markdown_body: "v2",
+    });
+    expect(r.changed).toBe(true);
+    expect((await getPage(storage, "people/bob"))!.markdown_body).toBe("v2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// putPage over a slug that was RENAMED away. Unlike a merge, a rename hard-
+// deletes the old row and leaves only the redirect — so the re-put takes the
+// CREATE branch, and an unfenced insert would drop a live shadow page on a slug
+// that reads (exact-match first) ahead of the redirect.
+// ---------------------------------------------------------------------------
+
+describe("putPage — renamed-away slug", () => {
+  const countRows = async (slug: string): Promise<number> => {
+    const r = await storage
+      .engine()
+      .query<{ c: number }>(
+        "SELECT COUNT(*)::int AS c FROM pages WHERE slug = $1",
+        [slug],
+      );
+    return r.rows[0]!.c;
+  };
+
+  it("refuses to create a shadow at the old slug", async () => {
+    await putPage(storage, {
+      slug: "notes/old",
+      type: "note",
+      markdown_body: "v1",
+    });
+    const moved = await renamePage(storage, "notes/old", "notes/new");
+    expect(moved.renamed).toBe(true);
+    // No row at all survives the rename — this is the create path, not a
+    // resurrect.
+    expect(await countRows("notes/old")).toBe(0);
+
+    await expect(
+      putPage(storage, {
+        slug: "notes/old",
+        type: "note",
+        markdown_body: "shadow",
+      }),
+    ).rejects.toThrow(/redirects to 'notes\/new'/);
+
+    // Nothing was inserted, and the old slug still forwards to the renamed page.
+    expect(await countRows("notes/old")).toBe(0);
+    const got = await getPage(storage, "notes/old");
+    expect(got!.slug).toBe("notes/new");
+    expect(got!.markdown_body).toBe("v1");
+  });
+
+  it("still creates the slug once the redirect target is gone", async () => {
+    await putPage(storage, {
+      slug: "notes/old",
+      type: "note",
+      markdown_body: "v1",
+    });
+    expect((await renamePage(storage, "notes/old", "notes/new")).renamed).toBe(
+      true,
+    );
+    await deletePage(storage, "notes/new");
+
+    const r = await putPage(storage, {
+      slug: "notes/old",
+      type: "note",
+      markdown_body: "reborn",
+    });
+    expect(r.created).toBe(true);
+    expect((await getPage(storage, "notes/old"))!.markdown_body).toBe("reborn");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The fence's canonical probe is source-scoped: a live page at the redirect
+// target under ANOTHER tenant is not this tenant's canonical, so it must not
+// refuse a write the caller is entitled to make.
+// ---------------------------------------------------------------------------
+
+describe("putPage — redirect whose canonical is in another source", () => {
+  const seedSources = async (): Promise<void> => {
+    for (const id of ["src-a", "src-b"]) {
+      await storage
+        .engine()
+        .query(
+          "INSERT INTO sources (id, kind, path_prefix) VALUES ($1, 'other', $2) ON CONFLICT (id) DO NOTHING",
+          [id, `/${id}`],
+        );
+    }
+    // Only src-b holds a live page at the redirect target.
+    await putPage(storage, {
+      slug: "shared/topic",
+      type: "note",
+      source_id: "src-b",
+      markdown_body: "theirs",
+    });
+    await setSlugAlias(storage.engine(), {
+      alias_slug: "notes/mine",
+      canonical_slug: "shared/topic",
+      source_id: "src-a",
+    });
+  };
+
+  it("does not block resurrecting a soft-deleted slug", async () => {
+    await seedSources();
+    await putPage(storage, {
+      slug: "notes/mine",
+      type: "note",
+      source_id: "src-a",
+      markdown_body: "v1",
+    });
+    await deletePage(storage, "notes/mine");
+
+    const r = await putPage(storage, {
+      slug: "notes/mine",
+      type: "note",
+      source_id: "src-a",
+      markdown_body: "v2",
+    });
+    expect(r.changed).toBe(true);
+    expect((await getPage(storage, "notes/mine"))!.markdown_body).toBe("v2");
+  });
+
+  it("does not block creating the slug", async () => {
+    await seedSources();
+    const r = await putPage(storage, {
+      slug: "notes/mine",
+      type: "note",
+      source_id: "src-a",
+      markdown_body: "mine",
+    });
+    expect(r.created).toBe(true);
+    expect((await getPage(storage, "notes/mine"))!.markdown_body).toBe("mine");
   });
 });
 
