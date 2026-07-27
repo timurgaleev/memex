@@ -21,6 +21,7 @@
 import type { Engine } from "../engine/interface.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 import { gateVoice } from "./voice-gate.ts";
+import { excludeEmptyExtractionTombstone } from "./takes.ts";
 
 export const CALIBRATION_PROMPT_VERSION = "v1-nova";
 
@@ -292,17 +293,22 @@ function templatePatterns(s: Scorecard): string[] {
 /**
  * Count all takes (graded or not) per owning tenant — the grade_completion
  * denominator. Same tenant-bucketing as the grade query: a take with no
- * matching source document coalesces to the default tenant.
+ * matching source document coalesces to the default tenant. Zero-yield memos
+ * are excluded: they are ungradeable by construction, so counting them would
+ * push grade_completion down for good, one point per claim-free document.
  */
 async function loadTotalTakesBySource(
   engine: Engine,
 ): Promise<Map<string, number>> {
+  const params: unknown[] = [DEFAULT_SOURCE_ID];
+  const noTombstone = excludeEmptyExtractionTombstone("t.claim_text", params);
   const { rows } = await engine.query<{ source_id: string | null; total: number }>(
     `SELECT COALESCE(d.source_id, $1) AS source_id, COUNT(*)::int AS total
        FROM synth_takes t
        LEFT JOIN documents d ON d.id = t.source_ref
+      WHERE 1=1${noTombstone}
       GROUP BY 1`,
-    [DEFAULT_SOURCE_ID],
+    params,
   );
   const out = new Map<string, number>();
   for (const r of rows) {

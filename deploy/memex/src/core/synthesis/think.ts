@@ -152,15 +152,15 @@ Hard rules:
 - Cite EVERY substantive claim. Use [ref] where ref is the page's source path or the take's key, exactly as given in the tag. Never invent a ref.
 - If a take has weight < 0.5, mark it as tentative ("a low-confidence take (w=0.4) holds that…") rather than asserting it.
 - If two sources contradict, surface BOTH in a "Conflicts" section. Never silently pick one.
-- If the brain lacks the relevant data, say so in "Gaps" — list the specific missing pieces. Do not make up answers.
+- If the brain lacks the data needed to answer, do NOT make it up. Record each missing piece in the structured "gaps" array below, not as a section in the answer prose.
 - Never instruct the user (no "you should" / "I recommend"). The brain reports; the user decides.
 - Output MUST be a single valid JSON object matching the schema. No prose outside JSON.
 
 Output schema:
 {
-  "answer": "<markdown body. Inline citations like [some/source/path.md]. Sections: Answer, Conflicts (optional), Gaps>",
+  "answer": "<markdown body. Inline citations like [some/source/path.md]. Sections: Answer, Conflicts (optional). Do NOT add a Gaps section here — gaps belong in the gaps array.>",
   "citations": [{"ref": "some/source/path.md", "kind": "page"}, {"ref": "<take_key>", "kind": "take"}],
-  "gaps": ["specific missing data point 1"]
+  "gaps": ["a specific, self-contained missing data point, citing the [ref] where relevant"]
 }`;
 
 interface TakeGatherRow {
@@ -179,15 +179,258 @@ function attr(value: string): string {
   return value.replace(/["<>\r\n]/g, "").slice(0, 200);
 }
 
-/** Render page hits into the `<pages>` block, keyed by source path. */
-export function renderPagesBlock(hits: SearchHit[], excerptLen = PAGE_EXCERPT_CHARS): string {
+/** Function words that match everywhere — scoring them would drag the excerpt
+ *  window toward filler prose instead of the answer. */
+const EXCERPT_STOP_WORDS = new Set([
+  "a", "about", "an", "and", "are", "as", "at", "be", "been", "being", "by",
+  "can", "did", "do", "does", "for", "from", "had", "has", "have", "how", "i",
+  "if", "in", "including", "into", "is", "it", "its", "me", "my", "of", "on",
+  "or", "our", "so", "than", "that", "the", "their", "them", "then", "these",
+  "they", "this", "those", "to", "was", "were", "what", "when", "where",
+  "which", "who", "why", "will", "with", "would", "you", "your",
+]);
+
+/** Cap on scored query terms — a pasted-paragraph question would otherwise make
+ *  every window look equally good. Keeps the head and tail of the question. */
+const MAX_EXCERPT_QUERY_TERMS = 24;
+
+// CJK writes without spaces, so a whole sentence would tokenize as one run and
+// never match a query term; index CJK as overlapping bigrams instead. Everything
+// else tokenizes on letter/number runs.
+const CJK_CLASS = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
+const EXCERPT_TOKEN_PATTERN = `[${CJK_CLASS}]+|(?:(?![${CJK_CLASS}])[\\p{L}\\p{N}])+`;
+const CJK_TOKEN_PATTERN = new RegExp(`^[${CJK_CLASS}]+$`, "u");
+
+interface ExcerptToken {
+  normalized: string;
+  /** Offsets into the ORIGINAL string — normalization must not shift the window. */
+  start: number;
+  end: number;
+}
+
+interface ExcerptQueryTerm {
+  normalized: string;
+  keys: string[];
+  weight: number;
+}
+
+interface MatchedExcerptToken extends ExcerptToken {
+  term: ExcerptQueryTerm;
+}
+
+function normalizeExcerptToken(value: string): string {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase("en");
+}
+
+/** Tokenize while preserving offsets in the original, un-normalized string. */
+function excerptTokens(value: string): ExcerptToken[] {
+  const tokens: ExcerptToken[] = [];
+  for (const match of value.matchAll(new RegExp(EXCERPT_TOKEN_PATTERN, "gu"))) {
+    const raw = match[0];
+    const start = match.index ?? 0;
+    if (CJK_TOKEN_PATTERN.test(raw)) {
+      if (raw.length === 1) {
+        tokens.push({ normalized: raw, start, end: start + 1 });
+        continue;
+      }
+      for (let offset = 0; offset < raw.length - 1; offset++) {
+        tokens.push({
+          normalized: raw.slice(offset, offset + 2),
+          start: start + offset,
+          end: start + offset + 2,
+        });
+      }
+      continue;
+    }
+    tokens.push({ normalized: normalizeExcerptToken(raw), start, end: start + raw.length });
+  }
+  return tokens;
+}
+
+/** Small, deterministic inflection set so "price" still finds "Pricing". Not a
+ *  stemmer — these are the lexical variants search already treats as the same. */
+function excerptMatchKeys(term: string): string[] {
+  const keys = new Set([term]);
+  const addRoot = (root: string): void => {
+    if (root.length >= 4) keys.add(root);
+  };
+  if (term.length >= 6 && term.endsWith("ies")) addRoot(`${term.slice(0, -3)}y`);
+  if (term.length >= 7 && term.endsWith("ing")) addRoot(term.slice(0, -3));
+  if (term.length >= 6 && term.endsWith("ed")) addRoot(term.slice(0, -2));
+  if (term.length >= 6 && term.endsWith("es")) addRoot(term.slice(0, -2));
+  if (term.length >= 5 && term.endsWith("s") && !/(?:ss|us|is)$/.test(term)) {
+    addRoot(term.slice(0, -1));
+  }
+  if (term.length >= 5 && term.endsWith("e")) addRoot(term.slice(0, -1));
+  return Array.from(keys);
+}
+
+function boundedExcerptTerms(terms: ExcerptQueryTerm[]): ExcerptQueryTerm[] {
+  if (terms.length <= MAX_EXCERPT_QUERY_TERMS) return terms;
+  const edge = MAX_EXCERPT_QUERY_TERMS / 2;
+  return [...terms.slice(0, edge), ...terms.slice(-edge)];
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+/** Nudge a window edge off the middle of a surrogate pair — the excerpt is spliced
+ *  by UTF-16 index, and half an astral character is mojibake in the prompt. */
+function surrogateSafeWindowStart(content: string, requested: number): number {
+  const start = Math.max(0, Math.min(requested, content.length));
+  if (start <= 0 || start >= content.length) return start;
+  const startsAtLow = isLowSurrogate(content.charCodeAt(start));
+  const followsHigh = isHighSurrogate(content.charCodeAt(start - 1));
+  return startsAtLow && followsHigh ? start + 1 : start;
+}
+
+function surrogateSafeWindowEnd(content: string, requested: number): number {
+  const end = Math.max(0, Math.min(requested, content.length));
+  if (end <= 0 || end >= content.length) return end;
+  const endsAtHigh = isHighSurrogate(content.charCodeAt(end - 1));
+  const followedByLow = isLowSurrogate(content.charCodeAt(end));
+  return endsAtHigh && followedByLow ? end - 1 : end;
+}
+
+function excerptWindow(content: string, requestedStart: number, excerptLen: number): string {
+  const boundedStart = Math.max(0, Math.min(requestedStart, content.length));
+  const requestedEnd = Math.min(content.length, boundedStart + Math.max(0, excerptLen));
+  const start = surrogateSafeWindowStart(content, boundedStart);
+  const end = Math.max(start, surrogateSafeWindowEnd(content, requestedEnd));
+  return content.slice(start, end);
+}
+
+/**
+ * Pick the `excerptLen`-wide window with the strongest UNIQUE query-term
+ * coverage. The old leading-slice truncation threw away the evidence whenever
+ * the answer lived past the first 600 chars of a page. Same budget, better slice:
+ * a question with no scoreable overlap still gets the leading window.
+ */
+function selectRelevantExcerpt(
+  content: string,
+  query: string,
+  excerptLen: number,
+  pageIdentity = "",
+): string {
+  if (excerptLen <= 0) return "";
+  if (content.length <= excerptLen) return content;
+
+  const uniqueTerms = Array.from(
+    new Set(
+      excerptTokens(query)
+        .map((token) => token.normalized)
+        .filter((term) => term.length >= 2 && !EXCERPT_STOP_WORDS.has(term)),
+    ),
+  ).map((normalized) => ({
+    normalized,
+    keys: excerptMatchKeys(normalized),
+    // Longer terms are more specific; cap so one long word can't own the window.
+    weight: Math.min(normalized.length, 12),
+  }));
+  if (uniqueTerms.length === 0) return excerptWindow(content, 0, excerptLen);
+
+  // The page's own name repeats all over its body, so scoring it would anchor
+  // every window to the intro. Score the ATTRIBUTE terms ("pricing") instead —
+  // unless the question is nothing but the entity's name.
+  const identityKeys = new Set(
+    excerptTokens(pageIdentity).flatMap((token) => excerptMatchKeys(token.normalized)),
+  );
+  const attributeTerms = uniqueTerms.filter((term) => !term.keys.some((key) => identityKeys.has(key)));
+  const terms = boundedExcerptTerms(attributeTerms.length > 0 ? attributeTerms : uniqueTerms);
+  const termByKey = new Map<string, ExcerptQueryTerm>();
+  for (const term of terms) {
+    for (const key of term.keys) {
+      if (!termByKey.has(key)) termByKey.set(key, term);
+    }
+  }
+
+  const matches: MatchedExcerptToken[] = [];
+  for (const token of excerptTokens(content)) {
+    let term: ExcerptQueryTerm | undefined;
+    for (const key of excerptMatchKeys(token.normalized)) {
+      term = termByKey.get(key);
+      if (term) break;
+    }
+    if (term) matches.push({ ...token, term });
+  }
+  if (matches.length === 0) return excerptWindow(content, 0, excerptLen);
+
+  const termCounts = new Map<string, number>();
+  const maxStart = content.length - excerptLen;
+  let left = 0;
+  let currentScore = 0;
+  let bestScore = 0;
+  let bestStart = 0;
+
+  for (let right = 0; right < matches.length; right++) {
+    const added = matches[right]!.term;
+    const addedCount = termCounts.get(added.normalized) ?? 0;
+    termCounts.set(added.normalized, addedCount + 1);
+    if (addedCount === 0) currentScore += added.weight;
+
+    // Shrink until the whole run fits the budget…
+    while (left <= right && matches[right]!.end - matches[left]!.start > excerptLen) {
+      const removed = matches[left]!.term;
+      const remaining = (termCounts.get(removed.normalized) ?? 1) - 1;
+      if (remaining === 0) {
+        termCounts.delete(removed.normalized);
+        currentScore -= removed.weight;
+      } else {
+        termCounts.set(removed.normalized, remaining);
+      }
+      left++;
+    }
+
+    // …then drop leading repeats, which cost span without adding coverage.
+    while (left < right) {
+      const redundant = matches[left]!.term;
+      const count = termCounts.get(redundant.normalized) ?? 0;
+      if (count <= 1) break;
+      termCounts.set(redundant.normalized, count - 1);
+      left++;
+    }
+
+    if (left > right) continue;
+    const earliestStart = Math.max(0, matches[right]!.end - excerptLen);
+    // Give the first match some lead-in context rather than starting on top of it.
+    const contextualStart = Math.max(earliestStart, matches[left]!.start - Math.floor(excerptLen / 3));
+    const candidateStart = surrogateSafeWindowStart(content, Math.min(contextualStart, maxStart));
+    if (currentScore > bestScore || (currentScore === bestScore && candidateStart < bestStart)) {
+      bestScore = currentScore;
+      bestStart = candidateStart;
+    }
+  }
+
+  return excerptWindow(content, bestStart, excerptLen);
+}
+
+/** Render page hits into the `<pages>` block, keyed by source path. `query` is
+ *  the question the excerpts are evidence FOR; omit it for the leading slice. */
+export function renderPagesBlock(
+  hits: SearchHit[],
+  excerptLen = PAGE_EXCERPT_CHARS,
+  query = "",
+): string {
   if (hits.length === 0) return "";
   return hits
     .map((h, idx) => {
-      const excerpt = sanitizeForPrompt(h.content.slice(0, excerptLen)).text;
+      const identity = `${h.title ?? ""} ${basenameWords(h.sourcePath)}`;
+      const excerpt = sanitizeForPrompt(
+        selectRelevantExcerpt(h.content, query, excerptLen, identity),
+      ).text;
       return `<page ref="${attr(h.sourcePath)}" rank="${idx + 1}">\n${excerpt}\n</page>`;
     })
     .join("\n\n");
+}
+
+/** `notes/q3-pricing.md` → `q3 pricing md` — the page's own name, as words. */
+function basenameWords(sourcePath: string): string {
+  return (sourcePath.split("/").pop() ?? "").replace(/[-_]/g, " ");
 }
 
 /** Render take rows into the `<takes>` block, keyed by take_key. */
@@ -327,6 +570,25 @@ export function fusePageStreams(
 }
 
 /**
+ * Lifecycle fence for both take-gather streams: only a LIVE claim reaches
+ * synthesis. The `<takes>` block renders a claim as a standing position — there
+ * is no slot in it for "withdrawn" or "already settled" — so a retired row
+ * (active=false, e.g. a struck-through fence row or a take whose document no
+ * longer yields it), an operator-rejected row, a resolved row, or a row whose
+ * backing document was soft-deleted must not be handed to the model as a
+ * current belief. A take whose `source_ref` names no document at all (legacy /
+ * non-document provenance) still gathers: only a document that EXISTS and is
+ * deleted disqualifies its takes.
+ */
+const TAKE_LIFECYCLE_FILTER = ` AND active
+          AND status <> 'rejected'
+          AND resolved_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM documents d
+             WHERE d.id = synth_takes.source_ref AND d.deleted_at IS NOT NULL
+          )`;
+
+/**
  * Gather take evidence — a keyword scan of synth_takes whose claim matches the
  * question. Deterministic, no LLM. Fail-soft to [] (pre-045 brain / no takes).
  * LIKE wildcards in the question are escaped so a `%`/`_` can't match-everything.
@@ -350,7 +612,7 @@ async function gatherTakes(
     const { rows } = await engine.query<TakeGatherRow>(
       `SELECT take_key, claim_text, kind, weight, domain
          FROM synth_takes
-        WHERE claim_text ILIKE '%' || $1 || '%' ESCAPE '\\'${scope}
+        WHERE claim_text ILIKE '%' || $1 || '%' ESCAPE '\\'${TAKE_LIFECYCLE_FILTER}${scope}
         ORDER BY generated_at DESC, take_key ASC
         LIMIT $2`,
       params,
@@ -382,7 +644,7 @@ async function gatherTakesVector(
     const { rows } = await engine.query<TakeGatherRow>(
       `SELECT take_key, claim_text, kind, weight, domain
          FROM synth_takes
-        WHERE embedding IS NOT NULL${scope}
+        WHERE embedding IS NOT NULL${TAKE_LIFECYCLE_FILTER}${scope}
         ORDER BY embedding <=> $1::vector ASC
         LIMIT $2`,
       params,
@@ -704,6 +966,46 @@ export function parseThinkResponse(raw: string): ThinkSynthesis | null {
   return { answer, citations, gaps };
 }
 
+/**
+ * Strip a "Gaps" section out of an answer body.
+ *
+ * Gaps live in the structured `gaps` array, which every render site prints on
+ * its own. The system prompt used to ALSO ask for a Gaps section inside the
+ * answer prose, so a rendered answer showed "## Gaps" twice — once from the
+ * prose, once from the array. The prompt now routes gaps to the array only;
+ * this removes any section a model still emits, so the dedup is structural
+ * rather than a bet on the model obeying.
+ *
+ * Matches a heading line `## Gaps` (level 2-6, case-insensitive) and removes it
+ * through the next heading of the same-or-higher level, or the end of the body.
+ * Returns the input unchanged when there is no such section.
+ */
+export function stripGapsSection(answer: string): string {
+  if (!answer) return answer;
+  const lines = answer.split("\n");
+  let start = -1;
+  let level = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(#{2,6})\s+gaps\s*$/i.exec(lines[i]!);
+    if (m) {
+      start = i;
+      level = m[1]!.length;
+      break;
+    }
+  }
+  if (start === -1) return answer;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const h = /^(#{1,6})\s+\S/.exec(lines[i]!);
+    if (h && h[1]!.length <= level) {
+      end = i;
+      break;
+    }
+  }
+  // Trailing blank lines are left behind when the stripped section ended the body.
+  return [...lines.slice(0, start), ...lines.slice(end)].join("\n").replace(/\s+$/, "");
+}
+
 function liveEnabled(): boolean {
   const v = (process.env["MEMEX_THINK"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
@@ -824,7 +1126,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
 
     const user = buildThinkUserMessage({
       question,
-      pagesBlock: renderPagesBlock(pages),
+      pagesBlock: renderPagesBlock(pages, PAGE_EXCERPT_CHARS, question),
       takesBlock: renderTakesBlock(takes),
       trajectoryBlock,
       calibrationBlock,
