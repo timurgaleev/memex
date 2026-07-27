@@ -6,6 +6,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.103.0] — 2026-07-27
+
+### Fixed
+- **A token client is no longer advertised tools it cannot call.** `tools/list`
+  filters the internal-only set on `isPublic`, but an OAuth/PAT request resolves
+  to `isPublic: false`, so remote clients (mobile app, web connector, PAT) were
+  offered every tool in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` and then refused at
+  call time with `-32001 requires the internal token`. Reported from the mobile
+  client as `resolve_slugs` and `log_friction` "failing on every call"; the
+  handlers were never reached. The internal-token wall now covers only the
+  caller it was built for — an anonymous peer on the docker bridge
+  (`authInfo === undefined`). An authenticated principal is gated by the per-op
+  scope, `OPERATOR_ONLY_TOOLS`, its source grant, and the redaction bit, which
+  is the reference posture. The static public bearer and the bare bridge path
+  are unchanged.
+- **`volunteer_context` ignored the caller's read grant.** It resolved pointers
+  across the whole brain and returned slugs, titles, and synopses — diary pages
+  included — to any scoped caller. `sourceIds` is now threaded through the
+  pointer resolver (alias index and both page lookups), and a remote caller is
+  never volunteered a `life/diary/*` page.
+- **`log_friction` was reachable at `read` scope.** It appends a
+  `friction_events` row and carries no source axis, so it is now `scope: "write"`
+  and part of the derived `WRITE_SCOPED_TOOLS` set.
+- **`relational_recall` resolved its query seeds against the whole brain.** The
+  fanout honoured the caller's grant but the seed-resolution stage did not, so a
+  scoped caller could confirm that another source's page exists even though the
+  traversal returned nothing. The read scope now reaches the seed resolver, and
+  the tool applies the same diary fence as `resolve_slugs`.
+- **The opt-in LLM arm of `relational_recall` spent Bedrock unmetered.** Only
+  that arm is wrapped in the client-budget hold; the deterministic arm stays free
+  and unmetered. The arm's real cost is echoed back as `spentUsd` so the
+  reservation settles against it — otherwise the hold released as zero-cost and
+  the daily cap never accumulated.
+
 ## [1.102.0] — 2026-07-20
 
 ### Changed
