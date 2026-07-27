@@ -3,19 +3,20 @@
  * into atomic claims ("atoms"), written ONLY to `synth_atoms`.
  *
  * Architecture guard: this phase READS from `documents` + `chunks` (the
- * authored vault) and WRITES to `synth_atoms`, plus an `atoms/<date>/<slug>`
- * page mirror per atom (via putPage) so atoms are retrievable through normal
- * search. The page write needs a Storage handle and can be disabled with
- * MEMEX_SYNTH_PAGES=0.
- * Source notes remain sacrosanct: documents/chunks are never touched.
+ * authored vault) and WRITES to `synth_atoms`, plus an
+ * `atoms/<source-date>/<slug>` page mirror per atom (via putPage) so atoms are
+ * retrievable through normal search. The page write needs a Storage handle and
+ * can be disabled with MEMEX_SYNTH_PAGES=0. Source notes remain sacrosanct:
+ * the only thing this phase writes back to `documents` is the zero-yield
+ * `atoms_scan_hash` frontmatter stamp; chunk text is never touched.
  *
  * Safety properties:
  *   - opt-in: only runs when the cycle requests the "extract-atoms" phase.
  *   - budget-capped: at most `maxDocs` documents per run (cost guard).
  *   - idempotent: each atom keys on hash(source_ref + source_hash + body); an
  *     unchanged document re-runs to a no-op via ON CONFLICT DO NOTHING, and the
- *     per-doc discovery skips documents that already have an atom for the
- *     current content hash.
+ *     per-doc discovery skips documents that already have an atom — or a
+ *     zero-yield `atoms_scan_hash` stamp — for the current content hash.
  *   - fail-open: an LLM error on one document logs + skips that document; the
  *     phase continues and never corrupts the brain.
  *
@@ -88,6 +89,8 @@ interface SourceDoc {
   text: string;
   contentHash16: string;
   sourceId: string | null;
+  /** The note's own date (effective_date, else ingest date) — YYYY-MM-DD. */
+  sourceDate: string;
 }
 
 const SYSTEM_PROMPT = `You extract atomic knowledge nuggets from a note.
@@ -133,6 +136,41 @@ export function atomKey(sourceRef: string, sourceHash16: string, body: string): 
   return createHash("sha256")
     .update(`${sourceRef} ${sourceHash16} ${body}`)
     .digest("hex");
+}
+
+/**
+ * Deterministic page slug for an atom's mirror:
+ * `atoms/<source-date>/<title-slug>-<identity-hash>`.
+ *
+ * Every input is stable identity — the source document and the atom title.
+ * Neither the run date nor the document's content hash appears, so editing a
+ * source note re-writes the SAME atom page (putPage upserts) instead of
+ * stranding the old one and minting a near-duplicate beside it. The date
+ * segment is the NOTE's date, not today's, for the same reason.
+ *
+ * The hash suffix keeps two atoms whose titles slugify to the same string on
+ * distinct slugs, so a deterministic slug never silently clobbers a *different*
+ * atom. It covers the title only — an LLM rewording the body on re-extraction
+ * still lands on the same page.
+ *
+ * `occurrence` is the atom's ordinal among the same-titled atoms of the SAME
+ * extraction (0 for the first). One document can yield two distinct atoms that
+ * share a title; without the ordinal both hash alike and the second putPage
+ * overwrites the first. Counting per title rather than per atom keeps the
+ * discriminator stable — the sole atom titled T is always occurrence 0,
+ * whatever else the model returned alongside it and in what order.
+ */
+export function atomPageSlug(
+  sourceRef: string,
+  sourceDate: string,
+  title: string,
+  occurrence = 0,
+): string {
+  const identity = createHash("sha256")
+    .update(`${sourceRef}\n${title}\n${occurrence}`)
+    .digest("hex")
+    .slice(0, 8);
+  return `atoms/${sourceDate}/${slugifyTitle(title)}-${identity}`;
 }
 
 /**
@@ -201,9 +239,40 @@ export function parseAtomsResponse(raw: string): ParsedAtom[] {
 }
 
 /**
+ * True only when `raw` is a cleanly parsed EMPTY JSON array — the well-behaved
+ * "nothing worth distilling here" answer. `parseAtomsResponse` returns [] for
+ * that AND for malformed / truncated / prose output, so the zero-yield
+ * tombstone needs the stricter test: memoizing a transient parse failure would
+ * permanently suppress a document that does carry atoms. Mirrors
+ * `parseAtomsResponse`'s fence handling so both agree on what "the model
+ * returned []" means, minus its salvage pass — output that needs salvaging is
+ * not a clean empty extraction.
+ *
+ * The whole (de-fenced, trimmed) response has to BE the empty array. Seeking
+ * to the first `[` the way the tolerant parser does would read
+ * "Unable to parse the source; returning fallback []" as a clean extraction —
+ * a model announcing its own failure, then stamped into the document's
+ * frontmatter and never scanned again. Prose around the array is a parse
+ * failure, and a parse failure must stay retryable.
+ */
+export function isWellFormedEmptyExtraction(raw: string): boolean {
+  let cleaned = raw.trim();
+  if (cleaned.length === 0) return false;
+  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
+  try {
+    const parsed: unknown = JSON.parse(cleaned);
+    return Array.isArray(parsed) && parsed.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Discover documents that still need atom extraction: live documents with
- * enough body text whose current content hash has NO atom row yet. One SQL
- * round-trip; the NOT EXISTS subquery is the idempotency filter.
+ * enough body text whose current content hash has NO atom row and NO zero-yield
+ * scan stamp yet. One SQL round-trip; the EXISTS pair is the idempotency
+ * filter.
  *
  * memex stores body text in `chunks`, not on `documents`, so the per-document
  * text is the concatenation of its chunks (ordered). Soft-deleted documents
@@ -213,13 +282,19 @@ async function discoverDocuments(
   engine: Engine,
   maxDocs: number,
 ): Promise<SourceDoc[]> {
-  const { rows } = await engine.query<{ id: string; text: string; source_id: string | null }>(
+  const { rows } = await engine.query<{
+    id: string;
+    text: string;
+    source_id: string | null;
+    source_date: string;
+  }>(
     `SELECT d.id, d.source_id,
+            COALESCE(d.effective_date, d.ingested_at)::date::text AS source_date,
             string_agg(c.content, E'\n\n' ORDER BY c.chunk_index) AS text
        FROM documents d
        JOIN chunks c ON c.document_id = d.id
       WHERE d.deleted_at IS NULL
-      GROUP BY d.id, d.source_id
+      GROUP BY d.id, d.source_id, d.effective_date, d.ingested_at
       ORDER BY MAX(d.updated_at) DESC`,
   );
 
@@ -227,28 +302,67 @@ async function discoverDocuments(
   for (const r of rows) {
     const text = r.text ?? "";
     if (text.length < MIN_DOC_CHARS) continue;
-    candidates.push({ id: r.id, text, contentHash16: contentHash16(text), sourceId: r.source_id });
+    candidates.push({
+      id: r.id,
+      text,
+      contentHash16: contentHash16(text),
+      sourceId: r.source_id,
+      sourceDate: r.source_date,
+    });
   }
   if (candidates.length === 0) return [];
 
-  // Batch idempotency: which (source_ref, source_hash) PAIRS already have atoms.
+  // Batch idempotency: which (source_ref, source_hash) PAIRS have already been
+  // extracted — either they produced atoms, or they were scanned and produced
+  // none (the `atoms_scan_hash` stamp; without it a zero-yield document is
+  // rediscovered and re-paid for every run, and since the candidate list is
+  // recency-ordered a stable set of them can hold every slot forever).
   // Pair via unnest so the match is on the tuple, not the cross-product of the
   // two ANY() arrays (a doc whose hash coincides with another doc's hash must
-  // NOT be falsely marked done).
+  // NOT be falsely marked done). The stamp is compared against the hash we just
+  // computed, so an edited note falls out of the match and is re-scanned.
   const refs = candidates.map((c) => c.id);
   const hashes = candidates.map((c) => c.contentHash16);
   const { rows: existing } = await engine.query<{ source_ref: string; source_hash: string }>(
-    `SELECT DISTINCT a.source_ref, a.source_hash
-       FROM synth_atoms a
-       JOIN unnest($1::text[], $2::text[]) AS w(source_ref, source_hash)
-         ON a.source_ref = w.source_ref AND a.source_hash = w.source_hash
-      WHERE a.source_kind = 'document'`,
+    `SELECT w.source_ref, w.source_hash
+       FROM unnest($1::text[], $2::text[]) AS w(source_ref, source_hash)
+      WHERE EXISTS (
+              SELECT 1 FROM synth_atoms a
+               WHERE a.source_ref = w.source_ref
+                 AND a.source_hash = w.source_hash
+                 AND a.source_kind = 'document')
+         OR EXISTS (
+              SELECT 1 FROM documents d
+               WHERE d.id = w.source_ref
+                 AND COALESCE(d.frontmatter->>'atoms_scan_hash', '') = w.source_hash)`,
     [refs, hashes],
   );
   const done = new Set(existing.map((e) => `${e.source_ref} ${e.source_hash}`));
 
   const fresh = candidates.filter((c) => !done.has(`${c.id} ${c.contentHash16}`));
   return fresh.slice(0, maxDocs);
+}
+
+/**
+ * Stamp "this exact content was scanned and produced nothing" into the source
+ * document's frontmatter so it stops re-entering the discovery window. Only
+ * called for a CLEAN empty extraction — an LLM error takes the catch path and
+ * malformed output fails `isWellFormedEmptyExtraction`; both stay retryable.
+ *
+ * The stamp holds the hash of the text we scanned and discovery skips the
+ * document only while that still matches, so editing the note re-eligibilizes
+ * it; that mirrors how a content change invalidates the atom rows. Merging into
+ * the existing jsonb keeps the authored frontmatter intact; unlike the pages
+ * analogue the column is nullable here, hence the COALESCE.
+ */
+async function stampZeroYieldScan(engine: Engine, doc: SourceDoc): Promise<void> {
+  await engine.query(
+    `UPDATE documents
+        SET frontmatter = COALESCE(frontmatter, '{}'::jsonb)
+                          || jsonb_build_object('atoms_scan_hash', $1::text)
+      WHERE id = $2 AND deleted_at IS NULL`,
+    [doc.contentHash16, doc.id],
+  );
 }
 
 export async function extractAtomsPhase(
@@ -289,9 +403,37 @@ export async function extractAtomsPhase(
 
     const atoms = parseAtomsResponse(text);
     result.documentsProcessed += 1;
-    if (atoms.length === 0) continue;
+    if (atoms.length === 0) {
+      // Only a cleanly parsed `[]` is a genuine zero-yield note.
+      // parseAtomsResponse also returns [] for malformed or truncated output,
+      // and tombstoning that would permanently suppress a document that does
+      // carry atoms, so that case is logged and retried next run.
+      if (!isWellFormedEmptyExtraction(text)) {
+        result.errors.push(
+          `${doc.id}: extractor output not parseable as atoms; not memoized, retried next run`,
+        );
+        continue;
+      }
+      try {
+        await stampZeroYieldScan(engine, doc);
+      } catch (e) {
+        // Fail-soft: the worst case is the pre-fix behaviour — the document
+        // stays rediscoverable and costs one more call next run.
+        result.errors.push(
+          `${doc.id} zero-yield stamp: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      continue;
+    }
+
+    // Ordinal per title within this extraction — see atomPageSlug. Assigned
+    // before the row write so a transient insert failure can't shift the next
+    // same-titled atom onto its neighbour's page.
+    const titleOccurrences = new Map<string, number>();
 
     for (const atom of atoms) {
+      const occurrence = titleOccurrences.get(atom.title) ?? 0;
+      titleOccurrences.set(atom.title, occurrence + 1);
       const key = atomKey(doc.id, doc.contentHash16, atom.body);
       try {
         await engine.query(
@@ -315,12 +457,11 @@ export async function extractAtomsPhase(
       // indexes pages into documents/chunks). Idempotent via putPage; a page
       // failure never loses the synth_atoms row.
       if (writePages && opts.storage) {
-        const day = new Date().toISOString().slice(0, 10);
-        // Suffix the atom_key hash so two atoms whose titles slugify to the
-        // same string on the same day don't collide on the pages PK (which
-        // would last-write-wins and lose the first atom). Mirrors the
-        // content-hash disambiguator on the ingest inbox slug.
-        const slug = `atoms/${day}/${slugifyTitle(atom.title)}-${key.slice(0, 8)}`;
+        // Stable identity only — see atomPageSlug. The old slug folded in the
+        // run date and the atom_key (which carries the document's content
+        // hash), so editing a source note stranded its atom pages and minted
+        // near-duplicates beside them.
+        const slug = atomPageSlug(doc.id, doc.sourceDate, atom.title, occurrence);
         const bodyParts = [
           atom.body,
           atom.source_quote ? `\n> ${atom.source_quote}` : "",
