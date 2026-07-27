@@ -10,7 +10,9 @@
  * 'queued'); nothing here ever mutates a note or auto-applies a verdict.
  *
  * Safety: opt-in; budget-capped (`maxDocs` / `maxTakes`); idempotent
- * (take_key UNIQUE; grade keyed on (take_id, prompt_version, evidence_sig));
+ * (take_key UNIQUE — including the zero-yield tombstone row, so a document
+ * with no claims is paid for once, not every run; grade keyed on
+ * (take_id, prompt_version, evidence_sig));
  * fail-open (per-item LLM error logs + skips).
  *
  * LLM injected via `opts.llmFn`. NO live Bedrock in tests.
@@ -28,6 +30,45 @@ import { embedText } from "../embedding.ts";
 import { resolveTake } from "./takes-canon.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
+
+/**
+ * `claim_text` of the tombstone row written when a document extracts ZERO
+ * gradeable claims. Idempotency is keyed on a `synth_takes` row existing for
+ * (source_ref, source_hash, prompt_version), and a claim-free document writes
+ * no row — so only documents that produced a take were ever memoized, and
+ * unchanged claim-free prose was re-sent to the model on every run. The
+ * tombstone records that tuple with nothing else attached.
+ *
+ * It is a memo, not a belief: status 'rejected' + active=false + holder
+ * 'brain' put it behind the lifecycle fences the read paths already apply
+ * (think's gather, drift, salience, the grade pool, and the holder allow-list
+ * every remote token carries). A content edit (new source_hash) or a
+ * PROPOSE_TAKES_PROMPT_VERSION bump misses it and re-extracts.
+ */
+export const EMPTY_EXTRACTION_TOMBSTONE_TEXT = "(no gradeable claims)";
+
+/**
+ * WHERE fragment (leading ` AND `) that keeps the zero-yield tombstone out of a
+ * read over `synth_takes`. Binds {@link EMPTY_EXTRACTION_TOMBSTONE_TEXT} as the
+ * next placeholder — pass the query's live params array and it appends to it,
+ * so the index can never drift from the fragment. `col` is the claim column,
+ * qualified when the query aliases the table (`t.claim_text`).
+ *
+ * The lifecycle columns above are not enough on their own: they only fence the
+ * paths that filter on status/active, and the operator-facing reads
+ * deliberately span EVERY lifecycle state — `list_takes` with no filter,
+ * `takes_search`, the scorecard's `total_takes`, the `grade_completion`
+ * denominator. Those surface or count the memo unless it is excluded by claim
+ * text, which is what this does. A brain that parks the zero-yield memo in a
+ * table of its own gets that for free; memex keeps one `synth_takes` table for
+ * proposals, operator fence rows and memos alike, so the exclusion has to be
+ * explicit. Every such read imports this rather than restating the predicate.
+ */
+export function excludeEmptyExtractionTombstone(col: string, params: unknown[]): string {
+  params.push(EMPTY_EXTRACTION_TOMBSTONE_TEXT);
+  return ` AND ${col} <> $${params.length}`;
+}
+
 export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
 /** Distinct version so ensemble grades never collide with single-pass utility-tier
  *  grades under the (take_id, prompt_version, evidence_sig) uniqueness key. */
@@ -141,6 +182,10 @@ export interface ProposeTakesResult {
   documentsScanned: number;
   documentsProcessed: number;
   takesQueued: number;
+  /** Idempotency rows written for documents that extracted zero claims. */
+  tombstonesWritten: number;
+  /** Takes marked inactive because their document no longer yields claims. */
+  takesRetired: number;
   errors: string[];
 }
 
@@ -225,6 +270,36 @@ export function parseTakesResponse(raw: string): ParsedTake[] {
   return out;
 }
 
+/**
+ * True only when `raw` is a cleanly parsed EMPTY JSON array — the well-behaved
+ * "no gradeable claims" answer the prompt asks for. `parseTakesResponse` returns
+ * [] for that AND for malformed / truncated / prose output, so the zero-yield
+ * tombstone needs the stricter test: memoizing a transient parse failure would
+ * permanently suppress a document that does carry claims. Mirrors
+ * `parseTakesResponse`'s fence handling so both agree on what "the model
+ * returned []" means, minus its salvage pass — output that needs salvaging is
+ * not a clean empty extraction.
+ *
+ * The whole (de-fenced, trimmed) response has to BE the empty array. Seeking
+ * to the first `[` the way the tolerant parser does would read
+ * "Unable to parse the source; returning fallback []" as a clean extraction —
+ * a model announcing its own failure, memoized forever and taking the
+ * document's real claims down with it via the retirement pass. Prose around
+ * the array is a parse failure, and a parse failure must stay retryable.
+ */
+export function isWellFormedEmptyExtraction(raw: string): boolean {
+  let cleaned = raw.trim();
+  if (cleaned.length === 0) return false;
+  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
+  try {
+    const parsed: unknown = JSON.parse(cleaned);
+    return Array.isArray(parsed) && parsed.length === 0;
+  } catch {
+    return false;
+  }
+}
+
 async function discoverTakeDocuments(
   engine: Engine,
   maxDocs: number,
@@ -249,7 +324,9 @@ async function discoverTakeDocuments(
 
   // Pair via unnest (tuple match, not the cross-product of two ANY() arrays).
   // The idempotency key includes prompt_version: a prompt bump re-scans every
-  // doc; the same prompt over unchanged content skips.
+  // doc; the same prompt over unchanged content skips. A zero-yield scan is
+  // memoized by a tombstone row carrying the same tuple as a real take, so
+  // this one lookup covers both cases — it matches ANY row for the tuple.
   const refs = candidates.map((c) => c.id);
   const hashes = candidates.map((c) => c.contentHash16);
   const { rows: existing } = await engine.query<{ source_ref: string; source_hash: string }>(
@@ -266,15 +343,18 @@ async function discoverTakeDocuments(
 
 /** Claims already extracted from this document (any hash / prompt version),
  *  fed back to the extractor as already-captured so it never re-proposes the
- *  same take after a content edit or prompt bump. */
+ *  same take after a content edit or prompt bump. Tombstone rows carry no
+ *  claim, so they are excluded rather than handed to the model as one. */
 async function existingClaimsForDoc(engine: Engine, sourceRef: string): Promise<string[]> {
+  const params: unknown[] = [sourceRef];
+  const noTombstone = excludeEmptyExtractionTombstone("claim_text", params);
   try {
     const { rows } = await engine.query<{ claim_text: string }>(
       `SELECT DISTINCT claim_text FROM synth_takes
-        WHERE source_ref = $1
+        WHERE source_ref = $1${noTombstone}
         ORDER BY claim_text ASC
         LIMIT 50`,
-      [sourceRef],
+      params,
     );
     return rows.map((r) => r.claim_text);
   } catch {
@@ -300,6 +380,8 @@ export async function proposeTakesPhase(
     documentsScanned: 0,
     documentsProcessed: 0,
     takesQueued: 0,
+    tombstonesWritten: 0,
+    takesRetired: 0,
     errors: [],
   };
 
@@ -333,6 +415,85 @@ export async function proposeTakesPhase(
 
     const takes = parseTakesResponse(text);
     result.documentsProcessed += 1;
+
+    // Memoize the empty case. A document that yields no claims gets no row from
+    // the loop below, so without this its idempotency tuple is never recorded
+    // and the next run re-pays for the same unchanged prose. Only reached after
+    // a SUCCESSFUL call — the LLM-error path `continue`s above — and only for a
+    // cleanly parsed `[]`: parseTakesResponse also returns [] for malformed or
+    // truncated output, and tombstoning that would permanently suppress a
+    // document that does carry claims, so that case is logged and retried.
+    if (takes.length === 0) {
+      if (!isWellFormedEmptyExtraction(text)) {
+        result.errors.push(
+          `${doc.id}: extractor output not parseable as claims; not memoized, retried next run`,
+        );
+        continue;
+      }
+      // Keyed by the same tuple as a real take (takeKey over source_ref +
+      // content hash + prompt version), so the discovery lookup treats it as a
+      // cache hit with no extra query and the take_key UNIQUE index is the
+      // conflict target. Every column that fences a row out of the corpus is
+      // set: 'rejected' keeps it out of the review queue and the grade pool,
+      // active=false out of think/drift/salience, and holder 'brain' out of
+      // every token whose takes-holder allow-list is floored to ['world'].
+      const tombstoneKey = takeKey(
+        doc.id,
+        doc.contentHash16,
+        promptVersion,
+        EMPTY_EXTRACTION_TOMBSTONE_TEXT,
+      );
+      // The memo and the retirement are one fact about this document — "this
+      // content yields nothing, so the claims the old content produced are no
+      // longer backed" — and they must land together. Split across two commits
+      // a crash (or a failing statement) between them leaves the document
+      // memoized forever WHILE its stranded takes stay active: it is never
+      // rediscovered, so nothing ever retires them. One transaction makes the
+      // bad state unreachable; if either half fails the whole scan is simply
+      // retried next run, which is the pre-tombstone cost and nothing worse.
+      //
+      // Retirement itself: takes an earlier scan distilled from the OLD content
+      // are no longer supported by anything in the corpus, so `think` would keep
+      // citing a position the note has since dropped. Marked inactive (the
+      // mig090 lifecycle axis), never deleted: grades, resolutions and the
+      // calibration record survive. Only LLM-proposed rows are touched — a
+      // fence row (row_num NOT NULL) is canon-owned by syncTakesFromFence —
+      // and only rows from a DIFFERENT content hash, so takes extracted from
+      // this same text under another prompt version stay live. A tombstone
+      // left by an earlier scan is already inactive, so it never counts as a
+      // retirement.
+      try {
+        const retiredCount = await engine.transaction(async (tx) => {
+          await tx.query(
+            `INSERT INTO synth_takes
+               (take_key, source_ref, source_hash, prompt_version, claim_text,
+                kind, holder, weight, domain, status, active, model_id)
+             VALUES ($1, $2, $3, $4, $5, 'fact', 'brain', 0, NULL, 'rejected', false, $6)
+             ON CONFLICT (take_key) DO NOTHING`,
+            [tombstoneKey, doc.id, doc.contentHash16, promptVersion, EMPTY_EXTRACTION_TOMBSTONE_TEXT, modelId],
+          );
+          const { rows: retired } = await tx.query<{ id: number }>(
+            `UPDATE synth_takes
+                SET active = false
+              WHERE source_ref = $1
+                AND source_hash <> $2
+                AND row_num IS NULL
+                AND active
+            RETURNING id`,
+            [doc.id, doc.contentHash16],
+          );
+          return retired.length;
+        });
+        result.tombstonesWritten += 1;
+        result.takesRetired += retiredCount;
+      } catch (e) {
+        result.errors.push(
+          `${doc.id} tombstone+retire: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      continue;
+    }
+
     for (const take of takes) {
       const key = takeKey(doc.id, doc.contentHash16, promptVersion, take.claim_text);
       // Embed the claim so `think`'s take VECTOR stream can rank it (opt-in;
