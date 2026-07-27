@@ -224,7 +224,54 @@ describe("Queue.cancel + retry + list + stats", () => {
     expect(fetched?.status).toBe("failed");
     const restored = await queue.retry(j.id);
     expect(restored?.status).toBe("pending");
-    expect(restored?.lastError).toBe("die"); // history retained
+    expect(restored?.lastError).toBeNull();
+    expect(restored?.retryCount).toBe(0);
+    expect(restored?.stallCount).toBe(0);
+  });
+
+  it("retry restores the retry budget — the next fail re-pends, not terminal-fails", async () => {
+    const j = await queue.enqueue({ kind: "x", maxRetries: 1 });
+    await queue.claim();
+    const t0 = new Date("2026-05-08T12:00:00Z");
+    await queue.fail(j.id, "first", { baseMs: 10, now: t0 });
+    const t1 = new Date(t0.getTime() + 100);
+    await queue.claim({ now: t1 });
+    const dead = await queue.fail(j.id, "second", { baseMs: 10, now: t1 });
+    expect(dead?.status).toBe("failed");
+    expect(dead?.retryCount).toBe(2); // budget spent
+
+    const restored = await queue.retry(j.id);
+    expect(restored?.retryCount).toBe(0);
+    // retry() re-stamps next_attempt_at to NOW(), so re-claim on the real clock.
+    const reclaimed = await queue.claim();
+    expect(reclaimed?.id).toBe(j.id);
+    const again = await queue.fail(j.id, "third", { baseMs: 10 });
+    expect(again?.status).toBe("pending");
+    expect(again?.retryCount).toBe(1);
+  });
+
+  it("retry restores the stall budget — the next stall requeues, not terminal-fails", async () => {
+    const j = await queue.enqueue({ kind: "x" });
+    // Park the row at its stall budget, then burn one more so it lands in
+    // 'failed' the way a real stall-exhausted job does.
+    await storage.engine().exec(
+      `UPDATE jobs SET stall_count = 5, max_stalled = 5 WHERE id = '${j.id}'`,
+    );
+    const t0 = new Date(Date.now() + 60_000);
+    await queue.claim({ now: t0, lockSeconds: 10 });
+    const dead = await queue.handleStalled({ now: new Date(t0.getTime() + 11_000) });
+    expect(dead.terminallyFailed).toBe(1);
+    expect((await queue.get(j.id))?.status).toBe("failed");
+
+    await queue.retry(j.id);
+    const t1 = new Date(Date.now() + 120_000);
+    await queue.claim({ now: t1, lockSeconds: 10 });
+    const after = await queue.handleStalled({ now: new Date(t1.getTime() + 11_000) });
+    expect(after.requeued).toBe(1);
+    expect(after.terminallyFailed).toBe(0);
+    const fetched = await queue.get(j.id);
+    expect(fetched?.status).toBe("pending");
+    expect(fetched?.stallCount).toBe(1);
   });
 
   it("list filters by status array", async () => {
