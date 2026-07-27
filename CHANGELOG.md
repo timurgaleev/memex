@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.104.0] — 2026-07-27
+
 ### Changed
 - **The vault source id is now `memory`, renamed from `obsidian-vault`**
   (migration 099). The old id came from the path→source mapping this project
