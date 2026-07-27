@@ -44,6 +44,26 @@ function codeSourceId(path: string): string {
   return `${base || "root"}-code`;
 }
 
+/**
+ * Whether the freshly generated admin bootstrap token may be echoed at boot.
+ * The raw value is only ever allowed onto an interactive terminal: under
+ * docker/systemd stderr is a log sink, so printing there turns a live admin
+ * credential into a standing plaintext secret in centralized log storage.
+ * An env-sourced token is never echoed — the operator already holds it.
+ *
+ * There is deliberately no override. A "print it anyway" switch reopens the
+ * hole it closes, because the setups that would reach for one are exactly the
+ * ones whose stderr is the log collector. The headless path is the operator
+ * supplying their own token via MEMEX_ADMIN_BOOTSTRAP.
+ */
+export function shouldPrintAdminToken(opts: {
+  fromEnv: boolean;
+  isTty: boolean;
+}): boolean {
+  if (opts.fromEnv) return false;
+  return opts.isTty;
+}
+
 function envNum(name: string): number | undefined {
   const v = process.env[name];
   if (v === undefined || v === "") return undefined;
@@ -157,9 +177,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     }
   }
   // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
-  // set; otherwise an ephemeral per-run token printed to stderr (lives only in
-  // the operator's terminal — never in a URL). The `/admin` auth routes mount
-  // either way.
+  // set; otherwise an ephemeral per-run token echoed to an interactive stderr
+  // (lives only in the operator's terminal — never in a URL, never in a
+  // container log). The `/admin` auth routes mount either way.
   const adminBootstrap = process.env.MEMEX_ADMIN_BOOTSTRAP?.trim();
   // The admin surface provisions the whole brain (sources, tenant grants), so an
   // operator-set bootstrap token must meet a minimum entropy floor — reject a weak
@@ -172,8 +192,17 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   const adminToken = adminBootstrap && adminBootstrap.length > 0 ? adminBootstrap : randomBytes(24).toString("hex");
   serverOpts.adminBootstrapToken = adminToken;
-  if (!adminBootstrap) {
+  const fromEnv = Boolean(adminBootstrap && adminBootstrap.length > 0);
+  if (shouldPrintAdminToken({ fromEnv, isTty: process.stderr.isTTY === true })) {
     console.error(`[memex] admin bootstrap token (ephemeral, this run only): ${adminToken}`);
+  } else if (!fromEnv) {
+    console.error(
+      "[memex] admin bootstrap token generated but withheld: stderr is not a TTY, so the " +
+        "value would persist in the log sink. The admin surface is unreachable this run. " +
+        "To use it headlessly, generate a token yourself and pass it in: " +
+        "MEMEX_ADMIN_BOOTSTRAP=$(openssl rand -base64 32 | tr '+/' '-_') — never have the " +
+        "server print a generated one into the logs.",
+    );
   }
   const server = startServer(serverOpts);
 
