@@ -193,6 +193,11 @@ function normaliseType(
  *   2. row exists with different content OR row missing → upsert pages,
  *      append `page_versions` with version_n = max(existing) + 1.
  *
+ * A soft-deleted slug takes path 2: the write clears `deleted_at` and the
+ * page comes back in place with its version history continued — unless the
+ * slug was merged away, in which case the write is refused rather than allowed
+ * to shadow the canonical page (see the merge fence below).
+ *
  * The whole thing runs in one transaction so a Bedrock failure later in
  * a caller's pipeline cannot leave a page row without its matching
  * version row.
@@ -233,14 +238,21 @@ export async function putPage(
       title: string | null;
       compiled_truth: unknown;
       source_id: string;
+      deleted_at: string | null;
       version_n: number;
     }>(
+      // Soft-deleted rows are IN scope here: `pages.slug` is the PK, so a
+      // re-put of a deleted slug has nowhere to insert. It resurrects the
+      // existing row (deleted_at cleared below), keeping the version chain
+      // and the owning source intact.
       `SELECT p.content_hash, p.type, p.title, p.compiled_truth, p.source_id,
+              p.deleted_at::text AS deleted_at,
               COALESCE(MAX(v.version_n), 0) AS version_n
        FROM pages p
        LEFT JOIN page_versions v ON v.slug = p.slug
-       WHERE p.slug = $1 AND p.deleted_at IS NULL
-       GROUP BY p.content_hash, p.type, p.title, p.compiled_truth, p.source_id`,
+       WHERE p.slug = $1
+       GROUP BY p.content_hash, p.type, p.title, p.compiled_truth, p.source_id,
+                p.deleted_at`,
       [input.slug],
     );
 
@@ -252,6 +264,52 @@ export async function putPage(
         `page '${input.slug}' is owned by another source`,
         "Use a slug within your own source, or request access.",
       );
+    }
+
+    // Merge/rename fence — memex-specific, on top of the reference upsert below.
+    // Reference brains key a page by an id, so a retired slug keeps no row of
+    // its own to bring back. Here `pages.slug` IS the key, and two operations
+    // retire a slug behind a `slug_aliases` redirect: `mergePage` folds the stub
+    // into a soft-deleted row PLUS a stub→canonical redirect, and `renamePage`
+    // deletes the old row outright and leaves old→new. Either way a write to the
+    // retired slug would put a live page on a slug whose exact-match read beats
+    // redirect resolution (see `getPage`), so it would shadow the canonical and
+    // silently undo the merge/rename. Refuse instead — the same rule the
+    // append/revert paths already follow: a write never revives a slug that now
+    // only holds a redirect.
+    //
+    // Guards BOTH the resurrect branch and the create branch below, because a
+    // rename leaves no row at all — fencing only the soft-deleted case would be
+    // half a rule. Never fires for a live row (that is an ordinary update), and
+    // only fires once the canonical is live, so a dangling redirect cannot
+    // strand the slug forever. A plain soft-deleted slug with no redirect still
+    // resurrects unconditionally, which is the reference behaviour.
+    const liveAtSlug = existing.rows[0]?.deleted_at === null;
+    if (!liveAtSlug) {
+      const redirect = await tx.query<{ canonical_slug: string }>(
+        // The canonical must be live IN THE SAME SOURCE. A live page of that
+        // slug under another tenant says nothing about this one, and counting
+        // it would let a stale cross-source redirect refuse a legitimate write.
+        `SELECT a.canonical_slug
+           FROM slug_aliases a
+           JOIN pages p ON p.slug = a.canonical_slug
+                       AND p.deleted_at IS NULL
+                       AND p.source_id = $2
+          WHERE a.alias_slug = $1 AND a.source_id = $2
+          LIMIT 1`,
+        [input.slug, sourceId],
+      );
+      const canonical = redirect.rows[0]?.canonical_slug;
+      if (canonical !== undefined) {
+        // Keyed on the redirect, not on how it got there, so a rename that left
+        // one behind is fenced on the same terms as a merge.
+        throw new OperationError(
+          "invalid_params",
+          `page '${input.slug}' now redirects to '${canonical}'; ` +
+            `bringing it back would shadow the canonical page`,
+          "Write to the canonical slug instead.",
+        );
+      }
     }
 
     // Resolve the type now that the existing row is known: explicit wins;
@@ -294,7 +352,10 @@ export async function putPage(
       typeof prev.compiled_truth === "object" &&
       prev.compiled_truth !== null &&
       JSON.stringify(prev.compiled_truth) === truthJson;
+    // A soft-deleted row is never idempotent however identical the content:
+    // the write must reach the update branch below to clear `deleted_at`.
     const idempotent =
+      prev.deleted_at === null &&
       prev.content_hash === hashNew &&
       prev.type === type &&
       prev.title === title &&
@@ -311,6 +372,11 @@ export async function putPage(
     }
 
     const nextVersion = prev.version_n + 1;
+    // `deleted_at = NULL` is unconditional, matching the reference engines'
+    // upsert. The tradeoff is deliberate: any later write to the slug — a
+    // synthesis phase, an importer — undoes an operator's `page_delete` and
+    // brings the page back in place. A delete that must stick needs the slug
+    // to stop being written, or a purge.
     await tx.query(
       `UPDATE pages
          SET type = $2,
@@ -318,7 +384,8 @@ export async function putPage(
              compiled_truth = $4::text::jsonb,
              markdown_body = $5,
              content_hash = $6,
-             updated_at = NOW()
+             updated_at = NOW(),
+             deleted_at = NULL
        WHERE slug = $1`,
       [input.slug, type, title, truthJson, body, hashNew],
     );
