@@ -436,7 +436,18 @@ export class Queue {
     return r.rows[0] ? rowToJob(r.rows[0]) : null;
   }
 
-  /** Reset a failed/cancelled job to pending so the worker picks it up. */
+  /**
+   * Reset a failed/cancelled job to pending so the worker picks it up.
+   *
+   * An explicit retry is the operator asserting "run this fresh", so the
+   * attempt budgets go back to zero too. A row that reached `failed` did so
+   * precisely because `retry_count` passed `max_retries` (or `stall_count`
+   * passed `max_stalled`) — leaving those at their exhausted values means the
+   * very next ordinary failure or lock expiry terminal-fails the job again
+   * immediately, and retry does nothing for the case it exists for.
+   * `last_error` is cleared with them: it belongs to the attempt the operator
+   * just decided to discard.
+   */
   async retry(id: string): Promise<JobRow | null> {
     const r = await this.engine.query<RawJobRow>(
       `UPDATE jobs
@@ -444,6 +455,9 @@ export class Queue {
               next_attempt_at = NOW(),
               started_at = NULL,
               finished_at = NULL,
+              retry_count = 0,
+              stall_count = 0,
+              last_error = NULL,
               updated_at = NOW()
         WHERE id = $1 AND status IN ('failed', 'cancelled')
         RETURNING ${SELECT_COLS}`,
