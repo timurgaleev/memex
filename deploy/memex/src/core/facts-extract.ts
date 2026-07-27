@@ -10,7 +10,13 @@
 import type { Storage } from "./storage.ts";
 import { addFact } from "./facts.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
-import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "./llm/sonnet.ts";
+import {
+  resolveSonnetFn,
+  resolveFactsModel,
+  STOP_REASON_MAX_TOKENS,
+  type SonnetFn,
+  type SonnetUsage,
+} from "./llm/sonnet.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 import {
@@ -66,9 +72,53 @@ const EXTRACTOR_SYSTEM = [
   '- "fact": an objective claim that does not fit the above.',
   "- Skip greetings, operational chatter, and questions.",
   "- One fact per atomic claim. Cap at 10 facts per turn.",
+  '- Unknown speakers: a turn is prefixed "<speaker>: <text>". If the speaker is an',
+  '  anonymous placeholder ("Speaker A", "Participant 2", "spk_0", "Unknown", "user")',
+  '  and the claim is first-person ("I ...", "my ..."), set entity to null — do NOT',
+  "  guess a name or echo the label. A third-person claim in the same turn",
+  '  ("Acme raised $5M") still names its real entity.',
   "- metric/value/unit/period: fill ONLY for a quantitative claim (a number with",
   "  a named measure). Otherwise set all four to null. Do not invent numbers.",
 ].join("\n");
+
+/**
+ * Anonymous-speaker attribution gate.
+ *
+ * Conversation turns reach the extractor as `${speaker}: ${text}`. When an
+ * importer or diarizer cannot identify a speaker it emits a STABLE ANONYMOUS
+ * LABEL rather than guessing a name — "Speaker A", "Participant 2", "spk_0",
+ * "SPEAKER_00", "Unknown". The extractor's `confidence` scores confidence in
+ * the CLAIM, not in WHO said it, so a first-person assertion from one of those
+ * turns ("Speaker A: I'm joining Acme") comes back with the placeholder echoed
+ * as the entity — a confident attribution to a person we cannot name. Written
+ * out, that mints a junk `speaker-a` page or, worse, hangs the claim on the
+ * wrong person.
+ *
+ * The predicate is deliberately narrow: it matches ID-SHAPED placeholders
+ * only, so a third-person entity from the same turn ("Speaker A: Acme raised
+ * $5M" → acme) and any named speaker's own attribution pass through untouched.
+ */
+export function isUnknownSpeakerLabel(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  // Strip markdown/quote/colon decoration: "**Participant 2:**" → "Participant 2".
+  const s = raw
+    .replace(/[*`"']/g, "")
+    .replace(/[:\s]+$/g, "")
+    .trim();
+  if (!s) return false;
+  return UNKNOWN_SPEAKER_PATTERNS.some((rx) => rx.test(s));
+}
+
+const UNKNOWN_SPEAKER_PATTERNS: readonly RegExp[] = [
+  // ID-shape only, never a bare word: a diarizer id is a letter with optional
+  // digits ("A", "Z9") or a number ("12"). A looser `^speaker \w+$` would null
+  // real entities like "Speaker Pelosi" or "Speaker Deck"; this does not.
+  /^speaker ([a-z]\d*|\d+)$/i,
+  /^speaker_\d+$/i,
+  /^participant \d+$/i,
+  /^spk_\d+$/i,
+  /^(other|unknown|guest|user|me|\?+)$/i,
+];
 
 /** Strip a ```json fence if the model wrapped its output. */
 function stripFence(s: string): string {
@@ -100,10 +150,15 @@ export function parseFactsResponse(text: string): ExtractedFact[] {
     const kind = FACT_KINDS.includes(o["kind"] as FactKind)
       ? (o["kind"] as FactKind)
       : "fact";
-    const entity =
+    // Anonymous-speaker gate: when the model echoed a placeholder label back as
+    // the entity, drop the attribution but KEEP the claim — a fact with no
+    // entity is skipped at write time, which beats attributing it to a person
+    // who does not exist. Third-person entities never match the predicate.
+    const entityRaw =
       typeof o["entity"] === "string" && o["entity"].trim().length > 0
         ? o["entity"].trim()
         : null;
+    const entity = isUnknownSpeakerLabel(entityRaw) ? null : entityRaw;
     let confidence = typeof o["confidence"] === "number" ? o["confidence"] : 0.7;
     if (!Number.isFinite(confidence) || confidence < 0) confidence = 0;
     if (confidence > 1) confidence = 1;
@@ -146,6 +201,11 @@ export function parseFactsResponse(text: string): ExtractedFact[] {
   return out;
 }
 
+/** Output-token cap for one extractor call. A turn is capped at ~12K chars in
+ *  and 10 facts out, so this is generous; a truncated call is retried once at
+ *  double this — but only when the caller says the retry fits its budget. */
+export const DEFAULT_EXTRACTION_MAX_TOKENS = 800;
+
 export interface ExtractTurnOptions {
   /** Injectable model seam — tests pass a fake; production resolves Sonnet. */
   sonnetFn?: SonnetFn;
@@ -158,6 +218,15 @@ export interface ExtractTurnOptions {
    * Sanitized to slug-safe strings, capped.
    */
   entityHints?: string[];
+  /**
+   * Budget gate for the truncation retry. Callers pre-flight ONE call against
+   * their USD cap, so a second paid call has to be checked against that same
+   * cap or a truncated page quietly spends past it. Called with the TOTAL usage
+   * the turn would reach (first call's actuals + the retry's ceiling); return
+   * false and the partial result stands. Absent → no retry: an unbudgeted
+   * second call against a paid model is never the safe default.
+   */
+  canAffordRetry?: (projected: SonnetUsage) => boolean;
 }
 
 /** Cap + sanitize caller-supplied entity hints before they reach the prompt:
@@ -204,15 +273,55 @@ export async function extractFactsFromTurn(
       ? `Known canonical entity slugs (prefer these over inventing new names): ${hints.join(", ")}\n`
       : "";
   const user = `${hintBlock}<turn>\n${clean}\n</turn>`;
-  const resp = await fn({
-    system: EXTRACTOR_SYSTEM,
-    user,
-    maxTokens: opts.maxTokens ?? 800,
-  });
+  const maxTokens = opts.maxTokens ?? DEFAULT_EXTRACTION_MAX_TOKENS;
+  const call = (cap: number) =>
+    fn({ system: EXTRACTOR_SYSTEM, user, maxTokens: cap });
+
+  let resp = await call(maxTokens);
+  let usage = resp.usage;
+  // A response the output cap cut short is NOT authoritative: the JSON never
+  // closes, the parser throws it away, and a long page reports "zero facts"
+  // that were in fact never emitted. Retry once with double the room — but the
+  // caller only pre-flighted ONE call against its USD cap, so the second call
+  // has to clear that same cap first. Either way, say so out loud rather than
+  // pretending the page had nothing to say.
+  if (resp.stopReason === STOP_REASON_MAX_TOKENS) {
+    const retryCap = maxTokens * 2;
+    // The retry replays the identical prompt, so its input is the first call's
+    // actual input; only the output is open-ended, and `retryCap` bounds it.
+    const projected: SonnetUsage = {
+      inputTokens: usage.inputTokens * 2,
+      outputTokens: usage.outputTokens + retryCap,
+    };
+    if (opts.canAffordRetry?.(projected) ?? false) {
+      process.stderr.write(
+        `[facts-extract] WARN: extractor output truncated at maxTokens=${maxTokens} ` +
+          `(model=${resp.modelId}); retrying once at ${retryCap}\n`,
+      );
+      const retry = await call(retryCap);
+      // Both calls were paid for — the caller's BudgetTracker prices the sum.
+      usage = {
+        inputTokens: usage.inputTokens + retry.usage.inputTokens,
+        outputTokens: usage.outputTokens + retry.usage.outputTokens,
+      };
+      resp = retry;
+      if (retry.stopReason === STOP_REASON_MAX_TOKENS) {
+        process.stderr.write(
+          `[facts-extract] WARN: extractor output STILL truncated at maxTokens=${retryCap} ` +
+            `(model=${retry.modelId}); facts for this turn are likely lost\n`,
+        );
+      }
+    } else {
+      process.stderr.write(
+        `[facts-extract] WARN: extractor output truncated at maxTokens=${maxTokens} ` +
+          `(model=${resp.modelId}); no budget for a retry — facts for this turn are likely lost\n`,
+      );
+    }
+  }
   return {
     facts: parseFactsResponse(resp.text),
     modelId: resp.modelId,
-    usage: resp.usage,
+    usage,
   };
 }
 
@@ -251,6 +360,12 @@ export async function writeExtractedFacts(
     sessionId?: string;
     /** Default visibility for the batch (mig085; 'private' when omitted). */
     visibility?: string;
+    /**
+     * Validity anchor for the batch (mig037 `valid_from`) — when the claims
+     * were MADE, not when they were extracted. A backfilled transcript passes
+     * the turn's own date; omitted -> the column stays NULL as before.
+     */
+    validFrom?: string;
     /** Insert-time dedup / supersede knobs threaded to addFact (default OFF). */
     dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
     /**
@@ -310,6 +425,7 @@ export async function writeExtractedFacts(
         ...(opts.sourceId ? { source_id: opts.sourceId } : {}),
         ...(opts.sessionId ? { source_session: opts.sessionId } : {}),
         ...(opts.visibility ? { visibility: opts.visibility } : {}),
+        ...(opts.validFrom ? { valid_from: opts.validFrom } : {}),
         ...(opts.dedup ? { dedup: opts.dedup } : {}),
         written_by: opts.writtenBy ?? "facts-extract",
       });
@@ -444,6 +560,9 @@ export async function extractFactsForPage(
     result = await extractFactsFromTurn(opts.body, {
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
       modelId,
+      // The truncation retry spends from the SAME per-write cap the pre-flight
+      // guard above checked — nothing here bills past `cap`.
+      canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
     });
   } catch (e) {
     await writeFactsAbsorbLog(
@@ -549,6 +668,7 @@ export async function extractFactsOnDemand(
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
       ...(opts.entityHints ? { entityHints: opts.entityHints } : {}),
       modelId,
+      canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
     });
   } catch {
     return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "model_error" };
