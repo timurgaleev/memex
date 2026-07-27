@@ -156,6 +156,17 @@ export async function getLastSeen(
 ): Promise<LastSeenResult> {
   const scope = requireScope(opts.sourceIds);
   const like = `%${entity}%`;
+  const params: unknown[] = [entity, like, scope];
+  // "Last seen" is a PAST relation, but the chronicle legitimately stores
+  // future events (a scheduled call, a planned milestone). Without an upper
+  // bound one of those becomes the answer and finalizeLastSeen clamps the
+  // negative delta to days_ago: 0 — the entity reads as seen today. Bound to
+  // <= asof/today, mirroring getOnThisDay's `< target`.
+  let seenThrough = "current_date";
+  if (opts.asof) {
+    params.push(opts.asof);
+    seenThrough = `$${params.length}::date`;
+  }
   const sql = `
     SELECT (te.occurred_at AT TIME ZONE 'UTC')::date::text AS last_date,
            te.event_slug AS last_event_slug
@@ -163,6 +174,7 @@ export async function getLastSeen(
     JOIN pages p ON p.slug = te.slug AND p.deleted_at IS NULL
     LEFT JOIN pages ep ON ep.slug = te.event_slug
     WHERE (te.event_slug IS NULL OR ep.deleted_at IS NULL)
+      AND (te.occurred_at AT TIME ZONE 'UTC')::date <= ${seenThrough}
       AND ${scopeClause(3)}${opts.excludeDiary ? DIARY_EXCLUSION : ""}
       AND (
         p.slug = $1
@@ -179,7 +191,7 @@ export async function getLastSeen(
   const r = await storage.engine().query<{
     last_date: string | null;
     last_event_slug: string | null;
-  }>(sql, [entity, like, scope]);
+  }>(sql, params);
   const row = r.rows[0];
   return finalizeLastSeen(entity, row?.last_date ?? null, row?.last_event_slug ?? null, opts.asof);
 }
