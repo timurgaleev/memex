@@ -9,6 +9,8 @@
  *   saveThinkTake          queue the answer's headline claim as a synth_takes
  *                          row pinned to an anchor page, entering the normal
  *                          propose→grade→calibrate loop.
+ *   renderAnswerWithGaps   the one renderer every think surface (page, CLI,
+ *                          auto-think draft) goes through, so gaps render once.
  *
  * Both refuse empty input and never throw for a per-row failure (warnings
  * carry the misses). No LLM calls — persistence is free.
@@ -18,7 +20,7 @@ import type { Engine } from "../engine/interface.ts";
 import { putPage } from "../pages.ts";
 import { contentHash16 } from "./atoms.ts";
 import { takeKey } from "./takes.ts";
-import type { ThinkResult } from "./think.ts";
+import { stripGapsSection, type ThinkResult } from "./think.ts";
 
 /** Prompt-version marker for operator-committed think takes. */
 export const THINK_TAKE_PROMPT_VERSION = "think-take-v1";
@@ -28,6 +30,29 @@ export interface PersistSynthesisResult {
   slug: string;
   evidenceInserted: number;
   warnings: string[];
+}
+
+/**
+ * Render a think answer with its gaps appended exactly once.
+ *
+ * Gaps live in the structured `gaps` array and every surface prints that array
+ * itself; a model that also leaves a "## Gaps" section in the prose would make
+ * them show up twice. The strip belongs here rather than at each call site —
+ * the saved page, the CLI and the auto-think draft all render through this, so
+ * a new surface cannot reintroduce the double render by forgetting it.
+ *
+ * `heading`/`bullet` carry the caller's format (markdown page vs. console).
+ */
+export function renderAnswerWithGaps(
+  answer: string,
+  gaps: readonly string[],
+  opts: { heading?: string; bullet?: string } = {},
+): string {
+  const body = stripGapsSection(answer ?? "");
+  if (gaps.length === 0) return body;
+  const heading = opts.heading ?? "## Gaps";
+  const bullet = opts.bullet ?? "- ";
+  return `${body}\n\n${heading}\n${gaps.map((g) => `${bullet}${g}`).join("\n")}`;
 }
 
 /** Deterministic synthesis page slug: synthesis/<question-slug>-<date>. */
@@ -63,15 +88,7 @@ export async function persistThinkSynthesis(
   }
   const warnings: string[] = [];
   const slug = synthesisSlugFor(opts.question);
-  const body = [
-    `# ${opts.question}`,
-    "",
-    s.answer,
-    "",
-    s.gaps.length > 0 ? `## Gaps\n\n${s.gaps.map((g) => `- ${g}`).join("\n")}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const body = `# ${opts.question}\n${renderAnswerWithGaps(s.answer, s.gaps)}`;
 
   await putPage(storage, {
     slug,

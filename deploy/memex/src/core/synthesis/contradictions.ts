@@ -25,6 +25,7 @@ import type { Engine } from "../engine/interface.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { excludeEmptyExtractionTombstone } from "./takes.ts";
 
 export const PROBE_CONTRADICTIONS_PROMPT_VERSION = "v1-sonnet";
 
@@ -302,7 +303,12 @@ async function defaultPairs(
   }
   if (out.length >= maxPairs) return out.slice(0, maxPairs);
 
-  // Stream 3 — take vs fact where the claim names the fact's entity.
+  // Stream 3 — take vs fact where the claim names the fact's entity. Unlike
+  // stream 2 (which needs a domain, and the memo carries none), nothing here
+  // rules the zero-yield memo out, so it is fenced by claim text — a paid judge
+  // spent on "(no gradeable claims)" vs a fact can only return noise.
+  const takeFactParams: unknown[] = [lookbackDays, maxPairs - out.length];
+  const noTombstone = excludeEmptyExtractionTombstone("t.claim_text", takeFactParams);
   try {
     const { rows } = await engine.query<CandidatePair>(
       `SELECT t.take_key AS a_ref, t.claim_text AS a_text,
@@ -322,9 +328,10 @@ async function defaultPairs(
           AND length(regexp_replace(f.entity_slug, '.*/', '')) > 3
           AND t.claim_text ILIKE
               '%' || replace(regexp_replace(f.entity_slug, '.*/', ''), '-', ' ') || '%'
+          ${noTombstone}
         ORDER BY t.id ASC, f.id ASC
         LIMIT $2`,
-      [lookbackDays, maxPairs - out.length],
+      takeFactParams,
     );
     out.push(...rows);
   } catch {

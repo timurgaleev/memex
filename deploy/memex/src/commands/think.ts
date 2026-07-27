@@ -15,8 +15,11 @@ import { loadConfig } from "../core/config.ts";
 import { runThink } from "../core/synthesis/think.ts";
 import {
   persistThinkSynthesis,
+  renderAnswerWithGaps,
   saveThinkTake,
 } from "../core/synthesis/think-persist.ts";
+import type { SonnetFn } from "../core/llm/sonnet.ts";
+import type { SearchHit } from "../core/search/hybrid.ts";
 
 export interface ThinkCliArgs {
   question: string;
@@ -35,6 +38,10 @@ export interface ThinkCliArgs {
   modelId?: string;
   withCalibration?: boolean;
   configPath?: string;
+  /** Test seam — inject a fake model; bypasses the live-run env gate. */
+  sonnetFn?: SonnetFn;
+  /** Test seam — deterministic page retriever (no Bedrock embedding). */
+  pagesFn?: (question: string, k: number) => Promise<SearchHit[]>;
 }
 
 export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
@@ -52,6 +59,8 @@ export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
       ...(args.rounds !== undefined ? { rounds: args.rounds } : {}),
       ...(args.modelId !== undefined ? { modelId: args.modelId } : {}),
       ...(args.withCalibration ? { withCalibration: true } : {}),
+      ...(args.sonnetFn ? { sonnetFn: args.sonnetFn } : {}),
+      ...(args.pagesFn ? { pagesFn: args.pagesFn } : {}),
     });
 
     // Persistence side-effects run BEFORE the report prints so their outcome
@@ -105,10 +114,7 @@ export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
       return;
     }
     const s = report.synthesis;
-    console.log(s.answer);
-    if (s.gaps.length > 0) {
-      console.log(`\nGaps:\n${s.gaps.map((g) => `  - ${g}`).join("\n")}`);
-    }
+    console.log(renderAnswerWithGaps(s.answer, s.gaps, { heading: "Gaps:", bullet: "  - " }));
     console.log(
       `\n[${report.pagesGathered} pages, ${report.takesGathered} takes, ` +
         `${s.citations.length} citations, spent $${report.spentUsd.toFixed(4)}` +
