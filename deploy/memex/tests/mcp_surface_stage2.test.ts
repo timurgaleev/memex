@@ -335,7 +335,7 @@ describe("operator wrappers (G42)", () => {
 });
 
 describe("exposure tightening (G47)", () => {
-  it("purge_deleted_pages needs the admin scope (reference parity)", async () => {
+  it("purge_deleted_pages needs the admin scope", async () => {
     // A read/write tenant token lacks admin → per-op scope gate refuses it.
     const denied = await call("purge_deleted_pages", { older_than_hours: 0 }, auth(A, ["read", "write"]));
     expect(denied.isError).toBe(true);

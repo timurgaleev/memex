@@ -17,6 +17,7 @@ import {
   type SonnetFn,
   type SonnetUsage,
 } from "./llm/sonnet.ts";
+import { slugifyTarget } from "./links.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 import {
@@ -238,7 +239,13 @@ export function sanitizeEntityHints(hints: unknown): string[] {
   for (const h of hints) {
     if (typeof h !== "string") continue;
     const s = h.trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9/-]{0,255}$/.test(s) || seen.has(s)) continue;
+    // Same word-char class as the slug grammar (links.ts SLUG_RE) — a
+    // Cyrillic hint must survive now that non-Latin slugs are valid.
+    if (
+      !/^[\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}][\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}/-]{0,255}$/u.test(s) ||
+      seen.has(s)
+    )
+      continue;
     seen.add(s);
     out.push(s);
     if (out.length >= 20) break;
@@ -325,13 +332,19 @@ export async function extractFactsFromTurn(
   };
 }
 
-/** Lowercase-hyphen slug from a display name. Returns null when nothing usable. */
+/**
+ * Lowercase-hyphen slug from a display name. `/` separates path segments and
+ * is preserved (each segment is slugified on its own), so a path-shaped
+ * entity like `people/bob jones` stays under its namespace instead of
+ * flattening into a phantom slug no page can have. Returns null when nothing
+ * usable.
+ */
 export function slugifyEntity(name: string): string | null {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : null;
+  // Same two-tier fold as links.ts slugifyTarget: ASCII first (stability for
+  // existing keys), Unicode fallback so an all-non-Latin entity name keys a
+  // real slug instead of vanishing. '/' is preserved either way.
+  const slug = slugifyTarget(name);
+  return slug === "unknown" ? null : slug;
 }
 
 /**

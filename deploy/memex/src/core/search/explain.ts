@@ -122,7 +122,7 @@ function fmt(n: number): string {
 /**
  * Render one hit's attribution as a multi-line block (no trailing newline).
  * `slug` is a display label (memex passes the source_path). Mirrors the
- * reference layout: a header, the base line, one `+ stage ×factor` line per
+ * layout: a header, the base line, one `+ stage ×factor` line per
  * fired boost, and a closing `= final` line (or `no boosts applied`).
  */
 export function formatExplain(

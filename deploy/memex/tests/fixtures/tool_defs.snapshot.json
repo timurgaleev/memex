@@ -31,11 +31,11 @@
         },
         "since": {
           "type": "string",
-          "description": "Keep only hits whose content date COALESCE(effective_date, updated_at) is >= this ISO-8601 date/datetime."
+          "description": "Keep only hits whose content date COALESCE(effective_date, updated_at) is >= this bound: an ISO-8601 date/datetime, or a relative duration like '7d' / '2w' / '6m' / '1y' (back from now)."
         },
         "until": {
           "type": "string",
-          "description": "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this ISO-8601 date/datetime."
+          "description": "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this bound: an ISO-8601 date/datetime (a plain YYYY-MM-DD includes that whole day), or a relative duration like '7d' / '2w' / '6m' / '1y' (back from now)."
         },
         "near_symbol": {
           "type": "string",
@@ -64,7 +64,7 @@
             "balanced",
             "tokenmax"
           ],
-          "description": "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle) — reference behavior."
+          "description": "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle)."
         }
       },
       "required": [
@@ -1279,7 +1279,7 @@
   },
   {
     "name": "purge_deleted_pages",
-    "description": "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Reference parity (delete_page = write, purge = admin).",
+    "description": "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Scope split: delete_page = write, purge = admin.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1903,7 +1903,7 @@
   },
   {
     "name": "think",
-    "description": "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers, reference behavior). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
+    "description": "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1943,7 +1943,7 @@
         },
         "with_calibration": {
           "type": "boolean",
-          "description": "Inject the calibration anti-bias block (opt-in, reference --with-calibration)."
+          "description": "Inject the calibration anti-bias block (opt-in)."
         },
         "k": {
           "type": "integer",

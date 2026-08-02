@@ -257,8 +257,16 @@ function cellAt(cells: readonly string[], idx: number | undefined): string | und
  * Parse the `## Facts` fence out of a markdown body. Returns the rows in
  * source order. A missing or malformed fence yields `[]` (never throws — the
  * markdown is hand-editable and must degrade gracefully).
+ *
+ * `warnings`, when supplied, collects a message per DATA row that was skipped
+ * for being claimless/malformed (missing or empty claim cell). Callers that
+ * project the parse into the DB use it to tell "clean parse" from "partial
+ * parse" — a wipe+reinsert over a partial parse would destroy the skipped
+ * rows' prior projections. Structural non-rows (prose lines, separators,
+ * repeated headers) do not warn: they are tolerated table furniture, not lost
+ * facts.
  */
-export function parseFactsFence(markdown: string): ParsedFact[] {
+export function parseFactsFence(markdown: string, warnings?: string[]): ParsedFact[] {
   if (!markdown.includes(FACTS_FENCE_BEGIN)) return [];
   const lines = markdown.split(/\r?\n/);
   const begin = lines.findIndex((l) => l.trim() === FACTS_FENCE_BEGIN);
@@ -292,16 +300,33 @@ export function parseFactsFence(markdown: string): ParsedFact[] {
   for (let i = begin + 1; i < end; i++) {
     if (i === headerIdx) continue; // skip the header row itself
     const cells = parseRowCells(lines[i] ?? "");
-    if (!cells || isSeparatorRow(cells)) continue;
+    if (!cells) {
+      // A pipe-bearing line inside the fence that fails row parsing is a
+      // mangled data row — surface it, or reconcile would treat its absence
+      // as a deletion. Pipe-less prose stays silent (legitimately skippable).
+      const raw = (lines[i] ?? "").trim();
+      if (raw.includes("|")) {
+        warnings?.push(`fence line ${i + 1}: unparseable table row`);
+      }
+      continue;
+    }
+    if (isSeparatorRow(cells)) continue;
     // Skip a REPEATED header row (markers/labels, non-numeric lead cell) — a
     // duplicate `| # | claim | … |` must not become a fact whose claim is the
     // literal word "claim". A genuine data row leads with a row number, so
     // isHeaderShaped is false for it and it parses normally.
     if (buildColMap(cells) && isHeaderShaped(cells)) continue;
     const claimCell = cellAt(cells, colMap.claim);
-    if (claimCell === undefined) continue;
+    if (claimCell === undefined) {
+      warnings?.push(`fence line ${i + 1}: data row has no claim cell`);
+      continue;
+    }
     const { text: claim, struck } = stripStrikethrough(claimCell);
-    if (!claim.trim()) continue; // a row with no claim is not a fact
+    if (!claim.trim()) {
+      // a row with no claim is not a fact
+      warnings?.push(`fence line ${i + 1}: data row has an empty claim`);
+      continue;
+    }
 
     seq += 1;
     const rowNumRaw = Number.parseInt((cellAt(cells, colMap.rowNum) ?? "").trim(), 10);

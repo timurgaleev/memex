@@ -112,9 +112,11 @@ export function resolveSemanticCacheConfig(
  * batch (k/weight RRF math, zero-LLM intent taxonomy, arm-SQL curation boost +
  * default hard-excludes, compiled-truth ×2, exact-match / alias-resolved /
  * mattering-salience / recency-boost stages, per-doc dedup cap 2 + type
- * diversity, full-window rerank head).
+ * diversity, full-window rerank head); `7` = compiled-truth boost rescoped to
+ * detail=low only, ANN ef_search raised to the fanout, first-person
+ * entity-intent phrasing.
  */
-const RANKING_VERSION = "6";
+const RANKING_VERSION = "7";
 
 /**
  * Signature of the ranking inputs that are NOT function arguments, so a change
@@ -265,11 +267,15 @@ export function queryCacheBucketKey(
   sourceIds: readonly string[] | undefined,
   rerank: boolean,
   rankingSig: string = rankingSignature(),
+  detail: string = "medium",
 ): string {
   const scope = sourceIds && sourceIds.length > 0
     ? [...sourceIds].map((s) => s.toLowerCase()).sort()
     : [];
-  const material = JSON.stringify([k, scope, rerank ? 1 : 0, rankingSig]);
+  // `detail` is the RESOLVED level (classifier suggestion included): the
+  // compiled-truth boost keys on it, so a paraphrase must never borrow an
+  // ordering computed under a different level.
+  const material = JSON.stringify([k, scope, rerank ? 1 : 0, rankingSig, detail]);
   return createHash("sha256").update(material).digest("hex");
 }
 

@@ -184,25 +184,36 @@ describe("hybridSearch compiled-truth boost + explain", () => {
     );
   });
 
-  it("ranks the truth chunk first and stamps the explain factor", async () => {
-    const hits = await hybridSearch(storage, "zorblaxium", {
+  it("boosts the truth chunk ONLY at detail=low (v7 rescope)", async () => {
+    // Default detail (this query classifies 'general' → medium): the ×2 is
+    // NOT applied — post-RRF it displaced other pages' best chunks.
+    const def = await hybridSearch(storage, "zorblaxium", {
       k: 5,
       intent: "topic",
       embedQuery: nullVec,
       noCache: true,
       explain: true,
     });
-    expect(hits.length).toBeGreaterThanOrEqual(2);
-    expect(hits[0]!.sourcePath).toBe(pageTruthSourcePath(SLUG));
-    // Explain wiring (G28): every hit carries the attribution record, and the
-    // truth hit shows the ×2 stage.
-    expect(hits[0]!.explain).toBeDefined();
-    expect(hits[0]!.explain!.compiled_truth).toBe(2.0);
-    expect(hits[1]!.explain).toBeDefined();
-    expect(hits[1]!.explain!.compiled_truth).toBeUndefined();
+    expect(def.length).toBeGreaterThanOrEqual(2);
+    for (const h of def) expect(h.explain!.compiled_truth).toBeUndefined();
+
+    // detail=low (one chunk per document — the distilled-answer view): the
+    // truth chunk wins and carries the ×2 explain stamp.
+    const low = await hybridSearch(storage, "zorblaxium", {
+      k: 5,
+      intent: "topic",
+      embedQuery: nullVec,
+      noCache: true,
+      explain: true,
+      detail: "low",
+    });
+    expect(low.length).toBeGreaterThanOrEqual(1);
+    expect(low[0]!.sourcePath).toBe(pageTruthSourcePath(SLUG));
+    expect(low[0]!.explain).toBeDefined();
+    expect(low[0]!.explain!.compiled_truth).toBe(2.0);
   });
 
-  it("bypasses the boost for temporal queries (reference detail=high gate)", async () => {
+  it("bypasses the boost for temporal queries (detail=high gate)", async () => {
     // "zorblaxium history" matches both docs lexically AND classifies
     // temporal (history) → suggestedDetail 'high' → no truth boost.
     const hits = await hybridSearch(storage, "zorblaxium history", {

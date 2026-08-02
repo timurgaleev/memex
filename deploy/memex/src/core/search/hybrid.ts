@@ -25,6 +25,7 @@ import { embedText } from "../embedding.ts";
 import { reciprocalRankFusion } from "../rrf.ts";
 import { vectorSearch } from "./vector.ts";
 import { keywordSearch } from "./keyword.ts";
+import { resolveDateBoundary } from "./filters.ts";
 import { visibilityClause } from "../visibility.ts";
 import {
   dedupByDocument,
@@ -149,9 +150,12 @@ function getRecencyBoostMap(): ReturnType<typeof resolveRecencyBoostMap> {
 /**
  * Compiled-truth boost: chunks of a page's compiled-truth mirror
  * (`page-truth://…`, see page-index.ts) are the canonical per-page answers,
- * multiplied ×2 after fusion. Applied on the raw fused score — a uniform
- * multiplier is scale-invariant, so the resulting ORDER is unchanged.
- * Bypassed for temporal queries (suggestedDetail 'high') — freshness queries
+ * multiplied ×2 after fusion — but ONLY at detail 'low' (one chunk per
+ * document), where the distilled truth is exactly what the collapse should
+ * keep. At the default detail the multiplier is NOT order-preserving across
+ * pages: RRF-fused scores sit in a narrow band, so ×2 let a weakly-matching
+ * page's mirror chunk displace a strongly-matching page's best chunk.
+ * Also bypassed for temporal queries (detail 'high') — freshness queries
  * want the record, not the distilled truth.
  */
 const COMPILED_TRUTH_BOOST = 2.0;
@@ -776,7 +780,7 @@ export async function hybridSearch(
     const semCfg = resolveSemanticCacheConfig();
     if (semCfg.enabled) {
       try {
-        const bucket = queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig);
+        const bucket = queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig, detailResolved);
         const sem = await getSemanticCachedQuery(
           engine,
           bucket,
@@ -992,8 +996,8 @@ export async function hybridSearch(
     // Compare dates as epoch ms, NOT strings: Postgres renders TIMESTAMPTZ as
     // "2024-03-15 10:00:00+00" (space separator) while a caller passes ISO
     // ("2024-03-15T…") — a raw string compare would mis-order across that gap.
-    const sinceMs = opts.since ? Date.parse(opts.since) : NaN;
-    const untilMs = opts.until ? Date.parse(opts.until) : NaN;
+    const sinceMs = opts.since ? Date.parse(resolveDateBoundary(opts.since, "since")) : NaN;
+    const untilMs = opts.until ? Date.parse(resolveDateBoundary(opts.until, "until")) : NaN;
     scored = scored.filter((s) => {
       const p = s.payload;
       if (opts.lang && p?.language !== opts.lang) return false;
@@ -1036,10 +1040,11 @@ export async function hybridSearch(
 
   // 5d. Compiled-truth boost — a page's canonical answers (its compiled-truth
   //     mirror chunks) get ×2 so the distilled truth outranks body prose for
-  //     the same page. Skipped for temporal queries (detail=high).
+  //     the same page. Applied ONLY at detail=low (see COMPILED_TRUTH_BOOST):
+  //     at medium/high the cross-page displacement outweighs the tilt.
   //     Pre-dedup like every other boost, so the truth chunk wins the
   //     per-doc collapse of its own mirror document.
-  if (!temporalQuery) {
+  if (detailResolved === "low") {
     for (const s of scored) {
       if (s.payload?.sourcePath?.startsWith(PAGE_TRUTH_PREFIX)) {
         s.score *= COMPILED_TRUTH_BOOST;
@@ -1387,7 +1392,7 @@ export async function hybridSearch(
     const semCfg = resolveSemanticCacheConfig();
     const semantic = semCfg.enabled
       ? {
-          bucketKey: queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig),
+          bucketKey: queryCacheBucketKey(k, opts.sourceIds, rerankWanted, rankingSig, detailResolved),
           queryEmbedding: queryVector,
         }
       : undefined;

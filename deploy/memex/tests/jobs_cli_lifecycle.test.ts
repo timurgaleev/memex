@@ -92,9 +92,19 @@ describe("memex jobs lifecycle CLI", () => {
     await run({ sub: "cancel", id: "job-cli-2" });
     // Age floor in the future-ward direction: olderThanDays 0 → cutoff now →
     // the just-cancelled row qualifies.
+    const preview = await run({ sub: "prune", olderThanDays: 0, dryRun: true });
+    expect(preview.ok).toBe(true);
+    expect(preview.dry_run).toBe(true);
+    expect(preview.would_prune as number).toBeGreaterThanOrEqual(1);
+    expect(preview.pruned).toBeUndefined();
+    // Dry run left the row in place — progress still finds it.
+    const still = await run({ sub: "progress", id: "job-cli-2" });
+    expect(still.ok).toBe(true);
     const pruned = await run({ sub: "prune", olderThanDays: 0 });
     expect(pruned.ok).toBe(true);
     expect(pruned.pruned as number).toBeGreaterThanOrEqual(1);
+    const gone = await run({ sub: "progress", id: "job-cli-2" });
+    expect(gone.ok).toBe(false);
   });
 
   it("smoke round-trips a noop job through the real worker path", async () => {

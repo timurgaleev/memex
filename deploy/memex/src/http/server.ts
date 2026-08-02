@@ -277,6 +277,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
                 ...(info.takesHolders != null
                   ? { takesHolders: info.takesHolders }
                   : {}),
+                ...(info.boundSlugPrefixes != null
+                  ? { boundSlugPrefixes: info.boundSlugPrefixes }
+                  : {}),
                 isPublic: false,
               };
             } catch (e) {
@@ -394,6 +397,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
                   : {}),
                 ...(info.takesHolders != null
                   ? { takesHolders: info.takesHolders }
+                  : {}),
+                ...(info.boundSlugPrefixes != null
+                  ? { boundSlugPrefixes: info.boundSlugPrefixes }
                   : {}),
                 isPublic: guard.isPublic,
               };

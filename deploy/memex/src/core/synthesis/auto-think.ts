@@ -68,7 +68,8 @@ function autoThinkEnabled(): boolean {
 function defaultBudget(): number {
   const raw = (process.env.MEMEX_AUTO_THINK_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n > 0 ? n : 2.0;
+  // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
+  return Number.isFinite(n) && n >= 0 ? n : 2.0;
 }
 
 function resolveIntConfig(v: number | undefined, envKey: string, def: number): number {
@@ -184,7 +185,7 @@ export async function autoThinkPhase(
     }
   }
 
-  const cap = opts.budgetUsd !== undefined && opts.budgetUsd > 0 ? opts.budgetUsd : defaultBudget();
+  const cap = opts.budgetUsd !== undefined && opts.budgetUsd >= 0 ? opts.budgetUsd : defaultBudget();
   const model = resolveFactsModel(opts.modelId);
   // Live mode hands runThink the real Sonnet fn so it is gated by MEMEX_AUTO_THINK,
   // not MEMEX_THINK; tests inject their fake through the same seam.

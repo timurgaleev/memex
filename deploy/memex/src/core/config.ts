@@ -93,7 +93,7 @@ export interface EvalCaptureConfig {
  * `selfIssued.enabled === true` the server mounts `/token` and verifies
  * self-issued `memex_at_…` bearer tokens on the MCP ingress, scoping each to its
  * registered `oauth_clients` row. Default-OFF — the static public bearer stays
- * the sole path. This is memex's reference-faithful auth surface.
+ * the sole path. This is the canonical auth surface.
  */
 export interface SelfIssuedConfig {
   enabled?: boolean;

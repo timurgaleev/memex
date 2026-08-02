@@ -179,7 +179,7 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
   });
 
-  it("forbids `stats` (whole-brain counts — reference marks get_stats admin)", () => {
+  it("forbids `stats` (whole-brain counts — admin-posture)", () => {
     expect(isPublicMcpToolForbidden("stats")).toBe(true);
   });
 
@@ -200,7 +200,7 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("entity_recall")).toBe(false);
   });
 
-  it("forbids jobs reads (reference marks get_job/list_jobs/job_logs admin)", () => {
+  it("forbids jobs reads (admin-posture ops)", () => {
     expect(isPublicMcpToolForbidden("jobs_list")).toBe(true);
     expect(isPublicMcpToolForbidden("jobs_get")).toBe(true);
     expect(isPublicMcpToolForbidden("jobs_logs")).toBe(true);

@@ -144,6 +144,44 @@ describe("frontmatter with a lone surrogate indexes cleanly (jsonb cast)", () =>
     expect(unscoped.rows[0]?.source_id ?? null).toBeNull();
   });
 
+  it("indexes a document whose chunk content/title embed NUL (TEXT columns)", async () => {
+    // Postgres TEXT rejects U+0000 the same way jsonb does ("invalid byte
+    // sequence for encoding UTF8: 0x00") — a NUL-bearing file (a binary blob
+    // with a code extension, a mis-encoded note) must index, not abort the tx.
+    await writeDocumentTransaction(
+      storage,
+      {
+        documentId: "doc_nul",
+        sourcePath: "/nul.ts",
+        title: `ti${NUL}tle`,
+        frontmatter: {},
+        embeddingModel: "det",
+      },
+      [
+        { text: `before${NUL}after`, entities: [] },
+        { text: "clean chunk", docComment: `doc${NUL}comment`, entities: [] },
+      ],
+    );
+    const doc = await storage
+      .engine()
+      .query<{ title: string }>(
+        "SELECT title FROM documents WHERE id = $1",
+        ["doc_nul"],
+      );
+    expect(doc.rows[0]!.title).toBe("title");
+    const chunks = await storage
+      .engine()
+      .query<{ content: string; doc_comment: string | null }>(
+        "SELECT content, doc_comment FROM chunks WHERE document_id = $1 ORDER BY chunk_index",
+        ["doc_nul"],
+      );
+    expect(chunks.rows.map((r) => r.content)).toEqual(["beforeafter", "clean chunk"]);
+    expect(chunks.rows[1]!.doc_comment).toBe("doccomment");
+    for (const row of chunks.rows) {
+      expect(row.content.includes(NUL)).toBe(false);
+    }
+  });
+
   it("stores a string frontmatter as {} not a jsonb scalar (420MB-bug guard)", async () => {
     // An ingest path that passes raw content as frontmatter would otherwise
     // serialize a whole file body as a jsonb scalar string. The chokepoint

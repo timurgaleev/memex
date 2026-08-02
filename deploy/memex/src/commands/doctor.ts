@@ -26,6 +26,7 @@ import {
   checkSchemaVersion,
   checkEmbeddingWidth,
   checkInvalidIndexes,
+  checkDuplicatePages,
 } from "../core/doctor-ops.ts";
 import {
   checkFederationHealth,
@@ -246,15 +247,17 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     }
 
     // Ops probes (substrate already exists): an orphaned cycle lock past TTL, a
-    // wedged job in the queue, an unapplied migration, or an embedding-width vs
-    // config drift. Each swallows its own probe error into a WARN so one bad
-    // probe can't abort the report.
+    // wedged job in the queue, an unapplied migration, an embedding-width vs
+    // config drift, or the same content indexed under multiple slugs. Each
+    // swallows its own probe error into a WARN so one bad probe can't abort
+    // the report.
     for (const [name, probe] of [
       ["stale-locks", checkStaleLocks],
       ["queue-health", checkQueueHealth],
       ["schema-version", checkSchemaVersion],
       ["embedding-width", checkEmbeddingWidth],
       ["invalid-indexes", checkInvalidIndexes],
+      ["duplicate-pages", checkDuplicatePages],
     ] as const) {
       try {
         const r = await probe(storage.raw());

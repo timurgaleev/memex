@@ -178,8 +178,8 @@ describe("extractFactsForPage", () => {
          FROM entity_facts WHERE written_by = 'facts-extract'`,
     );
     expect(rows.rows).toHaveLength(1);
-    // slugifyEntity flattens the model's entity string to a kebab slug.
-    expect(rows.rows[0]!.entity_slug).toBe("people-alice");
+    // slugifyEntity kebab-slugs each path segment, preserving the namespace.
+    expect(rows.rows[0]!.entity_slug).toBe("people/alice");
     expect(rows.rows[0]!.source_id).toBe("tenant-a");
     expect(rows.rows[0]!.source_slug).toBe("notes/alice-sync");
   });

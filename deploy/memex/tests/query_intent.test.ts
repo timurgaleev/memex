@@ -21,6 +21,9 @@ describe("classifyQueryTaxonomy", () => {
   it("classifies entity queries", () => {
     expect(classifyQueryTaxonomy("who is alice")).toBe("entity");
     expect(classifyQueryTaxonomy("tell me about acme corp")).toBe("entity");
+    // First person included — the operator's canonical phrasing.
+    expect(classifyQueryTaxonomy("what do I know about alice")).toBe("entity");
+    expect(classifyQueryTaxonomy("what do you know about acme")).toBe("entity");
   });
 
   it("classifies temporal queries (full-context included)", () => {

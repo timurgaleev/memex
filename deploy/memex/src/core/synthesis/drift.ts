@@ -96,7 +96,8 @@ function driftEnabled(): boolean {
 function defaultBudget(): number {
   const raw = (process.env.MEMEX_DRIFT_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n > 0 ? n : 1.0;
+  // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
+  return Number.isFinite(n) && n >= 0 ? n : 1.0;
 }
 
 function resolveIntConfig(v: number | undefined, envKey: string, def: number): number {

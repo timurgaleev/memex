@@ -37,7 +37,7 @@ describe("isCanonicalQuery", () => {
 });
 
 describe("curationMultiplierForPath", () => {
-  it("applies the default authority weights by prefix (reference tier map)", () => {
+  it("applies the default authority weights by prefix (default tier map)", () => {
     expect(curationMultiplierForPath("originals/note", DEFAULT_CURATION_BOOST)).toBe(1.5);
     expect(curationMultiplierForPath("chat/log", DEFAULT_CURATION_BOOST)).toBe(0.5);
     expect(curationMultiplierForPath("archive/old", DEFAULT_CURATION_BOOST)).toBe(0.5);

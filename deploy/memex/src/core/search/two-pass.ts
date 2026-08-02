@@ -9,7 +9,7 @@
  * recorded to the rerank-failure audit JSONL (rerank-audit.ts, opt-in via
  * MEMEX_AUDIT_DIR) so silent degradation is greppable. The Bedrock call runs
  * under a per-call wall-clock timeout (MEMEX_RERANK_TIMEOUT_MS, default
- * 5000ms — reference contract) so a hung connection can't stall search.
+ * 5000ms) so a hung connection can't stall search.
  */
 import {
   BedrockRuntimeClient,
@@ -25,7 +25,7 @@ import { awsRegion } from "../llm/gateway.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
-/** Per-call rerank timeout (ms). Reference default: 5000. */
+/** Per-call rerank timeout (ms). Default: 5000. */
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 function rerankTimeoutMs(): number {

@@ -341,7 +341,7 @@ async function handleSingle(
       //
       // An AUTHENTICATED principal (ctx.authInfo present — OAuth/PAT, never
       // the static public bearer nor a bare bridge sibling) is NOT what this
-      // wall defends against, and reference parity gates such a caller on
+      // wall defends against; such a caller is gated on
       // scope alone. Letting the wall catch it also made `tools/list` and the
       // callable set disagree: the list is filtered on `isPublic`, which a
       // token request is not, so every token client was advertised ~60 tools

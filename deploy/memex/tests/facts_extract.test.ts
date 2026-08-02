@@ -96,7 +96,15 @@ describe("parseFactsResponse", () => {
   });
   it("slugifies entity names", () => {
     expect(slugifyEntity("Alice Example")).toBe("alice-example");
+    expect(slugifyEntity("Alice Smith")).toBe("alice-smith");
     expect(slugifyEntity("  !!  ")).toBeNull();
+  });
+  it("preserves path separators, slugifying per segment", () => {
+    expect(slugifyEntity("people/bob jones")).toBe("people/bob-jones");
+    expect(slugifyEntity("People/Bob Jones")).toBe("people/bob-jones");
+    expect(slugifyEntity("people//bob")).toBe("people/bob");
+    expect(slugifyEntity("/people/bob/")).toBe("people/bob");
+    expect(slugifyEntity("///")).toBeNull();
   });
 });
 

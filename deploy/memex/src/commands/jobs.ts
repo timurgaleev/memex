@@ -11,8 +11,9 @@
  *              — validated enqueue (core/jobs/lifecycle.ts submitJob)
  *   progress <id> — status + handler-reported progress envelope
  *   remove <id>   — delete one TERMINAL row (cancel first if still live)
- *   prune [--older-than-days N] [--status s1,s2]
- *                 — delete old terminal rows (default: all terminal, 30d)
+ *   prune [--older-than-days N] [--status s1,s2] [--dry-run]
+ *                 — delete old terminal rows (default: all terminal, 30d);
+ *                   --dry-run previews the count without deleting
  *   smoke         — end-to-end queue self-test (enqueue → claim → complete)
  */
 import { Storage } from "../core/storage.ts";
@@ -49,6 +50,8 @@ export interface JobsCmdOptions {
   maxRetries?: number;
   /** prune: age floor in days (default 30). */
   olderThanDays?: number;
+  /** prune: preview the would-be-deleted count without deleting. */
+  dryRun?: boolean;
   /** Test seam — config file path. */
   configPath?: string;
 }
@@ -112,6 +115,13 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         }
         if (opts.status) {
           pruneOpts.statuses = Array.isArray(opts.status) ? opts.status : [opts.status];
+        }
+        if (opts.dryRun) {
+          const wouldPrune = await queue.prune({ ...pruneOpts, dryRun: true });
+          console.log(
+            JSON.stringify({ ok: true, would_prune: wouldPrune, dry_run: true }, null, 2),
+          );
+          return;
         }
         const pruned = await queue.prune(pruneOpts);
         console.log(JSON.stringify({ ok: true, pruned }, null, 2));

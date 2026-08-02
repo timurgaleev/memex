@@ -163,7 +163,7 @@ function printUsage(): void {
   console.log("  jobs submit <kind> [--id X] [--priority N] [--max-retries N] [--payload '<json>']");
   console.log("  jobs progress <id>           status + handler-reported progress");
   console.log("  jobs remove <id>             delete one terminal job row");
-  console.log("  jobs prune [--older-than-days N] [--status s1,s2]");
+  console.log("  jobs prune [--older-than-days N] [--status s1,s2] [--dry-run]");
   console.log("                               delete old terminal jobs (default 30d)");
   console.log("  jobs smoke                   end-to-end queue self-test");
   console.log("  cache stats                  query-cache rows: total/fresh/stale vs the clock");
@@ -1148,6 +1148,7 @@ async function main(argv: readonly string[]): Promise<number> {
           }
           opts.status = parts as JobStatus[];
         }
+        if (flags.has("--dry-run")) opts.dryRun = true;
       }
       await runJobs(opts);
       return 0;

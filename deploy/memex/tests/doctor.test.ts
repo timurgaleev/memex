@@ -83,6 +83,7 @@ describe("doctor", () => {
       "config",
       "contradiction-trend",
       "cycle-freshness",
+      "duplicate-pages",
       "embedding-width",
       "eval-trend",
       "federation-health",

@@ -159,6 +159,48 @@ describe("reconcileFactsForPage", () => {
     expect((await factsFor("people/alice")).map((f) => f.fact)).toEqual(["good fact"]);
   });
 
+  it("a partially malformed fence (one good + one claimless row) does NOT wipe prior facts", async () => {
+    await putAndReconcile(
+      "people/alice",
+      fenceBody([
+        { rowNum: 1, claim: "good fact", confidence: 1, active: true },
+        { rowNum: 2, claim: "second fact", confidence: 1, active: true },
+      ]),
+    );
+    // row 2's claim cell is empty → the parser skips it; reconciling the row
+    // that DID parse would wipe row 2's prior projection, so reconcile refuses
+    const partial = [
+      "# Alice",
+      "",
+      "## Facts",
+      "<!--- memex:facts:begin -->",
+      "| # | claim | confidence | source |",
+      "|---|-------|------------|--------|",
+      "| 1 | good fact | 1 | |",
+      "| 2 |  | 1 | |",
+      "<!--- memex:facts:end -->",
+    ].join("\n");
+    const r = await putAndReconcile("people/alice", partial);
+    expect(r).toEqual({ removed: 0, added: 0, skipped: "malformed_rows" });
+    expect((await factsFor("people/alice")).map((f) => f.fact)).toEqual([
+      "good fact",
+      "second fact",
+    ]);
+    // fixing the fence (all rows parse again) reconciles normally
+    const fixed = await putAndReconcile(
+      "people/alice",
+      fenceBody([
+        { rowNum: 1, claim: "good fact", confidence: 1, active: true },
+        { rowNum: 2, claim: "repaired fact", confidence: 1, active: true },
+      ]),
+    );
+    expect(fixed).toEqual({ removed: 2, added: 2 });
+    expect((await factsFor("people/alice")).map((f) => f.fact)).toEqual([
+      "good fact",
+      "repaired fact",
+    ]);
+  });
+
   it("skips when the content hash no longer matches (concurrency guard)", async () => {
     const w = await putPage(storage, {
       slug: "people/alice",

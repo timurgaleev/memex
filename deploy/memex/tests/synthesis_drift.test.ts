@@ -59,6 +59,7 @@ afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEMEX_DRIFT;
+  delete process.env.MEMEX_DRIFT_BUDGET_USD;
 });
 
 describe("driftPhase", () => {
@@ -98,6 +99,21 @@ describe("driftPhase", () => {
     expect(page).not.toBeNull();
     expect(page!.type).toBe("drift-report");
     expect(page!.markdown_body).toContain("ship in Q1");
+  });
+
+  it("spends nothing when MEMEX_DRIFT_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMEX_DRIFT_BUDGET_USD = "0";
+    await seedDriftedTake("A claim under review.", "Evidence that has since changed.");
+    let calls = 0;
+    const counting: SonnetFn = async (input) => {
+      calls += 1;
+      return fakeSonnet("[]")(input);
+    };
+    const r = await driftPhase(storage, { sonnetFn: counting });
+    expect(calls).toBe(0);
+    expect(r.budgetExhausted).toBe(true);
+    expect(r.spentUsd).toBe(0);
+    expect(r.reason).toContain("budget");
   });
 
   it("writes no report when the judge says every take still holds", async () => {

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { hybridSearch } from "../src/core/search/index.ts";
+import { resolveDateBoundary } from "../src/core/search/filters.ts";
 import { deterministicEmbed, deterministicEmbedQuery } from "./det-embed.ts";
 
 setDefaultTimeout(25000);
@@ -109,5 +110,38 @@ describe("search lang / symbol_kind filters", () => {
   it("a non-matching lang returns nothing", async () => {
     const docs = await search({ lang: "rust" });
     expect(docs).toEqual([]);
+  });
+});
+
+describe("resolveDateBoundary", () => {
+  it("relative '7d' resolves to ~7 days back from now", () => {
+    const ms = Date.parse(resolveDateBoundary("7d", "since"));
+    const expected = Date.now() - 7 * 86_400_000;
+    expect(Math.abs(ms - expected)).toBeLessThan(5_000);
+  });
+  it("relative '2w' resolves to ~14 days back", () => {
+    const ms = Date.parse(resolveDateBoundary("2w", "until"));
+    const expected = Date.now() - 14 * 86_400_000;
+    expect(Math.abs(ms - expected)).toBeLessThan(5_000);
+  });
+  it("a plain-date until maps to end of that day", () => {
+    expect(resolveDateBoundary("2026-01-15", "until")).toBe("2026-01-15T23:59:59.999Z");
+  });
+  it("a plain-date since pins to UTC midnight (TZ-independent)", () => {
+    expect(resolveDateBoundary("2026-01-15", "since")).toBe("2026-01-15T00:00:00.000Z");
+  });
+  it("full ISO datetimes pass through unchanged on both axes", () => {
+    expect(resolveDateBoundary("2024-03-15T10:00:00Z", "since")).toBe("2024-03-15T10:00:00Z");
+    expect(resolveDateBoundary("2024-03-15T10:00:00Z", "until")).toBe("2024-03-15T10:00:00Z");
+  });
+  it("garbage throws instead of silently dropping the bound", () => {
+    expect(() => resolveDateBoundary("lol", "since")).toThrow(/Invalid since/);
+    expect(() => resolveDateBoundary("lol", "until")).toThrow(/Invalid until/);
+  });
+  it("a relative bound filters end-to-end", async () => {
+    // The dated markdown docs all predate 2025; only doc_code (no frontmatter
+    // date → updated_at = ingest time) sits inside a 1-day lookback window.
+    expect((await search({ until: "1d" })).length).toBeGreaterThan(0);
+    expect(await search({ since: "1d" })).toEqual(["doc_code"]);
   });
 });

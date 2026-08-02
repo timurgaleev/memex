@@ -115,7 +115,7 @@ describe("writeExtractedFacts canonicalization (2a)", () => {
     expect(r).toEqual({ written: 0, skipped: 1, fact_ids: [] });
   });
 
-  it("notabilityFilter 'high-only' drops non-high facts (reference backstop D4)", async () => {
+  it("notabilityFilter 'high-only' drops non-high facts (notability backstop)", async () => {
     await putPage(storage, { slug: "people/bob", type: "person", title: "Bob" });
     const facts: ExtractedFact[] = [
       { fact: "Bob got married", kind: "event", entity: "Bob", confidence: 1, notability: "high" },

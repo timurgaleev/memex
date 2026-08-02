@@ -11,6 +11,7 @@
  * COALESCE(effective_date, updated_at) — cast to timestamptz so the compare is
  * temporal, never a lexical string compare across the "…T…" vs "… …+00" gap.
  */
+import { OperationError } from "../operation-error.ts";
 
 export interface ChunkFilters {
   /** chunks.language (e.g. "typescript"). */
@@ -26,6 +27,42 @@ export interface ChunkFilters {
 /** True when at least one filter axis is set. */
 export function hasChunkFilters(f: ChunkFilters | undefined): boolean {
   return Boolean(f && (f.lang || f.symbolKind || f.since || f.until));
+}
+
+const RELATIVE_DURATION = /^(\d+)([dwmy])$/;
+const PLAIN_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+const UNIT_DAYS: Record<string, number> = { d: 1, w: 7, m: 30, y: 365 };
+
+/**
+ * Normalize a since/until bound to an ISO-8601 timestamp:
+ * - relative durations ("7d" / "2w" / "6m" / "1y") subtract from now
+ *   (m = 30 days, y = 365 — a lookback window, not calendar arithmetic);
+ * - a plain YYYY-MM-DD `until` maps to end-of-day (T23:59:59.999Z) so the
+ *   bound includes that whole day instead of cutting at midnight;
+ * - anything else Date.parse accepts passes through unchanged.
+ * Garbage throws — a silently-dropped bound would widen the result set.
+ */
+export function resolveDateBoundary(value: string, which: "since" | "until"): string {
+  const v = value.trim();
+  const rel = RELATIVE_DURATION.exec(v);
+  if (rel) {
+    const days = Number(rel[1]) * UNIT_DAYS[rel[2] as string]!;
+    return new Date(Date.now() - days * DAY_MS).toISOString();
+  }
+  if (which === "until" && PLAIN_DATE.test(v)) return `${v}T23:59:59.999Z`;
+  // Pin a plain-date `since` to UTC midnight too — a raw date would be cast in
+  // the server's session TZ by Postgres while the post-hydrate path parses it
+  // as UTC; the two must agree regardless of server TZ.
+  if (PLAIN_DATE.test(v)) return `${v}T00:00:00.000Z`;
+  if (Number.isNaN(Date.parse(v))) {
+    throw new OperationError(
+      "invalid_params",
+      `Invalid ${which} value "${value}"`,
+      "Use ISO-8601 (e.g. 2026-01-15) or a relative duration (7d / 2w / 6m / 1y).",
+    );
+  }
+  return v;
 }
 
 /**
@@ -46,11 +83,11 @@ export function chunkFilterClauses(params: unknown[], f: ChunkFilters | undefine
     sql += ` AND c.symbol_type = $${params.length}`;
   }
   if (f.since) {
-    params.push(f.since);
+    params.push(resolveDateBoundary(f.since, "since"));
     sql += ` AND COALESCE(d.effective_date, d.updated_at) >= $${params.length}::timestamptz`;
   }
   if (f.until) {
-    params.push(f.until);
+    params.push(resolveDateBoundary(f.until, "until"));
     sql += ` AND COALESCE(d.effective_date, d.updated_at) <= $${params.length}::timestamptz`;
   }
   return sql;

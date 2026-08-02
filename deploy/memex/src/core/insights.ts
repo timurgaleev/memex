@@ -21,10 +21,16 @@ import type { Storage } from "./storage.ts";
 import { hybridSearch, type SearchHit, type SearchOptions } from "./search/hybrid.ts";
 import { PAGE_MIRROR_PATH_SQL, isPageSourcePath } from "./page-index.ts";
 
-// Shared kebab-case slug grammar (matches links.ts / pages.ts). Validated at
+// Shared kebab-case slug grammar (matches links.ts / pages.ts — keep the three
+// copies in sync). Word chars cover lowercase/caseless letters of any script
+// plus marks and digits. Validated at
 // the boundary so a caller-supplied slug can never be interpolated raw, and a
 // malformed value fails fast with a clear message rather than an empty result.
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/;
+const SLUG_WORD = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}]";
+const SLUG_RE = new RegExp(
+  `^${SLUG_WORD}(?:${SLUG_WORD}|-)*(?:\\/${SLUG_WORD}(?:${SLUG_WORD}|-)*)*$`,
+  "u",
+);
 const MAX_SLUG_LEN = 256;
 
 function validateSlug(slug: string): void {

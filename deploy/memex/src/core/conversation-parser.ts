@@ -96,6 +96,42 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+// - **Alice** (Mon 11:18) — header of a block-format export where the message
+// body follows on indented lines. Optional weekday word, optional am/pm.
+const BLOCK_HEADER =
+  /^[-*]\s+\*\*(.+?)\*\*\s*\(\s*(?:[A-Za-z]{2,9},?\s+)?(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\s*\)\s*$/;
+
+/**
+ * Collapse block-format transcripts — a `- **Name** (Mon 11:18)` header line
+ * followed by indented body lines — into the single-line `[HH:MM] Name: body`
+ * shape the builtin patterns already parse (12h converted to 24h). Trailing
+ * indented body lines are left in place so the continuation fold picks them
+ * up. Strict no-op: input with no block header is returned byte-identical.
+ */
+function normalizeBlockTranscript(text: string): string {
+  const lines = text.split(/\r?\n/);
+  if (!lines.some((l) => BLOCK_HEADER.test(l))) return text;
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]!.match(BLOCK_HEADER);
+    if (!m) {
+      out.push(lines[i]!);
+      continue;
+    }
+    let hour = Number(m[2]);
+    const ampm = (m[4] ?? "").toLowerCase();
+    if (ampm === "pm" && hour < 12) hour += 12;
+    if (ampm === "am" && hour === 12) hour = 0;
+    let firstBody = "";
+    if (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1]!)) {
+      firstBody = lines[i + 1]!.trim();
+      i++;
+    }
+    out.push(`[${pad2(hour)}:${m[3]}] ${m[1]!.trim()}: ${firstBody}`);
+  }
+  return out.join("\n");
+}
+
 /** Build an ISO timestamp from an inline date or the date context + time. */
 function toTimestamp(
   m: RegExpMatchArray,
@@ -138,7 +174,7 @@ export function parseConversation(
       ? opts.dateContext
       : "1970-01-01";
   const out: ConversationMessage[] = [];
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of normalizeBlockTranscript(text).split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     if (!line.trim()) continue;
     let matched = false;

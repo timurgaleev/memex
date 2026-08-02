@@ -7,7 +7,180 @@ introduces them.
 
 ---
 
-## Upstream-delta sweep tail (2026-07-27)
+## Adoption backlog — 2026-08-02 audit (20 items, adversarially verified)
+
+A code-grounded audit (12-agent fan-out, every claim re-verified against
+`deploy/memex/src` with file:line evidence) surfaced these gaps.
+
+**STATUS: 19 of 20 SHIPPED in v1.106.0 (2026-08-02).** The item list below
+is retained as the design record for those changes. The one deliberate
+deferral:
+
+- **CJK entity extraction — DEFERRED.** After the Unicode slug grammar
+  landed, the remaining CJK-specific work (unspaced-prose boundary
+  detection in the gazetteer, CJK verb patterns in link-verb inference)
+  serves a corpus this brain doesn't have (EN/RU); Cyrillic — the case that
+  matters here — is covered by the shipped slug + gazetteer Unicode
+  handling. Revisit only if CJK content enters the vault.
+
+Original items (shipped — kept for the rationale and landing sites):
+
+### MED (10)
+
+- **Raise `hnsw.ef_search` to match the vector candidate request.** The ANN
+  arm requests `fanout = max(20, k*3)` candidates (`search/hybrid.ts:585`)
+  and the MCP default is k=20 → 60 candidates, but Postgres's default
+  `hnsw.ef_search=40` silently caps the pool — every default query is
+  degraded. Add an `hnswEfSearchFor(limit)` helper (clamp 40..1000) next to
+  `EMBEDDINGS_HNSW_SPEC` in `core/vector-index.ts` and set it
+  transaction-locally (`set_config('hnsw.ef_search', .., true)`) around the
+  ANN query in `search/vector.ts` (needs a tx wrapper — today it is a bare
+  `engine.query`).
+- **Non-Latin slugs.** The slug grammar is ASCII-only (`links.ts:52,86`,
+  `pages.ts:91`, `insights.ts:27`), so an all-Cyrillic `[[wikilink]]`
+  slugifies to `unknown` and `slug-canonicalize.ts:290` bails before the
+  alias/trgm stages — such links can never resolve. Move to a shared
+  Unicode word-char class (`\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}`, `u` flag) across
+  slugify + validators, and drop the `unknown` early-bail so non-Latin
+  mentions still reach alias/trgm resolution. Biggest practical win for a
+  Russian-language vault.
+- **Enforce `bound_slug_prefixes`.** The column exists
+  (`migrations/046_oauth.sql:64`) with zero enforcement anywhere; since
+  v1.102 write-scoped tokens reach destructive page tools. Enforce at the
+  `mcp/dispatch.ts` write gate (deny-by-default for slug-naming write ops on
+  bound clients), plus a `--bound-slug-prefixes` flag in
+  `commands/auth.ts register-client` and a provider read in
+  `core/oauth-provider.ts`.
+- **`jobs prune --dry-run` silently deletes.** The CLI parser ignores
+  unknown flags, and `Queue.prune` (`core/jobs/queue.ts:562`) always
+  deletes — an operator previewing a prune deletes for real. Add `dryRun`
+  to `Queue.prune` (SELECT count instead of DELETE), parse the flag in the
+  `cli.ts` jobs branch, thread through `commands/jobs.ts:108-117`.
+- **First-person entity-query intent.** `query-intent.ts:71` matches
+  `what do (you|we) know` but not `what do I know` — the canonical operator
+  phrasing (`facts.ts:6,828`). One-char fix: `(i|you|we)` + test.
+- **`COMPILED_TRUTH_BOOST` displaces cross-page results at default
+  detail.** `hybrid.ts:1042` applies the ×2 boost to post-RRF scores gated
+  only by `detail !== 'high'`; RRF scores are range-compressed, so any
+  boosted truth-mirror chunk outranks an unboosted rank-1 chunk — a weak
+  page's mirror displaces a strong page's best chunk on every default
+  query. Needs a memex-specific rescope (same-page-only boost, or
+  `detail='low'` only, or shrink to a tilt) + a `rankingSignature` bump to
+  invalidate pre-fix cached orderings.
+- **Re-embed strips contextual prefixes.** Every `memex embed` path
+  (backfill at `embed-backfill.ts:434`, forceReembed at :499, --stale
+  at :489) embeds raw `row.content`, silently dropping contextual-retrieval
+  prefixes for chunks marked `contextual_embedded`, and forceReembed never
+  resets the marker — so it lies about the vectors in the DB and non-force
+  `reindex --contextual` skips those chunks. Wrap marked chunks via
+  `buildContextualPrefix` (as `contextual-reembed.ts:281-317` does) or clear
+  the marker whenever a wrapped chunk's vector is deleted.
+- **Embed-coverage metric cannot converge.** Embed paths exclude
+  `embed_skip` pages but the coverage denominators do not
+  (`source-health.ts:70-79,183-190`), so doctor warns at <95% forever for a
+  source with embed-skip pages (`doctor-tenancy.ts:64-77`). Apply
+  `embedSkipFilterFragment` to the denominators + remediation probe; drop
+  the "accepted divergence" caveat in `embed-skip.ts:24-28`.
+- **Phantom entity slugs from the facts fallback.** `slugifyEntity`
+  (`facts-extract.ts:329-336`) rewrites `/`→`-`, and the unresolved-cascade
+  fallback (`facts-extract.ts:404-410`) uses it while the extraction prompt
+  feeds path-shaped slugs as hints — a novel `people/x` emission keys
+  `entity_facts` under `people-x`, a slug no page can have. Fix: slugify
+  per segment (preserve `/`), or reuse `slugifyTarget` which already does.
+- **Doctor: content-hash duplicate probe.** No duplicate-page check exists
+  (roster at `commands/doctor.ts:69-346`); migration 099's own notes flag
+  the duplicate class. Add a warn-only probe to `core/doctor-ops.ts`:
+  GROUP BY `pages(source_id, content_hash)` WHERE `deleted_at IS NULL`
+  HAVING count(*)>1, with the bare-vs-path-prefixed slug split.
+
+### LOW (10)
+
+- **Relative `since`/`until` durations in search** (`7d`/`2w`/`1y`), plus
+  plain-date `until` should mean end-of-day. Normalizer in
+  `search/filters.ts` before params.push, mirrored in the hybrid post-hydrate
+  filter; update the MCP param docs. (Date-filtered queries already bypass
+  the cache, so no poison risk.)
+- **NUL bytes abort code-file indexing.** `indexer-code.ts:216` reads
+  utf8 and the chunk INSERT binds raw text (`indexer-tx.ts:213-242`) —
+  Postgres rejects U+0000 and the whole document transaction aborts.
+  Sanitize at the indexer-tx chunk-insert choke point (covers markdown too)
+  + the title param.
+- **Swallowed cycle `lock.release()` failures.** `recipes/cycle.ts:281-287`
+  and `:311-317` catch and drop; a stranded `cycle_locks` row blocks ticks
+  until TTL with zero diagnostic. Add `console.error` in both catches (the
+  jobs worker already logs its equivalent at `core/jobs/worker.ts:136`).
+- **Partial facts-fence parse wipes skipped rows.** The reconcile guard
+  covers only the zero-rows case (`facts-reconcile.ts:105-111`); a fence
+  with ONE malformed row still wipes+reinserts, deleting that row's DB
+  projection. Give `parseFactsFence` a per-row warnings channel and skip
+  reconciliation on warning-bearing parses.
+- **`budget=0` means "spend nothing", not "use the default".**
+  `auto-think.ts:67-71,187` (and the same `n > 0 : default` coercion in
+  `drift.ts`, `patterns.ts`, `reflections.ts`, `enrich-thin.ts`) coerces an
+  explicit 0 to the paid default. Treat explicit finite 0 as skip-the-run.
+- **CJK entity extraction.** Gazetteer min-phrase-length/boundaries and
+  ASCII slug grammar exclude CJK names entirely; blocked on the non-Latin
+  slug item above. Only worth doing after it.
+- **Deterministic timeline anchor from `effective_date`.** A firmly dated
+  non-meeting page contributes zero `timeline_events` (the chronicle
+  extractor is LLM-gated/default-OFF and may propose nothing). Opt-in cycle
+  phase: one idempotent anchored event per dated page with no events, keyed
+  like `meeting-timeline:<slug>`, never from `updated_at`.
+- **Chat-history importer.** A standalone LLM-free script converting
+  exported chat-history JSON into one `type: conversation` markdown page
+  per conversation (message-id citations), feeding the existing
+  conversation-parser/extract-conversation-facts consumers. Quote
+  frontmatter values and omit absent conversation ids from day one.
+- **Slack block format in the conversation parser.**
+  `conversation-parser.ts:44-90` has only single-line patterns; a
+  Slack-style block (`- **Name** (Mon 11:18)` + indented body) yields zero
+  messages. Add a strict no-op normalize pre-pass collapsing block form to
+  the canonical `**Name** (HH:MM): body` line.
+- **Admin: rescope a client without revoke+re-register.**
+  `oauth-provider.ts:395` claims "operators rescope via the CLI" but no
+  such path exists; admin can only set source/read at registration. Add
+  `POST /admin/api/rescope-client` + a sources listing for the picker + an
+  edit control in `admin/src/pages/Credentials.tsx`.
+
+## Review-accepted follow-ups (2026-08-02 triple review: security + retrieval + correctness)
+
+Findings from the v1.106.0 review pass that were deliberately accepted or
+deferred (everything CRITICAL/HIGH and one-touch MEDIUM was fixed in the
+same batch):
+
+- **Contextual re-embed uses the deterministic tier only.** The backfill
+  re-wrap cannot reproduce an LLM-blurb prefix (the `contextual_embedded`
+  marker records no tier), so a re-embed of an LLM-tier chunk downgrades it
+  to the deterministic prefix. Recording the tier needs a column; until
+  then `reindex --contextual --force` re-runs the configured tier.
+- **Phantom flattened entity keys are not backfilled.** Facts previously
+  keyed under `people-bob` (the flattened form of `people/bob`) stay under
+  the old key until the source page's facts re-extract; a merge migration
+  cannot distinguish genuinely-hyphenated entities from flattened paths.
+- **ANN boost/max-pool orderings defeat HNSW.** The curation-boost and
+  max-pool arm variants order by expressions the index cannot serve (full
+  scan); the ef_search raise deliberately skips them. Emitting the plain
+  `ORDER BY vector <=> $1` when the curation map is empty would restore
+  index service for the common case — measurable, larger change.
+- **Unpriced (non-Claude) synthesis model now skips paid phases** at the
+  pre-flight with "budget exhausted" instead of running and failing at
+  settle. Bedrock-Claude-only is the standing posture, so this is the
+  intended fail-cheap direction; revisit only if the model roster widens.
+- **`pg_trgm` similarity over non-Latin slugs depends on DB `LC_CTYPE`** —
+  under a `C` locale the trgm canonicalize stage scores 0 for Cyrillic.
+  Verify the live RDS locale on the next deploy (`SHOW LC_CTYPE`).
+- **Alias claims are not fenced per client** — an in-prefix page can claim
+  an alias norm an out-of-prefix page owns; `resolveAliasUnique` then
+  returns null for both (silent mutual kill). Low blast radius; needs an
+  ownership rule in `setPageAliases`.
+- **DCR (`MEMEX_ENABLE_DCR_INSECURE=1`) mints unbounded clients** — with
+  the flag on, self-registration sidesteps the slug fence by design.
+  Default-off; the flag's name already carries the warning.
+- **Chat importer emits no per-message ids** — the conversation-parser
+  body format has no citation lane; `conversation_id` frontmatter is the
+  provenance anchor for now.
+
+## Deferred sweep tail (2026-07-27)
 
 - **`set_take_status` can flip a zero-yield memo into a belief.** The memo the
   takes phase writes for a document that extracted no claims is fenced out of
@@ -22,7 +195,7 @@ introduces them.
   `documents.frontmatter` wholesale, so a rechunk or re-embed of unchanged
   content clears the `atoms_scan_hash` stamp and the phase scans that document
   once more. This fails in the safe direction (a re-scan, never permanent
-  suppression) and matches the reference's own behaviour; revisit only if
+  suppression); revisit only if
   forced re-indexes become routine.
 
 ## Chronicle follow-ups (2026-07-12 session, deferred small tail)

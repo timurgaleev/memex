@@ -5,6 +5,7 @@
  * Both PGLite and Postgres support `<=>` cosine operator from pgvector.
  */
 import type { Engine } from "../engine/interface.ts";
+import { hnswEfSearchFor } from "../vector-index.ts";
 import { visibilityClause } from "../visibility.ts";
 import { chunkFilterClauses, type ChunkFilters } from "./filters.ts";
 import {
@@ -113,6 +114,22 @@ export async function vectorSearch(
        WHERE ${vis}${sourceFilter}${filterClauses}${excludeClause}
        ORDER BY e.vector <=> $1::vector
        LIMIT ${limitParam}`;
+  // The HNSW scan returns at most hnsw.ef_search rows (default 40) before the
+  // LIMIT, so a fanout above 40 was silently truncated. Raise it
+  // transaction-locally (set_config is_local=true) — but only where HNSW is
+  // actually in play: the plain-distance ordering on Postgres. The boosted
+  // (`(1 - dist) * factor`) and max-pool (DISTINCT ON) variants order by
+  // expressions the index cannot serve, so the GUC would buy nothing there;
+  // and PGLite is single-connection, where the transaction would alias
+  // concurrent in-process queries into this BEGIN…COMMIT.
+  const ef = hnswEfSearchFor(limit);
+  if (ef > 40 && engine.kind === "postgres" && !boostCase && !opts.maxPool) {
+    return engine.transaction(async (tx) => {
+      await tx.query(`SELECT set_config('hnsw.ef_search', $1, true)`, [String(ef)]);
+      const r = await tx.query<{ chunk_id: string }>(sql, params);
+      return r.rows.map((row) => row.chunk_id);
+    });
+  }
   const r = await engine.query<{ chunk_id: string }>(sql, params);
   return r.rows.map((row) => row.chunk_id);
 }

@@ -1,7 +1,7 @@
 /**
  * Destructive MCP tools over the token-authenticated ingress.
  *
- * Reference model: delete/restore/revert/unlink/remove_tag/forget_fact are
+ * Scope model: delete/restore/revert/unlink/remove_tag/forget_fact are
  * `scope: write`, purge_deleted_pages is `scope: admin`. An authenticated
  * token principal whose grant covers the op may call it (source-scoped); the
  * static public bearer and the bare internal path (no internal token) stay
@@ -348,7 +348,7 @@ describe("token principal reaches the rest of the walled surface", () => {
   });
 });
 
-describe("purge_deleted_pages needs the admin scope (reference parity)", () => {
+describe("purge_deleted_pages needs the admin scope", () => {
   it("a write-only token is refused with insufficient_scope", async () => {
     const writer = await mint("read write");
     const r = await call("purge_deleted_pages", {}, writer);
@@ -379,5 +379,111 @@ describe("purge_deleted_pages needs the admin scope (reference parity)", () => {
     );
     expect(r.error).toBeDefined();
     expect(r.error.message).toMatch(/not callable from the public ingress/);
+  });
+});
+
+describe("slug-prefix write fence (bound_slug_prefixes)", () => {
+  /** client_credentials token for a client bound to slug prefixes. */
+  async function mintBound(prefixes: string[]): Promise<string> {
+    const reg = await provider.registerClientManual(
+      `t-bound-${prefixes.join("-").replace(/\//g, "_")}`,
+      ["client_credentials"],
+      "read write",
+      [],
+      "default",
+      undefined,
+      undefined,
+      prefixes,
+    );
+    const r = await fetch(`${url}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: reg.clientId,
+        client_secret: reg.clientSecret!,
+      }),
+    });
+    expect(r.status).toBe(200);
+    return ((await r.json()) as { access_token: string }).access_token;
+  }
+
+  it("a bound client writes inside its prefix", async () => {
+    const t = await mintBound(["inbox"]);
+    const r = await call(
+      "page_put",
+      { slug: "inbox/note-1", title: "n", markdown_body: "hello" },
+      t,
+    );
+    expect(toolError(r)).toBeUndefined();
+  });
+
+  it("a bound client is refused outside its prefix", async () => {
+    const t = await mintBound(["inbox"]);
+    const r = await call(
+      "page_put",
+      { slug: "people/alice", title: "a", markdown_body: "x" },
+      t,
+    );
+    expect(toolError(r)).toBe("permission_denied");
+  });
+
+  it("a slug-less write tool is refused for a bound client (deny-by-default)", async () => {
+    const t = await mintBound(["inbox"]);
+    const r = await call("extract_facts", { text: "Alice works at Acme." }, t);
+    expect(toolError(r)).toBe("permission_denied");
+  });
+
+  it("an unbounded client is unaffected", async () => {
+    const t = await mint("read write");
+    const r = await call(
+      "page_put",
+      { slug: "people/unbound", title: "u", markdown_body: "y" },
+      t,
+    );
+    expect(toolError(r)).toBeUndefined();
+  });
+
+  it("both link endpoints are fenced", async () => {
+    const t = await mintBound(["inbox"]);
+    const bad = await call(
+      "link",
+      { source_slug: "inbox/note-1", target_slug: "people/alice", type: "mentions" },
+      t,
+    );
+    expect(toolError(bad)).toBe("permission_denied");
+  });
+
+  it("link is fenced on the STORED (slugified) value, not the raw input", async () => {
+    // "проект/evil" ASCII-folds to "evil" in addLink's slugifier — the fence
+    // must judge that folded value, or a mixed-script input escapes the prefix.
+    const t = await mintBound(["inbox"]);
+    const bad = await call(
+      "link",
+      { source_slug: "inbox/note-1", target_slug: "проект/evil", type: "mentions" },
+      t,
+    );
+    expect(toolError(bad)).toBe("permission_denied");
+  });
+
+  it("POST /ingest honors the fence at the ingress", async () => {
+    const t = await mintBound(["inbox"]);
+    const post = (slug?: string) =>
+      fetch(`${url}/ingest`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${t}`,
+          "Cf-Connecting-Ip": "1.2.3.4",
+          ...(slug ? { "X-Memex-Slug": slug } : {}),
+        },
+        body: "captured note",
+      });
+    const outside = await post("people/evil");
+    expect(outside.status).toBe(403);
+    const missing = await post(undefined);
+    expect(missing.status).toBe(403);
+    const inside = await post("inbox/captured");
+    expect(inside.status).toBe(202);
   });
 });

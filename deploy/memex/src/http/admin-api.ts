@@ -420,6 +420,51 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
   }
 
+  // POST /admin/api/rescope-client — change an existing client's tenancy
+  // grant (write source + federated read set) without revoke + re-register.
+  // Same source validation as register-client; already-issued tokens pick up
+  // the new scope on their next verification (the verify path JOINs the
+  // client row).
+  if (p === "/admin/api/rescope-client" && req.method === "POST") {
+    let body: { client_id?: unknown; source?: unknown; read?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
+    if (typeof body.source !== "string" || body.source.length === 0) return badRequest("source required");
+    const sourceId = body.source;
+    let federatedRead: string[] | undefined;
+    if (body.read !== undefined) {
+      if (
+        !Array.isArray(body.read) ||
+        body.read.length === 0 ||
+        !body.read.every((x) => typeof x === "string" && x.length > 0)
+      ) {
+        return badRequest("read must be a non-empty array of source ids");
+      }
+      federatedRead = body.read as string[];
+    }
+    try {
+      const missing = await missingSourceIds(engine, sourceId, federatedRead ?? [sourceId]);
+      if (missing.length > 0) return badRequest(`unknown source id(s): ${missing.join(", ")}`);
+      const provider = new OAuthProvider({ engine });
+      const updated = await provider.rescopeClient(body.client_id, sourceId, federatedRead);
+      if (!updated) {
+        return Response.json({ error: `no active client "${body.client_id}"` }, { status: 404 });
+      }
+      return Response.json({
+        ok: true,
+        client_id: body.client_id,
+        source_id: sourceId,
+        federated_read: federatedRead ?? [sourceId],
+      });
+    } catch (e) {
+      return serverError("rescope-client", e);
+    }
+  }
+
   // POST /admin/api/revoke-client — soft-delete an OAuth client and kill its
   // live tokens. Soft-delete (not the CLI's hard DELETE) keeps the audit row;
   // deleting the oauth_tokens rows makes every issued access/refresh token

@@ -2,7 +2,7 @@
  * CORS handling for the OAuth + MCP surface (`/mcp`, `/token`, `/authorize`,
  * `/register`, `/revoke`) — default-DENY.
  *
- * Reference posture: every cross-origin request to these endpoints is
+ * Posture: every cross-origin request to these endpoints is
  * rejected unless the operator explicitly allowlists the origin via
  * `MEMEX_HTTP_CORS_ORIGIN` (comma-separated origins). Without the env var
  * no `Access-Control-Allow-Origin` header is ever emitted, so a browser

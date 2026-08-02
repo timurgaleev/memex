@@ -4,7 +4,7 @@
  * the whole transaction rolls back between attempts, so nothing is
  * half-recorded. A non-retryable error fails fast on the first attempt. On
  * exhaustion the runner throws `MigrationRetryExhausted`. Adapted from the
- * reference's migration retry wrapper.
+ * the migration retry wrapper.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
