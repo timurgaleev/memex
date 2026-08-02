@@ -59,7 +59,7 @@ describe("directory layout + shared docs", () => {
     mkdirSync(join(dir2, "brain-ops"));
     writeFileSync(
       join(dir2, "brain-ops", "SKILL.md"),
-      "---\nname: brain-ops\ndescription: Core read/write cycle.\n---\n# brain-ops\nbody\n",
+      "---\nname: brain-ops\ndescription: |\n  Core read/write cycle.\n  Brain-first lookup.\n---\n# brain-ops\nbody\n",
     );
     writeFileSync(join(dir2, "flat-skill.md"), "---\ndescription: Flat one.\n---\nbody\n");
     writeFileSync(join(dir2, "_output-rules.md"), "---\ndescription: Shared rules.\n---\nrules\n");
@@ -73,6 +73,8 @@ describe("directory layout + shared docs", () => {
   it("enumerates dir skills + flat skills, skips underscore/conventions", () => {
     const r = listBrainSkillpacks({ skillsDir: dir2 });
     expect(r.skills.map((s) => s.slug)).toEqual(["brain-ops", "flat-skill"]);
+    // Block-scalar description joins the indented lines, not the literal "|".
+    expect(r.skills[0]!.description).toBe("Core read/write cycle. Brain-first lookup.");
   });
 
   it("get_skill resolves dir skills, underscore docs, and conventions", () => {
