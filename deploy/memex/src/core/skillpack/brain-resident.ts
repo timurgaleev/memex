@@ -63,10 +63,27 @@ function readSkillDescription(skillFile: string): string {
   const m = /^---\s*\n([\s\S]*?)\n---\s*\n/.exec(text);
   if (!m) return "(no description)";
   const block = m[1] ?? "";
-  for (const line of block.split("\n")) {
-    const kv = /^description:\s*(.*)$/.exec(line);
+  const lines = block.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const kv = /^description:\s*(.*)$/.exec(lines[i] ?? "");
     if (!kv) continue;
     const value = (kv[1] ?? "").trim().replace(/^["']|["']$/g, "");
+    // YAML block scalar (`description: |` / `>`): the text lives on the
+    // following more-indented lines — join them into one line.
+    if (value === "|" || value === ">" || value === "|-" || value === ">-") {
+      const parts: string[] = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j] ?? "";
+        if (l.trim().length === 0) {
+          if (parts.length > 0) break;
+          continue;
+        }
+        if (!/^\s/.test(l)) break;
+        parts.push(l.trim());
+      }
+      const joined = parts.join(" ").trim();
+      return joined.length > 0 ? joined : "(no description)";
+    }
     return value.length > 0 ? value : "(no description)";
   }
   return "(no description)";
