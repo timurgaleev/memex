@@ -18,8 +18,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Same default the `memex skillpack` command bundles from (deploy/skills/). */
-const DEFAULT_SKILLS_DIR = resolve(__dirname, "..", "..", "..", "..", "skills");
+/**
+ * Same default the `memex skillpack` command bundles from (deploy/skills/).
+ * In the container the repo-relative path does not exist (the image copies
+ * only deploy/memex), so the compose file mounts the pack read-only and
+ * points MEMEX_SKILLS_DIR at it.
+ */
+const DEFAULT_SKILLS_DIR =
+  process.env.MEMEX_SKILLS_DIR && process.env.MEMEX_SKILLS_DIR.trim().length > 0
+    ? process.env.MEMEX_SKILLS_DIR
+    : resolve(__dirname, "..", "..", "..", "..", "skills");
 
 export interface BrainSkill {
   slug: string;
@@ -76,20 +84,36 @@ export function listBrainSkillpacks(
   const empty: BrainSkillpackResult = { pack: "memex-skillpack", count: 0, skills: [] };
   if (!existsSync(skillsDir)) return empty;
 
-  let files: string[];
+  // Two layouts, both supported:
+  //   flat:      <skillsDir>/<slug>.md          (the original memex shape)
+  //   directory: <skillsDir>/<slug>/SKILL.md    (the shipped pack's shape)
+  // Underscore-prefixed files (shared cross-cutting rules, not routable
+  // skills) and non-skill artifacts (manifest.json, conventions/) are
+  // excluded from the ENUMERATION but stay reachable via get_skill.
+  const entries: { slug: string; file: string }[] = [];
   try {
-    files = readdirSync(skillsDir).filter((f) => f.endsWith(".md"));
+    for (const name of readdirSync(skillsDir)) {
+      if (name.startsWith("_") || name.startsWith(".")) continue;
+      if (name === "conventions") continue;
+      const full = join(skillsDir, name);
+      if (name.endsWith(".md")) {
+        entries.push({ slug: name.replace(/\.md$/, ""), file: full });
+        continue;
+      }
+      const skillFile = join(full, "SKILL.md");
+      if (existsSync(skillFile)) entries.push({ slug: name, file: skillFile });
+    }
   } catch {
     return empty;
   }
 
-  // Deterministic ordering: byte-order by filename so the listing is stable
+  // Deterministic ordering: byte-order by slug so the listing is stable
   // across filesystems (mirrors the keyword tie-break discipline elsewhere).
-  files.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  entries.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
 
-  const skills: BrainSkill[] = files.map((f) => ({
-    slug: f.replace(/\.md$/, ""),
-    description: readSkillDescription(join(skillsDir, f)),
+  const skills: BrainSkill[] = entries.map((e) => ({
+    slug: e.slug,
+    description: readSkillDescription(e.file),
   }));
 
   return { pack: "memex-skillpack", count: skills.length, skills };
@@ -114,15 +138,34 @@ export function getBrainSkill(
   slug: string,
   opts: ListBrainSkillpacksOptions = {},
 ): BrainSkillDetail | null {
-  if (typeof slug !== "string" || !/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) return null;
+  // Accepted shapes, each strictly validated before touching disk (a `.`,
+  // `\`, or arbitrary `/` could escape the skills dir):
+  //   <slug>            — a skill (flat <slug>.md or <slug>/SKILL.md)
+  //   _<name>           — a shared rules doc (underscore layer)
+  //   conventions/<name> — a cross-cutting convention doc
+  if (typeof slug !== "string") return null;
   const skillsDir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
-  const file = join(skillsDir, `${slug}.md`);
-  if (!existsSync(file)) return null;
-  let body: string;
-  try {
-    body = readFileSync(file, "utf8");
-  } catch {
+  const candidates: string[] = [];
+  if (/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) {
+    candidates.push(join(skillsDir, `${slug}.md`));
+    candidates.push(join(skillsDir, slug, "SKILL.md"));
+  } else if (/^_[a-z0-9][a-z0-9_-]*$/i.test(slug)) {
+    candidates.push(join(skillsDir, `${slug}.md`));
+  } else if (/^conventions\/[a-z0-9][a-z0-9_.-]*$/i.test(slug) && !slug.includes("..")) {
+    const name = slug.slice("conventions/".length);
+    candidates.push(join(skillsDir, "conventions", name.includes(".") ? name : `${name}.md`));
+  } else {
     return null;
   }
-  return { slug, description: readSkillDescription(file), body };
+  for (const file of candidates) {
+    if (!existsSync(file)) continue;
+    let body: string;
+    try {
+      body = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    return { slug, description: readSkillDescription(file), body };
+  }
+  return null;
 }

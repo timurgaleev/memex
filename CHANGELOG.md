@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.107.0] — 2026-08-02
+
+### Added
+- **The brain ships a full 53-skill agent skillpack.** `deploy/skills/` now
+  carries a complete pack of agent-facing skills — the operating doctrine
+  for any MCP client working with this brain: core ops (`brain-ops`,
+  `query`, `capture`, `ingest`, `maintain`), enrichment
+  (`enrich`, `article-enrichment`, `concept-synthesis`, `book-mirror`),
+  daily practice (`briefing`, `daily-task-manager`, `daily-task-prep`,
+  `reports`), research (`web-research`, `academic-verify`,
+  `data-research`, `citation-fixer`), taxonomy (`brain-taxonomist`,
+  `repo-architecture`, `eiirp`, `frontmatter-guard`, `schema-author`,
+  `schema-unify`), lifecycle (`skillify`, `skill-creator`,
+  `skill-optimizer`, `skillpack-check`, `skillpack-harvest`, `testing`,
+  `smoke-test`, `advisor`, `brain-upgrade`) and more — plus a shared rules
+  layer (`_AGENT_README`, `_brain-filing-rules`, `_output-rules`,
+  `_friction-protocol`) and 12 cross-cutting `conventions/` docs
+  (brain-first lookup, search modes, model routing, scheduled work,
+  calibration, …). Every skill speaks memex's own surface: MCP tool names,
+  `memex` CLI commands, Bedrock model tiers, durable jobs, DB-canonical
+  pages.
+- **`list_skills`/`get_skill` understand the directory pack layout.**
+  Skills live as `<slug>/SKILL.md` (flat `<slug>.md` still works);
+  underscore-prefixed shared docs and `conventions/<name>` are excluded
+  from the enumeration but fetchable by slug via `get_skill`. The
+  container serves the pack from a read-only compose mount
+  (`MEMEX_SKILLS_DIR=/skills`), and `memex skillpack` bundles the full
+  directory tree with a per-file sha256 manifest.
+
 ## [1.106.0] — 2026-08-02
 
 ### Added

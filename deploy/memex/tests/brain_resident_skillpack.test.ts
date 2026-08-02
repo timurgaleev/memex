@@ -4,10 +4,10 @@
  * on a missing dir. No engine, no LLM.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listBrainSkillpacks } from "../src/core/skillpack/brain-resident.ts";
+import { getBrainSkill, listBrainSkillpacks } from "../src/core/skillpack/brain-resident.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-brainpack-"));
 
@@ -50,5 +50,42 @@ describe("listBrainSkillpacks", () => {
     const r = listBrainSkillpacks({ skillsDir: join(dir, "does-not-exist") });
     expect(r.count).toBe(0);
     expect(r.skills).toEqual([]);
+  });
+});
+
+describe("directory layout + shared docs", () => {
+  const dir2 = mkdtempSync(join(tmpdir(), "memex-brainpack2-"));
+  beforeAll(() => {
+    mkdirSync(join(dir2, "brain-ops"));
+    writeFileSync(
+      join(dir2, "brain-ops", "SKILL.md"),
+      "---\nname: brain-ops\ndescription: Core read/write cycle.\n---\n# brain-ops\nbody\n",
+    );
+    writeFileSync(join(dir2, "flat-skill.md"), "---\ndescription: Flat one.\n---\nbody\n");
+    writeFileSync(join(dir2, "_output-rules.md"), "---\ndescription: Shared rules.\n---\nrules\n");
+    mkdirSync(join(dir2, "conventions"));
+    writeFileSync(join(dir2, "conventions", "brain-first.md"), "convention body\n");
+    // A directory without SKILL.md is not a skill.
+    mkdirSync(join(dir2, "empty-dir"));
+  });
+  afterAll(() => rmSync(dir2, { recursive: true, force: true }));
+
+  it("enumerates dir skills + flat skills, skips underscore/conventions", () => {
+    const r = listBrainSkillpacks({ skillsDir: dir2 });
+    expect(r.skills.map((s) => s.slug)).toEqual(["brain-ops", "flat-skill"]);
+  });
+
+  it("get_skill resolves dir skills, underscore docs, and conventions", () => {
+    expect(getBrainSkill("brain-ops", { skillsDir: dir2 })!.body).toContain("# brain-ops");
+    expect(getBrainSkill("_output-rules", { skillsDir: dir2 })!.body).toContain("rules");
+    expect(getBrainSkill("conventions/brain-first", { skillsDir: dir2 })!.body).toContain(
+      "convention body",
+    );
+  });
+
+  it("rejects traversal shapes", () => {
+    expect(getBrainSkill("../secrets", { skillsDir: dir2 })).toBeNull();
+    expect(getBrainSkill("conventions/../../etc/passwd", { skillsDir: dir2 })).toBeNull();
+    expect(getBrainSkill("conventions/..", { skillsDir: dir2 })).toBeNull();
   });
 });

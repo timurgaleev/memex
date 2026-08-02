@@ -48,9 +48,25 @@ export async function runSkillpack(opts: SkillpackOptions = {}): Promise<void> {
   const outPath =
     opts.out ?? `./skillpack-${new Date().toISOString().replace(/[:.]/g, "-")}.tar.gz`;
 
-  const files = readdirSync(skillsDir).filter((f) => f.endsWith(".md"));
+  // Collect pack files across both layouts: flat <slug>.md, directory
+  // <slug>/SKILL.md (+ siblings), the underscore shared-rules layer, and
+  // conventions/. Paths in the manifest/tarball are skillsDir-relative.
+  const files: string[] = [];
+  const collect = (rel: string): void => {
+    for (const name of readdirSync(join(skillsDir, rel), { withFileTypes: true })) {
+      if (name.name.startsWith(".")) continue;
+      const relPath = rel ? `${rel}/${name.name}` : name.name;
+      if (name.isDirectory()) {
+        collect(relPath);
+      } else {
+        files.push(relPath);
+      }
+    }
+  };
+  collect("");
+  files.sort();
   if (files.length === 0) {
-    throw new Error(`skillpack: no .md files in ${skillsDir}`);
+    throw new Error(`skillpack: no files in ${skillsDir}`);
   }
 
   // Build the manifest.
