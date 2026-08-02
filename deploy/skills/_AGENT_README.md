@@ -1,0 +1,126 @@
+# Agent onboarding — what to do with the memex skill layer
+
+You (the agent) are connected to a memex brain over MCP. This file is the
+operating contract for the skill layer. Read it on every cold start. It is
+short on purpose.
+
+## Where skills live
+
+Skills are served by the brain itself:
+
+- `list_skills` — enumerate every available skill with its frontmatter
+  (name, triggers, tools, write surfaces).
+- `get_skill` — fetch a skill's full body by slug (e.g.
+  `get_skill conventions/brain-first`).
+
+A locally scaffolded copy may also exist on disk (this directory). When both
+exist, the layout is the same:
+
+```
+skills/
+  _AGENT_README.md          ← you are here
+  _brain-filing-rules.md    ← where to file brain pages (read on every write)
+  _output-rules.md          ← output quality standards (no LLM slop, exact phrasing)
+  _friction-protocol.md     ← log friction via the log_friction tool
+  conventions/              ← cross-cutting rules every skill defers to
+  <skill-name>/
+    SKILL.md                ← the skill's contract + workflow
+    routing-eval.jsonl      ← (optional) test fixtures for routing-eval
+    script.ts               ← (optional) deterministic code, if any
+```
+
+Other files in the host repo (`src/`, `docs/`, `deploy/` beyond this
+directory) are owned by the server, not by the skill layer. Don't treat them
+as skill artifacts.
+
+## Routing — your first job
+
+Discover skills at runtime via `list_skills` (or, on a scaffolded copy, by
+walking every `skills/<slug>/SKILL.md` and parsing the YAML frontmatter).
+Each skill declares one or more `triggers:` strings; they are the
+user-facing phrases that route to that skill.
+
+```yaml
+---
+name: book-mirror
+triggers:
+  - "personalized version of this book"
+  - "mirror this book"
+  - "two-column book analysis"
+---
+```
+
+On every user message, match the message against every skill's `triggers:`
+array. Substring match is the baseline. Semantic similarity (embedding or
+keyword expansion) is fine on top. When a trigger matches strongly, invoke
+the skill — fetch its full body via `get_skill <slug>` and follow the
+workflow described there.
+
+Routing lives in frontmatter. Do NOT look for a managed-block routing table
+in any other file.
+
+## When the user invokes a skill
+
+Read the entire skill body (`get_skill <slug>` or the local SKILL.md).
+Follow its `## Phases`, `## Workflow`, or equivalent step-by-step section.
+If the skill has `mutating: true` frontmatter and declares `writes_pages:`
+/ `writes_to:`, those are the brain-side write surfaces — consult
+`_brain-filing-rules.md` to confirm the target slug prefix is sanctioned
+before calling `page_put`.
+
+Every tool a skill names must be a real MCP tool on this brain (`search`,
+`page_put`, `jobs_submit`, ...) or a `memex <cmd>` shell command where a
+shell step is genuinely meant. `memex call <tool> <json>` invokes any MCP
+tool from the shell when you are working host-side.
+
+## Updates — when the server ships a new version
+
+Skills ship with the server; `list_skills` / `get_skill` always serve the
+current bundle. A locally scaffolded copy DOES NOT change automatically —
+after an upgrade it becomes a snapshot you compare against.
+
+On every cold start with a scaffolded copy, or any time the operator
+mentions an upgrade, run:
+
+```bash
+memex skillpack
+```
+
+That sweeps every bundled skill and reports per-skill `identical / differs
+/ missing` against the local files. For each `differs`, inspect the diff,
+then decide per file:
+
+- **Local edit was intentional.** Keep your version. The server bundle is
+  reference, not law.
+- **Local edit was accidental drift** (e.g. you wrote stale content into
+  the skill body). Patch by hand from the server copy
+  (`get_skill <slug>` prints the canonical body).
+- **Genuinely new change in a section you don't care about.** Skip or
+  apply per your judgment.
+
+For `missing` files (the server added a new bundled skill since you
+scaffolded), scaffold it locally from the `get_skill` output — or just rely
+on `get_skill` at runtime; the local copy is a convenience, not a
+requirement.
+
+**Warning on wholesale re-sync:** overwriting a local file from the server
+bundle discards ANY local edits, including intentional ones. Always inspect
+the diff first. Reset-to-bundle only when you're confident the local edits
+were accidental.
+
+## Removing a scaffolded skill
+
+The local files are yours:
+
+```bash
+rm -rf skills/<slug>
+```
+
+The server-side bundle is unaffected; `list_skills` will still offer the
+skill. Simply stop routing to it if the operator wants it retired.
+
+## When in doubt
+
+`list_skills` + `get_skill` are the source of truth for skill content. The
+individual SKILL.md bodies are the source of truth for skill behavior. This
+file (`_AGENT_README.md`) is the routing contract — keep it short.

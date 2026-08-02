@@ -38,6 +38,9 @@ services:
       # Read-only mount of operator-provided content for the indexer to
       # sweep (markdown notes, archived conversations, etc.).
       - ${EFS_MOUNT}/workspace/memory:/memory:ro
+      # Brain-resident skillpack (list_skills / get_skill). The image copies
+      # only deploy/memex, so the pack rides a read-only mount instead.
+      - ./skills:/skills:ro
       # Read-only access to the repo checkout for the code chunkers.
       # bootstrap.sh clones ${EFS_REPO} alongside the EFS mount; if
       # absent the serve.ts boot WARNs "0 indexable files" and continues
@@ -49,6 +52,8 @@ services:
       - /home/ec2-user/.aws:/home/bun/.aws:ro
     environment:
       - AWS_REGION=${AWS_REGION:?AWS_REGION must be set}
+      # Brain-resident skillpack location (see the ./skills volume above).
+      - MEMEX_SKILLS_DIR=/skills
       - AWS_PROFILE=${AWS_PROFILE:-default}
       - SECRETS_PREFIX=${SECRETS_PREFIX:-memex}
       - HOME=/home/bun
