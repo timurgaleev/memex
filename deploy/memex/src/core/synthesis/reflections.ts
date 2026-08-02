@@ -22,7 +22,7 @@ import type { Engine } from "./../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
 import { EXTRACTION_ELIGIBLE_TYPES } from "../facts-extract.ts";
-import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "../llm/sonnet.ts";
+import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
@@ -83,7 +83,8 @@ function reflectionsEnabled(): boolean {
 function defaultBudget(): number {
   const raw = (process.env.MEMEX_REFLECTIONS_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n > 0 ? n : 1.0;
+  // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
+  return Number.isFinite(n) && n >= 0 ? n : 1.0;
 }
 
 // Keep the write prefix in lockstep with what the patterns phase mines, so a
@@ -97,6 +98,10 @@ function resolveIntConfig(v: number | undefined, envKey: string, def: number): n
   if (typeof v === "number" && v > 0) return Math.floor(v);
   const n = Number.parseInt((process.env[envKey] ?? "").trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : def;
+}
+
+function estimateUsage(chars: number, maxOutputTokens: number): SonnetUsage {
+  return { inputTokens: Math.ceil(chars / 4), outputTokens: maxOutputTokens };
 }
 
 async function gatherTranscripts(
@@ -242,13 +247,20 @@ export async function reflectionsPhase(
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "reflections");
   const model = resolveFactsModel(opts.modelId);
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: model });
+  const maxTokens = 1500;
+
+  const prompt = buildPrompt(transcripts);
+  // Budget preflight — skip the call entirely when the cap leaves no room.
+  if (budget.wouldExceed(model, estimateUsage(prompt.length, maxTokens))) {
+    return { ...base, reason: "budget exhausted before reflecting", budgetExhausted: true };
+  }
 
   let drafts: ReflectionDraft[];
   try {
     const resp = await sonnetFn({
       system: "Return only the requested JSON array.",
-      user: buildPrompt(transcripts),
-      maxTokens: 1500,
+      user: prompt,
+      maxTokens,
       temperature: 0,
     });
     try {

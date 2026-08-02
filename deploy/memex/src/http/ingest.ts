@@ -2,7 +2,7 @@
  * POST /ingest — webhook capture endpoint, the non-MCP front door for
  * Apple Shortcuts / Zapier / IFTTT-style capture.
  *
- * Reference-faithful surface:
+ * Surface:
  *   - auth: an OAuth bearer with the `write` scope (the server ingress
  *     resolves the token to an AuthInfo; static-bearer and anonymous
  *     callers are refused — the OAuth gate IS the trust boundary)
@@ -33,7 +33,7 @@ import { hasScope } from "../core/scope.ts";
 import { validateSlug } from "../core/pages.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { registerHandler } from "../core/jobs/handlers.ts";
-import { dispatchTool } from "../mcp/dispatch.ts";
+import { dispatchTool, slugUnderPrefixes } from "../mcp/dispatch.ts";
 import { readBodyWithCap } from "./body_limit.ts";
 import { logIngest } from "../core/ingest-log.ts";
 
@@ -245,6 +245,21 @@ export async function handleIngestRoute(
       "no write source is granted to this client for POST /ingest",
     );
   }
+  // Slug-prefix write fence (oauth_clients.bound_slug_prefixes): the same
+  // fence the MCP write gate enforces. A bound client must name a slug and
+  // it must fall under its prefixes — otherwise the capture worker would
+  // land a page at a fence-evading slug. The prefixes also ride the event
+  // metadata so the worker's re-dispatch stays fenced (defense in depth).
+  const boundPrefixes = auth.boundSlugPrefixes;
+  if (boundPrefixes && boundPrefixes.length > 0) {
+    if (!callerSlug || !slugUnderPrefixes(callerSlug, boundPrefixes)) {
+      return err(
+        403,
+        "permission_denied",
+        `slug ${JSON.stringify(callerSlug ?? null)} is outside this client's bound prefixes`,
+      );
+    }
+  }
   const event: IngestionEvent = {
     source_id: writeSourceRaw ?? "default",
     source_kind: "webhook",
@@ -259,6 +274,9 @@ export async function handleIngestRoute(
       user_agent: req.headers.get("user-agent") ?? "",
       client_id: auth.clientId,
       ...(callerSlug ? { slug: callerSlug } : {}),
+      ...(boundPrefixes && boundPrefixes.length > 0
+        ? { bound_slug_prefixes: boundPrefixes }
+        : {}),
     },
   };
   const invalid = validateIngestionEvent(event);
@@ -350,6 +368,15 @@ export function registerIngestCaptureHandler(storage: Storage): void {
       typeof event.metadata?.client_id === "string"
         ? (event.metadata.client_id as string)
         : "webhook";
+    // The submitting client's slug-prefix fence rides the event metadata so
+    // the re-dispatch below stays as bounded as the original caller — the
+    // ingress already refused out-of-prefix slugs, this keeps a payload-side
+    // slug override from widening the write.
+    const boundRaw = event.metadata?.bound_slug_prefixes;
+    const boundSlugPrefixes =
+      Array.isArray(boundRaw) && boundRaw.every((p) => typeof p === "string")
+        ? (boundRaw as string[])
+        : undefined;
     const result = await dispatchTool(
       storage,
       {
@@ -368,6 +395,9 @@ export function registerIngestCaptureHandler(storage: Storage): void {
           scopes: ["write"],
           sourceId: event.source_id,
           isPublic: false,
+          ...(boundSlugPrefixes && boundSlugPrefixes.length > 0
+            ? { boundSlugPrefixes }
+            : {}),
         },
       },
     );

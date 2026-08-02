@@ -50,6 +50,7 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEMEX_AUTO_THINK;
   delete process.env.MEMEX_AUTO_THINK_QUESTIONS;
+  delete process.env.MEMEX_AUTO_THINK_BUDGET_USD;
 });
 
 describe("autoThinkPhase", () => {
@@ -99,6 +100,52 @@ describe("autoThinkPhase", () => {
     });
     expect(r.draftsWritten).toBe(0);
     expect(await getPage(storage, "drafts/think/a-question-with-no-answer")).toBeNull();
+  });
+
+  it("treats an explicit zero budget as spend-nothing (no Sonnet call)", async () => {
+    let calls = 0;
+    const counting: SonnetFn = async (input) => {
+      calls += 1;
+      return fakeSonnet("{}")(input);
+    };
+    const r = await autoThinkPhase(storage, {
+      sonnetFn: counting,
+      pagesFn: fakePages("ctx"),
+      embedFn: null,
+      questions: ["Zero budget question"],
+      cooldownHours: 0,
+      budgetUsd: 0,
+    });
+    expect(calls).toBe(0);
+    expect(r.draftsWritten).toBe(0);
+    expect(r.spentUsd).toBe(0);
+    expect(r.budgetExhausted).toBe(true);
+  });
+
+  it("treats MEMEX_AUTO_THINK_BUDGET_USD=0 as spend-nothing, invalid as the default", async () => {
+    process.env.MEMEX_AUTO_THINK_BUDGET_USD = "0";
+    let calls = 0;
+    const answer = JSON.stringify({ answer: "Paid answer.", citations: [], gaps: [] });
+    const counting: SonnetFn = async (input) => {
+      calls += 1;
+      return fakeSonnet(answer)(input);
+    };
+    const opts = {
+      sonnetFn: counting,
+      pagesFn: fakePages("ctx"),
+      embedFn: null,
+      questions: ["Env budget question"],
+      cooldownHours: 0,
+    };
+    const zero = await autoThinkPhase(storage, opts);
+    expect(calls).toBe(0);
+    expect(zero.budgetExhausted).toBe(true);
+
+    // A non-numeric value still falls back to the paid default.
+    process.env.MEMEX_AUTO_THINK_BUDGET_USD = "not-a-number";
+    const fallback = await autoThinkPhase(storage, opts);
+    expect(calls).toBe(1);
+    expect(fallback.draftsWritten).toBe(1);
   });
 
   it("respects the cooldown once a draft exists", async () => {

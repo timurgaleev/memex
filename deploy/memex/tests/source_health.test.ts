@@ -8,7 +8,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
-import { brainHealthMetrics } from "../src/core/source-health.ts";
+import {
+  brainHealthMetrics,
+  collectPerSourceHealth,
+} from "../src/core/source-health.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-srchealth-"));
 let storage: Storage;
@@ -77,6 +80,53 @@ describe("brainHealthMetrics", () => {
     const h = await brainHealthMetrics(storage.raw());
     expect(h.lag_seconds).not.toBeNull();
     expect(h.lag_seconds!).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("brainHealthMetrics — embed-skip pages excluded from coverage", () => {
+  it("coverage converges to 100% when the only unembedded chunks are embed-skipped", async () => {
+    const d3 = mkdtempSync(join(tmpdir(), "memex-srchealth-skip-"));
+    const s3 = new Storage({ dbPath: join(d3, "db") });
+    await s3.init();
+    try {
+      const e = s3.raw();
+      await e.query(
+        `INSERT INTO sources (id, kind, path_prefix) VALUES ('vault', 'vault', 'notes/')`,
+      );
+      // Page A: embed_skip marker, 2 chunks, no embeddings — the embed paths
+      // never touch these, so they must not count against coverage.
+      await e.query(
+        `INSERT INTO documents (id, source_id, source_path, title, frontmatter, updated_at)
+         VALUES ('a', 'vault', 'notes/a.md', 'A', '{"embed_skip":{"reason":"oversized"}}'::jsonb, NOW())`,
+      );
+      await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('ac0','a',0,'alpha')`);
+      await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('ac1','a',1,'beta')`);
+      // Page B: plain markdown, 2 chunks, both embedded.
+      await e.query(
+        `INSERT INTO documents (id, source_id, source_path, title, frontmatter, updated_at)
+         VALUES ('b', 'vault', 'notes/b.md', 'B', '{}'::jsonb, NOW())`,
+      );
+      await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('bc0','b',0,'gamma')`);
+      await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('bc1','b',1,'delta')`);
+      await e.query(`INSERT INTO embeddings (chunk_id, vector, model) VALUES ('bc0', $1::vector, 'test')`, [ZERO_VEC]);
+      await e.query(`INSERT INTO embeddings (chunk_id, vector, model) VALUES ('bc1', $1::vector, 'test')`, [ZERO_VEC]);
+
+      const h = await brainHealthMetrics(e);
+      expect(h.embeddable_chunks).toBe(2);
+      expect(h.embedded_chunks).toBe(2);
+      expect(h.embed_coverage_pct).toBe(1);
+
+      // The per-source rows (which feed remediation's 0-coverage probe) agree.
+      const rows = await collectPerSourceHealth(e);
+      const vault = rows.find((r) => r.source_id === "vault");
+      expect(vault?.chunk_count).toBe(4);
+      expect(vault?.embeddable_chunks).toBe(2);
+      expect(vault?.embedded_chunks).toBe(2);
+      expect(vault?.embed_coverage_pct).toBe(1);
+    } finally {
+      await s3.close();
+      rmSync(d3, { recursive: true, force: true });
+    }
   });
 });
 

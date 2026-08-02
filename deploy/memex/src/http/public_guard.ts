@@ -78,8 +78,8 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
 // links, tags). The destructive ops (page_delete/restore/revert, unlink,
 // remove_tag, purge_deleted_pages, forget_fact) are never reachable from the
 // static public bearer, but ARE callable by an authenticated token whose
-// granted scope covers them (write; purge_deleted_pages: admin). This mirrors
-// the reference model, where delete/restore are `scope: write` and purge is
+// granted scope covers them (write; purge_deleted_pages: admin). Delete and
+// restore are `scope: write` and purge is
 // `scope: admin`; the delete stays a soft-delete with a recovery window, purge
 // is the admin-only hard delete. These appear in the public tools/list and are
 // reachable ONLY while the flag is on; with the flag off they are forbidden

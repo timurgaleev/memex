@@ -27,7 +27,9 @@
  * fence rows (operator removed the fence). But a fence whose markers are
  * PRESENT yet parse to zero rows (a hand-edit syntax typo, or an emptied
  * table) does NOT wipe — a malformed fence must never silently destroy the
- * prior projection.
+ * prior projection. The same holds for a PARTIALLY malformed fence (some rows
+ * parse, some are claimless/broken): wiping would delete the broken rows'
+ * prior projections, so the reconcile is refused until the fence is fixed.
  *
  * Each fence fact is keyed `entity_slug = <the page hosting the fence>` — the
  * fence states facts ABOUT that page's subject. `entity_slug` has no FK, so a
@@ -79,14 +81,15 @@ function safeSourceSlug(raw: string | undefined): string | null {
  * this call: if the page's persisted hash no longer matches, a newer write
  * landed and owns the reconcile — this call skips (no stale projection).
  * Returns counts removed/added; `{0,0}` when disabled, skipped, or a malformed
- * fence is left untouched. Runs the wipe+insert in one transaction.
+ * fence is left untouched (`skipped` names the refusal cause). Runs the
+ * wipe+insert in one transaction.
  */
 export async function reconcileFactsForPage(
   storage: Storage,
   pageSlug: string,
   expectedContentHash: string,
   sourceId?: string,
-): Promise<{ removed: number; added: number }> {
+): Promise<{ removed: number; added: number; skipped?: "malformed_rows" }> {
   if (!factsFenceEnabled()) return { removed: 0, added: 0 };
   validateSlug(pageSlug);
   // Tenant scope (mig047): stamp source_id on fence-derived facts only when
@@ -105,9 +108,22 @@ export async function reconcileFactsForPage(
   // Malformed-fence guard: markers present but nothing parses → do NOT wipe.
   // Only a genuinely ABSENT fence (no markers) clears the prior projection.
   const hasFenceMarkers = body.includes(FACTS_FENCE_BEGIN);
-  const parsed = parseFactsFence(body);
+  const parseWarnings: string[] = [];
+  const parsed = parseFactsFence(body, parseWarnings);
   if (hasFenceMarkers && parsed.length === 0) {
     return { removed: 0, added: 0 };
+  }
+  // Partial-parse guard: some data rows were claimless/malformed and got
+  // skipped by the parser. Wipe+reinsert here would delete THOSE rows' prior
+  // projections, so refuse the reconcile and keep the existing index — the
+  // next re-put of a fixed fence repairs it.
+  if (parseWarnings.length > 0) {
+    // Callers discard this result on the put path — log here so a frozen
+    // projection is diagnosable instead of silent.
+    console.warn(
+      `[memex] facts-reconcile skipped for '${pageSlug}' (malformed fence rows): ${parseWarnings.join("; ")}`,
+    );
+    return { removed: 0, added: 0, skipped: "malformed_rows" };
   }
 
   // Active rows only: a struck (`~~…~~`) claim is a retraction — it must NOT

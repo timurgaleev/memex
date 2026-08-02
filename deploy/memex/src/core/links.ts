@@ -49,7 +49,16 @@ export type KnownLinkType = (typeof KNOWN_LINK_TYPES)[number];
 // at the boundary so a future MCP write call can never poison the
 // `links.target_slug` column with garbage. Permissive on input ("Alice
 // Smith") -- see `slugifyTarget` below -- strict on output.
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/;
+// Word chars are lowercase/caseless letters of any script plus combining
+// marks and digits (\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}) — a Cyrillic or CJK title
+// makes a real slug instead of collapsing to `unknown`. ASCII slugs are a
+// strict subset, so every existing slug stays valid. (Same grammar in
+// pages.ts / insights.ts — keep the three copies in sync.)
+const SLUG_WORD = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}]";
+const SLUG_RE = new RegExp(
+  `^${SLUG_WORD}(?:${SLUG_WORD}|-)*(?:\\/${SLUG_WORD}(?:${SLUG_WORD}|-)*)*$`,
+  "u",
+);
 const MAX_SLUG_LEN = 256;
 
 export function validateSlug(slug: string): void {
@@ -89,7 +98,25 @@ export function slugifyTarget(name: string): string {
     .replace(/\/+/g, "/")
     .replace(/^[-/]+|[-/]+$/g, "")
     .slice(0, MAX_SLUG_LEN);
-  return normalised.length > 0 ? normalised : "unknown";
+  if (normalised.length > 0) return normalised;
+  // The ASCII fold stripped everything — an all-non-Latin name (Cyrillic,
+  // CJK, …). Keep the script instead of collapsing every such mention onto
+  // the shared `unknown` target, which made those wikilinks permanently
+  // unresolvable. NFKC (not NFKD) so letters stay composed and stable as
+  // stored slugs; the char class mirrors SLUG_RE above.
+  const unicode = name
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}/-]/gu, "")
+    .replace(/-+/g, "-")
+    .replace(/\/+/g, "/")
+    .replace(/^[-/]+|[-/]+$/g, "")
+    .slice(0, MAX_SLUG_LEN)
+    // The UTF-16 slice can cut an astral-plane pair in half; a trailing lone
+    // high surrogate would abort the Postgres TEXT write downstream.
+    .replace(/[\uD800-\uDBFF]$/, "");
+  return unicode.length > 0 ? unicode : "unknown";
 }
 
 function normaliseType(

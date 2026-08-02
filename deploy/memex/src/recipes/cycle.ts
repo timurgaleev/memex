@@ -281,8 +281,13 @@ export function startCycleLoop(
         clearInterval(refresher);
         try {
           await lock.release();
-        } catch {
-          /* idempotent — lock will auto-expire under TTL */
+        } catch (e) {
+          // Swallow by design (TTL is the backstop), but say so — a stranded
+          // lock row otherwise blocks ticks until expiry with zero diagnostic.
+          console.error(
+            `[cycle] lock release failed (row may persist until TTL expiry):`,
+            e instanceof Error ? e.message : e,
+          );
         }
         currentLock = null;
       }
@@ -311,8 +316,13 @@ export function startCycleLoop(
       if (currentLock) {
         try {
           await currentLock.release();
-        } catch {
-          /* idempotent — TTL is the backstop */
+        } catch (e) {
+          // Swallow by design (TTL is the backstop), but say so — a stranded
+          // lock row otherwise blocks ticks until expiry with zero diagnostic.
+          console.error(
+            `[cycle] lock release failed on stop (row may persist until TTL expiry):`,
+            e instanceof Error ? e.message : e,
+          );
         }
         currentLock = null;
       }

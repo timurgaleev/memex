@@ -84,6 +84,24 @@ describe("Queue.prune", () => {
     expect((await queue.get("j2"))?.status).toBe("failed");
   });
 
+  it("dryRun reports the would-be-deleted count without deleting", async () => {
+    await queue.enqueue({ kind: "a", id: "dry-old" });
+    await queue.enqueue({ kind: "a", id: "dry-fresh" });
+    await forceRow("dry-old", "succeeded", 45);
+    await forceRow("dry-fresh", "succeeded", 1);
+
+    const wouldPrune = await queue.prune({ dryRun: true });
+    expect(wouldPrune).toBe(1);
+    expect((await queue.get("dry-old"))?.status).toBe("succeeded");
+    expect((await queue.get("dry-fresh"))?.status).toBe("succeeded");
+
+    // Same selection, real prune: the row the dry run counted is now gone.
+    const n = await queue.prune();
+    expect(n).toBe(1);
+    expect(await queue.get("dry-old")).toBeNull();
+    expect((await queue.get("dry-fresh"))?.status).toBe("succeeded");
+  });
+
   it("rejects a non-terminal status", async () => {
     await expect(queue.prune({ statuses: ["running" as never] })).rejects.toThrow(
       "not a terminal status",

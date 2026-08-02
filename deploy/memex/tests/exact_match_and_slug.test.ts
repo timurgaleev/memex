@@ -9,7 +9,7 @@ import {
 import { slugCandidatesForPath } from "../src/core/search/page-slug.ts";
 
 describe("exactMatchBoostForTaxonomy", () => {
-  it("entity ×1.25, event ×1.10, others neutral (reference magnitudes)", () => {
+  it("entity ×1.25, event ×1.10, others neutral (default magnitudes)", () => {
     expect(exactMatchBoostForTaxonomy("entity")).toBe(1.25);
     expect(exactMatchBoostForTaxonomy("event")).toBe(1.1);
     expect(exactMatchBoostForTaxonomy("temporal")).toBe(1.0);

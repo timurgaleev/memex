@@ -15,6 +15,7 @@ import {
   checkSchemaVersion,
   checkEmbeddingWidth,
   checkInvalidIndexes,
+  checkDuplicatePages,
 } from "../src/core/doctor-ops.ts";
 import { buildRemediationEnvelope, runDoctor } from "../src/commands/doctor.ts";
 import { buildRemediationPlan } from "../src/core/remediation.ts";
@@ -123,6 +124,40 @@ describe("checkInvalidIndexes", () => {
     const r = await checkInvalidIndexes(e);
     expect(r.ok).toBe(false);
     expect(r.detail).toContain("doctor_test_idx");
+  });
+});
+
+describe("checkDuplicatePages", () => {
+  const insertPage = (slug: string, hash: string) =>
+    storage.engine().exec(
+      `INSERT INTO pages (slug, type, content_hash) VALUES ('${slug}', 'note', '${hash}')`,
+    );
+
+  it("reports none on a clean store", async () => {
+    const r = await checkDuplicatePages(storage.engine());
+    expect(r.ok).toBe(true);
+    expect(r.detail).toContain("no duplicate pages");
+  });
+
+  it("groups two live pages sharing source_id + content_hash", async () => {
+    await insertPage("notes/a", "hash-dup");
+    await insertPage("notes/b", "hash-dup");
+    const r = await checkDuplicatePages(storage.engine());
+    expect(r.ok).toBe(true); // informational — retrieval still works
+    expect(r.detail).toContain("1 duplicate page group");
+    expect(r.detail).toContain("notes/a, notes/b");
+  });
+
+  it("ignores distinct hashes and soft-deleted twins", async () => {
+    await insertPage("notes/a", "hash-one");
+    await insertPage("notes/b", "hash-two");
+    await insertPage("notes/c", "hash-two");
+    await storage
+      .engine()
+      .exec("UPDATE pages SET deleted_at = NOW() WHERE slug = 'notes/c'");
+    const r = await checkDuplicatePages(storage.engine());
+    expect(r.ok).toBe(true);
+    expect(r.detail).toContain("no duplicate pages");
   });
 });
 

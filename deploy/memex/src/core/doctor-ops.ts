@@ -1,9 +1,10 @@
 /**
  * Ops-facing brain-health probes for `memex doctor`: stale cycle locks, job
- * queue depth/wedge, applied-vs-available schema version, and embedding-width
- * consistency. Each returns {ok, detail}; the caller swallows a probe error
- * into a WARN. All read-only, config-free, no LLM — the substrate already
- * exists (cycle_locks mig 050, jobs mig 006, migrations table, vector(N)).
+ * queue depth/wedge, applied-vs-available schema version, embedding-width
+ * consistency, and content-hash duplicate pages. Each returns {ok, detail};
+ * the caller swallows a probe error into a WARN. All read-only, config-free,
+ * no LLM — the substrate already exists (cycle_locks mig 050, jobs mig 006,
+ * migrations table, vector(N), pages.content_hash).
  */
 import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
@@ -134,6 +135,39 @@ export async function checkInvalidIndexes(
   return {
     ok: false,
     detail: `${bad.length} invalid index(es) — Postgres ignores these, so lookups silently seq-scan: ${names}. Recover with \`REINDEX INDEX CONCURRENTLY <name>\` (online, no write lock)`,
+  };
+}
+
+/**
+ * Duplicate live pages: the same (source_id, content_hash) present under more
+ * than one slug — the fingerprint of a path remap or a double import landing
+ * one body twice. Retrieval still works (both copies rank, dedup collapses
+ * near-twins), so this is informational (ok:true); the sample names the slug
+ * groups so the operator knows what to reconcile.
+ */
+export async function checkDuplicatePages(
+  engine: Engine,
+): Promise<OpsCheckResult> {
+  // Window count over the grouped subquery = total groups; LIMIT keeps the
+  // sample small without losing that total.
+  const r = await engine.query<{ slugs: string; total: number }>(
+    `SELECT g.slugs, count(*) OVER ()::int AS total
+       FROM (SELECT string_agg(slug, ', ' ORDER BY slug) AS slugs
+               FROM pages
+              WHERE deleted_at IS NULL
+              GROUP BY source_id, content_hash
+             HAVING count(*) > 1
+              ORDER BY count(*) DESC, MIN(slug)) g
+      LIMIT 3`,
+  );
+  const total = r.rows[0]?.total ?? 0;
+  if (total === 0) {
+    return { ok: true, detail: "no duplicate pages" };
+  }
+  const sample = r.rows.map((x) => `[${x.slugs}]`).join("; ");
+  return {
+    ok: true,
+    detail: `WARN: ${total} duplicate page group(s) — same source + content under multiple slugs, e.g. ${sample}`,
   };
 }
 

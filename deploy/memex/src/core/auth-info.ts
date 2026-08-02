@@ -43,6 +43,13 @@ export interface AuthInfo {
    */
   allowedSources?: string[];
   /**
+   * Slug-prefix write fence (`oauth_clients.bound_slug_prefixes`): when
+   * non-empty, dispatch confines this principal's write ops to slugs under
+   * one of these prefixes and refuses write ops that name no slug
+   * (deny-by-default). Undefined/empty = unbounded (the default).
+   */
+  boundSlugPrefixes?: readonly string[];
+  /**
    * True when the caller arrived over the public ingress (`brain.<domain>/mcp`
    * via Cloudflare). This is the authoritative trust bit — it gates body
    * redaction in the dispatcher and fail-closes the scope resolvers below.

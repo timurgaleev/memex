@@ -9,8 +9,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
+import { vectorSearch } from "../src/core/search/vector.ts";
 import {
   EMBEDDINGS_HNSW_SPEC,
+  hnswEfSearchFor,
   checkActiveBuild,
   dropZombieIndexes,
   dropAndRebuild,
@@ -85,5 +87,24 @@ describe("isExternalMaintenanceBuild", () => {
 
   it("is false when no build is active", () => {
     expect(isExternalMaintenanceBuild({ active: false })).toBe(false);
+  });
+});
+
+describe("hnswEfSearchFor", () => {
+  it("clamps to [40, 1000]", () => {
+    expect(hnswEfSearchFor(10)).toBe(40);
+    expect(hnswEfSearchFor(40)).toBe(40);
+    expect(hnswEfSearchFor(60)).toBe(60);
+    expect(hnswEfSearchFor(5000)).toBe(1000);
+  });
+});
+
+describe("ef_search raise on the ANN arm", () => {
+  it("a fanout above 40 still serves on PGLite (GUC branch is Postgres-only)", async () => {
+    // On PGLite the GUC/transaction branch is deliberately skipped (single
+    // connection — a tx would alias concurrent queries); the call must fall
+    // through to the plain path and return the (empty) result.
+    const rows = await vectorSearch(storage.engine(), new Array(1024).fill(0), 60);
+    expect(rows).toEqual([]);
   });
 });

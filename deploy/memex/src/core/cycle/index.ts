@@ -28,6 +28,10 @@ import {
   extractMeetingTimelinePhase,
   type MeetingTimelineResult,
 } from "../timeline-meetings.ts";
+import {
+  timelineAnchorPhase,
+  type TimelineAnchorResult,
+} from "../timeline-anchor.ts";
 import { snapshotPhase, type SnapshotResult } from "./snapshot.ts";
 import {
   mirrorPagesPhase,
@@ -107,6 +111,7 @@ export type PhaseName =
   | "orphans-purge"
   | "recompute-salience"
   | "extract-timeline"
+  | "timeline-anchor"
   | "snapshot"
   | "purge"
   // Synthesis phases (Wave 5) — opt-in, LLM-backed, default-OFF (NOT in
@@ -146,6 +151,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
   "orphans-purge",
   "recompute-salience",
   "extract-timeline",
+  "timeline-anchor",
   "snapshot",
   "purge",
 ];
@@ -219,6 +225,7 @@ export interface PhaseResult {
     | OrphansPurgeResult
     | RecomputeSalienceResult
     | MeetingTimelineResult
+    | TimelineAnchorResult
     | MirrorPagesResult
     | PurgeResult
     | LintPhaseResult
@@ -560,6 +567,22 @@ export async function runCycleOnce(
                   meetings_scanned: 0,
                   entries_written: 0,
                   attendees_touched: 0,
+                }),
+          progress,
+        );
+        break;
+      }
+      case "timeline-anchor": {
+        const storage = options.storage;
+        r = await runPhase(
+          engine,
+          p,
+          () =>
+            storage
+              ? timelineAnchorPhase(storage)
+              : Promise.resolve<TimelineAnchorResult>({
+                  pages_scanned: 0,
+                  events_written: 0,
                 }),
           progress,
         );

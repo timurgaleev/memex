@@ -1,4 +1,4 @@
--- 072: per-token permissions on access_tokens (reference v0.28 parity).
+-- 072: per-token permissions on access_tokens.
 --
 -- The verify path (oauth-provider.ts verifyToken, legacy fallback) already
 -- reads `permissions.source_id` to derive a legacy bearer's tenant scope —

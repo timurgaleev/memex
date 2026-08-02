@@ -5,7 +5,7 @@
  *
  * Subcommands:
  *   register-client <name> [--grant-types G] [--scopes S] [--source SRC]
- *                          [--redirect-uris u1,u2]
+ *                          [--redirect-uris u1,u2] [--bound-slug-prefixes p1,p2]
  *              --redirect-uris makes it an authorization-code (browser) client
  *              — e.g. a hosted MCP connector's callback. Grants then default to
  *              authorization_code,refresh_token unless --grant-types is given.
@@ -16,6 +16,9 @@
  *              JSON list of registered clients (no secrets).
  *   revoke-client <client_id>
  *              Hard-delete a client (cascades to its tokens/codes via FK).
+ *   rescope-client <client_id> --source SRC [--federated-read a,b]
+ *              Change an existing client's tenancy grant in place (write
+ *              source + federated read set) — no revoke + re-register.
  *   grant-token <client_id> <client_secret> [--scopes S]
  *              Exchange client_credentials for an access token locally (for a
  *              handoff / smoke test) — equivalent to POST /token.
@@ -40,6 +43,7 @@ export type AuthSub =
   | "register-client"
   | "list-clients"
   | "revoke-client"
+  | "rescope-client"
   | "grant-token"
   | "create"
   | "list"
@@ -119,6 +123,11 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
   const federatedRead = flags["federated-read"]
     ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
+  // Slug-prefix write fence: confines the client's write ops to slugs under
+  // these prefixes (deny-by-default for slug-less write tools). Optional.
+  const boundSlugPrefixes = flags["bound-slug-prefixes"]
+    ? flags["bound-slug-prefixes"].split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
 
   const { clientId, clientSecret } = await withProvider((p) =>
     p.registerClientManual(
@@ -129,6 +138,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
       sourceId,
       federatedRead,
       tokenEndpointAuthMethod,
+      boundSlugPrefixes,
     ),
   );
   // The secret is shown ONCE — only its hash is stored.
@@ -183,6 +193,36 @@ async function revokeClient(clientId: string): Promise<void> {
   );
   console.log(
     JSON.stringify({ revoked: deleted > 0, client_id: clientId }, null, 2),
+  );
+}
+
+async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
+  const usage =
+    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b]";
+  if (!clientId) throw new Error(usage);
+  const { flags } = parseFlags(rest);
+  const sourceId = flags["source"];
+  if (!sourceId) throw new Error(usage);
+  const federatedRead = flags["federated-read"]
+    ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const updated = await withProvider((p) =>
+    p.rescopeClient(clientId, sourceId, federatedRead),
+  );
+  if (!updated) {
+    throw new Error(`No active client "${clientId}".`);
+  }
+  console.log(
+    JSON.stringify(
+      {
+        client_id: clientId,
+        source_id: sourceId,
+        federated_read: federatedRead ?? [sourceId],
+        updated: true,
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -489,6 +529,8 @@ export async function runAuth(args: string[]): Promise<void> {
       return listClients();
     case "revoke-client":
       return revokeClient(rest[0]!);
+    case "rescope-client":
+      return rescopeClient(rest[0]!, rest.slice(1));
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     case "create":
@@ -503,7 +545,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return testCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|grant-token|create|list|revoke|permissions|test>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-token|create|list|revoke|permissions|test>",
       );
       process.exitCode = 1;
   }

@@ -36,6 +36,8 @@ export const api = {
     apiFetch("/admin/api/register-client", { method: "POST", body: JSON.stringify(payload) }),
   updateClientTtl: (client_id: string, token_ttl: number | null) =>
     apiFetch("/admin/api/update-client-ttl", { method: "POST", body: JSON.stringify({ client_id, token_ttl }) }),
+  rescopeClient: (client_id: string, source: string, read?: string[]) =>
+    apiFetch("/admin/api/rescope-client", { method: "POST", body: JSON.stringify({ client_id, source, ...(read ? { read } : {}) }) }),
   revokeClient: (client_id: string) =>
     apiFetch("/admin/api/revoke-client", { method: "POST", body: JSON.stringify({ client_id }) }),
   requests: (page = 1) => apiFetch(`/admin/api/requests?page=${page}`),

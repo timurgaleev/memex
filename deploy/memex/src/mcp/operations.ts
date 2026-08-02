@@ -41,8 +41,8 @@ export interface Operation {
   /**
    * Authorization scope, co-located with the op. A `"write"` op needs a write
    * source grant (public callers without one are denied); an `"admin"` op needs
-   * the admin scope; default `"read"`. Mirrors the reference scope hierarchy
-   * (see core/scope.ts). `WRITE_SCOPED_TOOLS` is DERIVED from this field (see
+   * the admin scope; default `"read"`. The scope hierarchy lives in
+   * core/scope.ts. `WRITE_SCOPED_TOOLS` is DERIVED from this field (see
    * below) so the write set has a single source of truth on the op itself, not
    * a parallel hand-kept list.
    */
@@ -205,11 +205,11 @@ export const OPERATIONS: readonly Operation[] = [
       }),
       since: str({
         description:
-          "Keep only hits whose content date COALESCE(effective_date, updated_at) is >= this ISO-8601 date/datetime.",
+          "Keep only hits whose content date COALESCE(effective_date, updated_at) is >= this bound: an ISO-8601 date/datetime, or a relative duration like '7d' / '2w' / '6m' / '1y' (back from now).",
       }),
       until: str({
         description:
-          "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this ISO-8601 date/datetime.",
+          "Keep only hits whose content date COALESCE(effective_date, updated_at) is <= this bound: an ISO-8601 date/datetime (a plain YYYY-MM-DD includes that whole day), or a relative duration like '7d' / '2w' / '6m' / '1y' (back from now).",
       }),
       near_symbol: str({
         description:
@@ -234,7 +234,7 @@ export const OPERATIONS: readonly Operation[] = [
       mode: str({
         enum: ["conservative", "balanced", "tokenmax"],
         description:
-          "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle) — reference behavior.",
+          "Per-call search mode bundle. Honored ONLY for the operator (local/static-bearer) caller; a tenant token's mode is silently ignored (it cannot escalate to the paid tokenmax bundle).",
       }),
     },
   },
@@ -389,7 +389,7 @@ export const OPERATIONS: readonly Operation[] = [
       tag: str({ description: "Filter to pages carrying this tag." }),
       sort: str({ enum: ["updated_desc", "updated_asc", "created_desc", "slug"] }),
       include_deleted: bool({ description: "Include soft-deleted pages (default false)." }),
-      // Reference clamp: list_pages caps at 100 (default 50) — a 1000-row
+      // Clamp: list_pages caps at 100 (default 50) — a 1000-row
       // window is a needless enumeration amplifier for scoped tokens.
       limit: int({ minimum: 1, maximum: 100 }),
     },
@@ -817,7 +817,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "purge_deleted_pages",
     scope: "admin",
     description:
-      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Reference parity (delete_page = write, purge = admin).",
+      "Admin escape hatch: HARD-delete pages whose deleted_at is older than `older_than_hours` (default 72). Cascades to page_versions / page_aliases / links via FK. The manual counterpart to the autopilot purge cycle phase. Returns the count + reaped slugs. WRITE — requires the `admin` scope (source-scoped) or the internal token; never reachable from the static public bearer. Scope split: delete_page = write, purge = admin.",
     params: {
       older_than_hours: num({
         minimum: 0,
@@ -1071,7 +1071,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "think",
     scope: "write",
     description:
-      "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers, reference behavior). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
+      "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers.",
     params: {
       question: str({ ...req, description: "The question to think about." }),
       anchor: str({ description: "Pull the entity subgraph + trajectory around this slug (required for take:true)." }),
@@ -1081,7 +1081,7 @@ export const OPERATIONS: readonly Operation[] = [
       model: str({ description: "Model id override for the synthesis call." }),
       since: str({ description: "Only gather pages whose content date is >= this ISO date." }),
       until: str({ description: "Only gather pages whose content date is <= this ISO date." }),
-      with_calibration: bool({ description: "Inject the calibration anti-bias block (opt-in, reference --with-calibration)." }),
+      with_calibration: bool({ description: "Inject the calibration anti-bias block (opt-in)." }),
       k: int({ minimum: 1, maximum: 50, description: "Page hits to gather (default 12)." }),
       max_takes: int({ minimum: 1, maximum: 100, description: "Take rows to gather (default 20)." }),
     },

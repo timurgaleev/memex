@@ -33,8 +33,8 @@ function toIso(value: unknown): string | null {
 }
 
 /**
- * Where a resolved effective_date came from (mig080 sentinel, reference
- * parity). 'fallback' = nothing parsed; the read path COALESCEs to updated_at.
+ * Where a resolved effective_date came from (mig080 sentinel).
+ * 'fallback' = nothing parsed; the read path COALESCEs to updated_at.
  */
 export type EffectiveDateSource =
   | "date"

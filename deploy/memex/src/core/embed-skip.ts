@@ -21,11 +21,11 @@
  *     `documents` row — memex embeds CHUNKS joined to their document, and the
  *     markdown frontmatter lands on `documents.frontmatter` at index time.
  *
- * Faithful note: only the embed PATHS honour this marker. The embed-coverage
- * METRIC (source-health / advisor) still counts an embed-skip page's chunks in
- * its denominator — the coverage metric does not filter the marker. An operator
- * with embed-skip pages accepts a coverage number below 100%, or splits the
- * page.
+ * The embed-coverage METRIC (source-health, and everything downstream of it:
+ * doctor, advisor, remediation's per-source probe) applies the same filter to
+ * its embeddable-chunk denominator, so paths and metric agree — an embed-skip
+ * page's chunks neither embed nor count against coverage, and the metric can
+ * reach 100%.
  *
  * Scope: this is a CHUNK marker. The page's `## Facts`
  * fence still embeds into `entity_facts.embedding` (a separate derived vector

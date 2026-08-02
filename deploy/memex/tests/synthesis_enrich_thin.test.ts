@@ -42,6 +42,7 @@ afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEMEX_ENRICH_THIN;
+  delete process.env.MEMEX_ENRICH_THIN_BUDGET_USD;
 });
 
 describe("enrichThinPhase", () => {
@@ -94,6 +95,30 @@ describe("enrichThinPhase", () => {
     expect(page).not.toBeNull();
     expect(page!.markdown_body).toContain("[[companies/acme]]");
     expect(page!.markdown_body.length).toBeGreaterThan("stub".length);
+  });
+
+  it("spends nothing when MEMEX_ENRICH_THIN_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMEX_ENRICH_THIN_BUDGET_USD = "0";
+    await putPage(storage, { slug: "people/erin", type: "person", title: "Erin", markdown_body: "stub", source_id: "default" });
+    await putPage(storage, {
+      slug: "notes/erin-context",
+      type: "note",
+      title: "Erin context",
+      markdown_body: "Erin runs the platform team and owns the deployment pipeline for the whole org.",
+      source_id: "default",
+    });
+    await link("people/erin", "notes/erin-context");
+
+    let calls = 0;
+    const counting: SonnetFn = async (input) => {
+      calls += 1;
+      return fakeSonnet("{}")(input);
+    };
+    const r = await enrichThinPhase(storage, { sonnetFn: counting });
+    expect(calls).toBe(0);
+    expect(r.budgetExhausted).toBe(true);
+    expect(r.pagesEnriched).toBe(0);
+    expect(r.spentUsd).toBe(0);
   });
 
   it("rejects an expansion that does not grow the stub", async () => {

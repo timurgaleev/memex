@@ -10,6 +10,7 @@ import { Storage } from "../src/core/storage.ts";
 import { createAdminAuth } from "../src/http/admin.ts";
 import { handleAdminApi } from "../src/http/admin-api.ts";
 import { OAuthProvider } from "../src/core/oauth-provider.ts";
+import { registerSource } from "../src/core/sources.ts";
 
 const BOOT = "boot-secret";
 let tmp: string;
@@ -54,6 +55,7 @@ describe("admin-api auth gating", () => {
     expect((await call("/admin/api/api-keys/revoke", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/register-client", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/update-client-ttl", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/rescope-client", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/revoke-client", { method: "POST", body: "{}" }))?.status).toBe(401);
   });
   it("401s an unknown /admin/api path when unauthenticated (no path disclosure)", async () => {
@@ -252,6 +254,59 @@ describe("admin-api credential management (authed)", () => {
       authed({ method: "POST", body: JSON.stringify({ client_id, token_ttl: "soon" }) }),
     );
     expect(bad?.status).toBe(400);
+  });
+
+  it("rescope-client changes the tenancy grant; new tokens carry it", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-e", scopes: "read" }) }),
+    );
+    const { client_id, client_secret } = (await reg!.json()) as { client_id: string; client_secret: string };
+
+    await registerSource(storage.engine(), { id: "acme", kind: "other", pathPrefix: "/acme" });
+
+    const res = await call(
+      "/admin/api/rescope-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id, source: "acme" }) }),
+    );
+    expect(res?.status).toBe(200);
+    const body = (await res!.json()) as { ok: boolean; source_id: string; federated_read: string[] };
+    expect(body.ok).toBe(true);
+    expect(body.source_id).toBe("acme");
+    expect(body.federated_read).toEqual(["acme"]); // read defaults to [source], like registration
+
+    const row = await storage.engine().query<{ source_id: string; federated_read: string[] }>(
+      "SELECT source_id, federated_read FROM oauth_clients WHERE client_id = $1",
+      [client_id],
+    );
+    expect(row.rows[0]?.source_id).toBe("acme");
+    expect(row.rows[0]?.federated_read).toEqual(["acme"]);
+
+    // A token exchanged after the rescope carries the new scope.
+    const provider = new OAuthProvider({ engine: storage.engine() });
+    const tokens = await provider.exchangeClientCredentials(client_id, client_secret);
+    const info = await provider.verifyAccessToken(tokens.access_token);
+    expect(info.sourceId).toBe("acme");
+    expect(info.allowedSources).toEqual(["acme"]);
+
+    // Unknown source ids 400 — write source and read set alike.
+    const ghost = await call(
+      "/admin/api/rescope-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id, source: "ghost" }) }),
+    );
+    expect(ghost?.status).toBe(400);
+    expect(((await ghost!.json()) as { error: string }).error).toContain("ghost");
+    const ghostRead = await call(
+      "/admin/api/rescope-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id, source: "acme", read: ["acme", "ghost"] }) }),
+    );
+    expect(ghostRead?.status).toBe(400);
+
+    const missing = await call(
+      "/admin/api/rescope-client",
+      authed({ method: "POST", body: JSON.stringify({ client_id: "nope", source: "acme" }) }),
+    );
+    expect(missing?.status).toBe(404);
   });
 
   it("revoke-client soft-deletes and kills live tokens", async () => {

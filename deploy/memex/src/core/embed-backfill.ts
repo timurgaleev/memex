@@ -48,10 +48,24 @@
  * inserts. `result.lastId` returns the last processed id; a caller can pass it
  * back as `startAfterId` to RESUME a capped or interrupted run from where it
  * stopped, and the `IS NULL` predicate makes a plain re-run resumable too.
+ *
+ * Contextual-retrieval parity (migration 057): a chunk marked
+ * `chunks.contextual_embedded` had its CURRENT vector computed under the
+ * `<context>title\nsynopsis</context>` prefix (`search/contextual-embed.ts`).
+ * Every re-embed here — gap-fill, signature-stale, `forceReembed` — rebuilds
+ * that same prefix (document title + first-two-sentence synopsis of the opening
+ * chunk) and embeds the wrapped text, so a backfill never silently downgrades a
+ * contextual vector to a raw one and the marker stays truthful on every path.
+ * Unmarked chunks embed raw content, unchanged.
  */
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
 import { embedSkipFilterFragment } from "./embed-skip.ts";
+import {
+  buildContextualPrefix,
+  wrapChunkForEmbedding,
+  extractFirstTwoSentences,
+} from "./search/contextual-embed.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { clearCache } from "./search/query-cache.ts";
 import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
@@ -154,6 +168,12 @@ export interface EmbedBackfillResult {
 interface CandidateRow {
   id: string;
   content: string;
+  /** Migration 057 marker — this chunk's vector carries the contextual prefix. */
+  contextual_embedded: boolean;
+  /** Document title — the contextual prefix's first line (marked chunks). */
+  title: string | null;
+  /** Document's opening chunk — synopsis source. NULL for unmarked rows. */
+  opening_content: string | null;
 }
 
 /** Escape LIKE metacharacters so a slug's `_`/`%` stays literal in patterns. */
@@ -235,8 +255,16 @@ async function fetchCandidatePage(
   scope?: EmbedScope,
 ): Promise<CandidateRow[]> {
   const { where, params } = buildCandidateWhere(cursor, scope);
+  // The opening-chunk subquery only runs for marked rows — it feeds the
+  // contextual prefix's synopsis, exactly the source `reindex --contextual`
+  // uses, so a backfilled vector matches what that command would produce.
   const r = await engine.query<CandidateRow>(
-    `SELECT c.id, c.content
+    `SELECT c.id, c.content, c.contextual_embedded, d.title,
+            CASE WHEN c.contextual_embedded THEN (
+              SELECT c2.content FROM chunks c2
+               WHERE c2.document_id = c.document_id
+               ORDER BY c2.chunk_index ASC LIMIT 1
+            ) END AS opening_content
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
        LEFT JOIN embeddings em ON em.chunk_id = c.id
@@ -409,6 +437,23 @@ function resolvePageSize(opt?: number): number {
 }
 
 /**
+ * The text handed to the embedder for a candidate. A chunk marked
+ * `contextual_embedded` re-wraps under the deterministic contextual prefix
+ * (document title + first-two-sentence synopsis of the opening chunk) so its
+ * replacement vector keeps the prefix its marker promises; anything else
+ * embeds the raw content. Code docs are never candidates, so isCode is false.
+ */
+function embedInput(row: CandidateRow): string {
+  if (!row.contextual_embedded) return row.content;
+  const prefix = buildContextualPrefix(
+    row.title,
+    extractFirstTwoSentences(row.opening_content ?? ""),
+    { isCode: false },
+  );
+  return wrapChunkForEmbedding(row.content, prefix, { isCode: false });
+}
+
+/**
  * Embed one keyset page through the bounded worker pool. Each real insert calls
  * `onEmbedded`, each per-chunk failure `onFailed`; neither aborts the page (one
  * bad row never strands the rest). Mirrors the prior single-pass pool, now
@@ -431,7 +476,7 @@ async function embedPage(
       if (i >= total) return;
       const row = page[i]!;
       try {
-        const vec = await embedWithRetry(embed, row.content);
+        const vec = await embedWithRetry(embed, embedInput(row));
         // Connection-retry the DB insert (transient RDS socket reset) — distinct
         // from embedWithRetry (Bedrock 429), which already ran. Idempotent
         // (ON CONFLICT DO NOTHING + RETURNING), so a replay after a drop still

@@ -7,7 +7,8 @@
  * its data, and is the job queue healthy?":
  *
  *   - embed_coverage_pct : of the chunks that SHOULD carry a vector (markdown /
- *     non-code — code chunks are graph-only by design, `kind:'code'`), how many
+ *     non-code — code chunks are graph-only by design, `kind:'code'` — and not
+ *     under an `embed_skip` page, which the embed paths never touch), how many
  *     actually have an embeddings row. A low value means the vector arm of
  *     hybrid search can't see those chunks (keyword/FTS still can).
  *   - lag_seconds        : wall-clock staleness = now − newest document update.
@@ -19,9 +20,10 @@
  * probe.
  */
 import type { Engine } from "./engine/interface.ts";
+import { embedSkipFilterFragment } from "./embed-skip.ts";
 
 export interface BrainHealthMetrics {
-  /** Chunks expected to carry a vector (non-code). */
+  /** Chunks expected to carry a vector (non-code, not under an embed-skip page). */
   embeddable_chunks: number;
   /** Of the embeddable chunks, how many have an embeddings row. */
   embedded_chunks: number;
@@ -52,7 +54,9 @@ function toNumOrNull(v: unknown): number | null {
  * Compute the brain-level health metrics in a handful of cheap aggregate
  * queries. Code chunks (`documents.frontmatter->>'kind' = 'code'`) are excluded
  * from the embedding-coverage denominator because they are intentionally
- * graph-only.
+ * graph-only, and chunks under an `embed_skip` page are excluded because the
+ * embed paths never touch them — counting either would pin coverage below 100%
+ * with no way to converge.
  */
 export async function brainHealthMetrics(
   engine: Engine,
@@ -67,9 +71,13 @@ export async function brainHealthMetrics(
     code: number | string;
   }>(
     `SELECT
-       COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') <> 'code')::int AS embeddable,
        COUNT(DISTINCT c.id) FILTER (
          WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
+           AND ${embedSkipFilterFragment("d")}
+       )::int AS embeddable,
+       COUNT(DISTINCT c.id) FILTER (
+         WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
+           AND ${embedSkipFilterFragment("d")}
            AND em.chunk_id IS NOT NULL
        )::int AS embedded,
        COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code
@@ -123,7 +131,7 @@ export interface PerSourceHealth {
   document_count: number;
   /** Chunks under this source's documents (all kinds). */
   chunk_count: number;
-  /** Chunks expected to carry a vector (non-code). */
+  /** Chunks expected to carry a vector (non-code, not under an embed-skip page). */
   embeddable_chunks: number;
   /** Of the embeddable chunks, how many have an embeddings row. */
   embedded_chunks: number;
@@ -182,9 +190,13 @@ export async function collectPerSourceHealth(
   }>(
     `SELECT COALESCE(d.source_id, '${UNCLASSIFIED_BUCKET}') AS source_id,
             COUNT(DISTINCT c.id)::int AS chunk_count,
-            COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') <> 'code')::int AS embeddable,
             COUNT(DISTINCT c.id) FILTER (
               WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
+                AND ${embedSkipFilterFragment("d")}
+            )::int AS embeddable,
+            COUNT(DISTINCT c.id) FILTER (
+              WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
+                AND ${embedSkipFilterFragment("d")}
                 AND em.chunk_id IS NOT NULL
             )::int AS embedded,
             COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code

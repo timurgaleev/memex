@@ -67,6 +67,14 @@ describe("slugifyTarget", () => {
     expect(slugifyTarget("!!!!")).toBe("unknown");
   });
 
+  it("keeps an all-non-Latin name instead of collapsing to 'unknown'", () => {
+    expect(slugifyTarget("Тимур Галеев")).toBe("тимур-галеев");
+    expect(slugifyTarget("Люди/Тимур Галеев")).toBe("люди/тимур-галеев");
+    // Mixed input keeps the historical ASCII fold, so existing stored slugs
+    // made from mixed-script names stay stable.
+    expect(slugifyTarget("Алиса Smith")).toBe("smith");
+  });
+
   it("strips edge separators", () => {
     expect(slugifyTarget("-alice-")).toBe("alice");
     expect(slugifyTarget("/alice/")).toBe("alice");

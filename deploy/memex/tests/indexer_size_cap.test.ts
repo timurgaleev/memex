@@ -1,6 +1,6 @@
 /**
  * indexDocument content-size cap — the missing content-path half of the
- * reference's 5 MB ingest cap (it guards both the file path and the in-memory
+ * the 5 MB ingest cap (it guards both the file path and the in-memory
  * content path; memex had only the file path). Stops a remote/page-mirror caller
  * shipping a >5 MB doc whose huge frontmatter would OOM the cycle.
  */

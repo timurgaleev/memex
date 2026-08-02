@@ -23,7 +23,7 @@ import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { embeddingSignature } from "./embedding.ts";
 import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
-import { wellFormJsonbObject } from "./well-form.ts";
+import { wellFormForText, wellFormJsonbObject } from "./well-form.ts";
 import {
   importFilename,
   resolveEffectiveDateWithSource,
@@ -167,7 +167,9 @@ export async function writeDocumentTransaction(
       [
         doc.documentId,
         doc.sourcePath,
-        doc.title,
+        // TEXT columns reject U+0000 / lone surrogates just like jsonb — a
+        // NUL-bearing file must index, not abort the whole document tx.
+        doc.title == null ? null : wellFormForText(doc.title),
         // Sanitize lone UTF-16 surrogates + NUL before the ::jsonb cast — a
         // single bad value (truncated emoji, mis-encoded source) would
         // otherwise make Postgres reject the cast and abort the whole index tx.
@@ -220,7 +222,10 @@ export async function writeDocumentTransaction(
           cid,
           doc.documentId,
           i,
-          ch.text,
+          // Chunk body is raw file content (markdown or code) — sanitize NUL /
+          // lone surrogates here at the choke point so one bad file can't
+          // abort the tx with "invalid byte sequence for encoding UTF8: 0x00".
+          wellFormForText(ch.text),
           ch.startLine ?? null,
           ch.endLine ?? null,
           ch.symbolName ?? null,
@@ -231,7 +236,9 @@ export async function writeDocumentTransaction(
           ch.parentSymbolPath && ch.parentSymbolPath.length > 0
             ? [...ch.parentSymbolPath]
             : null,
-          ch.docComment ?? null,
+          // Doc comments come from the same raw file content as the body —
+          // same sanitization, same reason.
+          ch.docComment == null ? null : wellFormForText(ch.docComment),
           ch.language ?? null,
           ch.symbolNameQualified ?? null,
           // Mirror the parent doc's authoritative source (migration 058) — NULL

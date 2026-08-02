@@ -16,6 +16,11 @@ import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { runEmbedBackfill } from "../src/core/embed-backfill.ts";
 import { currentDocumentClock } from "../src/core/generation.ts";
+import {
+  buildContextualPrefix,
+  wrapChunkForEmbedding,
+  extractFirstTwoSentences,
+} from "../src/core/search/contextual-embed.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
 const detEmbed = (t: string) => Promise.resolve(deterministicEmbed(t));
@@ -259,6 +264,79 @@ describe("embed backfill", () => {
     expect(after.candidates).toBe(0);
     expect(after.embedded).toBe(0);
     expect(after.lastId).toBeNull();
+  });
+
+  it("re-embeds a contextual_embedded chunk with the wrapped text, unmarked chunks raw", async () => {
+    // A document whose vectors were built under the contextual prefix, then
+    // lost (dimension migration / transient failure): chunks are marked but
+    // have no embeddings row. The backfill must hand the embedder the SAME
+    // wrapped text `reindex --contextual` builds, never the raw content.
+    const opening = "Ctx synopsis one. Ctx synopsis two. Rest of the opening chunk.";
+    const second = "second contextual chunk about ranking";
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_ctx", sourcePath: "/notes/ctx.md", title: "Ctx Doc", frontmatter: {}, embeddingModel: "det" },
+      [
+        { text: opening, entities: [] },
+        { text: second, entities: [] },
+      ],
+    );
+    await storage
+      .engine()
+      .query("UPDATE chunks SET contextual_embedded = TRUE WHERE document_id = $1", ["doc_ctx"]);
+
+    const seen: string[] = [];
+    const capture = (t: string) => {
+      seen.push(t);
+      return Promise.resolve(deterministicEmbed(t));
+    };
+    const r = await runEmbedBackfill(storage.engine(), { embed: capture });
+    // 2 doc_md_missing (unmarked) + 2 doc_ctx (marked).
+    expect(r.embedded).toBe(4);
+
+    const prefix = buildContextualPrefix("Ctx Doc", extractFirstTwoSentences(opening), { isCode: false });
+    expect(seen).toContain(wrapChunkForEmbedding(opening, prefix, { isCode: false }));
+    expect(seen).toContain(wrapChunkForEmbedding(second, prefix, { isCode: false }));
+    // The unmarked chunks embed their raw content — no prefix leaks onto them.
+    expect(seen).toContain("first markdown chunk about retrieval quality");
+    expect(seen).toContain("second markdown chunk about vector search");
+    expect(seen.some((t) => t.includes("<context>first markdown"))).toBe(false);
+  });
+
+  it("forceReembed keeps the contextual marker truthful — the replacement vector is wrapped", async () => {
+    const text = "forced contextual chunk body. It has a synopsis sentence.";
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_ctx_force", sourcePath: "/notes/ctxf.md", title: "Forced Ctx", frontmatter: {}, embeddingModel: "det" },
+      [{ text, entities: [], embedding: deterministicEmbed(text) }],
+    );
+    await storage
+      .engine()
+      .query("UPDATE chunks SET contextual_embedded = TRUE WHERE document_id = $1", ["doc_ctx_force"]);
+
+    const seen: string[] = [];
+    const capture = (t: string) => {
+      seen.push(t);
+      return Promise.resolve(deterministicEmbed(t));
+    };
+    const r = await runEmbedBackfill(storage.engine(), {
+      embed: capture,
+      forceReembed: true,
+      slugs: ["/notes/ctxf.md"],
+    });
+    expect(r.forceCleared).toBe(1);
+    expect(r.embedded).toBe(1);
+
+    const prefix = buildContextualPrefix("Forced Ctx", extractFirstTwoSentences(text), { isCode: false });
+    expect(seen).toEqual([wrapChunkForEmbedding(text, prefix, { isCode: false })]);
+    // Marker unchanged — the vector it describes is still contextual.
+    const marked = await storage
+      .engine()
+      .query<{ contextual_embedded: boolean }>(
+        "SELECT contextual_embedded FROM chunks WHERE document_id = $1",
+        ["doc_ctx_force"],
+      );
+    expect(marked.rows[0]?.contextual_embedded).toBe(true);
   });
 
   it("counts per-chunk embed failures without aborting the run", async () => {

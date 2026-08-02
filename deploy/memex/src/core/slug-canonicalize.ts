@@ -190,8 +190,9 @@ async function prefixExpansionUnique(
   sourceSlug: string,
   sourceIds?: string[],
 ): Promise<string | null> {
-  // slugifyTarget only emits [a-z0-9/-]; none are LIKE metacharacters, so
-  // `slugified || '%'` needs no escaping.
+  // slugifyTarget emits slug word chars (incl. non-Latin), '-', '/'; the LIKE
+  // metacharacters %/_/\ are all outside that class, so `slugified || '%'`
+  // still needs no escaping.
   if (slugified.length < MIN_TAIL_LEN || slugified.includes("/")) return null;
   const params: unknown[] = [slugified, sourceSlug];
   let scope = "";

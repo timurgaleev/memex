@@ -26,6 +26,16 @@
  */
 import type { Engine } from "./engine/interface.ts";
 
+/**
+ * ef_search must cover the requested ANN candidate pool: pgvector's HNSW scan
+ * gathers at most `hnsw.ef_search` rows (default 40) BEFORE the LIMIT, so a
+ * larger LIMIT silently truncates. Clamped to pgvector's [1..1000] bound;
+ * callers only need to set the GUC when this exceeds the default 40.
+ */
+export function hnswEfSearchFor(limit: number): number {
+  return Math.min(1000, Math.max(40, limit));
+}
+
 /** memex's production HNSW index (migration 001). */
 export const EMBEDDINGS_HNSW_SPEC: IndexSpec = {
   name: "embeddings_vector_idx",

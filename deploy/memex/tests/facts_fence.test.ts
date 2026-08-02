@@ -139,3 +139,35 @@ describe("facts fence — strip", () => {
     expect(stripFactsFence(md)).toBe(md);
   });
 });
+
+describe("facts fence — malformed-row warnings", () => {
+  it("warns for a pipe-bearing line that fails row parsing", () => {
+    const md = [
+      FACTS_FENCE_BEGIN,
+      "| # | claim | confidence | source |",
+      "|---|-------|------------|--------|",
+      "| 1 | Good claim | 1 | s |",
+      "2 | mangled row without leading pipe | 1 |",
+      FACTS_FENCE_END,
+    ].join("\n");
+    const warnings: string[] = [];
+    const facts = parseFactsFence(md, warnings);
+    expect(facts).toHaveLength(1);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/unparseable table row/);
+  });
+
+  it("pipe-less prose inside the fence stays silent", () => {
+    const md = [
+      FACTS_FENCE_BEGIN,
+      "| # | claim | confidence | source |",
+      "|---|-------|------------|--------|",
+      "| 1 | Good claim | 1 | s |",
+      "just a stray prose line",
+      FACTS_FENCE_END,
+    ].join("\n");
+    const warnings: string[] = [];
+    expect(parseFactsFence(md, warnings)).toHaveLength(1);
+    expect(warnings).toHaveLength(0);
+  });
+});

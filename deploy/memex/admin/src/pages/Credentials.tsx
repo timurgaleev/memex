@@ -64,6 +64,26 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
     }
   };
 
+  const rescope = async (row: CredentialRow) => {
+    const source = prompt(
+      `Write source id for "${row.name}":`,
+      row.source_id ?? "default",
+    );
+    if (source === null || source.trim() === "") return;
+    const readRaw = prompt(
+      "Federated read ids (comma-separated; empty = write source only):",
+      (row.federated_read ?? []).join(", "),
+    );
+    if (readRaw === null) return;
+    const readIds = readRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    try {
+      await api.rescopeClient(row.id, source.trim(), readIds.length > 0 ? readIds : undefined);
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+
   return (
     <>
       <h2 className="page-title" style={{ fontSize: 18, marginTop: 28 }}>Credentials</h2>
@@ -95,7 +115,17 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
                 <td>{r.usage.last_used_at ? r.usage.last_used_at.slice(0, 19) : "never"}</td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                   {r.auth_type === "oauth" && r.status === "active" && (
-                    <button className="btn btn-secondary" style={{ fontSize: 12, marginRight: 6 }} onClick={() => setTtl(r)}>TTL</button>
+                    <>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ fontSize: 12, marginRight: 6 }}
+                        title={`source: ${r.source_id ?? "default"} · read: ${(r.federated_read ?? []).join(", ") || "—"}`}
+                        onClick={() => rescope(r)}
+                      >
+                        Scope
+                      </button>
+                      <button className="btn btn-secondary" style={{ fontSize: 12, marginRight: 6 }} onClick={() => setTtl(r)}>TTL</button>
+                    </>
                   )}
                   {r.status === "active" && (
                     <button className="btn btn-danger" style={{ fontSize: 12 }} onClick={() => revoke(r)}>Revoke</button>

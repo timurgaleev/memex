@@ -42,6 +42,15 @@ export function wellFormForJsonb(s: string): string {
 }
 
 /**
+ * Sanitize a string bound to a plain TEXT column parameter. Postgres TEXT
+ * rejects the same two shapes as jsonb — U+0000 ("invalid byte sequence for
+ * encoding UTF8: 0x00") and lone surrogates — so the sanitization is
+ * identical; the alias exists so TEXT-column call sites (chunk content,
+ * document title) read as such rather than as a jsonb concern.
+ */
+export const wellFormForText = wellFormForJsonb;
+
+/**
  * Deep-sanitize every string (object key or value) inside a JSON-serializable
  * value so the result is safe to `JSON.stringify` and cast to `jsonb`. Returns
  * a new value; never mutates the input.

@@ -6,6 +6,92 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.106.0] — 2026-08-02
+
+### Added
+- **Per-client slug-prefix write fence is now enforced.** The
+  `oauth_clients.bound_slug_prefixes` column (schema since migration 046)
+  gains its enforcement: a bound client's write/admin ops are confined to
+  slugs under its prefixes, and write tools that name no slug at all are
+  refused for bound clients outright (deny-by-default, so a future write
+  tool can never bypass the fence by omission). Register with
+  `memex auth register-client <name> --bound-slug-prefixes inbox,notes`.
+- **Non-Latin slugs.** An all-Cyrillic (or CJK) title now produces a real
+  slug instead of collapsing onto the shared `unknown` target that could
+  never resolve. The slug grammar accepts lowercase/caseless letters of any
+  script (ASCII slugs are a strict subset — nothing existing changes), and
+  `slugifyTarget` keeps its historical ASCII fold for mixed-script names so
+  stored slugs stay stable; only inputs that previously produced `unknown`
+  gain the Unicode fallback.
+- **`memex jobs prune --dry-run`** previews what a prune would delete. The
+  flag was previously swallowed by the CLI parser while the prune deleted
+  for real.
+- **Doctor: duplicate-pages probe.** Warn-only check for live pages sharing
+  (source_id, content_hash) under different slugs — the silent-duplicate
+  class the migration-099 path remap had to work around.
+- **Relative date filters in search.** `since`/`until` accept `7d`/`2w`/
+  `1m`/`1y`, a plain-date `until` now means end-of-day, and garbage values
+  fail loud instead of silently dropping the bound.
+- **Opt-in timeline anchor phase** (`MEMEX_TIMELINE_ANCHOR=1`, default
+  OFF): every firmly-dated page with no timeline events gets exactly one
+  deterministic anchor event at its content date — the trajectory event arm
+  is no longer blind to dated pages the LLM extractor skipped.
+- **Chat-history importer** (`bun scripts/import-chat-history.ts <in.json>
+  <outdir> [--dry-run]`): converts exported conversation JSON into
+  `type: conversation` pages the conversation parser already understands.
+  LLM-free, DB-free; ingest the output with `memex index`.
+- **Admin: rescope a client in place.** `POST /admin/api/rescope-client` +
+  `memex auth rescope-client <id> --source SRC [--federated-read a,b]`
+  change an existing client's write source and read set without
+  revoke + re-register (which rotated the secret).
+- **Conversation parser reads block-format transcripts** — a
+  `- **Name** (Mon 11:18)` header with indented body lines now parses
+  instead of yielding zero messages.
+
+### Fixed
+- **The ANN arm no longer silently truncates its candidate pool.** The HNSW
+  scan returns at most `hnsw.ef_search` rows (default 40) before the LIMIT,
+  while the vector arm requests `max(20, k*3)` candidates — 60 at the
+  default k=20, so every default-k query was degraded. The GUC is now
+  raised transaction-locally to match the request (clamped to pgvector's
+  1000 cap) whenever the fanout exceeds the default.
+- **The compiled-truth ×2 boost no longer reorders results across pages at
+  the default detail.** RRF-fused scores sit in a narrow band, so the
+  multiplier let a weakly-matching page's truth mirror displace a
+  strongly-matching page's best chunk on every default query. The boost now
+  applies only at `detail: low` — the one-chunk-per-document view where the
+  distilled truth is exactly what the collapse should keep. Ranking
+  signature bumped (v7) so pre-fix cached orderings invalidate.
+- **"what do I know about X" is classified as an entity query.** The intent
+  pattern matched only second/third person (`you|we`) — the operator's own
+  canonical phrasing fell through to the generic path.
+- **Re-embedding preserves contextual prefixes.** Every `memex embed`
+  re-embed path (gap-fill, `--stale`, forced) embedded the raw chunk text,
+  silently stripping the contextual-retrieval prefix the chunk was marked
+  as carrying — and the marker then lied about the vectors in the DB. All
+  paths now rebuild the same deterministic prefix the index path uses.
+- **The embed-coverage metric can reach 100%.** The denominators counted
+  `embed_skip` pages that the embed paths deliberately never touch, so
+  doctor warned (<95%) forever on a source with skip-marked pages.
+- **A partially malformed facts fence no longer deletes the skipped rows'
+  projections.** The parser reports per-row warnings and reconciliation
+  refuses (preserving the existing index) instead of wiping rows it could
+  not re-insert.
+- **A path-shaped entity in fact extraction keeps its `/`.** The fallback
+  slugifier flattened `people/bob` into the phantom `people-bob`, keying
+  facts under a slug no page can have.
+- **A file containing NUL bytes indexes instead of aborting.** Postgres
+  rejects U+0000 in TEXT; the document transaction died and the file never
+  indexed. Chunk content, titles, and doc comments are now sanitized at the
+  indexer choke point.
+- **An explicitly configured budget of 0 spends nothing.** The paid
+  synthesis phases (auto-think, drift, patterns, reflections, thin-enrich)
+  coerced a configured 0 to their paid default; patterns/reflections also
+  gained the missing pre-flight so the cap is checked before the model call.
+- **Cycle lock-release failures are logged** instead of silently swallowed
+  (a stranded `cycle_locks` row blocked ticks until TTL with zero
+  diagnostic).
+
 ## [1.105.0] — 2026-07-27
 
 ### Fixed
@@ -81,7 +167,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   caller it was built for — an anonymous peer on the docker bridge
   (`authInfo === undefined`). An authenticated principal is gated by the per-op
   scope, `OPERATOR_ONLY_TOOLS`, its source grant, and the redaction bit, which
-  is the reference posture. The static public bearer and the bare bridge path
+  is the intended posture. The static public bearer and the bare bridge path
   are unchanged.
 - **`volunteer_context` ignored the caller's read grant.** It resolved pointers
   across the whole brain and returned slugs, titles, and synopses — diary pages
@@ -111,10 +197,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   were callable over HTTP only with the shared internal token; an
   authenticated OAuth/PAT caller may now invoke them when its grant covers the
   op (`write` scope), and every mutation is scoped to the token's own source.
-  This matches the reference model (delete/restore = `write`) and lets a
+  This keeps the scope model consistent (delete/restore = `write`) and lets a
   remote client manage its own pages. `purge_deleted_pages` (the hard-delete
-  reaper) is likewise reachable now at the `admin` scope — again matching the
-  reference (delete = `write`, purge = `admin`) — and is source-scoped to the
+  reaper) is likewise reachable now at the `admin` scope (delete = `write`,
+  purge = `admin`) and is source-scoped to the
   caller. The static public bearer stays forbidden from all of them, and the
   bare docker-bridge path still requires the internal token. `page_delete`
   remains a soft-delete with the 72h recovery window before purge reaps it.

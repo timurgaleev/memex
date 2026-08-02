@@ -17,6 +17,7 @@ import {
   NO_SOURCE_SENTINEL,
 } from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
+import { resolveDateBoundary } from "../core/search/filters.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
 import { findBacklinks } from "../core/backlinks.ts";
 import {
@@ -53,6 +54,7 @@ import {
   traverseGraph,
   syncWikilinksForPage,
   syncVerbLinksForPage,
+  slugifyTarget,
   stampLinksExtracted,
   type GraphNeighborsOptions,
   type GraphQueryOptions,
@@ -293,15 +295,97 @@ const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // Whole-brain operational snapshots (admin scope).
   "get_status_snapshot",
   "run_doctor",
-  // purge_deleted_pages is NOT operator-only: reference parity gates it at the
+  // purge_deleted_pages is NOT operator-only: it is gated at the
   // `admin` scope (the per-op scope gate below enforces it), reachable by an
-  // admin-scoped token — matching the reference. The static bearer + internal
+  // admin-scoped token. The static bearer + internal
   // path are never gated here anyway.
   // chronicle_backfill sweeps EVERY conversation-shape page in scope and spends
   // (queued) chronicle-extract work — an operator maintenance action, not a
   // tenant-reachable one.
   "chronicle_backfill",
 ]);
+
+/**
+ * Which params of a write op name the slugs it MUTATES — the surface the
+ * per-client slug-prefix fence (`oauth_clients.bound_slug_prefixes`) checks.
+ * Provenance-only pointers (add_fact's `source_slug`, `source_chunk_id`) are
+ * deliberately not listed: the fence bounds what a client can change, not
+ * what it can cite. A write/admin op ABSENT from this map names no slug and
+ * is refused for bound clients outright (deny-by-default), so a future write
+ * tool cannot bypass the fence by omission.
+ *
+ * DELIBERATELY OUTSIDE the fence: edges/facts the BRAIN derives from an
+ * in-prefix page's body (wikilink/mention/typed-link sync, on-write fact
+ * extraction). Those are the server's own indexing of ingested content —
+ * the background cycle would derive the identical set from the same body —
+ * and they never mutate another page's content, only reference it. Fencing
+ * them would fork the derivation pipeline per principal for no containment
+ * gain.
+ */
+const SLUG_PARAMS_BY_WRITE_TOOL: Readonly<Record<string, readonly string[]>> = {
+  page_put: ["slug"],
+  page_append: ["slug"],
+  page_delete: ["slug"],
+  page_restore: ["slug"],
+  page_revert: ["slug"],
+  add_tag: ["slug"],
+  remove_tag: ["slug"],
+  add_timeline_event: ["slug"],
+  put_raw_data: ["slug"],
+  link: ["source_slug", "target_slug"],
+  unlink: ["source_slug", "target_slug"],
+  add_fact: ["entity_slug"],
+  ontology_propose: ["entity"],
+};
+
+export function slugUnderPrefixes(
+  slug: string,
+  prefixes: readonly string[],
+): boolean {
+  return prefixes.some(
+    (p) => slug === p || slug.startsWith(p.endsWith("/") ? p : `${p}/`),
+  );
+}
+
+/**
+ * link/unlink accept PERMISSIVE input that addLink/removeLink slugify before
+ * storing — the fence must judge the value that will be STORED, not the raw
+ * string, or a mixed-script input (a non-Latin first segment ASCII-folds
+ * away entirely) would fold OUT of
+ * the checked prefix after passing the check. Page/fact tools validate their
+ * slug params raw (no normalization), so raw comparison is correct there.
+ */
+const SLUGIFIED_FENCE_TOOLS: ReadonlySet<string> = new Set(["link", "unlink"]);
+
+/** Throws unless every mutated slug of `tool` falls under one of `prefixes`. */
+function enforceSlugPrefixFence(
+  tool: string,
+  args: Record<string, unknown>,
+  prefixes: readonly string[],
+): void {
+  const slugParams = SLUG_PARAMS_BY_WRITE_TOOL[tool];
+  if (!slugParams) {
+    throw new OperationError(
+      "permission_denied",
+      `tool '${tool}' is not callable by a slug-bound client`,
+      "This client is bound to slug prefixes; only slug-addressed write tools are allowed.",
+    );
+  }
+  for (const param of slugParams) {
+    const value = args[param];
+    // A missing/malformed value is the param validator's problem; the fence
+    // only judges slugs that are actually present as strings.
+    if (typeof value !== "string" || value.length === 0) continue;
+    const judged = SLUGIFIED_FENCE_TOOLS.has(tool) ? slugifyTarget(value) : value;
+    if (!slugUnderPrefixes(judged, prefixes)) {
+      throw new OperationError(
+        "permission_denied",
+        `slug '${value}' is outside this client's bound prefixes`,
+        `Writes are confined to: ${prefixes.join(", ")}.`,
+      );
+    }
+  }
+}
 
 /** Per-call options the transport supplies. */
 export interface DispatchOptions {
@@ -435,6 +519,19 @@ async function dispatchToolInner(
     // by the catch below.
     const op = OP_BY_NAME.get(req.name);
     if (op) validateParams(op, args);
+    // Per-client slug-prefix write fence (oauth_clients.bound_slug_prefixes):
+    // a bound principal may mutate only slugs under its prefixes. Deny-by-
+    // default — a write/admin op that names no slug (index, extract_facts,
+    // think, …) is refused for bound clients, so a new write tool can never
+    // bypass the fence by omission. Unbounded clients are unaffected.
+    const boundPrefixes = opts.authInfo?.boundSlugPrefixes;
+    if (
+      boundPrefixes &&
+      boundPrefixes.length > 0 &&
+      (op?.scope === "write" || op?.scope === "admin")
+    ) {
+      enforceSlugPrefixFence(req.name, args, boundPrefixes);
+    }
     switch (req.name) {
       case "search":
         return await callSearch(storage, args, redact, readSources, isOperator);
@@ -746,17 +843,17 @@ async function callSearch(
   const dateBound = (name: "since" | "until"): string | undefined => {
     const v = args[name];
     if (v === undefined || v === null || v === "") return undefined;
-    // Require an ISO-8601 date (optionally with a time) so a malformed bound
-    // ("last month") fails loud at the call site instead of silently dropping
-    // results in the comparison below.
-    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}([T ]|$)/.test(v) || Number.isNaN(Date.parse(v))) {
+    if (typeof v !== "string") {
       throw new OperationError(
         "invalid_params",
-        `search: \`${name}\` must be an ISO-8601 date (e.g. 2024-03-15 or 2024-03-15T10:00:00Z)`,
-        `Pass \`${name}\` as an ISO date or datetime.`,
+        `search: \`${name}\` must be a string`,
+        `Pass \`${name}\` as an ISO date, datetime, or relative duration (7d / 2w / 1y).`,
       );
     }
-    return v;
+    // Normalize here so the documented relative forms (7d / 2w / 1y) and
+    // whole-day plain dates work over MCP; garbage throws OperationError
+    // inside the resolver instead of silently dropping the bound.
+    return resolveDateBoundary(v, name);
   };
   const since = dateBound("since");
   const until = dateBound("until");

@@ -140,6 +140,8 @@ export interface PruneOptions {
   olderThan?: Date;
   /** Terminal statuses to prune. Default: succeeded + failed + cancelled. */
   statuses?: JobStatus[];
+  /** Count the matching rows without deleting them. */
+  dryRun?: boolean;
 }
 
 export interface FailOptions {
@@ -557,7 +559,7 @@ export class Queue {
   /**
    * Delete old terminal jobs (the table otherwise grows unbounded). Defaults:
    * every terminal status, older than 30 days by `updated_at`. Returns the
-   * number of rows deleted.
+   * number of rows deleted — or, with `dryRun`, the number that would be.
    */
   async prune(opts: PruneOptions = {}): Promise<number> {
     const statuses = opts.statuses ?? ["succeeded", "failed", "cancelled"];
@@ -570,6 +572,14 @@ export class Queue {
     if (statuses.length === 0) return 0;
     const olderThan =
       opts.olderThan ?? new Date(Date.now() - 30 * 86_400_000);
+    if (opts.dryRun) {
+      const r = await this.engine.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM jobs
+          WHERE status = ANY($1::text[]) AND updated_at < $2`,
+        [statuses, olderThan],
+      );
+      return r.rows[0]?.n ?? 0;
+    }
     const r = await this.engine.query<{ id: string }>(
       `DELETE FROM jobs
         WHERE status = ANY($1::text[]) AND updated_at < $2

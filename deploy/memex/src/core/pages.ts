@@ -85,10 +85,16 @@ export function inferPageType(slug: string): KnownPageType | null {
 }
 
 // Slug grammar:
-//   - lowercase a-z, digits 0-9, hyphen
+//   - lowercase/caseless letters of any script, combining marks, digits, hyphen
+//     (\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N} — ASCII slugs are a strict subset)
 //   - optional `/` namespaces (each segment must satisfy the same rule)
 //   - 1..256 chars total
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/;
+// Keep in sync with the copies in links.ts / insights.ts.
+const SLUG_WORD = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}]";
+const SLUG_RE = new RegExp(
+  `^${SLUG_WORD}(?:${SLUG_WORD}|-)*(?:\\/${SLUG_WORD}(?:${SLUG_WORD}|-)*)*$`,
+  "u",
+);
 const MAX_SLUG_LEN = 256;
 
 export function validateSlug(slug: string): void {
@@ -266,9 +272,9 @@ export async function putPage(
       );
     }
 
-    // Merge/rename fence — memex-specific, on top of the reference upsert below.
-    // Reference brains key a page by an id, so a retired slug keeps no row of
-    // its own to bring back. Here `pages.slug` IS the key, and two operations
+    // Merge/rename fence — layered on top of the plain upsert below.
+    // An id-keyed store would keep no row for a retired slug to bring back.
+    // Here `pages.slug` IS the key, and two operations
     // retire a slug behind a `slug_aliases` redirect: `mergePage` folds the stub
     // into a soft-deleted row PLUS a stub→canonical redirect, and `renamePage`
     // deletes the old row outright and leaves old→new. Either way a write to the
@@ -283,7 +289,7 @@ export async function putPage(
     // half a rule. Never fires for a live row (that is an ordinary update), and
     // only fires once the canonical is live, so a dangling redirect cannot
     // strand the slug forever. A plain soft-deleted slug with no redirect still
-    // resurrects unconditionally, which is the reference behaviour.
+    // resurrects unconditionally, by design (see the upsert note below).
     const liveAtSlug = existing.rows[0]?.deleted_at === null;
     if (!liveAtSlug) {
       const redirect = await tx.query<{ canonical_slug: string }>(
@@ -372,8 +378,8 @@ export async function putPage(
     }
 
     const nextVersion = prev.version_n + 1;
-    // `deleted_at = NULL` is unconditional, matching the reference engines'
-    // upsert. The tradeoff is deliberate: any later write to the slug — a
+    // `deleted_at = NULL` is unconditional.
+    // The tradeoff is deliberate: any later write to the slug — a
     // synthesis phase, an importer — undoes an operator's `page_delete` and
     // brings the page back in place. A delete that must stick needs the slug
     // to stop being written, or a purge.

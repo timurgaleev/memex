@@ -22,6 +22,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import type { Engine } from "./engine/interface.ts";
+import { validateSlug as validatePageSlug } from "./pages.ts";
 import {
   hasScope,
   parseScopeString,
@@ -204,6 +205,10 @@ export interface AuthInfo {
   /** Takes-holder allow-list from a legacy PAT's `permissions.takes_holders`
    *  (mig 072). Undefined for OAuth clients, which carry no such knob. */
   takesHolders?: string[];
+  /** Slug-prefix write fence (`oauth_clients.bound_slug_prefixes`): when
+   *  non-empty, the dispatch write gate confines every write op to slugs
+   *  under these prefixes. Undefined/empty = unbounded. */
+  boundSlugPrefixes?: string[];
 }
 
 export interface TokenRevocationRequest {
@@ -392,7 +397,8 @@ export class OAuthProvider {
     const now = Math.floor(Date.now() / 1000);
 
     // DCR clients default to source_id='default' with read scope == write
-    // scope (federated_read=['default']); operators rescope via the CLI.
+    // scope (federated_read=['default']); operators rescope via rescopeClient
+    // (`auth rescope-client` / the admin rescope-client endpoint).
     await this.engine.query(
       `INSERT INTO oauth_clients
          (client_id, client_secret_hash, client_name, redirect_uris,
@@ -440,11 +446,17 @@ export class OAuthProvider {
     sourceId = "default",
     federatedRead?: string[],
     tokenEndpointAuthMethod?: string,
+    boundSlugPrefixes?: string[],
   ): Promise<{ clientId: string; clientSecret?: string }> {
     assertAllowedScopes(parseScopeString(scopes));
     const authMethod = validateTokenEndpointAuthMethod(
       tokenEndpointAuthMethod,
     );
+    // A prefix that can't match the slug grammar (uppercase, spaces) would
+    // silently deny the client everything — reject it at registration.
+    if (boundSlugPrefixes) {
+      for (const p of boundSlugPrefixes) validatePageSlug(p);
+    }
 
     const clientId = generateToken("memex_cl_");
     const isPublicClient = authMethod === "none";
@@ -460,8 +472,9 @@ export class OAuthProvider {
       `INSERT INTO oauth_clients
          (client_id, client_secret_hash, client_name, redirect_uris,
           grant_types, scope, token_endpoint_auth_method,
-          client_id_issued_at, source_id, federated_read)
-       VALUES ($1, $2, $3, $4::text[], $5::text[], $6, $7, $8, $9, $10::text[])`,
+          client_id_issued_at, source_id, federated_read, bound_slug_prefixes)
+       VALUES ($1, $2, $3, $4::text[], $5::text[], $6, $7, $8, $9, $10::text[],
+               $11::text[])`,
       [
         clientId,
         secretHash,
@@ -473,10 +486,36 @@ export class OAuthProvider {
         now,
         sourceId,
         federated,
+        boundSlugPrefixes && boundSlugPrefixes.length > 0
+          ? boundSlugPrefixes
+          : null,
       ],
     );
 
     return { clientId, clientSecret };
+  }
+
+  /**
+   * Change an existing client's tenancy grant in place — no revoke +
+   * re-register (which would rotate the secret). `sourceId` becomes the
+   * write source, `federatedRead` the read set (defaults to `[sourceId]`
+   * when omitted). Returns false when the client is unknown or revoked.
+   */
+  async rescopeClient(
+    clientId: string,
+    sourceId: string,
+    federatedRead?: string[],
+  ): Promise<boolean> {
+    const federated =
+      federatedRead && federatedRead.length > 0 ? federatedRead : [sourceId];
+    const r = await this.engine.query<{ client_id: string }>(
+      `UPDATE oauth_clients
+          SET source_id = $2, federated_read = $3::text[]
+        WHERE client_id = $1 AND deleted_at IS NULL
+        RETURNING client_id`,
+      [clientId, sourceId, federated],
+    );
+    return r.rows.length > 0;
   }
 
   // -------------------------------------------------------------------------
@@ -643,7 +682,7 @@ export class OAuthProvider {
     // and federated_read (read set) arrive on the same query — no N+1 lookup.
     const oauthRows = await this.rows(
       `SELECT t.client_id, t.scopes, t.expires_at, t.resource, c.client_name,
-              c.source_id, c.federated_read
+              c.source_id, c.federated_read, c.bound_slug_prefixes
        FROM oauth_tokens t
        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
        WHERE t.token_hash = $1 AND t.token_type = 'access'
@@ -663,6 +702,16 @@ export class OAuthProvider {
       const allowedSources = Array.isArray(federatedRaw)
         ? (federatedRaw as string[])
         : undefined;
+      const boundRaw = row.bound_slug_prefixes;
+      // Fail CLOSED on a corrupt fence column: an unparseable value must never
+      // silently widen a bound client to unbounded.
+      if (boundRaw != null && !Array.isArray(boundRaw)) {
+        throw new InvalidTokenError("Corrupt bound_slug_prefixes on client row");
+      }
+      const boundSlugPrefixes =
+        Array.isArray(boundRaw) && boundRaw.length > 0
+          ? (boundRaw as string[])
+          : undefined;
       return {
         token,
         clientId: row.client_id as string,
@@ -672,6 +721,7 @@ export class OAuthProvider {
         resource: row.resource ? new URL(row.resource as string) : undefined,
         sourceId: (row.source_id as string | null) ?? undefined,
         allowedSources,
+        ...(boundSlugPrefixes ? { boundSlugPrefixes } : {}),
       };
     }
 

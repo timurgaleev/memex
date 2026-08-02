@@ -51,6 +51,7 @@ afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEMEX_PATTERNS;
+  delete process.env.MEMEX_PATTERNS_BUDGET_USD;
 });
 
 describe("patternsPhase", () => {
@@ -109,5 +110,21 @@ describe("patternsPhase", () => {
     expect(r.ran).toBe(true);
     expect(r.patternsWritten).toBe(0);
     expect(await getPage(storage, "patterns/thin")).toBeNull();
+  });
+
+  it("spends nothing when MEMEX_PATTERNS_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMEX_PATTERNS_BUDGET_USD = "0";
+    await seedReflections(3);
+    let calls = 0;
+    const counting: SonnetFn = async (input) => {
+      calls += 1;
+      return fakeSonnet("[]")(input);
+    };
+    const r = await patternsPhase(storage, { sonnetFn: counting });
+    expect(calls).toBe(0);
+    expect(r.ran).toBe(false);
+    expect(r.budgetExhausted).toBe(true);
+    expect(r.spentUsd).toBe(0);
+    expect(r.reason).toContain("budget");
   });
 });

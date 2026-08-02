@@ -26,7 +26,7 @@
 import type { Engine } from "./../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
-import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "../llm/sonnet.ts";
+import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 
@@ -77,7 +77,8 @@ function patternsEnabled(): boolean {
 function defaultBudget(): number {
   const raw = (process.env.MEMEX_PATTERNS_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n > 0 ? n : 1.0;
+  // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
+  return Number.isFinite(n) && n >= 0 ? n : 1.0;
 }
 
 function resolvePrefix(opt: string | undefined): string {
@@ -89,6 +90,10 @@ function resolveIntConfig(v: number | undefined, envKey: string, def: number): n
   if (typeof v === "number" && v > 0) return Math.floor(v);
   const n = Number.parseInt((process.env[envKey] ?? "").trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : def;
+}
+
+function estimateUsage(chars: number, maxOutputTokens: number): SonnetUsage {
+  return { inputTokens: Math.ceil(chars / 4), outputTokens: maxOutputTokens };
 }
 
 async function gatherReflections(
@@ -212,13 +217,20 @@ export async function patternsPhase(
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "patterns");
   const model = resolveFactsModel(opts.modelId);
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: model });
+  const maxTokens = 1500;
+
+  const prompt = buildPrompt(reflections, minEvidence);
+  // Budget preflight — skip the call entirely when the cap leaves no room.
+  if (budget.wouldExceed(model, estimateUsage(prompt.length, maxTokens))) {
+    return { ...base, reason: "budget exhausted before mining", budgetExhausted: true };
+  }
 
   let drafts: PatternDraft[];
   try {
     const resp = await sonnetFn({
       system: "Return only the requested JSON array.",
-      user: buildPrompt(reflections, minEvidence),
-      maxTokens: 1500,
+      user: prompt,
+      maxTokens,
       temperature: 0,
     });
     try {

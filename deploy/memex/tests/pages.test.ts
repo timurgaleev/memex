@@ -58,6 +58,12 @@ describe("validateSlug", () => {
 
   it("rejects uppercase", () => {
     expect(() => validateSlug("Alice")).toThrow(/kebab-case/);
+    expect(() => validateSlug("Тимур")).toThrow(/kebab-case/);
+  });
+
+  it("accepts non-Latin lowercase slugs", () => {
+    expect(() => validateSlug("люди/тимур-галеев")).not.toThrow();
+    expect(() => validateSlug("知识/笔记")).not.toThrow();
   });
 
   it("rejects leading hyphen / slash", () => {

@@ -64,6 +64,28 @@ describe("parseConversation", () => {
     expect(msgs[0]?.text).toBe("first line\nwrapped continuation");
   });
 
+  it("parses block-format transcripts (header + indented body lines)", () => {
+    const doc = [
+      "- **Alice** (Mon 11:18)",
+      "    morning standup notes",
+      "    second body line",
+      "- **Bob** (Mon 1:05 PM)",
+      "    afternoon reply",
+    ].join("\n");
+    const msgs = parseConversation(doc, { dateContext: "2024-03-18" });
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]).toEqual({
+      speaker: "Alice",
+      timestamp: "2024-03-18T11:18:00Z",
+      text: "morning standup notes\nsecond body line",
+    });
+    expect(msgs[1]).toEqual({
+      speaker: "Bob",
+      timestamp: "2024-03-18T13:05:00Z",
+      text: "afternoon reply",
+    });
+  });
+
   it("handles AM/PM midnight + noon correctly", () => {
     const mid = parseConversation("**X** (2024-03-15 12:00 AM): midnight");
     expect(mid[0]?.timestamp).toBe("2024-03-15T00:00:00Z");
