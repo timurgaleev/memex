@@ -40,7 +40,7 @@ export async function runEvalExport(
                 meta, remote, expand_enabled, detail, job_id, subagent_id
            FROM eval_candidates
           WHERE captured_at > NOW() - ($1 || ' hours')::interval
-          ORDER BY captured_at DESC
+          ORDER BY captured_at DESC, id DESC
           LIMIT $2`,
         [String(sinceHours), limit],
       );
@@ -52,7 +52,7 @@ export async function runEvalExport(
                 baseline_rank, baseline_hit, baseline_rr,
                 baseline_ran_at::text
            FROM eval_queries
-          ORDER BY captured_at DESC
+          ORDER BY captured_at DESC, id COLLATE "C" DESC
           LIMIT $1`,
         [limit],
       );

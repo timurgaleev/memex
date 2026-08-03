@@ -232,7 +232,7 @@ export async function listQueries(
   }
   params.push(limit);
   const r = await engine.query<RawEvalRow>(
-    `SELECT ${SELECT_COLS} FROM eval_queries ${where} ORDER BY captured_at DESC LIMIT $${params.length}`,
+    `SELECT ${SELECT_COLS} FROM eval_queries ${where} ORDER BY captured_at DESC, id COLLATE "C" DESC LIMIT $${params.length}`,
     params,
   );
   return r.rows.map(rowToEval);
