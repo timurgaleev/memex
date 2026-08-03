@@ -83,7 +83,7 @@ Scale enrichment to importance. Don't waste API calls on low-value entities.
 
 | Tier | Who | Effort | Sources |
 |------|-----|--------|---------|
-| 1 (key) | Inner circle, close collaborators, key contacts | Full pipeline | All available APIs + deep web research |
+| 1 (key) | Inner circle, close collaborators, key contacts | Full pipeline | All available APIs + deep Perplexity research |
 | 2 (notable) | Occasional interactions, industry figures | Moderate | Web research + social + brain cross-ref |
 | 3 (minor) | Worth tracking, not critical | Light | Brain cross-ref + social lookup if handle known |
 
@@ -125,7 +125,7 @@ Priority order -- stop when you have enough signal for the entity's tier.
 - This is free and often the richest source
 
 **4b. Web research (Tier 1 and 2)**
-- Use the agent's own web search tooling (see `skills/web-research` for
+- Use the agent's own web search tooling (see `skills/perplexity-research` for
   the brain-first research protocol)
 - **Key pattern:** Send existing brain knowledge as context so the search
   returns DELTA (what's new vs what you already know), not a rehash

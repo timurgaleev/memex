@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.107.1] — 2026-08-03
+
+### Changed
+- **The research skill is `perplexity-research` again.** Renamed from
+  `web-research` (operator call: keep the Perplexity name); the skill drives
+  Perplexity — the agent's Perplexity tooling or API, any web-search tool as
+  a fallback — with brain context, and every cross-reference in the pack
+  follows the rename.
+
 ## [1.107.0] — 2026-08-02
 
 ### Added

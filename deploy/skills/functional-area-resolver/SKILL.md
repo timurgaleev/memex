@@ -25,7 +25,7 @@ tools:
   - list_skills
   - get_skill
 mutating: true
-# This skill names other skills (web-research, publish, etc.) in its
+# This skill names other skills (perplexity-research, publish, etc.) in its
 # dispatcher prose but never actually calls external APIs or search
 # providers. It rewrites local routing tables. Declarative opt-out.
 brain_first: exempt
@@ -202,7 +202,7 @@ shows what this workspace actually exposes):
 
 - **Brain & Knowledge** — brain-ops as dispatcher
 - **Content Ingestion** — ingest as dispatcher
-- **Research & Investigation** — web-research as dispatcher
+- **Research & Investigation** — perplexity-research as dispatcher
 - **Media & Voice** — media-ingest as dispatcher
 - **Publishing & Export** — publish as dispatcher
 - **Infrastructure & Health** — maintain as dispatcher
