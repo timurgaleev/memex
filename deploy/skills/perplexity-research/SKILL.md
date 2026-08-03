@@ -1,10 +1,11 @@
 ---
-name: web-research
+name: perplexity-research
 version: 0.1.0
-description: Brain-augmented web research. Pulls brain context about a topic, then drives the agent's own web-search tooling with that context so the web pass surfaces what is NEW vs what the brain already knows, with citations. Use for entity enrichment, current-state checks, deal monitoring, and freshness deltas. NOT for simple URL fetches (plain fetch) or brain-only questions (use the search tool).
+description: Brain-augmented Perplexity research. Pulls brain context about a topic, then drives Perplexity (the agent's Perplexity tooling or API; any web-search tool as fallback) with that context so the web pass surfaces what is NEW vs what the brain already knows, with citations. Use for entity enrichment, current-state checks, deal monitoring, and freshness deltas. NOT for simple URL fetches (plain fetch) or brain-only questions (use the search tool).
 triggers:
-  - "web research"
-  - "web-research"
+  - "Perplexity research"
+  - "perplexity-research"
+  - "perplexity"
   - "what's new about"
   - "current state of"
   - "what changed about"
@@ -15,10 +16,10 @@ writes_to:
   - research/
 ---
 
-# web-research — Brain-Augmented Web Research
+# perplexity-research — Brain-Augmented Perplexity Research
 
 > **Convention:** see `conventions/quality.md` (via `get_skill conventions/quality`)
-> for citation rules; every claim from web research lands with a verifiable
+> for citation rules; every claim from Perplexity research lands with a verifiable
 > citation, not a paraphrase.
 >
 > **Convention:** see `conventions/brain-first.md` (via `get_skill conventions/brain-first`)
@@ -174,9 +175,9 @@ evergreen research. Record the filter used in the page frontmatter.
 
 ## Related skills
 
-- `skills/academic-verify/SKILL.md` — wraps web-research for
+- `skills/academic-verify/SKILL.md` — wraps perplexity-research for
   citation-verified academic claim checking
-- `skills/enrich/SKILL.md` — calls web-research as part of the
+- `skills/enrich/SKILL.md` — calls perplexity-research as part of the
   entity-enrichment loop
 - `skills/data-research/SKILL.md` — structured-data trackers (different
   shape: parameterized YAML recipes, not free-form research)

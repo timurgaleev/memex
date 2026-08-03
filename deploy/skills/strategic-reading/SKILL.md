@@ -156,7 +156,7 @@ Phase 5: Write and deliver
 
 - Not a book summary tool. Use a different skill (or `book-mirror` for
   personalized analysis) for general summaries.
-- Not a research tool. Use `web-research` for finding new information
+- Not a research tool. Use `perplexity-research` for finding new information
   about a topic.
 - Not academic literary analysis. No one cares about literary merit —
   only strategic application.
@@ -165,7 +165,7 @@ Phase 5: Write and deliver
 
 - `skills/book-mirror/SKILL.md` — book personalized to whole life (vs
   problem)
-- `skills/web-research/SKILL.md` — current-intel cross-reference for
+- `skills/perplexity-research/SKILL.md` — current-intel cross-reference for
   fresh data
 - `conventions/quality.md` — citation + back-link rules
 
