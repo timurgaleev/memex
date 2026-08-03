@@ -166,9 +166,10 @@ same batch):
   pre-flight with "budget exhausted" instead of running and failing at
   settle. Bedrock-Claude-only is the standing posture, so this is the
   intended fail-cheap direction; revisit only if the model roster widens.
-- **`pg_trgm` similarity over non-Latin slugs depends on DB `LC_CTYPE`** —
-  under a `C` locale the trgm canonicalize stage scores 0 for Cyrillic.
-  Verify the live RDS locale on the next deploy (`SHOW LC_CTYPE`).
+- ~~**`pg_trgm` similarity over non-Latin slugs depends on DB locale**~~ —
+  VERIFIED on the live RDS 2026-08-03: `similarity('тимур','тимур-галеев')`
+  = 0.46 (non-zero), so the trgm canonicalize stage works for Cyrillic
+  slugs. Closed.
 - **Alias claims are not fenced per client** — an in-prefix page can claim
   an alias norm an out-of-prefix page owns; `resolveAliasUnique` then
   returns null for both (silent mutual kill). Low blast radius; needs an
