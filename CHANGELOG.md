@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.107.2] — 2026-08-03
+
+### Fixed
+- **Timestamp-tied orderings are deterministic.** PGLite's NOW() has
+  millisecond resolution, so back-to-back writes routinely share a
+  timestamp and every `ORDER BY captured_at DESC` without a secondary key
+  fell back to heap order — the root cause behind three long-standing
+  flaky tests (friction recent-order, links-extraction watermark,
+  eval-replay listing) and a fourth same-class failure the fix hunt
+  surfaced. All seven such queries (friction recent + listing,
+  friction-propose examples ×2, eval-replay listing, eval-export ×2) now
+  carry an insertion-order tiebreak (`id DESC`; `COLLATE "C"` for TEXT
+  ids, matching the keyword-arm convention), and the watermark test
+  separates its timestamps explicitly instead of racing the clock.
+
 ## [1.107.1] — 2026-08-03
 
 ### Changed

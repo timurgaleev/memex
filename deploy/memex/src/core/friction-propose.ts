@@ -123,7 +123,7 @@ export async function findTopFrictionSkills(
          FROM friction_events
         WHERE extra->>'skill' = $1
           AND captured_at > NOW() - ($2 || ' hours')::interval
-        ORDER BY captured_at DESC
+        ORDER BY captured_at DESC, id DESC
         LIMIT $3`,
       [a.skill, String(sinceHours), exampleLimit],
     );
@@ -262,7 +262,7 @@ export async function proposeFixes(
          FROM friction_events
         WHERE extra->>'skill' = $1
           AND captured_at > NOW() - ($2 || ' hours')::interval
-        ORDER BY captured_at DESC
+        ORDER BY captured_at DESC, id DESC
         LIMIT $3`,
       [cfg.skill, String(sinceHours), exampleLimit],
     );

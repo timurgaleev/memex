@@ -182,7 +182,7 @@ export async function listFrictionEvents(
     `SELECT id, captured_at::text, kind, query, reason, source_path, severity, extra
        FROM friction_events
       WHERE ${wheres.join(" AND ")}
-      ORDER BY captured_at DESC
+      ORDER BY captured_at DESC, id DESC
       LIMIT $${params.length}`,
     params,
   );
@@ -266,7 +266,7 @@ export async function analyzeFriction(
     `SELECT id, captured_at::text, kind, query, reason, source_path, severity, extra
      FROM friction_events
      WHERE captured_at > NOW() - ($1 || ' hours')::interval
-     ORDER BY captured_at DESC
+     ORDER BY captured_at DESC, id DESC
      LIMIT $2`,
     [String(sinceHours), limit],
   );

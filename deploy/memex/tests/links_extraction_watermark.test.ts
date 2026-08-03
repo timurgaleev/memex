@@ -44,6 +44,16 @@ describe("countStalePagesForExtraction", () => {
     await stampLinksExtracted(e, "people/b");
     expect(await countStalePagesForExtraction(e)).toBe(0);
 
+    // Age the page — both timestamps shifted together, so their order holds —
+    // to keep the edit below out of the watermark's millisecond. PGLite's NOW()
+    // has millisecond resolution, and back-to-back writes routinely share one.
+    await e.query(
+      `UPDATE pages SET updated_at = updated_at - interval '1 second',
+                        links_extracted_at = links_extracted_at - interval '1 second'
+        WHERE slug = 'people/b'`,
+    );
+    expect(await countStalePagesForExtraction(e)).toBe(0);
+
     // A content edit bumps updated_at past the watermark → stale.
     await putPage(storage, { slug: "people/b", type: "person", markdown_body: "v2 changed" });
     expect(await countStalePagesForExtraction(e)).toBe(1);
