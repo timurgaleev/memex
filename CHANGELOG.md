@@ -53,6 +53,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`think` retries a round-1 synthesis whose output fails to parse** —
   one budget-gated retry instead of discarding the whole gather+prompt
   spend as "no synthesis".
+- **Caddy bootstrap no longer mangles the compose override comment.** The
+  escaped backticks in the `compose.caddy.yml` heredoc parsed as a stray
+  command substitution (shellcheck SC1073); the block also gains proper
+  quoting and an array-based `COMPOSE_FILES`, so the shellcheck CI job is
+  green again.
 - **Deployment docs match runtime behavior**: the container has no
   `memex` alias (the index example goes through `bun run src/cli.ts`,
   one file per call, with `embed --dry-run` for backlog checks); the
