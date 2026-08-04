@@ -31,6 +31,14 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
 - **Terraform ≥ 1.6**.
 - **A domain** you control, plus a **Cloudflare account** (free tier is fine) —
   the public MCP ingress runs over a Cloudflare Tunnel.
+
+  > **Running behind a different reverse proxy (Caddy, nginx, an ALB)?**
+  > Public-request detection keys on the `Cf-Connecting-Ip` header the
+  > Cloudflare edge injects. Behind any other ingress you MUST either
+  > inject that header at the proxy or set `MEMEX_ASSUME_PUBLIC=1` in the
+  > container env — otherwise every request classifies as internal and
+  > `/mcp` is served **without auth**. After any ingress change, verify:
+  > an unauthenticated `POST /mcp` must return 401.
 - An **S3 bucket** for terraform state (any region; you'll name it during init).
 
 ---
@@ -161,15 +169,20 @@ aws ssm start-session --target <instance-id> \
 
 The container mounts your content read-only at `/memory`
 (`MEMEX_VAULT_PATHS`) and the code checkout at `/repo-source`
-(`MEMEX_CODE_PATHS`). Drop markdown notes into the EFS `workspace/memory` tree,
-then trigger an index from inside the container:
+(`MEMEX_CODE_PATHS`). Content written through MCP (`page_put`, `add_fact`, …)
+is indexed immediately. Markdown *files* dropped into the EFS
+`workspace/memory` tree are indexed explicitly, one file per call (there is
+no `memex` alias inside the container — go through the CLI entry point):
 
 ```bash
-docker exec deploy-memex-1 memex index
+docker exec deploy-memex-1 sh -c \
+  'for f in /memory/**/*.md; do bun run src/cli.ts index "$f"; done'
 ```
 
-The 6-hour maintenance cycle also sweeps new/changed files automatically; a
-manual `index` just does it now.
+The 6-hour maintenance cycle maintains the existing corpus (re-embeds stale
+documents, housekeeping) — it does **not** ingest new files on its own in
+the DB-canonical design. If search misses content you expect, check the
+embed backlog: `bun run src/cli.ts embed --dry-run`.
 
 ---
 
