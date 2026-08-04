@@ -213,18 +213,18 @@ chmod 0644 /home/ec2-user/.aws/config
 # compose owns its lifecycle and network together with memex; the
 # cloudflared service is parked behind a profile it never matches.
 # ---------------------------------------------------------------------------
-COMPOSE_FILES="-f deploy/docker-compose.yml"
+COMPOSE_FILES=(-f deploy/docker-compose.yml)
 if [ "$STACK_INGRESS_MODE" = "caddy" ]; then
   : "${STACK_DOMAIN:?STACK_DOMAIN is required for the caddy ingress (Caddyfile site address)}"
   INGRESS_HOST="${STACK_MEMEX_SUBDOMAIN}.${STACK_DOMAIN}"
-  mkdir -p /etc/${STACK_PROJECT} "${EFS_DATA}/caddy-data" "${EFS_DATA}/caddy-config"
+  mkdir -p "/etc/${STACK_PROJECT}" "${EFS_DATA}/caddy-data" "${EFS_DATA}/caddy-config"
 
   # Site-scope request_header: memex's auth guard keys on Cf-Connecting-Ip
   # being present; setting it at site scope (plus header_up inside the
   # proxy block) keeps auth enforced even if routes are added later.
   # MEMEX_ASSUME_PUBLIC below is the primary control — the headers are
   # belt and braces.
-  cat > /etc/${STACK_PROJECT}/Caddyfile <<EOF
+  cat > "/etc/${STACK_PROJECT}/Caddyfile" <<EOF
 {
 	servers {
 		timeouts {
@@ -244,12 +244,12 @@ ${INGRESS_HOST} {
 }
 EOF
 
-  cat > /etc/${STACK_PROJECT}/compose.caddy.yml <<EOF
+  cat > "/etc/${STACK_PROJECT}/compose.caddy.yml" <<EOF
 # Caddy ingress override (written by bootstrap.sh when ingress_mode=caddy).
 # Used as: docker compose -f deploy/docker-compose.yml -f /etc/${STACK_PROJECT}/compose.caddy.yml
 services:
   # Stock tunnel ingress parked: a profile it never matches means no plain
-  # \\`up -d\\` with these files can start it.
+  # 'up -d' with these files can start it.
   cloudflared:
     profiles: ["disabled"]
   caddy:
@@ -289,7 +289,7 @@ services:
       timeout: 5s
       retries: 3
 EOF
-  COMPOSE_FILES="$COMPOSE_FILES -f /etc/${STACK_PROJECT}/compose.caddy.yml"
+  COMPOSE_FILES+=(-f "/etc/${STACK_PROJECT}/compose.caddy.yml")
 
   # The auth guard must treat EVERY request as public behind Caddy — without
   # this a request that dodges the header injection is served unauthenticated.
@@ -309,13 +309,13 @@ fi
 # 8. Compose up
 # ---------------------------------------------------------------------------
 cd "$REPO_DIR"
-docker compose --env-file .env $COMPOSE_FILES config -q \
+docker compose --env-file .env "${COMPOSE_FILES[@]}" config -q \
   || { echo "[bootstrap] FATAL: compose files do not validate"; exit 1; }
-docker compose --env-file .env $COMPOSE_FILES pull --quiet
-docker compose --env-file .env $COMPOSE_FILES up -d --build
+docker compose --env-file .env "${COMPOSE_FILES[@]}" pull --quiet
+docker compose --env-file .env "${COMPOSE_FILES[@]}" up -d --build
 
 echo "[bootstrap] stack up. Status:"
-docker compose --env-file .env $COMPOSE_FILES ps
+docker compose --env-file .env "${COMPOSE_FILES[@]}" ps
 
 if [ "$STACK_INGRESS_MODE" = "caddy" ]; then
   # Auth smoke test: the public /mcp MUST reject unauthenticated requests.
