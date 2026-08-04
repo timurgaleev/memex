@@ -138,6 +138,24 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   const publicBearer = process.env.MEMEX_PUBLIC_BEARER;
   if (publicBearer && publicBearer.length > 0) {
     serverOpts.publicBearerToken = publicBearer;
+    // Public-request detection keys on the Cf-Connecting-Ip header (set by
+    // the Cloudflare edge). Behind any other ingress that does not inject
+    // it, every request classifies as internal and the bearer is never
+    // checked — a silent full auth bypass. Warn once at startup so a
+    // non-Cloudflare operator finds the flag before an attacker does.
+    const assumePublic = (process.env.MEMEX_ASSUME_PUBLIC ?? "")
+      .trim()
+      .toLowerCase();
+    if (assumePublic !== "1" && assumePublic !== "true") {
+      console.error(
+        "[memex] caution: public bearer is configured, but public-request " +
+          "detection relies on the Cf-Connecting-Ip header. If your ingress " +
+          "is NOT a Cloudflare Tunnel, either inject that header at the " +
+          "proxy or set MEMEX_ASSUME_PUBLIC=1 — otherwise /mcp is served " +
+          "without auth. Verify: an unauthenticated POST to /mcp must " +
+          "return 401.",
+      );
+    }
   }
   // Shared bearer authenticating peer containers on the docker bridge
   // to /index and /friction. When unset, the server emits a startup

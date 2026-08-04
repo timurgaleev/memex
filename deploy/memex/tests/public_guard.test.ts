@@ -414,3 +414,65 @@ describe("MEMEX_PUBLIC_WRITE opt-in", () => {
     expect(JSON.stringify(body)).toMatch(/internal-only/);
   });
 });
+
+describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
+  // Without the flag, a request lacking Cf-Connecting-Ip classifies as
+  // internal and bypasses the bearer entirely — the exact fail-open a
+  // non-Cloudflare proxy produces. The flag closes it.
+  const ORIGINAL = process.env["MEMEX_ASSUME_PUBLIC"];
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env["MEMEX_ASSUME_PUBLIC"];
+    else process.env["MEMEX_ASSUME_PUBLIC"] = ORIGINAL;
+  });
+
+  function headerlessReq(path: string, auth?: string): Request {
+    const headers: Record<string, string> = {};
+    if (auth) headers["Authorization"] = auth;
+    return new Request(`http://x${path}`, { method: "POST", headers });
+  }
+
+  it("flag unset: headerless request is internal (documents the fail-open)", () => {
+    delete process.env["MEMEX_ASSUME_PUBLIC"];
+    const r = evaluatePublicGuard(
+      headerlessReq("/mcp"),
+      new URL("http://x/mcp"),
+      { bearerToken: TOKEN },
+    );
+    expect(r.allow).toBe(true);
+    if (r.allow) expect(r.isPublic).toBe(false);
+  });
+
+  it("flag set: headerless request without bearer is rejected", () => {
+    process.env["MEMEX_ASSUME_PUBLIC"] = "1";
+    const r = evaluatePublicGuard(
+      headerlessReq("/mcp"),
+      new URL("http://x/mcp"),
+      { bearerToken: TOKEN },
+    );
+    expect(r.allow).toBe(false);
+    if (!r.allow) expect(r.status).toBe(401);
+  });
+
+  it("flag set: headerless request with the bearer is public-allowed", () => {
+    process.env["MEMEX_ASSUME_PUBLIC"] = "1";
+    const r = evaluatePublicGuard(
+      headerlessReq("/mcp", `Bearer ${TOKEN}`),
+      new URL("http://x/mcp"),
+      { bearerToken: TOKEN },
+    );
+    expect(r.allow).toBe(true);
+    if (r.allow) expect(r.isPublic).toBe(true);
+  });
+
+  it("flag set: GET /health stays open", () => {
+    process.env["MEMEX_ASSUME_PUBLIC"] = "true";
+    const r = evaluatePublicGuard(
+      new Request("http://x/health", { method: "GET" }),
+      new URL("http://x/health"),
+      { bearerToken: TOKEN },
+    );
+    expect(r.allow).toBe(true);
+    if (r.allow) expect(r.isPublic).toBe(true);
+  });
+});
