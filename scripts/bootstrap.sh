@@ -1,6 +1,10 @@
 #!/bin/bash
-# bootstrap.sh — runs on every EC2 boot via cloud-init user_data.
-# Idempotent: safe to re-run. Fast — ~30s on cold boot, ~2s on warm.
+# bootstrap.sh — runs ONCE per instance via cloud-init user_data (cloud-init
+# executes user_data scripts once-per-instance, not per-boot; on a plain
+# reboot the stack comes back via docker's restart policies instead).
+# Idempotent: safe to re-run any time via SSM:
+#   aws s3 cp s3://<scripts-bucket>/scripts/bootstrap.sh /tmp/b.sh && sudo bash /tmp/b.sh
+# Fast — ~30s on a cold run, ~2s on a warm one.
 #
 # Reads its env contract from /etc/stack-env (written by terraform
 # user_data). Failing-fast on a missing required value is intentional —

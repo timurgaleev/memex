@@ -163,6 +163,7 @@ variable "bedrock_model_id" {
 
     === Amazon Nova — credit-eligible ===
       global.amazon.nova-2-lite-v1:0   — Nova 2 Lite (default; multi-turn-safe)
+      eu.amazon.nova-2-lite-v1:0       — Nova 2 Lite, EU cross-region profile (EU data residency)
       global.amazon.nova-2-pro-v1:0    — Nova 2 Pro (when available in the account)
       eu.amazon.nova-pro-v1:0          — Nova Pro v1 (not safe for multi-turn)
 
@@ -177,6 +178,7 @@ variable "bedrock_model_id" {
     condition = contains([
       "global.amazon.nova-2-lite-v1:0",
       "global.amazon.nova-2-pro-v1:0",
+      "eu.amazon.nova-2-lite-v1:0",
       "eu.amazon.nova-pro-v1:0",
       "eu.anthropic.claude-haiku-4-5-20251001",
       "eu.anthropic.claude-sonnet-4-6",
