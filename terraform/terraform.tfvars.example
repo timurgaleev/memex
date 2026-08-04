@@ -26,6 +26,9 @@ secrets_prefix    = "memex"      # Secrets Manager namespace: memex/memex-public
 # ---------------------------------------------------------------------------
 domain            = "example.com"
 memex_subdomain   = "brain"     # → brain.example.com (public MCP — the live brain ingress)
+# ingress_mode    = "cloudflare" # or "caddy": TLS on the instance, no Cloudflare
+                                 # dependency (see docs/DEPLOYMENT.md § Alternative)
+# caddy_manage_dns = true        # caddy mode: create the A record in Route53
 
 # ---------------------------------------------------------------------------
 # Repo URL the EC2 user_data clones at first boot. Public-repo HTTPS by default.
