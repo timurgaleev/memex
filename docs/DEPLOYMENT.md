@@ -135,6 +135,31 @@ aws secretsmanager get-secret-value \
 The tunnel runs with `--protocol http2` (see `deploy/docker-compose.yml`) so it
 works even when the security group only allows TCP egress on 7844.
 
+### Alternative: Caddy ingress (no Cloudflare)
+
+If the domain's DNS cannot live in Cloudflare (a common case: the zone
+already serves production email from Route53 and its nameservers must not
+move), set `ingress_mode = "caddy"` in `terraform.tfvars` and skip this
+step entirely. Then:
+
+- terraform opens inbound 80/443 (tcp + udp for HTTP/3) on the instance SG
+  and — with `caddy_manage_dns = true` (default) — points
+  `<subdomain>.<domain>` at the instance EIP in the domain's Route53 zone
+  (the public hosted zone must already exist in the account);
+- bootstrap runs **Caddy** as a hardened compose override
+  (`/etc/<project>/compose.caddy.yml`): automatic Let's Encrypt issuance
+  and renewal, certificate state on EFS (survives instance replacement),
+  the `cloudflared` service parked behind an unused compose profile;
+- the container gets `MEMEX_ASSUME_PUBLIC=1`, so bearer auth is enforced
+  for **every** request — do not remove it; without it a request that
+  reaches memex without the `Cf-Connecting-Ip` header would be treated as
+  internal and served without auth;
+- bootstrap ends with an auth smoke test: an unauthenticated `POST /mcp`
+  must return 401. Repeat that check after any ingress change.
+
+The cloudflared tunnel-token secret stays as an untouched empty
+placeholder in this mode.
+
 ---
 
 ## 6. First boot

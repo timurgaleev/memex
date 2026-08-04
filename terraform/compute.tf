@@ -18,6 +18,7 @@ resource "aws_instance" "memex" {
     aws_region           = var.aws_region
     domain               = var.domain
     memex_subdomain      = var.memex_subdomain
+    ingress_mode         = var.ingress_mode
   })
 
   user_data_replace_on_change = false

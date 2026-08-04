@@ -187,6 +187,43 @@ variable "bedrock_model_id" {
   }
 }
 
+variable "ingress_mode" {
+  description = <<-EOT
+    How the public MCP endpoint reaches the internet.
+
+    cloudflare (default) — the stock Cloudflare Tunnel sidecar. No inbound
+      ports; requires the domain's DNS to live in a Cloudflare account and
+      the tunnel token secret to be filled (docs/DEPLOYMENT.md step 5).
+
+    caddy — Caddy terminates TLS on the instance (Let's Encrypt), no
+      Cloudflare dependency. Opens inbound 80/443 (tcp+udp) on the SG,
+      points <memex_subdomain>.<domain> at the instance EIP via Route53
+      (see caddy_manage_dns), and bootstrap runs Caddy as a compose
+      override with MEMEX_ASSUME_PUBLIC=1 so bearer auth is enforced for
+      every request. Use this when the domain's DNS cannot move to
+      Cloudflare (e.g. it carries production email on Route53).
+  EOT
+  type        = string
+  default     = "cloudflare"
+
+  validation {
+    condition     = contains(["cloudflare", "caddy"], var.ingress_mode)
+    error_message = "ingress_mode must be \"cloudflare\" or \"caddy\"."
+  }
+}
+
+variable "caddy_manage_dns" {
+  description = <<-EOT
+    caddy ingress only: create the <memex_subdomain>.<domain> A record in
+    the domain's Route53 public hosted zone (which must already exist in
+    this account). Set false if DNS lives elsewhere — then create the A
+    record to the instance EIP yourself before first boot, or the ACME
+    issuance will retry until it resolves.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "alarm_email" {
   description = <<-EOT
     Email address to notify when the EC2 instance fails a status check.
