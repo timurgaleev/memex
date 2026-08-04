@@ -10,27 +10,73 @@ resource "aws_key_pair" "memex" {
 }
 
 resource "aws_security_group" "memex" {
-  name        = "${var.project_name}-sg"
-  description = "Stack EC2 — controlled inbound, HTTPS/email/tunnel outbound"
+  name = "${var.project_name}-sg"
+  # ASCII only: the EC2 API rejects non-ASCII GroupDescription characters,
+  # so an em-dash here fails every fresh apply.
+  description = "Stack EC2 - controlled inbound, HTTPS/email/tunnel outbound"
   vpc_id      = aws_vpc.main.id
 
-  # SSH inbound — only if ssh_allowed_cidr is set. Empty = disabled (use SSM
-  # instead). NOTE: this MUST be an explicit `ingress = [...] : []` argument,
-  # not a `dynamic "ingress"` block. A dynamic block that iterates zero times
-  # leaves `ingress` unset (null), which the AWS provider reads as "do not
-  # manage ingress" — so an existing live rule is NEVER removed. An explicit
-  # empty list `[]` means "manage ingress, zero rules" and deletes it.
-  ingress = var.ssh_allowed_cidr != "" ? [{
-    description      = "SSH from allowed CIDR"
-    from_port        = 22
-    to_port          = 22
-    protocol         = "tcp"
-    cidr_blocks      = [var.ssh_allowed_cidr]
-    ipv6_cidr_blocks = []
-    prefix_list_ids  = []
-    security_groups  = []
-    self             = false
-  }] : []
+  # Inbound — assembled from the ingress mode + the optional SSH rule.
+  # NOTE: this MUST be an explicit `ingress = [...]` argument (possibly the
+  # empty list), not a `dynamic "ingress"` block. A dynamic block that
+  # iterates zero times leaves `ingress` unset (null), which the AWS
+  # provider reads as "do not manage ingress" — so an existing live rule is
+  # NEVER removed. An explicit empty list `[]` means "manage ingress, zero
+  # rules" and deletes it.
+  #
+  # cloudflare mode (default): no inbound web ports — the tunnel is
+  # egress-only. caddy mode: 80 (ACME HTTP-01 + redirect), 443 tcp, and
+  # 443 udp (Caddy publishes HTTP/3 and advertises it via Alt-Svc; without
+  # the udp rule every h3-capable client races QUIC into a black hole
+  # before falling back to TCP).
+  ingress = concat(
+    var.ingress_mode == "caddy" ? [
+      {
+        description      = "HTTP - ACME challenge and redirect to HTTPS (Caddy)"
+        from_port        = 80
+        to_port          = 80
+        protocol         = "tcp"
+        cidr_blocks      = ["0.0.0.0/0"]
+        ipv6_cidr_blocks = []
+        prefix_list_ids  = []
+        security_groups  = []
+        self             = false
+      },
+      {
+        description      = "HTTPS - public MCP ingress (Caddy)"
+        from_port        = 443
+        to_port          = 443
+        protocol         = "tcp"
+        cidr_blocks      = ["0.0.0.0/0"]
+        ipv6_cidr_blocks = []
+        prefix_list_ids  = []
+        security_groups  = []
+        self             = false
+      },
+      {
+        description      = "HTTP/3 QUIC (Caddy)"
+        from_port        = 443
+        to_port          = 443
+        protocol         = "udp"
+        cidr_blocks      = ["0.0.0.0/0"]
+        ipv6_cidr_blocks = []
+        prefix_list_ids  = []
+        security_groups  = []
+        self             = false
+      },
+    ] : [],
+    var.ssh_allowed_cidr != "" ? [{
+      description      = "SSH from allowed CIDR"
+      from_port        = 22
+      to_port          = 22
+      protocol         = "tcp"
+      cidr_blocks      = [var.ssh_allowed_cidr]
+      ipv6_cidr_blocks = []
+      prefix_list_ids  = []
+      security_groups  = []
+      self             = false
+    }] : [],
+  )
 
   # HTTPS outbound: Bedrock, npm, SSM, Cloudflare
   egress {

@@ -31,6 +31,14 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
 - **Terraform ≥ 1.6**.
 - **A domain** you control, plus a **Cloudflare account** (free tier is fine) —
   the public MCP ingress runs over a Cloudflare Tunnel.
+
+  > **Running behind a different reverse proxy (Caddy, nginx, an ALB)?**
+  > Public-request detection keys on the `Cf-Connecting-Ip` header the
+  > Cloudflare edge injects. Behind any other ingress you MUST either
+  > inject that header at the proxy or set `MEMEX_ASSUME_PUBLIC=1` in the
+  > container env — otherwise every request classifies as internal and
+  > `/mcp` is served **without auth**. After any ingress change, verify:
+  > an unauthenticated `POST /mcp` must return 401.
 - An **S3 bucket** for terraform state (any region; you'll name it during init).
 
 ---
@@ -127,6 +135,31 @@ aws secretsmanager get-secret-value \
 The tunnel runs with `--protocol http2` (see `deploy/docker-compose.yml`) so it
 works even when the security group only allows TCP egress on 7844.
 
+### Alternative: Caddy ingress (no Cloudflare)
+
+If the domain's DNS cannot live in Cloudflare (a common case: the zone
+already serves production email from Route53 and its nameservers must not
+move), set `ingress_mode = "caddy"` in `terraform.tfvars` and skip this
+step entirely. Then:
+
+- terraform opens inbound 80/443 (tcp + udp for HTTP/3) on the instance SG
+  and — with `caddy_manage_dns = true` (default) — points
+  `<subdomain>.<domain>` at the instance EIP in the domain's Route53 zone
+  (the public hosted zone must already exist in the account);
+- bootstrap runs **Caddy** as a hardened compose override
+  (`/etc/<project>/compose.caddy.yml`): automatic Let's Encrypt issuance
+  and renewal, certificate state on EFS (survives instance replacement),
+  the `cloudflared` service parked behind an unused compose profile;
+- the container gets `MEMEX_ASSUME_PUBLIC=1`, so bearer auth is enforced
+  for **every** request — do not remove it; without it a request that
+  reaches memex without the `Cf-Connecting-Ip` header would be treated as
+  internal and served without auth;
+- bootstrap ends with an auth smoke test: an unauthenticated `POST /mcp`
+  must return 401. Repeat that check after any ingress change.
+
+The cloudflared tunnel-token secret stays as an untouched empty
+placeholder in this mode.
+
 ---
 
 ## 6. First boot
@@ -161,15 +194,20 @@ aws ssm start-session --target <instance-id> \
 
 The container mounts your content read-only at `/memory`
 (`MEMEX_VAULT_PATHS`) and the code checkout at `/repo-source`
-(`MEMEX_CODE_PATHS`). Drop markdown notes into the EFS `workspace/memory` tree,
-then trigger an index from inside the container:
+(`MEMEX_CODE_PATHS`). Content written through MCP (`page_put`, `add_fact`, …)
+is indexed immediately. Markdown *files* dropped into the EFS
+`workspace/memory` tree are indexed explicitly, one file per call (there is
+no `memex` alias inside the container — go through the CLI entry point):
 
 ```bash
-docker exec deploy-memex-1 memex index
+docker exec deploy-memex-1 sh -c \
+  'for f in /memory/**/*.md; do bun run src/cli.ts index "$f"; done'
 ```
 
-The 6-hour maintenance cycle also sweeps new/changed files automatically; a
-manual `index` just does it now.
+The 6-hour maintenance cycle maintains the existing corpus (re-embeds stale
+documents, housekeeping) — it does **not** ingest new files on its own in
+the DB-canonical design. If search misses content you expect, check the
+embed backlog: `bun run src/cli.ts embed --dry-run`.
 
 ---
 

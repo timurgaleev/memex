@@ -163,6 +163,7 @@ variable "bedrock_model_id" {
 
     === Amazon Nova — credit-eligible ===
       global.amazon.nova-2-lite-v1:0   — Nova 2 Lite (default; multi-turn-safe)
+      eu.amazon.nova-2-lite-v1:0       — Nova 2 Lite, EU cross-region profile (EU data residency)
       global.amazon.nova-2-pro-v1:0    — Nova 2 Pro (when available in the account)
       eu.amazon.nova-pro-v1:0          — Nova Pro v1 (not safe for multi-turn)
 
@@ -177,12 +178,50 @@ variable "bedrock_model_id" {
     condition = contains([
       "global.amazon.nova-2-lite-v1:0",
       "global.amazon.nova-2-pro-v1:0",
+      "eu.amazon.nova-2-lite-v1:0",
       "eu.amazon.nova-pro-v1:0",
       "eu.anthropic.claude-haiku-4-5-20251001",
       "eu.anthropic.claude-sonnet-4-6",
     ], var.bedrock_model_id)
     error_message = "Must be a valid Bedrock CRIS inference profile ID. See variable description for the full list."
   }
+}
+
+variable "ingress_mode" {
+  description = <<-EOT
+    How the public MCP endpoint reaches the internet.
+
+    cloudflare (default) — the stock Cloudflare Tunnel sidecar. No inbound
+      ports; requires the domain's DNS to live in a Cloudflare account and
+      the tunnel token secret to be filled (docs/DEPLOYMENT.md step 5).
+
+    caddy — Caddy terminates TLS on the instance (Let's Encrypt), no
+      Cloudflare dependency. Opens inbound 80/443 (tcp+udp) on the SG,
+      points <memex_subdomain>.<domain> at the instance EIP via Route53
+      (see caddy_manage_dns), and bootstrap runs Caddy as a compose
+      override with MEMEX_ASSUME_PUBLIC=1 so bearer auth is enforced for
+      every request. Use this when the domain's DNS cannot move to
+      Cloudflare (e.g. it carries production email on Route53).
+  EOT
+  type        = string
+  default     = "cloudflare"
+
+  validation {
+    condition     = contains(["cloudflare", "caddy"], var.ingress_mode)
+    error_message = "ingress_mode must be \"cloudflare\" or \"caddy\"."
+  }
+}
+
+variable "caddy_manage_dns" {
+  description = <<-EOT
+    caddy ingress only: create the <memex_subdomain>.<domain> A record in
+    the domain's Route53 public hosted zone (which must already exist in
+    this account). Set false if DNS lives elsewhere — then create the A
+    record to the instance EIP yourself before first boot, or the ACME
+    issuance will retry until it resolves.
+  EOT
+  type        = bool
+  default     = true
 }
 
 variable "alarm_email" {

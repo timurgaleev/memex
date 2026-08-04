@@ -1160,7 +1160,35 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
         if (e instanceof BudgetExhausted) exhausted = true;
         else throw e;
       }
-      const parsed = parseThinkResponse(resp.text);
+      let parsed = parseThinkResponse(resp.text);
+      if (
+        !parsed &&
+        round === 1 &&
+        !exhausted &&
+        !budget.wouldExceed(
+          modelId,
+          estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens),
+        )
+      ) {
+        // Single budget-gated retry: temperature-0 output still drifts out
+        // of the expected format occasionally, and a parse miss on round 1
+        // otherwise throws away the whole gather+prompt cycle ("no
+        // synthesis" with the money already spent).
+        const retry = await sonnetFn({
+          system: THINK_SYSTEM_PROMPT,
+          user,
+          maxTokens,
+          temperature: 0,
+        });
+        usedModel = retry.modelId;
+        try {
+          budget.record(retry.modelId, retry.usage);
+        } catch (e) {
+          if (e instanceof BudgetExhausted) exhausted = true;
+          else throw e;
+        }
+        parsed = parseThinkResponse(retry.text);
+      }
       // A later round that fails to parse keeps the previous round's answer.
       if (parsed || round === 1) synthesis = parsed;
     } catch (e) {

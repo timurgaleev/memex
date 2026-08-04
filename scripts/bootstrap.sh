@@ -1,6 +1,10 @@
 #!/bin/bash
-# bootstrap.sh — runs on every EC2 boot via cloud-init user_data.
-# Idempotent: safe to re-run. Fast — ~30s on cold boot, ~2s on warm.
+# bootstrap.sh — runs ONCE per instance via cloud-init user_data (cloud-init
+# executes user_data scripts once-per-instance, not per-boot; on a plain
+# reboot the stack comes back via docker's restart policies instead).
+# Idempotent: safe to re-run any time via SSM:
+#   aws s3 cp s3://<scripts-bucket>/scripts/bootstrap.sh /tmp/b.sh && sudo bash /tmp/b.sh
+# Fast — ~30s on a cold run, ~2s on a warm one.
 #
 # Reads its env contract from /etc/stack-env (written by terraform
 # user_data). Failing-fast on a missing required value is intentional —
@@ -23,6 +27,7 @@ fi
 : "${STACK_AWS_REGION:=eu-west-1}"
 : "${STACK_DOMAIN:=}"
 : "${STACK_MEMEX_SUBDOMAIN:=memex}"
+: "${STACK_INGRESS_MODE:=cloudflare}"
 
 # ---------------------------------------------------------------------------
 # 1. System packages
@@ -203,11 +208,124 @@ AWSEOF
 chmod 0644 /home/ec2-user/.aws/config
 
 # ---------------------------------------------------------------------------
+# 7b. Caddy ingress (ingress_mode = "caddy"): TLS terminates on the instance
+# instead of a Cloudflare Tunnel. Caddy runs as a compose override so
+# compose owns its lifecycle and network together with memex; the
+# cloudflared service is parked behind a profile it never matches.
+# ---------------------------------------------------------------------------
+COMPOSE_FILES="-f deploy/docker-compose.yml"
+if [ "$STACK_INGRESS_MODE" = "caddy" ]; then
+  : "${STACK_DOMAIN:?STACK_DOMAIN is required for the caddy ingress (Caddyfile site address)}"
+  INGRESS_HOST="${STACK_MEMEX_SUBDOMAIN}.${STACK_DOMAIN}"
+  mkdir -p /etc/${STACK_PROJECT} "${EFS_DATA}/caddy-data" "${EFS_DATA}/caddy-config"
+
+  # Site-scope request_header: memex's auth guard keys on Cf-Connecting-Ip
+  # being present; setting it at site scope (plus header_up inside the
+  # proxy block) keeps auth enforced even if routes are added later.
+  # MEMEX_ASSUME_PUBLIC below is the primary control — the headers are
+  # belt and braces.
+  cat > /etc/${STACK_PROJECT}/Caddyfile <<EOF
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
+}
+
+${INGRESS_HOST} {
+	request_header Cf-Connecting-Ip {remote_host}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy memex:18790 {
+		header_up Cf-Connecting-Ip {remote_host}
+	}
+}
+EOF
+
+  cat > /etc/${STACK_PROJECT}/compose.caddy.yml <<EOF
+# Caddy ingress override (written by bootstrap.sh when ingress_mode=caddy).
+# Used as: docker compose -f deploy/docker-compose.yml -f /etc/${STACK_PROJECT}/compose.caddy.yml
+services:
+  # Stock tunnel ingress parked: a profile it never matches means no plain
+  # \\`up -d\\` with these files can start it.
+  cloudflared:
+    profiles: ["disabled"]
+  caddy:
+    # Tag pinned to the 2.10 minor; bump intentionally after a smoke test
+    # (same policy as the cloudflared pin in deploy/docker-compose.yml).
+    image: caddy:2.10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - /etc/${STACK_PROJECT}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${EFS_DATA}/caddy-data:/data
+      - ${EFS_DATA}/caddy-config:/config
+    networks:
+      - internal
+    depends_on:
+      # started (not healthy): an unhealthy memex must not block the first
+      # ACME issuance — Caddy serving 502s is harmless, repeated failed
+      # ACME validations burn Let's Encrypt quota.
+      memex:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+EOF
+  COMPOSE_FILES="$COMPOSE_FILES -f /etc/${STACK_PROJECT}/compose.caddy.yml"
+
+  # The auth guard must treat EVERY request as public behind Caddy — without
+  # this a request that dodges the header injection is served unauthenticated.
+  grep -q '^MEMEX_ASSUME_PUBLIC=' "${REPO_DIR}/.env" \
+    || echo "MEMEX_ASSUME_PUBLIC=1" >> "${REPO_DIR}/.env"
+
+  # Best-effort wait for public DNS before the first ACME attempt. Non-fatal —
+  # Caddy retries issuance on its own; this just makes the first boot clean.
+  for _ in $(seq 1 12); do
+    getent hosts "$INGRESS_HOST" >/dev/null 2>&1 && break
+    echo "[bootstrap] waiting for DNS ${INGRESS_HOST} ..."
+    sleep 10
+  done
+fi
+
+# ---------------------------------------------------------------------------
 # 8. Compose up
 # ---------------------------------------------------------------------------
 cd "$REPO_DIR"
-docker compose --env-file .env -f deploy/docker-compose.yml pull --quiet
-docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+docker compose --env-file .env $COMPOSE_FILES config -q \
+  || { echo "[bootstrap] FATAL: compose files do not validate"; exit 1; }
+docker compose --env-file .env $COMPOSE_FILES pull --quiet
+docker compose --env-file .env $COMPOSE_FILES up -d --build
 
 echo "[bootstrap] stack up. Status:"
-docker compose --env-file .env -f deploy/docker-compose.yml ps
+docker compose --env-file .env $COMPOSE_FILES ps
+
+if [ "$STACK_INGRESS_MODE" = "caddy" ]; then
+  # Auth smoke test: the public /mcp MUST reject unauthenticated requests.
+  # Warn-only — DNS/ACME may still be settling on a first boot.
+  AUTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 20 \
+    -X POST "https://${INGRESS_HOST}/mcp" -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' || echo 000)
+  if [ "$AUTH_CODE" = "401" ] || [ "$AUTH_CODE" = "403" ]; then
+    echo "[bootstrap] auth smoke test OK (unauthenticated /mcp -> $AUTH_CODE)"
+  else
+    echo "[bootstrap] WARNING: unauthenticated /mcp returned $AUTH_CODE (expected 401/403) - VERIFY AUTH BEFORE USE"
+  fi
+fi

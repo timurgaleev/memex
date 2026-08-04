@@ -6,6 +6,61 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.108.0] — 2026-08-04
+
+### Security
+- **Auth no longer fails open behind a non-Cloudflare ingress.**
+  Public-request detection keys on the `Cf-Connecting-Ip` header the
+  Cloudflare edge injects; behind any other reverse proxy (Caddy, nginx,
+  an ALB) every request classified as internal and the whole MCP surface
+  was served **without auth** — found live on a Caddy-fronted deployment.
+  New `MEMEX_ASSUME_PUBLIC=1` classifies every HTTP request as public
+  (health/OAuth-discovery exemptions unchanged); serve now logs a loud
+  startup caution when a public bearer is configured without the flag,
+  naming the verification step (an unauthenticated `POST /mcp` must
+  return 401). Set the flag on any non-Cloudflare deployment.
+
+### Added
+- **Caddy ingress mode** (`ingress_mode = "caddy"`): TLS terminates on the
+  instance via Let's Encrypt — no Cloudflare account or tunnel needed, for
+  domains whose DNS cannot move (e.g. a Route53 zone carrying production
+  email). Terraform opens 80/443 (tcp + udp for HTTP/3) and manages the
+  `<subdomain>.<domain>` A record (`caddy_manage_dns`); bootstrap runs
+  Caddy as a hardened compose override (cap_drop ALL, read-only rootfs,
+  HSTS, request timeouts, cert state on EFS, cloudflared parked behind an
+  unused profile) with `MEMEX_ASSUME_PUBLIC=1` and finishes with an auth
+  smoke test. Battle-tested as a downstream deployment first. Default
+  stays `cloudflare` — zero behavior change for existing installs.
+- **`memex init --postgres`** writes a postgres config (URL from
+  `MEMEX_POSTGRES_URL` at serve time) and heals a stale pglite config;
+  the container entrypoint picks the backend from the env. Closes the
+  fresh-volume trap where the brain silently ran on the local pglite
+  database while RDS sat empty because the env URL is only consulted
+  when the config already says postgres.
+- `eu.amazon.nova-2-lite-v1:0` joins the `bedrock_model_id` allowlist —
+  the EU cross-region Nova 2 Lite profile for EU data-residency deploys.
+
+### Fixed
+- **Fresh `terraform apply` no longer fails on the SG description.** The
+  EC2 API rejects non-ASCII `GroupDescription`; the em-dash in the
+  security-group description broke every from-scratch apply (long-lived
+  deployments created before the string never noticed).
+- **A version-less cloudflared tunnel secret no longer bricks bootstrap.**
+  `fetch-secrets.sh` fetched the token unguarded; terraform creates that
+  secret with no version, and the resulting throw aborted the whole
+  bootstrap under `set -e` before compose up. Now guarded like the other
+  secrets — empty `cloudflared.env` plus a WARN.
+- **`think` retries a round-1 synthesis whose output fails to parse** —
+  one budget-gated retry instead of discarding the whole gather+prompt
+  spend as "no synthesis".
+- **Deployment docs match runtime behavior**: the container has no
+  `memex` alias (the index example goes through `bun run src/cli.ts`,
+  one file per call, with `embed --dry-run` for backlog checks); the
+  6-hour cycle maintains the existing corpus and does not ingest new
+  files; `bootstrap.sh` documents cloud-init's once-per-instance
+  semantics and the SSM re-run path; prerequisites carry the
+  non-Cloudflare-ingress auth warning.
+
 ## [1.107.2] — 2026-08-03
 
 ### Fixed

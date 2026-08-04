@@ -60,13 +60,24 @@ fetch_text() {
   mv -f "$tmp" "$dest"
 }
 
-# Cloudflared tunnel token → .env format for compose env_file.
-TUNNEL_TOKEN=$(sm_text "cloudflared-tunnel-token")
-{
-  printf 'TUNNEL_TOKEN=%s\n' "$TUNNEL_TOKEN"
-  printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$TUNNEL_TOKEN"
-} > "${SECRETS_DIR}/cloudflared.env"
-chmod 0400 "${SECRETS_DIR}/cloudflared.env"
+# Cloudflared tunnel token → .env format for compose env_file. Guarded like
+# the other secrets: terraform creates this one as an EMPTY placeholder (no
+# version), and an unguarded get-secret-value on a version-less secret
+# throws — under `set -e` that aborted the whole bootstrap before compose
+# up, taking every service down on a fresh install until the operator
+# filled the tunnel token by hand.
+if TUNNEL_TOKEN=$(sm_text "cloudflared-tunnel-token" 2>/dev/null); then
+  {
+    printf 'TUNNEL_TOKEN=%s\n' "$TUNNEL_TOKEN"
+    printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$TUNNEL_TOKEN"
+  } > "${SECRETS_DIR}/cloudflared.env"
+  chmod 0400 "${SECRETS_DIR}/cloudflared.env"
+  echo "[secrets] cloudflared tunnel token fetched"
+else
+  : > "${SECRETS_DIR}/cloudflared.env"
+  chmod 0400 "${SECRETS_DIR}/cloudflared.env"
+  echo "[secrets] WARN: cloudflared tunnel token has no value yet — the tunnel container will loop until <prefix>/cloudflared-tunnel-token is filled (see docs/DEPLOYMENT.md step 5)"
+fi
 unset TUNNEL_TOKEN
 
 # memex.env is the single env_file the memex container reads.
