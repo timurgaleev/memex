@@ -255,7 +255,8 @@ async function main(argv: readonly string[]): Promise<number> {
   switch (cmd) {
     case "init": {
       const pglite = flags.has("--pglite");
-      await runInit({ pglite });
+      const postgres = flags.has("--postgres");
+      await runInit({ pglite, postgres });
       return 0;
     }
     case "serve": {

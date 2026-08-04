@@ -48,17 +48,23 @@ function seedTemplates(configDir: string): string[] {
 }
 
 export interface InitOptions {
-  /** Currently the only supported backend; non-pglite is rejected explicitly. */
+  /** Local PGLite backend (the default for laptop installs). */
   pglite: boolean;
+  /**
+   * Postgres backend: writes `database.type=postgres` and lets the URL come
+   * from `MEMEX_POSTGRES_URL` env at serve time (migrations run at server
+   * boot). Without this, a fresh volume gets a pglite config and the env URL
+   * is silently ignored — the engine factory only consults it when the
+   * config already says postgres.
+   */
+  postgres?: boolean;
   /** Optional override of the config dir (testing). */
   configDir?: string;
 }
 
 export async function runInit(opts: InitOptions): Promise<void> {
-  if (!opts.pglite) {
-    throw new Error(
-      "memex init: supports --pglite only. (Postgres backend not yet supported via init.)",
-    );
+  if (opts.pglite === Boolean(opts.postgres)) {
+    throw new Error("memex init: pass exactly one of --pglite or --postgres");
   }
 
   const configDir = opts.configDir ?? join(homedir(), ".memex");
@@ -66,6 +72,24 @@ export async function runInit(opts: InitOptions): Promise<void> {
   const dbPath = join(configDir, "brain.pglite");
 
   if (existsSync(configPath)) {
+    // Postgres mode heals a pglite config left by an earlier init: the
+    // operator's intent (MEMEX_POSTGRES_URL / --postgres) must win, or the
+    // brain keeps writing to the local dev database while RDS sits empty —
+    // the silent-wrong-engine trap this flag exists to close.
+    if (opts.postgres) {
+      const existing = JSON.parse(readFileSync(configPath, "utf8")) as {
+        database?: { type?: string };
+      };
+      const priorType = existing.database?.type ?? "unset";
+      if (priorType !== "postgres") {
+        existing.database = { type: "postgres" };
+        writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
+        console.log(
+          `[memex] switched database.type to postgres at ${configPath} ` +
+            `(was ${priorType} — --postgres/MEMEX_POSTGRES_URL wins)`,
+        );
+      }
+    }
     // Idempotent: still seed any new templates that didn't exist before
     // (so adding a new template ships its instance on next container
     // start without needing a full re-init).
@@ -83,32 +107,39 @@ export async function runInit(opts: InitOptions): Promise<void> {
   chmodSync(configDir, 0o700);
 
   const config: Config = {
-    database: { type: "pglite", path: dbPath },
+    database: opts.postgres
+      ? // URL deliberately omitted: MEMEX_POSTGRES_URL env is the canonical
+        // source on a server (populated by fetch-secrets.sh) and the engine
+        // factory prefers it. Migrations run at serve boot.
+        { type: "postgres" }
+      : { type: "pglite", path: dbPath },
     embedding: {
       provider: "bedrock-titan",
       model: "amazon.titan-embed-text-v2:0",
       region: awsRegion(),
     },
     storage: {},
-  };
+  } as Config;
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
-  // Open the PGLite db once to apply migrations, then close.
-  const storage = new Storage({ dbPath });
-  const result = await storage.init();
-  await storage.close();
+  let migrationsLine = "deferred to serve boot (postgres)";
+  if (!opts.postgres) {
+    // Open the PGLite db once to apply migrations, then close.
+    const storage = new Storage({ dbPath });
+    const result = await storage.init();
+    await storage.close();
+    migrationsLine = `${result.applied.length} applied, ${result.skipped} skipped`;
+    for (const m of result.applied) {
+      migrationsLine += `\n              + ${String(m.id).padStart(3, "0")}_${m.name}`;
+    }
+  }
 
   const seeded = seedTemplates(configDir);
 
   console.log(`[memex] initialized:`);
   console.log(`  config:     ${configPath}`);
-  console.log(`  db:         ${dbPath}`);
-  console.log(
-    `  migrations: ${result.applied.length} applied, ${result.skipped} skipped`,
-  );
-  for (const m of result.applied) {
-    console.log(`              + ${String(m.id).padStart(3, "0")}_${m.name}`);
-  }
+  console.log(`  db:         ${opts.postgres ? "postgres (URL from MEMEX_POSTGRES_URL env)" : dbPath}`);
+  console.log(`  migrations: ${migrationsLine}`);
   if (seeded.length > 0) {
     console.log(`  templates:  ${seeded.length} seeded`);
     for (const t of seeded) console.log(`              + ${t}`);

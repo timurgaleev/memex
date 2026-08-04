@@ -11,7 +11,9 @@ resource "aws_key_pair" "memex" {
 
 resource "aws_security_group" "memex" {
   name        = "${var.project_name}-sg"
-  description = "Stack EC2 — controlled inbound, HTTPS/email/tunnel outbound"
+  # ASCII only: the EC2 API rejects non-ASCII GroupDescription characters,
+  # so an em-dash here fails every fresh apply.
+  description = "Stack EC2 - controlled inbound, HTTPS/email/tunnel outbound"
   vpc_id      = aws_vpc.main.id
 
   # SSH inbound — only if ssh_allowed_cidr is set. Empty = disabled (use SSM
