@@ -6,6 +6,10 @@
  * `Cf-Connecting-Ip` header (the real client IP). Internal Docker
  * traffic (recipe / worker callers) hits the bridge network
  * directly and never goes through Cloudflare, so it lacks this header.
+ * NON-CLOUDFLARE INGRESS: this heuristic fails open behind a proxy that
+ * does not inject the header — set `MEMEX_ASSUME_PUBLIC=1` (or inject
+ * `Cf-Connecting-Ip` at the proxy) or the MCP surface is served without
+ * auth. See `assumePublicIngress` below and docs/DEPLOYMENT.md.
  *
  * Public-request rules:
  *   1. `/health` GET — open (used by uptime probes).
@@ -230,7 +234,30 @@ function publicWriteAllowed(): boolean {
 }
 
 
+/**
+ * MEMEX_ASSUME_PUBLIC=1 — classify EVERY HTTP request as public, regardless
+ * of the `Cf-Connecting-Ip` header.
+ *
+ * The header heuristic below is correct only when the ingress is a
+ * Cloudflare Tunnel (the edge always injects the header, and internal
+ * docker-bridge peers never carry it). Behind any OTHER reverse proxy
+ * (Caddy, nginx, an ALB) that does not inject the header, every request
+ * looks internal and the whole MCP surface is served UNAUTHENTICATED —
+ * a silent full auth bypass, not a degradation.
+ *
+ * Set this flag on any non-Cloudflare deployment (or inject the header at
+ * the proxy — belt and braces do both). Caveat: with the flag on, sibling
+ * containers on the docker bridge are ALSO treated as public, so the
+ * internal REST routes (/index, /friction) stop being reachable without
+ * the public-write opt-in — single-container deployments are unaffected.
+ */
+function assumePublicIngress(): boolean {
+  const v = (process.env["MEMEX_ASSUME_PUBLIC"] ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 function isPublicRequest(req: Request): boolean {
+  if (assumePublicIngress()) return true;
   // Public ingress is detected by Cloudflare's `Cf-Connecting-Ip`
   // header. An empty value is treated as still-public (a defence
   // against an attacker setting the header to "" hoping we treat them
