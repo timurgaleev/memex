@@ -146,6 +146,10 @@ services:
       # cloud MCP client auto-configures against the real host instead of the
       # internal request Host. Unset -> falls back to the request Host.
       - MEMEX_PUBLIC_URL=${MEMEX_PUBLIC_URL:-}
+      # Non-Cloudflare ingress (ingress_mode=caddy): classify EVERY request
+      # as public so bearer auth is always enforced. Set by bootstrap; must
+      # be in this allowlist or the flag never reaches the container.
+      - MEMEX_ASSUME_PUBLIC=${MEMEX_ASSUME_PUBLIC:-}
     env_file:
       # MEMEX_POSTGRES_URL (RDS endpoint) and MEMEX_PUBLIC_BEARER
       # (public-ingress auth) — written by deploy/secrets/fetch-secrets.sh
