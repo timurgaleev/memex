@@ -21,6 +21,7 @@ import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
 import {
+  checkGrammars,
   checkStaleLocks,
   checkQueueHealth,
   checkSchemaVersion,
@@ -258,6 +259,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ["embedding-width", checkEmbeddingWidth],
       ["invalid-indexes", checkInvalidIndexes],
       ["duplicate-pages", checkDuplicatePages],
+      ["code-grammars", checkGrammars],
     ] as const) {
       try {
         const r = await probe(storage.raw());

@@ -50,6 +50,7 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   "queue-health",
   "schema-version",
   "invalid-indexes",
+  "code-grammars",
 ]);
 
 /** The doctor / runtime itself. Empty today; the fallthrough bucket. */

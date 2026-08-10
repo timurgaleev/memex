@@ -9,6 +9,7 @@
 import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
 import { EMBED_DIMENSIONS } from "./embedding.ts";
+import { verifyGrammarManifest } from "./chunkers/parsers.ts";
 
 export interface OpsCheckResult {
   ok: boolean;
@@ -33,6 +34,27 @@ export async function checkStaleLocks(engine: Engine): Promise<OpsCheckResult> {
       n === 0
         ? "no stale cycle locks"
         : `${n} cycle lock(s) past TTL (oldest expired ${r.rows[0]?.oldest}) — reclaimed on next acquire`,
+  };
+}
+
+/**
+ * The vendored tree-sitter grammars must still be the bytes we pinned. A blob
+ * built for a different runtime indexes ZERO files of its type and nothing
+ * fails loudly — that is exactly how the shell corpus went missing.
+ *
+ * Hashes rather than links: linking all six costs ~112 MB of RSS (the sql blob
+ * alone is 10 MB), which is not a price to pay on every doctor run on a box
+ * that has been OOM-killed before. `tests/grammar_selfcheck.test.ts` does the
+ * real link-and-parse. Engine-free; takes the handle to match the probe shape.
+ */
+export async function checkGrammars(_engine: Engine): Promise<OpsCheckResult> {
+  const r = verifyGrammarManifest();
+  if (r.ok) return { ok: true, detail: `${r.checked} grammar blob(s) match the manifest` };
+  return {
+    ok: false,
+    detail:
+      `grammar blobs drifted from wasm/manifest.json: ${r.problems.join("; ")} — ` +
+      `files of the affected languages may index as zero`,
   };
 }
 

@@ -23,6 +23,7 @@ import { Parser, Language } from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 export type CodeLanguage =
   | "typescript"
@@ -32,7 +33,7 @@ export type CodeLanguage =
   | "go"
   | "sql";
 
-const WASM_FILES: Record<CodeLanguage, string> = {
+export const WASM_FILES: Record<CodeLanguage, string> = {
   typescript: "tree-sitter-typescript.wasm",
   tsx: "tree-sitter-tsx.wasm",
   python: "tree-sitter-python.wasm",
@@ -194,10 +195,106 @@ export async function loadLanguage(lang: CodeLanguage): Promise<Language> {
     // fetch from a `file://` URL — works identically in Bun, Node, and
     // any test runner.
     const bytes = new Uint8Array(readFileSync(path));
-    cached = Language.load(bytes);
+    // A grammar built against a different tree-sitter runtime fails in one of
+    // two ways, and BOTH are opaque bare:
+    //   1. Emscripten rejects while LINKING the side module, before the ABI can
+    //      be read, with an EMPTY message — what this wrapper names.
+    //   2. It links cleanly and parses simple input, then dies inside the
+    //      external scanner on a real construct (`case…esac`, an array slice)
+    //      with `resolved is not a function` — the shape of the live incident
+    //      that left every .sh file unindexed. That one escapes this wrapper by
+    //      design: it happens at parse time, not load time. The guard for it is
+    //      `tests/grammar_selfcheck.test.ts`, whose fixtures exercise the
+    //      scanner; keep them scanner-heavy or the guard stops guarding.
+    cached = Language.load(bytes).catch((e: unknown) => {
+      const detail = e instanceof Error && e.message ? e.message : "(empty error — link-time failure)";
+      throw new GrammarLoadError(lang, path, bytes.byteLength, detail);
+    });
     languageCache.set(lang, cached);
   }
   return cached;
+}
+
+/** A grammar blob that this runtime cannot link. Carries the facts a bare
+ *  Emscripten rejection drops: which language, which file, how big, and the
+ *  original (often empty) reason. */
+export class GrammarLoadError extends Error {
+  constructor(
+    readonly language: CodeLanguage,
+    readonly path: string,
+    readonly bytes: number,
+    readonly reason: string,
+  ) {
+    super(
+      `tree-sitter grammar '${language}' failed to load from ${path} ` +
+        `(${bytes} bytes): ${reason}. The blob is almost certainly built for a ` +
+        `different tree-sitter runtime than web-tree-sitter in package.json — ` +
+        `re-vendor it from its pinned npm grammar package.`,
+    );
+    this.name = "GrammarLoadError";
+  }
+}
+
+/**
+ * Verify the vendored grammar blobs still match `wasm/manifest.json`.
+ *
+ * Cheap on purpose: hashing ~15 MB of files costs a few ms and a streaming
+ * buffer, where LINKING every grammar costs ~112 MB of RSS (the sql blob alone
+ * is 10 MB) — too much to spend on a box that has been OOM-killed before. The
+ * link check is the test suite's job; this is the runtime's tripwire for "did
+ * someone swap a blob".
+ */
+export function verifyGrammarManifest(): {
+  ok: boolean;
+  checked: number;
+  problems: string[];
+} {
+  const manifestPath = join(wasmDir(), "manifest.json");
+  if (!existsSync(manifestPath)) {
+    return { ok: false, checked: 0, problems: ["wasm/manifest.json is missing"] };
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    grammars: Record<string, { sha256: string; bytes: number }>;
+  };
+  const problems: string[] = [];
+  let checked = 0;
+  for (const [file, expected] of Object.entries(manifest.grammars)) {
+    const path = join(wasmDir(), file);
+    if (!existsSync(path)) {
+      problems.push(`${file}: missing`);
+      continue;
+    }
+    const buf = readFileSync(path);
+    checked += 1;
+    if (buf.byteLength !== expected.bytes) {
+      problems.push(`${file}: ${buf.byteLength} bytes, manifest says ${expected.bytes}`);
+      continue;
+    }
+    const sha = createHash("sha256").update(buf).digest("hex");
+    if (sha !== expected.sha256) problems.push(`${file}: sha256 drift`);
+  }
+  return { ok: problems.length === 0, checked, problems };
+}
+
+/**
+ * Load every declared grammar and report which ones this runtime can link.
+ * A grammar that fails here indexes ZERO files of its type, silently, until
+ * someone reads the sweep counters — so the test suite and `doctor` both call
+ * this to turn that into a loud failure.
+ */
+export async function grammarSelfCheck(): Promise<
+  Array<{ language: CodeLanguage; ok: boolean; abi?: number; error?: string }>
+> {
+  const out: Array<{ language: CodeLanguage; ok: boolean; abi?: number; error?: string }> = [];
+  for (const lang of Object.keys(WASM_FILES) as CodeLanguage[]) {
+    try {
+      const language = await loadLanguage(lang);
+      out.push({ language: lang, ok: true, abi: (language as unknown as { abiVersion?: number }).abiVersion });
+    } catch (e) {
+      out.push({ language: lang, ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return out;
 }
 
 /**

@@ -80,6 +80,7 @@ describe("doctor", () => {
     expect(names).toEqual([
       "chronicle-projection-health",
       "chunker-version-lag",
+      "code-grammars",
       "config",
       "contradiction-trend",
       "cycle-freshness",

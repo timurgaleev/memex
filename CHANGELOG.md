@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Shell scripts are indexable again.** The vendored `bash` and `go` grammar
+  blobs were built against a different tree-sitter runtime than the pinned
+  `web-tree-sitter`. They linked cleanly and parsed trivial input, then died
+  inside the external scanner on ordinary syntax (`case…esac`, an array slice,
+  ANSI-C quoting) with `resolved is not a function` — so every `.sh` file
+  errored during the code sweep and the shell corpus was absent from the code
+  graph. The boot log printed only an error count, so nothing surfaced it.
+  Both grammars are re-vendored from their own pinned npm packages
+  (`tree-sitter-bash`, `tree-sitter-go`), which ship prebuilt wasm.
+
+### Added
+- `wasm/manifest.json` binds every vendored grammar blob to a sha256 and the
+  npm package it came from; `scripts/vendor-grammars.ts` regenerates it. A
+  `code-grammars` check in `memex doctor` verifies the blobs still match
+  (hashing, not linking — linking all six costs ~112 MB of RSS).
+- `tests/grammar_selfcheck.test.ts` links and parses every declared grammar.
+  Its bash fixture is deliberately scanner-heavy: it fails on the old blobs and
+  passes on the new ones, which is the only reason it is a guard rather than
+  decoration.
+- `GrammarLoadError` names the language, path, size and reason when a grammar
+  cannot be linked, in place of the empty `Error` Emscripten raises.
+
 ### Changed
 - The code boot sweep now names the files it failed on. It logged
   `errors=15` and nothing else, so a failing file was undiagnosable from the
