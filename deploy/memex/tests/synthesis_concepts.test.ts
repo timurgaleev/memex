@@ -10,6 +10,7 @@ import { Storage } from "../src/core/storage.ts";
 import type { Engine } from "../src/core/engine/interface.ts";
 import { synthesizeConceptsPhase } from "../src/core/synthesis/concepts.ts";
 import type { LlmFn } from "../src/core/llm/haiku.ts";
+import { BudgetTracker } from "../src/core/budget.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -40,6 +41,7 @@ async function seedAtom(concepts: string[], title = `atom-${atomCounter}`): Prom
 }
 
 const fakeLlm = (text: string): LlmFn => async () => ({ text, modelId: "fake-nova" });
+const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 describe("synthesizeConceptsPhase", () => {
   it("groups atoms, tiers by count, writes concept + provenance", async () => {
@@ -100,4 +102,71 @@ describe("synthesizeConceptsPhase", () => {
     );
     expect(c.rows[0]?.narrative).toContain("T2 concept");
   });
+
+  // A call-count cap is not a spend cap — 30 calls cost whatever 30 calls cost,
+  // and nothing stopped the phase spending against an unpriced model. These two
+  // assert the USD ceiling is real: that it blocks the call, and that a run
+  // without it still calls the model (so the guard is not just always-on).
+  it("a USD ceiling blocks the paid call and keeps the deterministic narrative", async () => {
+    for (let i = 0; i < 5; i++) await seedAtom(["beta"]); // 5 atoms → T2 → wants LLM
+    let calls = 0;
+    const r = await synthesizeConceptsPhase(engine, {
+      budget: new BudgetTracker(0.0000001, "test"),
+      llmFn: (async () => {
+        calls += 1;
+        return { text: "paid narrative", modelId: HAIKU, usage: { inputTokens: 1000, outputTokens: 300 } };
+      }) as LlmFn,
+    });
+    expect(calls).toBe(0);
+    expect(r.budgetHit).toBe(true);
+    expect(r.conceptsWritten).toBe(1);
+  });
+
+  it("without a ceiling the same run does call the model", async () => {
+    for (let i = 0; i < 5; i++) await seedAtom(["gamma"]);
+    let calls = 0;
+    await synthesizeConceptsPhase(engine, {
+      llmFn: (async () => {
+        calls += 1;
+        return { text: "paid narrative", modelId: HAIKU, usage: { inputTokens: 1000, outputTokens: 300 } };
+      }) as LlmFn,
+    });
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  // The pairing is the whole mechanism: the pre-call check can only fire if the
+  // post-call record actually accumulated. This proves it — group 1 pays, group
+  // 2 is refused, with the SAME budget object.
+  it("spend accumulates across groups, so a later call is refused", async () => {
+    for (let i = 0; i < 5; i++) await seedAtom(["delta"]);
+    for (let i = 0; i < 5; i++) await seedAtom(["epsilon"]);
+    let calls = 0;
+    const r = await synthesizeConceptsPhase(engine, {
+      budget: new BudgetTracker(0.0031, "test"),
+      llmFn: (async () => {
+        calls += 1;
+        return { text: "paid narrative", modelId: HAIKU, usage: { inputTokens: 1000, outputTokens: 400 } };
+      }) as LlmFn,
+    });
+    expect(calls).toBe(1);
+    expect(r.budgetHit).toBe(true);
+    expect(r.conceptsWritten).toBe(2);
+  });
+
+  // An unpriced model adds nothing to `spent`, so without a stop flag the phase
+  // would repeat the same unpriced paid call up to maxConcepts.
+  it("an unpriced model stops paid calls instead of repeating them", async () => {
+    for (let i = 0; i < 5; i++) await seedAtom(["zeta"]);
+    for (let i = 0; i < 5; i++) await seedAtom(["eta"]);
+    let calls = 0;
+    const r = await synthesizeConceptsPhase(engine, {
+      llmFn: (async () => {
+        calls += 1;
+        return { text: "paid", modelId: "some-unpriced-model", usage: { inputTokens: 10, outputTokens: 10 } };
+      }) as LlmFn,
+    });
+    expect(calls).toBe(1);
+    expect(r.budgetHit).toBe(true);
+  });
 });
+

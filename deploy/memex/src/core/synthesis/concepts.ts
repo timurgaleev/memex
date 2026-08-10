@@ -19,9 +19,42 @@ import type { Engine } from "../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
+import { resolveModel } from "../llm/resolve-model.ts";
+import { BudgetTracker } from "../budget.ts";
 import { synthPagesEnabled, slugifyTitle } from "./atoms.ts";
 
 const DEFAULT_MAX_CONCEPTS = 30;
+/** Output side of the pre-call estimate: exactly the maxTokens this phase asks
+ *  for, so it cannot be an under-estimate. The INPUT side is measured from the
+ *  prompt actually built (see estimateUsage) rather than guessed — a fixed
+ *  guess was an under-estimate at the prompt's permitted upper range (10 titles
+ *  + 5 bodies of 500 chars is ~4.5k chars), which would let a call slip past a
+ *  near-empty budget. That is the exact failure this guard exists to prevent. */
+const CONCEPT_MAX_OUTPUT_TOKENS = 400;
+
+/** ~4 chars/token, rounded up, plus the system prompt. */
+function estimateUsage(prompt: string): { inputTokens: number; outputTokens: number } {
+  return {
+    inputTokens: Math.ceil((prompt.length + SYSTEM_PROMPT.length) / 4) + 64,
+    outputTokens: CONCEPT_MAX_OUTPUT_TOKENS,
+  };
+}
+
+/** Default USD ceiling for one concepts run. Override with
+ *  MEMEX_CONCEPTS_BUDGET_USD; the phase is opt-in and cheap, so the default is
+ *  a ceiling that a healthy run never reaches rather than a tight leash. */
+const DEFAULT_CONCEPTS_BUDGET_USD = 0.5;
+
+function conceptsBudgetUsd(): number {
+  const raw = process.env.MEMEX_CONCEPTS_BUDGET_USD;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_CONCEPTS_BUDGET_USD;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`MEMEX_CONCEPTS_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
 const TIER_T1_MIN = 10;
 const TIER_T2_MIN = 5;
 const TIER_T3_MIN = 2;
@@ -31,6 +64,13 @@ export type ConceptTier = "T1" | "T2" | "T3";
 export interface SynthesizeConceptsOptions {
   /** Max concept groups to LLM-synthesize this run (cost guard). Default 30. */
   maxConcepts?: number;
+  /**
+   * USD ceiling for this run's paid calls. `maxConcepts` bounds the CALL COUNT,
+   * which is not a spend bound: a long-tail corpus makes 30 calls cost whatever
+   * 30 calls happen to cost, and nothing stops the phase from spending against a
+   * model whose price is unknown. Absent → no USD ceiling (unchanged behaviour).
+   */
+  budget?: BudgetTracker;
   llmFn?: LlmFn;
   modelId?: string;
   /**
@@ -48,6 +88,9 @@ export interface SynthesizeConceptsResult {
   /** Concept pages written via putPage (0 when no storage / gated off). */
   pagesWritten: number;
   tierCounts: Record<ConceptTier, number>;
+  /** True when a USD ceiling stopped at least one call. The run still
+   *  completes — the affected concepts keep their deterministic narrative. */
+  budgetHit: boolean;
   errors: string[];
 }
 
@@ -107,6 +150,15 @@ export async function synthesizeConceptsPhase(
   opts: SynthesizeConceptsOptions = {},
 ): Promise<SynthesizeConceptsResult> {
   const maxConcepts = opts.maxConcepts ?? DEFAULT_MAX_CONCEPTS;
+  // Default the ceiling ON. The cycle spreads its synthesis options straight
+  // through, so a phase that only honours an explicitly-passed tracker has no
+  // ceiling in production — which is where the money is actually spent.
+  const budget = opts.budget ?? new BudgetTracker(conceptsBudgetUsd(), "synthesize-concepts");
+  const budgetModel = resolveModel("utility", opts.modelId);
+  // One BudgetExhausted stops every later paid call. Without this an unpriced
+  // model throws on record without adding to spend, so wouldExceed stays false
+  // and the phase repeats the same unpriced call up to maxConcepts.
+  let paidCallsStopped = false;
   const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
   const writePages = opts.storage !== undefined && synthPagesEnabled();
   const result: SynthesizeConceptsResult = {
@@ -115,6 +167,7 @@ export async function synthesizeConceptsPhase(
     conceptsWritten: 0,
     pagesWritten: 0,
     tierCounts: { T1: 0, T2: 0, T3: 0 },
+    budgetHit: false,
     errors: [],
   };
 
@@ -153,26 +206,53 @@ export async function synthesizeConceptsPhase(
     let narrative = deterministicNarrative(group);
     let modelId = opts.modelId ?? "deterministic";
     const wantLlm = group.tier === "T1" || group.tier === "T2";
-    if (wantLlm && llmCalls < maxConcepts) {
-      llmCalls += 1;
-      try {
-        const resp = await llm({
-          system: SYSTEM_PROMPT,
-          user:
-            `Concept: ${group.slug}\n` +
-            `${group.titles.length} atoms reference this.\n\n` +
-            `Atom titles:\n${group.titles.slice(0, 10).map((t) => `- ${t}`).join("\n")}\n\n` +
-            `Atom bodies:\n${group.bodies.slice(0, 5).map((b, i) => `${i + 1}. ${b.slice(0, 500)}`).join("\n\n")}`,
-          maxTokens: 400,
-        });
-        const txt = resp.text.trim();
-        if (txt.length > 0) {
-          narrative = txt;
-          modelId = resp.modelId;
+    if (wantLlm && !paidCallsStopped && llmCalls < maxConcepts) {
+      // Build the prompt FIRST so the pre-call estimate is measured from the
+      // bytes actually sent, not from a guess about their upper bound.
+      const user =
+        `Concept: ${group.slug}\n` +
+        `${group.titles.length} atoms reference this.\n\n` +
+        `Atom titles:\n${group.titles.slice(0, 10).map((t) => `- ${t}`).join("\n")}\n\n` +
+        `Atom bodies:\n${group.bodies.slice(0, 5).map((b, i) => `${i + 1}. ${b.slice(0, 500)}`).join("\n\n")}`;
+      const est = estimateUsage(user);
+      if (budget.wouldExceed(budgetModel, est)) {
+        // No room for this call — and no room for any later one either, since
+        // spend only grows. Stop paying; the rest keep their deterministic text.
+        result.budgetHit = true;
+        paidCallsStopped = true;
+      } else {
+        llmCalls += 1;
+        try {
+          const resp = await llm({
+            system: SYSTEM_PROMPT,
+            user,
+            maxTokens: CONCEPT_MAX_OUTPUT_TOKENS,
+          });
+          const txt = resp.text.trim();
+          if (txt.length > 0) {
+            narrative = txt;
+            modelId = resp.modelId;
+          }
+          // Record the ACTUAL spend. Without this the tracker never accumulates
+          // and the pre-call check can never fire — a guard that guards nothing.
+          // A gateway that reports no usage still cost money: charge the
+          // estimate rather than nothing.
+          try {
+            budget.record(resp.modelId, resp.usage ?? est);
+          } catch (be) {
+            // Cap reached, or the model has no pricing. Either way this run must
+            // stop paying — an unpriced model adds nothing to `spent`, so
+            // without the flag the phase would repeat it up to maxConcepts.
+            result.budgetHit = true;
+            paidCallsStopped = true;
+            result.errors.push(
+              `${group.slug}: paid calls stopped — ${be instanceof Error ? be.message : String(be)}`,
+            );
+          }
+        } catch (e) {
+          // Fail-open: keep the deterministic narrative.
+          result.errors.push(`${group.slug}: ${e instanceof Error ? e.message : String(e)}`);
         }
-      } catch (e) {
-        // Fail-open: keep the deterministic narrative.
-        result.errors.push(`${group.slug}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 

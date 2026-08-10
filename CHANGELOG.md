@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A USD ceiling on concept synthesis.** The phase had a call-count cap
+  (`maxConcepts`), which is not a spend bound — 30 calls cost whatever 30 calls
+  cost, and nothing stopped it spending against a model with no pricing entry.
+  It now uses the existing budget tracker: the ceiling defaults ON
+  (`MEMEX_CONCEPTS_BUDGET_USD`, default $0.50 — far above what a healthy run
+  reaches), the pre-call estimate is measured from the prompt actually built
+  rather than guessed, actual spend is recorded after each call, and one
+  exhausted budget stops every later paid call instead of letting an unpriced
+  model repeat itself. Concepts that miss out keep their deterministic
+  narrative, so the run still completes.
+
 ## [1.110.0] — 2026-08-10
 
 ### Fixed
