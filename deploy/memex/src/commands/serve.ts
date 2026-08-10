@@ -278,6 +278,17 @@ export async function runServe(opts: ServeOptions): Promise<void> {
         console.log(
           `[code] boot sweep: scanned=${r.scanned} reindexed=${r.reindexed} skipped=${r.skipped} parseErrors=${r.parseErrors} errors=${r.errors.length}`,
         );
+        // The count alone is undiagnosable — print the failing files. Capped so a
+        // broken mount (every file failing) can't flood the boot log.
+        const SWEEP_ERROR_LOG_CAP = 10;
+        for (const err of r.errors.slice(0, SWEEP_ERROR_LOG_CAP)) {
+          console.warn(`[code] sweep error: ${err.path}: ${err.message}`);
+        }
+        if (r.errors.length > SWEEP_ERROR_LOG_CAP) {
+          console.warn(
+            `[code] sweep error: ... and ${r.errors.length - SWEEP_ERROR_LOG_CAP} more`,
+          );
+        }
       } catch (e) {
         console.warn(
           "[code] boot sweep failed:",

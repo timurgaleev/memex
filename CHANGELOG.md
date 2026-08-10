@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The code boot sweep now names the files it failed on. It logged
+  `errors=15` and nothing else, so a failing file was undiagnosable from the
+  boot log. Capped at 10 lines plus an `... and N more` tail, so a broken
+  bind-mount cannot flood startup.
+
 ### Fixed
 - Docs said the MCP server exposes 63 tools; the live surface is 91.
   `ARCHITECTURE.md` and `README.md` corrected.
