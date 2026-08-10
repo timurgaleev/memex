@@ -99,3 +99,33 @@ describe("admin auth — non-auth path", () => {
     expect(r).toBeNull();
   });
 });
+
+
+describe("admin auth — login throttle keying", () => {
+  it("a rotated X-Forwarded-For cannot mint a fresh brute-force bucket", async () => {
+    const saved = process.env["MEMEX_HTTP_TRUST_PROXY"];
+    delete process.env["MEMEX_HTTP_TRUST_PROXY"];
+    try {
+      const a = createAdminAuth({ bootstrapToken: BOOT });
+      const u = new URL("http://localhost:8080/admin/login");
+      const attempt = (xff: string) =>
+        a.handleAuthRoute(
+          req("/admin/login", {
+            method: "POST",
+            headers: { "X-Forwarded-For": xff },
+            body: JSON.stringify({ token: "nope" }),
+          }),
+          u,
+        );
+      // The limiter allows 10 attempts per key. With the trust flag off, an
+      // unattributable caller cannot buy extra attempts by rotating XFF.
+      for (let i = 0; i < 10; i++) {
+        expect((await attempt(`10.0.0.${i}`))?.status).toBe(401);
+      }
+      expect((await attempt("10.0.0.99"))?.status).toBe(429);
+    } finally {
+      if (saved === undefined) delete process.env["MEMEX_HTTP_TRUST_PROXY"];
+      else process.env["MEMEX_HTTP_TRUST_PROXY"] = saved;
+    }
+  });
+});
