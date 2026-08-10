@@ -150,6 +150,12 @@ services:
       # as public so bearer auth is always enforced. Set by bootstrap; must
       # be in this allowlist or the flag never reaches the container.
       - MEMEX_ASSUME_PUBLIC=${MEMEX_ASSUME_PUBLIC:-}
+      # Trust X-Forwarded-For / X-Real-IP as the rate-limit key. Only set this
+      # behind a proxy that terminates the client connection and REWRITES those
+      # headers — otherwise a caller rotates them and defeats every per-IP cap.
+      # Not needed for the bundled Caddy/cloudflared ingress: both inject
+      # Cf-Connecting-Ip, which is trusted without this flag.
+      - MEMEX_HTTP_TRUST_PROXY=${MEMEX_HTTP_TRUST_PROXY:-}
     env_file:
       # MEMEX_POSTGRES_URL (RDS endpoint) and MEMEX_PUBLIC_BEARER
       # (public-ingress auth) — written by deploy/secrets/fetch-secrets.sh

@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **A junk bearer no longer costs two database lookups.** An unverified token
+  went straight to the OAuth verifier, and because the guard had already refused
+  the request the in-handler rate limiter never fired on that path — so the
+  brute-force route was the one route with no limiter at all. Failed
+  verifications are now metered before the lookup, on the `/mcp` path only; the
+  internal ingest path is deliberately left alone, because every docker-bridge
+  peer shares one bucket there and a throttle would trade an unauthenticated-load
+  risk for a self-inflicted internal lockout.
+- **Rate-limit buckets are no longer shared by the whole internet.** The OAuth
+  endpoints keyed on the socket address, which behind the tunnel is the proxy —
+  one 10/min bucket for every caller. All header-keyed limiters now share one
+  trust model: `Cf-Connecting-Ip` always, `X-Forwarded-For` / `X-Real-IP` only
+  under the new `MEMEX_HTTP_TRUST_PROXY=1`, and an unattributable caller is not
+  metered at all rather than being given a spoofable identity.
+- **`auth rescope-client` can set and clear the slug write fence.** A fence could
+  only be applied at registration, so narrowing an existing client's write scope
+  meant revoking and re-registering it.
+
+### Fixed
+- **A remote agent can read back the fact it just wrote.** `add_fact` is
+  reachable over the public write surface, facts default to `visibility:private`,
+  and the reader floors every scoped caller to `world` — so an agent's own writes
+  were invisible to it. `add_fact` now accepts `visibility` explicitly.
+
 ### Added
 - **A USD ceiling on concept synthesis.** The phase had a call-count cap
   (`maxConcepts`), which is not a spend bound — 30 calls cost whatever 30 calls

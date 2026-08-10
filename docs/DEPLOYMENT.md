@@ -39,6 +39,14 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
   > container env — otherwise every request classifies as internal and
   > `/mcp` is served **without auth**. After any ingress change, verify:
   > an unauthenticated `POST /mcp` must return 401.
+  >
+  > If that proxy forwards the client IP only as `X-Forwarded-For` /
+  > `X-Real-IP`, also set `MEMEX_HTTP_TRUST_PROXY=1`. Without it those headers
+  > are ignored (they are caller-spoofable), so every public caller shares one
+  > rate-limit bucket and the brute-force throttle on bearer verification is
+  > skipped entirely. Set it **only** when the proxy overwrites the header it
+  > forwards; a proxy that appends a client-supplied value lets callers mint a
+  > fresh bucket per request.
 - An **S3 bucket** for terraform state (any region; you'll name it during init).
 
 ---

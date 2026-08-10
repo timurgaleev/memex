@@ -50,6 +50,7 @@ import {
 } from "./oauth-endpoints.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
 import { RateLimiter } from "../mcp/rate_limit.ts";
+import { resolveClientIp } from "./client-key.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
 import { handleAdminApi } from "./admin-api.ts";
 import { serveAdminStatic } from "./admin-static.ts";
@@ -75,6 +76,11 @@ export interface ServerOptions {
   /** Per-OAuth-token-id request limit (post-auth), so an authed client can't
    *  rotate IPs to defeat the per-IP cap. Unset → no per-token limiting. */
   mcpRateLimitPerTokenPerMinute?: number;
+  /**
+   * Bucket for FAILED bearer verifications, keyed by trusted client IP.
+   * Injectable for tests; defaults to 20 failed attempts per minute per client.
+   */
+  authAttemptRateLimiter?: RateLimiter;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
    * the `MEMEX_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
@@ -153,6 +159,17 @@ export function startServer(opts: ServerOptions): ServerHandle {
     : null;
   // POST /ingest webhook capture — 100 events / 10 s per IP.
   const ingestRateLimiter = new RateLimiter({ capacity: 100, refillPerSecond: 10 });
+  // Pre-auth brute-force throttle for the token-verification path below.
+  // `verifyAccessToken` costs two DB SELECTs and runs only AFTER the public
+  // guard REJECTED the request — `guard.allow` is false there, so the /mcp
+  // handler (and its rate limiter) never runs and nothing else sheds this
+  // load. Two deliberate properties: only FAILED verifications are charged, so
+  // a legitimate client keeps its full budget; and only callers with a trusted
+  // client IP are metered, because a single shared bucket for unattributable
+  // callers would let one sprayer lock out everybody on that ingress.
+  const authAttemptLimiter =
+    opts.authAttemptRateLimiter ??
+    new RateLimiter({ capacity: 20, refillPerSecond: 20 / 60 });
   // Default-deny CORS allowlist for the OAuth + MCP surface (read once at boot).
   const corsAllowlist = parseCorsAllowlist();
 
@@ -263,6 +280,20 @@ export function startServer(opts: ServerOptions): ServerHandle {
             req.headers.get("Authorization") ?? "",
           );
           if (m && m[1]) {
+            // Throttle BEFORE the lookup. `retryAfterSeconds` is a
+            // non-consuming peek: it reads > 1 only while the bucket is empty.
+            // A request carrying no bearer at all never reaches this line, so
+            // ordinary unauthenticated 401s stay free.
+            const attemptKey = resolveClientIp(req);
+            const retryAfter = attemptKey
+              ? authAttemptLimiter.retryAfterSeconds(attemptKey)
+              : 1;
+            if (retryAfter > 1) {
+              return Response.json(
+                { ok: false, error: "too many authentication attempts" },
+                { status: 429, headers: { "Retry-After": String(retryAfter) } },
+              );
+            }
             try {
               const info = await opts.oauthProvider.verifyAccessToken(m[1]);
               guard = { allow: true, isPublic: false };
@@ -283,6 +314,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
                 isPublic: false,
               };
             } catch (e) {
+              // Charge the failure. A verifier that is failing for its OWN
+              // reasons (DB outage) is exactly when shedding load matters, so
+              // both error classes count against the bucket.
+              if (attemptKey) authAttemptLimiter.allow(attemptKey);
               // InvalidTokenError = a bad/expired token: fall through to the
               // public path silently. ANY OTHER error (DB outage, provider bug)
               // is still fail-closed to public, but MUST be logged — otherwise an
@@ -332,7 +367,14 @@ export function startServer(opts: ServerOptions): ServerHandle {
       // per-IP rate-limited (brute-force / DCR-abuse / DoS defense).
       if (opts.oauthProvider) {
         const oauthProvider = opts.oauthProvider;
-        const ip = server.requestIP(req)?.address ?? "unknown";
+        // Per-CLIENT, not per-socket: behind cloudflared or Caddy every request
+        // shares one proxy socket address, which collapsed the whole internet
+        // into a single 10/min bucket on /token — both a trivial lockout of
+        // legitimate clients and the opposite of the per-IP cap documented
+        // above. Fall back to the socket for callers with no trusted client IP
+        // (docker-bridge peers), which still distinguishes them from each other.
+        const ip =
+          resolveClientIp(req) ?? (server.requestIP(req)?.address || "unknown");
         if (url.pathname === "/token" && req.method === "POST") {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
             return rateLimited();
@@ -411,9 +453,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           }
         }
         const ip =
-          req.headers.get("Cf-Connecting-Ip")?.trim() ||
-          server.requestIP(req)?.address ||
-          "unknown";
+          resolveClientIp(req) ?? (server.requestIP(req)?.address || "unknown");
         return handleIngestRoute(req, {
           storage: opts.storage,
           ...(ingestAuth !== undefined ? { authInfo: ingestAuth } : {}),

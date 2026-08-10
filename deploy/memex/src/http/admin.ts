@@ -24,6 +24,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { RateLimiter } from "../mcp/rate_limit.ts";
+import { resolveClientKey } from "./client-key.ts";
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h for password login
 const MAGIC_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7d for magic-link
@@ -89,7 +90,12 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
   const sessions = new Map<string, number>(); // sessionId → expiresAt
   const nonces = new Map<string, number>(); // nonce → expiresAt
   const consumed = new Set<string>();
-  // 10 redemptions / minute / IP (capacity 10, refill 10/60s ≈ 0.1667/s).
+  // 10 attempts / minute / client (capacity 10, refill 10/60s ≈ 0.1667/s).
+  // The client key comes from http/client-key.ts — the SAME resolver every
+  // other ingress bucket uses. The old local rule trusted X-Forwarded-For
+  // unconditionally, so a caller could rotate that header and hand itself a
+  // fresh 10-attempt bucket per login try; XFF now only counts under
+  // MEMEX_HTTP_TRUST_PROXY, and unattributable callers share one bucket.
   const authLimiter = new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 });
 
   function pruneNonces(): void {
@@ -103,18 +109,6 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       const it = consumed.values();
       for (let i = consumed.size - NONCE_LRU_CAP; i > 0; i--) consumed.delete(it.next().value as string);
     }
-  }
-
-  /** Client key for the per-IP auth rate limit. memex runs behind cloudflared,
-   *  where `Cf-Connecting-Ip` is the trusted client IP (X-Forwarded-For's first
-   *  hop is client-spoofable); fall back to XFF then a shared bucket. The 10/min
-   *  gate is only a brute-force speed bump, not an identity. */
-  function clientKey(req: Request): string {
-    return (
-      req.headers.get("cf-connecting-ip")?.trim() ||
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      "admin-auth"
-    );
   }
 
   function newSession(ttl: number): string {
@@ -148,7 +142,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
     // POST /admin/login — JSON { token } → session cookie. Rate-limited per IP
     // so a weak operator-set bootstrap token can't be brute-forced online.
     if (p === "/admin/login" && req.method === "POST") {
-      if (!authLimiter.allow(clientKey(req))) {
+      if (!authLimiter.allow(resolveClientKey(req))) {
         return Response.json({ error: "Too many attempts" }, { status: 429 });
       }
       let token: unknown;
@@ -185,7 +179,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
 
     // GET /admin/auth/:nonce — single-use redemption → session cookie + redirect.
     if (p.startsWith("/admin/auth/") && req.method === "GET") {
-      if (!authLimiter.allow(clientKey(req))) {
+      if (!authLimiter.allow(resolveClientKey(req))) {
         return new Response("Too Many Requests", { status: 429 });
       }
       let nonce: string;

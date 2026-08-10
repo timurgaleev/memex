@@ -486,7 +486,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "add_fact",
     scope: "write",
     description:
-      "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
+      "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. `visibility` decides who can read the fact back: it defaults to `private`, which only the operator can read, so a tenant-scoped caller that wants to recall its own write must pass `visibility: 'world'`. WRITE — internal/MCP-stdio only.",
     params: {
       entity_slug: str({
         ...req,
@@ -498,6 +498,11 @@ export const OPERATIONS: readonly Operation[] = [
       source_slug: str({ description: "Page the fact was extracted from." }),
       source_chunk_id: str(),
       written_by: str(),
+      visibility: str({
+        enum: ["private", "world"],
+        description:
+          "Who may read the fact back. `private` (the default) is operator-only; `world` is also readable by tenant-scoped and public callers. Ignored on public ingress, which always writes `private`.",
+      }),
     },
   },
   {

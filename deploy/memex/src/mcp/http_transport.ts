@@ -23,6 +23,7 @@ import { RateLimiter } from "./rate_limit.ts";
 import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
+import { resolveClientKey } from "../http/client-key.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "memex", version: "0.1.0" };
@@ -108,29 +109,6 @@ const ERR_UNAUTHORIZED = -32001; // server-defined band — internal token
 // amplifier even after per-element rate-limit charging.
 const MAX_BATCH_SIZE = 50;
 
-function defaultClientKey(req: Request): string {
-  // Trust hierarchy:
-  //   1. `Cf-Connecting-Ip` — set by the Cloudflare edge for traffic
-  //      that came through the tunnel. This is the only header we
-  //      actually trust to identify a remote caller. CF strips
-  //      attacker-supplied copies of this header.
-  //   2. For requests NOT carrying Cf-Connecting-Ip (internal Docker
-  //      bridge traffic — recipe / worker callers → memex), key everyone
-  //      into a single "internal" bucket. X-Forwarded-For / X-Real-IP
-  //      are attacker-controlled when the request is NOT proxied
-  //      through a trust boundary, so using them as a rate-limit key
-  //      lets a caller rotate values freely and defeat per-IP limits.
-  const cfIp = req.headers.get("Cf-Connecting-Ip");
-  if (cfIp) {
-    const trimmed = cfIp.trim();
-    if (trimmed.length > 0) return trimmed;
-  }
-  // Non-public path — single bucket. Internal callers are trusted
-  // (recipe / worker callers on the docker bridge) but should still be
-  // rate-limited as one entity rather than per-spoofed-XFF.
-  return "internal";
-}
-
 export function makeMcpHandler(opts: McpHandlerOptions) {
   // Public and internal traffic must NOT share a limiter. A flood of
   // public requests could otherwise starve the internal caller (a
@@ -141,7 +119,7 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
   const internalLimiter =
     opts.internalRateLimiter ??
     new RateLimiter({ capacity: 300, refillPerSecond: 10 });
-  const keyFn = opts.clientKey ?? defaultClientKey;
+  const keyFn = opts.clientKey ?? resolveClientKey;
   const forbidPublic = opts.forbidPublicTool ?? (() => false);
   const perTokenLimiter = opts.perTokenRateLimiter;
 

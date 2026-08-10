@@ -856,6 +856,14 @@ export interface EntityRecallOptions {
    */
   sourceIds?: string[];
   /**
+   * Visibility gate (mig085), threaded to the facts read exactly as
+   * `listFacts` applies it: a non-empty list keeps only facts whose visibility
+   * is in it. Recall used to have NO way to express this, so the mig085 floor
+   * `entity_facts` enforces was silently bypassed by the aggregator over the
+   * same ledger. Omitted/empty -> all visibilities (operator view).
+   */
+  visibility?: string[];
+  /**
    * Piggy-back the scope's pending-consolidation count on the response (one
    * round trip, the `recall --pending` surface). Best-effort: a count
    * failure leaves the field undefined rather than failing the recall.
@@ -919,6 +927,8 @@ export async function entityRecall(
   // Decay applies only to the plain confidence path (not semantic focus).
   // Pass the caller's flag through (undefined -> listFacts defaults from env).
   else if (opts.decay !== undefined) listOpts.decay = opts.decay;
+  if (opts.visibility && opts.visibility.length > 0)
+    listOpts.visibility = opts.visibility;
   const scoped = opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
   if (scoped) listOpts.sourceIds = scoped;
   const [page, facts, timeline] = await Promise.all([

@@ -590,11 +590,11 @@ async function dispatchToolInner(
           remote,
         );
       case "add_fact":
-        return await callAddFact(storage, args, writeSource);
+        return await callAddFact(storage, args, writeSource, opts.isPublic ?? false);
       case "add_timeline_event":
         return await callAddTimelineEvent(storage, args, writeSource);
       case "entity_facts":
-        return await callEntityFacts(storage, args, redact, readSources);
+        return await callEntityFacts(storage, args, redact, readSources, remote);
       case "entity_timeline":
         return await callEntityTimeline(storage, args, redact, readSources);
       case "entity_recall":
@@ -1931,6 +1931,7 @@ async function callAddFact(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
+  isPublic = false,
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string")
     return errResult("add_fact: `entity_slug` is required");
@@ -1948,6 +1949,18 @@ async function callAddFact(
     input.source_chunk_id = args["source_chunk_id"];
   if (typeof args["written_by"] === "string")
     input.written_by = args["written_by"];
+  // mig-085 `visibility`, previously unreachable over MCP: every agent write
+  // landed on the column DEFAULT 'private', which the read floor then hides
+  // from the very caller that wrote it. Passing it through is what makes "you
+  // can recall what you published" expressible; the DEFAULT is untouched, so an
+  // omitted value still means private.
+  //
+  // Dropped on public ingress, mirroring how `query`/`decay` are dropped on the
+  // read side: an anonymous public writer gains nothing from 'world' (public
+  // reads strip the fact text anyway) and would otherwise be able to publish
+  // attacker-supplied text into every tenant's recall.
+  if (!isPublic && typeof args["visibility"] === "string")
+    input.visibility = args["visibility"];
   if (writeSource) input.source_id = writeSource;
   const r = await addFact(storage, input);
   return jsonResult({ ok: true, ...r });
@@ -1983,6 +1996,7 @@ async function callEntityFacts(
   args: Record<string, unknown>,
   redact = false,
   readSources?: string[],
+  remote = false,
 ): Promise<ToolCallResult> {
   // entity_slug is optional: omit for a cross-entity recall. When present it
   // must be a string.
@@ -1999,11 +2013,19 @@ async function callEntityFacts(
   if (typeof args["session"] === "string" && args["session"])
     opts.session = args["session"];
   if (typeof args["grep"] === "string" && args["grep"]) opts.grep = args["grep"];
-  // mig-085 visibility gate, ENFORCED: any scoped principal (public ingress
-  // OR a tenant token carrying a read set) is floored to world-visible facts
-  // regardless of the requested filter; only the operator path may read
-  // private rows. Same floor gates the tombstone audit surface.
-  const scopedReader = redact || (readSources !== undefined && readSources.length > 0);
+  // mig-085 visibility gate, ENFORCED: any non-operator principal (public
+  // ingress OR an authenticated tenant token) is floored to world-visible facts
+  // regardless of the requested filter; only the operator path may read private
+  // rows. Same floor gates the tombstone audit surface.
+  //
+  // Keyed on the INGRESS SHAPE (`remote`), never on `redact`: `redact` is false
+  // whenever the operator sets MEMEX_PUBLIC_READ_BODIES, which used to hand a
+  // public caller the private rows in full text. That flag governs free-text
+  // BODIES; it must never widen a visibility grant. `remote` is a strict
+  // superset of the old predicate — a non-empty read set implies an authInfo
+  // (effectiveReadSourceIds returns undefined without one), so no caller that
+  // was floored before is unfloored now.
+  const scopedReader = remote;
   if (scopedReader) {
     opts.visibility = ["world"];
   } else if (args["visibility"] === "private" || args["visibility"] === "world") {
@@ -2092,6 +2114,10 @@ async function callEntityRecall(
     opts.redact_body = args["redact_body"];
   else if (redact) opts.redact_body = true;
   if (readSources && readSources.length) opts.sourceIds = readSources;
+  // Same mig-085 floor callEntityFacts applies, on the same ledger: recall
+  // reads entity_facts too, so without this a non-operator caller could read a
+  // private fact through the aggregator that entity_facts refuses to show it.
+  if (remote) opts.visibility = ["world"];
   const r = await entityRecall(storage, args["slug"], opts);
   // `redact_body` only strips the page body; the facts + timeline arrays
   // carry note-derived `fact`/`event` text and must be redacted on public

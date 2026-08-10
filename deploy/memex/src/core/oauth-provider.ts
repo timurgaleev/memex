@@ -500,20 +500,42 @@ export class OAuthProvider {
    * re-register (which would rotate the secret). `sourceId` becomes the
    * write source, `federatedRead` the read set (defaults to `[sourceId]`
    * when omitted). Returns false when the client is unknown or revoked.
+   *
+   * `boundSlugPrefixes` is TRI-STATE, so the slug write fence is no longer
+   * registration-only: `undefined` leaves the stored fence alone, an empty
+   * array clears it (unbounded), a non-empty array replaces it. Prefixes are
+   * validated exactly as at registration — a prefix that cannot match the slug
+   * grammar would silently deny the client every write. Clearing stores NULL,
+   * which `verifyAccessToken` already reads as unbounded.
    */
   async rescopeClient(
     clientId: string,
     sourceId: string,
     federatedRead?: string[],
+    boundSlugPrefixes?: string[],
   ): Promise<boolean> {
     const federated =
       federatedRead && federatedRead.length > 0 ? federatedRead : [sourceId];
+    if (boundSlugPrefixes) {
+      for (const p of boundSlugPrefixes) validatePageSlug(p);
+    }
+    const setFence = boundSlugPrefixes !== undefined;
     const r = await this.engine.query<{ client_id: string }>(
       `UPDATE oauth_clients
-          SET source_id = $2, federated_read = $3::text[]
+          SET source_id = $2, federated_read = $3::text[],
+              bound_slug_prefixes = CASE WHEN $5::boolean THEN $4::text[]
+                                         ELSE bound_slug_prefixes END
         WHERE client_id = $1 AND deleted_at IS NULL
         RETURNING client_id`,
-      [clientId, sourceId, federated],
+      [
+        clientId,
+        sourceId,
+        federated,
+        boundSlugPrefixes && boundSlugPrefixes.length > 0
+          ? boundSlugPrefixes
+          : null,
+        setFence,
+      ],
     );
     return r.rows.length > 0;
   }

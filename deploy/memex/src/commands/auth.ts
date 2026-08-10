@@ -17,8 +17,11 @@
  *   revoke-client <client_id>
  *              Hard-delete a client (cascades to its tokens/codes via FK).
  *   rescope-client <client_id> --source SRC [--federated-read a,b]
+ *                              [--bound-slug-prefixes p1,p2]
  *              Change an existing client's tenancy grant in place (write
  *              source + federated read set) — no revoke + re-register.
+ *              --bound-slug-prefixes also replaces the slug write fence; pass
+ *              an empty value ("") to lift it. Omit the flag to leave it as-is.
  *   grant-token <client_id> <client_secret> [--scopes S]
  *              Exchange client_credentials for an access token locally (for a
  *              handoff / smoke test) — equivalent to POST /token.
@@ -209,9 +212,20 @@ async function revokeClient(clientId: string): Promise<void> {
   );
 }
 
+/**
+ * `--bound-slug-prefixes` is tri-state on rescope: the flag absent leaves the
+ * stored fence untouched, an empty value clears it (unbounded), a list replaces
+ * it. Exported because that distinction is exactly what a truthiness check on
+ * the flag gets wrong — `""` must mean CLEAR, not ABSENT.
+ */
+export function parseFenceFlag(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
   const usage =
-    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b]";
+    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2]";
   if (!clientId) throw new Error(usage);
   const { flags } = parseFlags(rest);
   const sourceId = flags["source"];
@@ -219,8 +233,11 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
   const federatedRead = flags["federated-read"]
     ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
+  // Lift an existing fence with:
+  //   auth rescope-client <id> --source <src> --bound-slug-prefixes ""
+  const boundSlugPrefixes = parseFenceFlag(flags["bound-slug-prefixes"]);
   const updated = await withProvider((p) =>
-    p.rescopeClient(clientId, sourceId, federatedRead),
+    p.rescopeClient(clientId, sourceId, federatedRead, boundSlugPrefixes),
   );
   if (!updated) {
     throw new Error(`No active client "${clientId}".`);
@@ -231,6 +248,9 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
         client_id: clientId,
         source_id: sourceId,
         federated_read: federatedRead ?? [sourceId],
+        ...(boundSlugPrefixes !== undefined
+          ? { bound_slug_prefixes: boundSlugPrefixes }
+          : {}),
         updated: true,
       },
       null,
