@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.110.0] — 2026-08-10
+
 ### Fixed
 - **A boolean CLI flag no longer eats the argument after it.** `memex embed
   --dry-run <slug>` lost both the slug and the dry-run and started a real, paid
