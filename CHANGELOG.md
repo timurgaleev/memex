@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.109.0] — 2026-08-10
+
 ### Fixed
 - **Shell scripts are indexable again.** The vendored `bash` and `go` grammar
   blobs were built against a different tree-sitter runtime than the pinned
