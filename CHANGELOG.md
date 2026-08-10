@@ -7,6 +7,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **A boolean CLI flag no longer eats the argument after it.** `memex embed
+  --dry-run <slug>` lost both the slug and the dry-run and started a real, paid
+  whole-corpus backfill; `memex search --k=5 hello` searched with the default k
+  and no search term, because `--key=value` arrived as one token and was never
+  split. Flags are now classified by name, not by position, and `--key=value` is
+  split on the first `=`. A bare `--flag=` (an unset shell variable) is refused
+  rather than read as ON — guessing ON there would arm `--force` / `--apply` /
+  `--fix` by accident.
+  - **Two commands change behaviour as a result.** `memex hnsw --force rebuild`
+    previously printed the status JSON (the flag swallowed `rebuild`); it now
+    rebuilds the index, which is what it always read as. `memex search --explain
+    stats` previously errored; it now dispatches the `stats` sub-command.
+- **A malformed extractor response no longer discards a paid call.** One `null`
+  element threw a TypeError out of the parser and binned every good fact
+  alongside it; a response wrapped in prose ("Here are the facts: {...}") was
+  dropped whole; and an unreadable `kind` was coerced to `fact` — the strongest
+  kind — at confidence 0.7, which then aged as a confident objective claim.
+  Elements are now validated individually, a JSON object is recovered from a
+  fenced or prose-wrapped response, and an unreadable kind floors to `belief`.
+- **The parse outcome is now discriminable.** A genuinely empty turn and an
+  unreadable response both returned `[]`, so the conversation backfill treated a
+  parse miss as "nothing to say" and re-extracted that page at Sonnet prices on
+  every run, forever. The two are now distinct and a malformed response files a
+  `parse_failure` absorb row.
+- **A file whose grammar cannot be linked is indexed as text instead of being
+  dropped.** The chunker's throw escaped before the document write, so the file
+  produced no chunks and no embeddings and was invisible to both search arms —
+  the mechanism behind the missing shell corpus. Such a file now falls back to
+  the existing plain-text path, is logged once per language rather than once per
+  file, and is deliberately stored with no mtime stamp so the next sweep retries
+  it and the corpus heals itself once the grammar is fixed.
+
+### Fixed
 - **Query steering pointed the wrong way.** The skills claimed `search` runs
   with LLM query expansion; it does not — expansion is off in both default mode
   bundles and `search` has no `expand` knob at all (it lives on `query`). So a

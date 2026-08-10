@@ -61,7 +61,15 @@ interface ClientRow {
   client_id_issued_at: number | null;
 }
 
-function parseFlags(args: string[]): {
+/**
+ * Every `auth` flag takes a value, so there is no boolean case here — the one
+ * defect was `--key=value`, which the loop read as a flag NAMED "key=value"
+ * and then rejected with a misleading "needs a value". Split on the first '='
+ * (redirect URIs and scope strings carry more of them).
+ *
+ * Exported for tests.
+ */
+export function parseFlags(args: string[]): {
   positional: string[];
   flags: Record<string, string>;
 } {
@@ -71,6 +79,11 @@ function parseFlags(args: string[]): {
     const a = args[i];
     if (a === undefined) continue;
     if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      if (eq > 2) {
+        flags[a.slice(2, eq)] = a.slice(eq + 1);
+        continue;
+      }
       const key = a.slice(2);
       const val = args[i + 1];
       if (val === undefined || val.startsWith("--")) {

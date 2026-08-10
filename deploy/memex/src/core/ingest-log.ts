@@ -123,6 +123,10 @@ export const FACTS_ABSORB_SOURCE_TYPE = "facts:absorb";
 export const FACTS_ABSORB_REASONS = [
   "gateway_error",
   "parse_failure",
+  // The output cap cut the answer in half. Distinct from `parse_failure`: the
+  // model was fine, the ceiling was not, and the operator can raise it. Bedrock
+  // Converse names this stop reason `max_tokens`.
+  "output_truncated",
   "queue_overflow",
   "queue_shutdown",
   "embed_failure",

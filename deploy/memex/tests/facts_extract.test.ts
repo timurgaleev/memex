@@ -61,7 +61,7 @@ describe("budget pricing", () => {
 
 describe("parseFactsResponse", () => {
   it("parses a valid facts object and clamps confidence", () => {
-    const facts = parseFactsResponse(
+    const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"Alice loves coffee","kind":"preference","entity":"Alice","confidence":1.4,"notability":"high"}]}',
     );
     expect(facts).toHaveLength(1);
@@ -74,7 +74,7 @@ describe("parseFactsResponse", () => {
     });
   });
   it("parses typed-claim fields for a quantitative fact", () => {
-    const facts = parseFactsResponse(
+    const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"Acme burns 80k monthly","kind":"fact","entity":"companies/acme","confidence":0.9,"notability":"high","metric":"burn_rate","value":80000,"unit":"USD","period":"monthly"}]}',
     );
     expect(facts).toHaveLength(1);
@@ -84,15 +84,15 @@ describe("parseFactsResponse", () => {
     expect(facts[0].claim_period).toBe("monthly");
   });
   it("leaves claim fields undefined for a non-quantitative fact", () => {
-    const facts = parseFactsResponse(
+    const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"Alice loves coffee","kind":"preference","entity":"Alice","confidence":1,"notability":"low","metric":null,"value":null,"unit":null,"period":null}]}',
     );
     expect(facts[0].claim_metric).toBeUndefined();
     expect(facts[0].claim_value).toBeUndefined();
   });
   it("strips a code fence and tolerates garbage", () => {
-    expect(parseFactsResponse('```json\n{"facts":[]}\n```')).toEqual([]);
-    expect(parseFactsResponse("not json")).toEqual([]);
+    expect(parseFactsResponse('```json\n{"facts":[]}\n```').facts).toEqual([]);
+    expect(parseFactsResponse("not json").facts).toEqual([]);
   });
   it("slugifies entity names", () => {
     expect(slugifyEntity("Alice Example")).toBe("alice-example");
@@ -246,7 +246,7 @@ describe("anonymous-speaker attribution gate", () => {
   });
 
   it("drops the attribution but keeps the claim for an anonymous speaker", () => {
-    const facts = parseFactsResponse(
+    const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"speaker is joining Acme","kind":"event","entity":"Speaker A","confidence":1,"notability":"high"}]}',
     );
     expect(facts).toHaveLength(1);
@@ -255,7 +255,7 @@ describe("anonymous-speaker attribution gate", () => {
   });
 
   it("keeps a third-person entity from an anonymous turn", () => {
-    const facts = parseFactsResponse(
+    const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"Acme raised $5M","kind":"fact","entity":"companies/acme","confidence":0.9,"notability":"high"}]}',
     );
     expect(facts[0]!.entity).toBe("companies/acme");
@@ -386,5 +386,49 @@ describe("runExtractConversationFacts (stubbed model)", () => {
     });
     expect(report.ran).toBe(false);
     expect(report.reason).toMatch(/MEMEX_FACTS_EXTRACTION/);
+  });
+});
+
+// Three defects that each silently discarded or corrupted an already-paid
+// extractor call. Every case below reproduces one of them.
+describe("parseFactsResponse — salvage and floors", () => {
+  it("a null element does not discard its valid siblings", () => {
+    // Before: reading o["fact"] off null threw a TypeError out of the parser,
+    // which the caller did not guard — one bad element binned the whole call.
+    const r = parseFactsResponse(
+      '{"facts":[null,{"fact":"Alice ships on Fridays","kind":"fact","entity":"Alice","confidence":0.9,"notability":"high"}]}',
+    );
+    expect(r.status).not.toBe("malformed");
+    expect(r.facts).toHaveLength(1);
+    expect(r.facts[0]!.fact).toBe("Alice ships on Fridays");
+  });
+
+  it("recovers an object the model wrapped in prose", () => {
+    // A paid answer whose only flaw is a preamble is worth reading.
+    const r = parseFactsResponse(
+      'Here are the facts:\n{"facts":[{"fact":"Bob prefers tea","kind":"preference","entity":"Bob","confidence":0.8,"notability":"low"}]}\nHope that helps!',
+    );
+    expect(r.facts).toHaveLength(1);
+    expect(r.facts[0]!.kind).toBe("preference");
+  });
+
+  it("an unreadable kind floors to belief, never to the objective kind", () => {
+    // kind:null / 42 / missing used to coerce to "fact" — the strongest kind —
+    // at confidence 0.7, and a NULL kind is exempt from decay entirely. Either
+    // way the mislabelled row outlives every correctly typed one.
+    for (const bad of ["null", "42", '"nonsense"']) {
+      const r = parseFactsResponse(
+        `{"facts":[{"fact":"X happened","kind":${bad},"entity":"X","confidence":0.7,"notability":"low"}]}`,
+      );
+      expect(r.facts).toHaveLength(1);
+      expect(r.facts[0]!.kind).toBe("belief");
+    }
+  });
+
+  it("distinguishes an empty turn from unreadable output", () => {
+    // Both used to return [] — indistinguishable, so the backfill treated a
+    // parse miss as "nothing to say" and re-paid for it on every run.
+    expect(parseFactsResponse('{"facts":[]}').status).toBe("empty");
+    expect(parseFactsResponse("not json at all").status).toBe("malformed");
   });
 });

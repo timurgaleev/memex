@@ -181,6 +181,16 @@ export async function conversationFactsBackfillPhase(
       spent += r.spentUsd;
       result.factsWritten += r.factsWritten;
       result.pagesProcessed += 1;
+      // A page whose paid call came back unreadable writes no fact row, so the
+      // "has a written_by row" marker above never fires and the next run pays
+      // for it again. Surface it (the cycle marks the phase `warn`) instead of
+      // letting that loop bill silently forever.
+      if (r.absorbed === "parse_failure" || r.absorbed === "output_truncated") {
+        result.errors.push({
+          slug: page.slug,
+          message: `extraction absorbed: ${r.absorbed}`,
+        });
+      }
     } catch (e) {
       result.errors.push({
         slug: page.slug,

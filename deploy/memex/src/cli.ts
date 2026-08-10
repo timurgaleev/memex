@@ -73,37 +73,8 @@ import { runSalience } from "./commands/salience.ts";
 import { runWatch } from "./commands/watch.ts";
 import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
 import { resolveExitCode } from "./cli-exit.ts";
+import { parseArgs } from "./cli-args.ts";
 import type { EntityType } from "./core/entities.ts";
-
-interface ParsedArgs {
-  cmd: string | undefined;
-  flags: Set<string>;
-  values: Map<string, string>;
-  positional: string[];
-}
-
-function parseArgs(raw: readonly string[]): ParsedArgs {
-  const flags = new Set<string>();
-  const values = new Map<string, string>();
-  const positional: string[] = [];
-  const cmd = raw[0];
-  for (let i = 1; i < raw.length; i++) {
-    const token = raw[i];
-    if (!token) continue;
-    if (token.startsWith("--")) {
-      const next = raw[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
-        values.set(token, next);
-        i++;
-      } else {
-        flags.add(token);
-      }
-    } else {
-      positional.push(token);
-    }
-  }
-  return { cmd, flags, values, positional };
-}
 
 function printUsage(): void {
   console.log("Usage: memex <command> [options]");
@@ -1230,12 +1201,10 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "lint": {
       const lintOpts: Parameters<typeof runLint>[0] = {};
-      // Accept the target in either order relative to the bare flags: a value
-      // swallowed by `--fix <target>` is still the target.
-      const target = positional[0] ?? values.get("--fix") ?? values.get("--dry-run");
+      const target = positional[0];
       if (target) lintOpts.target = target;
-      if (flags.has("--fix") || values.has("--fix")) lintOpts.fix = true;
-      if (flags.has("--dry-run") || values.has("--dry-run")) lintOpts.dryRun = true;
+      if (flags.has("--fix")) lintOpts.fix = true;
+      if (flags.has("--dry-run")) lintOpts.dryRun = true;
       await runLint(lintOpts);
       return 0;
     }

@@ -23,6 +23,7 @@ import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 import {
   classifyFactsAbsorbError,
   writeFactsAbsorbLog,
+  type FactsAbsorbReason,
 } from "./ingest-log.ts";
 
 export const FACT_KINDS = [
@@ -121,36 +122,105 @@ const UNKNOWN_SPEAKER_PATTERNS: readonly RegExp[] = [
   /^(other|unknown|guest|user|me|\?+)$/i,
 ];
 
-/** Strip a ```json fence if the model wrapped its output. */
-function stripFence(s: string): string {
-  const t = s.trim();
-  if (t.startsWith("```")) {
-    return t.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
-  }
-  return t;
+/**
+ * Discriminated parse outcome. `empty` is a well-formed turn that held nothing
+ * claim-worthy; `malformed` is an answer we could not read. Both cost the same
+ * paid Sonnet call and both yield zero facts, but they mean opposite things: one
+ * is a finished page, the other is a page worth reporting (and not silently
+ * re-paying for on the next backfill run).
+ */
+export type FactsParseStatus = "ok" | "empty" | "malformed";
+
+export interface FactsParseResult {
+  facts: ExtractedFact[];
+  status: FactsParseStatus;
+  /** Terse, content-free reason. Set only when `status` is "malformed". */
+  detail?: string;
 }
 
-/** Parse + validate the model response into clean ExtractedFact rows. */
-export function parseFactsResponse(text: string): ExtractedFact[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripFence(text));
-  } catch {
-    return [];
+/**
+ * Candidate JSON payloads inside a model response, best first: the raw text, a
+ * fenced block wherever it sits, the head of a fence the output cap cut before
+ * its closing backticks, and the widest brace-delimited span. The extractor asks
+ * for a bare object, but an already-paid answer whose only flaw is a ```json
+ * wrapper or a "Here are the facts:" preamble is worth recovering.
+ */
+function jsonCandidates(text: string): string[] {
+  const out: string[] = [];
+  const push = (c: string) => {
+    const t = c.trim();
+    if (t.length > 0 && !out.includes(t)) out.push(t);
+  };
+  const trimmed = (text ?? "").trim();
+  push(trimmed);
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) push(fenced[1]);
+  if (trimmed.startsWith("```")) {
+    push(trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, ""));
+  }
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first >= 0 && last > first) push(trimmed.slice(first, last + 1));
+  return out;
+}
+
+/** First candidate that parses, else undefined (JSON.parse never returns it). */
+function parseFirstJson(text: string): unknown {
+  for (const candidate of jsonCandidates(text)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Fall through to the next candidate.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The kind the model supplied, or the floor for one we cannot read.
+ *
+ * `kind` drives confidence decay (facts-decay.ts HALFLIFE_DAYS), so a value we
+ * could not read must not be taken as an assertion. Two rejected alternatives:
+ * the old unconditional "fact" default silently promotes an unlabelled claim to
+ * the objective-claim kind, and returning null hands addFact a NULL kind, which
+ * facts-decay reads as "never decays" — the mislabelled row would then outlive
+ * every correctly typed one. "belief" is the honest floor: a claim whose type we
+ * could not read is a stance, and it still ages.
+ */
+function normalizeFactKind(raw: unknown): FactKind {
+  if (typeof raw !== "string") return "belief";
+  const v = raw.trim().toLowerCase();
+  return FACT_KINDS.includes(v as FactKind) ? (v as FactKind) : "belief";
+}
+
+/**
+ * Parse + validate the model response into clean ExtractedFact rows, with a
+ * status the caller can act on.
+ */
+export function parseFactsResponse(text: string): FactsParseResult {
+  const parsed = parseFirstJson(text);
+  if (parsed === undefined) {
+    return { facts: [], status: "malformed", detail: "no JSON object in response" };
   }
   const arr = (parsed as { facts?: unknown })?.facts;
-  if (!Array.isArray(arr)) return [];
+  if (!Array.isArray(arr)) {
+    return { facts: [], status: "malformed", detail: "response has no `facts` array" };
+  }
+  const considered = arr.slice(0, 10);
   const out: ExtractedFact[] = [];
-  for (const raw of arr.slice(0, 10)) {
+  for (const raw of considered) {
+    // A null or scalar element is not addressable — reading `raw["fact"]` off
+    // null throws, and ONE such element used to discard the whole already-paid
+    // batch. Skip the element, keep its siblings.
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
     const o = raw as Record<string, unknown>;
     // Cap the claim length — a manipulated response could otherwise persist a
     // multi-KB string verbatim. 500 chars is far longer than any real fact.
     const fact =
       typeof o["fact"] === "string" ? o["fact"].trim().slice(0, 500) : "";
     if (!fact) continue;
-    const kind = FACT_KINDS.includes(o["kind"] as FactKind)
-      ? (o["kind"] as FactKind)
-      : "fact";
+    // A kind we cannot read is floored, never promoted — see normalizeFactKind.
+    const kind = normalizeFactKind(o["kind"]);
     // Anonymous-speaker gate: when the model echoed a placeholder label back as
     // the entity, drop the attribution but KEEP the claim — a fact with no
     // entity is skipped at write time, which beats attributing it to a person
@@ -199,7 +269,15 @@ export function parseFactsResponse(text: string): ExtractedFact[] {
       claim_period: claimPeriod,
     });
   }
-  return out;
+  if (out.length > 0) return { facts: out, status: "ok" };
+  // A well-formed but empty array is a genuinely quiet turn; elements we could
+  // not read are a broken answer. The caller must be able to tell them apart.
+  if (considered.length === 0) return { facts: [], status: "empty" };
+  return {
+    facts: [],
+    status: "malformed",
+    detail: `all ${considered.length} fact element(s) unusable`,
+  };
 }
 
 /** Output-token cap for one extractor call. A turn is capped at ~12K chars in
@@ -253,10 +331,19 @@ export function sanitizeEntityHints(hints: unknown): string[] {
   return out;
 }
 
+/** Parse status widened with the one failure the parser cannot see by itself. */
+export type ExtractOutcome = FactsParseStatus | "truncated";
+
 export interface ExtractTurnResult {
   facts: ExtractedFact[];
   modelId: string;
   usage: { inputTokens: number; outputTokens: number };
+  /**
+   * Why this turn produced what it produced. "truncated" outranks a generic
+   * parse miss: it names a ceiling the operator can raise rather than a broken
+   * model. Bedrock reports that stop reason as `max_tokens`.
+   */
+  outcome: ExtractOutcome;
 }
 
 /**
@@ -325,10 +412,21 @@ export async function extractFactsFromTurn(
       );
     }
   }
+  const parsed = parseFactsResponse(resp.text);
+  if (parsed.status === "malformed") {
+    process.stderr.write(
+      `[facts-extract] WARN: unreadable extractor output ` +
+        `(model=${resp.modelId}): ${parsed.detail}\n`,
+    );
+  }
   return {
-    facts: parseFactsResponse(resp.text),
+    facts: parsed.facts,
     modelId: resp.modelId,
     usage,
+    outcome:
+      resp.stopReason === STOP_REASON_MAX_TOKENS && parsed.facts.length === 0
+        ? "truncated"
+        : parsed.status,
   };
 }
 
@@ -539,6 +637,13 @@ export interface ExtractForPageResult {
   factsWritten: number;
   factsSkipped: number;
   spentUsd: number;
+  /**
+   * The absorb reason filed for this page, or null when the extraction ran
+   * readably (a genuinely empty page included). Mirrors the durable
+   * facts:absorb row so an in-process caller — the backfill phase — can act on
+   * the outcome without re-reading ingest_log.
+   */
+  absorbed: FactsAbsorbReason | null;
 }
 
 /**
@@ -566,7 +671,12 @@ export async function extractFactsForPage(
       `per-write cap $${cap} leaves no room for a worst-case call`,
       opts.sourceId ?? "default",
     );
-    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
+    return {
+      factsWritten: 0,
+      factsSkipped: 0,
+      spentUsd: 0,
+      absorbed: "budget_exhausted",
+    };
   }
   let result: ExtractTurnResult;
   try {
@@ -578,20 +688,39 @@ export async function extractFactsForPage(
       canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
     });
   } catch (e) {
+    const reason = classifyFactsAbsorbError(e);
     await writeFactsAbsorbLog(
       storage.engine(),
       opts.slug,
-      classifyFactsAbsorbError(e),
+      reason,
       e instanceof Error ? e.message : String(e),
       opts.sourceId ?? "default",
     );
-    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0 };
+    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0, absorbed: reason };
   }
   try {
     budget.record(result.modelId, result.usage);
   } catch (e) {
     if (!(e instanceof BudgetExhausted)) throw e;
     // Over budget after the (already-paid) call — still persist what we got.
+  }
+  // An unreadable answer is a DURABLE failure, not a quiet page. Without this
+  // row the backfill's "page has no facts yet" idempotency marker cannot tell
+  // the two apart and re-pays Sonnet for the same broken page on every run.
+  const absorbed: FactsAbsorbReason | null =
+    result.outcome === "truncated"
+      ? "output_truncated"
+      : result.outcome === "malformed"
+        ? "parse_failure"
+        : null;
+  if (absorbed !== null) {
+    await writeFactsAbsorbLog(
+      storage.engine(),
+      opts.slug,
+      absorbed,
+      `extractor outcome=${result.outcome} (model=${result.modelId})`,
+      opts.sourceId ?? "default",
+    );
   }
   const w = await writeExtractedFacts(storage, result.facts, {
     sourceSlug: opts.slug,
@@ -602,6 +731,7 @@ export async function extractFactsForPage(
     factsWritten: w.written,
     factsSkipped: w.skipped,
     spentUsd: Number(budget.totalSpent().toFixed(6)),
+    absorbed,
   };
 }
 
@@ -637,7 +767,12 @@ export interface OnDemandExtractResult {
   facts: ExtractedFact[];
   modelId: string | null;
   spentUsd: number;
-  /** Present when nothing was extracted: why (disabled / empty / budget / error). */
+  /**
+   * Present when nothing usable came back: why (disabled / empty text / budget
+   * / model error / `parse_failure` / `output_truncated`). The last two mean the
+   * call WAS paid for and the answer could not be read — distinct from a turn
+   * that genuinely held no claims, which reports no `skipped` at all.
+   */
   skipped?: string;
   /** Persist-mode outcome (present only when `persist` was requested). */
   written?: number;
@@ -697,6 +832,14 @@ export async function extractFactsOnDemand(
     facts: result.facts,
     modelId: result.modelId,
     spentUsd: Number(budget.totalSpent().toFixed(6)),
+    // Same discriminator the on-write path files durably — here it rides back on
+    // the existing optional field, so the extract_facts response shape (and its
+    // []-returning `facts`) is unchanged.
+    ...(result.outcome === "truncated"
+      ? { skipped: "output_truncated" }
+      : result.outcome === "malformed"
+        ? { skipped: "parse_failure" }
+        : {}),
   };
   if (opts.persist === true && opts.storage) {
     const w = await writeExtractedFacts(opts.storage, result.facts, {

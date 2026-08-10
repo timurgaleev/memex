@@ -9,11 +9,21 @@
  * replaces all of its chunks (cascade clears entity_mentions too).
  */
 import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
-import { chunkCode, CODE_CHUNKER_VERSION } from "./chunkers/code.ts";
+import {
+  chunkCode,
+  CODE_CHUNKER_VERSION,
+  type CodeChunked,
+} from "./chunkers/code.ts";
 import { chunkPlainText } from "./chunkers/recursive.ts";
-import { languageForFile, type CodeLanguage } from "./chunkers/parsers.ts";
+import {
+  GrammarLoadError,
+  ParseTimeoutError,
+  languageForFile,
+  type CodeLanguage,
+} from "./chunkers/parsers.ts";
 import { extractCodeEntities } from "./code-entities.ts";
 import {
   qualifiedSymbolName,
@@ -28,7 +38,12 @@ import {
 } from "./indexer-tx.ts";
 
 export interface IndexCodeResult extends IndexTxResult {
-  /** True if tree-sitter reported syntax errors anywhere in the file. */
+  /**
+   * True if tree-sitter reported syntax errors anywhere in the file, OR the
+   * file was never parsed at all because its grammar could not be loaded
+   * (see chunkCodeOrDegrade). Either way the chunks are lower fidelity than a
+   * clean parse, which is what the sweep's `parseErrors` counter reports.
+   */
   hasParseError: boolean;
   /** Detected language; null for unsupported file types. */
   language: CodeLanguage | null;
@@ -48,6 +63,71 @@ function shortHash(s: string): string {
 
 function docId(sourcePath: string): string {
   return `doc_${shortHash(sourcePath)}`;
+}
+
+/** A parse result plus whether it came from a real parse or from degrading. */
+type ChunkedOrDegraded = CodeChunked & { degraded: boolean };
+
+/**
+ * Languages already reported as unusable in this process. A grammar that
+ * cannot load fails for EVERY file of its type, so warning per file turns one
+ * boot sweep of a shell-heavy repo into thousands of identical lines.
+ */
+const degradedLanguagesLogged = new Set<CodeLanguage>();
+
+/** Test seam: forget which languages have already been reported. */
+export function _resetGrammarFallbackWarningsForTests(): void {
+  degradedLanguagesLogged.clear();
+}
+
+/**
+ * Chunk a source file into symbols, degrading to an EMPTY symbol set when the
+ * grammar cannot be loaded (or the parse throws for any other reason).
+ *
+ * A throw here used to drop the file from the index entirely: chunkCode ran
+ * before writeDocumentTransaction, so a file whose grammar failed produced no
+ * document, no chunks and no embeddings — invisible to both search arms, with
+ * only a line in the sweep's per-file error list to say so. That is how the
+ * shell corpus stayed out of the brain for weeks. A file we cannot parse is
+ * still text worth retrieving, so hand back zero symbols and let the existing
+ * symbol-less fallback below window it as plain text — one fallback path, not
+ * two.
+ *
+ * ParseTimeoutError is the one throw that still propagates: it means the file
+ * IS parseable but ran over its wall-clock budget, and skipping it preserves
+ * the file's previous fully-parsed chunks rather than overwriting them with
+ * degraded windows (the no-partial-reindex rationale in
+ * `chunkers/parsers.ts`).
+ */
+async function chunkCodeOrDegrade(
+  text: string,
+  sourcePath: string,
+  language: CodeLanguage,
+): Promise<ChunkedOrDegraded> {
+  try {
+    return { ...(await chunkCode(text, sourcePath, language)), degraded: false };
+  } catch (e) {
+    if (e instanceof ParseTimeoutError) throw e;
+    if (!degradedLanguagesLogged.has(language)) {
+      degradedLanguagesLogged.add(language);
+      const what =
+        e instanceof GrammarLoadError ? "grammar unusable" : "parser failed";
+      const why = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[code] ${language}: ${what} — indexing every ${language} file as ` +
+          `plain text (no symbols, no call graph) until this is fixed: ${why}`,
+      );
+    }
+    return {
+      frontmatter: {},
+      // Same title chunkCode would have produced: the file's basename.
+      title: basename(sourcePath),
+      symbols: [],
+      fileImports: [],
+      hasParseError: true,
+      degraded: true,
+    };
+  }
 }
 
 /**
@@ -74,7 +154,11 @@ export async function indexCodeDocument(
     };
   }
 
-  const parsed = await chunkCode(input.text, input.sourcePath, language);
+  const parsed = await chunkCodeOrDegrade(
+    input.text,
+    input.sourcePath,
+    language,
+  );
   const id = docId(input.sourcePath);
 
   // File-level imports become code-ref entities attached to chunk 0
@@ -131,7 +215,8 @@ export async function indexCodeDocument(
   }
 
   // Fallback: a file with no extractable symbols (a barrel of re-exports, a
-  // config-only script, a DML-only SQL file) still gets plain text-window
+  // config-only script, a DML-only SQL file — or one whose grammar could not
+  // be loaded at all, see chunkCodeOrDegrade) still gets plain text-window
   // chunks so its content is searchable — windowed module chunks whenever
   // symbol extraction yields nothing, so a symbol-less file NEVER produces a
   // zero-chunk (unretrievable) document.
@@ -161,7 +246,13 @@ export async function indexCodeDocument(
       sourcePath: input.sourcePath,
       title: parsed.title,
       frontmatter: { language, kind: "code" },
-      mtimeMs: input.mtimeMs ?? null,
+      // A degraded document is stamped with NO mtime on purpose. The sweep skips
+      // a file whose stored mtime is current (sweep-code.ts), so stamping one
+      // here would freeze the text-only version in place: fixing the grammar
+      // would no longer heal the corpus by itself. A NULL stamp reproduces the
+      // pre-fallback behaviour — the file is re-indexed every sweep and gets its
+      // symbols back the moment the grammar links again.
+      mtimeMs: parsed.degraded ? null : (input.mtimeMs ?? null),
       embeddingModel: null,
       chunkerVersion: CODE_CHUNKER_VERSION,
     },
