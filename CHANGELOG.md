@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Docs said the MCP server exposes 63 tools; the live surface is 91.
+  `ARCHITECTURE.md` and `README.md` corrected.
+- The comment above the post-write page re-read in `mcp/dispatch.ts` claimed
+  an omitted title/body is preserved. It is not — `putPage` sets both columns
+  unconditionally, so an omitted title lands as `NULL` and an omitted body as
+  `''`. `page_put` is a full replace; the comment now says so.
+
 ## [1.108.0] — 2026-08-04
 
 ### Security

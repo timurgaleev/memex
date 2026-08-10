@@ -1113,8 +1113,10 @@ async function callPagePut(
   let searchIndexed: boolean | undefined;
   let chronicleBackstop = false;
   if (r.changed) {
-    // Fetch the canonical row once: an omitted-title/-body re-put preserves
-    // the stored values, so `input` alone may not reflect what's searchable.
+    // Fetch the canonical row once: page_put is a FULL REPLACE (pages.ts UPDATE
+    // sets title/markdown_body unconditionally, so an omitted title lands as
+    // NULL and an omitted body as ''), so the stored row — not `input` — is
+    // what actually became searchable.
     const page = await getPage(storage, r.slug);
     const body = page?.markdown_body ?? input.markdown_body ?? "";
     await syncWikilinksForPage(storage, r.slug, body, writeSource);

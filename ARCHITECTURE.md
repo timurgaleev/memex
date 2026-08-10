@@ -34,7 +34,7 @@ external message broker — the whole runtime fits in `t4g.medium`.
 
 | Container | Image | Owns |
 |---|---|---|
-| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search (+ graph-signals ranking), entity + code call graph, code/markdown chunkers, fact extraction, push-context, advisor, MCP server (63 tools), a maintenance cycle (~15 deterministic phases + 8 opt-in LLM-synthesis phases). Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Claude Haiku (intent/expansion) + the opt-in, off-by-default Claude Sonnet note synthesis. Answer synthesis is the MCP client's job. |
+| `memex` | built from `deploy/memex/` (Bun + Alpine) | Knowledge brain: hybrid search (+ graph-signals ranking), entity + code call graph, code/markdown chunkers, fact extraction, push-context, advisor, MCP server (91 tools), a maintenance cycle (~15 deterministic phases + 8 opt-in LLM-synthesis phases). Two HTTP routes only: `GET /health` and `POST /mcp` — MCP is the contract (the legacy REST routes were removed in A.7). Bedrock: Titan v2 embeddings + Claude Haiku (intent/expansion) + the opt-in, off-by-default Claude Sonnet note synthesis. Answer synthesis is the MCP client's job. |
 | `cloudflared` | `cloudflare/cloudflared:2025.4.0` (upstream) | Public HTTPS ingress (Cloudflare Tunnel). The dashboard routes `brain.<domain>/mcp` to memex on the internal docker bridge. |
 
 Inter-container ports are not exposed to the host. `cloudflared`
