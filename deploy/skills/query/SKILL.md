@@ -50,8 +50,19 @@ This skill guarantees:
    - Semantic search for conceptual questions
    - Structured queries (list by type, backlinks, graph) for relational questions
 2. **Execute searches:**
-   - `search` — hybrid keyword+semantic retrieval with expansion (the main entry point)
-   - `query` — direct structured lookups when you know exactly what you're asking for
+   - `search` — hybrid keyword+semantic retrieval, and still the first step of
+     the lookup chain (see `conventions/brain-first.md`). It has **no `expand`
+     knob**, and LLM query expansion is off in the default mode bundles
+     (`conservative`, `balanced`) unless the operator runs `tokenmax`.
+   - `query` — the same retrieval with broader controls, including `expand`
+     (LLM query expansion: generated keyword variants, paid Haiku).
+   - **Escalate to `query` with `expand: true` for concept and landscape
+     questions** ("everything about X", "the companies doing Y") when `search`
+     comes back thin or you suspect the note used different words than you did.
+     `search` still runs its semantic vector arm, so it is not blind to
+     paraphrase — expansion widens the *keyword* arm, which is what recovers
+     vocabulary you did not guess.
+   - A nonzero `search` count is not proof the corpus was exhausted.
    - `page_list` by type or `backlinks` for structural questions
 3. **Read top results.** Read the top 3-5 pages via `page_get` to get full context.
 4. **Synthesize answer** with citations. Every claim traces back to a specific page slug.

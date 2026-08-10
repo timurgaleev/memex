@@ -32,7 +32,7 @@ convention:
 | `detail` | `low` \| `medium` \| `high` | How much of each hit comes back: titles+snippets → chunks → full context. Default `medium`; `low` for scanning, `high` only when you will actually read it |
 | `since` / `until` | `7d`, `2w`, `1y`, or ISO dates | Pure date filter, no boost — see `conventions/salience-and-recency.md` |
 | `salience` / `recency` | `off` \| `on` \| `strong` | Ranking boosts — same file |
-| expansion | server-side | LLM multi-query expansion (utility tier); on by server config, not a per-skill toggle |
+| `expand` | `query` only | LLM multi-query expansion (utility tier): generated keyword variants. Off in both default bundles (`conservative`, `balanced`); on under `tokenmax`. `search` has no `expand` knob — pass `expand: true` to `query` for concept/landscape questions, where the words you chose differ from the words the note used |
 
 Cache and intent weighting are constant server-side — they're free wins
 (no API cost). The knobs you scale per call are the cost levers: `k`,

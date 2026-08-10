@@ -31,7 +31,9 @@ environment provides.
 
 ## The Lookup Chain (MANDATORY ORDER)
 
-1. **`search`** first — hybrid retrieval, fast, always works
+1. **`search`** first — hybrid retrieval, fast, always works. For a concept or
+   landscape question, treat a thin result as incomplete rather than final:
+   `search` has no `expand` knob, so escalate to `query` with `expand: true`
 2. **`entity_recall`** if the query is about one entity — compiled truth,
    facts, and timeline in a single call
 3. **`page_get`** if you found a slug — read the full page

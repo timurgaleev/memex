@@ -55,8 +55,11 @@ broken brain. See conventions/quality.md for format.
 
 Before using ANY external API to research a person, company, or topic:
 
-1. `search "name"` — keyword search for existing pages
-2. `query "natural question about name"` — hybrid search for context
+1. `search "name"` — hybrid retrieval (no `expand` knob; expansion is off in the
+   default mode bundles)
+2. `query "natural question about name"` — same retrieval with broader controls;
+   escalate here with `expand: true` when the question is conceptual and step 1
+   came back thin
 3. `page_get <slug>` — if you know the slug, read the full page
 4. Check `backlinks`: who references this entity?
 5. Check `entity_timeline`: recent events involving this entity
@@ -156,8 +159,8 @@ the citation is `[memory:plans/foo]`. That's the whole rule.
 
 ## Tools Used
 
-- `search` — keyword search
-- `query` — hybrid vector+keyword search
+- `search` — hybrid vector+keyword search, no query expansion
+- `query` — the same, with every knob exposed (`expand`, `detail`, `mode`, …)
 - `page_get` — read a brain page
 - `page_put` — create/update brain pages
 - `link` — cross-reference entities

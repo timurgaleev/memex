@@ -185,7 +185,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "search",
     description:
-      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache.",
+      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted.",
     params: {
       q: str({ ...req, description: "Natural-language query." }),
       k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 20." }),

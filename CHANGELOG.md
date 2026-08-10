@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Query steering pointed the wrong way.** The skills claimed `search` runs
+  with LLM query expansion; it does not — expansion is off in both default mode
+  bundles and `search` has no `expand` knob at all (it lives on `query`). So a
+  concept or landscape question went to `search`, recovered none of the
+  vocabulary the note actually used, returned a plausible nonzero count, and the
+  agent treated the answer as complete. The skill docs, the lookup chain and the
+  `search` tool description now say what the code does, and route a thin
+  concept-question result to `query` with `expand: true` — as an escalation
+  within the existing ladder, not a competing rule.
+
 ## [1.109.0] — 2026-08-10
 
 ### Fixed
