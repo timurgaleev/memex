@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.111.0] — 2026-08-10
+
 ### Security
 - **A junk bearer no longer costs two database lookups.** An unverified token
   went straight to the OAuth verifier, and because the guard had already refused
