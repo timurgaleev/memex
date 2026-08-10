@@ -7,6 +7,154 @@ introduces them.
 
 ---
 
+## Recompare backlog — 2026-08-10 (35 items, adversarially verified)
+
+A 64-agent comparison across nine subsystems; every claim was re-verified
+by a second agent tasked with refuting it. Impact/effort as judged there.
+Landing sites below are memex's own files; the full per-item adoption plan
+lives in the maintainer's gitignored notes.
+
+**Shipped from this batch:** TS-01 / TS-02 (bash + go grammars) in v1.109.0.
+
+### HIGH (15)
+
+- **[MV-01, L] No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else entirely**
+  - Landing site: deploy/memex/src/mcp/operations.ts declares 91 ops (`grep -c` on the name field) with no `verb` marker on the Operation interface (lines 38-52). No op named `remember`, `entity`, `synthesize`, or bare `forget` exists. The closest behaviors are `add_fact` (operations.ts:486), `ent
+  - Why: memex is MCP-only: the tool surface IS the product, and 91 undifferentiated tools is exactly the agent-routing problem the five verbs solve. Adopting is mostly wiring — every underlying behavior already exists — but the `recall` name collision forces a decision that must be made FIRST: either rename memex's id-read (e.g. `get_fact`) and give `recall` the protocol contract, or a
+
+- **[CLI-1, M] No strict unknown-flag validation — typo'd or unsupported flags are silently dropped and the destructive default runs**
+  - Landing site: deploy/memex/src/cli.ts:85-106 `parseArgs` collects every `--token` into `flags`/`values` with no legality check; the only rejection in the whole file is for an unknown *command* (src/cli.ts:1453-1456). Grep for 'unknown flag' across deploy/memex/src returns nothing. Concrete: `m
+  - Why: This is a correctness-and-cost bug, not an ergonomics nit: intent-bearing safety flags (--dry-run, --limit, --apply) are exactly the ones a typo or an unsupported spelling silently discards, and the fallback is always the mutating/paid path. memex's command surface is smaller than the reference's, so a hand-written per-command legal-flag map is viable without the code-scanning 
+
+- **[FCT-01, M] Extractor cannot distinguish malformed model output from a genuinely empty turn**
+  - Landing site: deploy/memex/src/core/facts-extract.ts:134-142 — `parseFactsResponse` does `try { parsed = JSON.parse(stripFence(text)) } catch { return [] }`, and :142 `if (!Array.isArray(arr)) return []`. :328-332 `extractFactsFromTurn` returns `{ facts: parseFactsResponse(resp.text), modelId,
+  - Why: This is the load-bearing difference in the whole area. Three concrete failure modes follow from it. (1) Silent data loss: a Sonnet response that comes back wrapped in prose, with a trailing comma, or cut mid-object yields zero facts and is indistinguishable from a page that legitimately had no claims — the operator sees `factsWritten: 0` and no warning anywhere. (2) Repeated pa
+
+- **[THK-02, M] stopReason is ignored by every paid path except the facts extractor**
+  - Landing site: memex plumbs the signal but consumes it in exactly one place. deploy/memex/src/core/llm/sonnet.ts:44-53 exposes `stopReason` on `SonnetCallResult` and :55 exports `STOP_REASON_MAX_TOKENS = "max_tokens"`. A repo-wide grep for `stopReason` under `src/core` returns hits in only two 
+  - Why: memex already proved the pattern works — facts-extract.ts:289-327 is a careful, budget-aware implementation with a `canAffordRetry` gate so the second call cannot bill past the caller's pre-flighted cap. The gap is that the pattern was never generalised. think.ts is the worst instance because its retry logic actively defeats itself: a truncated round-1 response fails `parseThin
+
+- **[GAP-1, M] No filesystem data-dir lock — nothing prevents two processes opening the same PGLite dir (the corruption cause)**
+  - Landing site: deploy/memex/src/core/engine/pglite.ts:25-27 — the constructor is `this.db = new PGlite(opts.dbPath, { extensions: { vector, pg_trgm } })`, no lock acquisition anywhere; `close()` at :45-47 releases nothing but the handle. The module header at pglite.ts:6-9 states the constraint 
+  - Why: This is the one item where memex is materially less safe than the reference, and it is the CAUSE the WAL repair only mitigates. It costs ~150-350 lines with no byte-level Postgres coupling, so unlike GAP-2 it ports cleanly to pglite 0.2.x. Adapt rather than adopt: memex has no long-running 'dream/embed' commands to special-case and no serve-vs-command distinction worth carrying
+
+- **[MCP-02, M] entity_recall requires an exact slug and returns nothing useful on a miss — no free-text resolution, no near-miss suggestions, no create_safety**
+  - Landing site: deploy/memex/src/mcp/operations.ts:560-581 — entity_recall's only required param is `slug`. deploy/memex/src/core/facts.ts:886-891 calls validateSlug(slug) first, so a free-text name is a hard error, and the return type (facts.ts:866-874 EntityRecallResult) is {slug, page|null, f
+  - Why: This is the single most-called shape in an MCP-only brain and memex makes it a two-round-trip guessing game: the agent must call resolve_slugs (operations.ts:640-648) first, and on a miss gets either an error or an ambiguous empty payload with no hint whether creating the page would duplicate an existing one. memex already has every ingredient — page_aliases (mig034), resolve_s
+
+- **[SP-2, M] No bulk retype primitive — a mistyped page can only be corrected one page_put at a time, and page type is load-bearing for graph enrichment**
+  - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
+  - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
+
+- **[MV-03, M] Write path has no required `provenance` — attribution on a remembered fact is entirely optional**
+  - Landing site: deploy/memex/src/mcp/operations.ts:490-501 — `add_fact` params are entity_slug (required), fact (required), then confidence, source_slug, source_chunk_id, written_by, ALL optional. The handler `callAddFact` (src/mcp/dispatch.ts:1930-1954) only validates entity_slug and fact; it c
+  - Why: This is the single highest-value contract rule in the protocol and it is a retrieval-quality issue, not a formality: an unattributed fact cannot be audited, decayed against its origin, or trusted during synthesis, and memex's own fact ledger is agent-writable over public ingress (add_fact is in PUBLIC_WRITE_TOOLS, src/http/public_guard.ts:91-99). memex needs no migration — `wri
+
+- **[CLI-2, S] Boolean flags swallow the following positional as their value — `memex embed --dry-run <slug>` performs a real embed**
+  - Landing site: deploy/memex/src/cli.ts:93-100: any `--token` whose successor does not start with `--` is recorded as `values.set(token, next)` and the successor is consumed. So `memex embed --dry-run acme-page` yields values={'--dry-run':'acme-page'}, positional=[], flags={} → src/cli.ts:897 `f
+  - Why: The single-command workaround at cli.ts:1235-1238 proves the parser model is wrong rather than the callers. Fix at the source: declare the set of value-less boolean flags (--dry-run, --json, --all, --stale, --force, --apply, --strict, --explain, --promote, --per-source, --stdin, --include-flagged, --no-redact, ...) so parseArgs never lets them eat a token. Small, mechanical, an
+
+- **[THK-01, S] think has a flat 1500-token output cap with no per-model headroom**
+  - Landing site: deploy/memex/src/core/synthesis/think.ts:44 `const DEFAULT_OUTPUT_TOKENS = 1500;` and :1035 `const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;` — one constant, no model-aware function anywhere in the file (grep for `maxOutputTokens`/`16000`/`4000` in think.ts returns not
+  - Why: 1500 output tokens is less than 40% of the reference's non-reasoning default and under 10% of its reasoning default, and think's contract is a *structured JSON* answer (parsed by `parseThinkResponse`) carrying an answer, citations and gaps over up to 12 pages plus 20 takes — a shape where truncation is total loss, not graceful degradation, because the JSON never closes. Two tri
+
+- **[TS-04, S] No fallback when a grammar fails to load or parse — the file is dropped from the index entirely**
+  - Landing site: deploy/memex/src/core/chunkers/code.ts:479-484 — chunkCode calls `getParser(language)` then `parseWithBudget(parser, source)` with no try/catch; the doc comment at :469-473 says 'Throws only if the parser itself fails to load'. deploy/memex/src/core/indexer-code.ts:77 calls it ba
+  - Why: This is what turned a one-grammar defect into total content loss for an entire file type, and it is why the failure was invisible until someone noticed .sh files missing. Add a catch in chunkCode (or in indexCodeDocument around the chunkCode call) that on ANY parser/load error logs once per language and falls back to the recursive text chunker with the file's own text, mirrorin
+
+- **[MCP-01, S] add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from)**
+  - Landing site: deploy/memex/src/mcp/operations.ts:485-502 — add_fact params are exactly {entity_slug, fact, confidence, source_slug, source_chunk_id, written_by}. The handler deploy/memex/src/mcp/dispatch.ts:1930-1954 copies only those six. But the core accepts far more: deploy/memex/src/core/f
+  - Why: This is a closed loop that cannot close: entity_facts lets an agent filter by `session` and `visibility`, and the fact-decay ranker reads `kind`/`valid_until` (facts.ts:545-546, 655-663), yet the only MCP write path cannot populate any of them. Every agent-written fact lands with column defaults, so the session filter always returns empty and decay never fires on agent-written 
+
+- **[AUTH-2, S] No pre-auth rate limit on POST /mcp — two DB token lookups run before the limiter**
+  - Landing site: deploy/memex/src/http/server.ts:246-283: `evaluatePublicGuard` runs, and on a 401 the request goes straight into `opts.oauthProvider.verifyAccessToken(m[1])` at line 267. That verifier issues one SELECT against oauth_tokens JOIN oauth_clients (deploy/memex/src/core/oauth-provider
+  - Why: An unauthenticated attacker sending random `Authorization: Bearer <junk>` to https://brain.<domain>/mcp gets two RDS round-trips per request at zero cost, with no cap. That is both a token brute-force oracle amplifier and a straight DB-load DoS against a t4g.medium. Fix: hoist a per-IP limiter (keyed the same way `defaultClientKey` keys, http_transport.ts:111-132) into the /mcp
+
+- **[AUTH-4, S] rescopeClient cannot set or clear bound_slug_prefixes — a write fence can only be applied at registration**
+  - Landing site: deploy/memex/src/core/oauth-provider.ts:504-519 — `rescopeClient(clientId, sourceId, federatedRead?)` UPDATEs only `source_id` and `federated_read`; `bound_slug_prefixes` is not in the signature or the SQL. The column is writable ONLY at registration: deploy/memex/src/core/oauth-
+  - Why: A security control you cannot change without destroying the credential is a control operators route around. Today, fencing an existing client, widening it when someone takes on a second namespace, or REMOVING a fence all require revoke + re-register, which rotates the client secret and forces a redeploy of the agent holding it — so the realistic operator response is to never fe
+
+- **[AUTH-5, S] Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent**
+  - Landing site: deploy/memex/src/mcp/http_transport.ts:111-132 `defaultClientKey` trusts only `Cf-Connecting-Ip`; everything else returns the literal string `"internal"` (line 131), with the comment that XFF/X-Real-IP are attacker-controlled outside a trust boundary. There is no MEMEX_HTTP_TRUST
+  - Why: The supported-but-headerless configuration silently degrades per-IP rate limiting to a single 30-token global bucket: one client trivially starves every other public caller, and the per-IP brute-force defense stops existing. That the current Caddyfile happens to inject the header is a property of one bootstrap script, not of the daemon. Add MEMEX_HTTP_TRUST_PROXY=1 gating an X-
+
+### MED (16)
+
+- **[GAP-2, L] No WAL auto-repair for a torn-checkpoint startup crash (pg_resetwal port + repair orchestrator)**
+  - Landing site: Nothing equivalent exists. deploy/memex/src/core/engine/pglite.ts:29-31 is the entire startup path: `async ready() { await this.db.waitReady; }` — an Emscripten abort from a torn WAL propagates raw to the caller and the process dies. `ls deploy/memex/src/core/engine/` is exactly 
+  - Why: Impact is med, not high, because memex's production brain is RDS (deploy path sets MEMEX_POSTGRES_URL) where Postgres does its own crash recovery — this only protects self-hosted/dev PGLite brains. Critically, a straight adopt would be INERT: the port is PG17-coupled (pglite-resetwal.ts:45 `PG_CONTROL_VERSION = 1700`, :207-209 throws on any PG_VERSION != '17', and the ControlFi
+
+- **[DOC-3, M] No orphan-exclusion policy — index/daily/generated pages inflate the orphan count and there is no per-brain override**
+  - Landing site: deploy/memex/src/core/insights.ts:96-127 (`findOrphans`) filters only on `deleted_at IS NULL`, an optional `type`, and an optional source scope — no slug-based exclusions. src/core/advisor/collectors.ts:245-256 likewise applies no exclusions. Grep for `orphan` across deploy/memex
+  - Why: Without exclusions the orphan count is dominated by pages that are orphaned by design, which is why 379 reads as noise and gets ignored rather than acted on — and any doctor check built on that raw number (DOC-1) would fire permanently and get muted. Adapt the reference's structure (one shared module consumed by every orphan surface + two config keys for per-brain overrides) bu
+
+- **[CST-01, M] atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting**
+  - Landing site: deploy/memex/src/core/synthesis/concepts.ts:24 `const DEFAULT_MAX_CONCEPTS = 30;` is the only guard; :151-177 does `let llmCalls = 0; ... if (wantLlm && llmCalls < maxConcepts) { llmCalls += 1; ... await llm({...maxTokens: 400}) }` with no `BudgetTracker`, no `wouldExceed` pre-fl
+  - Why: This is an internal inconsistency in memex more than a foreign feature: patterns and reflections already do the right thing with memex's own `BudgetTracker`, so the pattern, the class, and the audit ledger all exist and just were not applied to atoms/concepts. Today `synthesize-concepts` can issue up to 30 unmetered Sonnet/Haiku calls per invocation with no USD ceiling and no l
+
+- **[MCP-03, M] `recall` is a different tool in memex — no dual facts+pages arm and no server-side token budget across arms**
+  - Landing site: deploy/memex/src/mcp/operations.ts:786-793 — memex `recall` is 'Read a single fact by its numeric id', params {id: int}. The reference's arms live in three separate memex tools: entity_facts (operations.ts:523-538, has session/grep/visibility/include_forgotten), fact_supersession
+  - Why: The decomposition is defensible — memex's three tools are each sharper than the reference's overloaded verb, and an MCP client can compose them. What is genuinely missing is the cross-arm token budget: memex's `search.token_budget` (operations.ts:192-197) caps chunk content only, so an agent assembling 'facts + supporting pages' under a context budget must guess the split and t
+
+- **[MV-02, M] No `protocol_version` envelope and no response-shape registry — response shapes are implicit and unpinned**
+  - Landing site: Zero occurrences of `protocol_version` anywhere under deploy/memex/src. Every handler hand-builds its own object shape at the call site — e.g. `jsonResult({ ok: true, entity_slug: …, facts: out })` (src/mcp/dispatch.ts:2029), `jsonResult({ ok: true, ...r })` for add_fact (dispatc
+  - Why: memex already proved the value of a derived-contract on the input side (tool_defs.ts:18 comment: the previous failure mode was 25 hand-maintained inline schemas). The output side has exactly the same drift exposure and no guard. A `protocol_version` integer plus a small RESPONSE_SCHEMAS registry for the five verb shapes is cheap and is the prerequisite for MV-11 (conformance). 
+
+- **[CLI-3, S] `--key=value` inline form is unsupported and silently ignored**
+  - Landing site: deploy/memex/src/cli.ts:85-106 contains no `=` handling at all — `--k=5` lands in `flags` as the literal string `--k=5`, so `values.get("--k")` at src/cli.ts:1344 is undefined and the search silently runs with the default k. Every numeric/enum flag in the file (--limit, --days, -
+  - Why: `--flag=value` is a universal CLI idiom and is what scripts, systemd units, and agents emit by habit. Today it fails open into defaults instead of failing loud. Landing this together with CLI-1 is cheap (one regex in parseArgs plus the same regex in the validator) and it removes the whole class where a value-bearing flag is written in the one spelling memex cannot read.
+
+- **[DOC-2, S] Advisor findings point at fix commands that do not do the advertised thing**
+  - Landing site: deploy/memex/src/core/advisor/collectors.ts:293 emits the dead-link finding with `fix_command: "memex doctor"` — but doctor has no dead-link check (see DOC-1), so following the advice yields `ok:true`. collectors.ts:283 emits the orphan finding with `fix_command: "memex orphans"`
+  - Why: A wrong fix_command is worse than none: it sends an operator (or an MCP client acting on the advisor output) down a path that reports success while the condition persists, which is how the current 379/14 discrepancy stayed invisible. Either land DOC-1 so `memex doctor` genuinely reports dead links, or repoint both fix_commands at commands that actually surface the condition (`m
+
+- **[FCT-02, S] No fallback JSON-recovery strategy when the model wraps its object in prose**
+  - Landing site: deploy/memex/src/core/facts-extract.ts:124-131 `stripFence` handles only a leading ```` ```json ```` fence; :136-140 then does a single strict `JSON.parse` and gives up on throw. There is no second strategy — a response like `Here are the facts:\n{"facts":[...]}` (no fence) parse
+  - Why: Cheap, self-contained, and directly reduces the FCT-01 blast radius: every response this recovers is one that no longer looks like an empty turn. memex's own prompt (facts-extract.ts:59-65) instructs "No prose, no code fences", which is exactly the instruction models drift from under load or when the turn text contains adversarial framing. One regex + one re-parse inside `parse
+
+- **[FCT-03, S] Malformed fact candidates are silently coerced into real fact rows instead of dropped or counted**
+  - Landing site: deploy/memex/src/core/facts-extract.ts:144-153 — the loop skips a candidate only when `fact` is missing/empty (:150 `if (!fact) continue;`), then unconditionally coerces kind: `const kind = FACT_KINDS.includes(o["kind"] as FactKind) ? (o["kind"] as FactKind) : "fact";`. A candida
+  - Why: memex is already MORE lenient than the reference's post-fix behaviour — it never rejects a whole batch over one bad candidate, which is exactly what #3894 was reaching for — so the salvage semantics themselves need no change. What is missing is the discrimination and the visibility. A candidate whose `kind` the model failed to emit is a candidate the model was uncertain about, 
+
+- **[GAP-3, S] doctor cannot inspect a PGLite data dir it failed to open — no on-disk diagnosis**
+  - Landing site: deploy/memex/src/commands/doctor.ts:94-111 — the entire 'pglite' check is `try { storage = new Storage(config); await storage.init(); checks.push({name:'pglite', ok:true, detail: config.database.path}) } catch (e) { checks.push({name:'pglite', ok:false, detail: e instanceof Error
+  - Why: Highest value-per-line item in this area: pure fs reads, zero mutation, no PG-version coupling, no risk to the RDS path. It turns 'pglite: Aborted().' into 'stale postmaster.pid present, pg_control is 8192 bytes, PG_VERSION 16, 3 WAL segments, lock held by live PID N'. Adapt (not adopt) — drop the backup-dir/sidecar/episode fields until GAP-2 lands, keep exists/postmaster.pid/p
+
+- **[GAP-4, S] PGLite init failures are unclassified — an Emscripten abort surfaces raw, with no cause routing or next step**
+  - Landing site: deploy/memex/src/core/engine/pglite.ts has no try/catch on any line — construction (:25-27) and `ready()` (:29-31) let whatever the driver throws propagate verbatim. There is no error-shape classification for the storage layer anywhere in src/core/engine/ (four files, 4841 bytes 
+  - Why: Cheap, self-contained, and it is the prerequisite that makes any future repair path (GAP-2) decidable — you cannot gate surgery on 'wasm-abort' if you never classify. Adapt the classifier and the stringifier; drop the bundler-vfs arm if memex never ships a compiled binary, and rewrite the hint text against memex's own commands. Worth doing even if GAP-2 is skipped forever, pure
+
+- **[MCP-04, S] No MCP ToolAnnotations — clients cannot distinguish read-only from destructive tools**
+  - Landing site: deploy/memex/src/mcp/operations.ts:36-51 — the Operation interface is {name, description, scope?, params} only; there is no annotations field anywhere in the file. deploy/memex/src/mcp/tool_defs.ts:18-22 emits exactly {name, description, inputSchema}. memex encodes the same infor
+  - Why: MCP clients (Claude Code, Cursor) use readOnlyHint to auto-approve calls and destructiveHint to force a confirmation prompt. With 91 tools and none annotated, every memex call gets the same treatment, which pushes operators toward blanket-approving a surface that includes page_delete, purge_deleted_pages, forget_fact and unlink. memex already has the ground truth to derive them
+
+- **[QI-01, S] Concept-shaped query detection + steering from `search` toward `query` (the 0.43.0.0 feature)**
+  - Landing site: deploy/memex/src/core/search/query-intent.ts ends at line 221 with `classifyQuerySuggestions`; there is no concept-cue bank, no `looksConceptShaped`, no nudge. Grep for `conceptNudge|looksConceptShaped|concept-shaped` across deploy/memex/src returns zero hits. The precondition ex
+  - Why: Not a ranking change — it changes which op the caller reaches for, which is exactly the lever that matters for an MCP-only brain whose client is an agent, not a human reading stderr. A set-shaped question ('all the companies that do X', 'the landscape of Y') answered by the expansion-off `search` returns a plausible nonzero count that the agent then treats as complete. Port the
+
+- **[QI-02, S] Doc/description-level steering: `search` is not advertised as incomplete for concept questions**
+  - Landing site: deploy/skills/brain-ops/SKILL.md:58-59 lists them flatly as '1. `search "name"` — keyword search for existing pages / 2. `query "natural question about name"` — hybrid search for context', with no completeness warning and no concept/landscape routing rule; :159-160 repeats 'searc
+  - Why: For an MCP-only brain the tool description IS the routing logic — it is the cheapest and highest-leverage half of the 0.43.0.0 steering, and it needs no code. Add one clause to the `search` op description pointing concept/landscape questions at `query` (and noting a nonzero count is not proof of completeness), and mirror the reference's two-step split in deploy/skills/brain-ops
+
+- **[SP-4, S] No type-distribution or untyped-coverage visibility — ad-hoc type sprawl is unmeasured**
+  - Landing site: Zero aggregation over pages.type anywhere in deploy/memex/src: grep for `GROUP BY type` returns only core/links-read.ts:136 (link types, not page types). The `stats` MCP tool's page queries (mcp/dispatch.ts:3465 `SELECT source_id FROM pages ...`) have no type breakdown. No doctor
+  - Why: memex writes four types that are not in KNOWN_PAGE_TYPES (synthesis, draft, drift-report, atom — see SP-2 evidence) and permits arbitrary others via `allowAdHocType` on the MCP surface (mcp/dispatch.ts:1097-1098, :1660-1661). Nothing measures the result, so a typo'd type (`peson`, `Person`) or a synthesis writer drifting to a new label is undetectable until someone notices find
+
+- **[MV-05, S] No TTL on the write path — `valid_until` exists in the schema but no MCP tool can set it**
+  - Landing site: deploy/memex/src/core/facts.ts:57-104 — `AddFactInput` carries `valid_from` (line ~74) but NO `valid_until`. The column exists and is consumed on the read side: fact decay drops rows past it (`(valid_until IS NULL OR valid_until >= CURRENT_DATE)`, facts.ts:663) and it is selected
+  - Why: The whole decay machinery memex already built (facts-decay.ts, mig037) is unreachable from the agent surface: an agent can record 'Alice is on leave' but cannot say 'for 30 days'. The column, the CHECK, the decay consumer and the selects all exist — this is a param, a ~40-line parser, and a stamp. Port the ISO-8601-duration trap verbatim; it is a real agent failure mode and the
+
+### LOW (2)
+
+- **[TB-01, S] Token-budget cost model omits the hit title, so the enforced cap undercounts the real payload**
+  - Landing site: deploy/memex/src/core/search/token-budget.ts:40 costs each hit as `estTokens(hit.content)` only. memex's SearchHit carries `title: string | null` and `sourcePath: string` (deploy/memex/src/core/search/hybrid.ts:390-397) and both are returned to the client (deploy/memex/src/mcp/di
+  - Why: The overshoot is small in absolute terms (titles are short) but it is a silent violation of a cap the caller asked for as a hard guarantee, and the fix is one line plus a test. Add `estTokens(hit.title ?? "")` to the per-hit cost in deploy/memex/src/core/search/token-budget.ts:40. Note this changes which hits fit and therefore the returned set — it must be folded into the ranki
+
+- **[SP-6, S] Page→search mirror failure is surfaced but not durably recorded in ingest_log**
+  - Landing site: memex covers most of this differently and arguably better, but drops the durable record. Coverage: mcp/dispatch.ts:1145 `searchIndexed = await mirrorPageToSearch(...)` and mcp/dispatch.ts:1175 returns `search_indexed` in the tool result, so the caller sees the failure; core/cycle
+  - Why: Do NOT port the read-back-and-throw guard: memex's page write is transactional against the canonical store, so a post-commit getPage miss is not a real failure mode, and throwing after a committed write would turn a recoverable mirror hiccup into a failed page_put — strictly worse than today's `search_indexed:false` + cycle reconcile. The one worthwhile piece is durability: cha
+---
+
 ## Adoption backlog — 2026-08-02 audit (20 items, adversarially verified)
 
 A code-grounded audit (12-agent fan-out, every claim re-verified against
