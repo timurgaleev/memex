@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.112.0] — 2026-08-11
+
+### Changed
+- **The CLI now refuses flags it does not define.** Previously an unknown flag
+  was collected and ignored. A script passing a flag memex never had will now
+  fail instead of running without it — which is the point, but it is a
+  behaviour change worth knowing before upgrading.
+
 ### Fixed
 - **A cut-off answer is retried with more room, not the same room.** Every paid
   call picks an output cap, and Bedrock says when it hit that cap — but only the

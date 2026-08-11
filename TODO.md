@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 14 shipped, 3 deferred by review, 18 open.**
+**Status: 18 shipped of the 35, 3 deferred by review, 14 open.**
 
 ### Shipped
 
@@ -31,6 +31,11 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[THK-01]** think has a flat 1500-token output cap with no per-model headroom — v1.112.0
+- **[THK-02]** stopReason is ignored by every paid path except the facts extractor — v1.112.0
+- **[CLI-1]** No strict unknown-flag validation — typo'd or unsupported flags are silently dropped and the destructive default runs — v1.112.0
+- **[CLI-4]** `--help` on a subcommand errored instead of printing help (from the 2026-08-11 sweep, not the original 35) — v1.112.0
+- **[TB-01]** Token-budget cost model omits the hit title, so the enforced cap undercounts the real payload — v1.112.0
 
 ### Deferred by review (do NOT re-apply the original drafts as written)
 
@@ -43,19 +48,11 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[MV-05]** No TTL on the write path — `valid_until` exists in the schema but no MCP tool can set it
   - Why deferred: dropped in review: valid_until is migration 097's dimensional-claim close marker — overloading it needs its own design pass
 
-### Open — HIGH (7)
+### Open — HIGH (4)
 
 - **[MV-01, L] No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else entirely**
   - Landing site: deploy/memex/src/mcp/operations.ts declares 91 ops (`grep -c` on the name field) with no `verb` marker on the Operation interface (lines 38-52). No op named `remember`, `entity`, `synthesize`, or bare `forget` exists. The closest behaviors are `add_fact` (operations.ts:486), `ent
   - Why: memex is MCP-only: the tool surface IS the product, and 91 undifferentiated tools is exactly the agent-routing problem the five verbs solve. Adopting is mostly wiring — every underlying behavior already exists — but the `recall` name collision forces a decision that must be made FIRST: either rename memex's id-read (e.g. `get_fact`) and give `recall` the protocol contract, or a
-
-- **[CLI-1, M] No strict unknown-flag validation — typo'd or unsupported flags are silently dropped and the destructive default runs**
-  - Landing site: deploy/memex/src/cli.ts:85-106 `parseArgs` collects every `--token` into `flags`/`values` with no legality check; the only rejection in the whole file is for an unknown *command* (src/cli.ts:1453-1456). Grep for 'unknown flag' across deploy/memex/src returns nothing. Concrete: `m
-  - Why: This is a correctness-and-cost bug, not an ergonomics nit: intent-bearing safety flags (--dry-run, --limit, --apply) are exactly the ones a typo or an unsupported spelling silently discards, and the fallback is always the mutating/paid path. memex's command surface is smaller than the reference's, so a hand-written per-command legal-flag map is viable without the code-scanning 
-
-- **[THK-02, M] stopReason is ignored by every paid path except the facts extractor**
-  - Landing site: memex plumbs the signal but consumes it in exactly one place. deploy/memex/src/core/llm/sonnet.ts:44-53 exposes `stopReason` on `SonnetCallResult` and :55 exports `STOP_REASON_MAX_TOKENS = "max_tokens"`. A repo-wide grep for `stopReason` under `src/core` returns hits in only two 
-  - Why: memex already proved the pattern works — facts-extract.ts:289-327 is a careful, budget-aware implementation with a `canAffordRetry` gate so the second call cannot bill past the caller's pre-flighted cap. The gap is that the pattern was never generalised. think.ts is the worst instance because its retry logic actively defeats itself: a truncated round-1 response fails `parseThin
 
 - **[GAP-1, M] No filesystem data-dir lock — nothing prevents two processes opening the same PGLite dir (the corruption cause)**
   - Landing site: deploy/memex/src/core/engine/pglite.ts:25-27 — the constructor is `this.db = new PGlite(opts.dbPath, { extensions: { vector, pg_trgm } })`, no lock acquisition anywhere; `close()` at :45-47 releases nothing but the handle. The module header at pglite.ts:6-9 states the constraint 
@@ -68,10 +65,6 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[MV-03, M] Write path has no required `provenance` — attribution on a remembered fact is entirely optional**
   - Landing site: deploy/memex/src/mcp/operations.ts:490-501 — `add_fact` params are entity_slug (required), fact (required), then confidence, source_slug, source_chunk_id, written_by, ALL optional. The handler `callAddFact` (src/mcp/dispatch.ts:1930-1954) only validates entity_slug and fact; it c
   - Why: This is the single highest-value contract rule in the protocol and it is a retrieval-quality issue, not a formality: an unattributed fact cannot be audited, decayed against its origin, or trusted during synthesis, and memex's own fact ledger is agent-writable over public ingress (add_fact is in PUBLIC_WRITE_TOOLS, src/http/public_guard.ts:91-99). memex needs no migration — `wri
-
-- **[THK-01, S] think has a flat 1500-token output cap with no per-model headroom**
-  - Landing site: deploy/memex/src/core/synthesis/think.ts:44 `const DEFAULT_OUTPUT_TOKENS = 1500;` and :1035 `const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;` — one constant, no model-aware function anywhere in the file (grep for `maxOutputTokens`/`16000`/`4000` in think.ts returns not
-  - Why: 1500 output tokens is less than 40% of the reference's non-reasoning default and under 10% of its reasoning default, and think's contract is a *structured JSON* answer (parsed by `parseThinkResponse`) carrying an answer, citations and gaps over up to 12 pages plus 20 takes — a shape where truncation is total loss, not graceful degradation, because the JSON never closes. Two tri
 
 ### Open — MED (9)
 
@@ -111,11 +104,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: Zero aggregation over pages.type anywhere in deploy/memex/src: grep for `GROUP BY type` returns only core/links-read.ts:136 (link types, not page types). The `stats` MCP tool's page queries (mcp/dispatch.ts:3465 `SELECT source_id FROM pages ...`) have no type breakdown. No doctor
   - Why: memex writes four types that are not in KNOWN_PAGE_TYPES (synthesis, draft, drift-report, atom — see SP-2 evidence) and permits arbitrary others via `allowAdHocType` on the MCP surface (mcp/dispatch.ts:1097-1098, :1660-1661). Nothing measures the result, so a typo'd type (`peson`, `Person`) or a synthesis writer drifting to a new label is undetectable until someone notices find
 
-### Open — LOW (2)
-
-- **[TB-01, S] Token-budget cost model omits the hit title, so the enforced cap undercounts the real payload**
-  - Landing site: deploy/memex/src/core/search/token-budget.ts:40 costs each hit as `estTokens(hit.content)` only. memex's SearchHit carries `title: string | null` and `sourcePath: string` (deploy/memex/src/core/search/hybrid.ts:390-397) and both are returned to the client (deploy/memex/src/mcp/di
-  - Why: The overshoot is small in absolute terms (titles are short) but it is a silent violation of a cap the caller asked for as a hard guarantee, and the fix is one line plus a test. Add `estTokens(hit.title ?? "")` to the per-hit cost in deploy/memex/src/core/search/token-budget.ts:40. Note this changes which hits fit and therefore the returned set — it must be folded into the ranki
+### Open — LOW (1)
 
 - **[SP-6, S] Page→search mirror failure is surfaced but not durably recorded in ingest_log**
   - Landing site: memex covers most of this differently and arguably better, but drops the durable record. Coverage: mcp/dispatch.ts:1145 `searchIndexed = await mirrorPageToSearch(...)` and mcp/dispatch.ts:1175 returns `search_indexed` in the tool result, so the caller sees the failure; core/cycle
@@ -124,7 +113,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ## New candidates — 2026-08-11 sweep
 
-Two items surfaced after the 2026-08-10 backlog was frozen.
+Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0; BENCH-1 is open.
 
 - **[BENCH-1, L] Nothing measures the agent-facing behaviour of the brain —
   only its retrieval.** `eval-probe` scores hit-rate and rank over a golden
@@ -147,262 +136,6 @@ Two items surfaced after the 2026-08-10 backlog was frozen.
     whole run with table resets between fixtures (per-fixture WASM cold boots
     blow any CI budget — the same heap-growth constraint that forces
     `test:sharded`), plus a scoreboard. Deterministic and free by default.
-
-- **[CLI-4, S] `--help` on a subcommand errors instead of printing help.**
-  Verified 2026-08-11: `memex search --help` → "`<query>` is required",
-  `memex jobs --help` → "subcommand required", `memex auth --help` → a usage
-  line on stderr with a non-zero exit. `doctor --help` and `embed --help` are
-  fine, so the handling is per-command rather than central. Intercept `--help`
-  in `parseArgs` before required-argument validation.
-
----
-
-## LOW backlog (millisecond-tie orderings, 2026-08-10)
-
-`listFacts` was fixed to end every ordering in `id DESC` — `written_at` is
-`DEFAULT NOW()` at millisecond resolution, so rows written in the same
-millisecond tie and the scan decides the order. The same pattern is still
-open in six sibling queries; none is asserted by a test today, so each is a
-latent flake plus an agent-visible "most recent" that isn't stable:
-
-- `core/hot_memory.ts:192` (`effective_confidence DESC, written_at DESC`) and
-  `:237` (`written_at DESC`) — the latter feeds the `_meta.brain_hot_memory`
-  injection, i.e. the "most recent" an MCP client sees.
-- `core/links.ts:420`, `core/links-read.ts:74`, `:82` — `links.written_at`
-  (migration 016).
-- `core/cycle/embed-facts.ts:55` and `core/cycle/consolidate-facts.ts:225` —
-  the exact `entity_facts.written_at DESC` pattern just fixed in `listFacts`.
-
-Each is a one-line `, id DESC` append. Batch them rather than one at a time,
-and note the same index caveat: `(entity_slug, written_at DESC)` no longer
-satisfies the ordering on its own — immaterial at these table sizes.
-
----
-
-## Adoption backlog — 2026-08-02 audit (20 items, adversarially verified)
-
-A code-grounded audit (12-agent fan-out, every claim re-verified against
-`deploy/memex/src` with file:line evidence) surfaced these gaps.
-
-**STATUS: 19 of 20 SHIPPED in v1.106.0 (2026-08-02).** The item list below
-is retained as the design record for those changes. The one deliberate
-deferral:
-
-- **CJK entity extraction — DEFERRED.** After the Unicode slug grammar
-  landed, the remaining CJK-specific work (unspaced-prose boundary
-  detection in the gazetteer, CJK verb patterns in link-verb inference)
-  serves a corpus this brain doesn't have (EN/RU); Cyrillic — the case that
-  matters here — is covered by the shipped slug + gazetteer Unicode
-  handling. Revisit only if CJK content enters the vault.
-
-Original items (shipped — kept for the rationale and landing sites):
-
-### MED (10)
-
-- **Raise `hnsw.ef_search` to match the vector candidate request.** The ANN
-  arm requests `fanout = max(20, k*3)` candidates (`search/hybrid.ts:585`)
-  and the MCP default is k=20 → 60 candidates, but Postgres's default
-  `hnsw.ef_search=40` silently caps the pool — every default query is
-  degraded. Add an `hnswEfSearchFor(limit)` helper (clamp 40..1000) next to
-  `EMBEDDINGS_HNSW_SPEC` in `core/vector-index.ts` and set it
-  transaction-locally (`set_config('hnsw.ef_search', .., true)`) around the
-  ANN query in `search/vector.ts` (needs a tx wrapper — today it is a bare
-  `engine.query`).
-- **Non-Latin slugs.** The slug grammar is ASCII-only (`links.ts:52,86`,
-  `pages.ts:91`, `insights.ts:27`), so an all-Cyrillic `[[wikilink]]`
-  slugifies to `unknown` and `slug-canonicalize.ts:290` bails before the
-  alias/trgm stages — such links can never resolve. Move to a shared
-  Unicode word-char class (`\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}`, `u` flag) across
-  slugify + validators, and drop the `unknown` early-bail so non-Latin
-  mentions still reach alias/trgm resolution. Biggest practical win for a
-  Russian-language vault.
-- **Enforce `bound_slug_prefixes`.** The column exists
-  (`migrations/046_oauth.sql:64`) with zero enforcement anywhere; since
-  v1.102 write-scoped tokens reach destructive page tools. Enforce at the
-  `mcp/dispatch.ts` write gate (deny-by-default for slug-naming write ops on
-  bound clients), plus a `--bound-slug-prefixes` flag in
-  `commands/auth.ts register-client` and a provider read in
-  `core/oauth-provider.ts`.
-- **`jobs prune --dry-run` silently deletes.** The CLI parser ignores
-  unknown flags, and `Queue.prune` (`core/jobs/queue.ts:562`) always
-  deletes — an operator previewing a prune deletes for real. Add `dryRun`
-  to `Queue.prune` (SELECT count instead of DELETE), parse the flag in the
-  `cli.ts` jobs branch, thread through `commands/jobs.ts:108-117`.
-- **First-person entity-query intent.** `query-intent.ts:71` matches
-  `what do (you|we) know` but not `what do I know` — the canonical operator
-  phrasing (`facts.ts:6,828`). One-char fix: `(i|you|we)` + test.
-- **`COMPILED_TRUTH_BOOST` displaces cross-page results at default
-  detail.** `hybrid.ts:1042` applies the ×2 boost to post-RRF scores gated
-  only by `detail !== 'high'`; RRF scores are range-compressed, so any
-  boosted truth-mirror chunk outranks an unboosted rank-1 chunk — a weak
-  page's mirror displaces a strong page's best chunk on every default
-  query. Needs a memex-specific rescope (same-page-only boost, or
-  `detail='low'` only, or shrink to a tilt) + a `rankingSignature` bump to
-  invalidate pre-fix cached orderings.
-- **Re-embed strips contextual prefixes.** Every `memex embed` path
-  (backfill at `embed-backfill.ts:434`, forceReembed at :499, --stale
-  at :489) embeds raw `row.content`, silently dropping contextual-retrieval
-  prefixes for chunks marked `contextual_embedded`, and forceReembed never
-  resets the marker — so it lies about the vectors in the DB and non-force
-  `reindex --contextual` skips those chunks. Wrap marked chunks via
-  `buildContextualPrefix` (as `contextual-reembed.ts:281-317` does) or clear
-  the marker whenever a wrapped chunk's vector is deleted.
-- **Embed-coverage metric cannot converge.** Embed paths exclude
-  `embed_skip` pages but the coverage denominators do not
-  (`source-health.ts:70-79,183-190`), so doctor warns at <95% forever for a
-  source with embed-skip pages (`doctor-tenancy.ts:64-77`). Apply
-  `embedSkipFilterFragment` to the denominators + remediation probe; drop
-  the "accepted divergence" caveat in `embed-skip.ts:24-28`.
-- **Phantom entity slugs from the facts fallback.** `slugifyEntity`
-  (`facts-extract.ts:329-336`) rewrites `/`→`-`, and the unresolved-cascade
-  fallback (`facts-extract.ts:404-410`) uses it while the extraction prompt
-  feeds path-shaped slugs as hints — a novel `people/x` emission keys
-  `entity_facts` under `people-x`, a slug no page can have. Fix: slugify
-  per segment (preserve `/`), or reuse `slugifyTarget` which already does.
-- **Doctor: content-hash duplicate probe.** No duplicate-page check exists
-  (roster at `commands/doctor.ts:69-346`); migration 099's own notes flag
-  the duplicate class. Add a warn-only probe to `core/doctor-ops.ts`:
-  GROUP BY `pages(source_id, content_hash)` WHERE `deleted_at IS NULL`
-  HAVING count(*)>1, with the bare-vs-path-prefixed slug split.
-
-### LOW (10)
-
-- **Relative `since`/`until` durations in search** (`7d`/`2w`/`1y`), plus
-  plain-date `until` should mean end-of-day. Normalizer in
-  `search/filters.ts` before params.push, mirrored in the hybrid post-hydrate
-  filter; update the MCP param docs. (Date-filtered queries already bypass
-  the cache, so no poison risk.)
-- **NUL bytes abort code-file indexing.** `indexer-code.ts:216` reads
-  utf8 and the chunk INSERT binds raw text (`indexer-tx.ts:213-242`) —
-  Postgres rejects U+0000 and the whole document transaction aborts.
-  Sanitize at the indexer-tx chunk-insert choke point (covers markdown too)
-  + the title param.
-- **Swallowed cycle `lock.release()` failures.** `recipes/cycle.ts:281-287`
-  and `:311-317` catch and drop; a stranded `cycle_locks` row blocks ticks
-  until TTL with zero diagnostic. Add `console.error` in both catches (the
-  jobs worker already logs its equivalent at `core/jobs/worker.ts:136`).
-- **Partial facts-fence parse wipes skipped rows.** The reconcile guard
-  covers only the zero-rows case (`facts-reconcile.ts:105-111`); a fence
-  with ONE malformed row still wipes+reinserts, deleting that row's DB
-  projection. Give `parseFactsFence` a per-row warnings channel and skip
-  reconciliation on warning-bearing parses.
-- **`budget=0` means "spend nothing", not "use the default".**
-  `auto-think.ts:67-71,187` (and the same `n > 0 : default` coercion in
-  `drift.ts`, `patterns.ts`, `reflections.ts`, `enrich-thin.ts`) coerces an
-  explicit 0 to the paid default. Treat explicit finite 0 as skip-the-run.
-- **CJK entity extraction.** Gazetteer min-phrase-length/boundaries and
-  ASCII slug grammar exclude CJK names entirely; blocked on the non-Latin
-  slug item above. Only worth doing after it.
-- **Deterministic timeline anchor from `effective_date`.** A firmly dated
-  non-meeting page contributes zero `timeline_events` (the chronicle
-  extractor is LLM-gated/default-OFF and may propose nothing). Opt-in cycle
-  phase: one idempotent anchored event per dated page with no events, keyed
-  like `meeting-timeline:<slug>`, never from `updated_at`.
-- **Chat-history importer.** A standalone LLM-free script converting
-  exported chat-history JSON into one `type: conversation` markdown page
-  per conversation (message-id citations), feeding the existing
-  conversation-parser/extract-conversation-facts consumers. Quote
-  frontmatter values and omit absent conversation ids from day one.
-- **Slack block format in the conversation parser.**
-  `conversation-parser.ts:44-90` has only single-line patterns; a
-  Slack-style block (`- **Name** (Mon 11:18)` + indented body) yields zero
-  messages. Add a strict no-op normalize pre-pass collapsing block form to
-  the canonical `**Name** (HH:MM): body` line.
-- **Admin: rescope a client without revoke+re-register.**
-  `oauth-provider.ts:395` claims "operators rescope via the CLI" but no
-  such path exists; admin can only set source/read at registration. Add
-  `POST /admin/api/rescope-client` + a sources listing for the picker + an
-  edit control in `admin/src/pages/Credentials.tsx`.
-
-## Review-accepted follow-ups (2026-08-02 triple review: security + retrieval + correctness)
-
-Findings from the v1.106.0 review pass that were deliberately accepted or
-deferred (everything CRITICAL/HIGH and one-touch MEDIUM was fixed in the
-same batch):
-
-- **Contextual re-embed uses the deterministic tier only.** The backfill
-  re-wrap cannot reproduce an LLM-blurb prefix (the `contextual_embedded`
-  marker records no tier), so a re-embed of an LLM-tier chunk downgrades it
-  to the deterministic prefix. Recording the tier needs a column; until
-  then `reindex --contextual --force` re-runs the configured tier.
-- **Phantom flattened entity keys are not backfilled.** Facts previously
-  keyed under `people-bob` (the flattened form of `people/bob`) stay under
-  the old key until the source page's facts re-extract; a merge migration
-  cannot distinguish genuinely-hyphenated entities from flattened paths.
-- **ANN boost/max-pool orderings defeat HNSW.** The curation-boost and
-  max-pool arm variants order by expressions the index cannot serve (full
-  scan); the ef_search raise deliberately skips them. Emitting the plain
-  `ORDER BY vector <=> $1` when the curation map is empty would restore
-  index service for the common case — measurable, larger change.
-- **Unpriced (non-Claude) synthesis model now skips paid phases** at the
-  pre-flight with "budget exhausted" instead of running and failing at
-  settle. Bedrock-Claude-only is the standing posture, so this is the
-  intended fail-cheap direction; revisit only if the model roster widens.
-- ~~**`pg_trgm` similarity over non-Latin slugs depends on DB locale**~~ —
-  VERIFIED on the live RDS 2026-08-03: `similarity()` over a Cyrillic slug
-  pair returned 0.46 (non-zero), so the trgm canonicalize stage works for
-  Cyrillic slugs. Closed.
-- **Alias claims are not fenced per client** — an in-prefix page can claim
-  an alias norm an out-of-prefix page owns; `resolveAliasUnique` then
-  returns null for both (silent mutual kill). Low blast radius; needs an
-  ownership rule in `setPageAliases`.
-- **DCR (`MEMEX_ENABLE_DCR_INSECURE=1`) mints unbounded clients** — with
-  the flag on, self-registration sidesteps the slug fence by design.
-  Default-off; the flag's name already carries the warning.
-- **Chat importer emits no per-message ids** — the conversation-parser
-  body format has no citation lane; `conversation_id` frontmatter is the
-  provenance anchor for now.
-
-## Deferred sweep tail (2026-07-27)
-
-- **`set_take_status` can flip a zero-yield memo into a belief.** The memo the
-  takes phase writes for a document that extracted no claims is fenced out of
-  every read that lists or counts takes, but `set_take_status` addresses a row
-  by `take_key`, so a caller that knows (or recomputes) a memo's key can mark it
-  `accepted`; `recompute-salience` then counts it because it ignores `active`.
-  No surface hands that key out, so this needs the caller to derive the hash
-  itself — internal-only, not a leak. Closing it means either fencing the
-  mutator or teaching salience the `active` axis, which widens the diff past the
-  batch it was found in. Deferred deliberately.
-- **A forced re-index re-pays one atom extraction.** The indexer replaces
-  `documents.frontmatter` wholesale, so a rechunk or re-embed of unchanged
-  content clears the `atoms_scan_hash` stamp and the phase scans that document
-  once more. This fails in the safe direction (a re-scan, never permanent
-  suppression); revisit only if
-  forced re-indexes become routine.
-
-## Chronicle follow-ups (2026-07-12 session, deferred small tail)
-
-- **Chronicle CLI read commands.** `chronicle_day`/`chronicle_since`/
-  `chronicle_last_seen`/`ontology_get`/`volunteer_chronicle` exist as MCP ops
-  only; `memex day <date>`-style CLI wrappers deferred (MCP-first surface;
-  add when terminal ergonomics matter). `memex eval chronicle` and
-  `capture --type diary/event` DID land.
-- **Ontology transaction-time history.** `valid_from`/`valid_until` model
-  valid time; a superseded row's update is not itself versioned
-  (`recorded_from`/`recorded_until`). Append-only revisions would allow
-  "what did the brain believe last Tuesday" queries. Deliberately skipped —
-  day-granularity valid time covers the agent use cases; revisit if a
-  calibration/audit need appears.
-- **`export.ts` containment via realpath.** Export path containment uses a
-  lexical `resolve().startsWith` check; the shared realpath-both-sides guard
-  would also defuse symlinked export targets. Low risk (operator-only
-  surface), small change.
-- **Empty-env hardening tail.** `MEMEX_PATTERNS_REFLECTION_PREFIX` (empty →
-  empty prefix after trim) and `MEMEX_HOST`/`MEMEX_BRAIN_PORT` CLI reads
-  tolerate `""` oddly; same class as the fixed AWS_REGION reads, lower blast
-  radius.
-- **Chronicle boost floor.** The temporal-mode chronicle lift rides the
-  existing post-fusion multiplier chain without a separate floor threshold;
-  memex's arm-survival gating is the equivalent guard today. If ranking
-  regressions surface on temporal queries, add a floor before the multiplier.
-
----
-
-## Full-recompare actionable gaps (2026-07-07 session 2, 16-subsystem workflow)
-
-Dispositioned 2026-07-07 (session 2, continued). One shipped; the DB-machinery
-pair genuinely needs a live-RDS session; two reasoned-defers/keeps:
 
 - **[DONE — v1.93.0] frontmatter→typed-edge `related_to`.** Added
   `related`/`see_also` → `related_to` (outgoing) as an ANY-page-type bucket in
