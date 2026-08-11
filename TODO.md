@@ -122,6 +122,28 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Why: Do NOT port the read-back-and-throw guard: memex's page write is transactional against the canonical store, so a post-commit getPage miss is not a real failure mode, and throwing after a committed write would turn a recoverable mirror hiccup into a failed page_put — strictly worse than today's `search_indexed:false` + cycle reconcile. The one worthwhile piece is durability: cha
 ---
 
+## LOW backlog (millisecond-tie orderings, 2026-08-10)
+
+`listFacts` was fixed to end every ordering in `id DESC` — `written_at` is
+`DEFAULT NOW()` at millisecond resolution, so rows written in the same
+millisecond tie and the scan decides the order. The same pattern is still
+open in six sibling queries; none is asserted by a test today, so each is a
+latent flake plus an agent-visible "most recent" that isn't stable:
+
+- `core/hot_memory.ts:192` (`effective_confidence DESC, written_at DESC`) and
+  `:237` (`written_at DESC`) — the latter feeds the `_meta.brain_hot_memory`
+  injection, i.e. the "most recent" an MCP client sees.
+- `core/links.ts:420`, `core/links-read.ts:74`, `:82` — `links.written_at`
+  (migration 016).
+- `core/cycle/embed-facts.ts:55` and `core/cycle/consolidate-facts.ts:225` —
+  the exact `entity_facts.written_at DESC` pattern just fixed in `listFacts`.
+
+Each is a one-line `, id DESC` append. Batch them rather than one at a time,
+and note the same index caveat: `(entity_slug, written_at DESC)` no longer
+satisfies the ordering on its own — immaterial at these table sizes.
+
+---
+
 ## Adoption backlog — 2026-08-02 audit (20 items, adversarially verified)
 
 A code-grounded audit (12-agent fan-out, every claim re-verified against

@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Facts written in the same millisecond no longer come back in an arbitrary
+  order.** `written_at` is `DEFAULT NOW()` at millisecond resolution, so a burst
+  of writes ties, and every `listFacts` ordering ended on that column with no
+  further tiebreak — the "most recent fact" an agent read back was then whichever
+  row the scan happened to produce. All three orderings (recency, confidence,
+  semantic) now end in `id DESC`.
+
+### Changed
+- **The full local test run is sharded, by the same script CI uses.** Running all
+  324 test files in one `bun test` process exhausts the PGLite WASM heaps —
+  they only grow, even across `storage.close()` — so the run dies inside
+  `pg_initdb` and reports hundreds of failures that have nothing to do with the
+  code. The sharding loop moved out of the CI workflow into
+  `deploy/memex/scripts/test-sharded.sh` (`bun run test:sharded`), so the local
+  ship gate and CI cannot drift apart. CI behaviour is unchanged.
+
+### Tests
+- **The doctor category test had gone stale.** `code-grammars` shipped as a real
+  check in 1.109.0 but was never added to the test's hard-coded union, so the
+  suite had a standing failure that the broken full-suite run hid.
+
 ## [1.111.0] — 2026-08-10
 
 ### Security
