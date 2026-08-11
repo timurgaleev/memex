@@ -96,7 +96,7 @@ Secrets Manager (via `fetch-secrets.sh`), not the compose allowlist.
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
 | `MEMEX_POSTGRES_URL` | *(none — required)* | RDS Postgres connection URL (`postgres://…?sslmode=require`). Injected from the `<prefix>/memex-postgres-url` secret via `.secrets/memex.env`. Without it the index has nowhere to live. | free |
-| `MEMEX_PUBLIC_BEARER` | *(none)* | Bearer token that authenticates incoming public `/mcp` requests. Injected from `<prefix>/memex-public-bearer`. Rotated daily by `scripts/rotate-memex-public-bearer.sh`. | free |
+| `MEMEX_PUBLIC_BEARER` | *(none)* | Bearer token that authenticates incoming public `/mcp` requests. Injected from `<prefix>/memex-public-bearer`. Static unless you install the optional `memex-rotate-bearer` systemd timer, which rotates it daily via `scripts/rotate-memex-public-bearer.sh`. | free |
 | `MEMEX_INTERNAL_TOKEN` | *(none)* | Shared bearer authenticating peer containers on the internal docker bridge to memex's mutating routes. From `<prefix>/memex-internal-token`. | free |
 | `MEMEX_HOST` | `127.0.0.1` | Bind host / public hostname for the server. `init.sh` sets it to `<subdomain>.<domain>`; the CLI `--host` flag overrides. | free |
 | `MEMEX_SUBDOMAIN` | `brain` | The public MCP subdomain. Consumed by `init.sh`/`bootstrap.sh` to compose `MEMEX_HOST`; it is *not* read directly by the server at runtime (the terraform var `memex_subdomain` is the source of truth). | free |
@@ -230,7 +230,7 @@ that stops making calls once the budget is spent. All default OFF.
 
 ## 6. Maintenance cycle & ingest / ops
 
-Knobs for the 6-phase maintenance cycle, the file/code sweeps, migrations, and
+Knobs for the 13-phase maintenance cycle, the file/code sweeps, migrations, and
 job timeouts. The compose-allowlisted ones carry explicit defaults in
 `deploy/docker-compose.yml`; the rest are code-only.
 

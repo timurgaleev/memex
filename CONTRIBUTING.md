@@ -101,7 +101,7 @@ mandatory for **every** change — not just features:
    CRITICAL / HIGH finding.
 2. **Follow the ship workflow** in `CLAUDE.md` —
    **test → push → deploy → verify**. A change is not shipped until the
-   live EC2 runs it and the `/health` + bridge smoke checks pass.
+   live EC2 runs it and the `/health` + MCP smoke checks pass.
 
 Human contributors run the local gate in step 2 of the PR flow above;
 the maintainer runs the agent review on incoming PRs.

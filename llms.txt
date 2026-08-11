@@ -8,13 +8,15 @@
 Self-hostable personal knowledge brain, reached over MCP only:
 - **memex** — knowledge brain (Bun + Postgres + pgvector). Hybrid
   search + graph-signals ranking, entity + code call graph
-  (callers/callees), push-context, advisor, 61 MCP tools. Retrieval-first
+  (callers/callees), push-context, advisor, 91 MCP tools. Retrieval-first
   — Bedrock Titan v2 embeddings + Claude Haiku intent/expansion; answer synthesis
   is the MCP client's job. An opt-in, off-by-default LLM step distils notes
   into a separate `synth_*` store (source notes never touched). PGLite is a
   dev-only fallback.
 - **cloudflared** — public HTTPS ingress for the MCP server
-  (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect
+  (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect.
+  `ingress_mode = "caddy"` swaps it for a Caddy + Let's Encrypt sidecar
+  on a public IP instead (see `docs/DEPLOYMENT.md`).
 
 Both run as Docker Compose services on a single `t4g.medium` EC2.
 
@@ -29,6 +31,9 @@ Both run as Docker Compose services on a single `t4g.medium` EC2.
 | How to behave inside this repo (build / test / commit) | `AGENTS.md` |
 | memex subsystem deep-dive | `deploy/memex/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
 | Onboarding (`make init` flow) | `README.md` |
+| Every env knob, with cost tier | `docs/CONFIGURATION.md` |
+| Install / ingress modes / upgrade | `docs/DEPLOYMENT.md` |
+| Plain-language tour of the pipeline | `docs/HOW-IT-WORKS.md` |
 
 ## Source code map
 
@@ -42,16 +47,16 @@ deploy/
 │   ├── templates/               SOUL/USER/ACCESS_POLICY/HEARTBEAT.md.template (seeded by init)
 │   ├── src/
 │   │   ├── cli.ts               argparse + subcommand dispatch
-│   │   ├── commands/            init, serve, index, search, reindex, doctor,
-│   │   │                        integrity, eval, backlinks, extract,
-│   │   │                        reconcile-links, orphans, pages, lint, reports,
-│   │   │                        skillpack
+│   │   ├── commands/            one file per subcommand (serve, index, search,
+│   │   │                        reindex, doctor, cycle, jobs, auth, eval-*, …).
+│   │   │                        `bun run src/cli.ts --help` is the live list.
 │   │   ├── http/                two-route HTTP surface (/health + /mcp;
 │   │   │                        legacy REST routes removed in Phase A.7)
 │   │   ├── mcp/                 JSON-RPC transport, tool dispatch, rate limiter
 │   │   └── core/
 │   │       └── engine/          adapter pattern (interface, pglite, postgres, factory)
 │   └── docs/                    subsystem deep-dive (README, ARCHITECTURE, API, OPERATIONS)
+├── skills/                      agent skillpack served over MCP (`get_skill`)
 ├── cloudflared/                 public ingress sidecar (upstream image, no Dockerfile)
 │   └── docs/
 ├── secrets/                     AWS Secrets Manager fetch

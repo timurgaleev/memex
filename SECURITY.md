@@ -40,8 +40,9 @@ scope. Examples:
   state.
 - The audit gate (`make audit`) blocks pushes that contain
   maintainer-private identifiers.
-- The public MCP bearer rotates daily by default (systemd timer in
-  `deploy/systemd/memex-rotate-bearer.*`).
+- The public MCP bearer can rotate daily, but the timer is opt-in —
+  install `deploy/systemd/memex-rotate-bearer.*` by hand (bootstrap does
+  not), otherwise the token is static.
 - `MEMEX_PUBLIC_WRITE` defaults to `0` — a fresh clone cannot accept
   mutating MCP traffic without an explicit opt-in.
 
@@ -51,8 +52,10 @@ These are documented choices, not bugs — report only if you've found a
 way to break the assumed envelope.
 
 - A maintainer who deploys with default settings exposes a read-only
-  MCP server at `brain.<domain>/mcp`. The bearer token gates access;
-  daily rotation bounds the blast radius of a leaked token.
+  MCP server at `brain.<domain>/mcp`. The bearer token gates access; the
+  optional daily rotation timer (`deploy/systemd/memex-rotate-bearer.*`,
+  installed by hand) bounds the blast radius of a leaked token. Without
+  it the bearer is static until rotated manually.
 - Public read tools redact note bodies by default
   (`MEMEX_PUBLIC_READ_BODIES=1` opts in); write tools are filtered from
   discovery and rejected from the public surface, and require

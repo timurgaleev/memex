@@ -17,10 +17,14 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 - Maintains an entity graph (`[[wikilinks]]`, `#hashtags`, dates,
   frontmatter `tags:`) so we can answer "what links to X" and
   "documents tagged Y".
-- Runs a 6-phase maintenance cycle every 6 h (`embed-stale`,
-  `extract`, `reconcile-links`, `orphans-purge`,
-  `frontmatter-inference`, `snapshot`).
-- Exposes 61 MCP tools (search, index, backlinks, stats,
+- Runs a 13-phase maintenance cycle every 6 h (`lint`, `embed-stale`,
+  `mirror-pages`, `embed-facts`, `extract`, `resolve-symbol-edges`,
+  `reconcile-links`, `orphans-purge`, `recompute-salience`,
+  `extract-timeline`, `timeline-anchor`, `snapshot`, `purge`) — the
+  authoritative list is `ALL_PHASES` in `src/core/cycle/index.ts`. The
+  paid synthesis and facts-maintenance phases are opt-in and run only
+  when named explicitly.
+- Exposes 91 MCP tools (search, index, backlinks, stats,
   page_{put,append,delete,get,list,versions}, link, unlink,
   graph_{neighbors,query}, entity_{facts,timeline,recall},
   add_fact, add_timeline_event, jobs_{submit,list,get,cancel,logs},

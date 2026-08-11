@@ -121,8 +121,11 @@ memex is deliberately small: **one Docker container on one EC2 instance**, an
 **RDS Postgres** for the index, an **EFS** mount for config that survives rebuilds,
 and **AWS Secrets Manager** for the tokens. The only public surface is `POST /mcp`
 (+ `GET /health`), reached through a **Cloudflare Tunnel** — no load balancer, no
-extra AWS ingress. It fits on one small box and you can read the whole thing in an
-afternoon. Full topology in [ARCHITECTURE.md](../ARCHITECTURE.md).
+extra AWS ingress. (If you'd rather not depend on Cloudflare, the Caddy ingress
+mode serves the same route over Let's Encrypt TLS on the instance's own IP; see
+[DEPLOYMENT.md](./DEPLOYMENT.md#alternative-caddy-ingress-no-cloudflare).) It fits
+on one small box and you can read the whole thing in an afternoon. Full topology
+in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 7. It maintains itself
 

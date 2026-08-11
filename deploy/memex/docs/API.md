@@ -60,7 +60,7 @@ or batched (array).
 
 Returns every registered tool, each with a JSON-Schema draft-7
 `inputSchema`. **`tools/list` is the live source of truth** (currently
-55 tools); the groups below are a map, not an exhaustive contract:
+91 tools); the groups below are a map, not an exhaustive contract:
 
 - **Search / retrieval** — `search`, `query` (refinement), `backlinks`,
   `get_chunks`, `resolve_slugs`, `relational_recall`, `stats`.
