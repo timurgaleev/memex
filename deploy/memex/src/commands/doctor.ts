@@ -12,6 +12,7 @@
  *   - reports last_indexed_mtime spread (oldest / newest / count)
  */
 import { existsSync, statSync } from "node:fs";
+import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.ts";
 import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
@@ -104,11 +105,17 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         detail: config.database.path,
       });
     } catch (e) {
-      checks.push({
-        name: "pglite",
-        ok: false,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      // A diagnosis you can only get by opening the thing that will not open is
+      // no diagnosis. Read the directory itself — pure filesystem, no driver.
+      const detail =
+        config.database.type === "pglite" && config.database.path
+          ? `${e instanceof Error ? e.message : String(e)} | ${describeDataDir(
+              inspectDataDir(config.database.path),
+            )}`
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      checks.push({ name: "pglite", ok: false, detail });
     }
   }
 

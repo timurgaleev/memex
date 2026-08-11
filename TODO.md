@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 26 shipped, 3 deferred by review, 6 open.**
+**Status: 29 shipped, 4 deferred by review, 2 open.**
 
 ### Shipped
 
@@ -31,6 +31,9 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[GAP-4]** PGLite init failures are unclassified — an Emscripten abort surfaces raw — v1.117.0
+- **[GAP-3]** doctor cannot inspect a PGLite data dir it failed to open — v1.117.0
+- **[GAP-1]** No filesystem data-dir lock — nothing prevents two processes opening the same PGLite dir — v1.117.0
 - **[MCP-03]** No server-side token budget across the facts+pages arms — v1.116.0
 - **[MV-02]** No `protocol_version` envelope and no response-shape registry — v1.116.0
 - **[DOC-3]** No orphan-exclusion policy — index/daily/generated pages inflate the orphan count — v1.115.0
@@ -46,6 +49,27 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ### Deferred by review (do NOT re-apply the original drafts as written)
 
+- **[GAP-2]** No WAL auto-repair for a torn-checkpoint startup crash
+  - Why deferred: **DO-NOT-BUILD, on evidence.** Two independent agents reproduced
+    the premise and it does not hold. Our pinned PGLite (0.2.17) ships
+    **PostgreSQL 16.4**, not 17 — so a straight port of a PG17-coupled
+    `pg_resetwal` would not be inert, it would write a wrong-layout control file
+    and brick a recoverable directory. And the tear it repairs does not occur:
+    SIGKILL mid-write during an INSERT+CHECKPOINT loop reopened clean 6/6 times,
+    and a WAL tail truncated mid-record reopened clean — Postgres crash recovery
+    works under WASM because PGLite ships real Postgres. The directories that DO
+    refuse to open (a deleted WAL segment, a zeroed `pg_control`) are precisely
+    the ones `pg_resetwal` must never touch: resetting makes them OPEN, with
+    silently inconsistent heap/index/clog state. That turns "the brain will not
+    start, so the operator investigates" into "the brain starts and quietly
+    returns wrong answers", which is strictly worse — and it is the outcome in
+    100% of the cases where auto-repair would ever fire. The real corruption
+    cause, two processes on one directory, is now refused outright by GAP-1.
+    Reopen only if a real dev-machine directory is ever produced that PGLite
+    refuses AND recovery cannot fix; the right shape then is an explicit
+    `doctor --repair` that refuses on any version mismatch, not a startup path.
+
+
 - **[MCP-02]** entity_recall requires an exact slug and returns nothing useful on a miss — no free-text resolution, no near-miss suggestions, no 
   - Why deferred: dropped in review: the 'probable' branch was unreachable and the suggestion shape leaked slugs on the public ingress
 
@@ -55,33 +79,17 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[MV-05]** No TTL on the write path — `valid_until` exists in the schema but no MCP tool can set it
   - Why deferred: dropped in review: valid_until is migration 097's dimensional-claim close marker — overloading it needs its own design pass
 
-### Open — HIGH (3)
+### Open — HIGH (1)
 
 - **[MV-01, L] No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else entirely**
   - Landing site: deploy/memex/src/mcp/operations.ts declares 91 ops (`grep -c` on the name field) with no `verb` marker on the Operation interface (lines 38-52). No op named `remember`, `entity`, `synthesize`, or bare `forget` exists. The closest behaviors are `add_fact` (operations.ts:486), `ent
   - Why: memex is MCP-only: the tool surface IS the product, and 91 undifferentiated tools is exactly the agent-routing problem the five verbs solve. Adopting is mostly wiring — every underlying behavior already exists — but the `recall` name collision forces a decision that must be made FIRST: either rename memex's id-read (e.g. `get_fact`) and give `recall` the protocol contract, or a
 
-- **[GAP-1, M] No filesystem data-dir lock — nothing prevents two processes opening the same PGLite dir (the corruption cause)**
-  - Landing site: deploy/memex/src/core/engine/pglite.ts:25-27 — the constructor is `this.db = new PGlite(opts.dbPath, { extensions: { vector, pg_trgm } })`, no lock acquisition anywhere; `close()` at :45-47 releases nothing but the handle. The module header at pglite.ts:6-9 states the constraint 
-  - Why: This is the one item where memex is materially less safe than the reference, and it is the CAUSE the WAL repair only mitigates. It costs ~150-350 lines with no byte-level Postgres coupling, so unlike GAP-2 it ports cleanly to pglite 0.2.x. Adapt rather than adopt: memex has no long-running 'dream/embed' commands to special-case and no serve-vs-command distinction worth carrying
-
 - **[SP-2, M] No bulk retype primitive — a mistyped page can only be corrected one page_put at a time, and page type is load-bearing for graph enrichment**
   - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
   - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
 
-### Open — MED (3)
-
-- **[GAP-2, L] No WAL auto-repair for a torn-checkpoint startup crash (pg_resetwal port + repair orchestrator)**
-  - Landing site: Nothing equivalent exists. deploy/memex/src/core/engine/pglite.ts:29-31 is the entire startup path: `async ready() { await this.db.waitReady; }` — an Emscripten abort from a torn WAL propagates raw to the caller and the process dies. `ls deploy/memex/src/core/engine/` is exactly 
-  - Why: Impact is med, not high, because memex's production brain is RDS (deploy path sets MEMEX_POSTGRES_URL) where Postgres does its own crash recovery — this only protects self-hosted/dev PGLite brains. Critically, a straight adopt would be INERT: the port is PG17-coupled (pglite-resetwal.ts:45 `PG_CONTROL_VERSION = 1700`, :207-209 throws on any PG_VERSION != '17', and the ControlFi
-
-- **[GAP-3, S] doctor cannot inspect a PGLite data dir it failed to open — no on-disk diagnosis**
-  - Landing site: deploy/memex/src/commands/doctor.ts:94-111 — the entire 'pglite' check is `try { storage = new Storage(config); await storage.init(); checks.push({name:'pglite', ok:true, detail: config.database.path}) } catch (e) { checks.push({name:'pglite', ok:false, detail: e instanceof Error
-  - Why: Highest value-per-line item in this area: pure fs reads, zero mutation, no PG-version coupling, no risk to the RDS path. It turns 'pglite: Aborted().' into 'stale postmaster.pid present, pg_control is 8192 bytes, PG_VERSION 16, 3 WAL segments, lock held by live PID N'. Adapt (not adopt) — drop the backup-dir/sidecar/episode fields until GAP-2 lands, keep exists/postmaster.pid/p
-
-- **[GAP-4, S] PGLite init failures are unclassified — an Emscripten abort surfaces raw, with no cause routing or next step**
-  - Landing site: deploy/memex/src/core/engine/pglite.ts has no try/catch on any line — construction (:25-27) and `ready()` (:29-31) let whatever the driver throws propagate verbatim. There is no error-shape classification for the storage layer anywhere in src/core/engine/ (four files, 4841 bytes 
-  - Why: Cheap, self-contained, and it is the prerequisite that makes any future repair path (GAP-2) decidable — you cannot gate surgery on 'wasm-abort' if you never classify. Adapt the classifier and the stringifier; drop the bundler-vfs arm if memex never ships a compiled binary, and rewrite the hint text against memex's own commands. Worth doing even if GAP-2 is skipped forever, pure
+### Open — MED (1)
 
 ### Open — LOW (0)
 
