@@ -44,8 +44,10 @@ import {
   getPage,
   listPages,
   pageVersions,
+  KNOWN_PAGE_TYPES,
   type PageInput,
 } from "../core/pages.ts";
+import type { Engine } from "../core/engine/interface.ts";
 import {
   addLink,
   removeLink,
@@ -1034,7 +1036,42 @@ async function callBacklinks(
 
 async function callStats(storage: Storage): Promise<ToolCallResult> {
   const stats = await storage.stats();
-  return jsonResult({ ok: true, ...stats });
+  const pageTypes = await pageTypeDistribution(storage.engine());
+  return jsonResult({ ok: true, ...stats, page_types: pageTypes });
+}
+
+/**
+ * How the corpus is typed, and which types nobody declared.
+ *
+ * `page_put` permits an ad-hoc type, and the brain's own writers use four that
+ * are not in KNOWN_PAGE_TYPES. Nothing counted the result, so a typo (`peson`,
+ * `Person`) or a writer quietly drifting to a new label stayed invisible until
+ * somebody noticed a page missing from a type-filtered read. Counting is the
+ * whole fix — this reports, it never rejects.
+ */
+async function pageTypeDistribution(engine: Engine): Promise<{
+  by_type: { type: string; count: number }[];
+  unknown_types: string[];
+  unknown_pages: number;
+}> {
+  const r = await engine.query<{ type: string | null; n: string }>(
+    `SELECT type, count(*)::text AS n
+       FROM pages
+      WHERE deleted_at IS NULL
+      GROUP BY type
+      ORDER BY count(*) DESC, type ASC`,
+  );
+  const known = new Set<string>(KNOWN_PAGE_TYPES);
+  const byType = r.rows.map((row) => ({
+    type: row.type ?? "(untyped)",
+    count: Number(row.n),
+  }));
+  const unknown = byType.filter((t) => !known.has(t.type));
+  return {
+    by_type: byType,
+    unknown_types: unknown.map((t) => t.type),
+    unknown_pages: unknown.reduce((sum, t) => sum + t.count, 0),
+  };
 }
 
 /**
