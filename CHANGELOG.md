@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.116.0] — 2026-08-11
+## [1.115.0] — 2026-08-11
 
 ### Added
 - **`stats` reports how the corpus is typed.** `page_put` permits an ad-hoc
