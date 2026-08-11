@@ -34,8 +34,12 @@ TEST_DIR="${TEST_DIR:-tests}"
 
 # Group markers fold the per-shard output in the Actions log; plain runs
 # would only see the literal text, so emit them only under CI.
-group_open() { [ -n "${GITHUB_ACTIONS:-}" ] && echo "::group::$1" || echo "==> $1"; }
-group_close() { [ -n "${GITHUB_ACTIONS:-}" ] && echo "::endgroup::" || true; }
+group_open() {
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::group::$1"; else echo "==> $1"; fi
+}
+group_close() {
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::endgroup::"; fi
+}
 
 # Read loop rather than `mapfile`: macOS ships bash 3.2, which has no mapfile
 # (it silently yields an empty array), and this script is a local gate, not

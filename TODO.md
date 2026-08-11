@@ -122,6 +122,41 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Why: Do NOT port the read-back-and-throw guard: memex's page write is transactional against the canonical store, so a post-commit getPage miss is not a real failure mode, and throwing after a committed write would turn a recoverable mirror hiccup into a failed page_put — strictly worse than today's `search_indexed:false` + cycle reconcile. The one worthwhile piece is durability: cha
 ---
 
+## New candidates — 2026-08-11 sweep
+
+Two items surfaced after the 2026-08-10 backlog was frozen.
+
+- **[BENCH-1, L] Nothing measures the agent-facing behaviour of the brain —
+  only its retrieval.** `eval-probe` scores hit-rate and rank over a golden
+  query set into `eval_snapshots`, which grades *search*. It says nothing about
+  the four things an MCP client actually experiences: whether volunteered
+  context is precise and complete (`push_precision` / `push_recall` over
+  gold-labelled turns), whether the brain surfaces something when it should and
+  stays silent when it should not (a failure rate paired with a false-fire rate,
+  so "always inject" cannot game the score), whether a decision written in one
+  session is recalled in a later session through a *different* client
+  (continuity), and whether the conversation→memory write-back preserves the
+  facts it claims to (fidelity, gradeable with a stubbed gold extractor so the
+  shipped pipeline runs end to end at zero LLM cost, with an opt-in live-model
+  mode for extraction precision/recall).
+  - Why it matters here: memex already ships every mechanism being graded —
+    `volunteer_context`, push-context, `extract-conversation-facts`,
+    `source_session` — and none of them has a number attached. A regression in
+    injection quality is currently invisible.
+  - Shape: fixtures of labelled turns + one in-memory PGLite reused across the
+    whole run with table resets between fixtures (per-fixture WASM cold boots
+    blow any CI budget — the same heap-growth constraint that forces
+    `test:sharded`), plus a scoreboard. Deterministic and free by default.
+
+- **[CLI-4, S] `--help` on a subcommand errors instead of printing help.**
+  Verified 2026-08-11: `memex search --help` → "`<query>` is required",
+  `memex jobs --help` → "subcommand required", `memex auth --help` → a usage
+  line on stderr with a non-zero exit. `doctor --help` and `embed --help` are
+  fine, so the handling is per-command rather than central. Intercept `--help`
+  in `parseArgs` before required-argument validation.
+
+---
+
 ## LOW backlog (millisecond-tie orderings, 2026-08-10)
 
 `listFacts` was fixed to end every ordering in `id DESC` — `written_at` is
