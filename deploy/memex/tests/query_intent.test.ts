@@ -8,6 +8,7 @@ import {
   classifyQuerySuggestions,
   classifyQueryTaxonomy,
   taxonomyToDetail,
+  looksConceptShaped,
 } from "../src/core/search/query-intent.ts";
 import { classifyIntent } from "../src/core/search/intent.ts";
 
@@ -101,5 +102,36 @@ describe("classifyIntent — zero-LLM default", () => {
     expect(await classifyIntent("tell me about alice")).toBe("factual");
     expect(await classifyIntent("meeting notes from monday")).toBe("personal");
     expect(await classifyIntent("zigbee pairing setup")).toBe("topic");
+  });
+});
+
+describe("concept-shaped detection (steers set questions toward `query`)", () => {
+  it("fires on questions that ask to enumerate or compare", () => {
+    for (const q of [
+      "all the companies working on retrieval",
+      "what are the different approaches to chunking",
+      "list every project that touched auth",
+      "compare the two rerankers",
+      "the landscape of vector databases",
+      "which of those did we reject",
+    ]) {
+      expect(looksConceptShaped(q)).toBe(true);
+    }
+  });
+
+  it("stays quiet on a question that names one thing", () => {
+    for (const q of [
+      "when did I last meet alice",
+      "what is the rollback budget",
+      "acme contract renewal date",
+      "who founded acme",
+    ]) {
+      expect(looksConceptShaped(q)).toBe(false);
+    }
+  });
+
+  it("travels on the suggestion object the search path already computes", () => {
+    expect(classifyQuerySuggestions("what are the different options").conceptShaped).toBe(true);
+    expect(classifyQuerySuggestions("acme renewal date").conceptShaped).toBe(false);
   });
 });

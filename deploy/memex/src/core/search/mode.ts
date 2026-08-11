@@ -109,3 +109,15 @@ export function resolveKnob(
   if (envValue === "0") return false;
   return bundleValue;
 }
+
+/**
+ * Is LLM query expansion active for the current configuration?
+ *
+ * Two of the three bundles leave it off, so a set-shaped question answered by
+ * `search` returns a plausible non-empty result the caller has no reason to
+ * doubt. Surfaces that steer the caller elsewhere need to know whether that is
+ * actually the case right now, rather than assuming the default.
+ */
+export function expansionActive(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveKnob(undefined, env["MEMEX_QUERY_EXPANSION"], activeModeBundle().expansion);
+}

@@ -194,7 +194,8 @@ import {
   settleSpend,
   releaseReservation,
 } from "../core/budget.ts";
-import { MODE_BUNDLES, isSearchMode } from "../core/search/mode.ts";
+import { MODE_BUNDLES, isSearchMode, expansionActive } from "../core/search/mode.ts";
+import { looksConceptShaped } from "../core/search/query-intent.ts";
 import {
   cancelJob,
   getJob,
@@ -895,6 +896,24 @@ async function callSearch(
   const out = redact
     ? redactBodies(visible as unknown as Record<string, unknown>[])
     : visible;
+  // A set-shaped question ("all the companies that…", "what are the different
+  // approaches to…") is exactly the shape `search` answers badly when query
+  // expansion is off: it returns a plausible non-empty list the caller has no
+  // way to tell is partial. Say so, rather than letting the count imply
+  // completeness. Advisory only — the hits are unchanged.
+  if (looksConceptShaped(q) && !expansionActive()) {
+    return jsonResult({
+      ok: true,
+      hits: out,
+      hint: {
+        use: "query",
+        why:
+          "This reads as a set-shaped question, and query expansion is off for " +
+          "the active search mode — these hits may be a partial view. `query` " +
+          "expands the question before retrieving.",
+      },
+    });
+  }
   return jsonResult({ ok: true, hits: out });
 }
 

@@ -30,6 +30,13 @@ export interface QuerySuggestions {
   suggestedSalience: SalienceMode;
   suggestedRecency: RecencyMode;
   suggestedModality: ModalityMode;
+  /**
+   * The question asks for a SET or a landscape ("all the companies that…",
+   * "what are the different approaches to…") rather than a specific fact.
+   * `search` answers those with a plausible non-empty list that the caller has
+   * no way to tell is incomplete — the honest answer needs expansion.
+   */
+  conceptShaped: boolean;
 }
 
 const TEMPORAL_PATTERNS = [
@@ -46,6 +53,32 @@ const TEMPORAL_PATTERNS = [
   /\b\d{4}[-/]\d{2}\b/i,
   /\blast\s+(week|month|quarter|year)\b/i,
 ];
+
+/**
+ * Set-shaped / landscape phrasings. Deliberately narrow: a false positive here
+ * costs the caller a nudge they did not need, but a bank this small only fires
+ * on questions that genuinely ask to enumerate or compare.
+ */
+const CONCEPT_CUE_PATTERNS = [
+  /\ball\s+(the\s+)?(companies|people|projects|tools|papers|notes|places|options|ways|reasons|examples)\b/i,
+  /\b(list|enumerate)\s+(all|every|the)\b/i,
+  /\bwhat\s+are\s+the\b/i,
+  /\bwhich\s+(ones|of\s+(them|these|those))\b/i,
+  /\bdifferent\s+(kinds|types|approaches|ways|options)\b/i,
+  /\bthe\s+landscape\s+of\b/i,
+  /\boverview\s+of\b/i,
+  /\bcompare\b/i,
+  /\bevery\s+(company|person|project|note|tool)\b/i,
+  /\bwho\s+all\b/i,
+];
+
+/**
+ * True when the query asks for a set rather than a fact. Pure and free — no
+ * DB, no model.
+ */
+export function looksConceptShaped(query: string): boolean {
+  return matches(CONCEPT_CUE_PATTERNS, query);
+}
 
 const EVENT_PATTERNS = [
   /\bannounce[ds]?(ment)?\b/i,
@@ -217,5 +250,6 @@ export function classifyQuerySuggestions(query: string): QuerySuggestions {
     suggestedSalience,
     suggestedRecency,
     suggestedModality,
+    conceptShaped: looksConceptShaped(query),
   };
 }
