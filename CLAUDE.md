@@ -113,9 +113,11 @@ for this repo:
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
    - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed
    - When memex source changed, run the **full Bun suite locally**
-     (`env -C deploy/memex bun test`) — not just the touched file. The
-     local suite is the authoritative gate (operator decision: local
-     is faster and is what we trust; see below).
+     (`env -C deploy/memex bun run test:sharded`) — not just the touched
+     file. The local suite is the authoritative gate (operator decision:
+     local is faster and is what we trust; see below). It MUST go through
+     `test:sharded`: a bare `bun test` over all 324 files exhausts the
+     PGLite WASM heaps mid-run and reports hundreds of phantom failures.
 2. **Push** to the `origin` remote on `main`. **Local tests are the
    gate — do NOT block deploy on GitHub CI.** Push so CI runs for the
    record, but proceed to deploy as soon as the local gates in step 1

@@ -8,7 +8,7 @@
 - TDD where the logic is testable; smoke-test where the network is the test.
 - Containers run on a single EC2; deploy = `git pull && docker compose up -d --build` over SSM.
 - memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
-- memex is reached over MCP only (`POST /mcp` via cloudflared). No chat surface, no bot — just MCP clients (Claude Code, Cursor, …).
+- memex is reached over MCP only (`POST /mcp`, through cloudflared or — with `ingress_mode = "caddy"` — a Caddy sidecar on the instance's own IP). No chat surface, no bot — just MCP clients (Claude Code, Cursor, …).
 
 ## Required workflow — run the skill for every change
 
@@ -38,9 +38,18 @@ one extra skill/agent run is cheaper than a production regression.
 ```bash
 cd deploy/memex
 bun install               # frozenLockfile=true; never commit lock drift
-bun test                  # ~70s end-to-end
+bun run test:sharded      # the full suite — ~20 min, 324 files
+bun test tests/foo.test.ts  # one file while iterating — seconds
 bun run src/cli.ts --help # CLI surface
 ```
+
+**Never run the whole suite as a bare `bun test`.** Every PGLite instance a
+test opens reserves WASM linear memory that is never returned, so one
+process running all 324 files dies inside `pg_initdb` with `RangeError: Out
+of memory` and reports hundreds of phantom failures that have nothing to do
+with your change. `test:sharded` runs fixed-size chunks in fresh processes —
+the same script CI runs. A bare `bun test <file>` on one or a few files is
+fine and fast.
 
 There is no `bun run build` step for runtime — the daemon starts via `bun run src/cli.ts serve`. The `build` script in `package.json` exists for diagnostic bundling, not deployment.
 
@@ -135,7 +144,8 @@ MEMEX_DREAM_INTERVAL_S=21600
 MEMEX_DREAM_STALE_DAYS=30
 MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
 BRAIN_PORT=18790
-MEMEX_PUBLIC_BEARER=<token>       # validated on public /mcp; rotated daily
+MEMEX_PUBLIC_BEARER=<token>       # validated on public /mcp; static unless the
+                                  #   optional rotation timer is installed
 MEMEX_INTERNAL_TOKEN=<token>      # gates MCP write tools on the internal path
 TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
@@ -157,5 +167,6 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 1. Read CLAUDE.md.
 2. Read llms.txt for orientation.
 3. `git log --oneline | head -20` — what was the last thing done?
-4. `cat .ai-context/*.md` if you have local access — last session's handoff.
+4. `CHANGELOG.md` for what shipped, `TODO.md` for what was deliberately
+   deferred and why.
 5. Ask the user — don't guess on irreversible ops.

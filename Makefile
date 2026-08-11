@@ -43,7 +43,7 @@ test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
 
 lint: ## Static check of bash scripts (shellcheck if available)
 	@if command -v shellcheck >/dev/null 2>&1; then \
-	  shellcheck scripts/*.sh tests/*.test.sh 2>/dev/null || true; \
+	  shellcheck scripts/*.sh tests/*.test.sh deploy/memex/scripts/*.sh 2>/dev/null || true; \
 	else \
 	  echo "shellcheck not installed — skipping"; \
 	fi
