@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.112.1] — 2026-08-11
+
+### Fixed
+- **`lint --dry-run`, `migrate-engine --dry-run` and `quarantine scan --apply`
+  work again.** 1.112.0's new safety-flag guard carried a hand-written list of
+  which commands honour `--dry-run`, `--apply` and `--fix`, and that list was
+  wrong in both directions: it refused three invocations that were real, and it
+  vouched for commands that never read the flag, so the guard was asleep exactly
+  where it was supposed to be awake. The list is now checked against the command
+  switch itself by a test, which fails the moment the two disagree.
+
 ## [1.112.0] — 2026-08-11
 
 ### Changed
