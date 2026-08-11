@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 18 shipped, 3 deferred by review, 14 open.**
+**Status: 20 shipped, 3 deferred by review, 12 open.**
 
 ### Shipped
 
@@ -31,6 +31,8 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[QI-01]** Concept-shaped query detection + steering from `search` toward `query` — v1.113.0
+- **[DOC-2]** Advisor findings point at fix commands that do not do the advertised thing — v1.113.0
 - **[THK-01]** think has a flat 1500-token output cap with no per-model headroom — v1.112.0
 - **[THK-02]** stopReason is ignored by every paid path except the facts extractor — v1.112.0
 - **[CLI-1]** No strict unknown-flag validation — typo'd or unsupported flags are silently dropped and the destructive default runs — v1.112.0
@@ -65,7 +67,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: deploy/memex/src/mcp/operations.ts:490-501 — `add_fact` params are entity_slug (required), fact (required), then confidence, source_slug, source_chunk_id, written_by, ALL optional. The handler `callAddFact` (src/mcp/dispatch.ts:1930-1954) only validates entity_slug and fact; it c
   - Why: This is the single highest-value contract rule in the protocol and it is a retrieval-quality issue, not a formality: an unattributed fact cannot be audited, decayed against its origin, or trusted during synthesis, and memex's own fact ledger is agent-writable over public ingress (add_fact is in PUBLIC_WRITE_TOOLS, src/http/public_guard.ts:91-99). memex needs no migration — `wri
 
-### Open — MED (9)
+### Open — MED (7)
 
 - **[GAP-2, L] No WAL auto-repair for a torn-checkpoint startup crash (pg_resetwal port + repair orchestrator)**
   - Landing site: Nothing equivalent exists. deploy/memex/src/core/engine/pglite.ts:29-31 is the entire startup path: `async ready() { await this.db.waitReady; }` — an Emscripten abort from a torn WAL propagates raw to the caller and the process dies. `ls deploy/memex/src/core/engine/` is exactly 
@@ -83,10 +85,6 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: Zero occurrences of `protocol_version` anywhere under deploy/memex/src. Every handler hand-builds its own object shape at the call site — e.g. `jsonResult({ ok: true, entity_slug: …, facts: out })` (src/mcp/dispatch.ts:2029), `jsonResult({ ok: true, ...r })` for add_fact (dispatc
   - Why: memex already proved the value of a derived-contract on the input side (tool_defs.ts:18 comment: the previous failure mode was 25 hand-maintained inline schemas). The output side has exactly the same drift exposure and no guard. A `protocol_version` integer plus a small RESPONSE_SCHEMAS registry for the five verb shapes is cheap and is the prerequisite for MV-11 (conformance). 
 
-- **[DOC-2, S] Advisor findings point at fix commands that do not do the advertised thing**
-  - Landing site: deploy/memex/src/core/advisor/collectors.ts:293 emits the dead-link finding with `fix_command: "memex doctor"` — but doctor has no dead-link check (see DOC-1), so following the advice yields `ok:true`. collectors.ts:283 emits the orphan finding with `fix_command: "memex orphans"`
-  - Why: A wrong fix_command is worse than none: it sends an operator (or an MCP client acting on the advisor output) down a path that reports success while the condition persists, which is how the current 379/14 discrepancy stayed invisible. Either land DOC-1 so `memex doctor` genuinely reports dead links, or repoint both fix_commands at commands that actually surface the condition (`m
-
 - **[GAP-3, S] doctor cannot inspect a PGLite data dir it failed to open — no on-disk diagnosis**
   - Landing site: deploy/memex/src/commands/doctor.ts:94-111 — the entire 'pglite' check is `try { storage = new Storage(config); await storage.init(); checks.push({name:'pglite', ok:true, detail: config.database.path}) } catch (e) { checks.push({name:'pglite', ok:false, detail: e instanceof Error
   - Why: Highest value-per-line item in this area: pure fs reads, zero mutation, no PG-version coupling, no risk to the RDS path. It turns 'pglite: Aborted().' into 'stale postmaster.pid present, pg_control is 8192 bytes, PG_VERSION 16, 3 WAL segments, lock held by live PID N'. Adapt (not adopt) — drop the backup-dir/sidecar/episode fields until GAP-2 lands, keep exists/postmaster.pid/p
@@ -94,10 +92,6 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[GAP-4, S] PGLite init failures are unclassified — an Emscripten abort surfaces raw, with no cause routing or next step**
   - Landing site: deploy/memex/src/core/engine/pglite.ts has no try/catch on any line — construction (:25-27) and `ready()` (:29-31) let whatever the driver throws propagate verbatim. There is no error-shape classification for the storage layer anywhere in src/core/engine/ (four files, 4841 bytes 
   - Why: Cheap, self-contained, and it is the prerequisite that makes any future repair path (GAP-2) decidable — you cannot gate surgery on 'wasm-abort' if you never classify. Adapt the classifier and the stringifier; drop the bundler-vfs arm if memex never ships a compiled binary, and rewrite the hint text against memex's own commands. Worth doing even if GAP-2 is skipped forever, pure
-
-- **[QI-01, S] Concept-shaped query detection + steering from `search` toward `query` (the 0.43.0.0 feature)**
-  - Landing site: deploy/memex/src/core/search/query-intent.ts ends at line 221 with `classifyQuerySuggestions`; there is no concept-cue bank, no `looksConceptShaped`, no nudge. Grep for `conceptNudge|looksConceptShaped|concept-shaped` across deploy/memex/src returns zero hits. The precondition ex
-  - Why: Not a ranking change — it changes which op the caller reaches for, which is exactly the lever that matters for an MCP-only brain whose client is an agent, not a human reading stderr. A set-shaped question ('all the companies that do X', 'the landscape of Y') answered by the expansion-off `search` returns a plausible nonzero count that the agent then treats as complete. Port the
 
 - **[SP-4, S] No type-distribution or untyped-coverage visibility — ad-hoc type sprawl is unmeasured**
   - Landing site: Zero aggregation over pages.type anywhere in deploy/memex/src: grep for `GROUP BY type` returns only core/links-read.ts:136 (link types, not page types). The `stats` MCP tool's page queries (mcp/dispatch.ts:3465 `SELECT source_id FROM pages ...`) have no type breakdown. No doctor

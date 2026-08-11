@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.113.0] — 2026-08-11
+
+### Added
+- **A set-shaped question now says so.** "All the companies working on X",
+  "what are the different approaches to Y" — `search` answers those with a
+  plausible non-empty list, and query expansion is off in two of the three
+  search modes, so the caller has no way to tell the list is partial. `search`
+  now returns an advisory `hint` pointing at `query` when the question reads as
+  set-shaped and expansion is in fact off. The hits are unchanged; only the
+  silence about their completeness is.
+
+### Fixed
+- **The advisor no longer sends you to a command that does not do the job.**
+  The dead-link finding pointed at `memex doctor`, which has no dead-link check
+  — following the advice printed `ok:true` while the links stayed broken. The
+  islanded-pages finding pointed at `memex orphans`, which purges orphaned
+  database rows and has nothing to do with pages. They now name
+  `memex reconcile-links` and the `find_orphans` tool, and a test checks that
+  every command an advisor finding names actually exists.
+
 ## [1.112.1] — 2026-08-11
 
 ### Fixed
