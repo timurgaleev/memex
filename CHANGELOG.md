@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.118.0] — 2026-08-11
+
+### Added
+- **`memex page-retype` corrects the type of many pages at once.** `pages.type`
+  decides which enrichment paths see a page, so one that should be `person` but
+  landed as `note` quietly drops out of several reads — and the only remedy was
+  issuing the writes one at a time with no preview. Preview is the default;
+  `--apply` performs it. It does NOT touch `updated_at` (that is behavioural
+  state — the stale-salient anomaly, the recency-biased salience rank and
+  `get_recent_transcripts` all read it) and writes no page-version row (a type
+  change is not a body edit); the operation is recorded as a single `ingest_log`
+  row instead. It refuses based on the rows it matched rather than the arguments
+  it was given, and refuses retyping *into* a fenced type outright.
+
+### Changed
+- **`recall` says what it is.** Its description now states plainly that it reads
+  ONE fact by id and names the tools that search — an agent reaching for it
+  expecting a search was a routing problem, and descriptions are what route.
+
 ## [1.117.0] — 2026-08-11
 
 ### Added

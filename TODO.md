@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 29 shipped, 4 deferred by review, 2 open.**
+**Status: 30 shipped, 5 deferred by review, 0 open.**
 
 ### Shipped
 
@@ -31,6 +31,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[SP-2]** No bulk retype primitive — a mistyped page could only be corrected one page_put at a time — v1.118.0
 - **[GAP-4]** PGLite init failures are unclassified — an Emscripten abort surfaces raw — v1.117.0
 - **[GAP-3]** doctor cannot inspect a PGLite data dir it failed to open — v1.117.0
 - **[GAP-1]** No filesystem data-dir lock — nothing prevents two processes opening the same PGLite dir — v1.117.0
@@ -48,6 +49,25 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[TB-01]** Token-budget cost model omits the hit title, so the enforced cap undercounts the real payload — v1.112.0
 
 ### Deferred by review (do NOT re-apply the original drafts as written)
+
+- **[MV-01]** No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else
+  - Why deferred: **DO-NOT-BUILD, on two independent reads.** The façade adds a
+    second way to do everything without removing the first: every underlying
+    behaviour already exists as a sharper tool, so the surface grows from 91 to
+    96 and an agent gains one more thing to choose between. Worse, the fence
+    machinery is keyed per-tool — `SLUG_PARAMS_BY_WRITE_TOOL` refuses by
+    omission, so a merged `forget` verb declaring `["slug"]` would sail past the
+    write fence when called with `{fact_id}` — and the public guard is a
+    DENYLIST whose default is allow, so every new verb is public until someone
+    remembers to deny it. A façade that silently routes to different behaviour
+    than the tool it replaces is worse than no façade.
+  - The real problem underneath it — an agent reaching for `recall` expecting a
+    search — was a ROUTING problem, and descriptions are what route: fixed in
+    v1.118.0 by saying plainly in `recall`'s description that it is a
+    by-id read and naming the three tools that do the other things. One
+    description hunk instead of a breaking wire rename, a deprecation window and
+    a nine-table sweep.
+
 
 - **[GAP-2]** No WAL auto-repair for a torn-checkpoint startup crash
   - Why deferred: **DO-NOT-BUILD, on evidence.** Two independent agents reproduced
@@ -79,17 +99,9 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[MV-05]** No TTL on the write path — `valid_until` exists in the schema but no MCP tool can set it
   - Why deferred: dropped in review: valid_until is migration 097's dimensional-claim close marker — overloading it needs its own design pass
 
-### Open — HIGH (1)
+### Open — HIGH (0)
 
-- **[MV-01, L] No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else entirely**
-  - Landing site: deploy/memex/src/mcp/operations.ts declares 91 ops (`grep -c` on the name field) with no `verb` marker on the Operation interface (lines 38-52). No op named `remember`, `entity`, `synthesize`, or bare `forget` exists. The closest behaviors are `add_fact` (operations.ts:486), `ent
-  - Why: memex is MCP-only: the tool surface IS the product, and 91 undifferentiated tools is exactly the agent-routing problem the five verbs solve. Adopting is mostly wiring — every underlying behavior already exists — but the `recall` name collision forces a decision that must be made FIRST: either rename memex's id-read (e.g. `get_fact`) and give `recall` the protocol contract, or a
-
-- **[SP-2, M] No bulk retype primitive — a mistyped page can only be corrected one page_put at a time, and page type is load-bearing for graph enrichment**
-  - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
-  - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
-
-### Open — MED (1)
+### Open — MED (0)
 
 ### Open — LOW (0)
 
