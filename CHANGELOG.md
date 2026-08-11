@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.111.1] — 2026-08-11
+
 ### Fixed
 - **Facts written in the same millisecond no longer come back in an arbitrary
   order.** `written_at` is `DEFAULT NOW()` at millisecond resolution, so a burst
