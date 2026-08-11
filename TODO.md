@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 24 shipped, 3 deferred by review, 8 open.**
+**Status: 26 shipped, 3 deferred by review, 6 open.**
 
 ### Shipped
 
@@ -31,6 +31,8 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[MCP-03]** No server-side token budget across the facts+pages arms — v1.116.0
+- **[MV-02]** No `protocol_version` envelope and no response-shape registry — v1.116.0
 - **[DOC-3]** No orphan-exclusion policy — index/daily/generated pages inflate the orphan count — v1.115.0
 - **[SP-4]** No type-distribution or untyped-coverage visibility — ad-hoc type sprawl is unmeasured — v1.115.0
 - **[MV-03]** Write path has no required `provenance` — attribution on a remembered fact is entirely optional — v1.114.0
@@ -67,19 +69,11 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
   - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
 
-### Open — MED (5)
+### Open — MED (3)
 
 - **[GAP-2, L] No WAL auto-repair for a torn-checkpoint startup crash (pg_resetwal port + repair orchestrator)**
   - Landing site: Nothing equivalent exists. deploy/memex/src/core/engine/pglite.ts:29-31 is the entire startup path: `async ready() { await this.db.waitReady; }` — an Emscripten abort from a torn WAL propagates raw to the caller and the process dies. `ls deploy/memex/src/core/engine/` is exactly 
   - Why: Impact is med, not high, because memex's production brain is RDS (deploy path sets MEMEX_POSTGRES_URL) where Postgres does its own crash recovery — this only protects self-hosted/dev PGLite brains. Critically, a straight adopt would be INERT: the port is PG17-coupled (pglite-resetwal.ts:45 `PG_CONTROL_VERSION = 1700`, :207-209 throws on any PG_VERSION != '17', and the ControlFi
-
-- **[MCP-03, M] `recall` is a different tool in memex — no dual facts+pages arm and no server-side token budget across arms**
-  - Landing site: deploy/memex/src/mcp/operations.ts:786-793 — memex `recall` is 'Read a single fact by its numeric id', params {id: int}. The reference's arms live in three separate memex tools: entity_facts (operations.ts:523-538, has session/grep/visibility/include_forgotten), fact_supersession
-  - Why: The decomposition is defensible — memex's three tools are each sharper than the reference's overloaded verb, and an MCP client can compose them. What is genuinely missing is the cross-arm token budget: memex's `search.token_budget` (operations.ts:192-197) caps chunk content only, so an agent assembling 'facts + supporting pages' under a context budget must guess the split and t
-
-- **[MV-02, M] No `protocol_version` envelope and no response-shape registry — response shapes are implicit and unpinned**
-  - Landing site: Zero occurrences of `protocol_version` anywhere under deploy/memex/src. Every handler hand-builds its own object shape at the call site — e.g. `jsonResult({ ok: true, entity_slug: …, facts: out })` (src/mcp/dispatch.ts:2029), `jsonResult({ ok: true, ...r })` for add_fact (dispatc
-  - Why: memex already proved the value of a derived-contract on the input side (tool_defs.ts:18 comment: the previous failure mode was 25 hand-maintained inline schemas). The output side has exactly the same drift exposure and no guard. A `protocol_version` integer plus a small RESPONSE_SCHEMAS registry for the five verb shapes is cheap and is the prerequisite for MV-11 (conformance). 
 
 - **[GAP-3, S] doctor cannot inspect a PGLite data dir it failed to open — no on-disk diagnosis**
   - Landing site: deploy/memex/src/commands/doctor.ts:94-111 — the entire 'pglite' check is `try { storage = new Storage(config); await storage.init(); checks.push({name:'pglite', ok:true, detail: config.database.path}) } catch (e) { checks.push({name:'pglite', ok:false, detail: e instanceof Error

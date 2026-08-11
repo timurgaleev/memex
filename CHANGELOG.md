@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.116.0] — 2026-08-11
+
+### Added
+- **`entity_recall` takes one token budget for the whole answer.** It returns a
+  page, facts and a timeline together, and nothing could cap them together — so
+  a caller working to a context budget had to guess the split, fetch, measure
+  and call again. Pass `token_budget` and the split is decided server-side, with
+  whatever one arm does not use flowing to the others. The response carries a
+  `budget` report of what was dropped or truncated, so a partial answer is never
+  mistaken for a complete one. Each row is charged as it is serialized, not by
+  its headline text, and the budget is applied after redaction so the counts
+  describe what you can actually see.
+- **Response shapes are pinned.** `MEMEX_RESPONSE_VERSION` (reported at
+  `initialize`) plus a registry of the top-level keys each covered tool returns.
+  The input side has been generated from one contract and frozen against a
+  snapshot for a while; the output side had nothing, so a renamed key would have
+  shipped silently and a client would have met it in production. The registry
+  states its own scope — it covers the registered tools, not the whole surface —
+  and a conformance test drives each one for real.
+
 ## [1.115.0] — 2026-08-11
 
 ### Added
