@@ -131,6 +131,21 @@ describe("listFacts", () => {
     expect(r[0]!.fact).toBe("speaks English fluently");
   });
 
+  it("breaks a written_at tie deterministically, newest id first", async () => {
+    // written_at is millisecond-resolution NOW(), so facts written in the same
+    // millisecond tie — without an id tiebreak the returned order is whatever
+    // the scan produces, which made this ordering flaky under load.
+    await storage
+      .engine()
+      .exec(`UPDATE entity_facts SET written_at = '2026-01-01T00:00:00Z'`);
+    const r = await listFacts(storage, "people/alice", { order: "recency" });
+    expect(r.map((f) => f.fact)).toEqual([
+      "speaks English fluently",
+      "lives in Berlin",
+      "ex-CFO at Acme",
+    ]);
+  });
+
   it("filters by source_slug", async () => {
     await putPage(storage, { slug: "email/x", type: "email" });
     await addFact(storage, {

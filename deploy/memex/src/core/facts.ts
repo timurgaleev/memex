@@ -665,15 +665,18 @@ export async function listFacts(
 
   // Semantic order when a query vector is supplied: rank by cosine distance,
   // embedded facts first (NULL distance sorts last), then the normal tiebreak.
+  // Every ordering ends in `id DESC`: written_at is only millisecond-resolution
+  // (DEFAULT NOW()), so facts written in the same millisecond tie and the row
+  // order would otherwise be whatever the scan happens to produce.
   let order: string;
   if (hasQueryVector) {
     params.push(JSON.stringify(opts.queryVector));
-    order = `embedding <=> $${params.length}::vector ASC NULLS LAST, confidence DESC, written_at DESC`;
+    order = `embedding <=> $${params.length}::vector ASC NULLS LAST, confidence DESC, written_at DESC, id DESC`;
   } else {
     order =
       opts.order === "recency"
-        ? "written_at DESC"
-        : "confidence DESC, written_at DESC";
+        ? "written_at DESC, id DESC"
+        : "confidence DESC, written_at DESC, id DESC";
   }
   const limit =
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 1000
