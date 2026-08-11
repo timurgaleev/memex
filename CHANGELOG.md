@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.114.0] — 2026-08-11
+
+### Added
+- **Every fact now says where it came from.** An unattributed fact cannot be
+  audited, aged against its origin, or weighed during synthesis. `add_fact`
+  still accepts `source_slug` / `source_chunk_id` / `written_by`; a caller that
+  supplies none is now credited to its own identity rather than landing
+  anonymous. A public caller cannot set `written_by` at all — that is the audit
+  field, and an anonymous writer claiming `operator` would launder its own
+  writes.
+
+### Security
+- **`written_by` is no longer returned to public readers.** With every
+  unattributed write now credited to its caller, returning the field would hand
+  an anonymous reader a roster of the brain's writers — for rows whose fact text
+  they cannot read anyway.
+
+### Fixed
+- **A failed page→search mirror leaves a durable trace.** The caller saw
+  `search_indexed: false` and the maintenance cycle reconciled later, but
+  nothing outlived the request, so a page that quietly stayed unsearchable was
+  invisible afterwards. It now writes an `ingest_log` row naming the page and
+  the error. The page write itself still succeeds — it is already committed to
+  the canonical store.
+
 ## [1.113.1] — 2026-08-11
 
 ### Fixed

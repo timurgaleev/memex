@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 20 shipped, 3 deferred by review, 12 open.**
+**Status: 22 shipped, 3 deferred by review, 10 open.**
 
 ### Shipped
 
@@ -31,6 +31,8 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[MV-03]** Write path has no required `provenance` — attribution on a remembered fact is entirely optional — v1.114.0
+- **[SP-6]** Page→search mirror failure is surfaced but not durably recorded in ingest_log — v1.114.0
 - **[QI-01]** Concept-shaped query detection + steering from `search` toward `query` — v1.113.0
 - **[DOC-2]** Advisor findings point at fix commands that do not do the advertised thing — v1.113.0
 - **[THK-01]** think has a flat 1500-token output cap with no per-model headroom — v1.112.0
@@ -49,7 +51,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[MV-05]** No TTL on the write path — `valid_until` exists in the schema but no MCP tool can set it
   - Why deferred: dropped in review: valid_until is migration 097's dimensional-claim close marker — overloading it needs its own design pass
 
-### Open — HIGH (4)
+### Open — HIGH (3)
 
 - **[MV-01, L] No five-verb protocol façade — 91 flat tools, and memex's `recall` means something else entirely**
   - Landing site: deploy/memex/src/mcp/operations.ts declares 91 ops (`grep -c` on the name field) with no `verb` marker on the Operation interface (lines 38-52). No op named `remember`, `entity`, `synthesize`, or bare `forget` exists. The closest behaviors are `add_fact` (operations.ts:486), `ent
@@ -62,10 +64,6 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[SP-2, M] No bulk retype primitive — a mistyped page can only be corrected one page_put at a time, and page type is load-bearing for graph enrichment**
   - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
   - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
-
-- **[MV-03, M] Write path has no required `provenance` — attribution on a remembered fact is entirely optional**
-  - Landing site: deploy/memex/src/mcp/operations.ts:490-501 — `add_fact` params are entity_slug (required), fact (required), then confidence, source_slug, source_chunk_id, written_by, ALL optional. The handler `callAddFact` (src/mcp/dispatch.ts:1930-1954) only validates entity_slug and fact; it c
-  - Why: This is the single highest-value contract rule in the protocol and it is a retrieval-quality issue, not a formality: an unattributed fact cannot be audited, decayed against its origin, or trusted during synthesis, and memex's own fact ledger is agent-writable over public ingress (add_fact is in PUBLIC_WRITE_TOOLS, src/http/public_guard.ts:91-99). memex needs no migration — `wri
 
 ### Open — MED (7)
 
@@ -97,12 +95,7 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: Zero aggregation over pages.type anywhere in deploy/memex/src: grep for `GROUP BY type` returns only core/links-read.ts:136 (link types, not page types). The `stats` MCP tool's page queries (mcp/dispatch.ts:3465 `SELECT source_id FROM pages ...`) have no type breakdown. No doctor
   - Why: memex writes four types that are not in KNOWN_PAGE_TYPES (synthesis, draft, drift-report, atom — see SP-2 evidence) and permits arbitrary others via `allowAdHocType` on the MCP surface (mcp/dispatch.ts:1097-1098, :1660-1661). Nothing measures the result, so a typo'd type (`peson`, `Person`) or a synthesis writer drifting to a new label is undetectable until someone notices find
 
-### Open — LOW (1)
-
-- **[SP-6, S] Page→search mirror failure is surfaced but not durably recorded in ingest_log**
-  - Landing site: memex covers most of this differently and arguably better, but drops the durable record. Coverage: mcp/dispatch.ts:1145 `searchIndexed = await mirrorPageToSearch(...)` and mcp/dispatch.ts:1175 returns `search_indexed` in the tool result, so the caller sees the failure; core/cycle
-  - Why: Do NOT port the read-back-and-throw guard: memex's page write is transactional against the canonical store, so a post-commit getPage miss is not a real failure mode, and throwing after a committed write would turn a recoverable mirror hiccup into a failed page_put — strictly worse than today's `search_indexed:false` + cycle reconcile. The one worthwhile piece is durability: cha
----
+### Open — LOW (0)
 
 ## New candidates — 2026-08-11 sweep
 
