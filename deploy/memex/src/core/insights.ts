@@ -18,6 +18,7 @@
  * 037 metadata). No schema change — all columns queried already exist.
  */
 import type { Storage } from "./storage.ts";
+import { orphanExclusionSql } from "./orphan-policy.ts";
 import { hybridSearch, type SearchHit, type SearchOptions } from "./search/hybrid.ts";
 import { PAGE_MIRROR_PATH_SQL, isPageSourcePath } from "./page-index.ts";
 
@@ -113,11 +114,15 @@ export async function findOrphans(
     params.push(sources);
     sourceFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
   }
+  // Pages a brain writes to be islanded (synthesis output, drift reports) are
+  // not findings — counting them is what turned this number into noise.
+  const excl = orphanExclusionSql("p.slug", params.length + 1);
+  params.push(...excl.params);
   params.push(limit);
   const r = await storage.engine().query<OrphanRow>(
     `SELECT p.slug, p.type, p.title, p.updated_at::text AS updated_at
        FROM pages p
-       WHERE p.deleted_at IS NULL${typeFilter}${sourceFilter}
+       WHERE p.deleted_at IS NULL${typeFilter}${sourceFilter}${excl.sql}
          AND NOT EXISTS (
            SELECT 1 FROM links l WHERE l.target_slug = p.slug
          )
