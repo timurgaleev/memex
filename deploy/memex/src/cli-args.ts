@@ -114,9 +114,15 @@ export const KNOWN_FLAGS: ReadonlySet<string> = new Set([
  * these is the mutating or paid path, so silence is the expensive answer.
  */
 export const SAFETY_FLAG_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["--dry-run", new Set(["embed", "extract", "reindex", "apply-migrations", "jobs", "orphans", "quarantine", "skillify", "salience", "merge", "sources"])],
-  ["--apply", new Set(["search", "config", "ontology", "salience"])],
-  ["--fix", new Set(["doctor", "lint", "reconcile-links", "check-resolvable"])],
+  [
+    "--dry-run",
+    new Set([
+      "apply-migrations", "embed", "extract", "jobs", "lint", "migrate-engine",
+      "reindex", "skillify",
+    ]),
+  ],
+  ["--apply", new Set(["eval-prune", "quarantine", "search"])],
+  ["--fix", new Set(["lint"])],
 ]);
 
 export interface ParsedArgs {

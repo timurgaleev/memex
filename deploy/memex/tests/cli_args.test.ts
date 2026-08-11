@@ -7,8 +7,11 @@
  * rather than decorative.
  */
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   parseArgs,
+  SAFETY_FLAG_COMMANDS,
   VALUELESS_FLAGS,
   VALUE_FLAGS,
   KNOWN_FLAGS,
@@ -136,5 +139,52 @@ describe("strict flag validation", () => {
   it("can be switched off for callers that parse foreign argv", () => {
     const r = parseArgs(["embed", "--not-a-memex-flag"], { strict: false });
     expect(r.flags.has("--not-a-memex-flag")).toBe(true);
+  });
+});
+
+describe("SAFETY_FLAG_COMMANDS is derived from cli.ts, not hand-maintained", () => {
+  // Hand-listing which commands honour --dry-run/--apply/--fix is exactly what
+  // shipped a regression: `lint --dry-run`, `migrate-engine --dry-run` and
+  // `quarantine scan --apply` were all real and all refused. The truth lives in
+  // the command switch, so read it from there.
+  const source = readFileSync(
+    join(import.meta.dir, "..", "src", "cli.ts"),
+    "utf8",
+  );
+
+  function ownersOf(flag: string): string[] {
+    const parts = source.split(/\n    case "([a-z0-9-]+)":/);
+    const bodies = new Map<string, string>();
+    for (let i = 1; i < parts.length; i += 2) {
+      const cmd = parts[i]!;
+      bodies.set(cmd, (bodies.get(cmd) ?? "") + parts[i + 1]!);
+    }
+    return [...bodies]
+      .filter(([, body]) => body.includes(`flags.has("${flag}")`))
+      .map(([cmd]) => cmd)
+      .sort();
+  }
+
+  for (const flag of ["--dry-run", "--apply", "--fix"]) {
+    it(`lists exactly the commands that read ${flag}`, () => {
+      const declared = [...(SAFETY_FLAG_COMMANDS.get(flag) ?? [])].sort();
+      expect(declared).toEqual(ownersOf(flag));
+    });
+  }
+
+  it("accepts the invocations the first hand-written list refused", () => {
+    for (const argv of [
+      ["lint", "--dry-run"],
+      ["lint", "--fix"],
+      ["migrate-engine", "--dry-run"],
+      ["quarantine", "scan", "--apply"],
+      ["eval-prune", "--apply"],
+    ]) {
+      expect(() => parseArgs(argv)).not.toThrow();
+    }
+  });
+
+  it("still refuses a safety flag on a command that ignores it", () => {
+    expect(() => parseArgs(["doctor", "--fix"])).toThrow(/not supported by 'doctor'/);
   });
 });
