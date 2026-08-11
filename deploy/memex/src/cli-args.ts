@@ -74,6 +74,51 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
 const TRUE_LITERALS: ReadonlySet<string> = new Set(["true", "1", "yes"]);
 const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
 
+/**
+ * Every flag that takes a value, across all commands. Derived from the
+ * `values.get("--x")` reads in src/ — a flag missing here is rejected as a
+ * typo, so adding a new value-taking flag means adding it here too.
+ */
+export const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
+  "--budget", "--config-a", "--config-b", "--date-context", "--days",
+  "--dedup-type-ratio", "--depth", "--description", "--dir", "--example-limit",
+  "--expected-doc", "--file", "--filter", "--from", "--host", "--id",
+  "--indexed-policy", "--input", "--k", "--keep-days", "--kind", "--limit",
+  "--max-drop", "--max-pages", "--max-retries", "--max-usd",
+  "--min-confidence", "--min-recall", "--model", "--modes", "--notes",
+  "--older-than-days", "--out", "--path-prefix", "--paths", "--pattern",
+  "--payload", "--pglite-path", "--phases", "--port", "--postgres-url",
+  "--priority", "--qrels", "--query", "--question", "--rate-limit-per-minute",
+  "--reason", "--rounds", "--rrf-k", "--search-mode", "--severity", "--since",
+  "--skill", "--slug", "--slugs", "--source", "--source-id", "--source-path",
+  "--source-slug", "--stale-days", "--status", "--sync-policy", "--tag",
+  "--take", "--target", "--threshold", "--title", "--to", "--tool-name",
+  "--top-skills", "--type", "--until", "--vault", "--what", "--where", "--who",
+  "--window-turns", "--written-by",
+]);
+
+/** Union of every flag the CLI understands. Anything else is a typo. */
+export const KNOWN_FLAGS: ReadonlySet<string> = new Set([
+  ...VALUELESS_FLAGS,
+  ...VALUE_FLAGS,
+]);
+
+/**
+ * Flags that carry intent about whether real work happens, mapped to the
+ * commands that actually honour them.
+ *
+ * A misspelled flag is caught by KNOWN_FLAGS, but a correctly spelled one on a
+ * command that ignores it is the worse bug: `--dry-run` on a command with no
+ * dry-run support reads as "preview" and mutates. The fallback for every one of
+ * these is the mutating or paid path, so silence is the expensive answer.
+ */
+export const SAFETY_FLAG_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["--dry-run", new Set(["embed", "extract", "reindex", "apply-migrations", "jobs", "orphans", "quarantine", "skillify", "salience", "merge", "sources"])],
+  ["--apply", new Set(["search", "config", "ontology", "salience"])],
+  ["--fix", new Set(["doctor", "lint", "reconcile-links", "check-resolvable"])],
+]);
+
 export interface ParsedArgs {
   cmd: string | undefined;
   flags: Set<string>;
@@ -81,7 +126,71 @@ export interface ParsedArgs {
   positional: string[];
 }
 
-export function parseArgs(raw: readonly string[]): ParsedArgs {
+export interface ParseArgsOptions {
+  /**
+   * Reject flags the CLI does not define, and safety flags on commands that
+   * ignore them. Default ON: a dropped `--dry-run` costs money, and a dropped
+   * `--limit` costs a whole-corpus pass.
+   */
+  strict?: boolean;
+}
+
+/** Thrown for an unknown or misplaced flag — the CLI prints it and exits 2. */
+export class UnknownFlagError extends Error {}
+
+/** "Did you mean" for a typo — one edit away, cheap Levenshtein under a cap. */
+function nearest(flag: string): string | null {
+  let best: string | null = null;
+  let bestD = 3;
+  for (const known of KNOWN_FLAGS) {
+    const d = editDistance(flag, known);
+    if (d < bestD) {
+      bestD = d;
+      best = known;
+    }
+  }
+  return best;
+}
+
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  const prev = new Array<number>(b.length + 1);
+  const cur = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + cost);
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j]!;
+  }
+  return prev[b.length]!;
+}
+
+/** Validate the parsed flags against the CLI's vocabulary. */
+export function validateFlags(parsed: ParsedArgs): void {
+  const seen = [...parsed.flags, ...parsed.values.keys()];
+  for (const flag of seen) {
+    if (!KNOWN_FLAGS.has(flag)) {
+      const hint = nearest(flag);
+      throw new UnknownFlagError(
+        `memex: unknown flag '${flag}'${hint ? ` — did you mean ${hint}?` : ""}`,
+      );
+    }
+  }
+  if (parsed.cmd === undefined) return;
+  for (const [flag, commands] of SAFETY_FLAG_COMMANDS) {
+    if ((parsed.flags.has(flag) || parsed.values.has(flag)) && !commands.has(parsed.cmd)) {
+      throw new UnknownFlagError(
+        `memex: ${flag} is not supported by '${parsed.cmd}' — refusing to run, ` +
+          `because ignoring it would do the opposite of what it asks for`,
+      );
+    }
+  }
+}
+
+export function parseArgs(raw: readonly string[], opts: ParseArgsOptions = {}): ParsedArgs {
   const flags = new Set<string>();
   const values = new Map<string, string>();
   const positional: string[] = [];
@@ -128,5 +237,7 @@ export function parseArgs(raw: readonly string[]): ParsedArgs {
       flags.add(token);
     }
   }
-  return { cmd, flags, values, positional };
+  const parsed = { cmd, flags, values, positional };
+  if (opts.strict !== false) validateFlags(parsed);
+  return parsed;
 }

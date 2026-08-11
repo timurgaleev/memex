@@ -223,6 +223,13 @@ function printUsage(): void {
 async function main(argv: readonly string[]): Promise<number> {
   const { cmd, flags, values, positional } = parseArgs(argv);
 
+  // `memex <cmd> --help` used to fall into the command case and die on a
+  // missing required argument — asking for help is not a malformed invocation.
+  if (cmd !== undefined && flags.has("--help")) {
+    printUsage();
+    return 0;
+  }
+
   switch (cmd) {
     case "init": {
       const pglite = flags.has("--pglite");

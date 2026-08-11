@@ -7,7 +7,12 @@
  * rather than decorative.
  */
 import { describe, expect, it } from "bun:test";
-import { parseArgs, VALUELESS_FLAGS } from "../src/cli-args.ts";
+import {
+  parseArgs,
+  VALUELESS_FLAGS,
+  VALUE_FLAGS,
+  KNOWN_FLAGS,
+} from "../src/cli-args.ts";
 
 /** The parser exactly as it shipped before this file existed (cli.ts:85-106). */
 function oldParseArgs(raw: readonly string[]) {
@@ -103,5 +108,33 @@ describe("VALUELESS_FLAGS stays in sync", () => {
     for (const f of ["--limit", "--stale-days", "--k"]) {
       expect(VALUELESS_FLAGS.has(f)).toBe(false);
     }
+  });
+});
+
+describe("strict flag validation", () => {
+  it("refuses a misspelled flag and points at the real one", () => {
+    expect(() => parseArgs(["embed", "--dry-runn"])).toThrow(
+      /unknown flag '--dry-runn' — did you mean --dry-run\?/,
+    );
+    expect(() => parseArgs(["search", "--kk", "5"])).toThrow(/unknown flag '--kk'/);
+  });
+
+  it("refuses a safety flag on a command that would ignore it", () => {
+    // The dangerous case is a CORRECTLY spelled flag the command drops: the
+    // caller reads "preview", the command does the real thing.
+    expect(() => parseArgs(["search", "--dry-run", "q"])).toThrow(
+      /--dry-run is not supported by 'search'/,
+    );
+    expect(() => parseArgs(["embed", "--dry-run"])).not.toThrow();
+  });
+
+  it("accepts every flag the CLI actually reads", () => {
+    for (const f of VALUELESS_FLAGS) expect(KNOWN_FLAGS.has(f)).toBe(true);
+    for (const f of VALUE_FLAGS) expect(KNOWN_FLAGS.has(f)).toBe(true);
+  });
+
+  it("can be switched off for callers that parse foreign argv", () => {
+    const r = parseArgs(["embed", "--not-a-memex-flag"], { strict: false });
+    expect(r.flags.has("--not-a-memex-flag")).toBe(true);
   });
 });
