@@ -26,6 +26,7 @@ import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } f
 import type { LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { filterWorthwhile, worthGateEnabled } from "./worth-gate.ts";
 
 export interface ReflectionsPhaseResult {
@@ -257,14 +258,21 @@ export async function reflectionsPhase(
 
   let drafts: ReflectionDraft[];
   try {
-    const resp = await sonnetFn({
-      system: "Return only the requested JSON array.",
-      user: prompt,
+    const call = await callWithTruncationRetry(
+      "reflections",
       maxTokens,
-      temperature: 0,
-    });
+      (cap) =>
+        sonnetFn({
+          system: "Return only the requested JSON array.",
+          user: prompt,
+          maxTokens: cap,
+          temperature: 0,
+        }),
+      (projected) => !budget.wouldExceed(model, projected),
+    );
+    const resp = call.resp;
     try {
-      budget.record(resp.modelId, resp.usage);
+      budget.record(resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) base.budgetExhausted = true;
       else throw e;

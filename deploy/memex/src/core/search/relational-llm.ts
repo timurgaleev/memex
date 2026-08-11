@@ -43,6 +43,7 @@ import {
 } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 
 export const RELATIONAL_LLM_PROMPT_VERSION = "v1-sonnet";
 
@@ -298,10 +299,16 @@ export async function relationalRecallLlm(
 
   let parsed: RelationalQuery | null;
   try {
-    const resp = await sonnetFn({ system: EXTRACT_SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
+    const call = await callWithTruncationRetry(
+      "relational-llm",
+      maxTokens,
+      (cap) => sonnetFn({ system: EXTRACT_SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
+      (projected) => !budget.wouldExceed(modelId, projected),
+    );
+    const resp = call.resp;
     meta.ran = true;
     try {
-      budget.record(resp.modelId, resp.usage);
+      budget.record(resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) meta.budgetExhausted = true;
       else throw e;

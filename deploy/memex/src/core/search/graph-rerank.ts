@@ -26,6 +26,7 @@ import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.
 import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 
 /** How many of the top hits to send to the reranker by default. */
 const DEFAULT_TOP_N_IN = 20;
@@ -210,9 +211,15 @@ export async function graphRerank(
 
   let order: number[];
   try {
-    const resp = await sonnetFn({ system: SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
+    const call = await callWithTruncationRetry(
+      "graph-rerank",
+      maxTokens,
+      (cap) => sonnetFn({ system: SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
+      (projected) => !budget.wouldExceed(modelId, projected),
+    );
+    const resp = call.resp;
     try {
-      budget.record(resp.modelId, resp.usage);
+      budget.record(resp.modelId, call.usage);
     } catch (e) {
       // The call already happened (and is priced); a ceiling hit doesn't undo
       // the response. Only a non-budget error rethrows into the fail-open catch.

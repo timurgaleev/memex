@@ -175,6 +175,7 @@ that stops making calls once the budget is spent. All default OFF.
 |---|---|---|---|
 | `MEMEX_THINK` | off | Enables `memex think <q>` deep synthesis — **CLI-only**, does not fire on search. | **paid (Sonnet)** |
 | `MEMEX_THINK_BUDGET_USD` | `1.0` | USD ceiling for `think`. | — |
+| `MEMEX_THINK_OUTPUT_TOKENS` | `4000` | Output-token cap for one `think` call. `think` returns structured JSON, so a cut-off answer is total loss rather than a shorter answer — raise this if answers come back incomplete. Clamped to 8000. | — |
 | `MEMEX_THINK_AUTO_ANCHOR` | on (`=0` off) | When a temporal question ("when did X change, is it still…") names no anchor, `think` derives candidate entity slugs from the question + retrieved pages and anchors on them. Temporal/knowledge-update intents only, fail-soft. A behavior toggle inside the `think` flow — no extra billable call beyond `think` itself. | — |
 | `MEMEX_RELATIONAL_LLM` | off | Sonnet fallback for the relational retrieval arm when the cheap path is inconclusive. | **paid (Sonnet)** |
 | `MEMEX_RELATIONAL_LLM_BUDGET_USD` | `1.0` | USD ceiling for the relational arm. | — |

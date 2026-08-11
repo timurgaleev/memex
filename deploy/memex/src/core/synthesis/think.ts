@@ -26,6 +26,8 @@ import { hybridSearch, type SearchHit } from "../search/hybrid.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { clampOutputTokens, outputTokensFromEnv } from "../llm/output-limits.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { embedText } from "../embedding.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
@@ -41,7 +43,15 @@ export const THINK_PROMPT_VERSION = "v2-sonnet";
 const DEFAULT_PAGE_HITS = 12;
 const DEFAULT_MAX_TAKES = 20;
 const DEFAULT_BUDGET_USD = 1.0;
-const DEFAULT_OUTPUT_TOKENS = 1500;
+/**
+ * think returns a structured JSON answer — an answer body, citations and gaps
+ * over up to 12 pages plus 20 takes. Truncation there is total loss, not
+ * degradation: the JSON never closes and `parseThinkResponse` discards the
+ * whole paid response. 1500 tokens could not hold that shape, so the default
+ * buys real room; `MEMEX_THINK_OUTPUT_TOKENS` overrides it and both paths are
+ * clamped to the safe ceiling.
+ */
+const DEFAULT_OUTPUT_TOKENS = 4000;
 const PAGE_EXCERPT_CHARS = 600;
 
 /** RRF constant — matches src/core/search/hybrid.ts. */
@@ -1032,7 +1042,9 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
 
   const k = opts.k ?? DEFAULT_PAGE_HITS;
   const maxTakes = opts.maxTakes ?? DEFAULT_MAX_TAKES;
-  const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;
+  const maxTokens = clampOutputTokens(
+    opts.maxTokens ?? outputTokensFromEnv("MEMEX_THINK_OUTPUT_TOKENS", DEFAULT_OUTPUT_TOKENS),
+  );
   const budget = new BudgetTracker(opts.maxBudgetUsd ?? defaultBudget(), "think");
   const modelId = resolveFactsModel(opts.modelId);
   // Price the pre-flight and the live call on the same model (test seam ignores).
@@ -1152,10 +1164,21 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     }
 
     try {
-      const resp = await sonnetFn({ system: THINK_SYSTEM_PROMPT, user, maxTokens, temperature: 0 });
+      // A cut-off response is a different failure from a mis-formatted one and
+      // needs a different remedy: more room, not another roll of the dice. The
+      // budget check runs against the COMBINED projection because the first
+      // call has not been recorded yet at that point.
+      const call = await callWithTruncationRetry(
+        "think",
+        maxTokens,
+        (cap) =>
+          sonnetFn({ system: THINK_SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
+        (projected) => !budget.wouldExceed(modelId, projected),
+      );
+      const resp = call.resp;
       usedModel = resp.modelId;
       try {
-        budget.record(resp.modelId, resp.usage);
+        budget.record(resp.modelId, call.usage);
       } catch (e) {
         if (e instanceof BudgetExhausted) exhausted = true;
         else throw e;
@@ -1163,6 +1186,9 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
       let parsed = parseThinkResponse(resp.text);
       if (
         !parsed &&
+        // A truncated response already got its larger-cap retry above; replaying
+        // the same prompt at the same cap would truncate identically.
+        !call.truncated &&
         round === 1 &&
         !exhausted &&
         !budget.wouldExceed(

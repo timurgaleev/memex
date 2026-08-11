@@ -204,6 +204,58 @@ describe("query-relevant page excerpts", () => {
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(excerpt)).toBe(false);
   });
 
+  it("retries a truncated answer with MORE room, not the same cap", async () => {
+    const caps: number[] = [];
+    const spy: SonnetFn = async (input) => {
+      caps.push(input.maxTokens ?? -1);
+      // Round 1 is cut off mid-JSON; the retry gets to finish.
+      return caps.length === 1
+        ? {
+            text: '{"answer":"cut off here',
+            modelId: "eu.anthropic.claude-sonnet-4-6",
+            usage: { inputTokens: 100, outputTokens: 50 },
+            stopReason: "max_tokens",
+          }
+        : {
+            text: okResponse,
+            modelId: "eu.anthropic.claude-sonnet-4-6",
+            usage: { inputTokens: 100, outputTokens: 50 },
+          };
+    };
+    const r = await runThink(storage, {
+      question: "q?",
+      sonnetFn: spy,
+      pagesFn: fakePages(planPage),
+      embedFn: null,
+    });
+    expect(caps.length).toBe(2);
+    expect(caps[1]).toBeGreaterThan(caps[0]!);
+    expect(r.synthesis).not.toBeNull();
+  });
+
+  it("does not burn a same-cap reroll on a truncated answer it cannot afford to retry", async () => {
+    const caps: number[] = [];
+    const spy: SonnetFn = async (input) => {
+      caps.push(input.maxTokens ?? -1);
+      return {
+        text: '{"answer":"cut off here',
+        modelId: "eu.anthropic.claude-sonnet-4-6",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "max_tokens",
+      };
+    };
+    const r = await runThink(storage, {
+      question: "q?",
+      sonnetFn: spy,
+      pagesFn: fakePages(planPage),
+      embedFn: null,
+      // Enough for one call, never for two.
+      maxBudgetUsd: 0.0004,
+    });
+    expect(caps).toEqual([caps[0]!]);
+    expect(r.synthesis).toBeNull();
+  });
+
   it("runThink threads the question into the rendered page excerpts", async () => {
     let seenUser = "";
     const spy: SonnetFn = async (input) => {

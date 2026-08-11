@@ -33,6 +33,7 @@ import { putPage } from "../pages.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 
 export interface DriftPhaseResult {
   ran: boolean;
@@ -297,14 +298,21 @@ export async function driftPhase(
 
   let verdicts: Verdict[];
   try {
-    const resp = await sonnetFn({
-      system: "Return only the requested JSON array.",
-      user: prompt,
+    const call = await callWithTruncationRetry(
+      "drift",
       maxTokens,
-      temperature: 0,
-    });
+      (cap) =>
+        sonnetFn({
+          system: "Return only the requested JSON array.",
+          user: prompt,
+          maxTokens: cap,
+          temperature: 0,
+        }),
+      (projected) => !budget.wouldExceed(model, projected),
+    );
+    const resp = call.resp;
     try {
-      budget.record(resp.modelId, resp.usage);
+      budget.record(resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) base.budgetExhausted = true;
       else throw e;

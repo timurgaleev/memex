@@ -25,6 +25,7 @@ import type { Engine } from "../engine/interface.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { excludeEmptyExtractionTombstone } from "./takes.ts";
 
 export const PROBE_CONTRADICTIONS_PROMPT_VERSION = "v1-sonnet";
@@ -81,6 +82,10 @@ export interface ProbeContradictionsResult {
   runId?: string;
   errors: string[];
 }
+
+/** Output cap for one judge verdict — a two-field JSON object, so this is
+ *  generous; a cut-off verdict is retried once with more room. */
+const JUDGE_MAX_TOKENS = 250;
 
 const JUDGE_SYSTEM_PROMPT = `You compare two claims (A and B) recorded in a
 personal knowledge brain and decide whether they CONTRADICT — i.e. they cannot
@@ -497,15 +502,22 @@ export async function probeContradictionsPhase(
     let usedModel: string;
     let overCap = false;
     try {
-      const resp = await sonnetFn({
-        system: JUDGE_SYSTEM_PROMPT,
-        user: `A: ${sanitizeForPrompt(pair.a_text).text}\n\nB: ${sanitizeForPrompt(pair.b_text).text}`,
-        maxTokens: 250,
-        temperature: 0,
-      });
+      const call = await callWithTruncationRetry(
+        "contradictions",
+        JUDGE_MAX_TOKENS,
+        (cap) =>
+          sonnetFn({
+            system: JUDGE_SYSTEM_PROMPT,
+            user: `A: ${sanitizeForPrompt(pair.a_text).text}\n\nB: ${sanitizeForPrompt(pair.b_text).text}`,
+            maxTokens: cap,
+            temperature: 0,
+          }),
+        (projected) => !budget.wouldExceed(probeModel, projected),
+      );
+      const resp = call.resp;
       usedModel = resp.modelId;
       try {
-        budget.record(resp.modelId, resp.usage);
+        budget.record(resp.modelId, call.usage);
       } catch (e) {
         if (e instanceof BudgetExhausted) {
           result.budgetExhausted = true;
