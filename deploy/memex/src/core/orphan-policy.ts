@@ -3,36 +3,56 @@
  *
  * An orphan count is only useful if it counts pages that SHOULD have been
  * connected. A brain writes plenty of pages that are islanded by design —
- * synthesis output, drift reports, daily captures — and once those dominate the
- * number, the number stops being read: 379 orphans reads as noise, gets
- * ignored, and any check built on it fires permanently and gets muted.
+ * synthesis output, drift reports — and once those dominate the number, the
+ * number stops being read: 382 orphans reads as noise, gets ignored, and any
+ * check built on it fires permanently and gets muted. On the maintainer's brain
+ * 283 of 382 were synthesis page mirrors.
  *
- * The exclusions live here rather than inline at each query, because the same
- * policy has to hold for every surface that reports orphans — a count from one
- * definition and a listing from another is how a finding ends up pointing at
- * something it does not measure.
+ * Exclusion is by PROVENANCE, not by namespace. Excluding `atoms/` and
+ * `concepts/` by slug was the obvious shortcut and it is wrong: `page_put`
+ * accepts any valid slug, so an authored, genuinely unlinked `concepts/foo`
+ * would silently vanish from the very report meant to surface it — hiding a
+ * real signal to quiet a noisy count. Every synthesis writer already stamps
+ * `page_versions.written_by`, which says what a page IS rather than where it
+ * happens to sit.
+ *
+ * The policy lives here rather than inline at each query, because the same
+ * definition has to hold for every surface that reports orphans — a count from
+ * one definition and a listing from another is how a finding ends up pointing
+ * at something nobody can reproduce.
  *
  * Two env keys, both optional:
- *   MEMEX_ORPHAN_EXCLUDE_PREFIXES  replaces the built-in list entirely
- *   MEMEX_ORPHAN_EXCLUDE_EXTRA     adds to it
- * Both are comma-separated slug prefixes. Set the first to a single space to
- * turn exclusions off and count every page.
+ *   MEMEX_ORPHAN_EXCLUDE_WRITERS  replaces the built-in writer list entirely
+ *   MEMEX_ORPHAN_EXCLUDE_EXTRA    adds to it
+ * Both are comma-separated. PRESENCE decides: `MEMEX_ORPHAN_EXCLUDE_WRITERS=`
+ * means count everything.
  */
 
 /**
- * Slug prefixes whose pages are orphaned on purpose. Kept in lockstep with the
- * prefixes the synthesis phases write (see reflections.ts / patterns.ts /
- * drift.ts) and the anti-loop filters those phases already apply to their own
- * inputs.
+ * `written_by` values stamped by writers whose pages exist ONLY because the
+ * brain made them. Kept in lockstep with the synthesis phases: extract-atoms
+ * (synthesis/atoms.ts:479), synthesize-concepts (concepts.ts:301), reflection
+ * (reflections.ts:299), patterns (patterns.ts:269), drift (drift.ts:345),
+ * auto-think (auto-think.ts:245, the `drafts/think/` pages).
  */
-export const DEFAULT_ORPHAN_EXCLUDED_PREFIXES: readonly string[] = [
-  "reflections/",
-  "patterns/",
-  "drafts/",
-  "drift-reports/",
-  "wiki/agents/",
-  "reports/",
+export const DEFAULT_ORPHAN_EXCLUDED_WRITERS: readonly string[] = [
+  "extract-atoms",
+  "synthesize-concepts",
+  "reflection",
+  "patterns",
+  "drift",
+  "auto-think",
 ];
+
+/**
+ * `enrichment` is deliberately NOT in that list, though it is a synthesis
+ * writer. enrich-thin does not CREATE pages — it rewrites existing, often
+ * authored ones in place (synthesis/enrich-thin.ts:365). Excluding it would
+ * make an authored page disappear from the orphan report the moment the brain
+ * expanded it, which is the same false negative as excluding by namespace,
+ * arrived at from the other direction. The list is for writers whose pages
+ * exist only because the brain made them.
+ */
 
 function parseCsv(raw: string | undefined): string[] {
   if (typeof raw !== "string") return [];
@@ -42,60 +62,56 @@ function parseCsv(raw: string | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** The prefixes in force for this brain. */
-export function orphanExcludedPrefixes(
+/** The writers whose pages are not counted as orphans, for this brain. */
+export function orphanExcludedWriters(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const replace = env["MEMEX_ORPHAN_EXCLUDE_PREFIXES"];
+  const replace = env["MEMEX_ORPHAN_EXCLUDE_WRITERS"];
   // PRESENCE decides, not content: a set value — including an empty one — is a
-  // deliberate override, and `MEMEX_ORPHAN_EXCLUDE_PREFIXES=` is how a brain
+  // deliberate override, and `MEMEX_ORPHAN_EXCLUDE_WRITERS=` is how a brain
   // says "count everything". Testing the length instead would restore the
-  // defaults for the plainest way to write that, leaving a whitespace string as
-  // the only workaround — an accident, not a contract.
+  // defaults for the plainest way to write that.
   const base =
     replace !== undefined
       ? parseCsv(replace)
-      : [...DEFAULT_ORPHAN_EXCLUDED_PREFIXES];
-  const extra = parseCsv(env["MEMEX_ORPHAN_EXCLUDE_EXTRA"]);
-  return [...new Set([...base, ...extra])];
+      : [...DEFAULT_ORPHAN_EXCLUDED_WRITERS];
+  return [...new Set([...base, ...parseCsv(env["MEMEX_ORPHAN_EXCLUDE_EXTRA"])])];
 }
 
-/** True when this slug is orphaned by design and should not be counted. */
-export function isExcludedFromOrphans(
-  slug: string,
+/** True when this writer's pages are excluded from orphan reporting. */
+export function isExcludedOrphanWriter(
+  writtenBy: string | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return orphanExcludedPrefixes(env).some((p) => slug.startsWith(p));
+  if (typeof writtenBy !== "string" || writtenBy.length === 0) return false;
+  return orphanExcludedWriters(env).includes(writtenBy);
 }
 
 /**
- * SQL fragment excluding those prefixes, plus the parameter it needs.
+ * SQL fragment excluding pages whose CURRENT version was written by one of
+ * those writers, plus the parameter it needs.
  *
- * `paramIndex` is the 1-based position the LIKE-pattern array will occupy.
- * Returns an empty fragment (and no param) when nothing is excluded, so the
- * caller's query is unchanged in that case.
+ * Current version, not "ever": a synthesis page a human later edits becomes
+ * their page and should be reported like any other. The newest row is read
+ * directly rather than probing every version against a nested max(), so the
+ * unbounded advisor count does not walk the whole edit history. `paramIndex`
+ * is the 1-based position the writer array will occupy. An empty policy yields
+ * an empty fragment, leaving the caller's query untouched.
  */
 export function orphanExclusionSql(
-  columnRef: string,
+  slugColumn: string,
   paramIndex: number,
   env: NodeJS.ProcessEnv = process.env,
 ): { sql: string; params: unknown[] } {
-  const prefixes = orphanExcludedPrefixes(env);
-  if (prefixes.length === 0) return { sql: "", params: [] };
-  // Escape the LIKE metacharacters in the prefix itself — a slug prefix is a
-  // literal, and an underscore in one would otherwise match any character.
-  const patterns = orphanExclusionPatterns(env);
+  const writers = orphanExcludedWriters(env);
+  if (writers.length === 0) return { sql: "", params: [] };
   return {
-    sql: ` AND NOT (${columnRef} LIKE ANY($${paramIndex}::text[]))`,
-    params: [patterns],
+    sql: ` AND COALESCE((
+            SELECT pv.written_by FROM page_versions pv
+             WHERE pv.slug = ${slugColumn}
+             ORDER BY pv.version_n DESC
+             LIMIT 1
+          ), '') <> ALL($${paramIndex}::text[])`,
+    params: [writers],
   };
-}
-
-/** The LIKE patterns themselves, for a caller building its own SQL. */
-export function orphanExclusionPatterns(
-  env: NodeJS.ProcessEnv = process.env,
-): string[] {
-  return orphanExcludedPrefixes(env).map(
-    (p) => `${p.replace(/([%_\\])/g, "\\$1")}%`,
-  );
 }

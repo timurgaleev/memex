@@ -48,6 +48,7 @@ import {
   type PageInput,
 } from "../core/pages.ts";
 import type { Engine } from "../core/engine/interface.ts";
+import { isExcludedOrphanWriter } from "../core/orphan-policy.ts";
 import {
   addLink,
   removeLink,
@@ -549,9 +550,21 @@ async function dispatchToolInner(
       case "log_friction":
         return await callLogFriction(storage, args);
       case "page_put":
-        return await callPagePut(storage, args, writeSource, opts.isPublic ?? false);
+        return await callPagePut(
+          storage,
+          args,
+          writeSource,
+          opts.isPublic ?? false,
+          remoteWriterIdentity(opts),
+        );
       case "page_append":
-        return await callPageAppend(storage, args, writeSource, opts.isPublic ?? false);
+        return await callPageAppend(
+          storage,
+          args,
+          writeSource,
+          opts.isPublic ?? false,
+          remoteWriterIdentity(opts),
+        );
       case "page_delete":
         return await callPageDelete(storage, args, writeSource);
       case "page_restore":
@@ -1152,7 +1165,30 @@ async function callLogFriction(
 // MCP dispatch trusts the transport layer to have already enforced those gates.
 // ---------------------------------------------------------------------------
 
-function asPageInput(args: Record<string, unknown>): PageInput | string {
+/**
+ * Provenance a REMOTE caller may not claim.
+ *
+ * `page_versions.written_by` is what the orphan policy reads to tell a page the
+ * brain wrote for itself from one a person wrote. A remote caller that stamps
+ * `extract-atoms` on its own page would drop that page out of the operator's
+ * orphan report — the same laundering `add_fact` already refuses. Internal
+ * callers (the synthesis phases) are unaffected: they do not come through here.
+ */
+function sanitizeWrittenBy(
+  value: unknown,
+  remoteIdentity: string | undefined,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim();
+  if (v.length === 0) return undefined;
+  if (remoteIdentity === undefined) return v;
+  return isExcludedOrphanWriter(v) ? remoteIdentity : v;
+}
+
+function asPageInput(
+  args: Record<string, unknown>,
+  remoteIdentity?: string,
+): PageInput | string {
   if (typeof args["slug"] !== "string") return "page_put: `slug` is required";
   // `type` is OPTIONAL: when omitted, putPage infers it from the slug's first
   // segment (people/… → person), defaulting to `note`.
@@ -1168,9 +1204,8 @@ function asPageInput(args: Record<string, unknown>): PageInput | string {
   if (typeof args["markdown_body"] === "string") {
     input.markdown_body = args["markdown_body"];
   }
-  if (typeof args["written_by"] === "string") {
-    input.written_by = args["written_by"];
-  }
+  const writtenBy = sanitizeWrittenBy(args["written_by"], remoteIdentity);
+  if (writtenBy !== undefined) input.written_by = writtenBy;
   if (typeof args["allowAdHocType"] === "boolean") {
     input.allowAdHocType = args["allowAdHocType"];
   }
@@ -1182,8 +1217,9 @@ async function callPagePut(
   args: Record<string, unknown>,
   writeSource?: string,
   isPublic = false,
+  remoteIdentity?: string,
 ): Promise<ToolCallResult> {
-  const input = asPageInput(args);
+  const input = asPageInput(args, remoteIdentity);
   if (typeof input === "string") return errResult(input);
   if (writeSource) input.source_id = writeSource;
   const r = await putPage(storage, input);
@@ -1454,6 +1490,7 @@ async function callPageAppend(
   args: Record<string, unknown>,
   writeSource?: string,
   isPublic = false,
+  remoteIdentity?: string,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_append: `slug` is required");
@@ -1464,9 +1501,10 @@ async function callPageAppend(
   const r = await appendPage(storage, {
     slug: args["slug"],
     content: args["content"],
-    ...(typeof args["written_by"] === "string"
-      ? { written_by: args["written_by"] }
-      : {}),
+    ...(() => {
+      const w = sanitizeWrittenBy(args["written_by"], remoteIdentity);
+      return w !== undefined ? { written_by: w } : {};
+    })(),
     ...(writeSource ? { source_id: writeSource } : {}),
   });
   let searchIndexed: boolean | undefined;
@@ -2030,6 +2068,16 @@ async function callRelationalRecall(
  * a claim the agent wanted recorded; the caller's own identity is provenance,
  * so stamp that instead and keep the ledger complete.
  */
+/**
+ * The identity to force onto a REMOTE write, or undefined for a trusted local
+ * caller whose own provenance is taken at face value.
+ */
+export function remoteWriterIdentity(opts: DispatchOptions): string | undefined {
+  if (opts.isPublic) return "public";
+  const id = opts.authInfo?.clientId;
+  return id !== undefined && id.length > 0 ? `client:${id}` : undefined;
+}
+
 export function writerIdentity(opts: DispatchOptions): string {
   if (opts.isPublic) return "public";
   const id = opts.authInfo?.clientId;

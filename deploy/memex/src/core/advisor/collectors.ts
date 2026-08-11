@@ -17,7 +17,7 @@
  *     surface as the public guard's legacy fall-through.
  */
 import { discoverMigrations } from "../migrate.ts";
-import { orphanExclusionPatterns } from "../orphan-policy.ts";
+import { orphanExclusionSql } from "../orphan-policy.ts";
 import { brainHealthMetrics } from "../source-health.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 import type { Engine } from "../engine/interface.ts";
@@ -242,12 +242,14 @@ export const collectUsageShape: AdvisorCollector = {
   collect: async (ctx) => {
     let row: { page_count: number; orphan_pages: number; dead_links: number } | undefined;
     try {
+      // Same exclusion policy the orphan listing uses — see orphan-policy.ts.
+      const orphanExcl = orphanExclusionSql("p.slug", 1);
       const r = await ctx.engine.query<{ page_count: number; orphan_pages: number; dead_links: number }>(
         `SELECT
            (SELECT count(*) FROM pages WHERE deleted_at IS NULL)::int AS page_count,
            (SELECT count(*) FROM pages p
               WHERE p.deleted_at IS NULL
-                AND NOT (p.slug LIKE ANY($1::text[]))
+${orphanExcl.sql}
                 AND NOT EXISTS (
                   SELECT 1 FROM links l JOIN pages s ON s.slug = l.source_slug AND s.deleted_at IS NULL
                    WHERE l.target_slug = p.slug
@@ -268,7 +270,7 @@ export const collectUsageShape: AdvisorCollector = {
         // Same exclusion policy the orphan listing uses — a count from one
         // definition and a listing from another is how a finding ends up
         // describing something nobody can reproduce.
-        [orphanExclusionPatterns()],
+        orphanExcl.params,
       );
       row = r.rows[0];
     } catch {
