@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.113.1] — 2026-08-11
+
 ### Fixed
 - **The set-shaped hint no longer points at a door the caller cannot open.** It
   named `query`, which the public ingress forbids outright, and promised that
