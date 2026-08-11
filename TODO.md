@@ -13,7 +13,7 @@ A 64-agent comparison across nine subsystems; every claim was re-verified by
 a second agent tasked with refuting it. Landing sites are memex's own files;
 the full per-item adoption plan lives in the maintainer's gitignored notes.
 
-**Status: 22 shipped, 3 deferred by review, 10 open.**
+**Status: 24 shipped, 3 deferred by review, 8 open.**
 
 ### Shipped
 
@@ -31,6 +31,8 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[AUTH-5]** Rate-limit key collapses every public caller into one shared bucket when Cf-Connecting-Ip is absent — v1.111.0
 - **[MCP-01]** add_fact underexposes its own core write contract (no provenance, kind, visibility, session, valid_from) — v1.111.0
 - **[CST-01]** atoms and concepts synthesis phases have call-count caps but no USD budget gate or spend accounting — v1.111.0
+- **[DOC-3]** No orphan-exclusion policy — index/daily/generated pages inflate the orphan count — v1.115.0
+- **[SP-4]** No type-distribution or untyped-coverage visibility — ad-hoc type sprawl is unmeasured — v1.115.0
 - **[MV-03]** Write path has no required `provenance` — attribution on a remembered fact is entirely optional — v1.114.0
 - **[SP-6]** Page→search mirror failure is surfaced but not durably recorded in ingest_log — v1.114.0
 - **[QI-01]** Concept-shaped query detection + steering from `search` toward `query` — v1.113.0
@@ -65,15 +67,11 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
   - Landing site: No equivalent anywhere in deploy/memex/src. The ONLY writes to pages.type are the two single-row statements inside putPage: core/pages.ts:332-338 (INSERT for a new page) and core/pages.ts:387-388 (`UPDATE pages SET type = $2 ... WHERE slug = $1`). Grep for `SET type` across core/
   - Why: This is the one piece of the area that genuinely affects retrieval quality. A page that should be `person` but landed as `note` silently drops out of five enrichment paths at once, and today the only remedy is an agent issuing N individual page_put calls with no dry-run, no preview, and no rollback. Adapt the PRIMITIVE without the pack: a `memex retype --from <t> --to <t> [--sl
 
-### Open — MED (7)
+### Open — MED (5)
 
 - **[GAP-2, L] No WAL auto-repair for a torn-checkpoint startup crash (pg_resetwal port + repair orchestrator)**
   - Landing site: Nothing equivalent exists. deploy/memex/src/core/engine/pglite.ts:29-31 is the entire startup path: `async ready() { await this.db.waitReady; }` — an Emscripten abort from a torn WAL propagates raw to the caller and the process dies. `ls deploy/memex/src/core/engine/` is exactly 
   - Why: Impact is med, not high, because memex's production brain is RDS (deploy path sets MEMEX_POSTGRES_URL) where Postgres does its own crash recovery — this only protects self-hosted/dev PGLite brains. Critically, a straight adopt would be INERT: the port is PG17-coupled (pglite-resetwal.ts:45 `PG_CONTROL_VERSION = 1700`, :207-209 throws on any PG_VERSION != '17', and the ControlFi
-
-- **[DOC-3, M] No orphan-exclusion policy — index/daily/generated pages inflate the orphan count and there is no per-brain override**
-  - Landing site: deploy/memex/src/core/insights.ts:96-127 (`findOrphans`) filters only on `deleted_at IS NULL`, an optional `type`, and an optional source scope — no slug-based exclusions. src/core/advisor/collectors.ts:245-256 likewise applies no exclusions. Grep for `orphan` across deploy/memex
-  - Why: Without exclusions the orphan count is dominated by pages that are orphaned by design, which is why 379 reads as noise and gets ignored rather than acted on — and any doctor check built on that raw number (DOC-1) would fire permanently and get muted. Adapt the reference's structure (one shared module consumed by every orphan surface + two config keys for per-brain overrides) bu
 
 - **[MCP-03, M] `recall` is a different tool in memex — no dual facts+pages arm and no server-side token budget across arms**
   - Landing site: deploy/memex/src/mcp/operations.ts:786-793 — memex `recall` is 'Read a single fact by its numeric id', params {id: int}. The reference's arms live in three separate memex tools: entity_facts (operations.ts:523-538, has session/grep/visibility/include_forgotten), fact_supersession
@@ -90,10 +88,6 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 - **[GAP-4, S] PGLite init failures are unclassified — an Emscripten abort surfaces raw, with no cause routing or next step**
   - Landing site: deploy/memex/src/core/engine/pglite.ts has no try/catch on any line — construction (:25-27) and `ready()` (:29-31) let whatever the driver throws propagate verbatim. There is no error-shape classification for the storage layer anywhere in src/core/engine/ (four files, 4841 bytes 
   - Why: Cheap, self-contained, and it is the prerequisite that makes any future repair path (GAP-2) decidable — you cannot gate surgery on 'wasm-abort' if you never classify. Adapt the classifier and the stringifier; drop the bundler-vfs arm if memex never ships a compiled binary, and rewrite the hint text against memex's own commands. Worth doing even if GAP-2 is skipped forever, pure
-
-- **[SP-4, S] No type-distribution or untyped-coverage visibility — ad-hoc type sprawl is unmeasured**
-  - Landing site: Zero aggregation over pages.type anywhere in deploy/memex/src: grep for `GROUP BY type` returns only core/links-read.ts:136 (link types, not page types). The `stats` MCP tool's page queries (mcp/dispatch.ts:3465 `SELECT source_id FROM pages ...`) have no type breakdown. No doctor
-  - Why: memex writes four types that are not in KNOWN_PAGE_TYPES (synthesis, draft, drift-report, atom — see SP-2 evidence) and permits arbitrary others via `allowAdHocType` on the MCP surface (mcp/dispatch.ts:1097-1098, :1660-1661). Nothing measures the result, so a typo'd type (`peson`, `Person`) or a synthesis writer drifting to a new label is undetectable until someone notices find
 
 ### Open — LOW (0)
 

@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.115.0] — 2026-08-11
+
+### Added
+- **`stats` reports how the corpus is typed.** `page_put` permits an ad-hoc
+  type and the brain's own writers use several that are not declared, but
+  nothing counted the result — so a typo (`peson` for `person`) or a writer
+  drifting to a new label stayed invisible until someone noticed a page missing
+  from a type-filtered read. The breakdown now ships with the types nobody
+  declared and how many pages sit under them. It counts; it does not reject.
+
+### Changed
+- **The orphan count stops counting pages that are islanded on purpose.**
+  Synthesis output, drift reports and session records are orphans by design, and
+  once they dominate the number it stops being read — 379 orphans is noise, so
+  it gets ignored. The exclusions live in one place so the count and the listing
+  cannot disagree, and two env keys tune them per brain:
+  `MEMEX_ORPHAN_EXCLUDE_PREFIXES` replaces the list,
+  `MEMEX_ORPHAN_EXCLUDE_EXTRA` appends. Setting the first to empty counts
+  everything.
+
 ## [1.114.0] — 2026-08-11
 
 ### Added
