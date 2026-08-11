@@ -591,7 +591,13 @@ async function dispatchToolInner(
           remote,
         );
       case "add_fact":
-        return await callAddFact(storage, args, writeSource, opts.isPublic ?? false);
+        return await callAddFact(
+          storage,
+          args,
+          writeSource,
+          opts.isPublic ?? false,
+          writerIdentity(opts),
+        );
       case "add_timeline_event":
         return await callAddTimelineEvent(storage, args, writeSource);
       case "entity_facts":
@@ -1381,10 +1387,27 @@ async function mirrorPageToSearch(
     );
     return true;
   } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
     console.error(
       `[page-index] failed to mirror page ${page.slug} into search:`,
-      e instanceof Error ? e.message : e,
+      reason,
     );
+    // The caller sees search_indexed:false in this response and the cycle
+    // reconciles later, but nothing outlives the request — so a page that
+    // silently stayed unsearchable leaves no trace anyone can find afterwards.
+    // Record it. Best-effort: a logging failure must never turn a committed
+    // page write into a failed one.
+    try {
+      await logIngest(storage.engine(), {
+        source_type: "page-mirror-failed",
+        source_ref: page.slug,
+        pages_updated: [page.slug],
+        summary: reason.slice(0, 500),
+        ...(page.source_id ? { source_id: page.source_id } : {}),
+      });
+    } catch {
+      // deliberately swallowed — see above
+    }
     return false;
   }
 }
@@ -1961,11 +1984,27 @@ async function callRelationalRecall(
 // (entity_facts, entity_timeline, entity_recall) are open.
 // ---------------------------------------------------------------------------
 
+/**
+ * Who to credit when the caller supplies no provenance of its own.
+ *
+ * An unattributed fact cannot be audited, decayed against its origin, or
+ * weighed during synthesis — and `add_fact` is reachable over the public write
+ * surface. Rejecting the write would be the strict reading, but it throws away
+ * a claim the agent wanted recorded; the caller's own identity is provenance,
+ * so stamp that instead and keep the ledger complete.
+ */
+export function writerIdentity(opts: DispatchOptions): string {
+  if (opts.isPublic) return "public";
+  const id = opts.authInfo?.clientId;
+  return id !== undefined && id.length > 0 ? `client:${id}` : "operator";
+}
+
 async function callAddFact(
   storage: Storage,
   args: Record<string, unknown>,
   writeSource?: string,
   isPublic = false,
+  fallbackWrittenBy = "operator",
 ): Promise<ToolCallResult> {
   if (typeof args["entity_slug"] !== "string")
     return errResult("add_fact: `entity_slug` is required");
@@ -1977,12 +2016,25 @@ async function callAddFact(
   };
   if (typeof args["confidence"] === "number")
     input.confidence = args["confidence"];
-  if (typeof args["source_slug"] === "string")
-    input.source_slug = args["source_slug"];
-  if (typeof args["source_chunk_id"] === "string")
-    input.source_chunk_id = args["source_chunk_id"];
-  if (typeof args["written_by"] === "string")
-    input.written_by = args["written_by"];
+  // Blank and whitespace-only values are not provenance. Left as-is they would
+  // suppress the fallback below and land an effectively unattributed row —
+  // and an empty source_slug would fail slug validation rather than reading as
+  // "omitted".
+  const provenanceArg = (key: string): string | undefined => {
+    const v = args[key];
+    if (typeof v !== "string") return undefined;
+    const t = v.trim();
+    return t.length > 0 ? t : undefined;
+  };
+  const sourceSlugArg = provenanceArg("source_slug");
+  if (sourceSlugArg !== undefined) input.source_slug = sourceSlugArg;
+  const sourceChunkArg = provenanceArg("source_chunk_id");
+  if (sourceChunkArg !== undefined) input.source_chunk_id = sourceChunkArg;
+  // A public caller does not get to claim provenance: `written_by` is the audit
+  // field, and an anonymous writer asserting `operator` would launder its own
+  // writes. Dropped on the public path exactly like `visibility` below.
+  const writtenByArg = provenanceArg("written_by");
+  if (!isPublic && writtenByArg !== undefined) input.written_by = writtenByArg;
   // mig-085 `visibility`, previously unreachable over MCP: every agent write
   // landed on the column DEFAULT 'private', which the read floor then hides
   // from the very caller that wrote it. Passing it through is what makes "you
@@ -1996,6 +2048,16 @@ async function callAddFact(
   if (!isPublic && typeof args["visibility"] === "string")
     input.visibility = args["visibility"];
   if (writeSource) input.source_id = writeSource;
+  // Provenance is not optional. A caller that named a source page, a source
+  // chunk or a writer has said where the claim came from; one that named none
+  // is credited to itself rather than landing in the ledger anonymous.
+  if (
+    input.source_slug === undefined &&
+    input.source_chunk_id === undefined &&
+    input.written_by === undefined
+  ) {
+    input.written_by = fallbackWrittenBy;
+  }
   const r = await addFact(storage, input);
   return jsonResult({ ok: true, ...r });
 }

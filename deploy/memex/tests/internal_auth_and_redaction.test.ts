@@ -173,9 +173,17 @@ describe("redactFacts — allowlist-based public fact filtering", () => {
       confidence: 0.9,
       source_slug: "notes/acme",
       source_chunk_id: "chunk-1",
-      written_by: "recipe",
       written_at: "2026-01-01T00:00:00Z",
     });
+  });
+
+  it("does NOT hand a public reader the writer identity", () => {
+    // Every unattributed write is credited to its caller (`client:<id>`, and a
+    // PAT's id is its human-readable name), so returning written_by would give
+    // an anonymous reader a roster of the brain's writers — for a row whose
+    // fact text they cannot read anyway.
+    const out = redactFacts([row]);
+    expect(out[0]).not.toHaveProperty("written_by");
   });
 
   it("strips ANY future body-ish field by default (allowlist semantics)", () => {

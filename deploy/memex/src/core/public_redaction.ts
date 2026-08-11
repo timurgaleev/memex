@@ -122,13 +122,18 @@ export function redactBody<T extends Record<string, unknown>>(row: T): T {
 
 // Entity-fact row fields safe to return on public ingress. The free-text
 // `fact` is note-derived private content — body-equivalent — and is omitted.
+//
+// `written_by` is deliberately NOT here. It is provenance about who writes into
+// this brain, and since every unattributed write is now credited to the caller
+// (`client:<id>`, where a PAT's id is its human-readable name), returning it
+// would hand an anonymous reader a roster of the brain's writers. A public
+// reader that cannot see the fact text has no use for its author.
 const PUBLIC_SAFE_FACT_FIELDS = new Set([
   "id",
   "entity_slug",
   "confidence",
   "source_slug",
   "source_chunk_id",
-  "written_by",
   "written_at",
 ]);
 

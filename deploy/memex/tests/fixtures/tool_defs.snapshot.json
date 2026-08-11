@@ -556,7 +556,7 @@
   },
   {
     "name": "add_fact",
-    "description": "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. `visibility` decides who can read the fact back: it defaults to `private`, which only the operator can read, so a tenant-scoped caller that wants to recall its own write must pass `visibility: 'world'`. WRITE — internal/MCP-stdio only.",
+    "description": "Append a fact about an entity to the entity_facts ledger. Append-only — corrections are new facts, never edits. Idempotent on (entity_slug, fact, source_chunk_id) when source_chunk_id is provided. `visibility` decides who can read the fact back: it defaults to `private`, which only the operator can read, so a tenant-scoped caller that wants to recall its own write must pass `visibility: 'world'`. Provenance is recorded on every fact: name `source_slug`, `source_chunk_id` or `written_by` to say where the claim came from, and if you name none the fact is credited to your own caller identity — an unattributed fact cannot be audited or aged against its origin; a public caller cannot set `written_by` at all, since that is the audit field. WRITE — internal by default, and reachable from the public ingress only when `MEMEX_PUBLIC_WRITE=1` is set.",
     "inputSchema": {
       "type": "object",
       "properties": {
