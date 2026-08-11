@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.117.0] — 2026-08-11
+
+### Added
+- **PGLite says why it would not open.** The engine adapter had no error
+  handling at all, so a refusal reached the operator as whatever Emscripten
+  threw — usually a bare `Aborted()`. Failures now carry a named cause and a
+  next step, and `memex doctor` inspects the data directory with plain
+  filesystem calls (pid file, control-file size, `PG_VERSION`, WAL segment
+  count) — a diagnosis you can only get by opening the thing that will not open
+  is no diagnosis.
+
+### Changed
+- **A second process is refused a PGLite data directory.** Two processes on one
+  directory is how it gets corrupted; the guard takes over a lock whose owner is
+  dead, verifies ownership before releasing, refuses a second handle in the same
+  process, and fails closed if it cannot place a lock at all — with
+  `MEMEX_PGLITE_NO_LOCK=1` as the deliberate way out. **This changes behaviour:**
+  a CLI command run against a running daemon's PGLite directory is now refused.
+  The database-level lock it used to rely on required both processes to open the
+  database, which is the corruption itself — safe on Postgres, never safe on
+  PGLite. Production runs Postgres and is unaffected.
+
 ## [1.116.0] — 2026-08-11
 
 ### Added
