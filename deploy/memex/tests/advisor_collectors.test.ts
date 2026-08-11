@@ -107,13 +107,18 @@ describe("collectUsageShape", () => {
     const out = await collectUsageShape.collect(ctx());
     const byId = new Map(out.map((f) => [f.id, f]));
     expect(byId.get("orphan_pages")?.title).toContain("1 page has");
-    // Both fix_commands used to name the wrong thing: `memex orphans` purges
-    // orphaned DB rows rather than listing islanded pages, and `memex doctor`
-    // has no dead-link check at all, so following either printed success while
-    // the condition stayed.
-    expect(byId.get("orphan_pages")?.fix_command).toBe("find_orphans");
+    // Neither finding carries a fix_command any more. Every candidate measures
+    // a DIFFERENT set: `memex orphans` purges orphaned DB rows, `find_orphans`
+    // ignores outbound links and dead sources, `memex doctor` has no dead-link
+    // check, and `memex reconcile-links` compares wikilink entities against
+    // documents. Naming any of them sends the operator somewhere that reports
+    // success while the counted condition persists — which is the bug this
+    // pair had twice. The exact condition is stated in `detail` instead.
+    expect(byId.get("orphan_pages")?.fix_command).toBeUndefined();
+    expect(byId.get("orphan_pages")?.detail).toContain("no live inbound");
     expect(byId.get("dead_links")?.title).toContain("1 link point");
-    expect(byId.get("dead_links")?.fix_command).toBe("memex reconcile-links");
+    expect(byId.get("dead_links")?.fix_command).toBeUndefined();
+    expect(byId.get("dead_links")?.detail).toContain("no live page");
 
     // Soft-delete adaptation: deleting bob turns alice → bob into a dead link
     // (target no longer live), while carol stays the sole orphan (alice keeps a

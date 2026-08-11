@@ -901,18 +901,33 @@ async function callSearch(
   // expansion is off: it returns a plausible non-empty list the caller has no
   // way to tell is partial. Say so, rather than letting the count imply
   // completeness. Advisory only — the hits are unchanged.
-  if (looksConceptShaped(q) && !expansionActive()) {
-    return jsonResult({
-      ok: true,
-      hits: out,
-      hint: {
-        use: "query",
-        why:
-          "This reads as a set-shaped question, and query expansion is off for " +
-          "the active search mode — these hits may be a partial view. `query` " +
-          "expands the question before retrieving.",
-      },
-    });
+  //
+  // Read expansion off the RESOLVED options, not the process default: a
+  // per-call `mode` (operator-only) sets searchOpts.expansion, so checking the
+  // ambient config alone would fire on a caller who already asked for
+  // expansion and stay silent for one who turned it off.
+  const expansionOn = searchOpts.expansion ?? expansionActive();
+  if (looksConceptShaped(q) && !expansionOn) {
+    // `query` is internal-only (public_guard forbids it), and even where it is
+    // reachable it follows the same expansion chain — so the remedy has to name
+    // the parameter, not just the tool. On the public path there is no second
+    // tool to point at; the warning still stands on its own.
+    const hint = redact
+      ? {
+          why:
+            "This reads as a set-shaped question and query expansion is off — " +
+            "these hits may be a partial view rather than the whole set.",
+        }
+      : {
+          use: "query",
+          with: { expand: true },
+          why:
+            "This reads as a set-shaped question and query expansion is off — " +
+            "these hits may be a partial view. `query` with `expand: true` " +
+            "expands the question first; `query` alone inherits the same " +
+            "expansion setting and would not change the outcome.",
+        };
+    return jsonResult({ ok: true, hits: out, hint });
   }
   return jsonResult({ ok: true, hits: out });
 }

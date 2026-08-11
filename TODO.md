@@ -139,6 +139,29 @@ Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0; BEN
 
 ---
 
+## Open — no surface reports what the advisor counts (2026-08-11)
+
+Two advisor findings count a condition no command or tool can list, which is why
+both of their `fix_command` pointers were wrong twice over — every candidate
+measures an adjacent but different set. The findings now state the condition in
+`detail` and carry no fix_command. Closing this properly means giving each
+condition a first-class surface:
+
+- **Islanded pages.** Advisor counts a live page with no live inbound AND no
+  live outbound link. `find_orphans` (core/insights.ts:117-127) checks only
+  `NOT EXISTS (SELECT 1 FROM links WHERE target_slug = p.slug)` — it ignores
+  outbound links entirely and does not require the linking source to be live.
+  Either widen `find_orphans` with an opt-in `strict` mode matching the advisor
+  definition (additive, no wire break), or add a dedicated surface.
+- **Dead links.** Advisor counts a `links` row whose source is a live page and
+  whose target has no live page. `memex reconcile-links` compares wikilink
+  ENTITIES against DOCUMENTS — different tables, different condition, so it can
+  report clean while the count stands. Needs its own check, most naturally a
+  doctor probe (this is the DOC-1 shape).
+
+Found by the cross-model review pass, after two in-house rounds had accepted the
+wrong pointers.
+
 ## LOW backlog (CLI, 2026-08-11)
 
 - **`-h` never reaches the short-help branch.** `src/cli.ts:536` tests

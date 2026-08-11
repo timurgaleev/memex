@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The set-shaped hint no longer points at a door the caller cannot open.** It
+  named `query`, which the public ingress forbids outright, and promised that
+  `query` expands the question — while `query` inherits the same expansion
+  setting, so under the exact configuration that triggers the hint it would have
+  changed nothing. It also read the process-wide expansion setting rather than
+  the one resolved for that call, so an operator passing `mode` got the hint
+  backwards in both directions. It now reads the resolved value, names
+  `expand: true` explicitly, and on the public path keeps the partial-results
+  warning without naming an unreachable tool.
+- **Two advisor findings stopped naming a fix that fixes something else.** The
+  islanded-pages and dead-links findings had their `fix_command` corrected once
+  already this release; the replacements were wrong in a subtler way. Every
+  candidate command measures an adjacent but different set — `find_orphans`
+  ignores outbound links and dead sources, `memex reconcile-links` compares
+  wikilink entities against documents. Both findings now carry no fix_command
+  and state the counted condition in `detail` instead, so nobody is sent
+  somewhere that reports success while the condition stands.
+
 ## [1.113.0] — 2026-08-11
 
 ### Added
