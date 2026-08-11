@@ -279,8 +279,11 @@ export const collectUsageShape: AdvisorCollector = {
         id: "orphan_pages",
         severity: "info",
         title: `${orphans} page${orphans === 1 ? " has" : "s have"} no links in or out.`,
-        detail: "Islanded pages do not surface through graph traversal — connect or review them.",
-        fix_command: "memex orphans",
+        detail:
+          "Islanded pages do not surface through graph traversal — connect or " +
+          "review them. Note that `memex orphans` is a different thing — it " +
+          "purges orphaned DB rows, not pages.",
+        fix_command: "find_orphans",
         collector: "usage-shape",
       });
     }
@@ -290,7 +293,7 @@ export const collectUsageShape: AdvisorCollector = {
         severity: "info",
         title: `${dead} link${dead === 1 ? "" : "s"} point to a page that no longer exists.`,
         detail: "A link whose target was deleted or never created clutters the graph and misleads traversal.",
-        fix_command: "memex doctor",
+        fix_command: "memex reconcile-links",
         collector: "usage-shape",
       });
     }

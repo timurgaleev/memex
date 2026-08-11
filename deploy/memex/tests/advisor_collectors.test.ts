@@ -107,9 +107,13 @@ describe("collectUsageShape", () => {
     const out = await collectUsageShape.collect(ctx());
     const byId = new Map(out.map((f) => [f.id, f]));
     expect(byId.get("orphan_pages")?.title).toContain("1 page has");
-    expect(byId.get("orphan_pages")?.fix_command).toBe("memex orphans");
+    // Both fix_commands used to name the wrong thing: `memex orphans` purges
+    // orphaned DB rows rather than listing islanded pages, and `memex doctor`
+    // has no dead-link check at all, so following either printed success while
+    // the condition stayed.
+    expect(byId.get("orphan_pages")?.fix_command).toBe("find_orphans");
     expect(byId.get("dead_links")?.title).toContain("1 link point");
-    expect(byId.get("dead_links")?.fix_command).toBe("memex doctor");
+    expect(byId.get("dead_links")?.fix_command).toBe("memex reconcile-links");
 
     // Soft-delete adaptation: deleting bob turns alice → bob into a dead link
     // (target no longer live), while carol stays the sole orphan (alice keeps a
