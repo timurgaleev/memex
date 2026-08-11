@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.115.0] — 2026-08-11
+## [1.116.0] — 2026-08-11
 
 ### Added
 - **`stats` reports how the corpus is typed.** `page_put` permits an ad-hoc
@@ -17,13 +17,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   declared and how many pages sit under them. It counts; it does not reject.
 
 ### Changed
-- **The orphan count stops counting pages that are islanded on purpose.**
-  Synthesis output, drift reports and session records are orphans by design, and
-  once they dominate the number it stops being read — 379 orphans is noise, so
-  it gets ignored. The exclusions live in one place so the count and the listing
-  cannot disagree, and two env keys tune them per brain:
-  `MEMEX_ORPHAN_EXCLUDE_PREFIXES` replaces the list,
-  `MEMEX_ORPHAN_EXCLUDE_EXTRA` appends. Setting the first to empty counts
+- **The orphan count stops counting pages the brain wrote for itself.**
+  Synthesis output, drift reports and think drafts are orphans by design, and
+  once they dominate the number it stops being read — 283 of 382 orphans on the
+  maintainer's brain were synthesis page mirrors. The rule is provenance, not
+  namespace: a page is skipped when its current version was written by one of
+  the brain's own page writers. Excluding `atoms/` and `concepts/` by slug would
+  have been simpler and wrong — those are ordinary namespaces, so an authored,
+  genuinely unlinked page there would have vanished from the report meant to
+  surface it. A page the brain merely *edited* (enrichment) still belongs to its
+  author and is still reported, and a remote caller cannot stamp itself with a
+  reserved writer to hide its own page. Two env keys tune it per brain:
+  `MEMEX_ORPHAN_EXCLUDE_WRITERS` replaces the list,
+  `MEMEX_ORPHAN_EXCLUDE_EXTRA` appends; setting the first to empty counts
   everything.
 
 ## [1.114.0] — 2026-08-11
