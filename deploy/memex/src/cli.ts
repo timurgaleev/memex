@@ -48,6 +48,7 @@ const VALID_JOB_STATUSES: ReadonlySet<JobStatus> = new Set([
   "cancelled",
 ]);
 import { runOrphans } from "./commands/orphans.ts";
+import { runPageRetype } from "./commands/page-retype.ts";
 import { runPages } from "./commands/pages.ts";
 import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
@@ -1190,6 +1191,24 @@ async function main(argv: readonly string[]): Promise<number> {
     case "orphans": {
       await runOrphans();
       return 0;
+    }
+    case "page-retype": {
+      const to = values.get("--to");
+      if (!to) throw new Error("memex page-retype: --to <type> is required");
+      const slugsRaw = values.get("--slugs");
+      const opts: Parameters<typeof runPageRetype>[0] = { to };
+      const from = values.get("--from");
+      if (from) opts.from = from;
+      if (slugsRaw) {
+        opts.slugs = slugsRaw.split(",").map((x) => x.trim()).filter((x) => x.length > 0);
+      }
+      const prefix = values.get("--path-prefix");
+      if (prefix) opts.pathPrefix = prefix;
+      const src = values.get("--source-id");
+      if (src) opts.sourceId = src;
+      if (flags.has("--apply")) opts.apply = true;
+      if (flags.has("--json")) opts.json = true;
+      return await runPageRetype(opts);
     }
     case "pages": {
       const limitStr = values.get("--limit");

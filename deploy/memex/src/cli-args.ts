@@ -121,7 +121,7 @@ export const SAFETY_FLAG_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = ne
       "reindex", "skillify",
     ]),
   ],
-  ["--apply", new Set(["eval-prune", "quarantine", "search"])],
+  ["--apply", new Set(["eval-prune", "page-retype", "quarantine", "search"])],
   ["--fix", new Set(["lint"])],
 ]);
 

@@ -796,7 +796,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "recall",
     description:
-      "Read a single fact by its numeric id from the entity_facts ledger. Returns the fact row (claim, confidence, source, mig037 metadata). Returns an error if the id is unknown or the fact has been forgotten (tombstoned via forget_fact).",
+      "Read ONE fact by its numeric id from the entity_facts ledger. Returns the fact row (claim, confidence, source, mig037 metadata). Returns an error if the id is unknown or the fact has been forgotten (tombstoned via forget_fact). NOT a search and not a list read — you need an id you already have. To find facts about an entity use `entity_facts`, to ask \"what do I know about X\" use `entity_recall`, and to search the corpus use `search`.",
     params: {
       id: int({ ...req, minimum: 1, description: "Fact id (entity_facts.id)." }),
     },
