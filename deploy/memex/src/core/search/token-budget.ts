@@ -29,7 +29,22 @@ function truncateToTokens(text: string, maxTokens: number): string {
   return `${body.trimEnd()}…`;
 }
 
-export function applyTokenBudget<T extends { content: string }>(
+/** Room left for the body once the title has been charged for. */
+function bodyRoom(budget: number, title: string | null | undefined): number {
+  return Math.max(1, budget - estTokens(title ?? ""));
+}
+
+/**
+ * What one hit costs the caller's context window. The title travels with the
+ * content on every surface that returns a hit, so charging for the body alone
+ * lets the enforced cap overshoot — small per hit, but the cap was asked for as
+ * a hard guarantee.
+ */
+function hitCost(hit: { content: string; title?: string | null }): number {
+  return estTokens(hit.content) + estTokens(hit.title ?? "");
+}
+
+export function applyTokenBudget<T extends { content: string; title?: string | null }>(
   hits: readonly T[],
   maxTokens: number,
 ): T[] {
@@ -37,16 +52,17 @@ export function applyTokenBudget<T extends { content: string }>(
   const out: T[] = [];
   let used = 0;
   for (const hit of hits) {
-    const cost = estTokens(hit.content);
+    const cost = hitCost(hit);
     if (out.length === 0) {
       // Always include the top hit; truncate it if it alone blows the budget.
       if (cost <= maxTokens) {
         out.push(hit);
         used = cost;
       } else {
+        // Leave room for the title, which ships alongside the body.
         out.push({
           ...hit,
-          content: truncateToTokens(hit.content, maxTokens),
+          content: truncateToTokens(hit.content, bodyRoom(maxTokens, hit.title)),
           truncated: true,
         });
         return out;
@@ -63,7 +79,7 @@ export function applyTokenBudget<T extends { content: string }>(
     if (remaining > 0) {
       out.push({
         ...hit,
-        content: truncateToTokens(hit.content, remaining),
+        content: truncateToTokens(hit.content, bodyRoom(remaining, hit.title)),
         truncated: true,
       });
     }

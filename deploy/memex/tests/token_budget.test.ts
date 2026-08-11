@@ -68,3 +68,32 @@ describe("applyTokenBudget", () => {
     expect(nextChar === undefined || nextChar === " ").toBe(true);
   });
 });
+
+describe("title is charged against the budget", () => {
+  it("counts the title, so the cap is not overshot by it", () => {
+    const long = "x".repeat(400); // ~100 tokens of body
+    const withTitle = applyTokenBudget(
+      [{ content: long, title: "y".repeat(400) }],
+      150,
+    );
+    // Body alone fits in 150; body + title does not, so the hit is truncated.
+    expect(withTitle[0]!.content.length).toBeLessThan(long.length);
+
+    const noTitle = applyTokenBudget([{ content: long, title: null }], 150);
+    expect(noTitle[0]!.content).toBe(long);
+  });
+
+  it("keeps a titled hit out when only its body would have fit", () => {
+    const body = "x".repeat(200); // ~50 tokens
+    const two = applyTokenBudget(
+      [
+        { content: body, title: null },
+        { content: body, title: "t".repeat(200) },
+      ],
+      110,
+    );
+    // 50 + (50 + 50) > 110 — the second hit is truncated, not admitted whole.
+    expect(two.length).toBe(2);
+    expect(two[1]!.content.length).toBeLessThan(body.length);
+  });
+});

@@ -6,6 +6,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A cut-off answer is retried with more room, not the same room.** Every paid
+  call picks an output cap, and Bedrock says when it hit that cap — but only the
+  fact extractor was listening. `think` was the worst case: its retry replayed
+  the identical prompt at the identical cap, and since these calls run at
+  temperature 0, a truncated answer truncated again in the same place. Its
+  default cap was also 1500 tokens for a structured JSON answer spanning up to
+  12 pages and 20 takes, which cannot close — and an unclosed answer is thrown
+  away whole, with the money already spent. The default is now 4000
+  (`MEMEX_THINK_OUTPUT_TOKENS`), and a truncated call is retried once at double
+  the cap when the budget covers it, across `think`, the graph rerank, the
+  relational fallback, reflections, patterns, drift, enrich-thin and the
+  contradiction judge.
+- **A misspelled flag no longer runs the command anyway.** `memex embed
+  --dry-runn` dropped the flag and started a real, paid backfill; every unknown
+  flag did the same, and the fallback is always the mutating or paid path. The
+  CLI now refuses a flag it does not define and suggests the intended one. It
+  also refuses a correctly spelled safety flag on a command that would ignore
+  it — `--dry-run` reading as "preview" while the command mutates is the worse
+  failure.
+- **`--help` on a subcommand prints help.** `memex search --help` answered
+  "`<query>` is required", and `jobs` and `auth` likewise demanded arguments
+  from someone asking what the arguments are.
+- **The search token budget counts the title it returns.** The cap was measured
+  against body text only, while the title ships with every hit — so a budget
+  the caller asked for as a hard guarantee was quietly overshot.
+
 ## [1.111.1] — 2026-08-11
 
 ### Fixed
