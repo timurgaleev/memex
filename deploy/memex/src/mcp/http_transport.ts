@@ -14,6 +14,7 @@
  * an array (batched). We handle both.
  */
 import type { Storage } from "../core/storage.ts";
+import { MEMEX_RESPONSE_VERSION } from "./response-contract.ts";
 import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { logToolCall } from "./param-redaction.ts";
@@ -269,6 +270,11 @@ async function handleSingle(
         protocolVersion: PROTOCOL_VERSION,
         serverInfo: SERVER_INFO,
         capabilities: { tools: {} },
+        // memex's own response-shape version, distinct from the MCP protocol
+        // version above: that pins the transport, this pins what memex puts
+        // inside a tool result. A client can refuse to run against a shape it
+        // does not know instead of discovering the change in production.
+        _meta: { memexResponseVersion: MEMEX_RESPONSE_VERSION },
       });
     case "tools/list":
       // Log tools/list too — a client that only ever lists tools should

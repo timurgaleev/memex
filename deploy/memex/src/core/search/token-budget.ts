@@ -16,7 +16,7 @@
  */
 const CHARS_PER_TOKEN = 4;
 
-const estTokens = (text: string): number =>
+export const estTokens = (text: string): number =>
   Math.ceil(text.length / CHARS_PER_TOKEN);
 
 function truncateToTokens(text: string, maxTokens: number): string {

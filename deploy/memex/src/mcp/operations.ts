@@ -578,6 +578,11 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "When true, strips markdown_body from the page row. The HTTP public-bearer path forces this on by default; internal MCP callers default false.",
       }),
+      token_budget: int({
+        minimum: 1,
+        description:
+          "Cap the whole response — page, facts and timeline together — at roughly this many tokens, counting each row as it is serialized rather than its headline text alone. The split is decided server-side and unused allocation flows between the arms, so you do not have to guess it. The response then carries a `budget` object saying what was dropped or truncated, so a partial view is never mistaken for a complete one. Applied after redaction, so the counts describe what you can see.",
+      }),
       include_pending: bool({
         description:
           "Piggy-back `pending_consolidation_count` (live facts not yet folded into a consolidated take) on the response. One round trip; field omitted when false.",

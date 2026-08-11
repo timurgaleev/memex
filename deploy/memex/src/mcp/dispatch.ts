@@ -49,6 +49,7 @@ import {
 } from "../core/pages.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { isExcludedOrphanWriter } from "../core/orphan-policy.ts";
+import { applyRecallBudget } from "../core/recall-budget.ts";
 import {
   addLink,
   removeLink,
@@ -2304,7 +2305,7 @@ async function callEntityRecall(
   // carry note-derived `fact`/`event` text and must be redacted on public
   // ingress too (mirrors callEntityFacts / callEntityTimeline).
   if (redact) {
-    return jsonResult({
+    const visible = {
       ...r,
       ok: true,
       // Run the page through the same PUBLIC_SAFE_PAGE_FIELDS allowlist the
@@ -2319,9 +2320,43 @@ async function callEntityRecall(
       timeline: redactTimeline(
         r.timeline as unknown as Record<string, unknown>[],
       ),
-    });
+    };
+    return jsonResult(budgeted(visible));
   }
-  return jsonResult({ ok: true, ...r });
+  return jsonResult(budgeted({ ok: true, ...r }));
+
+  /**
+   * One budget across all three arms. Without it a caller under a context
+   * budget had to guess the split, fetch, measure and call again — the server
+   * is the side that knows the sizes.
+   *
+   * Applied AFTER redaction, deliberately: budgeting the unredacted rows would
+   * make the dropped counts a size oracle for content the caller is not
+   * allowed to see.
+   */
+  function budgeted(payload: Record<string, unknown>): Record<string, unknown> {
+    const budget = args["token_budget"];
+    if (!(typeof budget === "number" && Number.isFinite(budget) && budget > 0)) {
+      return payload;
+    }
+    const trimmed = applyRecallBudget(
+      {
+        page: payload["page"] as { markdown_body?: string | null } | null,
+        facts: (payload["facts"] ?? []) as Record<string, unknown>[],
+        timeline: (payload["timeline"] ?? []) as Record<string, unknown>[],
+      },
+      budget,
+    );
+    return {
+      ...payload,
+      page: trimmed.page,
+      facts: trimmed.facts,
+      timeline: trimmed.timeline,
+      // Say what was cut. A caller that cannot tell "everything" from "what
+      // fit" treats a partial answer as complete.
+      budget: trimmed.report,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
