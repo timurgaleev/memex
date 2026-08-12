@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A retrieval-quality probe that measured nothing reported as one that
+  passed.** The nightly probe replays `eval_queries`; with none registered it
+  scores 0/0 and records the run under `ok:true`, and `doctor` rendered that as
+  `mean_rr=0.000 hit_rate=0.000 (scored 0/0)` — a run that measured nothing,
+  filed as a run that came back clean. Forty consecutive nights had recorded it
+  on the live brain without anything saying so. `doctor` now names the empty
+  eval set instead of printing zeros, and the advisor carries a `eval_set_empty`
+  finding with the streak length and the command that registers a query. The
+  streak resets on `total_queries`, not `scored`: a probe that replayed queries
+  and matched none did measure — that is a retrieval problem, and a different
+  finding from having no eval set at all.
+
 ## [1.119.0] — 2026-08-12
 
 ### Added

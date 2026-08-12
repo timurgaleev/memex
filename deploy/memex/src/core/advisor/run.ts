@@ -19,6 +19,7 @@ import {
   collectEmbedCoverage,
   collectUsageShape,
   collectChronicle,
+  collectEvalBlind,
   collectSetupSmells,
 } from "./collectors.ts";
 
@@ -30,6 +31,7 @@ export const COLLECTORS: AdvisorCollector[] = [
   collectEmbedCoverage,
   collectUsageShape,
   collectChronicle,
+  collectEvalBlind,
   collectSetupSmells,
 ];
 

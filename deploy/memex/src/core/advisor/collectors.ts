@@ -19,6 +19,7 @@
 import { discoverMigrations } from "../migrate.ts";
 import { orphanExclusionSql } from "../orphan-policy.ts";
 import { brainHealthMetrics } from "../source-health.ts";
+import { latestEvalSnapshot } from "../eval-snapshot.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 import type { Engine } from "../engine/interface.ts";
 import type { AdvisorCollector, AdvisorFinding } from "./types.ts";
@@ -413,6 +414,68 @@ export const collectChronicle: AdvisorCollector = {
     }
 
     return findings;
+  },
+};
+
+/**
+ * A retrieval-quality probe that measures nothing.
+ *
+ * The nightly probe replays `eval_queries`. When that set is empty it still
+ * records a snapshot — by design, so "no eval set" stays distinguishable from
+ * "probe never ran" — and the row reads `mean_rr=0 hit_rate=0 scored 0/0`
+ * under `ok:true`. A passing run reporting zeros is the trap: it reads as a
+ * measurement that came back empty-handed, when nothing was measured at all.
+ *
+ * `total_queries = 0` is unambiguous here: `recordEvalSnapshot` has one caller
+ * (commands/eval-probe.ts) and it runs AFTER `replayAll`, which never returns
+ * `ok:false` — a probe that fails throws and writes no row. So a recorded zero
+ * means the eval set was empty, never that the probe broke.
+ *
+ * Silent when the probe has never run at all: `doctor` already reports that
+ * case, and an advisor finding about a probe the owner has not set up yet is
+ * noise, not a gap.
+ */
+export const collectEvalBlind: AdvisorCollector = {
+  id: "eval-blind",
+  collect: async (ctx) => {
+    const snap = await latestEvalSnapshot(ctx.engine);
+    if (!snap || snap.total_queries > 0) return [];
+
+    // How long we have been blind: zero-query snapshots newer than the last
+    // probe that had queries to replay. The streak resets on `total_queries`,
+    // not on `scored` — a run that replayed five queries and scored none did
+    // measure; it just found nothing. That is a retrieval problem, and a
+    // different finding from having no eval set at all.
+    let nights = 0;
+    try {
+      const r = await ctx.engine.query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM eval_snapshots
+          WHERE total_queries = 0
+            AND ran_at > COALESCE(
+                  (SELECT max(ran_at) FROM eval_snapshots WHERE total_queries > 0),
+                  '-infinity'::timestamptz)`,
+      );
+      nights = Number(r.rows[0]?.n ?? 0);
+    } catch {
+      /* pre-migration brain → report the single snapshot we already read */
+      nights = 1;
+    }
+
+    return [
+      {
+        id: "eval_set_empty",
+        severity: "medium",
+        title:
+          `Retrieval quality is unmeasured — the nightly probe has recorded ` +
+          `${nights} snapshot(s) over an empty eval set.`,
+        detail:
+          "The probe replays eval_queries; with none registered it scores 0/0 and still reports ok, so a run that measured nothing is filed as a run that passed. Register a handful of real questions with the document each one should surface, and the trend in doctor starts meaning something.",
+        fix_command:
+          'memex eval-replay capture <id> --query "<a real question>" --tag good --expected-doc <document-id>',
+        collector: "eval-blind",
+      },
+    ];
   },
 };
 

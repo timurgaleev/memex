@@ -398,10 +398,16 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       checks.push({
         name: "eval-trend",
         ok: true,
-        detail: snap
-          ? `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)} ` +
-            `hit_rate=${snap.hit_rate.toFixed(3)} (scored ${snap.scored}/${snap.total_queries})`
-          : "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)",
+        detail: !snap
+          ? "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)"
+          : snap.total_queries === 0
+            // A zero-query replay scores 0/0. Rendering that as mean_rr=0.000
+            // reads as "measured, and bad" when the truth is "not measured" —
+            // the advisor's eval_set_empty finding carries the fix.
+            ? `last probe ${snap.ran_at}: eval set EMPTY — nothing measured ` +
+              `(register queries: memex eval-replay capture)`
+            : `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)} ` +
+              `hit_rate=${snap.hit_rate.toFixed(3)} (scored ${snap.scored}/${snap.total_queries})`,
       });
     } catch (e) {
       checks.push({
