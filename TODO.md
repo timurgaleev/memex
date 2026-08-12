@@ -105,6 +105,23 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ### Open — LOW (0)
 
+## Open — typecheck backlog (2026-08-12)
+
+`tsc` had never been run against this repo. Its first run reported 61 errors.
+`src/` is now clean and gated in CI (`make typecheck`, scoped by
+`deploy/memex/tsconfig.src.json`); one of the 12 it found there was a real
+defect — the doctor read `path` off the `DatabaseConfig` union, so on the
+Postgres brain that runs in production the engine check reported nothing.
+
+- **49 errors remain under `tests/`**, almost all `noUncheckedIndexedAccess`
+  on array reads (18 in `search_graph_signals`, 6 in `facts_extract`, 4 in
+  `facts_decay`, the rest scattered). Measure with `bun run typecheck:all`.
+  When it reaches zero, delete `tsconfig.src.json` and point the gate at
+  `tsconfig.json` so the whole repo is covered.
+- Type errors in test files are not cosmetic here: three times in one session
+  a fixture passed for the wrong reason because it did not exercise the branch
+  it claimed to. Types are one of the cheap ways that shows up.
+
 ## Practices backlog — 2026-08-12 (24 items, adversarially verified)
 
 A 47-agent comparison across seven ENGINEERING-PRACTICE dimensions — not

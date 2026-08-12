@@ -518,7 +518,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
     `[memex] listening on http://${opts.host}:${opts.port}${flags ? ` (${flags})` : ""}`,
   );
   return {
-    port: server.port,
+    port: server.port ?? opts.port,
     stop: async () => {
       await server.stop(true);
     },

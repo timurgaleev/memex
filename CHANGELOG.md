@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The TypeScript is typechecked now.** Every other language in the repo had a
+  static gate — `shellcheck` for the shell, `fmt`/`validate` for Terraform, a
+  guard script for the migrations — while the 74k lines the product is actually
+  written in had none. `tsc` had never been run here at all; its first run
+  reported 61 errors, and one of them was a live defect (see the doctor fix
+  below). `make typecheck` and a CI step now gate `src/`, which is clean. The
+  49 remaining errors all sit under `tests/` and are tracked in `TODO.md`;
+  `bun run typecheck:all` reports the count so it is a number to watch fall
+  rather than a silent exclusion.
 - **`deploy/deploy.sh` stamps the image and then proves it.** The build arg,
   the Dockerfile `ENV`, `version.ts` and the `/health` payload were wired end to
   end, but nothing ever supplied the value — `MEMEX_VERSION` was absent from the

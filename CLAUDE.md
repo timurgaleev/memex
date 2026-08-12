@@ -108,6 +108,9 @@ for this repo:
 1. **Test locally** (everything that applies to the change):
    - `make audit` — exit 0
    - `make scrub-audit` — HIGH:0
+   - `make typecheck` — exit 0, when any `.ts` changed. Scoped to `src/`;
+     `bun run typecheck:all` also covers `tests/`, which still carries a
+     backlog and is NOT a gate yet.
    - `make test` — bash unit tests pass
    - `python3 -m pytest tests/ -q` — all green
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed

@@ -12,6 +12,7 @@
  * diagnostic that the user / agent acts on manually.
  */
 import { readdirSync, statSync, existsSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { Storage } from "../core/storage.ts";
@@ -40,7 +41,9 @@ interface DiskEntry {
 }
 
 function* walkMd(root: string): Generator<DiskEntry> {
-  let entries: ReturnType<typeof readdirSync>;
+  // `withFileTypes: true` selects the Dirent overload; ReturnType<> resolves
+  // to the Buffer-named variant instead, so name it directly.
+  let entries: Dirent[];
   try {
     entries = readdirSync(root, { withFileTypes: true });
   } catch {

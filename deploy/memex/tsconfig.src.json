@@ -1,0 +1,18 @@
+{
+  "//": [
+    "Typecheck config for the shipping code only.",
+    "",
+    "tsc had never been run against this repo. Its first run reported 61 errors",
+    "— 12 under src/ (one of which was a real defect: the doctor read a field",
+    "that exists on only one variant of the database config union, so on the",
+    "Postgres brain that runs in production the engine check reported nothing)",
+    "and 49 under tests/, almost all noUncheckedIndexedAccess on array reads.",
+    "",
+    "src/ is clean and gated in CI as of this file. The tests/ backlog is",
+    "tracked as its own item — `bun run typecheck:all` reports it, so the",
+    "remaining count is a number someone can watch fall rather than a silent",
+    "exclusion. Delete this file once tests/ is clean and gate on tsconfig.json."
+  ],
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*"]
+}

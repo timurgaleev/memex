@@ -61,7 +61,7 @@ export class PostgresEngine implements Engine {
     // `unsafe` accepts a parameterised string with $1 / $2 placeholders, the
     // same shape PGLite uses. The result is array-like with a `count`
     // field — we copy the rows out so the caller sees a plain `{ rows }`.
-    const r = await this.sql.unsafe<T[]>(sql, params as readonly unknown[]);
+    const r = await this.sql.unsafe<T[]>(sql, params as never[]);
     return { rows: Array.from(r) as T[] };
   }
 
@@ -91,7 +91,7 @@ export class PostgresEngine implements Engine {
           text: string,
           params: unknown[] = [],
         ): Promise<QueryResult<U>> {
-          const r = await sql.unsafe<U[]>(text, params as readonly unknown[]);
+          const r = await sql.unsafe<U[]>(text, params as never[]);
           return { rows: Array.from(r) as U[] };
         },
         async exec(text: string): Promise<void> {

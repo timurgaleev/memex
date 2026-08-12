@@ -1453,7 +1453,7 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 main(process.argv.slice(2)).then(
-  (code) => process.exit(resolveExitCode(code, process.exitCode)),
+  (code) => process.exit(resolveExitCode(code, process.exitCode ?? undefined)),
   (err) => {
     console.error(`[memex] error:`, err instanceof Error ? err.message : err);
     process.exit(1);

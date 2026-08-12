@@ -270,7 +270,7 @@ export async function writeChildDoneInbox(
       // Walk back from byte 8192 until we land on a UTF-8 lead byte
       // (0x00-0x7F or 0xC0+). This drops at most 3 trailing bytes.
       let end = 8192;
-      while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1;
+      while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end -= 1;
       excerpt = buf.subarray(0, end).toString("utf8");
     }
   }

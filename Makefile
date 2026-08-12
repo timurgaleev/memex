@@ -14,7 +14,7 @@
 #   make destroy   terraform destroy (NO automatic safeguards — answer carefully)
 #   make help      show this list
 
-.PHONY: help init audit scrub-audit test plan apply deploy destroy lint
+.PHONY: help init audit scrub-audit typecheck test plan apply deploy destroy lint
 
 # Default target — print help.
 help:
@@ -30,6 +30,9 @@ audit: ## Fail if any PII pattern matches a git-tracked file
 
 scrub-audit: ## Broader pre-publication audit — categorised report, fails on HIGH hits
 	@bash scripts/scrub-audit.sh
+
+typecheck: ## Typecheck the shipping TypeScript (src/); tests/ backlog via `bun run typecheck:all`
+	@cd deploy/memex && bun run typecheck
 
 test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
 	@bash scripts/check-search-path.sh

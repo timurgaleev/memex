@@ -222,7 +222,12 @@ export async function finishToolExecution(
   input: FinishToolExecutionInput,
 ): Promise<{ updated: boolean; current_status: ToolExecStatus | null }> {
   if (!Number.isInteger(input.id)) throw new Error("id is required");
-  if (!VALID_TOOL_STATUS.has(input.status) || input.status === "pending") {
+  // Widened on purpose: the declared union excludes "pending", so tsc reads
+  // this as dead — but `input` arrives as JSON over MCP and the type is a
+  // claim, not a guarantee. Validating a trust boundary against its own type
+  // annotation validates nothing.
+  const status: string = input.status;
+  if (!VALID_TOOL_STATUS.has(input.status) || status === "pending") {
     throw new Error(
       `status must be one of succeeded|failed|skipped (got ${input.status})`,
     );

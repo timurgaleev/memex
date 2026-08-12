@@ -35,7 +35,7 @@ export function wellFormForJsonb(s: string): string {
     typeof (s as unknown as { toWellFormed?: () => string }).toWellFormed ===
     "function";
   const wf = hasToWellFormed
-    ? s.toWellFormed()
+    ? (s as unknown as { toWellFormed(): string }).toWellFormed()
     : s.replace(LONE_SURROGATE, REPLACEMENT);
   // Postgres jsonb also rejects U+0000; drop it.
   return wf.includes(NUL) ? wf.split(NUL).join("") : wf;
