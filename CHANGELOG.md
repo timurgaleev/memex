@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.119.0] — 2026-08-12
+
+### Added
+- **A benchmark for what the brain volunteers.** The retrieval eval answers
+  "when asked, does search find it?"; nothing answered what an agent actually
+  experiences — when nobody asked, did the brain offer the right pages, and did
+  it stay quiet when it had nothing to say. Six labelled conversations, replayed
+  through the real push path, scored for precision, recall, miss rate and
+  false-fire rate. The last exists so the others cannot be gamed by volunteering
+  everything; an unmeasured rate reports as `n/a`, never as a passing zero. It
+  already recorded two blind spots in entity extraction as expected misses: an
+  all-lowercase mention yields nothing, and a sentence-opening "Did Dana ever
+  hear back" is read as the candidate "Did Dana".
+
 ## [1.118.0] — 2026-08-11
 
 ### Added

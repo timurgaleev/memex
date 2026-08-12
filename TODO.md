@@ -105,6 +105,28 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ### Open — LOW (0)
 
+## Open — push-bench follow-ups (2026-08-12)
+
+The push benchmark (v1.119.0) shipped with one metric family. Recorded here
+rather than left implied:
+
+- **Two extraction blind spots it found**, pinned as expected misses in
+  `src/core/bench/corpus/extraction-blind-spots.json`: an all-lowercase mention
+  produces no entity candidates at all, and a sentence-opening capitalized
+  stopword glues to the name (`"Did Dana ever hear back"` → candidate
+  `"Did Dana"`), which fires for any `Did/Can/Will/Should <Name>` phrasing — a
+  very common user shape. Fixing either SHOULD break the pinned scores; update
+  the pin, not the label.
+- **The other three metric families are not built**: know-to-ask (as a paired
+  rate), cross-session continuity (a decision written in one session, recalled
+  in a later one through a different client identity), and write-back fidelity
+  (does the conversation→memory pipeline preserve the facts it claims, gradeable
+  with a stubbed extractor at zero model cost).
+- **No CLI command, no MCP tool, no persistence.** The harness returns results
+  and the test asserts them. A `memex bench-push` wrapper needs entries in
+  `src/cli-args.ts` and the derived-command test; persisting a trend needs a
+  migration.
+
 ## New candidates — 2026-08-11 sweep
 
 Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0; BENCH-1 is open.
