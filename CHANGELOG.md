@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`deploy/deploy.sh` stamps the image and then proves it.** The build arg,
+  the Dockerfile `ENV`, `version.ts` and the `/health` payload were wired end to
+  end, but nothing ever supplied the value — `MEMEX_VERSION` was absent from the
+  host environment, so compose fell through to its `dev` default and every image
+  ever built carried that stamp. The script computes it from `git describe`,
+  builds, waits for healthy, and refuses to succeed unless the running container
+  reports back the same stamp. A container that comes up healthy while still
+  serving the previous image is the failure a deploy check exists to catch, and
+  the one a constant version string cannot.
+
 ### Fixed
 - **`/health` reported a version that could never change.** The field was
   `package.json`'s version, which is pinned at `0.1.0` on purpose — the build
