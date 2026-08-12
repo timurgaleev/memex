@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.119.1] — 2026-08-12
+
 ### Fixed
 - **A retrieval-quality probe that measured nothing reported as one that
   passed.** The nightly probe replays `eval_queries`; with none registered it
