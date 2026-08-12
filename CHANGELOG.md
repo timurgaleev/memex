@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.120.0] — 2026-08-12
+
 ### Added
 - **The advisor says when takes are being written faster than they can ever be
   graded.** `propose-takes` writes on every synthesis tick, but `grade-takes`
