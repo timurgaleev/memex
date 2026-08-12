@@ -105,6 +105,364 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ### Open — LOW (0)
 
+## Practices backlog — 2026-08-12 (24 items, adversarially verified)
+
+A 47-agent comparison across seven ENGINEERING-PRACTICE dimensions — not
+features, that axis was compared and closed the same day. Every claimed delta
+was handed to a second agent tasked with REFUTING it by finding the same
+discipline already implemented here under different vocabulary; 16 of 40
+claims died that way and are listed at the end with their reasons.
+
+Nothing here is a port: each item states a discipline in our own words, to be
+implemented from that description alone.
+
+**Status: 0 shipped, 24 open.**
+
+- **[TST-01]** (high value / small effort) Make test failures survive truncation. When any shard fails, the runner writes each failure block (prefixed with its shard and test name) to a fixed l
+  - Ours: deploy/memex/scripts/test-sharded.sh:66-73 prints `shard N FAILED`
+    and sets a flag; there is no failure log file, no per-shard pass/fail
+    summary, no banner, and no wedge detection — a shard that hangs is only
+    visible as the whole run stalling. With 338 files at SHARD_SIZE=20 that
+    is 17 shards of interleaved output, so the actual
+  - Why: Our ship gate is the local suite, and our memory already records a
+    run reporting hundreds of phantom failures from WASM heap exhaustion.
+    Without a distinction between 'tests failed' and 'the runner died', and
+    without a durable failure log,
+
+- **[TSF-01]** (high value / small effort) Measure tool usage as a first-class, standing report. One append-only JSONL line per call, written from the DISPATCH layer (deliberately, so param-val
+  - Ours: deploy/memex/src/mcp/request-log-db.ts does log a redacted row per
+    tool call with name/latency/ok, but the sink is opt-in and OFF by
+    default (requestLogDbEnabled at line 26 requires
+    MEMEX_REQUEST_LOG_DB=1), forced on only for OAuth ingress. Nothing
+    aggregates it: there is no per-tool call-count report and, critically,
+    no report
+  - Why: We can't govern a surface we don't measure on a schedule. Without a
+    standing 'never called in N days' list, dead tools accumulate silently
+    between audits and the next 16.5k-token bloat is discovered the same
+    manual way. It also gives the ti
+
+- **[CI-01]** (high value / small effort) Run the TypeScript compiler as a blocking pre-test check. The reference keeps `typecheck` (tsc --noEmit) as one entry in a declared array of gate chec
+  - Ours: We never typecheck. deploy/memex/tsconfig.json:1-20 configures
+    strict + noUncheckedIndexedAccess + noImplicitOverride and includes
+    src/**/* and tests/**/*, and typescript ^5.6 is a devDependency — but
+    there is no `typecheck` script in deploy/memex/package.json:11-16, and
+    grepping .github/, Makefile, scripts/, and deploy/memex/sc
+  - Why: Bun strips types at runtime and never checks them, so a wrong type
+    is invisible until the exact line executes. With ~99 migrations and a
+    large src tree, any code path not covered by the Bun suite ships
+    unchecked. noUncheckedIndexedAccess in
+
+- **[CI-02]** (high value / small effort) The authoritative gate is one command that exits non-zero, not a checklist a human follows. The reference wraps its whole pre-merge gate in a single d
+  - Ours: Our ship gate is prose. CLAUDE.md "Ship workflow" step 1 lists six
+    separate commands (make audit, make scrub-audit, make test, pytest,
+    terraform fmt/validate, bun run test:sharded) each qualified by "when X
+    changed", and nothing runs them as a unit. The Makefile (Makefile) has
+    audit, scrub-audit, test, lint as separate targets w
+  - Why: Our own operator decision makes the LOCAL run authoritative and
+    explicitly states GitHub CI never blocks the ship. That makes an
+    unenforceable gate the single highest-risk thing in the pipeline:
+    skipping one line of a six-line prose checkli
+
+- **[CI-03]** (high value / small effort) Prove the running artifact is the version you think you shipped, by having the artifact report its own build stamp and asserting that stamp against th
+  - Ours: We have the stamp but not the check, and the one surface that
+    exposes a version lies. deploy/docker-compose.yml:19 passes
+    MEMEX_VERSION into the build, deploy/memex/Dockerfile:50-57 bakes it,
+    and deploy/memex/src/version.ts:7-12 reads it — but its only consumer is
+    `memex --version` at deploy/memex/src/cli.ts:1440. Meanwhile depl
+  - Why: CLAUDE.md ship step 4 verifies deploys via container health +
+    `/health` returning ok:true. A container still running last week's image
+    returns exactly that, and its `version` field reads 0.1.0 — the same as
+    the new one. We cannot currently
+
+- **[DOC-01]** (high value / small effort) Bidirectional pairing between written invariants and executable guards. Every must-never-violate rule stated in the always-loaded agent doc names the 
+  - Ours: Only one rule in CLAUDE.md is paired with its enforcer (the audit
+    gate → make audit + scripts/lib/pii-patterns.txt). Our one real code-
+    level guard, scripts/check-search-path.sh (trigger functions must pin
+    search_path — a privilege-escalation invariant), is named in zero agent-
+    facing docs: grep for it across CLAUDE.md, AGENTS.md,
+  - Why: An agent writing a new migration has no way to learn the
+    search_path rule except by pushing and reading a red CI job; an agent
+    adding a new read path has no written statement that public-MCP
+    responses must be redacted the same way the inter
+
+- **[SFG-01]** (high value / medium effort) Health checks carry a three-state verdict (ok / warn / fail), and the rule is that a check which COULD NOT run returns warn — never ok. In the referen
+  - Ours: Our doctor's Check type is binary: `interface Check { name; ok:
+    boolean; detail? }` at deploy/memex/src/commands/doctor.ts:49-53. Eight
+    catch-blocks push `ok: true` with the error text as the detail (e.g. the
+    eval-trend catch at src/commands/doctor.ts:412-418) — a check that THREW
+    renders identically to a check that passed. We s
+  - Why: `run_doctor`/`memex doctor` exit code and the MCP payload are what
+    a cron probe and an agent read. Any degraded-but-not-fatal state — empty
+    eval set, wedged cycle, check that errored — is indistinguishable from
+    healthy at the only layer tha
+
+- **[SFG-02]** (high value / medium effort) A periodic probe reports a closed OUTCOME enum, not a score, and every precondition that makes the run unmeasurable gets its OWN outcome value: missin
+  - Ours: deploy/memex/src/commands/eval-probe.ts:63-77 always prints `ok:
+    true` and records one eval_snapshots row with only (total_queries,
+    scored, mean_rr, hit_rate); the header comment at lines 13-14 states as
+    intended behaviour that "an empty eval set records a zero-scored row and
+    exits 0". There is no outcome column in migration 068
+  - Why: This IS bug (a). Without an outcome enum the probe has no
+    vocabulary for "I could not measure": empty set, Bedrock unavailable,
+    and a genuinely bad brain all serialize to the same row shape. Without a
+    7-day window the doctor can't say "40 c
+
+- **[SFG-03]** (high value / medium effort) The cycle's overall status separates "ran successfully AND did work" from "ran successfully AND did nothing" as two distinct terminal values (`ok` vs 
+  - Ours: deploy/memex/src/core/cycle/index.ts:822-834 — our
+    CycleResult.status is purely worst-of-phase (`fail` if any failed, else
+    `warn` if any warned, else `ok`). A tick that embedded 500 chunks and a
+    tick that touched nothing both log `status=ok` (the log line at
+    src/recipes/cycle.ts:244-252 prints only per-phase ok/warn/FAIL). There
+  - Why: Every nightly tick reports green whether the pipeline is doing its
+    job or has quietly stopped finding work. This is the single line of
+    output an operator actually reads, and it currently cannot express "the
+    cycle ran and produced literally
+
+- **[TST-02]** (high value / medium effort) Enforce intra-process test isolation with a CI lint, and quarantine the files that can't comply behind a filename suffix. The lint scans every non-qua
+  - Ours: Our runner batches 20 alphabetically-adjacent test files into one
+    `bun test` process (deploy/memex/scripts/test-sharded.sh:56-70), and
+    nothing stops those files from mutating shared process state. 3 files
+    call `mock.module` (tests/chronicle_search_fence.test.ts,
+    tests/mcp_search_redaction.test.ts, tests/mcp_backlinks_jobs_redact
+  - Why: Two of the three mock-leaking files are MCP redaction tests — the
+    ones that prove the public ingress does not leak note bodies. Their
+    module stubs stay installed for the other ~19 files in the same shard,
+    so a neighbouring test can pass aga
+
+- **[EVL-01]** (high value / medium effort) A reported delta between two configurations is not treated as real until it survives a significance test. They compute a paired bootstrap at the QUEST
+  - Ours: deploy/memex/src/commands/eval-compare.ts (renderCompare +
+    gateVerdict) reports and gates on raw deltas; no paired resampling
+    anywhere in src/.
+  - Why: On a 36-query set one query flipping moves the mean by ~2.8pp, so
+    our gate's default 0.05 absolute-drop budget (eval-compare.ts
+    runEvalGate) sits right at the noise floor: it will both wave through
+    real regressions and fail on coin flips. W
+
+- **[CST-01]** (high value / medium effort) Actual usage is recorded in a finally block, so a call that THREW is still billed to the ledger. When the error envelope carries usage (providers atta
+  - Ours: Every one of our record() calls sits on the success path after the
+    response is in hand — deploy/memex/src/core/synthesis/think.ts:1181,
+    core/synthesis/patterns.ts:245, core/search/graph-rerank.ts:222,
+    core/facts-extract.ts:702 and the rest. A throw from the transport
+    records nothing.
+  - Why: Bedrock bills input tokens on calls that time out, get truncated,
+    or fail after streaming starts, and we retry several of these paths.
+    That spend is both uncounted against the cap and absent from the ledger,
+    so our per-feature totals are bi
+
+- **[CST-02]** (high value / medium effort) Spend is a typed, multi-kind concern: chat, embedding and rerank are each priced through their own surface (embeddings keyed provider:model in dollars
+  - Ours: deploy/memex/src/core/budget.ts:26 prices only three chat families
+    by substring; the tracker's record() takes chat token usage only. Titan
+    embeddings (deploy/memex/src/core/embedding.ts:17) and the backfill
+    embedder match no pricing row at all, and no code path prices them.
+  - Why: Embedding spend — every index, re-embed and per-query embed — is a
+    whole cost category that cannot appear in any total we produce. Even a
+    perfect chat ledger would leave the monthly bill unexplained.
+
+- **[TSF-02]** (high value / medium effort) Ship a client-selectable SURFACE TIER, not one monolithic tools/list. A per-op boolean on the operation declaration marks membership in a tiny "protoc
+  - Ours: Our only tools/list filter is a trust-class filter, not a
+    size/profile tier: deploy/memex/src/mcp/http_transport.ts:293 drops
+    public-forbidden tools for public ingress, and
+    deploy/memex/src/mcp/tool_defs.ts:18 builds TOOL_DEFS from all of
+    OPERATIONS with no tier concept. Any authenticated/internal client
+    (Claude Code on the PAT)
+  - Why: Every session pays 16.5k tokens before the agent does anything, and
+    55 of the tools are noise that dilutes tool-selection. Without a tier we
+    can only fix this by deleting tools (destructive, irreversible for the
+    36 that are used) instead of
+
+- **[DOC-02]** (high value / medium effort) Reference material that enumerates a code-derived surface (every env knob, every CLI flag, every skill in the pack) is GENERATED from the source of tr
+  - Ours: Every enumerated agent doc is hand-typed and nothing checks it.
+    Measured today: 187 distinct MEMEX_*/BRAIN_* vars are read in
+    deploy/memex/src, but 67 of them appear nowhere in docs/CONFIGURATION.md
+    or .env.example. In the other direction, deploy/docker-compose.yml:65-66
+    sets MEMEX_SWEEP_DELAY_MS and MEMEX_SWEEP_MAX_FILES, and A
+  - Why: An agent (or the operator) tunes MEMEX_SWEEP_DELAY_MS /
+    MEMEX_SWEEP_MAX_FILES to fix a sweep problem, redeploys, and observes no
+    change — the knob is dead and the doc says it works, so the real cause
+    gets misdiagnosed. Symmetrically, 67 imp
+
+- **[TST-03]** (high value / large effort) Keep a real-Postgres test tier that is gated on a connection URL but is culturally NOT optional: the docs state plainly that skipping because the URL 
+  - Ours: Every one of our 338 test files runs on PGLite; exactly one
+    (tests/runtime_config.test.ts) even mentions a Postgres URL, and no test
+    opens a real Postgres connection. Meanwhile production is Postgres-only
+    code: src/core/vector-index.ts:74, :113, :169, :233 and
+    src/core/search/vector.ts:126 and src/core/migrate.ts:152 all early-r
+  - Why: The HNSW lifecycle and the ef_search tuning are the retrieval hot
+    path in production, and our suite proves only that they do nothing under
+    PGLite. A green 338-file run is compatible with a broken CONCURRENTLY
+    rebuild, a wrong ef_search cast
+
+- **[CST-03]** (high value / large effort) One provider-invocation module is the only door to a paid model, and the budget tracker is bound to it by ambient async scope rather than passed as a 
+  - Ours: We have the tracker class but no chokepoint: eight sites hand-
+    build their own Bedrock command, and the tracker only participates where
+    a caller explicitly threads it in (deploy/memex/src/core/budget.ts:70
+    constructed at ~18 call sites, e.g.
+    deploy/memex/src/core/synthesis/think.ts:1048).
+    deploy/memex/src/core/search/expansion.ts
+  - Why: This is the direct cause of the unattributable ~$42/month: adding a
+    new Haiku call site requires remembering to price it, and four current
+    sites did not. Nothing structurally prevents the next one from being
+    invisible too.
+
+- **[EVL-02]** (medium value / small effort) A curated allowlist names every file whose change meaningfully moves retrieval (the search pipeline, the embedding entry point, the chunkers, the quer
+  - Ours: doctor.ts eval-trend reports snapshot recency only; no mapping
+    from changed retrieval-affecting files to eval staleness anywhere in
+    src/.
+  - Why: Our staleness signal is purely temporal: the nightly probe writes a
+    snapshot and doctor prints its date and scores
+    (deploy/memex/src/commands/doctor.ts:390-410, explicitly informational
+    and never failing). A ranking change deployed today th
+
+- **[TSF-03]** (medium value / small effort) Make the discovery layer reachability-aware. Their skill catalog (the progressive-disclosure layer that keeps prose out of tools/list) returns, per en
+  - Ours: We expose list_skills / get_skill / list_brain_skillpack
+    (deploy/memex/src/mcp/operations.ts:1057, 1063) but they return only
+    {slug, description, body} — grepping deploy/memex/src for usable_tools /
+    unavailable_tools returns nothing. A skill body can therefore instruct a
+    public-ingress agent to call get_chunks or relational_reca
+  - Why: Our tool surface is already trust-class-dependent, so a skill's
+    instructions are only sometimes executable by the reader. The agent
+    discovers this as a permission_denied mid-task, which reads as a broken
+    brain rather than a scoped one — and
+
+- **[CI-04]** (medium value / small effort) Scan the dependency lockfile for known vulnerabilities on any PR that touches a manifest, plus on a weekly schedule, using a tokenless lockfile scanne
+  - Ours: Our .github/dependabot.yml covers the github-actions ecosystem
+    only — its own comment explains why pip is excluded, but the Bun/npm
+    ecosystem is simply absent. deploy/memex/package.json:19-27 pins seven
+    runtime dependencies (two AWS SDK clients, @electric-sql/pglite,
+    postgres, chokidar, web-tree-sitter, yaml) against deploy/meme
+  - Why: The daemon is internet-reachable (public bearer + OAuth endpoints
+    on the same server) and its dependencies parse untrusted input — YAML,
+    tree-sitter grammars over ingested source, and a Postgres wire client. A
+    published advisory in any of t
+
+- **[DOC-03]** (medium value / small effort) Structural anti-bloat guard on the agent docs themselves, run in CI: a hard byte cap on the auto-loaded file, plus a ban on append-only per-release hi
+  - Ours: No size cap and no history-clause ban anywhere. CLAUDE.md is
+    12.8KB and AGENTS.md 8.8KB today (healthy), but nothing holds them
+    there, and llms.txt:30 directs agents to read TODO.md (172KB) and we
+    keep PARITY.md (164KB) alongside it. Our guard scripts also have no
+    tests of their own — tests/ covers audit.sh and init.sh but nothi
+  - Why: Our own convention is to append rationale to CLAUDE.md/AGENTS.md
+    every time a rule is learned (the ship section already carries dated
+    operator decisions). That is exactly the append-only growth pattern;
+    unchecked it ends with an auto-loaded
+
+- **[SFG-04]** (medium value / medium effort) Doctor cross-references a producer's backlog against whether the CONSUMER is actually scheduled to run, and reports the combination — not either numbe
+  - Ours: We count backlogs but never pair them with consumer scheduling.
+    deploy/memex/src/commands/doctor.ts:209-214 reports pages stale for link
+    extraction and :229-233 reports docs stale for re-chunk, both as plain
+    `ok:true` counts, with no check on whether the draining phase is in the
+    tick's phase list. Our phase list is computed at r
+  - Why: Our default-OFF opt-in phases (synthesis chain, rechunk-sweep,
+    deep-synth) and the operator skip-list are exactly the surface that can
+    be silently unscheduled forever. A backlog number that nobody pairs with
+    "is anything going to consume th
+
+- **[TST-04]** (medium value / medium effort) Run a property-based fuzz layer over the pure input-handling functions, and defend the word 'pure' mechanically rather than by convention. A build-tim
+  - Ours: No property-based or fuzz testing exists anywhere in the repo —
+    grepping tests/, src/ and package.json for fast-check or any
+    `fc.assert`-style harness returns nothing (only substring hits on the
+    unrelated word 'fuzzy' in slug resolution). Every one of our 338 files
+    is example-based, so input coverage is exactly the set of string
+  - Why: We hand-roll parsers and escapers over untrusted text on the ingest
+    path — slug canonicalization, LIKE-pattern escaping, fence parsing,
+    frontmatter and chunker input. Those are precisely the functions where a
+    hostile or merely weird note bo
+
+- **[DOC-04]** (medium value / medium effort) The agent-doc corpus that the product SERVES at runtime is validated in CI by the product's own checker, against the repo's real corpus (not fixtures)
+  - Ours: We ship 53 SKILL.md files plus the shared `_*` rule files under
+    deploy/skills/, served to every MCP client via list_skills / get_skill,
+    with zero CI validation.
+    deploy/memex/tests/brain_resident_skillpack.test.ts only exercises the
+    loader against three synthetic files written to a tmpdir; it never opens
+    the real corpus. deploy/m
+  - Why: These files are memex's only agent-facing contract at runtime —
+    remote MCP clients never see CLAUDE.md or AGENTS.md, they see whatever
+    get_skill returns. A skill that references a tool we later rename, or a
+    directory that loses its SKILL.md
+
+### Refuted by verification — do NOT re-open without new evidence
+
+- SFG: When a phase applies an eligibility gate that can filter its entire input away (an age/maturity bar, a bu
+  - Refuted: REFUTED — the practice is an established house convention in
+    our repo, implemented under our own vocabulary, with tests that assert
+    exactly the "zero output must have a stated cause" property. Verified by
+    reading: (1) AG
+- SFG: The liveness stamp that downstream freshness readers consult is written ONLY by a run that actually compl
+  - Refuted: REFUTED — the load-bearing half is already implemented under
+    different vocabulary, and the other half depends on machinery we
+    deliberately do not have. 1) "A failure to write the stamp degrades the
+    run's reported status,
+- TST: Every fixed bug class earns a permanent STRUCTURAL guard, not just a runtime regression test, and all suc
+  - Refuted: The claim's own factual premises are wrong on file evidence.
+    (1) "Inside deploy/memex/ there are zero such guards" — FALSE.
+    `deploy/memex/tests/jsonb_binding_guard.test.ts` is exactly the
+    described artifact, and it guard
+- EVL: Hard-negative queries are a scored precision guard, not a free pass. Every question in their set carries 
+  - Refuted: We already implement this practice, on two surfaces, under
+    different vocabulary — and in a stricter form than claimed. RETRIEVAL
+    SURFACE (the hermetic CI gate),
+    deploy/memex/tests/retrieval_quality.test.ts: the QRELS arr
+- EVL: Each eval question is tagged with the failure CLASS it defends (query-is-a-title-phrase, generic label to
+  - Refuted: We already implement this under the name "family", shipped in
+    v1.3.30. deploy/memex/tests/retrieval_quality_families.test.ts (commit
+    d2ebcc5, tracked, in the default suite) defines `type Family =
+    "body_term" | "alias_syn
+- EVL: The golden question set is a committed, versioned artifact under change control, and the baseline is pinn
+  - Refuted: We already have the substance under a different shape. (1) The
+    golden set IS a committed, versioned artifact:
+    deploy/memex/tests/eval/qrels.json is tracked, carries "_version": 1 and
+    a "_doc" header stating its semantics
+- EVL: Retrieval numbers are published together with a written methodology that (a) pre-registers what they expe
+  - Refuted: All four elements exist in our repo, and the premise ("numbers
+    are published") does not hold for us. (c) Non-coverage is stated in four
+    explicit "does NOT tell you" blocks —
+    deploy/memex/src/core/bench/harness.ts:35 (a g
+- CST: Both accounting surfaces are written from the same place for every paid call, not just the request path. 
+  - Refuted: The load-bearing parts of the practice already exist under
+    different names, and the part that doesn't exist doesn't apply to our
+    architecture. (a) Durable per-call accounting with reserve →
+    settle/release, cap enforcemen
+- CST: The price table is keyed on exact provider-prefixed model ids, not families: every id spelling a provider
+  - Refuted: Refuted on four of the five sub-claims; only a header comment
+    is genuinely missing. (1) "One module owns the dollar values; derived
+    views must be asserted equal" — we already have the stronger form.
+    `deploy/memex/src/cor
+- CST: The ceiling and the accounting are separated on purpose, and "unpriced" has exactly one policy. A single 
+  - Refuted: Most load-bearing pieces of the claim are already implemented
+    in our repo under different names, and several factual assertions about
+    our code are wrong. (1) Ceiling/accounting separation exists:
+    BudgetTracker.record() w
+- TSF: Treat tool descriptions as a REVIEWED ROUTING ARTIFACT, not handler prose. All LLM-facing description str
+  - Refuted: The load-bearing premises are false. (1) "Inline strings inside
+    handlers": descriptions do NOT live with handlers —
+    deploy/memex/src/mcp/operations.ts is a dedicated declarative contract
+    module (name/description/scope/pa
+- TSF: Guard descriptions with an actual LLM routing eval, not just string assertions. A CI test builds a tool l
+  - Refuted: The claim "we have no tool-selection eval of any kind" is
+    factually wrong. We ship 18 `routing-eval.jsonl` fixture files at
+    deploy/skills/<slug>/routing-eval.jsonl whose line shape is {intent,
+    expected_skill, ambiguous_w
+- TSF: Declare MCP ToolAnnotations on the operation itself and emit them only when declared. The op interface ca
+  - Refuted: REFUTED on two independent grounds, both verified by reading
+    files in our repo. (1) The honesty-guard half of the claimed practice
+    already exists here, under a different name.
+    `deploy/memex/tests/tool_defs_contract.test.
+- CI: Treat each incident class as earning a permanent executable guard. The reference maintains a large family
+  - Refuted: REFUTED. The claim's premise ("we have exactly one such guard,
+    and no registry") is factually wrong on both halves. **We have a large
+    incident-derived guard family, just not named `check-*.sh`.** Verified
+    by reading each
+- CI: Ban the known-dangerous invocation mechanically rather than documenting it. The reference has a dedicated
+  - Refuted: Refuted: we already implement this exact practice under a
+    different name. scripts/check-search-path.sh is a dedicated grep guard
+    that scans source for a known-dangerous shape (trigger functions lacking
+    SET search_path),
+- DOC: Two-layer agent doc: the always-loaded file is orientation + a ROUTER, never the spec. It carries a "when
+  - Refuted: We already implement the two-layer agent doc under different
+    names, and the claim's supporting evidence read the wrong files.
+    Verified: (1) CLAUDE.md is the only auto-loaded file and is deliberately
+    rules-only — it carri
+
 ## Open — push-bench follow-ups (2026-08-12)
 
 The push benchmark (v1.119.0) shipped with one metric family. Recorded here

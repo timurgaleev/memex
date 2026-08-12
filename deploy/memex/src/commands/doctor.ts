@@ -15,6 +15,7 @@ import { existsSync, statSync } from "node:fs";
 import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.ts";
 import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
+import type { DatabaseConfig } from "../core/config.ts";
 import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
@@ -46,6 +47,20 @@ import {
   type RemediationPlan,
 } from "../core/remediation.ts";
 import packageJson from "../../package.json" with { type: "json" };
+
+/**
+ * Detail line for the engine check.
+ *
+ * Exported and pure because the bug it fixes is invisible from the pglite side:
+ * `path` exists only on the pglite variant, so reading it straight off the
+ * `DatabaseConfig` union rendered `undefined` on every postgres brain — which
+ * is what production runs — and the one check whose job is naming the engine
+ * said nothing about it. A test driving `runDoctor` cannot catch that without a
+ * live postgres, so the branch lives here where both variants are one call away.
+ */
+export function engineCheckDetail(db: DatabaseConfig): string {
+  return db.type === "pglite" ? db.path : `engine=${db.type}`;
+}
 
 interface Check {
   name: string;
@@ -102,7 +117,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       checks.push({
         name: "pglite",
         ok: true,
-        detail: config.database.path,
+        detail: engineCheckDetail(config.database),
       });
     } catch (e) {
       // A diagnosis you can only get by opening the thing that will not open is

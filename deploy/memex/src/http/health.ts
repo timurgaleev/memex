@@ -15,7 +15,7 @@
  * can tell at a glance which backend is in use after a cutover.
  */
 import type { Storage } from "../core/storage.ts";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../version.ts";
 
 /** 3 s leaves headroom under the usual 5 s orchestrator health deadline. */
 export const HEALTH_TIMEOUT_MS = 3000;
@@ -48,7 +48,11 @@ export async function probeLiveness(
       body: {
         ok: true,
         db: storage.engine().kind,
-        version: packageJson.version,
+        // The BUILD stamp, not package.json — that one is pinned at 0.1.0 on
+        // purpose (see version.ts), so reporting it made /health answer the
+        // same string for every image ever built. A deploy check that reads
+        // this field could not tell a fresh container from a stale one.
+        version: VERSION,
       },
     };
   } catch (e) {

@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`/health` reported a version that could never change.** The field was
+  `package.json`'s version, which is pinned at `0.1.0` on purpose — the build
+  stamp lives in `MEMEX_VERSION` and is baked into the image. So the one
+  externally-visible version surface answered `0.1.0` for every image ever
+  built, and a deploy check reading it could not tell a fresh container from a
+  six-month-old one. It now reports the build stamp. The existing test asserted
+  only `typeof version === "string"`, which passed throughout.
+- **The doctor's engine check said nothing about the engine on Postgres.** Its
+  detail read `path` straight off the `DatabaseConfig` union; that field exists
+  only on the PGLite variant, so on a Postgres brain — which is what runs in
+  production — it serialised as `undefined` and vanished from the report. The
+  branch now lives in a small exported function, because a test driving
+  `doctor` can only ever exercise the PGLite side without a live Postgres, and
+  the bug was on the other one. Found by running `tsc` over the codebase for
+  the first time.
+
 ## [1.120.0] — 2026-08-12
 
 ### Added

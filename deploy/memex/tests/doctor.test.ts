@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDoctor } from "../src/commands/doctor.ts";
+import { runDoctor, engineCheckDetail } from "../src/commands/doctor.ts";
 import { KNOWN_CHECK_NAMES } from "../src/core/doctor-categories.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-doctor-test-"));
@@ -119,5 +119,41 @@ describe("doctor", () => {
     expect(parsed.summary.ranked_failures).toEqual([]);
     expect(parsed.summary.by_category.brain).toBeDefined();
     expect(parsed.summary.by_category.ops.ok).toBeGreaterThan(0);
+  });
+});
+
+describe("doctor engine check detail", () => {
+  it("names the data dir on pglite and the engine kind otherwise", async () => {
+    // `detail: config.database.path` read `path` off the config UNION. It only
+    // exists on the pglite variant, so on the postgres brain that actually runs
+    // in production the field serialised as undefined and vanished from the
+    // report — the one check whose whole job is naming the engine said nothing
+    // about it. The catch path a few lines below always narrowed correctly.
+    const captured: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => captured.push(args.map(String).join(" "));
+    try {
+      await runDoctor({ configPath: cfgPath });
+    } finally {
+      console.log = origLog;
+    }
+    const parsed = JSON.parse(captured.join("\n")) as {
+      checks: { name: string; detail?: string }[];
+    };
+    const engine = parsed.checks.find((c) => c.name === "pglite");
+    expect(engine?.detail).toBe(dbPath);
+  });
+
+  // Driving runDoctor can only ever exercise the pglite side without a live
+  // postgres — and the postgres side is where the bug was. Pin both variants
+  // on the pure function instead, so the branch is observable at all.
+  it("names the engine kind on a postgres config", () => {
+    expect(engineCheckDetail({ type: "pglite", path: "/tmp/brain.pglite" })).toBe(
+      "/tmp/brain.pglite",
+    );
+    expect(engineCheckDetail({ type: "postgres" })).toBe("engine=postgres");
+    expect(
+      engineCheckDetail({ type: "postgres", url: "postgres://host/db" }),
+    ).toBe("engine=postgres");
   });
 });
