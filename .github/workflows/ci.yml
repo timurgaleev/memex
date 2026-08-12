@@ -64,7 +64,7 @@ jobs:
       - name: install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: lint scripts
-        run: shellcheck scripts/*.sh tests/*.test.sh deploy/secrets/fetch-secrets.sh deploy/memex/scripts/*.sh
+        run: shellcheck scripts/*.sh tests/*.test.sh deploy/*.sh deploy/secrets/fetch-secrets.sh deploy/memex/scripts/*.sh
 
   pytest:
     name: Python tests

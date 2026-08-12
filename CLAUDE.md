@@ -127,7 +127,14 @@ for this repo:
    it never gates the ship.
 3. **Deploy** to the live EC2 via SSM:
    - `git pull --ff-only` in `/opt/memex/`
-   - `docker compose --env-file .env -f deploy/docker-compose.yml up -d --build <services-that-changed>`
+   - `bash deploy/deploy.sh` — stamps the image with `git describe`, builds,
+     waits for healthy, and FAILS if the running container reports a different
+     stamp than the one just built. Do not hand-run the bare `docker compose
+     up -d --build` for the memex service: it leaves `MEMEX_VERSION` unset, the
+     image is stamped `dev`, and `/health` can no longer tell a fresh container
+     from a stale one.
+   - For a service other than memex: `docker compose --env-file .env -f
+     deploy/docker-compose.yml up -d --build <service>`
    - For systemd unit changes: `install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/ && systemctl daemon-reload && systemctl restart <unit>`
 4. **Verify on the live host**:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)

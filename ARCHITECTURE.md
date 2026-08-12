@@ -186,7 +186,9 @@ git push origin main
 cd /opt/<project>
 git pull --ff-only
 bash deploy/secrets/fetch-secrets.sh                   # only if a secret changed
-docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+bash deploy/deploy.sh                                  # stamps, builds, waits healthy,
+                                                       # then asserts the running
+                                                       # container serves that stamp
 ```
 
 The boot flow (cold start from a new instance):
