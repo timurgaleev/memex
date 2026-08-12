@@ -20,6 +20,7 @@ import {
   collectUsageShape,
   collectChronicle,
   collectEvalBlind,
+  collectTakesUngradeable,
   collectSetupSmells,
 } from "./collectors.ts";
 
@@ -32,6 +33,7 @@ export const COLLECTORS: AdvisorCollector[] = [
   collectUsageShape,
   collectChronicle,
   collectEvalBlind,
+  collectTakesUngradeable,
   collectSetupSmells,
 ];
 

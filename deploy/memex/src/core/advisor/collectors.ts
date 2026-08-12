@@ -20,6 +20,7 @@ import { discoverMigrations } from "../migrate.ts";
 import { orphanExclusionSql } from "../orphan-policy.ts";
 import { brainHealthMetrics } from "../source-health.ts";
 import { latestEvalSnapshot } from "../eval-snapshot.ts";
+import { gradeMinAgeDays } from "../synthesis/takes.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 import type { Engine } from "../engine/interface.ts";
 import type { AdvisorCollector, AdvisorFinding } from "./types.ts";
@@ -474,6 +475,89 @@ export const collectEvalBlind: AdvisorCollector = {
         fix_command:
           'memex eval-replay capture <id> --query "<a real question>" --tag good --expected-doc <document-id>',
         collector: "eval-blind",
+      },
+    ];
+  },
+};
+
+/**
+ * A take pipeline whose second half cannot fire yet.
+ *
+ * `propose-takes` writes on every synthesis tick; `grade-takes` only considers
+ * takes older than the maturity bar (`MEMEX_GRADE_MIN_AGE_DAYS`, default 182 —
+ * a claim about the future needs time to come true before judging it is worth
+ * anything). On a brain younger than that bar, the producer runs nightly and
+ * the grader selects nothing, silently, for months. Nothing said so: the phase
+ * reports ok with zero grades written, which is indistinguishable from "there
+ * was nothing new to grade".
+ *
+ * Fires only when the bar is what blocks it — takes exist and are otherwise
+ * eligible, but not one is old enough. A brain with zero takes, or one where
+ * at least one take has reached the bar, stays silent. It does NOT distinguish
+ * already-graded takes: `graded` is an eligible status on purpose (a take
+ * graded under an older prompt version is re-graded under the current one), so
+ * an age-blocked pipeline is the only thing this reports.
+ */
+export const collectTakesUngradeable: AdvisorCollector = {
+  id: "takes-ungradeable",
+  collect: async (ctx) => {
+    // A bar of 0 means "grade immediately, maturity is not a gate" — then an
+    // age-blocked warning is meaningless by definition. Guard explicitly rather
+    // than leaning on the SQL: a take dated in the future (clock skew, an
+    // operator-authored row) fails `generated_at <= now()` even at 0, which
+    // would fire this finding on a brain where age blocks nothing.
+    const minAgeDays = gradeMinAgeDays();
+    if (minAgeDays <= 0) return [];
+
+    let pending = 0;
+    let mature = 0;
+    let daysUntilFirst = 0;
+    try {
+      const r = await ctx.engine.query<{
+        pending: number;
+        mature: number;
+        days_until_first: number | null;
+      }>(
+        `SELECT count(*)::int AS pending,
+                count(*) FILTER (
+                  WHERE generated_at <= now() - ($1 * interval '1 day')
+                )::int AS mature,
+                -- The OLDEST take is the one that reaches the bar first, so it
+                -- dates when grading resumes. max() would report the longest
+                -- wait, not the next event.
+                CEIL(
+                  $1 - EXTRACT(EPOCH FROM (now() - min(generated_at))) / 86400
+                )::int AS days_until_first
+           FROM synth_takes
+          WHERE status IN ('queued', 'graded', 'accepted')
+            AND active
+            AND resolved_at IS NULL`,
+        [minAgeDays],
+      );
+      const row = r.rows[0];
+      pending = Number(row?.pending ?? 0);
+      mature = Number(row?.mature ?? 0);
+      daysUntilFirst = Math.max(0, Number(row?.days_until_first ?? 0));
+    } catch {
+      /* pre-synthesis brain (no synth_takes table) → nothing to report */
+      return [];
+    }
+
+    // Silent unless the age bar is the sole blocker: takes waiting, none mature.
+    if (pending === 0 || mature > 0) return [];
+
+    return [
+      {
+        id: "takes_ungradeable",
+        severity: "medium",
+        title:
+          `${pending} unresolved take(s) and not one is old enough to grade — ` +
+          `the oldest reaches the ${minAgeDays}-day bar in ${daysUntilFirst} day(s).`,
+        detail:
+          "propose-takes writes on every synthesis tick, but grade-takes only looks at takes past MEMEX_GRADE_MIN_AGE_DAYS, so the paid producer keeps running while the grader selects nothing and calibration keeps reading whatever stale grades already exist. Either lower the bar to match this brain's age, or stop proposing until grading can fire.",
+        fix_command:
+          "memex (set MEMEX_GRADE_MIN_AGE_DAYS below the age of the oldest take, or drop propose-takes from the synthesis phases)",
+        collector: "takes-ungradeable",
       },
     ];
   },

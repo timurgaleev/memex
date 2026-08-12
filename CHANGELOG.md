@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The advisor says when takes are being written faster than they can ever be
+  graded.** `propose-takes` writes on every synthesis tick, but `grade-takes`
+  only considers takes past `MEMEX_GRADE_MIN_AGE_DAYS` — 182 by default,
+  because a claim about the future needs time to come true before judging it
+  means anything. On a brain younger than that bar the paid producer runs
+  nightly and the grader selects nothing, reporting a clean phase with zero
+  grades written — indistinguishable from "there was nothing new to grade".
+  The finding names how many takes are waiting and when the oldest reaches the
+  bar. It fires only when the bar is the sole blocker: a brain with no takes,
+  or one where at least one take is already mature, stays silent.
+
 ## [1.119.1] — 2026-08-12
 
 ### Fixed
