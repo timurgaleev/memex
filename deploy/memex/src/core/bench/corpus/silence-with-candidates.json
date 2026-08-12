@@ -1,0 +1,38 @@
+{
+  "name": "silence-with-candidates",
+  "description": "Silence that had to be EARNED: every quiet turn extracts entity candidates, one of them resolves to a real page, and the confidence gate declines it anyway.",
+  "pages": [
+    {
+      "slug": "people/alice",
+      "type": "person",
+      "title": "Alice Ng",
+      "body": "Alice Ng runs the design studio we contract."
+    },
+    {
+      "slug": "companies/bluefin",
+      "type": "company",
+      "title": "Bluefin Labs",
+      "body": "Bluefin Labs builds the sensor hardware."
+    }
+  ],
+  "turns": [
+    {
+      "role": "user",
+      "text": "Are we still working with Alice this week?",
+      "gold": [],
+      "note": "\"Alice\" is neither a declared alias nor the title, so it can only reach people/alice on the slug-suffix arm: 0.60 + 0.05 = 0.65, under the 0.70 gate. Candidates exist, a pointer resolves, and the brain declines — this turn reaches the injection decision and fails a regression that lowers the gate."
+    },
+    {
+      "role": "user",
+      "text": "Priya Raman asked about the sensor roadmap.",
+      "gold": [],
+      "note": "A confident candidate for a person the brain has never heard of. Nothing resolves; Alice is still in the window and still gated."
+    },
+    {
+      "role": "user",
+      "text": "Bluefin Labs shipped the new sensor.",
+      "gold": ["companies/bluefin"],
+      "note": "Proves the fixture is not degenerately silent: the same conversation speaks when a title is named outright."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "window-followup",
+  "description": "An entity the ASSISTANT introduced stays resolvable through a pronoun follow-up, because the rolling window still holds the turn that named it.",
+  "pages": [
+    {
+      "slug": "people/mara-vance",
+      "type": "person",
+      "title": "Mara Vance",
+      "body": "Mara Vance owns billing.",
+      "aliases": ["Mara"]
+    },
+    {
+      "slug": "meetings/q3-review",
+      "type": "meeting",
+      "title": "Q3 Review",
+      "body": "Notes and follow-ups from the quarterly review."
+    }
+  ],
+  "turns": [
+    {
+      "role": "assistant",
+      "text": "Billing is blocked on Mara until Thursday.",
+      "gold": ["people/mara-vance"],
+      "note": "Assistant-introduced, so the rationale should say so — the user never typed the name."
+    },
+    {
+      "role": "user",
+      "text": "What is she waiting on?",
+      "gold": ["people/mara-vance"],
+      "note": "No entity in this turn's own text. The window carries the antecedent; the page must still surface. Note the honest limit: this is window persistence, not pronoun coreference — it would fire the same way for any pronoun."
+    },
+    {
+      "role": "user",
+      "text": "Pull up the Q3 Review notes as well.",
+      "gold": ["meetings/q3-review"],
+      "acceptable": ["people/mara-vance"],
+      "note": "New title named; Mara is still one turn old and defensible."
+    }
+  ]
+}

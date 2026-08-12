@@ -1,0 +1,43 @@
+{
+  "name": "source-scope",
+  "description": "A caller scoped to one source is never volunteered another source's page, even when the conversation names it by a declared alias.",
+  "sourceIds": ["tenant-a"],
+  "pages": [
+    {
+      "slug": "people/mira-solberg",
+      "type": "person",
+      "title": "Mira Solberg (renewals)",
+      "body": "Mira Solberg owns the renewal motion.",
+      "aliases": ["Mira Solberg"],
+      "source": "tenant-a"
+    },
+    {
+      "slug": "people/erin-kell",
+      "type": "person",
+      "title": "Erin Kell (other account)",
+      "body": "Erin Kell belongs to a different tenant entirely.",
+      "aliases": ["Erin Kell"],
+      "source": "tenant-b"
+    }
+  ],
+  "turns": [
+    {
+      "role": "user",
+      "text": "Erin Kell owns the renewal on the other account.",
+      "gold": [],
+      "note": "Named by an exact declared alias, and it still must not surface: the page belongs to tenant-b and the caller holds tenant-a. Silence here is a permission boundary, not a confidence one."
+    },
+    {
+      "role": "user",
+      "text": "Loop in Mira Solberg on it too.",
+      "gold": ["people/mira-solberg"],
+      "note": "The in-scope page resolves normally, so the previous turn's silence cannot be dismissed as a dead scope."
+    },
+    {
+      "role": "user",
+      "text": "Erin Kell and Mira Solberg both signed the renewal.",
+      "gold": ["people/mira-solberg"],
+      "note": "Both named in one turn. Exactly one may come back."
+    }
+  ]
+}

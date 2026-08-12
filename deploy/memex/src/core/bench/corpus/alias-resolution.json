@@ -1,0 +1,40 @@
+{
+  "name": "alias-resolution",
+  "description": "A declared alias resolves to its page, and stays salient across the rolling window without being required a second time.",
+  "pages": [
+    {
+      "slug": "people/dana-reed",
+      "type": "person",
+      "title": "Dana Reed (advisor)",
+      "body": "Dana Reed advises on pricing and packaging.",
+      "aliases": ["Dana"]
+    },
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU."
+    }
+  ],
+  "turns": [
+    {
+      "role": "user",
+      "text": "Any update from Dana on the pricing memo?",
+      "gold": ["people/dana-reed"],
+      "note": "\"Dana\" is a declared alias, not the title and not the slug tail — alias arm 0.90 plus the newest-turn boost."
+    },
+    {
+      "role": "assistant",
+      "text": "Dana sent it on Tuesday; Northwind Traders has it now.",
+      "gold": ["people/dana-reed", "companies/northwind"],
+      "note": "Two arms in one turn: the alias again, and an exact title."
+    },
+    {
+      "role": "user",
+      "text": "Thanks, what did Northwind say about the renewal?",
+      "gold": ["companies/northwind"],
+      "acceptable": ["people/dana-reed"],
+      "note": "Northwind is what the turn is about; Dana is still in the window, so re-offering her is defensible but not required."
+    }
+  ]
+}

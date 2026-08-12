@@ -1,0 +1,39 @@
+{
+  "name": "exact-title-mention",
+  "description": "A page named by its exact title surfaces on the title arm, while a same-prefix sibling page stays out until it is named.",
+  "pages": [
+    {
+      "slug": "decisions/pricing-rewrite",
+      "type": "decision",
+      "title": "Pricing Rewrite",
+      "body": "We are rewriting the pricing page this quarter."
+    },
+    {
+      "slug": "notes/pricing-faq",
+      "type": "note",
+      "title": "Pricing FAQ",
+      "body": "Answers to the questions sales keeps forwarding."
+    }
+  ],
+  "turns": [
+    {
+      "role": "user",
+      "text": "Where did we land on the Pricing Rewrite?",
+      "gold": ["decisions/pricing-rewrite"],
+      "note": "Exact title match. The Pricing FAQ shares a word and a slug prefix, and must not ride along."
+    },
+    {
+      "role": "assistant",
+      "text": "Pricing Rewrite is approved; the Pricing FAQ still needs an update.",
+      "gold": ["decisions/pricing-rewrite", "notes/pricing-faq"],
+      "note": "Both titles are named outright, so both are required."
+    },
+    {
+      "role": "user",
+      "text": "Pricing Rewrite it is, I'll tell the team.",
+      "gold": ["decisions/pricing-rewrite"],
+      "acceptable": ["notes/pricing-faq"],
+      "note": "The FAQ is one turn old and still inside the window — defensible, not required."
+    }
+  ]
+}

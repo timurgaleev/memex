@@ -1,0 +1,33 @@
+{
+  "name": "extraction-blind-spots",
+  "description": "Two ways a perfectly ordinary sentence hides a known person from the extractor, labelled as the misses they are. One page, three phrasings of the same question, one of which works.",
+  "pages": [
+    {
+      "slug": "people/dana-reed",
+      "type": "person",
+      "title": "Dana Reed (advisor)",
+      "body": "Dana Reed advises on pricing and packaging.",
+      "aliases": ["Dana"]
+    }
+  ],
+  "turns": [
+    {
+      "role": "user",
+      "text": "did dana send the pricing memo?",
+      "gold": ["people/dana-reed"],
+      "note": "EXPECTED MISS TODAY — proper-case bias. entity-salience.ts documents that it only sees capitalized runs and @handles, so an all-lowercase turn yields ZERO candidates and volunteerContext returns on its first guard. Labelled by what a human wanted, not by what the code does."
+    },
+    {
+      "role": "user",
+      "text": "Did Dana ever hear back on it?",
+      "gold": ["people/dana-reed"],
+      "note": "EXPECTED MISS TODAY — sentence-opener glue. \"Did\" is a hard stopword, but it is capitalized at the sentence start and sits directly in front of the name, so the capitalized-run regex swallows both into ONE candidate, \"Did Dana\". A multi-token run skips the stopword filter by design (multi-token runs are assumed high-signal), and \"did dana\" matches no alias, title, or slug. The stopword list cannot save a name it never sees alone."
+    },
+    {
+      "role": "user",
+      "text": "Sorry, Dana, the pricing memo.",
+      "gold": ["people/dana-reed"],
+      "note": "Same person, same intent, phrased so the name stands alone mid-sentence. Resolves on the alias arm at 0.95. The contrast is what makes the two misses above readable as blind spots rather than a broken fixture."
+    }
+  ]
+}
