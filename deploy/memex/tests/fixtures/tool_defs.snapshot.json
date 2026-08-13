@@ -760,7 +760,7 @@
         "token_budget": {
           "type": "integer",
           "minimum": 1,
-          "description": "Cap the whole response — page, facts and timeline together — at roughly this many tokens, counting each row as it is serialized rather than its headline text alone. The split is decided server-side and unused allocation flows between the arms, so you do not have to guess it. The response then carries a `budget` object saying what was dropped or truncated, so a partial view is never mistaken for a complete one. Applied after redaction, so the counts describe what you can see."
+          "description": "Cap the whole response — page, facts and timeline together — at roughly this many tokens, counting each row as it is serialized rather than its headline text alone. The split is decided server-side and unused allocation flows to the arms that have content, so an all-facts entity spends the budget on facts instead of stranding the page share. The page body is cut to fit rather than emitted whole. The response then carries a `budget` object — `facts_dropped`, `timeline_dropped`, `page_truncated`, and `page_dropped` (the page did not fit at all, so `page: null` here means 'did not fit', not 'no page exists') — so a partial view is never mistaken for a complete one. Applied after redaction, so the counts describe what you can see."
         },
         "include_pending": {
           "type": "boolean",
