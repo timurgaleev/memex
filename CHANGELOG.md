@@ -7,6 +7,80 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **A credential is required on both ingresses.** Authentication used to hinge
+  on a guess about how the request arrived: no `Cf-Connecting-Ip` meant
+  "internal", and internal meant allowed without the Authorization header being
+  read at all. Writes survived that because a separate internal-token check
+  followed, but every read tool was reachable with no credential. The ingress
+  classification still decides redaction and rate-limit keying — it no longer
+  decides whether a credential is needed. Pre-credential routes (`/health`,
+  OAuth discovery, the token endpoints) are exempt on both ingresses, so the
+  container healthcheck and the discovery flow keep working. The escape hatch
+  is unchanged: with no internal token configured, the legacy fall-through still
+  allows, and boot still says so loudly.
+- **Every failed authentication attempt is metered.** The pre-auth throttle
+  skipped exactly the caller it existed to stop: with no trusted client IP the
+  key was null, the gate never tripped, and the failure was never charged — an
+  unmetered brute-force channel costing two database round-trips per attempt.
+  Keys now fall back from trusted IP to socket address to one shared bucket,
+  which gets its own wider but finite ceiling so one unattributable sprayer
+  cannot starve another.
+- **Restating a fact no longer mints a duplicate.** With on-write extraction
+  enabled, every re-save of a page re-inserted the same claims verbatim; the
+  ledger only ever grew. An identical claim about the same entity, from the same
+  source and writer, now refreshes the row on file. Identity is the tuple
+  consolidation already used, so the two agree instead of each having their own
+  notion of "the same claim".
+- **A claim always ages, and always names a writer.** Consolidated takes and
+  fence rows landed with a blank `kind`, which decay cannot see — so a take
+  stayed at full strength forever while every member fact beneath it decayed.
+  Provenance was enforced on one tool rather than on the write path, so rows
+  kept arriving with a NULL writer. Both invariants now hold where every caller
+  passes, and migration 100 backfills the rows written before they did: a blank
+  kind becomes `belief`, an unnamed writer becomes `unattributed`. It touches
+  only NULL cells, so a re-run is a no-op, and it deletes nothing — collapsing
+  the duplicates already on file is an operator's call, not a migration's.
+- **The CLI flag vocabulary is per command.** One global set meant `memex doctor
+  --remediate` was rejected as unknown — the entire self-heal surface was
+  unreachable — while `memex reindex --stale` was accepted and silently ignored.
+  Each command now declares what it reads. A per-command `--help` short-circuits
+  before validation, so `memex watch --help` reaches its help text instead of an
+  argument error, and a flag that takes a value and is given none is an error
+  naming the flag.
+- **Tree-sitter trees are given back.** Every swept file leaked one tree plus one
+  per symbol into the Emscripten heap for the process lifetime; a boot sweep over
+  a few thousand files leaked tens of thousands. Parsing now runs through a
+  helper that releases in a `finally`, so a throw cannot skip it.
+- **The grammar check uses the grammars.** It compared blob bytes against a
+  manifest generated from those same blobs, which can only ever confirm the blobs
+  are the blobs — during the incident it was green while every shell file threw.
+  It now loads each grammar and parses a probe. That costs ~109 MB resident
+  (measured), which the old check deliberately avoided; it is paid once per
+  process, and a code sweep links the same grammars anyway.
+- **Truncation is visible on both model tiers.** The stop reason rode only the
+  reasoning-tier transport, so every utility-tier call parsing structured output
+  was truncation-blind and could not be fixed at its call site. An event-dense
+  page whose JSON array was cut reported zero events, booked the spend, and
+  flagged nothing. Both transports now carry it, and the calls that lost work
+  retry with more room — within their existing USD budget, reporting the
+  truncation rather than returning a partial result as if complete.
+- **`entity_recall`'s token budget is a cap.** The page arm did not enforce it,
+  and the split across arms was fixed, so an entity that is all facts — the
+  common shape — returned at most half the answer the caller paid for while the
+  page and timeline allocations sat unused. Unused allocation now flows to the
+  arms that have content.
+- **Concept-shape detection stopped firing on entity lookups.** The cue bank had
+  no suppressors, so "overview of Acme Corp" was simultaneously classified as an
+  entity lookup and flagged as possibly a partial set — a wasted round-trip and
+  unfounded doubt about a complete answer. A word-count floor and an
+  exact-identifier anti-signal now run first, and the two cues that collided with
+  our own entity bank were narrowed.
+- **The search token budget is a ceiling again.** It truncated the overflowing
+  hit and kept it, with a floor that still emitted the whole title plus a token
+  of body — a 400-character title under a 50-token budget returned 102 tokens.
+  Whole items only now: what does not fit is dropped and counted, and a first
+  item that alone exceeds the budget yields an empty result, because the caller
+  asked for a hard cap.
 - **The PGLite lock stopped handing the directory to whoever asked second.**
   It treated anything it could not parse as stale and took over: an unreadable
   file, a truncated pid line, and the zero-byte window between `wx` creating the
