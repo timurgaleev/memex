@@ -9,7 +9,7 @@
 import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
 import { EMBED_DIMENSIONS } from "./embedding.ts";
-import { verifyGrammarManifest } from "./chunkers/parsers.ts";
+import { grammarSelfCheck } from "./chunkers/parsers.ts";
 
 export interface OpsCheckResult {
   ok: boolean;
@@ -38,23 +38,37 @@ export async function checkStaleLocks(engine: Engine): Promise<OpsCheckResult> {
 }
 
 /**
- * The vendored tree-sitter grammars must still be the bytes we pinned. A blob
- * built for a different runtime indexes ZERO files of its type and nothing
- * fails loudly — that is exactly how the shell corpus went missing.
+ * Every vendored tree-sitter grammar must LOAD and PARSE. A grammar that does
+ * neither indexes zero symbols for its file type and nothing fails loudly —
+ * that is exactly how the shell corpus went missing.
  *
- * Hashes rather than links: linking all six costs ~112 MB of RSS (the sql blob
- * alone is 10 MB), which is not a price to pay on every doctor run on a box
- * that has been OOM-killed before. `tests/grammar_selfcheck.test.ts` does the
- * real link-and-parse. Engine-free; takes the handle to match the probe shape.
+ * This used to compare the blobs against `wasm/manifest.json`, which is a
+ * manifest generated FROM those blobs: it could only ever confirm the blobs are
+ * the blobs. Through the whole live incident the bytes matched and every .sh
+ * file still threw inside the external scanner, so the failure that mattered
+ * was invisible to the check meant to catch it. Now each language gets a short
+ * probe parsed through the real runtime (see GRAMMAR_PROBES) and the detail
+ * names which language broke and at which stage. Engine-free; takes the handle
+ * to match the probe shape.
  */
 export async function checkGrammars(_engine: Engine): Promise<OpsCheckResult> {
-  const r = verifyGrammarManifest();
-  if (r.ok) return { ok: true, detail: `${r.checked} grammar blob(s) match the manifest` };
+  const results = await grammarSelfCheck();
+  const broken = results.filter((r) => !r.ok);
+  if (broken.length === 0) {
+    return {
+      ok: true,
+      detail: `${results.length} grammar(s) load and parse a probe: ${results
+        .map((r) => r.language)
+        .join(", ")}`,
+    };
+  }
   return {
     ok: false,
     detail:
-      `grammar blobs drifted from wasm/manifest.json: ${r.problems.join("; ")} — ` +
-      `files of the affected languages may index as zero`,
+      `unusable grammar(s): ${broken
+        .map((b) => `${b.language} failed at ${b.stage} — ${b.error}`)
+        .join("; ")} — files of the affected language(s) index as plain text, ` +
+      `with no symbols and no call graph`,
   };
 }
 

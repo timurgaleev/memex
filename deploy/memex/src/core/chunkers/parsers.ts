@@ -19,7 +19,7 @@
  * Override: `MEMEX_WASM_DIR` env var. Used by tests to point at a
  * fixture wasm dir without mutating the production layout.
  */
-import { Parser, Language } from "web-tree-sitter";
+import { Parser, Language, type Tree } from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -160,6 +160,34 @@ export function parseWithBudget(parser: Parser, source: string) {
   return tree;
 }
 
+/**
+ * Parse `source`, hand the tree to `use`, and ALWAYS release the tree.
+ *
+ * A Tree is an allocation in the Emscripten heap; JS garbage collection never
+ * reclaims it, only `Tree.delete()` does. The code sweep parses one tree per
+ * file plus one per symbol, so trees that were merely dropped on the floor grew
+ * the heap by tens of thousands of allocations on a single boot sweep, in a
+ * process that then runs for weeks. Ownership lives here, next to the parse,
+ * rather than at each call site — "who frees this" is not a question a future
+ * caller should be able to get wrong — and the `finally` keeps a throw inside
+ * `use` (or a degrade path that swallows it upstream) from skipping the free.
+ *
+ * `use` MUST be synchronous and MUST NOT let a `Node` escape: nodes are views
+ * into the tree and read freed memory once it is gone.
+ */
+export function withParsedTree<T>(
+  parser: Parser,
+  source: string,
+  use: (tree: Tree) => T,
+): T {
+  const tree = parseWithBudget(parser, source);
+  try {
+    return use(tree);
+  } finally {
+    tree.delete();
+  }
+}
+
 let initPromise: Promise<void> | null = null;
 const languageCache = new Map<CodeLanguage, Promise<Language>>();
 const parserCache = new Map<CodeLanguage, Parser>();
@@ -238,11 +266,12 @@ export class GrammarLoadError extends Error {
 /**
  * Verify the vendored grammar blobs still match `wasm/manifest.json`.
  *
- * Cheap on purpose: hashing ~15 MB of files costs a few ms and a streaming
- * buffer, where LINKING every grammar costs ~112 MB of RSS (the sql blob alone
- * is 10 MB) — too much to spend on a box that has been OOM-killed before. The
- * link check is the test suite's job; this is the runtime's tripwire for "did
- * someone swap a blob".
+ * Build hygiene, NOT a health check: the manifest was generated from these very
+ * blobs, so agreement only ever proves the blobs are the blobs. During the live
+ * incident every byte matched and every .sh file still threw at parse time.
+ * `grammarSelfCheck` is what answers "does this grammar work"; this answers the
+ * narrower "did someone swap a blob without re-vendoring", which is worth
+ * asserting in the suite when a re-vendor lands.
  */
 export function verifyGrammarManifest(): {
   ok: boolean;
@@ -277,21 +306,115 @@ export function verifyGrammarManifest(): {
 }
 
 /**
- * Load every declared grammar and report which ones this runtime can link.
- * A grammar that fails here indexes ZERO files of its type, silently, until
- * someone reads the sweep counters — so the test suite and `doctor` both call
- * this to turn that into a loud failure.
+ * One probe per shipped language: the smallest input that still exercises the
+ * grammar for real, plus the root node type a healthy parse produces.
+ *
+ * The bash probe is deliberately scanner-heavy. The blobs this exists to reject
+ * LINK cleanly and parse simple input (`greet() { echo hi; }` passes on them);
+ * they only die once the external scanner runs — `case…esac`, an array slice,
+ * ANSI-C quoting — with the production symptom `resolved is not a function`. A
+ * probe without those constructs is a check that checks nothing, which is how
+ * the broken shell grammar shipped in the first place. Keep every probe small
+ * enough that six of them cost milliseconds: `doctor` runs them all.
  */
-export async function grammarSelfCheck(): Promise<
-  Array<{ language: CodeLanguage; ok: boolean; abi?: number; error?: string }>
-> {
-  const out: Array<{ language: CodeLanguage; ok: boolean; abi?: number; error?: string }> = [];
+export const GRAMMAR_PROBES: Readonly<
+  Record<CodeLanguage, { readonly source: string; readonly root: string }>
+> = Object.freeze({
+  bash: {
+    source:
+      "#!/bin/sh\n" +
+      "greet() { echo hi; }\n" +
+      "case $1 in\n  a) echo a;;\n  *) echo b;;\nesac\n" +
+      'echo "${arr[@]:1:2}"\n' +
+      "printf $'\\x41'\n",
+    root: "program",
+  },
+  go: {
+    source:
+      "package main\n\n" +
+      "const (\n\tA = iota\n\tB\n)\n\n" +
+      "type T struct {\n\tName string `json:\"name\"`\n}\n\n" +
+      "func Add(a int) int { return a + 1 }\n",
+    root: "source_file",
+  },
+  python: { source: "def add(a):\n    return a + 1\n", root: "module" },
+  typescript: {
+    source: "export function add(a: number): number { return a + 1 }\n",
+    root: "program",
+  },
+  tsx: { source: "export const A = () => <div>hi</div>;\n", root: "program" },
+  sql: { source: "SELECT id FROM users WHERE id = 1;\n", root: "program" },
+});
+
+export interface GrammarCheckResult {
+  language: CodeLanguage;
+  ok: boolean;
+  /** Grammar ABI version, when the blob linked far enough to expose one. */
+  abi?: number;
+  /** Which half of the check failed — only set when `ok` is false. */
+  stage?: "load" | "parse";
+  /** Why it failed, verbatim where the runtime gave us anything. */
+  error?: string;
+}
+
+/**
+ * Load every declared grammar AND parse its probe, reporting which language
+ * failed and how.
+ *
+ * Loading alone is not enough: the incident that took the shell corpus out of
+ * the brain for weeks linked cleanly and died inside the external scanner on
+ * ordinary syntax, so a load-only (or, worse, bytes-vs-manifest) check reported
+ * green while every .sh file threw. A grammar that fails here indexes ZERO
+ * symbols for its file type — the file still lands as plain text via the
+ * indexer's degrade path, but the call graph for that language is simply gone,
+ * silently, until someone reads the sweep counters.
+ *
+ * Cost: linking all six grammars is ~112 MB of resident Emscripten heap, which
+ * this deliberately avoided paying on a box with OOM history. It is paid now
+ * because the cheap check could not have caught the real fault, and it is paid
+ * ONCE per process — `loadLanguage`/`getParser` cache, and a sweep over a mixed
+ * repo links the same grammars anyway. Emscripten offers no way to unload a
+ * linked language, so there is nothing to give back afterwards.
+ */
+export async function grammarSelfCheck(): Promise<GrammarCheckResult[]> {
+  const out: GrammarCheckResult[] = [];
   for (const lang of Object.keys(WASM_FILES) as CodeLanguage[]) {
+    let parser: Parser;
+    let abi: number | undefined;
     try {
-      const language = await loadLanguage(lang);
-      out.push({ language: lang, ok: true, abi: (language as unknown as { abiVersion?: number }).abiVersion });
+      abi = (await loadLanguage(lang)).abiVersion;
+      parser = await getParser(lang);
     } catch (e) {
-      out.push({ language: lang, ok: false, error: e instanceof Error ? e.message : String(e) });
+      out.push({
+        language: lang,
+        ok: false,
+        stage: "load",
+        error: e instanceof Error ? e.message : String(e),
+      });
+      continue;
+    }
+    const probe = GRAMMAR_PROBES[lang];
+    try {
+      // Everything the probe asserts is read INSIDE the callback: the tree is
+      // freed on the way out, so no Node may outlive it.
+      const problem = withParsedTree(parser, probe.source, (tree) => {
+        const root = tree.rootNode;
+        if (root.type !== probe.root) {
+          return `probe parsed as '${root.type}', expected '${probe.root}' — wrong grammar for this language?`;
+        }
+        if (root.hasError) return "probe input parsed with syntax errors";
+        return null;
+      });
+      if (problem) out.push({ language: lang, ok: false, abi, stage: "parse", error: problem });
+      else out.push({ language: lang, ok: true, abi });
+    } catch (e) {
+      out.push({
+        language: lang,
+        ok: false,
+        abi,
+        stage: "parse",
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
   return out;

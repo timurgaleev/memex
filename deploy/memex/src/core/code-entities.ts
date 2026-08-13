@@ -29,7 +29,7 @@
 import type { CodeSymbol } from "./chunkers/code.ts";
 import type { CodeLanguage } from "./chunkers/parsers.ts";
 import type { ExtractedEntity } from "./entities.ts";
-import { getParser, parseWithBudget } from "./chunkers/parsers.ts";
+import { getParser, withParsedTree } from "./chunkers/parsers.ts";
 import type { Node as TSNode } from "web-tree-sitter";
 
 export interface ExtractCodeEntitiesInput {
@@ -283,62 +283,65 @@ export async function extractCodeEntities(
   // without its enclosing class), but tree-sitter recovers gracefully —
   // we only need named identifier + call_expression nodes.
   const parser = await getParser(language);
-  // parseWithBudget throws ParseTimeoutError on overrun. We let it propagate
-  // (NOT degrade to a partial entity set): the caller indexCodeDocument runs
-  // this BEFORE writeDocumentTransaction, so a throw skips the whole file and
-  // preserves the prior chunks/edges — silently overwriting a reindex with a
-  // half-parsed symbol's edges would erase good call-graph data.
-  const subTree = parseWithBudget(parser, symbol.body);
-
   const callTypes = CALL_NODE_TYPES[language];
   const importTypes = IMPORT_NODE_TYPES[language];
 
-  for (const node of walk(subTree.rootNode, language)) {
-    const lineInFile = symbol.startLine + node.startPosition.row;
+  // withParsedTree throws ParseTimeoutError on overrun. We let it propagate
+  // (NOT degrade to a partial entity set): the caller indexCodeDocument runs
+  // this BEFORE writeDocumentTransaction, so a throw skips the whole file and
+  // preserves the prior chunks/edges — silently overwriting a reindex with a
+  // half-parsed symbol's edges would erase good call-graph data. The sub-tree
+  // is freed on the way out either way; a sweep allocates one per symbol, so
+  // leaking these is what makes the leak grow with the corpus rather than with
+  // the file count. Every entity below is a plain string, never a Node.
+  withParsedTree(parser, symbol.body, (subTree) => {
+    for (const node of walk(subTree.rootNode, language)) {
+      const lineInFile = symbol.startLine + node.startPosition.row;
 
-    if (callTypes.has(node.type)) {
-      const callee = calleeNameFromCallNode(node, language);
-      if (callee) {
-        // Skip self-calls (recursion would generate a noise edge to itself).
-        if (callee !== symbol.name) {
+      if (callTypes.has(node.type)) {
+        const callee = calleeNameFromCallNode(node, language);
+        if (callee) {
+          // Skip self-calls (recursion would generate a noise edge to itself).
+          if (callee !== symbol.name) {
+            push({
+              type: "code-caller",
+              name: callee,
+              surfaceForm: surfaceFor(file, lineInFile, symbol.name),
+            });
+          }
           push({
-            type: "code-caller",
-            name: callee,
-            surfaceForm: surfaceFor(file, lineInFile, symbol.name),
+            type: "code-callee",
+            name: symbol.name,
+            surfaceForm: `${callee}@${file}:${lineInFile}`,
           });
         }
-        push({
-          type: "code-callee",
-          name: symbol.name,
-          surfaceForm: `${callee}@${file}:${lineInFile}`,
-        });
+        continue;
       }
-      continue;
-    }
 
-    if (importTypes.has(node.type)) {
-      for (const name of importNamesFromNode(node, language)) {
+      if (importTypes.has(node.type)) {
+        for (const name of importNamesFromNode(node, language)) {
+          push({
+            type: "code-ref",
+            name,
+            surfaceForm: surfaceFor(file, lineInFile, symbol.enclosing),
+          });
+        }
+        continue;
+      }
+
+      // Bare type-identifier references in TS — e.g. `function f(x: Foo)`.
+      if (
+        (language === "typescript" || language === "tsx") &&
+        node.type === "type_identifier"
+      ) {
         push({
           type: "code-ref",
-          name,
-          surfaceForm: surfaceFor(file, lineInFile, symbol.enclosing),
+          name: node.text,
+          surfaceForm: surfaceFor(file, lineInFile, symbol.name),
         });
       }
-      continue;
     }
-
-    // Bare type-identifier references in TS — e.g. `function f(x: Foo)`.
-    if (
-      (language === "typescript" || language === "tsx") &&
-      node.type === "type_identifier"
-    ) {
-      push({
-        type: "code-ref",
-        name: node.text,
-        surfaceForm: surfaceFor(file, lineInFile, symbol.name),
-      });
-    }
-  }
+  });
 
   return entities;
 }
