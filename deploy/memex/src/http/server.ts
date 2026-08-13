@@ -2,19 +2,21 @@
  * Bun HTTP server — routes requests, owns the Storage instance lifetime.
  *
  * The surface is deliberately TWO routes (MCP cleanup, Phase A.7):
- *   GET  /health       — liveness + db stats (open on public ingress)
+ *   GET  /health       — liveness + db stats (open on either ingress)
  *   POST /mcp          — MCP JSON-RPC 2.0; all read/write capability lives
  *                        here via `tools/call`. Public callers can't
- *                        discover or invoke the write tools; internal
- *                        write tools require `MEMEX_INTERNAL_TOKEN`.
+ *                        discover or invoke the write tools; the internal
+ *                        ingress requires `MEMEX_INTERNAL_TOKEN`.
  *
  * The legacy REST routes (`/index`, `/search`, `/backlinks`, `/friction`,
  * `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`, `/jobs/*`) were
  * removed in A.7 — every one of them is reachable through `/mcp`.
  *
  * Public requests are detected via the `Cf-Connecting-Ip` header set by
- * cloudflared. Bearer auth is required for any non-`/health` public
- * request — see `http/public_guard.ts`.
+ * cloudflared. Every request needs a credential — the public bearer (or an
+ * OAuth token, resolved on the 401 fall-through below) from that ingress, the
+ * shared internal token from the docker bridge — except for the handful of
+ * pre-credential routes. See `http/public_guard.ts`.
  */
 import type { Storage } from "../core/storage.ts";
 import { handleHealth } from "./health.ts";
@@ -49,7 +51,7 @@ import {
   handleRevokeRoute,
 } from "./oauth-endpoints.ts";
 import { makeMcpHandler } from "../mcp/http_transport.ts";
-import { RateLimiter } from "../mcp/rate_limit.ts";
+import { RateLimiter, type RateLimiterOptions } from "../mcp/rate_limit.ts";
 import { resolveClientIp } from "./client-key.ts";
 import { createAdminAuth, type AdminAuth } from "./admin.ts";
 import { handleAdminApi } from "./admin-api.ts";
@@ -65,6 +67,54 @@ function rateLimited(): Response {
   );
 }
 
+/** Failed pre-auth attempts per minute for a caller we can name. */
+export const ATTRIBUTED_AUTH_ATTEMPT_LIMITS: RateLimiterOptions = {
+  capacity: 20,
+  refillPerSecond: 20 / 60,
+};
+/**
+ * Same, for the one bucket shared by callers with no resolvable address.
+ * Wider — a sprayer in here would otherwise lock out every other such caller —
+ * but finite: unmetered is what this fixes.
+ */
+export const UNATTRIBUTED_AUTH_ATTEMPT_LIMITS: RateLimiterOptions = {
+  capacity: 200,
+  refillPerSecond: 200 / 60,
+};
+
+/** Key of the shared bucket for callers with no resolvable address. */
+export const UNATTRIBUTED_RATE_KEY = "unknown";
+
+/**
+ * Rate-limit identity for a request, most specific first: the trusted client
+ * IP (`Cf-Connecting-Ip`, or the proxy headers when they are trusted), then
+ * the socket address — which still separates docker-bridge peers from each
+ * other — then one shared bucket. `unattributed` marks that last case so a
+ * caller can meter it against its own, wider budget instead of collapsing
+ * everyone into a per-IP-sized one.
+ */
+export function resolveRateLimitBucket(
+  clientIp: string | null,
+  socketAddress: string | null | undefined,
+): { key: string; unattributed: boolean } {
+  if (clientIp) return { key: clientIp, unattributed: false };
+  if (socketAddress) return { key: socketAddress, unattributed: false };
+  return { key: UNATTRIBUTED_RATE_KEY, unattributed: true };
+}
+
+/**
+ * The limiter a pre-auth attempt is charged against: the shared bucket gets
+ * the wider one, everyone else the per-caller one. Split so a sprayer nobody
+ * can name burns its own budget instead of the budget of every named caller.
+ */
+export function attemptLimiterFor(
+  bucket: { unattributed: boolean },
+  attributed: RateLimiter,
+  unattributed: RateLimiter,
+): RateLimiter {
+  return bucket.unattributed ? unattributed : attributed;
+}
+
 export interface ServerOptions {
   host: string;
   port: number;
@@ -77,10 +127,17 @@ export interface ServerOptions {
    *  rotate IPs to defeat the per-IP cap. Unset → no per-token limiting. */
   mcpRateLimitPerTokenPerMinute?: number;
   /**
-   * Bucket for FAILED bearer verifications, keyed by trusted client IP.
-   * Injectable for tests; defaults to 20 failed attempts per minute per client.
+   * Bucket for FAILED bearer verifications, keyed by trusted client IP or —
+   * failing that — the socket address. Injectable for tests; defaults to 20
+   * failed attempts per minute per client.
    */
   authAttemptRateLimiter?: RateLimiter;
+  /**
+   * Bucket for FAILED bearer verifications from callers with NO resolvable
+   * address at all (the shared `unknown` key). Separate and wider so those
+   * callers cannot starve each other, but still capped. Injectable for tests.
+   */
+  unattributedAuthAttemptRateLimiter?: RateLimiter;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
    * the `MEMEX_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
@@ -142,8 +199,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
       })
     : null;
 
-  const guardOpts: { bearerToken?: string } = {};
+  // One options object for both ingress classes: the guard picks the public
+  // bearer or the internal token per request, but a credential is demanded
+  // either way.
+  const guardOpts: { bearerToken?: string; internalToken?: string } = {};
   if (opts.publicBearerToken) guardOpts.bearerToken = opts.publicBearerToken;
+  if (opts.internalToken) guardOpts.internalToken = opts.internalToken;
 
   // Per-IP throttle for the unauthenticated OAuth endpoints (/token,
   // /authorize, /revoke) — blunts client_secret brute-force and the DB-load DoS
@@ -163,13 +224,22 @@ export function startServer(opts: ServerOptions): ServerHandle {
   // `verifyAccessToken` costs two DB SELECTs and runs only AFTER the public
   // guard REJECTED the request — `guard.allow` is false there, so the /mcp
   // handler (and its rate limiter) never runs and nothing else sheds this
-  // load. Two deliberate properties: only FAILED verifications are charged, so
-  // a legitimate client keeps its full budget; and only callers with a trusted
-  // client IP are metered, because a single shared bucket for unattributable
-  // callers would let one sprayer lock out everybody on that ingress.
+  // load. Only FAILED verifications are charged, so a legitimate client keeps
+  // its full budget.
+  //
+  // EVERY request class is metered. Exempting the callers we cannot attribute
+  // (as this did while `attemptKey` could be null) left an unmetered
+  // brute-force channel costing two DB round-trips per attempt — the sprayers
+  // most worth metering are exactly the ones that present no address. They now
+  // fall back to the socket address, and then to one shared `unknown` bucket
+  // whose wider capacity keeps a single sprayer from starving the others while
+  // still ending in a ceiling.
   const authAttemptLimiter =
     opts.authAttemptRateLimiter ??
-    new RateLimiter({ capacity: 20, refillPerSecond: 20 / 60 });
+    new RateLimiter(ATTRIBUTED_AUTH_ATTEMPT_LIMITS);
+  const unattributedAuthAttemptLimiter =
+    opts.unattributedAuthAttemptRateLimiter ??
+    new RateLimiter(UNATTRIBUTED_AUTH_ATTEMPT_LIMITS);
   // Default-deny CORS allowlist for the OAuth + MCP surface (read once at boot).
   const corsAllowlist = parseCorsAllowlist();
 
@@ -284,10 +354,16 @@ export function startServer(opts: ServerOptions): ServerHandle {
             // non-consuming peek: it reads > 1 only while the bucket is empty.
             // A request carrying no bearer at all never reaches this line, so
             // ordinary unauthenticated 401s stay free.
-            const attemptKey = resolveClientIp(req);
-            const retryAfter = attemptKey
-              ? authAttemptLimiter.retryAfterSeconds(attemptKey)
-              : 1;
+            const attempt = resolveRateLimitBucket(
+              resolveClientIp(req),
+              server.requestIP(req)?.address,
+            );
+            const attemptLimiter = attemptLimiterFor(
+              attempt,
+              authAttemptLimiter,
+              unattributedAuthAttemptLimiter,
+            );
+            const retryAfter = attemptLimiter.retryAfterSeconds(attempt.key);
             if (retryAfter > 1) {
               return Response.json(
                 { ok: false, error: "too many authentication attempts" },
@@ -317,7 +393,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
               // Charge the failure. A verifier that is failing for its OWN
               // reasons (DB outage) is exactly when shedding load matters, so
               // both error classes count against the bucket.
-              if (attemptKey) authAttemptLimiter.allow(attemptKey);
+              attemptLimiter.allow(attempt.key);
               // InvalidTokenError = a bad/expired token: fall through to the
               // public path silently. ANY OTHER error (DB outage, provider bug)
               // is still fail-closed to public, but MUST be logged — otherwise an
@@ -373,8 +449,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
         // legitimate clients and the opposite of the per-IP cap documented
         // above. Fall back to the socket for callers with no trusted client IP
         // (docker-bridge peers), which still distinguishes them from each other.
-        const ip =
-          resolveClientIp(req) ?? (server.requestIP(req)?.address || "unknown");
+        const ip = resolveRateLimitBucket(
+          resolveClientIp(req),
+          server.requestIP(req)?.address,
+        ).key;
         if (url.pathname === "/token" && req.method === "POST") {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
             return rateLimited();
@@ -452,8 +530,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
             }
           }
         }
-        const ip =
-          resolveClientIp(req) ?? (server.requestIP(req)?.address || "unknown");
+        const ip = resolveRateLimitBucket(
+          resolveClientIp(req),
+          server.requestIP(req)?.address,
+        ).key;
         return handleIngestRoute(req, {
           storage: opts.storage,
           ...(ingestAuth !== undefined ? { authInfo: ingestAuth } : {}),
@@ -466,6 +546,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
         // enforces it only for write tools on the internal path (read
         // tools and public traffic ignore it). `allow` is true when the
         // token is unconfigured (legacy fallthrough) or correctly sent.
+        // The guard above already turned away a bare internal caller, so what
+        // reaches here without the token is a principal the OAuth path
+        // resolved — the handler judges those on scope, not on this bit.
         const ia = evaluateInternalAuth(req, internalAuthOpts);
         return mcpHandler(req, {
           isPublic: guard.isPublic,
