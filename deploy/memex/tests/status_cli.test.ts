@@ -7,6 +7,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runStatus } from "../src/commands/status.ts";
+import { VERSION } from "../src/version.ts";
+import packageJson from "../package.json" with { type: "json" };
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-status-test-"));
 const cfgDir = join(tmp, ".memex");
@@ -51,7 +53,10 @@ describe("memex status", () => {
       worker: { holder: string; stale: boolean } | null;
     };
     expect(parsed.ok).toBe(true);
-    expect(parsed.version).toMatch(/\d+\.\d+\.\d+/);
+    // The BUILD stamp, not package.json — pinned at 0.1.0, so the old
+    // `\d+.\d+.\d+` assertion held on a constant that could never change.
+    expect(parsed.version).toBe(VERSION);
+    expect(parsed.version).not.toBe(packageJson.version);
     // Fresh brain: empty everywhere; coverage defaults to 1.0 (nothing to embed).
     expect(parsed.stats.documents).toBe(0);
     expect(parsed.health.embed_coverage_pct).toBe(1);

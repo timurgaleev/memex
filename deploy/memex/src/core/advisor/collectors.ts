@@ -21,7 +21,7 @@ import { orphanExclusionSql } from "../orphan-policy.ts";
 import { brainHealthMetrics } from "../source-health.ts";
 import { latestEvalSnapshot } from "../eval-snapshot.ts";
 import { gradeMinAgeDays } from "../synthesis/takes.ts";
-import packageJson from "../../../package.json" with { type: "json" };
+import { VERSION } from "../../version.ts";
 import type { Engine } from "../engine/interface.ts";
 import type { AdvisorCollector, AdvisorFinding } from "./types.ts";
 
@@ -111,7 +111,7 @@ export const collectMigration: AdvisorCollector = {
 export const collectVersion: AdvisorCollector = {
   id: "version",
   collect: async (ctx) => {
-    const built = packageJson.version;
+    const built = VERSION;
     if (typeof built !== "string" || built.length === 0) return [];
     if (built === ctx.version) return [];
     return [

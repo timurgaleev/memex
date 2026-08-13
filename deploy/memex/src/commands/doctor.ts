@@ -46,7 +46,7 @@ import {
   type RemediationInput,
   type RemediationPlan,
 } from "../core/remediation.ts";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../version.ts";
 
 /**
  * Detail line for the engine check.
@@ -497,7 +497,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     JSON.stringify(
       {
         ok: pass,
-        version: packageJson.version,
+        version: VERSION,
         checks: categorized,
         summary: {
           by_category: byCategory,
@@ -617,7 +617,7 @@ async function emitRemediation(
   if (!remediate) {
     console.log(
       JSON.stringify(
-        { mode: "remediation-plan", version: packageJson.version, ...plan },
+        { mode: "remediation-plan", version: VERSION, ...plan },
         null,
         2,
       ),
@@ -639,7 +639,7 @@ async function emitRemediation(
           ok: false,
           submitted: false,
           mode: "remediate",
-          version: packageJson.version,
+          version: VERSION,
           note: "no working storage engine — fix config/pglite before remediation jobs can run",
           plan,
         },
@@ -666,7 +666,7 @@ async function emitRemediation(
         ok: checksOk,
         submitted: true,
         mode: "remediate",
-        version: packageJson.version,
+        version: VERSION,
         dry_run: report.dry_run,
         plan,
         report,

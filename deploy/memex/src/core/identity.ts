@@ -10,7 +10,7 @@
  * safe on the public ingress.
  */
 import type { Storage } from "./storage.ts";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../version.ts";
 
 export interface BrainIdentity {
   version: string;
@@ -37,7 +37,7 @@ export async function brainIdentity(storage: Storage): Promise<BrainIdentity> {
     ),
   ]);
   return {
-    version: packageJson.version,
+    version: VERSION,
     engine: engine.kind,
     documents: stats.documents,
     chunks: stats.chunks,

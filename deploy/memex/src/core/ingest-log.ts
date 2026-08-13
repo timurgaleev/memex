@@ -149,7 +149,7 @@ export function classifyFactsAbsorbError(err: unknown): FactsAbsorbReason {
   if (name === "BudgetExhausted") return "budget_exhausted";
 
   // Bedrock / HTTP gateway shapes: timeouts, throttling, 5xx, connection loss.
-  if (/timeout|timed?\s?out|ETIMEDOUT/i.test(msg)) return "gateway_error";
+  if (/timed?\s?out|ETIMEDOUT/i.test(msg)) return "gateway_error";
   if (/429|rate[\s-]?limit|too many requests|Throttling/i.test(msg)) return "gateway_error";
   if (/5\d\d|server error|internal server|bad gateway|service unavail/i.test(msg)) return "gateway_error";
   if (/ECONNRESET|ECONNREFUSED|EAI_AGAIN|getaddrinfo/i.test(msg)) return "gateway_error";

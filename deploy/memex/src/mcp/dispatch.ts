@@ -115,7 +115,7 @@ import {
 import { listRecentTranscripts } from "../core/transcripts-read.ts";
 import { setTakeStatus } from "../core/synthesis/takes.ts";
 import { syncTakesFromFence } from "../core/synthesis/takes-canon.ts";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../version.ts";
 import {
   reconcileFactsForPage,
   purgeFenceFactsForPage,
@@ -2949,7 +2949,7 @@ async function callAdvisor(
 ): Promise<ToolCallResult> {
   const report = await runAdvisor({
     engine: storage.raw(),
-    version: packageJson.version,
+    version: VERSION,
     now: new Date(),
     // Forward the caller's read scope so tenant-owned collectors (chronicle
     // coverage / ontology conflicts) stay source-scoped; a scopeless caller
@@ -3576,7 +3576,7 @@ async function callStatusSnapshot(storage: Storage): Promise<ToolCallResult> {
   return jsonResult({
     ok: true,
     schema_version: 1,
-    version: packageJson.version,
+    version: VERSION,
     stats,
     health,
     cache,

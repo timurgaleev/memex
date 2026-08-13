@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Every surface that answers "what am I running" now answers with the build.**
+  The previous release pointed `/health` at the build stamp and stopped there —
+  but MCP is the only contract this brain has, and the four surfaces an agent
+  actually reaches were left on `package.json`, which is pinned at `0.1.0` by
+  design. `get_brain_identity`, `get_status_snapshot`, the advisor report and
+  `doctor` all reported that constant while the container ran a tagged build.
+  Nine call sites now read the one stamp. The advisor's version-drift collector
+  needed both of its sides moved together: changing only the reported version
+  would have made it cry drift on every call. Three tests asserted the version
+  matched `\d+.\d+.\d+`, which held on a constant that could never change —
+  they now pin the stamp and assert it is not the package constant.
+- **Three regex slips.** A `timeout` alternative already covered by the
+  `timed?\s?out` beside it, `round` listed twice in one alternation, and a
+  module imported on three separate lines. None changed behaviour; all three
+  were found by running a linter over the source for the first time.
+
 ### Added
 - **The TypeScript is typechecked now.** Every other language in the repo had a
   static gate — `shellcheck` for the shell, `fmt`/`validate` for Terraform, a

@@ -16,7 +16,7 @@ import {
   readWorkerLock,
   DEFAULT_WORKER_LOCK_ID,
 } from "../core/jobs/worker-lock.ts";
-import packageJson from "../../package.json" with { type: "json" };
+import { VERSION } from "../version.ts";
 
 export interface StatusCmdOptions {
   /** Override the config path (tests point this at a temp dir). */
@@ -51,7 +51,7 @@ export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
       JSON.stringify(
         {
           ok: true,
-          version: packageJson.version,
+          version: VERSION,
           stats,
           health,
           ...(perSource ? { perSource } : {}),

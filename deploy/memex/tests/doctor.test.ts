@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDoctor, engineCheckDetail } from "../src/commands/doctor.ts";
 import { KNOWN_CHECK_NAMES } from "../src/core/doctor-categories.ts";
+import { VERSION } from "../src/version.ts";
+import packageJson from "../package.json" with { type: "json" };
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-doctor-test-"));
 const cfgDir = join(tmp, ".memex");
@@ -75,7 +77,11 @@ describe("doctor", () => {
       console.error("doctor failure detail:", JSON.stringify(parsed, null, 2));
     }
     expect(parsed.ok).toBe(true);
-    expect(parsed.version).toMatch(/\d+\.\d+\.\d+/);
+    // The BUILD stamp, not package.json — which is pinned at 0.1.0, so the
+    // old `\d+.\d+.\d+` assertion passed on a constant that could never
+    // change. Unstamped in a test process, the honest answer is "dev".
+    expect(parsed.version).toBe(VERSION);
+    expect(parsed.version).not.toBe(packageJson.version);
     const names = parsed.checks.map((c) => c.name).sort();
     expect(names).toEqual([
       "chronicle-projection-health",

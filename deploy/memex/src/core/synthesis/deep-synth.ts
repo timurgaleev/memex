@@ -20,11 +20,9 @@
  */
 import type { Storage } from "../storage.ts";
 import type { SearchHit } from "../search/hybrid.ts";
-import type { SonnetFn } from "../llm/sonnet.ts";
+import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { resolveModel } from "../llm/resolve-model.ts";
-import { resolveSonnetFn } from "../llm/sonnet.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
-import type { SonnetUsage } from "../llm/sonnet.ts";
 import { runThink, type ThinkSynthesis } from "./think.ts";
 import { listConcepts } from "./reads.ts";
 

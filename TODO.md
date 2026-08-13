@@ -122,6 +122,1014 @@ Postgres brain that runs in production the engine check reported nothing.
   a fixture passed for the wrong reason because it did not exercise the branch
   it claimed to. Types are one of the cheap ways that shows up.
 
+## Fidelity backlog — 2026-08-13 (41 items, adversarially verified)
+
+A 74-agent audit of the last two weeks of shipped work (72 commits, v1.107.2 →
+v1.120.0). Not "what is missing" and not "what practices do we lack" — both
+were asked and answered separately. This one asks: of the behaviours we DID
+adapt, which did we adapt shallowly? Every claimed divergence was handed to a
+second agent tasked with refuting it; 22 of 63 died that way and are listed at
+the end.
+
+Nothing here is a port. Each item states the behaviour to implement in our own
+words, to be written from that description.
+
+**Status: 1 shipped (OBS-01), 40 open.**
+
+- **[FACT-01]** (high/small) Insert-time deduplication of extracted facts
+  - Theirs: The extraction pipeline always runs a deterministic cosine dedup
+    (threshold 0.95, top-5 entity-prefiltered candidates) between extraction
+    and insert — no flag, no config; it degrades only when no embedding
+    provider exists. src/core/facts/backstop.ts:313-403 (and the same 0.95
+    rule reused for the pre
+  - Ours: The cosine/classifier dedup exists but is default-OFF
+    (`MEMEX_FACTS_DEDUP`, deploy/memex/src/core/facts.ts:187-192, 226) and
+    NO extraction caller passes a `dedup` option:
+    deploy/memex/src/core/facts-extract.ts:725-729 (on-write + backfill),
+    :845-851 (extract_facts persist), deploy/memex/src/commands
+  - Costs us: With on-write extraction enabled, every re-save of an eligible
+    page re-inserts the same claims verbatim — edit a note five times and
+    the ledger holds five copies of each fact. Duplicates then propagate:
+    entity_facts/entity_recall return them, consolidate-facts clusters them
+    into an inflated 'take',
+  - Adjust before implementing: One refinement to the claimed consequence:
+    the on-write hook is gated on r.changed (mcp/dispatch.ts:1262 for
+    page_put, :1527 for page_append), so a byte-identical re-put is a no-op
+    — duplicates accumulate per real EDIT of an eligible page, not per save.
+    That matches the claim's own 'edit a note five
+
+- **[PAGE-01]** (high/small) Bulk page-retype: recording what changed so it can be undone
+  - Theirs: Every retyped row is stamped with its pre-retype type in page
+    frontmatter (`legacy_type`) inside the same UPDATE that changes the
+    type, explicitly so a wrong retype can be reverted page by page; the
+    rule's own subtype value can supply that field instead, and the code
+    refuses to double-write it. Dry-
+  - Ours: The UPDATE sets only `type` and `generation`; no page_versions row
+    is written and `updated_at` is deliberately untouched, so nothing on the
+    page remembers its old type. The audit trail is one ingest_log row whose
+    summary names only the TARGET type (`retyped N page(s) to 'X' by …`),
+    and ingest_log ha
+  - Costs us: A retype selected by `--slugs`/`--path-prefix` legitimately
+    spans several original types (that is why `byType` exists). After
+    `--apply` the original types exist nowhere — not on the page, not in
+    page_versions, not in the log row. Retype 400 mixed pages to `note` by
+    mistake and the only recovery is g
+  - Adjust before implementing: Three refinements to the claim as stated.
+    (1) Naming: our pages table has no `frontmatter` column — the analogue
+    is `compiled_truth` JSONB (migrations/015_pages.sql:34, described at
+    8-11 as the frontmatter equivalent). A faithful port stamps
+    compiled_truth, not frontmatter. (2) The gap is wider than
+
+- **[ENG-01]** (high/small) Who counts as a live lock holder — what the guard does when the lock file cannot be parsed
+  - Theirs: Only an affirmative "no such process" verdict from the
+    kill(pid,0) probe counts as death; every other outcome (permission
+    error, out-of-range/non-integer pid, any other errno) is treated as
+    ALIVE and the holder is never reaped, on the stated grounds that a false
+    "dead" reaps a live single-writer. Bo
+  - Ours: Anything the lock file cannot be parsed into is treated as stale
+    and taken over: readLock swallows every failure into pid=null (pglite-
+    lock.ts:89-100), the acquire path only consults liveness when pid parses
+    and is > 0 (pglite-lock.ts:191-199), and pidAlive returns false for any
+    errno that is not EP
+  - Costs us: Two memex processes end up holding one PGLite directory — the
+    exact corruption the lock was shipped to prevent. Reachable two ways
+    without any exotic input: two starts racing (the second reads the
+    first's not-yet-written lock as garbage and steals it), and a lock file
+    whose pid line got truncated or
+  - Adjust before implementing: The fix is not "treat an unparseable lock as
+    alive" - the reference reaps corrupt locks too, and our
+    tests/pglite_lock.test.ts:78-83 availability goal (never block forever
+    on a corrupt lock) is sound. Three targeted changes bring us back to the
+    reference's guarantees: (a) make writeLock atomic - wri
+
+- **[ENG-02]** (high/small) Naming the cause of a failed open — classifying the driver's error
+  - Theirs: Four verdicts, and the ordering is load-bearing:
+    catalog/extension corruption (58P01, the pgvector library failing to
+    load, a missing vector type or missing core relation) is matched BEFORE
+    the generic WASM-abort arm, with an explicit note that such a message is
+    catalog corruption and not a WAL tear
+  - Ours: classifyPgliteError has no catalog-corruption arm at all (pglite-
+    diagnose.ts:66-119). A corruption message that also carries "Aborted()"
+    — which is the shape that failure takes — falls into our wasm-abort
+    branch (pglite-diagnose.ts:104-113) and we tell the operator to run
+    `memex doctor`, whose data-
+  - Costs us: The one population that actually has damaged directories —
+    anything opened twice before v1.117.0, or with MEMEX_PGLITE_NO_LOCK=1 —
+    gets the wrong verdict and a diagnosis that reports the directory as
+    structurally fine. The operator is steered toward lock/pid-file hygiene
+    instead of restore-or-rebuil
+  - Adjust before implementing: Two parts of the claim's reasoning are wrong
+    and the consequence must be narrowed. (1) In the reference the ordering
+    is load-bearing chiefly because the wasm-abort verdict TRIGGERS an
+    automatic in-place WAL repair (pglite-engine.ts:499-537 —
+    pg_wal/pg_control moved aside, backup + restore-on-failure
+
+- **[CLI-01]** (high/small) Strict unknown-flag validation: where the legal vocabulary comes from
+  - Theirs: The legal flag set is machine-derived per command, never hand-
+    listed: op commands validate against the operation's own parameter
+    contract, CLI-only commands against a registry generated by scanning
+    each command's source file (reference src/cli.ts:1085-1106,
+    src/core/cli-flag-registry.generated.ts:10
+  - Ours: KNOWN_FLAGS is a hand-typed union of two literal sets
+    (deploy/memex/src/cli-args.ts:82-105), and validateFlags rejects
+    anything outside it (cli-args.ts:178-187) — fail CLOSED. The only
+    derived-from-source check covers the 3 safety flags, and it scans just
+    cli.ts's `case` bodies (tests/cli_args.test.
+  - Costs us: The entire doctor self-heal surface is unreachable from the
+    CLI. `memex doctor --remediate` (and --remediation-plan, --execute,
+    --yes, --max-jobs) dies with "unknown flag '--remediate'" and exit 1
+    before doctor runs — confirmed by executing parseArgs. The feature only
+    works through the test-only `ru
+  - Adjust before implementing: The claim is accurate as stated; two
+    refinements. (1) Scope: only these five flags are missing — --max-usd IS
+    already in VALUE_FLAGS (cli-args.ts:88), and doctor is the sole command
+    in src/ that parses flags out of raw argv (grep for argv.includes("--" /
+    parseNumFlag(argv, hits only src/commands/doc
+
+- **[MCP-01]** (high/small) entity_recall's server-side token budget — the page arm's enforcement
+  - Theirs: The reference's budget packer is documented and implemented as a
+    hard cap: it walks items in order and stops as soon as the next one
+    would exceed the budget, and it states the strict edge case outright —
+    an item that alone exceeds the budget yields an empty set,
+    "intentionally strict: the caller ask
+  - Ours: applyRecallBudget never drops the page. When the page's serialized
+    cost exceeds the room left, it trims only markdown_body and ships
+    everything else (deploy/memex/src/core/recall-budget.ts:100-116).
+    PageRow carries compiled_truth, an unbounded JSON blob
+    (deploy/memex/src/core/pages.ts:140), which is
+  - Costs us: token_budget is advertised as a cap ("Cap the whole response
+    ... at roughly this many tokens",
+    deploy/memex/src/mcp/operations.ts:581-585) but is not one. An agent
+    that sized its context window on the promise gets a response an order of
+    magnitude larger and blows its window — the exact failure the f
+  - Adjust before implementing: Two adjustments to the claim's framing,
+    neither of which rescues our implementation. First, the severity should
+    be re-based off the everyday case rather than the 40k compiled_truth:
+    the page's FIXED overhead (slug + 64-char content_hash +
+    created_at/updated_at ISO timestamps + source_id) is already
+
+- **[MCP-02]** (high/small) How the one budget is split across the arms
+  - Theirs: No fixed shares at all. Facts pack against the FULL budget
+    first, then the exact unspent remainder is handed to the next arm
+    (src/core/operations.ts:4687-4701). Any arm can consume the whole budget
+    if the ones ahead of it leave it free, so no arm is starved while budget
+    goes unused.
+  - Ours: Facts and timeline get hard pre-allocated shares (0.5 and 0.2) and
+    only the page receives the leftovers (deploy/memex/src/core/recall-
+    budget.ts:22-24, 87-99). Verified: with token_budget:1000, no page and
+    no timeline, 3 of 20 facts are dropped while 500 tokens sit unspent.
+    Both our module doc (recal
+  - Costs us: An entity that is all facts — the common shape, and the one
+    the module says facts get the biggest share for — returns at most half
+    the answer the caller paid for, and drives the extra round trip the
+    feature existed to eliminate. The description makes it undebuggable: the
+    caller is told the split ada
+  - Adjust before implementing: Citation fixes only, no change to the
+    substance: the packing code is recall-budget.ts:92-101 (claim said
+    87-99); the false module-doc sentence is at recall-budget.ts:11-12
+    (claim said 12-16); the tool description path is
+    deploy/memex/src/mcp/operations.ts:584 (claim omitted the mcp/ segment).
+    The cl
+
+- **[AUTH-01]** (high/small) Metering failed bearer verification before the DB lookup (v1.111.0 pre-auth throttle)
+  - Theirs: The pre-auth IP bucket is charged on every /mcp request before
+    `validateToken` runs, and the key always exists because
+    `resolveClientIp` falls back to the socket address and finally the
+    literal 'unknown' (src/mcp/http-transport.ts:308-321 with 140-152). No
+    request class escapes metering; the module
+  - Ours: The throttle is skipped entirely when no trusted client IP can be
+    resolved: `attemptKey` is null → `retryAfter` is hardcoded to 1 → the
+    gate never trips, and the failure is not charged either
+    (deploy/memex/src/http/server.ts:287-296 and 320). This is deliberate
+    and test-enshrined ('never throttles a
+  - Costs us: On the live caddy deployment MEMEX_ASSUME_PUBLIC=1 classifies
+    every request public, so a bridge peer (or anything reaching :18790
+    directly) that omits Cf-Connecting-Ip gets unlimited bearer attempts,
+    each costing two RDS SELECTs, with the guard already rejecting so the
+    /mcp limiter never runs. That
+  - Adjust before implementing: Two corrections to the claim's framing. (1)
+    Reach is narrower than "anything reaching :18790". Port 18790 is
+    `expose`-only (deploy/docker-compose.yml:31-32) — not published to the
+    host or the internet — and the Caddy ingress overwrites Cf-Connecting-Ip
+    with {remote_host} on both the inbound request
+
+- **[CODE-01]** (high/small) Freeing tree-sitter WASM allocations around a parse, including on the new degrade path
+  - Theirs: Parser and tree are reaped in a single finally that covers every
+    exit — success, timeout-fallback, edge-extraction failure, catch-all
+    fallback — with the rationale spelled out that a throwing path must
+    still free the WASM objects (the reference and 729-739).
+  - Ours: chunkCode parses at deploy/memex/src/core/chunkers/code.ts:486 and
+    returns at 504-510 without ever calling tree.delete(); the per-symbol
+    re-parse in deploy/memex/src/core/code-entities.ts:291 likewise never
+    frees its sub-tree. The only delete() in our tree is the test-only
+    parser reset (deploy/memex
+  - Costs us: Every swept file leaks one file-level tree plus one sub-tree
+    per symbol into the Emscripten heap for the process lifetime. A boot
+    sweep over a few thousand files with tens of thousands of symbols grows
+    RSS monotonically inside the long-lived serve process — on a box with a
+    documented OOM-kill histor
+  - Adjust before implementing: Narrow the finding to trees only. The parser
+    half of the claim does not apply: we cache one Parser per language on
+    purpose (deploy/memex/src/core/chunkers/parsers.ts:296-306, documented
+    "constructing per-call would leak Emscripten heap"), so a per-parse
+    parser.delete() would be wrong for us — the re
+
+- **[OBS-01]** (high/small) Reporting the real build stamp instead of a pinned constant (v1.120.0 /health fix)
+  - Theirs: One version constant is derived once and fed to every surface
+    that answers "what am I running": the HTTP liveness route
+    (src/commands/serve-http.ts:1118-1120 via probeLiveness), the MCP
+    transport's own /health (src/mcp/http-transport.ts:286-292), the
+    get_brain_identity op that thin clients call (src
+  - Ours: Only /health was switched to the build stamp
+    (deploy/memex/src/http/health.ts:55 -> src/version.ts:12). Every other
+    version surface still answers package.json, which is pinned at 0.1.0
+    (deploy/memex/package.json:3): get_brain_identity
+    (src/core/identity.ts:40), get_status_snapshot (src/mcp/dispatch.
+  - Costs us: MCP is our only contract, and over MCP the brain still reports
+    0.1.0 for every image ever built. A client (or an operator reading a
+    doctor JSON) cannot tell a fresh container from a six-month-old one —
+    exactly the failure the /health fix was written to close, left standing
+    on the four surfaces an ag
+  - Adjust before implementing: Narrow the final consequence. "Makes any
+    future 'is the live brain running the build I shipped' check impossible
+    to write" is false in general: that check already exists and works over
+    HTTP — deploy/deploy.sh:23 stamps `git describe --tags --always --dirty`
+    into the build and deploy/deploy.sh:44-53
+
+- **[PAID-01]** (high/medium) "All paid paths" coverage — two paid Sonnet call sites never got the truncation treatment, including the one the reference hardened by name
+  - Theirs: The reference's chronicle event judge reads the stop signal on
+    every call: refusal/content-filter return empty, and a cap-stopped
+    response returns a distinct `failure: 'truncated'` so it is never parsed
+    and never recorded as a legitimate "no events"; its default cap is 4000
+    and operator-configurable
+  - Ours: Our same-named chronicle judge is a paid Sonnet call at maxTokens
+    1500 with no stopReason read and no retry —
+    deploy/memex/src/core/chronicle/extract-events.ts:274-292 (cap at :288);
+    its parseJudgeJson returns [] on a cut array (:294-307), and the caller
+    turns that into status "no_events" (:217). Th
+  - Costs us: An event-dense page whose JSON array is cut is reported as
+    having zero events, the spend is booked, and nothing flags it for a re-
+    run with room — the same silent-loss bug v1.112.0 was written to kill,
+    still live on a path with the same file name as the reference's fix. On
+    the take grader it is worse
+  - Adjust before implementing: The claim is correct on chronicle but
+    overstated on takes; scope the finding to the chronicle judge. (a) The
+    Sonnet ensemble take-grader is opt-in and OFF by default —
+    `takeEnsembleEnabled()` requires MEMEX_TAKE_ENSEMBLE=1 (takes.ts:88-91)
+    — so it is not live unless the operator turns it on. (b) Its
+
+- **[PAID-02]** (high/medium) stopReason plumbing across model tiers — the signal exists only on the reasoning-tier transport
+  - Theirs: One chat result type carries a provider-neutral stop reason for
+    every model, cheap or expensive alike (the reference mapped at
+    :3092-3100), so any call site on any tier can tell a cut answer from a
+    bad one; several do (facts/extract.ts:274-289, chronicle/extract-
+    events.ts:218-221, page-summary.ts:17
+  - Ours: Our utility-tier result type has no stopReason field at all and
+    the transport drops what Bedrock returned —
+    deploy/memex/src/core/llm/haiku.ts:63-72 and the return at :189. Only
+    the reasoning-tier result carries it
+    (deploy/memex/src/core/llm/sonnet.ts:45-54), so
+    `callWithTruncationRetry` is structur
+  - Costs us: Every paid utility-tier call that parses structured output is
+    truncation-blind and cannot be fixed at the call site: take proposal
+    (takes.ts:405, cap 1200), the single-judge take grader
+    (takes.ts:972-977, cap 500), atoms, concepts, calibration, voice-gate,
+    facts-classify. A cut response parses to em
+  - Adjust before implementing: Two narrowings. (1) `facts-classify` should
+    be dropped from the cost list: on a parse failure our path falls to the
+    cosine fallback (facts-classify.ts:215 onward), which is byte-for-byte
+    the outcome the reference produces for its `stopReason === 'refusal'`
+    branch (classify.ts:128-133) — the missing
+
+- **[CLI-02]** (high/medium) Scope of the unknown-flag check: per-command vs one global vocabulary
+  - Theirs: Validation is always relative to the command being run:
+    findUnknownFlag takes that command's legal set, findUnknownOpFlag walks
+    that op's declared params (reference src/cli.ts:1108-1125, 1127-1168). A
+    flag that is real for some OTHER command is still rejected here, with an
+    explicit exemption list fo
+  - Ours: One global union across all commands (cli-args.ts:101-105). Per-
+    command narrowing exists only for --dry-run/--apply/--fix via
+    SAFETY_FLAG_COMMANDS (cli-args.ts:116-126). Everything else is accepted
+    on every command and silently dropped by the switch.
+  - Costs us: We guard a correlate (three safety-labelled flags) instead of
+    the thing itself (does THIS command read THIS flag). Verified accepted-
+    and-ignored: `memex reindex --stale` (--stale is embed/extract's flag,
+    cli.ts:588/888) runs a full-corpus reindex when the operator asked for
+    stale-only; `memex jobs p
+  - Adjust before implementing: The `reindex --stale` half of the claimed
+    consequence is overstated and should be dropped from the write-up.
+    `--stale` is indeed accepted and ignored (reindex reads --rechunk-stale
+    at cli.ts:280, never --stale), but the fallback is not a full-corpus
+    reindex: opts.all stays false and commands/reindex
+
+- **[AUTH-02]** (high/medium) Requiring auth on the MCP ingress (the v1.108.0 'auth fail-open behind non-Cloudflare ingress' fix)
+  - Theirs: Auth is never conditional on how the request arrived. The OAuth
+    transport mounts the bearer-verification middleware directly on the POST
+    /mcp route so every request is verified (src/commands/serve-
+    http.ts:1888), and the legacy transport validates the bearer on every
+    non-/health request with no ingre
+  - Ours: Authentication is gated on an ingress heuristic: `isPublicRequest`
+    returns false whenever `Cf-Connecting-Ip` is absent and
+    `MEMEX_ASSUME_PUBLIC` is unset
+    (deploy/memex/src/http/public_guard.ts:259-266), and
+    `evaluatePublicGuard` then returns `{allow:true}` without looking at the
+    Authorization header
+  - Costs us: Any deployment behind an ingress that does not inject Cf-
+    Connecting-Ip and whose operator misses the warning (nginx, ALB, a plain
+    port-forward, a Caddyfile edited after bootstrap) serves the entire MCP
+    surface — including every internal-only read tool — with no credential.
+    The failure is silent: not
+  - Adjust before implementing: Two parts of the stated consequence are
+    overstated and should be narrowed before this is written up. (1) "The
+    entire MCP surface — including every internal-only read tool" is wrong.
+    73 of 91 tools (FORBIDDEN_MCP_TOOLS_FROM_PUBLIC plus PUBLIC_WRITE_TOOLS)
+    are rejected with 401 by mcp/http_transport.t
+
+- **[CODE-02]** (high/medium) Reporting that a grammar degraded / which files the sweep failed on
+  - Theirs: Per-(source,path) index failures are written to a durable ledger
+    with attempt counts and a state machine (open →
+    auto_skipped/acknowledged), so a file that failed keeps a record with
+    the commit to retry from; the health command carries a dedicated check
+    that stays unresolved until the file indexes c
+  - Ours: The sweep returns errors that nobody persists: the boot path
+    prints one summary line plus at most 10 failing paths to stdout and
+    drops the rest (deploy/memex/src/commands/serve.ts:278-291;
+    SweepCodeResult defined at deploy/memex/src/core/sweep-code.ts:35-43).
+    The grammar-degraded event is a single c
+  - Costs us: The doctor guards a correlate (blob bytes still match the
+    manifest we generated from those same blobs) rather than the thing that
+    broke: during the actual incident the blobs matched their manifest and
+    did not link, so code-grammars would have reported PASS while every .sh
+    file degraded to text. Afte
+  - Adjust before implementing: Narrow the finding to the durable-record
+    half; the grammar-degraded half is wrong and should be dropped. The
+    reference does NOT report grammar degradation at all: `the reference is
+    a bare `catch { return { chunks: fallbackChunks(...), edges: [] } }`
+    that swallows a `loadLanguage` failure (`code.ts:1
+
+- **[SRCH-01]** (medium/small) Concept-shaped query detection — the cue bank fires without any of the suppressors the reference pairs it with.
+  - Theirs: looksConceptShaped is cue-match AND three explicit vetoes: fewer
+    than 3 words → false (bare token / proper-noun lookup); an exact-
+    identifier anti-signal (quoted phrase, or a kebab-case slug-like token)
+    → false; and the query's own intent classification being `entity` →
+    false. Cues owned by other rou
+  - Ours: looksConceptShaped is a bare `matches(CONCEPT_CUE_PATTERNS,
+    query)` with no length floor, no anti-signals and no entity veto —
+    deploy/memex/src/core/search/query-intent.ts:62-80 — and the bank itself
+    contains `/\bwhat\s+are\s+the\b/`, `/\boverview\s+of\b/` and
+    `/\bcompare\b/`. Consumed at deploy/mem
+  - Costs us: Two of those cues overlap our OWN entity bank (query-
+    intent.ts:98-107), so the classifier simultaneously calls the query
+    `entity` (detail=low) and tells the caller it may be a partial set:
+    verified that "overview of Acme Corp", "what are the deployment steps"
+    and "overview of the token-budget module
+  - Adjust before implementing: Two claim details need adjusting before this
+    is written up. (1) This is not the reference's bank with vetoes stripped
+    — it is our own vocabulary: 8 of 10 phrasings in our own test
+    (tests/query_intent.test.ts:110-125) match none of the reference's six
+    cues, and conversely their cues fire on cases our
+
+- **[SRCH-02]** (medium/small) Truncate-to-fit instead of drop-to-fit: the title charge makes the accounting honest but the trim path can still exceed the cap.
+  - Theirs: Whole items only — an item that does not fit is dropped and
+    counted in `dropped`; if the very first item alone exceeds the budget
+    the packer returns an empty list, documented as "intentionally strict:
+    the caller asked for a hard cap". Content is never cut mid-hit, so the
+    returned payload is provably
+  - Ours: The overflowing hit is truncated and kept, with body room computed
+    as `Math.max(1, budget - estTokens(title))` —
+    deploy/memex/src/core/search/token-budget.ts:33-35, applied at :64-73
+    (first hit) and :79-84 (boundary hit). When the title costs more than
+    the available room the Math.max(1,…) floor stil
+  - Costs us: The cap the commit message calls "a hard guarantee" is still
+    breakable in the direction it was meant to fix. Concretely: a hit with a
+    400-char title under `token_budget: 50` returns ~101 tokens — twice the
+    cap; on the ordinary boundary case (10 tokens of room left, 40-token
+    title) every budgeted sea
+  - Adjust before implementing: Scope the finding to the cap breach, not to
+    truncate-vs-drop. Keeping the top hit truncated rather than returning
+    `[]` is a defensible deliberate divergence for an MCP-only brain and
+    should be left alone and documented as such. Two narrower fixes restore
+    the ceiling: 1. `deploy/memex/src/core/search
+
+- **[PAID-03]** (medium/small) Pricing the enlarged think call in the phase that fans it out
+  - Theirs: n/a — the reference has no equivalent shared per-question USD
+    pre-flight; this is our own guard, and the audit point is internal
+    consistency after the cap change.
+  - Ours: think's default output cap went 1500 → 4000
+    (deploy/memex/src/core/synthesis/think.ts:54) and can now cost up to 3×
+    that when the truncation retry fires, but deep-synth's pre-flight still
+    prices each question at 1500 output tokens, with a comment asserting it
+    "matches runThink's DEFAULT_OUTPUT_TOKEN
+  - Costs us: The deep-synth USD cap under-prices every question's output
+    side by ~2.7×, and by ~8× when a question truncates and retries, so the
+    pre-flight lets through questions the cap should have refused and the
+    phase overshoots its stated budget before `record` catches up. The stale
+    comment makes it read as
+  - Adjust before implementing: The claim's reference premise is wrong and
+    should be corrected before recording: the reference DOES have the
+    counterpart. src/core/cycle/auto-think.ts:142-149 runs a per-question
+    BudgetMeter.check with estimatedInputTokens: 5_000 and maxOutputTokens:
+    4_000 against a phase-scoped meter, breaking on !
+
+- **[FACT-02]** (medium/small) Fact `kind` floored so a claim always ages (the v1.110 'never coerce to fact, floor to belief' fix)
+  - Theirs: `kind` cannot be absent: the column is `NOT NULL DEFAULT 'fact'`
+    with a CHECK over the five kinds (src/core/migrate.ts:2312-2333), and
+    the decay function has no non-decaying branch — it indexes the half-life
+    table unconditionally (src/core/facts/decay.ts:44-56). The un-ageing
+    state is unrepresentabl
+  - Ours: The extractor floors an unreadable kind to 'belief' precisely
+    because a NULL kind never decays (deploy/memex/src/core/facts-
+    extract.ts:179-194), but the ledger still accepts NULL
+    (`input.written_by`-style passthrough at
+    deploy/memex/src/core/facts.ts:339 for kind at :344 `normaliseKind`),
+    decay expl
+  - Costs us: Every consolidated take — the row meant to represent a cluster
+    — is immortal, while all its members decay; likewise any fence fact
+    written with the kind column left blank, which is the normal hand-
+    authored case. In a confidence-ordered recall those immortal rows drift
+    to the top over months and outr
+  - Adjust before implementing: Two of the claim's three legs are wrong and
+    should be dropped. (1) Consolidation is NOT a divergence: the reference
+    promotes a cluster into a separate `takes` table (the reference whose
+    DDL carries a static `weight REAL DEFAULT 0.5` and no confidence column
+    (migrate.ts:1229-1252), and effectiveConfi
+
+- **[FACT-03]** (medium/small) 'Every fact carries provenance, and nobody can forge it' (v1.113)
+  - Theirs: Provenance is a ledger invariant: `source TEXT NOT NULL` on the
+    facts table (src/core/migrate.ts:2330), so no write path — pipeline,
+    fence, single-fact verb — can land an unattributed row.
+  - Ours: The stamp lives in one MCP handler: `writerIdentity` + the
+    normalisation in `callAddFact` (deploy/memex/src/mcp/dispatch.ts, added
+    in 5403f6d). `addFact` itself still takes `written_by` as optional and
+    stores NULL (deploy/memex/src/core/facts.ts:339), and the dimensional-
+    ontology writer — reachable
+  - Costs us: The invariant the commit message asserts does not hold for the
+    ledger, only for one tool. An auditor or doctor check that assumes
+    'every fact names a writer' will find NULL rows from the ontology path
+    and from any future direct writer, and cannot distinguish 'pre-fix
+    legacy row' from 'written last w
+  - Adjust before implementing: Two-line fix, mirroring what the reference
+    does in two places. (1) Handler: in callOntologyPropose
+    (deploy/memex/src/mcp/dispatch.ts:3836-3870), take the same
+    DispatchOptions the add_fact case already passes and, when `source` is
+    omitted/blank, stamp provenance rather than leaving the row anonymous
+
+- **[FACT-04]** (medium/small) Deterministic tiebreak on fact orderings (v1.111 a4b90dd)
+  - Theirs: Every ordered fact read ends in `id DESC`, including the
+    supersession audit: `ORDER BY expired_at DESC, id DESC`
+    (src/core/postgres-engine.ts:4684), alongside the by-entity, since, and
+    by-session lists (:4613, :4640, :4658).
+  - Ours: The fix covered the three `listFacts` orderings
+    (deploy/memex/src/core/facts.ts:668-679) but not its sibling on the same
+    read surface: `listSupersessions` still ends at `ORDER BY forgotten_at
+    DESC` with no tiebreak (deploy/memex/src/core/facts.ts:798).
+  - Costs us: `forgotten_at` is stamped `NOW()` by the supersede/dedup
+    retirement path, so a batch that retires several rows in one statement
+    ties on it by construction — exactly the tie the commit's own test
+    forces for written_at. The `fact_supersessions` tool then returns an
+    arbitrary slice of that batch at the
+  - Adjust before implementing: The claimed generative mechanism is wrong,
+    though the divergence and its consequence stand. There is no statement
+    that retires several rows at once: every retirement is a single-row
+    `UPDATE ... WHERE id = $1` (facts.ts:517-524 supersede path; facts-
+    recall.ts:158-162 forget path), and the extract loo
+
+- **[PAGE-02]** (medium/small) `find_orphans` filtering silently — no accounting of what the policy hid, and no per-call override
+  - Theirs: The orphan surface returns the filtered list AND the arithmetic
+    behind it: total_orphans, total_linkable, total_pages, excluded — with
+    the denominator deliberately corrected to count excluded pages across
+    the whole live set, not just among orphans. `--include-pseudo` turns the
+    whole policy off for o
+  - Ours: The MCP tool returns `{ok:true, pages}` and nothing else, and the
+    tool description still reads "Pages with zero inbound links — nothing in
+    the graph references them" with no mention of the writer-provenance
+    filter. The only way to see the unfiltered set is
+    `MEMEX_ORPHAN_EXCLUDE_WRITERS=` in the proc
+  - Costs us: On the live brain the change took 382 to 101 — 281 rows now
+    vanish with no trace at the surface that dropped them. An agent (or the
+    operator) reading the tool description believes the list is complete,
+    cannot tell a brain with no orphans from a brain whose orphans are all
+    brain-written, and cannot l
+  - Adjust before implementing: Two sub-claims should be softened, without
+    changing the verdict. (1) "Per-brain exclusions are DB config an
+    operator sets at runtime" is a real reference behaviour (orphan-
+    policy.ts:66-94), but our env-var equivalent is defensible under one-
+    operator-per-deployment — that part is not the divergence.
+
+- **[CLI-03]** (medium/small) `<cmd> --help` short-circuit
+  - Theirs: The generic help stub is deliberately NOT applied to commands
+    that ship their own help text — an explicit exclusion set routes --help
+    into those handlers, and the comments record this exact bug being re-
+    fixed several times as new self-help commands were added (reference
+    src/cli.ts:75-140, 334-345).
+  - Ours: cli.ts:229-232 intercepts --help for EVERY command and prints the
+    full 220-line global usage. No exclusion set.
+  - Costs us: `memex watch --help` never reaches the WATCH_HELP branch at
+    cli.ts:536-540 — that code is dead, and the flag/stdin-turn protocol it
+    documents is unreachable. Same for eval-chronicle's HELP (commands/eval-
+    chronicle.ts:26). Every `memex <cmd> --help` dumps the entire command
+    list instead of the comman
+  - Adjust before implementing: One sub-claim is wrong: eval-chronicle's
+    HELP is NOT dead. cli.ts:341 dispatches
+    `runEvalChronicle(positional.slice(1))`, and since parseArgs routes `-h`
+    into positional (it does not start with `--`), `memex eval chronicle -h`
+    reaches the `args.includes("-h")` check at src/commands/eval-
+    chronicle.ts
+
+- **[CLI-04]** (medium/small) What sub-handlers receive after central parsing
+  - Theirs: Handlers are handed the raw argument slice and do their own flag
+    reading, so central parsing never hides a flag from them (reference
+    src/cli.ts:318-322 passing subArgs into the search/diagnose handlers).
+  - Ours: The switch passes only the positional array to handlers that still
+    parse their own argv: cli.ts:341 calls
+    runEvalChronicle(positional.slice(1)), while that handler reads
+    args.includes("--json") and args.includes("--help") (commands/eval-
+    chronicle.ts:26, 30). parseArgs has already moved both into `fl
+  - Costs us: `memex eval chronicle --json` is accepted, passes strict
+    validation, and prints the human report — the JSON envelope a script or
+    cron consumer expects is never emitted, with no error. Verified:
+    parseArgs puts --json in flags and leaves positional as ["chronicle"].
+    Any future handler that keeps its o
+  - Adjust before implementing: Two refinements to the claim, and the real
+    scope. (1) `--help` is NOT silently dropped the way `--json` is: it
+    lands in `flags`, and the global short-circuit at cli.ts:227-231 catches
+    it and prints the generic `printUsage()`. So `memex eval chronicle
+    --help` prints the whole CLI usage instead of the
+
+- **[CLI-05]** (medium/small) A value-taking flag whose value is missing
+  - Theirs: A non-boolean flag binds whatever token follows it, so a flag
+    the user typed is never simply absent from the parsed result (reference
+    src/cli.ts:899-902), and the validator mirrors that consumption so the
+    bound token is not re-validated (reference src/cli.ts:1150-1155).
+  - Ours: When the next token is missing or starts with `--`, the flag is
+    dropped into `flags` and no value is recorded (cli-args.ts:236-244). The
+    comment there claims "the command case rejects it", but exactly one such
+    guard exists in the whole CLI (cli.ts:861-864, embed's --limit).
+  - Costs us: A typed flag can vanish with no error and the command proceeds
+    on defaults. Verified: `memex reindex --vault --all` parses to
+    flags=[--vault,--all] with no vault value, so reindex walks the DEFAULT
+    vault root with --all set — a full re-index of the wrong tree. Same
+    shape for --paths, --source, --k,
+  - Adjust before implementing: Two factual corrections that narrow but do
+    not defeat the claim. (1) "Exactly one such guard exists in the whole
+    CLI" is wrong: there are three guard sites covering six flag/command
+    pairs — cli.ts:862-864 (embed --limit), cli.ts:508-513 (salience
+    --type/--days/--limit), cli.ts:567-572 (cycle --phase
+
+- **[AUTH-03]** (medium/small) Post-auth per-token rate limiting
+  - Theirs: `buildDefaultLimiters` always constructs both buckets and the
+    token bucket defaults to 60 req/min, tunable but never absent
+    (src/mcp/rate-limit.ts:135-142). The post-auth check runs on every
+    authenticated /mcp request keyed on the token row id (src/mcp/http-
+    transport.ts:343-354), so an authenticated
+  - Ours: `perTokenRateLimiter` is only constructed when
+    `mcpRateLimitPerTokenPerMinute` is passed
+    (deploy/memex/src/http/server.ts:135-140), which requires
+    MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE
+    (deploy/memex/src/commands/serve.ts:126-133). That variable appears
+    nowhere in deploy/docker-compose.yml's expl
+  - Costs us: On the live brain the post-auth cap is not merely off, it is
+    unreachable — the same compose-allowlist omission that commit c7f9dfe
+    fixed for MEMEX_ASSUME_PUBLIC. A remote OAuth tenant is metered at ~600
+    req/min per IP (the bucket sized for the docker bridge) and at nothing
+    across rotated IPs, which
+  - Adjust before implementing: Two precisions to the claim's wording,
+    neither changing the verdict: (1) our public bucket's default is
+    capacity 30 with refill 1/s = 60/min steady state
+    (deploy/memex/src/mcp/rate_limit.ts:55-56), so "public 30/1-per-s"
+    should read "burst 30, 60/min steady"; (2) Dynamic Client Registration
+    is OFF b
+
+- **[AUTH-04]** (medium/small) Slug-prefix write fence for link/unlink (v1.111.0)
+  - Theirs: The fence judges the CANONICAL form that will actually be
+    stored, and the reasoning is spelled out at
+    src/core/operations.ts:350-358: comparing the caller's raw string let a
+    value satisfy the binding and then commit under a different canonical
+    slug. Their link ops fence the `from` endpoint against t
+  - Ours: deploy/memex/src/mcp/dispatch.ts:363 puts both link and unlink in
+    SLUGIFIED_FENCE_TOOLS, so dispatch.ts:384 runs `slugifyTarget` over BOTH
+    `source_slug` and `target_slug` before the prefix comparison. But
+    `addLink` stores `input.source_slug` raw after a strict validate and
+    only slugifies the target
+  - Costs us: A slug-bound client escapes its fence on the source side.
+    Bound to `notes/`, it calls link with a source_slug whose Latin 'a' is
+    swapped for the Cyrillic homoglyph U+0430: the raw string passes validateSlug, slugifyTarget
+    strips the non-ASCII character to `notes/evil`, the fence sees an in-
+    prefix slug and allows it, and addLin
+  - Adjust before implementing: Two corrections to the claim as stated. 1.
+    The escape direction is gated, not open. `links.source_slug` is a HARD
+    FK to `pages(slug)` (src/core/migrations/016_links_typed.sql:37-48;
+    never dropped by 047/059/086), so `addLink` cannot anchor an edge on an
+    invented slug — the page must already exist, a
+
+- **[AUTH-05]** (medium/small) Semantics of an empty bound-prefix list on rescope-client
+  - Theirs: A binding that exists but is empty is fail-closed: the
+    enforcement returns early only when the binding is null (`if (!prefixes)
+    return;`, src/core/operations.ts:327-329), so an empty array matches
+    nothing and denies every write. Registration additionally rejects
+    malformed prefixes outright, and the
+  - Ours: Empty means unbounded at every layer: the CLI treats an empty flag
+    value as the CLEAR sentinel (deploy/memex/src/commands/auth.ts:216-223),
+    rescopeClient/registerClientManual coerce an empty array to SQL NULL
+    (deploy/memex/src/core/oauth-provider.ts:489-491, 534-536), and the
+    dispatch gate requires
+  - Costs us: `memex auth rescope-client <id> --bound-slug-prefixes
+    "$PREFIXES"` with an unset or all-whitespace variable silently lifts a
+    live write fence and reports success, converting a namespace-confined
+    client into one with full write authority over its whole source. The
+    reference's identical typo lands on
+  - Adjust before implementing: Adopt an explicit clear sentinel and fail
+    loud on the ambiguous case, in all three places: (1) in `parseFenceFlag`
+    (deploy/memex/src/commands/auth.ts:222-225) map only a literal `none`
+    (or `clear`) to the CLEAR state and return `[]` unchanged otherwise; (2)
+    in both `rescopeClient` and `registerClien
+
+- **[CODE-03]** (medium/small) The 'do not drop the file from the index' fallback
+  - Theirs: The fallback is wired to every failure branch of the chunker:
+    unknown language, parse timeout, no semantic nodes, edge-extraction
+    failure and a catch-all around the whole body. A timeout logs a warning
+    and returns recursive text chunks so the file stays retrievable (the
+    reference 627-629, 729-730).
+  - Ours: We degrade only for grammar-load and generic parse throws;
+    ParseTimeoutError is deliberately re-thrown
+    (deploy/memex/src/core/indexer-code.ts:110, rationale at 96-100) and the
+    same re-throw exists for the per-symbol re-parse
+    (deploy/memex/src/core/code-entities.ts:286-291). The sweep catches it
+    into
+  - Costs us: A file that overruns the 5s budget produces no document at
+    all, sweep after sweep — the stated rationale ('preserve the file's
+    previous fully-parsed chunks') only holds for a file that was already
+    indexed; a first-time or newly-added pathological file is simply
+    invisible to both search arms with not
+  - Adjust before implementing: The divergence is real; the remedy should be
+    conditional rather than a straight copy of the reference. Concretely:
+    (a) in `chunkCodeOrDegrade` (indexer-code.ts:107-131), stop re-throwing
+    ParseTimeoutError unconditionally — degrade to zero symbols (which the
+    existing symbol-less fallback at :228-240
+
+- **[SKIL-01]** (medium/small) YAML block-scalar rendering of description: (the v1.107.0 feature itself)
+  - Theirs: The indicator is matched as a family — /^[|>][+-]?\d*$/ —
+    covering literal and folded style with any chomping or explicit-indent
+    suffix (src/core/skill-catalog.ts:347). The block is then read by
+    measuring the first continuation line's indent and slicing every
+    subsequent line at that column, pushing
+  - Ours: The indicator check is a four-value equality test — value === "|"
+    || ">" || "|-" || ">-" (deploy/memex/src/core/skillpack/brain-
+    resident.ts:73) — and the block reader breaks out at the first blank
+    line once any content has been collected (:77-80).
+  - Costs us: Live today: skillpack-check's description is truncated. Its
+    block runs deploy/skills/skillpack-check/SKILL.md:4-12 with a blank line
+    at :9; we emit only lines 5-8 and silently drop the entire second
+    paragraph — which is the "Use when the user asks 'is the brain
+    healthy?'..." routing guidance, i.e. t
+  - Adjust before implementing: Two refinements to the claim as stated. (1)
+    The blast radius is slightly larger than claimed: the truncated
+    description is returned by get_skill as well as list_brain_skillpack,
+    because getBrainSkill (brain-resident.ts:180) calls the same
+    readSkillDescription. get_skill does return the full file bod
+
+- **[FACT-05]** (medium/medium) Anti-loop guard: don't pay to re-extract facts from the brain's own generated prose
+  - Theirs: The extractor itself refuses a turn flagged as machine-
+    generated, as its first statement, before sanitising or spending —
+    driven by a frontmatter marker on the page rather than by where the page
+    lives (src/core/facts/extract.ts:234-238, threaded from the pipeline at
+    src/core/facts/backstop.ts:326-33
+  - Ours: The guard is a slug denylist in one SQL query — `wiki/agents/%`,
+    `reflections/%`, `patterns/%` (deploy/memex/src/core/cycle/conversation-
+    facts-backfill.ts:120-124) — plus a namespace check in the eligibility
+    predicate that only knows `wiki/agents/` (deploy/memex/src/core/facts-
+    extract.ts:583-600). N
+  - Costs us: The thin-page enricher rewrites pages in place with LLM prose
+    under the author's own slug and original type, and `note` is both its
+    default target and an extraction-eligible type
+    (deploy/memex/src/core/synthesis/enrich-thin.ts:90, 148-160, 364-371).
+    An enriched note is therefore a first-class backfi
+  - Adjust before implementing: The claim overstates one detail: the
+    reference's extractor-level refusal is NOT inherited by every caller.
+    Both backstop callers pass a literal false
+    (src/core/facts/backstop.ts:272,293) and rely on the upstream page-shape
+    predicate, and the reference's own bulk backfill — the true analogue of
+    ours
+
+- **[PAGE-03]** (medium/medium) Making a failed page→search mirror visible after the fact
+  - Theirs: The equivalent shortfall is a standing, self-clearing metric
+    rather than an event: index/embed coverage, missing embeddings and stale
+    pages are computed on every health read, folded into the brain score,
+    and rendered by the doctor as a warn with the command that fixes it.
+    src/core/postgres-engine.ts
+  - Ours: Only the synchronous write path records anything: a `page-mirror-
+    failed` ingest_log row per failed page_put/page_append. The cycle
+    backstop that re-mirrors missing/stale mirrors collects per-slug
+    failures into an `errors` array that is returned in the phase result and
+    never persisted (no cycle-run t
+  - Costs us: A page that stays unsearchable because the backstop keeps
+    failing on it produces zero durable evidence, and even the rows we do
+    write are only findable by someone who already suspects the problem and
+    greps ingest_log for that exact source_type. Doctor and advisor stay
+    green while the search projecti
+  - Adjust before implementing: The claim's "zero durable evidence"
+    overstates the common case: the synchronous write path does file one
+    queryable ingest_log row (get_ingest_log), and each failing cycle tick
+    emits a `mirror-pages=warn` line to container logs. What is genuinely
+    missing — and what the reference has — is a standing,
+
+- **[ENG-03]** (medium/medium) What the lock is keyed on — the directory, or the string that names it
+  - Theirs: The lock is created INSIDE the data directory via an atomic
+    mkdir, so it is an artefact of the directory itself: any second path
+    that reaches the same directory collides with the same lock. Reference:
+    src/core/pglite-lock.ts:154-162 (lock lives at dataDir/<lockdir>), :291
+    (atomic mkdir claim).
+  - Ours: The lock is a sibling file derived from the path string —
+    resolve() then basename+'.memex-lock' (pglite-lock.ts:69-77). resolve()
+    is purely lexical: it does not resolve symlinks or bind mounts, so
+    /data/brain and a symlink or second mount pointing at it produce two
+    different lock files and both proc
+  - Costs us: We guard the name of the directory rather than the directory,
+    so the guard is silently bypassed by any path alias (symlink to the data
+    dir, the same volume bind-mounted at two paths in a container). Both
+    processes open it and corrupt it, with no error on either side. The
+    constraint we accepted this
+  - Adjust before implementing: Key the lock on the directory, not on its
+    name. Preferred: mkdir the data dir, then claim the lock INSIDE it with
+    an atomic mkdir (as the reference does), keeping our own token read-
+    back, dead-holder takeover, and process-local registry — that also
+    removes the parent-writability fail-closed case. Mi
+
+- **[ENG-04]** (medium/medium) Behaviour on contention — refuse immediately versus wait for a short-lived holder
+  - Theirs: Acquisition polls for up to 30s (500ms/1s backoff) and only
+    refuses a live holder outright when the lock records that the holder is
+    the long-running server process; the lock file stores the holder's
+    command and subcommand precisely so that call can be made, and the
+    timeout error reports the holder's
+  - Ours: acquireDataDirLock is synchronous and refuses on the first look if
+    the holder's pid is alive (pglite-lock.ts:159-199); there is no wait, no
+    retry, and the lock stores only pid and token (pglite-lock.ts:120), so
+    the message can name a pid but never what to stop.
+  - Costs us: Refusing a CLI against the running daemon was the intended
+    change, but the same code now hard-fails any momentary overlap — two
+    short-lived processes (a timer-driven cycle finishing as a CLI command
+    starts) that would have been clear a second later. And the operator gets
+    a bare pid with no indicatio
+  - Adjust before implementing: Keep immediate refusal, but stop refusing on
+    the first look. Before throwing on a live holder, poll the lock for a
+    short bounded window (a few seconds, ~250-500ms between attempts) and
+    take it if the holder exits — that recovers the reference's "short-lived
+    holders are waited out" behaviour without
+
+- **[MCP-03]** (medium/medium) Where the pinned response version is carried
+  - Theirs: The protocol version rides inside the payload of every covered
+    response (src/core/operations.ts:4737) and inside the error envelope too
+    — the error class serializes protocol_version next to code, message and
+    suggestion (src/core/operations.ts:110-118), and the verb error
+    constructor always stamps it
+  - Ours: MEMEX_RESPONSE_VERSION appears in exactly one place: the
+    initialize handshake's _meta
+    (deploy/memex/src/mcp/http_transport.ts:267-278). No tool result carries
+    it, and our error path returns a bare text string with no structured
+    envelope at all (deploy/memex/src/mcp/dispatch.ts:785-790). missingRespo
+  - Costs us: The version is stamped at the handshake, where the shapes it
+    describes are not, and _meta on initialize is an extension slot most
+    clients drop. A client that persists a session, replays a stored result,
+    or hits an error has no way to tell which contract produced the payload
+    — so the version cannot d
+  - Adjust before implementing: Two parts of the claim are wrong and should
+    be fixed before it is recorded. (a) "our error path returns a bare text
+    string with no structured envelope at all" is false:
+    deploy/memex/src/mcp/dispatch.ts:777 returns
+    JSON.stringify(e.toEnvelope(isPublic)) — a structured envelope with
+    error/suggestion/d
+
+- **[SKIL-02]** (medium/medium) What the listing discloses so a client can decide WHICH skill to fetch (progressive disclosure)
+  - Theirs: The listing is the routing layer, not just an index. Each row
+    carries triggers (unioned from SKILL.md frontmatter and the curated
+    resolver map, src/core/skill-trigger-index.ts:1-24, folded in at
+    src/core/skill-catalog.ts:406-426, 466-469), a routing section label
+    plus a section filter param so a cli
+  - Ours: The whole disclosure surface is a slug and a one-line description
+    (deploy/memex/src/core/skillpack/brain-resident.ts:131-136). No
+    triggers, no section, no filter param
+    (deploy/memex/src/mcp/operations.ts:969-973, 1057-1061 both declare
+    params: {}), no mutating/writes_pages, no instructions or client
+  - Costs us: A client choosing among 53 skills gets one sentence each and
+    no trigger phrases, so selection degrades to fuzzy matching on prose the
+    pack authors wrote for a different retrieval path — and the listing
+    never signals that ~30 of these skills write to the brain, so nothing
+    prompts the client to confir
+  - Adjust before implementing: Three corrections to the claim as stated.
+    (1) Counts: 37 of our skills declare mutating: true and 22 declare
+    writes_pages: true, not "~30". (2) The claim implies the flags are
+    absent on our side; they exist in the pack files and DO reach the
+    client, because our get_skill returns the file verbatim wi
+
+- **[SKIL-03]** (medium/medium) Tamper-evidence over the skill corpus we serve to agents
+  - Theirs: The bundled skills tree ships a committed sha256 inventory
+    (skills/skills.lock.json) computed by a deterministic recursive walk
+    that excludes the manifest from its own hash set (src/core/skills-
+    integrity.ts:36-58), with drift classified into modified/missing/extra
+    (:65-73). Freshness is a CI gate (s
+  - Ours: Nothing. deploy/skills/ has no lock file, no Makefile or CI target
+    hashes it, and no test validates the corpus
+    (deploy/memex/tests/brain_resident_skillpack.test.ts runs entirely
+    against 5 synthetic fixtures). The only hashing we have is inside `memex
+    skillpack`, which computes digests at bundle time
+  - Costs us: 53 prose instruction sets that agents fetch and follow as
+    operating procedure can be edited on the live host — or drift between
+    repo and the mounted pack — with zero detection. There is no way to
+    answer "is what the brain is serving what we reviewed?". Separately, the
+    bundler writes .manifest.json i
+  - Adjust before implementing: The divergence is real but both claimed
+    consequences are overstated and should be dropped from any writeup. (1)
+    'Drift between repo and the mounted pack' is impossible by construction:
+    deploy/docker-compose.yml:43 mounts ./skills:/skills:ro, so the served
+    corpus IS the git working tree at /opt/memex
+
+- **[PAID-04]** (low/small) think's second, format-driven retry after a successful larger-cap retry
+  - Theirs: The reference's think makes exactly one synthesis call, and an
+    unparseable answer is surfaced as a warning with `synthesisOk = false` —
+    no reroll is bought at all (the reference
+  - Ours: We kept the format reroll and correctly suppress it when the
+    answer is still truncated
+    (deploy/memex/src/core/synthesis/think.ts:1188-1197), but the reroll
+    itself replays at the ORIGINAL `maxTokens`, not at the cap that just
+    succeeded — deploy/memex/src/core/synthesis/think.ts:1203-1207, and its
+    bud
+  - Costs us: On the sequence first-call-truncated-at-4000 → retry-complete-
+    at-8000 → JSON still unparseable, the reroll goes back to 4000 for a
+    payload the model has just demonstrated needs more than that. It
+    truncates again, `parseThinkResponse` discards it, and the caller pays a
+    third time for an answer that c
+  - Adjust before implementing: Make the reroll aware of the cap that
+    actually worked. Minimal fix in think.ts: have callWithTruncationRetry
+    return the effective cap it used (e.g. add `cap: number` to
+    TruncationRetryResult, truncation.ts:24-33/:90), then in think.ts use
+    that cap both for the reroll call (:1203-1207) and for its bu
+
+- **[FACT-06]** (low/small) Malformed candidates dropped rather than coerced (v1.110)
+  - Theirs: Dropped candidates are counted and surfaced: the parser returns
+    `invalidCandidates` alongside the kept facts, a partial drop emits a
+    WARN naming how many were dropped and how many kept, and 'some invalid,
+    none kept' is reported as malformed output to the caller
+    (src/core/facts/extract.ts:310-320, 43
+  - Ours: Unusable elements are skipped inside the loop with no counter and
+    no log (deploy/memex/src/core/facts-extract.ts:211-221); a detail string
+    is produced only when EVERY element failed (deploy/memex/src/core/facts-
+    extract.ts:272-280), and `FactsParseResult` has no field for a partial
+    loss.
+  - Costs us: A paid call that returned ten candidates and yielded one
+    usable fact reports `status: "ok"` with no durable absorb row and
+    nothing on stderr — indistinguishable from a turn that genuinely held
+    one claim. The failure mode the salvage work exists to expose (a model
+    drifting off the JSON contract) stay
+  - Adjust before implementing: The divergence is narrower than claimed and
+    should be recorded as "no WARN on a PARTIAL drop" only. Three parts of
+    the claim do not hold: (1) "no durable absorb row" is not a reference
+    behaviour either — the reference's entire partial-drop signal is one
+    process.stderr.write, with nothing durable; (2
+
+- **[PAGE-04]** (low/small) 'Types nobody declared' as a signal that can reach zero
+  - Theirs: The declared vocabulary is data (a pack's page_types list), and
+    'undeclared' is defined relative to it as "not declared AND not the
+    target of a prior retype rule" — a set the operator closes by declaring
+    the type or adding a rule, with a catch-all that sweeps the remainder.
+    src/core/schema-pack/rety
+  - Ours: `unknown_types`/`unknown_pages` are computed against the hardcoded
+    KNOWN_PAGE_TYPES array, which the brain's own writers deliberately
+    bypass via `allowAdHocType` — `synthesis` and `draft` at minimum. There
+    is no way to declare a type as intended short of editing the source
+    array; unlike the orphan p
+  - Costs us: The undeclared set can never empty: it permanently contains
+    the brain's own labels plus their page counts, so the typo it exists to
+    catch (`peson`) arrives mixed into a list that is always non-empty and
+    always ignored — the same noise-floor failure the orphan change fixed
+    one module over, reintroduc
+  - Adjust before implementing: Two overreaches to trim. (1) 'Fires
+    permanently and gets muted' is a hazard, not an existing fact: nothing
+    consumes unknown_pages today — the only readers are callStats
+    (dispatch.ts:1053) and the page_types key in response-contract.ts:41, so
+    no automated check is currently being muted. (2) unknown_t
+
+- **[OBS-02]** (low/small) Findings that have no single mechanical fix
+  - Theirs: The type forces honesty: command_argv is `string[] | null`,
+    documented as null when there is no single mechanical fix
+    (src/core/advisor/types.ts:22-25), and the renderer simply omits the
+    `fix:` line when it is null or empty (src/core/advisor/render.ts:19-22,
+    44) — the guidance lives in the detail te
+  - Ours: fix_command is a plain string documented as "the exact command the
+    user can run" (src/core/advisor/types.ts:30-35), and two findings
+    smuggle prose into it: `memex (set MEMEX_GRADE_MIN_AGE_DAYS below …, or
+    drop propose-takes …)` (src/core/advisor/collectors.ts:558-559) and
+    `memex (set MEMEX_INTERNAL_
+  - Costs us: An MCP client rendering fix_command as the runnable suggestion
+    — which is what the field's own docstring promises — shows a string that
+    fails immediately if pasted. That is a softer version of the bug this
+    release fixed (a command that runs and reports success without doing the
+    job), and the same re
+  - Adjust before implementing: The claimed consequence is overstated and
+    should be narrowed. `memex (set MEMEX_GRADE_MIN_AGE_DAYS below …)` is
+    not "a softer version of the bug this release fixed" — it is the
+    opposite failure class. The bug 2c2ec33/f4d8c8d fixed was a command that
+    runs, exits 0, and leaves the condition standing (
+
+### Refuted by verification — do NOT re-open without new evidence
+
+- SRCH: Non-Latin slug handling: our Unicode-preserving fold is a FALLBACK triggered only when the ASCII fol
+  - Refuted: The claim misidentifies the reference counterpart. The
+    reference has two distinct slugifiers. Its free-form NAME->slug
+    functions — the real counterparts of our slugifyTarget — are ASCII-only
+    with no U
+- SRCH: Charging the title against the search token budget, but never telling the caller what the budget cos
+  - Refuted: The claim's description of the reference is factually wrong. In
+    the reference, search-path budget meta is NOT surfaced to the caller:
+    enforceTokenBudget's {budget,used,kept,dropped} record (src/core/s
+- SRCH: Mode-bundle token caps: we adopted the three-mode bundle but removed the cap from the mode that is a
+  - Refuted: The claim's premise about the reference is wrong, and the
+    residual difference follows from our client-side-synthesis carve-out.
+    (1) The reference's DEFAULT_SEARCH_MODE is 'balanced', not conservative
+- PAID: What happens to a response that is still truncated after the retry
+  - Refuted: The claim is accurate about the raw line-level facts but wrong
+    about the reference premise, wrong about the origin site, and wrong
+    about the consequence. (1) THE REFERENCE HAS NO SUCH GENERAL RULE. "A
+- PAID: Per-model output headroom and the ceiling the retry clamps to
+  - Refuted: REFUTED — the claim misreads what the reference's per-model
+    table is for, and compares our think path against a component that is
+    not its counterpart. 1. The reference's "published per-model output-ca
+- PAGE: Which writers count as 'the brain wrote this for itself'
+  - Refuted: The claim's picture of the reference is wrong on the decisive
+    point. The reference persists `think --save` answers at
+    `synthesis/<slugified-question>-<date>` (the reference and its cycle
+    auto-think wr
+- PAGE: One definition of 'orphan' across the surfaces that report it
+  - Refuted: The claim's description of the reference is false. The
+    reference does NOT share one orphan predicate across its reporting
+    surfaces — it has the same two-predicate split we do. Its canonical
+    listing/ra
+- ENG: Routing an ENOENT out of the driver
+  - Refuted: The reference's `bunfs` arm (the reference match, :311-317
+    hint) guards a failure that only exists inside a Bun **standalone
+    compiled executable**, where node_modules live in the read-only
+    `/$$bunfs/r
+- ENG: Releasing the claim when closing the database fails
+  - Refuted: The mechanism is accurately described on both sides, but the
+    claimed consequence does not follow for us. Reference: src/core/pglite-
+    engine.ts:550-582 (snapshot, null both, releaseLock in finally, inci
+- CLI: End-of-flags terminator and the shape of the rejection
+  - Refuted: Refuted on the load-bearing point. The reference's `--` is
+    validation-only: both validators break at it (the reference 1131;
+    test/cli-flag-validation.test.ts:81-86), but its actual parser never
+    honour
+- MCP: The `budget` report returned alongside a budgeted recall
+  - Refuted: Refuted on two legs, and the third is harmless. (1) The claimed
+    consequence is backwards. The reference's `budget_used` is computed by
+    the same estimator that drives the packing, and `packToBudget` br
+- MCP: Rewriting tool descriptions so they route correctly — specifically the reachability claim on write t
+  - Refuted: The reference premise is false, and the consequence does not
+    follow. 1) The reference does NOT state caller-reachability inline on
+    write tools. The cited src/core/operations.ts:4570 is the READ verb `
+- MCP: Validation of the token_budget argument on entity_recall
+  - Refuted: The claim's decisive premise is wrong about the reference. The
+    reference's budget echo (src/core/operations.ts:4750-4752) is spread
+    conditionally on `budgetTokens !== null`, so an ignored budget produ
+- AUTH: Per-caller rate-limit buckets (v1.111.0: 'stop sharing one rate-limit bucket')
+  - Refuted: REFUTED on four independent grounds, each verified in both
+    trees. (1) The premise "Cf-Connecting-Ip is a spoofable header we trust
+    implicitly" is false for our deployment. Both shipped ingress modes R
+- CODE: Caching the result of a grammar load
+  - Refuted: The mechanical difference is real, but the claimed cost does
+    not follow, and the claimed self-healing regression is false. WHAT I
+    VERIFIED ON BOTH SIDES Reference (the reference `loadLanguage` checks
+- OBS: Doctor's probe-trend readouts (eval-trend, contradiction-trend) after the "unmeasured run is not a p
+  - Refuted: REFUTED on three independent grounds. (1) There is no reference
+    counterpart to be unfaithful to. Grepping the reference's `src` for
+    `eval_snapshots|latestEval|eval_runs` returns nothing — the referenc
+- OBS: The advisor's version-drift collector
+  - Refuted: The claim's description of OUR code is accurate —
+    collectors.ts:111-129 compares packageJson.version to ctx.version,
+    dispatch.ts:2950-2952 (the sole production caller) supplies
+    packageJson.version, so
+- OBS: The guard added so advisor fix_commands name something real
+  - Refuted: The claim's factual arithmetic about our test is right, but the
+    reference behaviour it is measured against is misdescribed, and the
+    consequence does not follow. 1) THE REFERENCE DOES NOT IMPLEMENT THE
+- OBS: What the unauthenticated /health payload discloses
+  - Refuted: Verified both sides; the claim fails on two of the three
+    refutation grounds. (1) The reference behaviour is misdescribed. The
+    reference's VERSION is `pkg.version` (the reference currently
+    `0.43.0.0`.
+- SKIL: Who is allowed to read the skill corpus over MCP (the publish gate / default posture)
+  - Refuted: Both sides read; the mechanical description is accurate but the
+    consequence does not follow. Reference verified:
+    src/core/operations.ts:2807-2808/2837-2838/2865-2866 call
+    assertPublishEnabled, which i
+- SKIL: Telling the caller which of a skill's declared tools it can actually call (tool honesty)
+  - Refuted: The claim is factually right about both implementations but
+    wrong about the consequence, because it omits that the reference's
+    tools/list is unfiltered while ours is not. Reference: serve-
+    http.ts:1926
+- SKIL: What get_skill refuses to read once the slug has been accepted
+  - Refuted: The code delta is real but the claim misreads WHY the reference
+    guards there, and neither half costs us anything reachable. WHAT I
+    VERIFIED ON THE REFERENCE SIDE (accurate as described, line numbers s
+
 ## Practices backlog — 2026-08-12 (24 items, adversarially verified)
 
 A 47-agent comparison across seven ENGINEERING-PRACTICE dimensions — not
