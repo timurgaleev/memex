@@ -100,10 +100,13 @@ describe("consolidateFactsPhase", () => {
     expect(take.rows[0]!.fact).toBe("Alice likes tea");
     expect(take.rows[0]!.confidence).toBeCloseTo(0.8); // avg of 0.7 and 0.9
 
-    // Members a,b marked consolidated; the singleton is not.
+    // Members a,b marked consolidated; the singleton is not. Members are
+    // matched by "not the take": they used to be identifiable by a NULL
+    // written_by, which is exactly the unattributed row the ledger no longer
+    // accepts.
     const marked = await storage.engine().query<{ id: number }>(
       `SELECT id FROM entity_facts
-        WHERE consolidated = true AND written_by IS NULL`,
+        WHERE consolidated = true AND written_by <> 'facts-consolidate'`,
     );
     expect(marked.rows.map((r) => r.id).sort((x, y) => x - y)).toEqual(
       [a, b].sort((x, y) => x - y),
@@ -120,6 +123,32 @@ describe("consolidateFactsPhase", () => {
     });
     expect(second.takesWritten).toBe(0);
     expect(second.factsConsolidated).toBe(0);
+  });
+
+  it("does not re-mint the take when the same cluster re-forms", async () => {
+    await seed("Alice prefers tea", 0, { confidence: 0.7 });
+    await seed("Alice likes tea", 0, { confidence: 0.9 });
+    await seed("Alice enjoys tea", 0, { confidence: 0.6 });
+    await consolidateFactsPhase(storage.engine(), { minOldestAgeMs: 0 });
+    // The test above never reaches the take-idempotency guard: once the members
+    // are marked, the bucket query no longer sees them and no cluster re-forms.
+    // Unmark them — a re-queued member is the case the guard is FOR — so the
+    // cluster genuinely re-forms and the phase has to recognize its own take.
+    await storage
+      .engine()
+      .query(
+        `UPDATE entity_facts SET consolidated = false, consolidated_at = NULL
+          WHERE written_by <> 'facts-consolidate'`,
+      );
+    const again = await consolidateFactsPhase(storage.engine(), {
+      minOldestAgeMs: 0,
+    });
+    expect(again.takesWritten).toBe(0);
+    expect(again.factsConsolidated).toBe(3);
+    const takes = await storage.engine().query<{ id: number }>(
+      `SELECT id FROM entity_facts WHERE written_by = 'facts-consolidate'`,
+    );
+    expect(takes.rows).toHaveLength(1);
   });
 
   it("honors the age gate: a fresh bucket is skipped", async () => {

@@ -15,9 +15,10 @@
  *   3. Cluster greedily by embedding cosine (head-based, threshold 0.85).
  *   4. For each cluster of >= 2: write ONE consolidated take fact
  *      (written_by 'facts-consolidate', confidence = cluster average, the
- *      highest-confidence member's text as the claim) and mark every
- *      contributing fact `consolidated = true`. NEVER delete — the contributing
- *      rows stay for audit, just excluded from future passes.
+ *      highest-confidence member's text as the claim, and that member's KIND so
+ *      the take ages like the claim it quotes) and mark every contributing fact
+ *      `consolidated = true`. NEVER delete — the contributing rows stay for
+ *      audit, just excluded from future passes.
  *
  * FALLS-OPEN: a per-bucket failure is collected in `errors[]` and the phase
  * continues; it never throws (the cycle marks it `warn` when errors[] is
@@ -26,6 +27,11 @@
  * requested via `--phases consolidate-facts`.
  */
 import type { Engine } from "../engine/interface.ts";
+import { findLiveClaim, type ClaimIdentity } from "../facts.ts";
+import { DEFAULT_FACT_KIND } from "../facts-decay.ts";
+
+/** Author stamped on a promoted take — also half its claim identity. */
+const CONSOLIDATE_WRITER = "facts-consolidate";
 
 export interface ConsolidateFactsOptions {
   /** Greedy cosine cluster threshold. Default 0.85. */
@@ -61,6 +67,8 @@ interface FactCandidate {
   id: number;
   fact: string;
   confidence: number;
+  /** mig037 `kind`; the promoted take inherits the quoted member's. */
+  kind: string | null;
   embedding: number[];
   written_at: string;
 }
@@ -209,10 +217,11 @@ async function consolidateBucket(
     id: number;
     fact: string;
     confidence: number;
+    kind: string | null;
     embedding: string;
     written_at: string;
   }>(
-    `SELECT id, fact, confidence, embedding::text AS embedding,
+    `SELECT id, fact, confidence, kind, embedding::text AS embedding,
             written_at::text AS written_at
        FROM entity_facts
       WHERE source_id = $1 AND entity_slug = $2
@@ -235,6 +244,7 @@ async function consolidateBucket(
       id: r.id,
       fact: r.fact,
       confidence: r.confidence,
+      kind: r.kind,
       embedding,
       written_at: r.written_at,
     });
@@ -267,9 +277,11 @@ async function consolidateBucket(
 
 /**
  * Promote one cluster to a consolidated take + mark its members consolidated,
- * atomically. Idempotent: the take insert is a NOT EXISTS guard on
- * (source_id, entity_slug, claim, written_by='facts-consolidate'), so a re-run
- * that somehow re-forms the same cluster never writes a duplicate take.
+ * atomically. Idempotent: the take is written only when no live row already
+ * holds that claim, decided by the LEDGER's claim identity (`findLiveClaim`:
+ * subject + source + writer + text) — the same call `addFact` collapses a
+ * restatement with, so a take and an ordinary fact cannot disagree about what
+ * "already on file" means.
  */
 async function promoteCluster(
   engine: Engine,
@@ -281,33 +293,40 @@ async function promoteCluster(
     cluster.reduce((s, f) => s + f.confidence, 0) / cluster.length;
   const ids = cluster.map((f) => f.id);
 
+  const identity: ClaimIdentity = {
+    entity_slug: bucket.entity_slug,
+    source_id: bucket.source_id,
+    fact: best.fact,
+    written_by: CONSOLIDATE_WRITER,
+  };
+
   return engine.transaction(async (tx) => {
-    const ins = await tx.query<{ id: number }>(
-      `INSERT INTO entity_facts
-         (entity_slug, fact, confidence, written_by, source_id,
-          consolidated, consolidated_at)
-       SELECT $1, $2, $3, 'facts-consolidate', $4, true, NOW()
-        WHERE NOT EXISTS (
-          SELECT 1 FROM entity_facts
-           WHERE entity_slug = $1 AND source_id = $4 AND fact = $2
-             AND written_by = 'facts-consolidate'
-        )
-       RETURNING id`,
-      [bucket.entity_slug, best.fact, avg, bucket.source_id],
-    );
-    const takeWritten = ins.rows.length > 0;
     // The consolidated_into pointer (mig085) targets the promoted take; on an
-    // idempotent re-run the take already exists, so look its id up.
-    let takeId = ins.rows[0]?.id ?? null;
+    // idempotent re-run the take is already on file, so its id comes from the
+    // same lookup that decides whether to write one at all.
+    let takeId = await findLiveClaim(tx, identity);
+    const takeWritten = takeId === null;
     if (takeId === null) {
-      const existing = await tx.query<{ id: number }>(
-        `SELECT id FROM entity_facts
-          WHERE entity_slug = $1 AND source_id = $2 AND fact = $3
-            AND written_by = 'facts-consolidate'
-          ORDER BY id LIMIT 1`,
-        [bucket.entity_slug, bucket.source_id, best.fact],
+      const ins = await tx.query<{ id: number }>(
+        `INSERT INTO entity_facts
+           (entity_slug, fact, kind, confidence, written_by, source_id,
+            consolidated, consolidated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
+         RETURNING id`,
+        [
+          bucket.entity_slug,
+          best.fact,
+          // The take restates ONE member verbatim, so it is that member's kind
+          // of claim and ages on that member's half-life. A take used to land
+          // with the column blank, which decay cannot see: every consolidated
+          // row was immortal while its members aged out beneath it.
+          best.kind ?? DEFAULT_FACT_KIND,
+          avg,
+          CONSOLIDATE_WRITER,
+          bucket.source_id,
+        ],
       );
-      takeId = existing.rows[0]?.id ?? null;
+      takeId = ins.rows[0]?.id ?? null;
     }
     // Mark the contributing facts consolidated (never delete) and point them
     // at their take. Scoped by id + the bucket's source_id so a concurrent

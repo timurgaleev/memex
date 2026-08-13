@@ -50,6 +50,20 @@ export const HALFLIFE_DAYS: Record<FactKind, number> = {
   fact: 365,
 };
 
+/**
+ * The kind a claim lands with when its writer named none.
+ *
+ * Decay is driven off `kind`, so a row that reaches the ledger with the column
+ * blank never ages: it outlives every correctly typed claim around it, which is
+ * exactly backwards for the claim we know the LEAST about. (Consolidated takes
+ * and fence rows both used to land that way — immortal takes floating above
+ * members that aged out beneath them.) "belief" is the honest floor, the same
+ * one the extractor falls back to for a kind it could not read: an unclassified
+ * claim is a stance, and it still ages. Typed as `FactKind` — the key type of
+ * `HALFLIFE_DAYS` — so the floor can never be a kind decay does not select.
+ */
+export const DEFAULT_FACT_KIND: FactKind = "belief";
+
 const MS_PER_DAY = 86_400_000;
 
 /** The subset of a fact row decay needs. Dates are text (DATE / timestamptz). */

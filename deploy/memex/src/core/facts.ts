@@ -7,18 +7,26 @@
  *
  * Schema: `entity_facts` (migration 018).
  *
- * Writes are append-only with idempotency on
- * (entity_slug, fact, source_chunk_id) for chunk-sourced facts.
- * Manual facts (no source_chunk_id) bypass dedup.
+ * Writes are append-only, but a RESTATEMENT is not a new claim: an identical
+ * claim about the same subject, from the same source and the same writer,
+ * refreshes the row already on file instead of stacking a twin (see
+ * `findLiveClaim` — the same identity the consolidate phase promotes takes
+ * under). Chunk-sourced facts keep their narrower index-backed idempotency on
+ * (entity_slug, fact, source_chunk_id) on top of it.
  */
 import type { Storage } from "./storage.ts";
+import type { Engine } from "./engine/interface.ts";
 import { embedText } from "./embedding.ts";
 import { getPage, validateSlug, type PageRow } from "./pages.ts";
 import {
   getEntityTimeline,
   type TimelineEventRow,
 } from "./timeline.ts";
-import { effectiveConfidence, factDecayEnabled } from "./facts-decay.ts";
+import {
+  DEFAULT_FACT_KIND,
+  effectiveConfidence,
+  factDecayEnabled,
+} from "./facts-decay.ts";
 import {
   classifyFact,
   defaultClassifierLlmFn,
@@ -59,6 +67,12 @@ export interface AddFactInput {
   confidence?: number;
   source_slug?: string;
   source_chunk_id?: string;
+  /**
+   * Who recorded the claim. Omitted -> the row is credited to
+   * `UNATTRIBUTED_WRITER`: provenance is an invariant of the ledger, not a
+   * courtesy of one caller, and "we never recorded it" is a fact worth stating
+   * out loud rather than leaving as a NULL every reader has to interpret.
+   */
   written_by?: string;
   /**
    * Tenant source scope (migration 047). Omitted -> the column DEFAULT
@@ -66,7 +80,8 @@ export interface AddFactInput {
    */
   source_id?: string;
   /** Fact category (migration 037). Validated against the CHECK set; an
-   *  unrecognized value is dropped to NULL. */
+   *  omitted or unrecognized value floors to `DEFAULT_FACT_KIND` so the claim
+   *  ages (a NULL kind is invisible to decay). */
   kind?: string;
   /** Notability ordinal (migration 037). Validated against the CHECK set; an
    *  unrecognized value is dropped to NULL. */
@@ -121,12 +136,13 @@ const NOTABILITY_VALUES: ReadonlySet<string> = new Set(["high", "medium", "low"]
 /** Allowed `visibility` values — mirrors the migration 085 CHECK constraint. */
 const VISIBILITY_VALUES: ReadonlySet<string> = new Set(["private", "world"]);
 
-/** Normalize a caller-supplied kind to an allowed value, else NULL (never let a
- *  bad value reach — and abort on — the CHECK constraint). */
-function normaliseKind(k: string | undefined): string | null {
-  if (typeof k !== "string") return null;
+/** Normalize a caller-supplied kind to an allowed value, else the decay floor
+ *  (never let a bad value reach — and abort on — the CHECK constraint, and
+ *  never let a claim land with the blank kind decay cannot see). */
+function normaliseKind(k: string | undefined): string {
+  if (typeof k !== "string") return DEFAULT_FACT_KIND;
   const v = k.trim().toLowerCase();
-  return KIND_VALUES.has(v) ? v : null;
+  return KIND_VALUES.has(v) ? v : DEFAULT_FACT_KIND;
 }
 
 /** Normalize a caller-supplied notability to an allowed value, else NULL. */
@@ -273,6 +289,59 @@ async function fetchDedupCandidates(
   }));
 }
 
+/**
+ * Writer credited to a claim whose caller named none. The MCP `add_fact` tool
+ * credits its own identity, but it is one caller of many — the CLI, the
+ * extractor and every future writer reach the ledger through `addFact`, so the
+ * invariant "every fact names a writer" belongs here. A sentinel beats a NULL:
+ * it says provenance was never recorded, which is a readable answer, where NULL
+ * is a hole every read surface has to guess at.
+ */
+export const UNATTRIBUTED_WRITER = "unattributed";
+
+/**
+ * The ledger's identity for "this claim is already on file": one subject, one
+ * tenant source, one writer, byte-identical text. It is the tuple the
+ * consolidate phase already promotes takes under (cycle/consolidate-facts.ts),
+ * shared so the two paths cannot drift into separate notions of the same claim.
+ *
+ * `source_id` is the EFFECTIVE source ('default' when a caller left the column
+ * to its DEFAULT), so a re-save that omits the tenant still matches its own
+ * earlier write.
+ */
+export interface ClaimIdentity {
+  entity_slug: string;
+  source_id: string;
+  fact: string;
+  written_by: string;
+}
+
+/** The narrow query surface an Engine and an in-transaction handle both meet. */
+type Queryable = Pick<Engine, "query">;
+
+/**
+ * Id of the LIVE row already holding this claim, or null. Tombstoned rows are
+ * excluded on purpose: a forgotten claim stays forgotten, and re-asserting it
+ * lands a new row rather than quietly resurrecting the one the operator
+ * retired. Dimensional ontology rows (mig097) have their own write path and are
+ * never a match here.
+ */
+export async function findLiveClaim(
+  q: Queryable,
+  id: ClaimIdentity,
+): Promise<number | null> {
+  const r = await q.query<{ id: number }>(
+    `SELECT id FROM entity_facts
+      WHERE entity_slug = $1 AND source_id = $2 AND fact = $3 AND written_by = $4
+        AND forgotten_at IS NULL
+        AND dimension IS NULL
+      ORDER BY id
+      LIMIT 1`,
+    [id.entity_slug, id.source_id, id.fact, id.written_by],
+  );
+  return r.rows[0]?.id ?? null;
+}
+
 export interface FactRow {
   id: number;
   entity_slug: string;
@@ -301,7 +370,8 @@ export interface FactRow {
 export interface AddFactResult {
   id: number | null;
   entity_slug: string;
-  /** False when the (entity_slug, fact, source_chunk_id) tuple already existed. */
+  /** False when the claim was already on file — the row on file was refreshed
+   *  (see `findLiveClaim`) or the chunk tuple collided — so nothing new landed. */
   inserted: boolean;
 }
 
@@ -317,12 +387,15 @@ function normaliseConfidence(c: number | undefined): number {
 }
 
 /**
- * Append a fact about an entity. Idempotent on
- * (entity_slug, fact, source_chunk_id) — a recipe re-emitting the
- * same fact from the same chunk does not duplicate. Manual entries
- * (no source_chunk_id) always insert. A re-emit that carries a
- * different `valid_from` corrects the stored date in place instead
- * of being swallowed by the dedup.
+ * Append a fact about an entity.
+ *
+ * A claim already on file under the same identity (subject, tenant source,
+ * writer, text — `findLiveClaim`) is REFRESHED, not duplicated: re-saving a page
+ * re-asserts its claims, it does not add new ones, and the ledger used to grow a
+ * copy per save. Chunk-sourced facts additionally keep the index-backed
+ * idempotency on (entity_slug, fact, source_chunk_id), which still catches a
+ * re-emit that changed writer; a re-emit carrying a different `valid_from`
+ * corrects the stored date in place instead of being swallowed.
  */
 export async function addFact(
   storage: Storage,
@@ -336,7 +409,10 @@ export async function addFact(
   const sourceSlug = input.source_slug ?? null;
   if (sourceSlug !== null) validateSlug(sourceSlug);
   const chunkId = input.source_chunk_id ?? null;
-  const writtenBy = input.written_by ?? null;
+  // Provenance is an invariant of the ledger: a caller that names no writer is
+  // credited to the sentinel rather than landing anonymous. Blank / whitespace
+  // is not provenance either.
+  const writtenBy = normaliseText(input.written_by) ?? UNATTRIBUTED_WRITER;
   const kind = normaliseKind(input.kind);
   const notability = normaliseNotability(input.notability);
   const validFrom = normaliseDate(input.valid_from);
@@ -357,6 +433,29 @@ export async function addFact(
     typeof input.source_id === "string" && input.source_id.length > 0
       ? input.source_id
       : null;
+  const effectiveSource = sourceId ?? "default";
+
+  // Restatement collapse. Free, deterministic and always on, so it runs BEFORE
+  // the paid embed/classify path below: the same claim, same subject, same
+  // source, same writer is the row already on file, and every re-save of an
+  // eligible page used to mint another copy of it (the ledger only ever grew).
+  // Provenance stays with the first sighting — a later page restating the claim
+  // refreshes it rather than forking the ledger's account of it.
+  const onFile = await findLiveClaim(storage.engine(), {
+    entity_slug: input.entity_slug,
+    source_id: effectiveSource,
+    fact: input.fact,
+    written_by: writtenBy,
+  });
+  if (onFile !== null) {
+    await refreshClaim(storage.engine(), onFile, {
+      // An omitted confidence is "no opinion", never a reset to the 1.0
+      // default — the same rule `valid_from` already follows below.
+      confidence: input.confidence === undefined ? null : conf,
+      validFrom,
+    });
+    return { id: onFile, entity_slug: input.entity_slug, inserted: false };
+  }
 
   // Insert-time dedup / supersede (opt-in). Embed the new fact, fetch its
   // entity-prefiltered nearest neighbours, and classify. A "duplicate" collapses
@@ -375,7 +474,6 @@ export async function addFact(
     }
     if (vec && vec.length > 0) {
       embeddingJson = JSON.stringify(vec);
-      const effectiveSource = sourceId ?? "default";
       const candidates = await fetchDedupCandidates(
         storage,
         input.entity_slug,
@@ -402,7 +500,7 @@ export async function addFact(
   }
 
   // Build the INSERT dynamically: the always-present columns plus whichever of
-  // kind / notability / source_id / embedding are set. `embedding` needs a
+  // notability / source_id / embedding are set. `embedding` needs a
   // ::vector cast; the rest are plain placeholders.
   const cols = [
     "entity_slug",
@@ -411,6 +509,7 @@ export async function addFact(
     "source_slug",
     "source_chunk_id",
     "written_by",
+    "kind",
   ];
   const params: unknown[] = [
     input.entity_slug,
@@ -419,11 +518,8 @@ export async function addFact(
     sourceSlug,
     chunkId,
     writtenBy,
+    kind,
   ];
-  if (kind !== null) {
-    cols.push("kind");
-    params.push(kind);
-  }
   if (notability !== null) {
     cols.push("notability");
     params.push(notability);
@@ -524,6 +620,31 @@ export async function addFact(
     );
   }
   return { id: newId, entity_slug: input.entity_slug, inserted };
+}
+
+/**
+ * Fold a restatement into the claim already on file. `written_at` always moves:
+ * the claim WAS asserted again just now, and it is the anchor decay ages from —
+ * leaving it would let a claim the operator keeps restating rot as though it had
+ * been said once, a year ago. Confidence and `valid_from` move only when the
+ * caller stated one, so an omitted field never overwrites what is on file with
+ * an `addFact` default. Everything else — provenance, kind, notability,
+ * visibility — stays as first recorded: this is the same claim, and the row on
+ * file is the ledger's account of it.
+ */
+async function refreshClaim(
+  q: Queryable,
+  id: number,
+  patch: { confidence: number | null; validFrom: string | null },
+): Promise<void> {
+  await q.query(
+    `UPDATE entity_facts
+        SET written_at = NOW(),
+            confidence = COALESCE($2::real, confidence),
+            valid_from = COALESCE($3::date, valid_from)
+      WHERE id = $1`,
+    [id, patch.confidence, patch.validFrom],
+  );
 }
 
 export interface ListFactsOptions {

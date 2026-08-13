@@ -24,6 +24,7 @@ import { recallFact, forgetFact } from "../src/core/facts-recall.ts";
 import { writeExtractedFacts, type ExtractedFact } from "../src/core/facts-extract.ts";
 import { renderFactsFence, type ParsedFact } from "../src/core/facts-fence.ts";
 import { reconcileFactsForPage } from "../src/core/facts-reconcile.ts";
+import { DEFAULT_FACT_KIND } from "../src/core/facts-decay.ts";
 import type { LlmFn } from "../src/core/llm/haiku.ts";
 
 let tmp: string;
@@ -166,7 +167,12 @@ describe("addFact kind/notability (2b)", () => {
     ]);
   });
 
-  it("drops an unrecognized kind/notability to NULL (never trips the CHECK)", async () => {
+  // `kind` used to be asserted NULL here, alongside notability. Both never trip
+  // the CHECK, but they fail differently: a NULL notability only costs a
+  // ranking hint, while a NULL kind is the one value confidence decay cannot
+  // see — the junk-labelled row would outlive every correctly typed one. An
+  // unreadable kind now floors instead of dropping.
+  it("floors an unrecognized kind and drops notability (never trips the CHECK)", async () => {
     await addFact(storage, {
       entity_slug: "people/alice",
       fact: "junk meta",
@@ -174,7 +180,7 @@ describe("addFact kind/notability (2b)", () => {
       notability: "urgent",
     });
     expect(await metaFor("people/alice")).toEqual([
-      { fact: "junk meta", kind: null, notability: null },
+      { fact: "junk meta", kind: DEFAULT_FACT_KIND, notability: null },
     ]);
   });
 
@@ -318,12 +324,17 @@ describe("addFact insert-time dedup (3)", () => {
     expect(oldRow.rows[0]!.cause).toBe("supersede");
   });
 
-  it("default (no dedup opts) preserves the legacy manual-insert behavior", async () => {
+  // The old assertion here was "both manual inserts land" — the legacy
+  // skip-dedup-on-NULL-chunk behavior. That is the duplication defect stated as
+  // a contract: the paraphrase paths above need an embedder, but the identical
+  // claim needs nothing at all, so it collapses whether or not `dedup` was
+  // passed. A DIFFERENT claim still inserts (see the independent-fact case).
+  it("collapses an identical claim even with no dedup opts (free, always on)", async () => {
     const a = await addFact(storage, { entity_slug: E, fact: "lives in Gotham" });
     const b = await addFact(storage, { entity_slug: E, fact: "lives in Gotham" });
-    // No dedup -> both manual inserts land (mig018 skip-dedup on NULL chunk).
     expect(a.inserted).toBe(true);
-    expect(b.inserted).toBe(true);
-    expect(await listFacts(storage, E)).toHaveLength(2);
+    expect(b.inserted).toBe(false);
+    expect(b.id).toBe(a.id);
+    expect(await listFacts(storage, E)).toHaveLength(1);
   });
 });

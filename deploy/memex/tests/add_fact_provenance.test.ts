@@ -6,12 +6,16 @@
  * during synthesis. A caller that names no source at all is credited to its own
  * identity rather than landing anonymous — rejecting the write instead would
  * just throw away a claim the agent wanted recorded.
+ *
+ * add_fact is one caller of many, so the ledger itself backstops it: whatever
+ * reaches `addFact` without a writer is credited to `UNATTRIBUTED_WRITER`.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
+import { UNATTRIBUTED_WRITER } from "../src/core/facts.ts";
 import { dispatchTool, writerIdentity } from "../src/mcp/dispatch.ts";
 
 let tmp: string;
@@ -83,12 +87,15 @@ describe("add_fact provenance", () => {
     );
   });
 
-  it("does not overwrite when the caller named a source page instead", async () => {
-    // source_slug IS provenance — the fallback must not fire and claim the
-    // write for the caller when the origin is already recorded.
+  it("does not credit the caller when it named a source page instead", async () => {
+    // source_slug IS provenance — the dispatch fallback must not fire and claim
+    // the write for the caller when the origin is already recorded. The row
+    // still names a WRITER, though: this used to assert NULL, which is how the
+    // "every fact names a writer" invariant stayed false for the table even
+    // after add_fact started enforcing it. The ledger credits the sentinel.
     expect(
       await writtenByFor({ fact: "likes milk", source_slug: "notes/kitchen" }),
-    ).toBeNull();
+    ).toBe(UNATTRIBUTED_WRITER);
   });
 });
 
