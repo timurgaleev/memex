@@ -11,6 +11,11 @@ import {
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { awsRegion } from "./llm/gateway.ts";
+import { trackedInvoke } from "./budget.ts";
+
+/** Ledger label for the embedding tier. Every stored vector's dollar lands
+ *  under this one operation. */
+const SPEND_OP = "embedding";
 
 /** Canonical Titan v2 model id — the default for `embedText` and the model
  *  recorded by the embedding backfill, so the two never drift apart. */
@@ -125,19 +130,24 @@ export async function embedText(
     accept: "application/json",
   });
 
-  const response = await client.send(command, { abortSignal: opts.abortSignal });
-  if (!response.body) {
-    throw new Error("embedText: empty response body from Bedrock");
-  }
-  const decoded = new TextDecoder().decode(response.body);
-  const parsed = JSON.parse(decoded) as TitanResponseV2;
-  if (!Array.isArray(parsed.embedding)) {
-    throw new Error("embedText: response missing 'embedding' array");
-  }
-  if (parsed.embedding.length !== EMBED_DIMENSIONS) {
-    throw new Error(
-      `embedText: expected ${EMBED_DIMENSIONS}-dim vector, got ${parsed.embedding.length}`,
-    );
-  }
-  return parsed.embedding;
+  return trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+    const response = await client.send(command, { abortSignal: opts.abortSignal });
+    if (!response.body) {
+      throw new Error("embedText: empty response body from Bedrock");
+    }
+    const decoded = new TextDecoder().decode(response.body);
+    const parsed = JSON.parse(decoded) as TitanResponseV2;
+    // Report BEFORE the shape checks below: Titan billed those input tokens
+    // whether or not the vector it sent back is one we can store.
+    meter.report({ inputTokens: parsed.inputTextTokenCount ?? 0, outputTokens: 0 });
+    if (!Array.isArray(parsed.embedding)) {
+      throw new Error("embedText: response missing 'embedding' array");
+    }
+    if (parsed.embedding.length !== EMBED_DIMENSIONS) {
+      throw new Error(
+        `embedText: expected ${EMBED_DIMENSIONS}-dim vector, got ${parsed.embedding.length}`,
+      );
+    }
+    return parsed.embedding;
+  });
 }

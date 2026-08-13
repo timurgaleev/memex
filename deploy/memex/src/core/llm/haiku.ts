@@ -25,6 +25,7 @@ import {
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
 import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
+import { trackedInvoke } from "../budget.ts";
 
 /** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
 export const DEFAULT_HAIKU_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -103,7 +104,21 @@ function client(region: string): BedrockRuntimeClient {
 export interface LlmCallOptions {
   modelId?: string;
   region?: string;
+  /**
+   * Feature label this call's cost is booked under in the spend ledger. A
+   * caller that already names itself for a BudgetTracker should pass the SAME
+   * label here, so the ledger and the cap agree on whose dollar it is. Callers
+   * that name nothing land in the tier bucket below — honest, just coarse.
+   */
+  operation?: string;
+  /** Override the Bedrock client. `LlmFn` is the seam for faking the CALL;
+   *  this is the seam for exercising the transport itself (usage extraction,
+   *  the cachePoint retry) without a network. */
+  client?: BedrockRuntimeClient;
 }
+
+/** Ledger label for a utility-tier call whose caller didn't name itself. */
+export const DEFAULT_UTILITY_SPEND_OP = "utility-llm";
 
 /**
  * Build the user-turn content blocks. With `withCache` and a `cachePrefix`, the
@@ -141,7 +156,7 @@ export async function callHaiku(
 ): Promise<LlmCallResult> {
   const region = opts.region ?? awsRegion();
   const modelId = resolveModel("utility", opts.modelId);
-  const c = client(region);
+  const c = opts.client ?? client(region);
 
   const send = (withCache: boolean) =>
     withInflightCap(() =>
@@ -158,35 +173,44 @@ export async function callHaiku(
       ),
     );
 
-  let resp;
-  try {
-    resp = await send(true);
-  } catch (err) {
-    // Fail-safe: a model/region that can't cache rejects the `cachePoint` with a
-    // ValidationException. Retry once as a single uncached block so the call still
-    // succeeds — caching is a cost optimization, never a correctness dependency.
-    if (input.cachePrefix && err instanceof ValidationException) {
-      resp = await send(false);
-    } else {
-      throw err;
-    }
-  }
-
-  const text = resp.output?.message?.content?.[0]?.text ?? "";
-  const u = resp.usage;
-  const usage: LlmUsage | undefined = u
-    ? {
-        inputTokens: u.inputTokens ?? 0,
-        outputTokens: u.outputTokens ?? 0,
-        ...(u.cacheReadInputTokens != null
-          ? { cacheReadInputTokens: u.cacheReadInputTokens }
-          : {}),
-        ...(u.cacheWriteInputTokens != null
-          ? { cacheWriteInputTokens: u.cacheWriteInputTokens }
-          : {}),
+  // One `trackedInvoke` around BOTH attempts: the cachePoint retry is one
+  // logical call, and its usage replaces the (absent) first attempt's rather
+  // than booking a second row.
+  return trackedInvoke(
+    { operation: opts.operation ?? DEFAULT_UTILITY_SPEND_OP, model: modelId },
+    async (meter) => {
+      let resp;
+      try {
+        resp = await send(true);
+      } catch (err) {
+        // Fail-safe: a model/region that can't cache rejects the `cachePoint` with a
+        // ValidationException. Retry once as a single uncached block so the call still
+        // succeeds — caching is a cost optimization, never a correctness dependency.
+        if (input.cachePrefix && err instanceof ValidationException) {
+          resp = await send(false);
+        } else {
+          throw err;
+        }
       }
-    : undefined;
-  return { text, modelId, usage };
+
+      const text = resp.output?.message?.content?.[0]?.text ?? "";
+      const u = resp.usage;
+      const usage: LlmUsage | undefined = u
+        ? {
+            inputTokens: u.inputTokens ?? 0,
+            outputTokens: u.outputTokens ?? 0,
+            ...(u.cacheReadInputTokens != null
+              ? { cacheReadInputTokens: u.cacheReadInputTokens }
+              : {}),
+            ...(u.cacheWriteInputTokens != null
+              ? { cacheWriteInputTokens: u.cacheWriteInputTokens }
+              : {}),
+          }
+        : undefined;
+      if (usage) meter.report(usage);
+      return { text, modelId, usage };
+    },
+  );
 }
 
 /**

@@ -25,6 +25,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { classifyQueryTaxonomy } from "./query-intent.ts";
 import { awsRegion } from "../llm/gateway.ts";
+import { trackedInvoke } from "../budget.ts";
 
 export type Intent = "factual" | "topic" | "howto" | "personal" | "exact";
 
@@ -47,7 +48,12 @@ function client(region: string): BedrockRuntimeClient {
 export interface ClassifyIntentOptions {
   modelId?: string;
   region?: string;
+  /** Override the Bedrock client (tests pass a stub), as embedding.ts does. */
+  client?: BedrockRuntimeClient;
 }
+
+/** Ledger label — the opt-in paid tie-break behind MEMEX_INTENT_LLM=1. */
+const SPEND_OP = "intent-classify";
 
 const SYSTEM_PROMPT = `You are a search-intent classifier. Given a user query, output exactly one word from this set: factual, topic, howto, personal, exact. Output nothing else.`;
 
@@ -87,21 +93,29 @@ export async function classifyIntent(
 
   const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
-  const c = client(region);
+  const c = opts.client ?? client(region);
   try {
-    const resp = await c.send(
-      new ConverseCommand({
-        modelId,
-        system: [{ text: SYSTEM_PROMPT }],
-        messages: [{ role: "user", content: [{ text: trimmed }] }],
-        inferenceConfig: { maxTokens: 8, temperature: 0 },
-      }),
-    );
-    const text =
-      resp.output?.message?.content?.[0]?.text?.trim().toLowerCase() ?? "";
-    const word = text.split(/\s+/)[0] ?? "";
-    if (VALID_INTENTS.has(word as Intent)) return word as Intent;
-    return taxonomyToIntent(trimmed);
+    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+      const resp = await c.send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: SYSTEM_PROMPT }],
+          messages: [{ role: "user", content: [{ text: trimmed }] }],
+          inferenceConfig: { maxTokens: 8, temperature: 0 },
+        }),
+      );
+      if (resp.usage) {
+        meter.report({
+          inputTokens: resp.usage.inputTokens ?? 0,
+          outputTokens: resp.usage.outputTokens ?? 0,
+        });
+      }
+      const text =
+        resp.output?.message?.content?.[0]?.text?.trim().toLowerCase() ?? "";
+      const word = text.split(/\s+/)[0] ?? "";
+      if (VALID_INTENTS.has(word as Intent)) return word as Intent;
+      return taxonomyToIntent(trimmed);
+    });
   } catch {
     // Network blip / model unavailable → the zero-LLM taxonomy still answers.
     return taxonomyToIntent(trimmed);

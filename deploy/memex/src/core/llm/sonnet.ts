@@ -19,6 +19,7 @@ import {
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
 import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
+import { trackedInvoke } from "../budget.ts";
 
 /** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
  *  invokable in eu-west-1 (no version suffix). Override via MEMEX_FACTS_MODEL
@@ -78,7 +79,19 @@ function client(region: string): BedrockRuntimeClient {
 export interface CallSonnetOptions {
   modelId?: string;
   region?: string;
+  /**
+   * Feature label this call's cost is booked under in the spend ledger — the
+   * same name the caller gives its BudgetTracker, so cap and ledger agree on
+   * whose dollar it is. Unnamed callers land in the tier bucket below.
+   */
+  operation?: string;
+  /** Override the Bedrock client. `SonnetFn` is the seam for faking the CALL;
+   *  this is the seam for exercising the transport itself without a network. */
+  client?: BedrockRuntimeClient;
 }
+
+/** Ledger label for a reasoning-tier call whose caller didn't name itself. */
+export const DEFAULT_REASONING_SPEND_OP = "reasoning-llm";
 
 /**
  * Resolve the paid-tier model id. Precedence: an explicit override → the
@@ -101,30 +114,37 @@ export async function callSonnet(
 ): Promise<SonnetCallResult> {
   const region = opts.region ?? awsRegion();
   const modelId = resolveFactsModel(opts.modelId);
-  const c = client(region);
-  const resp = await withInflightCap(() =>
-    c.send(
-      new ConverseCommand({
+  const c = opts.client ?? client(region);
+  return trackedInvoke(
+    { operation: opts.operation ?? DEFAULT_REASONING_SPEND_OP, model: modelId },
+    async (meter) => {
+      const resp = await withInflightCap(() =>
+        c.send(
+          new ConverseCommand({
+            modelId,
+            system: [{ text: input.system }],
+            messages: [{ role: "user", content: [{ text: input.user }] }],
+            inferenceConfig: {
+              maxTokens: input.maxTokens,
+              temperature: input.temperature ?? 0,
+            },
+          }),
+        ),
+      );
+      const text = resp.output?.message?.content?.[0]?.text ?? "";
+      const usage: SonnetUsage = {
+        inputTokens: resp.usage?.inputTokens ?? 0,
+        outputTokens: resp.usage?.outputTokens ?? 0,
+      };
+      meter.report(usage);
+      return {
+        text,
         modelId,
-        system: [{ text: input.system }],
-        messages: [{ role: "user", content: [{ text: input.user }] }],
-        inferenceConfig: {
-          maxTokens: input.maxTokens,
-          temperature: input.temperature ?? 0,
-        },
-      }),
-    ),
-  );
-  const text = resp.output?.message?.content?.[0]?.text ?? "";
-  return {
-    text,
-    modelId,
-    usage: {
-      inputTokens: resp.usage?.inputTokens ?? 0,
-      outputTokens: resp.usage?.outputTokens ?? 0,
+        usage,
+        ...(resp.stopReason ? { stopReason: resp.stopReason } : {}),
+      };
     },
-    ...(resp.stopReason ? { stopReason: resp.stopReason } : {}),
-  };
+  );
 }
 
 export function resolveSonnetFn(

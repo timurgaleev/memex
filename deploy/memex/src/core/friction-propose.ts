@@ -24,6 +24,10 @@ import {
 import type { Engine } from "./engine/interface.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
 import { awsRegion } from "./llm/gateway.ts";
+import { trackedInvoke } from "./budget.ts";
+
+/** Ledger label — the skill-rewrite suggestions behind `friction propose-fix`. */
+const SPEND_OP = "friction-propose";
 
 const DEFAULT_MODEL_ID =
   process.env.SKILLIFY_MODEL_ID ?? "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -202,8 +206,16 @@ export async function proposeForSkill(
     messages: [{ role: "user", content: [{ text: userPrompt }] }],
     inferenceConfig: { maxTokens: 2500, temperature: 0.2 },
   });
-  const response = await client.send(command);
-  const text = response.output?.message?.content?.[0]?.text;
+  const text = await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+    const response = await client.send(command);
+    if (response.usage) {
+      meter.report({
+        inputTokens: response.usage.inputTokens ?? 0,
+        outputTokens: response.usage.outputTokens ?? 0,
+      });
+    }
+    return response.output?.message?.content?.[0]?.text;
+  });
   if (typeof text !== "string" || text.trim().length === 0) {
     throw new Error("proposeForSkill: empty response from model");
   }
