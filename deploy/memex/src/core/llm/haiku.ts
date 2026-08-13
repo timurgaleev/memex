@@ -21,6 +21,7 @@ import {
   ConverseCommand,
   ValidationException,
   type ContentBlock,
+  type ConverseCommandOutput,
 } from "@aws-sdk/client-bedrock-runtime";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
@@ -68,6 +69,16 @@ export interface LlmCallResult {
   /** Token usage when the transport exposes it (Bedrock Converse). Absent for a
    *  fake seam that returns none — callers then fall back to an estimate. */
   usage?: LlmUsage;
+  /**
+   * Bedrock Converse's `stopReason` — same field, same values, same optionality
+   * as the reasoning tier's (`SonnetCallResult.stopReason`, whose
+   * `STOP_REASON_MAX_TOKENS` names the output-cap case). The utility tier parses
+   * structured output too — take proposals, judge verdicts — and without this a
+   * payload the cap cut in half is indistinguishable from a model that had
+   * nothing to say. Optional so the injected fakes that predate it keep
+   * typechecking.
+   */
+  stopReason?: string;
 }
 
 /**
@@ -172,6 +183,19 @@ export async function callHaiku(
     }
   }
 
+  return toLlmCallResult(resp, modelId);
+}
+
+/**
+ * Map a Converse response onto the caller-facing result. Pure + exported for the
+ * same reason `buildUserContent` is: the transport's contract — text, usage and
+ * the stop reason a structured-output caller reads — is then unit-testable
+ * without a live Bedrock client.
+ */
+export function toLlmCallResult(
+  resp: Pick<ConverseCommandOutput, "output" | "usage" | "stopReason">,
+  modelId: string,
+): LlmCallResult {
   const text = resp.output?.message?.content?.[0]?.text ?? "";
   const u = resp.usage;
   const usage: LlmUsage | undefined = u
@@ -186,7 +210,9 @@ export async function callHaiku(
           : {}),
       }
     : undefined;
-  return { text, modelId, usage };
+  // Omitted rather than set to undefined when absent, matching how the
+  // reasoning tier carries it.
+  return { text, modelId, usage, ...(resp.stopReason ? { stopReason: resp.stopReason } : {}) };
 }
 
 /**

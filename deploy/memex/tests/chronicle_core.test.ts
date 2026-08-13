@@ -17,6 +17,10 @@ import {
   type ChronicleEventProposal,
 } from "../src/core/chronicle/extract-events.ts";
 import {
+  STOP_REASON_MAX_TOKENS,
+  type SonnetFn,
+} from "../src/core/llm/sonnet.ts";
+import {
   registerChronicleHandler,
   CHRONICLE_EXTRACT_JOB_KIND,
 } from "../src/core/jobs/chronicle-handler.ts";
@@ -199,6 +203,90 @@ describe("runChronicleExtract", () => {
     expect(res.status).toBe("skipped");
     expect(res.reason).toBe("judge_error");
     expect(res.events_written).toBe(0);
+  });
+});
+
+/**
+ * The paid judge and the output cap.
+ *
+ * An event-dense page whose JSON array is cut mid-element parses to NOTHING, so
+ * the old outcome was `no_events` — the spend booked and the page recorded as
+ * having no events, which nothing would ever re-run. The judge now buys more
+ * room once (temperature 0 means the same cap always cuts in the same place),
+ * and only when the per-run USD ceiling covers the second call.
+ *
+ * These exercise the DEFAULT judge — the one that carries the retry — through
+ * its injected transport seam, so still no Bedrock.
+ */
+describe("runChronicleExtract — truncated judge output", () => {
+  const MODEL = "eu.anthropic.claude-sonnet-4-6";
+  const CUT = `[{"when":"2026-01-10","who":["people/alice"],"what":"Kick`;
+  const WHOLE =
+    `[{"when":"2026-01-10","who":["people/alice"],"what":"Kickoff call","kind":"call"}]`;
+
+  function scriptedSonnet(replies: { text: string; stopReason?: string }[]) {
+    const caps: number[] = [];
+    const fn: SonnetFn = async (input) => {
+      const r = replies[Math.min(caps.length, replies.length - 1)]!;
+      caps.push(input.maxTokens);
+      return {
+        text: r.text,
+        modelId: MODEL,
+        usage: { inputTokens: 100, outputTokens: 50 },
+        ...(r.stopReason ? { stopReason: r.stopReason } : {}),
+      };
+    };
+    return { fn, caps };
+  }
+
+  async function seedDepth(slug = "meetings/2026-01-10"): Promise<string> {
+    await putPage(storage, {
+      slug,
+      type: "meeting",
+      title: "Kickoff",
+      compiled_truth: { date: "2026-01-10", attendees: ["people/alice"] },
+      markdown_body: LONG_BODY,
+    });
+    return slug;
+  }
+
+  it("retries once at a LARGER cap and writes the events the second call returned", async () => {
+    const slug = await seedDepth();
+    const { fn, caps } = scriptedSonnet([
+      { text: CUT, stopReason: STOP_REASON_MAX_TOKENS },
+      { text: WHOLE },
+    ]);
+    const res = await runChronicleExtract(storage, { slug, sonnetFn: fn, modelId: MODEL });
+    expect(caps).toEqual([1500, 3000]);
+    expect(res.status).toBe("extracted");
+    expect(res.events_written).toBe(1);
+  });
+
+  it("still truncated → skipped/truncated, NOT no_events, and nothing written", async () => {
+    const slug = await seedDepth();
+    const { fn, caps } = scriptedSonnet([{ text: CUT, stopReason: STOP_REASON_MAX_TOKENS }]);
+    const res = await runChronicleExtract(storage, { slug, sonnetFn: fn, modelId: MODEL });
+    expect(caps.length).toBe(2); // one retry, not a loop
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("truncated"); // "no_events" would call the page done
+    expect(res.events_written).toBe(0);
+    const rows = await getTimelineForDate(storage, "2026-01-10", { sourceIds: ["default"] });
+    expect(rows.length).toBe(0);
+  });
+
+  it("skips the enlarged retry when the per-run budget cannot cover it", async () => {
+    const slug = await seedDepth();
+    const { fn, caps } = scriptedSonnet([{ text: CUT, stopReason: STOP_REASON_MAX_TOKENS }]);
+    // Room for the first call's worst case, not for the doubled-output retry.
+    const res = await runChronicleExtract(storage, {
+      slug,
+      sonnetFn: fn,
+      modelId: MODEL,
+      maxBudgetUsd: 0.04,
+    });
+    expect(caps).toEqual([1500]); // paying twice for the identical cut is the bug
+    expect(res.status).toBe("skipped");
+    expect(res.reason).toBe("truncated");
   });
 });
 

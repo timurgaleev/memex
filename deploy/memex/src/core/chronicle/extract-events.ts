@@ -20,6 +20,7 @@ import {
   type SonnetFn,
   type SonnetUsage,
 } from "../llm/sonnet.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { isLlmAvailable } from "../llm/gateway.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { classifyFactsAbsorbError } from "../ingest-log.ts";
@@ -46,6 +47,14 @@ export interface ChronicleJudgeResult {
   usage?: SonnetUsage;
   /** Model the call priced against; falls back to the resolved default. */
   modelId?: string;
+  /**
+   * The judge's JSON array was still cut off by the output cap after its
+   * larger-cap retry, so `events` is a fragment of what the page holds — an
+   * array cut mid-element parses to nothing at all. Zero events then means
+   * "unread", not "this page has no events", and the caller must not land that
+   * as a finished extraction. Omitted by stub judges, which never truncate.
+   */
+  truncated?: boolean;
 }
 export type ChronicleJudge = (input: ChronicleJudgeInput) => Promise<ChronicleJudgeResult>;
 
@@ -60,9 +69,14 @@ export interface ChronicleExtractResult {
  *  extractor's per-turn cap) — a bound on how much one page can spawn. */
 const MAX_EVENTS_PER_PAGE = 10;
 
+/** Output cap for one judge call. The truncation retry derives its larger cap
+ *  from this, so it is named rather than inlined. */
+const JUDGE_MAX_TOKENS = 1500;
+
 /** Conservative worst-case usage for the pre-flight budget guard: ~12K
- *  sanitized chars in + the 1500-token judge output cap. */
-const WORST_CASE_USAGE: SonnetUsage = { inputTokens: 4000, outputTokens: 1500 };
+ *  sanitized chars in + the judge output cap. It prices the FIRST call; a
+ *  truncation retry is gated separately against the same budget. */
+const WORST_CASE_USAGE: SonnetUsage = { inputTokens: 4000, outputTokens: JUDGE_MAX_TOKENS };
 
 /** Per-run USD ceiling for one page's extraction. MEMEX_CHRONICLE_WRITE_BUDGET_USD
  *  overrides; small because it prices a single page-body judge call. */
@@ -149,6 +163,14 @@ export interface RunChronicleExtractOpts {
   slug: string;
   sourceId?: string;
   judge?: ChronicleJudge;
+  /**
+   * Injected Sonnet seam for the DEFAULT judge (tests) — the same seam
+   * `GradeTakesOptions.sonnetFn` is for the take judges. `judge` replaces the
+   * whole judge, so it cannot exercise the default judge's own behaviour
+   * (budget-gated truncation retry); this reaches it without live Bedrock.
+   * Ignored when `judge` is supplied. Production leaves it unset.
+   */
+  sonnetFn?: SonnetFn;
   tz?: string;
   now?: Date;
   /** Paid model override; defaults to the resolved facts model. */
@@ -185,7 +207,9 @@ export async function runChronicleExtract(
     return { slug: opts.slug, status: "skipped", events_written: 0, reason: "budget_exhausted" };
   }
 
-  const judge = opts.judge ?? defaultJudge(undefined, modelId);
+  const judge =
+    opts.judge ??
+    defaultJudge(opts.sonnetFn, modelId, (projected) => !budget.wouldExceed(modelId, projected));
   let result: ChronicleJudgeResult;
   try {
     result = await judge({
@@ -211,6 +235,15 @@ export async function runChronicleExtract(
       if (!(e instanceof BudgetExhausted)) throw e;
       // Over budget after the call — still persist what we got.
     }
+  }
+
+  // A judge whose array was still cut off after the larger-cap retry (or whose
+  // retry the budget refused) read only part of the page. Landing that as
+  // `no_events` books the spend and calls the page finished — the one outcome
+  // nothing would ever re-run. Report the truncation instead; the same PARSE
+  // BARRIER rule as below applies, so nothing partial is written either.
+  if (result.truncated) {
+    return { slug: opts.slug, status: "skipped", events_written: 0, reason: "truncated" };
   }
 
   const proposals = Array.isArray(result?.events) ? result.events : [];
@@ -271,23 +304,43 @@ const JUDGE_SYSTEM = [
   "No prose, no markdown — just the JSON array.",
 ].join("\n");
 
-function defaultJudge(sonnetFn?: SonnetFn, modelId?: string): ChronicleJudge {
+/**
+ * `canAffordRetry` is the caller's budget speaking: an event-dense page whose
+ * array is cut mid-element parses to zero events, so the call is retried once
+ * with more room — but a second paid call has to fit under the same per-run USD
+ * ceiling that admitted the first, or the truncation is reported instead.
+ */
+function defaultJudge(
+  sonnetFn?: SonnetFn,
+  modelId?: string,
+  canAffordRetry?: (projected: SonnetUsage) => boolean,
+): ChronicleJudge {
   return async (input) => {
-    if (!isLlmAvailable()) return { events: [] };
+    // The credentials gate only guards the REAL transport; an injected seam
+    // needs none, and gating it would make the default judge untestable.
+    if (!sonnetFn && !isLlmAvailable()) return { events: [] };
     const { text: body } = sanitizeForPrompt((input.body || "").slice(0, 12_000));
-    const call = resolveSonnetFn(sonnetFn, modelId ? { modelId } : {});
+    const send = resolveSonnetFn(sonnetFn, modelId ? { modelId } : {});
+    const user =
+      `<page slug="${input.slug}" type="${input.type}" date="${input.effectiveDate ?? ""}">\n` +
+      `${input.title}\n\n${body}\n</page>\n\n` +
+      `Known attendees: ${input.attendees.slice(0, 10).join(", ") || "(none)"}.\nExtract the events.`;
     // No catch here: a Bedrock error propagates to runChronicleExtract, which
     // classifies transient (retry) vs permanent (zero events). An empty/refusal
     // response is a successful call whose text parses to zero events.
-    const res = await call({
-      system: JUDGE_SYSTEM,
-      user:
-        `<page slug="${input.slug}" type="${input.type}" date="${input.effectiveDate ?? ""}">\n` +
-        `${input.title}\n\n${body}\n</page>\n\n` +
-        `Known attendees: ${input.attendees.slice(0, 10).join(", ") || "(none)"}.\nExtract the events.`,
-      maxTokens: 1500,
-    });
-    return { events: parseJudgeJson(res.text), usage: res.usage, modelId: res.modelId };
+    const call = await callWithTruncationRetry(
+      "chronicle-extract",
+      JUDGE_MAX_TOKENS,
+      (cap) => send({ system: JUDGE_SYSTEM, user, maxTokens: cap }),
+      canAffordRetry,
+    );
+    return {
+      events: parseJudgeJson(call.resp.text),
+      // Every call made, so the budget prices the retry too.
+      usage: call.usage,
+      modelId: call.resp.modelId,
+      truncated: call.truncated,
+    };
   };
 }
 

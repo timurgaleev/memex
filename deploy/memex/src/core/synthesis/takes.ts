@@ -21,8 +21,15 @@ import { createHash } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
 import { Storage } from "../storage.ts";
 import { hybridSearch } from "../search/hybrid.ts";
-import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
-import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
+import { resolveLlmFn, type LlmFn, type LlmCallResult } from "../llm/haiku.ts";
+import {
+  resolveSonnetFn,
+  resolveFactsModel,
+  type SonnetFn,
+  type SonnetCallResult,
+  type SonnetUsage,
+} from "../llm/sonnet.ts";
+import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
@@ -114,6 +121,40 @@ const DEFAULT_MAX_DOCS = 25;
 const DEFAULT_MAX_TAKES = 25;
 const MIN_DOC_CHARS = 400;
 const MAX_DOC_CHARS_TO_LLM = 50_000;
+
+/** Output cap for one extraction (a JSON array of claims) and for one judge
+ *  verdict (a single JSON object). Named because the truncation-retry helper
+ *  derives the second, larger cap from them. */
+const PROPOSE_MAX_TOKENS = 1200;
+const GRADE_MAX_TOKENS = 500;
+
+/**
+ * Adapt a utility-tier result to the shape the shared truncation-retry helper
+ * takes. Both transports report `stopReason` identically; the only difference
+ * is that the utility tier's usage is optional (an injected fake reports none),
+ * and a call the transport never priced counts as zero — the same assumption
+ * the rest of this phase already makes about un-metered utility calls.
+ */
+function asRetryable(r: LlmCallResult): SonnetCallResult {
+  return {
+    text: r.text,
+    modelId: r.modelId,
+    usage: r.usage ?? { inputTokens: 0, outputTokens: 0 },
+    ...(r.stopReason ? { stopReason: r.stopReason } : {}),
+  };
+}
+
+/**
+ * Retry predicate for the utility-tier calls in this module. They run outside
+ * any BudgetTracker — only the paid ensemble carries one — so there is no USD
+ * cap for the second call to exceed, and the extra call is bounded by maxDocs /
+ * maxTakes. Refusing the retry instead would be worse than pointless: these
+ * calls run at temperature 0, so the next RUN would truncate in the identical
+ * place and the document could never be captured at all.
+ */
+function utilityTierCanRetry(): boolean {
+  return true;
+}
 
 /** Default minimum take age before it is graded — ~6 months. A take needs time
  *  to be resolvable; grading a claim minutes after it was written wastes a paid
@@ -391,6 +432,7 @@ export async function proposeTakesPhase(
   for (const doc of docs) {
     let text: string;
     let modelId: string;
+    let truncated: boolean;
     // Already-captured claims for this doc dedup the extractor's output at the
     // prompt layer — a re-proposal of a known claim is instructed away.
     const existingClaims = await existingClaimsForDoc(engine, doc.id);
@@ -400,14 +442,18 @@ export async function proposeTakesPhase(
             .map((c) => `- ${sanitizeForPrompt(c).text}`)
             .join("\n")}`
         : "";
+    const user = `Source: ${doc.id}\n\n---\n\n${doc.text.slice(0, MAX_DOC_CHARS_TO_LLM)}${capturedBlock}`;
     try {
-      const resp = await llm({
-        system: PROPOSE_SYSTEM_PROMPT,
-        user: `Source: ${doc.id}\n\n---\n\n${doc.text.slice(0, MAX_DOC_CHARS_TO_LLM)}${capturedBlock}`,
-        maxTokens: 1200,
-      });
-      text = resp.text;
-      modelId = resp.modelId;
+      const call = await callWithTruncationRetry(
+        "propose_takes",
+        PROPOSE_MAX_TOKENS,
+        async (cap) =>
+          asRetryable(await llm({ system: PROPOSE_SYSTEM_PROMPT, user, maxTokens: cap })),
+        utilityTierCanRetry,
+      );
+      text = call.resp.text;
+      modelId = call.resp.modelId;
+      truncated = call.truncated;
     } catch (e) {
       result.errors.push(`${doc.id}: ${e instanceof Error ? e.message : String(e)}`);
       continue;
@@ -425,8 +471,16 @@ export async function proposeTakesPhase(
     // document that does carry claims, so that case is logged and retried.
     if (takes.length === 0) {
       if (!isWellFormedEmptyExtraction(text)) {
+        // An answer the cap cut in half lands here too — its array never closes,
+        // so it parses to the same [] a claim-free document gives. The stop
+        // reason is what separates them, and saying which one this was points
+        // the operator at a ceiling they can raise instead of a broken model.
+        // Either way it is NOT memoized: the tombstone would suppress this
+        // document's real claims for good.
         result.errors.push(
-          `${doc.id}: extractor output not parseable as claims; not memoized, retried next run`,
+          truncated
+            ? `${doc.id}: extractor output truncated at the output cap even after a larger-cap retry; not memoized, retried next run`
+            : `${doc.id}: extractor output not parseable as claims; not memoized, retried next run`,
         );
         continue;
       }
@@ -586,10 +640,18 @@ export interface EnsembleResult {
   /** The aggregated grade, or null when judges ran but none parsed (the caller
    *  writes an `unresolvable` fallback — NOT the same as budget-out). */
   grade: EnsembleGrade | null;
-  /** Judge calls actually made. 0 = budget gated before any call → the phase
+  /** Judges actually dispatched. 0 = budget gated before any call → the phase
    *  stops (no spend, nothing to write). >0 with grade=null = spend happened
-   *  but no parseable verdict → write the fallback and keep going. */
+   *  but no parseable verdict → write the fallback and keep going. A judge's
+   *  truncation retry counts with its judge, not as a second one. */
   callsMade: number;
+  /**
+   * Judges whose output was STILL cut off by the output cap after the
+   * larger-cap retry. Their verdict was never emitted, so a null grade with
+   * this above zero means "unread", not "the judges disagreed" — the caller
+   * must not memoize that as a verdict.
+   */
+  truncatedJudges: number;
   /** A wouldExceed skip or a record() ceiling hit occurred this take. */
   budgetHit: boolean;
   /** The Sonnet model the judges ran on (for the model_id provenance column). */
@@ -636,8 +698,9 @@ export function aggregateVerdicts(votes: readonly ParsedVerdict[]): ParsedVerdic
  * Grade one take with an N-judge Sonnet ensemble. Each judge is a fresh Sonnet
  * call (first at temperature 0 for a stable anchor, the rest diversified) over
  * the SAME sanitized claim + evidence. Budget-gated: a pre-call `wouldExceed`
- * check skips a judge that can't be afforded, and `record` enforces the hard
- * ceiling. Returns null when the budget leaves no room for even one judge, or
+ * check skips a judge that can't be afforded, a judge cut off by the output cap
+ * retries once with more room when the budget covers it, and `record` enforces
+ * the hard ceiling. Returns null when the budget leaves no room for even one judge, or
  * when no judge produced a parseable verdict. Propagates BudgetExhausted so the
  * phase loop stops (partial progress) exactly like the facts extractor.
  */
@@ -657,23 +720,37 @@ export async function gradeTakeEnsemble(
   const votes: ParsedVerdict[] = [];
   let graderModel = probeModel;
   let callsMade = 0;
+  let truncatedJudges = 0;
   let budgetHit = false;
   for (let i = 0; i < opts.judges; i++) {
     if (opts.budget.wouldExceed(probeModel, estUsage)) {
       budgetHit = true;
       break;
     }
-    const resp = await opts.sonnetFn({
-      system: GRADE_SYSTEM_PROMPT,
-      user,
-      maxTokens: 500,
-      temperature: i === 0 ? 0 : 0.6,
-    });
+    // A verdict the cap cut in half parses to nothing, so the judge's spend
+    // buys silence. Retry it once with more room — but only if the SHARED
+    // ensemble budget covers both calls; when it doesn't, the truncation is
+    // reported (truncatedJudges) instead of paying twice for the same cut.
+    const call = await callWithTruncationRetry(
+      "grade_takes_ensemble",
+      GRADE_MAX_TOKENS,
+      (cap) =>
+        opts.sonnetFn({
+          system: GRADE_SYSTEM_PROMPT,
+          user,
+          maxTokens: cap,
+          temperature: i === 0 ? 0 : 0.6,
+        }),
+      (projected) => !opts.budget.wouldExceed(probeModel, projected),
+    );
+    const resp = call.resp;
     callsMade += 1;
+    if (call.truncated) truncatedJudges += 1;
     graderModel = resp.modelId;
     let overCap = false;
     try {
-      opts.budget.record(resp.modelId, resp.usage);
+      // Both calls were paid for when a retry ran — price the sum.
+      opts.budget.record(resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) {
         budgetHit = true;
@@ -692,6 +769,7 @@ export async function gradeTakeEnsemble(
   return {
     grade: agg ? { ...agg, judgeCount: votes.length, unanimous } : null,
     callsMade,
+    truncatedJudges,
     budgetHit,
     graderModel,
   };
@@ -943,6 +1021,9 @@ export async function gradeTakesPhase(
     let ensembleBudgetHit = false;
     let ensembleUnanimous = false;
     let usedEnsemble = false;
+    // The judge's output was still cut off after its larger-cap retry AND no
+    // verdict could be read out of it — see the guard below.
+    let truncatedNoVerdict = false;
     try {
       if (sonnetFn && budget) {
         const ens = await gradeTakeEnsemble(take.claim_text, evidence, {
@@ -967,18 +1048,42 @@ export async function gradeTakesPhase(
         verdict = ens.grade
           ? { verdict: ens.grade.verdict, confidence: ens.grade.confidence, reasoning: ens.grade.reasoning }
           : null;
+        truncatedNoVerdict = verdict === null && ens.truncatedJudges > 0;
         ensembleBudgetHit = ens.budgetHit;
       } else {
-        const resp = await llm({
-          system: GRADE_SYSTEM_PROMPT,
-          user: `Claim: ${sanitizeForPrompt(take.claim_text).text}\n\nEvidence:\n${sanitizeForPrompt(evidence).text}`,
-          maxTokens: 500,
-        });
-        verdict = parseVerdictResponse(resp.text);
-        modelId = resp.modelId;
+        const call = await callWithTruncationRetry(
+          "grade_takes",
+          GRADE_MAX_TOKENS,
+          async (cap) =>
+            asRetryable(
+              await llm({
+                system: GRADE_SYSTEM_PROMPT,
+                user: `Claim: ${sanitizeForPrompt(take.claim_text).text}\n\nEvidence:\n${sanitizeForPrompt(evidence).text}`,
+                maxTokens: cap,
+              }),
+            ),
+          utilityTierCanRetry,
+        );
+        verdict = parseVerdictResponse(call.resp.text);
+        modelId = call.resp.modelId;
+        truncatedNoVerdict = verdict === null && call.truncated;
       }
     } catch (e) {
       result.errors.push(`take ${take.id} judge: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    // A verdict the output cap cut in half is not a verdict, and the
+    // unresolvable fallback below must not stand in for one here: that row
+    // memoizes (take_id, prompt_version, evidence_sig), so the take would never
+    // be judged again over a failure the operator can fix by raising the cap.
+    // Report it and leave the take in the pool. (A truncated response that
+    // still parsed a whole verdict object is kept — the answer closed.)
+    if (truncatedNoVerdict) {
+      result.errors.push(
+        `take ${take.id} judge: output truncated at the output cap; not graded, retried next run`,
+      );
+      // Skipping the write must not skip the budget stop below.
+      if (ensembleBudgetHit) break;
       continue;
     }
     // A parse failure becomes a low-confidence unresolvable row so the operator
