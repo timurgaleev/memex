@@ -12,6 +12,7 @@ import {
   FACTS_FENCE_END,
   type ParsedFact,
 } from "../src/core/facts-fence.ts";
+import { DEFAULT_FACT_KIND } from "../src/core/facts-decay.ts";
 
 const FENCE = [
   "# people/alice",
@@ -34,10 +35,15 @@ describe("facts fence — parse", () => {
   it("parses rows with rowNum, claim, confidence, source, active", () => {
     const facts = parseFactsFence(FENCE);
     expect(facts).toHaveLength(2);
+    // A narrow fence names no kind, so every row carries the decay floor. The
+    // old assertion expected NO kind key at all, which is what let a fence row
+    // reach `entity_facts.kind` as NULL — the one value confidence decay cannot
+    // see, so the row never aged.
     expect(facts[0]).toEqual({
       rowNum: 1,
       claim: "Founded Acme in 2017",
       confidence: 1,
+      kind: DEFAULT_FACT_KIND,
       source: "linkedin",
       active: true,
     });
@@ -46,6 +52,7 @@ describe("facts fence — parse", () => {
       rowNum: 2,
       claim: "Moved to Berlin",
       confidence: 0.9,
+      kind: DEFAULT_FACT_KIND,
       source: "email/x9f2",
       active: false,
     });

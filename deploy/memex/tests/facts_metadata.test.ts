@@ -18,6 +18,7 @@ import {
   type ParsedFact,
 } from "../src/core/facts-fence.ts";
 import { reconcileFactsForPage } from "../src/core/facts-reconcile.ts";
+import { DEFAULT_FACT_KIND } from "../src/core/facts-decay.ts";
 
 // ---------------------------------------------------------------------------
 // parser — header-driven column mapping
@@ -70,13 +71,16 @@ describe("parseFactsFence — metadata columns", () => {
       source: "src/a",
       active: true,
     });
-    expect(facts[0]!.kind).toBeUndefined();
+    // A legacy fence has no kind column, so its rows take the decay floor. The
+    // old assertion wanted `undefined` here, which reached the DB as a NULL
+    // kind — the shape decay skips, so those rows never aged.
+    expect(facts[0]!.kind).toBe(DEFAULT_FACT_KIND);
     expect(facts[0]!.notability).toBeUndefined();
     expect(facts[0]!.validFrom).toBeUndefined();
     expect(facts[0]!.validUntil).toBeUndefined();
   });
 
-  it("drops unrecognized kind / notability and invalid dates to undefined", () => {
+  it("floors an unrecognized kind and drops bad notability / dates to undefined", () => {
     const md = [
       FACTS_FENCE_BEGIN,
       "| # | claim | kind | confidence | notability | valid_from | valid_until | source |",
@@ -85,7 +89,9 @@ describe("parseFactsFence — metadata columns", () => {
       FACTS_FENCE_END,
     ].join("\n");
     const f = parseFactsFence(md)[0]!;
-    expect(f.kind).toBeUndefined();
+    // A hand-edited kind we cannot read is floored, not dropped: dropping it
+    // (the old assertion) left the row with the NULL kind decay ignores.
+    expect(f.kind).toBe(DEFAULT_FACT_KIND);
     expect(f.notability).toBeUndefined();
     expect(f.validFrom).toBeUndefined();
     expect(f.validUntil).toBeUndefined();
@@ -251,7 +257,7 @@ describe("reconcileFactsForPage — metadata projection", () => {
     });
   });
 
-  it("writes NULL metadata for a legacy narrow fence", async () => {
+  it("writes NULL metadata but a decayable kind for a legacy narrow fence", async () => {
     const body = [
       FACTS_FENCE_BEGIN,
       "| # | claim | confidence | source |",
@@ -271,9 +277,12 @@ describe("reconcileFactsForPage — metadata projection", () => {
          FROM entity_facts WHERE entity_slug = $1`,
       ["people/bob"],
     );
+    // `kind` used to be asserted NULL here. That was the bug: a fence-written
+    // fact with a blank kind is invisible to decay, so it outlived every row
+    // that named one. The other three columns are genuinely absent and stay NULL.
     expect(r.rows[0]).toMatchObject({
       fact: "Legacy",
-      kind: null,
+      kind: DEFAULT_FACT_KIND,
       notability: null,
       valid_from: null,
       valid_until: null,

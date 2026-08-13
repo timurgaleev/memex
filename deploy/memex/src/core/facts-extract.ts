@@ -9,6 +9,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { addFact } from "./facts.ts";
+import { DEFAULT_FACT_KIND } from "./facts-decay.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
 import {
   resolveSonnetFn,
@@ -184,13 +185,13 @@ function parseFirstJson(text: string): unknown {
  * the old unconditional "fact" default silently promotes an unlabelled claim to
  * the objective-claim kind, and returning null hands addFact a NULL kind, which
  * facts-decay reads as "never decays" — the mislabelled row would then outlive
- * every correctly typed one. "belief" is the honest floor: a claim whose type we
- * could not read is a stance, and it still ages.
+ * every correctly typed one. `DEFAULT_FACT_KIND` is the ledger-wide floor for
+ * exactly that case, shared so the extractor and the write path agree.
  */
 function normalizeFactKind(raw: unknown): FactKind {
-  if (typeof raw !== "string") return "belief";
+  if (typeof raw !== "string") return DEFAULT_FACT_KIND;
   const v = raw.trim().toLowerCase();
-  return FACT_KINDS.includes(v as FactKind) ? (v as FactKind) : "belief";
+  return FACT_KINDS.includes(v as FactKind) ? (v as FactKind) : DEFAULT_FACT_KIND;
 }
 
 /**

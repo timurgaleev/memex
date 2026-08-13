@@ -84,8 +84,13 @@ describe("addFact", () => {
     expect(b.inserted).toBe(false);
   });
 
-  it("manual entries (no chunk_id) skip dedup", async () => {
-    await addFact(storage, {
+  // This used to assert `inserted: true` — "manual entries skip dedup". That
+  // was the defect, not the contract: with on-write extraction running, every
+  // re-save of a page restated its claims through this path and the ledger grew
+  // a copy of each one per save. A restatement is the same claim, so it
+  // refreshes the row already on file.
+  it("collapses a restated claim onto the row already on file", async () => {
+    const first = await addFact(storage, {
       entity_slug: "people/alice",
       fact: "ex-CFO at Acme",
     });
@@ -93,7 +98,10 @@ describe("addFact", () => {
       entity_slug: "people/alice",
       fact: "ex-CFO at Acme",
     });
-    expect(second.inserted).toBe(true);
+    expect(second.inserted).toBe(false);
+    expect(second.id).toBe(first.id);
+    const rows = await listFacts(storage, "people/alice");
+    expect(rows).toHaveLength(1);
   });
 });
 

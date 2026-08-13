@@ -36,6 +36,7 @@ import {
   parseStringCell,
   escapeFenceCell,
 } from "./fence-shared.ts";
+import { DEFAULT_FACT_KIND } from "./facts-decay.ts";
 
 export const FACTS_FENCE_BEGIN = "<!--- memex:facts:begin -->";
 export const FACTS_FENCE_END = "<!--- memex:facts:end -->";
@@ -66,7 +67,13 @@ export interface ParsedFact {
   confidence: number;
   /** Provenance slug, or undefined. */
   source?: string;
-  /** Fact category (migration 037). Undefined when absent/unrecognized. */
+  /**
+   * Fact category (migration 037). A blank or unrecognized cell resolves to
+   * `DEFAULT_FACT_KIND` rather than staying empty: the reconcile pass projects
+   * this straight into `entity_facts.kind`, and decay cannot see a blank kind —
+   * a fence row that left the column out would never age. Optional only so a
+   * hand-built `ParsedFact` need not spell it out; the parser always sets it.
+   */
   kind?: FactKind;
   /** Notability ordinal (migration 037). Undefined when absent/unrecognized. */
   notability?: FactNotability;
@@ -102,10 +109,12 @@ function clampConfidence(raw: string | undefined): number {
   return Math.min(1, Math.max(0, n));
 }
 
-function normalizeKind(raw: string | undefined): FactKind | undefined {
-  if (raw === undefined) return undefined;
+/** An absent / blank / unrecognized kind cell floors to `DEFAULT_FACT_KIND` —
+ *  see `ParsedFact.kind` for why a fence row may not land kindless. */
+function normalizeKind(raw: string | undefined): FactKind {
+  if (raw === undefined) return DEFAULT_FACT_KIND;
   const v = raw.trim().toLowerCase();
-  return KIND_VALUES.has(v) ? (v as FactKind) : undefined;
+  return KIND_VALUES.has(v) ? (v as FactKind) : DEFAULT_FACT_KIND;
 }
 
 function normalizeNotability(raw: string | undefined): FactNotability | undefined {
@@ -334,12 +343,11 @@ export function parseFactsFence(markdown: string, warnings?: string[]): ParsedFa
       rowNum: Number.isInteger(rowNumRaw) && rowNumRaw > 0 ? rowNumRaw : seq,
       claim: claim.trim(),
       confidence: clampConfidence(cellAt(cells, colMap.confidence)),
+      kind: normalizeKind(cellAt(cells, colMap.kind)),
       active: !struck,
     };
     const source = parseStringCell(cellAt(cells, colMap.source) ?? "");
     if (source !== undefined) fact.source = source;
-    const kind = normalizeKind(cellAt(cells, colMap.kind));
-    if (kind !== undefined) fact.kind = kind;
     const notability = normalizeNotability(cellAt(cells, colMap.notability));
     if (notability !== undefined) fact.notability = notability;
     const validFrom = normalizeDate(cellAt(cells, colMap.validFrom));
