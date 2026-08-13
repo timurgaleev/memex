@@ -1,5 +1,5 @@
 /**
- * Push-based context — resolver core (Wave-3 parity).
+ * Push-based context — resolver core.
  *
  * Given salient candidate surface-forms (from entity-salience.ts) and an
  * Engine, resolve the ones that map to an EXISTING brain page and return

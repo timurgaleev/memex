@@ -3,8 +3,7 @@
  * statement_timeout (57014) or a connection reset is retried up to 3 times;
  * the whole transaction rolls back between attempts, so nothing is
  * half-recorded. A non-retryable error fails fast on the first attempt. On
- * exhaustion the runner throws `MigrationRetryExhausted`. Adapted from the
- * the migration retry wrapper.
+ * exhaustion the runner throws `MigrationRetryExhausted`.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";

@@ -1,7 +1,7 @@
 /**
  * `memex watch [--json] [--window-turns N] [--max-pages N] [--min-confidence X]`
  *
- * Push-based context transport (Wave-3 parity). Reads conversation turns from
+ * Push-based context transport. Reads conversation turns from
  * stdin AS THEY ARRIVE (plain text = a user turn; `user:` / `assistant:`
  * prefixed lines set the role), maintains a rolling window in-process, and
  * volunteers confidence-gated brain pages to stdout after every turn. The

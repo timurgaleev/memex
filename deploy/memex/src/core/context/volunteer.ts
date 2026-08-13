@@ -1,6 +1,6 @@
 /**
  * Push-based context — the brain VOLUNTEERS relevant pages from a rolling
- * conversation window instead of waiting to be asked (Wave-3 parity).
+ * conversation window instead of waiting to be asked.
  *
  *   window text -> parseWindow() -> turns[] -> extractCandidatesFromWindow()
  *        |                                       (recency + frequency +

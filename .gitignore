@@ -48,7 +48,7 @@ credentials
 
 # Per-installation operational notes (kept out of the public repo).
 OPERATIONS_NOTES.md
-PARITY.md
+*.local.md
 
 # Python
 __pycache__/

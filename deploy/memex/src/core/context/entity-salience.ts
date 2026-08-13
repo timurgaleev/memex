@@ -1,5 +1,5 @@
 /**
- * Push-based context — pure entity-salience extractor (Wave-3 parity).
+ * Push-based context — pure entity-salience extractor.
  *
  * Zero-LLM, zero-DB. Scans conversation turn text for candidate entity
  * surface-forms (capitalized token runs, @handles) worth resolving against the

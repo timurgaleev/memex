@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`TODO.md` carries the work, not the research behind it.** The file had grown
+  to 4038 lines, most of it audit transcripts — findings, the refutation log
+  that killed a third of them, and citations into trees that are not this one.
+  None of that is actionable and none of it belongs in a public backlog. What
+  remains is the work itself: open items, the decisions behind each deferral,
+  and where in this repo each one lands. Doc comments picked up the same trim —
+  a few carried a build-wave label that meant nothing outside the session that
+  coined it.
+
 ## [1.121.0] — 2026-08-13
 
 ### Added

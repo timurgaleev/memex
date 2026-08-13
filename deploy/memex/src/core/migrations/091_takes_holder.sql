@@ -9,7 +9,7 @@
 -- AI hunch) | 'people/<slug>' | 'companies/<slug>' (fence grammar; legacy
 -- bare slugs tolerated).
 --
--- DEFAULT / backfill = 'world' (deliberate, see PARITY.md). memex retrofits a
+-- DEFAULT / backfill = 'world', deliberately. memex retrofits a
 -- holder onto pre-existing takes that were ALL machine-proposed and, crucially,
 -- were world-visible (unfiltered) before this column existed. The operator
 -- reads them daily through a REMOTE client (claude.ai / ChatGPT), which the
