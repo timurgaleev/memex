@@ -12,13 +12,15 @@ import type { Engine } from "../src/core/engine/interface.ts";
 import {
   proposeTakesPhase,
   gradeTakesPhase,
+  gradeTakeEnsemble,
   parseTakesResponse,
   parseVerdictResponse,
   aggregateVerdicts,
 } from "../src/core/synthesis/takes.ts";
+import { STOP_REASON_MAX_TOKENS } from "../src/core/llm/sonnet.ts";
 import type { LlmFn } from "../src/core/llm/haiku.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
-import { BudgetTracker } from "../src/core/budget.ts";
+import { BudgetTracker, costUsd } from "../src/core/budget.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -60,6 +62,40 @@ const seqSonnet = (texts: string[]): SonnetFn => {
     usage: { inputTokens: 100, outputTokens: 50 },
   });
 };
+
+/**
+ * Scripted transports: one reply per call (the last repeats), recording the
+ * output cap every call asked for. A `stopReason` is Bedrock saying it cut the
+ * answer off at that cap — the signal a structured-output caller has to act on.
+ */
+function scriptedLlm(replies: { text: string; stopReason?: string }[]) {
+  const caps: number[] = [];
+  const fn: LlmFn = async (input) => {
+    const r = replies[Math.min(caps.length, replies.length - 1)]!;
+    caps.push(input.maxTokens);
+    return {
+      text: r.text,
+      modelId: "fake-nova",
+      ...(r.stopReason ? { stopReason: r.stopReason } : {}),
+    };
+  };
+  return { fn, caps };
+}
+
+function scriptedSonnet(replies: { text: string; stopReason?: string }[]) {
+  const caps: number[] = [];
+  const fn: SonnetFn = async (input) => {
+    const r = replies[Math.min(caps.length, replies.length - 1)]!;
+    caps.push(input.maxTokens);
+    return {
+      text: r.text,
+      modelId: "eu.anthropic.claude-sonnet-4-6",
+      usage: { inputTokens: 100, outputTokens: 50 },
+      ...(r.stopReason ? { stopReason: r.stopReason } : {}),
+    };
+  };
+  return { fn, caps };
+}
 
 describe("parseTakesResponse / parseVerdictResponse", () => {
   it("parses takes and clamps weight", () => {
@@ -334,6 +370,29 @@ describe("gradeTakesPhase — Sonnet ensemble (S1)", () => {
     expect(Number(rows[0]?.n)).toBe(0);
   });
 
+  it("a truncated judge with no readable verdict is NOT memoized as unresolvable", async () => {
+    await seedTake(1, "claim");
+    const { fn, caps } = scriptedSonnet([
+      { text: `{"verdict":"corr`, stopReason: STOP_REASON_MAX_TOKENS },
+    ]);
+    const r = await gradeTakesPhase(engine, {
+      ensemble: true,
+      evidenceFn: async () => "evidence",
+      sonnetFn: fn,
+      judges: 1,
+    });
+    expect(caps).toEqual([500, 1000]); // the judge bought more room once
+    // Contrast with "judges spent but all unparseable" above: THAT writes an
+    // unresolvable row. A judge the cap cut off never gave a verdict at all, and
+    // the row would key (take_id, prompt_version, evidence_sig) forever.
+    expect(r.gradesWritten).toBe(0);
+    expect(r.errors.some((e) => e.includes("truncated"))).toBe(true);
+    const { rows } = await engine.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM synth_take_grades`,
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+  });
+
   it("ensemble and single-pass grades coexist under distinct prompt versions", async () => {
     await seedTake(1, "coexist claim");
     await gradeTakesPhase(engine, {
@@ -350,5 +409,164 @@ describe("gradeTakesPhase — Sonnet ensemble (S1)", () => {
       `SELECT count(*)::int AS n FROM synth_take_grades`,
     );
     expect(Number(rows[0]?.n)).toBe(2); // two rows, different prompt_version
+  });
+});
+
+/**
+ * Output-cap truncation on the take phases.
+ *
+ * Bedrock reports `stopReason: "max_tokens"` when the answer ran out of room.
+ * These calls run at temperature 0, so a same-cap retry — this run or the next
+ * — truncates in the identical place: the only useful retry buys MORE room, and
+ * only when the budget covers it. What must never happen is a truncated payload
+ * landing as a finished result — the propose tuple and the grade key are both
+ * memoized for good.
+ */
+describe("propose_takes — truncated extraction", () => {
+  const CUT = `[{"claim_text":"the market will`;
+  const WHOLE = `[{"claim_text":"the market will fall","kind":"prediction","weight":0.7}]`;
+
+  it("retries once at a LARGER cap and keeps what the second call returned", async () => {
+    await seedDoc("d1", "Q".repeat(500));
+    const { fn, caps } = scriptedLlm([
+      { text: CUT, stopReason: STOP_REASON_MAX_TOKENS },
+      { text: WHOLE },
+    ]);
+    const r = await proposeTakesPhase(engine, { llmFn: fn });
+    expect(caps).toEqual([1200, 2400]); // never the same cap twice
+    expect(r.takesQueued).toBe(1);
+    expect(r.errors).toEqual([]);
+    const { rows } = await engine.query<{ claim_text: string }>(
+      `SELECT claim_text FROM synth_takes`,
+    );
+    expect(rows[0]?.claim_text).toBe("the market will fall");
+  });
+
+  it("still truncated → nothing memoized, and the error names the cap", async () => {
+    await seedDoc("d1", "Q".repeat(500));
+    const { fn, caps } = scriptedLlm([{ text: CUT, stopReason: STOP_REASON_MAX_TOKENS }]);
+    const r = await proposeTakesPhase(engine, { llmFn: fn });
+    expect(caps.length).toBe(2); // one retry, not a loop
+    expect(r.takesQueued).toBe(0);
+    expect(r.tombstonesWritten).toBe(0);
+    expect(r.errors[0]).toContain("truncated");
+    // No row at all — not even the zero-yield tombstone, which would tell
+    // discovery this document is done.
+    const { rows } = await engine.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM synth_takes`,
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+    // ...so the next run picks the document up again.
+    const again = await proposeTakesPhase(engine, {
+      llmFn: scriptedLlm([{ text: WHOLE }]).fn,
+    });
+    expect(again.documentsScanned).toBe(1);
+    expect(again.takesQueued).toBe(1);
+  });
+});
+
+describe("grade_takes — truncated single judge", () => {
+  async function seedTake(claim: string): Promise<void> {
+    await engine.query(
+      `INSERT INTO synth_takes (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, status, model_id, generated_at)
+       VALUES ('tk-1', 'd1', 'h', 'v1-nova', $1, 'prediction', 0.7, 'queued', 'm', now() - interval '365 days')`,
+      [claim],
+    );
+  }
+
+  const CUT = `{"verdict":"corr`;
+  const WHOLE = `{"verdict":"correct","confidence":0.9,"reasoning":"matches"}`;
+
+  it("retries once at a LARGER cap and grades on the second answer", async () => {
+    await seedTake("the claim");
+    const { fn, caps } = scriptedLlm([
+      { text: CUT, stopReason: STOP_REASON_MAX_TOKENS },
+      { text: WHOLE },
+    ]);
+    const r = await gradeTakesPhase(engine, { evidenceFn: async () => "e", llmFn: fn });
+    expect(caps).toEqual([500, 1000]);
+    expect(r.gradesWritten).toBe(1);
+    const { rows } = await engine.query<{ verdict: string }>(
+      `SELECT verdict FROM synth_take_grades`,
+    );
+    expect(rows[0]?.verdict).toBe("correct");
+  });
+
+  it("still truncated → no grade row, and the take stays in the pool", async () => {
+    await seedTake("the claim");
+    const { fn } = scriptedLlm([{ text: CUT, stopReason: STOP_REASON_MAX_TOKENS }]);
+    const r = await gradeTakesPhase(engine, { evidenceFn: async () => "e", llmFn: fn });
+    // NOT the unresolvable parse-failure row: that row keys (take_id,
+    // prompt_version, evidence_sig) and would retire the take over a ceiling
+    // the operator can raise.
+    expect(r.gradesWritten).toBe(0);
+    expect(r.errors[0]).toContain("truncated");
+    const { rows } = await engine.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM synth_take_grades`,
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+    const { rows: takes } = await engine.query<{ status: string }>(
+      `SELECT status FROM synth_takes`,
+    );
+    expect(takes[0]?.status).toBe("queued");
+    // Re-graded next run once the answer fits.
+    const again = await gradeTakesPhase(engine, {
+      evidenceFn: async () => "e",
+      llmFn: scriptedLlm([{ text: WHOLE }]).fn,
+    });
+    expect(again.takesScanned).toBe(1);
+    expect(again.gradesWritten).toBe(1);
+  });
+
+  it("a truncated response that still closed its verdict is kept", async () => {
+    await seedTake("the claim");
+    // The object parsed — the cut fell after it, on trailing prose. Nothing the
+    // grade needs was lost, so this is a verdict, not a failure.
+    const { fn } = scriptedLlm([
+      { text: `${WHOLE}\n\nNotes on the reason`, stopReason: STOP_REASON_MAX_TOKENS },
+    ]);
+    const r = await gradeTakesPhase(engine, { evidenceFn: async () => "e", llmFn: fn });
+    expect(r.gradesWritten).toBe(1);
+  });
+});
+
+describe("gradeTakeEnsemble — a truncated judge respects the shared budget", () => {
+  const CUT = `{"verdict":"corr`;
+  const WHOLE = `{"verdict":"correct","confidence":0.9,"reasoning":"r"}`;
+
+  it("buys more room for a cut judge and prices BOTH calls", async () => {
+    const { fn, caps } = scriptedSonnet([
+      { text: CUT, stopReason: STOP_REASON_MAX_TOKENS },
+      { text: WHOLE },
+    ]);
+    const budget = new BudgetTracker(1, "test");
+    const r = await gradeTakeEnsemble("claim", "evidence", {
+      sonnetFn: fn,
+      budget,
+      judges: 1,
+    });
+    expect(caps).toEqual([500, 1000]);
+    expect(r.grade?.verdict).toBe("correct");
+    expect(r.truncatedJudges).toBe(0);
+    // 2 x {100 in, 50 out} on Sonnet — the retry is not a free call.
+    expect(budget.totalSpent()).toBeCloseTo(
+      costUsd("eu.anthropic.claude-sonnet-4-6", { inputTokens: 200, outputTokens: 100 }),
+      10,
+    );
+  });
+
+  it("skips the enlarged retry when it would blow the cap, and reports the cut", async () => {
+    const { fn, caps } = scriptedSonnet([{ text: CUT, stopReason: STOP_REASON_MAX_TOKENS }]);
+    // Room for one judge, not for the doubled-output retry on top of it.
+    const budget = new BudgetTracker(0.01, "test");
+    const r = await gradeTakeEnsemble("claim", "evidence", {
+      sonnetFn: fn,
+      budget,
+      judges: 1,
+    });
+    expect(caps).toEqual([500]); // paying twice for the identical cut is the bug
+    expect(r.callsMade).toBe(1);
+    expect(r.truncatedJudges).toBe(1);
+    expect(r.grade).toBeNull();
   });
 });
