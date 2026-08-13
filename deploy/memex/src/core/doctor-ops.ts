@@ -1,18 +1,23 @@
 /**
  * Ops-facing brain-health probes for `memex doctor`: stale cycle locks, job
  * queue depth/wedge, applied-vs-available schema version, embedding-width
- * consistency, and content-hash duplicate pages. Each returns {ok, detail};
- * the caller swallows a probe error into a WARN. All read-only, config-free,
- * no LLM — the substrate already exists (cycle_locks mig 050, jobs mig 006,
- * migrations table, vector(N), pages.content_hash).
+ * consistency, and content-hash duplicate pages. Each returns
+ * {ok, status, detail}; the caller turns a probe error into a `warn` verdict.
+ * All read-only, config-free, no LLM — the substrate already exists
+ * (cycle_locks mig 050, jobs mig 006, migrations table, vector(N),
+ * pages.content_hash).
  */
+import type { CheckStatus } from "./doctor-categories.ts";
 import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
 import { EMBED_DIMENSIONS } from "./embedding.ts";
 import { grammarSelfCheck } from "./chunkers/parsers.ts";
 
 export interface OpsCheckResult {
+  /** Exit-code driver — false only on `status:"fail"`. */
   ok: boolean;
+  /** Three-state verdict; a `warn` is a real signal that must not gate. */
+  status: CheckStatus;
   detail: string;
 }
 
@@ -30,6 +35,7 @@ export async function checkStaleLocks(engine: Engine): Promise<OpsCheckResult> {
   const n = r.rows[0]?.n ?? 0;
   return {
     ok: true,
+    status: "ok",
     detail:
       n === 0
         ? "no stale cycle locks"
@@ -52,11 +58,16 @@ export async function checkStaleLocks(engine: Engine): Promise<OpsCheckResult> {
  * to match the probe shape.
  */
 export async function checkGrammars(_engine: Engine): Promise<OpsCheckResult> {
+  // Resolved across two branches: the real self-check (loads each grammar and
+  // parses a probe) from the code-index work, carrying the typed verdict from
+  // the warn-tier work. The manifest comparison it replaced could only ever
+  // confirm the blobs were the blobs.
   const results = await grammarSelfCheck();
   const broken = results.filter((r) => !r.ok);
   if (broken.length === 0) {
     return {
       ok: true,
+      status: "ok",
       detail: `${results.length} grammar(s) load and parse a probe: ${results
         .map((r) => r.language)
         .join(", ")}`,
@@ -64,6 +75,7 @@ export async function checkGrammars(_engine: Engine): Promise<OpsCheckResult> {
   }
   return {
     ok: false,
+    status: "fail",
     detail:
       `unusable grammar(s): ${broken
         .map((b) => `${b.language} failed at ${b.stage} — ${b.error}`)
@@ -104,6 +116,7 @@ export async function checkQueueHealth(engine: Engine): Promise<OpsCheckResult> 
   const wedged = r.rows[0]?.wedged ?? 0;
   return {
     ok: wedged === 0,
+    status: wedged === 0 ? "ok" : "fail",
     detail:
       `pending=${pending} running=${running}` +
       (wedged > 0 ? ` — ${wedged} wedged (running > ${wedgeSec}s)` : ""),
@@ -134,6 +147,7 @@ export async function checkSchemaVersion(
   const pending = available > applied;
   return {
     ok: !pending,
+    status: pending ? "fail" : "ok",
     detail: pending
       ? `schema at migration ${applied} (${appliedCount} applied) — ${available - applied} unapplied through ${available}; run \`memex apply-migrations\``
       : `schema at migration ${applied} (${appliedCount} applied), up to date`,
@@ -165,11 +179,12 @@ export async function checkInvalidIndexes(
   );
   const bad = r.rows;
   if (bad.length === 0) {
-    return { ok: true, detail: "all indexes valid" };
+    return { ok: true, status: "ok", detail: "all indexes valid" };
   }
   const names = bad.map((b) => `${b.indexname} (on ${b.tablename})`).join(", ");
   return {
     ok: false,
+    status: "fail",
     detail: `${bad.length} invalid index(es) — Postgres ignores these, so lookups silently seq-scan: ${names}. Recover with \`REINDEX INDEX CONCURRENTLY <name>\` (online, no write lock)`,
   };
 }
@@ -178,8 +193,8 @@ export async function checkInvalidIndexes(
  * Duplicate live pages: the same (source_id, content_hash) present under more
  * than one slug — the fingerprint of a path remap or a double import landing
  * one body twice. Retrieval still works (both copies rank, dedup collapses
- * near-twins), so this is informational (ok:true); the sample names the slug
- * groups so the operator knows what to reconcile.
+ * near-twins), so a duplicate group warns rather than fails (ok:true); the
+ * sample names the slug groups so the operator knows what to reconcile.
  */
 export async function checkDuplicatePages(
   engine: Engine,
@@ -198,12 +213,15 @@ export async function checkDuplicatePages(
   );
   const total = r.rows[0]?.total ?? 0;
   if (total === 0) {
-    return { ok: true, detail: "no duplicate pages" };
+    return { ok: true, status: "ok", detail: "no duplicate pages" };
   }
   const sample = r.rows.map((x) => `[${x.slugs}]`).join("; ");
+  // The warn tier is the typed field now; the old `WARN:` prefix said the same
+  // thing in a form only a string match could read.
   return {
     ok: true,
-    detail: `WARN: ${total} duplicate page group(s) — same source + content under multiple slugs, e.g. ${sample}`,
+    status: "warn",
+    detail: `${total} duplicate page group(s) — same source + content under multiple slugs, e.g. ${sample}`,
   };
 }
 
@@ -226,11 +244,12 @@ export async function checkEmbeddingWidth(
   );
   const widths = r.rows.map((x) => x.dims);
   if (widths.length === 0) {
-    return { ok: true, detail: "no embeddings yet" };
+    return { ok: true, status: "ok", detail: "no embeddings yet" };
   }
   if (widths.length > 1) {
     return {
       ok: false,
+      status: "fail",
       detail: `mixed embedding widths present (${widths.join(", ")}; expected ${EMBED_DIMENSIONS}) — a dimension migration is incomplete; finish the re-embed`,
     };
   }
@@ -238,6 +257,7 @@ export async function checkEmbeddingWidth(
   const ok = stored === EMBED_DIMENSIONS;
   return {
     ok,
+    status: ok ? "ok" : "fail",
     detail: ok
       ? `embeddings are ${stored}-dim (matches configured ${EMBED_DIMENSIONS})`
       : `stored embeddings are ${stored}-dim but config expects ${EMBED_DIMENSIONS} — reindex or align MEMEX_EMBED_DIM`,

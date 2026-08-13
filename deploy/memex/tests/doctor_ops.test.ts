@@ -37,6 +37,7 @@ describe("checkStaleLocks", () => {
   it("reports none on a clean store", async () => {
     const r = await checkStaleLocks(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("no stale");
   });
 
@@ -69,6 +70,7 @@ describe("checkQueueHealth", () => {
     const r = await checkQueueHealth(storage.engine());
     expect(r.detail).toContain("pending=1");
     expect(r.ok).toBe(false); // j2 wedged past the 1h default threshold
+    expect(r.status).toBe("fail");
     expect(r.detail).toContain("wedged");
   });
 });
@@ -77,6 +79,7 @@ describe("checkSchemaVersion", () => {
   it("is up to date on a freshly migrated store", async () => {
     const r = await checkSchemaVersion(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("up to date");
   });
 
@@ -88,6 +91,7 @@ describe("checkSchemaVersion", () => {
       .exec("DELETE FROM migrations WHERE id = (SELECT MAX(id) FROM migrations)");
     const r = await checkSchemaVersion(storage.engine());
     expect(r.ok).toBe(false);
+    expect(r.status).toBe("fail");
 
     const verb = /run `memex ([a-z-]+)`/.exec(r.detail)?.[1];
     expect(verb).toBeDefined();
@@ -100,6 +104,7 @@ describe("checkEmbeddingWidth", () => {
   it("reports no embeddings on a fresh store", async () => {
     const r = await checkEmbeddingWidth(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("no embeddings");
   });
 });
@@ -108,6 +113,7 @@ describe("checkInvalidIndexes", () => {
   it("reports all valid on a freshly-migrated store", async () => {
     const r = await checkInvalidIndexes(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("all indexes valid");
   });
 
@@ -123,6 +129,7 @@ describe("checkInvalidIndexes", () => {
     );
     const r = await checkInvalidIndexes(e);
     expect(r.ok).toBe(false);
+    expect(r.status).toBe("fail");
     expect(r.detail).toContain("doctor_test_idx");
   });
 });
@@ -136,6 +143,7 @@ describe("checkDuplicatePages", () => {
   it("reports none on a clean store", async () => {
     const r = await checkDuplicatePages(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("no duplicate pages");
   });
 
@@ -144,6 +152,9 @@ describe("checkDuplicatePages", () => {
     await insertPage("notes/b", "hash-dup");
     const r = await checkDuplicatePages(storage.engine());
     expect(r.ok).toBe(true); // informational — retrieval still works
+    // The verdict is the typed field now; the old assertion could only have
+    // pinned the `WARN:` prefix, which no consumer but one string match read.
+    expect(r.status).toBe("warn");
     expect(r.detail).toContain("1 duplicate page group");
     expect(r.detail).toContain("notes/a, notes/b");
   });
@@ -157,7 +168,27 @@ describe("checkDuplicatePages", () => {
       .exec("UPDATE pages SET deleted_at = NOW() WHERE slug = 'notes/c'");
     const r = await checkDuplicatePages(storage.engine());
     expect(r.ok).toBe(true);
+    expect(r.status).toBe("ok");
     expect(r.detail).toContain("no duplicate pages");
+  });
+});
+
+describe("ops probe exit-code invariant", () => {
+  // Every ops probe reports both fields; `ok` is only the exit-code view of
+  // `status`, so the two can never disagree about what fails the process.
+  it("holds ok === (status !== 'fail') across every probe on a clean store", async () => {
+    const e = storage.engine();
+    for (const probe of [
+      checkStaleLocks,
+      checkQueueHealth,
+      checkSchemaVersion,
+      checkEmbeddingWidth,
+      checkInvalidIndexes,
+      checkDuplicatePages,
+    ]) {
+      const r = await probe(e);
+      expect(r.ok).toBe(r.status !== "fail");
+    }
   });
 });
 

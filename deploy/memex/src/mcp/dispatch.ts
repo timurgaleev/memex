@@ -186,6 +186,7 @@ import {
   checkSourceRoutingHealth,
   type TenancyCheck,
 } from "../core/doctor-tenancy.ts";
+import { couldNotCheck, worstStatus } from "../core/doctor-categories.ts";
 import {
   checkStaleLocks,
   checkQueueHealth,
@@ -3596,27 +3597,33 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     checks.push({
       name: "stats",
       ok: true,
+      status: "ok",
       detail: `${stats.documents} documents / ${stats.chunks} chunks / ${stats.embeddings} embeddings`,
     });
   } catch (e) {
     checks.push({
       name: "stats",
       ok: false,
+      status: "fail",
       detail: e instanceof Error ? e.message : String(e),
     });
   }
   try {
     const health = await brainHealthMetrics(engine);
     const covPct = Math.round(health.embed_coverage_pct * 100);
+    const covered =
+      health.embeddable_chunks === 0 || health.embed_coverage_pct >= 0.5;
     checks.push({
       name: "embed-coverage",
-      ok: health.embeddable_chunks === 0 || health.embed_coverage_pct >= 0.5,
+      ok: covered,
+      status: covered ? "ok" : "fail",
       detail: `${covPct}% (${health.embedded_chunks}/${health.embeddable_chunks} embeddable), queue ${health.queue_depth}, failed 24h ${health.failed_jobs_24h}`,
     });
   } catch (e) {
     checks.push({
       name: "embed-coverage",
       ok: false,
+      status: "fail",
       detail: e instanceof Error ? e.message : String(e),
     });
   }
@@ -3631,6 +3638,7 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
       checks.push({
         name: check.name,
         ok: false,
+        status: "fail",
         detail: e instanceof Error ? e.message : String(e),
       });
     }
@@ -3644,23 +3652,28 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
   ] as const) {
     try {
       const r = await probe(engine);
-      checks.push({ name, ok: r.ok, detail: r.detail });
+      checks.push({ name, ok: r.ok, status: r.status, detail: r.detail });
     } catch (e) {
-      checks.push({
-        name,
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      // A probe that threw is a `warn`, not a pass — the same contract the CLI
+      // doctor follows. It stays ok:true so one unreadable probe can't make an
+      // otherwise-serving brain look broken to the agent.
+      checks.push(couldNotCheck(name, e));
     }
   }
   try {
     const worker = await readWorkerLock(engine, DEFAULT_WORKER_LOCK_ID);
     checks.push(
       worker === null
-        ? { name: "job-worker", ok: true, detail: "no worker has held the lock yet" }
+        ? {
+            name: "job-worker",
+            ok: true,
+            status: "ok",
+            detail: "no worker has held the lock yet",
+          }
         : {
             name: "job-worker",
             ok: !worker.stale,
+            status: worker.stale ? "fail" : "ok",
             detail: worker.stale
               ? `lock holder '${worker.holder}' heartbeat is stale (${worker.staleMs}ms)`
               : `held by '${worker.holder}', heartbeat fresh`,
@@ -3670,10 +3683,15 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     checks.push({
       name: "job-worker",
       ok: false,
+      status: "fail",
       detail: e instanceof Error ? e.message : String(e),
     });
   }
-  return jsonResult({ ok: checks.every((c) => c.ok), checks });
+  return jsonResult({
+    ok: checks.every((c) => c.ok),
+    status: worstStatus(checks.map((c) => c.status)),
+    checks,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -17,16 +17,21 @@
  *     silently collapsed elsewhere) and documents with NULL source_id
  *     (invisible to every scoped reader — the migration-071 class). Warns.
  *
- * All three are read-only, cheap, and swallow their own errors into a WARN
- * detail so a probe failure never crashes the doctor.
+ * All three are read-only, cheap, and turn their own errors into a `warn`
+ * verdict so a probe failure never crashes the doctor — and never passes for a
+ * clean bill either.
  */
+import { couldNotCheck, type CheckStatus } from "./doctor-categories.ts";
 import type { Engine } from "./engine/interface.ts";
 import { collectPerSourceHealth } from "./source-health.ts";
 
 /** Same shape as the doctor's internal Check. */
 export interface TenancyCheck {
   name: string;
+  /** Exit-code driver — false only on `status:"fail"`. */
   ok: boolean;
+  /** Three-state verdict; a `warn` is a real signal that must not gate. */
+  status: CheckStatus;
   detail: string;
 }
 
@@ -38,8 +43,8 @@ function toInt(v: unknown): number {
 /**
  * Per-source embed-coverage health on a multi-source brain. Single-source
  * short-circuits to ok. Severe coverage collapse fails; partial coverage and
- * a failed-job burst warn (ok:true with a WARN detail, the doctor's warn
- * idiom).
+ * a failed-job burst warn (`status:"warn"`, ok:true — it reports without
+ * gating the exit code).
  */
 export async function checkFederationHealth(
   engine: Engine,
@@ -50,7 +55,12 @@ export async function checkFederationHealth(
       `SELECT COUNT(*)::int AS n FROM sources`,
     );
     if (toInt(srcCount.rows[0]?.n) <= 1) {
-      return { name, ok: true, detail: "single-source brain (no federation to check)" };
+      return {
+        name,
+        ok: true,
+        status: "ok",
+        detail: "single-source brain (no federation to check)",
+      };
     }
     // The NULL-source '(unclassified)' bucket is source-routing-health's
     // problem — a reindex hint keyed on it would be bogus.
@@ -86,14 +96,24 @@ export async function checkFederationHealth(
       warns.push(`${failed24h} job failure(s) in 24h — check 'memex jobs list --status failed'`);
     }
     if (fails.length > 0) {
-      return { name, ok: false, detail: `${fails.length} federation failure(s): ${fails.join("; ")}` };
+      return {
+        name,
+        ok: false,
+        status: "fail",
+        detail: `${fails.length} federation failure(s): ${fails.join("; ")}`,
+      };
     }
     if (warns.length > 0) {
-      return { name, ok: true, detail: `WARN ${warns.length} federation warning(s): ${warns.join("; ")}` };
+      return {
+        name,
+        ok: true,
+        status: "warn",
+        detail: `${warns.length} federation warning(s): ${warns.join("; ")}`,
+      };
     }
-    return { name, ok: true, detail: `${rows.length} source(s) healthy` };
+    return { name, ok: true, status: "ok", detail: `${rows.length} source(s) healthy` };
   } catch (e) {
-    return { name, ok: true, detail: `WARN check failed: ${e instanceof Error ? e.message : String(e)}` };
+    return couldNotCheck(name, e);
   }
 }
 
@@ -119,7 +139,7 @@ export async function checkOauthClientHealth(
         WHERE deleted_at IS NULL`,
     );
     if (r.rows.length === 0) {
-      return { name, ok: true, detail: "no OAuth clients registered" };
+      return { name, ok: true, status: "ok", detail: "no OAuth clients registered" };
     }
     const broken = r.rows.filter(
       (row) => row.method !== "none" && (row.hash === null || row.hash === ""),
@@ -129,15 +149,21 @@ export async function checkOauthClientHealth(
       return {
         name,
         ok: false,
+        status: "fail",
         detail:
           `${broken.length} confidential OAuth client(s) have a NULL/empty secret hash: ${ids}` +
           (broken.length > 5 ? ` (+${broken.length - 5} more)` : "") +
           " — revoke and re-register each with 'memex auth register-client'",
       };
     }
-    return { name, ok: true, detail: `${r.rows.length} OAuth client(s); all auth shapes consistent` };
+    return {
+      name,
+      ok: true,
+      status: "ok",
+      detail: `${r.rows.length} OAuth client(s); all auth shapes consistent`,
+    };
   } catch (e) {
-    return { name, ok: true, detail: `WARN check failed: ${e instanceof Error ? e.message : String(e)}` };
+    return couldNotCheck(name, e);
   }
 }
 
@@ -162,7 +188,12 @@ export async function checkSourceRoutingHealth(
         ORDER BY s.id`,
     );
     if (perSource.rows.length === 0) {
-      return { name, ok: true, detail: "single-source brain (no routing to check)" };
+      return {
+        name,
+        ok: true,
+        status: "ok",
+        detail: "single-source brain (no routing to check)",
+      };
     }
     const warns: string[] = [];
     const empty = perSource.rows.filter((r) => toInt(r.n) === 0).map((r) => r.id);
@@ -183,14 +214,15 @@ export async function checkSourceRoutingHealth(
       );
     }
     if (warns.length > 0) {
-      return { name, ok: true, detail: `WARN ${warns.join("; ")}` };
+      return { name, ok: true, status: "warn", detail: warns.join("; ") };
     }
     return {
       name,
       ok: true,
+      status: "ok",
       detail: `${perSource.rows.length} non-default source(s); all populated, no NULL-source documents`,
     };
   } catch (e) {
-    return { name, ok: true, detail: `WARN check failed: ${e instanceof Error ? e.message : String(e)}` };
+    return couldNotCheck(name, e);
   }
 }

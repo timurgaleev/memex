@@ -16,7 +16,13 @@ import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.
 import { Storage } from "../core/storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import type { DatabaseConfig } from "../core/config.ts";
-import { categorize, type CheckCategory } from "../core/doctor-categories.ts";
+import {
+  categorize,
+  couldNotCheck,
+  worstStatus,
+  type CheckCategory,
+  type CheckStatus,
+} from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
 import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
@@ -64,8 +70,24 @@ export function engineCheckDetail(db: DatabaseConfig): string {
 
 interface Check {
   name: string;
+  /**
+   * The exit-code driver, kept binary on purpose: a `warn` stays true, so a
+   * degraded-but-running brain never turns every cron probe red.
+   */
   ok: boolean;
+  /** The honest verdict — see CheckStatus. Invariant: ok === (status !== "fail"). */
+  status: CheckStatus;
   detail?: string;
+}
+
+/**
+ * A check that RAN to completion: a pass, or a real failure the exit code
+ * gates on. The two fields are derived from one boolean here so they can never
+ * drift apart — the honest three-state cases (`warn`) are written out
+ * explicitly instead.
+ */
+function verdict(name: string, ok: boolean, detail: string): Check {
+  return { name, ok, status: ok ? "ok" : "fail", detail };
 }
 
 /** A check as rendered: the raw check plus its category. */
@@ -90,21 +112,18 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   // 1. config file
   const cfgPath = opts.configPath ?? defaultConfigPath();
   if (!existsSync(cfgPath)) {
-    checks.push({
-      name: "config",
-      ok: false,
-      detail: `missing at ${cfgPath} — run 'memex init --pglite'`,
-    });
+    checks.push(
+      verdict("config", false, `missing at ${cfgPath} — run 'memex init --pglite'`),
+    );
   } else {
     try {
       config = loadConfig(cfgPath);
-      checks.push({ name: "config", ok: true, detail: cfgPath });
+      checks.push(verdict("config", true, cfgPath));
     } catch (e) {
-      checks.push({
-        name: "config",
-        ok: false,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      // Not a "could not check": an unparseable config IS the fault.
+      checks.push(
+        verdict("config", false, e instanceof Error ? e.message : String(e)),
+      );
     }
   }
 
@@ -114,11 +133,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     try {
       storage = new Storage(config);
       await storage.init();
-      checks.push({
-        name: "pglite",
-        ok: true,
-        detail: engineCheckDetail(config.database),
-      });
+      checks.push(verdict("pglite", true, engineCheckDetail(config.database)));
     } catch (e) {
       // A diagnosis you can only get by opening the thing that will not open is
       // no diagnosis. Read the directory itself — pure filesystem, no driver.
@@ -130,7 +145,9 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
           : e instanceof Error
             ? e.message
             : String(e);
-      checks.push({ name: "pglite", ok: false, detail });
+      // A brain whose engine will not open is broken, not merely unmeasured —
+      // this catch stays a hard fail.
+      checks.push(verdict("pglite", false, detail));
     }
   }
 
@@ -138,11 +155,13 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   if (storage) {
     try {
       const stats = await storage.stats();
-      checks.push({
-        name: "stats",
-        ok: stats.documents >= 0 && stats.chunks >= 0,
-        detail: `documents=${stats.documents} chunks=${stats.chunks} embeddings=${stats.embeddings}`,
-      });
+      checks.push(
+        verdict(
+          "stats",
+          stats.documents >= 0 && stats.chunks >= 0,
+          `documents=${stats.documents} chunks=${stats.chunks} embeddings=${stats.embeddings}`,
+        ),
+      );
 
       const r = await storage
         .raw()
@@ -163,10 +182,10 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       const oldest = toNum(row?.oldest);
       const newest = toNum(row?.newest);
       const n = row?.n ?? 0;
-      checks.push({
-        name: "index-spread",
-        ok: true,
-        detail:
+      checks.push(
+        verdict(
+          "index-spread",
+          true,
           n === 0
             ? "no documents indexed yet"
             : `n=${n} oldest=${
@@ -174,13 +193,13 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
               } newest=${
                 newest ? new Date(newest).toISOString() : "n/a"
               }`,
-      });
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "stats",
-        ok: false,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      // The core tables not answering is a broken brain, not an unmeasured one.
+      checks.push(
+        verdict("stats", false, e instanceof Error ? e.message : String(e)),
+      );
     }
 
     // 3b. brain health metrics (embed coverage / lag / queue / failed jobs).
@@ -191,22 +210,22 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     // pending backfill), so the doctor reports it rather than declaring it bad.
     try {
       const h = await brainHealthMetrics(storage.raw());
-      checks.push({
-        name: "source-health",
-        ok: h.failed_jobs_24h === 0,
-        detail:
+      checks.push(
+        verdict(
+          "source-health",
+          h.failed_jobs_24h === 0,
           `embed_coverage=${(h.embed_coverage_pct * 100).toFixed(1)}% ` +
-          `(${h.embedded_chunks}/${h.embeddable_chunks} embeddable` +
-          `${h.code_chunks > 0 ? `, ${h.code_chunks} code graph-only` : ""}) ` +
-          `lag=${h.lag_seconds === null ? "n/a" : `${h.lag_seconds}s`} ` +
-          `queue=${h.queue_depth} failed_24h=${h.failed_jobs_24h}`,
-      });
+            `(${h.embedded_chunks}/${h.embeddable_chunks} embeddable` +
+            `${h.code_chunks > 0 ? `, ${h.code_chunks} code graph-only` : ""}) ` +
+            `lag=${h.lag_seconds === null ? "n/a" : `${h.lag_seconds}s`} ` +
+            `queue=${h.queue_depth} failed_24h=${h.failed_jobs_24h}`,
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "source-health",
-        ok: false,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      // Same substrate as `stats` — if this cannot answer, the brain is broken.
+      checks.push(
+        verdict("source-health", false, e instanceof Error ? e.message : String(e)),
+      );
     }
 
     // Link-extraction lag (migration 051). Informational by design (ok:true):
@@ -223,17 +242,15 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       const total = totalR.rows[0]?.n ?? 0;
       const stale = total > 0 ? await countStalePagesForExtraction(e, { versionTs: LINK_EXTRACTOR_VERSION_TS }) : 0;
       const pct = total > 0 ? ((stale / total) * 100).toFixed(1) : "0.0";
-      checks.push({
-        name: "links-extraction-lag",
-        ok: true,
-        detail: `${stale}/${total} page(s) stale for link extraction (${pct}%)`,
-      });
+      checks.push(
+        verdict(
+          "links-extraction-lag",
+          true,
+          `${stale}/${total} page(s) stale for link extraction (${pct}%)`,
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "links-extraction-lag",
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      checks.push(couldNotCheck("links-extraction-lag", e));
     }
 
     // Chunker-version lag (migration 052). Informational (ok:true): documents
@@ -242,38 +259,37 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     // the grandfather version 1).
     try {
       const stale = await countStaleChunkerDocs(storage.raw());
-      checks.push({
-        name: "chunker-version-lag",
-        ok: true,
-        detail: `${stale} document(s) stale for re-chunk (chunker version bumped)`,
-      });
+      checks.push(
+        verdict(
+          "chunker-version-lag",
+          true,
+          `${stale} document(s) stale for re-chunk (chunker version bumped)`,
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "chunker-version-lag",
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      checks.push(couldNotCheck("chunker-version-lag", e));
     }
 
     // Cycle liveness: a wedged maintenance loop otherwise surfaces only via the
-    // downstream links-extraction-lag proxy. Informational until the snapshot
-    // stream goes stale (fails only past the fail threshold).
+    // downstream links-extraction-lag proxy. Warn-tier until the snapshot
+    // stream goes stale (fails only past the fail threshold, under ENFORCE).
     try {
       const fresh = await checkCycleFreshness(storage.raw());
-      checks.push({ name: "cycle-freshness", ok: fresh.ok, detail: fresh.detail });
-    } catch (e) {
       checks.push({
         name: "cycle-freshness",
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
+        ok: fresh.ok,
+        status: fresh.status,
+        detail: fresh.detail,
       });
+    } catch (e) {
+      checks.push(couldNotCheck("cycle-freshness", e));
     }
 
     // Ops probes (substrate already exists): an orphaned cycle lock past TTL, a
     // wedged job in the queue, an unapplied migration, an embedding-width vs
-    // config drift, or the same content indexed under multiple slugs. Each
-    // swallows its own probe error into a WARN so one bad probe can't abort
-    // the report.
+    // config drift, or the same content indexed under multiple slugs. A probe
+    // that throws reports its own `warn` so one bad probe can't abort the
+    // report — and can't pass for a healthy one either.
     for (const [name, probe] of [
       ["stale-locks", checkStaleLocks],
       ["queue-health", checkQueueHealth],
@@ -285,20 +301,16 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     ] as const) {
       try {
         const r = await probe(storage.raw());
-        checks.push({ name, ok: r.ok, detail: r.detail });
+        checks.push({ name, ok: r.ok, status: r.status, detail: r.detail });
       } catch (e) {
-        checks.push({
-          name,
-          ok: true,
-          detail: e instanceof Error ? e.message : String(e),
-        });
+        checks.push(couldNotCheck(name, e));
       }
     }
 
     // Tenancy / auth checks — the two subsystems where a silent misconfig is
     // a cross-tenant leak (broken confidential client, mis-routed writes) or
     // an invisibly dead tenant (0% embed coverage inside the brain average).
-    // Each check swallows its own probe errors into a WARN detail.
+    // Each check turns its own probe errors into a `warn` verdict.
     checks.push(await checkFederationHealth(storage.raw()));
     checks.push(await checkOauthClientHealth(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
@@ -323,21 +335,20 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       const perSource = r.rows
         .map((row) => `${row.source_id ?? "(unclassified)"}: ${Number(row.n)}`)
         .join(", ");
-      checks.push({
-        name: "chronicle-projection-health",
-        ok: true,
-        detail:
+      checks.push(
+        verdict(
+          "chronicle-projection-health",
+          true,
           total === 0
             ? "no orphaned timeline projections"
             : `${total} timeline projection(s) reference a soft-deleted event page ` +
               `(${perSource}) — hidden at read time; purge to clear the backlog`,
-      });
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "chronicle-projection-health",
-        ok: true,
-        detail: `pre-migration schema (${e instanceof Error ? e.message : String(e)})`,
-      });
+      checks.push(
+        couldNotCheck("chronicle-projection-health", e, "pre-migration schema?"),
+      );
     }
 
     // Per-source embed coverage (opt-in via MEMEX_DOCTOR_PER_SOURCE=1). In a
@@ -355,20 +366,17 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         checks.push({
           name: "per-source-embed-coverage",
           ok: true,
+          status: broken.length === 0 ? "ok" : "warn",
           detail:
             broken.length === 0
               ? `${rows.length} source(s), none at 0% embed coverage`
-              : `WARN ${broken.length} source(s) at 0% embed coverage: ` +
+              : `${broken.length} source(s) at 0% embed coverage: ` +
                 broken
                   .map((r) => `${r.source_id} (0/${r.embeddable_chunks})`)
                   .join(", "),
         });
       } catch (e) {
-        checks.push({
-          name: "per-source-embed-coverage",
-          ok: true,
-          detail: e instanceof Error ? e.message : String(e),
-        });
+        checks.push(couldNotCheck("per-source-embed-coverage", e));
       }
     }
   }
@@ -380,27 +388,19 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     try {
       const st = statSync(vault);
       if (!st.isDirectory()) {
-        checks.push({
-          name: "vault",
-          ok: false,
-          detail: `${vault} exists but is not a directory`,
-        });
+        checks.push(
+          verdict("vault", false, `${vault} exists but is not a directory`),
+        );
       } else {
-        checks.push({ name: "vault", ok: true, detail: vault });
+        checks.push(verdict("vault", true, vault));
       }
     } catch {
-      checks.push({
-        name: "vault",
-        ok: false,
-        detail: `${vault} not readable`,
-      });
+      // A configured vault that will not stat is a misconfigured host, not an
+      // unmeasured one — a hard fail, as before.
+      checks.push(verdict("vault", false, `${vault} not readable`));
     }
   } else {
-    checks.push({
-      name: "vault",
-      ok: true,
-      detail: "not configured (recipe disabled)",
-    });
+    checks.push(verdict("vault", true, "not configured (recipe disabled)"));
   }
 
   // 3c. retrieval-quality trend — the nightly eval probe's latest snapshot.
@@ -410,26 +410,24 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   if (storage) {
     try {
       const snap = await latestEvalSnapshot(storage.engine());
-      checks.push({
-        name: "eval-trend",
-        ok: true,
-        detail: !snap
-          ? "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)"
-          : snap.total_queries === 0
-            // A zero-query replay scores 0/0. Rendering that as mean_rr=0.000
-            // reads as "measured, and bad" when the truth is "not measured" —
-            // the advisor's eval_set_empty finding carries the fix.
-            ? `last probe ${snap.ran_at}: eval set EMPTY — nothing measured ` +
-              `(register queries: memex eval-replay capture)`
-            : `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)} ` +
-              `hit_rate=${snap.hit_rate.toFixed(3)} (scored ${snap.scored}/${snap.total_queries})`,
-      });
+      checks.push(
+        verdict(
+          "eval-trend",
+          true,
+          !snap
+            ? "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)"
+            : snap.total_queries === 0
+              // A zero-query replay scores 0/0. Rendering that as mean_rr=0.000
+              // reads as "measured, and bad" when the truth is "not measured" —
+              // the advisor's eval_set_empty finding carries the fix.
+              ? `last probe ${snap.ran_at}: eval set EMPTY — nothing measured ` +
+                `(register queries: memex eval-replay capture)`
+              : `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)} ` +
+                `hit_rate=${snap.hit_rate.toFixed(3)} (scored ${snap.scored}/${snap.total_queries})`,
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "eval-trend",
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      checks.push(couldNotCheck("eval-trend", e));
     }
   }
 
@@ -440,21 +438,19 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   if (storage) {
     try {
       const run = await latestContradictionRun(storage.engine());
-      checks.push({
-        name: "contradiction-trend",
-        ok: true,
-        detail: run
-          ? `last run ${run.ran_at}: rate=${run.found}/${run.judged} ` +
-            `(95% CI ${run.wilson_ci_lower.toFixed(3)}–${run.wilson_ci_upper.toFixed(3)}), ` +
-            `$${run.cost_usd.toFixed(4)}`
-          : "contradiction probe has not run yet (memex cycle --phases probe-contradictions)",
-      });
+      checks.push(
+        verdict(
+          "contradiction-trend",
+          true,
+          run
+            ? `last run ${run.ran_at}: rate=${run.found}/${run.judged} ` +
+              `(95% CI ${run.wilson_ci_lower.toFixed(3)}–${run.wilson_ci_upper.toFixed(3)}), ` +
+              `$${run.cost_usd.toFixed(4)}`
+            : "contradiction probe has not run yet (memex cycle --phases probe-contradictions)",
+        ),
+      );
     } catch (e) {
-      checks.push({
-        name: "contradiction-trend",
-        ok: true,
-        detail: e instanceof Error ? e.message : String(e),
-      });
+      checks.push(couldNotCheck("contradiction-trend", e));
     }
   }
 
@@ -472,7 +468,12 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     await storage.close();
   }
 
+  // `ok` (and therefore the exit code) is still driven by the binary field: a
+  // warn must NOT turn a degraded-but-running brain into a red cron probe.
+  // `status` is the honest rollup beside it — worst check wins, exactly as
+  // CycleResult rolls up its phases.
   const pass = checks.every((c) => c.ok);
+  const status = worstStatus(checks.map((c) => c.status));
 
   // Categorize each check (brain / ops / meta) and roll up per-category
   // pass/fail counts so the report shows signal-to-noise on the question the
@@ -497,6 +498,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     JSON.stringify(
       {
         ok: pass,
+        status,
         version: VERSION,
         checks: categorized,
         summary: {
@@ -553,7 +555,11 @@ async function gatherRemediationInput(
   }
   try {
     const fresh = await checkCycleFreshness(storage.raw());
-    input.cycleStale = !fresh.ok || fresh.detail.startsWith("WARN");
+    // Anything short of `ok` — stale, skewed, or never run at all — is a cycle
+    // the classifier should offer to re-run. The old `startsWith("WARN")` read
+    // the verdict out of the detail string and missed the two states that
+    // carried no prefix.
+    input.cycleStale = fresh.status !== "ok";
   } catch {
     // best-effort — leave cycleStale undefined.
   }
