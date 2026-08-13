@@ -15,15 +15,21 @@
  *
  * Adding a new boolean flag to a command means adding it to VALUELESS_FLAGS
  * too — otherwise it eats the next positional. The test asserts that.
+ *
+ * Validation is then keyed PER COMMAND (`COMMAND_FLAGS`), not against one
+ * global vocabulary. A global set is wrong in both directions: it rejected
+ * `memex doctor --remediate` — a flag doctor really reads, which made the whole
+ * self-heal surface unreachable — while accepting `memex reindex --stale`,
+ * which reindex never reads and therefore silently dropped. "Does THIS command
+ * read THIS flag" is the only question whose answer is useful to the caller.
  */
 
 /**
  * Flags that never take a value — one entry per boolean the command cases in
  * cli.ts read out of `flags`. Matching is exact, so the value-taking
  * near-twins (`--stale-days`, `--pglite-path`, `--postgres-url`) are
- * untouched. `--limit` is deliberately absent: it TAKES a value, and the
- * embed/salience/cycle cases read it from `flags` only to detect that the
- * value is missing.
+ * untouched. `--limit` is deliberately absent: it TAKES a value, so a bare
+ * `--limit` is a missing value, which `validateFlags` refuses.
  */
 export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--all",
@@ -32,6 +38,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--contextual",
   "--cosine-rescore",
   "--dry-run",
+  "--execute",
   "--expand",
   "--explain",
   "--fix",
@@ -52,6 +59,8 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--rechunk-stale",
   "--reconcile-deletes",
   "--relational-arm",
+  "--remediate",
+  "--remediation-plan",
   "--rerank",
   "--respect-quiet-hours",
   "--save",
@@ -60,6 +69,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--strict",
   "--with-calibration",
   "--write-baseline",
+  "--yes",
 ]);
 
 /**
@@ -81,27 +91,198 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
-  "--budget", "--config-a", "--config-b", "--date-context", "--days",
-  "--dedup-type-ratio", "--depth", "--description", "--dir", "--example-limit",
-  "--expected-doc", "--file", "--filter", "--from", "--host", "--id",
-  "--indexed-policy", "--input", "--k", "--keep-days", "--kind", "--limit",
-  "--max-drop", "--max-pages", "--max-retries", "--max-usd",
+  "--bound-slug-prefixes", "--budget", "--config-a", "--config-b",
+  "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
+  "--dir", "--example-limit", "--expected-doc", "--federated-read", "--file",
+  "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
+  "--input", "--k", "--keep-days", "--kind", "--limit", "--max-drop",
+  "--max-jobs", "--max-pages", "--max-retries", "--max-usd",
   "--min-confidence", "--min-recall", "--model", "--modes", "--notes",
   "--older-than-days", "--out", "--path-prefix", "--paths", "--pattern",
   "--payload", "--pglite-path", "--phases", "--port", "--postgres-url",
   "--priority", "--qrels", "--query", "--question", "--rate-limit-per-minute",
-  "--reason", "--rounds", "--rrf-k", "--search-mode", "--severity", "--since",
-  "--skill", "--slug", "--slugs", "--source", "--source-id", "--source-path",
-  "--source-slug", "--stale-days", "--status", "--sync-policy", "--tag",
-  "--take", "--target", "--threshold", "--title", "--to", "--tool-name",
-  "--top-skills", "--type", "--until", "--vault", "--what", "--where", "--who",
-  "--window-turns", "--written-by",
+  "--reason", "--redirect-uris", "--rounds", "--rrf-k", "--scopes",
+  "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs",
+  "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
+  "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
+  "--target", "--threshold", "--title", "--to", "--token",
+  "--token-endpoint-auth-method", "--tool-name", "--top-skills", "--type",
+  "--until", "--vault", "--what", "--where", "--who", "--window-turns",
+  "--written-by",
 ]);
 
 /** Union of every flag the CLI understands. Anything else is a typo. */
 export const KNOWN_FLAGS: ReadonlySet<string> = new Set([
   ...VALUELESS_FLAGS,
   ...VALUE_FLAGS,
+]);
+
+/** Answered by every command, so no command lists it. */
+const UNIVERSAL_FLAGS: ReadonlySet<string> = new Set(["--help"]);
+
+/**
+ * What each command actually reads — one entry per `case` label in cli.ts, and
+ * the flag set is exactly the flags that case's body pulls out of `flags` /
+ * `values`. The test derives the same thing from cli.ts and demands equality,
+ * so a flag added to a command without an entry here fails the suite instead of
+ * failing the operator.
+ *
+ * Two commands do their own parsing and so have no reads in the switch:
+ * `doctor` reads its remediation flags straight off `process.argv` inside
+ * runDoctor, and `auth` re-parses the raw tail with its own `parseFlags`. Their
+ * rows come from those modules, and the test reads them from there.
+ */
+export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["init", new Set(["--pglite", "--postgres"])],
+  ["serve", new Set(["--host", "--http", "--port"])],
+  ["index", new Set<string>()],
+  [
+    "reindex",
+    new Set([
+      "--all", "--contextual", "--dry-run", "--force", "--limit", "--paths",
+      "--rechunk-stale", "--reconcile-deletes", "--source", "--vault",
+    ]),
+  ],
+  ["code-def", new Set(["--json"])],
+  ["code-refs", new Set(["--json"])],
+  ["code-callers", new Set(["--json"])],
+  ["code-callees", new Set(["--json"])],
+  [
+    "doctor",
+    new Set([
+      "--execute", "--max-jobs", "--max-usd", "--remediate",
+      "--remediation-plan", "--yes",
+    ]),
+  ],
+  ["hnsw", new Set(["--force"])],
+  ["status", new Set(["--per-source"])],
+  ["integrity", new Set(["--vault"])],
+  [
+    "eval",
+    new Set([
+      "--baseline", "--config-a", "--config-b", "--cosine-rescore",
+      "--dedup-type-ratio", "--expand", "--graph-signals", "--input", "--json",
+      "--k", "--max-drop", "--max-pool", "--min-recall", "--modes",
+      "--no-expand", "--out", "--qrels", "--relational-arm", "--rerank",
+      "--rrf-k", "--write-baseline",
+    ]),
+  ],
+  ["eval-probe", new Set(["--limit", "--max-usd"])],
+  ["backlinks", new Set(["--limit", "--type"])],
+  ["merge", new Set(["--source", "--written-by"])],
+  ["salience", new Set(["--days", "--limit", "--type"])],
+  [
+    "watch",
+    new Set(["--json", "--max-pages", "--min-confidence", "--window-turns"]),
+  ],
+  ["cycle", new Set(["--phases", "--stale-days"])],
+  [
+    "extract",
+    new Set([
+      "--all", "--catch-up", "--dry-run", "--json", "--source-id", "--stale",
+      "--vault",
+    ]),
+  ],
+  [
+    "extract-conversation-facts",
+    new Set(["--budget", "--date-context", "--file", "--json", "--source-slug"]),
+  ],
+  [
+    "think",
+    new Set([
+      "--anchor", "--budget", "--json", "--k", "--model", "--question",
+      "--rounds", "--save", "--since", "--take", "--until",
+      "--with-calibration",
+    ]),
+  ],
+  ["reconcile-links", new Set(["--limit"])],
+  [
+    "friction",
+    new Set([
+      "--example-limit", "--kind", "--limit", "--no-redact", "--query",
+      "--reason", "--severity", "--since", "--skill", "--source-path",
+      "--top-skills",
+    ]),
+  ],
+  ["eval-export", new Set(["--limit", "--out", "--since", "--source"])],
+  ["export", new Set(["--dir", "--source"])],
+  ["eval-prune", new Set(["--apply", "--keep-days", "--tool-name"])],
+  ["apply-migrations", new Set(["--dry-run"])],
+  ["cache", new Set<string>()],
+  [
+    "embed",
+    new Set(["--all", "--dry-run", "--limit", "--slugs", "--source", "--stale"]),
+  ],
+  ["call", new Set(["--args"])],
+  [
+    "sources",
+    new Set([
+      "--boost-weight", "--description", "--indexed-policy", "--kind",
+      "--no-respect-quiet-hours", "--path-prefix", "--rate-limit-per-minute",
+      "--respect-quiet-hours", "--sync-policy",
+    ]),
+  ],
+  [
+    "eval-replay",
+    new Set([
+      "--expected-doc", "--k", "--limit", "--notes", "--promote", "--query",
+      "--search-mode", "--source", "--tag",
+    ]),
+  ],
+  [
+    "jobs",
+    new Set([
+      "--dry-run", "--id", "--kind", "--limit", "--max-retries",
+      "--older-than-days", "--payload", "--priority", "--status",
+    ]),
+  ],
+  ["skillify", new Set(["--dry-run", "--out", "--slug", "--strict"])],
+  ["check-resolvable", new Set(["--limit", "--strict", "--threshold"])],
+  ["orphans", new Set<string>()],
+  [
+    "page-retype",
+    new Set([
+      "--apply", "--from", "--json", "--path-prefix", "--slugs", "--source-id",
+      "--to",
+    ]),
+  ],
+  ["pages", new Set(["--filter", "--limit"])],
+  ["lint", new Set(["--dry-run", "--fix"])],
+  ["reports", new Set(["--since"])],
+  ["skillpack", new Set(["--out"])],
+  [
+    "migrate-engine",
+    new Set([
+      "--batch-size", "--dry-run", "--from", "--pglite-path", "--postgres-url",
+      "--to",
+    ]),
+  ],
+  [
+    "auth",
+    new Set([
+      "--bound-slug-prefixes", "--federated-read", "--grant-types",
+      "--redirect-uris", "--scopes", "--source", "--takes-holders", "--token",
+      "--token-endpoint-auth-method",
+    ]),
+  ],
+  [
+    "search",
+    new Set(["--apply", "--days", "--explain", "--json", "--k", "--source", "--target"]),
+  ],
+  ["config", new Set(["--force", "--pattern"])],
+  [
+    "capture",
+    new Set([
+      "--depth", "--file", "--json", "--kind", "--slug", "--source", "--stdin",
+      "--title", "--type", "--what", "--where", "--who",
+    ]),
+  ],
+  [
+    "quarantine",
+    new Set(["--apply", "--force", "--include-flagged", "--json", "--limit"]),
+  ],
+  ["version", new Set<string>()],
+  ["help", new Set<string>()],
 ]);
 
 /**
@@ -141,14 +322,21 @@ export interface ParseArgsOptions {
   strict?: boolean;
 }
 
-/** Thrown for an unknown or misplaced flag — the CLI prints it and exits 2. */
+/**
+ * Thrown for a flag the command cannot use — unknown to it, misplaced, or
+ * given no value. The CLI prints the message and exits non-zero.
+ */
 export class UnknownFlagError extends Error {}
 
-/** "Did you mean" for a typo — one edit away, cheap Levenshtein under a cap. */
-function nearest(flag: string): string | null {
+/**
+ * "Did you mean" for a typo — one edit away, cheap Levenshtein under a cap.
+ * The candidates are the flags the CURRENT command accepts: suggesting a flag
+ * that would itself be refused is worse than suggesting nothing.
+ */
+function nearest(flag: string, candidates: Iterable<string>): string | null {
   let best: string | null = null;
   let bestD = 3;
-  for (const known of KNOWN_FLAGS) {
+  for (const known of candidates) {
     const d = editDistance(flag, known);
     if (d < bestD) {
       bestD = d;
@@ -174,23 +362,51 @@ function editDistance(a: string, b: string): number {
   return prev[b.length]!;
 }
 
-/** Validate the parsed flags against the CLI's vocabulary. */
+/** Validate the parsed flags against the vocabulary of the command being run. */
 export function validateFlags(parsed: ParsedArgs): void {
-  const seen = [...parsed.flags, ...parsed.values.keys()];
-  for (const flag of seen) {
-    if (!KNOWN_FLAGS.has(flag)) {
-      const hint = nearest(flag);
-      throw new UnknownFlagError(
-        `memex: unknown flag '${flag}'${hint ? ` — did you mean ${hint}?` : ""}`,
-      );
+  const { cmd } = parsed;
+  // An unrecognised command has no vocabulary of its own — fall back to the
+  // global one so a typo'd flag still gets a hint, and let cli.ts report the
+  // command itself.
+  const accepted = cmd === undefined ? undefined : COMMAND_FLAGS.get(cmd);
+
+  // The safety flags keep their own louder refusal: a correctly spelled
+  // `--dry-run` on a command that ignores it reads as "preview" and mutates,
+  // which deserves more than "unknown flag".
+  if (cmd !== undefined) {
+    for (const [flag, commands] of SAFETY_FLAG_COMMANDS) {
+      if ((parsed.flags.has(flag) || parsed.values.has(flag)) && !commands.has(cmd)) {
+        throw new UnknownFlagError(
+          `memex: ${flag} is not supported by '${cmd}' — refusing to run, ` +
+            `because ignoring it would do the opposite of what it asks for`,
+        );
+      }
     }
   }
-  if (parsed.cmd === undefined) return;
-  for (const [flag, commands] of SAFETY_FLAG_COMMANDS) {
-    if ((parsed.flags.has(flag) || parsed.values.has(flag)) && !commands.has(parsed.cmd)) {
+
+  const seen = [...parsed.flags, ...parsed.values.keys()];
+  for (const flag of seen) {
+    if (UNIVERSAL_FLAGS.has(flag)) continue;
+    if (accepted === undefined ? KNOWN_FLAGS.has(flag) : accepted.has(flag)) continue;
+    const hint = nearest(flag, accepted ?? KNOWN_FLAGS);
+    const guess = hint ? ` — did you mean ${hint}?` : "";
+    const takes =
+      accepted === undefined
+        ? ""
+        : accepted.size === 0
+          ? ` ('${cmd}' takes no flags)`
+          : ` ('${cmd}' accepts: ${[...accepted].sort().join(", ")})`;
+    throw new UnknownFlagError(`memex: unknown flag '${flag}'${guess}${takes}`);
+  }
+
+  // A value-taking flag given nothing to take lands in `flags` (the parser
+  // refuses to eat the next positional). Reading that as a bare boolean is how
+  // `memex reindex --vault --all` silently reindexed the default vault, so it
+  // is an error here rather than a default three layers down.
+  for (const flag of parsed.flags) {
+    if (VALUE_FLAGS.has(flag)) {
       throw new UnknownFlagError(
-        `memex: ${flag} is not supported by '${parsed.cmd}' — refusing to run, ` +
-          `because ignoring it would do the opposite of what it asks for`,
+        `memex${cmd !== undefined ? ` ${cmd}` : ""}: ${flag} requires a value`,
       );
     }
   }
@@ -238,8 +454,8 @@ export function parseArgs(raw: readonly string[], opts: ParseArgsOptions = {}): 
       values.set(token, next);
       i++;
     } else {
-      // A value-taking flag with nothing to take lands in `flags`, where the
-      // command case rejects it (see the `--limit` guards) instead of guessing.
+      // A value-taking flag with nothing to take lands in `flags`, where
+      // validateFlags rejects it by name instead of guessing a default.
       flags.add(token);
     }
   }

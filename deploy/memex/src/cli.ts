@@ -74,7 +74,7 @@ import { runSalience } from "./commands/salience.ts";
 import { runWatch } from "./commands/watch.ts";
 import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
 import { resolveExitCode } from "./cli-exit.ts";
-import { parseArgs } from "./cli-args.ts";
+import { parseArgs, validateFlags } from "./cli-args.ts";
 import type { EntityType } from "./core/entities.ts";
 
 function printUsage(): void {
@@ -105,6 +105,9 @@ function printUsage(): void {
   console.log("  code-callees <path>:<line> [--json]");
   console.log("                               symbols called from inside the symbol covering <path>:<line>");
   console.log("  doctor                       self-diagnostics — exits 0 on healthy");
+  console.log("  doctor --remediation-plan    read-only plan: what would be enqueued for each red check");
+  console.log("  doctor --remediate [--execute|--yes] [--max-jobs N] [--max-usd X]");
+  console.log("                               enqueue the safe subset; dry-run unless --execute/--yes");
   console.log("  integrity [--vault P]        vault-vs-index drift report");
   console.log("  eval [--k N] [--qrels P] [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]");
   console.log("       [--graph-signals] [--cosine-rescore] [--relational-arm] [--dedup-type-ratio X]");
@@ -221,15 +224,41 @@ function printUsage(): void {
   console.log("  --help                       show this help");
 }
 
+/**
+ * Print the command's own manual, if it has one. Commands that ship a longer
+ * help text than the one-liner in printUsage() own it themselves — this is the
+ * only route to it, so it must stay the only copy.
+ */
+async function printCommandHelp(
+  cmd: string,
+  positional: readonly string[],
+): Promise<boolean> {
+  if (cmd === "watch") {
+    const { WATCH_HELP } = await import("./commands/watch.ts");
+    process.stdout.write(WATCH_HELP);
+    return true;
+  }
+  if (cmd === "eval" && positional[0] === "chronicle") {
+    await runEvalChronicle(["--help"]);
+    return true;
+  }
+  return false;
+}
+
 async function main(argv: readonly string[]): Promise<number> {
-  const { cmd, flags, values, positional } = parseArgs(argv);
+  const parsed = parseArgs(argv, { strict: false });
+  const { cmd, flags, values, positional } = parsed;
 
   // `memex <cmd> --help` used to fall into the command case and die on a
   // missing required argument — asking for help is not a malformed invocation.
+  // For the same reason it answers BEFORE validation: the moment you reach for
+  // the manual is the moment the rest of the line is likely half-typed, and a
+  // command's own help was unreachable while validation went first.
   if (cmd !== undefined && flags.has("--help")) {
-    printUsage();
+    if (!(await printCommandHelp(cmd, positional))) printUsage();
     return 0;
   }
+  validateFlags(parsed);
 
   switch (cmd) {
     case "init": {
@@ -503,14 +532,6 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "salience": {
-      // A flag with no value parses as a bare flag — reject it rather than
-      // silently ignoring the filter the user thought they applied.
-      for (const f of ["--type", "--days", "--limit"]) {
-        if (flags.has(f)) {
-          console.error(`memex salience: ${f} requires a value`);
-          return 1;
-        }
-      }
       const typeStr = values.get("--type");
       const daysStr = values.get("--days");
       const limitStr = values.get("--limit");
@@ -534,11 +555,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "watch": {
-      if (flags.has("--help") || flags.has("-h")) {
-        const { WATCH_HELP } = await import("./commands/watch.ts");
-        process.stdout.write(WATCH_HELP);
-        return 0;
-      }
+      // `--help` never gets this far: printCommandHelp answers it before the
+      // arguments are validated.
       const opts: Parameters<typeof runWatch>[0] = { json: flags.has("--json") };
       const wt = values.get("--window-turns");
       const mp = values.get("--max-pages");
@@ -564,12 +582,6 @@ async function main(argv: readonly string[]): Promise<number> {
     case "cycle": {
       const phasesStr = values.get("--phases");
       const staleStr = values.get("--stale-days");
-      for (const f of ["--phases", "--stale-days"]) {
-        if (flags.has(f)) {
-          console.error(`memex cycle: ${f} requires a value`);
-          return 1;
-        }
-      }
       const opts: Parameters<typeof runCycle>[0] = {};
       // Call parsePhasesArg whenever --phases was given (even ""), so an empty
       // value fails loud rather than silently defaulting to ALL phases.
@@ -857,12 +869,6 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "embed": {
-      // `--limit` with no value parses as a bare flag — reject it rather than
-      // silently running an uncapped backfill (which would defeat the cost cap).
-      if (flags.has("--limit")) {
-        console.error("memex embed: --limit requires a positive integer value");
-        return 1;
-      }
       const limitStr = values.get("--limit");
       const opts: Parameters<typeof runEmbed>[0] = {};
       if (limitStr !== undefined) {

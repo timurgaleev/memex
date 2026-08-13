@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseArgs,
+  COMMAND_FLAGS,
   SAFETY_FLAG_COMMANDS,
   VALUELESS_FLAGS,
   VALUE_FLAGS,
@@ -186,5 +187,208 @@ describe("SAFETY_FLAG_COMMANDS is derived from cli.ts, not hand-maintained", () 
 
   it("still refuses a safety flag on a command that ignores it", () => {
     expect(() => parseArgs(["doctor", "--fix"])).toThrow(/not supported by 'doctor'/);
+  });
+});
+
+describe("the accepted vocabulary is per command (CLI-4)", () => {
+  it("accepts the doctor self-heal flags a global vocabulary refused", () => {
+    // These are read inside runDoctor (off process.argv), so a union-of-all
+    // -commands check called every one of them a typo and left the entire
+    // remediation surface unreachable from the CLI.
+    for (const argv of [
+      ["doctor", "--remediation-plan"],
+      ["doctor", "--remediate"],
+      ["doctor", "--remediate", "--execute"],
+      ["doctor", "--remediate", "--yes"],
+    ]) {
+      expect(() => parseArgs(argv)).not.toThrow();
+    }
+    expect(parseArgs(["doctor", "--remediate", "--max-jobs", "3"]).values.get("--max-jobs"))
+      .toBe("3");
+  });
+
+  it("refuses a real flag on a command that never reads it", () => {
+    // `reindex` has no --stale (that is embed/extract), so it was accepted and
+    // dropped: the caller asked for a stale-only pass and got a full one.
+    expect(() => parseArgs(["reindex", "--stale"])).toThrow(
+      /unknown flag '--stale'/,
+    );
+    expect(() => parseArgs(["reindex", "--stale"])).toThrow(
+      /'reindex' accepts: .*--rechunk-stale/,
+    );
+    // …and stays legal on the commands that do read it.
+    expect(() => parseArgs(["embed", "--stale"])).not.toThrow();
+    expect(() => parseArgs(["extract", "--stale"])).not.toThrow();
+  });
+
+  it("names the command and what it takes when the command takes nothing", () => {
+    expect(() => parseArgs(["orphans", "--json"])).toThrow(
+      /unknown flag '--json' \('orphans' takes no flags\)/,
+    );
+  });
+
+  it("accepts the auth flags auth parses for itself", () => {
+    // `auth` re-parses the raw tail, so none of its flags appear in the switch
+    // — the global set never learned them and every auth invocation with a
+    // flag died before reaching runAuth.
+    expect(() =>
+      parseArgs(["auth", "register-client", "cc", "--scopes", "read", "--source", "s"]),
+    ).not.toThrow();
+    expect(() => parseArgs(["auth", "test", "https://x", "--token", "t"])).not.toThrow();
+  });
+
+  it("suggests only flags the command would then accept", () => {
+    expect(() => parseArgs(["embed", "--stalee"])).toThrow(/did you mean --stale\?/);
+    // reindex does not read --stale, so pointing at it would be a second dead
+    // end rather than a fix.
+    let msg = "";
+    try {
+      parseArgs(["reindex", "--stalee"]);
+    } catch (e) {
+      msg = e instanceof Error ? e.message : String(e);
+    }
+    expect(msg).toMatch(/unknown flag '--stalee'/);
+    expect(msg).not.toMatch(/did you mean --stale\?/);
+  });
+
+  it("answers --help everywhere without listing it per command", () => {
+    for (const cmd of ["watch", "reindex", "orphans", "auth"]) {
+      expect(() => parseArgs([cmd, "--help"])).not.toThrow();
+      expect(COMMAND_FLAGS.get(cmd)?.has("--help")).toBe(false);
+    }
+  });
+
+  it("falls back to the global vocabulary for an unknown command", () => {
+    // cli.ts owns the "unknown command" message; hijacking it with a flag
+    // complaint would name the wrong problem.
+    expect(() => parseArgs(["frobnicate", "--k", "5"])).not.toThrow();
+    expect(() => parseArgs(["frobnicate", "--kk", "5"])).toThrow(/unknown flag '--kk'/);
+  });
+});
+
+describe("a value-taking flag given no value is an error (CLI-5)", () => {
+  it("refuses `reindex --vault --all` instead of reindexing the default vault", () => {
+    // Both tokens land in `flags` — the parser deliberately will not let
+    // --vault eat --all — and reindex then ran on defaults with no complaint.
+    const loose = parseArgs(["reindex", "--vault", "--all"], { strict: false });
+    expect(loose.flags.has("--vault")).toBe(true);
+    expect(loose.values.has("--vault")).toBe(false);
+
+    expect(() => parseArgs(["reindex", "--vault", "--all"])).toThrow(
+      /memex reindex: --vault requires a value/,
+    );
+  });
+
+  it("fires at the end of the line too", () => {
+    expect(() => parseArgs(["search", "hello", "--k"])).toThrow(
+      /memex search: --k requires a value/,
+    );
+  });
+
+  it("does NOT fire for a boolean flag followed by a positional", () => {
+    // The v1.110.0 fix: a boolean is a boolean wherever it sits, so --dry-run
+    // must not be read as "value-taking flag missing its value" here.
+    const r = parseArgs(["embed", "--dry-run", "notes/x"]);
+    expect(r.flags.has("--dry-run")).toBe(true);
+    expect(r.positional).toEqual(["notes/x"]);
+    expect(() => parseArgs(["reindex", "--all"])).not.toThrow();
+    expect(() => parseArgs(["extract", "--stale", "--dry-run"])).not.toThrow();
+  });
+
+  it("covers the checks the command cases used to carry one by one", () => {
+    // salience/cycle/embed each hand-rolled this guard for their own flags;
+    // every other command had none. It belongs to the parser, once.
+    expect(() => parseArgs(["salience", "--type"])).toThrow(
+      /memex salience: --type requires a value/,
+    );
+    expect(() => parseArgs(["cycle", "--phases"])).toThrow(
+      /memex cycle: --phases requires a value/,
+    );
+    expect(() => parseArgs(["embed", "--limit"])).toThrow(
+      /memex embed: --limit requires a value/,
+    );
+  });
+});
+
+describe("COMMAND_FLAGS is derived from the code, not hand-maintained", () => {
+  // Same reasoning as SAFETY_FLAG_COMMANDS above: a hand-kept table drifts, and
+  // both directions of drift are silent for the operator — a missing entry
+  // refuses a working flag, a stale one accepts a flag nobody reads.
+  const root = join(import.meta.dir, "..");
+  const cli = readFileSync(join(root, "src", "cli.ts"), "utf8");
+
+  /** Case labels grouped by shared body, so fallthrough labels share flags. */
+  function caseGroups(): { labels: string[]; body: string }[] {
+    const parts = cli.split(/\n    case "(.+?)":/);
+    const groups: { labels: string[]; body: string }[] = [];
+    let pending: string[] = [];
+    for (let i = 1; i < parts.length; i += 2) {
+      pending.push(parts[i]!);
+      const body = parts[i + 1]!;
+      if (body.trim().length === 0) continue;
+      groups.push({ labels: pending, body });
+      pending = [];
+    }
+    if (pending.length > 0) groups.push({ labels: pending, body: "" });
+    return groups;
+  }
+
+  function flagsIn(body: string, pattern: RegExp): string[] {
+    return [...new Set([...body.matchAll(pattern)].map((m) => `--${m[1]!}`))].sort();
+  }
+
+  const readsInCase = /(?:flags\.has|values\.get|values\.has)\("--([a-z0-9-]+)"\)/g;
+
+  for (const group of caseGroups()) {
+    // `case undefined:` / `case "--version":` are aliases, not commands.
+    const labels = group.labels.filter((l) => /^[a-z0-9][a-z0-9-]*$/.test(l));
+    if (labels.length === 0) continue;
+    const read = flagsIn(group.body, readsInCase).filter((f) => f !== "--help");
+    for (const label of labels) {
+      it(`lists exactly what '${label}' reads`, () => {
+        const declared = COMMAND_FLAGS.get(label);
+        expect(declared).toBeDefined();
+        // doctor and auth parse their own argv; their rows are checked below.
+        if (label === "doctor" || label === "auth") return;
+        expect([...declared!].sort()).toEqual(read);
+      });
+    }
+  }
+
+  it("takes doctor's row from the flags runDoctor reads off argv", () => {
+    const doctor = readFileSync(join(root, "src", "commands", "doctor.ts"), "utf8");
+    const expected = [
+      ...new Set([
+        ...flagsIn(doctor, /argv\.includes\("--([a-z-]+)"\)/g),
+        ...flagsIn(doctor, /parseNumFlag\(argv, "--([a-z-]+)"\)/g),
+      ]),
+    ].sort();
+    expect([...COMMAND_FLAGS.get("doctor")!].sort()).toEqual(expected);
+  });
+
+  it("takes auth's row from the flags its own parser reads", () => {
+    const auth = readFileSync(join(root, "src", "commands", "auth.ts"), "utf8");
+    const read = flagsIn(auth, /flags\["([a-z-]+)"\]/g);
+    expect([...COMMAND_FLAGS.get("auth")!].sort()).toEqual(read);
+  });
+
+  it("declares only flags the parser knows how to shape", () => {
+    for (const [cmd, flags] of COMMAND_FLAGS) {
+      for (const f of flags) {
+        expect(`${cmd} ${f} known`).toBe(
+          `${cmd} ${f} ${KNOWN_FLAGS.has(f) ? "known" : "UNKNOWN"}`,
+        );
+      }
+    }
+  });
+
+  it("keeps the safety flags reachable on the commands that honour them", () => {
+    for (const [flag, commands] of SAFETY_FLAG_COMMANDS) {
+      for (const cmd of commands) {
+        expect(`${cmd} accepts ${flag}: ${COMMAND_FLAGS.get(cmd)?.has(flag)}`).toBe(
+          `${cmd} accepts ${flag}: true`,
+        );
+      }
+    }
   });
 });
