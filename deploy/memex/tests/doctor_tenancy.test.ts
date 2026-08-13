@@ -1,7 +1,8 @@
 /**
  * Doctor tenancy/auth checks — federation-health, oauth-client-health,
  * source-routing-health. Seeds a PGLite brain directly (no Bedrock) and
- * asserts the ok / WARN / fail transitions for each check.
+ * asserts the ok / warn / fail transitions for each check, plus the
+ * probe-threw path (reached by renaming the table the probe reads).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -71,6 +72,7 @@ describe("federation-health", () => {
   it("short-circuits ok on a single-source brain", async () => {
     const c = await checkFederationHealth(storage.raw());
     expect(c.ok).toBe(true);
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("single-source");
   });
 
@@ -81,18 +83,20 @@ describe("federation-health", () => {
     await seedDoc("mail", "m1", 2, 2);
     const c = await checkFederationHealth(storage.raw());
     expect(c.ok).toBe(true);
-    expect(c.detail).not.toContain("WARN");
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("2 source(s) healthy");
   });
 
-  it("WARNs when a source with >100 embeddable chunks drops below 95% coverage", async () => {
+  // Was "expect(detail).toContain('WARN')" — a string prefix that only one
+  // machine consumer read. The verdict is the typed field now.
+  it("warns when a source with >100 embeddable chunks drops below 95% coverage", async () => {
     await seedSource("vault");
     await seedSource("mail");
     await seedDoc("vault", "v1", 2, 2);
     await seedDoc("mail", "m1", 120, 0);
     const c = await checkFederationHealth(storage.raw());
     expect(c.ok).toBe(true);
-    expect(c.detail).toContain("WARN");
+    expect(c.status).toBe("warn");
     expect(c.detail).toContain("mail");
   });
 
@@ -103,6 +107,7 @@ describe("federation-health", () => {
     await seedDoc("mail", "m1", 1100, 10);
     const c = await checkFederationHealth(storage.raw());
     expect(c.ok).toBe(false);
+    expect(c.status).toBe("fail");
     expect(c.detail).toContain("mail");
     expect(c.detail).toContain("memex reindex --source mail");
   });
@@ -112,6 +117,7 @@ describe("oauth-client-health", () => {
   it("ok when no clients are registered", async () => {
     const c = await checkOauthClientHealth(storage.raw());
     expect(c.ok).toBe(true);
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("no OAuth clients");
   });
 
@@ -122,6 +128,7 @@ describe("oauth-client-health", () => {
     );
     const c = await checkOauthClientHealth(storage.raw());
     expect(c.ok).toBe(true);
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("1 OAuth client(s)");
   });
 
@@ -133,6 +140,7 @@ describe("oauth-client-health", () => {
     );
     const c = await checkOauthClientHealth(storage.raw());
     expect(c.ok).toBe(false);
+    expect(c.status).toBe("fail");
     expect(c.detail).toContain("conf-broken");
     expect(c.detail).not.toContain("conf-ok,");
   });
@@ -151,6 +159,7 @@ describe("source-routing-health", () => {
   it("ok when there are no non-default sources", async () => {
     const c = await checkSourceRoutingHealth(storage.raw());
     expect(c.ok).toBe(true);
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("single-source");
   });
 
@@ -159,20 +168,21 @@ describe("source-routing-health", () => {
     await seedDoc("vault", "v1", 1, 1);
     const c = await checkSourceRoutingHealth(storage.raw());
     expect(c.ok).toBe(true);
+    expect(c.status).toBe("ok");
     expect(c.detail).toContain("all populated");
   });
 
-  it("WARNs on a registered source with zero documents", async () => {
+  it("warns on a registered source with zero documents", async () => {
     await seedSource("vault");
     await seedDoc("vault", "v1", 1, 1);
     await seedSource("ghost");
     const c = await checkSourceRoutingHealth(storage.raw());
     expect(c.ok).toBe(true);
-    expect(c.detail).toContain("WARN");
+    expect(c.status).toBe("warn");
     expect(c.detail).toContain("ghost");
   });
 
-  it("WARNs on documents stuck at NULL source_id", async () => {
+  it("warns on documents stuck at NULL source_id", async () => {
     await seedSource("vault");
     await seedDoc("vault", "v1", 1, 1);
     await storage.raw().query(
@@ -181,7 +191,30 @@ describe("source-routing-health", () => {
     );
     const c = await checkSourceRoutingHealth(storage.raw());
     expect(c.ok).toBe(true);
-    expect(c.detail).toContain("WARN");
+    expect(c.status).toBe("warn");
     expect(c.detail).toContain("NULL source_id");
   });
+});
+
+describe("a tenancy probe that throws", () => {
+  // The catch arms used to be unreachable from a test, so nothing pinned what
+  // they report. Renaming the table each probe reads makes the throw real:
+  // relation "<x>" does not exist, exactly what a pre-migration brain raises.
+  const cases = [
+    ["federation-health", "sources", checkFederationHealth],
+    ["oauth-client-health", "oauth_clients", checkOauthClientHealth],
+    ["source-routing-health", "sources", checkSourceRoutingHealth],
+  ] as const;
+
+  for (const [name, table, check] of cases) {
+    it(`reports ${name} as a warn, never as a pass`, async () => {
+      await storage.raw().query(`ALTER TABLE ${table} RENAME TO ${table}_hidden`);
+      const c = await check(storage.raw());
+      expect(c.name).toBe(name);
+      expect(c.status).toBe("warn"); // NOT "ok" — the probe answered nothing
+      expect(c.ok).toBe(true); // …and still does not red the exit code
+      expect(c.detail).toStartWith(`could not check ${name}: `);
+      expect(c.detail).toContain(table);
+    });
+  }
 });

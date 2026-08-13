@@ -1,7 +1,9 @@
 /**
- * Doctor categorization — unit tests for the category sets + categorize().
- * The end-to-end drift guard (every check the doctor actually emits is
- * categorized) lives in doctor.test.ts, which runs the real runDoctor.
+ * Doctor taxonomy — unit tests for the category sets + categorize(), and for
+ * the three-state verdict vocabulary (worstStatus / couldNotCheck) the report
+ * rolls up. The end-to-end drift guards (every check the doctor emits is
+ * categorized, and no check reports `ok` from a catch path) live in
+ * doctor.test.ts, which runs the real runDoctor.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
@@ -9,7 +11,10 @@ import {
   OPS_CHECK_NAMES,
   KNOWN_CHECK_NAMES,
   categorize,
+  couldNotCheck,
+  worstStatus,
   _resetCategoryWarnings,
+  type CheckStatus,
 } from "../src/core/doctor-categories.ts";
 
 // The `warned` Set is process-global; an earlier test file may have populated
@@ -69,5 +74,55 @@ describe("doctor categorize", () => {
     }
     expect(errs.length).toBe(1);
     expect(errs[0]).toContain("uncategorized");
+  });
+});
+
+describe("worstStatus", () => {
+  it("is ok only when every status is ok", () => {
+    expect(worstStatus([])).toBe("ok");
+    expect(worstStatus(["ok", "ok"])).toBe("ok");
+  });
+
+  it("lets a single warn win over any number of oks", () => {
+    expect(worstStatus(["ok", "warn", "ok"])).toBe("warn");
+  });
+
+  it("lets fail win over warn, in either order", () => {
+    expect(worstStatus(["warn", "fail"])).toBe("fail");
+    expect(worstStatus(["fail", "warn"])).toBe("fail");
+  });
+
+  it("agrees with the cycle's own rollup rule on every combination", () => {
+    // The doctor deliberately reuses PhaseStatus semantics: fail > warn > ok.
+    const all: CheckStatus[] = ["ok", "warn", "fail"];
+    for (const a of all) {
+      for (const b of all) {
+        const expected = [a, b].includes("fail")
+          ? "fail"
+          : [a, b].includes("warn")
+            ? "warn"
+            : "ok";
+        expect(worstStatus([a, b])).toBe(expected);
+      }
+    }
+  });
+});
+
+describe("couldNotCheck", () => {
+  it("is a warn that keeps the exit code green and names the failure", () => {
+    const c = couldNotCheck("queue-health", new Error("relation does not exist"));
+    expect(c.status).toBe("warn"); // never "ok" — nothing was measured
+    expect(c.ok).toBe(true); // …and a warn never flips the process to exit 1
+    expect(c.name).toBe("queue-health");
+    expect(c.detail).toBe(
+      "could not check queue-health: relation does not exist",
+    );
+  });
+
+  it("carries a hint and survives a non-Error throw", () => {
+    const c = couldNotCheck("chronicle-projection-health", "boom", "pre-migration schema?");
+    expect(c.detail).toBe(
+      "could not check chronicle-projection-health: boom (pre-migration schema?)",
+    );
   });
 });
