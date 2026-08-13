@@ -20,6 +20,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { awsRegion } from "../llm/gateway.ts";
+import { trackedInvoke } from "../budget.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -85,7 +86,12 @@ export interface ExpandOptions {
   region?: string;
   /** Max variants to return. Default 3. */
   max?: number;
+  /** Override the Bedrock client (tests pass a stub), as embedding.ts does. */
+  client?: BedrockRuntimeClient;
 }
+
+/** Ledger label — the paid half of the keyword recall surface. */
+const SPEND_OP = "query-expansion";
 
 const SYSTEM_PROMPT = `You are a search query expander. Given the user's query, output up to N short paraphrases or near-synonym queries, ONE PER LINE, no numbering, no commentary. Return only paraphrases that materially change the wording (different verbs, different nouns); skip empty trivial restatements.`;
 
@@ -111,25 +117,35 @@ export async function expandQuery(
 
   const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
-  const c = client(region);
+  const c = opts.client ?? client(region);
   try {
-    const resp = await c.send(
-      new ConverseCommand({
-        modelId,
-        system: [{ text: SYSTEM_PROMPT.replace("N", String(max)) }],
-        messages: [{ role: "user", content: [{ text: safeQuery }] }],
-        inferenceConfig: { maxTokens: 120, temperature: 0.3 },
-      }),
-    );
-    const text = resp.output?.message?.content?.[0]?.text ?? "";
-    const lowerQuery = safeQuery.toLowerCase();
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.replace(/^[-*•\d.\s]+/, "").trim())
-      .filter((l) => l.length > 0 && l.toLowerCase() !== lowerQuery);
-    // Untrusted output — strip control chars / cap length / dedupe / cap count.
-    return sanitizeExpansionOutput(lines, max);
+    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+      const resp = await c.send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: SYSTEM_PROMPT.replace("N", String(max)) }],
+          messages: [{ role: "user", content: [{ text: safeQuery }] }],
+          inferenceConfig: { maxTokens: 120, temperature: 0.3 },
+        }),
+      );
+      if (resp.usage) {
+        meter.report({
+          inputTokens: resp.usage.inputTokens ?? 0,
+          outputTokens: resp.usage.outputTokens ?? 0,
+        });
+      }
+      const text = resp.output?.message?.content?.[0]?.text ?? "";
+      const lowerQuery = safeQuery.toLowerCase();
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.replace(/^[-*•\d.\s]+/, "").trim())
+        .filter((l) => l.length > 0 && l.toLowerCase() !== lowerQuery);
+      // Untrusted output — strip control chars / cap length / dedupe / cap count.
+      return sanitizeExpansionOutput(lines, max);
+    });
   } catch {
+    // Expansion is a recall bonus, never a dependency — a failed call still
+    // books its row inside `trackedInvoke` before we fall back to no variants.
     return [];
   }
 }

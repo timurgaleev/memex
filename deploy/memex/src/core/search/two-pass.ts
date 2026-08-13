@@ -22,8 +22,12 @@ import {
   type RerankFailureReason,
 } from "./rerank-audit.ts";
 import { awsRegion } from "../llm/gateway.ts";
+import { trackedInvoke } from "../budget.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+/** Ledger label — the opt-in paid rerank behind MEMEX_RERANK=1. */
+const SPEND_OP = "rerank-two-pass";
 
 /** Per-call rerank timeout (ms). Default: 5000. */
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -50,6 +54,8 @@ export interface RerankOptions {
   region?: string;
   /** Per-call timeout override (ms). Defaults to MEMEX_RERANK_TIMEOUT_MS/5000. */
   timeoutMs?: number;
+  /** Override the Bedrock client (tests pass a stub), as embedding.ts does. */
+  client?: BedrockRuntimeClient;
 }
 
 const SYSTEM_PROMPT = `You are a relevance reranker. You see a search query and a list of candidate chunks (numbered 0..N-1). Output ONE LINE: a JSON array of indices, in the order most-to-least relevant to the query. Output nothing else. Example: [3,0,1,2,4]`;
@@ -71,7 +77,7 @@ export async function rerank<T extends ChunkPayloadForRerank>(
   const region = opts.region ?? awsRegion();
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const timeoutMs = opts.timeoutMs ?? rerankTimeoutMs();
-  const c = client(region);
+  const c = opts.client ?? client(region);
 
   const audit = (reason: RerankFailureReason, err: unknown): void => {
     logRerankFailure({
@@ -84,50 +90,58 @@ export async function rerank<T extends ChunkPayloadForRerank>(
   };
 
   try {
-    const resp = await c.send(
-      new ConverseCommand({
-        modelId,
-        system: [{ text: SYSTEM_PROMPT }],
-        messages: [{ role: "user", content: [{ text: userMessage }] }],
-        inferenceConfig: { maxTokens: 200, temperature: 0 },
-      }),
-      // Per-call deadline: a stuck upstream must not hold search hostage.
-      { abortSignal: AbortSignal.timeout(timeoutMs) },
-    );
-    const text = resp.output?.message?.content?.[0]?.text?.trim() ?? "[]";
-    const match = text.match(/\[[^\]]*\]/);
-    if (!match) {
-      audit("parse", `no index array in model output (${text.slice(0, 80)})`);
-      return [...hits];
-    }
-    const order = JSON.parse(match[0]) as unknown;
-    if (!Array.isArray(order)) {
-      audit("parse", "model output parsed to a non-array");
-      return [...hits];
-    }
-    const seen = new Set<number>();
-    const out: ChunkScore<T>[] = [];
-    let rerankedScore = hits.length;
-    for (const idx of order) {
-      if (
-        typeof idx === "number" &&
-        Number.isInteger(idx) &&
-        idx >= 0 &&
-        idx < hits.length &&
-        !seen.has(idx)
-      ) {
-        const h = hits[idx]!;
-        out.push({ ...h, score: rerankedScore-- });
-        seen.add(idx);
+    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+      const resp = await c.send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: SYSTEM_PROMPT }],
+          messages: [{ role: "user", content: [{ text: userMessage }] }],
+          inferenceConfig: { maxTokens: 200, temperature: 0 },
+        }),
+        // Per-call deadline: a stuck upstream must not hold search hostage.
+        { abortSignal: AbortSignal.timeout(timeoutMs) },
+      );
+      if (resp.usage) {
+        meter.report({
+          inputTokens: resp.usage.inputTokens ?? 0,
+          outputTokens: resp.usage.outputTokens ?? 0,
+        });
       }
-    }
-    // Append any candidates the rerank missed in original order.
-    for (let i = 0; i < hits.length; i++) {
-      if (!seen.has(i)) {
-        out.push(hits[i]!);
+      const text = resp.output?.message?.content?.[0]?.text?.trim() ?? "[]";
+      const match = text.match(/\[[^\]]*\]/);
+      if (!match) {
+        audit("parse", `no index array in model output (${text.slice(0, 80)})`);
+        return [...hits];
       }
-    }
-    return out;
+      const order = JSON.parse(match[0]) as unknown;
+      if (!Array.isArray(order)) {
+        audit("parse", "model output parsed to a non-array");
+        return [...hits];
+      }
+      const seen = new Set<number>();
+      const out: ChunkScore<T>[] = [];
+      let rerankedScore = hits.length;
+      for (const idx of order) {
+        if (
+          typeof idx === "number" &&
+          Number.isInteger(idx) &&
+          idx >= 0 &&
+          idx < hits.length &&
+          !seen.has(idx)
+        ) {
+          const h = hits[idx]!;
+          out.push({ ...h, score: rerankedScore-- });
+          seen.add(idx);
+        }
+      }
+      // Append any candidates the rerank missed in original order.
+      for (let i = 0; i < hits.length; i++) {
+        if (!seen.has(i)) {
+          out.push(hits[i]!);
+        }
+      }
+      return out;
+    });
   } catch (err) {
     const timedOut =
       err instanceof Error &&

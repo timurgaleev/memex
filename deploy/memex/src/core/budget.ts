@@ -1,14 +1,17 @@
 /**
- * USD budget tracker for paid Bedrock LLM calls (the conversation→facts
- * extractor). A hard ceiling, not a suggestion: once cumulative spend reaches
- * the cap, `record()` throws BudgetExhausted and the caller stops. Trimmed to
- * memex's single use — no AsyncLocalStorage, no rerank/embed tiers, just chat
- * cost.
+ * Money: what a paid Bedrock call costs, what it is allowed to cost, and where
+ * the dollar went. Three layers, in that order:
  *
- * Pricing is per-1M tokens on Bedrock (eu-west-1 cross-region inference),
- * matched by model-family substring so an exact version suffix doesn't have to
- * be enumerated. A configured cap with NO pricing match HARD-FAILS (you should
- * never spend against an unpriced model).
+ *   - Pricing (`priceFor` / `costUsd`) — per-1M-token rates on Bedrock
+ *     (eu-west-1 cross-region inference), matched by model-family substring so
+ *     an exact version suffix doesn't have to be enumerated. Chat and
+ *     embedding are separate tables: they bill on different axes.
+ *   - Ceilings — the in-process `BudgetTracker` (one call site, one process)
+ *     and the durable per-client reservation ledger below. A cap with NO
+ *     pricing match HARD-FAILS: never spend against an unpriced model.
+ *   - Attribution (`trackedInvoke`, bottom of file) — the chokepoint every
+ *     paid call passes through, booking a labelled row per call. Accounting
+ *     only; it never refuses a call.
  */
 import { randomUUID } from "node:crypto";
 import { appendAudit, auditDir } from "./audit-week-file.ts";
@@ -22,7 +25,7 @@ export interface ModelPricing {
   outputPer1M: number;
 }
 
-/** Bedrock per-1M pricing by model-family substring (lowercased match). */
+/** Bedrock per-1M CHAT pricing by model-family substring (lowercased match). */
 export const MODEL_PRICING: { match: string; price: ModelPricing }[] = [
   // `opus` must precede `sonnet`/`haiku`: first substring match wins, and the
   // deep tier's opus id must not fall through to a cheaper row's pricing.
@@ -31,8 +34,24 @@ export const MODEL_PRICING: { match: string; price: ModelPricing }[] = [
   { match: "haiku", price: { inputPer1M: 1.0, outputPer1M: 5.0 } },
 ];
 
+/**
+ * Bedrock per-1M EMBEDDING pricing — a different axis from chat, so it is a
+ * different table. An embedding call bills INPUT tokens only; there is no
+ * output side at all, so `outputPer1M` is a truthful zero rather than a chat
+ * rate borrowed to make the row typecheck. Consulted BEFORE the chat table so
+ * a future embedder whose id happens to carry a chat family substring can
+ * never be priced as a chat model.
+ */
+export const EMBEDDING_PRICING: { match: string; price: ModelPricing }[] = [
+  // amazon.titan-embed-text-v2:0 — $0.02 per 1M input tokens.
+  { match: "titan-embed", price: { inputPer1M: 0.02, outputPer1M: 0 } },
+];
+
 export function priceFor(modelId: string): ModelPricing | null {
   const id = modelId.toLowerCase();
+  for (const { match, price } of EMBEDDING_PRICING) {
+    if (id.includes(match)) return price;
+  }
   for (const { match, price } of MODEL_PRICING) {
     if (id.includes(match)) return price;
   }
@@ -47,6 +66,34 @@ export function costUsd(modelId: string, usage: SonnetUsage): number {
     (usage.inputTokens / 1_000_000) * p.inputPer1M +
     (usage.outputTokens / 1_000_000) * p.outputPer1M
   );
+}
+
+/** Bedrock bills a prompt-cache READ at ~10% and a cache WRITE at ~125% of the
+ *  normal input rate. */
+const CACHE_READ_RATE = 0.1;
+const CACHE_WRITE_RATE = 1.25;
+
+/** Token usage as the Converse API reports it, prompt-cache fields included. */
+export interface ReportedUsage extends SonnetUsage {
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+}
+
+/**
+ * Fold prompt-cache tokens into an equivalent plain-input count. The price
+ * table knows ONE input rate per model, so cached tokens have to be translated
+ * into the uncached tokens they cost the same as — otherwise a cache read is
+ * either dropped (spend under-reported) or charged at 10× its real price.
+ */
+export function chargeableUsage(u: ReportedUsage): SonnetUsage {
+  const cacheRead = u.cacheReadInputTokens ?? 0;
+  const cacheWrite = u.cacheWriteInputTokens ?? 0;
+  return {
+    inputTokens: Math.ceil(
+      u.inputTokens + cacheWrite * CACHE_WRITE_RATE + cacheRead * CACHE_READ_RATE,
+    ),
+    outputTokens: u.outputTokens,
+  };
 }
 
 export type BudgetReason = "cost" | "no_pricing";
@@ -383,4 +430,114 @@ export async function expireStaleReservations(
     [now.toISOString()],
   );
   return r.rows.length;
+}
+
+// ---------------------------------------------------------------------------
+// Paid-call chokepoint — the ONE wrapper every Bedrock invoke goes through.
+//
+// Before this, spend was un-attributable: eight sites each built their own
+// command, the three search ones threaded no BudgetTracker at all, and the
+// tracker itself only ever wrote to an audit FILE that is disabled unless
+// MEMEX_AUDIT_DIR is set — so on the live deployment the cost was computed and
+// thrown away. `trackedInvoke` books every call into mcp_spend_log under an
+// operation label naming the feature, which is what makes "where did the $42
+// go" answerable with a GROUP BY.
+//
+// This is accounting, NOT enforcement: it never refuses a call and never
+// touches a budget ceiling. Ceilings stay exactly where they were —
+// BudgetTracker (per-call-site, in-process) and reserveSpend (per-client,
+// durable).
+// ---------------------------------------------------------------------------
+
+/** memex's only paid provider. */
+const DEFAULT_SPEND_PROVIDER = "bedrock";
+
+export interface TrackedCall {
+  /** The feature this call is spent ON — the ledger's attribution key. */
+  operation: string;
+  /** Resolved model id, as it actually went on the wire (prices the call). */
+  model: string;
+  /** Defaults to "bedrock". */
+  provider?: string;
+}
+
+/** Sink a wrapped call reports its ACTUAL billed usage to, as soon as the
+ *  model reports it — which may be well before the call returns. */
+export interface SpendMeter {
+  report(usage: ReportedUsage): void;
+}
+
+/**
+ * The ledger's engine. A module-level sink rather than a threaded argument
+ * because the paid sites are leaf helpers (embed a string, classify a query)
+ * that have no business taking a database handle. Wired once by whoever opens
+ * the DB; until then the chokepoint is a no-op passthrough, exactly like
+ * telemetry before its first `setEngine`.
+ */
+let _ledgerEngine: Engine | null = null;
+
+export function setSpendLedgerEngine(engine: Engine | null): void {
+  _ledgerEngine = engine;
+}
+
+/** Model ids already warned about — one line per unpriced model, not per call. */
+const _unpricedWarned = new Set<string>();
+
+/**
+ * Run a paid model call and book it.
+ *
+ * `send` receives a meter and reports the usage Bedrock billed. The booking
+ * happens in a `finally`, so a call that reported usage and THEN threw (a
+ * parse failure, a dimension check, an aborted read of a delivered response)
+ * is still billed — those tokens were charged to the account whether or not
+ * the caller got an answer out of them. A call that threw before any usage was
+ * reported still writes a $0 row: the attempt is attributable even when it
+ * bought nothing.
+ */
+export async function trackedInvoke<T>(
+  call: TrackedCall,
+  send: (meter: SpendMeter) => Promise<T>,
+): Promise<T> {
+  let usage: SonnetUsage = { inputTokens: 0, outputTokens: 0 };
+  const meter: SpendMeter = {
+    // A second report REPLACES the first: a retry inside `send` (the cachePoint
+    // fallback) is one logical call that was billed once, at whatever the
+    // attempt that actually reached the model consumed.
+    report: (u) => void (usage = chargeableUsage(u)),
+  };
+  try {
+    return await send(meter);
+  } finally {
+    await bookSpend(call, usage);
+  }
+}
+
+/**
+ * Append one call to the durable ledger. Every failure is logged and swallowed:
+ * accounting must never break a paid path, the same contract search telemetry
+ * already keeps.
+ */
+async function bookSpend(call: TrackedCall, usage: SonnetUsage): Promise<void> {
+  const engine = _ledgerEngine;
+  if (!engine) return;
+  if (priceFor(call.model) === null && !_unpricedWarned.has(call.model)) {
+    _unpricedWarned.add(call.model);
+    console.warn(
+      `[memex] spend ledger: no pricing for model '${call.model}' — its calls ` +
+        `book $0, so the ledger under-reports until MODEL_PRICING/EMBEDDING_PRICING learns it`,
+    );
+  }
+  try {
+    await logSpend(engine, {
+      operation: call.operation,
+      costUsd: costUsd(call.model, usage),
+      provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
+      model: call.model,
+    });
+  } catch (err) {
+    console.warn(
+      `[memex] spend ledger write failed for '${call.operation}': ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
 }
