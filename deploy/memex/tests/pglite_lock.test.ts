@@ -18,12 +18,14 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  chmodSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   acquireDataDirLock,
+  pidAlive,
   PgliteLockedError,
 } from "../src/core/engine/pglite-lock.ts";
 
@@ -75,11 +77,59 @@ describe("acquireDataDirLock", () => {
     held.release();
   });
 
-  it("treats an unreadable lock as stale rather than blocking forever", () => {
+  // This test used to assert the opposite — that a lock naming no readable pid
+  // was stale and could be taken over. That was wrong, and it is the shape that
+  // let two processes onto one directory: writeLock creates the file with 'wx'
+  // and writes the pid immediately AFTER, so a second start racing the first
+  // reads exactly this state and, under the old rule, stole a live lock.
+  it("refuses a lock that exists but names no readable owner", () => {
     writeFileSync(lockFile(), "not-a-pid\n");
-    const held = acquireDataDirLock(dir, {});
-    expect(lockPid()).toBe(String(process.pid));
-    held.release();
+    expect(() => acquireDataDirLock(dir, {})).toThrow(PgliteLockedError);
+    // And it leaves the other party's file alone.
+    expect(readFileSync(lockFile(), "utf8")).toContain("not-a-pid");
+  });
+
+  it("refuses the zero-byte lock a concurrent start is mid-way through writing", () => {
+    // The exact race: 'wx' has created the file, the pid line is not there yet.
+    writeFileSync(lockFile(), "");
+    expect(() => acquireDataDirLock(dir, {})).toThrow(PgliteLockedError);
+  });
+
+  // The branch that matters is "any errno that is neither EPERM nor ESRCH".
+  // A test cannot provoke one from a real kill(), so the probe is injected —
+  // otherwise this rule is unobservable and a regression passes silently.
+  it("reads an unknown probe failure as ALIVE, never as dead", () => {
+    const errno = (code: string) => (): never => {
+      const e = new Error(code) as NodeJS.ErrnoException;
+      e.code = code;
+      throw e;
+    };
+    expect(pidAlive(123, errno("ESRCH"))).toBe(false); // the ONLY death verdict
+    expect(pidAlive(123, errno("EPERM"))).toBe(true);
+    expect(pidAlive(123, errno("EIO"))).toBe(true); // unknown -> assume alive
+    expect(pidAlive(123, errno("EINVAL"))).toBe(true);
+    expect(pidAlive(123, () => undefined)).toBe(true); // no throw -> running
+  });
+
+  it("refuses a lock file it is not allowed to read", () => {
+    // Unreadable is not absent: someone holds it and we cannot name them.
+    // Only ENOENT may be read as "nobody holds this".
+    writeFileSync(lockFile(), "4194303\n");
+    chmodSync(lockFile(), 0o000);
+    try {
+      expect(() => acquireDataDirLock(dir, {})).toThrow(PgliteLockedError);
+    } finally {
+      chmodSync(lockFile(), 0o644);
+    }
+  });
+
+  it("still counts a process it cannot probe as alive, not dead", () => {
+    // PID 1 exists on every host and is not ours, so kill(1, 0) raises EPERM
+    // rather than ESRCH. Only ESRCH may be read as death — every other errno
+    // means "could not find out", and reaping on "don't know" is what corrupts
+    // the directory.
+    writeFileSync(lockFile(), "1\n");
+    expect(() => acquireDataDirLock(dir, {})).toThrow(PgliteLockedError);
   });
 
   it("can be turned off, because setups exist that it would wrongly refuse", () => {

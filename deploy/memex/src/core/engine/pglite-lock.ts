@@ -38,13 +38,32 @@ export class PgliteLockedError extends Error {}
 /** Lock paths this process currently holds, so it cannot fight itself. */
 const heldInProcess = new Set<string>();
 
-function pidAlive(pid: number): boolean {
+/**
+ * Probe a pid for existence. Injectable because the interesting cases are the
+ * errnos a test cannot provoke portably: EPERM and ESRCH are reachable (pid 1
+ * and a pid above pid_max), but "any other errno" is the branch that decides
+ * whether an unknown outcome reaps a live writer, and nothing in a normal test
+ * environment produces one.
+ */
+export type PidProbe = (pid: number) => void;
+
+const defaultProbe: PidProbe = (pid) => process.kill(pid, 0);
+
+export function pidAlive(pid: number, probe: PidProbe = defaultProbe): boolean {
   try {
-    process.kill(pid, 0);
+    probe(pid);
     return true;
   } catch (e) {
-    // EPERM: exists, owned by someone else. ESRCH: gone.
-    return (e as NodeJS.ErrnoException).code === "EPERM";
+    // Only an affirmative "no such process" counts as death. EPERM means the
+    // process exists and belongs to someone else; any OTHER errno means we
+    // could not find out, and the safe reading of "I don't know" is ALIVE.
+    //
+    // The asymmetry is deliberate and load-bearing: a false "dead" reaps the
+    // lock of a live single writer and lets a second process open the same
+    // directory, which is the corruption this whole module exists to prevent.
+    // A false "alive" only refuses a start, which the operator sees and can
+    // clear.
+    return (e as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
@@ -84,19 +103,34 @@ export interface HeldLock {
 interface LockContents {
   pid: number | null;
   token: string | null;
+  /**
+   * True only when there is provably no lock — the file does not exist.
+   *
+   * A file that exists but yields no pid is NOT absent: it is held by someone
+   * we could not identify. Collapsing those two into `pid: null` is what let a
+   * live holder be reaped, because the caller then took the stale branch.
+   */
+  absent: boolean;
 }
 
 function readLock(lockPath: string): LockContents {
+  let raw: string;
   try {
-    const [pidLine, tokenLine] = readFileSync(lockPath, "utf8").split("\n");
-    const pid = Number.parseInt(pidLine ?? "", 10);
-    return {
-      pid: Number.isFinite(pid) ? pid : null,
-      token: (tokenLine ?? "").trim() || null,
-    };
-  } catch {
-    return { pid: null, token: null };
+    raw = readFileSync(lockPath, "utf8");
+  } catch (e) {
+    // ENOENT is the only outcome that means "nobody holds this". A permission
+    // error, an I/O error, anything else — the file is there and we cannot
+    // read it, which is a holder we cannot name, not an empty slot.
+    const absent = (e as NodeJS.ErrnoException).code === "ENOENT";
+    return { pid: null, token: null, absent };
   }
+  const [pidLine, tokenLine] = raw.split("\n");
+  const pid = Number.parseInt(pidLine ?? "", 10);
+  return {
+    pid: Number.isFinite(pid) ? pid : null,
+    token: (tokenLine ?? "").trim() || null,
+    absent: false,
+  };
 }
 
 /** Create the lock exclusively. Returns false when it already exists. */
@@ -198,8 +232,25 @@ export function acquireDataDirLock(
     );
   }
 
-  // Stale, or unreadable. Clear it and try once — never in a loop, because a
-  // loop against a live contender is just a slower way to lose.
+  // A lock file that exists but names no live pid is NOT ours to clear. Two
+  // shapes land here and both mean "held by someone I cannot identify":
+  //   - the file is unreadable (permissions, I/O), so we never saw a pid;
+  //   - the file is a zero-byte or half-written creation, because writeLock
+  //     creates with 'wx' and writes the pid immediately AFTER. A second start
+  //     racing the first reads exactly that window.
+  // Treating either as stale is how two processes ended up on one directory.
+  if (!holder.absent && holder.pid === null) {
+    throw new PgliteLockedError(
+      `pglite: ${dbPath} has a lock at ${lockPath} that names no readable ` +
+        `owner — another process may be starting right now, or the file is ` +
+        `unreadable. Refusing to take it over. Check for a running memex, ` +
+        `then delete the file by hand if you are certain none is writing.`,
+    );
+  }
+
+  // Genuinely stale: the file named a pid and that pid is gone. Clear it and
+  // try once — never in a loop, because a loop against a live contender is
+  // just a slower way to lose.
   try {
     unlinkSync(lockPath);
   } catch (e) {

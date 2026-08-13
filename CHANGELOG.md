@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The PGLite lock stopped handing the directory to whoever asked second.**
+  It treated anything it could not parse as stale and took over: an unreadable
+  file, a truncated pid line, and the zero-byte window between `wx` creating the
+  lock and the owner writing its pid into it all read as "nobody holds this".
+  Two starts racing was enough — the second read the first's half-written lock
+  as garbage and stole it, which is precisely the two-writer corruption the lock
+  was shipped to prevent. A file that exists but names no readable owner is now
+  refused, not cleared. Separately, a process probe that failed with anything
+  other than "no such process" was counted as dead; only that one verdict means
+  death now, because a false "dead" reaps a live writer while a false "alive"
+  merely refuses a start the operator can see. The probe is injectable so the
+  unknown-errno branch is testable at all, and the test that asserted the old
+  take-it-over behaviour is rewritten with the reason it was wrong.
+
 - **Every surface that answers "what am I running" now answers with the build.**
   The previous release pointed `/health` at the build stamp and stopped there —
   but MCP is the only contract this brain has, and the four surfaces an agent
