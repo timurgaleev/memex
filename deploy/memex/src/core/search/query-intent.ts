@@ -58,25 +58,64 @@ const TEMPORAL_PATTERNS = [
  * Set-shaped / landscape phrasings. Deliberately narrow: a false positive here
  * costs the caller a nudge they did not need, but a bank this small only fires
  * on questions that genuinely ask to enumerate or compare.
+ *
+ * Two cues used to overlap ENTITY_PATTERNS below, so one query came back as a
+ * 'low'-detail entity lookup AND as "the answer may be a partial set" — a
+ * wasted second tool call plus unfounded doubt about a complete answer:
+ *   - "overview of" is dropped outright. "overview of Acme Corp" names one
+ *     thing, and both ENTITY_PATTERNS and CANONICAL_PATTERNS already read it.
+ *   - "what are the …" now needs an enumerating qualifier. "what are the
+ *     deployment steps" is a lookup; "what are the different approaches to
+ *     chunking" is a landscape question.
+ * The collision is fixed cue-side rather than by suppressing on
+ * taxonomy==='entity': ENTITY_PATTERNS matches /what (is|does|are)/, which
+ * would silence our own documented true positives too.
  */
 const CONCEPT_CUE_PATTERNS = [
   /\ball\s+(the\s+)?(companies|people|projects|tools|papers|notes|places|options|ways|reasons|examples)\b/i,
   /\b(list|enumerate)\s+(all|every|the)\b/i,
-  /\bwhat\s+are\s+the\b/i,
+  /\bwhat\s+are\s+(all\b|the\s+(different|various|main|possible|available|other|kinds|types|options|approaches|ways)\b)/i,
   /\bwhich\s+(ones|of\s+(them|these|those))\b/i,
   /\bdifferent\s+(kinds|types|approaches|ways|options)\b/i,
   /\bthe\s+landscape\s+of\b/i,
-  /\boverview\s+of\b/i,
-  /\bcompare\b/i,
+  // "compare" needs two operands. Bare "compare the deploy script" names one
+  // thing; a pair is spelled either as "A vs/and/with B" or as a counted set
+  // ("compare the two rerankers").
+  /\bcompare\b[^.?!]*?\s(vs\.?|versus|and|with|against|to)\s+\S/i,
+  /\bcompare\s+(the\s+)?(two|three|four|both|several|these|those)\b/i,
   /\bevery\s+(company|person|project|note|tool)\b/i,
   /\bwho\s+all\b/i,
 ];
 
 /**
+ * Exact-identifier anti-signals. A quoted phrase or a kebab/snake slug means
+ * the caller named the thing they want ("compare memex-search vs query") — a
+ * lookup, not a survey — so the partial-set nudge is noise.
+ */
+const EXACT_IDENTIFIER_PATTERNS = [
+  /"[^"]{2,}"/,
+  /“[^”]{2,}”/,
+  /\b[a-z0-9]+(?:[-_][a-z0-9]+)+\b/i,
+];
+
+/**
+ * Under this a query is a bare token or a proper-noun lookup ("Acme Corp") —
+ * never a question about a set, whatever cue word it happens to carry.
+ */
+const MIN_CONCEPT_WORDS = 3;
+
+function wordCount(query: string): number {
+  return query.split(/\s+/).filter((w) => /\w/.test(w)).length;
+}
+
+/**
  * True when the query asks for a set rather than a fact. Pure and free — no
- * DB, no model.
+ * DB, no model. Suppressors run before the cue bank: length and exact
+ * identifiers say what the caller wants regardless of which cue matched.
  */
 export function looksConceptShaped(query: string): boolean {
+  if (wordCount(query) < MIN_CONCEPT_WORDS) return false;
+  if (matches(EXACT_IDENTIFIER_PATTERNS, query)) return false;
   return matches(CONCEPT_CUE_PATTERNS, query);
 }
 
