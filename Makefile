@@ -14,7 +14,7 @@
 #   make destroy   terraform destroy (NO automatic safeguards — answer carefully)
 #   make help      show this list
 
-.PHONY: help init audit scrub-audit typecheck test plan apply deploy destroy lint
+.PHONY: help init audit scrub-audit typecheck lint-ts test plan apply deploy destroy lint
 
 # Default target — print help.
 help:
@@ -33,6 +33,9 @@ scrub-audit: ## Broader pre-publication audit — categorised report, fails on H
 
 typecheck: ## Typecheck the shipping TypeScript (src/); tests/ backlog via `bun run typecheck:all`
 	@cd deploy/memex && bun run typecheck
+
+lint-ts: ## Lint the daemon TypeScript (correctness rules only; eslint.config.js says what is off and why)
+	@cd deploy/memex && bun run lint
 
 test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
 	@bash scripts/check-search-path.sh

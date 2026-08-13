@@ -105,6 +105,34 @@ the full per-item adoption plan lives in the maintainer's gitignored notes.
 
 ### Open — LOW (0)
 
+## Open — lint backlog (2026-08-13)
+
+A linter was run over the daemon source for the first time. The raw run reported
+2375 problems; roughly 2000 were house conventions this codebase made
+deliberately (bracket env access, import order, `require("process")` in an ESM
+Bun daemon), and `eslint.config.js` turns each of those off with its reason
+written next to it. **252 remain**, measurable with `make lint-ts`.
+
+What the run was worth, honestly:
+
+- **Zero defects.** The 94 "super-linear backtracking" findings did NOT
+  reproduce: eight patterns from the ingest path (transcript parser, sanity
+  gate, markdown chunkers, entity extraction) were driven with adversarial
+  inputs up to 128k characters and every one returned in under a millisecond.
+  Our patterns are anchored and use negated classes rather than `.*`, which
+  keeps them linear. Do not re-raise this as a ReDoS risk without new
+  measurements.
+- **Three real slips, fixed:** a `timeout` alternative already covered by the
+  `timed?\s?out` beside it, `round` listed twice in one alternation, and a
+  module imported on three separate lines.
+- The remaining 252 are `prefer-type-error`, `no-use-before-define`,
+  `prefer-w`/`use-ignore-case` and similar. Worth a sweep, not worth blocking a
+  ship.
+
+The value is forward, not retrospective: it gates the unused binding, duplicate
+import and dead alternative in code written tomorrow, which `tsc` cannot see.
+Cost: +86 MB of node_modules, 28 top-level packages to 281.
+
 ## Open — typecheck backlog (2026-08-12)
 
 `tsc` had never been run against this repo. Its first run reported 61 errors.
