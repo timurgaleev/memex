@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Doctor checks say when they could not run.** The verdict was binary, so a
+  check that THREW rendered byte-identical to one that passed — eight catch
+  blocks pushed `ok: true` with the error text as the detail, and the MCP
+  surface repeated it. Checks now carry `status: "ok" | "warn" | "fail"` beside
+  `ok`, using the vocabulary the cycle runner already defined rather than a new
+  one, and the report rolls up to the worst. `ok` stays the exit-code driver: a
+  warn must not red a cron probe on a brain that is serving fine. Two states
+  that were silently green — never cycled, and a future timestamp meaning clock
+  skew — are warns now. A static guard fails the build if any catch path
+  reports a pass.
+- **Every paid model call books a row.** Eight independent Bedrock invoke sites
+  each built their own command, three of them bypassing the budget tracker
+  entirely, and the ledger had exactly one row for all time because only the MCP
+  settle path wrote to it. All eight now pass through one chokepoint carrying an
+  operation label, and usage is recorded in a `finally` so a call that threw is
+  still billed — a failed paid call costs real money and used to book nothing.
+  Embeddings get their own price axis instead of being priced as chat, and
+  prompt-cache tokens are charged at their real rates rather than as plain
+  input. No ceiling moved: this is accounting, not enforcement. A ledger write
+  that fails is logged and swallowed, the way telemetry already behaves.
+- **A query can find a page by its name.** The keyword arm ranks chunk text; a
+  page whose proper noun appears only in its title was invisible to it, and the
+  title and slug boosts run after fusion — boosts with nothing to boost. Pages
+  named by a query now enter the candidate set. The other half of that eval miss
+  is recorded, not papered over: for question-shaped queries the keyword arm
+  returns nothing at all because every term is ANDed, and the measured remedy
+  (an OR fallback) costs more precision than it buys.
+
 ### Fixed
 - **A credential is required on both ingresses.** Authentication used to hinge
   on a guess about how the request arrived: no `Cf-Connecting-Ip` meant

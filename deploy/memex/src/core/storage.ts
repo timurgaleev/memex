@@ -14,6 +14,7 @@ import type { Engine } from "./engine/interface.ts";
 import { makeEngine } from "./engine/factory.ts";
 import type { Config } from "./config.ts";
 import { applyRuntimeEnvOverlay } from "./runtime-config.ts";
+import { setSpendLedgerEngine } from "./budget.ts";
 
 export interface StorageStats {
   documents: number;
@@ -65,6 +66,12 @@ export class Storage {
     // MEMEX_* keys fill env gaps the container did not set. Fail-open, env
     // wins, MEMEX_NO_DB_CONFIG=1 skips. See core/runtime-config.ts.
     await applyRuntimeEnvOverlay(this._engine);
+    // Give the spend chokepoint somewhere to write. Without this every paid
+    // Bedrock call still routes through `trackedInvoke`, computes its cost, and
+    // then drops it — the accounting would be a silent no-op on the live host,
+    // which is the exact shape of defect the ledger exists to end. Same lazy
+    // wiring the search telemetry writer uses.
+    setSpendLedgerEngine(this._engine);
     return result;
   }
 
