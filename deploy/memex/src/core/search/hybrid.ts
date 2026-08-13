@@ -6,6 +6,7 @@
  *   2. (parallel) embed query → vector retrieval; keyword retrieval
  *      (both arms carry the curation prefix boost + default hard-excludes)
  *   3. (opt-in) query expansion → extra keyword passes
+ *   3a. identifier arm (default ON): head chunk of every page the query NAMES
  *   4. RRF fuse all retrieval lists (per-list k/weight)
  *   5. hydrate top-(k * 3) chunks with parent doc + source kind
  *   6. boosts: compiled-truth ×2, source, recency (decay + temporal boost),
@@ -97,6 +98,7 @@ import {
   getGraphSignalsFloorRatio,
 } from "./graph-signals.ts";
 import { applyAliasHop, aliasHopEnabled } from "./alias-hop.ts";
+import { titleArmChunkIds, titleArmEnabled, TITLE_ARM_WEIGHT } from "./title-arm.ts";
 import { expandAnchors } from "./structural-expand.ts";
 import { applyBacklinkBoost } from "./backlink-boost.ts";
 import { cosineReScore } from "./cosine-rescore.ts";
@@ -169,6 +171,7 @@ export interface ResolvedSearchKnobs {
   cosineRescoreOn: boolean;
   relationalArmOn: boolean;
   backlinkBoostOn: boolean;
+  titleArmOn: boolean;
   tokenBudget: number | undefined;
 }
 
@@ -199,6 +202,9 @@ export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnob
     relationalArmOn: resolveKnob(opts.relationalArm, env.MEMEX_RELATIONAL_ARM, bundle.relationalArm),
     // Backlink boost keeps its default-ON contract in every mode.
     backlinkBoostOn: opts.backlinkBoost ?? env.MEMEX_BACKLINK_BOOST !== "0",
+    // Identifier arm is default-ON in every mode, like the backlink boost: it
+    // adds recall the other arms structurally cannot reach, never a re-weight.
+    titleArmOn: opts.titleArm ?? titleArmEnabled(),
     tokenBudget: opts.tokenBudget ?? bundle.tokenBudget,
   };
 }
@@ -211,7 +217,8 @@ export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnob
 export function knobsCacheSuffix(kn: ResolvedSearchKnobs): string {
   return (
     `:RXP=${kn.expansionEnabled ? 1 : 0}:RGS=${kn.graphSignalsOn ? 1 : 0}` +
-    `:RCR=${kn.cosineRescoreOn ? 1 : 0}:RBB=${kn.backlinkBoostOn ? 1 : 0}`
+    `:RCR=${kn.cosineRescoreOn ? 1 : 0}:RBB=${kn.backlinkBoostOn ? 1 : 0}` +
+    `:RTA=${kn.titleArmOn ? 1 : 0}`
   );
 }
 
@@ -297,6 +304,15 @@ export interface SearchOptions {
    * MEMEX_BACKLINK_BOOST=0 to disable. See backlink-boost.ts.
    */
   backlinkBoost?: boolean;
+  /**
+   * Identifier (title/slug) arm (default ON): fuse the head chunk of every page
+   * whose title or slug leaf appears verbatim in the query as an extra RRF list.
+   * Closes the recall gap where a page's name lives only in its title/path —
+   * neither retrieval arm indexes those columns, so the post-fusion title and
+   * exact-slug boosts had no candidate to act on. Falls back to
+   * MEMEX_TITLE_ARM !== "0". See title-arm.ts.
+   */
+  titleArm?: boolean;
   /**
    * Cosine re-score blend (default OFF): before dedup, re-score each candidate
    * as 0.7*normalizedRRF + 0.3*(query·chunk cosine) so semantically-closer
@@ -614,6 +630,7 @@ export async function hybridSearch(
     cosineRescoreOn,
     relationalArmOn,
     backlinkBoostOn,
+    titleArmOn,
     tokenBudget,
   } = resolveSearchKnobs(opts);
 
@@ -734,6 +751,7 @@ export async function hybridSearch(
       cosineRescoreOn,
       relationalArmOn,
       backlinkBoostOn,
+      titleArmOn,
       tokenBudget,
     });
   if (cacheEnabled) {
@@ -846,6 +864,21 @@ export async function hybridSearch(
   //    ...keywordExpansions], so keyword lists = lists.length - 1). The optional
   //    relational arm is fused as an extra list with its own gentle weight.
   const rrfWeights = rrfWeightsForLists(intent, lists.length - 1);
+  // 3a. Identifier arm (default ON) — the head chunk of every page the query
+  //     NAMES (its title / slug leaf appears verbatim in the query). Built from
+  //     the ORIGINAL query, never an expansion variant: a page's name is the
+  //     user's own word for it. Empty for a query that names nothing, which is
+  //     the common case — a pure no-op on the fused result.
+  if (titleArmOn) {
+    const titleIds = await titleArmChunkIds(engine, trimmed, {
+      ...(opts.sourceIds ? { sourceIds: opts.sourceIds } : {}),
+      limit: fanout,
+    });
+    if (titleIds.length > 0) {
+      lists.push(titleIds);
+      rrfWeights.push(TITLE_ARM_WEIGHT);
+    }
+  }
   // 3b. Relational recall arm (opt-in, default OFF) — a deterministic 4th arm.
   //     Built from the ORIGINAL query (never an expansion variant); empty for
   //     non-relational queries → pure no-op. Fail-open inside the helper.

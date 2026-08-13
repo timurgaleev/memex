@@ -114,9 +114,10 @@ export function resolveSemanticCacheConfig(
  * mattering-salience / recency-boost stages, per-doc dedup cap 2 + type
  * diversity, full-window rerank head); `7` = compiled-truth boost rescoped to
  * detail=low only, ANN ef_search raised to the fanout, first-person
- * entity-intent phrasing.
+ * entity-intent phrasing; `8` = the identifier (title/slug) arm, which fuses
+ * pages the query NAMES and so changes which candidates exist at all.
  */
-const RANKING_VERSION = "7";
+const RANKING_VERSION = "8";
 
 /**
  * Signature of the ranking inputs that are NOT function arguments, so a change
