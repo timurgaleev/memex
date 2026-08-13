@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.121.0] — 2026-08-13
+
 ### Added
 - **Doctor checks say when they could not run.** The verdict was binary, so a
   check that THREW rendered byte-identical to one that passed — eight catch
