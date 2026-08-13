@@ -182,10 +182,14 @@ describe("write-scoped token on destructive tools", () => {
     expect(del.error.message).toMatch(/not callable from the public ingress/);
   });
 
-  it("bare internal path (no token at all) still hits the internal-token wall", async () => {
+  it("bare internal path (no token at all) is refused at the ingress", async () => {
+    // REWRITTEN: this expected the JSON-RPC internal-token wall (-32001), which
+    // only fires once a credential-less request has reached the dispatcher. The
+    // guard now demands the internal token from that ingress as well, so the
+    // refusal arrives as a plain 401 body before any tool is dispatched.
     const del = await call("page_delete", { slug: "notes/x" });
-    expect(del.error?.code).toBe(ERR_UNAUTHORIZED);
-    expect(del.error.message).toMatch(/internal token/);
+    expect(del.ok).toBe(false);
+    expect(String(del.error)).toMatch(/internal token/);
   });
 });
 

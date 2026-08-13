@@ -6,16 +6,25 @@
  * the public guard rejected the request — `guard.allow` is false there, so the
  * /mcp handler (and its rate limiter) never runs. An unauthenticated caller
  * spraying junk bearers therefore drove unbounded DB load. The throttle sheds
- * that BEFORE the lookup, meters FAILURES only, and refuses to throttle a
- * caller it cannot attribute (no trusted client IP → one shared bucket would
- * let one sprayer lock out everybody else).
+ * that BEFORE the lookup and meters FAILURES only, so a legitimate client
+ * keeps its budget. EVERY request class is metered: trusted client IP, then
+ * the socket address, then one shared bucket with a wider — but real —
+ * ceiling.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
-import { startServer, type ServerHandle } from "../src/http/server.ts";
+import {
+  startServer,
+  resolveRateLimitBucket,
+  attemptLimiterFor,
+  ATTRIBUTED_AUTH_ATTEMPT_LIMITS,
+  UNATTRIBUTED_AUTH_ATTEMPT_LIMITS,
+  UNATTRIBUTED_RATE_KEY,
+  type ServerHandle,
+} from "../src/http/server.ts";
 import {
   InvalidTokenError,
   OAuthProvider,
@@ -125,10 +134,14 @@ describe("pre-auth token-verification throttle", () => {
     expect(calls()).toBe(3);
   });
 
-  it("never throttles a caller it cannot attribute (no shared-bucket lockout)", async () => {
-    // MEMEX_ASSUME_PUBLIC makes every request public even without a trusted
-    // client IP. With one shared bucket, a single sprayer would 429 every other
-    // caller on that ingress — so unattributable callers are not metered at all.
+  it("meters a caller with no trusted client IP, via its socket address", async () => {
+    // REWRITTEN. This used to assert "never throttles a caller it cannot
+    // attribute", on the rationale that one shared bucket lets a sprayer lock
+    // everyone out. The effect was the opposite of a defence: the caller that
+    // presents no forwarding header — the one a brute-forcer actually is — got
+    // an unmetered channel, two DB round-trips per attempt, forever. A caller
+    // without Cf-Connecting-Ip still has a socket address, which separates the
+    // bridge peers from each other just as well, so meter on that.
     process.env["MEMEX_ASSUME_PUBLIC"] = "1";
     const { provider, calls } = stubProvider("good-token");
     const url = await boot(
@@ -136,11 +149,63 @@ describe("pre-auth token-verification throttle", () => {
       new RateLimiter({ capacity: 1, refillPerSecond: 0 }),
     );
 
-    for (let i = 0; i < 3; i++) {
-      expect((await post(url, `junk-${i}`)).status).toBe(401);
+    expect((await post(url, "junk-0")).status).toBe(401); // spends the token
+    const throttled = await post(url, "junk-1");
+    expect(throttled.status).toBe(429);
+    expect(Number(throttled.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+    expect(calls()).toBe(1); // the second attempt never reached the DB
+  });
+});
+
+describe("pre-auth attempt keying", () => {
+  it("prefers the trusted client IP", () => {
+    expect(resolveRateLimitBucket("9.9.9.9", "172.18.0.4")).toEqual({
+      key: "9.9.9.9",
+      unattributed: false,
+    });
+  });
+
+  it("falls back to the socket address, which still names one peer", () => {
+    expect(resolveRateLimitBucket(null, "172.18.0.4")).toEqual({
+      key: "172.18.0.4",
+      unattributed: false,
+    });
+  });
+
+  it("falls back to ONE shared bucket when nothing resolves", () => {
+    for (const socket of [undefined, null, ""]) {
+      expect(resolveRateLimitBucket(null, socket)).toEqual({
+        key: UNATTRIBUTED_RATE_KEY,
+        unattributed: true,
+      });
     }
-    expect(calls()).toBe(3);
-    expect((await post(url, "good-token")).status).toBe(200);
+  });
+
+  it("charges the shared bucket against its own limiter", () => {
+    const attributed = new RateLimiter({ capacity: 1, refillPerSecond: 0 });
+    const unattributed = new RateLimiter({ capacity: 1, refillPerSecond: 0 });
+    expect(
+      attemptLimiterFor({ unattributed: true }, attributed, unattributed),
+    ).toBe(unattributed);
+    expect(
+      attemptLimiterFor({ unattributed: false }, attributed, unattributed),
+    ).toBe(attributed);
+  });
+
+  it("the shared bucket is wider than a per-caller one — and still has a ceiling", () => {
+    const shared = UNATTRIBUTED_AUTH_ATTEMPT_LIMITS.capacity ?? 0;
+    const perCaller = ATTRIBUTED_AUTH_ATTEMPT_LIMITS.capacity ?? 0;
+    expect(shared).toBeGreaterThan(perCaller);
+    expect(Number.isFinite(shared)).toBe(true);
+
+    // Burn the real default capacity: attempt `shared + 1` must be shed, or an
+    // unattributable sprayer is back to being unmetered.
+    const limiter = new RateLimiter(UNATTRIBUTED_AUTH_ATTEMPT_LIMITS);
+    const at = 1_000; // fixed clock: no refill mid-run
+    for (let i = 0; i < shared; i++) {
+      expect(limiter.allow(UNATTRIBUTED_RATE_KEY, at)).toBe(true);
+    }
+    expect(limiter.allow(UNATTRIBUTED_RATE_KEY, at)).toBe(false);
   });
 });
 

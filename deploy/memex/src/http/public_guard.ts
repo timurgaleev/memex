@@ -1,15 +1,21 @@
 /**
- * Public-request guard — enforces bearer auth + write-protection on
- * requests that arrived through the public Cloudflare Tunnel ingress.
+ * Ingress guard — every request presents a credential; the ingress class
+ * decides WHICH one, never WHETHER one is checked.
  *
- * Detection: a request from the Cloudflare edge carries a
+ * Classification: a request from the Cloudflare edge carries a
  * `Cf-Connecting-Ip` header (the real client IP). Internal Docker
  * traffic (recipe / worker callers) hits the bridge network
  * directly and never goes through Cloudflare, so it lacks this header.
- * NON-CLOUDFLARE INGRESS: this heuristic fails open behind a proxy that
- * does not inject the header — set `MEMEX_ASSUME_PUBLIC=1` (or inject
- * `Cf-Connecting-Ip` at the proxy) or the MCP surface is served without
- * auth. See `assumePublicIngress` below and docs/DEPLOYMENT.md.
+ * The class picks the credential — public bearer vs the shared
+ * `MEMEX_INTERNAL_TOKEN` (`evaluateInternalAuth`) — and drives body
+ * redaction plus rate-limit keying downstream. It does NOT decide whether
+ * auth happens: a misclassified request meets a different token, not an
+ * open door. The only unauthenticated surface is `isPreCredentialRoute`.
+ * NON-CLOUDFLARE INGRESS: behind a proxy that does not inject the header,
+ * every request classifies internal and is judged against the internal
+ * token — set `MEMEX_ASSUME_PUBLIC=1` (or inject `Cf-Connecting-Ip` at the
+ * proxy) so remote callers are redacted like the public callers they are.
+ * See `assumePublicIngress` below and docs/DEPLOYMENT.md.
  *
  * Public-request rules:
  *   1. `/health` GET — open (used by uptime probes).
@@ -40,6 +46,12 @@ import {
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
   bearerToken?: string;
+  /**
+   * Shared token for requests classified INTERNAL (see `evaluateInternalAuth`).
+   * Undefined keeps the legacy fall-through — internal callers are waved
+   * through, which is why serve.ts logs a loud warning at boot.
+   */
+  internalToken?: string;
 }
 
 export interface GuardDecision {
@@ -242,8 +254,9 @@ function publicWriteAllowed(): boolean {
  * Cloudflare Tunnel (the edge always injects the header, and internal
  * docker-bridge peers never carry it). Behind any OTHER reverse proxy
  * (Caddy, nginx, an ALB) that does not inject the header, every request
- * looks internal and the whole MCP surface is served UNAUTHENTICATED —
- * a silent full auth bypass, not a degradation.
+ * looks internal: it is still judged against `MEMEX_INTERNAL_TOKEN`, but
+ * a remote caller holding that token would read UNREDACTED bodies and the
+ * internal-only tool set — a privacy degradation, not an auth bypass.
  *
  * Set this flag on any non-Cloudflare deployment (or inject the header at
  * the proxy — belt and braces do both). Caveat: with the flag on, sibling
@@ -266,13 +279,13 @@ function isPublicRequest(req: Request): boolean {
 }
 
 /**
- * Internal-route auth — requests that the public guard waves through
- * as "internal" must still carry a matching shared token. Without
- * this check, any peer on the docker bridge (compromised sibling
- * container or future host bind on :18790) could write to the index
- * via POST /index with no auth at all. The shared secret is loaded
- * from `MEMEX_INTERNAL_TOKEN` env (populated by fetch-secrets.sh
- * from `<secrets_prefix>/memex-internal-token`).
+ * Internal-route auth — requests classified "internal" must carry a
+ * matching shared token. Without this check, any peer on the docker
+ * bridge (compromised sibling container or future host bind on :18790)
+ * reaches the whole read surface — and every write tool — with no auth
+ * at all. The shared secret is loaded from `MEMEX_INTERNAL_TOKEN` env
+ * (populated by fetch-secrets.sh from
+ * `<secrets_prefix>/memex-internal-token`).
  *
  * Fail-closed: when the token is configured but a request lacks the
  * matching `Authorization: Bearer <internal-token>` header, the
@@ -299,10 +312,44 @@ export function evaluateInternalAuth(
     return {
       allow: false,
       status: 401,
-      reason: "internal endpoint requires X-Authorization shared token",
+      reason: "internal endpoint requires the shared internal token",
     };
   }
   return { allow: true, isPublic: false };
+}
+
+/**
+ * The routes a caller must reach BEFORE it holds any credential. They are the
+ * ONLY unauthenticated surface, and they are exempt on BOTH ingress classes —
+ * the docker healthcheck probes /health with no token, and an internal caller
+ * mints its first token at /token.
+ *
+ * Every one of them authenticates itself downstream or exposes nothing:
+ *   - GET /health — liveness + counts, used by uptime probes.
+ *   - OAuth discovery (RFC 8414 / RFC 9728) — static metadata documents.
+ *   - /authorize, /token, /register, /revoke — client authentication, PKCE
+ *     S256 and the exact-match redirect_uri allowlist live in the handlers.
+ *   - /admin* — own cookie + magic-link session (http/admin.ts), enforced by
+ *     the admin handler on every route.
+ */
+function isPreCredentialRoute(req: Request, url: URL): boolean {
+  if (url.pathname === "/health" && req.method === "GET") return true;
+  if (
+    (url.pathname === OAUTH_METADATA_PATH ||
+      url.pathname === OAUTH_PROTECTED_RESOURCE_PATH) &&
+    req.method === "GET"
+  ) {
+    return true;
+  }
+  if (
+    (url.pathname === "/authorize" && req.method === "GET") ||
+    (url.pathname === "/token" && req.method === "POST") ||
+    (url.pathname === "/register" && req.method === "POST") ||
+    (url.pathname === "/revoke" && req.method === "POST")
+  ) {
+    return true;
+  }
+  return url.pathname === "/admin" || url.pathname.startsWith("/admin/");
 }
 
 export function evaluatePublicGuard(
@@ -311,49 +358,23 @@ export function evaluatePublicGuard(
   opts: PublicGuardOptions,
 ): GuardDecision | GuardRejection {
   const isPublic = isPublicRequest(req);
+
+  // Checked before the split: these routes precede any credential on either
+  // ingress. `isPublic` still rides along so redaction stays correct.
+  if (isPreCredentialRoute(req, url)) {
+    return { allow: true, isPublic };
+  }
+
+  // Internal — the shared internal token IS the credential here. Auth must not
+  // hinge on the ingress guess: without this, a request that merely lacked
+  // `Cf-Connecting-Ip` (any docker-bridge peer, any non-Cloudflare proxy) got
+  // the whole read surface with no credential at all. Fails open only when the
+  // token is unconfigured, which serve.ts announces loudly at boot.
   if (!isPublic) {
-    return { allow: true, isPublic: false };
+    return evaluateInternalAuth(req, { internalToken: opts.internalToken });
   }
 
   // Public — apply guard.
-  if (url.pathname === "/health" && req.method === "GET") {
-    // Open probe. No bearer required.
-    return { allow: true, isPublic: true };
-  }
-
-  // OAuth 2.1 authorization-server discovery (RFC 8414) + protected-resource
-  // metadata (RFC 9728). A client must reach these BEFORE it holds any
-  // credential, so they are open exactly like /health.
-  if (
-    (url.pathname === OAUTH_METADATA_PATH ||
-      url.pathname === OAUTH_PROTECTED_RESOURCE_PATH) &&
-    req.method === "GET"
-  ) {
-    return { allow: true, isPublic: true };
-  }
-
-  // OAuth 2.1 authorization endpoints (RFC 6749 /authorize + /token, RFC 7591
-  // /register, RFC 7009 /revoke). A client reaches these BEFORE it holds a
-  // token — the discovery doc above advertises them — so they are exempt from
-  // the public bearer. Each enforces its OWN validation downstream (client
-  // authentication, PKCE S256, and the exact-match redirect_uri allowlist), so
-  // exempting them here does not open an unauthenticated surface.
-  if (
-    (url.pathname === "/authorize" && req.method === "GET") ||
-    (url.pathname === "/token" && req.method === "POST") ||
-    (url.pathname === "/register" && req.method === "POST") ||
-    (url.pathname === "/revoke" && req.method === "POST")
-  ) {
-    return { allow: true, isPublic: true };
-  }
-
-  // Admin surface — carries its OWN cookie + magic-link auth (http/admin.ts),
-  // so the public bearer guard lets it through; the admin handler enforces the
-  // session / bootstrap token / nonce on every route itself.
-  if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
-    return { allow: true, isPublic: true };
-  }
-
   if (
     FORBIDDEN_PATHS_FROM_PUBLIC.has(url.pathname) &&
     !publicWriteAllowed()

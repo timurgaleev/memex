@@ -20,6 +20,7 @@ let server: ServerHandle;
 let url: string;
 
 const TOKEN = "test-bearer-abc123";
+const INT_TOKEN = "internal-shared-token-abcdef";
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-pubguard-"));
@@ -50,7 +51,10 @@ describe("evaluatePublicGuard — pure logic", () => {
     return new Request(`http://x${path}`, { method, headers });
   }
 
-  it("internal request is always allowed", () => {
+  it("internal request with no internal token configured is allowed (legacy fall-through)", () => {
+    // Was "internal request is always allowed" — it no longer is. Auth is not
+    // conditional on the ingress guess; what survives here is only the
+    // deliberate escape hatch for installs that never set the token.
     const r = evaluatePublicGuard(
       new Request("http://x/index", { method: "POST" }),
       urlOf("/index"),
@@ -118,6 +122,86 @@ describe("evaluatePublicGuard — pure logic", () => {
     );
     expect(r.allow).toBe(true);
     if (r.allow) expect(r.isPublic).toBe(true);
+  });
+
+  it("internal request WITHOUT the internal token → 401 (no free read surface)", () => {
+    // The whole point of the ingress fix: a request that merely lacks
+    // Cf-Connecting-Ip must still present a credential.
+    const r = evaluatePublicGuard(
+      new Request("http://x/mcp", { method: "POST" }),
+      urlOf("/mcp"),
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
+    );
+    expect(r.allow).toBe(false);
+    if (!r.allow) expect(r.status).toBe(401);
+  });
+
+  it("internal request with the WRONG internal token → 401", () => {
+    const r = evaluatePublicGuard(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { Authorization: "Bearer nope" },
+      }),
+      urlOf("/mcp"),
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
+    );
+    expect(r.allow).toBe(false);
+    if (!r.allow) expect(r.status).toBe(401);
+  });
+
+  it("internal request WITH the internal token → allowed, still classified internal", () => {
+    const r = evaluatePublicGuard(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${INT_TOKEN}` },
+      }),
+      urlOf("/mcp"),
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
+    );
+    expect(r.allow).toBe(true);
+    if (r.allow) expect(r.isPublic).toBe(false);
+  });
+
+  it("the public bearer does NOT satisfy the internal ingress", () => {
+    const r = evaluatePublicGuard(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      }),
+      urlOf("/mcp"),
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
+    );
+    expect(r.allow).toBe(false);
+  });
+
+  it("pre-credential routes stay open on the INTERNAL ingress with the token set", () => {
+    // The docker healthcheck probes /health with no credential, and an
+    // internal client mints its first token at /token. Both must survive the
+    // internal gate or the container never reports healthy.
+    const opts = { bearerToken: TOKEN, internalToken: INT_TOKEN };
+    const health = evaluatePublicGuard(
+      new Request("http://x/health", { method: "GET" }),
+      urlOf("/health"),
+      opts,
+    );
+    expect(health.allow).toBe(true);
+    if (health.allow) expect(health.isPublic).toBe(false);
+
+    for (const [path, method] of [
+      ["/token", "POST"],
+      ["/authorize", "GET"],
+      ["/register", "POST"],
+      ["/revoke", "POST"],
+      ["/.well-known/oauth-authorization-server", "GET"],
+      ["/admin/login", "GET"],
+    ] as const) {
+      const r = evaluatePublicGuard(
+        new Request(`http://x${path}`, { method }),
+        urlOf(path),
+        opts,
+      );
+      expect(r.allow).toBe(true);
+    }
   });
 
   it("public + token unset → 503 (fail-closed)", () => {
@@ -417,8 +501,9 @@ describe("MEMEX_PUBLIC_WRITE opt-in", () => {
 
 describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
   // Without the flag, a request lacking Cf-Connecting-Ip classifies as
-  // internal and bypasses the bearer entirely — the exact fail-open a
-  // non-Cloudflare proxy produces. The flag closes it.
+  // internal, so it meets the INTERNAL token instead of the public bearer.
+  // The flag makes such a proxy's traffic public, which is what buys the
+  // redaction and the public-forbidden tool set.
   const ORIGINAL = process.env["MEMEX_ASSUME_PUBLIC"];
 
   afterEach(() => {
@@ -432,15 +517,27 @@ describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
     return new Request(`http://x${path}`, { method: "POST", headers });
   }
 
-  it("flag unset: headerless request is internal (documents the fail-open)", () => {
+  it("flag unset: headerless request is internal and meets the internal token", () => {
+    // Was "documents the fail-open": the old assertion accepted the request
+    // with no credential at all, which is precisely the hole. The
+    // classification still says internal — but the internal token is now the
+    // price of entry, so a non-Cloudflare proxy leaks redaction, not access.
     delete process.env["MEMEX_ASSUME_PUBLIC"];
-    const r = evaluatePublicGuard(
+    const rejected = evaluatePublicGuard(
       headerlessReq("/mcp"),
       new URL("http://x/mcp"),
-      { bearerToken: TOKEN },
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
     );
-    expect(r.allow).toBe(true);
-    if (r.allow) expect(r.isPublic).toBe(false);
+    expect(rejected.allow).toBe(false);
+    if (!rejected.allow) expect(rejected.status).toBe(401);
+
+    const accepted = evaluatePublicGuard(
+      headerlessReq("/mcp", `Bearer ${INT_TOKEN}`),
+      new URL("http://x/mcp"),
+      { bearerToken: TOKEN, internalToken: INT_TOKEN },
+    );
+    expect(accepted.allow).toBe(true);
+    if (accepted.allow) expect(accepted.isPublic).toBe(false);
   });
 
   it("flag set: headerless request without bearer is rejected", () => {
