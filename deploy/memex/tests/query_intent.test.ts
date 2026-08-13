@@ -130,6 +130,49 @@ describe("concept-shaped detection (steers set questions toward `query`)", () =>
     }
   });
 
+  it("needs more than a bare token or a proper-noun lookup", () => {
+    // A cue word alone is not a question about a set.
+    expect(looksConceptShaped("compare")).toBe(false);
+    expect(looksConceptShaped("list all")).toBe(false);
+    expect(looksConceptShaped("Acme Corp")).toBe(false);
+    // Three words is enough once a cue is there.
+    expect(looksConceptShaped("all the companies")).toBe(true);
+  });
+
+  it("stays quiet when the caller named an exact identifier", () => {
+    // A quoted phrase or a slug is a lookup for that thing — the caller is not
+    // asking for a landscape, so the partial-set nudge is noise.
+    expect(looksConceptShaped("compare memex-search vs query")).toBe(false);
+    expect(looksConceptShaped('list every note tagged "rollback budget"')).toBe(false);
+    expect(looksConceptShaped("what are the different options for token_budget")).toBe(false);
+    // Same question without the identifier still fires.
+    expect(looksConceptShaped("compare search vs query")).toBe(true);
+    expect(looksConceptShaped("list every note tagged rollback")).toBe(true);
+  });
+
+  it("does not fire on single-entity phrasings that ENTITY_PATTERNS owns", () => {
+    // These used to report taxonomy 'entity' (detail 'low') AND "the answer may
+    // be a partial set" at the same time — a wasted second tool call.
+    for (const q of ["overview of Acme Corp", "what are the deployment steps"]) {
+      expect(looksConceptShaped(q)).toBe(false);
+      expect(classifyQueryTaxonomy(q)).toBe("entity");
+    }
+  });
+
+  it("keeps firing on an entity-taxonomy question that really asks for a set", () => {
+    // The suppressor is cue-side, not taxonomy-side: ENTITY_PATTERNS matches
+    // "what are", so suppressing on taxonomy would kill this true positive.
+    const s = classifyQuerySuggestions("what are the different approaches to chunking");
+    expect(s.taxonomy).toBe("entity");
+    expect(s.conceptShaped).toBe(true);
+  });
+
+  it("requires `compare` to carry two operands", () => {
+    expect(looksConceptShaped("compare the rollback plan")).toBe(false);
+    expect(looksConceptShaped("compare bm25 and vector reranking")).toBe(true);
+    expect(looksConceptShaped("compare the two rerankers")).toBe(true);
+  });
+
   it("travels on the suggestion object the search path already computes", () => {
     expect(classifyQuerySuggestions("what are the different options").conceptShaped).toBe(true);
     expect(classifyQuerySuggestions("acme renewal date").conceptShaped).toBe(false);

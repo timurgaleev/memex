@@ -2,13 +2,17 @@
  * Token-budget trimming — pure tests (no DB, no Bedrock).
  */
 import { describe, it, expect } from "bun:test";
-import { applyTokenBudget } from "../src/core/search/token-budget.ts";
+import { applyTokenBudget, estTokens } from "../src/core/search/token-budget.ts";
 
 // ~4 chars/token, so a 40-char string ≈ 10 tokens.
 const hit = (id: string, chars: number) => ({
   id,
   content: "x".repeat(chars),
 });
+
+/** What the returned set actually costs the caller's context window. */
+const totalCost = (hits: readonly { content: string; title?: string | null }[]): number =>
+  hits.reduce((sum, h) => sum + estTokens(h.content) + estTokens(h.title ?? ""), 0);
 
 describe("applyTokenBudget", () => {
   it("returns all hits unchanged when budget is non-positive / infinite", () => {
@@ -26,28 +30,51 @@ describe("applyTokenBudget", () => {
     expect(out[0]!.content.length).toBe(40); // untouched
   });
 
-  it("truncates the overflowing tail hit to the remaining budget", () => {
-    // a=10 tokens, budget 15 → a whole, b truncated to ~5 tokens (~20 chars).
+  // Was: "truncates the overflowing tail hit to the remaining budget". The old
+  // assertion was wrong — a truncated hit still shipped its whole title, so the
+  // cap could be overshot by the very hit that was cut to honour it. Whole
+  // items only now: the overflowing hit is dropped, and the caller reads the
+  // difference as its drop count (hybrid.ts → recordSearchTelemetry).
+  it("drops the overflowing tail hit instead of truncating it", () => {
+    // a=10 tokens, budget 15 → a whole, b (100 tokens) does not fit → dropped.
     const hits = [hit("a", 40), hit("b", 400)];
-    const out = applyTokenBudget(hits, 15) as Array<{
-      id: string;
-      content: string;
-      truncated?: boolean;
-    }>;
-    expect(out.map((h) => h.id)).toEqual(["a", "b"]);
-    expect(out[1]!.content.length).toBeLessThan(400);
-    expect(out[1]!.content.endsWith("…")).toBe(true);
-    expect(out[1]!.truncated).toBe(true); // tail hit flagged
-    expect((out[0] as { truncated?: boolean }).truncated).toBeUndefined(); // whole hit not flagged
+    const out = applyTokenBudget(hits, 15);
+    expect(out.map((h) => h.id)).toEqual(["a"]);
+    expect(out[0]!.content.length).toBe(40); // returned intact, never cut
+    expect(hits.length - out.length).toBe(1); // counted as a drop
   });
 
-  it("always returns at least the top hit, truncated if it alone overflows", () => {
+  // Was: "always returns at least the top hit, truncated if it alone
+  // overflows". That floor is what made the cap a suggestion — the caller asked
+  // for a ceiling, so an unaffordable top hit yields nothing.
+  it("returns nothing when the first hit alone exceeds the budget", () => {
     const hits = [hit("a", 4000), hit("b", 40)];
-    const out = applyTokenBudget(hits, 5); // 5 tokens ≈ 20 chars
-    expect(out.length).toBe(1);
-    expect(out[0]!.id).toBe("a");
-    expect(out[0]!.content.length).toBeLessThan(4000);
-    expect(out[0]!.content.endsWith("…")).toBe(true);
+    expect(applyTokenBudget(hits, 5)).toEqual([]);
+  });
+
+  it("stops at the first hit that does not fit, keeping the set a prefix", () => {
+    // c would fit in what b left behind, but admitting it would return a set
+    // that is no longer the top of the ranking.
+    const hits = [hit("a", 40), hit("b", 400), hit("c", 20)];
+    expect(applyTokenBudget(hits, 20).map((h) => h.id)).toEqual(["a"]);
+  });
+
+  it("never returns more tokens than the budget", () => {
+    // The regression that motivated whole-items-only: a 400-char title under a
+    // 50-token budget used to come back as 102 tokens.
+    const oversizedTitle = [{ content: "x".repeat(2000), title: "t".repeat(400) }];
+    expect(totalCost(applyTokenBudget(oversizedTitle, 50))).toBeLessThanOrEqual(50);
+
+    // Sweep a spread of budgets over a mixed set — the cap holds for every one.
+    const mixed = [
+      { content: "x".repeat(120), title: "a title" },
+      { content: "y".repeat(600), title: null },
+      { content: "z".repeat(40), title: "t".repeat(300) },
+      { content: "w".repeat(4000), title: "another title" },
+    ];
+    for (const budget of [1, 5, 17, 50, 120, 400, 1200]) {
+      expect(totalCost(applyTokenBudget(mixed, budget))).toBeLessThanOrEqual(budget);
+    }
   });
 
   it("does not mutate the input hits", () => {
@@ -56,28 +83,13 @@ describe("applyTokenBudget", () => {
     applyTokenBudget(hits, 12);
     expect(hits.map((h) => h.content)).toEqual(snapshot);
   });
-
-  it("cuts on a word boundary so no word is split", () => {
-    const words = { id: "a", content: "alpha beta gamma delta epsilon zeta" };
-    const out = applyTokenBudget([words], 4); // ~16 chars → boundary at "alpha beta"
-    const body = out[0]!.content.replace(/…$/, "");
-    // Every word in the truncated body is a whole word from the original.
-    expect(out[0]!.content.endsWith("…")).toBe(true);
-    expect(words.content.startsWith(body)).toBe(true);
-    const nextChar = words.content[body.length];
-    expect(nextChar === undefined || nextChar === " ").toBe(true);
-  });
 });
 
 describe("title is charged against the budget", () => {
   it("counts the title, so the cap is not overshot by it", () => {
     const long = "x".repeat(400); // ~100 tokens of body
-    const withTitle = applyTokenBudget(
-      [{ content: long, title: "y".repeat(400) }],
-      150,
-    );
-    // Body alone fits in 150; body + title does not, so the hit is truncated.
-    expect(withTitle[0]!.content.length).toBeLessThan(long.length);
+    // Body alone fits in 150; body + title (100 more) does not, so the hit goes.
+    expect(applyTokenBudget([{ content: long, title: "y".repeat(400) }], 150)).toEqual([]);
 
     const noTitle = applyTokenBudget([{ content: long, title: null }], 150);
     expect(noTitle[0]!.content).toBe(long);
@@ -92,8 +104,8 @@ describe("title is charged against the budget", () => {
       ],
       110,
     );
-    // 50 + (50 + 50) > 110 — the second hit is truncated, not admitted whole.
-    expect(two.length).toBe(2);
-    expect(two[1]!.content.length).toBeLessThan(body.length);
+    // 50 + (50 + 50) > 110 — the second hit is dropped, not admitted whole.
+    expect(two.length).toBe(1);
+    expect(two[0]!.title).toBeNull();
   });
 });
