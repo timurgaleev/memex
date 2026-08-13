@@ -19,7 +19,7 @@
  *     could extract — partial coverage beats zero coverage. Sweep
  *     escalates parse errors to a per-file warning.
  */
-import { getParser, parseWithBudget, type CodeLanguage } from "./parsers.ts";
+import { getParser, withParsedTree, type CodeLanguage } from "./parsers.ts";
 
 /**
  * Code chunker version (migration 052). Stamped onto `documents.chunker_version`
@@ -480,12 +480,23 @@ export async function chunkCode(
   language: CodeLanguage,
 ): Promise<CodeChunked> {
   const parser = await getParser(language);
-  // parseWithBudget throws ParseTimeoutError on a wall-clock overrun; the
+  // withParsedTree throws ParseTimeoutError on a wall-clock overrun; the
   // per-file try/catch in sweep-code records it and skips the file (no
-  // partial/lossy reindex). Always returns a non-null tree otherwise.
-  const tree = parseWithBudget(parser, source);
-  const symbols = Array.from(visitSymbols(tree.rootNode, language, source));
-  const fileImports = Array.from(visitFileImports(tree.rootNode, language));
+  // partial/lossy reindex). Otherwise it parses, runs the walk, and frees the
+  // tree — including when the walk throws, which is the path the indexer's
+  // grammar degrade swallows upstream.
+  //
+  // Everything we keep is a plain string/number sliced out of `source`, so
+  // nothing here holds a Node past the tree's lifetime.
+  const { symbols, fileImports, hasParseError } = withParsedTree(
+    parser,
+    source,
+    (tree) => ({
+      symbols: Array.from(visitSymbols(tree.rootNode, language, source)),
+      fileImports: Array.from(visitFileImports(tree.rootNode, language)),
+      hasParseError: tree.rootNode.hasError,
+    }),
+  );
   // Dedup imports by (name, line).
   const seen = new Set<string>();
   const dedup: FileLevelImport[] = [];
@@ -495,7 +506,6 @@ export async function chunkCode(
     seen.add(k);
     dedup.push(imp);
   }
-  const hasParseError = tree.rootNode.hasError;
   // Sort by start line so document order is stable regardless of stack push order.
   symbols.sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
   // Title = basename (no path) — lets `memex search` show a friendly source.
