@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The brain now has numbers for what an agent actually experiences, not just
+  for retrieval.** `eval-probe` graded search — hit rate and rank over a golden
+  query set — and said nothing about the behaviours an MCP client meets:
+  whether volunteered context is precise, whether a decision written in one
+  session survives into a later one through a *different* client, and whether
+  the conversation→memory write-back keeps the facts it claims. `memex bench`
+  scores all of it. Every rate is paired with the term that stops it being
+  gamed: recall next to a false-fire rate so "always inject" cannot win, and
+  continuity recall next to a leak rate so "return everything to everyone"
+  cannot either — which is why the corpus includes a public-ingress identity,
+  making the scope fence a graded surface rather than an assumed one.
+  It runs on the shipped code paths with only the raw model text stubbed, so it
+  grades the pipeline rather than a reimplementation of it, and it costs
+  nothing: the run asserts a zero spend delta instead of claiming one in a
+  comment. Deliberately absent in this first cut: no trend table, because a
+  table with no reader and no doctor check is a table that is only ever written
+  to; and no live-model mode, because a score that cannot be pinned cannot gate
+  anything.
+- **Fixture isolation in the bench harness was incomplete, and it is now
+  proved rather than asserted.** The reset truncated three tables and leaned on
+  CASCADE for the rest, with a comment claiming that covered chunks. It did not:
+  `chunks` hangs off `documents`, and `documents` does not hang off `pages` at
+  all, so documents, chunks, entities and entity facts all survived into the
+  next fixture. Nothing leaked yet only because the one shipped corpus writes
+  pages alone. The list is explicit now, derived from the actual foreign-key
+  graph rather than from belief, and a replay demonstrates the old behaviour
+  leaving a fact row behind.
+
 ### Fixed
 - **Seven text scans were quadratic on input the daemon accepts, and one of
   them could hold it for minutes.** memex runs regexes over note bodies, chat

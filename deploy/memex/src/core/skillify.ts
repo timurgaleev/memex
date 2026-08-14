@@ -61,8 +61,16 @@ export function slugify(input: string): string {
   const cleaned = input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
+    // Measured linear through slugify: 2.0 ms at 2 M chars of `-` plus a
+    // rejecting `x`, ratio 2.10 on a doubling. `-` is itself in `[^a-z0-9]`, so
+    // the collapse on the line above leaves every hyphen run exactly one char
+    // long — the run this quantifier needs to square on cannot reach it.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^-+|-+$/g, "");
   if (cleaned.length === 0) return "skill";
+  // Measured linear through slugify: 12.0 ms at 2 M chars of `a-`, ratio 1.89
+  // on a doubling. Same collapse, and the 60-char slice caps it a second time.
+  // eslint-disable-next-line regexp/no-super-linear-move
   return cleaned.slice(0, 60).replace(/-+$/g, "") || "skill";
 }
 
@@ -165,13 +173,31 @@ interface ParsedFrontmatter {
  * to be tolerant of mild model drift (trailing commas, mixed quotes).
  */
 function parseFrontmatter(markdown: string): ParsedFrontmatter | null {
-  const m = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(markdown);
+  // The opening fence's trailing run is horizontal-only. A plain `\s*` there
+  // also accepts `\n`, so it and the lazy body could trade newlines: every
+  // split of a `\n` run re-walked the body to end-of-input. Measured through
+  // validateSkill on `"---" + "\n".repeat(n)`: 3.8 s at 125 K, 15 s at 250 K,
+  // 59 s at 500 K, 242 s at 1 MB — ratio 4.0 on a doubling. `[^\S\n]` keeps
+  // CRLF and trailing-space fences matching; the mandatory `\n` after it is
+  // now the only place a newline can go, so there is nothing to trade.
+  // The second `\s*` is a different story and safe: what follows it is
+  // `([\s\S]*)$`, which cannot reject, so it never has to give a character
+  // back. Measured linear through validateSkill on a valid block plus a
+  // trailing `\n` run: 0.4 ms at 1 MB, ratio 1.91 on a doubling.
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
+  const m = /^---[^\S\n]*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(markdown);
   if (!m) return null;
   const raw = m[1] ?? "";
   const body = m[2] ?? "";
   const fields: Record<string, string> = {};
   let rawTags: string | null = null;
   for (const line of raw.split("\n")) {
+    // Measured linear through validateSkill: 1.0 ms for a 1 M-char `k:` plus a
+    // space run, 2.1 ms for a 1 M-char key run with no colon, ratio 1.89 and
+    // 2.36 on a doubling. `line` is a split on `\n`, so `\s*` and `.*` never
+    // see one; and `(.*)$` cannot reject at end-of-line, so the `\s*` it is
+    // said to trade with is never asked to give a character back.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     const kv = /^([a-z_][\w-]*):\s*(.*)$/i.exec(line);
     if (!kv) continue;
     const key = kv[1]!;

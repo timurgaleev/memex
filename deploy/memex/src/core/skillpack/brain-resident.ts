@@ -60,11 +60,24 @@ function readSkillDescription(skillFile: string): string {
   } catch {
     return "(no description)";
   }
-  const m = /^---\s*\n([\s\S]*?)\n---\s*\n/.exec(text);
+  // The opener's trailing run excludes `\n` on purpose. With `\s*` it and the
+  // lazy body could trade newlines: on a skill file of `---` + `\n`*n + `x`
+  // every split of the run re-scans the whole body for a closing fence that is
+  // not there — measured through listBrainSkillpacks at 9 ms for 6 K newlines,
+  // 611 ms for 50 K, ratio 4.0 on a doubling. `[^\S\n]*` still eats the spaces,
+  // tabs and CR that may pad the `---` line, but leaves exactly one way to
+  // match, so the body is scanned once: 1 ms at 2 M newlines, ratio 2.0. The
+  // description this feeds is unchanged over 400 K random frontmatter strings.
+  const m = /^---[^\S\n]*\n([\s\S]*?)\n---\s*\n/.exec(text);
   if (!m) return "(no description)";
   const block = m[1] ?? "";
   const lines = block.split("\n");
   for (let i = 0; i < lines.length; i++) {
+    // Measured linear through listBrainSkillpacks: 1.2 ms on a 1 MB run of
+    // spaces after `description:`, ratio 2.0 on a doubling. `lines` comes from
+    // split("\n"), so no element holds a newline — `$` can only be end-of-line,
+    // which `.*` always reaches, so the match never fails and never backtracks.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     const kv = /^description:\s*(.*)$/.exec(lines[i] ?? "");
     if (!kv) continue;
     const value = (kv[1] ?? "").trim().replace(/^["']|["']$/g, "");

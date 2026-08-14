@@ -30,6 +30,13 @@ export function parseFrontmatter(md: string): ParsedFrontmatter {
     const trimmed = line.trimEnd();
     if (!trimmed.trim()) continue;
 
+    // Measured linear through parseFrontmatter: 0.29 ms on a 256 K frontmatter
+    // line of spaces, ratio 2.0 on a doubling (0.10 ms for `- ` + a 256 K
+    // space run). The trailing `(.*)$` cannot fail — `line` comes from a split
+    // on `\r?\n`, so it holds no newline for `.` to stop at and `$` is always
+    // reachable — which leaves no rejecting suffix for `\s+` to backtrack
+    // against. A line that never reaches the `-` fails once per position.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     const listMatch = trimmed.match(/^\s*-\s+(.*)$/);
     if (listMatch && lastListKey !== null) {
       // The pending key was seeded with "" (empty scalar); the first list item
@@ -41,6 +48,12 @@ export function parseFrontmatter(md: string): ParsedFrontmatter {
       continue;
     }
 
+    // Measured linear through parseFrontmatter: 0.27 ms on a 256 K line of
+    // `a-` with no colon, 0.10 ms on `k:` + a 256 K space run, ratio 2.0 on a
+    // doubling. Same reason as the list pattern above: `(.*)$` on a
+    // newline-free line always succeeds, so the `\s*` never has a failing
+    // suffix to backtrack against.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     const kv = trimmed.match(/^([\w-]+):\s*(.*)$/);
     if (!kv) {
       lastListKey = null;

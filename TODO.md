@@ -7,47 +7,49 @@ introduces them.
 
 ---
 
-## Open — lint backlog (2026-08-13)
+## Lint backlog (2026-08-13) — CLOSED 2026-08-14
 
 A linter was run over the daemon source for the first time. The raw run reported
 2375 problems; roughly 2000 were house conventions this codebase made
 deliberately (bracket env access, import order, `require("process")` in an ESM
 Bun daemon), and `eslint.config.js` turns each of those off with its reason
-written next to it. **252 remain**, measurable with `make lint-ts`.
+written next to it. That left 250, measurable with `make lint-ts`, and they are
+now **0**.
 
-**CORRECTION (2026-08-14). The "zero defects" line that stood here was wrong,
-and it was wrong for a specific, repeatable reason: the sample was eight
-patterns, measured in isolation.** Widening to 48 sites and driving the REAL
-exported functions instead of the bare regexes found seven genuinely quadratic
-scans, all reachable at the input sizes the code itself permits. Worst was
-`extractWikilinks`: 1 MB of `[[a|` held the daemon for 243 seconds, on a path
-with no cap on body length. Seven are fixed and pinned by linearity tests; see
-CHANGELOG. Do not re-derive the old conclusion from a small sample.
+**The entry that stood here said "zero defects" and it was wrong.** The reason is
+worth more than the correction: the sample was eight patterns, measured in
+isolation. Widening to 48 sites and driving the REAL exported functions instead
+of the bare regexes found seven genuinely quadratic scans, all reachable at the
+input sizes the code itself permits — the worst held the daemon for 243 seconds
+on a 1 MB body. Finishing the sweep took the total to 70 sites measured: 38
+linear, 32 quadratic and fixed.
 
-Measuring in isolation moved sites in BOTH directions and must not be trusted
-alone: `slugifyTarget` read 7.8 s isolated and 12 ms through the real function,
-because a preceding `.replace()` makes the bad input unreachable.
+Rules for anyone re-opening this:
 
-What actually fixes this shape: a length bound on the offending class. Making
-the run atomic does nothing when the cost is the forward scan rather than
-give-back — that was tried twice on `links.ts` and measured as still quadratic
-both times.
+- **A disable must carry a measurement, and the measurement must come from the
+  exported function.** Isolated numbers are evidence of nothing. One site read
+  7.8 s standalone and 12 ms in situ. Another was wrongly CLEARED because the
+  benchmark used a `-` run that an earlier `.replace()` collapses — the
+  alternating `-/-/` run that survives it takes 20 s at 200 K.
+- **Bound the class; atomic groups do not help.** When a negated class does not
+  exclude the characters the input is built from, the run walks to the end of
+  the body from every start position. That forward walk is the cost, not the
+  give-back. Tried twice on `links.ts`, measured as still quadratic both times.
+- Most of the 32 needed no invented bound at all: a redundant `\s*` that the
+  neighbouring unbounded run already subsumed, deleted. Equivalence was proved
+  before each edit against curated plus fuzzed corpora, zero output differences.
 
-- **Zero defects from the other rules.** Three real slips, fixed: a `timeout`
-  alternative already covered by the `timed?\s?out` beside it, `round` listed
-  twice in one alternation, and a module imported on three separate lines. The
-  four `no-dupe-disjunctions` / `no-contradiction-with-assertion` findings were
-  each checked against 3,019 targeted strings plus 300,000 fuzz cases: all four
-  were harmless redundancy, none changed an outcome.
-- **86 findings remain**, all from the two super-linear rules and all at sites
-  NOT yet measured (28 of the 76 distinct sites were never benchmarked). The
-  rules stay at `error` — they earned it. Closing this means measuring each
-  remaining site and either fixing it or disabling it at the line WITH ITS
-  NUMBER, never a blanket switch in the config.
+The two super-linear rules stay at `error`. They earned it, and they earned it
+again the same day: a super-linear pattern written in new bench code was caught
+at the moment it was written.
 
-The value is forward as well as retrospective: it gates the unused binding,
-duplicate import and dead alternative in code written tomorrow, which `tsc`
-cannot see. Cost: +86 MB of node_modules, 28 top-level packages to 281.
+The four `no-dupe-disjunctions` / `no-contradiction-with-assertion` findings were
+checked against 3,019 targeted strings plus 300,000 fuzz cases: all four were
+harmless redundancy, none changed an outcome. Three real slips were fixed: a
+`timeout` alternative already covered by the `timed?\s?out` beside it, `round`
+listed twice in one alternation, and a module imported on three separate lines.
+
+Cost: +86 MB of node_modules, 28 top-level packages to 281.
 
 ## Open — push-bench follow-ups (2026-08-12)
 
@@ -61,22 +63,32 @@ rather than left implied:
   `"Did Dana"`), which fires for any `Did/Can/Will/Should <Name>` phrasing — a
   very common user shape. Fixing either SHOULD break the pinned scores; update
   the pin, not the label.
-- **The other three metric families are not built**: know-to-ask (as a paired
-  rate), cross-session continuity (a decision written in one session, recalled
-  in a later one through a different client identity), and write-back fidelity
-  (does the conversation→memory pipeline preserve the facts it claims, gradeable
-  with a stubbed extractor at zero model cost).
-- **No CLI command, no MCP tool, no persistence.** The harness returns results
-  and the test asserts them. A `memex bench-push` wrapper needs entries in
-  `src/cli-args.ts` and the derived-command test; persisting a trend needs a
-  migration.
+- **Two of the three missing families are now built** (2026-08-14, BENCH-1):
+  cross-session continuity and write-back fidelity, both scored beside push and
+  both reusing `scorePush` unchanged. Know-to-ask as a paired rate is covered by
+  the existing miss/false-fire pair.
+- **A CLI exists (`memex bench`); persistence deliberately does not.** A trend
+  table with no reader, no doctor check and no advisor collector is a table that
+  is only ever written to, so it waits until something would read it. The shape
+  is sketched in the BENCH-1 spec if that day comes.
+- **Open call, with a number on it.** Widening the fixture reset from 3 tables
+  to 14 (it had to widen — the old list left `entity_facts` rows behind, proved
+  by replay) costs +135 ms on the push corpus and +17% on its test file, because
+  PGLite rewrites relation files per table regardless of rows. A selective
+  truncate that skips empty tables recovers essentially all of it (14.0 ms vs
+  34.5 ms per call, measured) but skipping a table also skips its RESTART
+  IDENTITY, and fidelity's `fact:<n>` handles depend on ids restarting. Not
+  taken unilaterally.
 
 ## New candidates — 2026-08-11 sweep
 
-Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0; BENCH-1 is open.
+Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0;
+BENCH-1 SHIPPED 2026-08-14 — continuity and write-back fidelity now have
+numbers beside the push family, run by `memex bench`, zero model cost by
+default and asserted as zero rather than claimed.
 
-- **[BENCH-1, L] Nothing measures the agent-facing behaviour of the brain —
-  only its retrieval.** `eval-probe` scores hit-rate and rank over a golden
+- **[BENCH-1, L] SHIPPED.** Nothing measured the agent-facing behaviour of the
+  brain — only its retrieval. `eval-probe` scores hit-rate and rank over a golden
   query set into `eval_snapshots`, which grades *search*. It says nothing about
   the four things an MCP client actually experiences: whether volunteered
   context is precise and complete (`push_precision` / `push_recall` over

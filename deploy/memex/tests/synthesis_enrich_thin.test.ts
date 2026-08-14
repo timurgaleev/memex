@@ -131,4 +131,29 @@ describe("enrichThinPhase", () => {
     const page = await getPage(storage, "people/dave");
     expect(page!.markdown_body).toContain("reasonably sized stub");
   });
+
+  /**
+   * The draft parser pulls the widest brace-delimited span out of the model's
+   * answer. Doing that with `/\{[\s\S]*\}/` restarted at every brace and
+   * re-scanned the tail for a closing one, which a model that stalls mid-object
+   * triggers directly: 57 ms at 12 K braces, 3.6 s at 100 K, ratio 4.0 on a
+   * doubling. Taken by index instead it is the same span in one pass.
+   *
+   * The ceiling is loose on purpose — linear is sub-millisecond here and the
+   * quadratic version needed minutes at this size.
+   */
+  it("parses a brace-only answer in linear time", async () => {
+    await putPage(storage, { slug: "people/frank", type: "person", title: "Frank", markdown_body: "stub", source_id: "default" });
+    await putPage(storage, { slug: "notes/n2", type: "note", title: "N2", markdown_body: "Frank shipped the ingest rewrite last quarter.", source_id: "default" });
+    await link("people/frank", "notes/n2");
+
+    const started = performance.now();
+    const r = await enrichThinPhase(storage, { sonnetFn: fakeSonnet("{".repeat(1_000_000)) });
+    const elapsed = performance.now() - started;
+
+    // Unparseable, so nothing is written — the assertion that the parser ran
+    // rather than the phase bailing before it.
+    expect(r.pagesEnriched).toBe(0);
+    expect(elapsed).toBeLessThan(15_000);
+  }, 60_000);
 });

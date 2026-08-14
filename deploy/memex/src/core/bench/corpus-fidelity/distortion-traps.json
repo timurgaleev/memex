@@ -1,0 +1,56 @@
+{
+  "name": "distortion-traps",
+  "description": "Every claim lands, and one of them lands altered. A transcript that restates a claim two days later rewrites the stored validity anchor and confidence of the row already on file, so a text-only match reports perfect recall over a ledger that no longer says what the speaker said.",
+  "note": "The mechanism is two shipped behaviours meeting: the restatement collapse finds the live claim (facts.ts:456) and refreshClaim (facts.ts:640) then COALESCEs the new valid_from and confidence over the old ones. The claim was made on the 16th and repeated on the 18th; the ledger ends up dating it to the 18th at the repeat's lower confidence. That is what distortionRate is for — the claim is present, matchable, and no longer accurate about when it was made or how sure the speaker was. It is a known consequence of two correct paths, not a defect, which is why this fixture pins it rather than failing it.",
+  "sourceSlug": "conversations/2026-08-16-followup",
+  "dateContext": "2026-08-16",
+  "stubModelId": "eu.anthropic.claude-sonnet-4-6-v1:0",
+  "pages": [
+    {
+      "slug": "people/dana-reed",
+      "type": "person",
+      "title": "Dana Reed (advisor)",
+      "body": "Dana Reed advises on pricing and packaging.",
+      "aliases": ["Dana"]
+    },
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU."
+    }
+  ],
+  "transcript": "[2026-08-16 08:40] Dana Reed: the Northwind renewal is moving to October.\n[2026-08-16 08:42] Dana Reed: separately, we're dropping the nightly reindex.\n[2026-08-18 11:15] Dana Reed: repeating Monday's call, the Northwind renewal is moving to October.\n",
+  "stubResponses": {
+    "0": "{\"facts\":[{\"fact\":\"Dana Reed moved the Northwind renewal to October.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.9,\"notability\":\"high\"},{\"fact\":\"The Northwind renewal is scheduled for October.\",\"kind\":\"event\",\"entity\":\"Northwind Traders\",\"confidence\":0.85,\"notability\":\"high\"}]}",
+    "1": "{\"facts\":[{\"fact\":\"Dana Reed decided to drop the nightly reindex.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.8,\"notability\":\"high\"}]}",
+    "2": "{\"facts\":[{\"fact\":\"Dana Reed moved the Northwind renewal to October.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.55,\"notability\":\"high\"}]}"
+  },
+  "gold": [
+    {
+      "id": "g0",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed moved the Northwind renewal to October.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-16", "confidence": 0.9 }
+    },
+    {
+      "id": "g1",
+      "entity_slug": "companies/northwind",
+      "fact": "The Northwind renewal is scheduled for October.",
+      "kind": "event",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-16", "confidence": 0.85 }
+    },
+    {
+      "id": "g2",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed decided to drop the nightly reindex.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-16", "confidence": 0.8 }
+    }
+  ],
+  "reject": []
+}

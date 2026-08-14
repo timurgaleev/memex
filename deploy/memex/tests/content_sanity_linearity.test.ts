@@ -105,3 +105,60 @@ describe("prose/markup scan correctness", () => {
     expect(assessProse(`<a${"z".repeat(513)}>`).prose_chars).toBe(516);
   });
 });
+
+describe("junk-pattern scan cost on the title", () => {
+  /**
+   * The body is capped at SCAN_HEAD_BYTES before any pattern runs; the TITLE is
+   * scanned whole. `/^\\s*access denied\\b/im` therefore squared on it: `^`
+   * re-anchors after every line terminator under /m and `\\s` matches line
+   * terminators too, so each of the n line starts walked the remaining n
+   * characters before failing on the literal. Measured through
+   * `assessContentSanity` at 151 ms for a 20 K title, 608 ms at 40 K, 2.4 s at
+   * 80 K and 9.7 s at 160 K — ratio 4.00 per doubling, about 6 minutes at 1 MB.
+   * A title is the page's H1, so the input is a page someone writes.
+   */
+  it("stays linear on a 1 MB run of line terminators in the title", () => {
+    const title = "\n".repeat(1_000_000) + "x";
+
+    const started = performance.now();
+    const result = assessContentSanity({ body: "short body", title });
+    const elapsed = performance.now() - started;
+
+    expect(result.junk_pattern_matches).toEqual([]);
+    expect(elapsed).toBeLessThan(CEILING_MS);
+  });
+
+  it("stays linear on a 1 MB run of horizontal whitespace in the title", () => {
+    // The narrowed class still accepts these, so this is the run that remains.
+    const title = " ".repeat(1_000_000) + "x";
+
+    const started = performance.now();
+    const result = assessContentSanity({ body: "short body", title });
+    const elapsed = performance.now() - started;
+
+    expect(result.junk_pattern_matches).toEqual([]);
+    expect(elapsed).toBeLessThan(CEILING_MS);
+  });
+
+  it("still flags an indented access-denied page, on any whitespace", () => {
+    // Narrowing `\s*` to horizontal whitespace must not lose an indent style.
+    // Line terminators are gone from the class on purpose: `^` already matches
+    // at the start of the line they end, so the run never needed to cross one.
+    for (const indent of ["", " ", "   ", "\t", "\f", "\v", "\u00a0", "\u3000", "\u2009"]) {
+      const body = `${indent}Access Denied\nYou do not have permission.`;
+      expect(assessContentSanity({ body, title: "t" }).junk_pattern_matches).toContain(
+        "access_denied",
+      );
+    }
+    // Reached via a later line start rather than by consuming the newline.
+    expect(
+      assessContentSanity({ body: "Intro line\n\n\n   access denied", title: "t" })
+        .junk_pattern_matches,
+    ).toContain("access_denied");
+    // And still not a page that merely mentions the phrase mid-sentence.
+    expect(
+      assessContentSanity({ body: "The page said access denied yesterday.", title: "t" })
+        .junk_pattern_matches,
+    ).toEqual([]);
+  });
+});

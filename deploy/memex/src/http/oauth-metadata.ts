@@ -63,7 +63,14 @@ export interface OAuthMetadata {
 export function resolveIssuer(url: URL, publicUrl?: string): string {
   const declared = (publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim();
   const base = declared.length > 0 ? declared : `${url.protocol}//${url.host}`;
-  return base.replace(/\/+$/, "");
+  // `(?<!\/)` keeps the strip linear. `base` is an operator-supplied issuer
+  // (`publicUrl` / MEMEX_PUBLIC_URL) with no length bound; unguarded, `\/+$`
+  // restarts at every slash of a run and walks to the end each time — measured
+  // through resolveIssuer on `/`*n + `x` at 225 ms for 25 K, 15 s for 200 K,
+  // ratio 4.0 on a doubling. Guarded, only a run's first slash is a candidate:
+  // 19 ms at 2 M, ratio 2.0. Language is untouched — a greedy `\/+$` could only
+  // ever match the maximal trailing run, verified over 400 K random strings.
+  return base.replace(/(?<!\/)\/+$/, "");
 }
 
 /** Build the RFC 8414 metadata object for a given issuer base URL. `dcrEnabled`

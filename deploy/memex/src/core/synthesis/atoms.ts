@@ -117,11 +117,19 @@ export function synthPagesEnabled(
 
 /** Kebab page-slug segment from a free-text title. */
 export function slugifyTitle(title: string): string {
+  // Measured linear through slugifyTitle: 0.6 ms at 800 K chars, ratio 1.99 on
+  // a doubling (`-`*n, `!`*n and `-a`*n/2 all agree). The `-+` run the rule
+  // warns about cannot reach either trim: the `[^a-z0-9]+` collapse on the line
+  // above rewrites EVERY run of non-alphanumerics to a single `-`, so by the
+  // time these two run the string has no two adjacent dashes to back over.
   const s = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
+    // ...and this one also sees at most 60 chars, whatever the title was.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^-+|-+$/g, "");
   return s.length > 0 ? s : "atom";
 }
@@ -180,7 +188,16 @@ export function atomPageSlug(
  */
 export function parseAtomsResponse(raw: string): ParsedAtom[] {
   let cleaned = raw.trim();
-  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // No `\s*` after the language tag. It used to be there to skip the newline
+  // before the body, but the capture is trimmed on the very next line, so the
+  // whitespace was being stripped twice — and the two quantifiers could trade
+  // characters. `\s*` had n ways to split a whitespace run and the lazy body
+  // walked to the end of the response for each one. Measured through
+  // parseAtomsResponse on "```" + "\n"*n + "x" (a tail char so .trim() cannot
+  // delete the run, and no closing fence): 2 K = 1.2 ms, 4 K = 3.9 ms,
+  // 8 K = 15.8 ms, 16 K = 61 ms — ratio ~4.0 per doubling. Dropping `\s*`
+  // leaves a single lazy scan for the closing fence, which is linear.
+  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   const start = cleaned.indexOf("[");
   if (start === -1) return [];
@@ -258,7 +275,12 @@ export function parseAtomsResponse(raw: string): ParsedAtom[] {
 export function isWellFormedEmptyExtraction(raw: string): boolean {
   let cleaned = raw.trim();
   if (cleaned.length === 0) return false;
-  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // Same fence shape, same trim on the next line, same fix as
+  // parseAtomsResponse above — see the note there. Measured through
+  // isWellFormedEmptyExtraction on the same input: 2 K = 1.2 ms, 4 K = 4.7 ms,
+  // 8 K = 15.4 ms, 16 K = 60.8 ms, ratio ~4.0. The two must keep agreeing on
+  // what "the model returned an empty array" means, so they change together.
+  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   try {
     const parsed: unknown = JSON.parse(cleaned);

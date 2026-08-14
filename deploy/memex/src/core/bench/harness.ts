@@ -56,6 +56,11 @@ import {
 import { resolveEntitiesToPointers, type ResolveArm } from "../context/reflex.ts";
 import type { ScoredTurn } from "./push-metrics.ts";
 import type { PushFixture, FixtureTurn } from "./fixtures.ts";
+import { resetBrain } from "./reset.ts";
+
+// The reset moved to `reset.ts` when continuity and fidelity started sharing
+// it; re-exported so existing callers keep importing it from the harness.
+export { RESET_TABLES, resetBrain, resetProcessGlobals, assertBrainEmpty } from "./reset.ts";
 
 /** Rolling window used when a fixture doesn't set `windowTurns`. */
 export const DEFAULT_WINDOW_TURNS = 4;
@@ -99,24 +104,6 @@ export interface CorpusRun {
   turns: BenchTurnOutcome[];
   /** The same turns, reduced to what `scorePush` consumes. */
   scored: ScoredTurn[];
-}
-
-/**
- * Tables a fixture seed touches, plus anything hanging off `pages`. CASCADE
- * covers dependents (page_versions, chunks, links) without this list having to
- * track every migration that ever added a foreign key.
- */
-const RESET_TABLES = ["pages", "page_aliases", "slug_aliases"];
-
-/**
- * Empty the brain between fixtures. One Storage serves the whole run — a fresh
- * PGLite database per fixture pays the full migration cost each time, and the
- * fixtures share nothing that survives a truncate.
- */
-export async function resetBrain(storage: Storage): Promise<void> {
-  await storage
-    .engine()
-    .query(`TRUNCATE TABLE ${RESET_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
 }
 
 /**

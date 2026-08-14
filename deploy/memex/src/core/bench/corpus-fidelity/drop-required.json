@@ -1,0 +1,78 @@
+{
+  "name": "drop-required",
+  "description": "Three claims the pipeline must keep and three it must discard. The stub emits all six as well-formed model output, so 'write whatever the model said' keeps its recall and loses drop compliance.",
+  "note": "It also carries one claim the pipeline KEEPS and should not have: 'Someone Unheard Of' is not a reject, because the shipped resolver degrades to the slugify floor (facts-extract.ts:517) and mints a someone-unheard-of ledger row. That is a precision failure, not a drop failure, and it is here so fidelityPrecision has something to be less than 1 about. The three real rejects each name a gate that actually fires: an echoed diarizer label (r0), an explicit null entity (r1), and an entity with no slug-alphabet character at all (r2, an em dash the model used where it meant null).",
+  "sourceSlug": "conversations/2026-08-15-standup",
+  "dateContext": "2026-08-15",
+  "stubModelId": "eu.anthropic.claude-sonnet-4-6-v1:0",
+  "pages": [
+    {
+      "slug": "people/dana-reed",
+      "type": "person",
+      "title": "Dana Reed (advisor)",
+      "body": "Dana Reed advises on pricing and packaging.",
+      "aliases": ["Dana"]
+    },
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU."
+    }
+  ],
+  "transcript": "[2026-08-15 09:02] Dana Reed: I'm moving the Northwind renewal to October.\n[2026-08-15 09:03] Speaker A: noted, I'll tell finance.\n[2026-08-15 09:05] Dana Reed: also I prefer the async standup format.\n",
+  "stubResponses": {
+    "0": "{\"facts\":[{\"fact\":\"Dana Reed moved the Northwind renewal to October.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.9,\"notability\":\"high\"},{\"fact\":\"The Northwind renewal is scheduled for October.\",\"kind\":\"event\",\"entity\":\"Northwind Traders\",\"confidence\":0.85,\"notability\":\"high\"},{\"fact\":\"The renewal date changed during the standup.\",\"kind\":\"event\",\"entity\":null,\"confidence\":0.6,\"notability\":\"medium\"}]}",
+    "1": "{\"facts\":[{\"fact\":\"Speaker A will tell finance about the renewal move.\",\"kind\":\"commitment\",\"entity\":\"Speaker A\",\"confidence\":0.8,\"notability\":\"medium\"},{\"fact\":\"The renewal now lands in a later quarter.\",\"kind\":\"fact\",\"entity\":\"Someone Unheard Of\",\"confidence\":0.7,\"notability\":\"medium\"}]}",
+    "2": "{\"facts\":[{\"fact\":\"Dana Reed prefers the async standup format.\",\"kind\":\"preference\",\"entity\":\"Dana Reed\",\"confidence\":0.9,\"notability\":\"medium\"},{\"fact\":\"The standup format was discussed.\",\"kind\":\"event\",\"entity\":\"\\u2014\",\"confidence\":0.5,\"notability\":\"low\"}]}"
+  },
+  "gold": [
+    {
+      "id": "g0",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed moved the Northwind renewal to October.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": {
+        "valid_from": "2026-08-15",
+        "confidence": 0.9,
+        "source_slug": "conversations/2026-08-15-standup",
+        "written_by": "facts-extract",
+        "visibility": "private"
+      }
+    },
+    {
+      "id": "g1",
+      "entity_slug": "companies/northwind",
+      "fact": "The Northwind renewal is scheduled for October.",
+      "kind": "event",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-15", "confidence": 0.85 }
+    },
+    {
+      "id": "g2",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed prefers the async standup format.",
+      "kind": "preference",
+      "notability": "medium",
+      "expect": { "valid_from": "2026-08-15", "confidence": 0.9 }
+    }
+  ],
+  "reject": [
+    {
+      "id": "r0",
+      "reason": "anonymous_speaker",
+      "fact": "Speaker A will tell finance about the renewal move."
+    },
+    {
+      "id": "r1",
+      "reason": "null_entity",
+      "fact": "The renewal date changed during the standup."
+    },
+    {
+      "id": "r2",
+      "reason": "unresolvable_entity",
+      "fact": "The standup format was discussed."
+    }
+  ]
+}

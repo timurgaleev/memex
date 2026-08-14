@@ -33,6 +33,20 @@ export const FALLBACK_THRESHOLD = 0.92;
 /** Conservative worst-case usage for the classifier's pre-flight budget guard. */
 const WORST_CASE_USAGE = { inputTokens: 1200, outputTokens: 200 };
 
+/**
+ * Longest brace span the salvage scan will consider, in chars. The bound is the
+ * classifier's own output cap: it is called with `maxTokens:
+ * WORST_CASE_USAGE.outputTokens`, and 4 chars per token is the estimator this
+ * codebase already uses for Sonnet usage, so this is the whole reply and then
+ * some — the verdict itself is one flat object under 60 chars.
+ *
+ * Unbounded, `/\{[\s\S]*?\}/` re-scanned to the end of the string from every
+ * `{`: a 16 K run of `{` measured 60 ms through parseClassifierJson, ratio
+ * 3.96-4.04 on a doubling (quadratic). Bounded it is 800x the run, i.e. linear.
+ */
+const MAX_VERDICT_CHARS = WORST_CASE_USAGE.outputTokens * 4;
+const VERDICT_OBJECT = new RegExp(`\\{[\\s\\S]{0,${MAX_VERDICT_CHARS}}?\\}`);
+
 /** One entity-prefiltered candidate, already scored by cosine similarity. */
 export interface FactCandidate {
   id: number;
@@ -126,10 +140,16 @@ export function parseClassifierJson(
   const cleaned = raw
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "");
+    // The trailing fence is stripped with a bare literal and a trimEnd rather
+    // than `/\s*```$/`: that form retried its whitespace run from every offset
+    // inside it, so a 16 K space run anywhere in the response measured 97 ms,
+    // ratio 3.99-4.03 on a doubling (quadratic). Identical output — the leading
+    // `.trim()` means there is no trailing whitespace left to protect.
+    .replace(/```$/, "")
+    .trimEnd();
   let obj = tryJson(cleaned);
   if (!obj) {
-    const m = cleaned.match(/\{[\s\S]*?\}/);
+    const m = cleaned.match(VERDICT_OBJECT);
     if (m) obj = tryJson(m[0]);
   }
   if (!obj) return null;
@@ -200,7 +220,7 @@ export async function classifyFact(
     const resp = await opts.llmFn!({
       system: CLASSIFIER_SYSTEM,
       user: buildClassifierUser(newFact, candidates),
-      maxTokens: 200,
+      maxTokens: WORST_CASE_USAGE.outputTokens,
     });
     // Price the call we just made; an exhausted budget still keeps THIS verdict
     // (already paid for) — the caller's next fact will find no room and fall back.

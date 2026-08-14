@@ -178,3 +178,53 @@ describe("concept-shaped detection (steers set questions toward `query`)", () =>
     expect(classifyQuerySuggestions("acme renewal date").conceptShaped).toBe(false);
   });
 });
+
+/**
+ * The exact-identifier suppressors must stay linear in query length.
+ *
+ * `/“[^”]{2,}”/` was quadratic: `“` and `”` are different characters, so the
+ * class ACCEPTED `“` and a run of openers walked to the end of the query from
+ * every one of the n start positions. Measured through looksConceptShaped on
+ * "what are the " + "“"*n: 8 K = 29 ms, 16 K = 95 ms, 32 K = 563 ms,
+ * 64 K = 2.27 s — ratio ~4.0 per doubling, extrapolating to about nine minutes
+ * at 1 MB. The query is the raw `search` argument off the MCP request and
+ * nothing caps its length, so that is a request thread held for minutes.
+ *
+ * The bound is MAX_SLUG_LEN (256): this pattern spots a thing the caller named,
+ * and nothing longer than a page slug is a name. The ASCII sibling needs no
+ * bound because `[^"]` already excludes its own delimiter.
+ *
+ * The ceiling is deliberately loose — linear is milliseconds, quadratic is
+ * minutes.
+ */
+describe("exact-identifier suppressor cost", () => {
+  it("stays linear on a 1 MB run of opening smart quotes", () => {
+    // Three real words first: MIN_CONCEPT_WORDS gates the pattern bank, so a
+    // bare run of quotes would never reach the scan under test.
+    const query = "what are the " + "“".repeat(1_000_000);
+
+    const started = performance.now();
+    const out = looksConceptShaped(query);
+    const elapsed = performance.now() - started;
+
+    expect(out).toBe(false);
+    expect(elapsed).toBeLessThan(15_000);
+  });
+
+  // The cue has to fire for the suppressor to be the thing under test: without
+  // an enumerating qualifier "what are the …" is a lookup and returns false for
+  // its own reasons, which would make these assertions pass on a broken bound.
+  it("still suppresses a cue-matching query that carries a quoted phrase", () => {
+    expect(looksConceptShaped("what are the different approaches to chunking")).toBe(true);
+    expect(looksConceptShaped('what are the different approaches to “chunking”')).toBe(false);
+    expect(looksConceptShaped('what are the different approaches to "chunking"')).toBe(false);
+  });
+
+  it("suppresses at the 256-char bound and stops just past it", () => {
+    // The bound is not arbitrary: a page slug is capped at 256, so a longer
+    // span could never be the name of a thing we hold.
+    const span = (n: number) => `what are the different approaches to “${"a".repeat(n)}”`;
+    expect(looksConceptShaped(span(256))).toBe(false);
+    expect(looksConceptShaped(span(257))).toBe(true);
+  });
+});

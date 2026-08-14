@@ -131,6 +131,25 @@ describe("reflectionsPhase", () => {
     expect(r.reflectionsWritten).toBe(0);
     expect(r.reason).toContain("budget");
   });
+
+  /**
+   * The JSON-array salvage must stay linear in reply length. Unbounded,
+   * `/\[[\s\S]*\]/` re-scanned to the end of the reply from every `[`: a 16 K
+   * run of `[` measured 97 ms through this phase, ratio 3.76-4.25 on a
+   * doubling (quadratic). The span is now bounded by REFLECTIONS_MAX_TOKENS,
+   * and this holds that bound in place. The ceiling is loose on purpose —
+   * linear finishes in about a second, quadratic needs half a minute.
+   */
+  it("stays linear when the model answers with a 250 K run of brackets", async () => {
+    await seedTranscripts(3);
+    const started = performance.now();
+    const r = await reflectionsPhase(storage, { sonnetFn: fakeSonnet("[".repeat(250_000)) });
+    const elapsed = performance.now() - started;
+    expect(r.ran).toBe(true);
+    // Nothing parses out of that reply — the proof the scan did the work.
+    expect(r.reflectionsWritten).toBe(0);
+    expect(elapsed).toBeLessThan(10_000);
+  });
 });
 
 describe("anti-loop: synthesis pages excluded from facts-backfill", () => {

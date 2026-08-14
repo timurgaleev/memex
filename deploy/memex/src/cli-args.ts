@@ -48,6 +48,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--http",
   "--include-flagged",
   "--json",
+  "--live",
   "--max-pool",
   "--no-expand",
   "--no-redact",
@@ -91,9 +92,9 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
-  "--bound-slug-prefixes", "--budget", "--config-a", "--config-b",
+  "--bound-slug-prefixes", "--budget", "--config-a", "--config-b", "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
-  "--dir", "--example-limit", "--expected-doc", "--federated-read", "--file",
+  "--dir", "--example-limit", "--expected-doc", "--family", "--federated-read", "--file",
   "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
   "--input", "--k", "--keep-days", "--kind", "--limit", "--max-drop",
   "--max-jobs", "--max-pages", "--max-retries", "--max-usd",
@@ -168,6 +169,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     ]),
   ],
   ["eval-probe", new Set(["--limit", "--max-usd"])],
+  ["bench", new Set(["--corpus", "--family", "--json", "--live"])],
   ["backlinks", new Set(["--limit", "--type"])],
   ["merge", new Set(["--source", "--written-by"])],
   ["salience", new Set(["--days", "--limit", "--type"])],

@@ -45,6 +45,11 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
     // **Alice** (2024-03-15 9:00 AM): hello   (iMessage / Slack export)
     id: "inline-date",
     regex:
+      // Measured linear through parseConversation: 0.5 ms at 128 K, ratio 1.75-2.10
+      // on a doubling. The lazy speaker run ends at the first `**`, and every
+      // whitespace run downstream is separated from the next by a literal the
+      // whitespace class cannot match, so no two quantifiers share a character.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       /^\*\*(.+?)\*\*\s*\((\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\)\s*:\s*(.*)$/,
     quickReject: /^\*\*/,
     speaker: 1,
@@ -57,7 +62,17 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   {
     // [18:37] Alice: hi   (Telegram bracket-time)
     id: "telegram-bracket",
-    regex: /^\[(\d{1,2}):(\d{2})\]\s*(.+?):\s*(.*)$/,
+    // The speaker run is bounded to 41 — the same cap the `plain` entry below
+    // already puts on a speaker name (`[a-z][\w .'-]{0,40}`). Unbounded, the
+    // leading `\s*` and the lazy speaker run trade whitespace with each other:
+    // `[12:34]` + a 16 K space run and no colon measured 63 ms, ratio 3.75-4.39
+    // on a doubling (quadratic). Bounded it is 40x the whitespace run, i.e.
+    // linear. Only a speaker longer than 41 chars parses differently.
+    // The one the rule still flags — the trailing `:\s*(.*)$` — measured linear
+    // at 0.1 ms for a 128 K body run, ratio 1.32-1.88 on a doubling: `(.*)$`
+    // cannot fail on a line that holds no newline, so the `\s*` never gives back.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
+    regex: /^\[(\d{1,2}):(\d{2})\]\s*(.{1,41}?):\s*(.*)$/,
     quickReject: /^\[/,
     speaker: 3,
     hourGroup: 1,
@@ -67,8 +82,17 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   {
     // [2024-03-15, 18:37] Alice: hi   (WhatsApp-ish)
     id: "whatsapp",
+    // Two fixes over the naive form. The separator is written `(?:\s*-)?\s*`
+    // instead of `\s*-?\s*` so a whitespace run has exactly one way to be
+    // split, and the speaker run carries the same 41-char cap as `plain`.
+    // Naive, both unbounded, this was CUBIC: a date header plus a 16 K space
+    // run and no colon measured 363 s, ratio 7.08-7.70 on a doubling.
+    // The one the rule still flags — the trailing `:\s*(.*)$` — measured linear
+    // at 0.1 ms for a 128 K body run, ratio 1.45-1.95 on a doubling: `(.*)$`
+    // cannot fail on a line that holds no newline, so the `\s*` never gives back.
     regex:
-      /^\[?(\d{4}-\d{2}-\d{2})[,\s]+(\d{1,2}):(\d{2})(?::\d{2})?\]?\s*-?\s*(.+?):\s*(.*)$/,
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
+      /^\[?(\d{4}-\d{2}-\d{2})[,\s]+(\d{1,2}):(\d{2})(?::\d{2})?\]?(?:\s*-)?\s*(.{1,41}?):\s*(.*)$/,
     speaker: 4,
     dateGroup: 1,
     hourGroup: 2,
@@ -78,6 +102,11 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   {
     // <alice> message   (IRC)
     id: "irc",
+    // Measured linear through parseConversation: 0.1 ms at 128 K, ratio
+    // 1.53-1.88 on a doubling. `[^>]+` stops at the first `>`, and the tail
+    // `\s*(.*)$` can never fail — `.*` runs to the end of a line that, by
+    // construction, holds no newline — so nothing forces the `\s*` to give back.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     regex: /^<([^>]+)>\s*(.*)$/,
     quickReject: /^</,
     speaker: 1,
@@ -86,6 +115,11 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   {
     // Alice: message   (plain transcript; tried last — most permissive)
     id: "plain",
+    // Measured linear through parseConversation: 0.1 ms at 128 K, ratio
+    // 0.85-1.89 on a doubling. The speaker is capped at 41 chars, so the only
+    // unbounded runs are `\s+` and `.+`, and `(.+)$` cannot fail once `\s+`
+    // gives back a single character.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     regex: /^([a-z][\w .'-]{0,40}):\s+(.+)$/i,
     speaker: 1,
     text: 2,
@@ -98,8 +132,13 @@ function pad2(n: number): string {
 
 // - **Alice** (Mon 11:18) — header of a block-format export where the message
 // body follows on indented lines. Optional weekday word, optional am/pm.
+// The am/pm marker carries its own leading whitespace — `(?:\s*(AM|PM…))?`
+// rather than `\s*(AM|PM…)?\s*` — so the run before the closing paren has one
+// way to be split instead of n. With the two `\s*` adjacent, a header with a
+// 16 K space run before a non-paren measured 105 ms, ratio 3.15-5.31 on a
+// doubling (quadratic), and this pattern is tested against every line twice.
 const BLOCK_HEADER =
-  /^[-*]\s+\*\*(.+?)\*\*\s*\(\s*(?:[A-Za-z]{2,9},?\s+)?(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\s*\)\s*$/;
+  /^[-*]\s+\*\*(.+?)\*\*\s*\(\s*(?:[A-Za-z]{2,9},?\s+)?(\d{1,2}):(\d{2})(?:\s*(AM|PM|am|pm))?\s*\)\s*$/;
 
 /**
  * Collapse block-format transcripts — a `- **Name** (Mon 11:18)` header line

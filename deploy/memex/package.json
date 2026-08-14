@@ -11,6 +11,7 @@
     "build": "bun build src/cli.ts --target=bun --outdir=dist",
     "test": "bun test",
     "test:sharded": "bash scripts/test-sharded.sh",
+    "bench": "bun run src/cli.ts bench",
     "start": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --no-warn-ignored",

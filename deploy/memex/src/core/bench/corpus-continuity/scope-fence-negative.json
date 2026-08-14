@@ -1,0 +1,104 @@
+{
+  "name": "scope-fence-negative",
+  "description": "The public-ingress fence, graded rather than assumed: a decision written by an authenticated client is recalled by a member of its tenant through enumeration, unprompted volunteering and search, while the static public bearer is refused the first two outright and structurally returned nothing by the third — yet can still fetch the page it names.",
+  "identities": [
+    {
+      "id": "author",
+      "clientId": "bench-author",
+      "writeSource": "team-e",
+      "readSources": ["team-e"],
+      "scopes": ["read", "write"]
+    },
+    {
+      "id": "member",
+      "clientId": "bench-member",
+      "readSources": ["team-e"],
+      "scopes": ["read"]
+    },
+    {
+      "id": "anon",
+      "clientId": "public-bearer",
+      "isPublic": true
+    }
+  ],
+  "writes": [
+    {
+      "as": "author",
+      "op": "page_put",
+      "args": {
+        "slug": "decisions/retire-the-legacy-importer",
+        "type": "decision",
+        "title": "Retire the Legacy Importer",
+        "markdown_body": "The Legacy Importer is retired at the end of Q3; everything moves to the streaming ingest path.\n",
+        "compiled_truth": { "aliases": ["Legacy Importer"] }
+      }
+    },
+    {
+      "as": "author",
+      "op": "add_fact",
+      "args": {
+        "entity_slug": "decisions/retire-the-legacy-importer",
+        "fact": "The Legacy Importer is retired at the end of Q3.",
+        "visibility": "world"
+      }
+    }
+  ],
+  "probes": [
+    {
+      "id": "member-resolve",
+      "as": "member",
+      "op": "resolve_slugs",
+      "args": { "query": "Legacy Importer" },
+      "gold": ["decisions/retire-the-legacy-importer"],
+      "note": "Continuity by name: a client that never saw the write resolves the author's alias to the author's slug."
+    },
+    {
+      "id": "public-resolve",
+      "as": "anon",
+      "op": "resolve_slugs",
+      "args": { "query": "Legacy Importer" },
+      "gold": [],
+      "note": "Leak case paired with member-resolve. resolve_slugs enumerates author-written identifiers, so the shipped ingress denylist refuses it for the public bearer BEFORE dispatch — and dispatch alone would hand it over, which is exactly why the fence is graded here rather than assumed."
+    },
+    {
+      "id": "member-volunteer",
+      "as": "member",
+      "op": "volunteer_context",
+      "args": { "window": "user: Is the Legacy Importer still running?" },
+      "gold": ["decisions/retire-the-legacy-importer"],
+      "note": "The unprompted path inside the tenant."
+    },
+    {
+      "id": "public-volunteer",
+      "as": "anon",
+      "op": "volunteer_context",
+      "args": { "window": "user: Is the Legacy Importer still running?" },
+      "gold": [],
+      "note": "Leak case paired with member-volunteer. Same denylist, different surface: slugs, titles and synopses volunteered to an anonymous caller would be the same disclosure resolve_slugs is refused for."
+    },
+    {
+      "id": "member-search",
+      "as": "member",
+      "op": "search",
+      "args": { "q": "Legacy Importer" },
+      "gold": ["decisions/retire-the-legacy-importer"],
+      "note": "The retrieval arm, over the page mirror the write created. Runs on a deterministic embedder, so the vector arm is exercised without Bedrock."
+    },
+    {
+      "id": "public-search",
+      "as": "anon",
+      "op": "search",
+      "args": { "q": "Legacy Importer" },
+      "gold": [],
+      "note": "The one public refusal that is NOT the denylist: search is open to the public bearer, and page-derived hits are dropped from the result instead. A different mechanism from the two above, and it fails differently, so it is worth its own probe."
+    },
+    {
+      "id": "public-page",
+      "as": "anon",
+      "op": "page_get",
+      "args": { "slug": "decisions/retire-the-legacy-importer" },
+      "gold": ["decisions/retire-the-legacy-importer"],
+      "note": "Not a leak — a positive label, and the capability control for the three refusals above. The public bearer may FETCH a page whose slug it already knows (the body is redacted); what it may not do is enumerate its way to one. If page_get is ever added to the public denylist this pin breaks, and the pin is what should be updated."
+    }
+  ]
+}

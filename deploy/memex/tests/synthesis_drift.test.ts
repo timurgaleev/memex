@@ -116,6 +116,44 @@ describe("driftPhase", () => {
     expect(r.reason).toContain("budget");
   });
 
+  /**
+   * The verdict scan must stay linear in the judge's reply length.
+   *
+   * `parseVerdicts` used `/\[[\s\S]*\]/` to pick the JSON array out of the
+   * reply. With no closing bracket the body walked to the end of the text from
+   * every `[`: measured at 2 K = 2.5 ms, 4 K = 8.4 ms, 8 K = 23.6 ms,
+   * 16 K = 96.6 ms — ratio ~4.0 per doubling. We do not write that text; we
+   * only set `maxTokens`, and a provider swap moves that cap without anyone
+   * touching the parser. The index form ("first `[` to last `]`") is the same
+   * span for one forward and one backward scan.
+   *
+   * The ceiling is deliberately loose: linear finishes in milliseconds,
+   * quadratic needs minutes.
+   */
+  it("stays linear when the judge returns a 1 MB run of unclosed brackets", async () => {
+    await seedDriftedTake("A claim under review.", "Evidence that has since changed.");
+
+    const started = performance.now();
+    const r = await driftPhase(storage, { sonnetFn: fakeSonnet("[".repeat(1_000_000)) });
+    const elapsed = performance.now() - started;
+
+    // Unparseable, so nothing is flagged — the phase survives the junk reply.
+    expect(r.ran).toBe(true);
+    expect(r.driftedFlagged).toBe(0);
+    expect(elapsed).toBeLessThan(15_000);
+  });
+
+  it("still finds the array when the judge wraps it in prose or nests brackets", async () => {
+    const id = await seedDriftedTake("Claim A.", "Evidence that changed.");
+    const payload =
+      "Here are my verdicts:\n" +
+      JSON.stringify([{ take_id: id, holds: false, reason: "changed [see note]" }]) +
+      "\nLet me know if you need more.";
+    const r = await driftPhase(storage, { sonnetFn: fakeSonnet(payload) });
+    expect(r.ran).toBe(true);
+    expect(r.driftedFlagged).toBe(1);
+  });
+
   it("writes no report when the judge says every take still holds", async () => {
     const id = await seedDriftedTake("Claim that still holds.", "Evidence consistent with the claim.");
     const payload = JSON.stringify([{ take_id: id, holds: true, reason: "still supported" }]);

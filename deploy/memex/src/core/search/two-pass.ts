@@ -32,6 +32,19 @@ const SPEND_OP = "rerank-two-pass";
 /** Per-call rerank timeout (ms). Default: 5000. */
 const DEFAULT_TIMEOUT_MS = 5_000;
 
+/** Output cap for the rerank call — one line of indices, nothing else. */
+const MAX_OUTPUT_TOKENS = 200;
+
+/**
+ * The index array, salvaged out of any wrapping prose. The span is bounded by
+ * the call's own output cap (MAX_OUTPUT_TOKENS at the 4-chars-per-token
+ * estimate this codebase uses), which is far more than the `[3,0,1,2,4]` the
+ * prompt asks for. Unbounded, `/\[[^\]]*\]/` re-scanned to the end of the
+ * string from every `[`: a 16 K run of `[` measured 96 ms through rerank(),
+ * ratio 3.81-4.05 on a doubling (quadratic).
+ */
+const INDEX_ARRAY = new RegExp(`\\[[^\\]]{0,${MAX_OUTPUT_TOKENS * 4}}\\]`);
+
 function rerankTimeoutMs(): number {
   const n = Number(process.env.MEMEX_RERANK_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
@@ -96,7 +109,7 @@ export async function rerank<T extends ChunkPayloadForRerank>(
           modelId,
           system: [{ text: SYSTEM_PROMPT }],
           messages: [{ role: "user", content: [{ text: userMessage }] }],
-          inferenceConfig: { maxTokens: 200, temperature: 0 },
+          inferenceConfig: { maxTokens: MAX_OUTPUT_TOKENS, temperature: 0 },
         }),
         // Per-call deadline: a stuck upstream must not hold search hostage.
         { abortSignal: AbortSignal.timeout(timeoutMs) },
@@ -108,7 +121,7 @@ export async function rerank<T extends ChunkPayloadForRerank>(
         });
       }
       const text = resp.output?.message?.content?.[0]?.text?.trim() ?? "[]";
-      const match = text.match(/\[[^\]]*\]/);
+      const match = text.match(INDEX_ARRAY);
       if (!match) {
         audit("parse", `no index array in model output (${text.slice(0, 80)})`);
         return [...hits];

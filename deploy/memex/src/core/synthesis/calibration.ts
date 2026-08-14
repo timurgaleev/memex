@@ -264,7 +264,18 @@ export function parsePatternStatements(raw: string): string[] {
 export function parseBiasTags(raw: string): string[] {
   if (!raw || raw.trim().length === 0) return [];
   let text = raw.trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // No `\s*` after the fence opener. `[\s\S]*?` already accepts whitespace, so
+  // the two exchanged characters and the scan squared: on an opener followed by
+  // a whitespace run and no closing fence, every length of the `\s*` re-walked
+  // the rest of the text. Measured through parseBiasTags: 256 ms at 32 K,
+  // 1.03 s at 64 K, 3.96 s at 128 K, 15.5 s at 256 K — ratio 4.0 per doubling.
+  // The live caller caps this at `maxTokens: 120`, so today it is ~1 KB and
+  // sub-millisecond, but the cap lives at a call site and this parser is
+  // exported. Dropping the `\s*` keeps the accepted language identical (it is
+  // subsumed by the lazy body) and the leading whitespace it used to exclude
+  // from the capture is removed by the `.trim()` on the next line — verified
+  // over 26 curated payloads plus 200 K fuzzed ones. Now linear, ratio 2.0.
+  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) text = fence[1].trim();
   const start = text.indexOf("[");
   if (start === -1) return [];

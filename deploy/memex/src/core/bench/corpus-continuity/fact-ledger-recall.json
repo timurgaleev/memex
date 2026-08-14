@@ -1,0 +1,114 @@
+{
+  "name": "fact-ledger-recall",
+  "description": "Claims recorded by one client in session A are recalled by an analyst client in session B, per entity and across entities, while the same client's private claim and another tenant's view of the ledger stay out of both answers.",
+  "identities": [
+    {
+      "id": "recorder",
+      "clientId": "bench-recorder",
+      "writeSource": "team-c",
+      "readSources": ["team-c"],
+      "scopes": ["read", "write"]
+    },
+    {
+      "id": "analyst",
+      "clientId": "bench-analyst",
+      "readSources": ["team-c"],
+      "scopes": ["read"]
+    },
+    {
+      "id": "outsider",
+      "clientId": "bench-outsider",
+      "writeSource": "team-d",
+      "readSources": ["team-d"],
+      "scopes": ["read"]
+    }
+  ],
+  "pages": [
+    {
+      "slug": "people/mira-solberg",
+      "type": "person",
+      "title": "Mira Solberg (renewals)",
+      "body": "Mira Solberg owns the renewal motion.",
+      "aliases": ["Mira Solberg"],
+      "source": "team-c"
+    },
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU.",
+      "source": "team-c"
+    }
+  ],
+  "writes": [
+    {
+      "as": "recorder",
+      "op": "add_fact",
+      "args": {
+        "entity_slug": "people/mira-solberg",
+        "fact": "Mira Solberg owns the Northwind renewal motion.",
+        "visibility": "world"
+      }
+    },
+    {
+      "as": "recorder",
+      "op": "add_fact",
+      "args": {
+        "entity_slug": "companies/northwind",
+        "fact": "The Northwind renewal moves to October.",
+        "visibility": "world"
+      }
+    },
+    {
+      "as": "recorder",
+      "op": "add_fact",
+      "args": {
+        "entity_slug": "people/mira-solberg",
+        "fact": "Mira Solberg is unhappy with the current pricing tier.",
+        "visibility": "private"
+      }
+    }
+  ],
+  "probes": [
+    {
+      "id": "analyst-mira",
+      "as": "analyst",
+      "op": "entity_facts",
+      "args": { "entity_slug": "people/mira-solberg" },
+      "gold": ["fact:0"],
+      "note": "Recall across clients on one entity. The private claim written by the SAME session sits on the same entity: if the visibility floor ever slips it comes back here, counts as unwanted, and precision falls. That is the point of writing it."
+    },
+    {
+      "id": "outsider-mira",
+      "as": "outsider",
+      "op": "entity_facts",
+      "args": { "entity_slug": "people/mira-solberg" },
+      "gold": [],
+      "note": "Leak case paired with analyst-mira. The entity page itself belongs to team-c too, so this asks the ledger filter, not the page filter."
+    },
+    {
+      "id": "analyst-northwind",
+      "as": "analyst",
+      "op": "entity_facts",
+      "args": { "entity_slug": "companies/northwind" },
+      "gold": ["fact:1"],
+      "note": "The second entity, so a fact that landed on the wrong subject would be visible as a miss here rather than hidden inside a single-entity answer."
+    },
+    {
+      "id": "analyst-cross-entity",
+      "as": "analyst",
+      "op": "entity_facts",
+      "args": {},
+      "gold": ["fact:0", "fact:1"],
+      "note": "The entity-less recall (\"what did we learn\"). Both world claims must come back and the private one must not — the surface where a visibility slip is worth the most to an attacker."
+    },
+    {
+      "id": "outsider-cross-entity",
+      "as": "outsider",
+      "op": "entity_facts",
+      "args": {},
+      "gold": [],
+      "note": "Leak case paired with analyst-cross-entity: an unfiltered ledger scan by a client from another tenant, which is the query that would return everything if the scope filter were dropped."
+    }
+  ]
+}

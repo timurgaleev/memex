@@ -134,6 +134,12 @@ function normalizeLabel(raw: string | undefined): string | undefined {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
+    // Measured linear through parseFactsFence, on a fence row whose metric cell
+    // is a run of `_` plus a rejecting `x`: 2.4 ms at 4 M chars, ratio 1.84 on a
+    // doubling, tracking a plain `a`-run control the whole way. `_` is itself in
+    // `[^a-z0-9]`, so the collapse on the line above leaves every underscore run
+    // exactly one char long — the run this quantifier squares on cannot reach it.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^_+|_+$/g, "");
   return v.length > 0 ? v : undefined;
 }

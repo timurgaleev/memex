@@ -299,6 +299,14 @@ export function chunkPlainText(
 }
 
 function findFirstH1(body: string): string | null {
+  // Measured linear through chunkMarkdown: 6.9 ms on a 256 K body of `#` +
+  // newlines, 6.1 ms on 256 K of `#` + 100-newline runs, ratio 2.0-2.3 on a
+  // doubling — the same ratio the no-`#` control body posts, so the growth is
+  // the chunker's own walk, not this match. `\s+` can only give back into a
+  // greedy `.+` that runs to the next newline, and `$` under `/m` is satisfied
+  // there by construction, so the give-back either succeeds at once or dies on
+  // a newline in O(1).
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
   const m = body.match(/^#\s+(.+)$/m);
   return m && m[1] ? m[1].trim() : null;
 }

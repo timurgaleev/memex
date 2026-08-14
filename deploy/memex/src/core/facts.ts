@@ -167,6 +167,11 @@ function normaliseLabel(v: string | undefined): string | null {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
+    // Measured linear through addFact: 0.3 ms net of the DB write at 128 K, on
+    // a 128 K underscore run. The collapse above is the cap — it rewrites every
+    // run of non-alphanumerics to a SINGLE `_`, so by the time this pattern runs
+    // the string cannot hold `__`, and the `_+` attack string is unreachable.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^_+|_+$/g, "");
   return s.length > 0 ? s : null;
 }

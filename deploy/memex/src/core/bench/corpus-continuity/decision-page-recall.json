@@ -1,0 +1,131 @@
+{
+  "name": "decision-page-recall",
+  "description": "A decision written by the editor client in session A is recalled by a different client in session B — as a page, as a fact, as an edge, and unprompted — and is invisible to a client scoped to another tenant on all four surfaces.",
+  "identities": [
+    {
+      "id": "editor",
+      "clientId": "bench-editor",
+      "writeSource": "team-a",
+      "readSources": ["team-a"],
+      "scopes": ["read", "write"]
+    },
+    {
+      "id": "reader",
+      "clientId": "bench-reader",
+      "readSources": ["team-a"],
+      "scopes": ["read"]
+    },
+    {
+      "id": "outsider",
+      "clientId": "bench-outsider",
+      "writeSource": "team-b",
+      "readSources": ["team-b"],
+      "scopes": ["read"]
+    }
+  ],
+  "writes": [
+    {
+      "as": "editor",
+      "op": "page_put",
+      "args": {
+        "slug": "decisions/drop-the-nightly-reindex",
+        "type": "decision",
+        "title": "Drop the Nightly Reindex",
+        "markdown_body": "We decided to drop the Nightly Reindex; the incremental path covers it and the full pass costs 40 minutes of CPU for no measured recall gain.\n",
+        "compiled_truth": { "aliases": ["Nightly Reindex"] }
+      }
+    },
+    {
+      "as": "editor",
+      "op": "add_fact",
+      "args": {
+        "entity_slug": "decisions/drop-the-nightly-reindex",
+        "fact": "The Nightly Reindex was dropped in favour of the incremental path.",
+        "visibility": "world"
+      }
+    },
+    {
+      "as": "editor",
+      "op": "link",
+      "args": {
+        "source_slug": "decisions/drop-the-nightly-reindex",
+        "target_slug": "ops/reindex-pipeline",
+        "type": "related_to"
+      }
+    }
+  ],
+  "probes": [
+    {
+      "id": "reader-page",
+      "as": "reader",
+      "op": "page_get",
+      "args": { "slug": "decisions/drop-the-nightly-reindex" },
+      "gold": ["decisions/drop-the-nightly-reindex"],
+      "note": "Different client_id, same tenant, later session. The plain continuity case, and the one every other probe here is a variation on."
+    },
+    {
+      "id": "outsider-page",
+      "as": "outsider",
+      "op": "page_get",
+      "args": { "slug": "decisions/drop-the-nightly-reindex" },
+      "gold": [],
+      "note": "Leak case, paired with reader-page: the same call, naming the same slug, from a client scoped to another tenant. This is the term that stops 'return everything' scoring 100%."
+    },
+    {
+      "id": "reader-fact",
+      "as": "reader",
+      "op": "entity_facts",
+      "args": { "entity_slug": "decisions/drop-the-nightly-reindex" },
+      "gold": ["fact:1"],
+      "note": "The ledger arm. Provenance is the row id add_fact returned plus the tenant and writer stamps — a fact that came back but was not the one session A wrote is not continuity."
+    },
+    {
+      "id": "outsider-fact",
+      "as": "outsider",
+      "op": "entity_facts",
+      "args": { "entity_slug": "decisions/drop-the-nightly-reindex" },
+      "gold": [],
+      "note": "Leak case on the ledger, paired with reader-fact. The fact is visibility 'world', so what fences it here is tenancy alone."
+    },
+    {
+      "id": "reader-links",
+      "as": "reader",
+      "op": "get_links",
+      "args": { "slug": "decisions/drop-the-nightly-reindex" },
+      "gold": ["link:2"],
+      "note": "The edge arm. A decision that survives as a page and a fact but loses its relationships is not recalled in any sense the caller cares about."
+    },
+    {
+      "id": "outsider-links",
+      "as": "outsider",
+      "op": "get_links",
+      "args": { "slug": "decisions/drop-the-nightly-reindex" },
+      "gold": [],
+      "note": "Leak case on the graph, paired with reader-links. Edges carry their own source_id, so this is a separate filter from the page's."
+    },
+    {
+      "id": "reader-volunteer",
+      "as": "reader",
+      "op": "volunteer_context",
+      "args": { "window": "user: Are we still running the Nightly Reindex?" },
+      "gold": ["decisions/drop-the-nightly-reindex"],
+      "note": "The unprompted path: the reader never named the slug, only the declared alias session A wrote."
+    },
+    {
+      "id": "outsider-volunteer",
+      "as": "outsider",
+      "op": "volunteer_context",
+      "args": { "window": "user: Are we still running the Nightly Reindex?" },
+      "gold": [],
+      "note": "Leak case through the unprompted path rather than a by-slug read, paired with reader-volunteer. A fence that holds on page_get and leaks through volunteer_context is a real shape — the two are different code."
+    },
+    {
+      "id": "reader-volunteer-lowercase",
+      "as": "reader",
+      "op": "volunteer_context",
+      "args": { "window": "user: are we still running the nightly reindex?" },
+      "gold": ["decisions/drop-the-nightly-reindex"],
+      "note": "PINNED KNOWN MISS. The same question in lowercase yields no entity candidates at all, so volunteerContext returns at its first guard and the decision is never offered. The label says what a human wants; the pin says what the brain does. Fixing the extractor SHOULD break this pin — update the pin, not the label."
+    }
+  ]
+}

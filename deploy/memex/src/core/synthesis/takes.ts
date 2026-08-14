@@ -282,10 +282,29 @@ export function takeKey(
     .digest("hex");
 }
 
-/** Parse the LLM proposal output. Tolerant; never throws. */
+/**
+ * Parse the LLM proposal output. Tolerant; never throws.
+ *
+ * The fence matcher carries no `\s*` after the info tag, and that omission is
+ * load-bearing rather than cosmetic. With it, the greedy whitespace run and the
+ * lazy body can split the same characters n+1 ways, and on an opener whose
+ * closing fence never arrives the body re-walks the remainder from every split
+ * — quadratic. Measured through THIS function on "```" + "\n" x n + "x": 0.9 ms
+ * at 2 K, 3.7 ms at 4 K, 14.7 ms at 8 K, 59.7 ms at 16 K, ratio 4.0 per
+ * doubling, which extrapolates to minutes on a megabyte. The model writes this
+ * input, not a person, but a truncated response that opens a fence and stops is
+ * the ordinary failure of the call this parses.
+ *
+ * Dropping `\s*` cannot change what we accept: the run only ever matched
+ * characters the lazy body also matches, so the match span is identical, and
+ * the only difference is leading whitespace inside group 1 — which the very
+ * next line trims. Verified over a 102-input corpus (every char JS calls `\s`,
+ * matching and non-matching) plus 200 K random fenced strings: zero
+ * differences.
+ */
 export function parseTakesResponse(raw: string): ParsedTake[] {
   let cleaned = raw.trim();
-  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   const start = cleaned.indexOf("[");
   if (start === -1) return [];
@@ -346,7 +365,11 @@ export function parseTakesResponse(raw: string): ParsedTake[] {
 export function isWellFormedEmptyExtraction(raw: string): boolean {
   let cleaned = raw.trim();
   if (cleaned.length === 0) return false;
-  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // No `\s*` after the info tag, for the reason spelled out on
+  // `parseTakesResponse` — the two must keep matching the same fences, and this
+  // one measured the same 4.0x per doubling (0.9 ms at 2 K to 59.5 ms at 16 K)
+  // before the run came out.
+  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   try {
     const parsed: unknown = JSON.parse(cleaned);
@@ -812,7 +835,10 @@ export function evidenceSignature(evidence: string, modelId: string): string {
 /** Parse a single-object verdict. Tolerant; returns null on failure. */
 export function parseVerdictResponse(raw: string): ParsedVerdict | null {
   let text = raw.trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // No `\s*` after the info tag — see `parseTakesResponse`. Same shape, same
+  // measurement here: 1.0 ms at 2 K to 59.6 ms at 16 K, ratio 4.0 per doubling,
+  // linear once the run is gone.
+  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) text = fence[1].trim();
   const start = text.indexOf("{");
   if (start === -1) return null;

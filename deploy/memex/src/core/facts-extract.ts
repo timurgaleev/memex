@@ -154,7 +154,18 @@ function jsonCandidates(text: string): string[] {
   };
   const trimmed = (text ?? "").trim();
   push(trimmed);
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  // No whitespace run between the fence opener and the body. `\s*` there could
+  // trade characters with the lazy body, so a model answer whose fence never
+  // closes re-scanned the tail once per split of the run: measured through
+  // parseFactsResponse at 9.5 ms for 6 K, 614 ms for 50 K, ratio 4.0 on a
+  // doubling — and narrowing the run to horizontal whitespace does NOT fix it,
+  // that variant measured 3.9 on the same doubling with a run of spaces. With
+  // the run gone there is one way to match and the tail is scanned once: 1.2 ms
+  // at 2 M, ratio 2.0 on every attack shape (spaces, newlines, bare backticks,
+  // repeated openers). The padding just lands inside the capture instead, and
+  // `push` trims it off — candidates are byte-identical over 500 K random
+  // fence strings.
+  const fenced = trimmed.match(/```(?:json)?([\s\S]*?)```/i);
   if (fenced?.[1]) push(fenced[1]);
   if (trimmed.startsWith("```")) {
     push(trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, ""));

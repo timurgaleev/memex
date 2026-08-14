@@ -14,6 +14,7 @@ import { runIntegrity } from "./commands/integrity.ts";
 import { runEval } from "./commands/eval.ts";
 import { runEvalChronicle } from "./commands/eval-chronicle.ts";
 import { runEvalProbe } from "./commands/eval-probe.ts";
+import { runBenchCli, isBenchFamilySelector } from "./commands/bench.ts";
 import { runBacklinks } from "./commands/backlinks.ts";
 import { runMerge } from "./commands/merge.ts";
 import { runExtract } from "./commands/extract.ts";
@@ -121,6 +122,9 @@ function printUsage(): void {
   console.log("                               regression gate vs a stored baseline (exit 1 on drop)");
   console.log("  eval chronicle [--json]      deterministic Life Chronicle feature eval (own DB, no LLM)");
   console.log("  eval-probe [--limit N]       replay eval set, append a row to eval_snapshots (nightly probe)");
+  console.log("  bench [--family push|continuity|fidelity|all] [--corpus DIR] [--json]");
+  console.log("                               agent-facing behaviour bench (push / continuity / write-back");
+  console.log("                               fidelity); own throwaway DB, zero model spend, always exits 0");
   console.log("  backlinks <name> [--type T] [--limit N]");
   console.log("                               documents that mention this entity (default type=wikilink)");
   console.log("  extract [--all] [--vault P]  re-run regex entity extraction over existing chunks (cheap)");
@@ -490,6 +494,26 @@ async function main(argv: readonly string[]): Promise<number> {
       if (maxUsd !== undefined) probeOpts.maxUsd = maxUsd;
       await runEvalProbe(probeOpts);
       return 0;
+    }
+    case "bench": {
+      const benchOpts: Parameters<typeof runBenchCli>[0] = {};
+      const family = values.get("--family");
+      if (family !== undefined) {
+        if (!isBenchFamilySelector(family)) {
+          throw new Error(
+            `memex bench: invalid --family ${family} ` +
+              `(push|continuity|fidelity|all)`,
+          );
+        }
+        benchOpts.family = family;
+      }
+      const corpus = values.get("--corpus");
+      if (corpus !== undefined) benchOpts.corpus = corpus;
+      if (flags.has("--json")) benchOpts.json = true;
+      // Parsed, then refused inside the command — see LIVE_REFUSAL. Dropping it
+      // here would silently run the stub arm and report it as a live one.
+      if (flags.has("--live")) benchOpts.live = true;
+      return await runBenchCli(benchOpts);
     }
     case "backlinks": {
       const name = positional.join(" ");

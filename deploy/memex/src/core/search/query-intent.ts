@@ -98,7 +98,23 @@ const CONCEPT_CUE_PATTERNS = [
  */
 const EXACT_IDENTIFIER_PATTERNS = [
   /"[^"]{2,}"/,
-  /“[^”]{2,}”/,
+  // The ASCII pattern above is cheap because its class excludes its own
+  // delimiter — a run of `"` fails at the first char. The smart-quote pair does
+  // not have that luxury: `“` and `”` are different characters, so `[^”]`
+  // ACCEPTS `“`, and a run of openers walks to the end of the query from every
+  // one of the n start positions. Measured through looksConceptShaped on
+  // "what are the " + "“"*n: 8 K = 29 ms, 16 K = 95 ms, 32 K = 563 ms,
+  // 64 K = 2.27 s — ratio ~4.0 per doubling. The query is the raw MCP `search`
+  // argument (mcp/dispatch.ts:933) and nothing caps its length, so a 1 MB query
+  // extrapolates to about nine minutes on the request thread.
+  //
+  // The bound is MAX_SLUG_LEN (256, core/links.ts) — the same constant the
+  // wikilink scanner uses. This pattern exists to spot a named thing the caller
+  // asked for by name, and nothing longer than a page slug is that. Excluding
+  // `“` from the class was tried first and rejected: it is faster still, but it
+  // diverged from the current pattern on 40495 of 300000 fuzzed inputs, where
+  // the bound diverged on 0.
+  /“[^”]{2,256}”/,
   /\b[a-z0-9]+(?:[-_][a-z0-9]+)+\b/i,
 ];
 
@@ -219,6 +235,14 @@ const SALIENCE_ON_PATTERNS = [
 const CROSS_MODAL_PATTERNS: RegExp[] = [
   /\b(show|find|get|pull)\s+(me\s+)?(the\s+)?(photos?|images?|pictures?|pics?|screenshots?)\b/i,
   /\b(photos?|images?|pictures?|pics?|screenshots?)\s+(of|from|at|with|showing|featuring)\b/i,
+  // Measured linear through classifyQuerySuggestions: 14.9 ms at 400 K chars,
+  // ratio 2.01 on a doubling — both with one head and a long space run
+  // ("what does a" + " "*n + "z") and with n/12 repeated "what does a " heads.
+  // The `{1,40}` cap is what holds it: the subject run can never trade more
+  // than 40 characters with the `\s+` beside it, so the exchange the rule
+  // describes costs a fixed 40 per start position rather than scaling with the
+  // query.
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
   /\bwhat\s+does\s+[\w\s']{1,40}?\s+look\s+like\b/i,
   /\b(whiteboard|diagram|slide|screenshot|infographic|chart)s?\s+(of|from|about|showing)\b/i,
   /\bdiagram\s+(of|for|showing)\b/i,

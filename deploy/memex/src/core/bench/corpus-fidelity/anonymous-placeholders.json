@@ -1,0 +1,55 @@
+{
+  "name": "anonymous-placeholders",
+  "description": "A diarized recording where no speaker is ever named. Three durable claims are said out loud, the extractor reads all three, and the ledger keeps none of them. fidelityRecall is 0 by design.",
+  "note": "The anonymous-speaker gate nulls an entity that matches a diarizer label (facts-extract.ts:233) and its own comment says it 'drops the attribution but KEEPs the claim'. The write path then skips any fact with no entity (facts-extract.ts:508), so the claim is not kept at all. That gap is worth a number rather than a footnote: a single reject entry in drop-required says the gate fires, but only a fixture that is anonymous end to end shows what it costs. The gold entities are the subjects the claims are ABOUT, which is where a human would file them; the pipeline never gets that far, because it keys attribution off the speaker. The guard against this fixture being degenerately empty is report.factsSkipped: the claims must reach the write path and be dropped there, not fail to be extracted in the first place.",
+  "sourceSlug": "conversations/2026-08-17-diarized",
+  "dateContext": "2026-08-17",
+  "stubModelId": "eu.anthropic.claude-sonnet-4-6-v1:0",
+  "pages": [
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU."
+    },
+    {
+      "slug": "concepts/weekly-sync",
+      "type": "concept",
+      "title": "Weekly sync",
+      "body": "The recurring Monday call covering account health."
+    }
+  ],
+  "transcript": "[2026-08-17 14:00] Speaker A: I'm taking over the Northwind account from next month.\n[2026-08-17 14:01] Speaker B: I'll hand my Northwind notes over this week.\n[2026-08-17 14:03] Participant 2: I'd rather we keep the weekly sync as it is.\n",
+  "stubResponses": {
+    "0": "{\"facts\":[{\"fact\":\"The Northwind account changes hands next month.\",\"kind\":\"commitment\",\"entity\":\"Speaker A\",\"confidence\":0.9,\"notability\":\"high\"}]}",
+    "1": "{\"facts\":[{\"fact\":\"The Northwind account notes are being handed over this week.\",\"kind\":\"commitment\",\"entity\":\"Speaker B\",\"confidence\":0.85,\"notability\":\"medium\"}]}",
+    "2": "{\"facts\":[{\"fact\":\"The weekly sync should stay as it is.\",\"kind\":\"preference\",\"entity\":\"Participant 2\",\"confidence\":0.8,\"notability\":\"medium\"}]}"
+  },
+  "gold": [
+    {
+      "id": "g0",
+      "entity_slug": "companies/northwind",
+      "fact": "The Northwind account changes hands next month.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-17" }
+    },
+    {
+      "id": "g1",
+      "entity_slug": "companies/northwind",
+      "fact": "The Northwind account notes are being handed over this week.",
+      "kind": "commitment",
+      "notability": "medium",
+      "expect": { "valid_from": "2026-08-17" }
+    },
+    {
+      "id": "g2",
+      "entity_slug": "concepts/weekly-sync",
+      "fact": "The weekly sync should stay as it is.",
+      "kind": "preference",
+      "notability": "medium",
+      "expect": { "valid_from": "2026-08-17" }
+    }
+  ],
+  "reject": []
+}

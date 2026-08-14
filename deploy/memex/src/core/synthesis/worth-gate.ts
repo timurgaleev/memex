@@ -60,10 +60,20 @@ function excerptForJudge(content: string): string {
 
 /** Parse the judge JSON. Null on failure (caller treats as fail-open keep). */
 export function parseWorthVerdict(raw: string): WorthVerdict | null {
-  const m = /\{[\s\S]*\}/.exec(raw ?? "");
-  if (!m) return null;
+  // First `{` to last `}` by index, not by regex. `/\{[\s\S]*\}/` means exactly
+  // that — leftmost `{`, then greedy to the last `}` — but it pays for it: when
+  // there is no closing brace the body walks to the end of the judge's answer
+  // from every `{`, and the answer is model output we do not write. Measured
+  // through parseWorthVerdict on "{"*n: 2 K = 1.5 ms, 4 K = 5.8 ms,
+  // 8 K = 26.4 ms, 16 K = 92.8 ms — ratio ~4.0 per doubling. The index form is
+  // one forward scan and one backward scan, and `parseAtomsResponse` already
+  // uses this idiom for the array case.
+  const text = raw ?? "";
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
   try {
-    const parsed = JSON.parse(m[0]) as Record<string, unknown>;
+    const parsed = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
     if (typeof parsed.worth_processing !== "boolean") return null;
     const reasons = Array.isArray(parsed.reasons)
       ? parsed.reasons.filter((r): r is string => typeof r === "string").slice(0, 4)

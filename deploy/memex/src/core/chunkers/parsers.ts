@@ -325,6 +325,10 @@ export const GRAMMAR_PROBES: Readonly<
       "#!/bin/sh\n" +
       "greet() { echo hi; }\n" +
       "case $1 in\n  a) echo a;;\n  *) echo b;;\nesac\n" +
+      // Shell parameter expansion inside a bash fixture, not a JS template
+      // literal that lost its backticks. It is here precisely to prove the
+      // bash grammar parses it.
+      // eslint-disable-next-line no-template-curly-in-string
       'echo "${arr[@]:1:2}"\n' +
       "printf $'\\x41'\n",
     root: "program",

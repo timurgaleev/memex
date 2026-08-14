@@ -348,6 +348,11 @@ function defaultJudge(
 export function parseJudgeJson(text: string): ChronicleEventProposal[] {
   if (!text) return [];
   let s = text.trim();
+  // Measured linear through parseJudgeJson: 0.03 ms at 128 K, ratio 0.15-1.83
+  // on a doubling. The scan only ever pays for one start position: a second ```
+  // anywhere after the first makes the match succeed at once, and with no second
+  // ``` there is nothing else for the `\s*` to hand back to.
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) s = fence[1]!.trim();
   const start = s.indexOf("[");

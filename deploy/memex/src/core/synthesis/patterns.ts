@@ -153,8 +153,16 @@ ${corpus}`;
 function parsePatterns(text: string, validSlugs: Set<string>, minEvidence: number): PatternDraft[] {
   let arr: unknown;
   try {
-    const m = text.match(/\[[\s\S]*\]/);
-    arr = JSON.parse(m ? m[0] : text);
+    // First `[` through last `]` — the same slice `/\[[\s\S]*\]/` produced, by
+    // the first-`{`/last-`}` recovery this codebase already uses on model
+    // replies (parseRelationalLlmResponse, mirroring think.ts). The regex form
+    // squared: with no `]` in the reply every `[` started a scan that ran to
+    // end-of-input, measured at 904 ms for 50 K chars, 3.6 s at 100 K, 14 s at
+    // 200 K, 59 s at 400 K — ratio 4.0 on a doubling. Two index lookups are one
+    // pass each and pick the identical span.
+    const open = text.indexOf("[");
+    const close = text.lastIndexOf("]");
+    arr = JSON.parse(open !== -1 && close > open ? text.slice(open, close + 1) : text);
   } catch {
     return [];
   }

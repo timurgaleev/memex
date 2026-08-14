@@ -98,7 +98,17 @@ export function slugifyTarget(name: string): string {
     // Collapse repeated hyphens / slashes that resulted from the strip.
     .replace(/-+/g, "-")
     .replace(/\/+/g, "/")
-    .replace(/^[-/]+|[-/]+$/g, "")
+    // The `(?<![-/])` guard is what keeps the trailing trim linear. The two
+    // collapses above only kill `--` and `//`; an alternating `-/-/-/…` run
+    // survives them, and `.slice(0, MAX_SLUG_LEN)` lands after this line, so
+    // nothing caps what the trim sees. Unguarded, `[-/]+$` restarts inside the
+    // run at every offset and walks to the end each time: measured on
+    // slugifyTarget with `a` + `-/`*n + `b`, 300 ms at 25 K chars, 20 s at
+    // 200 K, ratio 4.0 on a doubling. The guard admits only the first char of
+    // each run, so the total walk is the sum of the run lengths — 55 ms at
+    // 2 M chars, ratio 2.0. Same language: a greedy `[-/]+$` already only ever
+    // matched the maximal trailing run, verified over 400 K random strings.
+    .replace(/^[-/]+|(?<![-/])[-/]+$/g, "")
     .slice(0, MAX_SLUG_LEN);
   if (normalised.length > 0) return normalised;
   // The ASCII fold stripped everything — an all-non-Latin name (Cyrillic,
@@ -113,7 +123,11 @@ export function slugifyTarget(name: string): string {
     .replace(/[^\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}/-]/gu, "")
     .replace(/-+/g, "-")
     .replace(/\/+/g, "/")
-    .replace(/^[-/]+|[-/]+$/g, "")
+    // Same trailing-trim guard as the ASCII path above, and reachable by the
+    // same input: `-/-/…` folds to empty on the ASCII pass, which is exactly
+    // what routes it here. Measured 265 ms at 25 K chars unguarded (ratio 4.0),
+    // linear guarded.
+    .replace(/^[-/]+|(?<![-/])[-/]+$/g, "")
     .slice(0, MAX_SLUG_LEN)
     // The UTF-16 slice can cut an astral-plane pair in half; a trailing lone
     // high surrogate would abort the Postgres TEXT write downstream.
@@ -639,7 +653,15 @@ const WIKILINK_RE = /(?<!\[)\[\[([^\]\n|]{1,256})(?:\|[^\]\n]{1,512})?\]\]/g;
 // check (below) is the gate. Captures the target path; an optional `../` prefix
 // and `.md` suffix are peeled in the scanner so filesystem-style and engine-slug
 // forms both land on the same slug.
-const MARKDOWN_LINK_RE = /\[[^\]\n]+\]\(([^)\s]+)\)/g;
+//
+// The display-text run is bounded for the same reason WIKILINK_RE's alias is,
+// and to the same 512: unbounded, every `[` in a `[[[[…` body starts a candidate
+// whose text run walks to the end of the (1 MB-capped) scan looking for a `]`
+// that is not there. Measured through extractMarkdownLinks on `[`*n: 428 ms at
+// 31 K, 25 s at 250 K, ratio 3.9 on a doubling. Bounded, 894 ms at 2 M with
+// ratio 2.0. The cost is the forward scan, so only a bound fixes it — a
+// possessive/atomic run was measured still quadratic on the sibling site.
+const MARKDOWN_LINK_RE = /\[[^\]\n]{1,512}\]\(([^)\s]+)\)/g;
 
 /** Upper bound on the body scanned by the deterministic extractors (parity with
  *  the gazetteer's cap) — a pathological page can't turn the O(n) scan wasteful. */
@@ -703,6 +725,11 @@ export function extractWikilinks(body: string): string[] {
     match !== null;
     match = WIKILINK_RE.exec(scannable)
   ) {
+    // Measured linear through extractWikilinks: 100 ms at 8.2 MB of
+    // `[[` + `#`*255 + `]]`, ratio 1.8 on a doubling. WIKILINK_RE's group 1 is
+    // `[^\]\n|]{1,256}`, so this never sees more than 256 chars and never sees
+    // the newline that `.` would have to stop at for `$` to fail.
+    // eslint-disable-next-line regexp/no-super-linear-move
     const raw = match[1]?.replace(/#.*$/, "").trim();
     if (raw && raw.length > 0) seen.add(raw);
   }
@@ -732,6 +759,12 @@ export function extractMarkdownLinks(body: string): string[] {
     if (!captured || captured.includes("://")) continue;
     const target = captured
       .replace(/^(?:\.\.\/)+/, "")
+      // Measured linear through extractMarkdownLinks: 5.2 ms at a 500 K-char
+      // `#` target, ratio 2.0 on a doubling. MARKDOWN_LINK_RE's group 1 is
+      // `[^)\s]+`, which excludes every whitespace char — with no newline in
+      // the string `.*` always reaches the end and `$` succeeds at the first
+      // `#`, so there is no failing suffix to backtrack over.
+      // eslint-disable-next-line regexp/no-super-linear-move
       .replace(/#.*$/, "")
       .replace(/\.md$/, "")
       .trim();

@@ -404,6 +404,14 @@ export interface DispatchOptions {
    *  read (to `allowedSources`/`sourceId`) and stamps every write
    *  (`sourceId`). Absent → unscoped (local/internal whole-brain access). */
   authInfo?: AuthInfo;
+  /**
+   * Query-embedder injection for the two search-backed tools (`search`,
+   * `query`), forwarded verbatim to `SearchOptions.embedQuery`
+   * (`core/search/hybrid.ts:236`). Set ONLY by hermetic benches, so the vector
+   * arm runs on deterministic vectors instead of Bedrock. Production never
+   * passes this — no transport reads it.
+   */
+  embedQuery?: SearchOptions["embedQuery"];
 }
 
 /**
@@ -540,7 +548,14 @@ async function dispatchToolInner(
     }
     switch (req.name) {
       case "search":
-        return await callSearch(storage, args, redact, readSources, isOperator);
+        return await callSearch(
+          storage,
+          args,
+          redact,
+          readSources,
+          isOperator,
+          opts.embedQuery,
+        );
       case "index":
         return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
       case "backlinks":
@@ -660,7 +675,7 @@ async function dispatchToolInner(
       case "purge_deleted_pages":
         return await callPurgeDeletedPages(storage, args, writeSource);
       case "query":
-        return await callQuery(storage, args, readSources, isOperator);
+        return await callQuery(storage, args, readSources, isOperator, opts.embedQuery);
       case "code_callers":
         return await callCodeCallers(storage, args, readSources);
       case "code_callees":
@@ -802,6 +817,7 @@ async function callSearch(
   redact = false,
   readSources?: string[],
   isOperator = false,
+  embedQuery?: SearchOptions["embedQuery"],
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -894,6 +910,7 @@ async function callSearch(
   // Per-signal ranking attribution (search --explain). Validated as a
   // boolean by the op contract; only an explicit true opts in.
   if (args["explain"] === true) searchOpts.explain = true;
+  if (embedQuery) searchOpts.embedQuery = embedQuery;
   const hitsAll = await hybridSearch(storage, q, searchOpts);
   const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Diary fence: a non-operator caller (public bearer OR OAuth tenant, even one
@@ -2733,6 +2750,7 @@ async function callQuery(
   args: Record<string, unknown>,
   readSources?: string[],
   isOperator = false,
+  embedQuery?: SearchOptions["embedQuery"],
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -2800,6 +2818,7 @@ async function callQuery(
   if (args["adaptive_return"] === true) searchOpts.adaptiveReturn = true;
   if (args["explain"] === true) searchOpts.explain = true;
   applyPerCallMode(searchOpts, args["mode"], isOperator);
+  if (embedQuery) searchOpts.embedQuery = embedQuery;
   const hitsAll = await hybridSearch(storage, q, searchOpts);
   const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Diary fence for the non-operator caller (mirrors callSearch).

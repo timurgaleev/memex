@@ -1,0 +1,76 @@
+{
+  "name": "plain-transcript",
+  "description": "The happy path: three named speakers, four labelled assertions, three ledger rows. One claim is made twice, so the run's own factsWritten counter under-reports what the ledger correctly holds.",
+  "note": "This fixture exists to make the counters ungradeable. The restatement collapse (facts.ts:456) refreshes the row already on file and increments NEITHER factsWritten NOR factsSkipped, so factsWritten (3) is less than the number of labelled assertions (4) while fidelityRecall is 1. A bench that graded report.factsWritten would read that as a 25% loss; the ledger has lost nothing. Both turns restate the claim on the same day with the same confidence, so nothing the refresh writes back can move — the distortion case belongs to distortion-traps.",
+  "sourceSlug": "conversations/2026-08-14-planning",
+  "dateContext": "2026-08-14",
+  "stubModelId": "eu.anthropic.claude-sonnet-4-6-v1:0",
+  "pages": [
+    {
+      "slug": "people/dana-reed",
+      "type": "person",
+      "title": "Dana Reed (advisor)",
+      "body": "Dana Reed advises on pricing and packaging.",
+      "aliases": ["Dana"]
+    },
+    {
+      "slug": "people/priya-shah",
+      "type": "person",
+      "title": "Priya Shah",
+      "body": "Priya Shah owns the revenue forecast."
+    },
+    {
+      "slug": "companies/northwind",
+      "type": "company",
+      "title": "Northwind Traders",
+      "body": "Northwind Traders is the reseller covering the EU."
+    }
+  ],
+  "transcript": "[2026-08-14 09:02] Dana Reed: I'm moving the Northwind renewal to October.\n[2026-08-14 09:04] Priya Shah: got it, I'll redo the forecast against the October date.\n[2026-08-14 09:07] Dana Reed: to be clear, October, not September.\n",
+  "stubResponses": {
+    "0": "{\"facts\":[{\"fact\":\"Dana Reed moved the Northwind renewal to October.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.9,\"notability\":\"high\"},{\"fact\":\"The Northwind renewal is scheduled for October.\",\"kind\":\"event\",\"entity\":\"Northwind Traders\",\"confidence\":0.85,\"notability\":\"high\"}]}",
+    "1": "{\"facts\":[{\"fact\":\"Priya Shah will redo the revenue forecast against the October renewal date.\",\"kind\":\"commitment\",\"entity\":\"Priya Shah\",\"confidence\":0.8,\"notability\":\"medium\"}]}",
+    "2": "{\"facts\":[{\"fact\":\"Dana Reed moved the Northwind renewal to October.\",\"kind\":\"commitment\",\"entity\":\"Dana Reed\",\"confidence\":0.9,\"notability\":\"high\"}]}"
+  },
+  "gold": [
+    {
+      "id": "g0",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed moved the Northwind renewal to October.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": {
+        "valid_from": "2026-08-14",
+        "confidence": 0.9,
+        "source_slug": "conversations/2026-08-14-planning",
+        "written_by": "facts-extract",
+        "visibility": "private"
+      }
+    },
+    {
+      "id": "g1",
+      "entity_slug": "companies/northwind",
+      "fact": "The Northwind renewal is scheduled for October.",
+      "kind": "event",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-14", "confidence": 0.85 }
+    },
+    {
+      "id": "g2",
+      "entity_slug": "people/priya-shah",
+      "fact": "Priya Shah will redo the revenue forecast against the October renewal date.",
+      "kind": "commitment",
+      "notability": "medium",
+      "expect": { "valid_from": "2026-08-14", "confidence": 0.8 }
+    },
+    {
+      "id": "g3",
+      "entity_slug": "people/dana-reed",
+      "fact": "Dana Reed moved the Northwind renewal to October.",
+      "kind": "commitment",
+      "notability": "high",
+      "expect": { "valid_from": "2026-08-14", "confidence": 0.9 }
+    }
+  ],
+  "reject": []
+}

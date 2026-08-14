@@ -134,12 +134,37 @@ function assertKnown(types: string[]): string[] {
   return types;
 }
 
+/**
+ * On the cost of the patterns below, and why they are left as they are.
+ *
+ * Every `\s+` next to a SEED can trade characters with it — `.` accepts a
+ * space — so inside one call these do backtrack super-linearly. What they
+ * cannot do is grow: the only caller, {@link parseRelationalQuery}, rejects a
+ * query over 512 chars before any pattern runs, and SEED caps a capture at 80.
+ *
+ * Measured through parseRelationalQuery over 31 attack shapes, worst first:
+ * `who at ` + a 505-char whitespace run = 29.3 ms; `how are a and ` + run =
+ * 16.5 ms; `what connects ` + run = 8.6 ms; `where does ` + run = 7.0 ms. From
+ * 64 to 512 chars that worst shape grows 9.5x, 6.3x, 5.0x per doubling. The
+ * 29 ms is a ceiling and not a sample: the same input at 1 K, 4 K, 16 K and
+ * 64 K chars returns null in 0.000 ms, because the length gate fires first.
+ *
+ * So the bound is already in place, one frame up, and a 512-char query is the
+ * most expensive one that exists. Narrowing the whitespace classes to remove
+ * the backtracking would change which phrasings parse into a seed, on an arm
+ * whose whole job is deciding that — not a trade worth 29 ms. This is also a
+ * standalone MCP read tool, wired off the hybridSearch hot path (see the
+ * module header), so the cost is paid once per explicit `relational_recall`
+ * call, not once per search.
+ */
 function buildPatterns(): CompiledPattern[] {
   const patterns: CompiledPattern[] = [];
 
   // connects — two seeds, type-agnostic. Most specific, checked first.
   patterns.push({
     re: new RegExp(
+      // Bounded by the 512-char gate in parseRelationalQuery — 8.6 ms worst.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       `\\b(?:what|which)\\s+(?:companies?|people|things|entities|deals?)?\\s*(?:connects?|links?|ties? together|is (?:the )?(?:connection|link|relationship) between)\\s+${SEED}\\s+(?:and|&)\\s+${SEED}\\s*\\??$`,
       "i",
     ),
@@ -147,6 +172,8 @@ function buildPatterns(): CompiledPattern[] {
   });
   patterns.push({
     re: new RegExp(
+      // Bounded by the 512-char gate in parseRelationalQuery — 16.5 ms worst.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       `\\bhow\\s+(?:are|is|do|does)\\s+${SEED}\\s+(?:and|&)\\s+${SEED}\\s+(?:connected|related|linked|associated)\\b`,
       "i",
     ),
@@ -156,6 +183,8 @@ function buildPatterns(): CompiledPattern[] {
   // intro — type-agnostic walk around the named person (no `introduced` edge).
   patterns.push({
     re: new RegExp(
+      // Bounded by the 512-char gate in parseRelationalQuery — 0.001 ms worst.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       `\\bwho\\s+(?:introduced|connected|referred)\\s+(?:me|us|him|her|them)\\s+to\\s+${SEED}\\s*\\??$`,
       "i",
     ),
@@ -165,6 +194,9 @@ function buildPatterns(): CompiledPattern[] {
   // who_at — entity in the middle: "who at acme works on payments".
   patterns.push({
     re: new RegExp(
+      // Bounded by the 512-char gate in parseRelationalQuery — 29.3 ms, the
+      // worst of the 31 shapes measured, and the ceiling for the whole file.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       `\\bwho\\s+(?:at|from|in)\\s+${SEED}\\s+(?:works? on|works?|leads?|runs?|builds?|owns?|handles?|manages?)\\b`,
       "i",
     ),
@@ -182,12 +214,16 @@ function buildPatterns(): CompiledPattern[] {
   // outgoing variants — "what did <seed> invest in", "where does <seed> work".
   patterns.push({
     re: new RegExp(
+      // Bounded by the 512-char gate in parseRelationalQuery — 6.7 ms worst.
+      // eslint-disable-next-line regexp/no-super-linear-backtracking
       `\\bwhat\\s+(?:companies?|startups?|deals?)?\\s*(?:has|have|did|does)?\\s*${SEED}\\s+invest(?:ed)? in\\b`,
       "i",
     ),
     kind: "who_rel", linkTypes: assertKnown(["invested_in"]), direction: "outbound", seedGroups: 1,
   });
   patterns.push({
+    // Bounded by the 512-char gate in parseRelationalQuery — 7.0 ms worst.
+    // eslint-disable-next-line regexp/no-super-linear-backtracking
     re: new RegExp(`\\bwhere\\s+(?:does|did|has)\\s+${SEED}\\s+work\\b`, "i"),
     kind: "who_rel", linkTypes: assertKnown(["works_at"]), direction: "outbound", seedGroups: 1,
   });
@@ -203,6 +239,10 @@ const PATTERNS = buildPatterns();
 function cleanSeed(raw: string): string {
   return raw
     .trim()
+    // Measured linear through parseRelationalQuery: 0.001 ms at the 512-char
+    // cap, ratio 1.7 on a doubling to it. `raw` is a SEED capture, and SEED is
+    // `(.{1,80}?)` — the `?` run this walks can never exceed 80 characters.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/\?+$/, "")
     .replace(/^["'`]|["'`]$/g, "")
     .replace(/^(?:the|a|an)\s+/i, "")

@@ -41,6 +41,15 @@ export function sanitizeQueryForPrompt(query: string): string {
   if (q.length > MAX_QUERY_CHARS) q = q.slice(0, MAX_QUERY_CHARS);
   q = q.replace(/```[\s\S]*?```/g, " ");
   q = q.replace(/<\/?[a-z][^>]*>/gi, " ");
+  // Measured linear through sanitizeQueryForPrompt: 0.1 ms at 400 K chars
+  // ("ignore" + " "*n + "x"), 1.1 ms at 400 K for n/9 repeated "ignore : "
+  // preambles, ratio 2.05 on a doubling. Two things cap it. The `q.slice` three
+  // lines up means this pattern never sees more than MAX_QUERY_CHARS (500), and
+  // the `^` with no `m` flag leaves exactly one start position. The remaining
+  // ratio is the uncapped `\s+` collapse below, not this line. The exponential
+  // the rule projects also needs a rejecting suffix, and there is nothing after
+  // the group to reject: once one iteration matches, the match succeeds.
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
   q = q.replace(/^(\s*(ignore|forget|disregard|override|system|assistant|human)[\s:]+)+/gi, "");
   q = q.replace(/\s+/g, " ").trim();
   if (q !== query.replace(/\s+/g, " ").trim()) {

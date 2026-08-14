@@ -157,7 +157,14 @@ function estimateUsage(system: string, user: string, maxTokens: number): SonnetU
  */
 export function parseRelationalLlmResponse(raw: string): RelationalQuery | null {
   let text = raw.trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // No `\s*` after the info tag: it overlapped the lazy body, and every split
+  // of a whitespace run between the two re-walked the body to end-of-input.
+  // The `raw.trim()` above does not save it — a run only has to end in one
+  // non-space character to survive. Measured through this function on
+  // `"```" + " ".repeat(n) + "x"`: 671 ms at 50 K, 2.7 s at 100 K, 10 s at
+  // 200 K, 41 s at 400 K — ratio 4.0 on a doubling. Dropping it is inert: the
+  // next line trims the captured group, so the whitespace went either way.
+  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) text = fence[1].trim();
   const start = text.indexOf("{");
   if (start === -1) return null;

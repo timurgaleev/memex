@@ -175,14 +175,36 @@ function parseFloatCell(raw: string): number | undefined {
 
 function parseStringCell(raw: string): string | undefined {
   const trimmed = raw.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed || undefined;
 }
 
 function parseSinceCell(raw: string): { since?: string; until?: string } {
   const trimmed = raw.trim();
   if (!trimmed) return {};
   // Range syntax: `2022-01 → 2026-06` or `2022-01 -> 2026-06`.
-  const rangeMatch = trimmed.match(/^(.+?)\s*(?:→|->)\s*(.+)$/);
+  //
+  // No `\s*` around the arrow. It used to be there, and it squared the scan:
+  // `.` already accepts whitespace, so for every length of the lazy left side
+  // the `\s*` re-walked the same whitespace run looking for an arrow that is
+  // not there. Measured through parseTakesFence on a since cell of
+  // `a` + spaces + `b`: 7.9 ms at 4 K, 32.0 ms at 8 K, 129.9 ms at 16 K,
+  // 520.6 ms at 32 K — ratio 4.0 per doubling, ~9 minutes extrapolated to a
+  // 1 MB page. A page body is user-written and nothing caps it on this path.
+  //
+  // Dropping it does not change what this accepts: `\s*` is subsumed by the
+  // `.+?`/`.+` on either side, so the language is identical, and the only
+  // observable difference — whitespace inside the two capture groups — is
+  // undone by the `.trim()` two lines down. Verified over 81 curated cells
+  // plus 400 K fuzzed ones: no output differs. Now linear, ratio 2.0.
+  //
+  // The two sides still share the arrow character, which the rule still flags.
+  // That one is measured linear through parseTakesFence too: 0.31 ms on a
+  // 256 K cell of arrows, ratio 1.9 on a doubling (0.25 ms for `a` + arrows,
+  // 0.24 ms for a `-` run, 0.13 ms for `->` pairs). The right side can only
+  // come up empty at the very last position, so at most ONE arrow in a cell
+  // ever fails and hands the scan back — there is no repeatable rejection.
+  // eslint-disable-next-line regexp/no-super-linear-backtracking
+  const rangeMatch = trimmed.match(/^(.+?)(?:→|->)(.+)$/);
   if (rangeMatch && rangeMatch[1] !== undefined && rangeMatch[2] !== undefined) {
     return { since: rangeMatch[1].trim(), until: rangeMatch[2].trim() };
   }

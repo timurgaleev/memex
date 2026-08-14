@@ -137,7 +137,24 @@ export const BUILT_IN_JUNK_PATTERNS: ReadonlyArray<JunkPattern> = Object.freeze(
   // Generic 403 / blocked-access pages.
   {
     name: "access_denied",
-    pattern: /^\s*access denied\b/im,
+    // The leading run is horizontal whitespace only — `\s*` here was
+    // quadratic. `^` re-anchors after every line terminator under /m, and `\s`
+    // matches line terminators too, so on a run of newlines each of the n line
+    // starts walked the remaining n characters before failing on the literal.
+    // The body side is capped at SCAN_HEAD_BYTES and stayed flat at 1.6 ms, but
+    // the TITLE is scanned whole: measured through `assessContentSanity` at
+    // 151 ms for a 20 K title, 608 ms at 40 K, 2.4 s at 80 K and 9.7 s at
+    // 160 K — ratio 4.00 per doubling. A title is the page's H1, so that input
+    // is a page someone writes.
+    //
+    // Narrowing the class cannot change what we accept: whenever the old run
+    // crossed a line terminator, the position it landed on was itself a line
+    // start, where `^` matches directly with an empty run. The class is `\s`
+    // minus the four JS line terminators, so exotic indentation (NBSP, the
+    // U+2000 block, ideographic space, BOM) still matches. Verified over a
+    // 797-input corpus covering all 25 whitespace characters pairwise, plus
+    // 200 K random strings: zero differences.
+    pattern: /^[\t\v\f \xA0\u1680\u2000-\u200A\u202F\u205F\u3000\uFEFF]*access denied\b/im,
     applies_to: "both",
   },
   // CAPTCHA gates.

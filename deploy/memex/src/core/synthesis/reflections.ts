@@ -76,6 +76,20 @@ interface ReflectionDraft {
 
 const SLUG_SEG = /^[a-z0-9][a-z0-9-]*$/;
 
+/** Output cap for the reflections call — also the bound on the JSON-array scan
+ *  below (see REFLECTIONS_ARRAY). */
+const REFLECTIONS_MAX_TOKENS = 1500;
+
+/**
+ * The JSON array the model was asked for, salvaged out of any wrapping prose.
+ * The span is bounded by the phase's own output cap (REFLECTIONS_MAX_TOKENS at
+ * the 4-chars-per-token estimate this codebase uses), so a reply that fits the
+ * cap parses exactly as before. Unbounded, `/\[[\s\S]*\]/` re-scanned to the
+ * end of the string from every `[`: a 16 K run of `[` measured 97 ms through
+ * reflectionsPhase, ratio 3.76-4.25 on a doubling (quadratic).
+ */
+const REFLECTIONS_ARRAY = new RegExp(`\\[[\\s\\S]{0,${REFLECTIONS_MAX_TOKENS * 4}}\\]`);
+
 function reflectionsEnabled(): boolean {
   const v = (process.env.MEMEX_REFLECTIONS ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
@@ -167,7 +181,7 @@ ${corpus}`;
 function parseReflections(text: string, validSlugs: Set<string>): ReflectionDraft[] {
   let arr: unknown;
   try {
-    const m = text.match(/\[[\s\S]*\]/);
+    const m = text.match(REFLECTIONS_ARRAY);
     arr = JSON.parse(m ? m[0] : text);
   } catch {
     return [];
@@ -248,7 +262,7 @@ export async function reflectionsPhase(
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "reflections");
   const model = resolveFactsModel(opts.modelId);
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: model });
-  const maxTokens = 1500;
+  const maxTokens = REFLECTIONS_MAX_TOKENS;
 
   const prompt = buildPrompt(transcripts);
   // Budget preflight — skip the call entirely when the cap leaves no room.

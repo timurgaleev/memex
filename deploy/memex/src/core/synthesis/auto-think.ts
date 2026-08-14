@@ -106,8 +106,15 @@ function questionSlug(question: string): string {
   const seg = question
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
+    // Measured linear through questionSlug: 1.9 ms at 2 M chars of `-` plus a
+    // rejecting `x`, ratio 1.97 on a doubling. `-` is itself in `[^a-z0-9]`, so
+    // the collapse on the line above leaves every hyphen run exactly one char
+    // long — the run this quantifier needs to square on cannot reach it.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
+    // Same collapse, and this one only ever sees the 60-char slice above it.
+    // eslint-disable-next-line regexp/no-super-linear-move
     .replace(/-+$/g, "");
   if (SLUG_SEG.test(seg)) return seg;
   // Fallback: hash-ish digest when the question has no usable ascii-alnum.
