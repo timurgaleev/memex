@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
-import { indexFile } from "./indexer.ts";
+import { indexFile, normalizeSourcePath } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { reconcileDeletedDocuments } from "./reconcile-deletes.ts";
@@ -128,8 +128,10 @@ export async function sweepVault(
 
   // Targeted re-chunk: the ids whose chunks predate the current chunker
   // version. A walked file in this set is re-indexed regardless of mtime.
+  // Markdown-only: this walk sees `.md` files, so a stale CODE doc could never
+  // be reached here and would land in `staleChunkerUnreached` as a phantom.
   const staleChunkerIds = opts.forceStaleChunker
-    ? await listStaleChunkerDocIds(storage.raw())
+    ? await listStaleChunkerDocIds(storage.raw(), "markdown")
     : null;
   const seenStaleIds = staleChunkerIds ? new Set<string>() : null;
 
@@ -142,7 +144,11 @@ export async function sweepVault(
     ignore,
   })) {
     result.scanned++;
-    const id = docId(file.path);
+    // Must match the id indexFile will WRITE, not the shape the walker yields.
+    // With a relative --vault root the two diverge, and the mtime skip then
+    // misses on every file: no corruption, but every sweep re-embeds the whole
+    // vault and the skip silently stops being a skip.
+    const id = docId(normalizeSourcePath(file.path));
     const lastIndexed = known.get(id) ?? null;
     const forcedByChunker = staleChunkerIds?.has(id) ?? false;
     if (forcedByChunker) seenStaleIds!.add(id);
@@ -189,7 +195,15 @@ export async function sweepVault(
   // and would survive anyway, but skipping keeps the "partial ⇒ no reconcile"
   // rule explicit and single-sourced).
   if (opts.reconcileDeletes && !budgetBroke) {
-    const rec = await reconcileDeletedDocuments(storage.raw(), opts.vault);
+    // The root must be canonicalized the same way the rows were: documents now
+    // store an absolute source_path, and reconcile decides membership with a
+    // prefix test. Handing it the raw `notes` while the rows say
+    // `/cwd/notes/a.md` matches nothing, so a deleted file would never be
+    // soft-deleted and its chunks would keep answering searches.
+    const rec = await reconcileDeletedDocuments(
+      storage.raw(),
+      normalizeSourcePath(opts.vault),
+    );
     result.reconciled = rec.reconciled;
     result.reconciledPaths = rec.reconciledPaths;
   }

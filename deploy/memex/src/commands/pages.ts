@@ -6,6 +6,7 @@
  * onboarding and as a sanity check after big imports.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface PagesOptions {
@@ -22,8 +23,7 @@ export async function runPages(opts: PagesOptions = {}): Promise<void> {
   }
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const where = opts.filter
       ? "WHERE e.type = 'wikilink' AND e.name ILIKE $2"
       : "WHERE e.type = 'wikilink'";
@@ -61,7 +61,5 @@ export async function runPages(opts: PagesOptions = {}): Promise<void> {
         2,
       ),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

@@ -6,6 +6,7 @@
  * to actually DELETE.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface EvalPruneCmdOptions {
@@ -25,8 +26,7 @@ export async function runEvalPrune(
 
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     const params: unknown[] = [String(keepDays)];
     let where = `captured_at < NOW() - ($1 || ' days')::interval`;
@@ -59,7 +59,5 @@ export async function runEvalPrune(
         2,
       ),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

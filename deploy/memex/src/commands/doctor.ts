@@ -14,6 +14,7 @@
 import { existsSync, statSync } from "node:fs";
 import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.ts";
 import { Storage } from "../core/storage.ts";
+import { closeQuietly } from "./with-storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import type { DatabaseConfig } from "../core/config.ts";
 import {
@@ -459,13 +460,47 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   // wins over `--remediation-plan` when both are given.
   const argv = opts.argv ?? process.argv.slice(2);
   if (argv.includes("--remediation-plan") || argv.includes("--remediate")) {
-    await emitRemediation(storage, checks, argv);
-    if (storage) await storage.close();
+    let remediationFailed = false;
+    try {
+      await emitRemediation(storage, checks, argv);
+    } catch (e) {
+      remediationFailed = true;
+      throw e;
+    } finally {
+      // The finally is what stops a throwing remediation from stranding the
+      // engine and its data-directory lock. The split is the same rule the
+      // report path uses: quiet only when we are ALREADY failing, because
+      // there the close error is a second symptom that would bury the first.
+      // On a successful remediation a failed close is the only news there is,
+      // and swallowing it would exit 0 on a brain still holding its lock.
+      if (storage) {
+        if (remediationFailed) await closeQuietly(storage);
+        else await storage.close();
+      }
+    }
     return;
   }
 
+  // Teardown is REPORTED, not swallowed and not thrown. Throwing would kill
+  // the run before it prints the checks it already collected — and the storage
+  // reaching here may be one whose init() failed, which is the very case doctor
+  // exists to diagnose. But staying silent is the other failure: a close that
+  // leaves a PGLite directory lock held would otherwise be an `ok: true` run
+  // whose only trace is a stderr line nobody reads. So it becomes a check, and
+  // a failing check is what drives the exit code below.
   if (storage) {
-    await storage.close();
+    try {
+      await storage.close();
+    } catch (e) {
+      checks.push(
+        verdict(
+          "storage-teardown",
+          false,
+          `storage.close() failed: ${e instanceof Error ? e.message : String(e)}` +
+            ` — the engine may still hold its data-directory lock, which refuses the next open`,
+        ),
+      );
+    }
   }
 
   // `ok` (and therefore the exit code) is still driven by the binary field: a

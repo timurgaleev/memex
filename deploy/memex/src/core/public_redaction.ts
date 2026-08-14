@@ -22,6 +22,40 @@ export function publicReadBodiesAllowed(): boolean {
  *  exception message. */
 export const PUBLIC_ERROR_MESSAGE = "internal error";
 
+// Ceiling on the raw detail kept in the operator log line. A Postgres error
+// puts its diagnosis in the first sentence and can then append an entire
+// offending row in DETAIL/CONTEXT; the cap bounds how much note-derived data a
+// single failure drags into the log without costing the operator the signal.
+const MAX_LOGGED_DETAIL_CHARS = 500;
+
+/**
+ * Fold an error detail into something safe to write as ONE operator log line.
+ *
+ * The detail is a single `.message` the caller can influence, so a crafted
+ * error carrying CRLF would otherwise terminate the line and let the attacker
+ * forge a second, fully attacker-authored one. C0/C1 and the Unicode line
+ * separators collapse to spaces (not deleted — deleting would silently splice
+ * two unrelated tokens into one plausible-looking word).
+ *
+ * What is deliberately NOT stripped is the detail itself. A Postgres message
+ * can embed a column VALUE, i.e. user data — but this line is the operator's
+ * only diagnostic for a failure whose caller got nothing back but "internal
+ * error", and the same data is already readable by anyone with host access.
+ * That trade holds only while the logs stay on the box. Ship them to
+ * CloudWatch or any other aggregator and the value half stops being free:
+ * that change has to come with real value redaction here first.
+ */
+function logSafeDetail(detail: string): string {
+  // eslint-disable-next-line no-control-regex
+  const oneLine = detail.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, " ");
+  // Scrub any DSN / credential / IP before it reaches the operator log —
+  // a postgres-js connection error can carry the password-bearing DSN.
+  const scrubbed = redactConnectionInfo(oneLine);
+  return scrubbed.length > MAX_LOGGED_DETAIL_CHARS
+    ? `${scrubbed.slice(0, MAX_LOGGED_DETAIL_CHARS)}…[truncated]`
+    : scrubbed;
+}
+
 /**
  * Sanitize an error for a response that may cross the public boundary.
  * A raw exception message can leak Postgres schema/column names, the DSN
@@ -33,11 +67,9 @@ export const PUBLIC_ERROR_MESSAGE = "internal error";
 export function publicSafeErrorMessage(e: unknown, isPublic: boolean): string {
   const detail = e instanceof Error ? e.message : String(e);
   if (isPublic) {
-    // Scrub any DSN / credential / IP before it reaches the operator log —
-    // a postgres-js connection error can carry the password-bearing DSN.
     console.error(
       "[memex] suppressed error on public ingress:",
-      redactConnectionInfo(detail),
+      logSafeDetail(detail),
     );
     return PUBLIC_ERROR_MESSAGE;
   }

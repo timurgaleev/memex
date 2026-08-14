@@ -1009,6 +1009,12 @@ async function callIndex(
   const sourcePath = args["sourcePath"];
   const text = args["text"];
   if (typeof sourcePath === "string" && typeof text === "string") {
+    // The `path` form above goes through indexFile, which canonicalizes to an
+    // absolute source_path. This form deliberately does NOT: the caller's
+    // `sourcePath` is a label in THEIR namespace (a laptop's /vault path, a
+    // `page://` slug), and resolving a relative one against the daemon's cwd
+    // would mint a local path that no file ever occupied.
+    //
     // Trust boundary: the inline `sourcePath`+`text` form is the remote-reachable
     // ingest. Fail-closed — anything on the public path or carrying a scoped
     // write source is untrusted, so gate-owned frontmatter markers get stripped.

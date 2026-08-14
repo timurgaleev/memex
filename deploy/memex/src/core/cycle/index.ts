@@ -311,6 +311,12 @@ export function deriveStatus(
   if (phase === "orphans-purge") {
     const zero = (detail as OrphansPurgeResult | undefined)?.flagged
       ?.docs_with_zero_chunks;
+    // docs_with_relative_source_path is deliberately NOT part of the status.
+    // Path shape cannot tell a legacy file row from a supported one: the inline
+    // MCP write (`index` with sourcePath + text) keeps the caller's own label,
+    // which is correct and common — the live brain holds several. Escalating on
+    // shape alone would pin the cycle at warn forever on a healthy corpus,
+    // which is the same false-positive this phase was already fixed for once.
     return Array.isArray(zero) && zero.length > 0 ? "warn" : "ok";
   }
   if (

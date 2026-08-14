@@ -15,6 +15,7 @@
  * layer probes report ranks only; the hybrid layer carries the scores.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { keywordSearch } from "../core/search/keyword.ts";
@@ -102,10 +103,9 @@ export async function runSearchDiagnose(
     return 2;
   }
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  const engine = storage.engine();
-  const scope = opts.sourceId ? { sourceIds: [opts.sourceId] } : {};
-  try {
+  return withStorage(storage, async () => {
+    const engine = storage.engine();
+    const scope = opts.sourceId ? { sourceIds: [opts.sourceId] } : {};
     // Keyword arm.
     let keyword: LayerProbe;
     try {
@@ -232,9 +232,7 @@ export async function runSearchDiagnose(
     }
     console.log(`\n  VERDICT: ${verdict}`);
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }
 
 function msg(e: unknown): string {

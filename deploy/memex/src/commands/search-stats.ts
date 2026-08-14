@@ -9,6 +9,7 @@
  * (runtime_config, migration 088) with paste-ready reverts.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import {
@@ -34,8 +35,7 @@ export interface SearchStatsOptions {
 
 export async function runSearchStats(opts: SearchStatsOptions = {}): Promise<number> {
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const stats = await readSearchStats(storage.engine(), {
       ...(opts.days !== undefined ? { days: opts.days } : {}),
     });
@@ -56,9 +56,7 @@ export async function runSearchStats(opts: SearchStatsOptions = {}): Promise<num
     }
     printStatsText(stats);
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }
 
 function printStatsText(stats: StatsWindow): void {
@@ -223,8 +221,7 @@ export interface SearchTuneOptions {
 
 export async function runSearchTune(opts: SearchTuneOptions = {}): Promise<number> {
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     const mode = resolveSearchMode();
     const stats = await readSearchStats(engine, { days: 7 });
@@ -304,7 +301,5 @@ export async function runSearchTune(opts: SearchTuneOptions = {}): Promise<numbe
       console.log("Run `memex search tune --apply` to apply these changes.");
     }
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }

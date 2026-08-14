@@ -43,6 +43,13 @@ export async function countStaleChunkerDocs(engine: Engine): Promise<number> {
   return r.rows[0]?.n ?? 0;
 }
 
+/** Narrow the stale set to one chunker namespace — the same kind branch as
+ *  STALE_CHUNKER_WHERE, applied on top of it. */
+const KIND_WHERE = {
+  code: `COALESCE(d.frontmatter->>'kind','') = 'code'`,
+  markdown: `COALESCE(d.frontmatter->>'kind','') <> 'code'`,
+} as const;
+
 /**
  * The document ids of live chunker-stale documents. Used by `reindex
  * --rechunk-stale` to force-reindex ONLY these (re-chunk + re-embed just the
@@ -50,10 +57,18 @@ export async function countStaleChunkerDocs(engine: Engine): Promise<number> {
  * vault sweep can test membership per walked file. memex can't re-chunk from the
  * DB (documents store no full body — only `chunks.content`), so remediation
  * re-reads the source file; this targets the subset worth re-reading.
+ *
+ * `kind` is REQUIRED: every caller is a sweep that walks exactly one corpus, and
+ * an unnarrowed set hands it stale docs of the other kind — which that walk can
+ * never reach — to report as unreached orphans. The cross-kind total belongs to
+ * countStaleChunkerDocs, which is the doctor's metric, not a work list.
  */
-export async function listStaleChunkerDocIds(engine: Engine): Promise<Set<string>> {
+export async function listStaleChunkerDocIds(
+  engine: Engine,
+  kind: keyof typeof KIND_WHERE,
+): Promise<Set<string>> {
   const r = await engine.query<{ id: string }>(
-    `SELECT d.id FROM documents d WHERE ${STALE_CHUNKER_WHERE}`,
+    `SELECT d.id FROM documents d WHERE ${STALE_CHUNKER_WHERE} AND ${KIND_WHERE[kind]}`,
     [CODE_CHUNKER_VERSION, MARKDOWN_CHUNKER_VERSION],
   );
   return new Set(r.rows.map((row) => row.id));

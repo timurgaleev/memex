@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } fr
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig, defaultConfigPath } from "../core/config.ts";
 import {
   MODE_BUNDLES,
@@ -95,9 +96,8 @@ export async function runEvalRunAll(opts: EvalRunAllOptions = {}): Promise<numbe
   mkdirSync(dirname(out), { recursive: true });
 
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
   const records: EvalResultRecord[] = [];
-  try {
+  await withStorage(storage, async () => {
     for (const mode of modes) {
       const started = Date.now();
       const base: Omit<EvalResultRecord, "status" | "duration_ms"> = {
@@ -130,9 +130,7 @@ export async function runEvalRunAll(opts: EvalRunAllOptions = {}): Promise<numbe
         });
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 
   for (const r of records) appendFileSync(out, JSON.stringify(r) + "\n");
   console.log(
@@ -288,16 +286,11 @@ export async function runEvalGate(opts: EvalGateOptions = {}): Promise<number> {
   }
 
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  let report: EvalReport;
-  try {
-    report = await evalRun(storage, qrels, { name: "gate" }, {
+  const report = await withStorage(storage, async () =>
+    evalRun(storage, qrels, { name: "gate" }, {
       ...(opts.k !== undefined ? { k: opts.k } : {}),
       ...(opts.searchFn ? { searchFn: opts.searchFn } : {}),
-    });
-  } finally {
-    await storage.close();
-  }
+    }));
 
   const verdict = gateVerdict(report, baseline, maxDrop, minRecall);
   if (opts.writeBaseline && verdict.pass) {

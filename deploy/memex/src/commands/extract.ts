@@ -10,6 +10,7 @@
  * this real meaning.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { extractAll } from "../core/extract.ts";
 import { extractStaleLinks } from "../core/links-stale-sweep.ts";
 import { loadConfig } from "../core/config.ts";
@@ -28,8 +29,7 @@ export interface ExtractCmdOptions {
 export async function runExtract(opts: ExtractCmdOptions = {}): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     if (opts.stale) {
       await extractStaleLinks(storage, {
         dryRun: opts.dryRun,
@@ -61,7 +61,5 @@ export async function runExtract(opts: ExtractCmdOptions = {}): Promise<void> {
       ),
     );
     if (r.errors.length > 0) process.exitCode = 1;
-  } finally {
-    await storage.close();
-  }
+  });
 }

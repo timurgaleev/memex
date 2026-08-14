@@ -12,6 +12,7 @@
  * else 0) so the caller can `process.exit` on it — composes in scripts.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { dispatchTool } from "../mcp/dispatch.ts";
 
@@ -43,8 +44,7 @@ export async function runCall(opts: CallCmdOptions): Promise<number> {
 
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  try {
-    await storage.init();
+  return withStorage(storage, async () => {
     const result = await dispatchTool(
       storage,
       { name: opts.tool, arguments: args },
@@ -55,7 +55,5 @@ export async function runCall(opts: CallCmdOptions): Promise<number> {
       .join("\n");
     console.log(text);
     return result.isError ? 1 : 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }

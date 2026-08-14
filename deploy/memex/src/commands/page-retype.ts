@@ -7,6 +7,7 @@
  * hit rather than discovering it later.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { planRetype, applyRetype, type RetypeSelector } from "../core/page-retype.ts";
 
@@ -22,8 +23,7 @@ export interface PageRetypeCmdOptions {
 
 export async function runPageRetype(opts: PageRetypeCmdOptions): Promise<number> {
   const storage = new Storage(loadConfig());
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const sel: RetypeSelector = {};
     if (opts.from !== undefined) sel.from = opts.from;
     if (opts.slugs !== undefined) sel.slugs = opts.slugs;
@@ -57,7 +57,5 @@ export async function runPageRetype(opts: PageRetypeCmdOptions): Promise<number>
       JSON.stringify({ ok: true, dry_run: false, to: plan.to, updated: r.updated }, null, 2),
     );
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }

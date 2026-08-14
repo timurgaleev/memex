@@ -6,6 +6,7 @@
  * boot-time watcher.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { indexFile } from "../core/indexer.ts";
 import { indexCodeFile } from "../core/indexer-code.ts";
 import { languageForFile } from "../core/chunkers/parsers.ts";
@@ -21,8 +22,7 @@ export async function runIndex(opts: IndexCommandOptions): Promise<void> {
   }
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     // Auto-detect: a recognised source extension is parsed by the code
     // chunker; everything else is treated as markdown prose.
     const isCode = languageForFile(opts.path) !== null;
@@ -32,7 +32,5 @@ export async function runIndex(opts: IndexCommandOptions): Promise<void> {
     console.log(
       JSON.stringify({ ok: true, kind: isCode ? "code" : "doc", ...result }),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

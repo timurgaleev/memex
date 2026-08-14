@@ -11,6 +11,7 @@
  * --model/--with-calibration` map 1:1 onto ThinkOptions.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { runThink } from "../core/synthesis/think.ts";
 import {
@@ -46,8 +47,7 @@ export interface ThinkCliArgs {
 
 export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
   const storage = new Storage(loadConfig(args.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const report = await runThink(storage, {
       question: args.question,
       ...(args.k !== undefined ? { k: args.k } : {}),
@@ -130,7 +130,5 @@ export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
           : "take already existed",
       );
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

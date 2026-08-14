@@ -26,6 +26,7 @@
 
 import { createInterface } from "node:readline";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   volunteerContext,
@@ -80,82 +81,81 @@ export async function runWatch(
 
   const ownStorage = !deps.storage;
   const storage = deps.storage ?? new Storage(loadConfig());
-  if (ownStorage) await storage.init();
+  return withStorage(storage, async () => {
+    const sessionId = `watch-${process.pid}-${Date.now().toString(36)}`;
 
-  const sessionId = `watch-${process.pid}-${Date.now().toString(36)}`;
-
-  if (!deps.lines) {
-    // The ready line doubles as a machine-readable readiness signal.
-    process.stderr.write(
-      isTTY
-        ? `[watch] interactive session ${sessionId} ready - type turns ('assistant: ...' to set role), Ctrl-C to end\n`
-        : `[watch] session ${sessionId} ready\n`,
-    );
-  }
-
-  const rl = deps.lines
-    ? null
-    : createInterface({ input: process.stdin, crlfDelay: Infinity });
-  const lines: AsyncIterable<string> = deps.lines ?? (rl as AsyncIterable<string>);
-
-  // SIGINT closes the stream so the for-await ends and the normal
-  // drain-then-exit path runs (never a mid-write kill).
-  const onSigint = () => {
-    rl?.close();
-  };
-  process.on("SIGINT", onSigint);
-
-  const window: WindowTurn[] = [];
-  const pushedSlugs = new Set<string>(); // session dedupe
-  let turnNo = 0;
-
-  try {
-    for await (const rawLine of lines) {
-      const line = rawLine.replace(/\r$/, "");
-      if (!line.trim()) continue;
-      const m = TURN_PREFIX_RE.exec(line);
-      const turn: WindowTurn = m
-        ? { role: (m[1] ?? "user").toLowerCase() as WindowTurn["role"], text: (m[2] ?? "").trim() }
-        : { role: "user", text: line.trim() };
-      if (!turn.text) continue;
-      turnNo++;
-      window.push(turn);
-      if (window.length > windowTurns) {
-        window.splice(0, window.length - windowTurns);
-      }
-
-      let pages;
-      try {
-        pages = await volunteerContext(storage, {
-          window: [...window],
-          maxPages: opts.maxPages,
-          minConfidence: opts.minConfidence,
-          excludeSlugs: pushedSlugs,
-        });
-      } catch {
-        continue; // fail-open per turn: a transient DB error never kills the stream
-      }
-      if (!pages.length) continue;
-
-      for (const p of pages) pushedSlugs.add(p.slug);
-      logVolunteerEventsFireAndForget(
-        storage,
-        volunteerEventRowsFrom(pages, { channel: "watch", session_id: sessionId, turn: turnNo }),
+    if (!deps.lines) {
+      // The ready line doubles as a machine-readable readiness signal.
+      process.stderr.write(
+        isTTY
+          ? `[watch] interactive session ${sessionId} ready - type turns ('assistant: ...' to set role), Ctrl-C to end\n`
+          : `[watch] session ${sessionId} ready\n`,
       );
-
-      if (json) {
-        for (const p of pages) write(JSON.stringify({ turn: turnNo, ...p }) + "\n");
-      } else {
-        for (const p of pages) write(formatVolunteeredPage(p) + "\n");
-      }
     }
-  } finally {
-    process.off("SIGINT", onSigint);
-    rl?.close();
-    // Bank pending event writes before teardown (mirrors the op path).
-    await awaitPendingVolunteerEventWrites();
-    if (ownStorage) await storage.close();
-  }
+
+    const rl = deps.lines
+      ? null
+      : createInterface({ input: process.stdin, crlfDelay: Infinity });
+    const lines: AsyncIterable<string> = deps.lines ?? (rl as AsyncIterable<string>);
+
+    // SIGINT closes the stream so the for-await ends and the normal
+    // drain-then-exit path runs (never a mid-write kill).
+    const onSigint = () => {
+      rl?.close();
+    };
+    process.on("SIGINT", onSigint);
+
+    const window: WindowTurn[] = [];
+    const pushedSlugs = new Set<string>(); // session dedupe
+    let turnNo = 0;
+
+    try {
+      for await (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, "");
+        if (!line.trim()) continue;
+        const m = TURN_PREFIX_RE.exec(line);
+        const turn: WindowTurn = m
+          ? { role: (m[1] ?? "user").toLowerCase() as WindowTurn["role"], text: (m[2] ?? "").trim() }
+          : { role: "user", text: line.trim() };
+        if (!turn.text) continue;
+        turnNo++;
+        window.push(turn);
+        if (window.length > windowTurns) {
+          window.splice(0, window.length - windowTurns);
+        }
+
+        let pages;
+        try {
+          pages = await volunteerContext(storage, {
+            window: [...window],
+            maxPages: opts.maxPages,
+            minConfidence: opts.minConfidence,
+            excludeSlugs: pushedSlugs,
+          });
+        } catch {
+          continue; // fail-open per turn: a transient DB error never kills the stream
+        }
+        if (!pages.length) continue;
+
+        for (const p of pages) pushedSlugs.add(p.slug);
+        logVolunteerEventsFireAndForget(
+          storage,
+          volunteerEventRowsFrom(pages, { channel: "watch", session_id: sessionId, turn: turnNo }),
+        );
+
+        if (json) {
+          for (const p of pages) write(JSON.stringify({ turn: turnNo, ...p }) + "\n");
+        } else {
+          for (const p of pages) write(formatVolunteeredPage(p) + "\n");
+        }
+      }
+    } finally {
+      process.off("SIGINT", onSigint);
+      rl?.close();
+      // Bank pending event writes before teardown (mirrors the op path).
+      await awaitPendingVolunteerEventWrites();
+    }
+  }, { owned: ownStorage });
 }
 
 export const WATCH_HELP = `memex watch - push-based context: volunteer brain pages per conversation turn

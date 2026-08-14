@@ -26,6 +26,7 @@
  * detect a fully-broken Bedrock path while tolerating the occasional skip.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { runEmbedBackfill } from "../core/embed-backfill.ts";
 
@@ -61,9 +62,7 @@ export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
   }
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  // init() inside the try so a failed migration/connect still hits close().
-  try {
-    await storage.init();
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     const targeted = Boolean(opts.all || (opts.slugs && opts.slugs.length > 0));
     const result = await runEmbedBackfill(engine, {
@@ -82,7 +81,5 @@ export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
       return 1;
     }
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }

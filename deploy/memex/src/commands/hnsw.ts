@@ -6,6 +6,7 @@
  */
 import { loadConfig } from "../core/config.ts";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { checkInvalidIndexes } from "../core/doctor-ops.ts";
 import {
   EMBEDDINGS_HNSW_SPEC,
@@ -23,9 +24,8 @@ export async function runHnsw(
   opts: HnswOptions = {},
 ): Promise<void> {
   const storage = new Storage(loadConfig());
-  await storage.init();
-  const engine = storage.engine();
-  try {
+  return withStorage(storage, async () => {
+    const engine = storage.engine();
     switch (sub) {
       case "status": {
         const active = await checkActiveBuild(engine, EMBEDDINGS_HNSW_SPEC.name);
@@ -70,7 +70,5 @@ export async function runHnsw(
           `memex hnsw: unknown subcommand '${sub}' (expected status|sweep|rebuild)`,
         );
     }
-  } finally {
-    await engine.close();
-  }
+  });
 }

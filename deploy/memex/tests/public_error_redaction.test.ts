@@ -62,4 +62,35 @@ describe("publicSafeErrorMessage", () => {
       "[object Object]",
     );
   });
+
+  // The detail is a single `.message` an attacker can shape, and it lands in a
+  // line-oriented operator log. Left intact, a CRLF ends the real line and the
+  // rest of the message becomes a second, fully forged one.
+  it("collapses control characters so a crafted message cannot forge a log line", () => {
+    const CRLF = String.fromCharCode(13, 10); // no literal control char in source
+    const ESC = String.fromCharCode(27);
+    const NUL = String.fromCharCode(0);
+    publicSafeErrorMessage(
+      new Error(`boom${CRLF}[memex] all clear${NUL}${ESC}[2J`),
+      true,
+    );
+    const logged = errSpy.mock.calls[0]!.join(" ");
+    expect(logged).not.toContain(CRLF);
+    expect(logged).not.toContain(String.fromCharCode(10));
+    expect(logged).not.toContain(String.fromCharCode(13));
+    expect(logged).not.toContain(NUL);
+    expect(logged).not.toContain(ESC);
+    // The diagnosis itself still reaches the operator.
+    expect(logged).toContain("boom");
+  });
+
+  // A Postgres DETAIL clause can append the whole offending row; the cap bounds
+  // how much note-derived data one failure drags into the log.
+  it("caps a runaway detail and marks the truncation", () => {
+    publicSafeErrorMessage(new Error(`prefix ${"x".repeat(5000)}`), true);
+    const logged = errSpy.mock.calls[0]!.join(" ");
+    expect(logged).toContain("prefix");
+    expect(logged).toContain("[truncated]");
+    expect(logged.length).toBeLessThan(700);
+  });
 });

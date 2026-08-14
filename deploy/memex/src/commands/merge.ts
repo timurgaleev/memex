@@ -9,6 +9,7 @@
  * `people/alice-example`) and you want them collapsed into one.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { mergePage, type MergeOptions } from "../core/entity-merge.ts";
 
@@ -27,14 +28,11 @@ export async function runMerge(opts: MergeCommandOptions): Promise<void> {
   }
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const mergeOpts: MergeOptions = {};
     if (opts.sourceId) mergeOpts.source_id = opts.sourceId;
     if (opts.writtenBy) mergeOpts.written_by = opts.writtenBy;
     const result = await mergePage(storage, opts.from, opts.to, mergeOpts);
     console.log(JSON.stringify({ ok: result.merged, ...result }, null, 2));
-  } finally {
-    await storage.close();
-  }
+  });
 }

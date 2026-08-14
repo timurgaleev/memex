@@ -25,6 +25,7 @@ import {
   type CodeLanguage,
 } from "./chunkers/parsers.ts";
 import { extractCodeEntities } from "./code-entities.ts";
+import { EMPTY_SOURCE_KEY } from "./empty-source.ts";
 import {
   qualifiedSymbolName,
   writeCodeEdgesForDocument,
@@ -36,6 +37,7 @@ import {
   type ChunkWrite,
   type IndexTxResult,
 } from "./indexer-tx.ts";
+import { normalizeSourcePath } from "./indexer.ts";
 
 export interface IndexCodeResult extends IndexTxResult {
   /**
@@ -239,13 +241,21 @@ export async function indexCodeDocument(
     }
   }
 
+  // A file that reached here with nothing to write is BLANK (0 bytes or only
+  // whitespace) — the fallback above covers every other symbol-less case. Mark
+  // it so orphans-purge can tell "legitimately empty" from "corrupt index"; the
+  // two are indistinguishable from the document row alone, and re-indexing an
+  // empty file produces the same zero chunks forever.
+  const frontmatter: Record<string, unknown> = { language, kind: "code" };
+  if (chunkWrites.length === 0) frontmatter[EMPTY_SOURCE_KEY] = true;
+
   const result = await writeDocumentTransaction(
     storage,
     {
       documentId: id,
       sourcePath: input.sourcePath,
       title: parsed.title,
-      frontmatter: { language, kind: "code" },
+      frontmatter,
       // A degraded document is stamped with NO mtime on purpose. The sweep skips
       // a file whose stored mtime is current (sweep-code.ts), so stamping one
       // here would freeze the text-only version in place: fixing the grammar
@@ -306,7 +316,11 @@ export async function indexCodeFile(
   }
   const text = readFileSync(filePath, "utf8");
   return indexCodeDocument(storage, {
-    sourcePath: filePath,
+    // Same canonicalization as indexFile, and the reason is sharper here: the
+    // reported repro is `memex index foo.ts`, and commands/index.ts routes any
+    // recognised code extension to THIS function, so fixing only the markdown
+    // path would have left the case that was actually filed.
+    sourcePath: normalizeSourcePath(filePath),
     text,
     mtimeMs: Math.floor(stat.mtimeMs),
   });

@@ -17,6 +17,7 @@
  * (the phases are idempotent; the daemon's tick already covers the work).
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   ALL_PHASES,
@@ -91,8 +92,7 @@ export function parsePhasesArg(raw: string): PhaseName[] {
 export async function runCycle(opts: CycleCmdOptions = {}): Promise<void> {
   const injected = opts.storage;
   const storage = injected ?? new Storage(loadConfig());
-  if (!injected) await storage.init();
-  try {
+  return withStorage(storage, async () => {
     // Reclaim a lock stranded by a crashed holder, then contend for it. A null
     // handle means a LIVE holder (the daemon mid-tick) owns it — skip rather
     // than run a second overlapping cycle that would double Bedrock spend.
@@ -129,7 +129,5 @@ export async function runCycle(opts: CycleCmdOptions = {}): Promise<void> {
       clearInterval(refresher);
       await lock.release();
     }
-  } finally {
-    if (!injected) await storage.close();
-  }
+  }, { owned: !injected });
 }

@@ -7,6 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface EvalExportCmdOptions {
@@ -29,8 +30,7 @@ export async function runEvalExport(
 
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     const lines: string[] = [];
     if (source === "firehose") {
@@ -72,7 +72,5 @@ export async function runEvalExport(
     } else {
       process.stdout.write(payload);
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

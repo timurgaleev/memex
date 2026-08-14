@@ -12,6 +12,7 @@
  * indexer (`core/indexer-code.ts`, graph-only) share one txn shape.
  */
 import { lstatSync, readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
@@ -116,6 +117,32 @@ function shortHash(s: string): string {
 
 function docId(sourcePath: string): string {
   return `doc_${shortHash(sourcePath)}`;
+}
+
+/**
+ * A source_path carrying a scheme names a ROW, not a file: `page://` and
+ * `page-truth://` mirrors, `gmail:` / `gcal:` channel items. Resolving one
+ * against the daemon's cwd would invent a filesystem path that never existed
+ * and hand the disk probe a doc it would flag as missing forever — strictly
+ * worse than the bug this normalization fixes. Two-or-more leading characters
+ * keeps a Windows drive letter (`C:\…`) out of the scheme class.
+ */
+const VIRTUAL_SCHEME = /^[a-z][a-z0-9+.-]+:/i;
+
+/**
+ * Canonical form of a filesystem source_path — absolute, with `.`/`..` folded.
+ *
+ * source_path is the document's natural key (docId hashes it) and the only
+ * thing the orphans disk-probe can stat; that probe deliberately looks at
+ * absolute paths only, so a doc ingested under a caller-relative path
+ * (`memex index foo.ts`) can never be flagged when its file disappears. The
+ * probe is right to narrow — virtual rows have no file — so the canonicalization
+ * belongs here, at ingest, where the cwd the path was relative TO is still the
+ * cwd we read the file from. Purely lexical (no realpath): a symlinked file is
+ * already refused by indexFile.
+ */
+export function normalizeSourcePath(sourcePath: string): string {
+  return VIRTUAL_SCHEME.test(sourcePath) ? sourcePath : resolve(sourcePath);
 }
 
 export interface IndexInput {
@@ -444,7 +471,10 @@ export async function indexFile(
   return indexDocument(
     storage,
     {
-      sourcePath: opts.sourcePath ?? filePath,
+      // Normalize the read path, not the override: an explicit `sourcePath` is
+      // the caller declaring the row's identity (the page mirror's `page://…`),
+      // and second-guessing it here would rewrite a key it owns.
+      sourcePath: opts.sourcePath ?? normalizeSourcePath(filePath),
       text,
       mtimeMs: Math.floor(stat.mtimeMs),
     },

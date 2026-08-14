@@ -7,6 +7,7 @@
  * (JSON `explain` field) and prints the human-readable breakdown to stderr.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { formatExplainList } from "../core/search/explain.ts";
 import { loadConfig } from "../core/config.ts";
@@ -26,8 +27,7 @@ export async function runSearch(
   }
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const hits = await hybridSearch(storage, opts.query, {
       ...(opts.k ? { k: opts.k } : {}),
       ...(opts.explain ? { explain: true } : {}),
@@ -37,7 +37,5 @@ export async function runSearch(
       // Human-readable attribution on stderr — stdout stays pipeable JSON.
       process.stderr.write(formatExplainList(hits));
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

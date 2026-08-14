@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, lstatSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   lintCorpus,
@@ -113,12 +114,9 @@ export async function runLint(opts: LintCmdOptions = {}): Promise<void> {
 
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const report = await lintCorpus(storage.engine());
     console.log(JSON.stringify(report, null, 2));
     if (report.issues.length > 0) process.exitCode = 1;
-  } finally {
-    await storage.close();
-  }
+  });
 }

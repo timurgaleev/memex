@@ -18,6 +18,7 @@
  *         newly-quarantined docs so the vector arm forgets them).
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import {
@@ -279,8 +280,7 @@ async function runScan(engine: Engine, opts: QuarantineCmdOptions): Promise<numb
 
 export async function runQuarantine(opts: QuarantineCmdOptions): Promise<number> {
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     switch (opts.sub) {
       case "list":
@@ -294,7 +294,5 @@ export async function runQuarantine(opts: QuarantineCmdOptions): Promise<number>
         throw new Error(`memex quarantine: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

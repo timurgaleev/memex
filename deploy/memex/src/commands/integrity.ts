@@ -15,6 +15,7 @@ import { readdirSync, statSync, existsSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 const DEFAULT_IGNORES = new Set([
@@ -78,8 +79,7 @@ export async function runIntegrity(opts: IntegrityOptions): Promise<void> {
 
   const tolerance = opts.staleToleranceMs ?? 60_000;
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const dbRows = await storage
       .raw()
       .query<{
@@ -139,7 +139,5 @@ export async function runIntegrity(opts: IntegrityOptions): Promise<void> {
     };
     console.log(JSON.stringify(summary, null, 2));
     if (!summary.ok) process.exitCode = 1;
-  } finally {
-    await storage.close();
-  }
+  });
 }

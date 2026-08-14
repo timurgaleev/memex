@@ -13,6 +13,7 @@
  */
 import type { Engine } from "../core/engine/interface.ts";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { wikilinkResolver } from "../core/resolvers/builtin/wikilink.ts";
 import { registerResolver, getResolver } from "../core/resolvers/registry.ts";
@@ -145,14 +146,11 @@ export async function runCheckResolvable(
 ): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const report = await buildCheckResolvableReport(storage.engine(), opts);
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
-  } finally {
-    await storage.close();
-  }
+  });
 }
 
 function round2(n: number): number {

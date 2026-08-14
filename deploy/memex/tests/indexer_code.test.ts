@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { indexCodeDocument } from "../src/core/indexer-code.ts";
+import { EMPTY_SOURCE_KEY } from "../src/core/empty-source.ts";
 import { _resetParsersForTests } from "../src/core/chunkers/parsers.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "tb-indexer-code-"));
@@ -99,6 +100,36 @@ export { gamma } from "./gamma.ts";
       [r.documentId],
     );
     expect(rows.rows.map((x) => x.content).join("\n")).toContain("INSERT INTO eval_modes");
+  });
+
+  it("marks a blank source so its zero chunks don't read as a corrupt index", async () => {
+    // A tracked 0-byte / whitespace-only file has nothing to chunk — the
+    // fallback above needs a non-blank body. Zero chunks is the CORRECT outcome
+    // here, so the doc carries the empty-source marker and orphans-purge leaves
+    // it alone instead of warning about it on every cycle forever.
+    const r = await indexCodeDocument(storage, {
+      sourcePath: "src/placeholder.ts",
+      text: "\n  \n",
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.chunks).toBe(0);
+    const rows = await storage.raw().query<{ marked: boolean }>(
+      `SELECT frontmatter ? $2 AS marked FROM documents WHERE id = $1`,
+      [r.documentId, EMPTY_SOURCE_KEY],
+    );
+    expect(rows.rows[0]!.marked).toBe(true);
+
+    // ...and the marker clears itself once the file gains content, because a
+    // re-index rebuilds the code document's frontmatter wholesale.
+    const r2 = await indexCodeDocument(storage, {
+      sourcePath: "src/placeholder.ts",
+      text: "export function later() { return 1; }\n",
+    });
+    const after = await storage.raw().query<{ marked: boolean }>(
+      `SELECT frontmatter ? $2 AS marked FROM documents WHERE id = $1`,
+      [r2.documentId, EMPTY_SOURCE_KEY],
+    );
+    expect(after.rows[0]!.marked).toBe(false);
   });
 
   it("re-indexing the same source replaces all prior chunks (idempotent)", async () => {

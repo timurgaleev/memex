@@ -94,4 +94,51 @@ describe("sweepCodeRoots", () => {
     expect(r.parseErrors).toBeGreaterThanOrEqual(1);
     expect(r.errors.length).toBe(0);
   });
+
+  it("forceStaleChunker re-indexes a chunker-stale file the mtime check skips", async () => {
+    // Simulate a CODE_CHUNKER_VERSION bump for one file: its chunks predate the
+    // current chunker but its mtime is unchanged.
+    await storage.raw().query(
+      "UPDATE documents SET chunker_version = chunker_version - 1 WHERE source_path = $1",
+      [join(repoDir, "src/a.ts")],
+    );
+
+    // Without the flag the bump drains nothing — the file mtime-skips.
+    const plain = await sweepCodeRoots(storage, { paths: [repoDir] });
+    expect(plain.reindexed).toBe(0);
+    expect(plain.skipped).toBe(5);
+
+    const forced = await sweepCodeRoots(storage, {
+      paths: [repoDir],
+      forceStaleChunker: true,
+    });
+    expect(forced.reindexed).toBe(1);
+    expect(forced.skipped).toBe(4);
+    expect(forced.staleChunkerUnreached).toBeUndefined();
+
+    // Re-indexing re-stamps the version, so the drain is resumable + idempotent.
+    const again = await sweepCodeRoots(storage, {
+      paths: [repoDir],
+      forceStaleChunker: true,
+    });
+    expect(again.reindexed).toBe(0);
+  });
+
+  it("reports a stale code doc the walk never reaches, ignores stale markdown", async () => {
+    await storage.raw().query(
+      `INSERT INTO documents (id, source_path, title, frontmatter, chunker_version)
+       VALUES ('doc_gone_code', '/gone/x.ts', 'x.ts', '{"kind":"code"}'::jsonb, 0),
+              ('doc_stale_md', '/gone/x.md', 'x', '{}'::jsonb, 0)`,
+    );
+    const r = await sweepCodeRoots(storage, {
+      paths: [repoDir],
+      forceStaleChunker: true,
+    });
+    // The code doc's file is outside every root → it stays stale, and saying so
+    // beats reporting a clean drain.
+    expect(r.staleChunkerUnreached).toContain("doc_gone_code");
+    // The markdown doc is the VAULT sweep's corpus — a walk over .ts/.py files
+    // could never reach it, so listing it here would be a phantom orphan.
+    expect(r.staleChunkerUnreached).not.toContain("doc_stale_md");
+  });
 });

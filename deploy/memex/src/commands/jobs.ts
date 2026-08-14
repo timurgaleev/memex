@@ -17,6 +17,7 @@
  *   smoke         — end-to-end queue self-test (enqueue → claim → complete)
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import {
@@ -59,8 +60,7 @@ export interface JobsCmdOptions {
 export async function runJobs(opts: JobsCmdOptions): Promise<void> {
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const queue = new Queue(storage.engine());
     switch (opts.sub) {
       case "submit": {
@@ -197,7 +197,5 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         throw new Error(`memex jobs: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

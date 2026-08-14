@@ -39,6 +39,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
 
@@ -105,12 +106,9 @@ async function withProvider<T>(
   fn: (provider: OAuthProvider, storage: Storage) => Promise<T>,
 ): Promise<T> {
   const storage = new Storage(loadConfig());
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     return await fn(new OAuthProvider({ engine: storage.raw() }), storage);
-  } finally {
-    await storage.close();
-  }
+  });
 }
 
 async function registerClient(name: string, rest: string[]): Promise<void> {

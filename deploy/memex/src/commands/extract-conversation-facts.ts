@@ -10,6 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { parseConversation } from "../core/conversation-parser.ts";
 import {
@@ -175,8 +176,7 @@ export async function runExtractConversationFactsCli(
 ): Promise<void> {
   const text = readFileSync(args.file, "utf8");
   const storage = new Storage(loadConfig());
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const report = await runExtractConversationFacts(storage, {
       text,
       ...(args.sourceSlug ? { sourceSlug: args.sourceSlug } : {}),
@@ -194,7 +194,5 @@ export async function runExtractConversationFactsCli(
           (report.budgetExhausted ? " [budget exhausted]" : ""),
       );
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

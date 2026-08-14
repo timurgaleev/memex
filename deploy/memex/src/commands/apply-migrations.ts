@@ -7,6 +7,7 @@
  * just-pulled migration without bouncing the container.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { runMigrations, discoverMigrations } from "../core/migrate.ts";
 
@@ -36,11 +37,8 @@ export async function runApplyMigrations(
 
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const r = await runMigrations(storage.engine());
     console.log(JSON.stringify({ ok: true, ...r }, null, 2));
-  } finally {
-    await storage.close();
-  }
+  });
 }

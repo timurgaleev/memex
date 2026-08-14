@@ -120,6 +120,24 @@ describe("orphans-purge phase", () => {
     ).toContain("empty");
   });
 
+  it("does not flag a doc the indexer marked as a blank source", async () => {
+    const e = storage.engine();
+    // Both rows have zero chunks. Only the unmarked one is a corrupt index; the
+    // marked one is a legitimately empty tracked file, which re-indexes to zero
+    // chunks every time — flagging it would pin the phase at warn forever.
+    await e.exec(`
+      INSERT INTO documents (id, source_path, title, frontmatter) VALUES
+        ('blank', '/repo/placeholder.ts', 'placeholder.ts',
+         '{"kind":"code","language":"typescript","empty_source":true}'::jsonb),
+        ('corrupt', '/repo/real.ts', 'real.ts',
+         '{"kind":"code","language":"typescript"}'::jsonb);
+    `);
+    const r = await orphansPurgePhase(e);
+    const flagged = r.flagged.docs_with_zero_chunks.map((d) => d.id);
+    expect(flagged).not.toContain("blank");
+    expect(flagged).toContain("corrupt");
+  });
+
   it("never flags virtual (non-file) documents as missing on disk", async () => {
     const e = storage.engine();
     await e.exec(`

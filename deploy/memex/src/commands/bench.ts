@@ -35,6 +35,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { loadCorpus } from "../core/bench/fixtures.ts";
 import { runCorpus } from "../core/bench/harness.ts";
@@ -264,17 +265,19 @@ export async function runBenchCli(opts: BenchOptions = {}): Promise<number> {
 
   const tmp = mkdtempSync(join(tmpdir(), "memex-bench-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
   try {
-    const report = await runBenchOnStorage(storage, opts);
-    process.stdout.write(
-      opts.json
-        ? `${JSON.stringify(scoreboardJson(report), null, 2)}\n`
-        : `${formatScoreboard(report)}\n`,
-    );
-    return 0;
+    return await withStorage(storage, async () => {
+      const report = await runBenchOnStorage(storage, opts);
+      process.stdout.write(
+        opts.json
+          ? `${JSON.stringify(scoreboardJson(report), null, 2)}\n`
+          : `${formatScoreboard(report)}\n`,
+      );
+      return 0;
+    });
   } finally {
-    await storage.close();
+    // Outside withStorage so the scratch directory goes even when the database
+    // never opened — it is this command's, not the engine's.
     rmSync(tmp, { recursive: true, force: true });
   }
 }

@@ -11,13 +11,17 @@
  * Two classes we REPORT but DO NOT delete (need human eyeballs):
  *   - documents whose source_path no longer exists on disk
  *     (file might have been renamed, not deleted)
- *   - documents with zero chunks (corrupt index — re-run indexer)
+ *   - documents with zero chunks (corrupt index — re-run indexer), EXCEPT the
+ *     ones the code indexer marked as a blank source: an empty tracked file
+ *     re-indexes to zero chunks every time, so flagging it is a permanent
+ *     false positive (see `core/empty-source.ts`).
  *
  * The dedicated `orphans` command prints these reports
  * interactively with a `--apply` flag for the destructive variants.
  */
 import { existsSync } from "node:fs";
 import type { Engine } from "../engine/interface.ts";
+import { notEmptySourceFragment } from "../empty-source.ts";
 
 export interface OrphansPurgeResult {
   deleted: {
@@ -28,6 +32,22 @@ export interface OrphansPurgeResult {
   flagged: {
     docs_missing_on_disk: { id: string; sourcePath: string }[];
     docs_with_zero_chunks: { id: string; sourcePath: string }[];
+    /**
+     * Live rows whose source_path is neither absolute nor a virtual scheme.
+     *
+     * INVENTORY ONLY — it does not move the phase status, because the shape
+     * alone does not mean the row is wrong: the inline MCP write keeps the
+     * caller's own label by design. Reporting is still worth it, because a
+     * FILE ingested before the path was canonicalized will duplicate on its
+     * next index, and this is the only place that lists the candidates.
+     *
+     * Report only, and deliberately so:
+     * the document id hashes source_path, so canonicalizing one of these
+     * rewrites its key. A blind migration cannot do that safely either, because
+     * the cwd the path was relative TO is unknowable after the fact. Left to
+     * the operator to re-index by absolute path and drop the stale row.
+     */
+    docs_with_relative_source_path: { id: string; sourcePath: string }[];
   };
 }
 
@@ -96,12 +116,29 @@ export async function orphansPurgePhase(
      FROM documents d
      LEFT JOIN chunks c ON c.document_id = d.id
      WHERE c.id IS NULL
+       AND ${notEmptySourceFragment("d")}
      ORDER BY d.source_path`,
+  );
+
+  // Neither `/…` nor `scheme:` — see the field's docstring for why this only
+  // reports. The scheme class mirrors normalizeSourcePath's.
+  const nonCanonical = await engine.query<{ id: string; source_path: string }>(
+    `SELECT id, source_path
+       FROM documents
+      WHERE deleted_at IS NULL
+        AND NOT archived
+        AND source_path NOT LIKE '/%'
+        AND source_path !~ '^[a-zA-Z][a-zA-Z0-9+.-]+:'
+      ORDER BY source_path`,
   );
 
   return {
     deleted: { embeddings, entity_mentions, entities },
     flagged: {
+      docs_with_relative_source_path: nonCanonical.rows.map((r) => ({
+        id: r.id,
+        sourcePath: r.source_path,
+      })),
       docs_missing_on_disk: missing,
       docs_with_zero_chunks: noChunks.rows.map((r) => ({
         id: r.id,

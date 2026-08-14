@@ -20,6 +20,7 @@
  * cycle to refresh.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface SalienceCmdOptions {
@@ -43,8 +44,7 @@ export async function runSalience(opts: SalienceCmdOptions = {}): Promise<void> 
   const limit = Math.min(200, Math.max(1, opts.limit ?? 20));
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.raw();
     const where: string[] = ["deleted_at IS NULL"];
     const params: unknown[] = [];
@@ -76,7 +76,5 @@ export async function runSalience(opts: SalienceCmdOptions = {}): Promise<void> 
       updated_at: r.updated_at,
     }));
     console.log(JSON.stringify({ ok: true, count: pages.length, pages }, null, 2));
-  } finally {
-    await storage.close();
-  }
+  });
 }

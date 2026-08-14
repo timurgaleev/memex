@@ -8,6 +8,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface ExportCmdOptions {
@@ -43,9 +44,8 @@ function frontmatterBlock(row: PageRow): string {
 export async function runExport(opts: ExportCmdOptions = {}): Promise<void> {
   const injected = opts.storage;
   const storage = injected ?? new Storage(loadConfig());
-  if (!injected) await storage.init();
   const outDir = resolve(opts.dir ?? "./export");
-  try {
+  return withStorage(storage, async () => {
     const scoped = opts.sourceIds && opts.sourceIds.length > 0;
     const r = await storage.engine().query<PageRow>(
       `SELECT slug, type, title, markdown_body, source_id
@@ -75,7 +75,5 @@ export async function runExport(opts: ExportCmdOptions = {}): Promise<void> {
         2,
       ),
     );
-  } finally {
-    if (!injected) await storage.close();
-  }
+  }, { owned: !injected });
 }

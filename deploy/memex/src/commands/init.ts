@@ -17,6 +17,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
+import type { MigrationResult } from "../core/migrate.ts";
+import { closeQuietly } from "./with-storage.ts";
 import type { Config } from "../core/config.ts";
 import { awsRegion } from "../core/llm/gateway.ts";
 
@@ -124,10 +126,24 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   let migrationsLine = "deferred to serve boot (postgres)";
   if (!opts.postgres) {
-    // Open the PGLite db once to apply migrations, then close.
+    // Open the PGLite db once to apply migrations, then close. The close sits
+    // in a finally so a failed migration cannot strand the engine, and it is
+    // tolerant because a directory that would not open throws again on
+    // teardown — which would replace init()'s diagnosis with `Aborted()`.
     const storage = new Storage({ dbPath });
-    const result = await storage.init();
-    await storage.close();
+    let result: MigrationResult;
+    let initialized = false;
+    try {
+      result = await storage.init();
+      initialized = true;
+    } finally {
+      // Quiet ONLY when init already failed — there the close error is the
+      // second symptom of the same fault and would bury the diagnosis. Once
+      // init has succeeded, a close that fails (an unflushed write, a lock the
+      // process still holds) must not be reported as a clean `initialized`.
+      if (initialized) await storage.close();
+      else await closeQuietly(storage);
+    }
     migrationsLine = `${result.applied.length} applied, ${result.skipped} skipped`;
     for (const m of result.applied) {
       migrationsLine += `\n              + ${String(m.id).padStart(3, "0")}_${m.name}`;

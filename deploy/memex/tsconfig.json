@@ -8,7 +8,7 @@
     "noImplicitOverride": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["bun-types"],
+    "types": ["bun"],
     "lib": ["ES2022"],
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,

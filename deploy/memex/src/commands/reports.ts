@@ -7,6 +7,7 @@
  *   - mean cycle duration if cycle_results table exists
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 
 export interface ReportsOptions {
@@ -21,8 +22,7 @@ export async function runReports(opts: ReportsOptions = {}): Promise<void> {
   }
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const e = storage.engine();
     const exists = await e.query<{ regclass: string | null }>(
       `SELECT to_regclass('cycle_snapshots')::text AS regclass`,
@@ -94,7 +94,5 @@ export async function runReports(opts: ReportsOptions = {}): Promise<void> {
         2,
       ),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

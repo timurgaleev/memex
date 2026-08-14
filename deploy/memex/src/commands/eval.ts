@@ -26,6 +26,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { wilsonCI, smallSampleNote, type WilsonCI } from "../core/wilson.ts";
@@ -273,8 +274,7 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
   const cfgA: EvalKnobConfig = { name: "Config A", ...(opts.config ?? {}) };
 
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     if (opts.configB) {
       const cfgB: EvalKnobConfig = { name: "Config B", ...opts.configB };
       const evalOpts = { k, ...(opts.searchFn ? { searchFn: opts.searchFn } : {}) };
@@ -296,7 +296,5 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
     const ok = report.meanRecall >= minRecall;
     console.log(JSON.stringify({ ...report, ok }, null, 2));
     if (!ok) process.exitCode = 1;
-  } finally {
-    await storage.close();
-  }
+  });
 }

@@ -14,6 +14,7 @@
  * and exits 0.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { replayAll } from "../core/eval-replay.ts";
 import { recordEvalSnapshot } from "../core/eval-snapshot.ts";
@@ -53,8 +54,7 @@ export function effectiveProbeLimit(
 export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const replayOpts: Parameters<typeof replayAll>[1] = {};
     const effLimit = effectiveProbeLimit(opts.limit, opts.maxUsd);
     if (effLimit !== undefined) replayOpts.limit = effLimit;
@@ -75,7 +75,5 @@ export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
         2,
       ),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

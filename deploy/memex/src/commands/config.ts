@@ -13,6 +13,7 @@
  *   unset --pattern <prefix>   delete every key with this prefix
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   getRuntimeConfig,
@@ -39,9 +40,8 @@ export interface ConfigCmdOptions {
 
 export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  const engine = storage.engine();
-  try {
+  return withStorage(storage, async () => {
+    const engine = storage.engine();
     switch (opts.sub) {
       case "show": {
         const rows = await listRuntimeConfig(engine);
@@ -134,7 +134,5 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
         throw new Error(`memex config: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

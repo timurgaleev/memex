@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { runChronicleEval } from "../eval/chronicle-harness.ts";
 
 const HELP = `Usage: memex eval chronicle [--json]
@@ -30,23 +31,25 @@ export async function runEvalChronicle(args: string[]): Promise<number> {
   const json = args.includes("--json");
   const tmp = mkdtempSync(join(tmpdir(), "memex-eval-chronicle-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
   try {
-    const result = await runChronicleEval(storage);
-    if (json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    } else {
-      process.stderr.write(
-        `[eval chronicle] ${result.passed}/${result.total} tasks passed ` +
-          `(score ${(result.score * 100).toFixed(0)}%)\n`,
-      );
-      for (const t of result.tasks) {
-        process.stderr.write(`  ${t.passed ? "PASS" : "FAIL"} ${t.id} — ${t.detail}\n`);
+    return await withStorage(storage, async () => {
+      const result = await runChronicleEval(storage);
+      if (json) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        process.stderr.write(
+          `[eval chronicle] ${result.passed}/${result.total} tasks passed ` +
+            `(score ${(result.score * 100).toFixed(0)}%)\n`,
+        );
+        for (const t of result.tasks) {
+          process.stderr.write(`  ${t.passed ? "PASS" : "FAIL"} ${t.id} — ${t.detail}\n`);
+        }
       }
-    }
-    return result.score === 1 ? 0 : 1;
+      return result.score === 1 ? 0 : 1;
+    });
   } finally {
-    await storage.close();
+    // Outside withStorage so the scratch directory goes even when the database
+    // never opened — it is this command's, not the engine's.
     rmSync(tmp, { recursive: true, force: true });
   }
 }

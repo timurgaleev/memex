@@ -181,7 +181,12 @@ export async function purgeExpiredDocuments(
     const d = await tx.query<{ id: string }>(
       `DELETE FROM documents
         WHERE deleted_at IS NOT NULL
-          AND deleted_at < NOW() - ($1 || ' hours')::interval
+          -- Inclusive on purpose, and matching the archived branch below.
+          -- A ttl of 0 means "purge what is already soft-deleted"; strict
+          -- less-than makes a row deleted in the same clock tick as the purge
+          -- miss its own deadline, because NOW() is the transaction's start
+          -- time and the two timestamps can land equal.
+          AND deleted_at <= NOW() - ($1 || ' hours')::interval
         RETURNING id`,
       [String(ttlHours)],
     );

@@ -19,6 +19,7 @@
  *      overwrites the baseline columns with the latest run.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   recordQuery,
@@ -80,8 +81,7 @@ export interface EvalReplayCmdOptions {
 export async function runEvalReplay(opts: EvalReplayCmdOptions): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     switch (opts.sub) {
       case "capture": {
@@ -145,7 +145,5 @@ export async function runEvalReplay(opts: EvalReplayCmdOptions): Promise<void> {
         throw new Error(`eval-replay: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

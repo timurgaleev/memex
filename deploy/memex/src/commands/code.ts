@@ -15,6 +15,7 @@
  *   2. SELECT entity_mentions for code-callee_<that-name>.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { entityId, type EntityType } from "../core/entities.ts";
 
@@ -59,8 +60,7 @@ function parsePathLine(target: string): { file: string; line: number } | null {
 export async function runCode(opts: CodeCommandOptions): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     const entityType = ENTITY_TYPE_FOR_SUB[opts.sub];
 
@@ -148,7 +148,5 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
         console.log(row.surface_form);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

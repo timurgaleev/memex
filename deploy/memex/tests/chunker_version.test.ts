@@ -105,7 +105,7 @@ describe("listStaleChunkerDocIds", () => {
     );
     await e.query("UPDATE documents SET chunker_version = chunker_version - 1 WHERE id = $1", ["d_stale"]);
 
-    const ids = await listStaleChunkerDocIds(e);
+    const ids = await listStaleChunkerDocIds(e, "markdown");
     expect(ids.has("d_stale")).toBe(true);
     expect(ids.has("d_fresh")).toBe(false);
     expect(ids.size).toBe(1);
@@ -118,7 +118,7 @@ describe("listStaleChunkerDocIds", () => {
       { documentId: "d1", sourcePath: "/a.md", title: "a", frontmatter: {}, embeddingModel: "det", chunkerVersion: MARKDOWN_CHUNKER_VERSION },
       [{ text: "body", entities: [] }],
     );
-    expect((await listStaleChunkerDocIds(e)).size).toBe(0);
+    expect((await listStaleChunkerDocIds(e, "markdown")).size).toBe(0);
   });
 });
 

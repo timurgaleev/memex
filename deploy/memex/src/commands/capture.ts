@@ -14,6 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { putPage, getPage } from "../core/pages.ts";
 import { indexPageIntoSearch } from "../core/page-index.ts";
@@ -138,8 +139,7 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
   const slug = opts.slug ?? defaultCaptureSlug(body, new Date(), capturePrefix(opts.type));
   const event = buildEventBlock(opts);
   const storage = new Storage(loadConfig(opts.configPath));
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const put = await putPage(storage, {
       slug,
       markdown_body: body,
@@ -194,7 +194,5 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
       );
     }
     return 0;
-  } finally {
-    await storage.close();
-  }
+  });
 }

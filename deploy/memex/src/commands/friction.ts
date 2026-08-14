@@ -11,6 +11,7 @@
  * before we wire it up.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   analyzeFriction,
@@ -51,8 +52,7 @@ export interface FrictionCmdOptions {
 export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     switch (opts.sub) {
       case "analyze": {
@@ -131,7 +131,5 @@ export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
         throw new Error(`memex friction: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

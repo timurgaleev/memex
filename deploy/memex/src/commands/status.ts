@@ -8,6 +8,7 @@
  * reports the numbers. Reuses the same primitives `doctor` and `cache` use.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { currentDocumentClock } from "../core/generation.ts";
 import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
@@ -29,8 +30,7 @@ export interface StatusCmdOptions {
 export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);
-  try {
-    await storage.init();
+  return withStorage(storage, async () => {
     const engine = storage.raw();
     // Sequential: the engine may be a single PGLite connection that serializes
     // queries anyway, these are cheap reads, and cacheStats needs the clock
@@ -62,7 +62,5 @@ export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
         2,
       ),
     );
-  } finally {
-    await storage.close();
-  }
+  });
 }

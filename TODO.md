@@ -102,8 +102,9 @@ rather than left implied:
 
 Surfaced after the 2026-08-10 backlog was frozen. CLI-4 shipped in v1.112.0;
 BENCH-1 SHIPPED 2026-08-14 — continuity and write-back fidelity now have
-numbers beside the push family, run by `memex bench`, zero model cost by
-default and asserted as zero rather than claimed.
+numbers beside the push family, run by `memex bench`. It MEASURES its own spend
+rather than asserting zero, which is what surfaced BENCH-2 above on the first
+live run.
 
 - **[BENCH-1, L] SHIPPED.** Nothing measured the agent-facing behaviour of the
   brain — only its retrieval. `eval-probe` scores hit-rate and rank over a golden
@@ -187,6 +188,30 @@ and note the same index caveat: `(entity_slug, written_at DESC)` no longer
 satisfies the ordering on its own — immaterial at these table sizes.
 
 ---
+
+## Open — legacy relative source_path rows (2026-08-14)
+
+Ingest now canonicalizes a FILE path to absolute, so this cannot recur. Rows
+written before that keep their old key, and `docId` hashes `source_path` — so
+the next index of such a file writes a SECOND row and the first lingers,
+searchable and invisible to the absolute-path disk probe.
+
+No migration, and the reason is not laziness: the cwd an old relative path was
+relative TO is unknowable after the fact, so resolving it would fabricate a
+path that never existed.
+
+`orphans-purge` now reports the candidates in `docs_with_relative_source_path`.
+That list deliberately does NOT move the phase status. Path shape cannot tell a
+legacy file row from a supported one — the inline MCP write (`index` with
+`sourcePath` + `text`) keeps the caller's own label by design, and the live
+brain holds three such rows today (`ops/…`, `memex/…md`). Escalating on shape
+would pin the cycle at warn forever on a healthy corpus, which is the same
+false-positive this phase was fixed for once already.
+
+Closing it properly needs a signal the shape does not carry — an ingest-route
+marker on the row, or an operator pass that re-indexes the file rows by
+absolute path and drops the stale ones. Found by the cross-model review; the
+warn-escalation version was written, measured against prod, and reverted.
 
 ## Review-accepted follow-ups (2026-08-02 triple review: security + retrieval + correctness)
 
@@ -293,18 +318,18 @@ docs, 8 sources, no errors in 24h logs. Follow-ups surfaced:
 - **[RESOLVED 2026-07-13] `source_grants=0`.** Moot: the brain is
   single-person by decision — the second tenant was removed from prod and the
   `source_grants` table dropped (migration 098).
-- **[LOW 2026-07-10, codex P2] Relative-path docs skip orphan disk-probe.**
+- **[DONE 2026-08-14] Relative-path docs skip orphan disk-probe.**
   `memex index foo.ts` persists the caller's relative source_path unchanged;
   the orphans-purge disk probe now only checks absolute paths, so a vanished
   relative-path file is never flagged. Right fix = normalize to absolute at
   ingest (indexFile/callIndex), not in the probe. Rare (operator ingests use
   absolute paths / schemes); do when touching the ingest path.
-- **[LOW 2026-07-10, codex P2] Legitimately-empty code files still produce
+- **[DONE 2026-08-14] Legitimately-empty code files still produce
   zero-chunk docs** (fallback requires non-blank text), so a tracked empty
   file keeps `orphans-purge=warn` alive. Consider excluding 0-byte sources at
   sweep time or exempting empty-content docs from the zero-chunk flag. None
   exist on prod today.
-- **[LOW 2026-07-10, codex P2] Code sweep is not chunker-version-aware.**
+- **[DONE 2026-08-14] Code sweep is not chunker-version-aware.**
   `sweepCodeRoots` mtime-skips unchanged files, so a CODE_CHUNKER_VERSION bump
   drains only via a manual `reindex --source code --all`. If bumps become
   regular, teach the sweep to force files whose doc rows are version-stale
@@ -596,7 +621,7 @@ future release.
 
 ## Defence-in-depth hardening (deferred)
 
-- **`storage.init()` is called OUTSIDE the `try`/`finally` in most command
+- **[DONE 2026-08-14] `storage.init()` is called OUTSIDE the `try`/`finally` in most command
   handlers** (`commands/jobs.ts`, `sources.ts`, and siblings follow the same
   shape). If `init()` throws (failed migration/connect) the `finally`'s
   `storage.close()` never runs → a leaked engine/pool. `commands/cache.ts`
@@ -615,7 +640,7 @@ future release.
   treatment for consistency. Flagged by the v1.3.9 code-review; left as
   pre-existing intentional semantics, not changed in that increment.
 
-- **`publicSafeErrorMessage` logs the raw detail via `console.error`.** Fine
+- **[DONE 2026-08-14] `publicSafeErrorMessage` logs the raw detail via `console.error`.** Fine
   for an on-host operator log, but the suppressed detail is a single
   `.message` line that could contain CRLF (cosmetic log-line splitting) or a
   Postgres error embedding a column value (PII). If the EC2 logs are ever

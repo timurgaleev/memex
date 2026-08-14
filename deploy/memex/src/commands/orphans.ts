@@ -7,17 +7,15 @@
  * mutated.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { orphansPurgePhase } from "../core/cycle/orphans-purge.ts";
 import { loadConfig } from "../core/config.ts";
 
 export async function runOrphans(): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const r = await orphansPurgePhase(storage.engine());
     console.log(JSON.stringify({ ok: true, ...r }, null, 2));
-  } finally {
-    await storage.close();
-  }
+  });
 }

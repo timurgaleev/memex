@@ -14,6 +14,7 @@
  * their space.
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { currentDocumentClock } from "../core/generation.ts";
 import {
@@ -31,10 +32,7 @@ export interface CacheCmdOptions {
 export async function runCache(opts: CacheCmdOptions): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  // init() inside the try so a failed migration/connect still hits close()
-  // in finally (no leaked engine/pool).
-  try {
-    await storage.init();
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     switch (opts.sub) {
       case "stats": {
@@ -58,7 +56,5 @@ export async function runCache(opts: CacheCmdOptions): Promise<void> {
         );
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }

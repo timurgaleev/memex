@@ -18,6 +18,7 @@
  *                                                still reference it
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import {
   registerSource,
@@ -54,8 +55,7 @@ export interface SourcesCmdOptions {
 export async function runSources(opts: SourcesCmdOptions): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
-  await storage.init();
-  try {
+  return withStorage(storage, async () => {
     const engine = storage.engine();
     switch (opts.sub) {
       case "list": {
@@ -146,9 +146,7 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
         throw new Error(`memex sources: unknown subcommand '${_exhaustive}'`);
       }
     }
-  } finally {
-    await storage.close();
-  }
+  });
 }
 
 /** Helper used by cli.ts to validate --kind. */

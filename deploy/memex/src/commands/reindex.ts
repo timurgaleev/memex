@@ -32,6 +32,7 @@
  * once to backfill the existing corpus (including `page://` docs with no file).
  */
 import { Storage } from "../core/storage.ts";
+import { withStorage } from "./with-storage.ts";
 import { sweepVault, type SweepResult } from "../core/sweep.ts";
 import { sweepCodeRoots, type SweepCodeResult } from "../core/sweep-code.ts";
 import { loadConfig } from "../core/config.ts";
@@ -50,7 +51,10 @@ export interface ReindexCommandOptions {
    * Also re-index documents whose chunker_version is below current (mig 052),
    * re-chunking + re-embedding the stale set on top of the normal mtime-due
    * sweep. Auto-remediates a chunker constant bump without the full-corpus
-   * re-embed `--all` triggers.
+   * re-embed `--all` triggers. Applies to BOTH sweeps, each against its own
+   * chunker namespace: the vault sweep drains MARKDOWN_CHUNKER_VERSION stale
+   * docs (re-chunk + re-embed), the code sweep drains CODE_CHUNKER_VERSION
+   * stale docs (re-chunk only — the code path is graph-only, no Titan).
    */
   rechunkStale?: boolean;
   /**
@@ -118,9 +122,7 @@ export async function runReindex(
   const config = loadConfig();
   const source = opts.source ?? "vault";
   const storage = new Storage(config);
-  await storage.init();
-
-  try {
+  return withStorage(storage, async () => {
     // Contextual re-embed is a standalone job — no file sweep runs alongside it.
     if (opts.contextual) {
       const result = await contextualReembed(storage, {
@@ -165,13 +167,12 @@ export async function runReindex(
         const result = await sweepCodeRoots(storage, {
           paths,
           force: opts.all ?? false,
+          forceStaleChunker: opts.rechunkStale ?? false,
         });
         out.push({ kind: "code", paths, result });
       }
     }
 
     console.log(JSON.stringify({ ok: true, runs: out }, null, 2));
-  } finally {
-    await storage.close();
-  }
+  });
 }

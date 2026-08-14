@@ -56,6 +56,10 @@ describe("doctor categorize", () => {
       "source-routing-health",
       "stale-locks",
       "stats",
+      // Pushed only when teardown FAILS, so a healthy run never carries it —
+      // it is named in OPS so the categorizer does not bucket it as `meta`
+      // with an "uncategorized" warning at the moment something is wrong.
+      "storage-teardown",
       "vault",
     ]);
   });
