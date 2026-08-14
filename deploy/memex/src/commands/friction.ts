@@ -87,7 +87,7 @@ export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
         if (opts.skill) lOpts.skill = opts.skill;
         const events = await listFrictionEvents(engine, lOpts);
         const md = renderFrictionMarkdown(events, {
-          redact: opts.noRedact ? false : true,
+          redact: !opts.noRedact,
         });
         process.stdout.write(md);
         return;

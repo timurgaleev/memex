@@ -123,7 +123,7 @@ export async function awaitPendingVolunteerEventWrites(
   const snapshot = Array.from(pendingVolunteerEventWrites);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+    timer = setTimeout(resolve, timeoutMs, "timeout");
   });
   const drain = Promise.allSettled(snapshot).then(() => "drained" as const);
   const outcome = await Promise.race([drain, timeout]);

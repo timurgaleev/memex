@@ -57,7 +57,7 @@ export function rrfWeightsForLists(
   keywordLists: number,
 ): number[] {
   const w = intentRrfWeights(intent);
-  return [w.vector, ...Array.from({ length: keywordLists }, () => w.keyword)];
+  return [w.vector, ...Array.from<number>({ length: keywordLists }).fill(w.keyword)];
 }
 
 /**

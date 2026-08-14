@@ -41,7 +41,7 @@ import {
   isPublicMcpToolForbidden,
 } from "./public_guard.ts";
 import {
-  OAuthProvider,
+  type OAuthProvider,
   InvalidTokenError,
 } from "../core/oauth-provider.ts";
 import {

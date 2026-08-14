@@ -40,7 +40,7 @@ export function sanitizeQueryForPrompt(query: string): string {
   let q = query;
   if (q.length > MAX_QUERY_CHARS) q = q.slice(0, MAX_QUERY_CHARS);
   q = q.replace(/```[\s\S]*?```/g, " ");
-  q = q.replace(/<\/?[a-zA-Z][^>]*>/g, " ");
+  q = q.replace(/<\/?[a-z][^>]*>/gi, " ");
   q = q.replace(/^(\s*(ignore|forget|disregard|override|system|assistant|human)[\s:]+)+/gi, "");
   q = q.replace(/\s+/g, " ").trim();
   if (q !== query.replace(/\s+/g, " ").trim()) {
@@ -63,7 +63,7 @@ export function sanitizeExpansionOutput(alternatives: readonly unknown[], max: n
   for (const raw of alternatives) {
     if (typeof raw !== "string") continue;
     // eslint-disable-next-line no-control-regex
-    let s = raw.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    let s = raw.replace(/[\x00-\x1F\x7F]/g, "").trim();
     if (s.length === 0) continue;
     if (s.length > MAX_QUERY_CHARS) s = s.slice(0, MAX_QUERY_CHARS);
     const key = s.toLowerCase();

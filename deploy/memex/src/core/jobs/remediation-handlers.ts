@@ -81,7 +81,7 @@ async function defaultReembedSource(
   const mod = (await import("../../commands/reindex.ts")) as Record<string, unknown>;
   const fn = mod["runReindex"];
   if (typeof fn !== "function") {
-    throw new Error(
+    throw new TypeError(
       "remediation reembed-source: no reindex runner available (inject deps.reembedSource)",
     );
   }
@@ -98,7 +98,7 @@ async function defaultRunCyclePhase(
   const mod = (await import("../../commands/cycle.ts")) as Record<string, unknown>;
   const fn = mod["runCycle"];
   if (typeof fn !== "function") {
-    throw new Error(
+    throw new TypeError(
       "remediation cycle-phase: no cycle runner available (inject deps.runCyclePhase)",
     );
   }

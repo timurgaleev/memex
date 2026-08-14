@@ -236,7 +236,8 @@ export async function runRecursiveWalk(
     const nextFrontier: string[] = [];
     const nodesThisDepth: WalkNode[] = [];
 
-    outer: for (const sym of frontier) {
+    let capHit = false;
+    for (const sym of frontier) {
       // Fetch only the remaining node budget, not the full cap — near the cap a
       // wide frontier would otherwise fetch and discard maxNodes rows per symbol.
       const remaining = Math.max(1, maxNodes - totalNodes);
@@ -250,7 +251,8 @@ export async function runRecursiveWalk(
         }
         if (totalNodes >= maxNodes) {
           truncation = truncation === "depth_cap" ? "both" : "max_nodes";
-          break outer;
+          capHit = true;
+          break;
         }
         visited.add(next);
         totalNodes += 1;
@@ -265,6 +267,7 @@ export async function runRecursiveWalk(
         nodesThisDepth.push(node);
         nextFrontier.push(next);
       }
+      if (capHit) break;
     }
 
     if (nodesThisDepth.length > 0) {

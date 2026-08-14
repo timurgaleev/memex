@@ -58,7 +58,7 @@ export async function runExport(opts: ExportCmdOptions = {}): Promise<void> {
     for (const row of r.rows) {
       // Slug segments become nested dirs; guard against a `..` escaping outDir.
       const rel = `${row.slug}.md`.replace(/\\/g, "/");
-      if (rel.split("/").some((seg) => seg === "..")) continue;
+      if (rel.split("/").includes("..")) continue;
       const target = join(outDir, rel);
       // Belt-and-suspenders: the resolved path must stay under outDir regardless
       // of any future slug shape the segment check above doesn't anticipate.

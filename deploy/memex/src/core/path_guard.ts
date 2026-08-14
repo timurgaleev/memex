@@ -20,7 +20,7 @@
  *      misconfiguration surfaces obviously.
  */
 import { realpathSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export class PathGuardConfigError extends Error {
   constructor() {

@@ -14,7 +14,6 @@
 import { readdirSync, statSync, existsSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { loadConfig } from "../core/config.ts";
 
@@ -26,14 +25,6 @@ const DEFAULT_IGNORES = new Set([
   ".memex",
   "node_modules",
 ]);
-
-function shortHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex").slice(0, 16);
-}
-
-function docId(sourcePath: string): string {
-  return `doc_${shortHash(sourcePath)}`;
-}
 
 interface DiskEntry {
   path: string;

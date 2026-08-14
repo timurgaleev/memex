@@ -73,7 +73,7 @@ const COMMON_WORDS = new Set<string>([
   "great", "nice", "thing", "something", "anything",
 ]);
 
-const HANDLE_RE = /@([A-Za-z0-9_]{2,})/g;
+const HANDLE_RE = /@(\w{2,})/g;
 // Capitalized token runs: an uppercase-initial word, up to 4 tokens total.
 // A token allows internal letters/digits/apostrophes/hyphens, plus internal
 // dots ONLY when followed by a letter (so "U.S." keeps its dot but a
@@ -83,7 +83,7 @@ const CAP_RUN_RE = new RegExp(`${CAP_TOKEN}(?:\\s+${CAP_TOKEN}){0,3}`, "gu");
 
 /** Strip a trailing possessive ("Dana's" -> "Dana", "Jones'" -> "Jones"). */
 function stripPossessive(s: string): string {
-  return s.replace(/['\u2019]s$/i, "").replace(/['\u2019]$/i, "");
+  return s.replace(/['\u2019]s$/i, "").replace(/['\u2019]$/, "");
 }
 
 /** True when the match at `idx` is the first non-space char of text/sentence. */
@@ -102,7 +102,7 @@ function isAtSentenceStart(text: string, idx: number): boolean {
 }
 
 function isPureNumber(s: string): boolean {
-  return /^[0-9][0-9.,]*$/.test(s);
+  return /^\d[\d.,]*$/.test(s);
 }
 
 /**

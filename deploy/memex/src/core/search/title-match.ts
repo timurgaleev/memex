@@ -112,7 +112,7 @@ export function resolveTitleBoost(
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_TITLE_BOOST;
   const raw = envValue.trim();
   // Strict numeric: reject trailing junk (parseFloat("1.2x") would yield 1.2).
-  if (!/^\d+(\.\d+)?$/.test(raw)) {
+  if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new TitleBoostParseError(`invalid MEMEX_TITLE_BOOST: ${JSON.stringify(envValue)}`);
   }
   const factor = Number.parseFloat(raw);

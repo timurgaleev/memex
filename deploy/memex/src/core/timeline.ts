@@ -55,6 +55,10 @@ export interface AddTimelineEventResult {
 function normaliseOccurredAt(v: string | Date): string {
   if (v instanceof Date) {
     if (Number.isNaN(v.getTime())) {
+      // The value arrived with the right type and failed to PARSE; a caller
+      // discriminating on TypeError would then treat bad data as a programming
+      // mistake.
+      // eslint-disable-next-line unicorn/prefer-type-error
       throw new Error("occurred_at: invalid Date");
     }
     return v.toISOString();
@@ -64,6 +68,10 @@ function normaliseOccurredAt(v: string | Date): string {
   }
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) {
+    // The value arrived with the right type and failed to PARSE; a caller
+    // discriminating on TypeError would then treat bad data as a programming
+    // mistake.
+    // eslint-disable-next-line unicorn/prefer-type-error
     throw new Error(`occurred_at: cannot parse ${JSON.stringify(v)}`);
   }
   return d.toISOString();

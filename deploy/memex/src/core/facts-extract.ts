@@ -84,6 +84,17 @@ const EXTRACTOR_SYSTEM = [
   "  a named measure). Otherwise set all four to null. Do not invent numbers.",
 ].join("\n");
 
+const UNKNOWN_SPEAKER_PATTERNS: readonly RegExp[] = [
+  // ID-shape only, never a bare word: a diarizer id is a letter with optional
+  // digits ("A", "Z9") or a number ("12"). A looser `^speaker \w+$` would null
+  // real entities like "Speaker Pelosi" or "Speaker Deck"; this does not.
+  /^speaker ([a-z]\d*|\d+)$/i,
+  /^speaker_\d+$/i,
+  /^participant \d+$/i,
+  /^spk_\d+$/i,
+  /^(other|unknown|guest|user|me|\?+)$/i,
+];
+
 /**
  * Anonymous-speaker attribution gate.
  *
@@ -106,22 +117,11 @@ export function isUnknownSpeakerLabel(raw: string | null | undefined): boolean {
   // Strip markdown/quote/colon decoration: "**Participant 2:**" → "Participant 2".
   const s = raw
     .replace(/[*`"']/g, "")
-    .replace(/[:\s]+$/g, "")
+    .replace(/(?<![:\s])[:\s]+$/g, "")
     .trim();
   if (!s) return false;
   return UNKNOWN_SPEAKER_PATTERNS.some((rx) => rx.test(s));
 }
-
-const UNKNOWN_SPEAKER_PATTERNS: readonly RegExp[] = [
-  // ID-shape only, never a bare word: a diarizer id is a letter with optional
-  // digits ("A", "Z9") or a number ("12"). A looser `^speaker \w+$` would null
-  // real entities like "Speaker Pelosi" or "Speaker Deck"; this does not.
-  /^speaker ([a-z]\d*|\d+)$/i,
-  /^speaker_\d+$/i,
-  /^participant \d+$/i,
-  /^spk_\d+$/i,
-  /^(other|unknown|guest|user|me|\?+)$/i,
-];
 
 /**
  * Discriminated parse outcome. `empty` is a well-formed turn that held nothing

@@ -47,27 +47,27 @@ const PATTERNS: Pattern[] = [
   {
     name: "email",
     // Conservative: ASCII local part, dot in domain, 2+ char TLD.
-    regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    regex: /\b[\w.%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi,
     placeholder: "[email]",
   },
   {
     // Bearer runs before JWT so `Bearer <jwt>` masks whole; the token
     // charset excludes the `[`/`]` a prior placeholder would leave.
     name: "bearer",
-    regex: /\b(?:bearer|Bearer)\s+[A-Za-z0-9._~+/-]{10,}=*/g,
+    regex: /\b(?:bearer|Bearer)\s+[\w.~+/-]{10,}=*/g,
     placeholder: "[token]",
   },
   {
     // JWT: three base64url segments, distinctive `eyJ` header prefix.
     name: "jwt",
-    regex: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+    regex: /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}\b/g,
     placeholder: "[token]",
   },
   {
     name: "iban",
     // Two-letter country code + 2 check digits + 11–30 alphanumerics.
     // Permits the optional space-separated grouping common in printed form.
-    regex: /\b[A-Z]{2}[0-9]{2}(?:[ ]?[A-Z0-9]{2,4}){2,7}\b/g,
+    regex: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{2,4}){2,7}\b/g,
     placeholder: "[iban]",
   },
   {
@@ -109,7 +109,7 @@ const PATTERNS: Pattern[] = [
     // IPv6. Match the common forms (full + ::-collapsed). Conservative
     // about minimum 2 groups so we don't catch bare hex.
     regex:
-      /\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{0,4}\b/g,
+      /\b(?:[a-f0-9]{1,4}:){2,7}[a-f0-9]{0,4}\b/gi,
     placeholder: "[ip]",
   },
 ];

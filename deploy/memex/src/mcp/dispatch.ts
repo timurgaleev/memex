@@ -3191,7 +3191,7 @@ function isoDateBound(
   if (v === undefined || v === null || v === "") return undefined;
   if (
     typeof v !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}([T ]|$)/.test(v) ||
+    !/^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(v) ||
     Number.isNaN(Date.parse(v))
   ) {
     throw new OperationError(

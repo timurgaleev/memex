@@ -15,25 +15,39 @@ deliberately (bracket env access, import order, `require("process")` in an ESM
 Bun daemon), and `eslint.config.js` turns each of those off with its reason
 written next to it. **252 remain**, measurable with `make lint-ts`.
 
-What the run was worth, honestly:
+**CORRECTION (2026-08-14). The "zero defects" line that stood here was wrong,
+and it was wrong for a specific, repeatable reason: the sample was eight
+patterns, measured in isolation.** Widening to 48 sites and driving the REAL
+exported functions instead of the bare regexes found seven genuinely quadratic
+scans, all reachable at the input sizes the code itself permits. Worst was
+`extractWikilinks`: 1 MB of `[[a|` held the daemon for 243 seconds, on a path
+with no cap on body length. Seven are fixed and pinned by linearity tests; see
+CHANGELOG. Do not re-derive the old conclusion from a small sample.
 
-- **Zero defects.** The 94 "super-linear backtracking" findings did NOT
-  reproduce: eight patterns from the ingest path (transcript parser, sanity
-  gate, markdown chunkers, entity extraction) were driven with adversarial
-  inputs up to 128k characters and every one returned in under a millisecond.
-  Our patterns are anchored and use negated classes rather than `.*`, which
-  keeps them linear. Do not re-raise this as a ReDoS risk without new
-  measurements.
-- **Three real slips, fixed:** a `timeout` alternative already covered by the
-  `timed?\s?out` beside it, `round` listed twice in one alternation, and a
-  module imported on three separate lines.
-- The remaining 252 are `prefer-type-error`, `no-use-before-define`,
-  `prefer-w`/`use-ignore-case` and similar. Worth a sweep, not worth blocking a
-  ship.
+Measuring in isolation moved sites in BOTH directions and must not be trusted
+alone: `slugifyTarget` read 7.8 s isolated and 12 ms through the real function,
+because a preceding `.replace()` makes the bad input unreachable.
 
-The value is forward, not retrospective: it gates the unused binding, duplicate
-import and dead alternative in code written tomorrow, which `tsc` cannot see.
-Cost: +86 MB of node_modules, 28 top-level packages to 281.
+What actually fixes this shape: a length bound on the offending class. Making
+the run atomic does nothing when the cost is the forward scan rather than
+give-back — that was tried twice on `links.ts` and measured as still quadratic
+both times.
+
+- **Zero defects from the other rules.** Three real slips, fixed: a `timeout`
+  alternative already covered by the `timed?\s?out` beside it, `round` listed
+  twice in one alternation, and a module imported on three separate lines. The
+  four `no-dupe-disjunctions` / `no-contradiction-with-assertion` findings were
+  each checked against 3,019 targeted strings plus 300,000 fuzz cases: all four
+  were harmless redundancy, none changed an outcome.
+- **86 findings remain**, all from the two super-linear rules and all at sites
+  NOT yet measured (28 of the 76 distinct sites were never benchmarked). The
+  rules stay at `error` — they earned it. Closing this means measuring each
+  remaining site and either fixing it or disabling it at the line WITH ITS
+  NUMBER, never a blanket switch in the config.
+
+The value is forward as well as retrospective: it gates the unused binding,
+duplicate import and dead alternative in code written tomorrow, which `tsc`
+cannot see. Cost: +86 MB of node_modules, 28 top-level packages to 281.
 
 ## Open — push-bench follow-ups (2026-08-12)
 

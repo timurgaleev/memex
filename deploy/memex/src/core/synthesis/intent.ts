@@ -18,18 +18,18 @@ const TEMPORAL_RX = new RegExp(
     // Question-word triggers.
     "\\bwhen\\b",
     "\\bhow\\s+long\\s+ago\\b",
-    "\\bhow\\s+long\\s+(have|has|did|do)\\b",
+    "\\bhow\\s+long\\s+(?:have|has|did|do)\\b",
     // Recency markers.
-    "\\blast\\s+(time|met|saw|spoke|visited)\\b",
-    "\\b(is\\s+)?still\\b",
+    "\\blast\\s+(?:time|met|saw|spoke|visited)\\b",
+    "\\b(?:is\\s+)?still\\b",
     "\\bcurrent(?:ly)?\\b",
     "\\bnow\\b",
     // Temporal prepositions with date-shaped context.
-    "\\bbefore\\s+(I|we|the|that)\\b",
-    "\\bafter\\s+(I|we|the|that)\\b",
-    "\\bsince\\s+(when|I|we|the|last|\\d{4})\\b",
+    "\\bbefore\\s+(?:I|we|the|that)\\b",
+    "\\bafter\\s+(?:I|we|the|that)\\b",
+    "\\bsince\\s+(?:when|I|we|the|last|\\d{4})\\b",
     // Explicit date markers.
-    "\\b(20\\d{2}|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\b",
+    "\\b(?:20\\d{2}|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\b",
   ].join("|"),
   "i",
 );
@@ -37,14 +37,15 @@ const TEMPORAL_RX = new RegExp(
 const KNOWLEDGE_UPDATE_RX = new RegExp(
   [
     // Supersession verbs — an explicit signal that something changed. Verb-stem
-    // + optional inflection so "switch/switched/switches/switching" all match.
-    "\\b(?:chang|switch|mov|updat)(?:e[ds]?|ed|es|ing)?\\b",
+    // + optional inflection so "switch/switched/switches/switching" all match
+    // ("ed"/"es" are already covered by `e[ds]?`).
+    "\\b(?:chang|switch|mov|updat)(?:e[ds]?|ing)?\\b",
     "\\bno\\s+longer\\b",
     "\\binstead\\s+of\\b",
     "\\bused\\s+to\\b",
     "\\b(?:they|he|she|we|I)\\s+stopped\\b",
     // "what is the current/latest X".
-    "\\b(current|latest|new|most\\s+recent)\\s+\\w+",
+    "\\b(?:current|latest|new|most\\s+recent)\\s+\\w+",
     "\\bwhat(?:'s|\\s+is)\\s+(?:the\\s+)?(?:current|latest|new)\\b",
   ].join("|"),
   "i",

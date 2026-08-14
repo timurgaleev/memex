@@ -51,7 +51,7 @@ function decayScore(row: HotFactRow, now: number): number {
   const ageHours = Number.isFinite(written)
     ? Math.max(0, (now - written) / 3_600_000)
     : 0;
-  const decay = Math.pow(0.5, ageHours / DECAY_HALF_LIFE_HOURS);
+  const decay = 0.5 ** (ageHours / DECAY_HALF_LIFE_HOURS);
   return row.effective_confidence * decay;
 }
 

@@ -123,7 +123,7 @@ function jsPrecedingComment(node: TSNode): string | null {
 
 /** Strip Python string quoting (prefixes r/b/f/u + ' '' ''' " "" """). */
 function stripPyStringQuotes(raw: string): string {
-  const noPrefix = raw.replace(/^[rRbBuUfF]{0,3}/, "");
+  const noPrefix = raw.replace(/^[rbuf]{0,3}/i, "");
   const m = noPrefix.match(/^('''|"""|'|")([\s\S]*?)\1$/);
   return m ? m[2]! : noPrefix;
 }
@@ -256,7 +256,7 @@ function sqlSymbolFromStatement(
   let kind: SymbolKind | null = null;
   if (/function|procedure|trigger/.test(t)) kind = "function";
   else if (t.includes("index")) kind = "const";
-  else if (/^create_(table|view|type|schema|database|sequence|materialized)/.test(t)) {
+  else if (/^create_(?:table|view|type|schema|database|sequence|materialized)/.test(t)) {
     kind = "class";
   }
   if (!kind) return null;

@@ -21,7 +21,7 @@
  * termination — every deploy SIGTERMs the container, so a held cycle lock would
  * otherwise linger until the TTL lapses).
  */
-import { hostname } from "os";
+import { hostname } from "node:os";
 import type { Engine } from "./engine/interface.ts";
 
 export interface DbLockHandle {

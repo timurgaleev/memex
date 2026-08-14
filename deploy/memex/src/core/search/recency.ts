@@ -38,7 +38,7 @@ export function recencyMultiplier(
   const ageDays = (nowMs - t) / DAY_MS;
   if (ageDays <= 0) return 1; // future / just-now → no penalty
   if (halfLifeDays <= 0) return 1; // evergreen — no decay
-  const decay = Math.pow(0.5, ageDays / halfLifeDays);
+  const decay = 0.5 ** (ageDays / halfLifeDays);
   return floor + (1 - floor) * decay;
 }
 
@@ -111,7 +111,7 @@ export function parseRecencyDecayEnv(env: string | undefined): RecencyDecayMap {
     const halfLifeRaw = raw.slice(mid + 1, last).trim();
     const floorRaw = raw.slice(last + 1).trim();
     // Strict numeric: reject trailing junk (parseFloat("7x") would yield 7).
-    const NUM = /^\d+(\.\d+)?$/;
+    const NUM = /^\d+(?:\.\d+)?$/;
     if (!NUM.test(halfLifeRaw) || !NUM.test(floorRaw)) {
       throw new RecencyDecayParseError(
         `non-numeric halfLifeDays/floor in ${JSON.stringify(raw)} (expected prefix:halfLifeDays:floor)`,
@@ -252,7 +252,7 @@ export function parseRecencyBoostEnv(env: string | undefined): RecencyBoostMap {
     const prefix = raw.slice(0, mid).trim();
     const halfLifeRaw = raw.slice(mid + 1, last).trim();
     const coefficientRaw = raw.slice(last + 1).trim();
-    const NUM = /^\d+(\.\d+)?$/;
+    const NUM = /^\d+(?:\.\d+)?$/;
     if (!prefix) {
       throw new RecencyDecayParseError(`empty prefix in ${JSON.stringify(raw)}`);
     }

@@ -41,7 +41,7 @@ export function parseFrontmatter(md: string): ParsedFrontmatter {
       continue;
     }
 
-    const kv = trimmed.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    const kv = trimmed.match(/^([\w-]+):\s*(.*)$/);
     if (!kv) {
       lastListKey = null;
       continue;

@@ -378,7 +378,7 @@ export interface AddFactResult {
 function normaliseConfidence(c: number | undefined): number {
   if (c === undefined) return 1.0;
   if (typeof c !== "number" || Number.isNaN(c)) {
-    throw new Error("confidence must be a number in [0, 1]");
+    throw new TypeError("confidence must be a number in [0, 1]");
   }
   if (c < 0 || c > 1) {
     throw new Error("confidence must be in [0, 1]");
@@ -707,6 +707,10 @@ function normaliseSince(v: string | Date): string {
   }
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) {
+    // The value arrived with the right type and failed to PARSE; a caller
+    // discriminating on TypeError would then treat bad data as a programming
+    // mistake.
+    // eslint-disable-next-line unicorn/prefer-type-error
     throw new Error(`since: cannot parse ${JSON.stringify(v)}`);
   }
   return d.toISOString();

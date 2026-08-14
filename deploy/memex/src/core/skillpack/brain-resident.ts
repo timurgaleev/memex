@@ -163,12 +163,12 @@ export function getBrainSkill(
   if (typeof slug !== "string") return null;
   const skillsDir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
   const candidates: string[] = [];
-  if (/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) {
+  if (/^[a-z0-9][\w-]*$/i.test(slug)) {
     candidates.push(join(skillsDir, `${slug}.md`));
     candidates.push(join(skillsDir, slug, "SKILL.md"));
-  } else if (/^_[a-z0-9][a-z0-9_-]*$/i.test(slug)) {
+  } else if (/^_[a-z0-9][\w-]*$/i.test(slug)) {
     candidates.push(join(skillsDir, `${slug}.md`));
-  } else if (/^conventions\/[a-z0-9][a-z0-9_.-]*$/i.test(slug) && !slug.includes("..")) {
+  } else if (/^conventions\/[a-z0-9][\w.-]*$/i.test(slug) && !slug.includes("..")) {
     const name = slug.slice("conventions/".length);
     candidates.push(join(skillsDir, "conventions", name.includes(".") ? name : `${name}.md`));
   } else {

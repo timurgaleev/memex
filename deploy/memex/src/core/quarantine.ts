@@ -20,7 +20,7 @@ export const CONTENT_FLAG_KEY = "content_flag";
  * caller that forgets that contract.
  */
 export function assertSqlAlias(alias: string): void {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) {
+  if (!/^[a-z_]\w*$/i.test(alias)) {
     throw new Error(`unsafe SQL alias: ${JSON.stringify(alias)}`);
   }
 }

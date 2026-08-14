@@ -48,7 +48,7 @@ function errMessage(err: unknown): string {
 export function isRetryableConnError(err: unknown): boolean {
   const code = errCode(err);
   if (code === "57014" || code === "55P03") return false; // statement/lock timeout
-  if (/^08/.test(code)) return true; // Class 08 — connection exception
+  if (code.startsWith("08")) return true; // Class 08 — connection exception
   if (
     code === "CONNECTION_ENDED" ||
     code === "ECONNRESET" ||

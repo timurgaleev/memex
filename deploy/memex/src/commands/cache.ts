@@ -56,7 +56,6 @@ export async function runCache(opts: CacheCmdOptions): Promise<void> {
         console.log(
           JSON.stringify({ ok: true, action: "clear", removed }, null, 2),
         );
-        return;
       }
     }
   } finally {

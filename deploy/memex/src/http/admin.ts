@@ -70,6 +70,21 @@ function buildSetCookie(req: Request, value: string, maxAgeMs: number): string {
   return attrs.join("; ");
 }
 
+const EXPIRED_LINK_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>memex</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.box{max-width:400px;padding:32px;text-align:left}.logo{font-size:28px;font-weight:600;margin-bottom:24px}
+.msg{color:#888;font-size:14px;line-height:1.6;margin-bottom:20px}
+.hint{background:rgba(136,170,255,0.08);border:1px solid rgba(136,170,255,0.2);border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.5;color:#888}
+.hint b{color:#e0e0e0}.prompt{background:rgba(0,0,0,0.3);border-radius:6px;padding:8px 12px;margin-top:8px;font-family:monospace;font-size:12px;color:#88aaff}
+</style></head><body><div class="box">
+<div class="logo">memex</div>
+<div class="msg">⚠️ This admin link has expired, was already used, or the server has restarted.</div>
+<div class="hint"><b>Get a fresh link from your AI agent:</b>
+<div class="prompt">&ldquo;Give me the memex admin login link&rdquo;</div>
+</div></div></body></html>`;
+
 export interface AdminAuthOptions {
   /** The bootstrap admin token (its sha256 is the stored secret). */
   bootstrapToken: string;
@@ -217,18 +232,3 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
 
   return { requireAdmin, handleAuthRoute };
 }
-
-const EXPIRED_LINK_HTML = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>memex</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.box{max-width:400px;padding:32px;text-align:left}.logo{font-size:28px;font-weight:600;margin-bottom:24px}
-.msg{color:#888;font-size:14px;line-height:1.6;margin-bottom:20px}
-.hint{background:rgba(136,170,255,0.08);border:1px solid rgba(136,170,255,0.2);border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.5;color:#888}
-.hint b{color:#e0e0e0}.prompt{background:rgba(0,0,0,0.3);border-radius:6px;padding:8px 12px;margin-top:8px;font-family:monospace;font-size:12px;color:#88aaff}
-</style></head><body><div class="box">
-<div class="logo">memex</div>
-<div class="msg">⚠️ This admin link has expired, was already used, or the server has restarted.</div>
-<div class="hint"><b>Get a fresh link from your AI agent:</b>
-<div class="prompt">&ldquo;Give me the memex admin login link&rdquo;</div>
-</div></div></body></html>`;

@@ -725,7 +725,7 @@ export function renderTrajectoryBlock(
  *  rejection — trajectory enrichment must never block or fail the run. */
 async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(fallback), ms);
+    const timer = setTimeout(resolve, ms, fallback);
     (timer as unknown as { unref?: () => void }).unref?.();
     p.then(
       (v) => {

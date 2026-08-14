@@ -81,6 +81,21 @@ export const GRADE_TAKES_PROMPT_VERSION = "v1-nova";
  *  grades under the (take_id, prompt_version, evidence_sig) uniqueness key. */
 export const GRADE_ENSEMBLE_PROMPT_VERSION = "v1-sonnet-ensemble";
 
+// Lives beside the prompt versions above: `estimateJudgeUsage` sizes the budget
+// gate off this text, so it has to be in hand before the first grading call.
+const GRADE_SYSTEM_PROMPT = `You are grading a single forecasting take against
+evidence. Decide whether the claim turned out:
+- correct      (the world matches the claim)
+- incorrect    (the world clearly contradicts it)
+- partial      (some right, some wrong)
+- unresolvable (insufficient evidence; outcome still pending)
+
+Output ONLY one JSON object:
+  {"verdict": ("correct"|"incorrect"|"partial"|"unresolvable"),
+   "confidence": (0..1), "reasoning": (<=400 chars)}
+
+If evidence is sparse, return verdict="unresolvable" with low confidence.`;
+
 const DEFAULT_ENSEMBLE_JUDGES = 3;
 const DEFAULT_ENSEMBLE_BUDGET_USD = 1.0;
 
@@ -789,19 +804,6 @@ interface ParsedVerdict {
   confidence: number;
   reasoning: string;
 }
-
-const GRADE_SYSTEM_PROMPT = `You are grading a single forecasting take against
-evidence. Decide whether the claim turned out:
-- correct      (the world matches the claim)
-- incorrect    (the world clearly contradicts it)
-- partial      (some right, some wrong)
-- unresolvable (insufficient evidence; outcome still pending)
-
-Output ONLY one JSON object:
-  {"verdict": ("correct"|"incorrect"|"partial"|"unresolvable"),
-   "confidence": (0..1), "reasoning": (<=400 chars)}
-
-If evidence is sparse, return verdict="unresolvable" with low confidence.`;
 
 export function evidenceSignature(evidence: string, modelId: string): string {
   return createHash("sha256").update(`${modelId}|${evidence}`).digest("hex");

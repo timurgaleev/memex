@@ -72,7 +72,7 @@ export function coerceTimestamp(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   const n = Number(value);
   if (!Number.isFinite(n)) {
-    throw new Error(
+    throw new TypeError(
       `coerceTimestamp: non-finite timestamp value ${JSON.stringify(value)}`,
     );
   }

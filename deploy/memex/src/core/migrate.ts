@@ -35,7 +35,7 @@ export interface MigrationResult {
   skipped: number;
 }
 
-const FILENAME_RE = /^(\d+)_([A-Za-z0-9_-]+)\.sql$/;
+const FILENAME_RE = /^(\d+)_([\w-]+)\.sql$/;
 
 /**
  * Per-migration lock timeout. A DDL `ALTER`/`ADD COLUMN` takes a brief
@@ -55,7 +55,7 @@ const DEFAULT_LOCK_TIMEOUT = "10s";
 
 // Postgres `lock_timeout` grammar: a bare integer is milliseconds, or an
 // integer with a time unit. We accept the common units only.
-const LOCK_TIMEOUT_RE = /^\d+\s*(ms|s|min|h|d)?$/;
+const LOCK_TIMEOUT_RE = /^\d+\s*(?:ms|min|[shd])?$/;
 
 /**
  * Resolve the per-migration lock timeout, validating any env override.

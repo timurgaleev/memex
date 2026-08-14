@@ -141,7 +141,7 @@ export async function embedText(
     // whether or not the vector it sent back is one we can store.
     meter.report({ inputTokens: parsed.inputTextTokenCount ?? 0, outputTokens: 0 });
     if (!Array.isArray(parsed.embedding)) {
-      throw new Error("embedText: response missing 'embedding' array");
+      throw new TypeError("embedText: response missing 'embedding' array");
     }
     if (parsed.embedding.length !== EMBED_DIMENSIONS) {
       throw new Error(

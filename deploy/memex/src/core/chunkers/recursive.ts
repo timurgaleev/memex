@@ -235,7 +235,7 @@ function splitOversizedUnit(text: string, maxChars: number): string[] {
  */
 function splitBySize(section: string, maxChars: number): string[] {
   if (section.length <= maxChars) return [section];
-  const paragraphs = section.split(/\r?\n\s*\r?\n/).filter(Boolean);
+  const paragraphs = section.split(/\r?\n\s*\n/).filter(Boolean);
   const units: string[] = [];
   for (const p of paragraphs) {
     if (p.length <= maxChars) units.push(p);

@@ -19,9 +19,9 @@ export function backoffMs(retryCount: number, opts: BackoffOptions = {}): number
   const base = opts.baseMs ?? 5_000;
   const max = opts.maxMs ?? 30 * 60 * 1000;
   if (retryCount < 0) return base;
-  // Math.pow(2, 30) is ~1e9 — well within safe integer territory; cap
+  // 2 ** 30 is ~1e9 — well within safe integer territory; cap
   // before the multiplication overflows for paranoid retry counts.
   const exp = Math.min(retryCount, 30);
-  const raw = base * Math.pow(2, exp);
+  const raw = base * 2 ** exp;
   return Math.min(raw, max);
 }

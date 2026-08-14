@@ -28,7 +28,6 @@ import { putPage } from "../pages.ts";
 import { runThink, type ThinkResult } from "./think.ts";
 import { renderAnswerWithGaps } from "./think-persist.ts";
 import { resolveSonnetFn, resolveFactsModel, type SonnetFn } from "../llm/sonnet.ts";
-import { BudgetTracker } from "../budget.ts";
 
 export interface AutoThinkPhaseResult {
   ran: boolean;

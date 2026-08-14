@@ -348,8 +348,8 @@ function nearest(flag: string, candidates: Iterable<string>): string | null {
 
 function editDistance(a: string, b: string): number {
   if (Math.abs(a.length - b.length) > 2) return 99;
-  const prev = new Array<number>(b.length + 1);
-  const cur = new Array<number>(b.length + 1);
+  const prev = Array.from<number>({ length: b.length + 1 }).fill(0);
+  const cur = Array.from<number>({ length: b.length + 1 }).fill(0);
   for (let j = 0; j <= b.length; j++) prev[j] = j;
   for (let i = 1; i <= a.length; i++) {
     cur[0] = i;

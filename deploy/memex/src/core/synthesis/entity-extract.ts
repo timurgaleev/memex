@@ -18,7 +18,7 @@
 // Single-word tokenizer: letters, hyphens, apostrophes (length 1-40). The
 // caller stitches consecutive non-stop-word tokens into phrases so
 // "Blue Bottle" stays together while "I last meet Marco" splits at boundaries.
-const WORD_RX = /\b[a-zA-Z][a-zA-Z\-']{0,40}\b/g;
+const WORD_RX = /\b[a-z][a-z\-']{0,40}\b/gi;
 
 // Entity-prefix paths the brain uses for canonical entity pages. A retrieved
 // slug starting with one of these is a high-precision candidate.

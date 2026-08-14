@@ -183,7 +183,7 @@ export async function syncTakesFromFence(
     weightsClamped: 0,
     warnings,
   };
-  if (takes.length === 0 && body.indexOf("memex:takes:begin") === -1) return result;
+  if (takes.length === 0 && !body.includes("memex:takes:begin")) return result;
 
   for (const t of takes) {
     const { weight, clamped } = normalizeWeightForStorage(t.weight);

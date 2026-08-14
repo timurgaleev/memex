@@ -32,6 +32,13 @@ const DEFAULT_MAX_CONCEPTS = 30;
  *  near-empty budget. That is the exact failure this guard exists to prevent. */
 const CONCEPT_MAX_OUTPUT_TOKENS = 400;
 
+const SYSTEM_PROMPT = `You write a 1-paragraph executive summary of a concept,
+based on multiple atomic insights that reference it.
+
+Output ONLY the summary paragraph (3-5 sentences). No headers, no JSON, no
+preamble. Synthesize what the atoms collectively SAY about the concept; do not
+enumerate them.`;
+
 /** ~4 chars/token, rounded up, plus the system prompt. */
 function estimateUsage(prompt: string): { inputTokens: number; outputTokens: number } {
   return {
@@ -108,13 +115,6 @@ interface ConceptGroup {
   titles: string[];
   bodies: string[];
 }
-
-const SYSTEM_PROMPT = `You write a 1-paragraph executive summary of a concept,
-based on multiple atomic insights that reference it.
-
-Output ONLY the summary paragraph (3-5 sentences). No headers, no JSON, no
-preamble. Synthesize what the atoms collectively SAY about the concept; do not
-enumerate them.`;
 
 function tierFor(count: number): ConceptTier {
   if (count >= TIER_T1_MIN) return "T1";

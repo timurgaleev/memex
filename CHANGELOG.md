@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Seven text scans were quadratic on input the daemon accepts, and one of
+  them could hold it for minutes.** memex runs regexes over note bodies, chat
+  logs and search queries it did not write, so a pattern whose cost squares is
+  an availability bug, not a style nit. The worst: the wikilink extractor took
+  243 seconds on a 1 MB body of `[[a|`, on a path that does not cap body
+  length; the gazetteer mask extrapolated to ~14 minutes at its own 1 MB cap;
+  the prose sanity check took 56 seconds inside the window where it runs on the
+  full body. All seven are bounded now — `extractWikilinks` does that same 1 MB
+  in 772 ms, the gazetteer in 1.2 s — and each carries a linearity test with a
+  loose ceiling, so a slow CI box cannot fake a pass and a regression cannot
+  hide.
+  The bounds are taken from constants that already exist rather than invented:
+  a wikilink target is capped at 256 because a page slug is, so a longer target
+  could never have resolved to a page.
+  Two weaker fixes were tried first and measured as still quadratic, which is
+  worth recording: making the runs atomic does nothing here, because the cost
+  is the forward scan itself, not the give-back. When a negated class does not
+  exclude the characters the input is built from, the run walks to the end of
+  the body from every start position, and only a length bound stops it.
+  Found by widening a previous measurement from 8 patterns to 48 and driving
+  the real exported functions instead of the bare regexes. That distinction is
+  the whole finding: the same widening also cleared five sites that looked
+  quadratic in isolation but are unreachable through the real call path.
+
 ### Added
 - **The typechecker now covers the tests too, and the exclusion is gone.** The
   gate shipped scoped to `src/` because `tests/` still carried 59 errors, almost

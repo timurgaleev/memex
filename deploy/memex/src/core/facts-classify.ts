@@ -126,7 +126,7 @@ export function parseClassifierJson(
   const cleaned = raw
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "");
+    .replace(/\s*```$/, "");
   let obj = tryJson(cleaned);
   if (!obj) {
     const m = cleaned.match(/\{[\s\S]*?\}/);

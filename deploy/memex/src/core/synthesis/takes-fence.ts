@@ -88,11 +88,13 @@ const SLUG_SEGMENT = "[a-z0-9][a-z0-9._-]*";
 /**
  * Holder grammar. Canonical: `world` | `brain` | `people/<slug>` |
  * `companies/<slug>`. A legacy bare slug (single lowercase segment) is
- * tolerated with a warning — the markdown source-of-truth contract preserves
- * the row either way.
+ * tolerated — the markdown source-of-truth contract preserves the row either
+ * way — so the canonical `world`/`brain` literals need no branch of their own;
+ * they are bare segments. Only a malformed holder (uppercase, an unknown
+ * prefix, empty) fails here and earns TAKES_HOLDER_INVALID.
  */
 export const HOLDER_REGEX = new RegExp(
-  `^(?:world|brain|(?:people|companies)/${SLUG_SEGMENT}|${SLUG_SEGMENT})$`,
+  `^(?:(?:people|companies)/${SLUG_SEGMENT}|${SLUG_SEGMENT})$`,
 );
 
 export function isValidHolder(holder: string): boolean {

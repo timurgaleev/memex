@@ -172,7 +172,7 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter | null {
   const fields: Record<string, string> = {};
   let rawTags: string | null = null;
   for (const line of raw.split("\n")) {
-    const kv = /^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
+    const kv = /^([a-z_][\w-]*):\s*(.*)$/i.exec(line);
     if (!kv) continue;
     const key = kv[1]!;
     const value = (kv[2] ?? "").trim();

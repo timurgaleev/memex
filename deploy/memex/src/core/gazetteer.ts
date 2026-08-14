@@ -184,7 +184,27 @@ function phraseToPattern(phrase: string): string {
   return phrase.split(" ").map(escapeRegExp).join("\\s+");
 }
 
-const WIKILINK_SPAN_RE = /\[\[[^\]\n]*\]\]/g;
+// The `(?<!\[)` guard is load-bearing for cost, not for meaning: without it a
+// long run of `[` makes the engine restart a full scan at every bracket in the
+// run (quadratic). Every start position inside such a run reaches the same
+// first `]`/newline, so only the run's first `[[` can ever win the leftmost
+// match — pinning the start there masks exactly the same spans, in linear time.
+//
+// The guard alone is NOT enough, because it only pins CONSECUTIVE brackets. Put
+// any non-`[` char between the pairs — `[[a` repeated — and every third offset
+// is a fresh legal start again. `[^\]\n]` accepts both `[` and `a`, so with an
+// unbounded `*` each of those n/3 starts walks to the END OF THE BODY before
+// failing to find `]]`. Measured through scanMentions on `[[a` repeated: 24 K
+// chars = 457 ms, 48 K = 1.8 s, 96 K = 6.6 s, 192 K = 31 s — squaring cleanly,
+// and the 1 MB cap below extrapolates to ~14 minutes.
+//
+// The length bound is what removes the forward walk. It is chosen so no real
+// wikilink stops being masked: this mask exists to blank the spans that
+// extractWikilinks (core/links.ts) turns into edges, and the widest span that
+// regex can accept is a 256-char target (MAX_SLUG_LEN) + `|` + a 512-char
+// alias = 769. A `[[…]]` with more than 769 chars inside is not a link to the
+// extractor, so masking it never suppressed a double-link.
+const WIKILINK_SPAN_RE = /(?<!\[)\[\[[^\]\n]{0,769}\]\]/g;
 
 /**
  * Scan `body` for first-mention matches of the gazetteer, returning the

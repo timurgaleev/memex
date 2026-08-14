@@ -33,7 +33,6 @@ export type OperationErrorCode =
   | "storage_error"
   | "embedding_failed"
   | "rate_limited"
-  // eslint-disable-next-line @typescript-eslint/ban-types
   | (string & {});
 
 /** Public envelope: no free-text `message` (withheld on the public boundary). */

@@ -65,6 +65,10 @@ function normaliseTime(v: Date | string | undefined): Date {
   }
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) {
+    // The value arrived with the right type and failed to PARSE; a caller
+    // discriminating on TypeError would then treat bad data as a programming
+    // mistake.
+    // eslint-disable-next-line unicorn/prefer-type-error
     throw new Error(`not_before: cannot parse ${JSON.stringify(v)}`);
   }
   return d;

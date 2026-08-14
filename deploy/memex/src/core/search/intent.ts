@@ -82,8 +82,8 @@ export async function classifyIntent(
 
   // Cheap heuristics first — obvious cases never reach the taxonomy or LLM.
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) return "exact";
-  if (/\bhow (do|to|can|should)\b/i.test(trimmed)) return "howto";
-  if (/\b(when|what|who|where|which) (is|was|did)\b/i.test(trimmed)) return "factual";
+  if (/\bhow (?:do|to|can|should)\b/i.test(trimmed)) return "howto";
+  if (/\b(?:when|what|who|where|which) (?:is|was|did)\b/i.test(trimmed)) return "factual";
 
   // Zero-LLM default: the regex taxonomy decides. The paid Haiku call fires
   // ONLY when the operator opted back in via MEMEX_INTENT_LLM=1.

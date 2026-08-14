@@ -34,8 +34,32 @@ export interface ExtractedEntity {
   surfaceForm: string;
 }
 
-const WIKILINK_RE = /\[\[([^\]\|\n]+?)(\|[^\]]*?)?\]\]/g;
-const HASHTAG_RE = /(?:^|\s)#([A-Za-z][\w/-]*)\b/g;
+// The `(?<!\[)` guard only skips start positions that can never win anyway: if
+// `[[` matches at p and s[p-1] is `[`, the leftmost match already starts at
+// p-1 (the target class accepts `[`). Without it, a run of `[` re-scans the
+// whole tail from every offset.
+//
+// The guard alone does not make the scan linear — both unbounded runs did.
+// Neither class excludes the characters an adversarial body is made of, so each
+// run walks to the END OF THE BODY before failing, and does that from every one
+// of the n start positions:
+//   - `[[a|` repeated: the target stops at the `|` after one char, then the
+//     alias class `[^\]]` (which excludes only `]`) runs to the end.
+//   - `[[a` repeated: the target class `[^\]|\n]` accepts `[` and `a`, so the
+//     target itself runs to the end.
+// Measured on extractWikilinks: `[[a|` at 32 K chars = 725 ms, 64 K = 2.85 s,
+// 128 K = 11.7 s, 256 K = 51.0 s; `[[a` at 192 K chars = 69 s. Both square
+// cleanly (ratio ~4.0 per doubling). Making the runs atomic does not help —
+// the cost is the forward walk, not give-back. Only a length bound removes it.
+//
+// The bounds lose no real entity: a page slug is capped at 256 (MAX_SLUG_LEN in
+// core/links.ts), so a longer target could never resolve to a page, and the
+// sibling scanner in core/links.ts uses the same 256/512 pair. The alias is
+// display text only — this extractor reads m[1] and never m[2] — so its looser
+// 512 is pure cost control. `{0,512}` rather than `{1,512}` keeps `[[a|]]`
+// matching exactly as before.
+const WIKILINK_RE = /(?<!\[)\[\[([^\]|\n]{1,256})(\|[^\]]{0,512})?\]\]/g;
+const HASHTAG_RE = /(?:^|\s)#([a-z][\w/-]*)\b/gi;
 const DATE_RE = /\b(\d{4}-\d{2}-\d{2})\b/g;
 
 function uniqByKey<T>(items: readonly T[], key: (t: T) => string): T[] {

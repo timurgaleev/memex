@@ -82,7 +82,7 @@ export function stripStrikethrough(s: string): { text: string; struck: boolean }
  */
 export function parseStringCell(raw: string): string | undefined {
   const trimmed = raw.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed || undefined;
 }
 
 /**

@@ -47,10 +47,10 @@ export interface ConceptRow {
 }
 
 /**
- * @param sourceIds Accepted for API symmetry with the other scoped reads, but
- *   NOT applied: `synth_concepts` is a GLOBAL aggregate — concepts cluster atoms
- *   across every source (migration 045 has no `source_id` on the table), so
- *   there is no row-level tenant axis to filter on. Passing it is a no-op.
+ * `_sourceIds` is accepted for API symmetry with the other scoped reads, but
+ * NOT applied: `synth_concepts` is a GLOBAL aggregate — concepts cluster atoms
+ * across every source (migration 045 has no `source_id` on the table), so
+ * there is no row-level tenant axis to filter on. Passing it is a no-op.
  */
 export async function listConcepts(
   engine: Engine,

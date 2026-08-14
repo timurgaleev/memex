@@ -405,8 +405,11 @@ function runWithTimeout<T>(start: () => Promise<T>, ms: number): Promise<T> {
     work = start();
   } catch (e) {
     // A handler that throws synchronously (before returning a promise) becomes
-    // a normal rejection so runJob's catch routes it through fail().
-    return Promise.reject(e as Error);
+    // a normal rejection so runJob's catch routes it through fail(). A thrown
+    // non-Error is wrapped; `asMessage` already rendered it with String(), so
+    // the dead-letter message is unchanged, and a real Error (JobTimeoutError
+    // included) passes through untouched so the `instanceof` check still holds.
+    return Promise.reject(e instanceof Error ? e : new Error(String(e)));
   }
   // Guard: if `work` loses the race and later rejects, swallow it here.
   work.catch(() => {});

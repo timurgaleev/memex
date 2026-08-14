@@ -34,7 +34,7 @@ interface PatternEntry {
   ampmGroup?: number;
 }
 
-const SPEAKER_CLEAN = /^[^\p{L}\p{N}]+\s*/u;
+const SPEAKER_CLEAN = /^[^\p{L}\p{N}]+/u;
 
 function cleanSpeaker(raw: string): string {
   return raw.replace(SPEAKER_CLEAN, "").trim() || raw.trim();
@@ -86,7 +86,7 @@ const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   {
     // Alice: message   (plain transcript; tried last — most permissive)
     id: "plain",
-    regex: /^([A-Za-z][\w .'-]{0,40}?):\s+(.+)$/,
+    regex: /^([a-z][\w .'-]{0,40}):\s+(.+)$/i,
     speaker: 1,
     text: 2,
   },

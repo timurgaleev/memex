@@ -69,7 +69,7 @@ export function resolveGraphSignalsFloorRatio(
 ): number | undefined {
   if (envValue === undefined || envValue.trim() === "") return undefined;
   const raw = envValue.trim();
-  if (!/^\d+(\.\d+)?$/.test(raw)) {
+  if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new GraphSignalsFloorParseError(
       `invalid MEMEX_GRAPH_SIGNALS_FLOOR: ${JSON.stringify(envValue)}`,
     );

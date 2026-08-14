@@ -50,6 +50,10 @@ const TEMPORAL_PATTERNS = [
   /\blatest\b/i,
   /\bupdate(s)?\s+(on|from|about)\b/i,
   /\bhow\s+long\s+(ago|since)\b/i,
+  // The `i` is redundant today (digits and separators only) but every sibling
+  // in this list carries it; dropping it here is a trap for whoever adds a
+  // letter to the pattern.
+  // eslint-disable-next-line regexp/no-useless-flag
   /\b\d{4}[-/]\d{2}\b/i,
   /\blast\s+(week|month|quarter|year)\b/i,
 ];
@@ -184,7 +188,9 @@ const RECENCY_ON_PATTERNS = [
   /\bmeeting\s+(prep|with|for|notes?|brief)\b/i,
   /\bbefore\s+(my|the|our)\s+(meeting|call|sync|chat)\b/i,
   /\bprep(are)?\s+(for|me)\b/i,
-  /\bcatch(es|ing)?\b[\s\w]{0,15}\bup\b/i,
+  // At least one separator char: the `\b` after the verb already rules out a
+  // zero-gap "catchup", so {0,…} could never fire on its own.
+  /\bcatch(es|ing)?\b[\s\w]{1,15}\bup\b/i,
   /\bremind\s+me\s+(what|about|of)\b/i,
   /\b(update|status|progress)\s+(on|with|from)\b/i,
 ];
@@ -200,7 +206,7 @@ const EXPLICIT_TEMPORAL_BOUND_PATTERNS = [
 
 const SALIENCE_ON_PATTERNS = [
   /\bwhat'?s\s+(going\s+on|happening|been\s+going|been\s+up)\b/i,
-  /\bcatch(es|ing)?\b[\s\w]{0,15}\bup\b/i,
+  /\bcatch(es|ing)?\b[\s\w]{1,15}\bup\b/i,
   /\bremind\s+me\s+(what|about|of)\b/i,
   /\bprep(are)?\s+(for|me)\b/i,
   /\bbefore\s+(my|the|our)\s+(meeting|call|sync|chat)\b/i,

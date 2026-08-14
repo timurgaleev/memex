@@ -122,7 +122,7 @@ export function parseFactDate(s: string | null | undefined): Date | null {
     v += ":00"; // +00 -> +00:00
   } else if (/[+-]\d{4}$/.test(v)) {
     v = `${v.slice(0, -2)}:${v.slice(-2)}`; // +0000 -> +00:00
-  } else if (!/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(v)) {
+  } else if (!/(?:z|[+-]\d{2}:\d{2})$/i.test(v)) {
     v += "Z"; // no timezone -> UTC
   }
   const d = new Date(v);

@@ -107,13 +107,32 @@ export interface ContentLintIssue {
 // Punctuation is [.!]? — the artifact class the docstrings name is
 // "Of course! Here is..." and the enthusiastic bang is the common form.
 const LLM_PREAMBLES = [
-  /^Of course[.!]?\s*Here is (?:a |the )?(?:detailed |comprehensive |updated )?page[^.\n]*\.?\s*\n*/gim,
-  /^Certainly[.!]?\s*Here is[^.\n]*\.?\s*\n*/gim,
-  /^Here is (?:a |the )?(?:detailed |comprehensive |updated )?page[^.\n]*\.?\s*\n*/gim,
-  /^I've (?:created|updated|written|prepared) (?:a |the )?(?:detailed |comprehensive )?page[^.\n]*\.?\s*\n*/gim,
-  /^Sure[.!,]?\s*Here (?:is|are)[^.\n]*\.?\s*\n*/gim,
-  /^Absolutely[.!]?\s*Here[^.\n]*\.?\s*\n*/gim,
+  /^Of course[.!]?\s*Here is (?:a |the )?(?:detailed |comprehensive |updated )?page[^.\n]*\.?\s*/gim,
+  /^Certainly[.!]?\s*Here is[^.\n]*\.?\s*/gim,
+  /^Here is (?:a |the )?(?:detailed |comprehensive |updated )?page[^.\n]*\.?\s*/gim,
+  /^I've (?:created|updated|written|prepared) (?:a |the )?(?:detailed |comprehensive )?page[^.\n]*\.?\s*/gim,
+  /^Sure[.!,]?\s*Here (?:is|are)[^.\n]*\.?\s*/gim,
+  /^Absolutely[.!]?\s*Here[^.\n]*\.?\s*/gim,
 ];
+
+/**
+ * Does this line open a `[Source:` that it never closes?
+ *
+ * The obvious spelling, `/\[Source:[^\]]*$/`, asks the same question but pays
+ * for it quadratically: every `[Source:` is a fresh start position, and from
+ * each one the unbounded `[^\]]*` walks the whole rest of the line before `$`
+ * fails. A line of `[Source:` repeated is the adversarial shape — 64 K of them
+ * measured 11.7 s, squaring cleanly across sizes.
+ *
+ * `]` never occurs inside the literal `[Source:`, so every occurrence lies
+ * wholly before or wholly after the line's LAST `]`. The unclosed ones are
+ * therefore exactly those in the tail past it, which two index scans settle in
+ * one pass. Same accepted language as the regex — no length bound, so a long
+ * unclosed citation (precisely what the rule is for) still gets flagged.
+ */
+function hasUnclosedCitation(line: string): boolean {
+  return line.includes("[Source:", line.lastIndexOf("]") + 1);
+}
 
 /** Lint raw markdown content → deterministic issue list (pure). */
 export function lintContent(content: string, filePath: string): ContentLintIssue[] {
@@ -135,7 +154,7 @@ export function lintContent(content: string, filePath: string): ContentLintIssue
   }
 
   // Whole page wrapped in ```markdown fences (LLM artifact).
-  if (content.match(/^```(?:markdown|md)\s*\n/m) && content.match(/\n```\s*$/m)) {
+  if (/^```(?:markdown|md)\s*\n/m.test(content) && /\n```\s*$/m.test(content)) {
     issues.push({
       file: filePath,
       line: 1,
@@ -206,8 +225,10 @@ export function lintContent(content: string, filePath: string): ContentLintIssue
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (
-      /\[Source:[^\]]*$/.test(line) &&
-      !(i + 1 < lines.length && /^\s*[^[]*\]/.test(lines[i + 1]!))
+      hasUnclosedCitation(line) &&
+      // `[^[]*` already covers the leading whitespace a wrapped citation line
+      // carries — spelling it as `\s*[^[]*` only bought polynomial backtracking.
+      !(i + 1 < lines.length && /^[^[]*\]/.test(lines[i + 1]!))
     ) {
       issues.push({
         file: filePath,
@@ -221,8 +242,7 @@ export function lintContent(content: string, filePath: string): ContentLintIssue
 
   // Empty / stub sections.
   const sectionPattern = /^##\s+(.+)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = sectionPattern.exec(content)) !== null) {
+  for (const m of content.matchAll(sectionPattern)) {
     const start = m.index + m[0].length;
     const nextSection = content.indexOf("\n## ", start);
     const body = content.slice(start, nextSection > 0 ? nextSection : undefined).trim();

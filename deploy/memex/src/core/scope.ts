@@ -113,7 +113,8 @@ export function parseScopeString(s: string | undefined | null): string[] {
  * set produce identical DB rows.
  *
  * Throws:
- *   - array element that's not a string → Error
+ *   - input that is neither string nor array → TypeError
+ *   - array element that's not a string → TypeError
  *   - element containing whitespace / empty → Error
  *   - any element not in ALLOWED_SCOPES → InvalidScopeError
  */
@@ -127,7 +128,7 @@ export function normalizeScopesInput(raw: unknown): string {
   } else if (Array.isArray(raw)) {
     for (const el of raw) {
       if (typeof el !== 'string') {
-        throw new Error(
+        throw new TypeError(
           `scopes array must contain only strings, got ${el === null ? 'null' : typeof el}`,
         );
       }
@@ -142,7 +143,7 @@ export function normalizeScopesInput(raw: unknown): string {
     }
     candidates = raw as string[];
   } else {
-    throw new Error(`scopes must be a string or array of strings, got ${typeof raw}`);
+    throw new TypeError(`scopes must be a string or array of strings, got ${typeof raw}`);
   }
 
   const deduped = Array.from(new Set(candidates)).sort();

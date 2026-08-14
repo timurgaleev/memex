@@ -188,10 +188,42 @@ export interface ProseAssessment {
 // count toward markup.
 const FENCED_CODE_RE = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
 const INLINE_CODE_RE = /`[^`\n]*`/g;
-const HTML_TAG_RE = /<\/?[a-z][^>]*>/gi;
-const MD_IMAGE_RE = /!\[[^\]]*\]\([^)]*\)/g;
-// Keep anchor text, drop the URL: [text](url) -> text
-const MD_LINK_RE = /\[([^\]]*)\]\([^)]*\)/g;
+/**
+ * Cap on a single unterminated run inside the markup patterns below.
+ *
+ * Every one of those runs is a negated class that does NOT exclude the
+ * character the run starts on, so on a body made of that character the run
+ * walks to the END OF THE BODY from every start position — quadratic. Measured
+ * through `assessContentSanity` on `"[a"` repeated: 5.4 s at 62 K, 350 s at
+ * 500 K, growth ratio 4.0. A body of `"[a"` is trivial to write and sits inside
+ * the prose window, so it holds the ingest worker for minutes.
+ *
+ * 512 is not arbitrary — it is the same display-text cap the wikilink scanners
+ * already carry (`links.ts` `[^\]\n]{1,512}`, `entities.ts` `[^\]]{0,512}`).
+ * `{0,512}` rather than `{1,512}` so `[]()` and `<br>` still match exactly as
+ * they did.
+ *
+ * The failure direction is safe: a link or tag whose run exceeds the cap is
+ * simply not stripped, so its characters stay in the prose count and the markup
+ * ratio goes DOWN. This gate only ever FLAGS on high markup, never hides, so an
+ * over-long link errs toward "not flagged" — the conservative side.
+ */
+const MAX_MARKUP_RUN = 512;
+
+const HTML_TAG_RE = new RegExp(`<\\/?[a-z][^>]{0,${MAX_MARKUP_RUN}}>`, "gi");
+const MD_IMAGE_RE = new RegExp(
+  `!\\[[^\\]]{0,${MAX_MARKUP_RUN}}\\]\\([^)]{0,${MAX_MARKUP_RUN}}\\)`,
+  "g",
+);
+// Keep anchor text, drop the URL: [text](url) -> text. The `(?<!\[)` guard is
+// semantically neutral — it only skips start positions that can never win,
+// since the anchor class accepts `[`, so if a link matches at p and s[p-1] is
+// `[`, the leftmost match already starts at p-1. It is NOT what keeps the scan
+// linear; only the length bounds do that.
+const MD_LINK_RE = new RegExp(
+  `(?<!\\[)\\[([^\\]]{0,${MAX_MARKUP_RUN}})\\]\\([^)]{0,${MAX_MARKUP_RUN}}\\)`,
+  "g",
+);
 const MD_STRUCT_RE = /^[ \t]*(#{1,6}\s|[-*+]\s|>\s|\|.*\||[-=]{3,}\s*$|\d+\.\s)/gm;
 const MD_EMPHASIS_RE = /[*_~]{1,3}/g;
 const TABLE_PIPE_RE = /\|/g;

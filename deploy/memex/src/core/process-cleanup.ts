@@ -79,7 +79,7 @@ async function runCleanupPass(): Promise<void> {
   if (entries.length === 0) return;
 
   const deadline = new Promise<"deadline">((resolve) => {
-    const t = setTimeout(() => resolve("deadline"), CLEANUP_DEADLINE_MS);
+    const t = setTimeout(resolve, CLEANUP_DEADLINE_MS, "deadline");
     if (typeof (t as { unref?: () => void }).unref === "function") {
       (t as { unref: () => void }).unref();
     }

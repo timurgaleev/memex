@@ -120,7 +120,7 @@ export function resolveNearDupThreshold(
 ): number {
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_NEARDUP_JACCARD;
   const raw = envValue.trim();
-  if (!/^\d+(\.\d+)?$/.test(raw)) {
+  if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new NearDupThresholdParseError(
       `invalid MEMEX_NEARDUP_JACCARD: ${JSON.stringify(envValue)}`,
     );
@@ -157,7 +157,7 @@ export function resolveMaxTypeRatio(
 ): number {
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_MAX_TYPE_RATIO;
   const raw = envValue.trim();
-  if (!/^\d+(\.\d+)?$/.test(raw)) {
+  if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new TypeRatioParseError(`invalid MEMEX_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
   }
   const v = Number.parseFloat(raw);

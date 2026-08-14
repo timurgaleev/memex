@@ -91,8 +91,10 @@ export function inferPageType(slug: string): KnownPageType | null {
 //   - 1..256 chars total
 // Keep in sync with the copies in links.ts / insights.ts.
 const SLUG_WORD = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}]";
+// Same set plus the hyphen, for every position after a segment's first char.
+const SLUG_TAIL = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}-]";
 const SLUG_RE = new RegExp(
-  `^${SLUG_WORD}(?:${SLUG_WORD}|-)*(?:\\/${SLUG_WORD}(?:${SLUG_WORD}|-)*)*$`,
+  `^${SLUG_WORD}${SLUG_TAIL}*(?:\\/${SLUG_WORD}${SLUG_TAIL}*)*$`,
   "u",
 );
 const MAX_SLUG_LEN = 256;

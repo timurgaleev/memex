@@ -18,12 +18,15 @@ import {
   type ChronicleJudge,
 } from "../core/chronicle/extract-events.ts";
 import { valueHash } from "../core/chronicle/ontology.ts";
-import { mergeOntologyFact } from "../core/ontology-facts.ts";
+import {
+  mergeOntologyFact,
+  getOntology,
+  findOntologyConflicts,
+} from "../core/ontology-facts.ts";
 import {
   getTimelineForDate,
   getLastSeen,
 } from "../core/chronicle.ts";
-import { getOntology, findOntologyConflicts } from "../core/ontology-facts.ts";
 
 export interface ChronicleEvalTask {
   id: string;

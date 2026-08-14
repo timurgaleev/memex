@@ -89,6 +89,10 @@ function surfaceFor(file: string, line: number, enclosing: string | null): strin
   return `${file}:${line}:${enclosing ?? "<top>"}`;
 }
 
+/** Node types that continue a member-access chain, per grammar family. */
+const MEMBER_CHAIN_TYPES = new Set(["member_expression", "subscript_expression"]);
+const PYTHON_MEMBER_CHAIN_TYPES = new Set([...MEMBER_CHAIN_TYPES, "attribute"]);
+
 /**
  * Extract the bare callee name from a call expression node. Handles:
  *   foo()                  → "foo"
@@ -117,13 +121,12 @@ function calleeNameFromCallNode(call: TSNode, language: CodeLanguage): string | 
   }
   if (!target) return null;
 
-  // Walk member access chains down to the last segment.
-  while (
-    target &&
-    (target.type === "member_expression" ||
-      target.type === "subscript_expression" ||
-      (language === "python" && target.type === "attribute"))
-  ) {
+  // Walk member access chains down to the last segment. The set of chain node
+  // types is fixed per language, so resolve it once instead of re-testing the
+  // language on every hop.
+  const chainTypes =
+    language === "python" ? PYTHON_MEMBER_CHAIN_TYPES : MEMBER_CHAIN_TYPES;
+  while (target && chainTypes.has(target.type)) {
     const right: TSNode | null =
       target.childForFieldName("property") ??
       target.childForFieldName("attribute") ??

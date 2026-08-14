@@ -32,13 +32,13 @@ export function isRuntimeConfigKey(key: string): boolean {
  * budget knobs deliberately do NOT (TOKENS ≠ TOKEN).
  */
 export function isSensitiveConfigKey(key: string): boolean {
-  return /(^|[._-])(key|secret|token|password|pwd|passwd|auth|bearer|credential)([._-]|$)/i.test(
+  return /(?:^|[._-])(?:key|secret|token|password|pwd|passwd|auth|bearer|credential)(?:[._-]|$)/i.test(
     key,
   );
 }
 
 export function redactConfigValue(key: string, value: string): string {
-  if (/postgres(ql)?:\/\//i.test(value)) {
+  if (/postgres(?:ql)?:\/\//i.test(value)) {
     return value.replace(/(postgres(?:ql)?:\/\/[^:@/]+:)([^@]+)(@)/gi, "$1***$3");
   }
   if (isSensitiveConfigKey(key)) return "***";

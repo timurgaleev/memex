@@ -92,7 +92,7 @@ export function classifyPgliteError(e: unknown): PgliteDiagnosis {
       hint: "The data directory is not there. `memex init --pglite` creates one.",
     };
   }
-  if (/\block(ed|ing)?\b/.test(m) || m.includes("in use")) {
+  if (/\block(?:ed|ing)?\b/.test(m) || m.includes("in use")) {
     return {
       cause: "locked",
       message,

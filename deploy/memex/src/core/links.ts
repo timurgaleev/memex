@@ -55,8 +55,10 @@ export type KnownLinkType = (typeof KNOWN_LINK_TYPES)[number];
 // strict subset, so every existing slug stays valid. (Same grammar in
 // pages.ts / insights.ts — keep the three copies in sync.)
 const SLUG_WORD = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}]";
+// Same set plus the hyphen, for every position after a segment's first char.
+const SLUG_TAIL = "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}\\p{N}-]";
 const SLUG_RE = new RegExp(
-  `^${SLUG_WORD}(?:${SLUG_WORD}|-)*(?:\\/${SLUG_WORD}(?:${SLUG_WORD}|-)*)*$`,
+  `^${SLUG_WORD}${SLUG_TAIL}*(?:\\/${SLUG_WORD}${SLUG_TAIL}*)*$`,
   "u",
 );
 const MAX_SLUG_LEN = 256;
@@ -140,7 +142,7 @@ function normaliseType(
 function normaliseConfidence(c: number | undefined): number {
   if (c === undefined) return 1.0;
   if (typeof c !== "number" || Number.isNaN(c)) {
-    throw new Error("confidence must be a number in [0, 1]");
+    throw new TypeError("confidence must be a number in [0, 1]");
   }
   if (c < 0 || c > 1) {
     throw new Error("confidence must be in [0, 1]");
@@ -606,13 +608,38 @@ export async function traverseGraph(
 // Deterministic [[wikilink]] extractor -- zero LLM, idempotent.
 // ---------------------------------------------------------------------------
 
-const WIKILINK_RE = /\[\[([^\]\n|]+?)(?:\|[^\]\n]+)?\]\]/g;
+// Both runs are LENGTH-BOUNDED, and that is the only thing that makes this
+// scan linear. Two weaker fixes were tried and measured first, so the reason
+// is on the record:
+//
+//   - Making the runs atomic (`(?=(…))\1`) does nothing here. Atomicity kills
+//     give-back, but the cost is not give-back — it is the lookahead itself.
+//     `[^\]\n]` excludes only `]` and newline, so on `[[a|` repeated the alias
+//     run walks to the END OF THE BODY before failing, and it does that from
+//     every one of the n start positions.
+//   - Bounding only the target is likewise not enough: the target stops at the
+//     `|` after one character, so it was never the expensive half.
+//
+// Measured on the real extractor, `[[a|` repeated: unbounded 8 K links = 52 ms,
+// 64 K = 2.9 s, 256 K = 45 s, 1 MB = 243 s, squaring cleanly. Nothing caps the
+// body on this path, so a single indexed page could hold the daemon for
+// minutes. Bounded, the same 1 MB input is milliseconds.
+//
+// The bounds are chosen so no real link is lost: a page slug is capped at 256
+// (MAX_SLUG_LEN, core/pages.ts and core/insights.ts), so a longer target could
+// never resolve to a page and is not an edge worth extracting. The alias is
+// display text and gets a looser 512.
+//
+// The `(?<!\[)` guard covers the other direction: a start preceded by `[` can
+// never win — a match there implies a match one char earlier, which the
+// left-to-right scan would already have taken.
+const WIKILINK_RE = /(?<!\[)\[\[([^\]\n|]{1,256})(?:\|[^\]\n]{1,512})?\]\]/g;
 
 // `[Name](path)` markdown link. No dir whitelist — the resolver's existence
 // check (below) is the gate. Captures the target path; an optional `../` prefix
 // and `.md` suffix are peeled in the scanner so filesystem-style and engine-slug
 // forms both land on the same slug.
-const MARKDOWN_LINK_RE = /\[[^\]\n]+?\]\(([^)\s]+?)\)/g;
+const MARKDOWN_LINK_RE = /\[[^\]\n]+\]\(([^)\s]+)\)/g;
 
 /** Upper bound on the body scanned by the deterministic extractors (parity with
  *  the gazetteer's cap) — a pathological page can't turn the O(n) scan wasteful. */
@@ -670,9 +697,12 @@ export function extractWikilinks(body: string): string[] {
   if (typeof body !== "string" || body.length === 0) return [];
   const scannable = stripCodeBlocks(body);
   const seen = new Set<string>();
-  let match: RegExpExecArray | null;
   WIKILINK_RE.lastIndex = 0;
-  while ((match = WIKILINK_RE.exec(scannable)) !== null) {
+  for (
+    let match = WIKILINK_RE.exec(scannable);
+    match !== null;
+    match = WIKILINK_RE.exec(scannable)
+  ) {
     const raw = match[1]?.replace(/#.*$/, "").trim();
     if (raw && raw.length > 0) seen.add(raw);
   }
@@ -692,9 +722,12 @@ export function extractMarkdownLinks(body: string): string[] {
   if (typeof body !== "string" || body.length === 0) return [];
   const scannable = stripCodeBlocks(body.slice(0, MAX_SCAN_LEN));
   const seen = new Set<string>();
-  let match: RegExpExecArray | null;
   MARKDOWN_LINK_RE.lastIndex = 0;
-  while ((match = MARKDOWN_LINK_RE.exec(scannable)) !== null) {
+  for (
+    let match = MARKDOWN_LINK_RE.exec(scannable);
+    match !== null;
+    match = MARKDOWN_LINK_RE.exec(scannable)
+  ) {
     const captured = match[1];
     if (!captured || captured.includes("://")) continue;
     const target = captured
@@ -937,8 +970,11 @@ export function extractCodeRefs(body: string): CodeRef[] {
   const seen = new Set<string>();
   const refs: CodeRef[] = [];
   const re = new RegExp(CODE_REF_REGEX.source, "g");
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(scannable)) !== null) {
+  for (
+    let match = re.exec(scannable);
+    match !== null;
+    match = re.exec(scannable)
+  ) {
     const path = match[1]!;
     if (seen.has(path)) continue;
     seen.add(path);

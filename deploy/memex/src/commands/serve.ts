@@ -202,7 +202,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // The admin surface provisions the whole brain (sources, tenant grants), so an
   // operator-set bootstrap token must meet a minimum entropy floor — reject a weak
   // value at boot rather than lean on the login rate limiter alone.
-  if (adminBootstrap && adminBootstrap.length > 0 && !/^[A-Za-z0-9_-]{32,}$/.test(adminBootstrap)) {
+  if (adminBootstrap && adminBootstrap.length > 0 && !/^[\w-]{32,}$/.test(adminBootstrap)) {
     throw new Error(
       "MEMEX_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +
         "(e.g. `openssl rand -base64 32 | tr '+/' '-_'`), or unset it for an ephemeral per-run token.",

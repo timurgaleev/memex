@@ -159,7 +159,7 @@ export function classifyFactsAbsorbError(err: unknown): FactsAbsorbReason {
   if (/queue.*overflow|cap.*hit/i.test(msg)) return "queue_overflow";
   if (/queue.*shutdown|shutting down/i.test(msg)) return "queue_shutdown";
 
-  if (/embed/i.test(msg) && /(fail|error)/i.test(msg)) return "embed_failure";
+  if (/embed/i.test(msg) && /fail|error/i.test(msg)) return "embed_failure";
 
   return "pipeline_error";
 }

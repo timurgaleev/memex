@@ -24,7 +24,6 @@ import { validateSlug } from "./pages.ts";
 const MAX_FACT_LEN = 4000;
 const MAX_FREEFORM_LEN = 256;
 const MAX_LIST_LIMIT = 1000;
-const DEFAULT_LIST_LIMIT = 100;
 
 export interface RecordHotFactInput {
   entity_slug: string;
@@ -52,7 +51,7 @@ export interface HotFactRow {
 function normaliseConfidence(c: number | undefined): number {
   if (c === undefined) return 1.0;
   if (typeof c !== "number" || Number.isNaN(c)) {
-    throw new Error("effective_confidence must be a number in [0, 1]");
+    throw new TypeError("effective_confidence must be a number in [0, 1]");
   }
   if (c < 0 || c > 1) {
     throw new Error("effective_confidence must be in [0, 1]");
@@ -66,7 +65,7 @@ function boundFreeform(
 ): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") {
-    throw new Error(`${label} must be a string`);
+    throw new TypeError(`${label} must be a string`);
   }
   if (value.length > MAX_FREEFORM_LEN) {
     throw new Error(
