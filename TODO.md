@@ -71,6 +71,24 @@ rather than left implied:
   table with no reader, no doctor check and no advisor collector is a table that
   is only ever written to, so it waits until something would read it. The shape
   is sketched in the BENCH-1 spec if that day comes.
+- **[BENCH-2, S] `memex bench` is not free on a host with fact dedup enabled.**
+  The first live run booked 4 embedding calls, $0.0018, and reported it:
+  `4 paid model call(s) were booked during a stub run — the arm that made them
+  is not stubbed`. The guard works; the stub is incomplete. Only `sonnetFn` (the
+  extractor) is injected, but `addFact` embeds each fact to fetch dedup
+  neighbours whenever dedup resolves — `resolveDedup`, core/facts.ts:233-255,
+  which fires on `input.dedup` OR `factsDedupEnabled()` (core/facts.ts:208).
+  Local runs and CI are free because dedup is off there, which is exactly why
+  the test suite did not catch it.
+  The fix is an `embedFn` seam on `ExtractConvFactsOptions` beside `sonnetFn`,
+  threaded to the `dedup` option `persistFacts` already forwards
+  (core/facts-extract.ts:493, :552), and the bench passing its deterministic
+  `benchEmbed`. Do NOT close it by disabling dedup for the run: dedup is part of
+  the write behaviour being graded, and switching it off would make the score
+  describe a pipeline nobody ships.
+  Not done same-day on purpose — it lands in the path that decides whether a
+  fact collapses into an existing one, and that is not a change to make without
+  its own review and full suite.
 - **Open call, with a number on it.** Widening the fixture reset from 3 tables
   to 14 (it had to widen — the old list left `entity_facts` rows behind, proved
   by replay) costs +135 ms on the push corpus and +17% on its test file, because
