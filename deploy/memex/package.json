@@ -12,8 +12,7 @@
     "test": "bun test",
     "test:sharded": "bash scripts/test-sharded.sh",
     "start": "bun run src/cli.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.src.json",
-    "typecheck:all": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src --no-warn-ignored",
     "lint:fix": "eslint src --no-warn-ignored --fix"
   },

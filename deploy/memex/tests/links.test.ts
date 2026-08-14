@@ -420,11 +420,12 @@ describe("graphQuery", () => {
     for (const slug of ["alice", "bob", "carol"]) {
       await putPage(storage, { slug, type: "person" });
     }
-    for (const [s, t] of [
+    const edges: [string, string][] = [
       ["alice", "acme"],
       ["bob", "acme"],
       ["carol", "globex"],
-    ]) {
+    ];
+    for (const [s, t] of edges) {
       await addLink(storage, {
         source_slug: s,
         target_slug: t,

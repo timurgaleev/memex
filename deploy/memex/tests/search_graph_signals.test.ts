@@ -72,9 +72,9 @@ describe("applyGraphSignals", () => {
       enabled: true,
       adjacencyFn: async () => adj,
     });
-    expect(hits[0].score).toBeCloseTo(ADJACENCY_BOOST, 10);
-    expect(hits[1].score).toBe(0.9);
-    expect(hits[2].score).toBe(0.8);
+    expect(hits[0]!.score).toBeCloseTo(ADJACENCY_BOOST, 10);
+    expect(hits[1]!.score).toBe(0.9);
+    expect(hits[2]!.score).toBe(0.8);
   });
 
   it("does not boost below the adjacency minimum (1 inbound link)", async () => {
@@ -86,7 +86,7 @@ describe("applyGraphSignals", () => {
       enabled: true,
       adjacencyFn: async () => adj,
     });
-    expect(hits[0].score).toBe(1);
+    expect(hits[0]!.score).toBe(1);
   });
 
   it("applies the cross-source boost (dormant arm — injected row)", async () => {
@@ -99,7 +99,7 @@ describe("applyGraphSignals", () => {
       adjacencyFn: async () => adj,
     });
     // hits < ADJACENCY_MIN_HITS → no adjacency boost; cross-source fires alone.
-    expect(hits[0].score).toBeCloseTo(CROSS_SOURCE_BOOST, 10);
+    expect(hits[0]!.score).toBeCloseTo(CROSS_SOURCE_BOOST, 10);
   });
 
   it("stacks adjacency and cross-source boosts when both fire", async () => {
@@ -111,7 +111,7 @@ describe("applyGraphSignals", () => {
       enabled: true,
       adjacencyFn: async () => adj,
     });
-    expect(hits[0].score).toBeCloseTo(ADJACENCY_BOOST * CROSS_SOURCE_BOOST, 10);
+    expect(hits[0]!.score).toBeCloseTo(ADJACENCY_BOOST * CROSS_SOURCE_BOOST, 10);
   });
 
   it("boosts only the top chunk of a multi-chunk hub page", async () => {
@@ -125,8 +125,8 @@ describe("applyGraphSignals", () => {
       enabled: true,
       adjacencyFn: async () => adj,
     });
-    expect(hits[0].score).toBeCloseTo(ADJACENCY_BOOST, 10);
-    expect(hits[1].score).toBe(0.7); // sibling chunk untouched
+    expect(hits[0]!.score).toBeCloseTo(ADJACENCY_BOOST, 10);
+    expect(hits[1]!.score).toBe(0.7); // sibling chunk untouched
   });
 
   it("demotes all but the top member of a session group", async () => {
@@ -139,9 +139,9 @@ describe("applyGraphSignals", () => {
       enabled: true,
       adjacencyFn: async () => new Map(),
     });
-    expect(hits[0].score).toBe(1.0); // representative kept
-    expect(hits[1].score).toBeCloseTo(0.9 * SESSION_DEMOTE, 10);
-    expect(hits[2].score).toBeCloseTo(0.8 * SESSION_DEMOTE, 10);
+    expect(hits[0]!.score).toBe(1.0); // representative kept
+    expect(hits[1]!.score).toBeCloseTo(0.9 * SESSION_DEMOTE, 10);
+    expect(hits[2]!.score).toBeCloseTo(0.8 * SESSION_DEMOTE, 10);
   });
 
   it("does not diversify distinct entity pages sharing a parent dir", async () => {
@@ -179,7 +179,7 @@ describe("applyGraphSignals", () => {
       floorThreshold: 0.5,
       adjacencyFn: async () => adj,
     });
-    expect(hits[0].score).toBe(0.1); // below floor → no boost
+    expect(hits[0]!.score).toBe(0.1); // below floor → no boost
   });
 
   it("does NOT session-demote a hit below the floor", async () => {
@@ -196,8 +196,8 @@ describe("applyGraphSignals", () => {
       floorThreshold,
       adjacencyFn: async () => new Map(),
     });
-    expect(hits[0].score).toBe(1.0); // group top → kept
-    expect(hits[1].score).toBe(0.4); // below floor → NOT demoted
+    expect(hits[0]!.score).toBe(1.0); // group top → kept
+    expect(hits[1]!.score).toBe(0.4); // below floor → NOT demoted
   });
 
   it("DOES session-demote a below-top hit that is above the floor", async () => {
@@ -211,8 +211,8 @@ describe("applyGraphSignals", () => {
       floorThreshold: computeFloorThreshold(hits, resolveGraphSignalsFloorRatio("0")),
       adjacencyFn: async () => new Map(),
     });
-    expect(hits[0].score).toBe(1.0);
-    expect(hits[1].score).toBeCloseTo(0.8 * SESSION_DEMOTE, 10);
+    expect(hits[0]!.score).toBe(1.0);
+    expect(hits[1]!.score).toBeCloseTo(0.8 * SESSION_DEMOTE, 10);
   });
 
   it("applies the boost to a hit AT the computed floor (end-to-end wiring)", async () => {
@@ -229,8 +229,8 @@ describe("applyGraphSignals", () => {
       floorThreshold,
       adjacencyFn: async () => adj,
     });
-    expect(hits[1].score).toBe(0.5 * ADJACENCY_BOOST); // at floor → boosted
-    expect(hits[2].score).toBe(0.4); // below floor → untouched
+    expect(hits[1]!.score).toBe(0.5 * ADJACENCY_BOOST); // at floor → boosted
+    expect(hits[2]!.score).toBe(0.4); // below floor → untouched
   });
 });
 

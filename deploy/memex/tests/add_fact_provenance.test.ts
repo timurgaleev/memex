@@ -55,7 +55,7 @@ describe("writerIdentity", () => {
     expect(writerIdentity({ isPublic: true })).toBe("public");
     expect(
       writerIdentity({
-        authInfo: { token: "t", clientId: "agent-7", scopes: ["write"] },
+        authInfo: { token: "t", clientId: "agent-7", scopes: ["write"], isPublic: false },
       }),
     ).toBe("client:agent-7");
     expect(writerIdentity({})).toBe("operator");
@@ -76,7 +76,7 @@ describe("add_fact provenance", () => {
   it("credits the authenticated client by id", async () => {
     const written = await writtenByFor(
       { fact: "likes cocoa" },
-      { authInfo: { token: "t", clientId: "agent-7", scopes: ["write"] } },
+      { authInfo: { token: "t", clientId: "agent-7", scopes: ["write"], isPublic: false } },
     );
     expect(written).toBe("client:agent-7");
   });

@@ -31,7 +31,7 @@ audit: ## Fail if any PII pattern matches a git-tracked file
 scrub-audit: ## Broader pre-publication audit — categorised report, fails on HIGH hits
 	@bash scripts/scrub-audit.sh
 
-typecheck: ## Typecheck the shipping TypeScript (src/); tests/ backlog via `bun run typecheck:all`
+typecheck: ## Typecheck the whole package — src/ and tests/ alike
 	@cd deploy/memex && bun run typecheck
 
 lint-ts: ## Lint the daemon TypeScript (correctness rules only; eslint.config.js says what is off and why)

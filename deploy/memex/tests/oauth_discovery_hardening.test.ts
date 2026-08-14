@@ -61,7 +61,8 @@ describe("protected-resource metadata (RFC 9728)", () => {
     });
     expect(res.status).toBe(200);
     const doc = (await res.json()) as { resource: string; authorization_servers: string[] };
-    expect(doc.resource).toBe(doc.authorization_servers[0]);
+    expect(doc.authorization_servers.length).toBe(1);
+    expect(doc.resource).toBe(doc.authorization_servers[0]!);
   });
 
   it("challenges a 401 on /mcp with resource_metadata (WWW-Authenticate)", async () => {

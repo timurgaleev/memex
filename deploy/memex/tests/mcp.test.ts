@@ -53,7 +53,7 @@ describe("MCP HTTP transport", () => {
       body: "{not json",
     });
     expect(r.status).toBe(400);
-    const body = await r.json();
+    const body = (await r.json()) as { error: { code: number } };
     expect(body.error.code).toBe(-32700);
   });
 

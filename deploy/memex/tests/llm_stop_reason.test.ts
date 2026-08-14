@@ -11,13 +11,20 @@
  * same convention as `buildUserContent`'s tests.
  */
 import { describe, expect, it } from "bun:test";
+import type { ConverseCommandOutput } from "@aws-sdk/client-bedrock-runtime";
 import { toLlmCallResult } from "../src/core/llm/haiku.ts";
 import { STOP_REASON_MAX_TOKENS, type SonnetCallResult } from "../src/core/llm/sonnet.ts";
 import { isTruncated } from "../src/core/llm/truncation.ts";
 
-const converse = (over: Record<string, unknown> = {}) => ({
-  output: { message: { content: [{ text: "[{\"claim_text\"" }] } },
-  usage: { inputTokens: 10, outputTokens: 20 },
+/** Exactly the slice of the Converse response the mapper reads. */
+type ConverseSlice = Pick<ConverseCommandOutput, "output" | "usage" | "stopReason">;
+
+const converse = (over: Partial<ConverseSlice> = {}): ConverseSlice => ({
+  output: { message: { role: "assistant", content: [{ text: "[{\"claim_text\"" }] } },
+  usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+  // Present-but-undefined is how the transport reports "no stop reason" — the
+  // omits-the-field case below turns on it staying undefined.
+  stopReason: undefined,
   ...over,
 });
 
@@ -42,6 +49,7 @@ describe("utility-tier stop reason", () => {
         usage: {
           inputTokens: 10,
           outputTokens: 20,
+          totalTokens: 30,
           cacheReadInputTokens: 30,
           cacheWriteInputTokens: 40,
         },

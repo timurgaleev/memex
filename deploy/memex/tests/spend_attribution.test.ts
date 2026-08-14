@@ -359,8 +359,8 @@ describe("every invoke site carries a label", () => {
 
   it("two-pass rerank", async () => {
     const hits = [
-      { chunkId: "a", score: 2, payload: { content: "x", title: "A", sourcePath: "a.md" } },
-      { chunkId: "b", score: 1, payload: { content: "y", title: "B", sourcePath: "b.md" } },
+      { chunkId: "a", documentId: "doc-a", score: 2, payload: { content: "x", title: "A", sourcePath: "a.md" } },
+      { chunkId: "b", documentId: "doc-b", score: 1, payload: { content: "y", title: "B", sourcePath: "b.md" } },
     ];
     const out = await rerank("q", hits, { client: converseClient("[1,0]") });
     expect(out.map((h) => h.chunkId)).toEqual(["b", "a"]);
@@ -372,8 +372,8 @@ describe("every invoke site carries a label", () => {
 
   it("two-pass rerank — a failed call books before returning the input order", async () => {
     const hits = [
-      { chunkId: "a", score: 2, payload: { content: "x", title: "A", sourcePath: "a.md" } },
-      { chunkId: "b", score: 1, payload: { content: "y", title: "B", sourcePath: "b.md" } },
+      { chunkId: "a", documentId: "doc-a", score: 2, payload: { content: "x", title: "A", sourcePath: "a.md" } },
+      { chunkId: "b", documentId: "doc-b", score: 1, payload: { content: "y", title: "B", sourcePath: "b.md" } },
     ];
     const client = {
       send: mock(async () => {

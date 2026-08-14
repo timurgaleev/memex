@@ -63,12 +63,24 @@ beforeAll(async () => {
     `UPDATE pages SET salience = 1, updated_at = NOW() - interval '400 days'`,
     [],
   );
-  diaryFactId = (
-    await addFact(storage, { entity_slug: NORMAL, fact: "diary interiority", source_slug: DIARY, source_id: SOURCE })
-  ).id;
-  normalFactId = (
-    await addFact(storage, { entity_slug: NORMAL, fact: "public claim", source_slug: NORMAL, source_id: SOURCE })
-  ).id;
+  // `id` is null when the claim was already on file; both are fresh inserts
+  // here, and the recall cases below are meaningless without a real row id.
+  const diaryFact = await addFact(storage, {
+    entity_slug: NORMAL,
+    fact: "diary interiority",
+    source_slug: DIARY,
+    source_id: SOURCE,
+  });
+  expect(diaryFact.id).not.toBeNull();
+  diaryFactId = diaryFact.id!;
+  const normalFact = await addFact(storage, {
+    entity_slug: NORMAL,
+    fact: "public claim",
+    source_slug: NORMAL,
+    source_id: SOURCE,
+  });
+  expect(normalFact.id).not.toBeNull();
+  normalFactId = normalFact.id!;
 });
 
 afterAll(async () => {

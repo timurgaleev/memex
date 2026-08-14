@@ -9,12 +9,12 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TOOL_DEFS } from "../src/mcp/tool_defs.ts";
+import { TOOL_DEFS, type ToolDef } from "../src/mcp/tool_defs.ts";
 import { OPERATIONS } from "../src/mcp/operations.ts";
 
 const snapshot = JSON.parse(
   readFileSync(join(import.meta.dir, "fixtures/tool_defs.snapshot.json"), "utf8"),
-) as { name: string; description: string; inputSchema: unknown }[];
+) as ToolDef[];
 
 describe("TOOL_DEFS generated from OPERATIONS", () => {
   it("exactly matches the original hand-written defs", () => {

@@ -97,7 +97,8 @@ describe("dimensional ontology rows are isolated from free-text fact flows", () 
     const embedded = await storage.engine().query<{ id: number }>(
       `SELECT id FROM entity_facts WHERE embedding IS NOT NULL`,
     );
-    expect(embedded.rows.map((r) => r.id)).toEqual([plain.id]);
+    expect(plain.id).not.toBeNull();
+    expect(embedded.rows.map((r) => r.id)).toEqual([plain.id!]);
   });
 
   it("listFacts recall returns only the plain fact", async () => {

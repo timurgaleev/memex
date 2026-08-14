@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The typechecker now covers the tests too, and the exclusion is gone.** The
+  gate shipped scoped to `src/` because `tests/` still carried 59 errors, almost
+  all `noUncheckedIndexedAccess` on array reads. Those are closed, so
+  `tsconfig.src.json` is deleted and `bun run typecheck` is the whole package —
+  there is no longer a second command reporting a backlog nobody watches. The
+  fix for an unchecked index is an assertion that the element exists, not an
+  optional chain: `facts[0]?.claim_metric` compiles and hides the case where the
+  array came back empty. One test was doing exactly that — indexing a result it
+  never proved non-empty, with both assertions `toBeUndefined()`, so it would
+  have passed just as happily had the parser returned nothing. It now asserts
+  the length first.
+
 ### Changed
 - **`TODO.md` carries the work, not the research behind it.** The file had grown
   to 4038 lines, most of it audit transcripts — findings, the refutation log

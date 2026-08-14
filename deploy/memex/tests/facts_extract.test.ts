@@ -78,17 +78,18 @@ describe("parseFactsResponse", () => {
       '{"facts":[{"fact":"Acme burns 80k monthly","kind":"fact","entity":"companies/acme","confidence":0.9,"notability":"high","metric":"burn_rate","value":80000,"unit":"USD","period":"monthly"}]}',
     );
     expect(facts).toHaveLength(1);
-    expect(facts[0].claim_metric).toBe("burn_rate");
-    expect(facts[0].claim_value).toBe(80000);
-    expect(facts[0].claim_unit).toBe("USD");
-    expect(facts[0].claim_period).toBe("monthly");
+    expect(facts[0]!.claim_metric).toBe("burn_rate");
+    expect(facts[0]!.claim_value).toBe(80000);
+    expect(facts[0]!.claim_unit).toBe("USD");
+    expect(facts[0]!.claim_period).toBe("monthly");
   });
   it("leaves claim fields undefined for a non-quantitative fact", () => {
     const { facts } = parseFactsResponse(
       '{"facts":[{"fact":"Alice loves coffee","kind":"preference","entity":"Alice","confidence":1,"notability":"low","metric":null,"value":null,"unit":null,"period":null}]}',
     );
-    expect(facts[0].claim_metric).toBeUndefined();
-    expect(facts[0].claim_value).toBeUndefined();
+    expect(facts).toHaveLength(1);
+    expect(facts[0]!.claim_metric).toBeUndefined();
+    expect(facts[0]!.claim_value).toBeUndefined();
   });
   it("strips a code fence and tolerates garbage", () => {
     expect(parseFactsResponse('```json\n{"facts":[]}\n```').facts).toEqual([]);

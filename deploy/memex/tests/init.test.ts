@@ -16,6 +16,8 @@ test("init --pglite creates config.json + brain.pglite", async () => {
     expect(stat.mode & 0o777).toBe(0o700);
     const cfg = loadConfig(configPath);
     expect(cfg.database.type).toBe("pglite");
+    // Narrow the DatabaseConfig union — the assertion above is the proof.
+    if (cfg.database.type !== "pglite") throw new Error("expected a pglite database config");
     expect(cfg.database.path).toBe(join(dir, "brain.pglite"));
     expect(cfg.embedding.provider).toBe("bedrock-titan");
     expect(cfg.embedding.model).toBe("amazon.titan-embed-text-v2:0");

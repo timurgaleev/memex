@@ -110,18 +110,19 @@ describe("redactBodies — allowlist-based public search filtering", () => {
   });
 
   it("preserves the full allowlisted shape (documentId, chunkId, kind, rank)", () => {
-    const out = redactBodies([
-      {
-        title: "a",
-        sourcePath: "/a.md",
-        score: 0.9,
-        documentId: "doc-1",
-        chunkId: "chunk-1",
-        kind: "markdown",
-        rank: 1,
-        content: "REDACT ME",
-      },
-    ]);
+    // Typed as the loose row map dispatch actually passes in: the return is a
+    // strict subset of the input, so the expected shape cannot be the input type.
+    const hit: Record<string, unknown> = {
+      title: "a",
+      sourcePath: "/a.md",
+      score: 0.9,
+      documentId: "doc-1",
+      chunkId: "chunk-1",
+      kind: "markdown",
+      rank: 1,
+      content: "REDACT ME",
+    };
+    const out = redactBodies([hit]);
     expect(out[0]).toEqual({
       title: "a",
       sourcePath: "/a.md",
@@ -149,7 +150,9 @@ describe("redactBodies — allowlist-based public search filtering", () => {
 // ---------------------------------------------------------------------------
 
 describe("redactFacts — allowlist-based public fact filtering", () => {
-  const row = {
+  // Loose row map, matching how dispatch hands rows to the redactors — the
+  // helper returns a strict subset, so the expected shape is not the input type.
+  const row: Record<string, unknown> = {
     id: 7,
     entity_slug: "acme-corp",
     fact: "Q3 revenue was 4.2M",
@@ -213,7 +216,8 @@ describe("redactFacts — allowlist-based public fact filtering", () => {
 // ---------------------------------------------------------------------------
 
 describe("redactTimeline — allowlist-based public timeline filtering", () => {
-  const row = {
+  // Same loose row map as the fact rows above.
+  const row: Record<string, unknown> = {
     id: 3,
     slug: "acme-corp",
     occurred_at: "2026-02-01T00:00:00Z",

@@ -319,22 +319,22 @@ describe("listFacts decay integration", () => {
         { name: "entity_facts", arguments: { entity_slug: "people/alice" } },
         { isPublic: true },
       );
-      const pubFacts = JSON.parse(pub.content[0].text).facts as Record<
+      const pubFacts = JSON.parse(pub.content[0]!.text).facts as Record<
         string,
         unknown
       >[];
       // Raw confidence order (decay NOT applied): expired-event survives, first.
       expect(pubFacts.map((f) => f.id)).toHaveLength(3);
-      expect(pubFacts[0].confidence).toBe(1);
+      expect(pubFacts[0]!.confidence).toBe(1);
       // Fact text is redacted on public ingress.
-      expect(pubFacts[0].fact).toBeUndefined();
+      expect(pubFacts[0]!.fact).toBeUndefined();
 
       const internal = await dispatchTool(
         storage,
         { name: "entity_facts", arguments: { entity_slug: "people/alice" } },
         { isPublic: false },
       );
-      const intFacts = JSON.parse(internal.content[0].text).facts as Record<
+      const intFacts = JSON.parse(internal.content[0]!.text).facts as Record<
         string,
         unknown
       >[];

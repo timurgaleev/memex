@@ -35,23 +35,6 @@ The value is forward, not retrospective: it gates the unused binding, duplicate
 import and dead alternative in code written tomorrow, which `tsc` cannot see.
 Cost: +86 MB of node_modules, 28 top-level packages to 281.
 
-## Open — typecheck backlog (2026-08-12)
-
-`tsc` had never been run against this repo. Its first run reported 61 errors.
-`src/` is now clean and gated in CI (`make typecheck`, scoped by
-`deploy/memex/tsconfig.src.json`); one of the 12 it found there was a real
-defect — the doctor read `path` off the `DatabaseConfig` union, so on the
-Postgres brain that runs in production the engine check reported nothing.
-
-- **49 errors remain under `tests/`**, almost all `noUncheckedIndexedAccess`
-  on array reads (18 in `search_graph_signals`, 6 in `facts_extract`, 4 in
-  `facts_decay`, the rest scattered). Measure with `bun run typecheck:all`.
-  When it reaches zero, delete `tsconfig.src.json` and point the gate at
-  `tsconfig.json` so the whole repo is covered.
-- Type errors in test files are not cosmetic here: three times in one session
-  a fixture passed for the wrong reason because it did not exercise the branch
-  it claimed to. Types are one of the cheap ways that shows up.
-
 ## Open — push-bench follow-ups (2026-08-12)
 
 The push benchmark (v1.119.0) shipped with one metric family. Recorded here

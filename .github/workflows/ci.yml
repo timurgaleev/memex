@@ -145,12 +145,13 @@ jobs:
           bun-version: latest
       - name: bun install (frozen lockfile)
         run: bun install --frozen-lockfile
-      - name: typecheck (src)
+      - name: typecheck
         # Runs BEFORE the suite: a type error is cheaper to read than a shard
         # failure, and until this step existed the compiler had never been run
         # over the repo at all — its first run found a real defect in `doctor`.
-        # Scoped to src/ because tests/ still carries a backlog of
-        # noUncheckedIndexedAccess errors; `bun run typecheck:all` reports it.
+        # Covers tests/ too. That is not tidiness: a test that indexes an array
+        # it never proved non-empty is a test that passes when the query returns
+        # nothing, and closing this backlog turned up exactly one of those.
         run: bun run typecheck
       - name: bun test (sharded)
         # The loop lives in scripts/test-sharded.sh so CI and the local ship

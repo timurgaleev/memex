@@ -72,7 +72,7 @@ describe("runAuthTest", () => {
   it("refuses to send the bearer over http:// to a non-local host", async () => {
     // The guard must fire BEFORE any request goes out — inject a fetch that
     // throws if it is ever reached.
-    const boom = (() => {
+    const boom = ((_url: unknown, _init?: RequestInit): Promise<Response> => {
       throw new Error("fetch must not run when the guard rejects");
     }) as FetchLike;
     await expect(runAuthTest("http://brain/mcp", "tok", boom)).rejects.toThrow(

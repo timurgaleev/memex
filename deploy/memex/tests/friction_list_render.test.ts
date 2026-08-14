@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import {
+  type FrictionEvent,
   listFrictionEvents,
   logFriction,
   renderFrictionMarkdown,
@@ -127,13 +128,14 @@ describe("listFrictionEvents", () => {
 });
 
 describe("renderFrictionMarkdown", () => {
-  const event = {
+  const event: FrictionEvent = {
     id: 1,
     capturedAt: "2026-05-08T12:00:00Z",
-    kind: "search-miss" as const,
+    kind: "search-miss",
     query: "secret query body",
     reason: "missed the topic",
     sourcePath: "/vault/notes/foo.md",
+    severity: null,
     extra: { skill: "brain-recall" },
   };
 

@@ -10,9 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultYamlPath, loadConfig } from "../src/core/config.ts";
+import type {
+  DatabaseConfig,
+  PGliteDatabaseConfig,
+} from "../src/core/config.ts";
 
 let tmp: string;
 let jsonPath: string;
+
+/** Narrows the database union to the pglite branch every fixture here declares. */
+function pgliteDb(db: DatabaseConfig): PGliteDatabaseConfig {
+  expect(db.type).toBe("pglite");
+  if (db.type !== "pglite")
+    throw new Error(`expected a pglite database config, got "${db.type}"`);
+  return db;
+}
 
 const baseJson = {
   database: { type: "pglite", path: "/data/brain.pglite" },
@@ -37,7 +49,7 @@ describe("loadConfig (JSON only)", () => {
   it("parses a minimal config", () => {
     writeFileSync(jsonPath, JSON.stringify(baseJson));
     const cfg = loadConfig(jsonPath);
-    expect(cfg.database.path).toBe("/data/brain.pglite");
+    expect(pgliteDb(cfg.database).path).toBe("/data/brain.pglite");
     expect(cfg.embedding.region).toBe("eu-west-1");
     expect(cfg.vault_paths).toBeUndefined();
     expect(cfg.sweep).toBeUndefined();
@@ -99,7 +111,7 @@ describe("loadConfig (with memex.yml overlay)", () => {
     expect(cfg.mcp?.enabled).toBe(true);
     expect(cfg.mcp?.rate_limit_per_minute).toBe(60);
     // db / embedding survive
-    expect(cfg.database.path).toBe("/data/brain.pglite");
+    expect(pgliteDb(cfg.database).path).toBe("/data/brain.pglite");
     expect(cfg.embedding.region).toBe("eu-west-1");
   });
 

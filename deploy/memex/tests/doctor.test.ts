@@ -156,7 +156,9 @@ describe("doctor", () => {
     // Healthy run → no ranked failures; category rollup present.
     expect(parsed.summary.ranked_failures).toEqual([]);
     expect(parsed.summary.by_category.brain).toBeDefined();
-    expect(parsed.summary.by_category.ops.ok).toBeGreaterThan(0);
+    const ops = parsed.summary.by_category.ops;
+    expect(ops).toBeDefined();
+    expect(ops!.ok).toBeGreaterThan(0);
   });
 });
 

@@ -67,6 +67,8 @@ describe("cosineSimilarity / clusterFacts", () => {
       id,
       fact: `f${id}`,
       confidence: 0.5,
+      // Clustering is embedding-only; kind rides along for the promoted take.
+      kind: null,
       embedding: e,
       written_at: "2026-01-01",
     });
