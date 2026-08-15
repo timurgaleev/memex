@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.122.0] — 2026-08-15
+
 ### Added
 - **The brain now has numbers for what an agent actually experiences, not just
   for retrieval.** `eval-probe` graded search — hit rate and rank over a golden

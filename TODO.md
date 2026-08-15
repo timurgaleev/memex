@@ -662,17 +662,29 @@ future release.
   (no slug echo, no `isError`). Surfaced by the 2026-06-09 security-engineer
   + bug-hunter audit.
 
-- **`graph_neighbors` / `graph_query` relationship dump — OPERATOR
-  DECISION NEEDED.** These two read tools dispatch with NO `redact` flag,
-  so on public ingress they return raw `source_slug`/`target_slug` pairs —
-  a public-bearer caller can pull the full edge graph (e.g. every
-  `people/*` linked to `companies/acme` via `works_at`). The 2026-06-05
-  decision deliberately kept the *edge `type`* public (constrained enum,
-  single-holder daily-rotated bearer, slugs already public) — but that
-  rationale was about individual slugs, NOT relationship dumps, which leak
-  *who-relates-to-whom* at scale. Decide: (a) accept as consistent with the
-  slugs-are-public posture, or (b) gate `graph_*` behind the internal token
-  / redact slugs on public. Flagged by the 2026-06-09 bug-hunter audit.
+- **[DECIDED 2026-08-15 — ACCEPTED] `graph_neighbors` / `graph_query`
+  relationship dump.** These two read tools dispatch with no `redact` flag, so
+  a caller on the public ingress receives raw `source_slug`/`target_slug` pairs
+  — the whole edge graph, who-relates-to-whom, not just individual slugs. The
+  2026-06-09 audit rated it LOW and left the call to the operator.
+
+  Operator decision: ACCEPT. "Public" here names the INGRESS, not an audience.
+  A request over the Cloudflare path still has to present the public bearer
+  (`public_guard.ts` — `Cf-Connecting-Ip` only classifies it; the credential is
+  required on both ingresses since v1.121.0). So the edge graph is visible to
+  whoever holds the operator's own token, and this is a single-person brain.
+
+  The decision rests on that premise, so the three things that would void it:
+  - `MEMEX_ASSUME_PUBLIC=1` classifies every request public — it does not grant
+    access, but it erases the internal/public distinction redaction keys off.
+  - `MEMEX_ENABLE_DCR_INSECURE=1` lets clients self-register, at which point
+    "who has access" is no longer a list anyone curated.
+  - The public bearer's rotation is disabled on purpose, so the token is
+    permanent. If it ever leaks, access leaks with it — and only then does the
+    relationship dump become what the audit described.
+
+  Revisit if the brain ever serves more than one person, or if the bearer
+  starts being handed out.
 
 - **Any future document-delete / prune path MUST bump
   `document_generation_clock`.** The live-model cache clock (migration 025)
