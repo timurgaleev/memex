@@ -43,6 +43,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pages alone. The list is explicit now, derived from the actual foreign-key
   graph rather than from belief, and a replay demonstrates the old behaviour
   leaving a fact row behind.
+- **The typechecker now covers the tests too, and the exclusion is gone.** The
+  gate shipped scoped to `src/` because `tests/` still carried 59 errors, almost
+  all `noUncheckedIndexedAccess` on array reads. Those are closed, so
+  `tsconfig.src.json` is deleted and `bun run typecheck` is the whole package —
+  there is no longer a second command reporting a backlog nobody watches. The
+  fix for an unchecked index is an assertion that the element exists, not an
+  optional chain: `facts[0]?.claim_metric` compiles and hides the case where the
+  array came back empty. One test was doing exactly that — indexing a result it
+  never proved non-empty, with both assertions `toBeUndefined()`, so it would
+  have passed just as happily had the parser returned nothing. It now asserts
+  the length first.
+
+### Changed
+- **`TODO.md` carries the work, not the research behind it.** The file had grown
+  to 4038 lines, most of it audit transcripts — findings, the refutation log
+  that killed a third of them, and citations into trees that are not this one.
+  None of that is actionable and none of it belongs in a public backlog. What
+  remains is the work itself: open items, the decisions behind each deferral,
+  and where in this repo each one lands. Doc comments picked up the same trim —
+  a few carried a build-wave label that meant nothing outside the session that
+  coined it.
 
 ### Fixed
 - **Seven text scans were quadratic on input the daemon accepts, and one of
@@ -68,29 +89,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the real exported functions instead of the bare regexes. That distinction is
   the whole finding: the same widening also cleared five sites that looked
   quadratic in isolation but are unreachable through the real call path.
-
-### Added
-- **The typechecker now covers the tests too, and the exclusion is gone.** The
-  gate shipped scoped to `src/` because `tests/` still carried 59 errors, almost
-  all `noUncheckedIndexedAccess` on array reads. Those are closed, so
-  `tsconfig.src.json` is deleted and `bun run typecheck` is the whole package —
-  there is no longer a second command reporting a backlog nobody watches. The
-  fix for an unchecked index is an assertion that the element exists, not an
-  optional chain: `facts[0]?.claim_metric` compiles and hides the case where the
-  array came back empty. One test was doing exactly that — indexing a result it
-  never proved non-empty, with both assertions `toBeUndefined()`, so it would
-  have passed just as happily had the parser returned nothing. It now asserts
-  the length first.
-
-### Changed
-- **`TODO.md` carries the work, not the research behind it.** The file had grown
-  to 4038 lines, most of it audit transcripts — findings, the refutation log
-  that killed a third of them, and citations into trees that are not this one.
-  None of that is actionable and none of it belongs in a public backlog. What
-  remains is the work itself: open items, the decisions behind each deferral,
-  and where in this repo each one lands. Doc comments picked up the same trim —
-  a few carried a build-wave label that meant nothing outside the session that
-  coined it.
 
 ## [1.121.0] — 2026-08-13
 
