@@ -641,3 +641,220 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(loc.searchParams.get("code")).toMatch(/^memex_code_/);
   });
 });
+
+/**
+ * The operator-gated flow, end to end: /authorize bounces an unauthenticated
+ * browser to the admin login, the target is parked, and after signing in the
+ * operator confirms it and gets the code. Before this the login dropped
+ * `return_to` AND the session cookie was scoped to /admin, so `/authorize`
+ * could not see the operator at all — the connector never finished, however
+ * many times you signed in.
+ */
+describe("MEMEX_OAUTH_REQUIRE_LOGIN with no admin surface fails closed", () => {
+  it("refuses to issue a code rather than auto-approving", async () => {
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    const tmp = mkdtempSync(join(tmpdir(), "memex-oauth-noadmin-"));
+    const storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    const provider = new OAuthProvider({ engine: storage.raw() });
+    const reg = await provider.registerClientManual(
+      "no-admin-client", ["authorization_code"], "read", [REDIRECT], "default", undefined, "none",
+    );
+    // No adminBootstrapToken: the operator asked for a consent gate that cannot
+    // be enforced. Auto-approving here would be the exact posture the flag exists
+    // to prevent.
+    const s = startServer({ host: "127.0.0.1", port: 0, storage, oauthProvider: provider });
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${s.port}/authorize?response_type=code&client_id=${reg.clientId}`
+        + `&redirect_uri=${encodeURIComponent(REDIRECT)}&code_challenge=ch&code_challenge_method=S256`,
+        { redirect: "manual" },
+      );
+      expect(res.status).toBe(302);
+      const loc = res.headers.get("location")!;
+      expect(loc).toStartWith("/admin/login?return_to=");
+      expect(loc).not.toContain("code=");
+    } finally {
+      await s.stop();
+      await storage.close();
+      rmSync(tmp, { recursive: true, force: true });
+      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    }
+  });
+});
+
+describe("MEMEX_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable after sign-in", () => {
+  let tmp: string;
+  let storage: Storage;
+  let server: ServerHandle;
+  let url: string;
+  let clientId: string;
+
+  beforeEach(async () => {
+    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    tmp = mkdtempSync(join(tmpdir(), "memex-oauth-resume-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    const provider = new OAuthProvider({ engine: storage.raw() });
+    const reg = await provider.registerClientManual(
+      "browser-client",
+      ["authorization_code", "refresh_token"],
+      "read",
+      [REDIRECT],
+      "default",
+      undefined,
+      "none",
+    );
+    clientId = reg.clientId;
+    server = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      publicBearerToken: PUB_TOKEN,
+      oauthProvider: provider,
+      adminBootstrapToken: ADMIN_TOKEN,
+    });
+    url = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterEach(async () => {
+    delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    await server.stop();
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("bounce → park → sign in → confirm → code", async () => {
+    const { challenge } = pkce();
+    const authorizeQuery = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: REDIRECT,
+      scope: "read",
+      state: "st-1",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    }).toString();
+
+    // 1. Unauthenticated /authorize → bounced to the admin login.
+    const bounced = await fetch(`${url}/authorize?${authorizeQuery}`, { redirect: "manual" });
+    expect(bounced.status).toBe(302);
+    const loginPath = bounced.headers.get("location")!;
+    expect(loginPath).toStartWith("/admin/login?return_to=");
+
+    // 2. The login page parks the flow in a cookie and shows the SPA.
+    const parked = await fetch(`${url}${loginPath}`, { redirect: "manual" });
+    expect(parked.status).toBe(302);
+    expect(parked.headers.get("location")).toBe("/admin/");
+    const resumeCookie = parked.headers.getSetCookie()
+      .find((c) => c.startsWith("memex_return_to="))!
+      .split(";")[0]!;
+
+    // 3. The magic link signs the operator in — and lands on the dashboard, not
+    //    on the parked target: an unattended resume is what a planted cookie
+    //    would exploit.
+    const mint = await fetch(`${url}/admin/api/issue-magic-link`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    const { url: magic } = (await mint.json()) as { url: string };
+    const redeemed = await fetch(magic, { redirect: "manual", headers: { Cookie: resumeCookie } });
+    expect(redeemed.status).toBe(302);
+    expect(redeemed.headers.get("location")).toBe("/admin/");
+    const sessionCookie = redeemed.headers.getSetCookie()
+      .find((c) => c.startsWith("memex_admin="))!;
+    // Path=/ — scoped to /admin this cookie would never reach /authorize, and
+    // the operator could never be recognized there.
+    expect(sessionCookie).toContain("Path=/;");
+    const session = sessionCookie.split(";")[0]!;
+
+    // 4. The SPA asks what is parked and shows it for confirmation.
+    const pending = await fetch(`${url}/admin/api/pending-resume`, {
+      headers: { Cookie: `${session}; ${resumeCookie}` },
+    });
+    const shown = (await pending.json()) as {
+      handle: string; redirect_to: string; client_name: string; redirect_uri: string;
+    };
+    expect(shown.redirect_to).toBe(`/authorize?${authorizeQuery}`);
+    expect(shown.client_name).toBe("browser-client");
+    expect(shown.redirect_uri).toBe(REDIRECT);
+
+    // 4a. The session ALONE is not consent — replaying the parked request
+    //     without the operator's click bounces instead of minting a code.
+    const unapproved = await fetch(`${url}${shown.redirect_to}`, {
+      redirect: "manual",
+      headers: { Cookie: session },
+    });
+    expect(unapproved.status).toBe(302);
+    expect(unapproved.headers.get("location")).toStartWith("/admin/login?return_to=");
+
+    // 5. The click mints a one-time approval bound to this request. The handle
+    //    ties it to what the panel rendered.
+    const approved = await fetch(`${url}/admin/api/approve-resume`, {
+      method: "POST",
+      headers: { Cookie: `${session}; ${resumeCookie}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: shown.handle }),
+    });
+    const { redirect_to: approvedTarget } = (await approved.json()) as { redirect_to: string };
+    expect(approvedTarget).toContain("memex_approval=");
+    // The parked request is retired by the decision.
+    expect(approved.headers.getSetCookie().find((c) => c.startsWith("memex_return_to="))).toContain("Max-Age=0");
+
+    const issued = await fetch(`${url}${approvedTarget}`, {
+      redirect: "manual",
+      headers: { Cookie: session },
+    });
+    expect(issued.status).toBe(302);
+    const back = new URL(issued.headers.get("location")!);
+    expect(back.origin + back.pathname).toBe(REDIRECT);
+    expect(back.searchParams.get("state")).toBe("st-1");
+    expect(back.searchParams.get("code")).toMatch(/^memex_code_/);
+
+    // 6. The approval is single-use: replaying the very same URL bounces.
+    const replay = await fetch(`${url}${approvedTarget}`, {
+      redirect: "manual",
+      headers: { Cookie: session },
+    });
+    expect(replay.headers.get("location")).toStartWith("/admin/login?return_to=");
+  });
+
+  it("shows the scope that omitting the parameter actually grants", async () => {
+    // The provider grants the client's whole registered scope when the request
+    // carries none, so a panel echoing the empty query value would understate
+    // what is being handed over.
+    const noScope = `/authorize?response_type=code&client_id=${clientId}`
+      + `&redirect_uri=${encodeURIComponent(REDIRECT)}&code_challenge=ch&code_challenge_method=S256`;
+    const bounced = await fetch(`${url}${noScope}`, { redirect: "manual" });
+    const parked = await fetch(`${url}${bounced.headers.get("location")!}`, { redirect: "manual" });
+    const resumeCookie = parked.headers.getSetCookie()
+      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+    const login = await fetch(`${url}/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: ADMIN_TOKEN }),
+    });
+    const session = login.headers.getSetCookie()
+      .find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+
+    const pending = await fetch(`${url}/admin/api/pending-resume`, {
+      headers: { Cookie: `${session}; ${resumeCookie}` },
+    });
+    expect(((await pending.json()) as { scope: string }).scope).toBe("read");
+  });
+
+  it("keeps only the local path, and parks nothing for another route", async () => {
+    // A foreign host is stripped: what is parked is this server's own
+    // /authorize, so the later navigation cannot leave this origin.
+    const foreign = `/admin/login?return_to=${encodeURIComponent("https://evil.example/authorize?client_id=x")}`;
+    const res = await fetch(`${url}${foreign}`, { redirect: "manual" });
+    expect(res.headers.get("location")).toBe("/admin/");
+    expect(res.headers.getSetCookie().find((c) => c.startsWith("memex_return_to=")))
+      .toContain("memex_return_to=%2Fauthorize%3Fclient_id%3Dx");
+
+    // Any other route is not a resumable target at all.
+    const other = `/admin/login?return_to=${encodeURIComponent("/admin/api/full-stats")}`;
+    const res2 = await fetch(`${url}${other}`, { redirect: "manual" });
+    expect(res2.status).not.toBe(302);
+    expect(res2.headers.getSetCookie().some((c) => c.startsWith("memex_return_to="))).toBe(false);
+  });
+});

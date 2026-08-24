@@ -26,6 +26,10 @@ async function apiFetch(path: string, options?: RequestInit) {
 export const api = {
   login: (token: string) => apiFetch("/admin/login", { method: "POST", body: JSON.stringify({ token }) }),
   signOutEverywhere: () => apiFetch("/admin/api/sign-out-everywhere", { method: "POST" }),
+  pendingResume: () => apiFetch("/admin/api/pending-resume"),
+  approveResume: (handle: string) =>
+    apiFetch("/admin/api/approve-resume", { method: "POST", body: JSON.stringify({ handle }) }),
+  dismissResume: () => apiFetch("/admin/api/dismiss-resume", { method: "POST" }),
   fullStats: () => apiFetch("/admin/api/full-stats"),
   agents: () => apiFetch("/admin/api/agents"),
   mintApiKey: (name: string) =>

@@ -248,8 +248,21 @@ export function startServer(opts: ServerOptions): ServerHandle {
     adminAuth = createAdminAuth({
       bootstrapToken: opts.adminBootstrapToken,
       ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
+      // Names the client behind a parked /authorize so the operator confirms a
+      // connection to something they recognize, not to an opaque client_id.
+      ...(opts.oauthProvider
+        ? {
+            describeClient: async (clientId: string) => {
+              const c = await opts.oauthProvider!.getClient(clientId);
+              // The registered scope is what an authorize request omitting
+              // `scope` actually grants — the panel must show that, not "".
+              return c ? { client_name: c.client_name, scope: c.scope } : null;
+            },
+          }
+        : {}),
     });
   }
+
   // Opt-in strict OAuth: require a logged-in operator on /authorize. Default OFF
   // (auto-approve) — see the /authorize handler below.
   const oauthRequireLogin =
@@ -270,6 +283,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
     dcrInsecure ||
     (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
     (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "true";
+
   // A self-registered (DCR) client that completes the authorization_code flow
   // still receives a real, default-tenant token. That grant only carries
   // operator consent when /authorize is gated on a logged-in operator — i.e.
@@ -286,6 +300,14 @@ export function startServer(opts: ServerOptions): ServerHandle {
         "Set MEMEX_OAUTH_REQUIRE_LOGIN=1 (with MEMEX_ADMIN_BOOTSTRAP) to gate " +
         "/authorize on a logged-in operator, or set MEMEX_ENABLE_DCR_INSECURE=1 " +
         "to accept unauthenticated self-registration.",
+    );
+  }
+  if (oauthRequireLogin && !adminAuth) {
+    console.error(
+      "[memex] WARNING: MEMEX_OAUTH_REQUIRE_LOGIN=1 but no admin surface is " +
+        "configured (MEMEX_ADMIN_BOOTSTRAP is unset), so no operator can ever " +
+        "approve an authorization. /authorize refuses every request until a " +
+        "bootstrap token is set.",
     );
   }
   if (dcrEnabled) {
@@ -465,10 +487,22 @@ export function startServer(opts: ServerOptions): ServerHandle {
           }
           // Auto-approve by default, so a standard MCP client
           // completes the flow unattended. Opt into the stricter operator-login
-          // gate with MEMEX_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted for
-          // a logged-in admin (and only when an admin session mechanism exists).
-          const requireLogin =
-            oauthRequireLogin && adminAuth ? adminAuth.requireAdmin : () => true;
+          // gate with MEMEX_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted
+          // for a logged-in admin who ALSO approved this exact request from the
+          // dashboard. The session alone is not consent: anything able to
+          // navigate the operator's browser same-site (a sibling subdomain, a
+          // stale tab) would otherwise mint a code in silence. Without the
+          // approval the request bounces to the dashboard, which shows who is
+          // asking and where the code would go.
+          const ad = adminAuth;
+          const requireLogin = !oauthRequireLogin
+            ? () => true
+            : ad
+              ? (r: Request) => ad.requireAdmin(r) && ad.consumeAuthorizeApproval(r)
+              // Asked to gate on an operator with no admin surface to gate on:
+              // refuse every request rather than silently auto-approving the
+              // posture the flag exists to prevent.
+              : () => false;
           return handleAuthorizeRoute(req, oauthProvider, requireLogin);
         }
         if (url.pathname === "/register" && req.method === "POST") {
