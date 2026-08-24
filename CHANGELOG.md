@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.123.0] — 2026-08-24
+
 ### Changed
 - **`bedrock_model_id` now defaults to what the brain actually runs.** The
   terraform variable defaulted to Nova 2 Lite while the code has been pinned
