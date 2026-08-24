@@ -15,6 +15,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   description now says plainly that the variable is informational.
 
 ### Fixed
+- **The admin session cookie is scoped `Path=/`, so `/authorize` can see it.**
+  It was `Path=/admin`, and a browser never sends such a cookie to
+  `/authorize` (RFC 6265 §5.1.4) — the endpoint that asks `requireAdmin`
+  whether an operator is signed in. Under `MEMEX_OAUTH_REQUIRE_LOGIN=1` that
+  made the operator-gated flow unfinishable: every visit bounced to the login,
+  no matter how many times you signed in. A browser still holding the old
+  cookie would have been locked out of the dashboard entirely — the more
+  specific path is sent first and shadowed the live value — so signing in now
+  expires the `/admin`-scoped one in the same response, and a session check
+  accepts any live cookie the browser carries rather than only the first.
+- **An OAuth connect survives the sign-in it is interrupted by — and now asks
+  before it completes.** With `MEMEX_OAUTH_REQUIRE_LOGIN=1`, `/authorize`
+  bounces an unauthenticated browser to `/admin/login?return_to=…`, and nothing
+  downstream read that parameter: a "Connect" from ChatGPT or Claude Desktop
+  ended on the admin dashboard with no code issued. The login route parks the
+  target in a short-lived `memex_return_to` cookie, and the dashboard shows it
+  as a confirmation — which callback origin would receive the code, which
+  client asked, which scope it would actually be granted (an omitted `scope`
+  grants the client's whole registered scope, so the panel shows that rather
+  than the empty query value).
+  Consent is enforced by the server, not by the panel. `/authorize` now demands
+  a one-time `memex_approval` nonce, minted by the operator's click and bound
+  to that exact request's client, callback, PKCE challenge, scope, state and
+  `resource`; a live admin session alone no longer mints a code, so neither a
+  planted `return_to` cookie (it is `SameSite=Lax`, so a cross-site page can
+  set one) nor a same-site navigation from a sibling subdomain can complete an
+  authorization in silence. The click also quotes back the handle the panel
+  rendered, so a request swapped into the cookie after it was displayed is
+  refused rather than approved, and both new endpoints turn away a browser POST
+  that is not same-origin. "Not now" retires the parked request; signing out
+  everywhere drops pending approvals. Only `pathname + search` is kept and only
+  for `/authorize`, so every navigation stays on this origin.
+- **`MEMEX_OAUTH_REQUIRE_LOGIN=1` with no admin surface no longer auto-approves.**
+  The flag selected the operator gate only when `MEMEX_ADMIN_BOOTSTRAP` was
+  also set; without it the server fell back to auto-approval — the exact
+  posture the flag exists to prevent. It now refuses every authorization and
+  says so at startup.
+
 - **DEPLOYMENT.md no longer sends you to a console page that does not exist.**
   The prerequisites still said "Bedrock console → Model access, enable…" —
   that page is gone: Bedrock model access is enabled by default now, and the
