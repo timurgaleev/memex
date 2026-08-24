@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`bedrock_model_id` now defaults to what the brain actually runs.** The
+  terraform variable defaulted to Nova 2 Lite while the code has been pinned
+  to Haiku 4.5 (EU profile) all along — the variable only feeds the
+  informational `bedrock_model` output, so the output lied about the deployed
+  model. Default flipped to `eu.anthropic.claude-haiku-4-5-20251001` and the
+  description now says plainly that the variable is informational.
+
+### Fixed
+- **DEPLOYMENT.md no longer sends you to a console page that does not exist.**
+  The prerequisites still said "Bedrock console → Model access, enable…" —
+  that page is gone: Bedrock model access is enabled by default now, and the
+  only remaining gate for Anthropic models is the one-time per-account
+  use-case form (`aws bedrock put-use-case-for-model-access`, or the model
+  catalog in the console). The section now documents the current flow, the
+  exact failure message you see before the form is submitted, and the
+  `get-foundation-model-availability` check that proves the gate is open.
+
 ## [1.122.0] — 2026-08-15
 
 ### Added

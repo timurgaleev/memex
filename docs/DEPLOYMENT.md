@@ -19,15 +19,28 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
 
 - **An AWS account** with credentials configured locally (`aws configure` / an
   `~/.aws/config` profile).
-- **Bedrock model access enabled in the console** for your region. This is the
-  #1 silent-failure trap: without it the very first embed call fails with
-  `AccessDenied` and the brain looks broken while everything else is healthy.
-  In the Bedrock console → *Model access*, enable at minimum:
-  - **Amazon Titan Text Embeddings V2** (embeddings — required for indexing)
-  - **Anthropic Claude Haiku** (utility tier — intent/query expansion/synthesis)
-  - **Anthropic Claude Sonnet** (only if you plan to turn on any paid slice)
+- **Bedrock Anthropic access unlocked for the account.** Bedrock model access
+  is now enabled by default (the console *Model access* page is gone), but
+  Anthropic models additionally require a **one-time use-case form** per
+  account (or once at the AWS Organization's management account) before the
+  first invoke — until it is submitted, every Claude call fails with
+  `Model use case details have not been submitted for this account` while
+  embeddings work fine, so the brain looks half-broken. Submit it either from
+  the Bedrock console model catalog (open any Anthropic model → use case
+  details) or via the CLI (`aws bedrock put-use-case-for-model-access`), then
+  verify with:
 
-  Model access is per-region — enable it in the same region as `aws_region`.
+  ```bash
+  aws bedrock get-foundation-model-availability \
+    --model-id anthropic.claude-haiku-4-5-20251001-v1:0 \
+    --query agreementAvailability.status   # expect "AVAILABLE"
+  ```
+
+  The models the brain uses: **Amazon Titan Text Embeddings V2** (indexing —
+  no form needed), **Claude Haiku 4.5** (utility tier), **Claude Sonnet 4.6**
+  (only if you turn on any paid slice). See the AWS docs on
+  [model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)
+  for the current procedure.
 - **Terraform ≥ 1.6**.
 - **A domain** you control, plus a **Cloudflare account** (free tier is fine) —
   the public MCP ingress runs over a Cloudflare Tunnel.

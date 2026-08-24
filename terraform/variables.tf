@@ -148,31 +148,31 @@ variable "bedrock_allowed_regions" {
 
 variable "bedrock_model_id" {
   description = <<-EOT
-    Amazon Bedrock CRIS inference profile ID for the primary model.
+    Amazon Bedrock CRIS inference profile ID surfaced in the `bedrock_model`
+    terraform output. Informational: memex's utility tier is pinned in code
+    (eu.anthropic.claude-haiku-4-5, with Titan Embed V2 for embeddings and
+    eu.anthropic.claude-sonnet-4-6 behind the paid feature flags) — this
+    variable does not change what the brain calls. Keep it in sync with the
+    deployed reality so `terraform output bedrock_model` tells the truth.
 
-    Default: Nova 2 Lite — credit-eligible and multi-turn-safe.
-
-    Caveats:
-      - Nova Pro v1 (eu.amazon.nova-pro-v1:0) rejects multi-turn replays
-        with "User messages cannot contain reasoning content." Do not set
-        it as primary if you run multi-turn cron jobs.
-      - Nova 2 Pro may not be available in every account yet — check
-        `aws bedrock list-inference-profiles` before switching.
+    Default: Haiku 4.5 (EU profile) — what the brain actually uses.
 
     Switch via: terraform apply -var='bedrock_model_id=...'
 
-    === Amazon Nova — credit-eligible ===
-      global.amazon.nova-2-lite-v1:0   — Nova 2 Lite (default; multi-turn-safe)
+    === Anthropic Claude — what memex runs on ===
+      eu.anthropic.claude-haiku-4-5-20251001  — Haiku 4.5, utility tier (default; ~$2-3/mo)
+      eu.anthropic.claude-sonnet-4-6          — Sonnet 4.6, paid slices (~$15-25/mo)
+
+    === Amazon Nova — credit-eligible alternates ===
+      global.amazon.nova-2-lite-v1:0   — Nova 2 Lite (multi-turn-safe)
       eu.amazon.nova-2-lite-v1:0       — Nova 2 Lite, EU cross-region profile (EU data residency)
       global.amazon.nova-2-pro-v1:0    — Nova 2 Pro (when available in the account)
-      eu.amazon.nova-pro-v1:0          — Nova Pro v1 (not safe for multi-turn)
-
-    === Anthropic Claude — NOT credit-eligible (real $$, do not default) ===
-      eu.anthropic.claude-haiku-4-5-20251001  — Haiku 4.5  (~$2-3/mo)
-      eu.anthropic.claude-sonnet-4-6          — Sonnet 4.6 (~$15-25/mo)
+      eu.amazon.nova-pro-v1:0          — Nova Pro v1 (rejects multi-turn replays with
+                                         "User messages cannot contain reasoning content" —
+                                         do not use as primary for multi-turn cron jobs)
   EOT
   type        = string
-  default     = "global.amazon.nova-2-lite-v1:0"
+  default     = "eu.anthropic.claude-haiku-4-5-20251001"
 
   validation {
     condition = contains([
