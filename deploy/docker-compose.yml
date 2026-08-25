@@ -150,6 +150,31 @@ services:
       # as public so bearer auth is always enforced. Set by bootstrap; must
       # be in this allowlist or the flag never reaches the container.
       - MEMEX_ASSUME_PUBLIC=${MEMEX_ASSUME_PUBLIC:-}
+      # Operator-gated OAuth consent: /authorize issues no code until an
+      # operator is signed in. Required alongside MEMEX_ENABLE_DCR, and the
+      # only way a browser-based connector (Claude Desktop, ChatGPT) reaches
+      # a consent screen you control.
+      - MEMEX_OAUTH_REQUIRE_LOGIN=${MEMEX_OAUTH_REQUIRE_LOGIN:-}
+      # Dynamic Client Registration (RFC 7591). Off by default — pre-register
+      # clients with `auth register-client` instead.
+      - MEMEX_ENABLE_DCR=${MEMEX_ENABLE_DCR:-}
+      # Lets a self-registered DCR client ask for the consent-bypassing
+      # client_credentials grant. Documented escape hatch; useless unless it
+      # reaches the container.
+      - MEMEX_ENABLE_DCR_INSECURE=${MEMEX_ENABLE_DCR_INSECURE:-}
+      # Browser origins allowed to call the OAuth + admin routes. Unset =
+      # default-deny, which is what a non-browser deployment wants.
+      - MEMEX_HTTP_CORS_ORIGIN=${MEMEX_HTTP_CORS_ORIGIN:-}
+      # Remaining serve-time knobs. Each is read by runServe() or the request
+      # path; leaving one out of this list makes it unsettable from .env.
+      - MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE=${MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE:-}
+      - MEMEX_JOB_TIMEOUT_MS=${MEMEX_JOB_TIMEOUT_MS:-}
+      - MEMEX_HNSW_ZOMBIE_SWEEP=${MEMEX_HNSW_ZOMBIE_SWEEP:-}
+      - MEMEX_MAX_BODY_BYTES=${MEMEX_MAX_BODY_BYTES:-}
+      - MEMEX_INGEST_MAX_BYTES=${MEMEX_INGEST_MAX_BYTES:-}
+      # Admin login credential. Unset -> a fresh random token every restart,
+      # which invalidates the operator's admin session on every recompose.
+      - MEMEX_ADMIN_BOOTSTRAP=${MEMEX_ADMIN_BOOTSTRAP:-}
       # Trust X-Forwarded-For / X-Real-IP as the rate-limit key. Only set this
       # behind a proxy that terminates the client connection and REWRITES those
       # headers — otherwise a caller rotates them and defeats every per-IP cap.

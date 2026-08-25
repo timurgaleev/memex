@@ -6,6 +6,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Ten serve-time env vars never reached the container.** `deploy/docker-compose.yml`
+  passes an explicit allowlist, and `MEMEX_OAUTH_REQUIRE_LOGIN`, `MEMEX_ENABLE_DCR`,
+  `MEMEX_ENABLE_DCR_INSECURE`, `MEMEX_ADMIN_BOOTSTRAP`, `MEMEX_HTTP_CORS_ORIGIN`,
+  `MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE`, `MEMEX_JOB_TIMEOUT_MS`,
+  `MEMEX_HNSW_ZOMBIE_SWEEP`, `MEMEX_MAX_BODY_BYTES` and `MEMEX_INGEST_MAX_BYTES`
+  were all missing from it — set any of them in `.env` and it is silently
+  dropped, exactly the failure the file's own comment warns about. The visible
+  symptom is a documented flag that appears to do nothing: the consent gate
+  cannot be turned on, and the admin credential is regenerated on every restart
+  because the one you configured never arrived. A new test pins the auth-related
+  names against the allowlist; it does not discover future additions on its own.
+- **Admin magic links pointed at `http://` behind a TLS-terminating proxy.**
+  The OAuth discovery document resolved `MEMEX_PUBLIC_URL` on its own, but
+  `runServe()` never set `serverOpts.publicUrl`, so
+  `/admin/api/issue-magic-link` fell back to the request host — plain HTTP when
+  Caddy or a tunnel terminates TLS. The link then lands on a plaintext hop, and
+  where the proxy answers port 80 with a redirect rather than the app (or does
+  not listen on 80 at all) the operator cannot sign in.
+  `scripts/bootstrap.sh` and `scripts/init.sh` now emit `MEMEX_PUBLIC_URL` into
+  the generated `.env` — bootstrap rewrites that file on every run, so a
+  hand-added value did not survive the next bootstrap or an instance
+  replacement. It stays empty when no domain is configured, preserving the
+  request-host fallback.
+- **The instance could be created before its dependencies existed.**
+  `aws_instance.memex` declared no dependency on the EFS mount targets, so
+  terraform was free to create the host first; `mount -t efs` then failed to
+  resolve `<fs-id>.efs.<region>.amazonaws.com`, bootstrap exhausted its retries,
+  and cloud-init reported a failed run on an otherwise healthy stack. The same
+  race existed for the S3-hosted bootstrap script (fetched by an unretried
+  `aws s3 cp`), the IAM policies its first calls need, and the secret *versions* —
+  without the Postgres URL version, fetch-secrets reads an empty secret and the
+  brain comes up on PGLite instead of RDS. All are now explicit `depends_on`.
+  Ordering inside the boot itself (EIP association, endpoint reachability) is
+  unchanged and still relies on bootstrap's own retries.
+
 ## [1.123.0] — 2026-08-24
 
 ### Changed
