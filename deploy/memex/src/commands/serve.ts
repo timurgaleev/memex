@@ -135,6 +135,18 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // bearer token is present (via MEMEX_PUBLIC_BEARER env populated
   // by fetch-secrets.sh) we accept authenticated read requests; the
   // server.ts guard rejects internal-only routes regardless.
+  // The external origin this brain answers on. The OAuth discovery document
+  // reads MEMEX_PUBLIC_URL from the env on its own, but every other absolute
+  // URL the server builds (admin magic links above all) derives from
+  // `serverOpts.publicUrl` — so leaving it unset behind a TLS-terminating
+  // proxy emits `http://…` links that bounce off the HTTPS redirect.
+  // Trailing slashes stripped with the same guarded pattern resolveIssuer uses,
+  // so the issuer and every other absolute URL agree on the origin's spelling.
+  const publicUrl = (process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  if (publicUrl.length > 0) {
+    serverOpts.publicUrl = publicUrl.replace(/(?<!\/)\/+$/, "");
+  }
+
   const publicBearer = process.env.MEMEX_PUBLIC_BEARER;
   if (publicBearer && publicBearer.length > 0) {
     serverOpts.publicBearerToken = publicBearer;

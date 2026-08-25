@@ -8,6 +8,27 @@ resource "aws_instance" "memex" {
   iam_instance_profile   = aws_iam_instance_profile.memex.name
   key_name               = length(aws_key_pair.memex) > 0 ? aws_key_pair.memex[0].key_name : null
 
+  # The filesystem ID alone is not enough to mount: `mount -t efs` resolves
+  # <fs-id>.efs.<region>.amazonaws.com, and that name only answers once a
+  # mount target exists in the VPC. Without this the instance can boot first,
+  # bootstrap exhausts its mount retries against an unresolvable host, and
+  # cloud-init reports a failed run on an otherwise healthy stack.
+  # user_data also `aws s3 cp`s the bootstrap script with no retry, and the
+  # first boot reads secrets through the instance role — the script object, the
+  # policies granting those reads, and the Postgres URL's secret *version* all
+  # have to exist first. Without the version, fetch-secrets finds an empty
+  # secret and the brain silently comes up on PGLite instead of RDS.
+  depends_on = [
+    aws_efs_mount_target.main_az,
+    aws_efs_mount_target.multi_az,
+    aws_s3_object.bootstrap_script,
+    aws_iam_role_policy.memex_custom,
+    aws_iam_role_policy.efs_client,
+    aws_secretsmanager_secret_version.memex_postgres_url,
+    aws_secretsmanager_secret_version.memex_public_bearer,
+    aws_secretsmanager_secret_version.memex_internal_token,
+  ]
+
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     bootstrap_script_url = "s3://${aws_s3_bucket.scripts.id}/scripts/bootstrap.sh"
     efs_id               = aws_efs_file_system.memex.id

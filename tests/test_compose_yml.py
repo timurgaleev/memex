@@ -122,3 +122,39 @@ def test_memex_build_context(compose):
     svc = compose["services"]["memex"]
     assert "build" in svc, "memex must declare a build: block"
     assert svc["build"]["context"] == "./memex"
+
+
+def test_serve_time_env_vars_reach_the_container(compose):
+    """Every MEMEX_* the server reads at boot must be in the compose allowlist.
+
+    The `environment:` block is an allowlist, not a passthrough — a variable set
+    in .env but missing here never reaches the process, and the failure is
+    silent: the flag simply appears to do nothing.
+    """
+    src = REPO_ROOT / "deploy" / "memex" / "src"
+    required = {
+        "MEMEX_PUBLIC_URL",
+        "MEMEX_ASSUME_PUBLIC",
+        "MEMEX_OAUTH_REQUIRE_LOGIN",
+        "MEMEX_ENABLE_DCR",
+        "MEMEX_ENABLE_DCR_INSECURE",
+        "MEMEX_ADMIN_BOOTSTRAP",
+        "MEMEX_HTTP_CORS_ORIGIN",
+    }
+    # Guard the list itself: a name that no longer exists in the source is a
+    # stale assertion, not a real requirement.
+    sources = "\n".join(
+        p.read_text() for p in src.rglob("*.ts") if ".test." not in p.name
+    )
+    for name in sorted(required):
+        assert name in sources, f"{name} is asserted here but read nowhere in src/"
+
+    declared = set()
+    for entry in compose["services"]["memex"].get("environment", []):
+        declared.add(str(entry).split("=", 1)[0].strip("- "))
+
+    missing = required - declared
+    assert not missing, (
+        "these env vars are read by the server but never passed through "
+        f"docker-compose.yml, so setting them has no effect: {sorted(missing)}"
+    )

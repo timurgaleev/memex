@@ -269,6 +269,9 @@ AWS_PROFILE=${AWS_PROFILE}
 DOMAIN=${DOMAIN}
 MEMEX_SUBDOMAIN=${MEMEX_SUBDOMAIN}
 MEMEX_HOST=${MEMEX_SUBDOMAIN}.${DOMAIN}
+# External origin, scheme included — the OAuth issuer and the admin magic link
+# are built from it. Unset it to fall back to the request host.
+MEMEX_PUBLIC_URL=https://${MEMEX_SUBDOMAIN}.${DOMAIN}
 
 GITHUB_OWNER=${GITHUB_OWNER}
 REPO_NAME=${REPO_NAME}
