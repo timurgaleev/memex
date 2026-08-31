@@ -187,6 +187,18 @@ variable "bedrock_model_id" {
   }
 }
 
+variable "efs_backup" {
+  description = <<-EOT
+    Enable AWS Backup's built-in daily EFS backups (35-day retention in the
+    AWS-managed default vault). Cheap at this data size and the only recovery
+    point the file system has — RDS backups cover the corpus, not the config,
+    identity files, skillpack or ACME key. Set false only if an external
+    backup already covers the mount.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "ingress_mode" {
   description = <<-EOT
     How the public MCP endpoint reaches the internet.

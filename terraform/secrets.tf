@@ -3,10 +3,27 @@
 # Naming pattern: ${var.secrets_prefix}/<name>. Override secrets_prefix in
 # terraform.tfvars to namespace per-environment (e.g. "stack-staging").
 
+# Only the Cloudflare Tunnel ingress needs a tunnel token. An
+# ingress_mode="caddy" install has no tunnel, and a placeholder secret that
+# nothing reads is an invitation to delete it by hand — which is exactly what
+# happened on one install, leaving live and state disagreeing.
+#
+# Upgrade note: the `moved` block below re-addresses the existing (un-counted)
+# resource so a cloudflare install plans a no-op state move, not a
+# destroy+create of a live token. A caddy install plans a DESTROY of the
+# placeholder — expected, but if that secret is already in scheduled-deletion
+# limbo, run `aws secretsmanager restore-secret` first or AWS rejects the call.
 resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
+  count = var.ingress_mode == "cloudflare" ? 1 : 0
+
   name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
   description             = "Cloudflare Tunnel token for the MCP brain subdomain (brain.<domain>/mcp)"
   recovery_window_in_days = 0
+}
+
+moved {
+  from = aws_secretsmanager_secret.cloudflared_tunnel_token
+  to   = aws_secretsmanager_secret.cloudflared_tunnel_token[0]
 }
 
 # Conditional — only when the stack uses the SSH deploy-key flow for a

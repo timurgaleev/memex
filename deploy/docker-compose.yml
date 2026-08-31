@@ -109,6 +109,9 @@ services:
       # below — recommended over graph-rerank unless you specifically want the
       # graph-centrality signal + Sonnet-tier reasoning.
       - MEMEX_RERANK=${MEMEX_RERANK:-}
+      # Rerank candidate window (default 30). Read by the hybrid arm and
+      # keyed into the query cache — unsettable from .env without this line.
+      - MEMEX_RERANK_WINDOW=${MEMEX_RERANK_WINDOW:-}
       # --- Paid opt-in Bedrock Claude Sonnet slices (all default OFF) ---------
       # Each makes a PAID Sonnet call only when its flag is set, bounded by its
       # own USD BudgetTracker (*_BUDGET_USD, default 1.0). See docs/CONFIGURATION.md.

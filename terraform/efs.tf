@@ -29,6 +29,18 @@ resource "aws_security_group" "efs" {
   }
 }
 
+# EFS carries what RDS does not: config.json, the identity files
+# (SOUL/USER/ACCESS_POLICY), the skillpack, the operator credentials dir and —
+# on a caddy install — Caddy's ACME account key. RDS has 7-day automated
+# backups; this file system had no recovery point of any kind.
+resource "aws_efs_backup_policy" "memex" {
+  file_system_id = aws_efs_file_system.memex.id
+
+  backup_policy {
+    status = var.efs_backup ? "ENABLED" : "DISABLED"
+  }
+}
+
 resource "aws_efs_file_system" "memex" {
   creation_token   = "${var.project_name}-data"
   encrypted        = true

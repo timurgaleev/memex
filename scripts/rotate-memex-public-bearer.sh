@@ -65,8 +65,12 @@ fi
 # next deploy. `compose up --force-recreate` rebuilds the container with
 # the freshly-staged env_file.
 if docker ps --format '{{.Names}}' | grep -q "^${MEMEX_CONTAINER}$"; then
+  # No explicit -f: that would override the COMPOSE_FILE line bootstrap writes
+  # into .env and drop a caddy install's ingress overlay from the resolved set.
+  # COMPOSE_FILE is sourced from .env above; export it so compose sees it.
+  export COMPOSE_FILE="${COMPOSE_FILE:-$COMPOSE_DIR/docker-compose.yml}"
   (cd "$REPO_DIR" && docker compose --env-file "${REPO_DIR}/.env" \
-     -f "$COMPOSE_DIR/docker-compose.yml" up -d --force-recreate "$MEMEX_SERVICE") >/dev/null
+     up -d --force-recreate "$MEMEX_SERVICE") >/dev/null
   log "docker compose: force-recreated $MEMEX_SERVICE (reloads rotated env_file)"
 else
   log "WARN: container $MEMEX_CONTAINER not running — skipping recreate"

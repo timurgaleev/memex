@@ -114,7 +114,7 @@ for this repo:
    - `make test` — bash unit tests pass
    - `python3 -m pytest tests/ -q` — all green
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
-   - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed
+   - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed (an explicit `-f` is right HERE: this validates the file in the checkout, not the host's resolved set)
    - When memex source changed, run the **full Bun suite locally**
      (`env -C deploy/memex bun run test:sharded`) — not just the touched
      file. The local suite is the authoritative gate (operator decision:
@@ -136,8 +136,15 @@ for this repo:
      up -d --build` for the memex service: it leaves `MEMEX_VERSION` unset, the
      image is stamped `dev`, and `/health` can no longer tell a fresh container
      from a stale one.
-   - For a service other than memex: `docker compose --env-file .env -f
-     deploy/docker-compose.yml up -d --build <service>`
+   - For a service other than memex: `docker compose --env-file .env up -d
+     --build <service>` from `/opt/memex/`. Do NOT hand-pass `-f
+     deploy/docker-compose.yml`: an explicit `-f` overrides the `COMPOSE_FILE`
+     line bootstrap writes into `.env`, and on a caddy install that drops the
+     ingress overlay from the resolved set — `--remove-orphans` then deletes
+     the only route into the box, and a bare `up -d` starts the parked
+     cloudflared with an empty token. An install bootstrapped before
+     `COMPOSE_FILE` existed has no such line; add it rather than reaching for
+     `-f`.
    - For systemd unit changes: `install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/ && systemctl daemon-reload && systemctl restart <unit>`
 4. **Verify on the live host**:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)

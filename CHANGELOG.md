@@ -7,6 +7,59 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **A caddy install's ingress was invisible to every later compose command.**
+  `bootstrap.sh` picks the compose file set (base + the Caddy overlay it writes
+  to `/etc/<project>/compose.caddy.yml`) and then threw that choice away: nothing
+  recorded it, so `deploy/deploy.sh`, a manual `docker compose`, and the ship
+  loop in `CLAUDE.md` all resolved the base file alone. Two failure modes
+  followed, both one keystroke away on a live host: `--remove-orphans` deletes
+  the running Caddy — the ONLY route into an `ingress_mode=caddy` box — and a
+  bare `up -d` starts the overlay-parked `cloudflared` with an empty tunnel
+  token, restart-looping forever. Bootstrap now writes `COMPOSE_FILE` into
+  `.env` in BOTH ingress modes (compose reads it out of the file passed to
+  `--env-file`), `deploy.sh` expands that `:`-separated list into repeated `-f`
+  flags, and the documented command no longer hand-passes `-f`.
+- **`MEMEX_ADMIN_BOOTSTRAP` and `MEMEX_OAUTH_REQUIRE_LOGIN` survived only as
+  hand edits.** Both had to be added to `/opt/<project>/.env` by hand, a file
+  whose own header says every bootstrap run rewrites it — so the next
+  re-bootstrap silently dropped them, and `/authorize` fell back to
+  auto-approving every consent request with no operator in the loop. Bootstrap
+  now reads `<prefix>/memex-admin-bootstrap` from Secrets Manager and, when it
+  holds a value, writes both keys itself. The token goes into `.env` rather
+  than `.secrets/memex.env` on purpose: `docker-compose.yml` lists it under
+  `environment:`, and an `environment:` entry interpolating to empty overrides
+  the same key from an `env_file`.
+- **`MEMEX_RERANK_WINDOW` was silently discarded.** It is read by the hybrid
+  arm and keyed into the query cache, but was missing from the compose
+  environment allowlist — setting it in `.env` did nothing.
+- **The shipped systemd units hardcoded `AWS_REGION=eu-west-1`** — the
+  maintainer's own region, wrong for every other install, and `/var/log/memex`
+  (where both units append) was never created, so they failed on first start.
+  Region now comes from `EnvironmentFile=-/opt/memex/.env`; bootstrap creates
+  the log directory. The units also `UnsetEnvironment=AWS_PROFILE`: that file
+  carries `AWS_PROFILE=default` for the compose stack, but the matching
+  `~/.aws/config` is written only for `ec2-user` — the units run as root, where
+  that profile does not exist and every `aws` call would exit 253. Credentials
+  come from the instance role via IMDS, so no profile is wanted there.
+- **`scripts/rotate-memex-public-bearer.sh` hardcoded `-f docker-compose.yml`**
+  when force-recreating the container, overriding `COMPOSE_FILE` and dropping a
+  caddy install's ingress overlay from the resolved set.
+- **The Cloudflare tunnel secret was created even for installs with no
+  tunnel.** `ingress_mode = "caddy"` got an empty `<prefix>/cloudflared-tunnel-token`
+  placeholder that nothing reads — an invitation to delete it by hand, which is
+  what happened on one install, leaving live and state disagreeing. It is now
+  `count`-gated on `ingress_mode == "cloudflare"`, with a `moved` block so a
+  cloudflare install plans a state move rather than a destroy+create of a live
+  token. On a caddy install the plan DESTROYS the placeholder; if it is already
+  in scheduled-deletion limbo, `aws secretsmanager restore-secret` first or AWS
+  rejects the call.
+
+### Added
+- **EFS backups.** `aws_efs_backup_policy` (new `efs_backup` variable, default
+  on) turns on AWS Backup's daily EFS backups. RDS automated backups cover the
+  corpus; the file system carries `config.json`, the identity files, the
+  skillpack, the operator credentials dir and — on a caddy install — Caddy's
+  ACME account key, and had no recovery point of any kind.
 - **Ten serve-time env vars never reached the container.** `deploy/docker-compose.yml`
   passes an explicit allowlist, and `MEMEX_OAUTH_REQUIRE_LOGIN`, `MEMEX_ENABLE_DCR`,
   `MEMEX_ENABLE_DCR_INSECURE`, `MEMEX_ADMIN_BOOTSTRAP`, `MEMEX_HTTP_CORS_ORIGIN`,

@@ -176,10 +176,46 @@ step entirely. Then:
   reaches memex without the `Cf-Connecting-Ip` header would be treated as
   internal and served without auth;
 - bootstrap ends with an auth smoke test: an unauthenticated `POST /mcp`
-  must return 401. Repeat that check after any ingress change.
+  must return 401. Repeat that check after any ingress change;
+- bootstrap records the resolved compose file set as `COMPOSE_FILE` in
+  `/opt/<project>/.env`. Run compose from that directory **without** a
+  hand-passed `-f` — an explicit `-f` overrides `COMPOSE_FILE` and drops the
+  overlay, which makes `docker compose ... --remove-orphans` delete the only
+  ingress container and lets a bare `up -d` start the parked `cloudflared`
+  with an empty token. `deploy/deploy.sh` reads the same variable.
 
-The cloudflared tunnel-token secret stays as an untouched empty
-placeholder in this mode.
+In this mode terraform creates no cloudflared tunnel-token secret at all
+(`aws_secretsmanager_secret.cloudflared_tunnel_token` is `count`-gated on
+`ingress_mode`). Upgrading an existing caddy install that already has the
+empty placeholder will plan a destroy of it — expected. If that secret was
+previously deleted by hand it sits in scheduled-deletion limbo and AWS
+rejects the destroy; run `aws secretsmanager restore-secret --secret-id
+<prefix>/cloudflared-tunnel-token` first, then apply.
+
+### Admin surface and OAuth consent
+
+Create `<prefix>/memex-admin-bootstrap` with a 32+ character value from
+`[A-Za-z0-9_-]` (`openssl rand -base64 32 | tr '+/' '-_'`). Bootstrap reads it
+and writes both `MEMEX_ADMIN_BOOTSTRAP` and `MEMEX_OAUTH_REQUIRE_LOGIN=1` into
+`.env`, which gates `/authorize` on an operator being signed in. Leave the
+secret empty and the server mints a fresh token every restart and
+auto-approves every consent request instead — on a caddy install that consent
+screen is directly on the public internet.
+
+### Scheduled units
+
+`deploy/systemd/` ships the nightly retrieval-quality probe and the daily
+bearer rotation. Bootstrap does **not** install them; do it deliberately:
+
+```bash
+sudo install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now memex-eval-probe.timer
+```
+
+Both read `AWS_REGION` from `/opt/memex/.env`. Enable
+`memex-rotate-bearer.timer` only once you know what consumes the public
+bearer — rotation breaks any client holding the old value.
 
 ---
 

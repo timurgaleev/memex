@@ -13,9 +13,15 @@ Type=oneshot
 # transient failure (e.g. a container restart mid-run) from marking the unit
 # failed and spamming the journal; the next night simply retries.
 ExecStart=/usr/bin/docker exec deploy-memex-1 bun run src/cli.ts eval-probe
-# AWS region for the Bedrock embed calls the hybrid arm makes. Instance role
-# provides the credentials; no profile needed.
-Environment=AWS_REGION=eu-west-1
+# AWS region and the rest of the host env contract come from the file
+# bootstrap.sh renders. Hardcoding a region here shipped the maintainer's
+# own eu-west-1 to every install; the instance role supplies credentials.
+EnvironmentFile=-/opt/memex/.env
+# .env also carries AWS_PROFILE=default, but bootstrap writes the matching
+# ~/.aws/config only for ec2-user — these units run as root, where that
+# profile does not exist and every aws call would exit 253. Credentials
+# come from the instance role via IMDS, so no profile is wanted here.
+UnsetEnvironment=AWS_PROFILE
 Environment=TZ=Europe/Berlin
 StandardOutput=append:/var/log/memex/memex-eval-probe.log
 StandardError=append:/var/log/memex/memex-eval-probe.log

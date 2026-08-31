@@ -46,7 +46,7 @@ output "cloudtrail" {
 output "secret_arns" {
   description = "Secrets Manager ARNs — fill the empty placeholders after deploy"
   value = {
-    cloudflared         = aws_secretsmanager_secret.cloudflared_tunnel_token.arn
+    cloudflared         = one(aws_secretsmanager_secret.cloudflared_tunnel_token[*].arn)
     github_deploy_key   = var.use_ssh_deploy_key ? aws_secretsmanager_secret.github_deploy_key[0].arn : null
     memex_postgres_url  = aws_secretsmanager_secret.memex_postgres_url.arn
     memex_public_bearer = aws_secretsmanager_secret.memex_public_bearer.arn

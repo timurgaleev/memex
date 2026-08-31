@@ -196,6 +196,11 @@ REPO_DIR=${REPO_DIR}
 EFS_MOUNT=${EFS_DATA}
 EFS_REPO=${EFS_REPO}
 MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}
+# The compose file set, so `docker compose --env-file .env <cmd>` from this
+# directory resolves it without a hand-passed -f (verified: compose reads
+# COMPOSE_FILE out of the file given to --env-file). The caddy branch below
+# rewrites this line to append its ingress overlay.
+COMPOSE_FILE=deploy/docker-compose.yml
 EOF
 chmod 0600 "${REPO_DIR}/.env"
 
@@ -206,9 +211,40 @@ SECRETS_PREFIX="$STACK_SECRETS_PREFIX" \
   bash "${REPO_DIR}/deploy/secrets/fetch-secrets.sh"
 
 # ---------------------------------------------------------------------------
+# 6b. Admin surface. The token gates the admin login and, with it, the
+# operator-consent path for /authorize. It goes into .env (not into
+# .secrets/memex.env) on purpose: docker-compose.yml lists
+# MEMEX_ADMIN_BOOTSTRAP under `environment:`, and an `environment:` entry that
+# interpolates to empty OVERRIDES the same key coming from an env_file — the
+# token would be silently blanked. Absent secret -> the server mints an
+# ephemeral token per restart and /authorize auto-approves, so gate the
+# require-login flag on the secret actually existing.
+# ---------------------------------------------------------------------------
+# Never leak the value via shell trace if someone re-runs this with `bash -x`
+# (the header documents that re-run). Same guard as fetch-secrets.sh.
+set +x
+if ADMIN_BOOTSTRAP=$(aws secretsmanager get-secret-value \
+  --secret-id "${STACK_SECRETS_PREFIX}/memex-admin-bootstrap" \
+  --region "$STACK_AWS_REGION" --query SecretString --output text 2>/dev/null \
+  | tr -d '\n\r') && [ -n "$ADMIN_BOOTSTRAP" ]; then
+  {
+    printf 'MEMEX_ADMIN_BOOTSTRAP=%s\n' "$ADMIN_BOOTSTRAP"
+    printf 'MEMEX_OAUTH_REQUIRE_LOGIN=1\n'
+  } >> "${REPO_DIR}/.env"
+  unset ADMIN_BOOTSTRAP
+  echo "[bootstrap] admin bootstrap token fetched; OAuth consent gated on operator login"
+else
+  echo "[bootstrap] WARN: ${STACK_SECRETS_PREFIX}/memex-admin-bootstrap is empty or absent — /authorize will auto-approve and the admin token resets on every restart"
+fi
+
+# ---------------------------------------------------------------------------
 # 7. Bake AWS profile config so containers inheriting ~/.aws/config can
 #    use the EC2 instance metadata service for credentials.
 # ---------------------------------------------------------------------------
+# Log sink for the shipped systemd units (memex-eval-probe,
+# memex-rotate-bearer). Absent, the units fail on first start.
+mkdir -p /var/log/memex
+
 mkdir -p /home/ec2-user/.aws
 cat > /home/ec2-user/.aws/config <<AWSEOF
 [default]
@@ -304,6 +340,14 @@ services:
       retries: 3
 EOF
   COMPOSE_FILES+=(-f "/etc/${STACK_PROJECT}/compose.caddy.yml")
+
+  # Record the file set so every LATER compose invocation resolves it too:
+  # deploy/deploy.sh, a manual `docker compose`, the ship loop in CLAUDE.md.
+  # Without this the running Caddy is an orphan to those commands (one
+  # `--remove-orphans` deletes the only route into the box) and the parked
+  # cloudflared service becomes startable again with an empty tunnel token.
+  sed -i "s#^COMPOSE_FILE=.*#COMPOSE_FILE=deploy/docker-compose.yml:/etc/${STACK_PROJECT}/compose.caddy.yml#" \
+    "${REPO_DIR}/.env"
 
   # The auth guard must treat EVERY request as public behind Caddy — without
   # this a request that dodges the header injection is served unauthenticated.

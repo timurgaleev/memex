@@ -7,6 +7,48 @@ introduces them.
 
 ---
 
+## Multi-install audit follow-ups (2026-08-31)
+
+Found by comparing a fresh `ingress_mode=caddy` install against the
+reference `cloudflare` one. The compose-file-set, admin-token,
+systemd-region and tunnel-secret defects from that audit are fixed in
+`[Unreleased]`; these are the ones left open on purpose.
+
+- **Gate `cloudflared` behind a compose profile in the base file.** Today
+  the parking lives only in the Caddy overlay bootstrap writes, so the
+  base `deploy/docker-compose.yml` still declares a startable
+  `cloudflared`. Giving it `profiles: ["cloudflare"]` and having
+  bootstrap emit `COMPOSE_PROFILES=cloudflare` in that mode is the
+  structurally correct fix — deferred because it changes what a bare
+  `up -d` starts on every existing cloudflare install, which needs a
+  deliberate deploy rather than a drive-by.
+- **No alarm path on a fresh install.** `alarm_email` defaults to empty,
+  which count-gates the SNS topic away, so `terraform/cloudwatch.tf`
+  has nothing to notify. Neither memex instance carries a
+  StatusCheckFailed alarm (the one in the reference account belongs to a
+  sibling service). Decide the shape first — per CLAUDE.md, monitoring is
+  not to be added unrequested.
+- **No HTTP access logging on the Caddy path.** Reads cannot be
+  attributed to a person, which a shared multi-user brain eventually
+  needs. Caddy `log` block + a retention story.
+- **Per-tenant sources for a shared brain.** A pilot with several users
+  currently shares one `default` source: everyone reads everyone. Fine
+  while that is the stated deal, but `auth register-client --source`
+  already supports the split — document the migration before a brain
+  accumulates content that has to be re-attributed.
+- **The shipped systemd units hardcode `/opt/memex`** in both `ExecStart`
+  and the new `EnvironmentFile=`. With `project_name != memex` the `-`
+  prefix makes the env file silently absent — no region, no warning.
+  Same class of bug as the hardcoded region they replaced; fixing it
+  properly means templating the units at bootstrap rather than shipping
+  them as static files.
+- **`aws_efs_backup_policy` needs `backup:*` + `iam:CreateServiceLinkedRole`**
+  on first use. An apply run by a least-privileged terraform principal
+  will fail until those are granted.
+- **S3 backend has no state locking** and `encrypt = true` is easy to
+  omit — `backend.hcl.example` sets it, a hand-written one may not.
+  Worth a preflight check in `scripts/init.sh`.
+
 ## Lint backlog (2026-08-13) — CLOSED 2026-08-14
 
 A linter was run over the daemon source for the first time. The raw run reported

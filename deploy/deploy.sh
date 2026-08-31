@@ -12,8 +12,29 @@
 # Run from the repo root on the instance, after `git pull --ff-only`.
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-.env}"
+
+# The ingress overlay (Caddy, when ingress_mode=caddy) is a SECOND compose file
+# chosen at bootstrap and recorded as COMPOSE_FILE in the host .env. Resolving
+# only the base file here would treat the running ingress container as an
+# orphan — one `--remove-orphans` away from deleting the only route into the
+# box — and would leave the parked cloudflared service startable with an empty
+# token. Shell env wins; .env is the fallback.
+if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$ENV_FILE" ]; then
+  # Compose strips surrounding quotes and trailing whitespace when it reads
+  # this itself; a raw sed does not, and `-f '"a' ` then fails the deploy.
+  COMPOSE_FILE="$(sed -n 's/^COMPOSE_FILE=//p' "$ENV_FILE" | tail -1 |
+    sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")"
+fi
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
+
+# COMPOSE_FILE is a ':'-separated list (docker compose's own convention);
+# expand it into repeated -f flags. A single path passes through unchanged.
+COMPOSE_ARGS=()
+IFS=':' read -r -a _compose_files <<< "$COMPOSE_FILE"
+for _f in "${_compose_files[@]}"; do
+  [ -n "$_f" ] && COMPOSE_ARGS+=(-f "$_f")
+done
 SERVICE="${SERVICE:-memex}"
 CONTAINER="${CONTAINER:-deploy-memex-1}"
 HEALTH_TIMEOUT_S="${HEALTH_TIMEOUT_S:-180}"
@@ -24,7 +45,7 @@ MEMEX_VERSION="$(git describe --tags --always --dirty)"
 export MEMEX_VERSION
 echo "==> building ${SERVICE} stamped ${MEMEX_VERSION}"
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build "$SERVICE"
+docker compose --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" up -d --build "$SERVICE"
 
 echo "==> waiting for ${CONTAINER} to report healthy (max ${HEALTH_TIMEOUT_S}s)"
 deadline=$((SECONDS + HEALTH_TIMEOUT_S))
