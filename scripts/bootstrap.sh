@@ -196,7 +196,7 @@ REPO_DIR=${REPO_DIR}
 EFS_MOUNT=${EFS_DATA}
 EFS_REPO=${EFS_REPO}
 MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}
-# The compose file set, so `docker compose --env-file .env <cmd>` from this
+# The compose file set, so "docker compose --env-file .env COMMAND" from this
 # directory resolves it without a hand-passed -f (verified: compose reads
 # COMPOSE_FILE out of the file given to --env-file). The caddy branch below
 # rewrites this line to append its ingress overlay.
