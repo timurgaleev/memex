@@ -37,6 +37,7 @@ import { addFact } from "../src/core/facts.ts";
 import { recallFact, forgetFact } from "../src/core/facts-recall.ts";
 import { purgeDeletedPages } from "../src/core/pages-purge.ts";
 import { registerSource } from "../src/core/sources.ts";
+import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
 
@@ -268,5 +269,77 @@ describe("dispatch end-to-end: writeSource threads from authInfo", () => {
     await addTag(storage, slug, "atag", A);
     await dispatchTool(storage, { name: "remove_tag", arguments: { slug, tag: "atag" } }, { authInfo: auth(B) });
     expect(await getTags(storage, slug, [A])).toContain("atag"); // survives
+  });
+});
+
+describe("index (writeDocumentTransaction) write scope", () => {
+  // Regression: `documents.id` hashes only the caller-supplied source_path, and
+  // those paths are predictable (`page://<source>/<slug>`). Before the fence, a
+  // caller scoped to B could name A's path, land on A's row, and have its chunks
+  // deleted and rewritten from B's text — A's canonical page survived, but A's
+  // own search stopped finding it. Reproduced live against the pilot install
+  // before the fix; these tests lock the fence in.
+  const docFor = (sourcePath: string, sourceId: string | null, title: string) => ({
+    documentId: `doc_${Buffer.from(sourcePath).toString("hex").slice(0, 16)}`,
+    sourcePath,
+    title,
+    frontmatter: {},
+    sourceId,
+  });
+
+  async function ownerOf(documentId: string): Promise<string | null> {
+    const r = await storage.engine().query<{ source_id: string | null }>(
+      "SELECT source_id FROM documents WHERE id = $1",
+      [documentId],
+    );
+    return r.rows[0]?.source_id ?? null;
+  }
+
+  async function chunkTexts(documentId: string): Promise<string> {
+    const r = await storage.engine().query<{ content: string }>(
+      "SELECT content FROM chunks WHERE document_id = $1",
+      [documentId],
+    );
+    return r.rows.map((x) => x.content).join(" ");
+  }
+
+  it("a caller scoped to B cannot overwrite a document owned by A", async () => {
+    const path = "page://tenanta/idx/victim";
+    const victim = docFor(path, A, "A's doc");
+    await writeDocumentTransaction(storage, victim, [{ text: "ALPHA secret numbers", entities: [] }]);
+    expect(await ownerOf(victim.documentId)).toBe(A);
+
+    // Same documentId — B named A's path, which is the whole attack.
+    await expect(
+      writeDocumentTransaction(storage, { ...victim, sourceId: B, title: "B's overwrite" }, [
+        { text: "WIPED by B", entities: [] },
+      ]),
+    ).rejects.toThrow(/owned by another source/);
+
+    expect(await ownerOf(victim.documentId)).toBe(A);
+    expect(await chunkTexts(victim.documentId)).toContain("ALPHA");
+  });
+
+  it("a caller scoped to A can still re-index its OWN document", async () => {
+    const own = docFor("page://tenanta/idx/own", A, "A's doc");
+    await writeDocumentTransaction(storage, own, [{ text: "first revision", entities: [] }]);
+    await writeDocumentTransaction(storage, { ...own, title: "A's doc v2" }, [
+      { text: "second revision", entities: [] },
+    ]);
+    expect(await ownerOf(own.documentId)).toBe(A);
+    expect(await chunkTexts(own.documentId)).toContain("second revision");
+  });
+
+  it("an UNSCOPED writer (local CLI reindex) still updates the row it owns", async () => {
+    const seeded = docFor("page://tenanta/idx/cli", A, "A's doc");
+    await writeDocumentTransaction(storage, seeded, [{ text: "seeded", entities: [] }]);
+    // sourceId null → the COALESCE keeps A as owner and the write must land.
+    await writeDocumentTransaction(
+      storage,
+      { ...seeded, sourceId: null, title: "reindexed by CLI" },
+      [{ text: "reindexed", entities: [] }],
+    );
+    expect(await ownerOf(seeded.documentId)).toBe(A);
+    expect(await chunkTexts(seeded.documentId)).toContain("reindexed");
   });
 });

@@ -7,6 +7,20 @@ introduces them.
 
 ---
 
+## Cross-tenant slug enumeration (2026-09-07)
+
+`page_put` distinguishes "slug owned by another source" (`permission_denied`)
+from "slug is free" (`ok`), so one tenant can probe which slugs exist in
+another. Low severity on its own — it leaks the existence of a slug, never
+content — but it is the discovery half of the `index` overwrite fixed in
+`[Unreleased]`, so it should not stand indefinitely.
+
+Closing it properly means `pages.slug` stops being a global primary key
+(migration 015) and becomes `(source_id, slug)`, which touches every read path
+that resolves a slug plus `slug_aliases`, merge and rename. That is a schema
+migration, not a patch — plan it deliberately rather than bolting a generic
+error onto `putPage`, which would only move the oracle to a timing difference.
+
 ## Multi-install audit follow-ups (2026-08-31)
 
 Found by comparing a fresh `ingress_mode=caddy` install against the

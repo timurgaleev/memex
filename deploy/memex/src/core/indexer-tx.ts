@@ -23,6 +23,7 @@ import type { Storage } from "./storage.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { embeddingSignature } from "./embedding.ts";
 import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
+import { OperationError } from "./operation-error.ts";
 import { wellFormForText, wellFormJsonbObject } from "./well-form.ts";
 import {
   importFilename,
@@ -138,6 +139,35 @@ export async function writeDocumentTransaction(
   await withRetry(() => engine.transaction(async (tx) => {
     embeddingsWritten = 0;
     entitiesWritten = 0;
+
+    // No cross-tenant document overwrite. `documents.id` hashes ONLY the
+    // caller-supplied source_path (see `docId` in indexer.ts), so a scoped
+    // caller who names another tenant's path — they are predictable,
+    // `page://<source>/<slug>` — lands on that tenant's row and the upsert
+    // below replaces its chunks. The victim's canonical page survives, but
+    // every chunk backing it is deleted and re-inserted from the attacker's
+    // text: their own search stops finding their own note, silently. This is
+    // the same ownership fence `putPage` applies to `pages` (core/pages.ts).
+    //
+    // Only a caller that NAMES a source is fenced. Trusted local callers (CLI
+    // reindex, vault sweep, the cycle) pass null and keep the existing owner
+    // via the COALESCE below — fencing those would break every re-index.
+    if (doc.sourceId != null) {
+      const owner = (
+        await tx.query<{ source_id: string | null }>(
+          "SELECT source_id FROM documents WHERE id = $1",
+          [doc.documentId],
+        )
+      ).rows[0]?.source_id;
+      if (owner != null && owner !== doc.sourceId) {
+        throw new OperationError(
+          "permission_denied",
+          `document '${doc.sourcePath}' is owned by another source`,
+          "Index under a source_path inside your own source.",
+        );
+      }
+    }
+
     await tx.query(
       `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
        VALUES ($1, $6, $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())

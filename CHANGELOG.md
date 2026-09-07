@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **A tenant could wipe another tenant's search results through `index`.**
+  `documents.id` hashes only the caller-supplied `source_path`, and those paths
+  are predictable — a page mirrors to `page://<source>/<slug>`. A caller scoped
+  to source B could name A's path, land on A's document row, and have the upsert
+  delete and re-insert A's chunks from B's text. A's canonical page survived and
+  B saw none of A's content, so this was not disclosure: it was silent
+  destruction of the victim's retrieval. The victim's own search returned zero
+  hits for their own note until they re-saved it. Reproduced end to end against
+  a live two-tenant install, over the public `/mcp` ingress with real OAuth
+  tokens, before the fix.
+
+  `writeDocumentTransaction` now refuses a write whose target document is owned
+  by a different source — the same ownership fence `putPage` has always applied
+  to `pages`. Only a caller that NAMES a source is fenced; the local CLI reindex,
+  the vault sweep and the cycle pass no source and keep the existing owner
+  through the unchanged `COALESCE`, so re-indexing is untouched. Three
+  regression tests cover the attack, a same-tenant re-index, and the unscoped
+  writer; the first one fails on the pre-fix code.
+
+  Known and NOT fixed here: `page_put` still answers `permission_denied` for a
+  slug owned by another source and `ok` for a free one, so slugs remain
+  enumerable across tenants. Closing that needs `pages.slug` to stop being a
+  global primary key — a schema change, tracked in `TODO.md`.
+
+
 ### Fixed
 - **A caddy install's ingress was invisible to every later compose command.**
   `bootstrap.sh` picks the compose file set (base + the Caddy overlay it writes
