@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.124.0] — 2026-09-07
+
 ### Security
 - **A tenant could wipe another tenant's search results through `index`.**
   `documents.id` hashes only the caller-supplied `source_path`, and those paths
