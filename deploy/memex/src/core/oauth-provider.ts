@@ -182,6 +182,36 @@ export interface OAuthTokens {
 }
 
 /** Parameters the ingress collects from the /authorize request. */
+/**
+ * The tenant a single authorization is pinned to, chosen by the operator when
+ * they approve that request — NOT by the client and never by the token holder.
+ *
+ * It exists because a corporate chat vendor publishes ONE connector for a whole
+ * organisation: with tenancy pinned to the client row, one connector can only
+ * ever be one tenant. Binding it per grant lets one connector serve many people,
+ * each in their own source.
+ */
+/**
+ * Read a stored grant off a code/token row. `grant_bound` is what makes a
+ * deliberate "no source" distinguishable from a legacy row: without it, both
+ * look like NULL and the client-row fallback would widen the session.
+ */
+function grantFromRow(row: Record<string, unknown>): GrantScope | undefined {
+  if (row["grant_bound"] !== true) return undefined;
+  const fed = row["federated_read"];
+  return {
+    sourceId: (row["source_id"] as string | null) ?? null,
+    federatedRead: Array.isArray(fed) ? (fed as string[]) : null,
+  };
+}
+
+export interface GrantScope {
+  /** The write source for this session. */
+  sourceId: string | null;
+  /** The federated read set. Undefined = just `sourceId`. */
+  federatedRead?: string[] | null;
+}
+
 export interface AuthorizationParams {
   codeChallenge: string;
   redirectUri: string;
@@ -580,6 +610,7 @@ export class OAuthProvider {
   async authorize(
     client: OAuthClientInfo,
     params: AuthorizationParams,
+    grant?: GrantScope,
   ): Promise<{ redirectUrl: string }> {
     const code = generateToken("memex_code_");
     const codeHash = hashToken(code);
@@ -596,11 +627,26 @@ export class OAuthProvider {
       hasScope(allowedScopes, s),
     );
 
+    // A named grant must exist before it is handed out: a code pinned to a
+    // source that was never registered would fall back to the client row at
+    // verification time (COALESCE), silently WIDENING the session instead of
+    // narrowing it. Fail closed here instead.
+    if (grant?.sourceId) {
+      const known = await this.rows<{ id: string }>(
+        "SELECT id FROM sources WHERE id = $1",
+        [grant.sourceId],
+      );
+      if (known.length === 0) {
+        throw new Error(`Unknown source '${grant.sourceId}' for this grant`);
+      }
+    }
+
     await this.engine.query(
       `INSERT INTO oauth_codes
          (code_hash, client_id, scopes, code_challenge,
-          code_challenge_method, redirect_uri, state, resource, expires_at)
-       VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9)`,
+          code_challenge_method, redirect_uri, state, resource, expires_at,
+          source_id, federated_read, grant_bound)
+       VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11::text[], $12)`,
       [
         codeHash,
         client.client_id,
@@ -611,6 +657,9 @@ export class OAuthProvider {
         params.state ?? null,
         params.resource?.toString() ?? null,
         expiresAt,
+        grant?.sourceId ?? null,
+        grant?.federatedRead ?? null,
+        grant !== undefined,
       ],
     );
 
@@ -658,13 +707,15 @@ export class OAuthProvider {
             `DELETE FROM oauth_codes
              WHERE code_hash = $1 AND client_id = $2
                AND redirect_uri = $3 AND expires_at > $4
-             RETURNING client_id, scopes, resource`,
+             RETURNING client_id, scopes, resource, source_id, federated_read,
+                       grant_bound`,
             [codeHash, client.client_id, redirectUri, now],
           )
         : await this.rows<{ scopes: string[] }>(
             `DELETE FROM oauth_codes
              WHERE code_hash = $1 AND client_id = $2 AND expires_at > $3
-             RETURNING client_id, scopes, resource`,
+             RETURNING client_id, scopes, resource, source_id, federated_read,
+                       grant_bound`,
             [codeHash, client.client_id, now],
           );
     if (rows.length === 0) {
@@ -672,7 +723,14 @@ export class OAuthProvider {
     }
 
     const scopes = (rows[0]!.scopes as string[]) || [];
-    return this.issueTokens(client.client_id, scopes, resource, true);
+    return this.issueTokens(
+      client.client_id,
+      scopes,
+      resource,
+      true,
+      undefined,
+      grantFromRow(rows[0]!),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -697,7 +755,8 @@ export class OAuthProvider {
       `DELETE FROM oauth_tokens
        WHERE token_hash = $1 AND token_type = 'refresh' AND client_id = $2
          AND revoked_at IS NULL
-       RETURNING client_id, scopes, expires_at`,
+       RETURNING client_id, scopes, expires_at, source_id, federated_read,
+                 grant_bound`,
       [tokenHash, client.client_id],
     );
     if (rows.length === 0) throw new Error("Refresh token not found");
@@ -717,7 +776,16 @@ export class OAuthProvider {
       throw new Error("Requested scope exceeds refresh token grant");
     }
     const tokenScopes = scopes ?? grantedScopes;
-    return this.issueTokens(client.client_id, tokenScopes, resource, true);
+    // The tenant is copied from the consumed refresh row and is NEVER read from
+    // the request: a holder may narrow scope on refresh, never move source.
+    return this.issueTokens(
+      client.client_id,
+      tokenScopes,
+      resource,
+      true,
+      undefined,
+      grantFromRow(row),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -731,8 +799,16 @@ export class OAuthProvider {
     // OAuth tokens first. JOIN oauth_clients so the source_id (write scope)
     // and federated_read (read set) arrive on the same query — no N+1 lookup.
     const oauthRows = await this.rows(
+      // Tenancy is resolved TOKEN-FIRST. A grant-bound token carries the source
+      // the operator approved for that one person, so a single shared connector
+      // can serve several people in separate tenants. `grant_bound` decides
+      // which side wins: an unbound row (every token issued before this, and
+      // every client_credentials token) still takes the client row.
       `SELECT t.client_id, t.scopes, t.expires_at, t.resource, c.client_name,
-              c.source_id, c.federated_read, c.bound_slug_prefixes
+              CASE WHEN t.grant_bound THEN t.source_id      ELSE c.source_id      END AS source_id,
+              CASE WHEN t.grant_bound THEN t.federated_read ELSE c.federated_read END AS federated_read,
+              t.grant_bound,
+              c.bound_slug_prefixes
        FROM oauth_tokens t
        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
        WHERE t.token_hash = $1 AND t.token_type = 'access'
@@ -1010,6 +1086,7 @@ export class OAuthProvider {
     resource: URL | undefined,
     includeRefresh: boolean,
     ttlOverride?: number,
+    grant?: GrantScope,
   ): Promise<OAuthTokens> {
     const accessToken = generateToken("memex_at_");
     const accessHash = hashToken(accessToken);
@@ -1019,9 +1096,19 @@ export class OAuthProvider {
 
     await this.engine.query(
       `INSERT INTO oauth_tokens
-         (token_hash, token_type, client_id, scopes, expires_at, resource)
-       VALUES ($1, 'access', $2, $3::text[], $4, $5)`,
-      [accessHash, clientId, scopes, accessExpiry, resource?.toString() ?? null],
+         (token_hash, token_type, client_id, scopes, expires_at, resource,
+          source_id, federated_read, grant_bound)
+       VALUES ($1, 'access', $2, $3::text[], $4, $5, $6, $7::text[], $8)`,
+      [
+        accessHash,
+        clientId,
+        scopes,
+        accessExpiry,
+        resource?.toString() ?? null,
+        grant?.sourceId ?? null,
+        grant?.federatedRead ?? null,
+        grant !== undefined,
+      ],
     );
 
     const result: OAuthTokens = {
@@ -1036,16 +1123,22 @@ export class OAuthProvider {
       const refreshHash = hashToken(refreshToken);
       const refreshExpiry = now + this.refreshTtl;
 
+      // The refresh row carries the grant too: rotation reads it back, so a
+      // refreshed session stays pinned to the source the operator approved.
       await this.engine.query(
         `INSERT INTO oauth_tokens
-           (token_hash, token_type, client_id, scopes, expires_at, resource)
-         VALUES ($1, 'refresh', $2, $3::text[], $4, $5)`,
+           (token_hash, token_type, client_id, scopes, expires_at, resource,
+            source_id, federated_read, grant_bound)
+         VALUES ($1, 'refresh', $2, $3::text[], $4, $5, $6, $7::text[], $8)`,
         [
           refreshHash,
           clientId,
           scopes,
           refreshExpiry,
           resource?.toString() ?? null,
+          grant?.sourceId ?? null,
+          grant?.federatedRead ?? null,
+          grant !== undefined,
         ],
       );
 
