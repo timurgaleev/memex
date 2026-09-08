@@ -3324,7 +3324,7 @@ async function withClientSpend(
     // Non-JSON result — treat as zero-cost.
   }
   if (actual > 0) {
-    await settleSpend(engine, reserved.reservationId, actual, operation).catch(() => {});
+    await settleSpend(engine, reserved.reservationId, actual).catch(() => {});
   } else {
     await releaseReservation(engine, reserved.reservationId).catch(() => {});
   }

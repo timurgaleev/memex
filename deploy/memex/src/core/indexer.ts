@@ -12,6 +12,7 @@
  * indexer (`core/indexer-code.ts`, graph-only) share one txn shape.
  */
 import { lstatSync, readFileSync, statSync } from "node:fs";
+import { isOperationError } from "./operation-error.ts";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { chunkMarkdown } from "./chunkers/index.ts";
@@ -329,6 +330,8 @@ export async function indexDocument(
   }
 
   const vectors: (number[] | null)[] = [];
+
+  let budgetRefusedChunks = 0;
   for (let i = 0; i < parsed.chunks.length; i++) {
     const chunk = parsed.chunks[i]!;
     if (!skipEmbed) {
@@ -359,7 +362,31 @@ export async function indexDocument(
       if (llmCtx) prefix = buildContextualPrefix(ctxTitle, llmCtx, { isCode });
     }
     const embedInput = wrapChunkForEmbedding(chunk, prefix, { isCode });
-    vectors.push(skipEmbed ? null : await embed(embedInput, { modelId: model }));
+    if (skipEmbed) {
+      vectors.push(null);
+      continue;
+    }
+    try {
+      vectors.push(await embed(embedInput, { modelId: model }));
+    } catch (e) {
+      // A spent daily budget must not destroy the note. Every other embed
+      // failure still aborts before the DB is touched (the half-write guard
+      // above) — but a cap is policy, not an outage, and losing the caller's
+      // text to enforce it is the wrong trade. The chunk lands with a null
+      // vector: written, keyword-searchable, and picked up by `memex embed`
+      // once the budget rolls over.
+      if (!(isOperationError(e) && e.code === "budget_exhausted")) throw e;
+      budgetRefusedChunks++;
+      vectors.push(null);
+    }
+  }
+
+  if (budgetRefusedChunks > 0) {
+    console.warn(
+      `[memex] daily budget exhausted mid-index: ${budgetRefusedChunks} chunk(s) of ` +
+        `'${input.sourcePath}' stored WITHOUT embeddings — keyword-searchable now, ` +
+        `run \`memex embed\` after the budget rolls over to vectorise them`,
+    );
   }
 
   const chunkWrites: ChunkWrite[] = parsed.chunks.map((text, i) => {

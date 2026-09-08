@@ -41,6 +41,28 @@ a new default-tenant slug whose first segment names an existing source. The
 second is cheap but would reject slugs that are legal today, so it needs a
 migration-time audit of existing pages first.
 
+## Spend ceiling — known gaps (2026-09-08)
+
+The per-client ceiling added in v1.126.0 is a check-then-act, not a lock. Two
+consequences worth knowing before anyone treats it as a hard guarantee:
+
+- **Concurrent calls all pass.** `refuseIfClientExhausted` reads the day's spend
+  and takes no hold, unlike `reserveSpend`. K simultaneous requests from one
+  client all observe the same pre-booking sum and are all admitted; the actuals
+  land afterwards in `bookSpend`'s `finally`. Overshoot is roughly K x the
+  per-call cost, and K is the caller's choice. It matters most on the embedding
+  and search-arm sites, which no reservation backstops. Fix is to reserve/settle
+  at the chokepoint, or to take the same advisory lock `reserveSpend` uses.
+- **A PAT is never capped.** A personal access token's `clientId` is the token
+  name, which is not a row in `oauth_clients`, and `checkClientBudget` treats an
+  unknown client as uncapped. Per-token budgets need their own column, or PATs
+  need client rows.
+
+Boundary detail: at exactly `spent == cap` a reservation is admitted
+(`spent + est <= cap`) and the chokepoint then refuses it, so `withClientSpend`
+can refuse a reservation it just took. Harmless — the hold is released — but the
+two comparisons should agree.
+
 ## Spend ledger — remaining approximations (2026-09-08)
 
 Enforcement landed in v1.126.0; these are the known edges, none of which

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { OAuthProvider } from "../src/core/oauth-provider.ts";
 import { FactsQueue } from "../src/core/facts-queue.ts";
+import { indexDocument } from "../src/core/indexer.ts";
 import { OperationError } from "../src/core/operation-error.ts";
 import {
   checkClientBudget,
@@ -212,5 +213,55 @@ describe("an exhausted client is refused, not merely logged", () => {
     await reset();
     for (let i = 0; i < 3; i++) await paidCall(1_000_000);
     expect(await rows()).toHaveLength(3);
+  });
+});
+
+describe("a refusal must not destroy a write", () => {
+  // The indexer embeds BEFORE it touches the DB so a Bedrock outage cannot
+  // half-write a document. That guard would also throw away the caller's text
+  // when the refusal is our own budget policy — which is the wrong trade: the
+  // note is the thing worth keeping, and the vector can be filled in later.
+  it("stores the document unembedded instead of failing the write", async () => {
+    await reset();
+    const refuse = () => {
+      throw new OperationError("budget_exhausted", "daily budget exhausted", "wait");
+    };
+    const r = await indexDocument(
+      storage,
+      {
+        sourcePath: "page://budget-refusal-probe",
+        text: "a note the caller would hate to lose",
+      },
+      { embedFn: refuse as never },
+    );
+    expect(r).toBeTruthy();
+    const chunks = await storage.engine().query<{ n: number; embedded: number }>(
+      `SELECT COUNT(*)::int AS n,
+              COUNT(em.chunk_id)::int AS embedded
+         FROM chunks c
+         JOIN documents d ON d.id = c.document_id
+         LEFT JOIN embeddings em ON em.chunk_id = c.id
+        WHERE d.source_path = $1`,
+      ["page://budget-refusal-probe"],
+    );
+    expect(chunks.rows[0]!.n).toBeGreaterThan(0);
+    expect(chunks.rows[0]!.embedded).toBe(0);
+  });
+
+  it("still aborts the write on a non-budget embed failure", async () => {
+    await reset();
+    const boom = () => {
+      throw new Error("bedrock is down");
+    };
+    await expect(
+      indexDocument(
+        storage,
+        {
+          sourcePath: "page://outage-probe",
+          text: "half-written documents are worse than none",
+        },
+        { embedFn: boom as never },
+      ),
+    ).rejects.toThrow("bedrock is down");
   });
 });

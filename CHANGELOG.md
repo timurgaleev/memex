@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A spent budget could destroy the write it refused.** `indexer.ts` embeds
+  BEFORE it touches the database, deliberately, so a Bedrock outage cannot leave
+  a half-written document. Once the cap started refusing paid calls at that same
+  chokepoint, that guard also threw away the caller's text: `page_put` from an
+  over-cap client failed outright and the note was gone. A refusal is policy, not
+  an outage, and losing the note to enforce it is the wrong trade — a budget
+  refusal now lands the chunk with a null vector (written, keyword-searchable,
+  vectorised by `memex embed` once the day rolls over) and logs which document it
+  happened to. Every OTHER embed failure still aborts before the write, as
+  before; the test pins both halves.
+- **Every paid call on an uncapped install paid for two aggregates.** The new
+  ceiling called `checkClientBudget`, which computes the whole-day spend rollup
+  BEFORE it reads the cap — so on the default configuration, where no client has
+  a cap, each embedded chunk paid for two extra queries to learn that the check
+  could not fire. The cap is read first now, and an uncapped client returns
+  before the rollup runs.
+- **`settleSpend`'s documentation said the opposite of its body.** The header
+  still described appending the actual to `mcp_spend_log`, which is precisely
+  the line a future reader would have restored the INSERT from — re-introducing
+  the double count the previous release removed. Rewritten, and its now-unused
+  `operation` parameter dropped. The stale rationale in `commands/bench.ts` (it
+  claimed every ledger row is written with a NULL client) is corrected too.
+
+
 ## [1.126.0] — 2026-09-08
 
 ### Security

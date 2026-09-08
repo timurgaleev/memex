@@ -264,7 +264,10 @@ Two things to know before you rely on this:
 
 - **Set `MEMEX_TENANT_FAIL_CLOSED=1`** once a real scoped client exists. Without
   it an authenticated public principal that carries NO grant falls back to the
-  redacted whole brain instead of to nothing.
+  redacted whole brain instead of to nothing. Every scoping rule in the table
+  above binds on the caller's grant, so a grantless principal is the one caller
+  they do not constrain — this flag is what removes that hole, not an
+  optimisation.
 - **Dynamic Client Registration hands every self-registered client the same
   `default` tenant.** If you enable `MEMEX_ENABLE_DCR`, two people who each
   register through it share one tenant and read each other's notes. Register

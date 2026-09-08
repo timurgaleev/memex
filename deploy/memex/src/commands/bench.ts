@@ -153,10 +153,12 @@ export interface SpendLedgerSnapshot {
 /**
  * Read the whole ledger, not one client's day.
  *
- * `daySpendUsd` (`src/core/budget.ts:249`) filters on `client_id`, and
- * `bookSpend` (`:520`) writes every row with `client_id` NULL — so the
- * per-client reader structurally cannot see a bench's own spend, and asserting
- * zero through it would assert nothing at all. The unfiltered sum can.
+ * `daySpendUsd` filters on `client_id`, and a bench runs with no client in
+ * scope — `bookSpend` books it NULL, the same as any operator-side call — so
+ * the per-client reader structurally cannot see a bench's own spend, and
+ * asserting zero through it would assert nothing at all. The unfiltered sum
+ * can. (Rows written FOR a client do carry its id since the spend context
+ * landed; that is exactly the spend a bench never produces.)
  *
  * `calls` is read alongside the amount because an UNPRICED model books a $0 row
  * (`budget.ts:522-529`): a run that really called Bedrock and a run that made

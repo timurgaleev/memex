@@ -369,15 +369,19 @@ export async function reserveSpend(
 }
 
 /**
- * Settle a reservation with the ACTUAL cost: marks it settled and appends the
- * actual to mcp_spend_log in one transaction. Idempotent — a second settle of
- * the same id is a no-op (no duplicate log row).
+ * Settle a reservation with the ACTUAL cost: marks it settled and records
+ * `actual_cents` on the reservation row. Idempotent — a second settle of the
+ * same id is a no-op.
+ *
+ * It deliberately writes NO mcp_spend_log row. Every paid call books itself
+ * against the calling client (`runWithSpendClient` + `bookSpend`), so logging
+ * the handler-reported total here would charge the same tokens twice. Do not
+ * restore the INSERT without removing that booking first.
  */
 export async function settleSpend(
   engine: Engine,
   reservationId: string,
   actualUsd: number,
-  operation: string = "llm",
 ): Promise<{ settled: boolean }> {
   const actualCents = usdToCents(actualUsd);
   return engine.transaction(async (tx) => {
@@ -398,7 +402,6 @@ export async function settleSpend(
     // client (see `runWithSpendClient`), so writing the handler-reported total
     // again would charge the same tokens twice. The reservation keeps
     // `actual_cents` for the audit trail; the spend itself is already logged.
-    void operation;
     return { settled: true };
   });
 }
@@ -562,6 +565,15 @@ async function refuseIfClientExhausted(operation: string): Promise<void> {
   if (!clientId || !engine) return;
   let check: ClientBudgetCheck;
   try {
+    // Cheap cap lookup FIRST. `checkClientBudget` computes the whole-day
+    // rollup before it reads the cap, and on the default install every client
+    // is uncapped — paying two aggregates per embedded chunk to learn that
+    // would be a real cost for a check that can never fire.
+    const cap = await engine.query<{ budget_usd_per_day: string | number | null }>(
+      "SELECT budget_usd_per_day FROM oauth_clients WHERE client_id = $1",
+      [clientId],
+    );
+    if ((cap.rows[0]?.budget_usd_per_day ?? null) === null) return;
     check = await checkClientBudget(engine, clientId);
   } catch {
     return;

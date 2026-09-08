@@ -91,7 +91,7 @@ describe("reserve → settle / release", () => {
     // The hold counts toward today's spend while pending.
     expect(await daySpendUsd(storage.engine(), "capped")).toBeCloseTo(0.5, 6);
 
-    const s = await settleSpend(storage.engine(), r.reservationId, 0.3, "think");
+    const s = await settleSpend(storage.engine(), r.reservationId, 0.3);
     expect(s.settled).toBe(true);
     // Hold gone, and nothing was double-booked: the paid call's own row is the
     // only record of the spend, and this test never made one.
