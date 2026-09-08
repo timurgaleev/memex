@@ -41,6 +41,7 @@ import {
 import {
   checkFederationHealth,
   checkOauthClientHealth,
+  checkPatScopesRecorded,
   checkSourceRoutingHealth,
 } from "../core/doctor-tenancy.ts";
 import { latestEvalSnapshot } from "../core/eval-snapshot.ts";
@@ -314,6 +315,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     // Each check turns its own probe errors into a `warn` verdict.
     checks.push(await checkFederationHealth(storage.raw()));
     checks.push(await checkOauthClientHealth(storage.raw()));
+    checks.push(await checkPatScopesRecorded(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
 
     // Chronicle projection health — timeline_events rows projected from an event
