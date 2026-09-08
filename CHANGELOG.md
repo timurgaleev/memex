@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.126.1] — 2026-09-08
+
 ### Fixed
 - **A spent budget could destroy the write it refused.** `indexer.ts` embeds
   BEFORE it touches the database, deliberately, so a Bedrock outage cannot leave
