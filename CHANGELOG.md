@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The admin-login resume pointed at `http://`.** With
+  `MEMEX_OAUTH_REQUIRE_LOGIN=1`, an unauthenticated browser at `/authorize` is
+  bounced to `/admin/login` with the authorize URL parked in `return_to` — and
+  that URL was `req.url`, which behind a TLS terminator is the plain-http
+  internal request this process actually receives. Signing in therefore sent the
+  operator back to an `http://` address. Observed live on a Caddy install. The
+  resume is built from `MEMEX_PUBLIC_URL` when declared, falling back to the
+  request origin.
+
+### Documentation
+- **What `MEMEX_OAUTH_REQUIRE_LOGIN` actually costs.** `/admin/login` accepts
+  exactly one credential — the operator bootstrap token — and a magic link
+  minted from it grants a 7-day admin session; there is no per-user login. So
+  with the flag on, a teammate can only complete a Claude connector flow by
+  holding an operator session for the whole brain, which is worse than what the
+  flag guards against. The multi-tenant runbook now says this, says the flag
+  must be off for per-person connectors, and says why that is not a free-for-all
+  (a code only reaches a registered `redirect_uri`, the exchange needs the
+  client secret, DCR is off, and the tenant comes from the client row). It also
+  records that `claude.ai` and `claude.com` are different origins to the
+  redirect allow-list.
+
+
 ## [1.126.1] — 2026-09-08
 
 ### Fixed
