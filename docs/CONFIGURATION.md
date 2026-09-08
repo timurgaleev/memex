@@ -260,6 +260,40 @@ What a scoped client can reach, and what it cannot:
 | `run_doctor`, `stats`, `sources_list` (whole brain) | refused — operator-only |
 | `purge_deleted_pages` | needs the `admin` scope, recorded deliberately |
 
+### Connecting a person's Claude account to their tenant
+
+Each person adds the connector in their OWN Claude account, using the
+`client_id` + `client_secret` of the client registered for them. The tenant
+comes from the client row, so `claude-alice` → source `alice` with no further
+choice at connect time.
+
+**`MEMEX_OAUTH_REQUIRE_LOGIN` must be OFF for this.** The flag makes
+`GET /authorize` bounce an unauthenticated browser to `/admin/login`, and that
+page accepts exactly one credential: the operator bootstrap token (a magic link
+is minted by whoever holds it and grants a 7-day ADMIN session). memex has no
+per-user login. So with the flag on, the only way a teammate can complete the
+flow is by holding an operator session for the whole brain — which is strictly
+worse than what the flag was protecting against.
+
+Turning it off does not make `/authorize` a free-for-all:
+
+- a code is only ever sent to a **registered** `redirect_uri` on that client;
+- exchanging the code for a token requires the **client secret**, so a caller
+  who knows only the `client_id` gets nothing;
+- Dynamic Client Registration stays off, so nobody can mint a client.
+
+The client secret IS the per-person credential — hand it over the way you would
+a password, and never share one client between two people.
+
+Register the callback the person's account actually uses. `claude.ai` and
+`claude.com` are different origins to the allow-list; a connector on the origin
+you did not register fails with `redirect_uri is not registered`:
+
+```bash
+memex auth rescope-client <client_id> --source alice --federated-read alice
+# redirect URIs are set at registration — re-register if the origin is wrong
+```
+
 Two things to know before you rely on this:
 
 - **Set `MEMEX_TENANT_FAIL_CLOSED=1`** once a real scoped client exists. Without

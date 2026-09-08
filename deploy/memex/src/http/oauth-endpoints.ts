@@ -260,6 +260,15 @@ function errorRedirect(
  * PKCE parameter errors are reported as an error redirect carrying `state`. On
  * success a one-time, PKCE-bound code is issued and the browser is 302'd back.
  */
+/**
+ * The origin this server is reached at from outside: the declared
+ * `MEMEX_PUBLIC_URL` when set, else whatever the request carried.
+ */
+function publicOrigin(url: URL): string {
+  const declared = (process.env.MEMEX_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
+  return declared.length > 0 ? declared : url.origin;
+}
+
 export async function handleAuthorizeRoute(
   req: Request,
   provider: OAuthProvider,
@@ -333,7 +342,13 @@ export async function handleAuthorizeRoute(
   // URL so it can resume after sign-in. Placed AFTER param validation so a
   // malformed request still fails fast, but BEFORE any code is minted.
   if (!isResourceOwnerAuthenticated(req)) {
-    const returnTo = encodeURIComponent(req.url);
+    // Resume against the DECLARED public origin, not `req.url`. Behind a TLS
+    // terminator the request this process sees is plain http on an internal
+    // host, so echoing it back sends the operator to an http:// address after
+    // sign-in — a downgrade at best and a broken resume at worst.
+    const returnTo = encodeURIComponent(
+      publicOrigin(new URL(req.url)) + new URL(req.url).pathname + new URL(req.url).search,
+    );
     return new Response(null, {
       status: 302,
       headers: { Location: `/admin/login?return_to=${returnTo}` },
