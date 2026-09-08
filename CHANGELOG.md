@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.125.0] — 2026-09-08
+
 ### Security
 - **`think` returned another tenant's note content.** Of the six evidence
   gathers in `core/synthesis/think.ts`, `gatherTrajectories` was the only one
