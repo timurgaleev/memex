@@ -12,7 +12,11 @@ AUDIT_SH="$REPO_ROOT/scripts/audit.sh"
 PASS=0
 FAIL=0
 TMPROOT="$(mktemp -d -t audit-test.XXXXXX)"
-trap 'rm -rf "$TMPROOT"; echo; echo "audit.test.sh: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]' EXIT
+# The last command of an EXIT trap does NOT become the script's exit status,
+# so the old `[ "$FAIL" -eq 0 ]` here reported success no matter how many
+# cases failed — and `make test` is a ship gate, in CI as well. Exit
+# explicitly, and preserve a non-zero status from an early crash.
+trap 'rc=$?; rm -rf "$TMPROOT"; echo; echo "audit.test.sh: PASS=$PASS FAIL=$FAIL"; if [ "$FAIL" -ne 0 ]; then exit 1; fi; exit "$rc"' EXIT
 
 die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
@@ -47,6 +51,12 @@ new_repo() {
     git init -q
     git config user.email "test@example.com"
     git config user.name "test"
+    # A fixture must not inherit the operator's signing config: a bare
+    # `git commit` would otherwise block on the signing agent and fail
+    # outright when nobody is there to approve it (exit 128 in CI, and a
+    # multi-minute stall locally while each fixture waits its turn).
+    git config commit.gpgsign false
+    git config tag.gpgsign false
   )
   echo "$dir"
 }

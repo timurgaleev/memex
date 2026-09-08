@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`make test` could not fail.** All three bash suites ended their EXIT trap
+  with `[ "$FAIL" -eq 0 ]`, and the last command of an EXIT trap does not become
+  the script's exit status — so a suite printing `PASS=8 FAIL=1` still exited 0.
+  `make test` is a ship gate and CI runs it too, so both were reporting green on
+  a red suite; only a human reading the `FAIL=` line would have noticed. The trap
+  now exits explicitly and preserves a non-zero status from an early crash.
+  Verified both directions: an injected failing case exits 1, the clean suite
+  exits 0.
+- **Fixture repos inherited the operator's commit signing.** `new_repo()` set
+  `user.email`/`user.name` but not `commit.gpgsign`, so a bare `git commit` in a
+  fixture blocked on the signing agent — dying outright where nobody can approve
+  it, and stalling the suite for minutes where someone can. This was the actual
+  cause of the one failing case in `audit.test.sh`, which now passes 9/0.
+
+
 ## [1.124.0] — 2026-09-07
 
 ### Security
