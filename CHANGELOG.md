@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.127.0] — 2026-09-08
+
 ### Fixed
 - **An unscoped operator write is no longer treated as the `default` tenant.**
   `putPage` coerced an omitted `source_id` to `"default"` BEFORE the ownership
