@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.126.2] — 2026-09-08
+
 ### Fixed
 - **The admin-login resume pointed at `http://`.** With
   `MEMEX_OAUTH_REQUIRE_LOGIN=1`, an unauthenticated browser at `/authorize` is
