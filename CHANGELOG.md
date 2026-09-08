@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.126.0] — 2026-09-08
+
 ### Security
 - **`add_tag` answered "does another tenant hold this slug?"** The page-existence
   probe `addTag` runs before it inserts (`core/tags.ts`) queried `pages` with no
