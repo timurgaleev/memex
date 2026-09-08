@@ -118,6 +118,7 @@ describe("doctor", () => {
       "invalid-indexes",
       "links-extraction-lag",
       "oauth-client-health",
+      "pat-scopes-recorded",
       "pglite",
       "queue-health",
       "schema-version",

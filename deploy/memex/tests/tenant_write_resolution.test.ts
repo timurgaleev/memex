@@ -144,16 +144,18 @@ describe("HOLE 2 — link/tag conflict key folds in source_id (mig 059)", () => 
     expect(await linkRows("hub/x", "companies/acme", "mentions")).toEqual([A, B]);
   });
 
-  it("two tenants' identical tag yield two OWN rows, not a DO-NOTHING no-op", async () => {
+  it("a tenant cannot tag a slug another tenant owns", async () => {
+    // `pages.slug` is the PK, so a slug belongs to exactly ONE source, and
+    // addTag's existence probe is scoped to the caller's own source. B is
+    // therefore refused before the INSERT is built — which is why 059's
+    // per-tenant tag row is not reachable through a SCOPED call on this slug.
+    // (An unscoped operator call still writes, stamping source_id 'default';
+    // migration 059's key itself is covered directly in migrate.test.ts.)
     await putPage(storage, { slug: "hub/y", type: "note", markdown_body: "hub", source_id: A });
     await addTag(storage, "hub/y", "topic", A);
-    await addTag(storage, "hub/y", "topic", B); // pre-059 this collided → no B row
+    await expect(addTag(storage, "hub/y", "topic", B)).rejects.toThrow(/not found/);
     expect(await getTags(storage, "hub/y", [A])).toContain("topic");
-    expect(await getTags(storage, "hub/y", [B])).toContain("topic");
-    const rows = await storage.engine().query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM tags WHERE slug = 'hub/y' AND tag = 'topic'`,
-    );
-    expect(rows.rows[0]!.n).toBe(2);
+    expect(await getTags(storage, "hub/y", [B])).not.toContain("topic");
   });
 
   it("a re-add within the same source is still idempotent (own row updates)", async () => {

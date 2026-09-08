@@ -16,7 +16,18 @@ TMPROOT="$(mktemp -d -t init-test.XXXXXX)"
 # so the old `[ "$FAIL" -eq 0 ]` here reported success no matter how many
 # cases failed — and `make test` is a ship gate, in CI as well. Exit
 # explicitly, and preserve a non-zero status from an early crash.
-trap 'rc=$?; rm -rf "$TMPROOT"; echo; echo "init.test.sh: PASS=$PASS FAIL=$FAIL"; if [ "$FAIL" -ne 0 ]; then exit 1; fi; exit "$rc"' EXIT
+# A function, not an inline trap string: shellcheck reads a trap body as its own
+# scope and cannot see `rc` assigned there (SC2154), and the exit status has to
+# be captured on the FIRST line or the commands below overwrite it.
+finish() {
+  rc=$?
+  rm -rf "$TMPROOT"
+  echo
+  echo "init.test.sh: PASS=$PASS FAIL=$FAIL"
+  if [ "$FAIL" -ne 0 ]; then exit 1; fi
+  exit "$rc"
+}
+trap finish EXIT
 
 die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }

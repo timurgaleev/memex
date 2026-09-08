@@ -7,6 +7,24 @@ introduces them.
 
 ---
 
+## Operator tags land in `default`, invisible to the page's owner (2026-09-08)
+
+`addTag` stamps `source_id` only when the caller names one, so an UNSCOPED call
+(local CLI, internal token, `add_tag` with no write source) writes the tag under
+the column DEFAULT `'default'` — even when the page it tags belongs to another
+source. Migration 059 makes that a second, legitimate row rather than a
+collision, so nothing errors. The owning tenant then never sees the tag through
+a scoped `getTags`, because the read filters on ITS source.
+
+Harmless on this single-operator brain, where every page is `default` anyway.
+It becomes wrong the moment a second tenant holds pages: the operator tags
+something and the tag silently disappears from the tenant's view.
+
+Decide which rule is intended before that happens — either an unscoped write
+inherits the page's owning source, or it keeps stamping `default` and scoped
+reads union in `default`-owned tags. Then test the chosen one explicitly. Found
+by codex while reviewing the mig-059 test, 2026-09-08.
+
 ## Cross-tenant slug enumeration (2026-09-07)
 
 `page_put` distinguishes "slug owned by another source" (`permission_denied`)

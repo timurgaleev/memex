@@ -522,9 +522,18 @@ describe("eval miss shape B — English paraphrase over a German transcript", ()
     // Same corpus, one query, two hits: the dated report is multiplied down
     // while the undated note — whose `updated_at` is simply the index time —
     // stays neutral. That asymmetry is the cause above, stated directly.
-    const hits = await search(dated, "audit findings", { explain: true });
-    const datedFactor = hits.find((h) => h.documentId === "doc_flowforge_audit")?.explain?.recency ?? 1;
-    const undatedFactor = hits.find((h) => h.documentId === "doc_vendor_audit")?.explain?.recency ?? 1;
+    // Wide k on purpose: the dated report sinks further every real day the
+    // fixture's 2026-07-02 recedes, and at the default window it eventually
+    // drops out entirely. `?? 1` then read "absent" as "no decay" — the
+    // assertion inverted its own meaning and the test rotted by the calendar.
+    // Require the hit instead, so a future miss fails as a miss.
+    const hits = await search(dated, "audit findings", { explain: true, k: 50 });
+    const datedHit = hits.find((h) => h.documentId === "doc_flowforge_audit");
+    const undatedHit = hits.find((h) => h.documentId === "doc_vendor_audit");
+    expect(datedHit).toBeDefined();
+    expect(undatedHit).toBeDefined();
+    const datedFactor = datedHit!.explain!.recency;
+    const undatedFactor = undatedHit!.explain!.recency;
     // The undated note is aged from its index time, i.e. seconds — effectively
     // neutral; the dated report carries weeks of decay for declaring its date.
     expect(undatedFactor).toBeGreaterThan(0.99);
