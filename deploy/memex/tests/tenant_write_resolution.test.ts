@@ -259,3 +259,54 @@ describe("HOLE 4 — gazetteer entry table is built from the writer's source", (
     expect(slugs).toContain("people/zornak");
   });
 });
+
+describe("an unscoped operator write is not the `default` tenant", () => {
+  // Regression: putPage coerced an omitted source to "default" BEFORE the
+  // ownership check, so every unscoped path — the CLI, the internal token, the
+  // cycle, vault sync — was refused on any page a named source owns. On a brain
+  // whose content was moved off `default` (`tenant add` + move) that is every
+  // page it has. The fence is for callers that NAME a source; the unscoped
+  // operator keeps the whole-brain reach it has everywhere else.
+  it("updates a page owned by a named source, and leaves the owner alone", async () => {
+    await putPage(storage, {
+      slug: "notes/owned-by-a", type: "note", markdown_body: "v1", source_id: A,
+    });
+
+    const r = await putPage(storage, {
+      slug: "notes/owned-by-a", type: "note", markdown_body: "v2",
+    });
+    expect(r.changed).toBe(true);
+    expect(r.created).toBe(false);
+
+    // The page stays A's — an unscoped write must not re-home it to `default`,
+    // which would drop it out of A's own scoped reads.
+    const owner = await storage.engine().query<{ source_id: string }>(
+      `SELECT source_id FROM pages WHERE slug = $1`, ["notes/owned-by-a"],
+    );
+    expect(owner.rows[0]!.source_id).toBe(A);
+    expect((await getPage(storage, "notes/owned-by-a", [A]))?.markdown_body).toBe("v2");
+
+    // Its version chain carries the owner too, not the caller's fallback.
+    const versions = await storage.engine().query<{ source_id: string }>(
+      `SELECT source_id FROM page_versions WHERE slug = $1 ORDER BY version_n DESC LIMIT 1`,
+      ["notes/owned-by-a"],
+    );
+    expect(versions.rows[0]!.source_id).toBe(A);
+  });
+
+  it("still refuses a caller that names a DIFFERENT source", async () => {
+    await expect(putPage(storage, {
+      slug: "notes/owned-by-a", type: "note", markdown_body: "v3", source_id: B,
+    })).rejects.toThrow(/owned by another source/);
+  });
+});
+
+describe("an explicitly empty source_id is refused", () => {
+  it("does not read as the operator", async () => {
+    // Presence, not truthiness: "" meant to name a source and named nothing.
+    // Treating it as unscoped would walk it through the ownership fence.
+    await expect(putPage(storage, {
+      slug: "notes/empty-source", type: "note", markdown_body: "x", source_id: "",
+    })).rejects.toThrow(/non-empty source name/);
+  });
+});

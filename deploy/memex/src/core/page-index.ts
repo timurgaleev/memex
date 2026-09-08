@@ -191,6 +191,9 @@ export async function indexPageIntoSearch(
       sourcePath: pageSourcePath(page.slug, page.source_id),
       text,
       sourceId: page.source_id ?? null,
+      // The mirror belongs to this page: adopt an unowned row rather than
+      // leaving it permanently unreconcilable (see DocumentWrite.claimUnowned).
+      claimUnowned: true,
       // Stamp the body hash AND the title: `pages.content_hash` is body-only,
       // so a title-only edit leaves it unchanged. Stamping the title too lets
       // the backstop detect a stale mirror after a title-only edit whose
@@ -236,6 +239,9 @@ export async function indexPageTruthIntoSearch(
       sourcePath: path,
       text: serialized,
       sourceId: page.source_id ?? null,
+      // The mirror belongs to this page: adopt an unowned row rather than
+      // leaving it permanently unreconcilable (see DocumentWrite.claimUnowned).
+      claimUnowned: true,
       extraFrontmatter: {
         page_truth_hash: compiledTruthHash(serialized),
       },

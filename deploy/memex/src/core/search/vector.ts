@@ -46,14 +46,18 @@ export async function vectorSearch(
   limit: number,
   opts: VectorSearchOptions = {},
 ): Promise<string[]> {
-  const sourceIds = opts.sourceIds ?? [];
+  // `undefined` is unscoped (operator, CLI, every pre-tenancy caller). An
+  // EMPTY array is a caller granted nothing: the predicate still goes on and
+  // `= ANY('{}')` matches no row. Collapsing the two — `opts.sourceIds ?? []`
+  // plus a length check — handed the caller with no grant the whole brain.
+  const sourceIds = opts.sourceIds;
   const vis = visibilityClause("d");
   // Join chunks→documents so the visibility filter applies to the ANN arm too.
   // Exclusions (deleted/archived/quarantined) are rare, so the filtered scan
   // barely dents recall; correctness (never surfacing hidden docs) wins.
   const params: unknown[] = [JSON.stringify(queryVector)];
   let sourceFilter = "";
-  if (sourceIds.length > 0) {
+  if (sourceIds !== undefined) {
     params.push(sourceIds);
     sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
   }

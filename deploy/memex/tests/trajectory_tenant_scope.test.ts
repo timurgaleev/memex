@@ -72,15 +72,13 @@ describe("findTrajectory tenant scope", () => {
     expect(JSON.stringify(points)).toContain(SECRET);
   });
 
-  it("an EMPTY scope array does not silently widen to whole-brain", async () => {
-    // `insights.ts` only appends the predicate when the array is non-empty, so
-    // an empty array is the shape that quietly means "no filter". A caller with
-    // no grant must not out-read a caller with one.
+  it("an EMPTY scope array reads nothing, not everything", async () => {
+    // A caller granted no source must not out-read a caller granted one.
+    // `normalizeSourceIds` used to fold [] into "unscoped", so the predicate
+    // was dropped and every insight surface answered from the whole brain.
+    // Now the predicate stays on and `= ANY('{}')` matches no row.
     const points = await findTrajectory(storage, SLUG, { sourceIds: [] });
-    const leaked = JSON.stringify(points).includes(SECRET);
-    // Documented as the current behaviour rather than asserted as correct: the
-    // callers that matter never pass [] (dispatch spreads the key only when
-    // non-empty), but anyone adding a caller should know this is wide open.
-    expect(typeof leaked).toBe("boolean");
+    expect(JSON.stringify(points)).not.toContain(SECRET);
+    expect(points).toEqual([]);
   });
 });

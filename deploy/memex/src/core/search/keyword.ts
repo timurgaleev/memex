@@ -61,13 +61,17 @@ export async function keywordSearch(
   limit: number,
   opts: KeywordSearchOptions = {},
 ): Promise<string[]> {
-  const sourceIds = opts.sourceIds ?? [];
+  // `undefined` is unscoped (operator, CLI, every pre-tenancy caller). An
+  // EMPTY array is a caller granted nothing: the predicate still goes on and
+  // `= ANY('{}')` matches no row. Collapsing the two — `opts.sourceIds ?? []`
+  // plus a length check — handed the caller with no grant the whole brain.
+  const sourceIds = opts.sourceIds;
   const vis = visibilityClause("d");
   // Join documents so the visibility filter (deleted/archived/quarantine)
   // applies — soft-deleted/quarantined docs must never be candidates.
   const params: unknown[] = [query];
   let sourceFilter = "";
-  if (sourceIds.length > 0) {
+  if (sourceIds !== undefined) {
     params.push(sourceIds);
     sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
   }

@@ -228,7 +228,25 @@ export async function putPage(
   const truth = input.compiled_truth ?? {};
   const title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
-  const sourceId = input.source_id ?? "default";
+  // An OMITTED source means "operator, unscoped" — the local CLI, the internal
+  // token, the cycle. It is not the `default` tenant. Coercing it to `default`
+  // before the ownership check below turned every unscoped write onto a
+  // named-source page into permission_denied, which is every page on a brain
+  // whose content was moved off `default` (`tenant add` + move). `default` is
+  // still the stamp for a NEW page, because the column is NOT NULL.
+  // Presence, not truthiness: an omitted/null source is the operator, but an
+  // explicitly EMPTY string is a caller that meant to name a source and sent
+  // nothing. Treating it as "unscoped" would walk it straight through the
+  // ownership fence below, so it is refused instead.
+  if (typeof input.source_id === "string" && input.source_id.trim().length === 0) {
+    throw new OperationError(
+      "invalid_params",
+      "source_id must be a non-empty source name when supplied",
+      "Omit source_id for an operator write, or name the source.",
+    );
+  }
+  const callerSource = typeof input.source_id === "string" ? input.source_id : null;
+  const sourceId = callerSource ?? "default";
   const hashNew = hashBody(body);
   // Sanitize lone UTF-16 surrogates + NUL ONCE, then derive both the jsonb
   // payload and the alias norms from the sanitized value — otherwise a NUL /
@@ -265,8 +283,17 @@ export async function putPage(
     );
 
     // No cross-tenant overwrite: a slug owned by another source is off-limits.
+    // Only a caller that NAMES a source is fenced — the same exemption
+    // `indexer-tx.ts` grants its trusted local callers, and for the same
+    // reason: fencing the unscoped path breaks re-index, sync and the cycle.
     const owner = existing.rows[0]?.source_id;
-    if (owner !== undefined && owner !== sourceId) {
+    // Rows written ALONGSIDE an existing page (versions, aliases, the redirect
+    // probe) carry that page's own source, never the caller's `default`
+    // fallback — otherwise an unscoped operator write re-homes a tenant's
+    // aliases and version chain into `default`, where the owner's scoped reads
+    // no longer see them. On a brand-new page there is no owner and the stamp
+    // is the caller's.
+    if (callerSource !== null && owner !== undefined && owner !== callerSource) {
       throw new OperationError(
         "permission_denied",
         `page '${input.slug}' is owned by another source`,
@@ -305,7 +332,7 @@ export async function putPage(
                        AND p.source_id = $2
           WHERE a.alias_slug = $1 AND a.source_id = $2
           LIMIT 1`,
-        [input.slug, sourceId],
+        [input.slug, existing.rows[0]?.source_id ?? sourceId],
       );
       const canonical = redirect.rows[0]?.canonical_slug;
       if (canonical !== undefined) {
@@ -410,13 +437,14 @@ export async function putPage(
         body,
         truthJson,
         writtenBy,
-        sourceId,
+        prev.source_id ?? sourceId,
       ],
     );
     await bumpPageGeneration(tx, input.slug);
-    // Re-puts keep the page's OWN source (cross-tenant overwrite is rejected
-    // above), so stamping the caller-effective sourceId is stamping the owner.
-    await setPageAliases(tx, input.slug, aliasNorms, sourceId);
+    // The page's OWN source, not the caller's fallback: a scoped caller can
+    // only reach a page it owns (fenced above), and an unscoped operator must
+    // leave the owner's aliases where the owner can read them.
+    await setPageAliases(tx, input.slug, aliasNorms, prev.source_id ?? sourceId);
     return {
       slug: input.slug,
       version_n: nextVersion,

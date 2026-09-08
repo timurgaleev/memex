@@ -7,6 +7,48 @@ introduces them.
 
 ---
 
+## The `[] = no grant` contract is enforced in some layers, not all (2026-09-08)
+
+The rule is now: `undefined` is the operator (whole brain), an EMPTY array is a
+caller granted nothing and must read nothing. It holds in `core/insights.ts`,
+`core/synthesis/reads.ts`, `core/synthesis/think.ts`, `core/search/keyword.ts`
+and `core/search/vector.ts` — each proved by a test.
+
+It does NOT yet hold end to end in hybrid retrieval. Found by codex, verified
+by file:line, deliberately left for its own pass rather than rushed:
+
+- `core/search/query-cache.ts:246` — `queryCacheKey(..., [])` equals the
+  unscoped key, so an empty grant can hit a cache entry built whole-brain.
+- `core/search/hybrid.ts:548` — cached hydration drops the filter for `[]`.
+- `core/search/title-arm.ts:141` — the default-on identifier arm drops it too.
+- `core/search/hybrid.ts:971` — final hydration runs unfiltered.
+- `mcp/dispatch.ts:3396` — `callThink` collapses an empty `readSources` before
+  calling `runThink`, undoing the fix one layer down.
+
+Until those close, `hybridSearch(..., { sourceIds: [] })` can still return
+another tenant's text. Nothing on the single-operator brain can reach it (every
+source belongs to the operator), and MCP dispatch attaches a fail-closed
+sentinel rather than `[]` — but do not read the layers above as "search is
+fenced on empty".
+
+## Derived writes carry the caller's source on three page paths (2026-09-08)
+
+`page_put` now hands every derived writer the PAGE's source, so an unscoped
+operator write cannot re-home a tenant's links, facts and watermark to
+`default`. The same argument is still the caller's on:
+
+- `mcp/dispatch.ts:1562` — `page_append`
+- `mcp/dispatch.ts:1667` — `page_revert` (omits the source even when scoped)
+- `mcp/dispatch.ts:1639` — `page_restore` (unscoped facts reconcile)
+
+And the delete/restore version markers (`core/pages.ts:739`, `:807`) insert no
+`source_id`, so a named-source page gets `default`-owned audit rows that its
+own scoped version read then misses.
+
+Also missing: a two-writer contention test for the indexer conflict predicate.
+The NULL-owner refusal is covered; the race itself is argued from the SQL, not
+demonstrated.
+
 ## Operator tags land in `default`, invisible to the page's owner (2026-09-08)
 
 `addTag` stamps `source_id` only when the caller names one, so an UNSCOPED call

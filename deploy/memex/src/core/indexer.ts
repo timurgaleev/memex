@@ -161,6 +161,8 @@ export interface IndexInput {
   extraFrontmatter?: Record<string, unknown>;
   /** Owning source (tenant) stamped onto the document. Defaults to 'default'. */
   sourceId?: string | null;
+  /** See DocumentWrite.claimUnowned — page-mirror writers only. */
+  claimUnowned?: boolean;
 }
 
 /**
@@ -453,6 +455,7 @@ export async function indexDocument(
       embeddingModel: model,
       chunkerVersion: MARKDOWN_CHUNKER_VERSION,
       sourceId: input.sourceId ?? null,
+      ...(input.claimUnowned === true ? { claimUnowned: true } : {}),
     },
     chunkWrites,
   );

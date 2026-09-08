@@ -69,4 +69,14 @@ describe("legacy PAT scopes", () => {
     expect(info.scopes).toEqual(["read", "write"]);
     expect(info.scopes).not.toContain("admin");
   });
+
+  it("a row recorded with NO scopes stays with none — stripping is not widening", async () => {
+    // The fallback used to fire on `storedScopes.length === 0`, which cannot
+    // tell "written before the column existed" (NULL) from "deliberately
+    // stripped" (an empty array). An operator revoking a token's scopes was
+    // handing it read+write instead. Only NULL takes the legacy default now.
+    await seed("stripped", "tok-stripped", []);
+    const info = await provider.verifyAccessToken("tok-stripped");
+    expect(info.scopes).toEqual([]);
+  });
 });

@@ -1263,24 +1263,33 @@ async function callPagePut(
     // what actually became searchable.
     const page = await getPage(storage, r.slug);
     const body = page?.markdown_body ?? input.markdown_body ?? "";
-    await syncWikilinksForPage(storage, r.slug, body, writeSource);
+    // Every derived write below carries the PAGE's source, not the caller's.
+    // An unscoped operator write is allowed onto a named-source page
+    // (pages.ts), and these reconcilers read an omitted source as "unscoped":
+    // links.ts deletes the slug's edges across sources and reinserts them as
+    // `default`, and facts-reconcile does the same to fenced facts. The page
+    // would keep its owner while its edges, facts and watermark silently moved
+    // to another tenant's view. A scoped caller can only reach a page it owns,
+    // so for it the two are the same value.
+    const derivedSource = page?.source_id ?? writeSource;
+    await syncWikilinksForPage(storage, r.slug, body, derivedSource);
     // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
     // edges from plain-text references to known entity pages.
-    await syncMentionsForPage(storage, r.slug, body, writeSource);
+    await syncMentionsForPage(storage, r.slug, body, derivedSource);
     // Typed-link inference (opt-in, MEMEX_TYPED_LINKS=1) — derive works_at /
     // founded / attended / … edges from frontmatter fields.
     if (typedLinksEnabled() && page) {
-      await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, writeSource);
+      await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, derivedSource);
     }
     // Verb-context typed edges from prose (opt-in MEMEX_LINK_VERB_INFER) —
     // owns link_kind='verb_ner', never touches the edges above.
     if (linkVerbInferEnabled() && page) {
-      await syncVerbLinksForPage(storage, r.slug, page.type, body, writeSource);
+      await syncVerbLinksForPage(storage, r.slug, page.type, body, derivedSource);
     }
     // Advance the link-extraction watermark now that the full edge set is
     // synced (migration 051) — stamped after updated_at, so the staleness
     // predicate reads clean until the next edit / extractor-version bump.
-    await stampLinksExtracted(storage.engine(), r.slug, writeSource);
+    await stampLinksExtracted(storage.engine(), r.slug, derivedSource);
     // Mirror the page body into the search store so a page written via
     // page_put is findable. Best-effort: the canonical page write already
     // committed and is the source of truth — an embed failure must not fail
@@ -1289,19 +1298,27 @@ async function callPagePut(
       searchIndexed = await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
       // On-write fact extraction (default-OFF, best-effort). Only on a real
       // content change and only for prose-eligible pages.
+      // NOT derivedSource: here `writeSource` only picks the serialization
+      // key, and the job's provenance already comes from page.source_id
+      // inside. (The chronicle helper below IS caller-trust-gated — it
+      // refuses whenever a write source is present.)
       maybeEnqueueFactExtraction(storage, page, writeSource);
       // On-write chronicle backstop (default-OFF, operator-trusted only).
       chronicleBackstop = await maybeEnqueueChronicleExtract(
         storage,
         page,
-        writeSource,
+        writeSource, // trust gate, same as above — not the page's provenance
         isPublic,
       );
     }
   }
   // Facts-fence reconcile on EVERY put (a no-op re-put is the repair path) —
-  // it re-reads the current body and guards on content_hash itself.
-  await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
+  // it re-reads the current body and guards on content_hash itself. Same rule
+  // as the derived writes above: the fence belongs to the page's owner, and an
+  // unscoped operator must not re-home another source's facts to `default`.
+  const factsSource =
+    writeSource ?? (await getPage(storage, r.slug))?.source_id ?? undefined;
+  await reconcileFactsForPage(storage, r.slug, r.content_hash, factsSource);
   // Takes-fence canon sync (mig 090): the page fence is the operator-authored
   // source of truth for takes — parse + upsert/supersede rows on every put.
   // Best-effort: a malformed fence must never fail the page write.

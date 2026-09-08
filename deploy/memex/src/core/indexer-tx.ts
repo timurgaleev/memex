@@ -97,6 +97,13 @@ export interface DocumentWrite {
    * tenant with the fallback).
    */
   sourceId?: string | null;
+  /**
+   * Let this write claim a document row that currently has NO owner. Only the
+   * page-mirror writers set it: the mirror belongs to the page it mirrors, so
+   * adopting an unowned row is a backfill, not a takeover. Every tenant-facing
+   * path leaves it unset and is refused instead.
+   */
+  claimUnowned?: boolean;
 }
 
 export interface IndexTxResult {
@@ -153,13 +160,24 @@ export async function writeDocumentTransaction(
     // reindex, vault sweep, the cycle) pass null and keep the existing owner
     // via the COALESCE below — fencing those would break every re-index.
     if (doc.sourceId != null) {
-      const owner = (
-        await tx.query<{ source_id: string | null }>(
-          "SELECT source_id FROM documents WHERE id = $1",
-          [doc.documentId],
-        )
-      ).rows[0]?.source_id;
-      if (owner != null && owner !== doc.sourceId) {
+      const existing = await tx.query<{ source_id: string | null }>(
+        "SELECT source_id FROM documents WHERE id = $1",
+        [doc.documentId],
+      );
+      // An UNOWNED row (source_id NULL) is not free real estate: every document
+      // the local sweeps write — vault, code, the cycle — is unowned, and
+      // letting a scoped caller claim one is the same takeover the named case
+      // refuses, just against the operator's own content. Absent row → insert.
+      //
+      // `claimUnowned` is the one exception, and it is not a tenant path: the
+      // page-mirror writers own the document they are mirroring by definition
+      // (`page://<source>/<slug>`), and a mirror written before the row carried
+      // a source — or by a caller holding a partial page object — is otherwise
+      // unreconcilable forever, which shows up as a page that silently stops
+      // being searchable.
+      const owner = existing.rows[0]?.source_id;
+      const claimable = doc.claimUnowned === true && owner == null;
+      if (existing.rows.length > 0 && owner !== doc.sourceId && !claimable) {
         throw new OperationError(
           "permission_denied",
           `document '${doc.sourcePath}' is owned by another source`,
@@ -168,7 +186,7 @@ export async function writeDocumentTransaction(
       }
     }
 
-    await tx.query(
+    const upserted = await tx.query<{ id: string }>(
       `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
        VALUES ($1, $6, $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
@@ -193,7 +211,16 @@ export async function writeDocumentTransaction(
          -- invalidates queries that reference this doc without touching
          -- unrelated cached queries. A fresh INSERT keeps the DEFAULT 0.
          generation         = documents.generation + 1,
-         updated_at         = NOW()`,
+         updated_at         = NOW()
+       -- The check above is a check-then-act: two scoped callers can both read
+       -- "no row" and the loser's DO UPDATE would then overwrite the winner.
+       -- Re-state the rule where the write happens, so the database arbitrates:
+       -- an unscoped caller ($6 NULL) keeps whatever owner is there, and a
+       -- scoped one may only update a row that is already its own.
+       WHERE $6::text IS NULL
+          OR documents.source_id IS NOT DISTINCT FROM $6::text
+          OR ($11::boolean AND documents.source_id IS NULL)
+       RETURNING id`,
       [
         doc.documentId,
         doc.sourcePath,
@@ -213,8 +240,21 @@ export async function writeDocumentTransaction(
         effectiveDate.iso,
         effectiveDate.source,
         importFilename(doc.sourcePath),
+        doc.claimUnowned === true,
       ],
     );
+
+    // A refused conflict update returns NO row, and everything below this line
+    // — the clock bump, the chunk delete, the re-insert — would otherwise run
+    // against the winner's document with the loser's content. Reading the
+    // RETURNING is what turns the WHERE above from a comment into a fence.
+    if (upserted.rows.length === 0) {
+      throw new OperationError(
+        "permission_denied",
+        `document '${doc.sourcePath}' is owned by another source`,
+        "Index under a source_path inside your own source.",
+      );
+    }
 
     // Bump the live-model generation clock so the query cache knows the
     // corpus changed (migration 025).

@@ -20,9 +20,13 @@ function clampLimit(limit: number | undefined, max: number, dflt: number): numbe
  * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
  */
 function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
+  // Only `undefined` is unscoped. An EMPTY array is a caller granted nothing
+  // and stays empty, so the predicate is still applied and matches no row —
+  // the same rule core/insights.ts follows. Folding empty into `undefined` let
+  // a caller with no grant out-read a caller with one.
+  if (sourceIds === undefined || !Array.isArray(sourceIds)) return undefined;
   const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
+  return Array.from(new Set(cleaned));
 }
 
 /**
@@ -151,7 +155,7 @@ export async function listTakes(
     params.push(holderAllowList);
     extraFilter += ` AND holder = ANY($${params.length}::text[])`;
   }
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     extraFilter += ` AND EXISTS (
           SELECT 1 FROM documents d
@@ -218,7 +222,7 @@ export async function searchTakes(
     params.push(holderAllowList);
     sourceFilter += ` AND holder = ANY($${params.length}::text[])`;
   }
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     sourceFilter += ` AND EXISTS (
           SELECT 1 FROM documents d
@@ -326,7 +330,7 @@ export async function getTakesScorecard(
     params.push(holderAllowList);
     clauses.push(`AND t.holder = ANY($${params.length}::text[])`);
   }
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     clauses.push(
       `AND EXISTS (SELECT 1 FROM documents d WHERE d.id = t.source_ref AND d.source_id = ANY($${params.length}::text[]))`,
@@ -443,7 +447,7 @@ export async function getTakesCalibration(
     params.push(holderAllowList);
     clauses.push(`AND t.holder = ANY($${params.length}::text[])`);
   }
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     clauses.push(
       `AND EXISTS (SELECT 1 FROM documents d WHERE d.id = t.source_ref AND d.source_id = ANY($${params.length}::text[]))`,
@@ -530,7 +534,7 @@ export async function getCalibrationProfile(
   const sources = normalizeSourceIds(sourceIds);
   const params: unknown[] = [];
   let sourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     sourceFilter = ` WHERE source_id = ANY($${params.length}::text[])`;
   }

@@ -6,6 +6,52 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **An unscoped operator write is no longer treated as the `default` tenant.**
+  `putPage` coerced an omitted `source_id` to `"default"` BEFORE the ownership
+  check, so every unscoped path — the CLI, the internal token, the cycle, vault
+  sync — was refused on any page a named source owns. On a brain whose content
+  was moved off `default` (`tenant add` + move) that is every page it has;
+  reproduced directly. Only a caller that NAMES a source is fenced now, the
+  same exemption `indexer-tx.ts` already granted its trusted local callers. The
+  page's own source — not the caller's fallback — is stamped on the rows
+  written alongside it (`page_versions`, aliases, the redirect probe), and on
+  every derived write `page_put` triggers: wikilinks, mentions, typed and verb
+  links, the extraction watermark and the facts-fence reconcile. Without that
+  an unscoped write left the page with its owner while moving its edges and
+  facts into `default`, where the owner's scoped reads no longer see them. An
+  explicitly EMPTY `source_id` string is now refused rather than read as
+  "unscoped".
+- **A document with no owner is no longer free real estate.** The cross-tenant
+  index fence refused a scoped caller only when the row already carried a NAMED
+  owner. Everything the local sweeps write — vault, code, the cycle — is
+  unowned, so a scoped caller could name such a document's path, pass the
+  fence, and have its chunks replaced with their own text: the page survives,
+  its owner's search stops finding it. The rule is now stated where the write
+  happens (`ON CONFLICT … WHERE` plus a `RETURNING` the caller must see), so
+  the database arbitrates the check-then-act race instead of the read that
+  precedes it. The page-mirror writers carry an explicit `claimUnowned` — a
+  mirror belongs to the page it mirrors, and a mirror written before the row
+  carried a source would otherwise be unreconcilable forever, which shows up as
+  a page that quietly stops being searchable.
+- **A caller granted no source no longer out-reads a caller granted one.**
+  `[]` was folded into "unscoped" — `normalizeSourceIds` in `core/insights.ts`
+  and `core/synthesis/reads.ts`, the `?? []` plus length check in the keyword
+  and vector arms, and `think`'s six gathers — so an empty grant read the whole
+  brain across every insight and synthesis surface. Only `undefined` is
+  unscoped now; an empty array keeps its predicate and matches no row. The
+  layers where that contract does NOT yet hold end to end — the query cache
+  key, cached hydration, the identifier arm, final hydration and `callThink` —
+  are listed in `TODO.md` rather than left to be discovered.
+- **Stripping a token's scopes no longer widens them.** A row recording an
+  empty `scopes` array took the legacy NULL fallback and authenticated as
+  `["read","write"]`, so revoking a token's access granted it instead. Only a
+  row with no scopes recorded at all takes the fallback.
+- **A trailing-slash trim no longer trips the super-linear-regex gate.**
+  `publicOrigin` used `/\/+$/`, quadratic on a run of slashes followed by a
+  non-match; it is a backward scan and one slice now. `make lint-ts` is back to
+  0 on `main`.
+
 ## [1.126.2] — 2026-09-08
 
 ### Fixed

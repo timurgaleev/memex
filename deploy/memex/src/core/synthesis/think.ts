@@ -466,7 +466,7 @@ async function gatherPages(
   try {
     return await hybridSearch(storage, question, {
       k,
-      ...(sourceIds && sourceIds.length > 0 ? { sourceIds } : {}),
+      ...(sourceIds !== undefined ? { sourceIds } : {}),
       ...(window?.since ? { since: window.since } : {}),
       ...(window?.until ? { until: window.until } : {}),
     });
@@ -497,7 +497,7 @@ export async function gatherGraphPages(
         maxDepth: 2,
         direction: "both",
         limit,
-        ...(sourceIds && sourceIds.length > 0 ? { sourceIds: [...sourceIds] } : {}),
+        ...(sourceIds !== undefined ? { sourceIds: [...sourceIds] } : {}),
       });
       for (const h of hits) {
         const prev = slugDepth.get(h.slug);
@@ -512,7 +512,11 @@ export async function gatherGraphPages(
   try {
     const params: unknown[] = [slugs];
     let scope = "";
-    if (sourceIds && sourceIds.length > 0) {
+    // `undefined` is the operator: no filter, whole brain. An EMPTY array is a
+    // caller granted nothing — it must read nothing, so the filter still goes
+    // on and `= ANY('{}')` matches no row. Skipping it on empty inverted the
+    // grant into whole-brain access.
+    if (sourceIds !== undefined) {
       params.push(sourceIds);
       scope = ` AND source_id = ANY($${params.length}::text[])`;
     }
@@ -614,7 +618,7 @@ async function gatherTakes(
   // synth_takes carries no source_id (mig045); scope by joining source_ref to
   // documents.source_id, same as the tenant-scoped take reads.
   let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
+  if (sourceIds !== undefined) {
     params.push(sourceIds);
     scope = ` AND EXISTS (SELECT 1 FROM documents d WHERE d.id = synth_takes.source_ref AND d.source_id = ANY($${params.length}::text[]))`;
   }
@@ -646,7 +650,7 @@ async function gatherTakesVector(
 ): Promise<TakeGatherRow[]> {
   const params: unknown[] = [JSON.stringify(embedding), maxTakes];
   let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
+  if (sourceIds !== undefined) {
     params.push(sourceIds);
     scope = ` AND EXISTS (SELECT 1 FROM documents d WHERE d.id = synth_takes.source_ref AND d.source_id = ANY($${params.length}::text[]))`;
   }
@@ -809,7 +813,7 @@ async function gatherTrajectories(
         // tenant's text back inside the answer — not merely its existence.
         const points = await findTrajectory(storage, slug, {
           limit: TRAJECTORY_MAX_POINTS,
-          ...(sourceIds && sourceIds.length > 0 ? { sourceIds: [...sourceIds] } : {}),
+          ...(sourceIds !== undefined ? { sourceIds: [...sourceIds] } : {}),
         });
         return { slug, points };
       } catch {
@@ -1136,7 +1140,9 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     ? renderCalibrationBlock(
         await getCalibrationProfile(
           engine,
-          scopeIds && scopeIds.length ? [...scopeIds] : undefined,
+          // Same rule as every other gather: only `undefined` is unscoped, so
+          // a caller granted nothing does not read another tenant's profile.
+          scopeIds !== undefined ? [...scopeIds] : undefined,
         ),
       )
     : "";

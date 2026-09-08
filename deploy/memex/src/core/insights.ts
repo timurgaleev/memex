@@ -58,14 +58,22 @@ function clampLimit(limit: number | undefined, def: number, max: number): number
 }
 
 /**
- * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
- * unscoped (back-compat: every legacy caller reads the whole brain); a non-empty
- * list is deduped to a clean `string[]` ready to bind as `$n::text[]`.
+ * Normalise an optional caller-supplied tenant filter.
+ *
+ * `undefined` — and only `undefined` — is unscoped: the local CLI, the internal
+ * token, every pre-tenancy caller, all of which read the whole brain.
+ *
+ * An EMPTY array is a caller that was granted nothing, and it stays empty so
+ * the predicate is still applied: `= ANY('{}')` matches no row. Collapsing it
+ * to `undefined` handed the caller with NO grant more than a caller with one —
+ * every insight surface here, not just the trajectory gather, read the whole
+ * brain for it. A non-empty list is deduped and ready to bind as `$n::text[]`.
  */
 function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
+  if (sourceIds === undefined) return undefined;
+  if (!Array.isArray(sourceIds)) return undefined;
   const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
+  return Array.from(new Set(cleaned));
 }
 
 // --- find_orphans ----------------------------------------------------------
@@ -111,7 +119,7 @@ export async function findOrphans(
   }
   const sources = normalizeSourceIds(opts.sourceIds);
   let sourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     sourceFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
   }
@@ -217,7 +225,7 @@ export async function findExperts(
   const sources = normalizeSourceIds(opts.sourceIds);
   let edgeSourceFilter = "";
   let pageSourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     const idx = params.length;
     // Count only the tenant's own edges and rank only the tenant's pages.
@@ -295,7 +303,7 @@ async function findExpertsByTopic(
     noExpansion: true,
     backlinkBoost: false,
   };
-  if (sources) searchOpts.sourceIds = sources;
+  if (sources !== undefined) searchOpts.sourceIds = sources;
   if (opts.embedQuery) searchOpts.embedQuery = opts.embedQuery;
   let hits: SearchHit[];
   try {
@@ -332,7 +340,7 @@ async function findExpertsByTopic(
     typeFilter = ` AND p.type = ANY($${params.length}::text[])`;
   }
   let pageSourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     pageSourceFilter = ` AND p.source_id = ANY($${params.length}::text[])`;
   }
@@ -449,7 +457,7 @@ export async function findContradictions(
   }
   const sources = normalizeSourceIds(opts.sourceIds);
   let sourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     sourceFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
   }
@@ -506,7 +514,7 @@ export async function listProbedContradictions(
   const params: unknown[] = [];
   const sources = normalizeSourceIds(opts.sourceIds);
   let sourceFilter = "";
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
   }
@@ -660,7 +668,7 @@ export async function findTrajectory(
     eventBounds += ` AND ev.occurred_at <= $${idx}::timestamptz`;
   }
   const sources = normalizeSourceIds(opts.sourceIds);
-  if (sources) {
+  if (sources !== undefined) {
     params.push(sources);
     const idx = params.length;
     factBounds += ` AND f.source_id = ANY($${idx}::text[])`;

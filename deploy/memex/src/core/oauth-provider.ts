@@ -836,14 +836,19 @@ export class OAuthProvider {
       // mcp/dispatch.ts and could reach `purge_deleted_pages`, which hard
       // deletes. A row with no scopes recorded falls back to the same
       // ["read","write"] those mint paths write — never admin.
+      // A row that RECORDS an empty array is a token deliberately stripped of
+      // every scope — treat it as such. Only a row with NO scopes recorded at
+      // all (NULL / malformed, i.e. written before the column existed) takes
+      // the legacy fallback. Folding the two together turned "revoke this
+      // token's access" into "give it read+write".
       const storedScopes = Array.isArray(rawScopes)
         ? rawScopes.filter((x): x is string => typeof x === "string" && x.length > 0)
-        : [];
+        : null;
       return {
         token,
         clientId: name,
         clientName: name,
-        scopes: storedScopes.length > 0 ? storedScopes : ["read", "write"],
+        scopes: storedScopes ?? ["read", "write"],
         // Legacy tokens never expire — set a year out so the number check passes.
         expiresAt: Math.floor(Date.now() / 1000) + 365 * 24 * 3600,
         sourceId,

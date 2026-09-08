@@ -37,6 +37,7 @@ import { addFact } from "../src/core/facts.ts";
 import { recallFact, forgetFact } from "../src/core/facts-recall.ts";
 import { purgeDeletedPages } from "../src/core/pages-purge.ts";
 import { registerSource } from "../src/core/sources.ts";
+import { indexDocument } from "../src/core/indexer.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
@@ -341,5 +342,94 @@ describe("index (writeDocumentTransaction) write scope", () => {
     );
     expect(await ownerOf(seeded.documentId)).toBe(A);
     expect(await chunkTexts(seeded.documentId)).toContain("reindexed");
+  });
+});
+
+describe("an unowned document is not free real estate", () => {
+  // The v1.124.0 fence refused a scoped caller only when the row already had a
+  // NAMED owner. Every document the local sweeps write — vault, code, the
+  // cycle — carries source_id NULL, so a tenant could name that document's
+  // path, pass the fence, and have its chunks replaced with its own text. The
+  // victim's page survives; their search stops finding it.
+  const embedFn = (_t: string) => Promise.resolve(new Array(1024).fill(0.1));
+
+  it("refuses a scoped caller that lands on a NULL-owned document", async () => {
+    const tmp2 = mkdtempSync(join(tmpdir(), "memex-unowned-"));
+    const s2 = new Storage({ dbPath: join(tmp2, "db") });
+    try {
+      await s2.init();
+      await registerSource(s2.engine(), { id: "tenant", kind: "vault", pathPrefix: "/t" });
+
+      // The operator's own local index pass: unscoped, so the row is unowned.
+      await indexDocument(
+        s2,
+        { sourcePath: "vault/ops/runbook.md", text: "the operator's own runbook note" },
+        { embedFn, inferFrontmatter: false },
+      );
+      const before = await s2.engine().query<{ source_id: string | null }>(
+        `SELECT source_id FROM documents WHERE source_path = $1`,
+        ["vault/ops/runbook.md"],
+      );
+      expect(before.rows[0]!.source_id).toBeNull();
+
+      // A tenant naming that same path must be refused, not handed the row.
+      await expect(indexDocument(
+        s2,
+        { sourcePath: "vault/ops/runbook.md", text: "attacker text", sourceId: "tenant" },
+        { embedFn, inferFrontmatter: false },
+      )).rejects.toThrow(/owned by another source/);
+
+      const after = await s2.engine().query<{ source_id: string | null }>(
+        `SELECT source_id FROM documents WHERE source_path = $1`,
+        ["vault/ops/runbook.md"],
+      );
+      expect(after.rows[0]!.source_id).toBeNull();
+      const chunk = await s2.engine().query<{ content: string }>(
+        `SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id
+          WHERE d.source_path = $1 LIMIT 1`,
+        ["vault/ops/runbook.md"],
+      );
+      // The victim's chunks are intact — the takeover replaces them.
+      expect(chunk.rows[0]!.content).toContain("operator");
+    } finally {
+      await s2.close();
+      rmSync(tmp2, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("an empty grant reads nothing in the search arms", () => {
+  // `undefined` is the operator (whole brain); `[]` is a caller granted
+  // nothing. `think` renders these arms straight into a synthesis prompt, so
+  // an empty grant that silently widened returned another tenant's TEXT.
+  const embedFn = (_t: string) => Promise.resolve(new Array(1024).fill(0.1));
+
+  it("keyword arm: unscoped sees both, a grant sees one, an empty grant sees none", async () => {
+    const tmp3 = mkdtempSync(join(tmpdir(), "memex-empty-grant-"));
+    const s3 = new Storage({ dbPath: join(tmp3, "db") });
+    try {
+      await s3.init();
+      await registerSource(s3.engine(), { id: "alpha", kind: "vault", pathPrefix: "/alpha" });
+      await registerSource(s3.engine(), { id: "beta", kind: "vault", pathPrefix: "/beta" });
+      await indexDocument(
+        s3,
+        { sourcePath: "alpha/note.md", text: "quarterly zebra findings for alpha", sourceId: "alpha" },
+        { embedFn, inferFrontmatter: false },
+      );
+      await indexDocument(
+        s3,
+        { sourcePath: "beta/note.md", text: "quarterly zebra findings for beta", sourceId: "beta" },
+        { embedFn, inferFrontmatter: false },
+      );
+      const { keywordSearch } = await import("../src/core/search/keyword.ts");
+      const e = s3.engine();
+
+      expect((await keywordSearch(e, "zebra", 10, {})).length).toBe(2);
+      expect((await keywordSearch(e, "zebra", 10, { sourceIds: ["alpha"] })).length).toBe(1);
+      expect(await keywordSearch(e, "zebra", 10, { sourceIds: [] })).toEqual([]);
+    } finally {
+      await s3.close();
+      rmSync(tmp3, { recursive: true, force: true });
+    }
   });
 });

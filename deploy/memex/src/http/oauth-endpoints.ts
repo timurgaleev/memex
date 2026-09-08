@@ -265,7 +265,14 @@ function errorRedirect(
  * `MEMEX_PUBLIC_URL` when set, else whatever the request carried.
  */
 function publicOrigin(url: URL): string {
-  const declared = (process.env.MEMEX_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
+  // Trailing slashes trimmed by index, not by `/\/+$/`: that pattern is
+  // quadratic on a run of slashes followed by a non-match (the linter's
+  // regexp/no-super-linear-move), and this repo keeps that rule at error.
+  // One backward scan, one slice.
+  const raw = (process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  let end = raw.length;
+  while (end > 0 && raw.charCodeAt(end - 1) === 0x2f) end--;
+  const declared = raw.slice(0, end);
   return declared.length > 0 ? declared : url.origin;
 }
 
