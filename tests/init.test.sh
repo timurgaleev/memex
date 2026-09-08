@@ -12,7 +12,11 @@ INIT_SH="$REPO_ROOT/scripts/init.sh"
 PASS=0
 FAIL=0
 TMPROOT="$(mktemp -d -t init-test.XXXXXX)"
-trap 'rm -rf "$TMPROOT"; echo; echo "init.test.sh: PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]' EXIT
+# The last command of an EXIT trap does NOT become the script's exit status,
+# so the old `[ "$FAIL" -eq 0 ]` here reported success no matter how many
+# cases failed — and `make test` is a ship gate, in CI as well. Exit
+# explicitly, and preserve a non-zero status from an early crash.
+trap 'rc=$?; rm -rf "$TMPROOT"; echo; echo "init.test.sh: PASS=$PASS FAIL=$FAIL"; if [ "$FAIL" -ne 0 ]; then exit 1; fi; exit "$rc"' EXIT
 
 die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
