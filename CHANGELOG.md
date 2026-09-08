@@ -6,6 +6,82 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **`add_tag` answered "does another tenant hold this slug?"** The page-existence
+  probe `addTag` runs before it inserts (`core/tags.ts`) queried `pages` with no
+  source filter, so its `page "<slug>" not found` error fired only when NO tenant
+  held the slug. A scoped caller could therefore walk another tenant's namespace
+  one call at a time — learning which slugs exist without ever being able to read
+  one. The tag row itself was always stamped with the caller's own source, so
+  nothing was written into the victim's data and `get_tags` never showed it
+  across; the leak was the error, not the write. The probe is now scoped to the
+  caller's source, which makes a foreign page and an absent page fail
+  identically. An unscoped caller (local CLI, internal token) still matches the
+  whole brain, as everywhere else.
+- **`get_brain_identity` reported the whole brain to every tenant.** `brainIdentity`
+  counted documents, chunks, embeddings, pages and sources with no source filter
+  (`core/identity.ts`), so a scoped caller was told how much its neighbours hold
+  — and two reads a day apart gave their write rate. Counts are now computed over
+  the caller's read set, and `sources` counts the sources in that set that
+  actually exist. Verified live on a two-tenant install before the fix: a tenant
+  token was shown 839 documents across 4 sources.
+
+  Two traps in the same function, both caught in review: an EMPTY grant must
+  count nothing rather than fall through to the whole brain (the fail-closed
+  path hands a one-element sentinel that names no real source, and a caller
+  granted nothing is exactly the caller that must not be widened), and the
+  source count has to come from the `sources` table rather than the length of
+  the grant — otherwise a duplicated entry inflates it and the sentinel claims
+  a tenant that does not exist.
+
+### Fixed
+- **A client's daily budget could not see most of what it spent.** `bookSpend`
+  wrote every `mcp_spend_log` row with `client_id` NULL while `daySpendUsd` sums
+  `WHERE client_id = $1`, so `oauth_clients.budget_usd_per_day` only ever counted
+  the three ops whose handler echoes `spentUsd` back to `withClientSpend`
+  (`think`, `extract_facts`, `relational_recall`). Everything else that costs
+  money — search embeddings, intent classification, query expansion, rerank,
+  skillify, friction-propose — was attributable and counted against nobody, so a
+  cap could be set and quietly not bind.
+
+  The calling client now rides an `AsyncLocalStorage` context opened once per
+  dispatch (`runWithSpendClient` in `core/budget.ts`, wrapping `dispatchTool`),
+  and `bookSpend` books against it. Threading an id through every leaf helper
+  would have touched every signature between the MCP boundary and Bedrock, and
+  the one helper that got missed would be the one booking to nobody; a
+  request-scoped context attributes a helper added later without anyone having
+  to remember to.
+
+  **Two holes the first cut left open**, both found by an adversarial review of
+  the change itself:
+
+  - *Deferred work was billed to the wrong client.* `page_put` queues its fact
+    extraction, and a queued job is pumped from ANOTHER job's `finally` — so it
+    ran under whichever client happened to be on that continuation. A probe
+    produced `jobA:A, jobB:A`: one tenant's extraction charged to the tenant
+    whose job ran before it. `FactsQueue.enqueue` now binds the enqueueing
+    client to the job.
+  - *A cap counted but did not stop anything.* Only three ops reserve budget, so
+    an exhausted client could keep calling `search` — whose embedding is paid —
+    all day. The refusal now lives at `trackedInvoke`, the one chokepoint every
+    paid call passes: a tool that spends nothing never reaches it and is never
+    refused, and a failure of the accounting query itself ALLOWS the call, the
+    same contract `bookSpend` keeps.
+
+  **Contract change:** `settleSpend` no longer writes its own ledger row. The
+  underlying calls book themselves now, so logging the handler-reported total
+  again would charge the same tokens twice. The reservation still records
+  `actual_cents` for the audit trail. A client with no cap (`NULL`, the default,
+  and every client on a single-tenant install) is unaffected — it was allowed
+  before and is allowed now.
+
+### Added
+- **`memex auth set-budget <client_id> <usd-per-day|none>`.** The
+  `budget_usd_per_day` column was read by every budget check but nothing could
+  WRITE it outside of hand-editing the database, so a per-client cap was in
+  practice unsettable. `none` clears it, which is also the default.
+
+
 ## [1.125.0] — 2026-09-08
 
 ### Security

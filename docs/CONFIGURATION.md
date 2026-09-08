@@ -227,6 +227,51 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
 
+### Running more than one tenant
+
+A source is the tenancy unit: it owns writes, and a client's read set is a union
+of sources. Nothing below is on by default — a single-operator brain stays
+single-tenant and unaffected.
+
+```bash
+# 1. One source per person or team.
+memex sources register alice --kind other --path-prefix tenant:alice
+
+# 2. One OAuth client per source. --source is the WRITE authority;
+#    --federated-read is the read union (list only what this client may see).
+memex auth register-client alice-laptop \
+  --scopes 'read write' --source alice --federated-read alice
+
+# 3. Optional daily ceiling, in USD, enforced across every paid op.
+memex auth set-budget <client_id> 2.00
+```
+
+Print the client's own view any time with the `whoami` tool: it returns the
+`write_source` and the `read_sources` the token actually carries.
+
+What a scoped client can reach, and what it cannot:
+
+| Surface | Scoped client sees |
+|---|---|
+| `search`, `page_get`, `page_list`, `recall`, `think` | its own read set only |
+| `add_tag` on another tenant's slug | the same "not found" as a slug nobody holds — no existence oracle |
+| `index` / `page_put` onto another tenant's path | refused (`permission_denied`) |
+| `get_brain_identity` counters | its own read set; `sources` is the size of that set |
+| `run_doctor`, `stats`, `sources_list` (whole brain) | refused — operator-only |
+| `purge_deleted_pages` | needs the `admin` scope, recorded deliberately |
+
+Two things to know before you rely on this:
+
+- **Set `MEMEX_TENANT_FAIL_CLOSED=1`** once a real scoped client exists. Without
+  it an authenticated public principal that carries NO grant falls back to the
+  redacted whole brain instead of to nothing.
+- **Dynamic Client Registration hands every self-registered client the same
+  `default` tenant.** If you enable `MEMEX_ENABLE_DCR`, two people who each
+  register through it share one tenant and read each other's notes. Register
+  clients yourself (`memex auth register-client --source …`), or rescope one
+  afterwards with `memex auth rescope-client <client_id> --source SRC
+  --federated-read SRC`.
+
 ---
 
 ## 6. Maintenance cycle & ingest / ops
