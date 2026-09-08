@@ -36,6 +36,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fixture blocked on the signing agent — dying outright where nobody can approve
   it, and stalling the suite for minutes where someone can. This was the actual
   cause of the one failing case in `audit.test.sh`, which now passes 9/0.
+- **Every personal access token resolved to `admin`.** `verifyAccessToken`
+  returned a hardcoded `["read","write","admin"]` for any `access_tokens` row and
+  never read the row's `scopes` column — while both mint paths (`http/admin-api.ts`,
+  `commands/auth.ts`) write `["read","write"]`. The per-op gate in `mcp/dispatch.ts`
+  was therefore satisfied for the admin ops, including `purge_deleted_pages`,
+  which hard-deletes rows past the soft-delete window. A token now gets the
+  scopes its row records; a row with none falls back to `["read","write"]`, the
+  same thing both mint paths write, and never to `admin`.
+
+  **Behaviour change for operators:** a PAT that relied on the grandfather to
+  reach an admin op loses it. Record the scopes on the row deliberately if a
+  token genuinely needs `admin`.
 
 
 ## [1.124.0] — 2026-09-07

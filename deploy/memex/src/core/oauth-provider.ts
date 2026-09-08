@@ -753,7 +753,7 @@ export class OAuthProvider {
     let legacyRows: Record<string, unknown>[];
     try {
       legacyRows = await this.rows(
-        `SELECT name, permissions FROM access_tokens
+        `SELECT name, permissions, scopes FROM access_tokens
          WHERE token_hash = $1 AND revoked_at IS NULL`,
         [tokenHash],
       );
@@ -776,6 +776,9 @@ export class OAuthProvider {
         [tokenHash],
       );
       const name = row.name as string;
+      // Absent on the pre-`permissions` fallback query below, and NULL on rows
+      // written before the column existed — both fall through to the default.
+      const rawScopes = row.scopes;
       let permissions: unknown = row.permissions;
       if (typeof permissions === "string") {
         try {
@@ -798,12 +801,21 @@ export class OAuthProvider {
       const takesHolders = Array.isArray(holdersRaw)
         ? holdersRaw.filter((s): s is string => typeof s === "string" && s.length > 0)
         : undefined;
+      // Enforce what the row actually stores. This used to hand every
+      // access_tokens row ["read","write","admin"] regardless of its `scopes`
+      // column — so a token both mint paths create as ["read","write"]
+      // (admin-api.ts, commands/auth.ts) satisfied the admin gate in
+      // mcp/dispatch.ts and could reach `purge_deleted_pages`, which hard
+      // deletes. A row with no scopes recorded falls back to the same
+      // ["read","write"] those mint paths write — never admin.
+      const storedScopes = Array.isArray(rawScopes)
+        ? rawScopes.filter((x): x is string => typeof x === "string" && x.length > 0)
+        : [];
       return {
         token,
         clientId: name,
         clientName: name,
-        // Legacy tokens grandfather in with full access.
-        scopes: ["read", "write", "admin"],
+        scopes: storedScopes.length > 0 ? storedScopes : ["read", "write"],
         // Legacy tokens never expire — set a year out so the number check passes.
         expiresAt: Math.floor(Date.now() / 1000) + 365 * 24 * 3600,
         sourceId,
