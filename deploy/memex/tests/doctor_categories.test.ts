@@ -48,6 +48,7 @@ describe("doctor categorize", () => {
       "invalid-indexes",
       "links-extraction-lag",
       "oauth-client-health",
+      "pat-scopes-recorded",
       "per-source-embed-coverage",
       "pglite",
       "queue-health",
