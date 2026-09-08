@@ -43,6 +43,17 @@ import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
 
+/** Accepted on a token row. Mirrors core/scope.ts; a typo here would otherwise
+ *  be written straight to the column and silently deny everything. */
+const KNOWN_TOKEN_SCOPES = [
+  "read",
+  "write",
+  "admin",
+  "agent",
+  "sources_admin",
+  "users_admin",
+];
+
 export type AuthSub =
   | "register-client"
   | "list-clients"
@@ -360,14 +371,53 @@ async function revokeToken(name: string): Promise<void> {
   console.log(JSON.stringify({ revoked: true, name }, null, 2));
 }
 
+/**
+ * Record the scopes a personal access token actually holds.
+ *
+ * Tokens used to resolve to read+write+admin regardless of this column, so an
+ * operator who relied on that grandfather needs a deliberate way to keep the
+ * one admin-scoped tool (`purge_deleted_pages`). Naming the scopes is that way:
+ * the grant becomes visible in `auth list` instead of implicit in the code.
+ */
+async function setScopes(name: string, value: string): Promise<void> {
+  const list = value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) {
+    throw new Error("scope list cannot be empty");
+  }
+  const unknown = list.filter((s) => !KNOWN_TOKEN_SCOPES.includes(s));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown scope(s): ${unknown.join(", ")} — known: ${KNOWN_TOKEN_SCOPES.join(", ")}`,
+    );
+  }
+  const updated = await withProvider((_p, storage) =>
+    storage
+      .raw()
+      .query<{ id: number }>(
+        `UPDATE access_tokens SET scopes = $2::text[]
+          WHERE name = $1 AND revoked_at IS NULL RETURNING id`,
+        [name, list],
+      )
+      .then((r) => r.rows.length),
+  );
+  if (updated === 0) {
+    throw new Error(`no live token named '${name}'`);
+  }
+  console.log(JSON.stringify({ name, scopes: list }, null, 2));
+}
+
 async function setPermissions(
   name: string,
   action: string,
   value: string | undefined,
 ): Promise<void> {
+  if (name && action === "set-scopes" && value) {
+    return setScopes(name, value);
+  }
   if (!name || action !== "set-takes-holders" || !value) {
     throw new Error(
-      "Usage: auth permissions <name> set-takes-holders world,grace,brain",
+      "Usage: auth permissions <name> set-takes-holders world,grace,brain\n" +
+        "       auth permissions <name> set-scopes read,write,admin",
     );
   }
   const list = value.split(",").map((s) => s.trim()).filter(Boolean);

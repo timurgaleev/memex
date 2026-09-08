@@ -168,6 +168,45 @@ export async function checkOauthClientHealth(
 }
 
 /**
+ * Personal access tokens whose row records no scopes.
+ *
+ * Until the row became the authority, every `access_tokens` row resolved to
+ * read+write+admin whatever the column said. A token with no scopes recorded
+ * now resolves to read+write, so anything that leaned on the old grandfather to
+ * reach the one admin-scoped tool (`purge_deleted_pages`) stops working — with
+ * nothing but a permission error to explain why. Say it here instead, once, at
+ * upgrade time.
+ */
+export async function checkPatScopesRecorded(
+  engine: Engine,
+): Promise<TenancyCheck> {
+  const name = "pat-scopes-recorded";
+  try {
+    const r = await engine.query<{ name: string }>(
+      `SELECT name FROM access_tokens
+        WHERE revoked_at IS NULL
+          AND (scopes IS NULL OR cardinality(scopes) = 0)`,
+    );
+    if (r.rows.length === 0) {
+      return { name, ok: true, status: "ok", detail: "every live token records its scopes" };
+    }
+    const names = r.rows.map((x) => x.name).slice(0, 5).join(", ");
+    return {
+      name,
+      ok: true,
+      status: "warn",
+      detail:
+        `${r.rows.length} live personal access token(s) record no scopes: ${names}` +
+        (r.rows.length > 5 ? ` (+${r.rows.length - 5} more)` : "") +
+        " — each now resolves to read+write. If one needs the admin tool, record it: " +
+        "memex auth permissions <name> set-scopes read,write,admin",
+    };
+  } catch (e) {
+    return couldNotCheck(name, e);
+  }
+}
+
+/**
  * Source-routing sanity: every non-default source should own documents, and
  * no document should sit at NULL source_id (a scoped read filters
  * `source_id = ANY(...)` and NULL matches nothing — those rows are invisible

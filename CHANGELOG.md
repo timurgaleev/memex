@@ -45,9 +45,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scopes its row records; a row with none falls back to `["read","write"]`, the
   same thing both mint paths write, and never to `admin`.
 
-  **Behaviour change for operators:** a PAT that relied on the grandfather to
-  reach an admin op loses it. Record the scopes on the row deliberately if a
-  token genuinely needs `admin`.
+  **Behaviour change for operators, with a way through it.** Exactly one tool
+  is `admin`-scoped — `purge_deleted_pages` (`mcp/operations.ts`) — so that is
+  the whole blast radius for a remote token; read and write are untouched, and
+  the local CLI is unscoped and unaffected. A token that genuinely needs it gets
+  the scope recorded deliberately:
+
+  ```
+  memex auth permissions <name> set-scopes read,write,admin
+  ```
+
+  and `doctor` gained a `pat-scopes-recorded` check that names the live tokens
+  recording no scopes, so an upgrade says this out loud once instead of leaving
+  someone to discover it through a permission error.
 
 
 ## [1.124.0] — 2026-09-07
