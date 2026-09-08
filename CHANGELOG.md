@@ -66,7 +66,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     all day. The refusal now lives at `trackedInvoke`, the one chokepoint every
     paid call passes: a tool that spends nothing never reaches it and is never
     refused, and a failure of the accounting query itself ALLOWS the call, the
-    same contract `bookSpend` keeps.
+    same contract `bookSpend` keeps. The refusal is raised as a
+    `budget_exhausted` operation error and re-thrown out of the search path's
+    embed fallback: that fallback exists so a flaky embedder degrades to
+    keyword-only, but a budget refusal is the operator's policy and must reach
+    the caller rather than arriving as an empty result set.
 
   **Contract change:** `settleSpend` no longer writes its own ledger row. The
   underlying calls book themselves now, so logging the handler-reported total

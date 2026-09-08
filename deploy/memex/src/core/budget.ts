@@ -14,6 +14,7 @@
  *     only; it never refuses a call.
  */
 import { randomUUID } from "node:crypto";
+import { OperationError } from "./operation-error.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { appendAudit, auditDir } from "./audit-week-file.ts";
 import type { Engine } from "./engine/interface.ts";
@@ -566,12 +567,15 @@ async function refuseIfClientExhausted(operation: string): Promise<void> {
     return;
   }
   if (check.allowed) return;
-  throw new BudgetExhausted(
-    "cost",
+  // OperationError, not BudgetExhausted: the MCP layer renders this code as a
+  // proper `budget_exhausted` envelope, so the caller is told its budget ran
+  // out rather than being handed a generic failure.
+  throw new OperationError(
+    "budget_exhausted",
     `daily budget exhausted for this client (spent $${check.spentUsd.toFixed(4)}` +
       (check.capUsd !== null ? ` of $${check.capUsd.toFixed(2)}` : "") +
-      `) — '${operation}' refused. Wait for the UTC day to roll over, or raise ` +
-      `the client's budget_usd_per_day.`,
+      `) — '${operation}' refused`,
+    "Wait for the UTC day to roll over, or raise the client's budget_usd_per_day.",
   );
 }
 

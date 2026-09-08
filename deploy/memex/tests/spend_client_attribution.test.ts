@@ -17,8 +17,8 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { OAuthProvider } from "../src/core/oauth-provider.ts";
 import { FactsQueue } from "../src/core/facts-queue.ts";
+import { OperationError } from "../src/core/operation-error.ts";
 import {
-  BudgetExhausted,
   checkClientBudget,
   currentSpendClient,
   daySpendUsd,
@@ -196,7 +196,7 @@ describe("an exhausted client is refused, not merely logged", () => {
     expect((await checkClientBudget(storage.engine(), "capped")).allowed).toBe(false);
     await expect(
       runWithSpendClient("capped", () => paidCall(1_000)),
-    ).rejects.toBeInstanceOf(BudgetExhausted);
+    ).rejects.toBeInstanceOf(OperationError);
   });
 
   it("never refuses an uncapped client", async () => {

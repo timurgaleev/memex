@@ -21,6 +21,7 @@
  * Internal rewiring only.
  */
 import type { Storage } from "../storage.ts";
+import { isOperationError } from "../operation-error.ts";
 import type { SourceKind } from "../sources.ts";
 import { embedText } from "../embedding.ts";
 import { reciprocalRankFusion } from "../rrf.ts";
@@ -784,7 +785,11 @@ export async function hybridSearch(
     queryVector = opts.embedQuery
       ? await raceEmbedderAgainstDeadline(opts.embedQuery, trimmed, dl)
       : await embedQueryBounded(trimmed, { embeddingModel: opts.embeddingModel }, dl);
-  } catch {
+  } catch (e) {
+    // A budget refusal is the operator's policy, not a flaky embedder: degrade
+    // quietly on any embed failure EXCEPT that one, which must reach the caller
+    // instead of looking like an empty brain.
+    if (isOperationError(e) && e.code === "budget_exhausted") throw e;
     queryVector = null; // keyword-only fallback
   }
 
