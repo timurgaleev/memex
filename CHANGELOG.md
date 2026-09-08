@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **`think` returned another tenant's note content.** Of the six evidence
+  gathers in `core/synthesis/think.ts`, `gatherTrajectories` was the only one
+  that never received the caller's read set, so `findTrajectory` ran unscoped and
+  the anchor's whole-brain `entity_facts` + `timeline_events` — free text, not
+  just row existence — were rendered into the synthesis prompt and answered back.
+  Any scoped caller could name another tenant's slug as `anchor` and read their
+  words. Reproduced against a live two-tenant install before the fix: the
+  victim's marker came back in the attacker's answer while `find_trajectory`,
+  `entity_recall` and `entity_facts` on the same slug correctly returned nothing.
+  The gather now passes `sourceIds` like its five siblings.
+
+  Note for anyone auditing the same family: `FindTrajectoryOptions.sourceIds`
+  already existed — the plumbing was there and simply unused, which is why the
+  fix is three lines and why nothing else had to change.
+
 ### Fixed
 - **`make test` could not fail.** All three bash suites ended their EXIT trap
   with `[ "$FAIL" -eq 0 ]`, and the last command of an EXIT trap does not become

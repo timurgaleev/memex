@@ -793,6 +793,7 @@ async function autoAnchors(
 async function gatherTrajectories(
   storage: Storage,
   anchors: string[],
+  sourceIds?: readonly string[],
 ): Promise<Array<{ slug: string; points: TrajectoryPoint[] }>> {
   const slugs = Array.from(new Set(anchors.filter((s) => typeof s === "string" && s.length > 0))).slice(
     0,
@@ -802,7 +803,14 @@ async function gatherTrajectories(
   const work = Promise.all(
     slugs.map(async (slug) => {
       try {
-        const points = await findTrajectory(storage, slug, { limit: TRAJECTORY_MAX_POINTS });
+        // Scope, like every sibling gather. Without it this stream returns the
+        // anchor's entity_facts + timeline_events from the WHOLE brain and
+        // renders them into the prompt, so a scoped caller gets another
+        // tenant's text back inside the answer — not merely its existence.
+        const points = await findTrajectory(storage, slug, {
+          limit: TRAJECTORY_MAX_POINTS,
+          ...(sourceIds && sourceIds.length > 0 ? { sourceIds: [...sourceIds] } : {}),
+        });
         return { slug, points };
       } catch {
         return { slug, points: [] as TrajectoryPoint[] };
@@ -1104,7 +1112,9 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
   }
   const trajectoryBlock =
     intent !== "other" && anchors.length > 0
-      ? renderTrajectoryBlock(await gatherTrajectories(storage, anchors))
+      ? renderTrajectoryBlock(
+          await gatherTrajectories(storage, anchors, opts.sourceIds),
+        )
       : "";
 
   // Anchor-subgraph gather stream: the anchors' 2-hop link neighborhood joins
