@@ -540,6 +540,34 @@ export class OAuthProvider {
     return r.rows.length > 0;
   }
 
+  /**
+   * Set (or clear) a client's daily USD ceiling. `null` removes the cap, which
+   * is also the default — an uncapped client is allowed, exactly as before the
+   * column existed. The column is NUMERIC(10,2); a value that would not fit is
+   * refused here rather than silently rounded by the database.
+   */
+  async setClientBudget(
+    clientId: string,
+    usdPerDay: number | null,
+  ): Promise<boolean> {
+    if (usdPerDay !== null) {
+      if (!Number.isFinite(usdPerDay) || usdPerDay < 0) {
+        throw new Error("budget must be a non-negative number of USD, or null to clear it");
+      }
+      if (usdPerDay > 99_999_999.99) {
+        throw new Error("budget exceeds the NUMERIC(10,2) column");
+      }
+    }
+    const r = await this.engine.query<{ client_id: string }>(
+      `UPDATE oauth_clients
+          SET budget_usd_per_day = $2
+        WHERE client_id = $1 AND deleted_at IS NULL
+        RETURNING client_id`,
+      [clientId, usdPerDay],
+    );
+    return r.rows.length > 0;
+  }
+
   // -------------------------------------------------------------------------
   // Authorization-code flow
   // -------------------------------------------------------------------------

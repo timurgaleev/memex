@@ -43,10 +43,22 @@ function requireTag(tag: unknown): string {
 }
 
 /** True iff a live (non-soft-deleted) page exists at `slug`. */
-async function pageExists(storage: Storage, slug: string): Promise<boolean> {
+async function pageExists(
+  storage: Storage,
+  slug: string,
+  sourceId?: string | null,
+): Promise<boolean> {
+  // Scoped to the caller's own source when it names one: an unscoped probe
+  // answers "does ANY tenant hold this slug?", which turns the not-found error
+  // below into a cross-tenant existence oracle. An unscoped caller (local CLI,
+  // internal token) still sees the whole brain, matching every other fence.
+  const params: unknown[] = [slug];
+  if (sourceId != null) params.push(sourceId);
   const r = await storage.engine().query<{ one: number }>(
-    `SELECT 1 AS one FROM pages WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
-    [slug],
+    `SELECT 1 AS one FROM pages
+      WHERE slug = $1 AND deleted_at IS NULL${sourceId != null ? " AND source_id = $2" : ""}
+      LIMIT 1`,
+    params,
   );
   return r.rows.length > 0;
 }
@@ -76,7 +88,7 @@ export async function addTag(
   // accepted: soft-delete is reversible, an orphan tag is inert and cleaned on
   // restore, and tag writes are single-operator/internal-only. Add an FK if
   // tags ever go multi-writer.
-  if (!(await pageExists(storage, slug))) {
+  if (!(await pageExists(storage, slug, scope))) {
     throw new Error(`addTag failed: page "${slug}" not found`);
   }
   const params: unknown[] = [slug, norm];

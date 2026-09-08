@@ -74,7 +74,13 @@ describe("checkClientBudget", () => {
 });
 
 describe("reserve → settle / release", () => {
-  it("holds the estimate, settles to an actual in the log", async () => {
+  // CONTRACT CHANGE: settle no longer writes its own ledger row. Every paid
+  // Bedrock call books itself against the calling client now
+  // (`runWithSpendClient` wraps the whole dispatch), so a settle that also
+  // logged the handler-reported total would charge the same tokens twice.
+  // Settle closes the hold and records `actual_cents` on the reservation for
+  // the audit trail; the spend itself is already in the log.
+  it("holds the estimate, then releases the hold on settle without re-logging", async () => {
     const r = await reserveSpend(storage.engine(), {
       clientId: "capped",
       estimatedUsd: 0.5,
@@ -87,11 +93,18 @@ describe("reserve → settle / release", () => {
 
     const s = await settleSpend(storage.engine(), r.reservationId, 0.3, "think");
     expect(s.settled).toBe(true);
-    // Hold released; the ACTUAL is in the log.
-    expect(await daySpendUsd(storage.engine(), "capped")).toBeCloseTo(0.3, 6);
-    // Idempotent: a second settle is a no-op (no duplicate log row).
+    // Hold gone, and nothing was double-booked: the paid call's own row is the
+    // only record of the spend, and this test never made one.
+    expect(await daySpendUsd(storage.engine(), "capped")).toBeCloseTo(0, 6);
+    const settled = await storage.engine().query<{ actual_cents: number }>(
+      `SELECT actual_cents::float8 AS actual_cents FROM mcp_spend_reservations
+        WHERE reservation_id = $1 AND status = 'settled'`,
+      [r.reservationId],
+    );
+    expect(settled.rows[0]?.actual_cents).toBeCloseTo(30, 6);
+    // Idempotent: a second settle is a no-op.
     expect((await settleSpend(storage.engine(), r.reservationId, 0.3)).settled).toBe(false);
-    expect(await daySpendUsd(storage.engine(), "capped")).toBeCloseTo(0.3, 6);
+    expect(await daySpendUsd(storage.engine(), "capped")).toBeCloseTo(0, 6);
   });
 
   it("rejects a reserve whose estimate would break the cap", async () => {

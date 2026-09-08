@@ -14,6 +14,7 @@
  *     only; it never refuses a call.
  */
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { appendAudit, auditDir } from "./audit-week-file.ts";
 import type { Engine } from "./engine/interface.ts";
 import type { SonnetUsage } from "./llm/sonnet.ts";
@@ -392,11 +393,11 @@ export async function settleSpend(
     );
     const row = upd.rows[0];
     if (!row) return { settled: false };
-    await tx.query(
-      `INSERT INTO mcp_spend_log (client_id, operation, spend_cents, provider, model)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [row.client_id, operation, actualCents, row.provider, row.model],
-    );
+    // No ledger row here. Every paid call now books itself against the calling
+    // client (see `runWithSpendClient`), so writing the handler-reported total
+    // again would charge the same tokens twice. The reservation keeps
+    // `actual_cents` for the audit trail; the spend itself is already logged.
+    void operation;
     return { settled: true };
   });
 }
@@ -480,6 +481,33 @@ export function setSpendLedgerEngine(engine: Engine | null): void {
   _ledgerEngine = engine;
 }
 
+/**
+ * The client a paid call is being made FOR, carried per-request rather than
+ * threaded through every leaf helper. The paid sites are things like "embed
+ * this string" and "classify this query"; handing each of them a client id
+ * would touch every signature between the MCP boundary and Bedrock, and the
+ * one that got missed would be the one that books to nobody. AsyncLocalStorage
+ * keeps the attribution attached to the request instead, so a helper added
+ * later is attributed without being told to be.
+ *
+ * Empty (operator CLI, cycle, internal token) books NULL exactly as before —
+ * those have no per-client cap axis.
+ */
+const _spendClient = new AsyncLocalStorage<string | null>();
+
+/** Run `fn` with every paid call inside it booked to `clientId`. */
+export function runWithSpendClient<T>(
+  clientId: string | null | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return _spendClient.run(clientId ?? null, fn);
+}
+
+/** The client id in scope for the current paid call, or null. */
+export function currentSpendClient(): string | null {
+  return _spendClient.getStore() ?? null;
+}
+
 /** Model ids already warned about — one line per unpriced model, not per call. */
 const _unpricedWarned = new Set<string>();
 
@@ -505,11 +533,46 @@ export async function trackedInvoke<T>(
     // attempt that actually reached the model consumed.
     report: (u) => void (usage = chargeableUsage(u)),
   };
+  await refuseIfClientExhausted(call.operation);
   try {
     return await send(meter);
   } finally {
     await bookSpend(call, usage);
   }
+}
+
+/**
+ * Refuse a paid call from a client that has already spent its daily cap.
+ *
+ * This is the chokepoint every paid Bedrock call passes through, which is why
+ * the check lives here rather than in a per-op wrapper: `withClientSpend`
+ * covers three ops, so a capped client could exhaust its budget and keep
+ * calling `search` — whose embedding is paid — forever. A tool that spends
+ * nothing never reaches this function and is never refused.
+ *
+ * Uncapped clients (`budget_usd_per_day` NULL, the default) and callers with no
+ * client in scope skip the query entirely. A failure of the accounting query
+ * itself ALLOWS the call: accounting must never break a paid path, the same
+ * contract `bookSpend` keeps.
+ */
+async function refuseIfClientExhausted(operation: string): Promise<void> {
+  const clientId = currentSpendClient();
+  const engine = _ledgerEngine;
+  if (!clientId || !engine) return;
+  let check: ClientBudgetCheck;
+  try {
+    check = await checkClientBudget(engine, clientId);
+  } catch {
+    return;
+  }
+  if (check.allowed) return;
+  throw new BudgetExhausted(
+    "cost",
+    `daily budget exhausted for this client (spent $${check.spentUsd.toFixed(4)}` +
+      (check.capUsd !== null ? ` of $${check.capUsd.toFixed(2)}` : "") +
+      `) — '${operation}' refused. Wait for the UTC day to roll over, or raise ` +
+      `the client's budget_usd_per_day.`,
+  );
 }
 
 /**
@@ -533,6 +596,7 @@ async function bookSpend(call: TrackedCall, usage: SonnetUsage): Promise<void> {
       costUsd: costUsd(call.model, usage),
       provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
       model: call.model,
+      clientId: currentSpendClient(),
     });
   } catch (err) {
     console.warn(

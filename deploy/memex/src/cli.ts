@@ -202,6 +202,8 @@ function printUsage(): void {
   console.log("                               'none' = public PKCE client, no secret)");
   console.log("  auth list-clients            JSON list of registered OAuth clients");
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
+  console.log("  auth set-budget <id> <usd|none>");
+  console.log("                               daily USD ceiling across every paid op ('none' = uncapped)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");
   console.log("                               mint an access token locally (= POST /token)");
   console.log("  auth create <name> [--takes-holders a,b]");

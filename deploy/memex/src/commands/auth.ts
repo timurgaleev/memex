@@ -16,6 +16,9 @@
  *              JSON list of registered clients (no secrets).
  *   revoke-client <client_id>
  *              Hard-delete a client (cascades to its tokens/codes via FK).
+ *   set-budget <client_id> <usd-per-day|none>
+ *              Set or clear the client's daily USD ceiling, enforced across
+ *              every paid op. `none` removes the cap (the default).
  *   rescope-client <client_id> --source SRC [--federated-read a,b]
  *                              [--bound-slug-prefixes p1,p2]
  *              Change an existing client's tenancy grant in place (write
@@ -59,6 +62,7 @@ export type AuthSub =
   | "list-clients"
   | "revoke-client"
   | "rescope-client"
+  | "set-budget"
   | "grant-token"
   | "create"
   | "list"
@@ -262,6 +266,32 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
           : {}),
         updated: true,
       },
+      null,
+      2,
+    ),
+  );
+}
+
+/**
+ * Set or clear a client's daily USD ceiling. The column existed and was read by
+ * every paid op's budget check, but nothing could WRITE it outside of hand-
+ * editing the database — so a cap was in practice unsettable.
+ */
+async function setBudget(clientId: string, amount: string): Promise<void> {
+  const usage = "Usage: auth set-budget <client_id> <usd-per-day|none>";
+  if (!clientId || amount === undefined) throw new Error(usage);
+  let usdPerDay: number | null;
+  if (amount === "none" || amount === "null" || amount === "") {
+    usdPerDay = null;
+  } else {
+    usdPerDay = Number(amount);
+    if (!Number.isFinite(usdPerDay)) throw new Error(usage);
+  }
+  const updated = await withProvider((p) => p.setClientBudget(clientId, usdPerDay));
+  if (!updated) throw new Error(`No active client "${clientId}".`);
+  console.log(
+    JSON.stringify(
+      { client_id: clientId, budget_usd_per_day: usdPerDay, updated: true },
       null,
       2,
     ),
@@ -612,6 +642,8 @@ export async function runAuth(args: string[]): Promise<void> {
       return revokeClient(rest[0]!);
     case "rescope-client":
       return rescopeClient(rest[0]!, rest.slice(1));
+    case "set-budget":
+      return setBudget(rest[0]!, rest[1]!);
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     case "create":

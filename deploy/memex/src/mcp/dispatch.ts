@@ -198,6 +198,7 @@ import {
   reserveSpend,
   settleSpend,
   releaseReservation,
+  runWithSpendClient,
 } from "../core/budget.ts";
 import { MODE_BUNDLES, isSearchMode, expansionActive } from "../core/search/mode.ts";
 import { looksConceptShaped } from "../core/search/query-intent.ts";
@@ -429,7 +430,12 @@ export async function dispatchTool(
   req: ToolCallRequest,
   opts: DispatchOptions = {},
 ): Promise<ToolCallResult> {
-  const result = await dispatchToolInner(storage, req, opts);
+  // Every paid Bedrock call inside this dispatch books against the calling
+  // client, so `budget_usd_per_day` covers all of them and not only the three
+  // ops whose handler happens to echo `spentUsd`.
+  const result = await runWithSpendClient(opts.authInfo?.clientId, () =>
+    dispatchToolInner(storage, req, opts),
+  );
   const injectable =
     !result.isError &&
     !(opts.isPublic ?? false) &&
@@ -669,7 +675,7 @@ async function dispatchToolInner(
       case "forget_fact":
         return await callForgetFact(storage, args, writeSource);
       case "get_brain_identity":
-        return await callGetBrainIdentity(storage);
+        return await callGetBrainIdentity(storage, readSources);
       case "whoami":
         return callWhoami(opts.authInfo, readSources, opts.isPublic ?? false);
       case "purge_deleted_pages":
@@ -2702,8 +2708,11 @@ async function callForgetFact(
   return jsonResult({ ok: true, ...r });
 }
 
-async function callGetBrainIdentity(storage: Storage): Promise<ToolCallResult> {
-  const id = await brainIdentity(storage);
+async function callGetBrainIdentity(
+  storage: Storage,
+  readSources?: string[],
+): Promise<ToolCallResult> {
+  const id = await brainIdentity(storage, readSources);
   return jsonResult({ ok: true, ...id });
 }
 
