@@ -21,6 +21,42 @@ that resolves a slug plus `slug_aliases`, merge and rename. That is a schema
 migration, not a patch — plan it deliberately rather than bolting a generic
 error onto `putPage`, which would only move the oracle to a timing difference.
 
+## Page mirror path collision (2026-09-08)
+
+`pageSourcePath()` encodes the tenant only for a non-default source: a default
+page mirrors to `page://<slug>`, a tenant page to `page://<src>/<slug>`. So a
+default-tenant page slugged `<src>/<name>` produces the byte-identical mirror
+path to source `<src>`'s page `<name>` — verified:
+`pageSourcePath("a/secret", "default") === pageSourcePath("secret", "a")`.
+
+Impact is availability, not disclosure: the document row still carries exactly
+one `source_id`, so a scoped search never crosses over. What happens instead is
+that the loser's page never gets a usable mirror and `reconcilePageMirrors`
+retries it forever through its `d.source_id <> p.source_id` staleness arm.
+
+The v1.124.0 index ownership fence is what blocks the overwrite, so do NOT
+widen that fence to quiet the reconcile noise — that would reopen the hole. A
+real fix either changes the path scheme (and re-mirrors the corpus) or refuses
+a new default-tenant slug whose first segment names an existing source. The
+second is cheap but would reject slugs that are legal today, so it needs a
+migration-time audit of existing pages first.
+
+## Spend ledger — remaining approximations (2026-09-08)
+
+Enforcement landed in v1.126.0; these are the known edges, none of which
+affects an uncapped client:
+
+- While a `withClientSpend` op is in flight its reservation hold AND the rows
+  its own paid calls book both count toward the day. The over-count is bounded
+  by the op's estimate and clears at settle, and it errs toward refusing rather
+  than overspending — but a client sitting exactly at its cap can be refused a
+  few seconds early.
+- `bookSpend` still swallows a failed ledger INSERT (accounting must never break
+  a paid path). That spend is then invisible to the cap. Rare, but it means the
+  cap is best-effort under database trouble, not a hard guarantee.
+- The reservation's `actual_cents` is written and read by nothing. Either
+  surface it in the admin spend report or drop the column.
+
 ## Multi-install audit follow-ups (2026-08-31)
 
 Found by comparing a fresh `ingress_mode=caddy` install against the
