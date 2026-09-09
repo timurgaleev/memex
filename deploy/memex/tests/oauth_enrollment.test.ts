@@ -57,6 +57,18 @@ function post(client: OAuthClientInfo, code: string, gate?: (r: Request) => bool
   );
 }
 
+/** POST carrying the headers a cross-origin auto-submitting form would send. */
+function postCrossOrigin(client: OAuthClientInfo, code: string, headers: Record<string, string>) {
+  return handleAuthorizeRoute(
+    new Request(authorizeUrl(client), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
+      body: new URLSearchParams({ enrollment_code: code }).toString(),
+    }),
+    provider,
+  );
+}
+
 async function codeCount(): Promise<number> {
   const r = await storage.engine().query<{ n: number }>(
     "SELECT COUNT(*)::int AS n FROM oauth_codes",
@@ -244,5 +256,93 @@ describe("client-mode /authorize is untouched", () => {
     const code = new URL(res.headers.get("location")!).searchParams.get("code")!;
     const tokens = await provider.exchangeAuthorizationCode(plainClient, code, undefined, REDIRECT);
     expect((await provider.verifyAccessToken(tokens.access_token)).sourceId).toBe("default");
+  });
+});
+
+describe("the enrollment POST is not forgeable from another site", () => {
+  // Tenant fixation: an attacker page auto-submits HIS code from HER browser,
+  // and her connector binds to his source — every note she writes lands in his
+  // tenant. A cross-origin form POST needs no preflight, so CORS does not stop
+  // it, and `state` is the client's business, not ours.
+  it("refuses a cross-site POST and does not burn the code", async () => {
+    const issued = await provider.issueEnrollment({ sourceId: "tina" });
+    const before = await codeCount();
+
+    const forgeries: Record<string, string>[] = [
+      { "Sec-Fetch-Site": "cross-site" },
+      { Origin: "https://evil.example" },
+      { "Sec-Fetch-Site": "same-site", Origin: "https://evil.example" },
+    ];
+    for (const headers of forgeries) {
+      const res = await postCrossOrigin(teamClient, issued.code, headers);
+      expect(res.status).toBe(403);
+    }
+    expect(await codeCount()).toBe(before);
+
+    // Still usable afterwards — a refused forgery must not cost the person
+    // her one code.
+    expect((await post(teamClient, issued.code)).status).toBe(303);
+  });
+
+  it("accepts the browser's own same-origin submission", async () => {
+    const issued = await provider.issueEnrollment({ sourceId: "rachel" });
+    const res = await postCrossOrigin(teamClient, issued.code, {
+      "Sec-Fetch-Site": "same-origin",
+      Origin: "http://brain.example.test",
+    });
+    expect(res.status).toBe(303);
+  });
+});
+
+describe("a code is not lost when minting fails", () => {
+  it("is handed back if the grant cannot be issued", async () => {
+    const issued = await provider.issueEnrollment({ sourceId: "tina" });
+    // Claim it the way the handler does, then fail to mint.
+    const grant = await provider.claimEnrollment(issued.code, teamClient.client_id);
+    expect(grant).toBeTruthy();
+    expect((await provider.listEnrollments()).find((r) => r.id === issued.id)!.used_at).not.toBeNull();
+
+    expect(await provider.releaseEnrollment(issued.code)).toBe(true);
+    expect((await provider.listEnrollments()).find((r) => r.id === issued.id)!.used_at).toBeNull();
+    // And it works for real afterwards.
+    expect((await post(teamClient, issued.code)).status).toBe(303);
+  });
+
+  it("a code whose grant WAS issued stays spent", async () => {
+    const issued = await provider.issueEnrollment({ sourceId: "tina" });
+    expect((await post(teamClient, issued.code)).status).toBe(303);
+    // linkEnrollmentToCode stamped used_code_hash, so the release is refused.
+    expect(await provider.releaseEnrollment(issued.code)).toBe(false);
+    expect((await post(teamClient, issued.code)).status).toBe(400);
+  });
+});
+
+describe("operator controls", () => {
+  it("a revoked connector cannot be enrolled into", async () => {
+    const doomed = await provider.registerClientManual(
+      "doomed", ["authorization_code"], "read write", [REDIRECT], "default",
+      undefined, undefined, undefined, "enrollment",
+    );
+    const c = (await provider.getClient(doomed.clientId))!;
+    const issued = await provider.issueEnrollment({ sourceId: "tina", clientId: doomed.clientId });
+    await storage.engine().query(
+      "UPDATE oauth_clients SET deleted_at = NOW() WHERE client_id = $1",
+      [doomed.clientId],
+    );
+    expect(await provider.getClient(doomed.clientId)).toBeUndefined();
+    const res = await post(c, issued.code);
+    // The handler looks the client up itself, so a revoked one is unknown.
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("unknown client");
+  });
+
+  it("refuses a TTL that would overflow a date, and an unknown read source", async () => {
+    await expect(
+      provider.issueEnrollment({ sourceId: "tina", ttlSeconds: 99_999_999_999 * 86_400 }),
+    ).rejects.toThrow(/ttl must be between/);
+    await expect(
+      provider.issueEnrollment({ sourceId: "tina", federatedRead: ["tina", "ghost"] }),
+    ).rejects.toThrow(/Unknown source 'ghost'/);
   });
 });

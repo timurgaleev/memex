@@ -46,6 +46,43 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--tenant-mode client` stays the default and every existing client keeps its
   current behaviour, including the admin-login gate when it is switched on.
 
+  **Four defects an adversarial review of this change caught before it shipped**,
+  each now covered by a test:
+
+  - *The POST was forgeable from another site.* A cross-origin auto-submitting
+    form is a "simple request" — no preflight, so CORS never sees it — which
+    meant an attacker page could submit HIS code from HER browser and bind her
+    connector to his source: tenant fixation, with everything she writes landing
+    where he can read it. The client's `state` is no defence, being optional and
+    checked by the client rather than by us. The POST is now same-origin only,
+    through the check the admin routes already use (moved to `http/same-origin.ts`
+    so there is one implementation). Verified both ways: with the check removed
+    the cross-site POST mints a code.
+  - *A single-use code could be burned without issuing anything.* The claim
+    marked the code used before the grant was minted, so any failure in between
+    — a source dropped since issue, a database blip — spent the code
+    permanently, and `revoke-enrollment` refuses used rows, so the operator
+    could not even reissue cleanly. A claim whose mint failed is now handed
+    back, guarded so a code that DID produce a grant stays spent.
+  - *Revoking a connector did not stop enrollment.* `getClient` ignored
+    `deleted_at`, so a soft-deleted client still rendered the form, burned codes
+    and minted grants. It now resolves only live clients.
+  - *A `--ttl` past the representable date range threw a raw `RangeError`*, and
+    `tenant_mode` had no `CHECK`, so one bad row would have taken down
+    `/authorize`, `/token` and every verification for that client. Both bounded.
+
+  Also from the review: the enrollment form now names the connector being
+  connected (a person who cannot see what she is enrolling into cannot notice a
+  crafted link), the read set is validated in full rather than just the write
+  source, and the redundant second rate limiter was dropped — `/authorize` is
+  already limited per-IP in `server.ts` for GET and POST alike, and the extra
+  one keyed every unattributable caller into a single global bucket that one
+  script could drain for everybody.
+
+  **Operator note:** with `MEMEX_OAUTH_REQUIRE_LOGIN=1`, the invariant "no code
+  without an operator approval" no longer holds for enrollment-mode clients —
+  by design. The code is the approval.
+
 ## [1.127.0] — 2026-09-08
 
 ### Fixed

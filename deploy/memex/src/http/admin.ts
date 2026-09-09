@@ -25,6 +25,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { resolveClientKey } from "./client-key.ts";
+import { isSameOriginPost } from "./same-origin.ts";
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h for password login
 const MAGIC_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7d for magic-link
@@ -65,20 +66,6 @@ function authorizeFingerprint(params: URLSearchParams): string {
  * which assumes the ingress preserves `Host` (Caddy and cloudflared do). A
  * Host-rewriting proxy would refuse every approval.
  */
-function isSameOriginPost(req: Request, url: URL): boolean {
-  const site = req.headers.get("sec-fetch-site");
-  if (site !== null && site !== "same-origin") return false;
-  const origin = req.headers.get("origin");
-  if (origin !== null) {
-    try {
-      if (new URL(origin).host !== url.host) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
-}
-
 /** Constant-time compare of two hex digests of equal length. */
 function safeHexEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

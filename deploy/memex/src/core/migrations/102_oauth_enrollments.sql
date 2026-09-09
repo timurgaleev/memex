@@ -19,8 +19,20 @@
 --                   NOT consulted, because the code IS the resource-owner
 --                   authentication and the gate could only send the person to
 --                   a login she cannot pass.
+-- CHECKed, not free text: `getClient` parses this column on every request, so
+-- a row with an unexpected value would take down /authorize, /token and every
+-- token verification for that client.
 ALTER TABLE oauth_clients
   ADD COLUMN IF NOT EXISTS tenant_mode TEXT NOT NULL DEFAULT 'client';
+
+DO $$
+BEGIN
+  ALTER TABLE oauth_clients
+    ADD CONSTRAINT oauth_clients_tenant_mode_chk
+    CHECK (tenant_mode IN ('client', 'enrollment'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS oauth_enrollments (
   id             TEXT PRIMARY KEY,

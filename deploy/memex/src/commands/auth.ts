@@ -325,7 +325,13 @@ export function parseTtl(raw: string | undefined, fallbackSeconds: number): numb
   const n = Number(m[1]);
   const unit = m[2] ?? "s";
   const mult = unit === "d" ? 86400 : unit === "h" ? 3600 : unit === "m" ? 60 : 1;
-  return n * mult;
+  const seconds = n * mult;
+  // The provider bounds this too; catching it here gives the operator the flag
+  // they typed instead of a RangeError from deep inside a Date constructor.
+  if (!Number.isSafeInteger(seconds) || seconds > 365 * 24 * 3600) {
+    throw new Error(`--ttl is too large (max 365d), got '${raw}'`);
+  }
+  return seconds;
 }
 
 /**

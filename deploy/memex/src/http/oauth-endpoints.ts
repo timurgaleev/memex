@@ -25,17 +25,9 @@ import type {
   OAuthClientInfo,
 } from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
-import { RateLimiter } from "../mcp/rate_limit.ts";
-import { resolveClientKey } from "./client-key.ts";
+import { isSameOriginPost } from "./same-origin.ts";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
-
-/**
- * Enrollment-code redemptions per client key. Sized like the admin login
- * limiter: the code has 256 bits of entropy, so this is not what defends it —
- * it stops a script from turning the form into a load test.
- */
-const enrollLimiter = new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 });
 
 /** RFC 6749 §5.2 error body with a no-store header (tokens must not be cached). */
 function oauthError(
@@ -367,11 +359,17 @@ export async function handleAuthorizeRoute(
   // consulted — it could only send her to a login she cannot pass.
   if (client.tenant_mode === "enrollment") {
     if (req.method !== "POST") {
-      return enrollmentForm(req, null);
+      return enrollmentForm(req, null, client.client_name);
     }
-    if (!enrollLimiter.allow(resolveClientKey(req))) {
-      return new Response("Too many attempts. Try again in a minute.", {
-        status: 429,
+    // A cross-origin auto-submitting form is a "simple request" — no preflight
+    // — so without this an attacker page could POST HIS code from HER browser
+    // and bind her connector to his tenant, quietly collecting everything she
+    // writes. The client's `state` is not a defence here: it is optional, and
+    // it is the client that checks it, not us. `/authorize` is rate-limited in
+    // server.ts for GET and POST alike, so there is no separate limiter here.
+    if (!isSameOriginPost(req, new URL(req.url))) {
+      return new Response("Cross-origin request refused.", {
+        status: 403,
         headers: { "Content-Type": "text/plain; charset=utf-8", ...NO_STORE },
       });
     }
@@ -380,7 +378,7 @@ export async function handleAuthorizeRoute(
     if (!grant) {
       // One message for wrong / used / expired / revoked / other-client: the
       // form must not tell an attacker which of those it was.
-      return enrollmentForm(req, "That code was not accepted.");
+      return enrollmentForm(req, "That code was not accepted.", client.client_name);
     }
     try {
       const { redirectUrl } = await provider.authorize(client, authorizeParams, grant);
@@ -388,13 +386,23 @@ export async function handleAuthorizeRoute(
       if (minted && submitted) {
         await provider
           .linkEnrollmentToCode(submitted, createHash("sha256").update(minted, "utf8").digest("hex"))
-          .catch(() => {});
+          .catch((e: unknown) => {
+            console.warn(
+              "[memex] enrollment audit link failed: " +
+                (e instanceof Error ? e.message : String(e)),
+            );
+          });
       }
       // 303, not 302: the browser arrives here by POST, and 303 is the status
       // that guarantees it follows with a GET rather than re-posting the form
       // to the client's callback.
       return new Response(null, { status: 303, headers: { Location: redirectUrl, ...NO_STORE } });
     } catch {
+      // The claim already marked the code used. Minting failed, so nothing was
+      // issued for it — hand it back rather than burning a single-use code on
+      // a transient error and leaving the person with no way in and the
+      // operator with a row `revoke-enrollment` will not touch.
+      if (submitted) await provider.releaseEnrollment(submitted).catch(() => {});
       return errorRedirect(redirectUri, "server_error", state);
     }
   }
@@ -460,9 +468,13 @@ function escapeHtml(v: string): string {
  * parameter the client sent (state, PKCE challenge, redirect) rides along
  * untouched.
  */
-function enrollmentForm(req: Request, error: string | null): Response {
+function enrollmentForm(req: Request, error: string | null, clientName?: string): Response {
   const url = new URL(req.url);
   const action = escapeHtml(url.pathname + url.search);
+  // Name the connector: a person who cannot tell WHAT she is enrolling into
+  // has no way to notice a crafted /authorize link. The name is operator-set
+  // and carries nothing secret.
+  const who = clientName ? `<p>Connecting <strong>${escapeHtml(clientName)}</strong>.</p>` : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -477,7 +489,7 @@ function enrollmentForm(req: Request, error: string | null): Response {
   .err{color:#a40000;margin:0 0 .8rem}
 </style></head><body><main>
 <h1>Connect to memex</h1>
-<p>Enter the one-time code you were given.</p>
+${who}<p>Enter the one-time code you were given.</p>
 ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
 <form method="post" action="${action}" autocomplete="off">
 <input name="enrollment_code" type="password" autocomplete="one-time-code" autofocus required>

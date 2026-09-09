@@ -361,7 +361,7 @@ export class OAuthProvider {
       `SELECT client_id, client_secret_hash, client_name, redirect_uris,
               grant_types, scope, token_endpoint_auth_method,
               client_id_issued_at, client_secret_expires_at, tenant_mode
-       FROM oauth_clients WHERE client_id = $1`,
+       FROM oauth_clients WHERE client_id = $1 AND deleted_at IS NULL`,
       [clientId],
     );
     if (rows.length === 0) return undefined;
@@ -624,12 +624,22 @@ export class OAuthProvider {
     clientId?: string;
     ttlSeconds?: number;
   }): Promise<{ id: string; code: string; expiresAt: string }> {
+    const federatedIn =
+      input.federatedRead && input.federatedRead.length > 0
+        ? input.federatedRead
+        : [input.sourceId];
+    // Validate EVERY source the grant would read, not just the one it writes:
+    // a typo in the read set would mint a grant that silently reads less than
+    // the operator meant it to.
+    const wanted = Array.from(new Set([input.sourceId, ...federatedIn]));
     const src = await this.engine.query<{ id: string }>(
-      "SELECT id FROM sources WHERE id = $1",
-      [input.sourceId],
+      "SELECT id FROM sources WHERE id = ANY($1)",
+      [wanted],
     );
-    if (src.rows.length === 0) {
-      throw new Error(`Unknown source '${input.sourceId}'`);
+    const known = new Set(src.rows.map((r) => r.id));
+    const missing = wanted.filter((id) => !known.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Unknown source '${missing.join("', '")}'`);
     }
     if (input.clientId) {
       const c = await this.getClient(input.clientId);
@@ -642,13 +652,16 @@ export class OAuthProvider {
       }
     }
     const ttl = input.ttlSeconds ?? 7 * 24 * 3600;
-    if (!Number.isFinite(ttl) || ttl <= 0) throw new Error("ttl must be positive");
+    // Upper bound as well as lower: `new Date(now + ttl*1000)` throws a bare
+    // RangeError once the result leaves the representable range, and a code
+    // that outlives the pilot is not a feature anyway.
+    const MAX_TTL = 365 * 24 * 3600;
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > MAX_TTL) {
+      throw new Error(`ttl must be between 1 second and ${MAX_TTL} seconds (365d)`);
+    }
     const id = generateToken("memex_enr_");
     const code = generateToken("memex_en_");
-    const federated =
-      input.federatedRead && input.federatedRead.length > 0
-        ? input.federatedRead
-        : [input.sourceId];
+    const federated = federatedIn;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     await this.engine.query(
       `INSERT INTO oauth_enrollments
@@ -698,6 +711,21 @@ export class OAuthProvider {
     const row = r.rows[0];
     if (!row) return undefined;
     return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id] };
+  }
+
+  /**
+   * Hand a claimed code back when the authorization it was claimed for never
+   * got minted. Guarded on `used_code_hash IS NULL` so it can only ever undo a
+   * claim that produced nothing — a code whose grant was issued stays spent.
+   */
+  async releaseEnrollment(code: string): Promise<boolean> {
+    const r = await this.engine.query<{ id: string }>(
+      `UPDATE oauth_enrollments SET used_at = NULL
+        WHERE code_hash = $1 AND used_at IS NOT NULL AND used_code_hash IS NULL
+        RETURNING id`,
+      [hashToken(code)],
+    );
+    return r.rows.length > 0;
   }
 
   /** Record which authorization code a claimed enrollment produced. */
