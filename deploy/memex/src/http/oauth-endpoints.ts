@@ -25,8 +25,17 @@ import type {
   OAuthClientInfo,
 } from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
+import { RateLimiter } from "../mcp/rate_limit.ts";
+import { resolveClientKey } from "./client-key.ts";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+
+/**
+ * Enrollment-code redemptions per client key. Sized like the admin login
+ * limiter: the code has 256 bits of entropy, so this is not what defends it —
+ * it stops a script from turning the form into a load test.
+ */
+const enrollLimiter = new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 });
 
 /** RFC 6749 §5.2 error body with a no-store header (tokens must not be cached). */
 function oauthError(
@@ -344,6 +353,56 @@ export async function handleAuthorizeRoute(
     }
   }
 
+  const authorizeParams = {
+    codeChallenge,
+    redirectUri,
+    ...(scopeParam ? { scopes: parseScopeString(scopeParam) } : {}),
+    ...(state ? { state } : {}),
+    ...(resource ? { resource } : {}),
+  };
+
+  // Enrollment-mode client: the person in front of this page presents a
+  // one-time code the operator issued for her source. The code IS the
+  // resource-owner authentication, so the operator-login gate below is not
+  // consulted — it could only send her to a login she cannot pass.
+  if (client.tenant_mode === "enrollment") {
+    if (req.method !== "POST") {
+      return enrollmentForm(req, null);
+    }
+    if (!enrollLimiter.allow(resolveClientKey(req))) {
+      return new Response("Too many attempts. Try again in a minute.", {
+        status: 429,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...NO_STORE },
+      });
+    }
+    const submitted = await readEnrollmentCode(req);
+    const grant = submitted ? await provider.claimEnrollment(submitted, client.client_id) : undefined;
+    if (!grant) {
+      // One message for wrong / used / expired / revoked / other-client: the
+      // form must not tell an attacker which of those it was.
+      return enrollmentForm(req, "That code was not accepted.");
+    }
+    try {
+      const { redirectUrl } = await provider.authorize(client, authorizeParams, grant);
+      const minted = new URL(redirectUrl).searchParams.get("code");
+      if (minted && submitted) {
+        await provider
+          .linkEnrollmentToCode(submitted, createHash("sha256").update(minted, "utf8").digest("hex"))
+          .catch(() => {});
+      }
+      // 303, not 302: the browser arrives here by POST, and 303 is the status
+      // that guarantees it follows with a GET rather than re-posting the form
+      // to the client's callback.
+      return new Response(null, { status: 303, headers: { Location: redirectUrl, ...NO_STORE } });
+    } catch {
+      return errorRedirect(redirectUri, "server_error", state);
+    }
+  }
+
+  if (req.method !== "GET") {
+    return oauthError("invalid_request", "method not allowed", 405);
+  }
+
   // Resource-owner gate: never issue a code without a logged-in operator. Bounce
   // an unauthenticated browser to the admin login, carrying the full authorize
   // URL so it can resume after sign-in. Placed AFTER param validation so a
@@ -363,13 +422,7 @@ export async function handleAuthorizeRoute(
   }
 
   try {
-    const { redirectUrl } = await provider.authorize(client, {
-      codeChallenge,
-      redirectUri,
-      ...(scopeParam ? { scopes: parseScopeString(scopeParam) } : {}),
-      ...(state ? { state } : {}),
-      ...(resource ? { resource } : {}),
-    });
+    const { redirectUrl } = await provider.authorize(client, authorizeParams);
     return new Response(null, {
       status: 302,
       headers: { Location: redirectUrl },
@@ -377,6 +430,71 @@ export async function handleAuthorizeRoute(
   } catch {
     return errorRedirect(redirectUri, "server_error", state);
   }
+}
+
+/** The `enrollment_code` field of a form-encoded POST body, or null. */
+async function readEnrollmentCode(req: Request): Promise<string | null> {
+  try {
+    const body = await req.text();
+    const v = new URLSearchParams(body).get("enrollment_code");
+    return v ? v.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * The one page a teammate ever sees from memex: a single field for the code
+ * the operator gave her. Self-contained (no external assets, strict CSP), and
+ * it says nothing about the brain — not the source, not the label, nothing an
+ * onlooker could use. The form posts back to this same URL so every OAuth
+ * parameter the client sent (state, PKCE challenge, redirect) rides along
+ * untouched.
+ */
+function enrollmentForm(req: Request, error: string | null): Response {
+  const url = new URL(req.url);
+  const action = escapeHtml(url.pathname + url.search);
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect to memex</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;background:#f6f6f4;color:#1a1a1a;margin:0;display:grid;place-items:center;min-height:100vh}
+  main{background:#fff;border:1px solid #ddd;border-radius:10px;padding:2rem;max-width:22rem;width:calc(100% - 2rem)}
+  h1{font-size:1.15rem;margin:0 0 .5rem}
+  p{margin:0 0 1rem;color:#444}
+  input{width:100%;box-sizing:border-box;font:inherit;padding:.6rem .7rem;border:1px solid #bbb;border-radius:6px}
+  button{margin-top:.9rem;width:100%;font:inherit;padding:.65rem;border:0;border-radius:6px;background:#1a1a1a;color:#fff;cursor:pointer}
+  .err{color:#a40000;margin:0 0 .8rem}
+</style></head><body><main>
+<h1>Connect to memex</h1>
+<p>Enter the one-time code you were given.</p>
+${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
+<form method="post" action="${action}" autocomplete="off">
+<input name="enrollment_code" type="password" autocomplete="one-time-code" autofocus required>
+<button type="submit">Connect</button>
+</form>
+</main></body></html>`;
+  return new Response(html, {
+    status: error ? 400 : 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      "Referrer-Policy": "no-referrer",
+      "X-Frame-Options": "DENY",
+      ...NO_STORE,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

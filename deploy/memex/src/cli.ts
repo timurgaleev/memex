@@ -197,11 +197,17 @@ function printUsage(): void {
   console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
+  console.log("                               [--tenant-mode client|enrollment]  (enrollment = one connector, many tenants)");
   console.log("                               [--token-endpoint-auth-method none|client_secret_post|client_secret_basic]");
   console.log("                               register a client_credentials OAuth client (prints secret once;");
   console.log("                               'none' = public PKCE client, no secret)");
   console.log("  auth list-clients            JSON list of registered OAuth clients");
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
+  console.log("  auth enroll <source> [--label N] [--client ID] [--ttl 7d]");
+  console.log("                               one-time enrollment code: a person presents it at /authorize");
+  console.log("                               on an enrollment-mode client and lands in <source> (printed once)");
+  console.log("  auth enrollments             list issued enrollment codes (never the code itself)");
+  console.log("  auth revoke-enrollment <id>  kill an unused enrollment code");
   console.log("  auth set-budget <id> <usd|none>");
   console.log("                               daily USD ceiling across every paid op ('none' = uncapped)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");

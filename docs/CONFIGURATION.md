@@ -255,17 +255,51 @@ What a scoped client can reach, and what it cannot:
 |---|---|
 | `search`, `page_get`, `page_list`, `recall`, `think` | its own read set only |
 | `add_tag` on another tenant's slug | the same "not found" as a slug nobody holds — no existence oracle |
+| an enrollment code | single-use, expiring; binds the grant to one source |
 | `index` / `page_put` onto another tenant's path | refused (`permission_denied`) |
 | `get_brain_identity` counters | its own read set; `sources` is the size of that set |
 | `run_doctor`, `stats`, `sources_list` (whole brain) | refused — operator-only |
 | `purge_deleted_pages` | needs the `admin` scope, recorded deliberately |
 
-### Connecting a person's Claude account to their tenant
+### Connecting a whole team through ONE connector
 
-Each person adds the connector in their OWN Claude account, using the
-`client_id` + `client_secret` of the client registered for them. The tenant
-comes from the client row, so `claude-alice` → source `alice` with no further
-choice at connect time.
+On a Claude Team or Enterprise plan **only an Owner can add a connector**, and
+every member then authorises against that single client. So the tenant cannot
+come from the client row — one connector would be one tenant for everybody.
+An **enrollment-mode** client fixes that: the grant is bound to a source at the
+moment the person authorises, not at registration.
+
+```bash
+# 1. One source per person.
+memex sources register alice --kind other --path-prefix tenant:alice
+
+# 2. ONE connector for the whole team, in enrollment mode.
+memex auth register-client team-connector --tenant-mode enrollment \
+  --scopes 'read write' --source default \
+  --redirect-uris 'https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback'
+
+# 3. One code per person, bound to her source. Printed ONCE.
+memex auth enroll alice --label alice --ttl 7d
+```
+
+The Owner puts the connector URL + `client_id` + `client_secret` into the
+organisation's connector once (Advanced settings). Each person clicks
+**Connect**, is asked for her enrollment code, and from then on her sessions —
+and every refresh after them — are pinned to her own source. Nobody but the
+Owner ever sees the client secret, and nobody needs an operator login.
+
+`memex auth enrollments` lists what was issued (never the codes);
+`memex auth revoke-enrollment <id>` kills one that leaked before it was used.
+A code is single-use, expires (7 days by default), and a wrong, used, expired
+or revoked code all fail identically so the form cannot be used to probe.
+
+**Per-person connectors** (`--tenant-mode client`, the default) are still the
+right shape when each person has her own individual Pro/Max account and adds
+her own connector: the tenant then comes from the client row, so
+`claude-alice` → source `alice` with no code to enter.
+
+**Budgets are per client**, so everyone on one team connector shares one
+`budget_usd_per_day`. Per-grant budgets are not implemented.
 
 **`MEMEX_OAUTH_REQUIRE_LOGIN` must be OFF for this.** The flag makes
 `GET /authorize` bounce an unauthenticated browser to `/admin/login`, and that
