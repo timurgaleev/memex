@@ -481,7 +481,9 @@ export function startServer(opts: ServerOptions): ServerHandle {
           }
           return handleTokenRoute(req, oauthProvider);
         }
-        if (url.pathname === "/authorize" && req.method === "GET") {
+        // POST is the enrollment-code submission for an enrollment-mode
+        // client; the handler rejects it for every other client.
+        if (url.pathname === "/authorize" && (req.method === "GET" || req.method === "POST")) {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
             return rateLimited();
           }

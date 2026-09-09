@@ -81,6 +81,17 @@ that resolves a slug plus `slug_aliases`, merge and rename. That is a schema
 migration, not a patch — plan it deliberately rather than bolting a generic
 error onto `putPage`, which would only move the oracle to a timing difference.
 
+## Per-grant budgets (2026-09-09)
+
+Enrollment mode lets one connector serve many tenants, but
+`budget_usd_per_day` still hangs off `oauth_clients` — so everyone on a team
+connector shares one daily cap, and one person can spend the whole team's
+allowance. The ceiling itself works (`refuseIfClientExhausted`); what is
+missing is a per-grant amount to check against. Natural shape: a
+`budget_usd_per_day` on the enrollment row, copied onto the grant, with
+`daySpendUsd` summing by grant when the token is grant-bound. Needs the spend
+log to carry the grant, not just the client.
+
 ## Page mirror path collision (2026-09-08)
 
 `pageSourcePath()` encodes the tenant only for a non-default source: a default

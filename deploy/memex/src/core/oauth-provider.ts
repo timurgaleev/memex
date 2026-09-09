@@ -170,6 +170,34 @@ export interface OAuthClientInfo {
   token_endpoint_auth_method?: string;
   client_id_issued_at?: number;
   client_secret_expires_at?: number;
+  /**
+   * Which /authorize flow this client uses. `client` (default) binds the grant
+   * to the client row's source. `enrollment` requires a one-time enrollment
+   * code at /authorize and binds the grant to the code's source, so one
+   * connector can serve many people in separate tenants.
+   */
+  tenant_mode: TenantMode;
+}
+
+export type TenantMode = "client" | "enrollment";
+
+export function parseTenantMode(raw: string | null | undefined): TenantMode {
+  if (raw === undefined || raw === null || raw === "" || raw === "client") return "client";
+  if (raw === "enrollment") return "enrollment";
+  throw new Error(`tenant_mode must be 'client' or 'enrollment', got '${raw}'`);
+}
+
+/** One issued enrollment code, as listed to the operator (never the code). */
+export interface EnrollmentInfo {
+  id: string;
+  label: string | null;
+  source_id: string;
+  federated_read: string[];
+  client_id: string | null;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
 }
 
 /** Token-endpoint success payload (RFC 6749 §5.1). */
@@ -332,7 +360,7 @@ export class OAuthProvider {
     const rows = await this.rows(
       `SELECT client_id, client_secret_hash, client_name, redirect_uris,
               grant_types, scope, token_endpoint_auth_method,
-              client_id_issued_at, client_secret_expires_at
+              client_id_issued_at, client_secret_expires_at, tenant_mode
        FROM oauth_clients WHERE client_id = $1`,
       [clientId],
     );
@@ -353,6 +381,7 @@ export class OAuthProvider {
         (r.token_endpoint_auth_method as string | null) ?? undefined,
       client_id_issued_at: coerceTimestamp(r.client_id_issued_at),
       client_secret_expires_at: coerceTimestamp(r.client_secret_expires_at),
+      tenant_mode: parseTenantMode(r.tenant_mode as string | null),
     };
   }
 
@@ -457,6 +486,7 @@ export class OAuthProvider {
       scope: clampedScope || undefined,
       token_endpoint_auth_method: authMethod,
       client_id_issued_at: now,
+      tenant_mode: "client",
     };
     // Public clients omit client_secret entirely (RFC 7591 §3.2.1).
     if (clientSecret) response.client_secret = clientSecret;
@@ -477,6 +507,7 @@ export class OAuthProvider {
     federatedRead?: string[],
     tokenEndpointAuthMethod?: string,
     boundSlugPrefixes?: string[],
+    tenantMode: TenantMode = "client",
   ): Promise<{ clientId: string; clientSecret?: string }> {
     assertAllowedScopes(parseScopeString(scopes));
     const authMethod = validateTokenEndpointAuthMethod(
@@ -502,9 +533,10 @@ export class OAuthProvider {
       `INSERT INTO oauth_clients
          (client_id, client_secret_hash, client_name, redirect_uris,
           grant_types, scope, token_endpoint_auth_method,
-          client_id_issued_at, source_id, federated_read, bound_slug_prefixes)
+          client_id_issued_at, source_id, federated_read, bound_slug_prefixes,
+          tenant_mode)
        VALUES ($1, $2, $3, $4::text[], $5::text[], $6, $7, $8, $9, $10::text[],
-               $11::text[])`,
+               $11::text[], $12)`,
       [
         clientId,
         secretHash,
@@ -519,6 +551,7 @@ export class OAuthProvider {
         boundSlugPrefixes && boundSlugPrefixes.length > 0
           ? boundSlugPrefixes
           : null,
+        tenantMode,
       ],
     );
 
@@ -543,6 +576,7 @@ export class OAuthProvider {
     sourceId: string,
     federatedRead?: string[],
     boundSlugPrefixes?: string[],
+    tenantMode?: TenantMode,
   ): Promise<boolean> {
     const federated =
       federatedRead && federatedRead.length > 0 ? federatedRead : [sourceId];
@@ -554,7 +588,8 @@ export class OAuthProvider {
       `UPDATE oauth_clients
           SET source_id = $2, federated_read = $3::text[],
               bound_slug_prefixes = CASE WHEN $5::boolean THEN $4::text[]
-                                         ELSE bound_slug_prefixes END
+                                         ELSE bound_slug_prefixes END,
+              tenant_mode = COALESCE($6, tenant_mode)
         WHERE client_id = $1 AND deleted_at IS NULL
         RETURNING client_id`,
       [
@@ -565,7 +600,143 @@ export class OAuthProvider {
           ? boundSlugPrefixes
           : null,
         setFence,
+        tenantMode ?? null,
       ],
+    );
+    return r.rows.length > 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Enrollment codes — the identity half of per-grant tenancy
+  // -------------------------------------------------------------------------
+
+  /**
+   * Issue a one-time enrollment code for `sourceId`. The code is returned ONCE
+   * and only its hash is stored, like a client secret. `clientId`, when given,
+   * pins the code to one client; otherwise any enrollment-mode client may
+   * redeem it. The source must exist now — a code for a source that does not
+   * exist would mint a grant nobody can read.
+   */
+  async issueEnrollment(input: {
+    sourceId: string;
+    federatedRead?: string[];
+    label?: string;
+    clientId?: string;
+    ttlSeconds?: number;
+  }): Promise<{ id: string; code: string; expiresAt: string }> {
+    const src = await this.engine.query<{ id: string }>(
+      "SELECT id FROM sources WHERE id = $1",
+      [input.sourceId],
+    );
+    if (src.rows.length === 0) {
+      throw new Error(`Unknown source '${input.sourceId}'`);
+    }
+    if (input.clientId) {
+      const c = await this.getClient(input.clientId);
+      if (!c) throw new Error(`Unknown client '${input.clientId}'`);
+      if (c.tenant_mode !== "enrollment") {
+        throw new Error(
+          `Client '${input.clientId}' is not in enrollment mode — ` +
+            `rescope it with --tenant-mode enrollment first`,
+        );
+      }
+    }
+    const ttl = input.ttlSeconds ?? 7 * 24 * 3600;
+    if (!Number.isFinite(ttl) || ttl <= 0) throw new Error("ttl must be positive");
+    const id = generateToken("memex_enr_");
+    const code = generateToken("memex_en_");
+    const federated =
+      input.federatedRead && input.federatedRead.length > 0
+        ? input.federatedRead
+        : [input.sourceId];
+    const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+    await this.engine.query(
+      `INSERT INTO oauth_enrollments
+         (id, code_hash, client_id, source_id, federated_read, label, expires_at)
+       VALUES ($1, $2, $3, $4, $5::text[], $6, $7::timestamptz)`,
+      [
+        id,
+        hashToken(code),
+        input.clientId ?? null,
+        input.sourceId,
+        federated,
+        input.label ?? null,
+        expiresAt,
+      ],
+    );
+    return { id, code, expiresAt };
+  }
+
+  /**
+   * Redeem an enrollment code for `clientId`. ONE atomic UPDATE claims the row
+   * — there is no check-then-act, so two concurrent redemptions cannot both
+   * succeed. Returns the grant to bind, or undefined for wrong / used /
+   * expired / revoked / other-client alike: the caller renders the same
+   * message for all of them so the form is not an oracle.
+   */
+  async claimEnrollment(
+    code: string,
+    clientId: string,
+  ): Promise<GrantScope | undefined> {
+    if (typeof code !== "string" || code.length < 16 || code.length > 256) {
+      return undefined;
+    }
+    const r = await this.engine.query<{
+      source_id: string;
+      federated_read: string[] | null;
+    }>(
+      `UPDATE oauth_enrollments
+          SET used_at = NOW()
+        WHERE code_hash = $1
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > NOW()
+          AND (client_id IS NULL OR client_id = $2)
+        RETURNING source_id, federated_read`,
+      [hashToken(code), clientId],
+    );
+    const row = r.rows[0];
+    if (!row) return undefined;
+    return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id] };
+  }
+
+  /** Record which authorization code a claimed enrollment produced. */
+  async linkEnrollmentToCode(code: string, authCodeHash: string): Promise<void> {
+    await this.engine.query(
+      `UPDATE oauth_enrollments SET used_code_hash = $2 WHERE code_hash = $1`,
+      [hashToken(code), authCodeHash],
+    );
+  }
+
+  async listEnrollments(): Promise<EnrollmentInfo[]> {
+    const rows = await this.rows(
+      `SELECT id, label, source_id, federated_read, client_id,
+              expires_at::text AS expires_at, used_at::text AS used_at,
+              revoked_at::text AS revoked_at, created_at::text AS created_at
+         FROM oauth_enrollments ORDER BY created_at DESC`,
+    );
+    return rows.map((r) => {
+      const x = r as Record<string, unknown>;
+      return {
+        id: x.id as string,
+        label: (x.label as string | null) ?? null,
+        source_id: x.source_id as string,
+        federated_read: (x.federated_read as string[]) ?? [],
+        client_id: (x.client_id as string | null) ?? null,
+        expires_at: x.expires_at as string,
+        used_at: (x.used_at as string | null) ?? null,
+        revoked_at: (x.revoked_at as string | null) ?? null,
+        created_at: x.created_at as string,
+      };
+    });
+  }
+
+  async revokeEnrollment(id: string): Promise<boolean> {
+    const r = await this.engine.query<{ id: string }>(
+      `UPDATE oauth_enrollments SET revoked_at = NOW()
+        WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL
+        RETURNING id`,
+      [id],
     );
     return r.rows.length > 0;
   }

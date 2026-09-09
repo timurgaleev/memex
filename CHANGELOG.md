@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **One connector can now serve a whole team, each person in their own tenant.**
+  On a Claude Team or Enterprise plan only an Owner can add a connector, and
+  every member authorises against that single `client_id` — so binding the
+  tenant to the client row meant one connector could only ever be one tenant.
+  Registering a connector per person is not available there, and publishing two
+  in the shared catalogue is isolation on the honour system: every member sees
+  both and can enable either.
+
+  A client registered with `--tenant-mode enrollment` asks the person for a
+  one-time **enrollment code** at `/authorize` and binds *that grant* to the
+  code's source (the token-side plumbing from migration 101). The refresh token
+  carries the binding forward, so the code is entered once and never again.
+
+  ```
+  memex auth register-client team-connector --tenant-mode enrollment …
+  memex auth enroll alice --label alice --ttl 7d      # printed once
+  memex auth enrollments                              # never shows the code
+  memex auth revoke-enrollment <id>
+  ```
+
+  The operator-login gate is deliberately **not** consulted in this mode: the
+  code is the resource-owner authentication, and `/admin/login` accepts only
+  the operator bootstrap token — so gating here could only send a teammate to a
+  login she cannot pass, or hand her an operator session for the whole brain.
+
+  What the form gives away: nothing. Wrong, already-used, expired, revoked and
+  issued-for-another-client codes all render the same message with the same
+  status, the page names no source and no label, and the claim is a single
+  atomic `UPDATE … WHERE used_at IS NULL` so two concurrent redemptions cannot
+  both win. Codes are stored as SHA-256 hashes, like client secrets.
+
+  Everything downstream is untouched: `verifyAccessToken` already resolved the
+  source token-first, so the write fence, read scoping, spend attribution and
+  the budget ceiling all see a grant-bound token exactly as they see any other.
+  Budgets remain per **client**, so one team connector shares one daily cap.
+
+  `--tenant-mode client` stays the default and every existing client keeps its
+  current behaviour, including the admin-login gate when it is switched on.
+
 ## [1.127.0] — 2026-09-08
 
 ### Fixed

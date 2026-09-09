@@ -16,6 +16,15 @@
  *              JSON list of registered clients (no secrets).
  *   revoke-client <client_id>
  *              Hard-delete a client (cascades to its tokens/codes via FK).
+ *   enroll <source> [--label NAME] [--client CLIENT_ID] [--ttl 7d] [--federated-read a,b]
+ *              Issue a one-time enrollment code bound to <source>. A person
+ *              presents it at /authorize on an enrollment-mode client and her
+ *              grant is pinned to that source. Printed ONCE.
+ *   enrollments
+ *              List issued codes (id, label, source, expiry, used/revoked) —
+ *              never the code itself.
+ *   revoke-enrollment <enrollment_id>
+ *              Kill an unused code.
  *   set-budget <client_id> <usd-per-day|none>
  *              Set or clear the client's daily USD ceiling, enforced across
  *              every paid op. `none` removes the cap (the default).
@@ -44,7 +53,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
-import { OAuthProvider } from "../core/oauth-provider.ts";
+import { OAuthProvider, parseTenantMode } from "../core/oauth-provider.ts";
 
 /** Accepted on a token row. Mirrors core/scope.ts; a typo here would otherwise
  *  be written straight to the column and silently deny everything. */
@@ -63,6 +72,9 @@ export type AuthSub =
   | "revoke-client"
   | "rescope-client"
   | "set-budget"
+  | "enroll"
+  | "enrollments"
+  | "revoke-enrollment"
   | "grant-token"
   | "create"
   | "list"
@@ -77,6 +89,7 @@ interface ClientRow {
   scope: string | null;
   source_id: string | null;
   federated_read: string[] | null;
+  tenant_mode: string;
   client_id_issued_at: number | null;
 }
 
@@ -157,6 +170,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
   const boundSlugPrefixes = flags["bound-slug-prefixes"]
     ? flags["bound-slug-prefixes"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
+  const tenantMode = parseTenantMode(flags["tenant-mode"]);
 
   const { clientId, clientSecret } = await withProvider((p) =>
     p.registerClientManual(
@@ -168,6 +182,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
       federatedRead,
       tokenEndpointAuthMethod,
       boundSlugPrefixes,
+      tenantMode,
     ),
   );
   // The secret is shown ONCE — only its hash is stored.
@@ -181,6 +196,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
         scope: scopes,
         source_id: sourceId,
         federated_read: federatedRead ?? [sourceId],
+        tenant_mode: tenantMode,
         ...(tokenEndpointAuthMethod
           ? { token_endpoint_auth_method: tokenEndpointAuthMethod }
           : {}),
@@ -201,8 +217,9 @@ async function listClients(): Promise<void> {
       .raw()
       .query<ClientRow>(
         `SELECT client_id, client_name, grant_types, scope, source_id,
-                federated_read, client_id_issued_at
-           FROM oauth_clients ORDER BY client_id_issued_at`,
+                federated_read, tenant_mode, client_id_issued_at
+           FROM oauth_clients WHERE deleted_at IS NULL
+           ORDER BY client_id_issued_at`,
       )
       .then((r) => r.rows),
   );
@@ -238,7 +255,7 @@ export function parseFenceFlag(raw: string | undefined): string[] | undefined {
 
 async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
   const usage =
-    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2]";
+    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment]";
   if (!clientId) throw new Error(usage);
   const { flags } = parseFlags(rest);
   const sourceId = flags["source"];
@@ -249,8 +266,9 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
   // Lift an existing fence with:
   //   auth rescope-client <id> --source <src> --bound-slug-prefixes ""
   const boundSlugPrefixes = parseFenceFlag(flags["bound-slug-prefixes"]);
+  const tenantMode = flags["tenant-mode"] !== undefined ? parseTenantMode(flags["tenant-mode"]) : undefined;
   const updated = await withProvider((p) =>
-    p.rescopeClient(clientId, sourceId, federatedRead, boundSlugPrefixes),
+    p.rescopeClient(clientId, sourceId, federatedRead, boundSlugPrefixes, tenantMode),
   );
   if (!updated) {
     throw new Error(`No active client "${clientId}".`);
@@ -264,6 +282,7 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
         ...(boundSlugPrefixes !== undefined
           ? { bound_slug_prefixes: boundSlugPrefixes }
           : {}),
+        ...(tenantMode !== undefined ? { tenant_mode: tenantMode } : {}),
         updated: true,
       },
       null,
@@ -296,6 +315,69 @@ async function setBudget(clientId: string, amount: string): Promise<void> {
       2,
     ),
   );
+}
+
+/** Parse `7d`, `24h`, `90m`, `3600s` or a bare number of seconds. */
+export function parseTtl(raw: string | undefined, fallbackSeconds: number): number {
+  if (raw === undefined || raw === "") return fallbackSeconds;
+  const m = /^(\d+)([smhd])?$/.exec(raw.trim());
+  if (!m) throw new Error(`--ttl must look like 7d, 24h, 90m or 3600s (got '${raw}')`);
+  const n = Number(m[1]);
+  const unit = m[2] ?? "s";
+  const mult = unit === "d" ? 86400 : unit === "h" ? 3600 : unit === "m" ? 60 : 1;
+  return n * mult;
+}
+
+/**
+ * Issue a one-time enrollment code for `source`. Printed ONCE, like a client
+ * secret: only its hash is stored. Hand it to the person over a channel you
+ * would trust with a password; it dies on first use.
+ */
+async function enroll(source: string, rest: string[]): Promise<void> {
+  const usage =
+    "Usage: auth enroll <source> [--label NAME] [--client CLIENT_ID] [--ttl 7d] [--federated-read a,b]";
+  if (!source) throw new Error(usage);
+  const { flags } = parseFlags(rest);
+  const federatedRead = flags["federated-read"]
+    ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const issued = await withProvider((p) =>
+    p.issueEnrollment({
+      sourceId: source,
+      ...(federatedRead ? { federatedRead } : {}),
+      ...(flags["label"] ? { label: flags["label"] } : {}),
+      ...(flags["client"] ? { clientId: flags["client"] } : {}),
+      ttlSeconds: parseTtl(flags["ttl"], 7 * 24 * 3600),
+    }),
+  );
+  console.log(
+    JSON.stringify(
+      {
+        enrollment_id: issued.id,
+        code: issued.code,
+        source_id: source,
+        federated_read: federatedRead ?? [source],
+        ...(flags["label"] ? { label: flags["label"] } : {}),
+        ...(flags["client"] ? { client_id: flags["client"] } : {}),
+        expires_at: issued.expiresAt,
+        note: "Give this code to the person. It works once, then never again.",
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function listEnrollments(): Promise<void> {
+  const rows = await withProvider((p) => p.listEnrollments());
+  console.log(JSON.stringify(rows, null, 2));
+}
+
+async function revokeEnrollment(id: string): Promise<void> {
+  if (!id) throw new Error("Usage: auth revoke-enrollment <enrollment_id>");
+  const ok = await withProvider((p) => p.revokeEnrollment(id));
+  if (!ok) throw new Error(`No live enrollment "${id}" (already used, revoked, or unknown).`);
+  console.log(JSON.stringify({ enrollment_id: id, revoked: true }, null, 2));
 }
 
 async function grantToken(
@@ -644,6 +726,12 @@ export async function runAuth(args: string[]): Promise<void> {
       return rescopeClient(rest[0]!, rest.slice(1));
     case "set-budget":
       return setBudget(rest[0]!, rest[1]!);
+    case "enroll":
+      return enroll(rest[0]!, rest.slice(1));
+    case "enrollments":
+      return listEnrollments();
+    case "revoke-enrollment":
+      return revokeEnrollment(rest[0]!);
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     case "create":
