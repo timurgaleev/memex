@@ -190,6 +190,11 @@ describe("evaluatePublicGuard — pure logic", () => {
     for (const [path, method] of [
       ["/token", "POST"],
       ["/authorize", "GET"],
+      // The enrollment-code submission. The person arrives from the connector
+      // with no bearer of her own — the code IS her credential — so a guard
+      // that demanded one here would make the whole flow unreachable. Found
+      // the hard way: the handler was right and the request never got to it.
+      ["/authorize", "POST"],
       ["/register", "POST"],
       ["/revoke", "POST"],
       ["/.well-known/oauth-authorization-server", "GET"],

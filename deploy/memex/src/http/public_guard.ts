@@ -329,6 +329,9 @@ export function evaluateInternalAuth(
  *   - OAuth discovery (RFC 8414 / RFC 9728) — static metadata documents.
  *   - /authorize, /token, /register, /revoke — client authentication, PKCE
  *     S256 and the exact-match redirect_uri allowlist live in the handlers.
+ *     POST /authorize is the enrollment-code submission: the person arrives
+ *     from the connector with no bearer of her own — the code IS her
+ *     credential — and the handler checks same-origin before it claims one.
  *   - /admin* — own cookie + magic-link session (http/admin.ts), enforced by
  *     the admin handler on every route.
  */
@@ -342,7 +345,7 @@ function isPreCredentialRoute(req: Request, url: URL): boolean {
     return true;
   }
   if (
-    (url.pathname === "/authorize" && req.method === "GET") ||
+    (url.pathname === "/authorize" && (req.method === "GET" || req.method === "POST")) ||
     (url.pathname === "/token" && req.method === "POST") ||
     (url.pathname === "/register" && req.method === "POST") ||
     (url.pathname === "/revoke" && req.method === "POST")
