@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.128.0] — 2026-09-11
+
+### Fixed
+- **The enrollment flow was unreachable end to end, twice over.** Both defects
+  were invisible to the suite for the same reason — the enrollment tests call
+  `handleAuthorizeRoute` directly, so they never cross the CLI parser or the
+  HTTP guard — and both surfaced within minutes of running the real thing
+  against a live install.
+
+  `auth enroll` and `--tenant-mode` were declared in the command's own flag
+  parsing but not in `cli-args.ts`, so the CLI rejected them as typos
+  (`unknown flag '--tenant-mode'`). The repo's own guard — `tests/cli_args.test.ts`,
+  which diffs the flags `auth.ts` reads against `COMMAND_FLAGS` — would have
+  caught it; it simply had not been run.
+
+  `POST /authorize` was not a pre-credential route, so the public guard
+  answered `401` before the handler ran: the form rendered, the code was typed,
+  and the submission bounced. The person arrives from the connector with no
+  bearer of her own — the code IS her credential — and the handler checks
+  same-origin before it claims one.
+
 ### Added
 - **One connector can now serve a whole team, each person in their own tenant.**
   On a Claude Team or Enterprise plan only an Owner can add a connector, and
