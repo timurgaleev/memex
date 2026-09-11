@@ -92,11 +92,12 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
-  "--bound-slug-prefixes", "--budget", "--config-a", "--config-b", "--corpus",
+  "--bound-slug-prefixes", "--budget", "--client", "--config-a", "--config-b",
+  "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
   "--dir", "--example-limit", "--expected-doc", "--family", "--federated-read", "--file",
   "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
-  "--input", "--k", "--keep-days", "--kind", "--limit", "--max-drop",
+  "--input", "--k", "--keep-days", "--kind", "--label", "--limit", "--max-drop",
   "--max-jobs", "--max-pages", "--max-retries", "--max-usd",
   "--min-confidence", "--min-recall", "--model", "--modes", "--notes",
   "--older-than-days", "--out", "--path-prefix", "--paths", "--pattern",
@@ -106,8 +107,9 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs",
   "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
   "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
-  "--target", "--threshold", "--title", "--to", "--token",
-  "--token-endpoint-auth-method", "--tool-name", "--top-skills", "--type",
+  "--target", "--tenant-mode", "--threshold", "--title", "--to", "--token",
+  "--token-endpoint-auth-method", "--tool-name", "--top-skills", "--ttl",
+  "--type",
   "--until", "--vault", "--what", "--where", "--who", "--window-turns",
   "--written-by",
 ]);
@@ -262,9 +264,9 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "auth",
     new Set([
-      "--bound-slug-prefixes", "--federated-read", "--grant-types",
-      "--redirect-uris", "--scopes", "--source", "--takes-holders", "--token",
-      "--token-endpoint-auth-method",
+      "--bound-slug-prefixes", "--client", "--federated-read", "--grant-types",
+      "--label", "--redirect-uris", "--scopes", "--source", "--takes-holders",
+      "--tenant-mode", "--token", "--token-endpoint-auth-method", "--ttl",
     ]),
   ],
   [
