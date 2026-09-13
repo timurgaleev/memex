@@ -7,7 +7,2084 @@ introduces them.
 
 ---
 
+## Roadmap — 2026-09-13
+
+The program makes memex safe and fast as a brain that one connector can share
+with a whole team, then builds the depth agents need on top: honest contracts,
+durable background work, measured retrieval, an agent layer and wider
+ingestion. It runs in five waves. **Wave 1** (safety and the live write-path
+incident) has no entry condition and its five items can run in parallel.
+**Wave 2** (substrate, contracts, measurement) needs RM-01 before RM-07/RM-10,
+RM-03 before RM-08, and an operator go for the public benchmark in RM-06.
+**Wave 3** (retrieval quality and the agent layer) needs the RM-06 baseline
+receipt before any RM-11 ranking change and an operator go for RM-13.
+**Wave 4** (depth and multi-tenant operations) needs RM-08 for anything that
+fans out and RM-13 for RM-22. **Wave 5** (big bets) starts only on an explicit
+operator plan and go per item.
+
+Every item inherits the ship gates in `CLAUDE.md` (`make audit`,
+`make scrub-audit` HIGH:0, `make typecheck`, `make lint-ts`, `make test`,
+pytest, `env -C deploy/memex bun run test:sharded`), a second-opinion review
+per batch plus the matching specialist reviewer, and every new `MEMEX_*` knob
+added to the `deploy/docker-compose.yml` allowlist. Every new MCP tool is
+classified in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`, scoped, redacted, and
+regenerates `deploy/memex/tests/fixtures/tool_defs.snapshot.json`.
+
+| Wave | Goal | Items (priority order) | Entry condition |
+|---|---|---|---|
+| 1 — Safety and the live incident | Tenant-safe reads and spend, fast `page_put`, a hardened runtime | RM-01, RM-02, RM-03, RM-04, RM-05 | None; five parallel tracks |
+| 2 — Substrate, contracts, measurement | Honest MCP surface, durable jobs, a public benchmark, an honest skill pack, a grant lifecycle | RM-06, RM-07, RM-08, RM-09, RM-10 | RM-01 for RM-07/RM-10; RM-03 for RM-08; operator go for RM-06 |
+| 3 — Quality and the agent layer | Retrieval v2 against receipts, ambient recall, agent tool loop, transcript ingestion, grounded synthesis | RM-11, RM-12, RM-13, RM-14, RM-15 | RM-06 baseline before RM-11 ranking changes; operator go for RM-13 |
+| 4 — Depth and multi-tenant operations | Facts/takes v2, tenant-aware cycle, self-healing doctor, graph enrichment, think v2, hosted onboarding, delegated agents, code intel, CLI/config | RM-16 … RM-24 | RM-08 for fan-out; RM-13 for RM-22 |
+| 5 — Big bets, conditional | Composite page identity, live connectors, skill optimization | RM-25, RM-26, RM-27 | Explicit operator plan and go per item |
+
+Hard dependencies (item ← what it needs first):
+
+| Item | Needs | Item | Needs |
+|---|---|---|---|
+| RM-01..RM-05 | — | RM-16 | RM-04, RM-07 |
+| RM-06 | — (soft: RM-04) | RM-17 | RM-03, RM-04, RM-08 |
+| RM-07 | RM-01 | RM-18 | RM-08, RM-17 |
+| RM-08 | RM-03 | RM-19 | RM-05, RM-08 |
+| RM-09 | — (soft: RM-07) | RM-20 | RM-04, RM-06, RM-11 |
+| RM-10 | RM-01, RM-07 | RM-21 | RM-07, RM-09, RM-10 |
+| RM-11 | RM-01, RM-06 | RM-22 | RM-04, RM-10, RM-13 |
+| RM-12 | RM-01, RM-07 | RM-23 | RM-01, RM-02, RM-06 |
+| RM-13 | RM-04, RM-08 | RM-24 | RM-03 |
+| RM-14 | RM-05, RM-08 | RM-25 | RM-01, RM-03 |
+| RM-15 | RM-04, RM-08, RM-14 | RM-26 | RM-05, RM-08, RM-14 |
+| | | RM-27 | RM-06, RM-09, RM-13 |
+
+Paths below are relative to `deploy/memex/` unless they start with
+`deploy/`, `docs/`, `scripts/` or `.github/`.
+
+### RM-01 — Tenant isolation closure (reads, derived writes, code graph, deletion)
+
+**Why.** v1.128.0 lets one connector serve a team, each person in their own
+source. The contract behind that — `undefined` is the operator, `[]` is a
+caller granted nothing, a non-empty list reads only those sources — is not
+enforced end to end:
+
+- About 106 call sites test `sourceIds && sourceIds.length`, which reads `[]`
+  as the whole brain.
+- Eight hybrid-search stages widened an empty grant (cache keys, cached and
+  final hydrate, identifier arm, relational, structural, alias-hop); alias-hop
+  injected another tenant's page head; final hydrate had no
+  deleted/archived/quarantine filter.
+- `page_append`, `page_revert`, `page_restore`, operator tags and the
+  delete/restore version markers land in the wrong source.
+- A source can be deleted while live grants still name it.
+- A purge with `[]` purges the whole brain and aborts on the first FK error.
+- Token verification does not reject a soft-deleted client.
+- `code_edges_symbol.source_id` is always NULL, so `code_blast` and `code_flow`
+  return nothing for any scoped caller.
+
+MCP dispatch hides most of this behind a fail-closed sentinel today, but no
+layer below it is safe on its own, and none of it can be relied on before a
+second tenant holds credentials.
+
+**Design decisions (operator, 2026-09-13).**
+
+- Ships as three sequential releases: A read isolation, B derived writes,
+  deletion, purge and auth, C code-graph `source_id`.
+- Every collapsing site is rewritten to one helper, not only the search ones.
+- Code edges get `source_id` at index time plus a backfill; code intel is not
+  switched off.
+- An unscoped write into a tenant page inherits the page's source.
+
+**Depends on.** Nothing.
+
+**Risks.** Operator ranking must stay byte-identical when hydration filters
+move (proved by the operator scope fixture and the retrieval suites); a
+cache-miss spike after the key change; the `code_edges_symbol` backfill runs on
+live RDS; the page mirror path collision (section below) must not be "fixed" by
+widening the index ownership fence.
+
+**Done when.** `hybridSearch(..., { sourceIds: [] })` returns zero rows on
+every arm and cache path; the isolation matrix is green for all 91 operations
+with zero cross-tenant bytes; a grant caller's `code_blast` on a seeded
+two-tenant brain returns its own edges and none of the other tenant's;
+deleting a source a grant references is refused with the referent list; a purge
+with one FK-blocked row reports it as blocked and purges the rest; live, with
+`MEMEX_TENANT_FAIL_CLOSED=1` set, `whoami` and `search` are unchanged for the
+operator PAT.
+
+**Needs operator go.** Commit, push, deploy and tag for each release, and
+setting `MEMEX_TENANT_FAIL_CLOSED=1` in the live compose env.
+
+**Out of scope.** RLS under a non-BYPASSRLS application role (terraform/IAM,
+operator-gated stretch); composite `(source_id, slug)` identity and the slug
+enumeration oracle (RM-25); the page mirror path collision; per-grant budgets
+(RM-04); honest `tools/list` (RM-07).
+
+#### Release A — read isolation (no migration)
+
+Helper `src/core/source-scope.ts`, composed next to `visibilityClause`
+(`src/core/visibility.ts:21`):
+
+| Function | `undefined` | `[]` or sentinel-only | non-empty |
+|---|---|---|---|
+| `isNoGrant(s)` | false | true | false |
+| `andSourceScope(col, s, params)` | `""` (operator SQL text byte-identical) | ` AND FALSE` | ` AND col = ANY($n::text[])` |
+| `normalizeScope(s)` (clean a list for a bound array) | `undefined` | `[]` | deduped list |
+| `normalizeSourceFilterParam(v)` (user-input boundaries only) | `undefined` | `undefined` | trimmed list |
+
+Column names are checked as SQL identifiers (`alias.column`).
+
+Site classes, inventoried with
+`rg --pcre2 '(\b[\w.?]*[sS]ources?(?:Ids?)?)\s*&&\s*\1\??\.length'` plus the
+ternary and early-return variants:
+
+- **AUTH** — the ~50 sites in `src/mcp/dispatch.ts` and the core readers
+  (pages, links, facts, timeline, tags, chunks-read, slug-*, page-aliases,
+  raw-data, context, search). Switch to the helper; `[]` reads nothing.
+- **RANK** — cosine-rescore, graph-signals, backlink-boost, graph-rerank.
+  Rewritten for consistency.
+- **USER** — `src/cli.ts:868`, `src/commands/export.ts:49`,
+  `src/core/bench/harness.ts:158`, `src/core/advisor/collectors.ts:346`.
+  Normalize at the parse boundary and keep today's meaning.
+
+Ordered commits:
+
+1. Red tests
+   - [x] `tests/operator_scope_parity.test.ts` + `tests/fixtures/operator_scope_parity.json`:
+     SQL text, bound params and responses for 46 unscoped dispatch reads,
+     recorded on the pre-change tree (timestamps, latencies and float tails
+     scrubbed).
+   - [x] `tests/search_empty_scope.test.ts` (red first: the identifier arm
+     leaked tenant B to `[]`, the query was embedded, cache keys were equal).
+   - [x] `tests/helpers/tenant_seed.ts` — two-tenant seed factored out of
+     `tests/tenant_isolation_contract.test.ts:91-180`; the contract test uses it.
+2. Helper and ratchets
+   - [x] `src/core/source-scope.ts` (`isNoGrant`, `andSourceScope`, `normalizeScope`,
+     `normalizeSourceFilterParam`, identifier check) + `tests/source_scope.test.ts`.
+     `andSourceScope` denies a sentinel-only scope outright (` AND FALSE`), and
+     `registerSource` refuses the sentinel as a source id.
+   - [x] `tests/source_scope_pattern_ratchet.test.ts` written, with a
+     positive-control probe; comments are stripped before matching.
+   - [x] Ratchet reaches zero hits. It matches `x && x.length`,
+     `Array.isArray(x) && x.length`, and normalisers that turn an empty list
+     into `undefined` (`x.length === 0) return undefined`).
+   - [ ] Also fail on a `source_id = ANY(` built without the helper (47 files
+     still hand-write it correctly; allowlist that only shrinks).
+3. Cache
+   - [x] `src/core/search/query-cache.ts:246,273` — key material for `[]`
+     differs from `undefined`; operator key bytes unchanged.
+   - [x] `hybridSearch` returns early on `isNoGrant`, before embedding and
+     before the cache.
+4. Hydrate
+   - [x] `src/core/search/hybrid.ts:548` (cached hydrate) and `:971` (final
+     hydrate) use `andSourceScope`.
+   - [x] Final hydrate gains `visibilityClause('d')` — the one intended operator
+     change: soft-deleted, archived and quarantined structural neighbours no
+     longer surface. Fixture re-recorded; the only diff is that clause in the
+     `search` and `query` SQL.
+   - [x] `tests/structural_expand.test.ts` — empty grant keeps no neighbour;
+     final hydrate hides a soft-deleted neighbour (red before, green after).
+5. Arms
+   - [x] `src/core/search/title-arm.ts:141`.
+   - [x] `src/core/search/relational-recall.ts:297`, `:490`.
+   - [x] `src/core/search/structural-expand.ts:54`, `:181` (the NULL-tolerant
+     edge scope at `:130` stays until Release C).
+   - [x] `src/core/search/alias-hop.ts:70`, `:162-180` — scope and visibility;
+     `[]` yields no candidate paths.
+   - [x] RANK modules: cosine-rescore, graph-signals, backlink-boost,
+     graph-rerank; also query-refine.
+6. Core readers (~30 sites)
+   - [x] `tags.ts:156`; `facts.ts:752,907,946,1065`; `context/volunteer.ts:177,277`;
+     `context/reflex.ts:106`; `slug-resolve.ts:75`; `typed-links.ts:261`;
+     `links.ts:411,489,587,1164,1215`; `timeline.ts:198`; `links-read.ts:62,129`;
+     `chunks-read.ts:44,92`; `slug-aliases.ts:51`; `ingest-log.ts:90`;
+     `page-aliases.ts:149,192`; `gazetteer.ts:114`;
+     `slug-canonicalize.ts:134,162,199,232,273`; `backlinks.ts:50`;
+     `facts-recall.ts:76,148`; `raw-data.ts:103`; `pages.ts:556,631,667`;
+     `pages-purge.ts:42`. `tests/core_readers_empty_scope.test.ts` calls each with
+     `[]` against an unscoped positive control.
+   - [x] Four duplicate `normalizeSourceIds` helpers (`usage-insights.ts`,
+     `transcripts-read.ts`, `code-graph.ts`, `code-walk.ts`) turned `[]` into
+     unscoped — `get_recent_salience`, `find_anomalies`, every `code_*` read and
+     `get_recent_transcripts` leaked to a caller with no grant. All seven copies
+     (plus `insights.ts`, `synthesis/reads.ts`, `structural-expand.ts`) now use
+     `normalizeScope`.
+   - [x] Take writes `setTakeStatus` (`synthesis/takes.ts`) and `resolveTake`
+     (`synthesis/takes-canon.ts`) update nothing for an empty scope.
+   - [x] Comments that still said "empty = unscoped" corrected.
+7. Dispatch (~50 sites)
+   - [x] All 51 collapsing sites in `src/mcp/dispatch.ts`
+     (`tests/dispatch_empty_scope.test.ts`).
+   - [x] `callSearch`, `callQuery`.
+   - [x] `callThink` tests `!== undefined` and short-circuits on `isNoGrant`
+     without an LLM call or a spend row (today the write gate refuses `think`
+     for a no-grant caller first).
+   - [x] Export `OPERATOR_ONLY_TOOLS`.
+8. USER boundaries
+   - [x] `normalizeSourceFilterParam` at `cli.ts` (`export --source`),
+     `commands/export.ts`, `core/bench/harness.ts`. `core/advisor/collectors.ts`
+     turned out to carry the caller's grant, so it reads `[]` as nothing.
+9. Isolation matrix — `tests/tenant_isolation_matrix.test.ts`
+   - [x] Per-operation disposition table in `tests/fixtures/tenant_isolation_matrix.ts`
+     (not on `Operation`, so the tool snapshot does not change). Modes:
+     `isolated`, `brainwide`, `operator_only`, `write`, `skip` (a `skip` names
+     the test that owns the op).
+   - [x] Coverage assertions: table names equal `OPERATIONS`; `operator_only`
+     equals `OPERATOR_ONLY_TOOLS`; `write` equals `WRITE_SCOPED_TOOLS`.
+   - [x] Principals: scalar grant, federated grant, no grant with fail-closed on
+     and off, and direct `[]` library calls.
+   - [x] Check: `JSON.stringify` of the full response envelope holds none of
+     tenant B's leak tokens.
+   - [x] Operator control: the unscoped call must see tenant B first, otherwise
+     the row fails as `VACUOUS`.
+   - [x] No-grant callers must not see tenant A tokens either.
+   - [x] 91 rows: isolated, write, operator_only, brainwide and 6 `skip` rows
+     with owner suites. Mutation check: dropping the scope in `callSearch` fails
+     the `search` row with tenant B's token.
+10. Ingress (revertible on its own)
+    - [x] `effectiveReadSourceIdsForIngress` returns `[]` instead of the
+      sentinel for reads; writes keep the sentinel.
+    - [x] Update `tests/tenant_fail_closed.test.ts`; add `search`, `query` and
+      `think` cases. Emitting `[]` exposed the normaliser leaks listed under 6.
+
+Release A verification:
+
+- [ ] Local gates (above), never a bare full `bun test`.
+- [ ] Operator byte-identical proof: the operator scope fixture plus
+  `retrieval_quality*.test.ts`, `retrieval_precision`, `search_ranking_pushdown`,
+  `graph_rerank`, `structural_expand`, `search_alias_hop`, `query_cache*`,
+  `eval_replay_gate` and `eval_compare_gate` identical before and after.
+- [x] Reviewers: second opinion, `security-engineer`, `code-reviewer`; no
+  CRITICAL/HIGH read leak left; every MEDIUM acted on.
+- [ ] Live (after `/ship`): baseline 5 fixed operator `search`/`query` calls
+  before deploy, identical ids and scores after; a tenant-bound OAuth token sees
+  only its source across `search`, `query` and `think`.
+
+#### Release B — derived writes, deletion, purge, auth
+
+- [ ] `src/core/page-owner.ts` `resolvePageOwnerSource(storage, slug, writeSource)`
+  returning `page.source_id ?? writeSource` (the rule `dispatch.ts:1274` already
+  uses), applied to `page_append` (:1563-1583), `page_revert` (:1668-1677),
+  `page_restore` (:1640), the remaining `page_put` writers (:1276-1283) and
+  `tags.ts` `addTag`/`removeTag` (:71).
+- [ ] Version markers: `pages.ts:739,807` insert `source_id` selected from
+  `pages` inside the transaction.
+- [ ] Deletion guard: `destructive-guard.ts` `sourceReferences(engine, id)`
+  counts documents, pages, live `oauth_tokens`, `oauth_codes` and
+  `oauth_enrollments` with that `source_id`, live `oauth_clients`, and PAT
+  `permissions->source_id`; `sources.ts:195` `deleteSource` refuses with the
+  list; `commands/sources.ts:126` prints it.
+- [ ] Purge: `purgeRowsCollectingBlocked` deletes one row at a time, collects
+  SQLSTATE 23503 into `blocked` and continues; used by `pages-purge.ts:42`
+  (with `andSourceScope`, so `[]` purges nothing) and `cycle/purge.ts:33`;
+  `PurgeResult.blocked_pages` added. `getRawData` stops treating `[]` as
+  unscoped.
+- [ ] Health: `source-health.ts:73-104` and `:176-207` exclude soft-deleted and
+  archived rows.
+- [ ] OAuth: `oauth-provider.ts:1006-1014` rejects a token whose client row is
+  soft-deleted (a missing row follows the existing tests); `:1077` updates a
+  PAT's `last_used_at` at most once per 60 s.
+- [ ] Explicit `source_id` liveness: an archived or removed source passed to an
+  op returns `unknown_source`; code-intel ops route to one resolved source.
+- [ ] Migration `103_version_marker_tag_owner.sql`: idempotent backfill moving
+  tombstone/restore `page_versions` rows and `tags` from `default` to the page's
+  source. Verify the marker shape and the `tags` unique key before writing the
+  SQL.
+- [ ] Tests, red first: `tenant_derived_write_owner`, `source_delete_guard`
+  (one case per grant kind), `purge_blocked_fk`, `purge_empty_scope`,
+  `source_health_live_only`, `oauth_deleted_client`, `pat_last_used_debounce`,
+  `migration_103_idempotent`.
+- [ ] Live: an unscoped `page_append` stamps the tenant source (checked by
+  SQL); deleting a source with a live token is refused; a soft-deleted client's
+  token gets 401; migration 103 applies with no 55P03.
+
+#### Release C — code graph `source_id`
+
+- [ ] Edge writes: `code-edges.ts:51-66` derives `source_id` in the INSERT
+  (`SELECT … d.source_id FROM chunks c JOIN documents d`); `CodeEdge.sourceId`
+  removed or made required so every writer is caught.
+- [ ] Scoped readers: `code-walk.ts:150` and `search/structural-expand.ts:130`
+  use `andSourceScope` and drop the NULL tolerance;
+  `context/volunteer-events.ts:74` stamps the page source; `context/volunteer.ts:279`
+  filters instead of refusing scoped callers.
+- [ ] Migration `104_code_edges_source_backfill.sql`: backfill NULL edges and
+  volunteer events; `CREATE INDEX IF NOT EXISTS` on `code_edges_symbol(source_id)`.
+  Check the live row count first; above ~1M rows build the index
+  `CONCURRENTLY` out of band.
+- [ ] Matrix: `code_callers`, `code_callees`, `code_blast`, `code_flow` and
+  `volunteer_context` become `isolated`.
+- [ ] Tests: `code_graph_source_stamp`; migration 104 backfill idempotent;
+  tenant A's structural expansion ignores B's edges; positive control — scoped
+  `code_blast` returns A's edges (empty before).
+- [ ] Live: `code_callers` returns data for a tenant token; migration 104
+  applies with no 55P03.
+
+#### Gated live steps (explicit "yes" at the time)
+
+- [ ] Commit, push, deploy and tag each release through `/ship`.
+- [ ] Set `MEMEX_TENANT_FAIL_CLOSED=1` in the live compose env, then verify: a
+  no-grant client gets empty `search`, `query`, `think` and `page_list`; no
+  `think` spend row is written; writes return `permission_denied`; the static
+  bearer still reads the whole brain.
+- [ ] Stretch: RLS policies bound to a session scope GUC as defence in depth,
+  under a non-BYPASSRLS application role (terraform/IAM change).
+
+### RM-02 — Write path and embedding pipeline (live `page_put` latency)
+
+**Why.** Writes on the live brain are slow, not failing: `page_put` averaged
+33.3 s with a 116 s worst on 2026-09-08, alongside 12 AWS SDK 30 s request
+timeouts. `page_put` mirrors into search synchronously and embeds chunk by
+chunk (`src/mcp/dispatch.ts:1487-1530`, `src/core/indexer.ts:337-437`); with
+`MEMEX_CONTEXTUAL_LLM=1` each chunk also waits on a Haiku call under one 30 s
+timeout shared by every call kind (`src/core/llm/gateway.ts:62-74`). Retries
+exist only for 429 on the backfill path (`src/core/embed-backfill.ts:395-419`).
+A re-embed silently downgrades LLM-tier chunks because nothing records the tier.
+Agents feel all of this as a stalled tool call on every write.
+
+**Scope.**
+
+- Measure first: correlate `mcp_request_log.latency_ms` for `page_put` with
+  Bedrock call timings; run the pending `MEMEX_CONTEXTUAL_LLM=0` experiment
+  against the eval-probe baseline (hit rate 0.889 / MRR 0.611).
+- Move the page→search mirror and embedding off the request path onto durable
+  job kinds (`page_mirror`, `embed_backfill`, `contextual_reindex`) with
+  per-source single-flight locks (`src/core/db-lock.ts`); keep the reconcile
+  phase as backstop; return `search_indexed` in the `page_put` response.
+- Embedding lifecycle: retry with jitter on 429/5xx/timeouts honouring
+  retry-after, classified by AWS SDK error name and `$metadata.httpStatusCode`;
+  a progress-keyed stall watchdog that leaves a resumable run; per-source
+  cooldown and USD cap on backfills; bounded per-chunk concurrency under
+  `MEMEX_EMBED_CONCURRENCY` (Titan v2 has no batch API).
+- Bulk-writer pacing: backfill jobs yield to interactive `page_put` on RDS
+  (a pacing knob next to `MEMEX_EMBED_CONCURRENCY`).
+- Per-call-kind timeouts (utility chat, reasoning chat, embedding) composed
+  with caller abort signals.
+- Contextual tier resolution page frontmatter → source row → global flag,
+  using the inert `contextual_retrieval_mode` columns from migration 024; a
+  per-chunk tier stamp so re-embeds keep the tier; two-phase re-embed (compute
+  outside, write in one transaction).
+- Stale-take embedding backfill as a cycle phase next to `embed-facts`.
+- Stretch: HNSW-servable orderings for the curation-boost and max-pool vector
+  queries.
+- Files: `src/mcp/dispatch.ts`, `src/core/page-index.ts`, `indexer.ts`,
+  `embedding.ts`, `embed-backfill.ts`, `contextual-reembed.ts`,
+  `search/contextual-embed.ts`, `search/contextual-llm.ts`, `llm/gateway.ts`,
+  `llm/haiku.ts`, `llm/sonnet.ts`, `jobs/handlers.ts`, `commands/serve.ts`,
+  `cycle/index.ts`, `cycle/mirror-pages.ts`, `synthesis/takes.ts`, a tier-stamp
+  migration, `deploy/docker-compose.yml`. Spend goes through `trackedInvoke`.
+
+**Depends on.** Nothing hard; RM-08 leases make long backfills safer (start on
+the existing queue).
+
+**Risks.** Read-after-write: an agent that writes then searches may miss the
+page until the job runs — expose `search_indexed:false` and keep a synchronous
+path behind a flag; job pile-up on bulk imports until RM-08 admission control;
+changing contextual tiers moves rankings; the experiment needs operator go.
+
+**Done when.** p95 `page_put` latency from `mcp_request_log` under 3 s over 7
+days on the live brain with zero lost mirrors (reconcile finds nothing); no
+SDK "exceeded requestTimeout" warnings attributable to the write path;
+eval-probe hit rate/MRR not below baseline; a unit test proves a forced
+re-embed keeps an LLM-tier chunk's tier; a fault-injection test shows
+503/timeout retries then success without duplicate chunks.
+
+**Needs operator go.** The `MEMEX_CONTEXTUAL_LLM=0` live experiment.
+
+### RM-03 — Database and process resilience on RDS
+
+**Why.** memex is one container on one host in front of one RDS instance. An
+RDS blip at boot crash-loops the container (`src/commands/serve.ts:94`);
+migrations have no cross-process lock although serve and `docker exec memex …`
+both run them (`src/core/migrate.ts:290-333`); an omitted body blanks a
+populated page (`src/core/pages.ts:227`, `:414-425`) and concurrent
+`page_append` loses updates (read outside the transaction, no `FOR UPDATE`);
+`page_versions.version_n` is `MAX()+1` without a lock; timed-out searches keep
+their SQL running and holding pool slots (`src/core/engine/postgres.ts:57-65`);
+a synchronous spin freezes every MCP client with nothing to restart the
+process; a lost cycle lock is never noticed; the test suite never touches
+Postgres. Agents and background work amplify every one of these.
+
+**Scope.**
+
+- Write path: refuse empty-over-non-empty page writes unless an explicit flag;
+  `SELECT … FOR UPDATE` on the page row inside `putPage`, `appendPage` folded
+  into the same transaction, `version_n` computed under the lock; a deleted
+  page is not silently undone by a later importer/synthesis write without an
+  explicit restore.
+- DB access: pool GUCs `idle_in_transaction_session_timeout`, jittered
+  `max_lifetime`, connect timeout and bounded connect retry; optional `signal`
+  on `Engine.query` cancelling the in-flight postgres-js query; a classified,
+  redacted DB error (`auth_failed`, `ssl_required`, `dns_failed`,
+  `conn_refused`, `pool_exhausted`, `db_missing`, `vector_missing`) on MCP and
+  CLI; degraded serve that boots with a lazy single-flight reconnect and a
+  `/health` degraded reason (hybrid raises the classified error, never serves
+  empty results); `memex engine status --probe` that never runs migrations.
+- Migrations: cross-process advisory lock with holder heartbeat and hard
+  deadline around `runMigrations` (Postgres only); warn when the DB schema is
+  ahead of the image (rollback).
+- Process: cooperative abort helpers (reason codes, combined signals) threaded
+  into cycle phases, embed loops and job handlers; opt-in worker-thread stall
+  watchdog that terminates a wedged serve so docker restarts it (15 s floor);
+  bounded CLI teardown with stdout drain for large piped JSON; `init: true` on
+  the memex compose service.
+- Tests: local `make test-pg` lane against pgvector Postgres in docker compose
+  covering JSONB binds, RLS triggers, `SKIP LOCKED` contention, search_path
+  hardening and migration replay; engine behaviour tests across PGLite and
+  Postgres.
+- Stretch: atomic writes for CLI outputs (`lint --fix`, `init`, `export`); a
+  surrogate-safe truncation helper for prompt slices; a `host=` redaction kind;
+  detach signal listeners in test reset.
+- Files: `src/core/pages.ts`, `engine/interface.ts`, `engine/postgres.ts`,
+  `engine/factory.ts`, `storage.ts`, `migrate.ts`, `doctor-ops.ts`,
+  `src/http/health.ts`, `src/commands/serve.ts`, `src/cli.ts`, `src/cli-exit.ts`,
+  `process-cleanup.ts`, `cycle/index.ts`, `jobs/worker.ts`, `search/hybrid.ts`
+  (signal threading), `url-redact.ts`, `deploy/docker-compose.yml`, `Makefile`,
+  new `tests/pg/*`. The degraded wrapper is a thin wrapper over the 5-method
+  `Engine`; locks are SQL on RDS; the Postgres lane is a local ship gate, not a
+  CI blocker.
+
+**Depends on.** Nothing.
+
+**Risks.** `FOR UPDATE` adds lock waits on hot slugs (bounded by
+`lock_timeout`); a watchdog false positive restarts a healthy container
+(opt-in, measured on the host); degraded serve must never return empty results
+as if healthy; pool GUC changes on live RDS need a maintenance note.
+
+**Done when.** Red-first tests for: blank overwrite refused; 10 concurrent
+`page_append` calls produce 10 appends and no PK violation; two concurrent
+`runMigrations` on the Postgres lane both succeed; a cancelled search releases
+its backend (`pg_stat_activity` check); serve boots with RDS unreachable,
+reports `degraded`, then recovers without restart; a fixture that blocks the
+loop is killed by the watchdog while healthy runs are untouched; piped
+`memex call … --json` over 64 KiB round-trips intact; `make test-pg` green and
+added to the ship gate list.
+
+### RM-04 — LLM gateway resilience and spend correctness
+
+**Why.** The per-client ceiling is check-then-act: K concurrent calls all pass
+`refuseIfClientExhausted` and overshoot by K× the per-call cost; a PAT is never
+capped; an enrollment connector shares one cap across the whole team; the
+ledger stores cents but no tokens, cache tokens, phase or grant; an unpriced
+model books $0 (`src/core/budget.ts:251-275`, `:562`; see "Per-grant budgets",
+"Spend ceiling — known gaps" and "Spend ledger — remaining approximations"
+below). `BudgetTracker` records after the fact, so parallel synthesis passes
+`wouldExceed` against the same total, and any call site that forgets a tracker
+is uncapped. Expired credentials or throttled quota make every phase burn a
+30 s timeout per item. `core/search/intent.ts` and `expansion.ts` build their
+own Bedrock clients with hardcoded model ids. Every later LLM item spends
+through this chokepoint.
+
+**Scope.**
+
+- Per-attempt worst-case reservation at `trackedInvoke` (max input × input
+  rate + max output × output rate), settled from actual Bedrock usage, sharing
+  the advisory lock `reserveSpend` takes; refusal errors carry a tag fallbacks
+  must rethrow; job-run paid calls bound to the submitting client through the
+  existing ALS.
+- Per-grant and per-PAT daily caps (grant id on the spend row;
+  `budget_usd_per_day` on enrollment rows copied to the grant; a PAT column);
+  overdue holds keep counting until reconciled instead of expiring at the TTL
+  or UTC midnight; the `spent == cap` comparisons made consistent.
+- Ledger columns for input/output/cache-read/cache-write tokens, phase label,
+  grant id and a nullable cost for unpriced models; an operator-scoped usage
+  report op (by model, phase, client/grant, with coverage notes); the admin
+  spend page reads `actual_cents`.
+- `BudgetTracker` with outstanding reservations, optional wall-clock cap and
+  an exhaustion hook, installed as an ambient ALS scope read inside
+  `trackedInvoke` so un-threaded call sites are still capped.
+- Bedrock error classifier (AccessDenied/ExpiredToken → halt the run;
+  ServiceQuotaExceeded/repeated throttling → halt with cooldown;
+  ValidationException input-too-long → non-retryable) and a cross-job cooldown
+  row so queued LLM jobs back off together; a DB-backed lease cap for
+  concurrent Bedrock calls once more than one process spends.
+- One tolerant, linear-time JSON decoder (fenced block, direct parse, first
+  object/array, retry after stripping `<thinking>` blocks) used by every
+  structured Bedrock parser.
+- Model resolution with per-feature keys (think, drift, concepts, expansion,
+  intent) and runtime-config overrides; expansion and intent call
+  `resolveModel`; stale `v1-nova` prompt-version labels renamed with a
+  cache-version bump.
+- Progressive ramp for paid backfills (contextual re-embed, fact extraction):
+  run a small first stage, verify, then expand under the cost cap — a policy on
+  job fan-out, executed by RM-08.
+- Stretch: `MEMEX_PRICING_OVERRIDES`; one USD-limit parser shared by the ~18
+  `MEMEX_*_BUDGET_USD` knobs plus a spend-posture switch; pre-flight dollar
+  estimate for bulk re-embeds; structured-output expansion via Converse forced
+  tool choice; an observe-only guardrail hook seam with optional
+  `guardrailConfig` passthrough when an operator-provisioned guardrail id is
+  configured; a Bedrock model reachability probe in doctor.
+- Files: `src/core/budget.ts`, `src/mcp/dispatch.ts` (`withClientSpend`,
+  `PAID_OP_ESTIMATE_USD`), `llm/gateway.ts`, `llm/haiku.ts`, `llm/sonnet.ts`,
+  `llm/resolve-model.ts`, `llm/truncation.ts`, `search/expansion.ts`,
+  `search/intent.ts`, `facts-extract.ts`, `synthesis/*.ts`, `jobs/worker.ts`,
+  `oauth-provider.ts` (grant id on AuthInfo), `src/http/admin-api.ts`,
+  `admin/src/pages/*`, `src/mcp/operations.ts`, a ledger/caps migration.
+  Pricing comes from `MODEL_PRICING` and Titan pricing; no non-Bedrock branches.
+
+**Depends on.** Nothing. RM-13, RM-15 and RM-22 depend on it.
+
+**Risks.** Worst-case reservations refuse calls earlier near the cap (errs
+safe, documented); a ledger migration on a hot table; a decoder change alters
+which malformed outputs are salvaged (linearity tests through the real
+function); guardrail resources and IAM tightening are terraform and
+operator-gated.
+
+**Done when.** 20 parallel paid calls at a $0.10 cap book at most cap + one
+attempt's worst case; a capped PAT is refused at the cap; enrollment grants
+have independent caps; usage report totals reconcile with `mcp_spend_log` over
+a seeded day; an AccessDenied on the first item stops a synthesis phase after
+one call; a grep gate in a test proves every structured parser uses the shared
+decoder.
+
+### RM-05 — Ingest content safety and supply chain
+
+**Why.** Agents paste transcripts, env dumps and configs into the brain, and
+nothing scans ingested content for credential shapes before it is stored,
+chunked, embedded and served to every grant that reads the source (only
+eval-capture rows are scrubbed, `src/core/eval-capture-scrub.ts`). A
+false-positive quarantine hides a page with no audit trail, no remote list and
+no per-pattern off switch (`src/core/content-sanity.ts`). `memex capture --file`
+reads binaries as text (`src/commands/capture.ts:127`). Junk entity names
+(`team`, `meeting`, `unknown`) accrete edges. Sanitizer closers for `</take>`,
+`</page>`, `</trajectory>` are missing although think wraps evidence in exactly
+those tags (`src/core/llm/sanitize.ts:21-45`, `src/core/synthesis/think.ts:436`).
+The repo is public and ships to a host holding RDS and Bedrock credentials, yet
+CI has no secret or dependency scanning and actions are only partly SHA-pinned.
+
+**Scope.**
+
+- Ingest secret scanner at the single chokepoint next to the content-sanity
+  gate (`src/core/indexer.ts:240-260`) and on `page_put`, `/ingest` and
+  capture: named token prefixes written from vendors' published formats (AWS,
+  GitHub, Slack, Anthropic) plus memex's own `memex_at_`/`memex_rt_`/PAT
+  shapes, whole-block PEM redaction, an optional entropy rule, SHA-256
+  fingerprints instead of values, a fingerprint allowlist in runtime config,
+  `MEMEX_SECRET_SCAN_DISPOSITION=redact|flag|reject`; a `page_versions` scrub
+  path for already-stored hits.
+- Content-sanity observability: an audit row per trip in a DB table (shared
+  with RM-18's `ops_audit`), a doctor summary, an operator-only
+  `quarantine_list` MCP op, per-pattern disable, operator literal directives
+  (`# name=`, `# applies_to=`).
+- Binary guard (magic signatures + NUL scan of the first 8 KB) shared by
+  capture, `/ingest` and index; one slug convention across CLI/MCP/webhook
+  capture.
+- Shared junk-entity-name gate used by gazetteer, fact entity resolution and
+  chronicle, plus a `junk-entity-hubs` doctor check.
+- Sanitizer closers for take/trajectory/page/calibration blocks.
+- CI: gitleaks over commit ranges, `bun audit`, OSV on lockfile changes,
+  actionlint, SHA-pinning of every action — all non-blocking per the local-gate
+  policy; `make audit` unchanged.
+- Files: `src/core/indexer.ts`, `content-sanity.ts`, `quarantine.ts`,
+  `src/commands/quarantine.ts`, `src/commands/capture.ts`, `src/http/ingest.ts`,
+  `src/mcp/operations.ts`, `dispatch.ts`, `src/http/public_guard.ts`,
+  `gazetteer.ts`, `facts-extract.ts`, `chronicle/extract-events.ts`,
+  `llm/sanitize.ts`, `src/commands/doctor.ts`, `doctor-categories.ts`,
+  `.github/workflows/ci.yml`, an audit-table migration.
+
+**Depends on.** Nothing. RM-14 and RM-26 depend on it.
+
+**Risks.** False positives on hashes and UUIDs — default the entropy rule to
+`flag` and `redact` only named prefixes; scanning cost on 5 MB bodies — every
+regex passes the linearity rule measured through the exported function;
+redacting stored `page_versions` rewrites history rows.
+
+**Done when.** A seeded page with an AWS key, a memex PAT and a PEM block is
+stored with those spans redacted plus a fingerprint audit row, and no chunk
+contains them; `quarantine_list` works for the operator and is refused to
+tenants; `capture --file` on a PNG exits non-zero; gitleaks over the full
+history reports zero findings (or an allowlisted fixture set); linearity tests
+exist for every new pattern.
+
+### RM-06 — Measurement program: public benchmark, judged answers, eval governance
+
+**Why.** Retrieval quality was first measured on 2026-08-12 (hit@5 86.1%) on a
+small hand-curated set (`tests/eval/qrels.json`); the eval-probe baseline is
+hit rate 0.889 / MRR 0.611. A small in-house set cannot catch a fusion
+regression that only shows on long, multi-session haystacks, RM-11's ranking
+changes need receipts, and the synthesis layer (think, takes, synthesis) has no
+answer-quality number at all. Capture rows carry no source axis under per-grant
+tenancy (`src/core/migrations/011_eval_candidates.sql`).
+
+**Scope.**
+
+- Retrieval lane: `memex eval longmemeval` — haystack sessions become pages on
+  a throwaway PGLite or a disposable RDS schema, per-question reset via
+  `src/core/bench/reset.ts`, strict `recall_all@k` and `recall_any@k` on raw
+  session ids with slug-collision detection, abstention excluded, per-type
+  buckets and floors, a run-config hash, dataset checksum pin, resume with
+  recompute and last-wins compaction, a memex-generated seed-42 split and dev
+  slice.
+- Answer lane: memex-authored reader and judge prompts, temperature 0,
+  `judge_error` distinct from incorrect, fail-closed budget with
+  `--max-usd --yes`, seeded percentile bootstrap intervals; the judge runs on
+  Bedrock Claude only and the report states that it differs from the public
+  protocol's judge, so numbers are not directly comparable.
+- Cost and diagnostics: content-addressed embedding cache (bun:sqlite, model +
+  dims + text hash, dims integrity check); pool capture and a per-arm miss
+  classifier (vector/keyword/title/relational rank, fused rank, post-rerank
+  rank, final rank) on `hybridSearch`'s capture hook; a ledger across suites
+  with paired bootstrap and Bonferroni in `eval compare`; a cumulative eval
+  spend reservation against `mcp_spend_log`; a metric glossary in JSON outputs;
+  nDCG/P@k in `eval` reports; the deterministic embedder moved from tests to a
+  CLI canary.
+- Governance: bench corpus sealed-gold loader with `fixtures_hash` and a
+  holdout slice; a seeded corpus generator for push/continuity fixtures
+  covering the known blind spots (all-lowercase mentions, `Did/Can/Will <Name>`);
+  capture hardening — `source_id` on capture rows, a failures table with closed
+  reasons, capture for `volunteer_context`, a doctor capture-health check;
+  replay of exported NDJSON traffic with latency delta; named-thing retrieval
+  families as a live-brain CLI; the nightly probe gains an optional benchmark
+  slice.
+- Files: new `src/eval/longmemeval/*`, `src/commands/eval.ts`,
+  `eval-compare.ts`, `eval-replay.ts`, `eval-probe.ts`, `src/core/eval-capture.ts`,
+  `search/hybrid.ts` (capture fields), `search/metrics.ts`,
+  `bench/fixtures.ts`, `bench/reset.ts`, `bench/scoreboard.ts`, `budget.ts`,
+  `src/commands/doctor.ts`, `tests/det-embed.ts` (moved), a capture/failures
+  migration, `deploy/systemd/memex-eval-probe.*`.
+
+**Depends on.** Nothing hard; soft on RM-04 for the eval reservation.
+
+**Risks.** Paid runs: a retrieval-only run embeds tens of millions of haystack
+tokens (order of a dollar at `EMBEDDING_PRICING` $0.02/1M before caching) and
+the judged lane costs materially more — run locally or on a disposable
+environment, never on the t4g.medium host; dataset licence and size must be
+checked before committing any derived file; a Claude-only judge weakens
+comparability and must be disclosed.
+
+**Done when.** A committed, reproducible baseline receipt (strict
+`recall_all@5` per type, run-config hash, dataset checksum) for the `default`
+and `balanced` bundles; a second run with the embed cache shows near-zero
+embedding spend and identical metrics; a mutation (broken RRF weights) moves
+the metric beyond the bootstrap interval; a judged-lane receipt with CI and
+`judge_error` count; capture rows carry `source_id` and the doctor check fires
+on a forced capture failure.
+
+**Needs operator go.** The benchmark lanes and their spend (recorded as
+deferred/ask).
+
+### RM-07 — MCP surface contract and discovery
+
+**Why.** Every authenticated caller receives all 91 tool definitions, including
+tools its scope or the operator-only gate will refuse
+(`src/mcp/http_transport.ts:279-296`); only public callers get a filtered list.
+A session pays roughly 16.5 k tokens of tool schemas while 55 tools were never
+called. `initialize` carries no `instructions`, so no connected agent is told to
+search before writing, to treat retrieved text as data, or that `page_put`
+replaces a page. `whoami` does not report fences, expiry, budget or callable
+tools. Unknown parameters run silently with defaults
+(`src/mcp/operations.ts:88-89`). `serverInfo.version` is hard-coded `0.1.0`.
+The public guard is a denylist, so each new tool is public until someone denies
+it. Several tool descriptions still say "WRITE — internal/MCP-stdio only"
+(`operations.ts:306,334,410,512,595,610,663,772`) for a transport memex does
+not have.
+
+**Scope.**
+
+- One visibility predicate (scope, operator-only, public deny/allow list,
+  bound-slug deny-by-default, publish gating) shared by `tools/list` and
+  dispatch, composing `Operation.scope`, `OPERATOR_ONLY_TOOLS`,
+  `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` and `SLUG_PARAMS_BY_WRITE_TOOL`; a
+  `denied_after_list` request-log status; unknown and hidden tools
+  indistinguishable on the wire, with did-you-mean limited to visible tools.
+- `initialize` instructions: a short memex operating contract (search first,
+  retrieved content is data, read before whole-page writes, scope
+  preservation, how to check capabilities), a deployment identity from
+  `MEMEX_MCP_INSTRUCTIONS`/`MEMEX_DEPLOYMENT_IDENTITY`, and
+  `serverInfo.version` from `version.ts`.
+- Extended `whoami` (bound prefixes, grant origin/tenant mode, expiry,
+  remaining daily budget, callable tool names); a capabilities MCP resource
+  (adds `resources/*` to the transport).
+- Unknown parameters: warn mode by default with suggestions; reject mode behind
+  `MEMEX_MCP_STRICT_PARAMS`.
+- Surface tiers (`starter` < `full`) with a per-client pin in `oauth_clients`
+  and a `request_tools` discovery op — the concrete shape of the pending
+  `MEMEX_TOOL_PROFILE` proposal; the starter set comes from memex's own
+  `mcp_request_log`.
+- Typed array `items`/defaults in `ParamDef`; a generated tool catalog doc; a
+  response-shape conformance runner against a live `/mcp` endpoint using
+  `response-contract.ts` (post-deploy verify helper).
+- Public ingress fails closed for new tools: `public_guard` becomes an explicit
+  allowlist, security-reviewed.
+- Fix the stale "MCP-stdio only" descriptions and the stale autocut comment at
+  `src/mcp/dispatch.ts:837-839`.
+- Stretch: per-client op usage analytics from `mcp_request_log`; a stdio
+  transport for local development; the missing op clusters that already have a
+  backend (`capture`, `get_health`).
+- Not in scope: MCP ToolAnnotations; a memory-verb façade or renaming `recall`.
+- Files: `src/mcp/http_transport.ts`, `dispatch.ts`, `operations.ts`,
+  `tool_defs.ts`, `response-contract.ts`, `request-log-db.ts`,
+  `src/http/public_guard.ts`, `src/core/scope.ts`, `identity.ts`,
+  `oauth-provider.ts` (surface pin column), `src/version.ts`,
+  `tests/fixtures/tool_defs.snapshot.json`, `tests/mcp.test.ts`,
+  `docs/CONFIGURATION.md`.
+
+**Depends on.** RM-01 (the list predicate reuses the isolation dispositions).
+
+**Risks.** Hiding tools a client relied on seeing (the operator's own clients)
+— ship behind a flag and verify with the operator PAT and the claude.ai
+connector; the allowlist flip changes public-ingress behaviour
+(`security-engineer` review); warn-mode params can mask client bugs until
+reject mode is on.
+
+**Done when.** For every scope/fence/public combination, `tools/list` equals the
+set of tools whose `tools/call` is not refused (property test over all 91 ops);
+`initialize` returns instructions and the stamped version on the live host;
+`whoami` for a grant token lists exactly its callable tools; the conformance
+runner passes against the live endpoint in the ship verify step; adding a dummy
+tool without a public classification fails a test.
+
+**Needs operator go.** The starter tool set.
+
+### RM-08 — Durable job runtime v2
+
+**Why.** The queue is a solid `SKIP LOCKED` core, but DAG fan-in is not wired
+(`writeChildDoneInbox` has no caller outside `src/core/jobs/dag.ts`), cancel
+does not reach running descendants, writes are gated on status only with no
+claim generation, the lock is a fixed 300 s with one extension, a timed-out
+handler keeps running and mutating state (`src/core/jobs/worker.ts:830-840`),
+`jobs_submit` accepts any kind string (`src/mcp/dispatch.ts:2414-2437`), the
+idempotency key is not tenant-scoped (`dag.ts:151`), there is no admission
+control, and the worker runs in serve with concurrency 1 and 5 s polling. The
+agent loop, synthesis, per-source cycles and remediation all need fan-out that
+survives crashes and deploys, and `deploy/skills/minion-orchestrator/SKILL.md`
+already promises it.
+
+**Scope.**
+
+- Claim generation / lock token fencing every terminal write; `delayed`,
+  `waiting_children`, `paused` statuses; `UnrecoverableError`; jittered
+  backoff; pause/resume/replay with data overrides; kind validated against the
+  handler registry at submit; tenant-scoped idempotency keys.
+- DAG fan-in: terminal transitions write the child-done inbox in the same
+  transaction, parents park in `waiting_children` and wake, `on_child_fail`
+  policy, `max_children`, cascade cancel to running descendants via abort;
+  align FK delete behaviour and close the inbox-during-cancel race.
+- Lock renewal tick with verify-before-evict (fenced re-check before aborting),
+  reclaim grace, per-kind lock/timeout defaults (`chronicle_extract`,
+  `ingest_capture`, `remediation`, `page_mirror`, future `subagent`),
+  AbortSignal and deadline in the handler context.
+- Admission control: parentless duplicate submits coalesce onto the waiting job
+  (stable-stringified params hash), waiting TTL, per-kind waiting quota
+  returning retryable `rate_limited`, single-flight per-source dispatch.
+- Worker runtime: a real concurrency pool, RSS watchdog, DB liveness probe
+  distinguishing pool starvation from outage, reconnect-before-claim, graceful
+  drain on deploy; a shared drain registry for fire-and-forget sinks.
+- Queue stats: per-kind throughput, oldest waiting, a wedge/divergence verdict,
+  an operator-only `get_job_stats` op and the admin jobs page.
+- Stretch: job attachments table; per-job quiet-hours policy with deterministic
+  stagger; an operator-only `shell` kind behind `MEMEX_ALLOW_SHELL_JOBS`
+  (default off) — or the shell promise removed from the skill in RM-09.
+- Files: `src/core/jobs/queue.ts`, `dag.ts`, `worker.ts`, `worker-lock.ts`,
+  `backoff.ts`, `handlers.ts`, `lifecycle.ts`, `quiet-hours.ts`, `types.ts`,
+  `concurrency.ts`, `context/volunteer-events.ts`, `last-retrieved.ts`,
+  `search/telemetry.ts`, `src/commands/jobs.ts`, `serve.ts`,
+  `src/mcp/operations.ts`, `dispatch.ts`, `src/http/admin-api.ts`,
+  `admin/src/pages/JobsWatch.tsx`, migrations (statuses, generation,
+  attachments).
+
+**Depends on.** RM-03 (abort helpers, cancellable queries, Postgres lane for
+contention tests).
+
+**Risks.** A status migration on a live queue — pause ingress and drain before
+migrating; fencing bugs can orphan jobs; concurrency above 1 in serve competes
+with MCP latency on a t4g.medium (default stays 1, measured).
+
+**Done when.** Postgres-lane tests: a stalled attempt cannot complete a job
+re-claimed by a newer attempt; a parent with 5 children wakes exactly once with
+5 inbox rows after a SIGKILL mid-run; cancel reaches running children within one
+renewal tick; 50 identical submits create one waiting job; a CPU-starved worker
+does not evict its own healthy job; `get_job_stats` flags a seeded wedge;
+submitting an unknown kind is refused.
+
+### RM-09 — Skill pack integrity and library currency
+
+**Why.** The brain serves its skill pack to every connected agent
+(`src/core/skillpack/brain-resident.ts`), and agents follow it literally.
+Shipped skills tell agents to run commands memex does not have: `memex skillpack check`
+(`deploy/skills/skillpack-check/SKILL.md:5,30,51`), `memex skillpack harvest`/`scaffold`
+(`deploy/skills/skillpack-harvest/SKILL.md:33`), a skill optimizer
+(`deploy/skills/skill-optimizer/SKILL.md`), schema-pack authoring
+(`deploy/skills/schema-author/`, `schema-unify/`), shell jobs and subagent
+spawning (`deploy/skills/minion-orchestrator/SKILL.md:13-15,71`). The
+`list_brain_skillpack` description points at a command that only builds a
+tarball (`src/mcp/operations.ts:971`). `skillify check` validates `title`/`tags`
+while the pack uses `name`/`triggers`/`tools` (`src/core/skillify.ts:330-380`);
+47 skills declare `tools:` that nothing checks. `get_skill` returns raw bodies
+with no size cap. Doctor has no skill category
+(`src/core/doctor-categories.ts:15-16`).
+
+**Scope.**
+
+- One skill frontmatter parser (`name`, `description`, `triggers`, `tools`,
+  `mutating`, `requires`, `writes_to`) used by listing, `get_skill`,
+  `skillify check` and doctor.
+- Pack honesty: a tools-vs-ops lint against `operations.ts` and a
+  command-reference lint against `cli.ts`, both test gates; every dead reference
+  implemented elsewhere in this roadmap or removed/rewritten now; `skillify`
+  emits the `<slug>/SKILL.md` layout with a routing-eval file.
+- A brain-first lint rule: each skill consults the brain before external
+  lookups.
+- Integrity: a sha256 lockfile for `deploy/skills` with a freshness test
+  (modified/missing/extra) and a doctor `skills` category (manifest integrity,
+  conformance, `requires:` preconditions evaluated read-only against sources,
+  pages and runtime config) — deliberately reversing the
+  `doctor-categories.ts` comment.
+- Catalog hardening: byte cap on `get_skill`, allowlisted frontmatter fields,
+  optional section filter, `tools` filtered to existing ops, realpath
+  confinement of the mounted directory (`MEMEX_SKILLS_DIR`, read-only).
+- `memex skillpack check` as a tri-state wrapper over doctor + pending
+  migrations, or the skill rewritten to call `run_doctor`.
+- Library currency: memex-authored behavioural skills worth having
+  (data-loss gate, fact-check, correction pipeline, resolve-before-asking,
+  measure-before-you-fix, brain-ingest gate) and four conventions (untrusted
+  content, path discipline, regex discipline, exec-output discipline), using
+  memex tool names and Bedrock tiers; deterministic helpers behind the
+  data-research skill (tracker parse/append, fuzzy dedup with amount tolerance).
+- A skill routing eval over trigger fixtures with negative cases.
+- Files: `deploy/skills/**`, `src/core/skillpack/brain-resident.ts`,
+  `src/core/skillify.ts`, `src/commands/skillify.ts`, `skillpack.ts`,
+  `src/cli.ts`, `src/mcp/operations.ts`, `dispatch.ts` (`callGetSkill`),
+  `src/commands/doctor.ts`, `doctor-categories.ts`, new
+  `tests/skillpack_*.test.ts`.
+
+**Depends on.** Nothing; soft on RM-07 for the generated catalog.
+
+**Risks.** Removing promises agents already rely on; new skill prose must pass
+`make scrub-audit` like any other tracked text.
+
+**Done when.** The lint fails when a skill names a non-existent tool or CLI
+command and passes on the whole pack; the lockfile test detects a one-byte
+change; `get_skill` refuses a body over the cap; doctor shows a `skills`
+category on the live host; the routing eval passes with negative cases.
+
+### RM-10 — Grants, access profiles and the admin grant editor
+
+**Why.** Rescoping a client is one blind UPDATE of source, federated read,
+prefixes and tenant mode with no revision, no dry-run, no audit trail, and
+scopes cannot be rescoped at all (`src/core/oauth-provider.ts:574-607`,
+`src/http/admin-api.ts:423-464`). On a team connector the operator cannot answer
+"who widened this grant and when". Composing scopes by hand per client invites
+over-grant; no admin-scoped token can act as operator; three scopes are dead
+(`agent`, `sources_admin`, `users_admin` in `src/core/scope.ts`);
+authorization-code and refresh tokens ignore per-client TTL
+(`oauth-provider.ts:925`, `:980`); legacy PATs never expire and expired OAuth
+tokens are swept only at boot; CLI and admin revocation differ; client secret
+hashes are compared with `!==` (`oauth-provider.ts:1179`, `:1205`). The admin
+SPA lags the CLI: no enrollment codes, tenant mode, bound prefixes or budgets.
+
+**Scope.**
+
+- Grant mutation service: revision counter, `SELECT … FOR UPDATE` with an
+  expected revision (`grant_conflict`), dry-run with before/after diff,
+  validation reason codes (unknown/archived sources; prefix grammar requiring
+  lowercase and a trailing `/` or `/*`, no `..`), full rescope including scopes,
+  and one CTE writing an `oauth_grant_audit` row (actor, before, after, via)
+  from CLI, admin API and enrollment paths.
+- Named profiles (memory-reader, memory-writer, coding-agent, operator, full)
+  resolving scopes, surface pin (RM-07), TTL defaults and a frozen
+  `allowed_operations` snapshot enforced by the RM-07 visibility predicate; an
+  explicit operator profile so an admin-scoped token can reach operator-only
+  tools by grant; wire the dead scopes or remove them.
+- Token lifecycle: per-client TTL on authorization-code and refresh issuance, a
+  DCR TTL window clamp, expiring PATs with a TTL column, a periodic expired-token
+  sweep, revoke PAT by id, least-privilege PAT mint requiring scopes and a
+  source grant, unified client revocation, verification rejecting deleted
+  clients.
+- Consent re-check: a policy digest captured at `/authorize`; redemption and
+  refresh intersect with the current grant.
+- A shared constant-time comparison module for every secret/hash compare.
+- Admin SPA grant editor: dry-run preview, revision-checked save, enrollment
+  code issue/list/revoke, tenant mode, prefixes, per-grant budget (RM-04
+  fields), consent page with explicit deny.
+- Advisor collector proposing least-privilege rescopes from 30-day
+  `mcp_request_log` usage (aggregate-only for tenants).
+- Files: `src/core/oauth-provider.ts`, `scope.ts`, `auth-info.ts`,
+  `src/http/oauth-endpoints.ts`, `admin.ts`, `admin-api.ts`,
+  `src/commands/auth.ts`, `src/cli-args.ts`, `src/mcp/dispatch.ts` (operator
+  gate), `advisor/collectors.ts`, `admin/src/pages/Credentials.tsx`,
+  `admin/src/App.tsx`, `admin/src/api.ts`, migrations (revision, audit, PAT TTL,
+  profile snapshot). Every field maps to the per-grant model (token-level
+  `source_id`/`grant_bound`, enrollment rows, `tenant_mode`,
+  `bound_slug_prefixes`, `budget_usd_per_day`).
+
+**Depends on.** RM-01, RM-07.
+
+**Risks.** Authentication/authorization change with a large blast radius —
+state it and confirm first, `security-engineer` review, live two-tenant smoke;
+moving existing clients to profiles must be additive (`NULL` = legacy
+behaviour).
+
+**Done when.** Concurrent rescopes: the stale one fails with `grant_conflict`
+and writes no audit row; dry-run output equals the subsequent apply's audit
+diff; a client narrowed between `/authorize` and redemption receives the
+narrowed scopes; a revoked or deleted client's tokens fail verification
+immediately; the admin editor works end to end on a two-tenant local install; a
+timing-safe compare test exists.
+
+### RM-11 — Retrieval pipeline v2 (honest degradation, fusion hygiene, confidence)
+
+**Why.** An agent cannot tell "the brain has nothing" from "the Bedrock embed
+timed out and you got keyword-only results": `hybridSearch` returns bare hits
+(`src/core/search/hybrid.ts:593-597`) and silently falls back (`:788-794`). The
+keyword arm is AND-only (`keyword.ts:98-112`), so long natural-language
+questions return zero lexical rows exactly when the vector arm is down.
+Expansion variants never reach the vector arm and fusion weights are positional
+(`hybrid.ts:851-871`). Every metadata boost runs regardless of which arms voted
+(`hybrid.ts:1096-1281`), so hubs can outrank the real answer on paraphrase
+queries. Rerank can bury the typed-edge rows that answer relational questions.
+A slug-shaped query is not guaranteed its page at rank 1; superseded pages
+outrank their replacements. Agent and think loops burn context on full chunks.
+
+**Scope.**
+
+- `SearchMeta` returned with hits: vector enabled, intent, mode, `degraded[]`
+  with a closed vocabulary (`embed_timeout`, `vector_arm_failed`,
+  `keyword_zero`, `expansion_failed`, `budget_truncated`, `rerank_skipped`),
+  retrieved count, pool underfill; degraded result sets cached with a short TTL
+  instead of skipped; surfaced in `search`/`query` MCP responses under public
+  redaction rules and in the CLI empty-result message.
+- AND→OR relaxed keyword retry on zero rows (bounded terms/length); relaxed rows
+  tagged and dropped before fusion whenever the vector arm returned rows.
+- Fusion lists composed in one place with role tags (original, variant,
+  clause); each expansion variant embedded (via `embedQueryBounded` and
+  `trackedInvoke`) and vector-searched under one deadline with salvage; a shared
+  variant weight budget; a pre-fusion pool floor `max(k*2, 50, offset+k)`.
+- Keyword-arm confidence (scores from `keywordSearch`/`titleArmChunkIds`) and a
+  metadata-boost gate that skips backlink/salience/recency/graph/alias boosts
+  when no lexical, title or relational row fused; decisions stamped in
+  `--explain`.
+- Exact-lookup tier (slug-shaped or exact title → rank 1, at most 3,
+  supersession-filtered); supersede downrank from `supersedes` links with a
+  memoized existence probe; a relational evidence slot plus a rerank pin as a
+  permutation over ranked ids.
+- Zero-LLM retrieval confidence grade (strong/moderate/weak) derived from the
+  `Evidence` enum and arm membership (the Haiku reorder produces order, not a
+  calibrated score), attached to `query`; opt-in escalation to the expensive
+  bundle for weak results only, operator-gated like `mode`.
+- Per-hit snippet cap with a `page_get` pointer; `types` and per-call
+  `source_id` filters pushed into arm SQL (`filters.ts`).
+- Stretch: CJK density detection with a bounded ILIKE/bigram keyword fallback,
+  a Latin stroke-letter fold (keeping `'simple'` FTS), CJK-aware recursive chunk
+  delimiters and overlap; per-brain intent pattern extensions in runtime config
+  folded into `rankingSignature()`; knob attribution across
+  per-call/env/runtime-config/bundle in `search modes`; `search_stats`,
+  `search_modes`, `cache_stats` as operator-only MCP ops.
+- Files: `src/core/search/hybrid.ts`, `keyword.ts`, `vector.ts`, `title-arm.ts`,
+  `expansion.ts`, `intent-weights.ts`, `src/core/rrf.ts`, `relational-recall.ts`,
+  `two-pass.ts`, `graph-rerank.ts`, `evidence.ts`, `explain.ts`,
+  `query-cache.ts` (signature suffix bumps), `mode.ts`, `filters.ts`,
+  `query-intent.ts`, `telemetry.ts`, `src/core/chunkers/recursive.ts`,
+  `src/mcp/operations.ts`, `dispatch.ts`, `src/core/public_redaction.ts`,
+  `src/commands/search.ts`, `search-modes.ts`, `search-diagnose.ts`,
+  `tests/retrieval_quality_*.test.ts`.
+
+**Depends on.** RM-01 (read policy), RM-06 (baseline receipt before any ranking
+change).
+
+**Risks.** Live ranking changes on the operator's brain — each stage behind a
+knob, measured against the RM-06 receipt and the eval-probe baseline, one stage
+per release; meta fields on public ingress can become an existence oracle
+(redact counts, keep closed reason codes); CJK ILIKE scans must be bounded on
+RDS.
+
+**Done when.** Each stage has a paired benchmark + hermetic-suite result with no
+regression beyond the bootstrap interval and the targeted improvement where
+claimed; a forced embed failure yields `degraded:["embed_timeout"]` and a 60 s
+cache entry; a slug query returns the page at rank 1 against a stronger body
+match elsewhere; a relational fixture keeps the edge answer in the top 3 with
+rerank on; `weak` fires on a no-answer fixture and `strong` on an exact match.
+
+### RM-12 — Ambient recall and session context
+
+**Why.** The brain helps an agent most when context arrives without the agent
+remembering to ask. memex has `volunteer_context`
+(`src/core/context/volunteer.ts`), `chronicle_since` and a `hot_memory` table,
+but `hot_memory` is never written in production and its `_meta` injection reads
+that empty table with no tenant axis (`src/core/hot-memory-meta.ts`); there is
+no per-session cursor, no budgeted "what matters now" pack, no "what changed
+since my last turn" delta, no gate that turns salient user statements into
+facts, no client hook, and the reflex resolver misses lowercase, surname-only
+and CJK mentions (`src/core/context/reflex.ts:38-49`).
+
+**Scope.**
+
+- New read-only tools over existing memex reads: `context_pack` (entity cards
+  for up to 8 standing entities + open threads + top decayed facts, trimmed to a
+  token budget, cards before facts) and `context_delta` (pages, facts and thread
+  changes since a timestamp or a per-session cursor, at-least-once delivery);
+  both public-forbidden, grant-scoped, tested for identical REST/MCP redaction.
+  Not a façade over write tools and not a rename of `recall`.
+- `session_context_state` table keyed by (source_id, client/grant, session_id)
+  holding cursor, surfaced slugs (volunteering stops repeating within a
+  session) and standing entities; GC bounded per client.
+- `_meta` hot facts computed from `entity_facts` through `effectiveConfidence`,
+  keyed by (source, session, holder allow-list), short TTL clamped by
+  `valid_until`, bounded cache; keep the public-ingress decay-off guard; wire
+  `recordHotFact` or retire the `hot_memory` table.
+- Zero-LLM writeback gate (too short, ack/greeting, slash command,
+  question-only, quoted tool output, bulk paste, content-hash idempotency)
+  feeding `add_fact`/`extract_facts` with the grant's source; contract text
+  delivered through RM-07 `initialize` instructions; off by default.
+- Reflex precision arms: alias-only weak lowercase candidates, a surname arm
+  when exactly one person page carries the surname, a CJK title arm; ambiguity
+  injects nothing; kill switch.
+- A thin client hook entry (Claude Code `SessionStart`, `UserPromptSubmit`,
+  `PreCompact`, `Stop`) calling the remote `/mcp` with a PAT under a hard
+  deadline, failing open, never touching a local brain.
+- Stretch: compaction checkpoint harvest (hook spools the window; the server
+  extracts facts through the durable queue with session provenance and a
+  content-addressed segment ledger in `raw_data`); a compiled warm-context
+  export as an operator-only op returning text; a DB-backed since-last-run
+  cursor per token.
+- Files: `src/core/context/volunteer.ts`, `reflex.ts`, `entity-salience.ts`,
+  `volunteer-events.ts`, `chronicle-context.ts`, `hot-memory-meta.ts`,
+  `hot_memory.ts`, `facts-decay.ts`, `facts.ts`, `facts-extract.ts`,
+  `recall-budget.ts`, `chronicle.ts`, `src/mcp/operations.ts`, `dispatch.ts`,
+  `src/http/public_guard.ts`, `src/core/public_redaction.ts`, new
+  `scripts/hooks/*` (client side), a session-state migration.
+
+**Depends on.** RM-01, RM-07.
+
+**Risks.** New read tools are new oracle surfaces — public-forbidden and covered
+by the RM-01 isolation matrix; ambient writeback on a shared brain can capture
+private statements — off by default, consent recorded, per-grant switch; hook
+latency on every prompt (hard deadline, fail open).
+
+**Done when.** `context_pack` for a grant token holds no other tenant's bytes
+(matrix test) and stays within budget; `context_delta` with one session id
+never re-delivers a surfaced slug and never skips an update under concurrent
+writes; `_meta` hot facts are non-empty for a tenant with facts; the gate corpus
+(acks, pastes, questions vs real statements) meets the thresholds pinned in the
+test; a hook round trip against a local serve stays under 1.5 s p95 and fails
+open on timeout; the push bench blind spots (lowercase, `Did <Name>`) move from
+expected-miss to hit.
+
+**Needs operator go.** The reflex arms, if the 2026-07-07 "retrieval-reflex"
+skip was meant to cover resolver arms rather than a host-side recipe.
+
+### RM-13 — Agent tool-loop runtime (Bedrock Converse)
+
+**Why.** Every synthesis step is a single Haiku/Sonnet call
+(`src/core/llm/haiku.ts`, `sonnet.ts`); there is no `toolConfig`/`toolUse`
+anywhere in `src`. The durable ledger exists but nothing runs on it
+(`src/core/subagent_ledger.ts`, migration 021), the `agent` scope is unused, and
+`oauth_clients.bound_tools`/`bound_max_concurrent` are never read (migration
+046). Multi-step tasks — enrich an entity from ten pages, reconcile a
+contradiction, synthesize a transcript chunk with verified links — need a loop
+that calls brain tools, survives a crash without re-running non-idempotent
+tools, and spends under a cap.
+
+**Scope.**
+
+- Multi-turn Converse primitive in `src/core/llm/` (messages, system and tool
+  cache points, `toolConfig`, tool-result pairing repair, stop reasons
+  `max_tokens`/`guardrail_intervened`/`content_filtered`), spending through
+  RM-04's per-attempt reservation.
+- A `subagent` job kind that persists each assistant turn before dispatching
+  tools, records pending tool rows bound to a worker/run id, replays completed
+  turns on resume, short-circuits already-executed tools, and never re-executes
+  a cross-worker pending row; service-minted tool ids; per-turn lease permits;
+  heartbeats; ledger keyed by the existing `turn_num` schema.
+- Brain-tool allowlist derived from `operations.ts` ParamDefs into Bedrock
+  `toolSpec` (read tools + fenced writes into an agent namespace or the grant's
+  prefixes, no graph-edge writes), dispatched through `dispatchTool` with the
+  job's AuthInfo so every existing gate applies; a deterministic tool preamble.
+- Oneshot synthesis mode: one structured completion validated all-or-nothing
+  (slug grammar, allow-list, exact wikilinks, content-hash suffix) with a
+  ledger-first write batch, falling back to the loop with a recorded reason.
+- Fan-out aggregator over RM-08 fan-in with a deterministic summary;
+  `memex agent run|logs` CLI and an operator-only MCP status op; transcript
+  rendering from `subagent_messages`; subagent definitions as markdown in
+  `MEMEX_AGENT_DEFINITIONS_DIR`.
+- Error clustering into Bedrock buckets (throttling, input too long, malformed
+  JSON, guardrail) and one classifier-gated self-fix resubmit within a depth
+  cap.
+- Not here: tenant delegation (RM-22). This item is operator/internal only;
+  ledger content stays internal-token-only.
+- Files: `src/core/llm/gateway.ts`, `sonnet.ts`, `haiku.ts`, new
+  `src/core/agent/*`, `subagent_ledger.ts`, `jobs/handlers.ts`, `worker.ts`,
+  `dag.ts`, `src/mcp/operations.ts`, `dispatch.ts`, `tool_defs.ts`, `scope.ts`,
+  `budget.ts`, `src/commands/serve.ts`, `src/cli.ts`, new
+  `src/commands/agent.ts`, a migration adjusting `021_subagent_ledger.sql`
+  (worker binding, message index).
+
+**Depends on.** RM-04, RM-08.
+
+**Risks.** Stored command injection through forged pending rows (bind to
+worker, internal-only); runaway spend (per-job and per-tree budgets, halt
+cooldown); CPU/memory on the t4g.medium host (concurrency 1, RM-08 RSS
+watchdog, no instance resize); agent writes stay in `synth_*`/agent namespaces
+and never overwrite source notes.
+
+**Done when.** A SIGKILL mid-loop resumes and completes without re-executing a
+completed non-idempotent tool (ledger-row assertion); a fixture task runs end
+to end on Bedrock under a $0.25 cap and books every call in `mcp_spend_log`;
+oneshot validation rejects a hallucinated wikilink and falls back with a
+reason; the allowlist excludes every public-forbidden write tool not explicitly
+listed; `agent logs` renders a transcript; second-opinion and
+`security-engineer` review before any deploy.
+
+**Needs operator go.** Yes. The "Deferred by stack" table below records a
+server-side subagent runtime as not planned; building it needs an explicit
+reversal.
+
+### RM-14 — Transcript and chat ingestion pipeline
+
+**Why.** The operator's decisions and facts live in agent sessions and chat
+histories, and memex captures almost none of them. The only chat path is an
+offline script that writes files for a manual `memex index` and flattens a
+ChatGPT `mapping` by sorting every node on timestamp, so regenerated and
+abandoned branches are interleaved (`scripts/import-chat-history.ts:118-138`);
+it has no size cap, format detection, secret redaction, splitting or idempotent
+re-import. Long transcripts land as one `embed_skip` page invisible to vector
+search (`src/core/content-sanity.ts:499-534`). Claude Code and Codex sessions
+are never read. `get_recent_transcripts` does not list the importer's
+`conversation` type (`src/core/transcripts-read.ts:19-24`).
+
+**Scope.**
+
+- A transcript adapter seam with per-file diagnostics (bytes read but zero
+  sessions = format drift), ordered format detection with explicit override,
+  size caps that reject rather than truncate.
+- ChatGPT export adapter walking from `current_node` through parent pointers
+  (drops regenerated branches, orphan-safe, latest-leaf fallback) and a
+  Claude.ai export adapter; real source timestamps only; per-message ids.
+- Claude Code JSONL and Codex rollout adapters (sidechain/summary/control
+  records skipped, tool payloads and thinking replaced by placeholders,
+  subagent logs not treated as sessions).
+- Ingest pipeline as durable jobs: RM-05 secret redaction before render,
+  anchor/fence escaping so content cannot forge speakers, split at message
+  boundaries with overlap into `-pN` parts, per-session content-hash
+  idempotency and stale-part deletion, `raw_data` sidecar, a `since` checkpoint
+  in `recipe_state`, embedding through RM-02's jobs, per-grant write source;
+  `memex transcripts ingest|status` CLI and an `/ingest` content type for pushed
+  sessions.
+- Client-side discovery and session-end capture for Claude Code/Codex pushing
+  rendered sessions to `/ingest` with a PAT (harness roots live on the laptop,
+  never on the EC2 host), confined to pinned roots with symlink rejection.
+- One supervised source interface with backoff and queue dispatch, shared with
+  RM-26 connectors instead of per-connector loops.
+- Conversation parser breadth: Discord, Teams, Signal, Matrix, markdown-heading
+  turns, ChatGPT "You/ChatGPT" copy-paste, chosen by whole-document scoring
+  rather than first match per line; a frontmatter/effective-date context ladder;
+  per-format fixture tests; every regex measured linear through
+  `parseConversation`. No LLM parser fallback.
+- Sweep hardening: a mass-delete safety valve in `reconcileDeletedDocuments`
+  (refuse when most of a source would retire) and a persistent per-path failure
+  ledger with auto-skip after repeated identical failures.
+- Stretch: cross-slug identity dedup and volatile-frontmatter-insensitive
+  content hashing in `putPage`; `tombstone` events and a bounded dedup window on
+  `/ingest`; `get_recent_transcripts` type alignment.
+- Files: new `src/core/transcripts/*`, `scripts/import-chat-history.ts`
+  (retired or rewired), `conversation-parser.ts`, `src/http/ingest.ts`,
+  `indexer.ts`, `pages.ts`, `raw-data.ts`, `recipe-state.ts`,
+  `reconcile-deletes.ts`, `sweep.ts`, `ingest-log.ts`, `transcripts-read.ts`,
+  `jobs/handlers.ts`, `src/cli.ts`, new `src/commands/transcripts.ts`,
+  client-side scripts under `scripts/`, `tests/conversation_parser_*.test.ts`.
+
+**Depends on.** RM-05 (redaction), RM-08 (durable fan-out).
+
+**Risks.** Privacy — transcripts contain secrets and third-party personal data;
+default to private visibility and per-grant sources; volume — backfilling months
+of sessions spends Titan and extraction budget (RM-04 caps, dry-run cost
+preview); export formats drift (diagnostics must alarm, not import zero).
+
+**Done when.** A ChatGPT export fixture with two regenerated answers imports
+only the chosen branch; re-running ingest on unchanged exports writes zero rows;
+a shrunken session deletes its stale parts; a transcript containing a PAT is
+stored redacted; a 5 MB session splits into searchable parts with vector
+coverage; the valve refuses a sweep of an unmounted root; parser fixtures are
+green with linearity growth ratios recorded.
+
+### RM-15 — Transcript synthesis and grounding
+
+**Why.** Once transcripts arrive, memex turns them into knowledge through one
+Sonnet `reflections` call over up to 20 recent transcripts
+(`src/core/synthesis/reflections.ts`) behind a boolean worth-gate
+(`synthesis/worth-gate.ts`). Nothing writes per-transcript entity/decision
+pages, nothing checks that quotes attributed to people are verbatim,
+synthesized `[[wikilinks]]` are model guesses that later show as unresolved,
+atoms have a document-count cap but no USD gate (`synthesis/atoms.ts:15`),
+zero-yield pages are re-paid on every backfill run
+(`cycle/conversation-facts-backfill.ts:14-21`), and worth verdicts never expire
+or re-judge after a prompt change (migration 077).
+
+**Scope.**
+
+- Scored triage replacing the boolean worth verdict: score, content type,
+  verified segments, entity candidates, cached per (source_ref, content hash,
+  triage version) with a TTL; degenerate verdicts never cached; threshold
+  applied at read time; a rescue band admitting below-threshold transcripts when
+  enough judged segments verify verbatim; `memex dream retriage --dry-run`,
+  which also reconciles queued synthesis jobs when the gate or its version
+  changes.
+- Per-transcript synthesis as queued jobs: token-budget chunking, one structured
+  Sonnet completion per chunk validated all-or-nothing (RM-13 oneshot mode when
+  available, else the same validator on a single call), writes only to synthesis
+  namespaces pinned to the transcript's source, one cycle summary page per local
+  day, cooldown keys.
+- Mechanical quote verification after synthesis writes: keep exact spans,
+  replace near matches with the verbatim slice (rare-trigram anchor,
+  token-overlap bar, ambiguity refusal), strip quote marks otherwise; CPU-capped;
+  ungrounded number/date telemetry.
+- Link-candidate manifest built before the call from triage entities via
+  keyword search and the slug resolver, grant-scoped and diary-fenced, passed as
+  a write allow-list.
+- Atoms: USD budget gate via `BudgetTracker`, quote offsets located in the exact
+  text the model saw, source page folded into atom identity, completion marker
+  outside the content hash, bounded drain reporting remaining work.
+- Bulk conversation facts: time-gap segmentation with a speaker-heading guard,
+  checkpoint resume keyed by (source, slug, segment end), per-page advisory
+  locks, durable zero-yield audit rows so non-extractable pages are skipped,
+  notability tiers, keyless guidance in `extract_facts`.
+- Files: `src/core/synthesis/worth-gate.ts`, `reflections.ts`, `atoms.ts`,
+  `concepts.ts`, `cycle/index.ts`, `cycle/conversation-facts-backfill.ts`,
+  `facts-extract.ts`, `facts-queue.ts`, `search/keyword.ts`,
+  `slug-canonicalize.ts`, `ingest-log.ts`, `src/recipes/cycle.ts`,
+  `src/mcp/dispatch.ts` (`extract_facts` envelope), new
+  `synthesis/transcript-synthesis.ts`, `quote-verify.ts`, `link-manifest.ts`,
+  migrations (triage columns and TTL on `synth_worth_verdicts`, zero-yield audit
+  rows). Prompts are memex-authored; Haiku triages, Sonnet synthesizes.
+
+**Depends on.** RM-04, RM-08, RM-14.
+
+**Risks.** Paid volume (per-source daily submission caps, dry-run estimates,
+quiet-hours scheduling); synthesis never overwrites source notes; quote repair
+must not splice garbled text when case folding expands characters (one shared
+folding routine, Unicode tests).
+
+**Done when.** A hermetic mini-corpus run through the real phase with only the
+model transport scripted (seconds, zero spend) reports survival/fidelity metrics
+and pins them; an injected paraphrased quote is repaired to the verbatim span; a
+hallucinated link target is refused by the manifest; re-running backfill on a
+zero-yield page makes zero model calls; atoms stop at the USD cap mid-run with a
+partial report.
+
+### RM-16 — Facts, takes and calibration ledger v2
+
+**Why.** A forgotten fact comes back the next time the same claim is
+re-extracted from another transcript or added by an agent, because tombstones
+survive only a fence rebuild of the same page (`src/core/facts-reconcile.ts:190-237`,
+`facts.ts:327-348`). Agents cannot record, revise, supersede or resolve a take
+over MCP — the only mutation is `set_take_status` (`src/mcp/operations.ts:997`),
+and `upsertTakeRow`/`supersedeRow` have no callers
+(`synthesis/takes-fence.ts`). A contradiction run where every judge call errors
+reports zero contradictions (`synthesis/contradictions.ts:535-537`). The
+take-commit bias nudge has no production caller. The `add_fact` schema hides
+`kind`, `notability` and `source_session` although the core accepts them. There
+is no `idea` kind, no fence supersede-by-row, no calibration forecast on
+proposals, and grading pays for a full ensemble or none.
+
+**Scope.**
+
+- Durable withdrawal: a `fact_withdrawals` table keyed by (source_id,
+  visibility, normalized-claim hash), a trigger re-expiring matching inserts
+  under a source lock, backfill from existing tombstones, expiry of every active
+  duplicate on forget.
+- Takes write tools `takes_add`, `takes_update`, `takes_supersede`,
+  `takes_resolve`: DB-canonical fence edit via `putPage` + `syncTakesFromFence`,
+  holder allow-list checks, fence-cell injection guard, server-stamped
+  `resolved_by` from the token principal, unparsed fence rows preserved verbatim
+  and fractional resolution values kept exact; `set_take_status` becomes
+  holder-gated. New tools public-forbidden and write-fenced through
+  `SLUG_PARAMS_BY_WRITE_TOOL`.
+- `add_fact` exposes `kind`, `notability`, `source_session` (validity/TTL
+  fields stay out).
+- Contradiction probe honesty: `run_status: judge_failed` when every pair
+  errored; temporal verdict classes (supersession, regression, evolution,
+  negation artifact); undated-side date pre-filter; optional query-driven mode
+  sampling pairs from `eval_candidates` and hybrid top-K; trend/review CLI;
+  zero-total doctor check; orphan takes skipped rather than coalesced to
+  `default`.
+- Proposal queue: predicted Brier forecast from the holder's live scorecard,
+  dedup against existing takes passed to the prompt, promote-on-accept writing a
+  fence row.
+- Calibration consumers: voice-gate modes beyond `pattern_statement`/`nudge`,
+  nudges wired to fence commits and accepts with the 14-day cooldown, a
+  one-transaction undo for an auto-grading wave; mid-confidence band escalation
+  from one judge to the existing ensemble.
+- `idea` fact kind (365-day half-life, CHECK widening); fence
+  `superseded by #N` / `forgotten: reason` resolved in the insert transaction.
+- Verify that the bulk fact insert path canonicalizes entities on save like
+  `facts-extract.ts` does.
+- Stretch: takes-from-pages classifier over authored longform page types with a
+  consent gate, graduated by a labelled precision/recall corpus; a think A/B
+  harness (needs the operator's ask).
+- Not in scope: per-holder persisted calibration profile rows, a takes-quality
+  model panel, configurable default visibility.
+- Files: `src/core/facts.ts`, `facts-recall.ts`, `facts-reconcile.ts`,
+  `facts-fence.ts`, `facts-decay.ts`, `facts-extract.ts`, `synthesis/takes.ts`,
+  `takes-fence.ts`, `takes-canon.ts`, `reads.ts`, `contradictions.ts`,
+  `calibration.ts`, `voice-gate.ts`, `nudge.ts`, `src/mcp/operations.ts`,
+  `dispatch.ts`, `src/http/public_guard.ts`, `src/commands/doctor.ts`,
+  migrations (withdrawals + trigger, `idea` kind, contradiction run status).
+
+**Depends on.** RM-04, RM-07.
+
+**Risks.** A withdrawal trigger on `entity_facts` affects every write path
+(measure insert latency on RDS); holder gating on `set_take_status` changes
+behaviour for existing tokens; the 182-day grading bar and the
+`synth_takes.holder` default `world` are open operator decisions this item must
+not change silently.
+
+**Done when.** Forget → re-extract the same claim from a different page → the
+fact stays inactive; an agent records, supersedes and resolves a take over MCP
+and the scorecard separates agent from owner verdicts; a contradiction run with a
+stubbed failing judge ends `judge_failed`; accepting a proposal writes exactly
+one fence row; undoing a grading wave restores prior take statuses in one
+transaction.
+
+### RM-17 — Tenant-aware cycle orchestration
+
+**Why.** `runCycleOnce` is one brain-wide pass that never takes a source
+(`src/core/cycle/index.ts:496-841`); page-writing synthesis phases fall back to
+`default` (`synthesis/patterns.ts:208`, `drift.ts:272`), so non-default tenants
+never get reflections, patterns, drift or enrich-thin, and `cycle-freshness`
+checks one snapshot stream (`cycle-freshness.ts:9-10`). There is no skipped
+status, no reason codes, no totals, no abort — a timed-out phase keeps spending
+after the wrapper gives up (`index.ts:392-422`). A lost cycle lock is never
+detected: `refresh()` ignores its row count and both callers swallow it
+(`db-lock.ts:214-222`, `src/recipes/cycle.ts:235-241`). Consolidation,
+conversation-facts backfill and rechunk sweep are never scheduled; the synthesis
+chain runs only in a hard-coded Europe/Berlin 06–08 window that a 6 h interval
+hits at most once a day.
+
+**Scope.**
+
+- Phase-scope map (source / mixed / global) and per-source cycle jobs on RM-08's
+  queue: freshness phases per source, synthesis phases in a global lane with
+  per-source budgets, single-flight dispatch per source, failure cooldown from
+  dead/failed rows, per-source `last_source_cycle_at`/`last_full_cycle_at`
+  stamps (not stamped when every attempted phase failed), per-source freshness
+  doctor rows.
+- Structured cycle report: `skipped` status and reason codes
+  (`cycle_already_running`, `lock_stolen`, `aborted`, `budget_exhausted`),
+  error class/hint, totals rollup including spend, schema version; AbortSignal
+  and job deadline threaded into every phase with a reserve before the job kill.
+- Fenced lock refresh: `refresh()` returns affected rows; a zero-row refresh
+  aborts the run with a partial report and `lock_stolen`.
+- Scheduling: quiet hours configurable (`MEMEX_QUIET_HOURS`, `MEMEX_QUIET_TZ`)
+  and shared by the cycle and the jobs claim filter (respecting the existing
+  `quiet_hours_skip` job flag); consolidate-facts, conversation-facts backfill
+  and rechunk sweep schedulable via `MEMEX_CYCLE_EXTRA_PHASES`; a time-budgeted
+  link-extraction drain phase for `links_extracted_at` staleness; a
+  net-fact-deletion warning in fence reconcile.
+- Remove stale comments naming a non-existent `frontmatter-inference` phase and
+  the "6-phase" header (`src/recipes/cycle.ts`, `src/core/cycle/index.ts`).
+- Files: `src/core/cycle/index.ts`, all `cycle/*.ts` phases (signal + source
+  params), `synthesis/patterns.ts`, `reflections.ts`, `drift.ts`,
+  `enrich-thin.ts`, `auto-think.ts`, `src/recipes/cycle.ts`,
+  `src/commands/cycle.ts`, `db-lock.ts`, `cycle-freshness.ts`,
+  `jobs/quiet-hours.ts`, `facts-reconcile.ts`, `sources.ts`,
+  `deploy/docker-compose.yml`.
+
+**Depends on.** RM-03 (abort), RM-04 (per-source budgets), RM-08 (per-source
+jobs and admission).
+
+**Risks.** N tenants multiply paid synthesis (per-source caps, default-off
+stays); scheduled consolidation changes the fact ledger unattended (dry-run
+first run); the report schema change breaks the admin reports page (versioned).
+
+**Done when.** On a seeded two-tenant brain both tenants receive their own
+reflections/patterns pages with the right `source_id` and zero cross-tenant
+evidence; a simulated lock steal ends the run as `partial/lock_stolen` within one
+refresh interval; a phase with no work reports `skipped` with a reason; report
+totals equal the sum of phase spend rows; the freshness doctor shows per-source
+ages.
+
+### RM-18 — Doctor, advisor and self-healing v2
+
+**Why.** The one automatic data fix does nothing: `reembed-source` passes a
+tenant id such as `default` to `runReindex`, which acts only on
+`vault`/`code`/`all`, so the job "succeeds" without re-embedding
+(`src/core/jobs/remediation-handlers.ts:78-89`, `src/commands/reindex.ts:118-172`);
+tests inject a fake runner, so it was never exercised. Remediation is
+fire-and-forget with no ordering, no post-step recheck and no resume; only two
+actions are fixable. Doctor has no health score, no fix hints, no dead-link
+probe, no checks for silently broken paid features, no integrity checks, and no
+durable record of DB retries, pool reaps, lock faults or Bedrock refusals to
+correlate with incidents like the `page_put` latency. Advisor findings cannot be
+applied and carry no history.
+
+**Scope.**
+
+- Fix `reembed-source` (per-source re-embed through RM-02's job kinds) with an
+  un-mocked integration test.
+- An `ops_audit` table (kind, payload JSONB, source_id, ts) with a purge-phase
+  TTL, fed by retries, pool recovery, lock faults, content-sanity trips (RM-05)
+  and Bedrock refusal/guardrail/max-token outcomes; doctor and the admin SPA
+  read it.
+- Doctor health score and per-category scores, `top_issues` with fix hints,
+  `--fast`, `--scope`, `--locks` (idle-in-transaction backends older than
+  5 min); status sections with per-section deadlines.
+- Doctor long tail: LLM layer (calibration freshness, grade confidence drift,
+  voice-gate health, worth-verdict/extraction backlogs, phase spend rollups,
+  refusal rate) and integrity/graph (dead links, orphan ratio via
+  `orphan-policy.ts`, junk hubs, JSONB/frontmatter integrity including
+  scalar-string frontmatter, oversized pages, RLS-enabled audit, type
+  proliferation, timeline coverage, dangling aliases); an extraction health
+  aggregate view.
+- A retrieval upgrade plan: one `--plan` preview with row counts and a USD
+  estimate for pending re-chunk, re-embed and contextual-tier work before apply.
+- Remediation planner/runner on RM-08: steps with `depends_on`, idempotency
+  keys, wait for completion, plan recomputed from fresh health after each step,
+  target and reachable score reporting, budget-exhaustion checkpoint in the DB
+  and `--resume`; hard stop on the per-run budget.
+- Advisor structured findings with `dispatch_id` → allowlisted remediation
+  actions (`advisor --apply <id>` after confirmation, only actions verified to
+  fix the condition), run history and new/resolved delta, nag fingerprint;
+  onboarding-style coverage checks with an impact log of before/after metrics.
+- Stretch: a daily cohort anomaly mode for `find_anomalies`; a
+  deterministic-first/LLM-fallback telemetry wrapper for regex paths that fall
+  back to Bedrock.
+- Files: `src/core/jobs/remediation-handlers.ts`, `remediation.ts`,
+  `src/commands/doctor.ts`, `doctor-categories.ts`, `doctor-cause-rank.ts`,
+  `doctor-ops.ts`, `doctor-tenancy.ts`, `advisor/collectors.ts`, `advisor/run.ts`,
+  `advisor/types.ts`, `retry.ts`, `audit-week-file.ts` (retired for the DB
+  sink), `usage-insights.ts`, `src/commands/status.ts`, `cycle/purge.ts`,
+  `src/http/admin-api.ts`, `admin/src/pages/Dashboard.tsx`,
+  `src/mcp/operations.ts` (`run_doctor`, `advisor`), migrations (ops_audit,
+  remediation checkpoints, advisor history). Probes stay tenant-safe through
+  `run_doctor`; remediation dispatches job kinds and never shells out.
+
+**Depends on.** RM-08, RM-17.
+
+**Risks.** Automatic remediation mutating a live brain (dry-run default, budget
+cap, operator confirmation); doctor noise (every new check gets a
+false-positive test on the live corpus before shipping); audit table growth
+(TTL).
+
+**Done when.** An integration test proves `reembed-source` re-embeds the target
+source's null vectors; a seeded brain with a dead link, a scalar frontmatter row
+and a disabled RLS table produces three named findings with fix hints; a
+remediation run with a failing step skips its dependents, checkpoints on budget
+exhaustion and resumes to completion; the health score is computed on the live
+host and trended in the SPA.
+
+### RM-19 — Graph, timeline and entity enrichment
+
+**Why.** Out of the box the typed graph holds wikilink/code-ref edges and
+explicit `link` calls, and the timeline is empty unless events are added by hand
+or the meeting/anchor phases are on. `## Timeline` bullets, `### date — title`
+headers and `[Source: X, YYYY-MM-DD]` citations in page bodies never become
+`timeline_events` (`src/core/links-stale-sweep.ts:14`). Relative markdown links
+from imported doc trees are dropped (`links.ts:741-742`). Gazetteer edges go
+stale after renames with no scan, non-Latin names do not auto-link, and aliases
+colliding with titles create false edges. A long event summary aborts the insert
+because the dedup unique index keys raw `event` text
+(`079_timeline_dedup_detail.sql:39-41`). People and companies mentioned across
+many pages never become reviewable entity pages; duplicate stubs (`alice` next
+to `people/alice`) fold only by manual `memex merge`. `traverse_graph` on a hub
+has no row ceiling (`links.ts:600-617`). Agent-written pages get no feedback on
+broken citations or missing back-links. Chronicle auto-extraction never enqueues
+for grant-scoped writers (`src/mcp/dispatch.ts:1455-1456`).
+
+**Scope.**
+
+- Body timeline parsing (bullets, headers, inline citations, CJK dates) with a
+  replace-own `source_chunk_id` key, on write and as a backfill.
+- Timeline dedup index rebuilt on `md5(event)` with the existing partial
+  predicate, duplicates collapsed first.
+- Link extraction breadth: relative/same-directory resolution against the
+  linking page's path, qualified `[[source:dir/slug]]` syntax honouring grants,
+  basename multi-match producing explicit edges instead of a slugify guess.
+- Gazetteer hardening: read-only stale-mention scan + doctor check +
+  `--rebuild`, CJK minimum length and tokenizer, alias-vs-title collision skip,
+  organization/entity types; typed NER verbs over gazetteer mentions, not only
+  wikilinks.
+- Enrichment service minting reviewable people/company stub pages from repeated
+  mentions (mention-count tiers, quarantine marker until reviewed, operator-only
+  review ops), a Haiku extractor under a budget; an `unverified` stamp that drops
+  the compiled-truth boost for such stubs in search.
+- Automatic phantom-page redirect pass using `entity-merge.ts`, source-scoped,
+  capped per cycle, outcomes in `ops_audit` (RM-18); standalone bulk page→alias
+  and page→link converters on `slug_aliases` and `links`.
+- Write-time validators on `page_put` (citation shape, link resolvability,
+  back-link presence) returned as non-blocking `writer_lint`; decide explicitly
+  whether it stays advisory or becomes a commit-time gate over all pages touched
+  in one transaction; traversal row cap with a truncation flag.
+- Chronicle auto-extract enqueues for grant writers using the page's source and
+  per-grant budget.
+- Stretch: company/deal frontmatter edges after a link-origin coexistence
+  migration; unresolved frontmatter names reported back in `page_put`; a
+  `find_experts` labelled hit-rate fixture and replay Jaccard.
+- Files: `src/core/links.ts`, `links-read.ts`, `links-stale-sweep.ts`,
+  `gazetteer.ts`, `typed-links.ts`, `link-verb-infer.ts`, `timeline.ts`,
+  `timeline-meetings.ts`, `timeline-anchor.ts`, `entities.ts`, `entity-merge.ts`,
+  `slug-aliases.ts`, `page-aliases.ts`, `slug-canonicalize.ts`, `pages.ts`,
+  `search/hybrid.ts` (unverified stamp), `chronicle/extract-events.ts`,
+  `src/mcp/dispatch.ts`, `operations.ts`, `cycle/index.ts`, `insights.ts`,
+  migrations (md5 dedup index, enrichment review state). Stubs go through
+  `putPage` under the slug-owner fence.
+
+**Depends on.** RM-05 (junk-name gate), RM-08 (enrichment and review jobs).
+
+**Risks.** Auto-minted stubs pollute a curated vault (quarantine until reviewed,
+default off); timeline backfill rewrites many rows (replace-own keys keep it
+idempotent); index rebuild on live RDS (`lock_timeout`, quiet window).
+
+**Done when.** A page body with bullets, a header and two citations yields
+exactly those events and no duplicates on re-put; a 10 KB event inserts; a
+relative link in a nested doc resolves; renaming a person page followed by the
+stale scan lists the old mention edges; a phantom stub folds onto its canonical
+page with facts moved and an audit row; `traverse_graph` on a 10 k-edge hub
+returns at most the cap with `truncated:true`.
+
+### RM-20 — Think v2 and idea generation
+
+**Why.** `think` is the cross-page answer layer and it fails silently: a
+synthesis failure returns a null parse and a free-text reason, with no status
+enum and no answer even when retrieval gathered good pages
+(`src/core/synthesis/think.ts:952`, `:1178`, `:1250`); every page contributes a
+fixed 600-character excerpt regardless of budget (`think.ts:55`); month windows
+are not first-class. Nothing grades synthesized answers. Crossing a question with
+distant corners of the corpus to generate ideas is not possible today.
+
+**Scope.**
+
+- `synthesis_status` (`ok`, `empty_answer`, `not_json`, `output_truncated`,
+  `no_llm`, `model_unusable`, `llm_error`) with a closed failure class mapped
+  from Bedrock errors; an extractive fallback digest from gathered pages with
+  citations when compose fails (labelled as such); budget-aware per-page
+  excerpts (total budget, floor, ceiling); `YYYY-MM` month bounds with an
+  invalid-window error; salvage of partially valid envelopes through RM-04's
+  decoder.
+- Answer-quality panel: a Claude-only multi-judge rubric (Haiku/Sonnet/optional
+  Opus with prompt-varied judges) producing PASS/FAIL/INCONCLUSIVE with JSON
+  repair and receipts over a fixed think question set; disclose that same-family
+  judges are less independent than a cross-vendor panel.
+- After go — idea generation (`memex brainstorm`): a domain bank sampling one
+  page per slug prefix with an optional stale-corner bias, per-cross generation
+  with calibration context, a five-axis judge rubric, cost estimate and USD cap,
+  checkpoint/resume in the jobs table, output written as a synthesis page,
+  retrieval tenant-scoped through `hybridSearch`.
+- Files: `src/core/synthesis/think.ts`, `think-persist.ts`, `intent.ts`,
+  `search/filters.ts`, `src/commands/think.ts`, `src/mcp/operations.ts`,
+  `dispatch.ts` (`callThink` envelope), new `synthesis/brainstorm/*`, new
+  `src/commands/brainstorm.ts`, `src/commands/eval.ts` (panel lane),
+  `budget.ts`. Prompts and rubrics are memex-authored.
+
+**Depends on.** RM-04, RM-06, RM-11 (retrieval meta feeds status and fallback).
+
+**Risks.** An extractive fallback presenting weak evidence as an answer (label
+it); brainstorm spend per run (hard cap, estimate first); panel cost per release
+(sampled question set).
+
+**Done when.** A stubbed failing compose returns `synthesis_status:"llm_error"`
+plus a cited extractive answer; long pages contribute more than 600 characters
+within the total budget; the panel gives a stable verdict on the fixed question
+set across two runs; brainstorm (after go) resumes from a checkpoint without
+re-spending completed crosses.
+
+**Needs operator go.** The idea-generation half (recorded as ask).
+
+### RM-21 — Hosted onboarding, harness provisioning and skill distribution
+
+**Why.** Onboarding a new agent or teammate takes several `memex auth` calls
+plus a hand-written `claude mcp add` block; `scripts/mcp-refresh.sh` supports
+Claude Code only, with no hooks, no Codex/opencode config and no check that the
+minted credential reaches the intended source. There is no client-side check
+that a remote brain is reachable, that OAuth discovery and token minting work
+and that tools answer — the ship verify step does this by hand
+(`src/commands/auth.ts:569-692` covers only a PAT smoke). The skill pack cannot
+be installed or updated on a client without clobbering local edits, and the
+`list_brain_skillpack` advice points at a bundler (`src/commands/skillpack.ts`).
+
+**Scope.**
+
+- `memex connect` / `memex agent provision`: one transaction minting a
+  least-privilege grant from an RM-10 profile over memex's admin/OAuth APIs,
+  writing a private 0600 credentials handoff file with resume, printing or
+  installing paste-ready config for Claude Code (JSON), Codex (TOML with
+  `http_headers`) and the claude.ai connector, then verifying end to end (OAuth
+  discovery → token → `initialize` → `tools/list` → scoped read) and revoking the
+  fresh credential on failure.
+- Remote doctor: discovery metadata, client-credentials mint, MCP smoke, scope
+  probe, `/health` version-stamp drift, as one report usable in the ship verify
+  step.
+- Instruction blocks for client instruction files (CLAUDE.md/AGENTS.md):
+  marker-owned, idempotent, backed up, carrying the RM-07 `initialize` contract;
+  removed when writeback is off.
+- Skill distribution: stub `SKILL.md` pointers that fetch current bodies through
+  `get_skill` (the server stays the source of truth), an install ledger with
+  install-time hashes distinguishing local edits from server-side changes,
+  three-way diff with apply-clean-hunks, ledger-scoped remove; personas curated
+  from memex's own pack.
+- Claude Code/Codex plugin manifests pointing at the remote `/mcp` over OAuth
+  (no local stdio launcher), with skill text limited to what memex actually has.
+- Not in scope: local agent-workspace bootstrap (interview, identity render,
+  per-agent GitHub repo); only its verify round trip is taken.
+- Files: `src/commands/auth.ts`, new `src/commands/connect.ts`, `src/cli.ts`,
+  `src/cli-args.ts`, `src/commands/skillpack.ts`,
+  `src/core/skillpack/brain-resident.ts`, `oauth-provider.ts`,
+  `src/http/oauth-metadata.ts`, `scripts/mcp-refresh.sh`, new repo-root plugin
+  manifests, `docs/DEPLOYMENT.md`, `deploy/memex/docs/CLAUDE-CODE.md`.
+
+**Depends on.** RM-07, RM-09, RM-10.
+
+**Risks.** Credential material on disk (0600, never argv, redaction in errors);
+writing into users' instruction files (marker-bounded, backups, refuse symlinks);
+consent and privacy on shared brains.
+
+**Done when.** From a clean laptop profile, one command connects Claude Code to a
+local two-tenant memex, the verify step proves a tenant-scoped read, and a forced
+wrong source makes it fail and revoke; remote doctor is green against the live
+host in the ship loop; stub skill install reports `identical/differs/missing`
+correctly after a local edit and a server-side change.
+
+### RM-22 — Delegated agents for tenants
+
+**Why.** With RM-13 in place, a remote client (a teammate's Claude connector, a
+Codex harness) could hand the brain a bounded long-running task. Today every
+`jobs_*` tool is operator-only (`src/mcp/dispatch.ts:284-320`), jobs record no
+submitting principal or grant, and the columns meant for this (`bound_tools`,
+`bound_source_id`, `bound_max_concurrent`) are never read
+(`046_oauth.sql:61-65`).
+
+**Scope.**
+
+- Submission authority: every tenant-submitted job snapshots principal, grant
+  id, source, allowed tools, prefixes and a payload hash; the snapshot is
+  re-checked against the live grant at claim, retry and each tool boundary; a
+  narrowed or revoked grant stops pending and running work; LLM-spending kinds
+  stay operator-only unless the grant's profile allows delegation.
+- `submit_agent` (agent scope + delegating profile) intersecting requested tools
+  and prefixes with the bound grant, `FOR UPDATE` per-client concurrency check,
+  dry-run preview, owner-fenced `get_agent_job` with uniform not-found and queue
+  position; delegation audit rows.
+- Per-job-tree budget with CAS reservation/refund across children and subtree
+  halt on exhaustion; submit-time cost and duration projection; spend attributed
+  to the grant (RM-04).
+- Stretch: out-of-process isolation for tenant agent runs (a separate compose
+  worker service or Bun subprocess with a DB-heartbeat watchdog that exits for a
+  docker restart) so a runaway tenant job cannot take down the MCP server.
+- Files: `src/mcp/operations.ts`, `dispatch.ts`, `jobs/queue.ts`, `dag.ts`,
+  `worker.ts`, `src/core/agent/*` (from RM-13), `oauth-provider.ts`, `scope.ts`,
+  `budget.ts`, `src/http/public_guard.ts`, `deploy/docker-compose.yml`
+  (optional worker service), migrations (job authority columns, delegation
+  audit, tree budget). No filesystem-root jobs.
+
+**Depends on.** RM-04, RM-10, RM-13.
+
+**Risks.** The largest authorization surface in the program — blast radius
+stated, `security-engineer` + second-opinion review, a live two-tenant pilot
+smoke before enabling; cost exposure per tenant (tree budgets finite by
+default); prompt injection from tenant content steering tools (allowlist,
+fences, sanitizer, no graph-edge writes).
+
+**Done when.** A tenant submits an agent task that reads only its source and
+writes only its prefix; revoking the grant mid-run stops the job at the next tool
+boundary; a concurrent submit beyond `bound_max_concurrent` is refused; a child
+exhausting the tree budget halts its siblings; the RM-01 isolation matrix covers
+the new ops.
+
+**Needs operator go.** Yes, the same go as RM-13.
+
+### RM-23 — Code intelligence v2
+
+**Why.** memex parses five languages with six grammars
+(`src/core/chunkers/parsers.ts:28-56`) — plain JavaScript repos are not parsed.
+Code chunks are never embedded (`src/core/indexer-code.ts`,
+`embed-backfill.ts:236`), so "where do we retry Bedrock throttles" cannot reach
+code through the vector arm. Class chunks duplicate every method body, decorators
+fall outside Python chunks, qualified names always use `::`. Callee resolution
+is bare-name and same-document only, so same-named methods alias. An empty result
+does not say whether the symbol is missing or the graph is unbuilt. (RM-01
+Release C fixes the edge `source_id`; this item fixes fidelity.)
+
+**Scope.**
+
+- Grammars from official per-language npm packages at the pinned
+  web-tree-sitter ABI (JavaScript/JSX first, then Rust, Java, C#, Ruby) with
+  node-type tables and self-check probes.
+- Embed code chunks with a `[lang] path:start-end kind name (in Parent)` header
+  stripped before unchanged-chunk reuse, through Titan with spend accounting;
+  oversize symbol splitting at body-child boundaries and a Titan input cap; slim
+  class scope headers with member digests; per-language qualified-name
+  separators with a chunker version bump and backfill; decorator-inclusive
+  ranges.
+- Edge fidelity: receiver-type resolution (`this`/`self`, imported receivers,
+  `new C()` locals), import and type-reference edges, an extractor-version
+  watermark that re-walks old chunks, unmatched counts.
+- Readiness signal on empty code lookups (`not_built`, `no_symbols`,
+  `indexing`, `ready`); ranked definitions with snippets and a language filter;
+  text-occurrence refs; resolved/unresolved flags; `code-blast`/`code-flow` CLI
+  with source flags; cost-previewed code reindex.
+- A code-retrieval eval comparing hybrid search with the code ops on a public
+  fixture corpus.
+- Stretch: small-sibling merge with a definition guard; Svelte/Astro script
+  regions.
+- Not in scope: a traversal cache; semantic/LLM chunkers (one Titan call per
+  sentence, no batch API).
+- Files: `src/core/chunkers/parsers.ts`, `code.ts`, `fenced-code.ts`,
+  `code-entities.ts`, `code-edges.ts`, `code-graph.ts`, `code-walk.ts`,
+  `indexer-code.ts`, `sweep-code.ts`, `embed-backfill.ts`,
+  `contextual-reembed.ts`, `cycle/resolve-symbol-edges.ts`, `chunker-version.ts`,
+  `search/structural-expand.ts`, `src/commands/code.ts`, `reindex.ts`, `wasm/`,
+  `scripts/vendor-grammars.ts`, `src/mcp/operations.ts`, migrations
+  (qualified-name backfill, edge watermark). Keeps the iterative visitor,
+  doc-comment extraction and the single-table `code_edges_symbol` design.
+
+**Depends on.** RM-01 (edge `source_id`), RM-02 (embedding jobs), RM-06 (eval
+harness).
+
+**Risks.** Embedding a large code corpus costs money and grows the HNSW index
+(dry-run cost preview, opt-in per source); the separator change invalidates
+`near_symbol` inputs (accept both during a deprecation window); WASM memory on
+the t4g.medium host.
+
+**Done when.** A JS fixture repo yields symbol chunks, call edges and
+definitions; a semantic code question hits the right function via the vector arm
+with precision above the hybrid baseline in the code-retrieval eval;
+`this.save()` resolves to `Class::save`; an empty `code_def` on an unindexed
+source returns `not_built`; decorated Python functions include their decorators.
+
+**Needs operator go.** New grammars beyond the current set (wide tree-sitter
+language coverage is recorded as deferred); JavaScript is the recommended first
+addition.
+
+### RM-24 — Operator CLI and config plane
+
+**Why.** `memex config set` accepts any key matching `^MEMEX_[A-Z0-9_]{1,64}$`,
+so `MEMEX_SERCH_MODE` silently stores a dead key and malformed values fail only
+at the next restart (`src/commands/config.ts`, `src/core/runtime-config.ts`);
+env readers disagree on `1`/`true`/`yes` across ~119 `process.env.MEMEX_*`
+reads. Long commands (embed, reindex, extract, migrate-engine) print progress to
+stdout, which pollutes `--json` (`src/core/output/progress.ts`), and give cron
+and agents no machine-readable progress. There is no confirmation helper, no
+PGLite rebuild path for local installs (`src/commands/init.ts:97` exits 0 on an
+existing install), no CLI for insight ops beyond `memex call`, and no
+`purge-deleted` CLI.
+
+**Scope.**
+
+- A known-key registry generated from the `MEMEX_*` reads (type, default,
+  validator, sensitive flag, docs link), did-you-mean on keys (Levenshtein),
+  set-time validation, one canonical truthiness helper adopted everywhere, and a
+  drift test against `docs/CONFIGURATION.md` and the compose allowlist. Env wins
+  over the DB overlay; no dotted keys.
+- Global flags accepted in any position (`--quiet`, `--progress-json`,
+  `--timeout` with exit 124); a stderr progress reporter (human/JSON/quiet,
+  rate-limited ticks, abort event); a shared yes/no prompt that declines on EOF.
+- `memex reinit-pglite` for local/dev installs; `memex pages purge-deleted`;
+  `whoknows`/`anomalies`/`calibration` CLI wrappers over dispatch with
+  `--explain`.
+- Stretch: a four-metric operator scorecard from facts and takes (the backup
+  posture verdict lives in RM-25).
+- Not in scope: publish-to-HTML, provider pickers, self-upgrade, mounts.
+- Files: `src/core/runtime-config.ts`, `config.ts`, `src/commands/config.ts`,
+  `src/cli.ts`, `src/cli-args.ts`, `src/core/output/progress.ts`,
+  `src/commands/embed.ts`, `reindex.ts`, `extract.ts`, `migrate-engine.ts`,
+  `init.ts`, `pages.ts`, new `src/commands/insights.ts`, `docs/CONFIGURATION.md`,
+  `deploy/docker-compose.yml`.
+
+**Depends on.** RM-03 (bounded teardown and exit semantics).
+
+**Risks.** Tightening `config set` rejects keys operators already stored (report
+existing unknown keys first); the stderr/stdout split changes scripts that parse
+output (release note).
+
+**Done when.** `config set MEMEX_SERCH_MODE x` fails with a suggestion; a test
+enumerates every `process.env.MEMEX_*` read and fails if a key is missing from
+the registry or the compose allowlist; `memex embed --progress-json` emits
+parseable events on stderr while stdout stays valid JSON.
+
+### RM-25 — Composite page identity and full-fidelity portability
+
+**Why.** `pages.slug` is the global primary key (migration 015): one owner per
+slug. Two tenants cannot both own `people/alice`, and `page_put` distinguishes
+"owned by another source" from "free", so a tenant can enumerate other tenants'
+slugs (see "Cross-tenant slug enumeration" below). The fix touches every read
+path that resolves a slug plus `slug_aliases`, merge, rename and the page mirror
+path (see "Page mirror path collision" below). Such a migration needs a tested
+rollback, yet `migrate-engine` copies only the legacy table set — no pages,
+versions, links, facts, timeline, synth tables or OAuth rows
+(`src/commands/migrate-engine.ts:45-90`) — and `memex export` is one-way and
+lossy.
+
+**Scope.**
+
+- Portability first: catalog-driven full-table engine copy in FK order (column
+  intersection, GENERATED columns skipped, resume manifest, per-table verify
+  counts, config flip only on zero failures); `memex import` restoring
+  `memex export` output with pages, versions, facts and tags per source
+  (quarantining unfinished jobs on restore); a read-only backup-posture verdict
+  (RDS automated backup retention, EFS backup policy, secret presence) from
+  read-only AWS calls.
+- Identity: `(source_id, slug)` primary key through a backfill-safe plan (shadow
+  column, dual-read, cutover), a non-transactional `CREATE INDEX CONCURRENTLY`
+  migration lane, slug resolution taking the caller's source,
+  aliases/merge/rename/mirror paths keyed by source, uniform write outcomes that
+  no longer leak existence.
+- Files: new migrations after `015_pages.sql`, `src/core/pages.ts`,
+  `slug-resolve.ts`, `slug-canonicalize.ts`, `slug-aliases.ts`,
+  `page-aliases.ts`, `entity-merge.ts`, `page-index.ts`, `page-retype.ts`,
+  `links.ts`, `facts.ts`, `timeline.ts`, `tags.ts`, `src/mcp/dispatch.ts`,
+  `migrate.ts`, `src/commands/migrate-engine.ts`, `export.ts`, new
+  `src/commands/import.ts`, `src/commands/doctor.ts`. Migration 059 is not
+  reverted.
+
+**Depends on.** RM-01, RM-03.
+
+**Risks.** The highest-risk schema change in the program — full RDS snapshot
+first, rehearsal on a restored snapshot, a written rollback, a maintenance
+window, terraform untouched; every slug-keyed index and FK changes; external
+clients passing bare slugs keep working only through the caller's source.
+
+**Done when.** A PGLite→Postgres→PGLite round trip preserves every row count and
+content hash across all tables; importing an export reproduces pages, facts and
+versions for a source; on a rehearsal copy of the live DB, two tenants each
+create `people/alice`, both reads return their own page, and `page_put` gives
+identical outcomes for "taken elsewhere" and "free"; the full sharded suite and
+the Postgres lane pass on the new identity.
+
+**Needs operator go.** Yes: an explicit plan and go (the composite key was
+deferred in favour of tenant slug prefixes on 2026-07-02 and re-opened on
+2026-09-07).
+
+### RM-26 — Live source connectors (chat history, GitHub)
+
+**Why.** RM-14 imports exports and sessions the operator pushes. Continuous
+capture of ChatGPT/Claude.ai history, and of project history (issues, PRs,
+reviews) next to the code graph, is the remaining connector gap; neither was
+part of the removed life integrations.
+
+**Scope.**
+
+- A provider seam with a response classifier (rate limit, auth, challenge page,
+  5xx) and a fixed-origin client with spacing and retry-after; a clean-run-only
+  watermark with a trailing gap-heal window in `recipe_state`; statuses
+  (`success`, `nothing_new`, `partial`, `auth_required`, `forbidden`); a
+  `connector_sync` job kind with per-provider schedule; a doctor check for
+  re-auth needed and stalls. Shares RM-14's supervised source interface.
+- Chat connectors run client-side (laptop CLI) and push through RM-14's pipeline,
+  because provider challenge pages make fetches from the EC2 egress a likely dead
+  end; credentials never enter the DB or MCP payloads; the export-file path stays
+  the supported fallback.
+- GitHub source kind: token from Secrets Manager under
+  `<secrets_prefix>/github-<name>`, issue/PR/review/check pages under a source,
+  `#n` and `Closes/Fixes` links, since-delta and full reconcile, an HMAC-verified
+  webhook route beside `/ingest` (public-ingress change, security review).
+- Files: new `src/core/connectors/*`, `recipe-state.ts`, `sources.ts`,
+  `src/commands/sources.ts`, `src/http/server.ts`, new `src/http/webhooks.ts`,
+  `src/http/public_guard.ts`, `jobs/handlers.ts`, `src/commands/doctor.ts`,
+  client-side scripts, secret pointers only (terraform only if a new secret
+  resource is approved).
+
+**Depends on.** RM-05, RM-08, RM-14.
+
+**Risks.** Provider terms and breakage (cookie lanes are brittle); a new public
+webhook route; personal data volume and privacy on shared brains.
+
+**Done when.** A recorded-response test suite covers each provider state; the
+watermark does not advance on a partial run; a GitHub fixture repo mirrors
+issues/PRs with links and a webhook refresh updates one item; doctor flags an
+expired credential.
+
+**Needs operator go.** Yes (Gmail/Calendar stay out; see open decisions).
+
+### RM-27 — Skill optimization loop
+
+**Why.** memex ships a `skill-optimizer` skill with no backing code
+(`deploy/skills/skill-optimizer/SKILL.md`). With routing-eval files in the pack,
+a measured, validation-gated edit loop would improve the 59 skills against
+benchmarks instead of hand edits — once RM-13 exists to run rollouts.
+
+**Scope.**
+
+- JSONL benchmark format and splitter; read-only rollouts through the RM-13 loop
+  over an allowlist without write tools; rule and LLM judges (Claude tiers); a
+  median-of-3 validation gate with an epsilon; a pure add/replace/delete
+  markdown patcher with frontmatter immutability; version store, checkpoints and
+  a rejected-edit buffer in RDS; per-skill DB lock, cost preflight and USD caps;
+  an audit trail.
+- Benchmark bootstrap from routing-eval files with a review sentinel; a
+  held-out gate; an opt-in cycle phase for stale skills with hard caps; an
+  operator-only MCP op with confined benchmark paths.
+- Output is a proposed diff for the operator's laptop checkout (the container
+  mounts skills read-only), never an in-container write.
+- Files: new `src/core/skillopt/*`, `src/core/agent/*` (rollout),
+  `deploy/skills/*/routing-eval.jsonl`, `budget.ts`, `db-lock.ts`,
+  `cycle/index.ts`, `src/mcp/operations.ts`, new `src/commands/skillopt.ts`.
+
+**Depends on.** RM-06, RM-09, RM-13.
+
+**Risks.** Paid rollouts (hard caps); overfitting to small benchmarks (held-out
+gate); proposed skill prose must pass `make scrub-audit`.
+
+**Done when.** On a seeded benchmark, a deliberately degraded skill improves
+beyond the validation epsilon on held-out tasks and an unhelpful edit is
+rejected; a run stops at its USD cap with a checkpoint; proposed diffs pass
+`make scrub-audit`.
+
+**Needs operator go.** Yes (recorded as deferred, low priority).
+
+### Not planned
+
+Not in any roadmap item, with the reason:
+
+- **Cross-encoder rerank tier and score-cliff autocut** — blocked by the
+  Anthropic-via-Bedrock-only rule and the absence of a calibrated rerank score;
+  reopens only if the first-party Bedrock rerank question below is answered yes.
+- **Embedding model migration tooling** — no model switch is decided; build it
+  alongside a decided swap.
+- **Image search and multimodal/OCR** — no image corpus; Titan Multimodal G1 is
+  the path if one appears.
+- **Multi-provider LLM plumbing** — conflicts with Anthropic via Bedrock only.
+- **Per-holder persisted calibration rows** — a live per-holder scorecard
+  already exists (`src/core/synthesis/reads.ts:106-156`, migration 091).
+- **Takes-quality model panel** — triaged out; a cross-provider panel also
+  conflicts with the model rule.
+- **Markdown-first fact writes** — memex is DB-canonical.
+- **Cross-brain calibration and SVG charts** — no federation; value-1 items.
+- **Publish gates for skill catalogs** — the pack is public repo content and
+  `advisor` is already operator-only.
+- **SSRF-guarded outbound fetch** — memex fetches no caller-supplied URL today;
+  add it with the first feature that does.
+- **Outbound credential vault, Google OAuth, Google source, open-loop detection
+  and email-derived loops** — life integrations were removed on purpose.
+- **Keyless capability probe and a local IPC listener** — one provider,
+  HTTP-only serving.
+- **Cross-source identity groups** — overlaps the deferred federation decision.
+- **Unix-socket IPC and a hook relay to a third-party store** — prod is RDS;
+  the relay would leave the AWS data boundary.
+- **A generic backfill framework and a frontmatter engine** — memex already has
+  keyset-checkpointed backfill (`src/core/embed-backfill.ts:42-47`) and a line
+  parser (`src/core/frontmatter.ts:15-40`).
+- **Emotional-weight scoring** — already folded into salience
+  (`src/core/salience-score.ts`); `pages.emotional_weight` (migration 024) has no
+  writer and is a cleanup candidate, not work.
+- **A nightly answer-quality probe** — the retrieval probe covers the brain;
+  answer quality arrives through RM-06/RM-20.
+- **Inline private-queue drain, a filing-rule ladder, a skill DRY auto-fixer** —
+  runtime and authoring shapes memex does not use; grant prefixes already fence
+  writes.
+- **Git-remote backup coverage and a filesystem corpus sweep** — DB-canonical;
+  the RDS posture verdict is in RM-25.
+- **Private per-run queues, in-agent local installer, host context engine,
+  vendor-binary E2E** — single EC2, remote-MCP-only deployment.
+- **Audio transcription** — needs new AWS infrastructure nobody requested and
+  there is no audio corpus.
+- **Git-backed sync family, disk write-through, archive crawler** — deferred
+  federation plus a DB-canonical store with no consumer.
+- **Conversation-parser LLM fallback, its cache and its eval** — the parser is
+  deterministic by design (`src/core/conversation-parser.ts:10-13`).
+- **Configurable FTS language** — `'simple'` stays for the multilingual corpus;
+  CJK handling arrives in RM-11 without changing it.
+- **Blob storage tiers, PGLite WAL repair extras, a dual pool manager, a wide
+  engine contract / multi-brain registry** — deferred by stack, closed, or no
+  capability gain (memex connects directly to RDS).
+- **A skill pack registry network and schema packs** — no third-party pack
+  ecosystem; no operator-authored packs served to multiple tenants. The dead
+  schema skills are handled in RM-09.
+- **Alias type classification** — stricter write-time enforcement already exists
+  (`src/core/pages.ts:180-195`).
+- **Local agent-workspace bootstrap and integration recipes** — RM-21 takes only
+  the verify round trip; passive-ingest integrations are out of scope.
+- **A bench baseline file gate** — the gate lives in bun tests on purpose
+  (`src/commands/bench.ts:13-18`).
+- **Multi-harness bench adapters** — reconsider after RM-12's hook entry exists.
+- **Retrieval drift watch** — the container has no `.git`; local retrieval gates
+  are already mandatory.
+- **Parser/extractor eval gates** — RM-14 adds per-format parser unit tests.
+- **Self-upgrade, provider pickers, mounts/resolvers, serve-delegated sync** —
+  conflict with the docker/SSM deploy, Bedrock-only stack and RDS; a Bedrock
+  reachability probe is folded into RM-04.
+- **A code traversal cache and semantic/LLM chunkers** — triaged out; one Titan
+  call per sentence with no batch API.
+- **Markdown chunker helpers** — H1 title fallback exists
+  (`src/core/indexer.ts:444`); timeline splitting belongs to RM-19.
+- **An in-app PID-1 reaper** — replaced by `init: true` on the compose service
+  (RM-03).
+- **Git clone/visibility and host-install helpers** — no counterpart on this
+  deployment.
+- **Per-book long-document fan-out** — no book corpus; revisit when RM-13/RM-15
+  need fan-out over one large page.
+
+Closed operator decisions this roadmap does not re-raise:
+
+- **A fixed memory-verb façade over the write tools, and renaming `recall`.**
+  RM-12's `context_pack`/`context_delta` are new read-only, public-forbidden
+  tools over existing reads.
+- **Refused with evidence:** MCP ToolAnnotations; `add_fact` TTL →
+  `valid_until`; remote writes defaulting to `visibility=world`; opaque string
+  protocol ids; failing a whole batch when every item is invalid;
+  read-back-and-throw write verification; renaming `orphans`; downgrading
+  web-tree-sitter or using the broken grammar blob package; a pre-auth throttle
+  on internal `/ingest`; migrating legacy relative `source_path` rows;
+  configurable default fact visibility.
+- **Closed:** linter choice (@antfu); instance size t4g.medium (heavy eval and
+  agent runs go off-host or are capped).
+- **Accepted deviations:** Anthropic via Bedrock plus Titan embeddings only; the
+  permanent public bearer (rotation stays disabled); the semantic query-cache arm
+  default off; the conservative default search bundle; `'simple'` FTS; the
+  facts/takes deviations (fence stripped from chunks, holder default, scoped
+  principals floored to world); the MCP-surface deviations (remote
+  `get_recent_transcripts`, admin-scoped purge, `think` behind a flag, public
+  stats/jobs forbidden).
+- **Triaged skips:** drift decisions table, calibration (source_id, holder)
+  scoping, conversation-parser LLM cache, features scan, takes-quality eval,
+  conversation-parser eval, publish, backlinks materialization, pages→content
+  chunks merge.
+- **Standing constraints:** no unrequested monitoring, alarms or AWS
+  infrastructure (a Guardrail resource, a non-BYPASSRLS role, new secrets or IAM
+  are operator-gated); synthesis and agent output only in their own namespaces;
+  ship through `/ship`.
+- **Still deferred and unscheduled:** jobs-follow, a backfill runner,
+  frontmatter tooling, an op-registry CLI (RM-07 builds only the conformance
+  runner), a bench trend table, ontology transaction-time history.
+
+### Open operator decisions
+
+1. **First-party Bedrock rerank model.** The "Deferred by stack" table says
+   Bedrock has no rerank API, but Bedrock now exposes a Rerank API with a
+   first-party Amazon model — closer to the Titan embeddings allowance than to an
+   external reranker. EU-region availability is unverified. If allowed, a rerank
+   arm with readiness and fail-open stamps plus autocut becomes a phase of RM-11.
+2. **Agent runtime go/no-go** for RM-13 and RM-22. The ledger ships with no
+   runner (`src/core/subagent_ledger.ts`, migration 021), the `agent` scope is
+   unused, `bound_tools`/`bound_max_concurrent` are never read (migration 046),
+   and `deploy/skills/minion-orchestrator/SKILL.md:13-15,71` promises subagent
+   and shell jobs.
+3. **Benchmark spend** for RM-06 (retrieval lane about a dollar of embeddings
+   before caching; the judged lane materially more), and whether to run it
+   locally or on a disposable environment.
+4. **Idea generation and skill optimization** (RM-20 second half, RM-27), and
+   wider tree-sitter language coverage (RM-23).
+5. **Public graph edge dump revisit.** The 2026-08-15 acceptance of
+   `graph_neighbors`/`graph_query` returning raw edges on public ingress said to
+   revisit "if the brain ever serves more than one person"; v1.128.0 lets one
+   connector serve a team. Tenant tokens are not public-classified and graph
+   reads are source-scoped, so the question is who holds the static public
+   bearer today.
+6. **Entity card by free text.** The earlier refusal named a specific slug-leak
+   defect, not the capability; a public-forbidden, grant-scoped card composed of
+   `resolve_slugs` + `entity_recall` exposes nothing a caller cannot already reach
+   in two calls, and the RM-01 matrix supplies the proof. Reopen inside RM-12?
+7. **Life integrations stay removed** (Gmail/Calendar). Recommended default:
+   yes. Remnants remain (`src/core/recipe-state.ts`, `mailbox`/`calendar` source
+   kinds in migration 004).
+8. **Page/timeline FTS arm.** "Deferred real gap (2026-07-07) — page/timeline
+   FTS" below calls it high value, while an earlier worklog marked it skipped
+   because pages are mirrored into chunks. Decide which record stands before
+   RM-11 planning; RM-19 makes timeline text richer.
+9. **`MEMEX_OAUTH_REQUIRE_LOGIN` on prod.** Owner consent on authorization-code
+   connections is desirable, but with memex's single operator login the flag
+   blocks teammates on an enrollment connector (`docs/CONFIGURATION.md`).
+10. **`MEMEX_TENANT_FAIL_CLOSED=1` live**, set and verified before any
+    second-tenant credential (RM-01 gated step).
+11. **Revoke unused clients** `operator` and `cloud-app`; the admin bootstrap
+    secret.
+12. **`MEMEX_CONTEXTUAL_LLM=0` experiment** against the eval-probe baseline
+    (RM-02).
+13. **Also pending:** the 182-day takes grading bar; `synth_takes.holder`
+    default `world`; the `MEMEX_TOOL_PROFILE` starter set (RM-07); pilot Bedrock
+    posture (no Guardrail, invocation logging off, Nova still allowed in
+    `terraform/iam.tf`, `us-east-1` in allowed regions).
+
+---
+
+
 ## The `[] = no grant` contract is enforced in some layers, not all (2026-09-08)
+
+Tracked in RM-01 (Release A).
 
 The rule is now: `undefined` is the operator (whole brain), an EMPTY array is a
 caller granted nothing and must read nothing. It holds in `core/insights.ts`,
@@ -33,6 +2110,8 @@ fenced on empty".
 
 ## Derived writes carry the caller's source on three page paths (2026-09-08)
 
+Tracked in RM-01 (Release B).
+
 `page_put` now hands every derived writer the PAGE's source, so an unscoped
 operator write cannot re-home a tenant's links, facts and watermark to
 `default`. The same argument is still the caller's on:
@@ -50,6 +2129,8 @@ The NULL-owner refusal is covered; the race itself is argued from the SQL, not
 demonstrated.
 
 ## Operator tags land in `default`, invisible to the page's owner (2026-09-08)
+
+Tracked in RM-01 (Release B).
 
 `addTag` stamps `source_id` only when the caller names one, so an UNSCOPED call
 (local CLI, internal token, `add_tag` with no write source) writes the tag under

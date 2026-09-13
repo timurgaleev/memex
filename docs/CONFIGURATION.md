@@ -238,34 +238,90 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
 
-### What an empty grant means
+### Source scope contract
 
-A read scope is either **absent** or **empty**, and they mean opposite things:
+Every read path takes the caller's source scope as `sourceIds`, and its four
+shapes mean different things:
 
-- `undefined` — unscoped. The local CLI, the internal token and every
-  pre-tenancy caller read the whole brain. This is the operator path.
-- `[]` — a caller that was granted **nothing**, and it must read nothing. The
-  predicate is still applied and `= ANY('{}')` matches no row.
+| `sourceIds` | Who | Reads |
+|---|---|---|
+| `undefined` | the local CLI, the internal token, the operator | the whole brain — no predicate at all |
+| `[]` | an authenticated caller granted nothing | **nothing** |
+| `[NO_SOURCE_SENTINEL]` | the write-side floor; a read helper that meets it treats it as `[]` | nothing (same as `[]`) |
+| `['a', 'b']` | a scoped or federated grant | only those sources |
 
-Folding the two together is the bug shape to watch for (`opts.sourceIds ?? []`
-followed by a length check): it hands the caller with no grant strictly more
-than a caller with a narrow one. Since v1.127.0 the rule holds in
-`core/insights.ts`, `core/synthesis/reads.ts`, `core/synthesis/think.ts` and the
-keyword and vector arms, each pinned by a test.
+Folding `[]` into `undefined` is the bug shape: it hands the caller with no
+grant strictly more than a caller with a narrow one. The rule is therefore:
 
-It does **not** yet hold end to end through hybrid retrieval — the query-cache
-key, cached hydration, the identifier arm, final hydration and `callThink` still
-widen an empty scope. `TODO.md` lists those with file:line. Nothing on a
-single-operator brain can reach them (every source belongs to the operator) and
-MCP dispatch attaches a fail-closed sentinel rather than `[]`, but do not read
-the fenced layers as "search is scoped on empty".
+> **Never test a source list with `x && x.length`.** Test `!== undefined`, or
+> build the SQL through the helper below.
+
+`deploy/memex/src/core/source-scope.ts` is the one reading of that contract:
+
+- **`isNoGrant(scope)`** — true for `[]` or a sentinel-only list. Use it to
+  return early before doing paid or expensive work: `hybridSearch` returns no
+  rows before embedding the query or touching the cache, so an empty grant costs
+  nothing.
+- **`andSourceScope(col, scope, params)`** — the SQL fragment for a read. It
+  returns `""` when unscoped (so the operator's SQL text is byte-identical),
+  ` AND FALSE` for an empty grant or a sentinel-only list (never a lookup of the
+  sentinel id — `registerSource` refuses that id), and ` AND <col> = ANY($n::text[])` otherwise,
+  pushing the bound array onto `params` only when it emits a predicate. The
+  column must be a plain `column` or `alias.column` identifier.
+- **`normalizeScope(scope)`** — cleans a list for a bound array (drops blanks,
+  dedupes) while keeping `undefined` unscoped and `[]` empty. Use it instead of a
+  local normaliser; a local one that returns `undefined` for an empty list is the
+  bug shape.
+- **`normalizeSourceFilterParam(value)`** — for a USER-supplied filter only (a
+  CLI flag, a bench fixture): an empty or blank list means "no filter given" and
+  becomes `undefined`. Never pass an auth-derived scope through it.
+
+Three tests hold the contract in place:
+
+- `deploy/memex/tests/source_scope_pattern_ratchet.test.ts` scans
+  `deploy/memex/src` (comments stripped) for the collapsing
+  `sourceIds && sourceIds.length` shape, its `Array.isArray(x) && x.length` form,
+  and normalisers that map an empty list to `undefined`, under any
+  `source(s)`/`sourceId(s)` name, and fails on any hit. A second case proves the pattern still matches a probe,
+  so the ratchet cannot pass by matching nothing.
+- `deploy/memex/tests/operator_scope_parity.test.ts` proves the operator's reads
+  did not move. It seeds a fixed two-tenant brain, runs 46 read tools UNSCOPED
+  through `dispatchTool`, and compares the SQL text, bound params and response of
+  each with `deploy/memex/tests/fixtures/operator_scope_parity.json`
+  (timestamps, latencies and float tails beyond six decimals are scrubbed). When
+  an operator-visible change is intended, re-record deliberately and review
+  the fixture diff line by line before accepting it:
+
+  ```bash
+  cd deploy/memex
+  MEMEX_RECORD_OPERATOR_PARITY=1 bun test tests/operator_scope_parity.test.ts
+  git diff tests/fixtures/operator_scope_parity.json
+  ```
+
+  Any diff you did not intend is a regression in the operator path, not a
+  fixture to refresh.
+- `deploy/memex/tests/tenant_isolation_matrix.test.ts` gives every MCP operation
+  a row in `deploy/memex/tests/fixtures/tenant_isolation_matrix.ts` (`isolated`,
+  `brainwide`, `operator_only`, `write`, or `skip` with the suite that owns it)
+  and fails when an operation has none. Each `isolated` read must first show
+  the operator a second tenant's data (otherwise the row is vacuous and fails),
+  then must not show it to a scoped, a federated or a no-grant caller.
+
+Hybrid search honours the contract end to end: query-cache keys for `[]` differ
+from the unscoped key, both hydration passes are scoped, and the identifier,
+relational, structural and alias-hop arms read nothing for an empty grant. The
+final hydration pass also applies the visibility filter, so a soft-deleted,
+archived or quarantined page no longer surfaces as a structural neighbour. The
+remaining layers — core readers, MCP dispatch, derived writes, source deletion,
+purge and code-graph edges — are tracked with file:line in `TODO.md` under
+RM-01.
 
 The same split governs writes. A page's derived rows — links, mentions, typed
 and verb edges, the extraction watermark, fence-derived facts — carry the
 **page's** source, not the caller's, so an unscoped operator write cannot
 re-home a tenant's projections into `default`. `page_put` does this; the
 `page_append`, `page_revert` and `page_restore` paths still carry the caller's
-source (also in `TODO.md`).
+source (RM-01 Release B).
 
 ### Running more than one tenant
 

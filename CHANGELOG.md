@@ -6,6 +6,54 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **A caller granted no source could still read through hybrid search.** An
+  empty grant (`sourceIds: []`) must read nothing, but several search stages
+  tested the list with `x && x.length` and treated it as the whole brain: the
+  query-cache key was the same as the unscoped one, so an empty grant could hit
+  an entry built brain-wide; cached and final hydration dropped the source
+  filter; and the default-on identifier arm returned another tenant's pages.
+  MCP dispatch attaches a fail-closed sentinel rather than `[]` and a
+  single-operator brain has no other tenant to leak, but no layer below
+  dispatch was safe on its own.
+
+  `hybridSearch` now returns no rows for an empty grant before it embeds the
+  query or touches the cache, so it also spends nothing. Cache keys for `[]`
+  differ from the unscoped key while the operator's keys stay byte-identical;
+  both hydration passes and the identifier, relational, structural-expansion
+  and alias-hop arms are scoped, and alias-hop no longer injects another
+  tenant's page head. The ranking modules (cosine rescore, graph signals,
+  backlink boost, graph rerank, refine) read the scope the same way.
+
+  The final hydration pass now also filters soft-deleted, archived and
+  quarantined documents, so such a page can no longer surface as a structural
+  neighbour. This is the one change operator results can see.
+
+  The same bug sat outside search. Around a hundred read sites across pages,
+  links, facts, timeline, tags, chunks, slugs, aliases, raw data, the ingest
+  log, context, chronicle and the MCP dispatcher, plus four copies of a helper
+  that turned `[]` into "no filter" behind `get_recent_salience`,
+  `find_anomalies`, every `code_*` read and `get_recent_transcripts`, now read an
+  empty grant as nothing. Purging deleted pages with an empty scope purges
+  nothing; take status and resolution writes with an empty scope update nothing.
+  With `MEMEX_TENANT_FAIL_CLOSED=1` an authenticated caller with no grant now
+  resolves to an empty read scope instead of a sentinel id, a sentinel-only scope
+  is denied outright rather than looked up, and `registerSource` refuses the
+  sentinel as a source id.
+
+  `core/source-scope.ts` is the single reading of the contract (`isNoGrant`,
+  `andSourceScope`, `normalizeScope`, `normalizeSourceFilterParam`). A ratchet
+  test fails on any new collapsing test of a source list; an operator fixture
+  pins the SQL text, params and responses of 46 unscoped read tools so scoping
+  work cannot move the operator's results unnoticed; and an isolation matrix
+  gives every MCP operation a disposition and drives each read through a scoped,
+  a federated and a no-grant caller, failing on any other tenant's token. The contract is written down in
+  `docs/CONFIGURATION.md` under "Source scope contract".
+
+### Added
+- Third-party license notices for bundled dependencies
+  (`THIRD_PARTY_NOTICES.md`).
+
 ### Documentation
 - **The docs still said one brain serves one person.** They were written before
   a grant could carry its own tenant, so three places had drifted out of step
