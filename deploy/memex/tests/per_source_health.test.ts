@@ -146,3 +146,29 @@ describe("whole-brain metric is unchanged by the per-source axis", () => {
     expect(h.embed_coverage_pct).toBeCloseTo(2 / 5, 5);
   });
 });
+
+describe("health ignores documents on their way out", () => {
+  it("drops soft-deleted and archived documents from every count", async () => {
+    const e = storage.raw();
+    const before = byId(await collectPerSourceHealth(e, ["vault"]))["vault"]!;
+    const brainBefore = await brainHealthMetrics(e);
+    await e.query(
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, updated_at, deleted_at)
+       VALUES ('vgone', 'vault', 'notes/gone.md', 'Gone', '{}'::jsonb, NOW(), NOW())`,
+    );
+    await e.query(
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter, updated_at, archived)
+       VALUES ('varch', 'vault', 'notes/arch.md', 'Arch', '{}'::jsonb, NOW(), true)`,
+    );
+    await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('vgonec0','vgone',0,'x')`);
+    await e.query(`INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ('varchc0','varch',0,'y')`);
+    try {
+      const after = byId(await collectPerSourceHealth(e, ["vault"]))["vault"]!;
+      expect(after.document_count).toBe(before.document_count);
+      expect(after.embeddable_chunks).toBe(before.embeddable_chunks);
+      expect((await brainHealthMetrics(e)).embeddable_chunks).toBe(brainBefore.embeddable_chunks);
+    } finally {
+      await e.query(`DELETE FROM documents WHERE id IN ('vgone', 'varch')`);
+    }
+  });
+});

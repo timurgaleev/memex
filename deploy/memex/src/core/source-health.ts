@@ -50,6 +50,10 @@ function toNumOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Soft-deleted and archived documents are on their way out; counting them would
+// report stale coverage and lag for content no reader can reach.
+const LIVE_DOC = (alias: string): string => `${alias}.deleted_at IS NULL AND NOT ${alias}.archived`;
+
 /**
  * Compute the brain-level health metrics in a handful of cheap aggregate
  * queries. Code chunks (`documents.frontmatter->>'kind' = 'code'`) are excluded
@@ -83,14 +87,15 @@ export async function brainHealthMetrics(
        COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
-     LEFT JOIN embeddings em ON em.chunk_id = c.id`,
+     LEFT JOIN embeddings em ON em.chunk_id = c.id
+     WHERE ${LIVE_DOC("d")}`,
   );
   const embeddable = toInt(chunkRow.rows[0]?.embeddable);
   const embedded = toInt(chunkRow.rows[0]?.embedded);
   const code = toInt(chunkRow.rows[0]?.code);
 
   const lagRow = await engine.query<{ lag: number | string | null }>(
-    `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents`,
+    `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents d WHERE ${LIVE_DOC("d")}`,
   );
   const lag = toNumOrNull(lagRow.rows[0]?.lag);
 
@@ -165,8 +170,8 @@ export async function collectPerSourceHealth(
   // An empty grant (`[]`) means "no sources visible" → no rows.
   if (sourceIds !== undefined && sourceIds.length === 0) return [];
   const params: unknown[] = scoped ? [sourceIds] : [];
-  const docWhere = scoped ? "WHERE source_id = ANY($1)" : "";
-  const chunkWhere = scoped ? "WHERE d.source_id = ANY($1)" : "";
+  const docWhere = `WHERE ${LIVE_DOC("documents")}${scoped ? " AND source_id = ANY($1)" : ""}`;
+  const chunkWhere = `WHERE ${LIVE_DOC("d")}${scoped ? " AND d.source_id = ANY($1)" : ""}`;
 
   const docRows = await engine.query<{
     source_id: string;

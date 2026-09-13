@@ -87,6 +87,24 @@ describe("brainIdentity", () => {
 });
 
 describe("purgeDeletedPages", () => {
+  it("reports a page a non-cascading row still references and purges the rest", async () => {
+    const e = storage.engine();
+    await putPage(storage, { slug: "notes/stuck", type: "note", markdown_body: "x" });
+    await putPage(storage, { slug: "notes/free", type: "note", markdown_body: "y" });
+    await deletePage(storage, "notes/stuck");
+    await deletePage(storage, "notes/free");
+    await e.exec(`CREATE TABLE purge_hold (slug TEXT REFERENCES pages(slug))`);
+    await e.query(`INSERT INTO purge_hold (slug) VALUES ('notes/stuck')`);
+    try {
+      const r = await purgeDeletedPages(e, 0);
+      expect(r.slugs).toEqual(["notes/free"]);
+      expect(r.blocked.map((b) => b.slug)).toEqual(["notes/stuck"]);
+      expect(await getPage(storage, "notes/stuck", undefined, { includeDeleted: true })).not.toBeNull();
+    } finally {
+      await e.exec(`DROP TABLE purge_hold`);
+    }
+  });
+
   it("is a no-op when nothing is soft-deleted", async () => {
     await putPage(storage, { slug: "notes/a", type: "note", markdown_body: "x" });
     const r = await purgeDeletedPages(storage.engine());

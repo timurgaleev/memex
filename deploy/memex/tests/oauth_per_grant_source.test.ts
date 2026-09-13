@@ -137,4 +137,18 @@ describe("per-grant tenancy", () => {
     expect(info.sourceId).toBeUndefined();
     expect(info.allowedSources).toEqual([]);
   });
+
+  it("a token of a soft-deleted client is refused", async () => {
+    const code = await codeFor("alice", ["alice"]);
+    const tokens = await provider.exchangeAuthorizationCode(
+      client, code, undefined, "https://example.invalid/cb",
+    );
+    await provider.verifyAccessToken(tokens.access_token);
+    await storage.engine().query(`UPDATE oauth_clients SET deleted_at = NOW() WHERE client_id = $1`, [client.client_id]);
+    try {
+      await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow(/Client revoked/);
+    } finally {
+      await storage.engine().query(`UPDATE oauth_clients SET deleted_at = NULL WHERE client_id = $1`, [client.client_id]);
+    }
+  });
 });

@@ -1099,19 +1099,19 @@
     "call": "source_health {}",
     "sql": [
       {
-        "text": "SELECT COALESCE(source_id, '(unclassified)') AS source_id, COUNT(*)::int AS document_count, EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents GROUP BY COALESCE(source_id, '(unclassified)')",
+        "text": "SELECT COALESCE(source_id, '(unclassified)') AS source_id, COUNT(*)::int AS document_count, EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents WHERE documents.deleted_at IS NULL AND NOT documents.archived GROUP BY COALESCE(source_id, '(unclassified)')",
         "params": []
       },
       {
-        "text": "SELECT COALESCE(d.source_id, '(unclassified)') AS source_id, COUNT(DISTINCT c.id)::int AS chunk_count, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id GROUP BY COALESCE(d.source_id, '(unclassified)')",
+        "text": "SELECT COALESCE(d.source_id, '(unclassified)') AS source_id, COUNT(DISTINCT c.id)::int AS chunk_count, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived GROUP BY COALESCE(d.source_id, '(unclassified)')",
         "params": []
       },
       {
-        "text": "SELECT COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id",
+        "text": "SELECT COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived",
         "params": null
       },
       {
-        "text": "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents",
+        "text": "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::bigint AS lag FROM documents d WHERE d.deleted_at IS NULL AND NOT d.archived",
         "params": null
       },
       {

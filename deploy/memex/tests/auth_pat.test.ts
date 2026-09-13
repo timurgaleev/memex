@@ -125,6 +125,21 @@ describe("personal access tokens (access_tokens fallback)", () => {
     expect(body.error?.code).not.toBe(-32001);
   });
 
+  it("verifyToken records last use at most once a minute", async () => {
+    const { token, hash } = mintPat();
+    await insertPat("debounced", hash);
+    await provider.verifyAccessToken(token);
+    const first = await storage.raw().query<{ t: string }>(
+      `SELECT last_used_at::text AS t FROM access_tokens WHERE name = 'debounced'`,
+    );
+    await provider.verifyAccessToken(token);
+    const second = await storage.raw().query<{ t: string }>(
+      `SELECT last_used_at::text AS t FROM access_tokens WHERE name = 'debounced'`,
+    );
+    expect(first.rows[0]!.t).not.toBeNull();
+    expect(second.rows[0]!.t).toBe(first.rows[0]!.t);
+  });
+
   it("verifyToken derives tenant scope from permissions.source_id array", async () => {
     const { token, hash } = mintPat();
     await insertPat("scoped", hash, {

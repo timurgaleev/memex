@@ -1007,7 +1007,8 @@ export class OAuthProvider {
               CASE WHEN t.grant_bound THEN t.source_id      ELSE c.source_id      END AS source_id,
               CASE WHEN t.grant_bound THEN t.federated_read ELSE c.federated_read END AS federated_read,
               t.grant_bound,
-              c.bound_slug_prefixes
+              c.bound_slug_prefixes,
+              c.deleted_at AS client_deleted_at
        FROM oauth_tokens t
        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
        WHERE t.token_hash = $1 AND t.token_type = 'access'
@@ -1017,6 +1018,11 @@ export class OAuthProvider {
 
     if (oauthRows.length > 0) {
       const row = oauthRows[0] as Record<string, unknown>;
+      // Revoking a client soft-deletes its row; a token it issued must stop
+      // working even if the token row itself was never touched.
+      if (row.client_deleted_at != null) {
+        throw new InvalidTokenError("Client revoked");
+      }
       // NULL expires_at is treated as expired (fail-closed).
       const expiresAt = coerceTimestamp(row.expires_at);
       if (expiresAt === undefined || expiresAt < now) {
@@ -1075,7 +1081,10 @@ export class OAuthProvider {
     if (legacyRows.length > 0) {
       const row = legacyRows[0]!;
       await this.engine.query(
-        `UPDATE access_tokens SET last_used_at = now() WHERE token_hash = $1`,
+        // Once a minute is enough for "last used"; writing on every request
+        // turns each authenticated read into a row update.
+        `UPDATE access_tokens SET last_used_at = now()
+          WHERE token_hash = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')`,
         [tokenHash],
       );
       const name = row.name as string;
