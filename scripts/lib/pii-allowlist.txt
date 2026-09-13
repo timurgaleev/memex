@@ -4,6 +4,7 @@
 #
 # Anything matching .gitignore is already excluded (audit uses `git ls-files`).
 LICENSE
+THIRD_PARTY_NOTICES.md
 scripts/lib/pii-patterns.txt
 scripts/lib/pii-allowlist.txt
 scripts/lib/scrub-patterns.txt

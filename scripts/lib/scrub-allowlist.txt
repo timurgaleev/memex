@@ -7,8 +7,9 @@
 # `git ls-files` output). This file lists *tracked* files that
 # legitimately contain otherwise-flagged content.
 
-# License must keep the copyright holder.
+# License files must keep their copyright holders.
 LICENSE
+THIRD_PARTY_NOTICES.md
 
 # The pattern + allowlist files themselves.
 scripts/lib/pii-patterns.txt
