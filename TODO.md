@@ -263,41 +263,53 @@ Release A verification:
 
 #### Release B — derived writes, deletion, purge, auth
 
-- [ ] `src/core/page-owner.ts` `resolvePageOwnerSource(storage, slug, writeSource)`
-  returning `page.source_id ?? writeSource` (the rule `dispatch.ts:1274` already
-  uses), applied to `page_append` (:1563-1583), `page_revert` (:1668-1677),
-  `page_restore` (:1640), the remaining `page_put` writers (:1276-1283) and
-  `tags.ts` `addTag`/`removeTag` (:71).
-- [ ] Version markers: `pages.ts:739,807` insert `source_id` selected from
-  `pages` inside the transaction.
-- [ ] Deletion guard: `destructive-guard.ts` `sourceReferences(engine, id)`
-  counts documents, pages, live `oauth_tokens`, `oauth_codes` and
-  `oauth_enrollments` with that `source_id`, live `oauth_clients`, and PAT
-  `permissions->source_id`; `sources.ts:195` `deleteSource` refuses with the
-  list; `commands/sources.ts:126` prints it.
-- [ ] Purge: `purgeRowsCollectingBlocked` deletes one row at a time, collects
-  SQLSTATE 23503 into `blocked` and continues; used by `pages-purge.ts:42`
-  (with `andSourceScope`, so `[]` purges nothing) and `cycle/purge.ts:33`;
-  `PurgeResult.blocked_pages` added. `getRawData` stops treating `[]` as
-  unscoped.
-- [ ] Health: `source-health.ts:73-104` and `:176-207` exclude soft-deleted and
-  archived rows.
-- [ ] OAuth: `oauth-provider.ts:1006-1014` rejects a token whose client row is
-  soft-deleted (a missing row follows the existing tests); `:1077` updates a
-  PAT's `last_used_at` at most once per 60 s.
-- [ ] Explicit `source_id` liveness: an archived or removed source passed to an
-  op returns `unknown_source`; code-intel ops route to one resolved source.
-- [ ] Migration `103_version_marker_tag_owner.sql`: idempotent backfill moving
-  tombstone/restore `page_versions` rows and `tags` from `default` to the page's
-  source. Verify the marker shape and the `tags` unique key before writing the
-  SQL.
-- [ ] Tests, red first: `tenant_derived_write_owner`, `source_delete_guard`
-  (one case per grant kind), `purge_blocked_fk`, `purge_empty_scope`,
-  `source_health_live_only`, `oauth_deleted_client`, `pat_last_used_debounce`,
-  `migration_103_idempotent`.
-- [ ] Live: an unscoped `page_append` stamps the tenant source (checked by
-  SQL); deleting a source with a live token is refused; a soft-deleted client's
-  token gets 401; migration 103 applies with no 55P03.
+- [x] Derived writes follow the page owner: `page_append`, `page_revert` and
+  `page_restore` pass the page's source to link, mention, typed and verb link
+  writers, the extraction watermark and the facts reconcile (`page_put` already
+  did). A scoped caller's own source wins, since it can only reach its own page.
+  No separate helper: each handler already holds the page row.
+- [x] Version markers: `deletePage` / `restorePage` insert `source_id` from the
+  page row read in the same transaction.
+- [x] Tags: an unscoped `addTag` stamps the page's source; one lookup checks the
+  page and finds its owner.
+- [x] Deletion guard: `sources.ts` `sourceReferences(engine, id)` counts
+  documents, pages, page versions, facts, links, tags, timeline events,
+  calibration profiles, every client row naming the source (revoked ones too —
+  their foreign key still blocks), live OAuth tokens and codes, open
+  enrollments, and unrevoked personal tokens (including permissions stored as a
+  JSON string). `default` is never deletable. `deleteSource` locks the grant
+  tables for the check-and-delete and maps a foreign-key violation to a refusal;
+  `memex sources delete` prints the referents and reports a missing source.
+- [x] Purge: one set-based DELETE, falling back on SQLSTATE 23503 to one DELETE
+  per page (same expiry and scope predicate) that reports blocked pages and
+  purges the rest. Shared by `purge_deleted_pages` and the cycle phase
+  (`blocked_pages`). An empty scope purges nothing (Release A).
+- [x] Health: brain and per-source metrics skip soft-deleted and archived
+  documents.
+- [x] OAuth: a token whose client row is soft-deleted is rejected; a personal
+  token's `last_used_at` is written at most once a minute.
+- [x] Migration `103_derived_rows_follow_page_owner.sql`: moves delete/restore
+  markers on pages owned by a named source from `default` to that source.
+  Tags are NOT moved (no foreign key to the page, so a tag can outlive a purged
+  page whose slug another source reuses).
+- [x] Tests (red before the fix): `tenant_derived_write_owner`,
+  `sources_crud` (one case per grant kind, revoked client, string-encoded PAT,
+  fallback source, stale grants), `identity_purge` (FK-blocked page),
+  `per_source_health`, `oauth_per_grant_source` (revoked client),
+  `auth_pat` (debounce), `migration_103_derived_rows_owner`.
+- [ ] Live: an unscoped `page_append` stamps the tenant source; deleting a
+  source with a live token is refused; a revoked client's token gets 401.
+- [ ] Follow-up (not in the approved plan): an explicit `source_id` naming an
+  archived or removed source returns `unknown_source`; code-intel ops route to
+  one resolved source.
+- [ ] Follow-up: tags an unscoped writer stamped `default` on a tenant page
+  before this release stay in `default`. Moving them safely needs the tag's age
+  compared with the page's, which the table does not record.
+- [ ] Follow-up: fence facts an unscoped `page_append` / `page_revert` /
+  `page_restore` reconciled under `default` before this release are not moved;
+  the next reconcile under the page's source can leave them as stale duplicates,
+  and a `default` tombstone does not suppress the tenant copy. Needs a guarded
+  backfill against the `(source_id, source_markdown_slug, row_num)` index.
 
 #### Release C — code graph `source_id`
 

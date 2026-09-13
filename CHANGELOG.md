@@ -6,6 +6,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Writes into another source's page left their traces in `default`.** An
+  unscoped writer (the operator, the local CLI) may write into a page a tenant
+  owns, but `page_append`, `page_revert` and `page_restore` derived its link
+  edges, extraction watermark and facts under `default`, `add_tag` stamped the
+  tag there, and the delete/restore history markers landed there too — so the
+  owning tenant's scoped reads lost them. All of these now carry the page's
+  source; migration 103 moves existing delete/restore markers.
+- **A source could be deleted while grants still named it.** `memex sources
+  delete` only checked documents; a client, token, authorization code,
+  enrollment code or personal token naming the source survived as a live
+  credential scoped to a tenant that no longer existed, and a revoked client's
+  foreign key turned the refusal into a raw database error. Deletion now counts
+  content, version history, calibration profiles and every kind of grant, locks
+  the grant tables for the check, refuses `default` outright, and prints what
+  still references the source.
+- **A revoked OAuth client's tokens kept working.** Revoking a client
+  soft-deletes its row; verification now rejects any token that client issued.
+
+### Changed
+- Purging deleted pages no longer aborts the whole sweep when one page is still
+  referenced by a row that does not cascade: that page is reported as blocked
+  and the rest are purged.
+- Source health metrics skip soft-deleted and archived documents.
+- A personal access token's `last_used_at` is written at most once a minute
+  instead of on every request.
+
 ## [1.129.0] — 2026-09-13
 
 ### Security
