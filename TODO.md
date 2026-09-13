@@ -336,7 +336,9 @@ Release A verification:
 - [x] Tests: `code_graph_source_stamp` (edges stamped; the owner walks its graph,
   empty before; a sourceless edge stays out of a scoped expansion; scoped volunteer
   stats), `migration_104_code_edges_source`, `context_volunteer` updated.
-- [ ] Live: `code_callers` for a tenant token (no tenant token on the live brain).
+- [x] Live (v1.131.0): migration 104 applied (doctor: schema at 104, 0
+  failures); a source-scoped personal token's `code_flow` returns the call graph,
+  empty for every scoped caller before.
 - [ ] Follow-up: the code sweep and `memex index <file>` still index code
   documents without a source (`indexCodeFile` passes none); doctor reports them as
   NULL-source documents, invisible to every scoped reader. Needs a path-to-source

@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.131.0] — 2026-09-13
+
 ### Fixed
 - **A scoped caller's code graph was empty.** Code call edges were stored with
   no source, and `code_blast` / `code_flow` filter edges by the caller's sources,
