@@ -161,6 +161,16 @@ carries:
 - typed `links` — edges carry a `kind`/`verb` (NER-inferred, migration
   053) plus a `source_id` tenant key, and every row is tenant-scoped
   under Postgres RLS (migration 049).
+- `oauth_codes` / `oauth_tokens` carry their own `source_id`, `federated_read`
+  and `grant_bound` (migration 101). `verifyAccessToken` resolves the tenant
+  TOKEN-FIRST and falls back to the client row, so one shared connector can
+  serve many people in separate tenants — the binding belongs to the
+  authorization, not to the client.
+- `oauth_enrollments` (migration 102) — one-time codes that supply that
+  binding. The operator issues a code for a source; the person presents it once
+  at `/authorize`; the code is single-use, expiring and revocable, and only its
+  SHA-256 is stored. `oauth_clients.tenant_mode` selects which flow a client
+  uses (`client` = the row's own source, the default; `enrollment` = ask).
 
 ## Secrets — what goes where
 

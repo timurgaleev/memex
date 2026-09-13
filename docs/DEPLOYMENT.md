@@ -202,6 +202,16 @@ secret empty and the server mints a fresh token every restart and
 auto-approves every consent request instead — on a caddy install that consent
 screen is directly on the public internet.
 
+**If anyone but the operator will connect, that flag has to come off.**
+`/admin/login` accepts exactly one credential — the operator bootstrap token —
+and there is no per-user login, so with the gate on a teammate can only finish
+a connector flow by holding an operator session for the whole brain. Use an
+enrollment-mode client instead: the one-time code IS the resource-owner
+authentication, the gate is not consulted for it, and each person is pinned to
+her own source. See "Connecting a whole team through ONE connector" in
+[CONFIGURATION.md](./CONFIGURATION.md). Keep the flag on only for a brain that
+serves one operator and nobody else.
+
 ### Scheduled units
 
 `deploy/systemd/` ships the nightly retrieval-quality probe and the daily

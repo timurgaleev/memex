@@ -59,8 +59,10 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
   pages most likely relevant &mdash; deterministic, no AI guessing.
 - **Small and boring on purpose.** No orchestrator, no SaaS to depend on. It
   fits on one small EC2 box, and you can read the whole thing in an afternoon.
-  One brain serves one person; every remote credential (OAuth client, PAT) is
-  scoped to the sources it may read (opt-in fail-closed).
+  One brain can serve a team: every remote credential (OAuth client, PAT) is
+  scoped to the sources it may read (opt-in fail-closed), and a single shared
+  connector can pin each person to their own source at the moment they
+  authorise — see "Running more than one tenant" in `docs/CONFIGURATION.md`.
 
 ## How it's different
 

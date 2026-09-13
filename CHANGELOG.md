@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+- **The docs still said one brain serves one person.** They were written before
+  a grant could carry its own tenant, so three places had drifted out of step
+  with the code: the README's pitch, the deployment runbook's treatment of
+  `MEMEX_OAUTH_REQUIRE_LOGIN`, and the architecture note on where tenancy
+  lives.
+
+  The deployment page now says what that flag costs. Bootstrap writes it for
+  every new install, and with it on a teammate can only complete a connector
+  flow by holding an operator session for the whole brain — `/admin/login`
+  takes the operator bootstrap token and nothing else. Keep it for a brain with
+  one operator; use an enrollment-mode client for anything else.
+
+  The architecture page now records that `oauth_codes` / `oauth_tokens` carry
+  their own `source_id` + `grant_bound` and that `verifyAccessToken` resolves
+  token-first, so the tenant belongs to the authorization rather than the
+  client, plus the `oauth_enrollments` table behind it.
+
+
 ## [1.128.0] — 2026-09-11
 
 ### Fixed
