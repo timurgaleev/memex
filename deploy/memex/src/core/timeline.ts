@@ -174,7 +174,7 @@ export interface ListTimelineOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, events are filtered
-   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   * to `source_id = ANY(...)`. Omitted -> unscoped (whole-brain); `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -195,7 +195,7 @@ export async function getEntityTimeline(
     params.push(normaliseOccurredAt(opts.until));
     where.push(`occurred_at <= $${params.length}::timestamptz`);
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }

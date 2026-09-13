@@ -36,6 +36,7 @@
  * calibration wave) are intentionally omitted here.
  */
 import type { Engine } from "../engine/interface.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 /** Multiplier when in-set inbound links >= ADJACENCY_MIN_HITS. */
 export const ADJACENCY_BOOST = 1.05;
@@ -231,11 +232,7 @@ async function defaultAdjacency(
   // Tenant scope: count only in-source edges (`links.source_id`, mig047) so a
   // scoped caller never inherits another source's hub signal. No-op when unset.
   const params: unknown[] = [slugs];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length) {
-    params.push(sourceIds);
-    sourceFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("l.source_id", sourceIds, params);
   const rows = await engine.query<{ to_slug: string; hits: number }>(
     `SELECT l.target_slug AS to_slug,
             COUNT(DISTINCT l.source_slug)::int AS hits

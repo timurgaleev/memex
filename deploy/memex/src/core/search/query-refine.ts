@@ -56,7 +56,7 @@ export async function queryRefine(
   // trim to k (mirrors hybridSearch's own fanout instinct).
   const fanout = Math.max(20, k * 3);
   const baseOpts: SearchOptions = { ...(opts.search ?? {}), k: fanout };
-  if (opts.sourceIds && opts.sourceIds.length) baseOpts.sourceIds = opts.sourceIds;
+  if (opts.sourceIds !== undefined) baseOpts.sourceIds = opts.sourceIds;
 
   const primary = await hybridSearch(storage, query, baseOpts);
   // No refine term → behave exactly like search, trimmed to k.

@@ -21,6 +21,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 /** Upper bound on a single normalized alias, in CODE POINTS (defence vs
  *  unbounded writes). An over-limit alias is DROPPED, never truncated:
@@ -141,15 +142,11 @@ export async function resolveAliasUnique(
   if (!isIndexableAlias(aliasNorm)) return null;
   try {
     const params: unknown[] = [aliasNorm];
-    let scopeFilter = "";
     // Tenant scope (mig047/084): the alias row carries its own source_id, so
     // collision detection + resolution filter the index DIRECTLY — a sibling
-    // tenant's declared alias can neither collide nor resolve. Omitted/empty
-    // -> unscoped (whole-brain).
-    if (sourceIds && sourceIds.length > 0) {
-      params.push(sourceIds);
-      scopeFilter = ` AND pa.source_id = ANY($${params.length}::text[])`;
-    }
+    // tenant's declared alias can neither collide nor resolve. Omitted ->
+    // unscoped (whole-brain).
+    const scopeFilter = andSourceScope("pa.source_id", sourceIds, params);
     const r = await storage.engine().query<{ slug: string }>(
       `SELECT pa.slug AS slug
          FROM page_aliases pa
@@ -187,12 +184,8 @@ export async function resolveAliasCandidates(
   if (!isIndexableAlias(aliasNorm)) return [];
   try {
     const params: unknown[] = [aliasNorm];
-    let scopeFilter = "";
     // mig084: filter the alias index's own source_id (see resolveAliasUnique).
-    if (sourceIds && sourceIds.length > 0) {
-      params.push(sourceIds);
-      scopeFilter = ` AND pa.source_id = ANY($${params.length}::text[])`;
-    }
+    const scopeFilter = andSourceScope("pa.source_id", sourceIds, params);
     // No LIMIT — return EVERY claimant of an exact alias, ordered. An
     // exact-alias match has few claimants, and
     // the caller (`applyAliasHop`) is what caps the injected set

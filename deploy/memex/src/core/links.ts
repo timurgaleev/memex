@@ -17,6 +17,7 @@
  */
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 import { inferLinkType, edgeContextWindow } from "./link-verb-infer.ts";
 
@@ -369,7 +370,7 @@ export interface GraphNeighborsOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, edges are filtered
-   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   * to `source_id = ANY(...)`. Omitted -> unscoped (whole-brain); `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -407,11 +408,7 @@ export async function graphNeighbors(
     typeFilter = ` AND type = $${params.length}`;
   }
   // Tenant scope (mig047): same filter string applied to both UNION arms.
-  let scopeFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("source_id", opts.sourceIds, params);
   const queries: string[] = [];
   if (direction === "outbound" || direction === "both") {
     queries.push(
@@ -446,7 +443,7 @@ export interface GraphQueryOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, edges are filtered
-   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   * to `source_id = ANY(...)`. Omitted -> unscoped (whole-brain); `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -486,7 +483,7 @@ export async function graphQuery(
     params.push(target);
     where.push(`target_slug = $${params.length}`);
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }
@@ -518,7 +515,7 @@ export interface TraverseGraphOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, only edges with
-   * `source_id = ANY(...)` are traversed. Omitted/empty -> unscoped.
+   * `source_id = ANY(...)` are traversed. Omitted -> unscoped; `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -583,11 +580,7 @@ export async function traverseGraph(
     typeFilter = ` AND l.type = $${params.length}`;
   }
   // Tenant scope (mig047): confine the walk to edges in the given sources.
-  let scopeFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("l.source_id", opts.sourceIds, params);
   params.push(limit);
   const limitParam = `$${params.length}`;
 
@@ -1160,11 +1153,7 @@ export async function countStalePagesForExtraction(
 ): Promise<number> {
   const versionTs = opts.versionTs ?? LINK_EXTRACTOR_VERSION_TS;
   const params: unknown[] = [versionTs];
-  let scopeFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("source_id", opts.sourceIds, params);
   const r = await engine.query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM pages
@@ -1211,11 +1200,7 @@ export async function listStalePagesForExtraction(
 ): Promise<StalePageRow[]> {
   const versionTs = opts.versionTs ?? LINK_EXTRACTOR_VERSION_TS;
   const params: unknown[] = [versionTs];
-  let scopeFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("source_id", opts.sourceIds, params);
   let afterClause = "";
   if (typeof opts.afterSlug === "string" && opts.afterSlug.length > 0) {
     params.push(opts.afterSlug);

@@ -19,6 +19,7 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import type { ChunkScore } from "./dedup.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 /** Fraction of the blended score contributed by the normalized RRF score. */
 export const RRF_BLEND_WEIGHT = 0.7;
@@ -42,11 +43,10 @@ export async function fetchCosineSimilarities(
   const params: unknown[] = [JSON.stringify(queryVector), chunkIds];
   let sourceFilter = "";
   let join = "";
-  if (sourceIds && sourceIds.length) {
+  if (sourceIds !== undefined) {
     join =
       " JOIN chunks c ON c.id = e.chunk_id JOIN documents d ON d.id = c.document_id";
-    params.push(sourceIds);
-    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
+    sourceFilter = andSourceScope("d.source_id", sourceIds, params);
   }
   const rows = await engine.query<{ chunk_id: string; cosine: number }>(
     `SELECT e.chunk_id AS chunk_id,

@@ -22,6 +22,7 @@
  * Deterministic and LLM-free.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 /**
  * A single fact row as returned by `recallFact`. Mirrors the projection in
@@ -71,12 +72,8 @@ export async function recallFact(
 ): Promise<RecalledFact | null> {
   const factId = normaliseId(id);
   const params: unknown[] = [factId];
-  let scopeFilter = "";
-  // Tenant scope (mig047): filter only when a non-empty list is given.
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  // Tenant scope (mig047): filter whenever a list is given; `[]` matches nothing.
+  const scopeFilter = andSourceScope("source_id", sourceIds, params);
   const r = await storage.engine().query<RecalledFact>(
     `SELECT id, entity_slug, fact, confidence,
             source_slug, source_chunk_id, written_by,
@@ -140,21 +137,16 @@ export async function forgetFact(
   // Structured cause (mig062) — defaults to 'forget'; a supersede/dedup path
   // passes 'supersede'. The CHECK constraint rejects any other value.
   const cause: ForgetCause = input.cause === "supersede" ? "supersede" : "forget";
-  // Tenant write scope (mig047): when a non-empty scope is given, both the
+  // Tenant write scope (mig047): when a scope is given, both the
   // tombstone UPDATE and the existence probe are confined to it. A fact owned by
   // another source neither flips (out of the UPDATE) nor reports found — a
   // scoped caller can never forget, or even prove the existence of, a sibling
-  // tenant's fact. Unset/empty → whole-brain by id, unchanged.
-  const scoped = sourceIds && sourceIds.length > 0 ? sourceIds : null;
+  // tenant's fact. An empty scope touches nothing. Unset → whole-brain by id.
   // Single statement: stamp the tombstone ONLY on a currently-live row. The
   // RETURNING tells us whether this call did the flip; a separate existence
   // probe disambiguates unknown-id from already-forgotten.
   const updParams: unknown[] = [factId, reason, cause];
-  let updFilter = "";
-  if (scoped !== null) {
-    updParams.push(scoped);
-    updFilter = ` AND source_id = ANY($${updParams.length}::text[])`;
-  }
+  const updFilter = andSourceScope("source_id", sourceIds, updParams);
   const upd = await storage.engine().query<{ id: number }>(
     `UPDATE entity_facts
         SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
@@ -169,11 +161,7 @@ export async function forgetFact(
   // forgotten. One cheap, same-scope existence probe tells the two apart so the
   // caller gets an honest envelope without leaking another tenant's row.
   const probeParams: unknown[] = [factId];
-  let probeFilter = "";
-  if (scoped !== null) {
-    probeParams.push(scoped);
-    probeFilter = ` AND source_id = ANY($${probeParams.length}::text[])`;
-  }
+  const probeFilter = andSourceScope("source_id", sourceIds, probeParams);
   const exists = await storage.engine().query<{ id: number }>(
     `SELECT id FROM entity_facts WHERE id = $1${probeFilter}`,
     probeParams,

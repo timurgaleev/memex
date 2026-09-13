@@ -82,7 +82,7 @@ export interface GetRawDataOptions {
   /** Filter to one data-source label. */
   source?: string;
   limit?: number;
-  /** Tenant scope (mig047, via the owning page). Omitted/empty -> unscoped. */
+  /** Tenant scope (mig047, via the owning page). Omitted -> unscoped; `[]` -> nothing. */
   sourceIds?: string[];
 }
 
@@ -100,7 +100,7 @@ export async function getRawData(
     where.push(`r.source = $${params.length}`);
   }
   let join = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     join = ` JOIN pages p ON p.slug = r.slug AND p.source_id = ANY($${params.length}::text[])`;
   }

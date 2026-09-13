@@ -19,6 +19,7 @@ import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
 import { resolveSlugWithAlias, setSlugAlias } from "./slug-aliases.ts";
 import { OperationError } from "./operation-error.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -552,11 +553,7 @@ async function getPageExact(
   opts: GetPageOptions = {},
 ): Promise<PageRow | null> {
   const params: unknown[] = [slug];
-  let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push([...sourceIds]);
-    scope = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scope = andSourceScope("source_id", sourceIds, params);
   const deletedFilter = opts.includeDeleted === true ? "" : " AND deleted_at IS NULL";
   const r = await storage.engine().query<PageRow>(
     `SELECT slug, type, title, compiled_truth,
@@ -598,7 +595,7 @@ export interface ListPagesOptions {
   sort?: ListPagesSort;
   /** Include soft-deleted pages (deleted_at populated). Default false. */
   includeDeleted?: boolean;
-  /** Restrict to these owning sources. Omit/empty → unscoped (whole brain). */
+  /** Restrict to these owning sources. Omit → unscoped (whole brain); `[]` → nothing. */
   sourceIds?: readonly string[];
 }
 
@@ -628,7 +625,7 @@ export async function listPages(
       `EXISTS (SELECT 1 FROM tags t WHERE t.slug = pages.slug AND t.tag = $${params.length})`,
     );
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push([...opts.sourceIds]);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }
@@ -663,11 +660,7 @@ export async function pageVersions(
   // Tenant scope (mig047): a scoped caller sees only versions stamped to its
   // own source(s). No-op when unset — the full version chain, as today.
   const params: unknown[] = [slug, cap];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length) {
-    params.push(sourceIds);
-    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("source_id", sourceIds, params);
   const r = await storage.engine().query<PageVersionRow>(
     `SELECT slug, version_n, hash_prev, hash_new,
             body_snapshot, compiled_truth_snapshot,

@@ -17,6 +17,7 @@
  * rather than redefining them.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { validateSlug, KNOWN_LINK_TYPES, type LinkRow } from "./links.ts";
 
 /** One typed-edge bucket for a slug — same type, one direction. */
@@ -32,7 +33,7 @@ export interface GetLinksOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, edges are filtered
-   * to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   * to `source_id = ANY(...)`. Omitted -> unscoped (whole-brain); `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -58,11 +59,7 @@ export async function getLinks(
   const limit = normaliseLimit(opts.limit);
   const params: unknown[] = [slug, limit];
   // Tenant scope (mig047): same filter string in both UNION arms.
-  let scopeFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("source_id", opts.sourceIds, params);
   const r = await storage.engine().query<
     LinkRow & { direction: "outbound" | "inbound" }
   >(
@@ -125,8 +122,9 @@ export async function listLinkSources(
 ): Promise<LinkSource[]> {
   const params: unknown[] = [];
   let scopeFilter = "";
-  // Tenant scope (mig047): count only edges in the given sources when set.
-  if (sourceIds && sourceIds.length > 0) {
+  // Tenant scope (mig047): count only edges in the given sources when set;
+  // `[]` matches no row.
+  if (sourceIds !== undefined) {
     params.push(sourceIds);
     scopeFilter = ` WHERE source_id = ANY($${params.length}::text[])`;
   }

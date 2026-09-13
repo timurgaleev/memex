@@ -67,7 +67,7 @@ export async function applyAliasHop(
   const qNorm = normalizeAlias(query);
   if (!qNorm || qNorm.split(" ").length > MAX_ALIAS_QUERY_TOKENS) return hits;
 
-  const scope = sourceIds && sourceIds.length > 0 ? [...sourceIds] : undefined;
+  const scope = sourceIds === undefined ? undefined : [...sourceIds];
   let refs: Array<{ slug: string; source_id: string }>;
   try {
     refs = opts.resolveCandidates
@@ -160,9 +160,9 @@ async function fetchPageHeadHit(
   // resolve; the path already encodes source_id, so no separate source filter
   // is needed (and it can never widen past `scope`).
   const candidatePaths =
-    scope && scope.length > 0
-      ? scope.map((s) => pageSourcePath(slug, s))
-      : [pageSourcePath(slug, null)];
+    scope === undefined
+      ? [pageSourcePath(slug, null)]
+      : scope.map((s) => pageSourcePath(slug, s));
   const params: unknown[] = [candidatePaths];
   const r = await engine.query<{
     id: string;

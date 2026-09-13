@@ -30,6 +30,7 @@ import { normalizeAlias, resolveAliasUnique } from "../page-aliases.ts";
 import { slugifyTarget } from "../links.ts";
 import { stripFactsFence } from "../facts-fence.ts";
 import { stripTakesFence } from "../synthesis/takes-fence.ts";
+import { andSourceScope } from "../source-scope.ts";
 import type { EntityCandidate } from "./entity-salience.ts";
 
 const SYNOPSIS_MAX = 160;
@@ -75,7 +76,7 @@ export interface ResolvePointersOpts {
   /**
    * Tenant read scope. Every arm (alias index + the two page lookups) filters on
    * it, so a scoped caller can never resolve a pointer to a page outside its
-   * grant. Omitted/empty -> unscoped (local CLI / operator path).
+   * grant; `[]` resolves nothing. Omitted -> unscoped (local CLI / operator path).
    */
   sourceIds?: string[];
 }
@@ -103,7 +104,7 @@ export async function resolveEntitiesToPointers(
   if (!candidates.length) return [];
   const maxPointers = opts.maxPointers ?? DEFAULT_MAX_POINTERS;
   const engine = storage.engine();
-  const scope = opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
+  const scope = opts.sourceIds;
 
   // Derive lookup keys once. displayByNorm recovers a human surface form for a
   // resolved slug; titleToNorm / slugToNorm give arm-2 provenance.
@@ -155,11 +156,7 @@ export async function resolveEntitiesToPointers(
   let rows: PageRow[] = [];
   try {
     const params: unknown[] = [titlesLc, exactSlugs, slugSuffixes];
-    let scopeFilter = "";
-    if (scope) {
-      params.push(scope);
-      scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-    }
+    const scopeFilter = andSourceScope("source_id", scope, params);
     const r = await engine.query<PageRow>(
       `SELECT slug, title, type, compiled_truth, markdown_body
          FROM pages
@@ -181,11 +178,7 @@ export async function resolveEntitiesToPointers(
   if (aliasOnly.length) {
     try {
       const params: unknown[] = [aliasOnly.map((p) => p.slug)];
-      let scopeFilter = "";
-      if (scope) {
-        params.push(scope);
-        scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-      }
+      const scopeFilter = andSourceScope("source_id", scope, params);
       const extra = await engine.query<PageRow>(
         `SELECT slug, title, type, compiled_truth, markdown_body
            FROM pages

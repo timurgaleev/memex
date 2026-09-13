@@ -34,9 +34,8 @@ const tenant = (sourceId?: string): AuthInfo => ({
 describe("F3 — fail-closed floor is reachable for any authenticated principal", () => {
   it("an OAuth tenant (isPublic:false) with NO grant reads/writes nothing when failClosed", () => {
     const scopeless = tenant(); // authInfo present, no sourceId/allowedSources
-    expect(effectiveReadSourceIdsForIngress(scopeless, { failClosed: true })).toEqual([
-      NO_SOURCE_SENTINEL,
-    ]);
+    // Reads resolve to an empty grant; writes keep the sentinel the gate refuses.
+    expect(effectiveReadSourceIdsForIngress(scopeless, { failClosed: true })).toEqual([]);
     expect(effectiveWriteSourceIdForIngress(scopeless, { failClosed: true })).toBe(
       NO_SOURCE_SENTINEL,
     );

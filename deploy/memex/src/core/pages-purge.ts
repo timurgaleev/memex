@@ -16,6 +16,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { SOFT_DELETE_TTL_HOURS } from "./destructive-guard.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 export interface PurgeDeletedPagesResult {
   /** Number of pages hard-deleted. */
@@ -34,15 +35,11 @@ export async function purgeDeletedPages(
   olderThanHours: number = SOFT_DELETE_TTL_HOURS,
   sourceIds?: string[],
 ): Promise<PurgeDeletedPagesResult> {
-  // Tenant write scope (mig047): when a non-empty scope is given, the reaper
-  // only frees rows owned by it — a scoped caller can never purge another
-  // tenant's soft-deleted pages. Unset/empty → whole-brain, unchanged.
+  // Tenant write scope (mig047): when a scope is given, the reaper only frees
+  // rows owned by it — a scoped caller can never purge another tenant's
+  // soft-deleted pages, and an empty grant purges nothing. Unset → whole-brain.
   const params: unknown[] = [String(olderThanHours)];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("source_id", sourceIds, params);
   const r = await engine.query<{ slug: string }>(
     `DELETE FROM pages
       WHERE deleted_at IS NOT NULL

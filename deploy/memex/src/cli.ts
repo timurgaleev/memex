@@ -3,6 +3,7 @@
  * memex CLI entrypoint.
  */
 import { VERSION } from "./version.ts";
+import { normalizeSourceFilterParam } from "./core/source-scope.ts";
 import { runInit } from "./commands/init.ts";
 import { runServe } from "./commands/serve.ts";
 import { runIndex } from "./commands/index.ts";
@@ -865,7 +866,8 @@ async function main(argv: readonly string[]): Promise<number> {
       const dir = values.get("--dir");
       if (dir) opts.dir = dir;
       const src = values.get("--source");
-      if (src) opts.sourceIds = src.split(",").map((s) => s.trim()).filter(Boolean);
+      const sourceIds = normalizeSourceFilterParam(src?.split(","));
+      if (sourceIds !== undefined) opts.sourceIds = sourceIds;
       await runExport(opts);
       return 0;
     }

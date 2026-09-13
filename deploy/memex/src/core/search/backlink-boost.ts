@@ -30,6 +30,7 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { slugForSourcePath } from "./graph-signals.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 /** Score multiplier is 1 + COEF * ln(1 + inbound_link_count). */
 export const BACKLINK_BOOST_COEF = 0.05;
@@ -58,11 +59,7 @@ export async function defaultBacklinkCounts(
   const result = new Map<string, number>();
   if (slugs.length === 0) return result;
   const params: unknown[] = [slugs];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length) {
-    params.push(sourceIds);
-    sourceFilter = ` AND l.source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("l.source_id", sourceIds, params);
   const rows = await engine.query<{ to_slug: string; cnt: number }>(
     `SELECT l.target_slug AS to_slug,
             COUNT(DISTINCT l.source_slug)::int AS cnt

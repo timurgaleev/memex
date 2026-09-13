@@ -254,11 +254,11 @@ async function collectEdges(
   }
 
   // Scope resolution to the writer's source (mig047) so a frontmatter field
-  // value never canonicalizes onto another tenant's page. Unscoped when empty.
+  // value never canonicalizes onto another tenant's page. Unscoped when unset.
   const resolver = makeSlugResolver(
     storage,
     pageSlug,
-    sourceIds && sourceIds.length > 0 ? { sourceIds } : {},
+    sourceIds !== undefined ? { sourceIds } : {},
   );
   const seen = new Set<string>();
   const edges: InferredEdge[] = [];

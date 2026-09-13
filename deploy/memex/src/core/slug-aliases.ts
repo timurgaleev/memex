@@ -36,7 +36,8 @@ function isUndefinedTableError(e: unknown): boolean {
  *
  * `sourceIds` scopes the lookup (mig047): a redirect resolves only when it is
  * owned by one of these sources, ordered by the caller's source preference so a
- * multi-tenant hit is deterministic. Omitted/empty → whole-brain (local/CLI).
+ * multi-tenant hit is deterministic. Omitted → whole-brain (local/CLI); `[]` →
+ * no alias resolves.
  */
 export async function resolveSlugWithAlias(
   storage: Storage,
@@ -48,7 +49,7 @@ export async function resolveSlugWithAlias(
     const params: unknown[] = [slug];
     let scope = "";
     let order = "id";
-    if (sourceIds && sourceIds.length > 0) {
+    if (sourceIds !== undefined) {
       params.push([...sourceIds]);
       scope = ` AND source_id = ANY($${params.length}::text[])`;
       // Prefer the caller's earlier-listed sources on a cross-tenant collision.

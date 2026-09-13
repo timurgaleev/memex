@@ -27,6 +27,7 @@ import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 /** How many of the top hits to send to the reranker by default. */
 const DEFAULT_TOP_N_IN = 20;
@@ -89,11 +90,7 @@ export async function computeGraphDegrees(
   if (slugs.length === 0) return out;
   try {
     const params: unknown[] = [slugs];
-    let scope = "";
-    if (sourceIds && sourceIds.length > 0) {
-      params.push(sourceIds);
-      scope = ` AND source_id = ANY($2::text[])`;
-    }
+    const scope = andSourceScope("source_id", sourceIds, params);
     const { rows } = await storage.engine().query<{ slug: string; degree: number }>(
       `SELECT slug, COUNT(*)::int AS degree FROM (
          SELECT source_slug AS slug FROM links WHERE source_slug = ANY($1::text[])${scope}

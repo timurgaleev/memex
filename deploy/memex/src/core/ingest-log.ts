@@ -72,7 +72,7 @@ export interface GetIngestLogOptions {
   limit?: number;
   /** Filter by source_type ('facts:absorb', an importer name, …). */
   source_type?: string;
-  /** Tenant scope (mig087). Omitted/empty -> unscoped. */
+  /** Tenant scope (mig087). Omitted -> unscoped; `[]` -> nothing. */
   sourceIds?: string[];
 }
 
@@ -87,7 +87,7 @@ export async function getIngestLog(
     params.push(opts.source_type);
     where.push(`source_type = $${params.length}`);
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }

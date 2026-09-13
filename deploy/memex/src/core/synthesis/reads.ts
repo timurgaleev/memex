@@ -8,25 +8,12 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { excludeEmptyExtractionTombstone } from "./takes.ts";
+import { normalizeScope } from "../source-scope.ts";
 
 function clampLimit(limit: number | undefined, max: number, dflt: number): number {
   return typeof limit === "number" && limit >= 1 && limit <= max
     ? Math.floor(limit)
     : dflt;
-}
-
-/**
- * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
- * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
- */
-function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  // Only `undefined` is unscoped. An EMPTY array is a caller granted nothing
-  // and stays empty, so the predicate is still applied and matches no row —
-  // the same rule core/insights.ts follows. Folding empty into `undefined` let
-  // a caller with no grant out-read a caller with one.
-  if (sourceIds === undefined || !Array.isArray(sourceIds)) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return Array.from(new Set(cleaned));
 }
 
 /**
@@ -127,7 +114,7 @@ export async function listTakes(
   // when source_kind='document'); scope by joining that to documents.source_id.
   // A take whose source_ref isn't a document of a listed tenant is excluded
   // fail-closed — the same posture mig 047 takes for unclassified rows.
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const offset =
     typeof opts.offset === "number" && opts.offset > 0
       ? Math.floor(opts.offset)
@@ -214,7 +201,7 @@ export async function searchTakes(
   const q = typeof opts.q === "string" ? opts.q.trim() : "";
   if (q.length === 0) return [];
   const n = clampLimit(opts.limit, 200, 50);
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const params: unknown[] = [q, n];
   let sourceFilter = "";
   const holderAllowList = normalizeHolderAllowList(opts.holderAllowList);
@@ -302,7 +289,7 @@ export async function getTakesScorecard(
     holderAllowList?: string[];
   } = {},
 ): Promise<TakesScorecard> {
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const params: unknown[] = [];
   const clauses: string[] = [];
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
@@ -430,7 +417,7 @@ export async function getTakesCalibration(
       ? opts.bucketSize
       : 0.1;
   const maxIdx = Math.floor(1 / bucketSize) - 1;
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const params: unknown[] = [bucketSize, maxIdx];
   const clauses: string[] = [];
   if (typeof opts.domain === "string" && opts.domain.length > 0) {
@@ -524,14 +511,14 @@ export interface CalibrationProfileRow {
  * the `source_id` axis, so profiles are per-tenant: a scoped caller filters to
  * their effective read source set (`source_id = ANY($allowed)`), which excludes
  * every other tenant's profile fail-closed — the same posture the other scoped
- * reads take. `undefined`/empty leaves it unscoped (admin/internal), returning
- * the newest profile across all tenants.
+ * reads take. An empty scope sees no profile; `undefined` leaves it unscoped
+ * (admin/internal), returning the newest profile across all tenants.
  */
 export async function getCalibrationProfile(
   engine: Engine,
   sourceIds?: string[],
 ): Promise<CalibrationProfileRow | null> {
-  const sources = normalizeSourceIds(sourceIds);
+  const sources = normalizeScope(sourceIds);
   const params: unknown[] = [];
   let sourceFilter = "";
   if (sources !== undefined) {

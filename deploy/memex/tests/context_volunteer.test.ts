@@ -202,9 +202,10 @@ describe("volunteer-events", () => {
         { channel: "op" },
       ),
     );
-    // Operator paths stay unscoped: undefined and [] both see the aggregate.
+    // Only the operator (undefined) sees the aggregate; `[]` is a caller with
+    // no grant and is refused like any scoped caller.
     expect((await volunteerUsageStats(storage, 30)).total_volunteered).toBe(1);
-    expect((await volunteerUsageStats(storage, 30, [])).total_volunteered).toBe(1);
+    await expect(volunteerUsageStats(storage, 30, [])).rejects.toThrow("operator-only");
 
     let caught: unknown;
     try {

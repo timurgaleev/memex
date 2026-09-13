@@ -7,6 +7,7 @@
  * future work could add fuzzy / alias resolution.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { entityId, type EntityType } from "./entities.ts";
 
 export interface BacklinkHit {
@@ -26,7 +27,7 @@ export interface BacklinksOptions {
   limit?: number;
   /**
    * Tenant source scope (migration 047). When non-empty, results are filtered
-   * to documents whose `source_id = ANY(...)`. Omitted/empty -> unscoped.
+   * to documents whose `source_id = ANY(...)`. Omitted -> unscoped; `[]` -> nothing.
    */
   sourceIds?: string[];
 }
@@ -44,13 +45,9 @@ export async function findBacklinks(
   const eid = entityId(type, name);
 
   const params: unknown[] = [eid, limit];
-  let scopeFilter = "";
   // Tenant scope (mig047): filter the joined documents (nullable source_id)
-  // only when a non-empty list is given.
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
-    params.push(opts.sourceIds);
-    scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-  }
+  // whenever a list is given; `[]` matches nothing.
+  const scopeFilter = andSourceScope("d.source_id", opts.sourceIds, params);
 
   const db = storage.raw();
   const result = await db.query<{

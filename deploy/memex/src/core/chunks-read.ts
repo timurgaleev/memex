@@ -11,6 +11,7 @@
  * original text back together. READ-only — no Bedrock, no writes.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { pageSourcePath } from "./page-index.ts";
 
 export interface ChunkRow {
@@ -39,12 +40,8 @@ export async function getChunksForSource(
   const db = storage.engine();
   const params: unknown[] = [sourcePath];
   // Tenant scope: a chunk's owning source is its parent document's source_id.
-  // Empty/undefined => unscoped (back-compat).
-  let scopeFilter = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-  }
+  // Undefined => unscoped (back-compat); `[]` => nothing.
+  const scopeFilter = andSourceScope("d.source_id", sourceIds, params);
   const result = await db.query<{
     id: string;
     chunk_index: number;
@@ -89,7 +86,7 @@ export async function getChunksForPage(
   // The `d.source_id` scope filter in getChunksForSource still gates the read,
   // so resolving the owner unscoped here never leaks across a caller's grant.
   const owner =
-    sourceIds && sourceIds.length === 1
+    sourceIds?.length === 1
       ? sourceIds[0]
       : await resolvePageOwner(storage, slug);
   return getChunksForSource(storage, pageSourcePath(slug, owner), sourceIds);

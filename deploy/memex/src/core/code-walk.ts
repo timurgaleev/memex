@@ -15,6 +15,7 @@
  * TS+Python pattern set. Add a per-language gate if a language column lands.
  */
 import type { Engine } from "./engine/interface.ts";
+import { normalizeScope } from "./source-scope.ts";
 
 export type WalkDirection = "callers" | "callees";
 
@@ -120,13 +121,6 @@ function clampConfidence(depth: number): number {
   return Math.max(0.05, Math.min(1.0, c));
 }
 
-function normalizeSourceIds(
-  sourceIds: string[] | undefined,
-): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
-}
 
 interface EdgeRow {
   next_symbol: string | null;
@@ -202,7 +196,7 @@ export async function runRecursiveWalk(
 ): Promise<WalkResult> {
   const depthCap = opts.depth ?? (opts.direction === "callers" ? 5 : 8);
   const maxNodes = opts.maxNodes ?? 200;
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
 
   let start = symbol;
   if (!opts.exact && !symbol.includes("::")) {

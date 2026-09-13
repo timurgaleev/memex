@@ -25,6 +25,7 @@ import {
   type TakeQuality,
 } from "./takes-fence.ts";
 import { contentHash16 } from "./atoms.ts";
+import { normalizeScope } from "../source-scope.ts";
 
 /** Prompt-version marker for fence-derived rows — they never came from an LLM
  *  prompt, but the column is NOT NULL and doubles as provenance. */
@@ -84,7 +85,8 @@ export function deriveResolutionTuple(resolution: TakeResolution): {
 
 export interface ResolveTakeOptions {
   /** Tenant scope, mirroring setTakeStatus: when supplied, the update only
-   *  lands if the take's source document belongs to one of these tenants. */
+   *  lands if the take's source document belongs to one of these tenants;
+   *  an empty scope updates nothing. */
   sourceIds?: string[];
   /** When true, an already-resolved take is left untouched (the auto-resolve
    *  posture: a machine verdict never overwrites a human resolution). */
@@ -114,11 +116,10 @@ export async function resolveTake(
   ];
   let guard = "";
   if (opts.onlyIfUnresolved) guard += " AND resolved_at IS NULL";
-  const scoped =
-    Array.isArray(opts.sourceIds) && opts.sourceIds.length > 0
-      ? Array.from(new Set(opts.sourceIds.filter((s) => typeof s === "string" && s.length > 0)))
-      : undefined;
-  if (scoped && scoped.length > 0) {
+  const scoped = normalizeScope(opts.sourceIds);
+  if (scoped !== undefined && scoped.length === 0) {
+    guard += " AND FALSE";
+  } else if (scoped !== undefined) {
     params.push(scoped);
     guard += ` AND EXISTS (
         SELECT 1 FROM documents d

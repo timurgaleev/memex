@@ -24,6 +24,7 @@
  * these in the public-read redaction policy (see FORBIDDEN_MCP_TOOLS_FROM_PUBLIC).
  */
 import type { Storage } from "./storage.ts";
+import { normalizeScope } from "./source-scope.ts";
 
 export interface RecentSalienceOptions {
   /** Filter to a single page `type` (exact match). */
@@ -42,7 +43,7 @@ export interface RecentSalienceOptions {
    */
   recencyBias?: "flat" | "on";
   /**
-   * Tenant scope. `undefined`/empty → unscoped (all sources, back-compat).
+   * Tenant scope. `undefined` → unscoped (all sources); `[]` → nothing.
    * Non-empty → only pages whose `source_id` is in the list.
    */
   sourceIds?: string[];
@@ -73,15 +74,6 @@ function clampLimit(raw: number | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.floor(raw)));
 }
 
-/**
- * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
- * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
- */
-function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
-}
 
 /**
  * Live pages ranked by `salience DESC, updated_at DESC` — the "what matters"
@@ -107,7 +99,7 @@ export async function getRecentSalience(
     params.push(`${opts.slugPrefix.replace(/[\\%_]/g, "\\$&")}%`);
     where.push(`slug LIKE $${params.length} ESCAPE '\\'`);
   }
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   if (sources) {
     params.push(sources);
     where.push(`source_id = ANY($${params.length}::text[])`);
@@ -159,7 +151,7 @@ export interface FindAnomaliesOptions {
   /** Max rows PER anomaly kind. Default 20, clamped to [1, 200]. */
   limit?: number;
   /**
-   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * Tenant scope. `undefined` → unscoped; `[]` → nothing. Non-empty →
    * consider only the listed sources' pages and count only their edges.
    */
   sourceIds?: string[];
@@ -235,7 +227,7 @@ export async function findAnomalies(
   );
   const limit = clampLimit(opts.limit);
 
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const params: unknown[] = [];
   let edgeSourceFilter = "";
   let pageSourceFilter = "";

@@ -19,6 +19,7 @@
  * Caps: depth ≤ 2, ≤ 50 neighbors per hop.
  */
 import type { Engine } from "../engine/interface.ts";
+import { andSourceScope, normalizeScope } from "../source-scope.ts";
 
 const MAX_WALK_DEPTH = 2;
 const NEIGHBOR_CAP_PER_HOP = 50;
@@ -48,14 +49,6 @@ interface SeenEntry {
   hop: number;
 }
 
-function normalizeSources(
-  sourceIds: readonly string[] | undefined,
-): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
-}
-
 /** Resolve a set of chunk ids → their qualified symbol (NULL for prose chunks). */
 async function symbolsForChunks(
   engine: Engine,
@@ -83,10 +76,9 @@ async function chunksForSymbol(
   const params: unknown[] = [symbol];
   let join = "";
   let filter = "";
-  if (sources) {
+  if (sources !== undefined) {
     join = " JOIN documents d ON d.id = c.document_id";
-    params.push(sources);
-    filter = ` AND d.source_id = ANY($${params.length}::text[])`;
+    filter = andSourceScope("d.source_id", sources, params);
   }
   const r = await engine.query<{ id: string; symbol_name_qualified: string }>(
     `SELECT c.id, c.symbol_name_qualified
@@ -125,7 +117,9 @@ async function frontierNeighbors(
   const cap = NEIGHBOR_CAP_PER_HOP * symbols.length;
   const params: unknown[] = [symbols];
   let edgeScope = "";
-  if (sources && sources.length) {
+  if (sources !== undefined && sources.length === 0) {
+    edgeScope = " AND FALSE";
+  } else if (sources !== undefined) {
     params.push(sources);
     edgeScope = ` AND (e.source_id IS NULL OR e.source_id = ANY($${params.length}::text[]))`;
   }
@@ -177,7 +171,7 @@ async function scopeChunks(
   ids: string[],
   sources: string[] | undefined,
 ): Promise<Set<string>> {
-  if (!sources || ids.length === 0) return new Set(ids);
+  if (sources === undefined || ids.length === 0) return new Set(ids);
   const r = await engine.query<{ id: string }>(
     `SELECT c.id FROM chunks c
        JOIN documents d ON d.id = c.document_id
@@ -203,7 +197,7 @@ export async function expandAnchors(
   if (depth === 0 && !opts.nearSymbol) {
     return anchors.map((a) => ({ id: a.id, score: a.score }));
   }
-  const sources = normalizeSources(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   const seen = new Map<string, SeenEntry>();
   for (const a of anchors) {
     if (!seen.has(a.id)) seen.set(a.id, { id: a.id, score: a.score, symbol: null, hop: 0 });

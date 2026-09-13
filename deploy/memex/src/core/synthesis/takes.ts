@@ -35,6 +35,7 @@ import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
 import { embedText } from "../embedding.ts";
 import { resolveTake } from "./takes-canon.ts";
+import { normalizeScope } from "../source-scope.ts";
 
 export const PROPOSE_TAKES_PROMPT_VERSION = "v1-nova";
 
@@ -1191,8 +1192,8 @@ export async function gradeTakesPhase(
  * Tenant-scoped exactly like `listTakes` — when `sourceIds` is supplied the
  * update only lands if the take's source document belongs to one of those
  * tenants, so a caller can never touch a take that isn't theirs (a cross-tenant
- * take_key is a silent no-op). `undefined`/empty leaves it unscoped
- * (admin/internal). Returns whether a row was actually updated.
+ * take_key is a silent no-op). An empty scope updates nothing; `undefined`
+ * leaves it unscoped (admin/internal). Returns whether a row was actually updated.
  */
 /** Review statuses a take may be moved into by an operator action. */
 export const TAKE_REVIEW_STATUSES = ["accepted", "rejected"] as const;
@@ -1211,13 +1212,12 @@ export async function setTakeStatus(
       `setTakeStatus: status must be one of ${TAKE_REVIEW_STATUSES.join("|")}, got ${JSON.stringify(status)}`,
     );
   }
-  const scoped =
-    Array.isArray(sourceIds) && sourceIds.length > 0
-      ? Array.from(new Set(sourceIds.filter((s) => typeof s === "string" && s.length > 0)))
-      : undefined;
+  const scoped = normalizeScope(sourceIds);
   const params: unknown[] = [status, take_key];
   let sourceFilter = "";
-  if (scoped && scoped.length > 0) {
+  if (scoped !== undefined && scoped.length === 0) {
+    sourceFilter = " AND FALSE";
+  } else if (scoped !== undefined) {
     params.push(scoped);
     sourceFilter = ` AND EXISTS (
           SELECT 1 FROM documents d

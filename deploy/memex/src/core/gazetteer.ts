@@ -30,6 +30,7 @@
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { normalizeAlias } from "./page-aliases.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { stripCodeBlocks, validateSlug } from "./links.ts";
 
 /** Entity page types eligible for gazetteer matching (named entities only). */
@@ -111,13 +112,8 @@ export async function buildGazetteer(
   // matches (and edges to) another tenant's person/company. Unscoped (the
   // corpus-wide sweep / local caller) stays whole-brain. GAZETTEER_TYPES is a
   // hardcoded const (no injection); slug is bound via $1, sources via $2.
-  const scope = sourceIds && sourceIds.length > 0 ? sourceIds : undefined;
   const pageParams: unknown[] = [sourceSlug];
-  let pageScope = "";
-  if (scope) {
-    pageParams.push(scope);
-    pageScope = ` AND source_id = ANY($${pageParams.length}::text[])`;
-  }
+  const pageScope = andSourceScope("source_id", sourceIds, pageParams);
   // LIMIT bounds the load on a large vault, preferring longer (more specific)
   // titles/aliases.
   const r = await storage.engine().query<{ slug: string; title: string | null }>(
@@ -128,11 +124,7 @@ export async function buildGazetteer(
     pageParams,
   );
   const aliasParams: unknown[] = [sourceSlug];
-  let aliasScope = "";
-  if (scope) {
-    aliasParams.push(scope);
-    aliasScope = ` AND p.source_id = ANY($${aliasParams.length}::text[])`;
-  }
+  const aliasScope = andSourceScope("p.source_id", sourceIds, aliasParams);
   const aliasRows = await storage.engine().query<{ slug: string; alias_norm: string }>(
     `SELECT pa.slug, pa.alias_norm
        FROM page_aliases pa

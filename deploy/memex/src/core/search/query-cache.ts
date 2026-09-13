@@ -230,6 +230,17 @@ export function validateCacheRow(
 }
 
 /**
+ * Scope as it enters a cache key. The operator (`undefined`) keeps the `[]` it
+ * always hashed to, so existing keys stay valid; a caller with no grant hashes
+ * to `null` and can never share an entry with the operator.
+ */
+function cacheScopeMaterial(sourceIds: readonly string[] | undefined): string[] | null {
+  if (sourceIds === undefined) return [];
+  if (sourceIds.length === 0) return null;
+  return [...sourceIds].map((s) => s.toLowerCase()).sort();
+}
+
+/**
  * Deterministic cache key. Includes everything that changes the ranking
  * output: normalized query text, k, the (order-independent) source scope,
  * whether reranking is on, and the ranking signature (version + live boost
@@ -243,9 +254,7 @@ export function queryCacheKey(
   rerank: boolean,
   rankingSig: string = rankingSignature(),
 ): string {
-  const scope = sourceIds && sourceIds.length > 0
-    ? [...sourceIds].map((s) => s.toLowerCase()).sort()
-    : [];
+  const scope = cacheScopeMaterial(sourceIds);
   const material = JSON.stringify([
     query.trim().toLowerCase().replace(/\s+/g, " "),
     k,
@@ -270,9 +279,7 @@ export function queryCacheBucketKey(
   rankingSig: string = rankingSignature(),
   detail: string = "medium",
 ): string {
-  const scope = sourceIds && sourceIds.length > 0
-    ? [...sourceIds].map((s) => s.toLowerCase()).sort()
-    : [];
+  const scope = cacheScopeMaterial(sourceIds);
   // `detail` is the RESOLVED level (classifier suggestion included): the
   // compiled-truth boost keys on it, so a paraphrase must never borrow an
   // ordering computed under a different level.

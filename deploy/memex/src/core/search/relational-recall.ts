@@ -33,6 +33,7 @@ import type { Storage } from "../storage.ts";
 import { KNOWN_LINK_TYPES, graphNeighbors, traverseGraph } from "../links.ts";
 import { makeSlugResolver } from "../slug-canonicalize.ts";
 import { visibilityClause } from "../visibility.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 export type RelationalKind = "who_rel" | "who_at" | "connects" | "intro";
 export type RelationalDirection = "outbound" | "inbound" | "both";
@@ -64,7 +65,7 @@ export interface RelationalRecallOptions {
   limit?: number;
   /** Max hops for the type-agnostic `connects`/`intro` walk (1..6). Default 3. */
   depth?: number;
-  /** Tenant scope: restrict edge fanout to these source_ids. Empty/undefined => unscoped. */
+  /** Tenant scope: restrict edge fanout to these source_ids. `undefined` => unscoped; `[]` => nothing. */
   sourceIds?: string[];
   /** Receives the parsed intent + outcome for telemetry. Never throws upstream. */
   onMeta?: (meta: RelationalRecallMeta) => void;
@@ -294,7 +295,7 @@ async function resolveSeed(
   // another source's page (an existence oracle) even though the fanout that
   // follows is scoped and returns nothing.
   const resolver = makeSlugResolver(storage, "", {
-    ...(sourceIds && sourceIds.length > 0 ? { sourceIds } : {}),
+    ...(sourceIds !== undefined ? { sourceIds } : {}),
   });
   const r = await resolver.resolve(phrase);
   return r.resolved ? r.slug : null;
@@ -321,7 +322,7 @@ export interface FanoutOptions {
   limit?: number;
   /** Max hops for the type-agnostic `connects`/`intro` walk (1..6). Default 3. */
   depth?: number;
-  /** Tenant scope: restrict edge fanout to these source_ids. Empty/undefined => unscoped. */
+  /** Tenant scope: restrict edge fanout to these source_ids. `undefined` => unscoped; `[]` => nothing. */
   sourceIds?: string[];
   /** Receives how many seeds resolved to a real page (telemetry). */
   onSeedsResolved?: (n: number) => void;
@@ -486,11 +487,7 @@ export async function relationalArmChunkIds(
   try {
     const engine = storage.engine();
     const params: unknown[] = [sourcePaths];
-    let scopeFilter = "";
-    if (opts.sourceIds && opts.sourceIds.length > 0) {
-      params.push(opts.sourceIds);
-      scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-    }
+    const scopeFilter = andSourceScope("d.source_id", opts.sourceIds, params);
     // Head chunk (lowest id) per page, matching fetchPageHeadHit's choice.
     const rows = await engine.query<{ id: string; source_path: string }>(
       `SELECT DISTINCT ON (d.source_path) c.id, d.source_path

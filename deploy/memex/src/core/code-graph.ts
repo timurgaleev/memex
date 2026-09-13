@@ -15,6 +15,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { entityId, type EntityType } from "./entities.ts";
+import { normalizeScope } from "./source-scope.ts";
 
 export interface CodeMention {
   surface_form: string;
@@ -55,15 +56,6 @@ function clampLimit(limit: number | undefined): number {
     : 200;
 }
 
-/**
- * Normalise an optional caller-supplied tenant filter. `undefined`/empty stays
- * unscoped; a non-empty list is deduped to a clean `string[]` for `$n::text[]`.
- */
-function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
-}
 
 async function mentionsFor(
   engine: Engine,
@@ -76,7 +68,7 @@ async function mentionsFor(
   const params: unknown[] = [eid, limit];
   // Scope on the joined documents.source_id. NULL (unclassified) rows are
   // excluded fail-closed: a tenant never sees an unclassified legacy mention.
-  const sources = normalizeSourceIds(sourceIds);
+  const sources = normalizeScope(sourceIds);
   let sourceFilter = "";
   if (sources) {
     params.push(sources);
@@ -135,7 +127,7 @@ export async function resolveSymbolAt(
   sourceIds?: string[],
 ): Promise<string | null> {
   const params: unknown[] = [file, line];
-  const sources = normalizeSourceIds(sourceIds);
+  const sources = normalizeScope(sourceIds);
   let sourceFilter = "";
   if (sources) {
     params.push(sources);

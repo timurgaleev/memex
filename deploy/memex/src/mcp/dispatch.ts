@@ -168,7 +168,8 @@ import { putRawData, getRawData } from "../core/raw-data.ts";
 import { logIngest, getIngestLog } from "../core/ingest-log.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { getJobProgress } from "../core/jobs/lifecycle.ts";
-import { runThink, type ThinkOptions } from "../core/synthesis/think.ts";
+import { runThink, type ThinkOptions, type ThinkResult } from "../core/synthesis/think.ts";
+import { isNoGrant } from "../core/source-scope.ts";
 import {
   persistThinkSynthesis,
   saveThinkTake,
@@ -281,7 +282,7 @@ const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
  * keep full access — they are the operator. `source_health` is deliberately NOT
  * here: it is the per-source (tenant-safe) health view.
  */
-const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
+export const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "stats",
   "advisor",
   "jobs_submit",
@@ -880,7 +881,7 @@ async function callSearch(
   applyPerCallMode(searchOpts, args["mode"], isOperator);
   if (onCapture) searchOpts.onCapture = onCapture;
   if (tokenBudget !== undefined) searchOpts.tokenBudget = tokenBudget;
-  if (readSources && readSources.length) searchOpts.sourceIds = readSources;
+  if (readSources !== undefined) searchOpts.sourceIds = readSources;
   // Optional per-call filters — strings validated by the op contract.
   if (typeof args["lang"] === "string" && args["lang"]) searchOpts.lang = args["lang"];
   if (typeof args["symbol_kind"] === "string" && args["symbol_kind"]) {
@@ -1065,7 +1066,7 @@ async function callBacklinks(
     }
     opts.limit = limit as number;
   }
-  if (readSources?.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let hits = await findBacklinks(storage, name, opts);
   // Diary fence: drop backlinks originating from a diary page (its mirror
   // source_path carries the life/diary/* slug) for a non-operator caller.
@@ -1419,7 +1420,7 @@ async function isRemoteDiaryFenced(
   readSources: string[] | undefined,
 ): Promise<boolean> {
   if (isDiaryPage(undefined, slug)) return true;
-  const scopeIds = readSources && readSources.length ? readSources : undefined;
+  const scopeIds = readSources;
   const pg = await getPage(storage, slug, scopeIds);
   return pg !== null && isDiaryPage(pg.type, pg.slug);
 }
@@ -1691,7 +1692,7 @@ async function callPageGet(
   if (typeof args["slug"] !== "string") {
     return errResult("page_get: `slug` is required");
   }
-  const scopeIds = readSources && readSources.length ? readSources : undefined;
+  const scopeIds = readSources;
   const fuzzy = args["fuzzy"] === true;
   const includeDeleted = args["include_deleted"] === true && !redact;
   const getOpts = includeDeleted ? { includeDeleted: true } : {};
@@ -1772,7 +1773,7 @@ async function callPageList(
   // Soft-deleted rows are operator hygiene — never surfaced on public ingress.
   if (args["include_deleted"] === true && !redact) opts.includeDeleted = true;
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let pages = await listPages(storage, opts);
   // Diary fence: a non-operator caller never sees diary pages in the listing.
   if (remote) pages = pages.filter((p) => !isDiaryPage(p.type, p.slug));
@@ -1799,7 +1800,7 @@ async function callPageVersions(
     return jsonResult({ ok: true, versions: [] });
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : 20;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const versions = await pageVersions(storage, args["slug"], limit, sourceIds);
   // Version rows carry body snapshots; redact each through the same
   // page allowlist so public callers see metadata only.
@@ -1886,7 +1887,7 @@ async function callGraphNeighbors(
   )
     opts.direction = args["direction"] as GraphNeighborsOptions["direction"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let links = await graphNeighbors(storage, args["slug"], opts);
   // Drop edges whose OTHER endpoint is a diary page.
   if (remote) links = links.filter((l) => !isDiaryLink(l));
@@ -1928,7 +1929,7 @@ async function callGraphQuery(
   if (remote && (isDiarySlug(opts.source_slug) || isDiarySlug(opts.target_slug))) {
     return jsonResult({ ok: true, links: [] });
   }
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let links = await graphQuery(storage, opts);
   if (remote) links = links.filter((l) => !isDiaryLink(l));
   return jsonResult({
@@ -1958,7 +1959,7 @@ async function callTraverseGraph(
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (Number.isInteger(args["max_depth"])) opts.maxDepth = args["max_depth"] as number;
   if (Number.isInteger(args["limit"])) opts.limit = args["limit"] as number;
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   try {
     // Returns only {slug, depth}. Drop any diary node reached along the walk
     // for a non-operator caller.
@@ -1992,7 +1993,7 @@ async function callGetChunks(
       : isDiarySourcePath(args["source_path"] as string);
     if (fenced) return jsonResult({ ok: true, chunks: [] });
   }
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const chunks = hasSlug
     ? await getChunksForPage(storage, args["slug"] as string, sourceIds)
     : await getChunksForSource(storage, args["source_path"] as string, sourceIds);
@@ -2010,7 +2011,7 @@ async function callResolveSlugs(
   }
   const opts: Parameters<typeof resolveSlugs>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let hits = await resolveSlugs(storage, args["query"], opts);
   // Diary fence: never resolve a query to a diary slug for a non-operator caller.
   if (remote) hits = hits.filter((h) => !isDiarySlug(h.slug));
@@ -2049,7 +2050,7 @@ async function callGetTags(
   readSources?: string[],
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") return errResult("get_tags: `slug` is required");
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const tags = await getTags(storage, args["slug"], sourceIds);
   return jsonResult({ ok: true, slug: args["slug"], tags });
 }
@@ -2068,7 +2069,7 @@ async function callRelationalRecall(
   const opts: Parameters<typeof relationalRecall>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["depth"] === "number") opts.depth = args["depth"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   // Diary fence, same rule as resolve_slugs: a non-operator caller is never
   // handed a diary slug, whichever arm produced it.
   const fence = (list: { slug: string }[]) =>
@@ -2270,7 +2271,7 @@ async function callEntityFacts(
   // disables decay) to infer which hidden fact expired/demoted. Force it OFF on
   // public; internal callers get it via the `MEMEX_FACT_DECAY` env default.
   if (redact) opts.decay = false;
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const facts = await listFacts(storage, entitySlug, opts);
   // Public ingress: `fact` is note-derived private content — strip it,
   // mirroring the search/page body redaction policy.
@@ -2292,7 +2293,7 @@ async function callEntityTimeline(
   if (typeof args["since"] === "string") opts.since = args["since"];
   if (typeof args["until"] === "string") opts.until = args["until"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const timeline = await getEntityTimeline(storage, args["slug"], opts);
   // Public ingress: `event` is note-derived private content — strip it.
   const out = redact
@@ -2342,7 +2343,7 @@ async function callEntityRecall(
   if (typeof args["redact_body"] === "boolean")
     opts.redact_body = args["redact_body"];
   else if (redact) opts.redact_body = true;
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   // Same mig-085 floor callEntityFacts applies, on the same ledger: recall
   // reads entity_facts too, so without this a non-operator caller could read a
   // private fact through the aggregator that entity_facts refuses to show it.
@@ -2533,7 +2534,7 @@ async function callGetLinks(
   }
   const opts: Parameters<typeof getLinks>[2] = {};
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let groups = await getLinks(storage, args["slug"], opts);
   // Drop edges to a diary page, then any group left empty.
   if (remote) {
@@ -2545,7 +2546,7 @@ async function callGetLinks(
 }
 
 async function callListLinkSources(storage: Storage, readSources?: string[]): Promise<ToolCallResult> {
-  const sources = await listLinkSources(storage, readSources && readSources.length ? readSources : undefined);
+  const sources = await listLinkSources(storage, readSources);
   return jsonResult({ ok: true, sources });
 }
 
@@ -2558,7 +2559,7 @@ async function callFindOrphans(
   const opts: FindOrphansOptions = {};
   if (typeof args["type"] === "string") opts.type = args["type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let pages = await findOrphans(storage, opts);
   // Diary fence: these are page rows (slug + title) — a diary page must not
   // surface as an enrichment target for a non-operator caller.
@@ -2577,7 +2578,7 @@ async function callFindExperts(
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
   if (typeof args["topic"] === "string") opts.topic = args["topic"];
   if (args["explain"] === true) opts.explain = true;
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let experts = await findExperts(storage, opts);
   // Diary fence: the link-degree arm ranks EVERY page type, so a diary page can
   // rank as a hub (and `type: "diary"` reaches the topic arm too).
@@ -2594,7 +2595,7 @@ async function callFindContradictions(
   const opts: FindContradictionsOptions = {};
   if (typeof args["slug"] === "string") opts.slug = args["slug"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   // Asserted `contradicts` edges (deterministic graph) + LLM-suspected findings
   // cached by the probe-contradictions phase (migration 064; [] on a pre-064
   // brain or when the probe has never run). Same tenant scope for both.
@@ -2611,7 +2612,7 @@ async function callFindContradictions(
   ) {
     probedOpts.severity = args["severity"];
   }
-  if (readSources && readSources.length) probedOpts.sourceIds = readSources;
+  if (readSources !== undefined) probedOpts.sourceIds = readSources;
   const [asserted, probed] = await Promise.all([
     findContradictions(storage, opts),
     listProbedContradictions(storage, probedOpts),
@@ -2639,7 +2640,7 @@ async function callFindTrajectory(
   if (args["kind"] === "metric" || args["kind"] === "event" || args["kind"] === "all")
     opts.claimKind = args["kind"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const points = await findTrajectory(storage, args["entity_slug"], opts);
   return jsonResult({ ok: true, entity_slug: args["entity_slug"], points });
 }
@@ -2657,7 +2658,7 @@ async function callGetRecentSalience(
     opts.slugPrefix = args["slug_prefix"];
   if (args["recency_bias"] === "on") opts.recencyBias = "on";
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let pages = await getRecentSalience(storage, opts);
   // Diary fence: page rows (slug + title), and `slug_prefix` lets a caller ask
   // for `life/diary/` outright.
@@ -2676,7 +2677,7 @@ async function callFindAnomalies(
   if (typeof args["staleDays"] === "number") opts.staleDays = args["staleDays"];
   if (typeof args["salienceFloor"] === "number") opts.salienceFloor = args["salienceFloor"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let anomalies = await findAnomalies(storage, opts);
   // Diary fence: each anomaly is a page row (slug + title).
   if (remote) anomalies = anomalies.filter((a) => !isDiarySlug(a.slug));
@@ -2693,7 +2694,7 @@ async function callRecall(
   if (!Number.isInteger(id) || (id as number) < 1) {
     return errResult("recall: `id` must be a positive integer");
   }
-  const fact = await recallFact(storage, id as number, readSources && readSources.length ? readSources : undefined);
+  const fact = await recallFact(storage, id as number, readSources);
   // Diary fence: the row carries `source_slug` — the page the fact was extracted
   // from. A diary-sourced fact reads as unknown to a non-operator caller, the
   // same posture the ontology read takes (isDiarySourced).
@@ -2802,7 +2803,7 @@ async function callQuery(
     if (typeof args["k"] === "number") opts.k = args["k"];
     if (typeof args["primary_weight"] === "number") opts.primaryWeight = args["primary_weight"];
     if (typeof args["refine_weight"] === "number") opts.refineWeight = args["refine_weight"];
-    if (readSources && readSources.length) opts.sourceIds = readSources;
+    if (readSources !== undefined) opts.sourceIds = readSources;
     if (onCapture) opts.search = { onCapture };
     const hits = await queryRefine(storage, q, refine, opts);
     return jsonResult({ ok: true, hits: fenceDiaryHits(hits, isOperator) });
@@ -2815,7 +2816,7 @@ async function callQuery(
       : 0;
   const searchOpts: SearchOptions = { k: k + offset };
   if (onCapture) searchOpts.onCapture = onCapture;
-  if (readSources && readSources.length) searchOpts.sourceIds = readSources;
+  if (readSources !== undefined) searchOpts.sourceIds = readSources;
   // Paid LLM expansion: explicit per-call value wins; omitted follows the
   // env/mode-bundle chain (OFF in conservative/balanced — cost posture).
   if (typeof args["expand"] === "boolean") searchOpts.expansion = args["expand"];
@@ -2866,7 +2867,7 @@ async function callCodeCallers(
     return errResult("code_callers: `name` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const result = await codeCallers(storage.engine(), args["name"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
@@ -2880,7 +2881,7 @@ async function callCodeCallees(
     return errResult("code_callees: `target` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const result = await codeCallees(storage.engine(), args["target"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
@@ -2894,7 +2895,7 @@ async function callCodeDefs(
     return errResult("code_def: `name` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const result = await codeDefs(storage.engine(), args["name"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
@@ -2908,7 +2909,7 @@ async function callCodeRefs(
     return errResult("code_refs: `name` is required");
   }
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const result = await codeRefs(storage.engine(), args["name"], limit, sourceIds);
   return jsonResult({ ok: true, ...result });
 }
@@ -2924,7 +2925,7 @@ async function callCodeWalk(
       `${direction === "callers" ? "code_blast" : "code_flow"}: \`symbol\` is required`,
     );
   }
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const depthCapMax = direction === "callers" ? 8 : 12;
   const depth =
     typeof args["depth"] === "number"
@@ -2977,7 +2978,7 @@ async function callVolunteerContext(
   if (typeof args["min_confidence"] === "number") opts.minConfidence = args["min_confidence"];
   if (typeof args["prior_context"] === "string" && args["prior_context"])
     opts.priorContext = args["prior_context"];
-  if (readSources && readSources.length > 0) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
 
   let pages = await volunteerContext(storage, opts);
   // Diary fence: a non-operator caller is never volunteered a diary page, the
@@ -3006,7 +3007,7 @@ async function callAdvisor(
     // Forward the caller's read scope so tenant-owned collectors (chronicle
     // coverage / ontology conflicts) stay source-scoped; a scopeless caller
     // leaves it unset and those collectors fail closed (silent, no leak).
-    ...(readSources && readSources.length > 0 ? { sourceIds: readSources } : {}),
+    ...(readSources !== undefined ? { sourceIds: readSources } : {}),
   });
   return jsonResult({ ok: true, ...report });
 }
@@ -3021,7 +3022,7 @@ async function callListConcepts(
   readSources?: string[],
 ): Promise<ToolCallResult> {
   const limit = typeof args["limit"] === "number" ? args["limit"] : undefined;
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const concepts = await listConcepts(storage.engine(), limit, sourceIds);
   return jsonResult({ ok: true, concepts });
 }
@@ -3043,7 +3044,7 @@ async function callListTakes(
     opts.sort = args["sort"];
   if (typeof args["offset"] === "number") opts.offset = args["offset"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const takes = await listTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
@@ -3073,7 +3074,7 @@ async function callSearchTakes(
     return errResult("takes_search: `q` is required");
   const opts: Parameters<typeof searchTakes>[1] = { q: args["q"] };
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const takes = await searchTakes(storage.engine(), opts);
   return jsonResult({ ok: true, takes });
@@ -3083,7 +3084,7 @@ async function callGetCalibrationProfile(
   storage: Storage,
   readSources?: string[],
 ): Promise<ToolCallResult> {
-  const sourceIds = readSources && readSources.length ? readSources : undefined;
+  const sourceIds = readSources;
   const profile = await getCalibrationProfile(storage.engine(), sourceIds);
   return jsonResult({ ok: true, profile });
 }
@@ -3099,7 +3100,7 @@ async function callTakesScorecard(
   if (typeof args["holder"] === "string" && args["holder"]) opts.holder = args["holder"];
   if (typeof args["since"] === "string" && args["since"]) opts.since = args["since"];
   if (typeof args["until"] === "string" && args["until"]) opts.until = args["until"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const scorecard = await getTakesScorecard(storage.engine(), opts);
   return jsonResult({ ok: true, scorecard });
@@ -3115,7 +3116,7 @@ async function callTakesCalibration(
   if (typeof args["bucket_size"] === "number") opts.bucketSize = args["bucket_size"];
   if (typeof args["domain"] === "string" && args["domain"]) opts.domain = args["domain"];
   if (typeof args["holder"] === "string" && args["holder"]) opts.holder = args["holder"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   if (takesHolders) opts.holderAllowList = takesHolders;
   const buckets = await getTakesCalibration(storage.engine(), opts);
   return jsonResult({ ok: true, buckets });
@@ -3148,7 +3149,7 @@ async function callExtractFacts(
     const page = await getPage(
       storage,
       sourceRef,
-      readSources && readSources.length ? readSources : undefined,
+      readSources,
     );
     if (!page) {
       throw new OperationError(
@@ -3217,7 +3218,7 @@ async function callGetRecentTranscripts(
   if (typeof args["days"] === "number") opts.days = args["days"];
   if (typeof args["summary"] === "boolean") opts.summary = args["summary"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   let transcripts = await listRecentTranscripts(storage.engine(), opts);
   // Diary fence: `journal` is a listed transcript type — a non-operator caller
   // never sees diary/journal interiority in the recent-transcripts feed.
@@ -3394,7 +3395,23 @@ async function callThink(
   if (args["with_calibration"] === true) thinkOpts.withCalibration = true;
   if (typeof args["k"] === "number") thinkOpts.k = args["k"] as number;
   if (typeof args["max_takes"] === "number") thinkOpts.maxTakes = args["max_takes"] as number;
-  if (ctx.readSources && ctx.readSources.length) thinkOpts.sourceIds = ctx.readSources;
+  if (ctx.readSources !== undefined) thinkOpts.sourceIds = ctx.readSources;
+
+  // A caller granted no source has no evidence to gather; answer without
+  // spending a paid synthesis call.
+  if (isNoGrant(ctx.readSources)) {
+    const empty: ThinkResult = {
+      ran: false,
+      reason: "no readable sources in this grant",
+      synthesis: null,
+      pagesGathered: 0,
+      takesGathered: 0,
+      spentUsd: 0,
+      modelId: null,
+      budgetExhausted: false,
+    };
+    return jsonResult({ ok: true, ...empty, save_applied: false, take_applied: false });
+  }
 
   const result = await runThink(storage, thinkOpts);
 
@@ -3439,7 +3456,7 @@ async function callFactSupersessions(
   }
   if (typeof args["since"] === "string" && args["since"]) opts.since = args["since"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const rows = await listSupersessions(storage, opts);
   const out = redact ? redactFacts(rows as unknown as Record<string, unknown>[]) : rows;
   return jsonResult({ ok: true, supersessions: out });
@@ -3489,7 +3506,7 @@ async function callGetRawData(
   const opts: Parameters<typeof getRawData>[2] = {};
   if (typeof args["source"] === "string" && args["source"]) opts.source = args["source"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const rows = await getRawData(storage, args["slug"], opts);
   return jsonResult({ ok: true, slug: args["slug"], raw_data: rows });
 }
@@ -3529,7 +3546,7 @@ async function callGetIngestLog(
   if (typeof args["source_type"] === "string" && args["source_type"])
     opts.source_type = args["source_type"];
   if (typeof args["limit"] === "number") opts.limit = args["limit"];
-  if (readSources && readSources.length) opts.sourceIds = readSources;
+  if (readSources !== undefined) opts.sourceIds = readSources;
   const entries = await getIngestLog(storage.engine(), opts);
   return jsonResult({ ok: true, entries });
 }
@@ -3579,9 +3596,9 @@ async function callSourcesList(
     storage.engine(),
     kindArg ? { kind: kindArg as SourceKind } : {},
   );
-  // A scoped caller sees only the sources its grant covers (the fail-closed
-  // sentinel matches nothing, so a scopeless tenant sees an empty list).
-  if (readSources && readSources.length) {
+  // A scoped caller sees only the sources its grant covers; a caller with no
+  // grant (`[]`) sees an empty list.
+  if (readSources !== undefined) {
     rows = rows.filter((r) => readSources.includes(r.id));
   }
   return jsonResult({ ok: true, count: rows.length, sources: rows });
@@ -3598,7 +3615,7 @@ async function callSourcesStatus(
   const id = args["id"];
   // Out-of-grant ids answer not_found (not permission_denied) so a scoped
   // caller cannot probe which source ids exist.
-  if (readSources && readSources.length && !readSources.includes(id)) {
+  if (readSources !== undefined && !readSources.includes(id)) {
     throw new OperationError(
       "not_found",
       `sources_status: source not found: ${id}`,
@@ -3757,7 +3774,8 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
 
 /**
  * Resolve the concrete source scope for a chronicle read. A scoped caller keeps
- * its grant (the fail-closed sentinel matches nothing → empty results). The
+ * its grant, and a caller with no grant reads nothing (`[]` becomes the
+ * sentinel, which the chronicle readers match against no source). The
  * unscoped operator gets every known source id (union of pages + entity_facts),
  * so a whole-brain read is deliberate — never an accidental blanket sweep.
  */
@@ -3766,7 +3784,7 @@ async function resolveChronicleScope(
   readSources: string[] | undefined,
   remote: boolean,
 ): Promise<string[]> {
-  if (readSources && readSources.length) return readSources;
+  if (readSources !== undefined) return readSources.length ? readSources : [NO_SOURCE_SENTINEL];
   // A remote (public bearer / OAuth tenant) caller that resolved to NO scope
   // must FAIL CLOSED — whole-brain expansion is the operator's privilege alone.
   // A grantless authed token reads nothing (sentinel matches no row), never the
@@ -4030,7 +4048,7 @@ async function callChronicleBackfill(
   const limit = Math.min(Math.max(requested, 1), 500);
   const perPageBudgetUsd = chronicleWriteBudgetUsd();
   const listOpts: Parameters<typeof listPages>[1] = { limit };
-  if (readSources && readSources.length) listOpts.sourceIds = readSources;
+  if (readSources !== undefined) listOpts.sourceIds = readSources;
   const pages = await listPages(storage, listOpts);
   const eligible = pages.filter(
     (p) =>

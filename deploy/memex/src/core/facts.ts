@@ -16,6 +16,7 @@
  */
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
+import { andSourceScope } from "./source-scope.ts";
 import { embedText } from "./embedding.ts";
 import { getPage, validateSlug, type PageRow } from "./pages.ts";
 import {
@@ -677,9 +678,9 @@ export interface ListFactsOptions {
    */
   decay?: boolean;
   /**
-   * Tenant source scope (migration 047). When a non-empty list is given,
-   * facts are filtered to `source_id = ANY(...)`. Omitted/empty -> unscoped
-   * (whole-brain), preserving current behavior.
+   * Tenant source scope (migration 047). When a list is given, facts are
+   * filtered to `source_id = ANY(...)`; `[]` matches nothing. Omitted ->
+   * unscoped (whole-brain), preserving current behavior.
    */
   sourceIds?: string[];
   /**
@@ -749,7 +750,7 @@ export async function listFacts(
     params.push(opts.source_slug);
     where.push(`source_slug = $${params.length}`);
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }
@@ -875,7 +876,7 @@ export interface ListSupersessionsOptions {
   /** ISO lower bound on the retirement time (`forgotten_at`). */
   since?: string | Date;
   limit?: number;
-  /** Tenant source scope (mig047). Omitted/empty -> unscoped. */
+  /** Tenant source scope (mig047). Omitted -> unscoped; `[]` -> nothing. */
   sourceIds?: string[];
 }
 
@@ -904,7 +905,7 @@ export async function listSupersessions(
     params.push(normaliseSince(opts.since));
     where.push(`forgotten_at >= $${params.length}::timestamptz`);
   }
-  if (opts.sourceIds && opts.sourceIds.length > 0) {
+  if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
     where.push(`source_id = ANY($${params.length}::text[])`);
   }
@@ -942,11 +943,7 @@ export async function countUnconsolidatedFacts(
   sourceIds?: string[],
 ): Promise<number> {
   const params: unknown[] = [];
-  let scopeFilter = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scopeFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scopeFilter = andSourceScope("source_id", sourceIds, params);
   const r = await storage.engine().query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM entity_facts
@@ -985,7 +982,7 @@ export interface EntityRecallOptions {
   decay?: boolean;
   /**
    * Tenant source scope (migration 047). Threaded to both the facts and
-   * timeline reads. Omitted/empty -> unscoped (whole-brain).
+   * timeline reads. Omitted -> unscoped (whole-brain); `[]` -> nothing.
    */
   sourceIds?: string[];
   /**
@@ -1062,8 +1059,8 @@ export async function entityRecall(
   else if (opts.decay !== undefined) listOpts.decay = opts.decay;
   if (opts.visibility && opts.visibility.length > 0)
     listOpts.visibility = opts.visibility;
-  const scoped = opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
-  if (scoped) listOpts.sourceIds = scoped;
+  const scoped = opts.sourceIds;
+  if (scoped !== undefined) listOpts.sourceIds = scoped;
   const [page, facts, timeline] = await Promise.all([
     getPage(storage, slug, scoped),
     listFacts(storage, slug, listOpts),

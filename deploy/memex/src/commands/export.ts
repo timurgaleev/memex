@@ -10,6 +10,7 @@ import { resolve, dirname, join } from "node:path";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
+import { normalizeSourceFilterParam } from "../core/source-scope.ts";
 
 export interface ExportCmdOptions {
   /** Output directory (default: ./export). */
@@ -46,13 +47,14 @@ export async function runExport(opts: ExportCmdOptions = {}): Promise<void> {
   const storage = injected ?? new Storage(loadConfig());
   const outDir = resolve(opts.dir ?? "./export");
   return withStorage(storage, async () => {
-    const scoped = opts.sourceIds && opts.sourceIds.length > 0;
+    const sourceIds = normalizeSourceFilterParam(opts.sourceIds);
+    const scoped = sourceIds !== undefined;
     const r = await storage.engine().query<PageRow>(
       `SELECT slug, type, title, markdown_body, source_id
          FROM pages
         WHERE deleted_at IS NULL${scoped ? ` AND source_id = ANY($1::text[])` : ""}
         ORDER BY slug`,
-      scoped ? [opts.sourceIds] : [],
+      scoped ? [sourceIds] : [],
     );
     let written = 0;
     for (const row of r.rows) {

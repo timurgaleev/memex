@@ -18,6 +18,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { NO_SOURCE_SENTINEL } from "./auth-info.ts";
 
 export type SourceKind =
   | "vault"
@@ -86,6 +87,11 @@ export async function registerSource(
   engine: Engine,
   opts: RegisterSourceOptions,
 ): Promise<SourceRow> {
+  // The no-grant sentinel must never name a real source, or a caller denied
+  // every source would read that one.
+  if (opts.id === NO_SOURCE_SENTINEL) {
+    throw new Error(`registerSource: "${NO_SOURCE_SENTINEL}" is reserved`);
+  }
   const r = await engine.query<RawSourceRow>(
     `INSERT INTO sources (
        id, kind, path_prefix, sync_policy, indexed_policy,

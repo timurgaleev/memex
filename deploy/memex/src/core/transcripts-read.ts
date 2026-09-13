@@ -9,6 +9,7 @@
  * Deterministic SELECT; no LLM, no Bedrock.
  */
 import type { Engine } from "./engine/interface.ts";
+import { normalizeScope } from "./source-scope.ts";
 
 /**
  * Page types memex treats as conversation/transcript prose — a subset of the
@@ -51,11 +52,6 @@ export interface RecentTranscriptOptions {
   sourceIds?: string[];
 }
 
-function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : undefined;
-}
 
 /** First non-empty line, then the leading ~300 chars — cheap + deterministic. */
 function summarize(body: string): string {
@@ -80,7 +76,7 @@ export async function listRecentTranscripts(
       ? Math.min(Math.floor(opts.limit), MAX_LIMIT)
       : DEFAULT_LIMIT;
   const cutoffIso = new Date(Date.now() - days * 86_400_000).toISOString();
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
 
   const params: unknown[] = [[...TRANSCRIPT_PAGE_TYPES], cutoffIso];
   let sourceFilter = "";

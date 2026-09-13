@@ -342,8 +342,10 @@ ${orphanExcl.sql}
 export const collectChronicle: AdvisorCollector = {
   id: "chronicle",
   collect: async (ctx) => {
+    // An explicit `[]` is a caller with no grant — it stays empty and advises
+    // nothing, never widening to the whole brain.
     let scope: string[] | null =
-      ctx.sourceIds && ctx.sourceIds.length > 0 ? [...ctx.sourceIds] : null;
+      ctx.sourceIds !== undefined ? [...ctx.sourceIds] : null;
     if (!scope) {
       scope = await resolveWholeBrainScope(ctx.engine);
     }

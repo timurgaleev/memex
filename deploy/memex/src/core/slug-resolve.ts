@@ -19,6 +19,7 @@
  * Soft-deleted pages (`deleted_at IS NOT NULL`) are never candidates.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 /** One resolved candidate, ordered by descending `score` by the caller. */
 export interface SlugResolution {
@@ -34,8 +35,9 @@ export interface ResolveSlugsOptions {
   /** Minimum similarity to keep a fuzzy candidate. Default 0.3. */
   threshold?: number;
   /**
-   * Tenant source scope (migration 047). When non-empty, candidate pages are
-   * filtered to `source_id = ANY(...)`. Omitted/empty -> unscoped (whole-brain).
+   * Tenant source scope (migration 047). When set, candidate pages are
+   * filtered to `source_id = ANY(...)`; `[]` matches nothing. Omitted ->
+   * unscoped (whole-brain).
    */
   sourceIds?: string[];
 }
@@ -72,16 +74,11 @@ export async function resolveSlugs(
   }
 
   const db = storage.engine();
-  const scoped = !!(opts.sourceIds && opts.sourceIds.length > 0);
 
   // Exact slug match wins outright — an informal query that IS a live slug
   // resolves to itself at full confidence, never diluted by a fuzzy runner-up.
   const exactParams: unknown[] = [q];
-  let exactScope = "";
-  if (scoped) {
-    exactParams.push(opts.sourceIds);
-    exactScope = ` AND source_id = ANY($${exactParams.length}::text[])`;
-  }
+  const exactScope = andSourceScope("source_id", opts.sourceIds, exactParams);
   const exact = await db.query<{ slug: string; title: string | null }>(
     `SELECT slug, title FROM pages
       WHERE slug = $1 AND deleted_at IS NULL${exactScope}
@@ -94,11 +91,7 @@ export async function resolveSlugs(
 
   // Fuzzy: better of title- vs slug-similarity per page, threshold-gated.
   const fuzzyParams: unknown[] = [q, threshold, limit];
-  let fuzzyScope = "";
-  if (scoped) {
-    fuzzyParams.push(opts.sourceIds);
-    fuzzyScope = ` AND source_id = ANY($${fuzzyParams.length}::text[])`;
-  }
+  const fuzzyScope = andSourceScope("source_id", opts.sourceIds, fuzzyParams);
   const fuzzy = await db.query<{
     slug: string;
     title: string | null;

@@ -21,6 +21,7 @@ import type { Storage } from "./storage.ts";
 import { orphanExclusionSql } from "./orphan-policy.ts";
 import { hybridSearch, type SearchHit, type SearchOptions } from "./search/hybrid.ts";
 import { PAGE_MIRROR_PATH_SQL, isPageSourcePath } from "./page-index.ts";
+import { normalizeScope } from "./source-scope.ts";
 
 // Shared kebab-case slug grammar (matches links.ts / pages.ts — keep the three
 // copies in sync). Word chars cover lowercase/caseless letters of any script
@@ -57,25 +58,6 @@ function clampLimit(limit: number | undefined, def: number, max: number): number
   return def;
 }
 
-/**
- * Normalise an optional caller-supplied tenant filter.
- *
- * `undefined` — and only `undefined` — is unscoped: the local CLI, the internal
- * token, every pre-tenancy caller, all of which read the whole brain.
- *
- * An EMPTY array is a caller that was granted nothing, and it stays empty so
- * the predicate is still applied: `= ANY('{}')` matches no row. Collapsing it
- * to `undefined` handed the caller with NO grant more than a caller with one —
- * every insight surface here, not just the trajectory gather, read the whole
- * brain for it. A non-empty list is deduped and ready to bind as `$n::text[]`.
- */
-function normalizeSourceIds(sourceIds: string[] | undefined): string[] | undefined {
-  if (sourceIds === undefined) return undefined;
-  if (!Array.isArray(sourceIds)) return undefined;
-  const cleaned = sourceIds.filter((s) => typeof s === "string" && s.length > 0);
-  return Array.from(new Set(cleaned));
-}
-
 // --- find_orphans ----------------------------------------------------------
 
 export interface FindOrphansOptions {
@@ -84,7 +66,7 @@ export interface FindOrphansOptions {
   /** Max rows (1..1000, default 50). */
   limit?: number;
   /**
-   * Tenant scope. `undefined`/empty → unscoped (all sources, back-compat).
+   * Tenant scope. `undefined` → unscoped (all sources); `[]` → nothing.
    * Non-empty → only pages whose `source_id` is in the list.
    */
   sourceIds?: string[];
@@ -117,7 +99,7 @@ export async function findOrphans(
     params.push(opts.type);
     typeFilter = ` AND p.type = $${params.length}`;
   }
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   let sourceFilter = "";
   if (sources !== undefined) {
     params.push(sources);
@@ -150,7 +132,7 @@ export interface FindExpertsOptions {
   /** Max rows (1..200, default 5). */
   limit?: number;
   /**
-   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * Tenant scope. `undefined` → unscoped; `[]` → nothing. Non-empty →
    * rank only pages in the listed sources, counting only those sources' edges.
    */
   sourceIds?: string[];
@@ -222,7 +204,7 @@ export async function findExperts(
     params.push(opts.type);
     typeFilter = ` AND p.type = $${params.length}`;
   }
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   let edgeSourceFilter = "";
   let pageSourceFilter = "";
   if (sources !== undefined) {
@@ -288,7 +270,7 @@ async function findExpertsByTopic(
 ): Promise<ExpertRow[]> {
   const topic = (opts.topic ?? "").trim();
   const limit = clampLimit(opts.limit, 5, 200);
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
 
   // 1. Topic match. Widen the candidate pool (×10, floor 50) so a page's best
   //    chunk score survives chunk-grain fan-out before we collapse to pages.
@@ -415,7 +397,7 @@ export interface FindContradictionsOptions {
   /** Max rows (1..200, default 20). */
   limit?: number;
   /**
-   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * Tenant scope. `undefined` → unscoped; `[]` → nothing. Non-empty →
    * only `contradicts` edges whose `source_id` is in the list.
    */
   sourceIds?: string[];
@@ -455,7 +437,7 @@ export async function findContradictions(
     params.push(`%${escaped}%`);
     slugFilter = ` AND (l.source_slug ILIKE $${params.length} ESCAPE '\\' OR l.target_slug ILIKE $${params.length} ESCAPE '\\')`;
   }
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   let sourceFilter = "";
   if (sources !== undefined) {
     params.push(sources);
@@ -512,7 +494,7 @@ export async function listProbedContradictions(
 ): Promise<ProbedContradictionRow[]> {
   const limit = clampLimit(opts.limit, 20, 200);
   const params: unknown[] = [];
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   let sourceFilter = "";
   if (sources !== undefined) {
     params.push(sources);
@@ -562,7 +544,7 @@ export interface FindTrajectoryOptions {
   /** Max points (1..500, default 100). */
   limit?: number;
   /**
-   * Tenant scope. `undefined`/empty → unscoped (back-compat). Non-empty →
+   * Tenant scope. `undefined` → unscoped; `[]` → nothing. Non-empty →
    * only facts/events whose `source_id` is in the list.
    */
   sourceIds?: string[];
@@ -667,7 +649,7 @@ export async function findTrajectory(
     factBounds += ` AND COALESCE(f.valid_from::timestamptz, f.written_at) <= $${idx}::timestamptz`;
     eventBounds += ` AND ev.occurred_at <= $${idx}::timestamptz`;
   }
-  const sources = normalizeSourceIds(opts.sourceIds);
+  const sources = normalizeScope(opts.sourceIds);
   if (sources !== undefined) {
     params.push(sources);
     const idx = params.length;

@@ -33,6 +33,7 @@ import type { Engine } from "../engine/interface.ts";
 import { visibilityClause } from "../visibility.ts";
 import { tokenizeTitle } from "./title-match.ts";
 import { buildHardExcludeClauseSql, normalizedPathSql } from "./curation.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 /**
  * RRF weight for the identifier arm — parity with the keyword arm's `topic`
@@ -137,11 +138,7 @@ export async function titleArmChunkIds(
     // Step 1: the narrow scan — `documents` only (no chunk join), so the
     // un-indexable expression match never drags the chunk table through it.
     const params: unknown[] = [candidates];
-    let scopeFilter = "";
-    if (opts.sourceIds && opts.sourceIds.length > 0) {
-      params.push(opts.sourceIds);
-      scopeFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-    }
+    const scopeFilter = andSourceScope("d.source_id", opts.sourceIds, params);
     // Slug leaf: scheme-stripped path → last segment → extension dropped.
     const leafExpr = `regexp_replace(regexp_replace(${normalizedPathSql("d.source_path")}, '^.*/', ''), '\\.(md|markdown)$', '')`;
     const titleIdent = normalizeIdentifierSql("COALESCE(d.title, '')");

@@ -12,6 +12,8 @@ import { Storage } from "../src/core/storage.ts";
 import { indexCodeDocument } from "../src/core/indexer-code.ts";
 import { resolveSymbolEdgesPhase } from "../src/core/cycle/resolve-symbol-edges.ts";
 import { expandAnchors } from "../src/core/search/structural-expand.ts";
+import { hybridSearch } from "../src/core/search/hybrid.ts";
+import { deterministicEmbed } from "./det-embed.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -128,5 +130,31 @@ describe("expandAnchors", () => {
     });
     expect(ids(offScope).has(chunkA)).toBe(true);
     expect(ids(offScope).has(chunkB)).toBe(false);
+  });
+});
+
+describe("scope and visibility on structural neighbours", () => {
+  const ids = (rows: { id: string }[]) => new Set(rows.map((x) => x.id));
+
+  it("an empty grant keeps no neighbour", async () => {
+    const out = await expandAnchors(storage.engine(), [{ id: chunkA, score: 1 }], {
+      walkDepth: 1,
+      sourceIds: [],
+    });
+    expect(ids(out).has(chunkB)).toBe(false);
+  });
+
+  it("final hydrate never surfaces a neighbour whose document is soft-deleted", async () => {
+    const e = storage.engine();
+    const embedQuery = async (t: string) => deterministicEmbed(t);
+    const live = await hybridSearch(storage, "Svc b", { k: 10, nearSymbol: "Svc::b", rerank: false, embedQuery });
+    expect(live.some((h) => h.chunkId === chunkB)).toBe(true);
+    await e.query(`UPDATE documents SET deleted_at = now() WHERE id = (SELECT document_id FROM chunks WHERE id = $1)`, [chunkB]);
+    try {
+      const hidden = await hybridSearch(storage, "Svc b hidden", { k: 10, nearSymbol: "Svc::b", rerank: false, embedQuery });
+      expect(hidden.some((h) => h.chunkId === chunkB)).toBe(false);
+    } finally {
+      await e.query(`UPDATE documents SET deleted_at = NULL WHERE id = (SELECT document_id FROM chunks WHERE id = $1)`, [chunkB]);
+    }
   });
 });

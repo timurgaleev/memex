@@ -57,6 +57,7 @@ import { resolveEntitiesToPointers, type ResolveArm } from "../context/reflex.ts
 import type { ScoredTurn } from "./push-metrics.ts";
 import type { PushFixture, FixtureTurn } from "./fixtures.ts";
 import { resetBrain } from "./reset.ts";
+import { normalizeSourceFilterParam } from "../source-scope.ts";
 
 // The reset moved to `reset.ts` when continuity and fidelity started sharing
 // it; re-exported so existing callers keep importing it from the harness.
@@ -154,8 +155,8 @@ export async function runFixture(storage: Storage, fixture: PushFixture): Promis
   await seedFixture(storage, fixture);
 
   const windowTurns = fixture.windowTurns ?? DEFAULT_WINDOW_TURNS;
-  const scope =
-    fixture.sourceIds && fixture.sourceIds.length > 0 ? { sourceIds: fixture.sourceIds } : {};
+  const sourceIds = normalizeSourceFilterParam(fixture.sourceIds);
+  const scope = sourceIds !== undefined ? { sourceIds } : {};
 
   const turns: BenchTurnOutcome[] = [];
   for (let i = 0; i < fixture.turns.length; i++) {

@@ -29,6 +29,7 @@ import { vectorSearch } from "./vector.ts";
 import { keywordSearch } from "./keyword.ts";
 import { resolveDateBoundary } from "./filters.ts";
 import { visibilityClause } from "../visibility.ts";
+import { andSourceScope, isNoGrant } from "../source-scope.ts";
 import {
   dedupByDocument,
   dedupByTextSimilarity,
@@ -544,11 +545,7 @@ async function hydrateByIds(
   // includes the scope, but a stale row keyed before the scope changed could
   // otherwise leak another source's chunk. No-op when unscoped.
   const params: unknown[] = [ids];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length) {
-    params.push(sourceIds);
-    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("d.source_id", sourceIds, params);
   const rows = await engine.query<{
     id: string;
     document_id: string;
@@ -601,6 +598,9 @@ export async function hybridSearch(
   if (!trimmed) {
     throw new Error("hybridSearch: query must be non-empty");
   }
+  // A caller granted no source reads nothing: return before the cache, any arm
+  // or a paid embedding call can touch the brain.
+  if (isNoGrant(opts.sourceIds)) return [];
   const startedAt = Date.now();
   const k = opts.k ?? 10;
   const fanout = Math.max(20, k * 3);
@@ -967,11 +967,7 @@ export async function hybridSearch(
   // reached through the (source-agnostic) code edge table, so the hydrate join
   // re-asserts the scope as the single choke point. No-op when unscoped.
   const hydrateParams: unknown[] = [ids];
-  let hydrateSourceFilter = "";
-  if (opts.sourceIds && opts.sourceIds.length) {
-    hydrateParams.push(opts.sourceIds);
-    hydrateSourceFilter = ` AND d.source_id = ANY($${hydrateParams.length}::text[])`;
-  }
+  const hydrateSourceFilter = andSourceScope("d.source_id", opts.sourceIds, hydrateParams);
   const rows = await engine.query<{
     id: string;
     document_id: string;
@@ -998,7 +994,8 @@ export async function hybridSearch(
      FROM chunks c
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = d.source_id
-     WHERE c.id = ANY($1::text[])${hydrateSourceFilter}`,
+     WHERE c.id = ANY($1::text[])
+       AND ${visibilityClause("d")}${hydrateSourceFilter}`,
     hydrateParams,
   );
   const byId = new Map(rows.rows.map((r) => [r.id, r]));

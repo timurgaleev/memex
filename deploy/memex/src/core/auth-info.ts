@@ -84,16 +84,10 @@ export function effectiveReadSourceIds(
 }
 
 /**
- * Reserved source id that matches NO real source. It is the fail-closed
- * sentinel: when an authenticated PUBLIC principal presents no read grant and
- * the fail-closed policy is on, its read scope resolves to `[SENTINEL]` so every
- * `sourceIds`-filtered read (`... WHERE source_id = ANY($n)`) matches zero rows.
- *
- * Why a sentinel rather than an empty array: the read helpers gate their scope
- * filter on `sourceIds && sourceIds.length` (v1.58), so an empty `[]` SKIPS the
- * filter and silently widens back to whole-brain — a fail-closed BYPASS. A
- * one-element array of an unownable id keeps the filter engaged and no-matches,
- * flowing through every read handler unchanged.
+ * Reserved source id that matches NO real source. The write path returns it for
+ * an authenticated caller with no write grant so the dispatcher can refuse the
+ * write. Reads use `[]` for the same caller; read helpers still treat a
+ * sentinel-only list as "no grant" (see core/source-scope.ts).
  */
 export const NO_SOURCE_SENTINEL = "__memex_no_source__";
 
@@ -116,7 +110,7 @@ export function tenantFailClosedEnabled(): boolean {
  * the policy branches on whether the caller is an AUTHENTICATED principal:
  *
  *   - `failClosed` on AND `auth` present (`auth !== undefined`)
- *       → `[NO_SOURCE_SENTINEL]` (reads NOTHING — an authenticated caller with no
+ *       → `[]` (reads NOTHING — an authenticated caller with no
  *         source grant must not fall through to the redacted whole-brain). This
  *         covers an OAuth tenant (`isPublic === false`) as well as an authenticated
  *         public caller — a scopeless registered client is NOT whole-brain-trusted.
@@ -132,7 +126,7 @@ export function effectiveReadSourceIdsForIngress(
   const base = effectiveReadSourceIds(auth);
   if (base !== undefined) return base;
   if (opts?.failClosed === true && auth !== undefined) {
-    return [NO_SOURCE_SENTINEL];
+    return [];
   }
   return undefined;
 }

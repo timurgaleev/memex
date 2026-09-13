@@ -16,6 +16,7 @@
  * and `idea` collapse to one stored value — the PK then dedupes for free.
  */
 import type { Storage } from "./storage.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 /** Upper bound on a single normalized tag (defence vs unbounded writes).
  *  An over-limit tag is REJECTED, not truncated — truncating would collapse
@@ -152,11 +153,7 @@ export async function getTags(
   // Tenant scope (mig047): a scoped caller sees only tags stamped to its own
   // source(s). No-op when unset — the whole page's tags, as today.
   const params: unknown[] = [slug];
-  let sourceFilter = "";
-  if (sourceIds && sourceIds.length) {
-    params.push(sourceIds);
-    sourceFilter = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("source_id", sourceIds, params);
   const r = await storage.engine().query<{ tag: string }>(
     `SELECT tag FROM tags WHERE slug = $1${sourceFilter} ORDER BY tag COLLATE "C" ASC`,
     params,

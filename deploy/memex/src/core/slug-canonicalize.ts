@@ -49,6 +49,7 @@ import type { Storage } from "./storage.ts";
 import { slugifyTarget } from "./links.ts";
 import { normalizeAlias, resolveAliasUnique } from "./page-aliases.ts";
 import { resolveSlugWithAlias } from "./slug-aliases.ts";
+import { andSourceScope } from "./source-scope.ts";
 
 /** Resolution outcome — `slug` is never null (stage 6 always yields one). */
 export interface CanonicalizeResult {
@@ -74,10 +75,10 @@ export interface SlugResolver {
 
 export interface SlugResolverOptions {
   /**
-   * Tenant write scope (migration 047). When non-empty, every DB stage
+   * Tenant write scope (migration 047). When set, every DB stage
    * (exact / alias / tail / prefix / trgm) resolves ONLY against pages owned
    * by these sources — so a wikilink written under one tenant never
-   * canonicalizes onto another tenant's page. Omitted/empty → whole-brain
+   * canonicalizes onto another tenant's page; `[]` resolves nothing. Omitted → whole-brain
    * resolution (local / CLI / pre-scoping callers), unchanged.
    */
   sourceIds?: string[];
@@ -130,11 +131,7 @@ async function pageExists(
   sourceIds?: string[],
 ): Promise<boolean> {
   const params: unknown[] = [slug];
-  let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scope = ` AND source_id = ANY($${params.length}::text[])`;
-  }
+  const scope = andSourceScope("source_id", sourceIds, params);
   const r = await storage.engine().query<{ one: number }>(
     `SELECT 1 AS one FROM pages WHERE slug = $1 AND deleted_at IS NULL${scope} LIMIT 1`,
     params,
@@ -158,11 +155,7 @@ async function exactTailUnique(
 ): Promise<string | null> {
   if (slugified.length < MIN_TAIL_LEN || slugified.includes("/")) return null;
   const params: unknown[] = [slugified, sourceSlug];
-  let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
-  }
+  const scope = andSourceScope("p.source_id", sourceIds, params);
   const r = await storage.engine().query<{ slug: string }>(
     `SELECT p.slug AS slug
        FROM pages p
@@ -195,11 +188,7 @@ async function prefixExpansionUnique(
   // still needs no escaping.
   if (slugified.length < MIN_TAIL_LEN || slugified.includes("/")) return null;
   const params: unknown[] = [slugified, sourceSlug];
-  let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
-  }
+  const scope = andSourceScope("p.source_id", sourceIds, params);
   const r = await storage.engine().query<{ slug: string }>(
     `SELECT p.slug AS slug
        FROM pages p
@@ -228,11 +217,7 @@ async function trgmUnambiguous(
   sourceIds?: string[],
 ): Promise<string | null> {
   const params: unknown[] = [name, slugified, sourceSlug];
-  let scope = "";
-  if (sourceIds && sourceIds.length > 0) {
-    params.push(sourceIds);
-    scope = ` AND p.source_id = ANY($${params.length}::text[])`;
-  }
+  const scope = andSourceScope("p.source_id", sourceIds, params);
   const r = await storage.engine().query<{ slug: string; sim: number }>(
     `SELECT p.slug AS slug,
             GREATEST(
@@ -269,8 +254,7 @@ export function makeSlugResolver(
   const cache = new Map<string, CanonicalizeResult>();
   const enabled = canonicalizeEnabled();
   const threshold = resolveTrgmThreshold();
-  const sourceIds =
-    opts.sourceIds && opts.sourceIds.length > 0 ? opts.sourceIds : undefined;
+  const sourceIds = opts.sourceIds;
 
   return {
     async resolve(name: string): Promise<CanonicalizeResult> {

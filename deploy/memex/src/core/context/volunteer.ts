@@ -76,7 +76,7 @@ export interface VolunteerOpts {
    */
   priorContext?: string;
   /**
-   * Tenant read scope, threaded into the pointer resolver. Omitted/empty ->
+   * Tenant read scope, threaded into the pointer resolver. Omitted ->
    * unscoped (local CLI / `memex watch`, which run as the operator).
    */
   sourceIds?: string[];
@@ -174,9 +174,7 @@ export async function volunteerContext(
   // gated-out alias hit must not shadow a passing title hit behind it.
   const pointers = await resolveEntitiesToPointers(storage, candidates, {
     maxPointers: VOLUNTEER_MAX_PAGES_CAP * 2,
-    ...(opts.sourceIds && opts.sourceIds.length > 0
-      ? { sourceIds: opts.sourceIds }
-      : {}),
+    ...(opts.sourceIds !== undefined ? { sourceIds: opts.sourceIds } : {}),
   });
   if (!pointers.length) return [];
 
@@ -261,8 +259,8 @@ export const VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE =
  * stats on a pre-044 brain (no table).
  *
  * `sourceIds` is the caller's read scope, threaded in the same shape as every
- * other read (see resolveAliasUnique) — omitted/empty means unscoped, the
- * operator / local CLI path. A SCOPED caller is REFUSED rather than served a
+ * other read (see resolveAliasUnique) — omitted means unscoped, the
+ * operator / local CLI path. A SCOPED caller (including `[]`) is REFUSED rather than served a
  * narrowed answer: `context_volunteer_events` keeps a `source_id` column for
  * row-shape parity (migration 044) but every memex write leaves it NULL
  * (volunteer-events.ts), so there is no axis to filter on. Filtering the dead
@@ -274,7 +272,7 @@ export async function volunteerUsageStats(
   days = 30,
   sourceIds?: string[],
 ): Promise<VolunteerUsageStats> {
-  if (sourceIds && sourceIds.length > 0) {
+  if (sourceIds !== undefined) {
     throw new OperationError(
       "permission_denied",
       VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE,
