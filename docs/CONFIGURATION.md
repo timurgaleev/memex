@@ -207,6 +207,17 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_CONTEXTUAL_LLM` | off | **PAID per-chunk** contextual tier (Haiku): asks a utility model to write a short blurb situating EACH chunk within its whole document, replacing the deterministic synopsis before embedding. Fail-open — budget/errors fall back to the deterministic prefix. ⚠️ Same re-embed caveat as above; run `reindex --contextual` after enabling. | **paid (Haiku)** |
 | `MEMEX_CONTEXTUAL_LLM_BUDGET_USD` | `5.0` | USD ceiling for the per-chunk LLM tier. Shared across a whole `reindex --contextual` run; when spent mid-run, remaining chunks fall back to deterministic. A later `--force` re-run with more budget upgrades them. | — |
 
+
+> **Measured, not estimated** — a single-operator brain with
+> `MEMEX_CONTEXTUAL_LLM=1`, 30 days to 2026-09-08: the utility tier booked
+> **$12.12 over 1924 calls**, and **970 of those calls ($9.83) landed inside a
+> `page_put` window** — i.e. eight dollars in ten are spent wrapping chunks
+> while the caller waits. `page_put` averaged **33 s** that week (worst 116 s),
+> against **2 cents** for every Titan embedding in the same period. The wrapper
+> is on the write path and synchronous: one Haiku call per chunk, per write.
+> Turn it off and writes drop to seconds; measure `eval-probe`'s hit rate
+> before and after rather than guessing at the quality it buys.
+
 ---
 
 ## 5. Auth & source scoping
@@ -226,6 +237,35 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_DOCTOR_PER_SOURCE` | off (`=1` on) | Makes `doctor` WARN per-source (per-tenant) when a single source has chunks but zero embeddings. | free |
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
+
+### What an empty grant means
+
+A read scope is either **absent** or **empty**, and they mean opposite things:
+
+- `undefined` — unscoped. The local CLI, the internal token and every
+  pre-tenancy caller read the whole brain. This is the operator path.
+- `[]` — a caller that was granted **nothing**, and it must read nothing. The
+  predicate is still applied and `= ANY('{}')` matches no row.
+
+Folding the two together is the bug shape to watch for (`opts.sourceIds ?? []`
+followed by a length check): it hands the caller with no grant strictly more
+than a caller with a narrow one. Since v1.127.0 the rule holds in
+`core/insights.ts`, `core/synthesis/reads.ts`, `core/synthesis/think.ts` and the
+keyword and vector arms, each pinned by a test.
+
+It does **not** yet hold end to end through hybrid retrieval — the query-cache
+key, cached hydration, the identifier arm, final hydration and `callThink` still
+widen an empty scope. `TODO.md` lists those with file:line. Nothing on a
+single-operator brain can reach them (every source belongs to the operator) and
+MCP dispatch attaches a fail-closed sentinel rather than `[]`, but do not read
+the fenced layers as "search is scoped on empty".
+
+The same split governs writes. A page's derived rows — links, mentions, typed
+and verb edges, the extraction watermark, fence-derived facts — carry the
+**page's** source, not the caller's, so an unscoped operator write cannot
+re-home a tenant's projections into `default`. `page_put` does this; the
+`page_append`, `page_revert` and `page_restore` paths still carry the caller's
+source (also in `TODO.md`).
 
 ### Running more than one tenant
 
