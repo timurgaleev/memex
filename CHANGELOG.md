@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A scoped caller's code graph was empty.** Code call edges were stored with
+  no source, and `code_blast` / `code_flow` filter edges by the caller's sources,
+  so every scoped caller walked nothing — while structural search expansion let
+  those sourceless edges through to anyone. Edges now take the source of the
+  document they were extracted from; migration 104 fills the existing ones and
+  indexes the column. A sourceless edge is followed only by the unscoped operator.
+- **Volunteer usage stats were operator-only.** Volunteer events never recorded a
+  source, so the stats could not be narrowed and a scoped caller was refused.
+  Events now carry the volunteered page's source (migration 104 fills the old
+  ones) and the stats show a scoped caller its own sources.
+- A code document that is assigned a source after indexing now hands it on to its
+  chunks and call edges, instead of leaving them invisible to its own readers.
+
 ## [1.130.0] — 2026-09-13
 
 ### Security

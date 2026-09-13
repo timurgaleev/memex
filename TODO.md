@@ -315,24 +315,32 @@ Release A verification:
 
 #### Release C — code graph `source_id`
 
-- [ ] Edge writes: `code-edges.ts:51-66` derives `source_id` in the INSERT
-  (`SELECT … d.source_id FROM chunks c JOIN documents d`); `CodeEdge.sourceId`
-  removed or made required so every writer is caught.
-- [ ] Scoped readers: `code-walk.ts:150` and `search/structural-expand.ts:130`
-  use `andSourceScope` and drop the NULL tolerance;
-  `context/volunteer-events.ts:74` stamps the page source; `context/volunteer.ts:279`
-  filters instead of refusing scoped callers.
-- [ ] Migration `104_code_edges_source_backfill.sql`: backfill NULL edges and
-  volunteer events; `CREATE INDEX IF NOT EXISTS` on `code_edges_symbol(source_id)`.
-  Check the live row count first; above ~1M rows build the index
-  `CONCURRENTLY` out of band.
-- [ ] Matrix: `code_callers`, `code_callees`, `code_blast`, `code_flow` and
-  `volunteer_context` become `isolated`.
-- [ ] Tests: `code_graph_source_stamp`; migration 104 backfill idempotent;
-  tenant A's structural expansion ignores B's edges; positive control — scoped
-  `code_blast` returns A's edges (empty before).
-- [ ] Live: `code_callers` returns data for a tenant token; migration 104
-  applies with no 55P03.
+- [x] Edge writes: `code-edges.ts` inserts each edge with the source of its
+  chunk's document (`INSERT … SELECT … d.source_id`); the per-edge `sourceId`
+  input is gone, so no writer can stamp a different one.
+- [x] `indexCodeDocument` accepts an optional `sourceId` for the document.
+- [x] Scoped readers: `code-walk.ts` and `search/structural-expand.ts` build the
+  edge filter with `andSourceScope`; a sourceless edge no longer passes a scoped
+  structural expansion.
+- [x] Volunteer events carry their page's source; `volunteerUsageStats` narrows
+  to the caller's sources instead of refusing a scoped caller (`[]` sees nothing).
+- [x] Migration `104_code_edges_and_volunteer_events_source.sql`: fills NULL
+  edge sources from the chunk's document and NULL event sources from the page,
+  and indexes `code_edges_symbol(source_id)`.
+- [x] Matrix: the `code_*` reads and `volunteer_context` are `isolated` rows.
+- [x] `backfillDocumentSources` hands a late-assigned document source on to its
+  chunks and code edges; structural expansion scopes def-chunk lookups too.
+- [x] Migration 104 attributes a volunteer event to a page only if the event is
+  newer than the page row (slugs can be reused after a purge); scoped stats
+  count "used" only from the caller's own page.
+- [x] Tests: `code_graph_source_stamp` (edges stamped; the owner walks its graph,
+  empty before; a sourceless edge stays out of a scoped expansion; scoped volunteer
+  stats), `migration_104_code_edges_source`, `context_volunteer` updated.
+- [ ] Live: `code_callers` for a tenant token (no tenant token on the live brain).
+- [ ] Follow-up: the code sweep and `memex index <file>` still index code
+  documents without a source (`indexCodeFile` passes none); doctor reports them as
+  NULL-source documents, invisible to every scoped reader. Needs a path-to-source
+  rule for code roots.
 
 #### Gated live steps (explicit "yes" at the time)
 
