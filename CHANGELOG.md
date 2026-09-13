@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.130.0] — 2026-09-13
+
 ### Security
 - **Writes into another source's page left their traces in `default`.** An
   unscoped writer (the operator, the local CLI) may write into a page a tenant

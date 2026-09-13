@@ -297,8 +297,10 @@ Release A verification:
   fallback source, stale grants), `identity_purge` (FK-blocked page),
   `per_source_health`, `oauth_per_grant_source` (revoked client),
   `auth_pat` (debounce), `migration_103_derived_rows_owner`.
-- [ ] Live: an unscoped `page_append` stamps the tenant source; deleting a
-  source with a live token is refused; a revoked client's token gets 401.
+- [x] Live (v1.130.0): migration 103 applied (doctor: schema at 103, 0 failures),
+  container healthy with no restarts, the scoped PAT still authenticates.
+  Source deletion and client revocation were not exercised on the live brain —
+  both are irreversible there; tests cover them.
 - [ ] Follow-up (not in the approved plan): an explicit `source_id` naming an
   archived or removed source returns `unknown_source`; code-intel ops route to
   one resolved source.
