@@ -15,7 +15,7 @@
  * TS+Python pattern set. Add a per-language gate if a language column lands.
  */
 import type { Engine } from "./engine/interface.ts";
-import { normalizeScope } from "./source-scope.ts";
+import { andSourceScope, normalizeScope } from "./source-scope.ts";
 
 export type WalkDirection = "callers" | "callees";
 
@@ -136,11 +136,7 @@ async function hop(
   sources: string[] | undefined,
 ): Promise<EdgeRow[]> {
   const params: unknown[] = [sym];
-  let sourceFilter = "";
-  if (sources) {
-    params.push(sources);
-    sourceFilter = ` AND e.source_id = ANY($${params.length}::text[])`;
-  }
+  const sourceFilter = andSourceScope("e.source_id", sources, params);
   params.push(limit);
   const limitPos = params.length;
   // callers: edges INTO sym → the caller is from_symbol_qualified.
@@ -167,13 +163,8 @@ async function disambiguate(
   sources: string[] | undefined,
 ): Promise<string[]> {
   const params: unknown[] = [bare];
-  let sourceFilter = "";
-  let join = "";
-  if (sources) {
-    join = " JOIN documents d ON d.id = c.document_id";
-    params.push(sources);
-    sourceFilter = ` AND d.source_id = ANY($${params.length}::text[])`;
-  }
+  const join = sources !== undefined ? " JOIN documents d ON d.id = c.document_id" : "";
+  const sourceFilter = andSourceScope("d.source_id", sources, params);
   const r = await engine.query<{ symbol_name_qualified: string }>(
     `SELECT DISTINCT c.symbol_name_qualified
        FROM chunks c${join}

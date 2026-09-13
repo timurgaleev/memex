@@ -99,11 +99,10 @@ interface ParentNeighbor {
  * Neighbor chunks for an ENTIRE frontier in three batched queries (not one set
  * per symbol — that was an O(frontier) serial round-trip storm). Each row keeps
  * its `parent` frontier symbol so the caller can decay-score by the parent's
- * score. The authoritative tenant scope is the caller's `scopeChunks` pass
- * against `documents.source_id`; when a scope is set this adds a NULL-tolerant
- * edge-level pre-filter on `code_edges_symbol.source_id` (mig041, nullable) as
- * belt-and-suspenders — edges with a NULL source (the common case for code
- * edges today) still pass, so it is behaviour-neutral until edges are stamped.
+ * score. When a scope is set, edges are filtered on `code_edges_symbol.source_id`
+ * (stamped from the chunk's document) and def chunks on `chunks.source_id`, so
+ * out-of-scope rows never consume the per-hop cap; the caller's `scopeChunks`
+ * pass against `documents.source_id` stays the final check.
  *   - callers: `to_symbol_qualified ∈ frontier` → the caller IS `from_chunk_id`.
  *   - callees (resolved): prefer the resolve-phase `resolved_chunk_id`.
  *   - callees (unresolved): join the callee name to a def chunk, keeping parent.
@@ -116,13 +115,9 @@ async function frontierNeighbors(
   if (symbols.length === 0) return [];
   const cap = NEIGHBOR_CAP_PER_HOP * symbols.length;
   const params: unknown[] = [symbols];
-  let edgeScope = "";
-  if (sources !== undefined && sources.length === 0) {
-    edgeScope = " AND FALSE";
-  } else if (sources !== undefined) {
-    params.push(sources);
-    edgeScope = ` AND (e.source_id IS NULL OR e.source_id = ANY($${params.length}::text[]))`;
-  }
+  // An edge with no source belongs to no reader's grant; only the unscoped
+  // operator follows it.
+  const edgeScope = andSourceScope("e.source_id", sources, params);
 
   const callers = await engine.query<{ parent: string; chunk_id: string }>(
     `SELECT DISTINCT e.to_symbol_qualified AS parent, e.from_chunk_id AS chunk_id
@@ -144,6 +139,8 @@ async function frontierNeighbors(
   );
   // Unresolved callees: resolve the callee name to a def chunk in one join,
   // keeping the parent for score attribution.
+  const unresolvedParams = [...params];
+  const chunkScope = andSourceScope("c.source_id", sources, unresolvedParams);
   const calleesUnresolved = await engine.query<{ parent: string; chunk_id: string }>(
     `SELECT DISTINCT e.from_symbol_qualified AS parent, c.id AS chunk_id
        FROM code_edges_symbol e
@@ -153,9 +150,9 @@ async function frontierNeighbors(
       WHERE e.from_symbol_qualified = ANY($1::text[])
         AND e.to_symbol_qualified IS NOT NULL
         AND NOT (e.edge_metadata ? 'resolved_chunk_id')
-        AND c.symbol_name_qualified IS NOT NULL${edgeScope}
+        AND c.symbol_name_qualified IS NOT NULL${edgeScope}${chunkScope}
       LIMIT ${cap}`,
-    params,
+    unresolvedParams,
   );
 
   const out: ParentNeighbor[] = [];

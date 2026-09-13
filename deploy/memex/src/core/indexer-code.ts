@@ -57,6 +57,8 @@ export interface IndexCodeInput {
   sourcePath: string;
   text: string;
   mtimeMs?: number;
+  /** Owning source; the document and every edge extracted from it carry it. */
+  sourceId?: string | null;
 }
 
 function shortHash(s: string): string {
@@ -265,6 +267,7 @@ export async function indexCodeDocument(
       mtimeMs: parsed.degraded ? null : (input.mtimeMs ?? null),
       embeddingModel: null,
       chunkerVersion: CODE_CHUNKER_VERSION,
+      sourceId: input.sourceId ?? null,
     },
     chunkWrites,
   );

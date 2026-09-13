@@ -314,6 +314,15 @@ export async function backfillDocumentSources(
         `UPDATE documents SET source_id = $1, generation = generation + 1 WHERE id = $2`,
         [sourceId, row.id],
       );
+      // Chunks and code edges mirror their document's source; left NULL they
+      // would stay invisible to the document's own scoped readers.
+      await engine.query(`UPDATE chunks SET source_id = $1 WHERE document_id = $2 AND source_id IS NULL`, [sourceId, row.id]);
+      await engine.query(
+        `UPDATE code_edges_symbol e SET source_id = $1
+           FROM chunks c
+          WHERE e.from_chunk_id = c.id AND c.document_id = $2 AND e.source_id IS NULL`,
+        [sourceId, row.id],
+      );
       updated++;
     } else {
       unmatched++;
