@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.129.0] — 2026-09-13
+
 ### Security
 - **A caller granted no source could still read through hybrid search.** An
   empty grant (`sourceIds: []`) must read nothing, but several search stages

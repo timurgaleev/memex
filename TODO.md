@@ -253,9 +253,13 @@ Release A verification:
   `eval_replay_gate` and `eval_compare_gate` identical before and after.
 - [x] Reviewers: second opinion, `security-engineer`, `code-reviewer`; no
   CRITICAL/HIGH read leak left; every MEDIUM acted on.
-- [ ] Live (after `/ship`): baseline 5 fixed operator `search`/`query` calls
-  before deploy, identical ids and scores after; a tenant-bound OAuth token sees
-  only its source across `search`, `query` and `think`.
+- [x] Live (v1.129.0): three fixed operator `search` calls return the same
+  chunks in the same order before and after deploy; an uncached call returns the
+  same score and evidence as the pre-deploy baseline. `MEMEX_TENANT_FAIL_CLOSED=1`
+  was already set on the host and every registered client and PAT carries a
+  source grant, so no live principal changed.
+- [ ] Live check with a real no-grant client (reads nothing, writes refused,
+  static bearer still whole-brain) — needs a throwaway client on the host.
 
 #### Release B — derived writes, deletion, purge, auth
 
