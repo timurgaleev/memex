@@ -707,8 +707,8 @@ export async function deletePage(
       params.push(scope);
       sourceFilter = ` AND source_id = $${params.length}`;
     }
-    const r = await tx.query<{ content_hash: string; deleted_at: string | null }>(
-      `SELECT content_hash, deleted_at::text AS deleted_at
+    const r = await tx.query<{ content_hash: string; deleted_at: string | null; source_id: string }>(
+      `SELECT content_hash, deleted_at::text AS deleted_at, source_id
          FROM pages WHERE slug = $1${sourceFilter}`,
       params,
     );
@@ -728,17 +728,20 @@ export async function deletePage(
       [slug],
     );
     const tombstone = JSON.stringify({ deleted_at: ts });
+    // The marker belongs to the page's owner, so its own scoped history read
+    // still sees the deletion.
     await tx.query(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
-          body_snapshot, compiled_truth_snapshot, written_by, written_at)
-       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW())`,
+          body_snapshot, compiled_truth_snapshot, written_by, written_at, source_id)
+       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW(), $6)`,
       [
         slug,
         nextN.rows[0]!.n,
         r.rows[0]!.content_hash,
         tombstone,
         writtenBy ?? null,
+        r.rows[0]!.source_id,
       ],
     );
     await bumpPageGeneration(tx, slug);
@@ -778,8 +781,8 @@ export async function restorePage(
       params.push(scope);
       sourceFilter = ` AND source_id = $${params.length}`;
     }
-    const r = await tx.query<{ content_hash: string; deleted_at: string | null }>(
-      `SELECT content_hash, deleted_at::text AS deleted_at
+    const r = await tx.query<{ content_hash: string; deleted_at: string | null; source_id: string }>(
+      `SELECT content_hash, deleted_at::text AS deleted_at, source_id
          FROM pages WHERE slug = $1${sourceFilter}`,
       params,
     );
@@ -799,9 +802,9 @@ export async function restorePage(
     await tx.query(
       `INSERT INTO page_versions
          (slug, version_n, hash_prev, hash_new,
-          body_snapshot, compiled_truth_snapshot, written_by, written_at)
-       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW())`,
-      [slug, nextN.rows[0]!.n, r.rows[0]!.content_hash, marker, writtenBy ?? null],
+          body_snapshot, compiled_truth_snapshot, written_by, written_at, source_id)
+       VALUES ($1, $2, $3, $3, '', $4::text::jsonb, $5, NOW(), $6)`,
+      [slug, nextN.rows[0]!.n, r.rows[0]!.content_hash, marker, writtenBy ?? null, r.rows[0]!.source_id],
     );
     await bumpPageGeneration(tx, slug);
     return { slug, restored: true };

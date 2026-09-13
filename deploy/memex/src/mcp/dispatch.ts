@@ -1561,15 +1561,19 @@ async function callPageAppend(
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
     const body = fresh?.markdown_body ?? "";
-    await syncWikilinksForPage(storage, r.slug, body, writeSource);
-    await syncMentionsForPage(storage, r.slug, body, writeSource);
+    // Derived rows belong to the page's owner, not to an unscoped caller's
+    // `default`. A scoped caller can only append to a page it owns, so its own
+    // source is the owner and wins over a re-read that could race a rename.
+    const derivedSource = writeSource ?? fresh?.source_id;
+    await syncWikilinksForPage(storage, r.slug, body, derivedSource);
+    await syncMentionsForPage(storage, r.slug, body, derivedSource);
     if (typedLinksEnabled() && fresh) {
-      await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth, writeSource);
+      await syncTypedLinksForPage(storage, r.slug, fresh.type, fresh.compiled_truth, derivedSource);
     }
     if (linkVerbInferEnabled() && fresh) {
-      await syncVerbLinksForPage(storage, r.slug, fresh.type, body, writeSource);
+      await syncVerbLinksForPage(storage, r.slug, fresh.type, body, derivedSource);
     }
-    await stampLinksExtracted(storage.engine(), r.slug, writeSource); // watermark (mig 051)
+    await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
     if (fresh) {
       searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined);
       maybeEnqueueFactExtraction(storage, fresh, writeSource);
@@ -1581,7 +1585,8 @@ async function callPageAppend(
       );
     }
   }
-  await reconcileFactsForPage(storage, r.slug, r.content_hash, writeSource);
+  const factsSource = writeSource ?? (await getPage(storage, r.slug))?.source_id;
+  await reconcileFactsForPage(storage, r.slug, r.content_hash, factsSource);
   return jsonResult({
     ok: true,
     ...r,
@@ -1638,7 +1643,7 @@ async function callPageRestore(
     // (this is why restore is narrower than revert, which changes the body).
     const page = await getPage(storage, r.slug);
     if (page) {
-      await reconcileFactsForPage(storage, r.slug, page.content_hash);
+      await reconcileFactsForPage(storage, r.slug, page.content_hash, page.source_id);
       await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
     }
   }
@@ -1666,16 +1671,17 @@ async function callPageRevert(
     // exactly as a normal page_put would.
     const page = await getPage(storage, r.slug);
     if (page) {
-      await syncWikilinksForPage(storage, r.slug, page.markdown_body);
-      await syncMentionsForPage(storage, r.slug, page.markdown_body);
+      const derivedSource = page.source_id;
+      await syncWikilinksForPage(storage, r.slug, page.markdown_body, derivedSource);
+      await syncMentionsForPage(storage, r.slug, page.markdown_body, derivedSource);
       if (typedLinksEnabled()) {
-        await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth);
+        await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, derivedSource);
       }
       if (linkVerbInferEnabled()) {
-        await syncVerbLinksForPage(storage, r.slug, page.type, page.markdown_body);
+        await syncVerbLinksForPage(storage, r.slug, page.type, page.markdown_body, derivedSource);
       }
-      await stampLinksExtracted(storage.engine(), r.slug); // watermark (mig 051)
-      await reconcileFactsForPage(storage, r.slug, page.content_hash);
+      await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
+      await reconcileFactsForPage(storage, r.slug, page.content_hash, derivedSource);
       await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
     }
   }

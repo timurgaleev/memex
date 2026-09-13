@@ -1,11 +1,11 @@
 /**
  * Page tags — thin CRUD over the `tags` table from migration 023.
  *
- * The table is page-scoped: a `(slug, tag)` pair, with the pair as its
- * PRIMARY KEY. There is no FK to `pages` at the schema level (migration 023
- * declares the table standalone), so this module enforces page existence at
- * the application boundary — an add against an unknown or soft-deleted page
- * throws rather than silently planting an orphan tag.
+ * The table is page-scoped and tenant-scoped: `(slug, tag, source_id)` is
+ * unique (migration 059). There is no FK to `pages` (migration 023 declares the
+ * table standalone), so this module enforces page existence at the application
+ * boundary — an add against an unknown or soft-deleted page throws rather than
+ * silently planting an orphan tag.
  *
  * All three ops are deterministic, brain-internal, and Bedrock-free:
  *   addTag     — idempotent insert (ON CONFLICT DO NOTHING).
@@ -43,27 +43,6 @@ function requireTag(tag: unknown): string {
   return norm;
 }
 
-/** True iff a live (non-soft-deleted) page exists at `slug`. */
-async function pageExists(
-  storage: Storage,
-  slug: string,
-  sourceId?: string | null,
-): Promise<boolean> {
-  // Scoped to the caller's own source when it names one: an unscoped probe
-  // answers "does ANY tenant hold this slug?", which turns the not-found error
-  // below into a cross-tenant existence oracle. An unscoped caller (local CLI,
-  // internal token) still sees the whole brain, matching every other fence.
-  const params: unknown[] = [slug];
-  if (sourceId != null) params.push(sourceId);
-  const r = await storage.engine().query<{ one: number }>(
-    `SELECT 1 AS one FROM pages
-      WHERE slug = $1 AND deleted_at IS NULL${sourceId != null ? " AND source_id = $2" : ""}
-      LIMIT 1`,
-    params,
-  );
-  return r.rows.length > 0;
-}
-
 /**
  * Tag a page. Idempotent: re-adding an existing tag is a no-op. Throws when
  * the page does not exist (or is soft-deleted) — fail-fast, so a caller never
@@ -79,8 +58,8 @@ export async function addTag(
     throw new Error("addTag: `slug` is required");
   }
   const norm = requireTag(tag);
-  // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
-  // column's DEFAULT 'default' applies otherwise (never pass NULL).
+  // Tenant scope (mig047): a scoped caller stamps its own source and may only tag
+  // a page it owns.
   const scope =
     typeof sourceId === "string" && sourceId.length > 0 ? sourceId : null;
   // ponytail: check-then-act TOCTOU — a concurrent page_delete between this
@@ -89,18 +68,25 @@ export async function addTag(
   // accepted: soft-delete is reversible, an orphan tag is inert and cleaned on
   // restore, and tag writes are single-operator/internal-only. Add an FK if
   // tags ever go multi-writer.
-  if (!(await pageExists(storage, slug, scope))) {
+  // One lookup answers both questions: the page exists (in the caller's source
+  // when scoped), and which source owns it. An unscoped tag lands under that
+  // owner; stamping `default` would hide it from the owner's scoped read.
+  const ownerParams: unknown[] = [slug];
+  if (scope !== null) ownerParams.push(scope);
+  const owner = (await storage.engine().query<{ source_id: string }>(
+    `SELECT source_id FROM pages
+      WHERE slug = $1 AND deleted_at IS NULL${scope !== null ? " AND source_id = $2" : ""}
+      LIMIT 1`,
+    ownerParams,
+  )).rows[0]?.source_id;
+  if (owner === undefined) {
     throw new Error(`addTag failed: page "${slug}" not found`);
   }
-  const params: unknown[] = [slug, norm];
-  const sourceCol = scope !== null ? ", source_id" : "";
-  if (scope !== null) params.push(scope);
-  // The conflict target folds in source_id (migration 059) so each tenant owns
-  // its own (slug, tag, source_id) row — a per-tenant add never no-ops (or
-  // clobbers) another tenant's identical (slug, tag). When source_id is not
-  // explicitly inserted the column DEFAULT 'default' fills the arbitration value.
+  const params: unknown[] = [slug, norm, owner];
+  // The conflict target folds in source_id (migration 059), so each tenant owns
+  // its own (slug, tag, source_id) row.
   await storage.engine().query(
-    `INSERT INTO tags (slug, tag${sourceCol}) VALUES ($1, $2${scope !== null ? ", $3" : ""})
+    `INSERT INTO tags (slug, tag, source_id) VALUES ($1, $2, $3)
      ON CONFLICT (slug, tag, source_id) DO NOTHING`,
     params,
   );
