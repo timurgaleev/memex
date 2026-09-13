@@ -198,21 +198,77 @@ export async function updateSource(
   return r.rows[0] ? rowToSource(r.rows[0]) : null;
 }
 
+/** The fallback tenant: legacy credentials with no grant resolve to it. */
+const FALLBACK_SOURCE = "default";
+
+/**
+ * Everything that still points at a source, by kind. Content rows and client
+ * rows would block a DELETE through their foreign keys; grants would not —
+ * oauth codes, tokens, enrollments and PAT permissions name the source without
+ * a foreign key, so deleting it would leave a live credential scoped to a
+ * missing tenant. `default` is never deletable: credentials with no grant fall
+ * back to it.
+ */
+export async function sourceReferences(engine: Engine, id: string): Promise<Record<string, number>> {
+  const r = await engine.query<Record<string, number>>(
+    `SELECT
+       (SELECT COUNT(*) FROM documents WHERE source_id = $1)::int AS documents,
+       (SELECT COUNT(*) FROM pages WHERE source_id = $1)::int AS pages,
+       (SELECT COUNT(*) FROM page_versions WHERE source_id = $1)::int AS page_versions,
+       (SELECT COUNT(*) FROM entity_facts WHERE source_id = $1)::int AS facts,
+       (SELECT COUNT(*) FROM links WHERE source_id = $1)::int AS links,
+       (SELECT COUNT(*) FROM tags WHERE source_id = $1)::int AS tags,
+       (SELECT COUNT(*) FROM timeline_events WHERE source_id = $1)::int AS timeline_events,
+       (SELECT COUNT(*) FROM synth_calibration_profile WHERE source_id = $1)::int AS calibration_profiles,
+       -- Revoked clients count too: their row keeps a RESTRICT foreign key.
+       (SELECT COUNT(*) FROM oauth_clients
+         WHERE source_id = $1 OR $1 = ANY(federated_read))::int AS oauth_clients,
+       (SELECT COUNT(*) FROM oauth_tokens
+         WHERE revoked_at IS NULL
+           AND (expires_at IS NULL OR expires_at > EXTRACT(EPOCH FROM NOW()))
+           AND (source_id = $1 OR $1 = ANY(COALESCE(federated_read, '{}'))))::int AS oauth_tokens,
+       (SELECT COUNT(*) FROM oauth_codes
+         WHERE expires_at > EXTRACT(EPOCH FROM NOW())
+           AND (source_id = $1 OR $1 = ANY(COALESCE(federated_read, '{}'))))::int AS oauth_codes,
+       (SELECT COUNT(*) FROM oauth_enrollments
+         WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()
+           AND (source_id = $1 OR $1 = ANY(federated_read)))::int AS enrollments,
+       -- Some rows hold permissions double-encoded as a JSON string; the token
+       -- verifier accepts that shape, so the count must see through it too.
+       (SELECT COUNT(*) FROM access_tokens
+         WHERE revoked_at IS NULL
+           AND (CASE WHEN jsonb_typeof(permissions) = 'string'
+                     THEN (permissions #>> '{}')::jsonb
+                     ELSE permissions END) -> 'source_id' @> to_jsonb($1::text))::int AS personal_tokens`,
+    [id],
+  );
+  const row = r.rows[0] ?? {};
+  const refs = Object.fromEntries(Object.entries(row).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)]));
+  return id === FALLBACK_SOURCE ? { fallback_source: 1, ...refs } : refs;
+}
+
+const FOREIGN_KEY_VIOLATION = "23503";
+
 export async function deleteSource(
   engine: Engine,
   id: string,
 ): Promise<boolean> {
-  // Refuse if any document still references this source — caller
-  // reassigns or unsets first. Documents.source_id has REFERENCES
-  // sources(id) which would block the DELETE anyway, but a clean
-  // boolean return beats a SQL FK error.
-  const ref = await engine.query<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM documents WHERE source_id = $1`,
-    [id],
-  );
-  if ((ref.rows[0]?.n ?? 0) > 0) return false;
-  await engine.query(`DELETE FROM sources WHERE id = $1`, [id]);
-  return (await getSource(engine, id)) === null;
+  // Refuse while anything still references the source; the caller reassigns,
+  // revokes or unsets first (`sourceReferences` says what). The grant tables are
+  // locked for the check-and-delete so a token minted mid-way cannot slip past.
+  try {
+    return await engine.transaction(async (tx) => {
+      await tx.query(
+        `LOCK TABLE oauth_clients, oauth_tokens, oauth_codes, oauth_enrollments, access_tokens IN SHARE ROW EXCLUSIVE MODE`,
+      );
+      if (Object.keys(await sourceReferences(tx, id)).length > 0) return false;
+      const r = await tx.query<{ id: string }>(`DELETE FROM sources WHERE id = $1 RETURNING id`, [id]);
+      return r.rows.length > 0;
+    });
+  } catch (err) {
+    if ((err as { code?: string })?.code === FOREIGN_KEY_VIOLATION) return false;
+    throw err;
+  }
 }
 
 /**

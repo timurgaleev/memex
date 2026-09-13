@@ -17,6 +17,7 @@ import {
   getSource,
   updateSource,
   deleteSource,
+  sourceReferences,
 } from "../src/core/sources.ts";
 
 let tmp: string;
@@ -131,5 +132,100 @@ describe("deleteSource", () => {
     const ok = await deleteSource(e, "vault");
     expect(ok).toBe(false);
     expect(await getSource(e, "vault")).not.toBeNull();
+  });
+
+  describe("refuses while a grant still names the source", () => {
+    const future = () => Math.floor(Date.now() / 1000) + 3600;
+    const cases: Array<[string, string, (e: ReturnType<typeof storage.engine>, src: string) => Promise<void>]> = [
+      ["oauth client", "oauth_clients", async (e, src) => {
+        await e.query(`INSERT INTO oauth_clients (client_id, client_name, source_id) VALUES ($1, 'c', $2)`, [`cl-${src}`, src]);
+      }],
+      ["oauth token", "oauth_tokens", async (e, src) => {
+        await e.query(`INSERT INTO oauth_clients (client_id, client_name) VALUES ($1, 'c')`, [`cl-${src}`]);
+        await e.query(`UPDATE oauth_clients SET deleted_at = NOW() WHERE client_id = $1`, [`cl-${src}`]);
+        await e.query(
+          `INSERT INTO oauth_tokens (token_hash, token_type, client_id, expires_at, source_id, grant_bound)
+           VALUES ($1, 'access', $2, $3, $4, true)`,
+          [`tok-${src}`, `cl-${src}`, future(), src],
+        );
+      }],
+      ["oauth code", "oauth_codes", async (e, src) => {
+        await e.query(`INSERT INTO oauth_clients (client_id, client_name) VALUES ($1, 'c')`, [`cl-${src}`]);
+        await e.query(`UPDATE oauth_clients SET deleted_at = NOW() WHERE client_id = $1`, [`cl-${src}`]);
+        await e.query(
+          `INSERT INTO oauth_codes (code_hash, client_id, code_challenge, redirect_uri, expires_at, source_id)
+           VALUES ($1, $2, 'x', 'https://example.com/cb', $3, $4)`,
+          [`code-${src}`, `cl-${src}`, future(), src],
+        );
+      }],
+      ["enrollment", "enrollments", async (e, src) => {
+        await e.query(
+          `INSERT INTO oauth_enrollments (id, code_hash, source_id, federated_read, expires_at)
+           VALUES ($1, $1, $2, ARRAY[$2], NOW() + interval '1 day')`,
+          [`enr-${src}`, src],
+        );
+      }],
+      ["personal token", "personal_tokens", async (e, src) => {
+        await e.query(
+          `INSERT INTO access_tokens (name, token_hash, permissions) VALUES ($1, $1, $2::jsonb)`,
+          [`pat-${src}`, JSON.stringify({ source_id: ["other", src] })],
+        );
+      }],
+    ];
+    for (const [label, key, seed] of cases) {
+      it(label, async () => {
+        const e = storage.engine();
+        const src = `grant-${key.replace(/_/g, "-")}`;
+        await registerSource(e, { id: src, kind: "other", pathPrefix: `/${src}/` });
+        await seed(e, src);
+        expect(Object.keys(await sourceReferences(e, src))).toEqual([key]);
+        expect(await deleteSource(e, src)).toBe(false);
+        expect(await getSource(e, src)).not.toBeNull();
+      });
+    }
+
+    it("counts a revoked client that still names the source instead of crashing on its foreign key", async () => {
+      const e = storage.engine();
+      const src = "grant-revoked-client";
+      await registerSource(e, { id: src, kind: "other", pathPrefix: `/${src}/` });
+      await e.query(`INSERT INTO oauth_clients (client_id, client_name, source_id, deleted_at) VALUES ('cl-revoked', 'c', $1, NOW())`, [src]);
+      expect(await sourceReferences(e, src)).toEqual({ oauth_clients: 1 });
+      expect(await deleteSource(e, src)).toBe(false);
+    });
+
+    it("sees a personal token whose permissions were stored as a JSON string", async () => {
+      const e = storage.engine();
+      const src = "grant-string-pat";
+      await registerSource(e, { id: src, kind: "other", pathPrefix: `/${src}/` });
+      await e.query(
+        `INSERT INTO access_tokens (name, token_hash, permissions) VALUES ('pat-string', 'pat-string', to_jsonb($1::text))`,
+        [JSON.stringify({ source_id: [src] })],
+      );
+      expect(await sourceReferences(e, src)).toEqual({ personal_tokens: 1 });
+    });
+
+    it("never deletes the fallback source", async () => {
+      const e = storage.engine();
+      await registerSource(e, { id: "default", kind: "other", pathPrefix: "/default/" });
+      expect(Object.keys(await sourceReferences(e, "default"))).toContain("fallback_source");
+      expect(await deleteSource(e, "default")).toBe(false);
+    });
+
+    it("ignores revoked and expired grants", async () => {
+      const e = storage.engine();
+      const src = "grant-stale";
+      await registerSource(e, { id: src, kind: "other", pathPrefix: `/${src}/` });
+      await e.query(
+        `INSERT INTO oauth_enrollments (id, code_hash, source_id, federated_read, expires_at, revoked_at)
+         VALUES ('enr-stale', 'enr-stale', $1, ARRAY[$1], NOW() + interval '1 day', NOW())`,
+        [src],
+      );
+      await e.query(
+        `INSERT INTO access_tokens (name, token_hash, permissions, revoked_at) VALUES ('pat-stale', 'pat-stale', $1::jsonb, NOW())`,
+        [JSON.stringify({ source_id: src })],
+      );
+      expect(await sourceReferences(e, src)).toEqual({});
+      expect(await deleteSource(e, src)).toBe(true);
+    });
   });
 });

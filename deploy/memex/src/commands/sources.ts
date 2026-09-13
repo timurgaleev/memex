@@ -26,6 +26,7 @@ import {
   getSource,
   updateSource,
   deleteSource,
+  sourceReferences,
   SOURCE_KINDS,
   type SourceKind,
   type SyncPolicy,
@@ -123,16 +124,23 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
       }
       case "delete": {
         if (!opts.id) throw new Error("memex sources delete: <id> is required");
+        if (!(await getSource(engine, opts.id))) {
+          console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
         const ok = await deleteSource(engine, opts.id);
+        const referents = ok ? {} : await sourceReferences(engine, opts.id);
         console.log(
           JSON.stringify(
             ok
               ? { ok: true, id: opts.id }
               : {
                   ok: false,
-                  error: "blocked-by-documents",
+                  error: "blocked-by-references",
                   id: opts.id,
-                  hint: "reassign or unset source_id on referencing documents first",
+                  referents,
+                  hint: "move or remove the content, and revoke clients, tokens, enrollments and personal tokens that name this source",
                 },
             null,
             2,
