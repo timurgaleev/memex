@@ -299,8 +299,8 @@ describe("context and advisor", () => {
     expect((await volunteerContext(storage, { window, minConfidence: 0 })).map(p => p.slug)).toContain(SLUG);
   });
 
-  it("volunteerUsageStats refuses an empty scope like any scoped caller", async () => {
-    await expect(volunteerUsageStats(storage, 30, NONE)).rejects.toThrow("operator");
+  it("volunteerUsageStats counts nothing for an empty scope", async () => {
+    expect((await volunteerUsageStats(storage, 30, NONE)).total_volunteered).toBe(0);
     await volunteerUsageStats(storage, 30);
   });
 

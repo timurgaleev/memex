@@ -14,10 +14,10 @@
  * (which by construction resolved to an existing alias/title/slug) — never free
  * conversation text.
  *
- * memex adaptation: no source_id federation (flat vault); source_id is written
- * NULL. Fire-and-forget is a self-contained tracked-promise set (memex has no
- * shared background-work registry); callers drain it via
- * awaitPendingVolunteerEventWrites before teardown.
+ * Each event carries the volunteered page's source, so usage stats can be
+ * narrowed to a caller's grant. Fire-and-forget is a self-contained
+ * tracked-promise set; callers drain it via awaitPendingVolunteerEventWrites
+ * before teardown.
  */
 
 import type { Storage } from "../storage.ts";
@@ -71,10 +71,8 @@ export async function insertVolunteerEvents(
   const params: unknown[] = [];
   const tuples = rows.map((r) => {
     const base = params.length;
-    // source_id is always NULL in memex (flat vault) — written explicitly so
-    // the column order matches the table and stays parity-shaped.
     params.push(
-      null,
+      r.slug,
       r.slug,
       r.confidence,
       r.match_arm,
@@ -84,6 +82,9 @@ export async function insertVolunteerEvents(
       r.turn ?? null,
     );
     const ph = Array.from({ length: 8 }, (_, i) => `$${base + i + 1}`);
+    // The event belongs to the volunteered page's source, so usage stats can be
+    // narrowed to a scoped caller's grant.
+    ph[0] = `(SELECT source_id FROM pages WHERE slug = ${ph[0]} AND deleted_at IS NULL LIMIT 1)`;
     return `(${ph.join(", ")})`;
   });
   await storage.engine().query(

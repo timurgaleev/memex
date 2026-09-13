@@ -207,15 +207,17 @@ export async function seedTenantContract(storage: Storage): Promise<{ factIdA: n
   await seedCodeEdge("ch-b-pay", B_CALLER, CODE_SYM, B); // blast b
 
   // --- synth_takes (list_takes) — scoped via source_ref → documents.source_id ---
-  for (const [key, ref, claim] of [
-    ["take-a", DOC_A_NOTES, A_TAKE],
-    ["take-b", DOC_B_NOTES, B_TAKE],
+  // Fixed, distinct generation times: two inserts in a row can share a
+  // timestamp, which would make the default newest-first listing order vary.
+  for (const [key, ref, claim, generatedAt] of [
+    ["take-a", DOC_A_NOTES, A_TAKE, "2026-01-01T00:00:00Z"],
+    ["take-b", DOC_B_NOTES, B_TAKE, "2026-01-02T00:00:00Z"],
   ] as const) {
     await storage.engine().query(
       `INSERT INTO synth_takes
-         (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, domain, status, model_id)
-       VALUES ($1, $2, 'h', 'v1', $3, 'judgment', 0.5, NULL, 'queued', 'test')`,
-      [key, ref, claim],
+         (take_key, source_ref, source_hash, prompt_version, claim_text, kind, weight, domain, status, model_id, generated_at)
+       VALUES ($1, $2, 'h', 'v1', $3, 'judgment', 0.5, NULL, 'queued', 'test', $4::timestamptz)`,
+      [key, ref, claim, generatedAt],
     );
   }
 

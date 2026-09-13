@@ -25,7 +25,6 @@ import {
   purgeStaleVolunteerEvents,
   _resetPendingVolunteerEventWritesForTests,
 } from "../src/core/context/volunteer-events.ts";
-import { isOperationError, type OperationError } from "../src/core/operation-error.ts";
 import { runWatch } from "../src/commands/watch.ts";
 import type { WindowTurn } from "../src/core/context/entity-salience.ts";
 
@@ -194,7 +193,7 @@ describe("volunteer-events", () => {
     expect(stats.approximate).toBe(true);
   });
 
-  it("refuses whole-brain stats for a source-scoped caller", async () => {
+  it("narrows stats to the caller's sources", async () => {
     await insertVolunteerEvents(
       storage,
       volunteerEventRowsFrom(
@@ -202,20 +201,11 @@ describe("volunteer-events", () => {
         { channel: "op" },
       ),
     );
-    // Only the operator (undefined) sees the aggregate; `[]` is a caller with
-    // no grant and is refused like any scoped caller.
+    // The event carries its page's source; a caller with no grant sees nothing
+    // and a caller scoped elsewhere sees none of this source's events.
     expect((await volunteerUsageStats(storage, 30)).total_volunteered).toBe(1);
-    await expect(volunteerUsageStats(storage, 30, [])).rejects.toThrow("operator-only");
-
-    let caught: unknown;
-    try {
-      await volunteerUsageStats(storage, 30, ["tenant-a"]);
-    } catch (e) {
-      caught = e;
-    }
-    expect(isOperationError(caught)).toBe(true);
-    expect((caught as OperationError).code).toBe("permission_denied");
-    expect((caught as OperationError).message).toContain("operator-only");
+    expect((await volunteerUsageStats(storage, 30, [])).total_volunteered).toBe(0);
+    expect((await volunteerUsageStats(storage, 30, ["tenant-elsewhere"])).total_volunteered).toBe(0);
   });
 
   it("drains fire-and-forget writes", async () => {

@@ -27,7 +27,6 @@
 
 import type { Storage } from "../storage.ts";
 import { normalizeAlias } from "../page-aliases.ts";
-import { OperationError } from "../operation-error.ts";
 import {
   extractCandidatesFromWindow,
   type WindowTurn,
@@ -38,6 +37,7 @@ import {
   ARM_CONFIDENCE,
   type ResolveArm,
 } from "./reflex.ts";
+import { andSourceScope } from "../source-scope.ts";
 
 export const VOLUNTEER_DEFAULT_MAX_PAGES = 3;
 export const VOLUNTEER_MAX_PAGES_CAP = 5;
@@ -249,37 +249,25 @@ interface UsageRow {
   used: string | number;
 }
 
-export const VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE =
-  "volunteer_context: whole-brain volunteer stats are operator-only — the " +
-  "event log carries no per-source axis, so the aggregate cannot be narrowed " +
-  "to a scoped caller's read grant";
-
 /**
  * Per-arm/channel precision over the last N days. Read-only; returns zeroed
  * stats on a pre-044 brain (no table).
  *
- * `sourceIds` is the caller's read scope, threaded in the same shape as every
- * other read (see resolveAliasUnique) — omitted means unscoped, the
- * operator / local CLI path. A SCOPED caller (including `[]`) is REFUSED rather than served a
- * narrowed answer: `context_volunteer_events` keeps a `source_id` column for
- * row-shape parity (migration 044) but every memex write leaves it NULL
- * (volunteer-events.ts), so there is no axis to filter on. Filtering the dead
- * column would answer "nothing was ever volunteered" — a silent lie — while
- * returning the unfiltered aggregate would leak whole-brain telemetry.
+ * `sourceIds` is the caller's read scope: omitted means the operator's whole
+ * brain; a list narrows the events to pages in those sources (each event carries
+ * its page's source); `[]` sees nothing.
  */
 export async function volunteerUsageStats(
   storage: Storage,
   days = 30,
   sourceIds?: string[],
 ): Promise<VolunteerUsageStats> {
-  if (sourceIds !== undefined) {
-    throw new OperationError(
-      "permission_denied",
-      VOLUNTEER_STATS_OPERATOR_ONLY_MESSAGE,
-      "Call volunteer_context without `stats` for scoped pointers, or use an operator credential.",
-    );
-  }
   const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
+  const params: unknown[] = [String(safeDays)];
+  const scopeFilter = andSourceScope("e.source_id", sourceIds, params);
+  // A slug can be reused by another source after a purge; a scoped caller's
+  // "used" count must come from its own page, not the new owner's retrievals.
+  const pageScope = sourceIds !== undefined ? " AND p.source_id = e.source_id" : "";
   let rows: UsageRow[] = [];
   try {
     const r = await storage.engine().query<UsageRow>(
@@ -292,11 +280,11 @@ export async function volunteerUsageStats(
               count(DISTINCT e.slug) FILTER (WHERE p.last_retrieved_at > e.volunteered_at)::text AS used
          FROM context_volunteer_events e
          LEFT JOIN pages p
-           ON p.slug = e.slug AND p.deleted_at IS NULL
-        WHERE e.volunteered_at > now() - ($1 || ' days')::interval
+           ON p.slug = e.slug AND p.deleted_at IS NULL${pageScope}
+        WHERE e.volunteered_at > now() - ($1 || ' days')::interval${scopeFilter}
         GROUP BY e.match_arm, e.channel
         ORDER BY e.match_arm, e.channel`,
-      [String(safeDays)],
+      params,
     );
     rows = r.rows;
   } catch {
