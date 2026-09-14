@@ -364,7 +364,7 @@ export async function handleAuthorizeRoute(
   // consulted — it could only send her to a login she cannot pass.
   if (client.tenant_mode === "enrollment") {
     if (req.method !== "POST") {
-      return enrollmentForm(req, null, client.client_name);
+      return enrollmentForm(req, null, client.client_name, redirectUri);
     }
     // A cross-origin auto-submitting form is a "simple request" — no preflight
     // — so without this an attacker page could POST HIS code from HER browser
@@ -391,7 +391,7 @@ export async function handleAuthorizeRoute(
     if (!grant) {
       // One message for wrong / used / expired / revoked / other-client: the
       // form must not tell an attacker which of those it was.
-      return enrollmentForm(req, "That code was not accepted.", client.client_name);
+      return enrollmentForm(req, "That code was not accepted.", client.client_name, redirectUri);
     }
     try {
       const { redirectUrl } = await provider.authorize(client, authorizeParams, grant);
@@ -488,9 +488,29 @@ function escapeHtml(v: string): string {
  * parameter the client sent (state, PKCE challenge, redirect) rides along
  * untouched.
  */
-function enrollmentForm(req: Request, error: string | null, clientName?: string): Response {
+function enrollmentForm(
+  req: Request,
+  error: string | null,
+  clientName?: string,
+  redirectUri?: string,
+): Response {
   const url = new URL(req.url);
   const action = escapeHtml(url.pathname + url.search);
+  // `form-action` is enforced across the submission's REDIRECTS, not just
+  // its first hop. With `'self'` alone the browser silently blocked the 303
+  // back to the client's callback: memex had claimed the code and minted an
+  // authorization code, the person never left this page, and the client never
+  // called /token — indistinguishable, from her seat, from a rejected code.
+  // The redirect target is already checked against the client's registered
+  // URIs before this renders, so naming its origin here widens nothing.
+  let formAction = "'self'";
+  if (redirectUri) {
+    try {
+      formAction += " " + new URL(redirectUri).origin;
+    } catch {
+      /* an unparseable URI never passed registration; keep 'self' */
+    }
+  }
   // Name the connector: a person who cannot tell WHAT she is enrolling into
   // has no way to notice a crafted /authorize link. The name is operator-set
   // and carries nothing secret.
@@ -521,7 +541,7 @@ ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy":
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
       // Not `no-referrer`: that makes the browser send `Origin: null` on this
       // page's own form POST (Fetch, "append a request Origin header"), and the
       // same-origin guard has to refuse an opaque origin — so the policy meant

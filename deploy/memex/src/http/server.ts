@@ -477,6 +477,11 @@ export function startServer(opts: ServerOptions): ServerHandle {
         ).key;
         if (url.pathname === "/token" && req.method === "POST") {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+            // Throttling here is silent otherwise, and the silence is the same
+            // silence as "the client never called" — which sent a connector
+            // diagnosis down the wrong path. The bucket key is an IP, and an IP
+            // reaching a public endpoint is already in every proxy's log.
+            console.warn(`[oauth] POST /token rate-limited for bucket ${ip}`);
             return rateLimited();
           }
           return handleTokenRoute(req, oauthProvider);
@@ -485,6 +490,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         // client; the handler rejects it for every other client.
         if (url.pathname === "/authorize" && (req.method === "GET" || req.method === "POST")) {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
+            console.warn(`[oauth] ${req.method} /authorize rate-limited for bucket ${ip}`);
             return rateLimited();
           }
           // Auto-approve by default, so a standard MCP client

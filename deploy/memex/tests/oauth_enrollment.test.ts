@@ -129,6 +129,18 @@ describe("enrollment-mode /authorize", () => {
     expect(await codeCount()).toBe(before);
   });
 
+  it("lets the submission redirect to the client's callback", async () => {
+    // `form-action` is enforced across a submission's redirects. With `'self'`
+    // alone the browser blocked the 303 back to the client: the code was
+    // claimed, the authorization code minted, and the person simply stayed on
+    // this page while the client never called /token. Nothing in a curl test
+    // can see this — CSP only exists in a browser.
+    const csp = (await get(teamClient)).headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain(`form-action 'self' ${new URL(REDIRECT).origin}`);
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("default-src 'none'");
+  });
+
   it("the form ignores the operator-login gate — the code is the login", async () => {
     const res = await get(teamClient, () => false);
     expect(res.status).toBe(200);

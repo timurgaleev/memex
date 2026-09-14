@@ -7,6 +7,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The connector's own CSP blocked the redirect that completes the flow.** The
+  code form was served `form-action 'self'`, and `form-action` is enforced
+  across a submission's *redirect chain* — so the browser silently refused the
+  303 back to the client's callback. Everything on the server had already
+  succeeded: the one-time code was claimed, the authorization code minted, the
+  redirect written. The person simply never left the page, the client never
+  called `/token`, and the next submit reported the code as not accepted —
+  which reads exactly like a rejected code. The policy now names the
+  `redirect_uri`'s origin, which was already validated against the client's
+  registered URIs before the page renders, so nothing is widened. Three curl
+  suites and a live end-to-end run all passed throughout: CSP only exists
+  inside a browser.
+- **`/token` and `/authorize` throttling was invisible.** A rate-limited request
+  returned 429 and logged nothing, so "the client was throttled" and "the client
+  never called" looked identical in the log. Both now record the bucket.
 - **The connector's code form was unusable in a real browser.** Claude opens
   `/authorize` in a popup, so Chrome stamps the form's own submit
   `Sec-Fetch-Site: cross-site` even though the form came from us — and the
