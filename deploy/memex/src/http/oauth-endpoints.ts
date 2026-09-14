@@ -368,6 +368,14 @@ export async function handleAuthorizeRoute(
     // it is the client that checks it, not us. `/authorize` is rate-limited in
     // server.ts for GET and POST alike, so there is no separate limiter here.
     if (!isSameOriginPost(req, new URL(req.url))) {
+      // A refusal here is indistinguishable, from the outside, from a browser
+      // quirk — and the first one cost two deploys to diagnose. Log what the
+      // request actually carried: neither header is a secret.
+      console.warn(
+        `[oauth] enrollment POST refused as cross-origin: origin=${req.headers.get("origin") ?? "<absent>"} ` +
+          `sec-fetch-site=${req.headers.get("sec-fetch-site") ?? "<absent>"} ` +
+          `x-forwarded-proto=${req.headers.get("x-forwarded-proto") ?? "<absent>"}`,
+      );
       return new Response("Cross-origin request refused.", {
         status: 403,
         headers: { "Content-Type": "text/plain; charset=utf-8", ...NO_STORE },
@@ -502,7 +510,13 @@ ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy":
         "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-      "Referrer-Policy": "no-referrer",
+      // Not `no-referrer`: that makes the browser send `Origin: null` on this
+      // page's own form POST (Fetch, "append a request Origin header"), and the
+      // same-origin guard has to refuse an opaque origin — so the policy meant
+      // to protect the page made its only button unusable. `same-origin` keeps
+      // the referrer off every cross-origin hop, including the redirect back to
+      // the client, and leaves the submit with a real origin.
+      "Referrer-Policy": "same-origin",
       "X-Frame-Options": "DENY",
       ...NO_STORE,
     },

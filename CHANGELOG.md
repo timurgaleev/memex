@@ -19,6 +19,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   because a non-browser sends no fetch metadata at all — the new
   `tests/same_origin_guard.test.ts` covers the browser matrix the old tests could
   not reach.
+- **…and the page's own `Referrer-Policy` made the same button unusable a second
+  way.** The form was served `no-referrer`, which per Fetch's "append a request
+  Origin header" makes the browser send `Origin: null` on that page's own POST —
+  an opaque origin the guard must refuse. It is now `same-origin`, which keeps
+  the referrer off every cross-origin hop (including the redirect back to the
+  client) while leaving the submit with a real origin. Found by a second-opinion
+  review, not by a test: no curl reproduces a referrer policy.
+- The guard also accepted an `Origin` that merely parsed to our host —
+  `https://evil.example@brain.example/path`, `null://brain.example`. No browser
+  writes those, so they are refused rather than trusted.
 
 ### Documentation
 - **`docs/TEAM-SETUP.md`** — how to put several people on one brain, each in

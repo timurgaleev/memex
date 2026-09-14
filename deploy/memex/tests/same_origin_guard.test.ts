@@ -33,6 +33,14 @@ describe("isSameOriginPost", () => {
     expect(isSameOriginPost(post({ origin: "https://evil.example" }), TARGET)).toBe(false);
   });
 
+  it("refuses an origin that is not a bare serialized origin", () => {
+    // Both parse to our host. No browser writes either, so accepting them buys
+    // nothing and costs the guard its meaning.
+    expect(isSameOriginPost(post({ origin: "https://evil.example@brain.example/path" }), TARGET)).toBe(false);
+    expect(isSameOriginPost(post({ origin: "null://brain.example" }), TARGET)).toBe(false);
+    expect(isSameOriginPost(post({ origin: "https://brain.example/" }), TARGET)).toBe(false);
+  });
+
   it("refuses an opaque origin", () => {
     // A sandboxed frame or a redirect-originated POST sends this; it parses to
     // nothing, so it must not fall through to the permissive branch.

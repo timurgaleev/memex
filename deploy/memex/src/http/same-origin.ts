@@ -22,7 +22,12 @@ export function isSameOriginPost(req: Request, url: URL): boolean {
   const origin = req.headers.get("origin");
   if (origin !== null) {
     try {
-      return new URL(origin).host === url.host;
+      const parsed = new URL(origin);
+      // A browser sends a bare serialized origin. Anything carrying userinfo or
+      // a path (`https://evil.example@brain.example/x`) parses to our host but
+      // was never written by a browser, so refuse it rather than trust `host`.
+      if (parsed.origin !== origin) return false;
+      return parsed.host === url.host;
     } catch {
       return false;
     }
