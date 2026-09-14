@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+- **`docs/TEAM-SETUP.md`** — how to put several people on one brain, each in
+  their own source. Covers the choice between per-person clients and one
+  connector with enrollment codes (a Team or Enterprise plan lets only an Owner
+  add a connector, which forces the second shape), why sharing the connector
+  secret is safe and the one property to verify before believing that, the login
+  gate, day-2 operations and troubleshooting.
+- `memex auth rescope-client` now appears in `--help`; it has existed since the
+  per-grant work but was never listed.
+
 ## [1.131.0] — 2026-09-13
 
 ### Fixed
