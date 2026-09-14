@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The connector's code form was unusable in a real browser.** Claude opens
+  `/authorize` in a popup, so Chrome stamps the form's own submit
+  `Sec-Fetch-Site: cross-site` even though the form came from us — and the
+  same-origin guard vetoed on that header before looking at anything else, so
+  every genuine enrollment POST was refused with "Cross-origin request refused."
+  `Origin` now decides (browsers set it on every POST and page script cannot
+  forge it); fetch metadata is the fallback for a caller that sent no `Origin`.
+  Nothing loosens: a foreign `Origin` is refused whatever the metadata says, and
+  an opaque `Origin: null` still fails closed. Every curl test passed throughout
+  because a non-browser sends no fetch metadata at all — the new
+  `tests/same_origin_guard.test.ts` covers the browser matrix the old tests could
+  not reach.
+
 ### Documentation
 - **`docs/TEAM-SETUP.md`** — how to put several people on one brain, each in
   their own source. Covers the choice between per-person clients and one
