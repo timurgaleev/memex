@@ -506,7 +506,12 @@ function enrollmentForm(
   let formAction = "'self'";
   if (redirectUri) {
     try {
-      formAction += " " + new URL(redirectUri).origin;
+      // The exact callback path, not just its origin: naming the origin alone
+      // would let this page's form post anywhere on the client's domain.
+      // CSP matches the path and ignores the query, so the `?code=…` redirect
+      // still passes.
+      const u = new URL(redirectUri);
+      formAction += " " + u.origin + u.pathname;
     } catch {
       /* an unparseable URI never passed registration; keep 'self' */
     }

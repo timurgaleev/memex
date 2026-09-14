@@ -16,9 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   called `/token`, and the next submit reported the code as not accepted —
   which reads exactly like a rejected code. The policy now names the
   `redirect_uri`'s origin, which was already validated against the client's
-  registered URIs before the page renders, so nothing is widened. Three curl
-  suites and a live end-to-end run all passed throughout: CSP only exists
-  inside a browser.
+  registered URIs before the page renders. It names the callback's exact path,
+  not just its origin — naming the origin would have let this page post
+  anywhere on the client's domain, which is a real widening rather than none.
+  Three curl suites and a live end-to-end run all passed throughout: CSP only
+  exists inside a browser.
 - **`/token` and `/authorize` throttling was invisible.** A rate-limited request
   returned 429 and logged nothing, so "the client was throttled" and "the client
   never called" looked identical in the log. Both now record the bucket.

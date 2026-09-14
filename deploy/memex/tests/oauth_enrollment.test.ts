@@ -136,7 +136,9 @@ describe("enrollment-mode /authorize", () => {
     // this page while the client never called /token. Nothing in a curl test
     // can see this — CSP only exists in a browser.
     const csp = (await get(teamClient)).headers.get("Content-Security-Policy") ?? "";
-    expect(csp).toContain(`form-action 'self' ${new URL(REDIRECT).origin}`);
+    expect(csp).toContain(`form-action 'self' ${REDIRECT}`);
+    // The origin alone would let this page post anywhere on the client's domain.
+    expect(csp).not.toContain(`form-action 'self' ${new URL(REDIRECT).origin};`);
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("default-src 'none'");
   });
