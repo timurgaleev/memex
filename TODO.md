@@ -2130,11 +2130,13 @@ by file:line, deliberately left for its own pass rather than rushed:
 - `mcp/dispatch.ts:3396` — `callThink` collapses an empty `readSources` before
   calling `runThink`, undoing the fix one layer down.
 
-Until those close, `hybridSearch(..., { sourceIds: [] })` can still return
-another tenant's text. Nothing on the single-operator brain can reach it (every
-source belongs to the operator), and MCP dispatch attaches a fail-closed
-sentinel rather than `[]` — but do not read the layers above as "search is
-fenced on empty".
+**Closed 2026-09-14 by `6b30d2c` (Release A).** All five sites now hold the
+contract: `core/source-scope.ts` centralises it (`andSourceScope` emits
+`AND FALSE` for a no-grant scope), `query-cache.ts` keys `[]` distinctly from
+`undefined`, `title-arm.ts` and both hydration paths go through the helper, and
+`dispatch.ts` forwards an empty `readSources` instead of collapsing it. The
+paragraph above is kept as the record of what was open; it no longer describes
+the code. The item stays under RM-01 until the full isolation matrix signs off.
 
 ## Derived writes carry the caller's source on three page paths (2026-09-08)
 
