@@ -146,6 +146,10 @@ export async function handleTokenRoute(
   const params = await readParams(req);
   if (!params) return oauthError("invalid_request", "malformed body", 400);
   const grantType = params.get("grant_type");
+  // The one fact that separates "memex refused the exchange" from "the client
+  // never asked": silence here means the redirect never reached the client.
+  // A grant type is not a secret; no code, token or verifier is logged.
+  console.info(`[oauth] POST /token grant_type=${grantType ?? "<absent>"}`);
 
   if (grantType === "client_credentials") {
     const clientId = params.get("client_id");
@@ -227,6 +231,7 @@ export async function handleTokenRoute(
       return Response.json(tokens, { status: 200, headers: NO_STORE });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "invalid grant";
+      console.warn(`[oauth] ${grantType} exchange refused for ${client.client_name}: ${msg}`);
       return oauthError("invalid_grant", msg, 400);
     }
   }
@@ -401,6 +406,13 @@ export async function handleAuthorizeRoute(
             );
           });
       }
+      // A claimed code with no `/token` exchange behind it means the handoff to
+      // the client failed, not memex — and the two look identical from the
+      // outside, because the person just ends up back on this form.
+      console.info(
+        `[oauth] enrollment claimed: client=${client.client_name} source=${grant.sourceId} ` +
+          `redirect=${new URL(redirectUrl).host} code_minted=${minted ? "yes" : "no"}`,
+      );
       // 303, not 302: the browser arrives here by POST, and 303 is the status
       // that guarantees it follows with a GET rather than re-posting the form
       // to the client's callback.
