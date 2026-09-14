@@ -62,7 +62,7 @@ answer. (The brain retrieves &mdash; it doesn't chat.)
   One brain can serve a team: every remote credential (OAuth client, PAT) is
   scoped to the sources it may read (opt-in fail-closed), and a single shared
   connector can pin each person to their own source at the moment they
-  authorise — see "Running more than one tenant" in `docs/CONFIGURATION.md`.
+  authorise — see [Team setup](./docs/TEAM-SETUP.md).
 
 ## How it's different
 
@@ -148,6 +148,7 @@ Connecting Claude Code (or any MCP client):
 [ARCHITECTURE.md](./ARCHITECTURE.md) ·
 [Deployment](./docs/DEPLOYMENT.md) ·
 [Configuration](./docs/CONFIGURATION.md) ·
+[Team setup](./docs/TEAM-SETUP.md) ·
 [API / MCP tools](./deploy/memex/docs/API.md) ·
 [Operations](./deploy/memex/docs/OPERATIONS.md) ·
 [Privacy](./PRIVACY.md) · [Changelog](./CHANGELOG.md)

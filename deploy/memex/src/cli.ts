@@ -204,6 +204,9 @@ function printUsage(): void {
   console.log("                               'none' = public PKCE client, no secret)");
   console.log("  auth list-clients            JSON list of registered OAuth clients");
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
+  console.log("  auth rescope-client <id> --source SRC [--federated-read a,b]");
+  console.log("                               [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment]");
+  console.log("                               change a client's tenancy in place — no secret rotation");
   console.log("  auth enroll <source> [--label N] [--client ID] [--ttl 7d]");
   console.log("                               one-time enrollment code: a person presents it at /authorize");
   console.log("                               on an enrollment-mode client and lands in <source> (printed once)");

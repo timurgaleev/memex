@@ -102,6 +102,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`THIRD_PARTY_NOTICES.md`).
 
 ### Documentation
+- **A guide for running memex for a team** — `docs/TEAM-SETUP.md`. The reference
+  for every knob already existed; what did not was the operator's path from a
+  working single-operator brain to several people connected, each in their own
+  space. It covers the one decision that has to come first (per-person clients
+  vs one connector with enrollment codes — determined by who is allowed to add
+  a connector in your chat client), the setup, the handover, day-2 operations,
+  and a troubleshooting table.
+
+  It also writes down the check that the whole shared-secret posture rests on:
+  an enrollment client must NOT carry the `client_credentials` grant. With it,
+  anyone holding the secret mints a token and no code is needed; without it the
+  secret is worth nothing on its own. That property comes from registering with
+  `--redirect-uris`, which is easy to get right by accident and therefore easy
+  to lose the same way — so the guide tells the operator to verify it rather
+  than assume it.
+
+- **`auth rescope-client` was missing from `memex --help`.** It has been
+  implemented and dispatched all along; it simply was not listed, so the one
+  command that moves a client between tenancy modes was undiscoverable.
+
+- `HOW-IT-WORKS.md` still said "a brain serves exactly one person" — the same
+  drift already corrected in the README, now fixed in the tour as well, with
+  the two places a grant can come from spelled out.
 - **The docs still said one brain serves one person.** They were written before
   a grant could carry its own tenant, so three places had drifted out of step
   with the code: the README's pitch, the deployment runbook's treatment of

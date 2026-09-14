@@ -359,6 +359,9 @@ What a scoped client can reach, and what it cannot:
 
 ### Connecting a whole team through ONE connector
 
+> Task-oriented walkthrough, day-2 operations and troubleshooting:
+> [TEAM-SETUP.md](./TEAM-SETUP.md). What follows is the reference.
+
 On a Claude Team or Enterprise plan **only an Owner can add a connector**, and
 every member then authorises against that single client. So the tenant cannot
 come from the client row — one connector would be one tenant for everybody.

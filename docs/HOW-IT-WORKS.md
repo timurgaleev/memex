@@ -107,13 +107,31 @@ So internal models make search *more accurate* and let the brain *understand its
 own content* — the final answer is still written by your MCP client using what was
 retrieved.
 
-## 5. One person, scoped clients
+## 5. One brain, scoped credentials — for one person or a team
 
-A brain serves exactly one person. What IS scoped is every remote credential:
-an OAuth client or PAT carries a write source and a `federated_read` set, and
-reads/writes are confined to that grant, so a leaked app token never exposes
-the whole brain. Operational tools (`stats`, `advisor`, the job queue) are
-operator-only. A blind clone is single-user out of the box.
+A blind clone is single-user out of the box, and that is still the common case.
+What makes more than one person possible is that **nothing trusts the caller**:
+every remote credential (OAuth client or PAT) carries a write source and a
+`federated_read` set, and reads and writes are confined to that grant. A leaked
+app token never exposes the whole brain. Operational tools (`stats`, `advisor`,
+the job queue) are operator-only regardless.
+
+A **source** is the unit of separation: one per person, and the fences —
+search, page reads, the write fence, tag existence checks, even the corpus
+counters — all key off the caller's grant.
+
+Where the grant comes from is the part worth knowing:
+
+- normally from the **client row**, so one connector means one tenant;
+- or from the **authorisation itself**, when the client is in *enrollment mode*.
+  The operator issues a one-time code per person; the person presents it once
+  at `/authorize`; that single authorisation is pinned to their source and the
+  refresh token carries the pin. One connector, many people, separate tenants.
+
+That second path exists because a corporate chat vendor publishes a connector
+once for a whole organisation — only an Owner can add it, and everyone
+authorises against that same client. See
+[CONFIGURATION.md](./CONFIGURATION.md#connecting-a-whole-team-through-one-connector).
 
 ## 6. The shape (and why)
 
