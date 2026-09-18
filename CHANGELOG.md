@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.137.0] — 2026-09-18
+
 ### Changed
 - **An edit pays only for the text it actually changed.** A re-indexed page
   reused a chunk's stored vector only when the chunk sat at the SAME position

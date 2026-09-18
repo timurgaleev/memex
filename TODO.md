@@ -511,7 +511,9 @@ mirror last, because the mirror is where every blocker sits.
     lever for new pages and R2's reuse the lever for edits — not the database.
 - **R2 — reuse vectors by content, and prompt-cache the document.**
   - DONE, v1.137.0: reuse keyed by chunk text within the document, prose and
-    fenced-code symbols in separate maps, fenced-code symbols reused too.
+    fenced-code symbols in separate maps, fenced-code symbols reused too. Live:
+    a section inserted above three unchanged sections logged `chunks=4
+    reused=3 embeds=1 ms_total=1116`.
   - REFUSED: the document prompt cache. Since R3 a write's chunks start
     together, so no cache write has finished when its siblings send — every
     call would pay the 1.25x write and none would read it. And a typical page
