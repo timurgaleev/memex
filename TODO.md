@@ -424,11 +424,37 @@ exist only for 429 on the backfill path (`src/core/embed-backfill.ts:395-419`).
 A re-embed silently downgrades LLM-tier chunks because nothing records the tier.
 Agents feel all of this as a stalled tool call on every write.
 
+**Measured baseline (live brain, 2026-09-18).** From `mcp_request_log`:
+
+| operation | window | n | avg | p95 | max |
+|---|---|---|---|---|---|
+| `page_put` | 30 d | 165 | 16.2 s | 45.6 s | 116.1 s |
+| `page_append` | 30 d | 58 | 3.1 s | 9.6 s | 12.5 s |
+| `add_fact` | 30 d | 402 | 8 ms | 20 ms | 37 ms |
+| `add_timeline_event` | 30 d | 64 | 10 ms | 19 ms | 26 ms |
+| `search` | 7 d | 53 | 1.5 s | 2.6 s | 7.7 s |
+| `query` | 7 d | 11 | 2.3 s | 3.1 s | 3.2 s |
+
+It has not improved: 2026-09-18 alone is avg 17.7 s / p95 46.4 s over 8 calls.
+The two write tools that do NOT embed are three orders of magnitude faster,
+which localises the cost precisely.
+
+Composition, same day: the live env carries `MEMEX_CONTEXTUAL_LLM=1` and
+`MEMEX_CONTEXTUAL_RETRIEVAL=1`, so every chunk waits on a Haiku call and then a
+Titan embed, serially. The spend ledger over 7 days shows 708 embedding calls
+and 282 `utility-llm` Haiku calls. Page documents: 1116 total, of which 1065
+carry 1-10 chunks, 41 carry 11-20, 9 carry 21-30 and one carries 31. Eight
+chunks × (a Haiku round trip plus an embed round trip) accounts for the observed
+average on its own. Container logs for the last 72 h contain ZERO AWS SDK
+`requestTimeout` lines, so this is serial work on the request path, not failures
+— the 12 timeouts seen on 2026-09-08 were a symptom of the same queueing, not
+the cause.
+
 **Scope.**
 
-- Measure first: correlate `mcp_request_log.latency_ms` for `page_put` with
-  Bedrock call timings; run the pending `MEMEX_CONTEXTUAL_LLM=0` experiment
-  against the eval-probe baseline (hit rate 0.889 / MRR 0.611).
+- Measure first: DONE (above). Still pending: the `MEMEX_CONTEXTUAL_LLM=0`
+  experiment against the eval-probe baseline (hit rate 0.889 / MRR 0.611),
+  which needs an operator go.
 - Move the page→search mirror and embedding off the request path onto durable
   job kinds (`page_mirror`, `embed_backfill`, `contextual_reindex`) with
   per-source single-flight locks (`src/core/db-lock.ts`); keep the reconcile
