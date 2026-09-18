@@ -37,7 +37,7 @@ import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { setSlugAlias } from "./slug-aliases.ts";
-import { validateSlug } from "./pages.ts";
+import { lockPageSlugs, validateSlug } from "./pages.ts";
 
 export interface MergeOptions {
   /** Caller identifier for the audit trail (marker version rows). */
@@ -87,6 +87,7 @@ export async function mergePage(
   const writtenBy = opts.written_by ?? null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    await lockPageSlugs(tx, fromSlug, toSlug);
     // Stub must exist, be live, and (when scoped) be owned by the caller.
     const stub = await selectLivePage(tx, fromSlug, scope);
     if (!stub) {

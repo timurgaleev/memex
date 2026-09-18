@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * PGLite engine — wraps `@electric-sql/pglite` with the pgvector + pg_trgm
  * extensions (the latter backs migration 033's `CREATE EXTENSION pg_trgm`,
@@ -91,21 +92,50 @@ export class PGliteEngine implements Engine {
     this.lock = null;
   }
 
+  /**
+   * PGLite is ONE session. Two transactions started concurrently on it would
+   * interleave their statements inside a single BEGIN, and the first COMMIT
+   * would end both — so writes that each thought they were isolated trampled
+   * one another (an append could be lost, a version number reused). Transactions
+   * therefore run one at a time here; a transaction started from INSIDE another
+   * joins it rather than waiting on itself. On Postgres each transaction has its
+   * own pooled connection and none of this applies.
+   */
   async transaction<T>(fn: (tx: Engine) => Promise<T>): Promise<T> {
-    await this.db.exec("BEGIN");
+    // Join only a transaction that is still open: a promise spawned inside one
+    // and still running after it committed inherits the async context, and must
+    // start its own transaction rather than run unguarded.
+    if (this.inTransaction.getStore()?.open) return fn(this);
+    const previous = this.txTail;
+    let release!: () => void;
+    this.txTail = new Promise<void>((resolve) => (release = resolve));
+    await previous;
     try {
-      const result = await fn(this);
-      await this.db.exec("COMMIT");
-      return result;
-    } catch (e) {
-      try {
-        await this.db.exec("ROLLBACK");
-      } catch {
-        // ignore rollback errors — the original failure is what matters
-      }
-      throw e;
+      const token = { open: true };
+      return await this.inTransaction.run(token, async () => {
+        await this.db.exec("BEGIN");
+        try {
+          const result = await fn(this);
+          await this.db.exec("COMMIT");
+          return result;
+        } catch (e) {
+          try {
+            await this.db.exec("ROLLBACK");
+          } catch {
+            // ignore rollback errors — the original failure is what matters
+          }
+          throw e;
+        } finally {
+          token.open = false;
+        }
+      });
+    } finally {
+      release();
     }
   }
+
+  private txTail: Promise<void> = Promise.resolve();
+  private readonly inTransaction = new AsyncLocalStorage<{ open: boolean }>();
 
   /**
    * Escape hatch for code that genuinely needs the raw PGLite handle

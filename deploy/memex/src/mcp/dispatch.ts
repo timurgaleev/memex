@@ -1240,6 +1240,9 @@ function asPageInput(
   }
   const writtenBy = sanitizeWrittenBy(args["written_by"], remoteIdentity);
   if (writtenBy !== undefined) input.written_by = writtenBy;
+  if (args["allow_empty_body"] === true) {
+    input.allowEmptyBody = true;
+  }
   if (typeof args["allowAdHocType"] === "boolean") {
     input.allowAdHocType = args["allowAdHocType"];
   }
@@ -1260,10 +1263,9 @@ async function callPagePut(
   let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
   if (r.changed) {
-    // Fetch the canonical row once: page_put is a FULL REPLACE (pages.ts UPDATE
-    // sets title/markdown_body unconditionally, so an omitted title lands as
-    // NULL and an omitted body as ''), so the stored row — not `input` — is
-    // what actually became searchable.
+    // Fetch the canonical row once: an omitted title lands as NULL while an
+    // omitted body keeps the page's current one, so the stored row — not
+    // `input` — is what actually became searchable.
     const page = await getPage(storage, r.slug);
     const body = page?.markdown_body ?? input.markdown_body ?? "";
     // Every derived write below carries the PAGE's source, not the caller's.

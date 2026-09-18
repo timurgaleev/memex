@@ -762,6 +762,23 @@ Postgres. Agents and background work amplify every one of these.
   `Engine`; locks are SQL on RDS; the Postgres lane is a local ship gate, not a
   CI blocker.
 
+**Progress.** Write-path integrity DONE in v1.141.0: slug-scoped
+`pg_advisory_xact_lock` in `putPage` (covers new slugs too; `FOR UPDATE` is not
+allowed next to the version `GROUP BY`), appends composed under that lock
+(`appendContent`) instead of an optimistic retry — ten racing appends all
+land; omitted body keeps the current body, explicit empty over non-empty needs
+`allow_empty_body`; PGLite transactions serialized with a re-entrant join (a
+real local-engine bug: one session shared by concurrent BEGINs); per-migration
+cross-process advisory lock + applied re-check (statement_timeout raised
+before the wait, so a long migration next door does not cut it). The slug
+lock (`lockPageSlugs`, sorted) is held by EVERY version writer — put, append,
+delete, restore, rename, merge. Appends take title/truth from the locked row
+too. CAVEAT: on PGLite the advisory locks are re-entrant in its single session,
+so the tests prove the serialization and the re-check, not the Postgres locks
+themselves — that needs the `make test-pg` lane below. Still open: the
+deleted-page-undone-by-a-later-write rule, pool GUCs and classified DB errors,
+degraded boot, query `signal`, stall watchdog, CLI teardown, `make test-pg`.
+
 **Depends on.** Nothing.
 
 **Risks.** `FOR UPDATE` adds lock waits on hot slugs (bounded by

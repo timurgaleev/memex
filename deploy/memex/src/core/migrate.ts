@@ -216,7 +216,7 @@ async function applyOneWithRetry(
   f: MigrationFile,
   lockTimeout: string,
   stmtTimeout: string,
-): Promise<void> {
+): Promise<boolean> {
   const backoffs = migrationBackoffs();
   let lastErr: Error | null = null;
   let lastBlockers: IdleBlocker[] = [];
@@ -236,16 +236,30 @@ async function applyOneWithRetry(
       }
     }
     try {
-      await engine.transaction(async (tx) => {
-        await tx.exec(`SET LOCAL lock_timeout = '${lockTimeout}';`);
+      const applied = await engine.transaction(async (tx) => {
+        // `serve` and a `docker exec memex …` CLI both run migrations. Each read
+        // the applied set up front, so two of them racing both applied the same
+        // file and the loser died on the duplicate `migrations` row — at boot.
+        // One migration at a time across processes, and the second finds it
+        // done. Taken before the migration's own lock_timeout so a waiter is not
+        // cut off by a long migration next door.
+        // The connection's own statement_timeout (30 s on the pool) would
+        // otherwise cut the wait short while a long migration holds the lock —
+        // the very failure this lock exists to prevent — so the migration's
+        // timeout is set first.
         await tx.exec(`SET LOCAL statement_timeout = '${stmtTimeout}';`);
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext('memex:migrations'))");
+        const done = await tx.query("SELECT 1 FROM migrations WHERE id = $1", [f.id]);
+        if (done.rows.length > 0) return false;
+        await tx.exec(`SET LOCAL lock_timeout = '${lockTimeout}';`);
         await tx.exec(f.sql);
         await tx.query("INSERT INTO migrations (id, name) VALUES ($1, $2)", [
           f.id,
           f.name,
         ]);
+        return true;
       });
-      return;
+      return applied;
     } catch (err: unknown) {
       lastErr = err instanceof Error ? err : new Error(String(err));
       // Commit-ambiguity edge: a connection reset landing AFTER the server
@@ -276,7 +290,7 @@ async function applyOneWithRetry(
     }
   }
   // Defensive: the loop returns or throws on every path.
-  if (lastErr) throw lastErr;
+  throw lastErr ?? new Error(`migration ${f.id} (${f.name}) did not run`);
 }
 
 /**
@@ -325,8 +339,11 @@ export async function runMigrations(
     // transactional DDL on the surfaces we use. The transaction is retried
     // on a transient statement_timeout / connection reset (see
     // applyOneWithRetry); a rolled-back attempt records nothing.
-    await applyOneWithRetry(engine, f, lockTimeout, stmtTimeout);
-    applied.push({ id: f.id, name: f.name });
+    if (await applyOneWithRetry(engine, f, lockTimeout, stmtTimeout)) {
+      applied.push({ id: f.id, name: f.name });
+    } else {
+      skipped++;
+    }
   }
 
   return { applied, skipped };

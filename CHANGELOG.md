@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Two appends racing each other lost one.** `page_append` read the page
+  outside the write transaction, so two appends that overlapped both started
+  from the same body and the second overwrote the first; the version counter
+  (`MAX()+1`) could collide the same way. A page write now takes a
+  transaction-scoped lock on its slug — which also covers a slug that does not
+  exist yet — and an append is added to the body read under that lock, so ten
+  concurrent appends leave ten appended lines and ten distinct versions. The
+  same lock is taken by every writer of a page's version chain — delete,
+  restore, rename and merge too, in a fixed order when two slugs are involved —
+  and an append takes the title and compiled truth from the locked row as well,
+  so it no longer reverts a title edit that landed between its read and its
+  write.
+- **A put that left out the body blanked the page.** `page_put` with only a
+  title or compiled truth replaced the body with an empty one. An omitted body
+  now keeps the page's current body, and an explicit empty body over a page
+  that has one is refused unless `allow_empty_body` is passed.
+- **Concurrent transactions on the local PGLite engine trampled each other.**
+  PGLite is one session, so two transactions started together shared a single
+  `BEGIN` and the first `COMMIT` ended both. Transactions there now run one at a
+  time, and a transaction opened from inside another joins it instead of
+  committing it early. Postgres (a connection per transaction) is unaffected.
+- **Two processes migrating at once crashed one of them at boot.** `serve` and
+  a CLI run under `docker exec` both apply migrations and each read the applied
+  list up front, so both applied the same file and the loser died on the
+  duplicate bookkeeping row. Each migration now takes a cross-process lock and
+  re-checks whether it was applied, so the second run skips it.
+
 ## [1.140.0] — 2026-09-19
 
 ### Fixed

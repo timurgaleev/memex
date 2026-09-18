@@ -14,6 +14,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
+import type { Engine } from "./engine/interface.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
@@ -125,6 +126,18 @@ export interface PageInput {
   title?: string;
   compiled_truth?: Record<string, unknown>;
   markdown_body?: string;
+  /**
+   * An explicit empty `markdown_body` over a page that has a body is refused
+   * unless this is set: an empty string is far more often a caller bug than an
+   * intent to wipe the page. (An OMITTED body keeps the page's current body.)
+   */
+  allowEmptyBody?: boolean;
+  /**
+   * Append this to the page's CURRENT body instead of replacing it. The body is
+   * read under the slug's write lock, so concurrent appends each land after the
+   * last — `appendPage` uses it; `markdown_body` is ignored when it is set.
+   */
+  appendContent?: string;
   /** Caller identifier for the audit trail. */
   written_by?: string;
   /** Allow a type that isn't in KNOWN_PAGE_TYPES. Default false. */
@@ -211,6 +224,21 @@ function normaliseType(
  * a caller's pipeline cannot leave a page row without its matching
  * version row.
  */
+/**
+ * Take the per-slug write lock for each slug, in a fixed order so two writers
+ * locking the same pair (a rename, a merge) cannot deadlock. Every writer of a
+ * page row or its version chain holds it for its transaction: without it two
+ * writers read the same row and the same `MAX(version_n)` — an append was lost,
+ * a version number reused, a delete flipped under a put. It is transaction-
+ * scoped, releases itself at commit or rollback, and covers a slug that has no
+ * row yet, which a row lock cannot.
+ */
+export async function lockPageSlugs(tx: Engine, ...slugs: string[]): Promise<void> {
+  for (const slug of [...new Set(slugs)].sort()) {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`memex:page:${slug}`]);
+  }
+}
+
 export async function putPage(
   storage: Storage,
   input: PageInput,
@@ -225,9 +253,9 @@ export async function putPage(
     typeof input.type === "string" && input.type.trim() !== ""
       ? normaliseType(input.type, input.allowAdHocType)
       : null;
-  const body = input.markdown_body ?? "";
+  let body = input.markdown_body ?? "";
   const truth = input.compiled_truth ?? {};
-  const title = input.title ?? null;
+  let title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
   // An OMITTED source means "operator, unscoped" — the local CLI, the internal
   // token, the cycle. It is not the `default` tenant. Coercing it to `default`
@@ -248,19 +276,21 @@ export async function putPage(
   }
   const callerSource = typeof input.source_id === "string" ? input.source_id : null;
   const sourceId = callerSource ?? "default";
-  const hashNew = hashBody(body);
+  let hashNew = hashBody(body);
   // Sanitize lone UTF-16 surrogates + NUL ONCE, then derive both the jsonb
   // payload and the alias norms from the sanitized value — otherwise a NUL /
   // lone surrogate inside `aliases` would reach the page_aliases TEXT insert
   // (which Postgres rejects) and abort the whole page write (see well-form.ts).
   const safeTruth = wellFormJsonbValue(truth) as Record<string, unknown>;
-  const aliasNorms = extractAliasNorms(safeTruth);
-  const truthJson = JSON.stringify(safeTruth);
+  let aliasNorms = extractAliasNorms(safeTruth);
+  let truthJson = JSON.stringify(safeTruth);
 
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    await lockPageSlugs(tx, input.slug);
     const existing = await tx.query<{
       content_hash: string;
+      markdown_body: string;
       type: string;
       title: string | null;
       compiled_truth: unknown;
@@ -272,14 +302,14 @@ export async function putPage(
       // re-put of a deleted slug has nowhere to insert. It resurrects the
       // existing row (deleted_at cleared below), keeping the version chain
       // and the owning source intact.
-      `SELECT p.content_hash, p.type, p.title, p.compiled_truth, p.source_id,
+      `SELECT p.content_hash, p.markdown_body, p.type, p.title, p.compiled_truth, p.source_id,
               p.deleted_at::text AS deleted_at,
               COALESCE(MAX(v.version_n), 0) AS version_n
        FROM pages p
        LEFT JOIN page_versions v ON v.slug = p.slug
        WHERE p.slug = $1
-       GROUP BY p.content_hash, p.type, p.title, p.compiled_truth, p.source_id,
-                p.deleted_at`,
+       GROUP BY p.content_hash, p.markdown_body, p.type, p.title, p.compiled_truth,
+                p.source_id, p.deleted_at`,
       [input.slug],
     );
 
@@ -299,6 +329,44 @@ export async function putPage(
         "permission_denied",
         `page '${input.slug}' is owned by another source`,
         "Use a slug within your own source, or request access.",
+      );
+    }
+
+    const current = existing.rows[0];
+    if (input.appendContent !== undefined) {
+      if (current === undefined || current.deleted_at !== null) {
+        throw new OperationError(
+          "not_found",
+          `page ${JSON.stringify(input.slug)} does not exist; call putPage to create it first`,
+        );
+      }
+      const sep =
+        current.markdown_body.length > 0 && !current.markdown_body.endsWith("\n") ? "\n" : "";
+      body = `${current.markdown_body}${sep}${input.appendContent}`;
+      hashNew = hashBody(body);
+      // An append changes the body only. Title and truth come from the row read
+      // under the lock too, or a title/truth edit that landed between the
+      // caller's read and this write would be silently reverted.
+      title = current.title;
+      const lockedTruth = wellFormJsonbValue(current.compiled_truth ?? {}) as Record<string, unknown>;
+      aliasNorms = extractAliasNorms(lockedTruth);
+      truthJson = JSON.stringify(lockedTruth);
+    } else if (current !== undefined && input.markdown_body === undefined) {
+      // An omitted body keeps the page's own — a title or truth update must not
+      // blank the page underneath it.
+      body = current.markdown_body;
+      hashNew = current.content_hash;
+    } else if (
+      current !== undefined &&
+      current.deleted_at === null &&
+      body.length === 0 &&
+      current.markdown_body.length > 0 &&
+      input.allowEmptyBody !== true
+    ) {
+      throw new OperationError(
+        "invalid_params",
+        `refusing to replace the body of '${input.slug}' with an empty one`,
+        "Pass allowEmptyBody (allow_empty_body) to clear a page on purpose, or omit markdown_body to keep it.",
       );
     }
 
@@ -502,18 +570,13 @@ export async function appendPage(
     );
   }
   const writeSourceId = input.source_id ?? current.source_id;
-  const sep =
-    current.markdown_body.length > 0 &&
-    !current.markdown_body.endsWith("\n")
-      ? "\n"
-      : "";
-  const newBody = `${current.markdown_body}${sep}${input.content}`;
+  // The body itself is NOT built here: putPage appends to the body it reads
+  // under the slug's write lock, so racing appends each land after the last
+  // instead of all starting from the body read above.
+  // Type, title and truth are taken from the locked row inside putPage.
   return putPage(storage, {
     slug: input.slug,
-    type: current.type,
-    title: current.title ?? undefined,
-    compiled_truth: current.compiled_truth,
-    markdown_body: newBody,
+    appendContent: input.content,
     written_by: input.written_by,
     source_id: writeSourceId,
     allowAdHocType: true, // existing type, definitionally allowed
@@ -706,6 +769,7 @@ export async function deletePage(
     typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    await lockPageSlugs(tx, slug);
     const params: unknown[] = [slug];
     let sourceFilter = "";
     if (scope !== null) {
@@ -780,6 +844,7 @@ export async function restorePage(
     typeof writeSource === "string" && writeSource.length > 0 ? writeSource : null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    await lockPageSlugs(tx, slug);
     const params: unknown[] = [slug];
     let sourceFilter = "";
     if (scope !== null) {
@@ -890,6 +955,8 @@ export async function revertPage(
   const put = await putPage(storage, {
     slug,
     markdown_body: row.body_snapshot,
+    // Reverting to a version whose body was empty is a deliberate clear.
+    allowEmptyBody: true,
     compiled_truth: truth,
     ...(page.title != null ? { title: page.title } : {}),
     ...(writtenBy ? { written_by: writtenBy } : {}),
@@ -964,6 +1031,7 @@ export async function renamePage(
   const writtenBy = opts.written_by ?? null;
   const engine = storage.engine();
   return engine.transaction(async (tx) => {
+    await lockPageSlugs(tx, fromSlug, toSlug);
     // Source page must exist, be live, and (when scoped) be owned by the caller.
     const srcParams: unknown[] = [fromSlug];
     let srcFilter = "";

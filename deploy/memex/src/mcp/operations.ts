@@ -325,6 +325,10 @@ export const OPERATIONS: readonly Operation[] = [
           "Optional caller identifier for the audit trail (skill slug, recipe name, …).",
       }),
       allowAdHocType: bool(),
+      allow_empty_body: bool({
+        description:
+          "Clear the page's body on purpose. Without it an empty markdown_body over a page that has one is refused; an OMITTED markdown_body keeps the current body.",
+      }),
       wait_for_index: bool({
         description:
           "Write the search mirror before returning even when mirrors are queued, so the page is searchable the moment this call returns. Slower.",
