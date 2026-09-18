@@ -16,6 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { OperationError } from "./operation-error.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { noteWriteTiming } from "./write-timing.ts";
 import { appendAudit, auditDir } from "./audit-week-file.ts";
 import type { Engine } from "./engine/interface.ts";
 import type { SonnetUsage } from "./llm/sonnet.ts";
@@ -537,11 +538,20 @@ export async function trackedInvoke<T>(
     // attempt that actually reached the model consumed.
     report: (u) => void (usage = chargeableUsage(u)),
   };
-  await refuseIfClientExhausted(call.operation);
+  const refuseStart = performance.now();
+  try {
+    await refuseIfClientExhausted(call.operation);
+  } finally {
+    noteWriteTiming("ledgerMs", performance.now() - refuseStart);
+  }
+  const sendStart = performance.now();
   try {
     return await send(meter);
   } finally {
+    const bookStart = performance.now();
+    noteWriteTiming("sendMs", bookStart - sendStart);
     await bookSpend(call, usage);
+    noteWriteTiming("ledgerMs", performance.now() - bookStart);
   }
 }
 

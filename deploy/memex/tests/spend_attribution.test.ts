@@ -29,6 +29,7 @@ import { draftSkill } from "../src/core/skillify.ts";
 import { proposeForSkill } from "../src/core/friction-propose.ts";
 import { callHaiku } from "../src/core/llm/haiku.ts";
 import { callSonnet } from "../src/core/llm/sonnet.ts";
+import { CONTEXTUAL_LLM_LABEL, generateChunkContext } from "../src/core/search/contextual-llm.ts";
 
 const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const TITAN = "amazon.titan-embed-text-v2:0";
@@ -402,6 +403,20 @@ describe("every invoke site carries a label", () => {
     const rows = await ledger();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.operation).toBe("friction-propose");
+  });
+
+  it("contextual chunk context", async () => {
+    // The index-time contextual call used to hide inside `utility-llm`, next to
+    // every other unnamed Haiku call, so the write path's LLM cost could not be
+    // told apart from the rest of the tier.
+    const ctx = await generateChunkContext("the whole document", "one chunk of it", {
+      client: converseClient("situates the chunk"),
+      modelId: HAIKU,
+    });
+    expect(ctx).toBe("situates the chunk");
+    const rows = await ledger();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.operation).toBe(CONTEXTUAL_LLM_LABEL);
   });
 
   it("the utility tier — a caller that names itself vs one that doesn't", async () => {

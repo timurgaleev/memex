@@ -1296,7 +1296,7 @@ async function callPagePut(
     // committed and is the source of truth — an embed failure must not fail
     // the write. The cycle backstop reconciles unindexed pages later.
     if (page) {
-      searchIndexed = await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
+      searchIndexed = await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_put");
       // On-write fact extraction (default-OFF, best-effort). Only on a real
       // content change and only for prose-eligible pages.
       // NOT derivedSource: here `writeSource` only picks the serialization
@@ -1494,6 +1494,7 @@ async function mirrorPageToSearch(
     source_id?: string;
   },
   remote = false,
+  timingLabel?: string,
 ): Promise<boolean> {
   try {
     await indexPageIntoSearch(
@@ -1505,7 +1506,7 @@ async function mirrorPageToSearch(
         ...(page.content_hash ? { content_hash: page.content_hash } : {}),
         ...(page.source_id ? { source_id: page.source_id } : {}),
       },
-      { remote },
+      { remote, ...(timingLabel ? { timingLabel } : {}) },
     );
     return true;
   } catch (e) {
@@ -1575,7 +1576,7 @@ async function callPageAppend(
     }
     await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
     if (fresh) {
-      searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined);
+      searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined, "page_append");
       maybeEnqueueFactExtraction(storage, fresh, writeSource);
       chronicleBackstop = await maybeEnqueueChronicleExtract(
         storage,
@@ -1644,7 +1645,7 @@ async function callPageRestore(
     const page = await getPage(storage, r.slug);
     if (page) {
       await reconcileFactsForPage(storage, r.slug, page.content_hash, page.source_id);
-      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
+      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_restore");
     }
   }
   return jsonResult({ ok: true, ...r });
@@ -1682,7 +1683,7 @@ async function callPageRevert(
       }
       await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash, derivedSource);
-      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined);
+      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_revert");
     }
   }
   return jsonResult({ ok: true, ...r });

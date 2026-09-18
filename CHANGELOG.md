@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Each interactive write now says where its time went.** `page_put`,
+  `page_append`, `page_revert` and `page_restore` log one
+  `[memex] index-timing` line per mirrored document: chunks reused versus paid
+  for, contextual calls that succeeded or fell back, embed calls, and the paid
+  time split into Bedrock, the wait for an inflight slot, and the spend-ledger
+  queries around each call — plus the write transaction. A timer inside the
+  indexer could not tell those apart; the layers that do each one report into
+  a per-write scope instead. A write that fails is logged too, with
+  `status=error`. Sweeps and reindex stay quiet.
+
+### Changed
+- **Contextual calls book under `contextual-llm`.** Both the index-time call and
+  the `reindex --contextual` backfill used to land in `utility-llm` next to
+  every other unnamed Haiku call, so the write path's LLM cost could not be read
+  on its own. Anyone totalling `utility-llm` in `mcp_spend_log` will see it drop
+  by that share from this release on.
+
 ## [1.132.0] — 2026-09-18
 
 ### Fixed

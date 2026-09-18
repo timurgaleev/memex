@@ -7,6 +7,8 @@
  * stampede Bedrock, plus an availability probe.
  */
 
+import { noteWriteTiming } from "../write-timing.ts";
+
 const DEFAULT_MAX_INFLIGHT = 4;
 
 function maxInflight(): number {
@@ -25,7 +27,9 @@ const waiters: Array<() => void> = [];
  */
 export async function withInflightCap<T>(fn: () => Promise<T>): Promise<T> {
   if (active >= maxInflight()) {
+    const waitStart = performance.now();
     await new Promise<void>((resolve) => waiters.push(resolve));
+    noteWriteTiming("queueMs", performance.now() - waitStart);
   }
   active++;
   try {

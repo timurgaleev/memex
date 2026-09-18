@@ -33,6 +33,7 @@ import {
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import type { SonnetUsage } from "../llm/sonnet.ts";
+import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 
 /** Env flag — the paid per-chunk LLM context tier fires only when this is set.
  *  Stable contract name; the index-time + backfill call sites read it. */
@@ -162,6 +163,8 @@ export interface GenerateChunkContextOptions {
    * the Haiku client, so this only ever lowers cost, never breaks the call.
    */
   cacheDocument?: boolean;
+  /** Override the Bedrock client — the transport seam, as on `callHaiku`. */
+  client?: BedrockRuntimeClient;
 }
 
 /**
@@ -179,10 +182,14 @@ export async function generateChunkContext(
 
   const modelId = resolveContextualModel(opts.modelId);
   const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;
-  const llmFn = resolveLlmFn(
-    opts.llmFn,
-    opts.region ? { modelId, region: opts.region } : { modelId },
-  );
+  // Booked under its own label so the write path's LLM cost reads apart from
+  // every other unnamed utility-tier call.
+  const llmFn = resolveLlmFn(opts.llmFn, {
+    modelId,
+    operation: CONTEXTUAL_LLM_LABEL,
+    ...(opts.region ? { region: opts.region } : {}),
+    ...(opts.client ? { client: opts.client } : {}),
+  });
   const budget =
     opts.budget ?? new BudgetTracker(defaultContextualLlmBudget(), CONTEXTUAL_LLM_LABEL);
 

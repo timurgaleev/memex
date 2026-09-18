@@ -50,6 +50,7 @@ import { BudgetTracker } from "./budget.ts";
 import type { LlmFn } from "./llm/haiku.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { newWriteTiming, runWithWriteTiming } from "./write-timing.ts";
 import type { Storage } from "./storage.ts";
 import {
   writeDocumentTransaction,
@@ -108,6 +109,24 @@ export interface IndexFileOptions {
    * callers (CLI reindex, sync, capture, cycle) leave it unset.
    */
   remote?: boolean;
+  /**
+   * Name of the interactive write this index serves (`page_put`, …). When set,
+   * one line splitting its latency is logged — chunks reused vs paid, and paid
+   * time into Bedrock, inflight-slot wait and spend-ledger work. Sweeps and
+   * reindex leave it unset and stay quiet.
+   */
+  timingLabel?: string;
+}
+
+/** Per-index counts behind the `timingLabel` line. */
+interface IndexStats {
+  chunks: number;
+  reused: number;
+  llmOk: number;
+  llmFallback: number;
+  embeds: number;
+  fenceEmbeds: number;
+  txMs: number;
 }
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
@@ -184,6 +203,40 @@ export async function indexDocument(
   storage: Storage,
   input: IndexInput,
   opts: IndexFileOptions = {},
+): Promise<IndexResult> {
+  if (!opts.timingLabel) return indexDocumentBody(storage, input, opts, null);
+  const started = performance.now();
+  const stats: IndexStats = {
+    chunks: 0, reused: 0, llmOk: 0, llmFallback: 0, embeds: 0, fenceEmbeds: 0, txMs: 0,
+  };
+  const timing = newWriteTiming();
+  let status = "error";
+  try {
+    const result = await runWithWriteTiming(timing, () =>
+      indexDocumentBody(storage, input, opts, stats),
+    );
+    status = "ok";
+    return result;
+  } finally {
+    // Logged for a failed write too — those are the ones worth decomposing.
+    // The path is JSON-quoted: a source id is operator-set and not otherwise
+    // screened for control characters, so it must not be able to split the line.
+    const ms = (n: number) => Math.round(n);
+    console.log(
+      `[memex] index-timing op=${opts.timingLabel} status=${status} path=${JSON.stringify(input.sourcePath)}` +
+        ` chunks=${stats.chunks} reused=${stats.reused} llm_ok=${stats.llmOk}` +
+        ` llm_fallback=${stats.llmFallback} embeds=${stats.embeds} fence_embeds=${stats.fenceEmbeds}` +
+        ` ms_total=${ms(performance.now() - started)} ms_bedrock=${ms(timing.sendMs - timing.queueMs)}` +
+        ` ms_queue=${ms(timing.queueMs)} ms_ledger=${ms(timing.ledgerMs)} ms_tx=${ms(stats.txMs)}`,
+    );
+  }
+}
+
+async function indexDocumentBody(
+  storage: Storage,
+  input: IndexInput,
+  opts: IndexFileOptions,
+  stats: IndexStats | null,
 ): Promise<IndexResult> {
   if (!input.sourcePath || !input.text) {
     throw new Error("indexDocument: sourcePath and text are required");
@@ -352,6 +405,7 @@ export async function indexDocument(
         reuse.content === chunk
       ) {
         vectors.push(reuse.vec);
+        if (stats) stats.reused++;
         continue; // skip generateChunkContext + embed — the paid-call saving
       }
     }
@@ -362,6 +416,10 @@ export async function indexDocument(
         ...(ctxBudget ? { budget: ctxBudget } : {}),
       });
       if (llmCtx) prefix = buildContextualPrefix(ctxTitle, llmCtx, { isCode });
+      if (stats) {
+        if (llmCtx) stats.llmOk++;
+        else stats.llmFallback++;
+      }
     }
     const embedInput = wrapChunkForEmbedding(chunk, prefix, { isCode });
     if (skipEmbed) {
@@ -369,6 +427,7 @@ export async function indexDocument(
       continue;
     }
     try {
+      if (stats) stats.embeds++;
       vectors.push(await embed(embedInput, { modelId: model }));
     } catch (e) {
       // A spent daily budget must not destroy the note. Every other embed
@@ -414,6 +473,7 @@ export async function indexDocument(
       try {
         const parsedCode = await chunkCode(fence.source, `fence.${fence.lang}`, fence.lang);
         for (const sym of parsedCode.symbols) {
+          if (stats) stats.fenceEmbeds++;
           const vec = await embed(sym.body, { modelId: model });
           chunkWrites.push({
             text: sym.body,
@@ -436,7 +496,9 @@ export async function indexDocument(
     }
   }
 
-  return writeDocumentTransaction(
+  if (stats) stats.chunks = parsed.chunks.length;
+  const txStart = performance.now();
+  const written = await writeDocumentTransaction(
     storage,
     {
       documentId: id,
@@ -459,6 +521,8 @@ export async function indexDocument(
     },
     chunkWrites,
   );
+  if (stats) stats.txMs = performance.now() - txStart;
+  return written;
 }
 
 /**
