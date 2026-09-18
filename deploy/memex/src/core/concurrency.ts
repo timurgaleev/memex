@@ -5,9 +5,7 @@
  * non-deterministic ordering and busy-waits; this gives FIFO + zero
  * latency floor.
  *
- * Currently unwired — the per-process inflight cap in the LLM gateway
- * covers today's concurrency ceiling; kept as a generic primitive for
- * embed-batch gating when a bounded local fan-out is next needed.
+ * Wired as the write-path embed ceiling below.
  *
  * Single-threaded JS so no locking is needed — acquire() returns a
  * Promise that resolves when a slot opens; release() drains the next
@@ -55,4 +53,40 @@ export class Semaphore {
   pending(): number {
     return this.waiters.length;
   }
+}
+
+const DEFAULT_WRITE_EMBED_WIDTH = 4;
+
+/**
+ * How many chunks the write path situates and embeds at once, across every
+ * concurrent write in the process (`MEMEX_EMBED_MAX_INFLIGHT`, default 4).
+ * Deliberately NOT `MEMEX_EMBED_CONCURRENCY`, which is the backfill's own pool
+ * width, and deliberately not taken inside `embedText`: the search path races a
+ * query embed against a wall clock that starts before any wait, so sharing this
+ * ceiling with it would turn a busy write into keyword-only search.
+ */
+export function writeEmbedWidth(): number {
+  const n = Number.parseInt(process.env.MEMEX_EMBED_MAX_INFLIGHT ?? "", 10);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_WRITE_EMBED_WIDTH;
+}
+
+let writeSlots: { width: number; sem: Semaphore } | null = null;
+
+/**
+ * Take one write-path embed slot; call the returned function to give it back.
+ * The semaphore is rebuilt when the configured width changes. A rebuild while
+ * slots are held briefly admits up to the old width on top of the new one —
+ * acceptable for a knob that changes at deploy time, not mid-write.
+ */
+export function acquireWriteEmbedSlot(): Promise<() => void> {
+  const width = writeEmbedWidth();
+  if (!writeSlots || writeSlots.width !== width) {
+    writeSlots = { width, sem: new Semaphore(width) };
+  }
+  return writeSlots.sem.acquire();
+}
+
+/** Test seam: forget the shared semaphore so a test starts from a clean width. */
+export function _resetWriteEmbedSlotsForTests(): void {
+  writeSlots = null;
 }

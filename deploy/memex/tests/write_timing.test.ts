@@ -68,7 +68,7 @@ describe("index timing line", () => {
       expect(line).toContain("reused=2");
       expect(line).toContain("llm_ok=1");
       expect(line).toContain("embeds=1");
-      expect(line).toMatch(/ms_total=\d+ ms_bedrock=\d+ ms_queue=\d+ ms_ledger=\d+ ms_tx=\d+/);
+      expect(line).toMatch(/ms_total=\d+ ms_bedrock=\d+ ms_slot=\d+ ms_queue=\d+ ms_ledger=\d+ ms_tx=\d+/);
     } finally {
       log.mockRestore();
     }
@@ -121,7 +121,7 @@ describe("write timing scope", () => {
       return "done";
     });
     expect(result).toBe("done");
-    expect(timing).toEqual({ queueMs: 5, sendMs: 42, ledgerMs: 3 });
+    expect(timing).toEqual({ slotMs: 0, queueMs: 5, sendMs: 42, ledgerMs: 3 });
   });
 
   it("keeps what was recorded when the scoped work throws", async () => {

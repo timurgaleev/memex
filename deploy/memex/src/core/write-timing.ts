@@ -12,9 +12,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface WriteTiming {
+  /** Waiting for a write-path embed slot before a chunk's work could start. */
+  slotMs: number;
   /** Waiting for an inflight slot before a paid call could start. */
   queueMs: number;
-  /** Inside the paid call, queue wait included — subtract `queueMs` for Bedrock. */
+  /** Inside the paid call, queue wait included — subtract `queueMs` for Bedrock.
+   *  Chunks run in parallel, so this is summed across calls and can exceed the
+   *  write's wall-clock time. */
   sendMs: number;
   /** The client-cap lookup and the spend-ledger insert around each paid call. */
   ledgerMs: number;
@@ -23,7 +27,7 @@ export interface WriteTiming {
 const store = new AsyncLocalStorage<WriteTiming>();
 
 export function newWriteTiming(): WriteTiming {
-  return { queueMs: 0, sendMs: 0, ledgerMs: 0 };
+  return { slotMs: 0, queueMs: 0, sendMs: 0, ledgerMs: 0 };
 }
 
 /** Run `fn` with `timing` as the scope. The caller holds `timing`, so what was

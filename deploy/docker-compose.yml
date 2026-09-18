@@ -142,6 +142,10 @@ services:
       # budget (default 5.0). Enable, then run `reindex --contextual` to backfill.
       - MEMEX_CONTEXTUAL_LLM=${MEMEX_CONTEXTUAL_LLM:-}
       - MEMEX_CONTEXTUAL_LLM_BUDGET_USD=${MEMEX_CONTEXTUAL_LLM_BUDGET_USD:-}
+      # How many chunks a write situates and embeds at once, shared by every
+      # concurrent write (default 4; empty = default). 1 restores the old serial
+      # behaviour. Not the backfill's pool width — that is MEMEX_EMBED_CONCURRENCY.
+      - MEMEX_EMBED_MAX_INFLIGHT=${MEMEX_EMBED_MAX_INFLIGHT:-}
       # Override the paid-tier model (default eu.anthropic.claude-sonnet-4-6).
       - MEMEX_FACTS_MODEL=${MEMEX_FACTS_MODEL:-}
       # Public base URL (Cloudflare tunnel origin). When set, the OAuth 2.1

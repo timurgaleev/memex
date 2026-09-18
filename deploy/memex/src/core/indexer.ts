@@ -50,7 +50,8 @@ import { BudgetTracker } from "./budget.ts";
 import type { LlmFn } from "./llm/haiku.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
-import { newWriteTiming, runWithWriteTiming } from "./write-timing.ts";
+import { newWriteTiming, noteWriteTiming, runWithWriteTiming } from "./write-timing.ts";
+import { acquireWriteEmbedSlot, writeEmbedWidth } from "./concurrency.ts";
 import type { Storage } from "./storage.ts";
 import {
   writeDocumentTransaction,
@@ -227,7 +228,8 @@ export async function indexDocument(
         ` chunks=${stats.chunks} reused=${stats.reused} llm_ok=${stats.llmOk}` +
         ` llm_fallback=${stats.llmFallback} embeds=${stats.embeds} fence_embeds=${stats.fenceEmbeds}` +
         ` ms_total=${ms(performance.now() - started)} ms_bedrock=${ms(timing.sendMs - timing.queueMs)}` +
-        ` ms_queue=${ms(timing.queueMs)} ms_ledger=${ms(timing.ledgerMs)} ms_tx=${ms(stats.txMs)}`,
+        ` ms_slot=${ms(timing.slotMs)} ms_queue=${ms(timing.queueMs)} ms_ledger=${ms(timing.ledgerMs)}` +
+        ` ms_tx=${ms(stats.txMs)}`,
     );
   }
 }
@@ -384,33 +386,39 @@ async function indexDocumentBody(
     }
   }
 
-  const vectors: (number[] | null)[] = [];
-
+  // Chunks are situated and embedded in parallel, bounded by the write-path
+  // ceiling every concurrent write shares (`MEMEX_EMBED_MAX_INFLIGHT`). Serially,
+  // a page paid ~1.3 s of Bedrock per chunk, one chunk after another.
+  // `vectors` is indexed, never pushed: completion order is not chunk order.
+  const vectors: (number[] | null)[] = Array.from<number[] | null>({ length: parsed.chunks.length }).fill(null);
   let budgetRefusedChunks = 0;
-  for (let i = 0; i < parsed.chunks.length; i++) {
+
+  // A stored vector for byte-identical text is reused instead of paid for again.
+  // Checked before a write slot is taken: a chunk with nothing to pay for must
+  // not queue behind the paid ones.
+  const reusable = (i: number): number[] | null => {
+    const reuse = prior.get(i);
+    // Width is checked alongside model: MEMEX_EMBED_DIM can change the vector
+    // dimension without changing the Titan model id, and mixing widths inside
+    // one document breaks the `<=>` scan — so a stored vector of a different
+    // dimension is never reused. Note: under contextual retrieval a reused
+    // chunk keeps its prior document-level context (title/synopsis) even if an
+    // earlier chunk or the title changed — an accepted precision tradeoff; a
+    // full re-embed (`reindex --contextual`) refreshes it.
+    return reuse &&
+      reuse.model === model &&
+      reuse.vec.length === EMBED_DIMENSIONS &&
+      reuse.content === parsed.chunks[i]
+      ? reuse.vec
+      : null;
+  };
+
+  const vectorFor = async (i: number): Promise<void> => {
     const chunk = parsed.chunks[i]!;
-    if (!skipEmbed) {
-      const reuse = prior.get(i);
-      // Width is checked alongside model: MEMEX_EMBED_DIM can change the vector
-      // dimension without changing the Titan model id, and mixing widths inside
-      // one document breaks the `<=>` scan — so a stored vector of a different
-      // dimension is never reused. Note: under contextual retrieval a reused
-      // chunk keeps its prior document-level context (title/synopsis) even if an
-      // earlier chunk or the title changed — an accepted precision tradeoff; a
-      // full re-embed (`reindex --contextual`) refreshes it.
-      if (
-        reuse &&
-        reuse.model === model &&
-        reuse.vec.length === EMBED_DIMENSIONS &&
-        reuse.content === chunk
-      ) {
-        vectors.push(reuse.vec);
-        if (stats) stats.reused++;
-        continue; // skip generateChunkContext + embed — the paid-call saving
-      }
-    }
     let prefix = deterministicPrefix;
     if (llmActive) {
+      // The budget is shared by the chunks in flight: each checks it before its
+      // own call, so a run can overshoot the cap by at most the ceiling's width.
       const llmCtx = await generateChunkContext(docText, chunk, {
         ...(opts.contextualLlmFn ? { llmFn: opts.contextualLlmFn } : {}),
         ...(ctxBudget ? { budget: ctxBudget } : {}),
@@ -422,13 +430,9 @@ async function indexDocumentBody(
       }
     }
     const embedInput = wrapChunkForEmbedding(chunk, prefix, { isCode });
-    if (skipEmbed) {
-      vectors.push(null);
-      continue;
-    }
     try {
       if (stats) stats.embeds++;
-      vectors.push(await embed(embedInput, { modelId: model }));
+      vectors[i] = await embed(embedInput, { modelId: model });
     } catch (e) {
       // A spent daily budget must not destroy the note. Every other embed
       // failure still aborts before the DB is touched (the half-write guard
@@ -438,9 +442,47 @@ async function indexDocumentBody(
       // once the budget rolls over.
       if (!(isOperationError(e) && e.code === "budget_exhausted")) throw e;
       budgetRefusedChunks++;
-      vectors.push(null);
     }
-  }
+  };
+
+  // Half-write guard, parallel form: after the first hard failure no further
+  // chunk starts, the ones already in flight settle, and only then does the
+  // failure propagate — before anything is written. Workers never reject, so
+  // no sibling failure can surface later as an unhandled rejection.
+  let hardError: { error: unknown } | null = null;
+  let nextChunk = 0;
+  const worker = async (): Promise<void> => {
+    while (hardError === null && nextChunk < parsed.chunks.length) {
+      const i = nextChunk++;
+      // With embedding off there is nothing to pay for (the LLM tier is off too).
+      if (skipEmbed) continue;
+      const reused = reusable(i);
+      if (reused) {
+        vectors[i] = reused;
+        if (stats) stats.reused++;
+        continue;
+      }
+      const slotStart = performance.now();
+      const release = await acquireWriteEmbedSlot();
+      noteWriteTiming("slotMs", performance.now() - slotStart);
+      try {
+        // A sibling may have failed while this worker waited for its slot.
+        if (hardError === null) await vectorFor(i);
+      } catch (e) {
+        hardError ??= { error: e };
+      } finally {
+        release();
+      }
+    }
+  };
+  // Only an interactive write (one that names itself for the timing line) fans
+  // out. Sweeps, reindex and the cycle keep their one-chunk-at-a-time pace: they
+  // are not waiting on anyone, and fanning them out would multiply their Bedrock
+  // rate and take slots from the writes an agent is blocked on.
+  const width = opts.timingLabel ? writeEmbedWidth() : 1;
+  const workers = Math.min(width, parsed.chunks.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  if (hardError !== null) throw (hardError as { error: unknown }).error;
 
   if (budgetRefusedChunks > 0) {
     console.warn(
@@ -474,7 +516,13 @@ async function indexDocumentBody(
         const parsedCode = await chunkCode(fence.source, `fence.${fence.lang}`, fence.lang);
         for (const sym of parsedCode.symbols) {
           if (stats) stats.fenceEmbeds++;
-          const vec = await embed(sym.body, { modelId: model });
+          const release = await acquireWriteEmbedSlot();
+          let vec: number[];
+          try {
+            vec = await embed(sym.body, { modelId: model });
+          } finally {
+            release();
+          }
           chunkWrites.push({
             text: sym.body,
             startLine: sym.startLine,

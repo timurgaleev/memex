@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **An interactive write embeds its chunks in parallel.** Each chunk of a
+  mirrored page pays a contextual Haiku call and a Titan embed, and they ran
+  one after another: a live 3-chunk `page_put` spent 3965 of its 4135 ms in
+  serial Bedrock time, about 1.3 s per chunk. `page_put`, `page_append`,
+  `page_revert` and `page_restore` now run chunks up to
+  `MEMEX_EMBED_MAX_INFLIGHT` at a time (default 4), a ceiling shared by every
+  concurrent write — fenced-code symbol embeds included — so two writes cannot
+  double the pressure on Bedrock. A chunk whose stored vector is reused never
+  waits for a slot. Sweeps, reindex and the cycle keep their one-chunk-at-a-time
+  pace: nobody is blocked on them, and fanning them out would multiply their
+  Bedrock rate and take slots from the writes an agent is waiting on. Query
+  embeds never touch the ceiling — the search path races its embed against a
+  wall clock, and a busy write must not push search down to keyword-only. A
+  hard failure still writes nothing: no further chunk starts (including one
+  whose worker was waiting for a slot), the ones in flight settle, then the
+  error surfaces before the write transaction. `MEMEX_EMBED_MAX_INFLIGHT=1`
+  restores the serial behaviour. The `index-timing` line gains `ms_slot`, the
+  wait for a write slot; it and `ms_bedrock` are now sums across parallel
+  calls, so they can exceed `ms_total`.
+
 ## [1.133.0] — 2026-09-18
 
 ### Added
