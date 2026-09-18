@@ -146,6 +146,11 @@ services:
       # concurrent write (default 4; empty = default). 1 restores the old serial
       # behaviour. Not the backfill's pool width — that is MEMEX_EMBED_CONCURRENCY.
       - MEMEX_EMBED_MAX_INFLIGHT=${MEMEX_EMBED_MAX_INFLIGHT:-}
+      # Where the search mirror of a written page is built. Default (unset/1):
+      # inline, before page_put / page_append return. 0: queued as a page_mirror
+      # job, so the write returns at once and search sees the page seconds later
+      # (the response then says search_pending; callers can pass wait_for_index).
+      - MEMEX_PAGE_MIRROR_SYNC=${MEMEX_PAGE_MIRROR_SYNC:-}
       # Bedrock request timeouts, in ms, per call kind; each falls back to
       # MEMEX_LLM_TIMEOUT_MS, then to its own default (utility 30000, reasoning
       # 120000, embedding 10000). A timeout ends the request and the SDK retries.

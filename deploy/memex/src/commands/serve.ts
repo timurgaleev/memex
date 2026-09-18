@@ -13,6 +13,7 @@ import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { registerRemediationHandlers } from "../core/jobs/remediation-handlers.ts";
 import { registerChronicleHandler } from "../core/jobs/chronicle-handler.ts";
+import { registerPageMirrorHandler } from "../core/jobs/page-mirror-handler.ts";
 import { registerIngestCaptureHandler } from "../http/ingest.ts";
 import { registerSource } from "../core/sources.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
@@ -339,6 +340,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Register the `chronicle_extract` handler so timeline extraction runs off
   // the write path instead of dead-lettering with "no handler registered".
   registerChronicleHandler(storage);
+  // Register the `page_mirror` handler: with MEMEX_PAGE_MIRROR_SYNC=0 the write
+  // path queues the search mirror instead of running it inline.
+  registerPageMirrorHandler(storage);
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
   worker.start();
   console.log(

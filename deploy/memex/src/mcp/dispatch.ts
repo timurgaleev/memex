@@ -7,6 +7,7 @@
  * (per MCP spec) instead of a JSON-RPC error envelope. JSON-RPC errors
  * are reserved for protocol-level failures (malformed request etc.).
  */
+import { randomUUID } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
 import {
   type AuthInfo,
@@ -69,7 +70,7 @@ import { syncTypedLinksForPage, typedLinksEnabled } from "../core/typed-links.ts
 import { bumpLastRetrievedAt } from "../core/last-retrieved.ts";
 import { linkVerbInferEnabled } from "../core/link-verb-infer.ts";
 import {
-  indexPageIntoSearch,
+  mirrorPage,
   removePageFromSearch,
   isPageSourcePath,
 } from "../core/page-index.ts";
@@ -167,6 +168,7 @@ import {
 import { putRawData, getRawData } from "../core/raw-data.ts";
 import { logIngest, getIngestLog } from "../core/ingest-log.ts";
 import { Queue } from "../core/jobs/queue.ts";
+import { PAGE_MIRROR_JOB_KIND } from "../core/jobs/page-mirror-handler.ts";
 import { getJobProgress } from "../core/jobs/lifecycle.ts";
 import { runThink, type ThinkOptions, type ThinkResult } from "../core/synthesis/think.ts";
 import { isNoGrant } from "../core/source-scope.ts";
@@ -1255,7 +1257,7 @@ async function callPagePut(
   if (typeof input === "string") return errResult(input);
   if (writeSource) input.source_id = writeSource;
   const r = await putPage(storage, input);
-  let searchIndexed: boolean | undefined;
+  let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
   if (r.changed) {
     // Fetch the canonical row once: page_put is a FULL REPLACE (pages.ts UPDATE
@@ -1296,7 +1298,7 @@ async function callPagePut(
     // committed and is the source of truth — an embed failure must not fail
     // the write. The cycle backstop reconciles unindexed pages later.
     if (page) {
-      searchIndexed = await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_put");
+      mirror = await mirrorOrQueue(storage, page, isPublic || writeSource !== undefined, "page_put", args["wait_for_index"] === true);
       // On-write fact extraction (default-OFF, best-effort). Only on a real
       // content change and only for prose-eligible pages.
       // NOT derivedSource: here `writeSource` only picks the serialization
@@ -1334,7 +1336,7 @@ async function callPagePut(
   return jsonResult({
     ok: true,
     ...r,
-    ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}),
+    ...mirror,
     ...(chronicleBackstop ? { chronicle_backstop: true } : {}),
   });
 }
@@ -1484,54 +1486,54 @@ async function maybeEnqueueChronicleExtract(
  * mirror succeeded. Never throws — the DB-canonical page is the source of
  * truth; search is a derived projection the cycle can rebuild.
  */
-async function mirrorPageToSearch(
+/**
+ * Whether the write path mirrors pages synchronously (the default) or hands the
+ * mirror to a `page_mirror` job (`MEMEX_PAGE_MIRROR_SYNC=0`). Anything but an
+ * explicit 0/false keeps the synchronous path — including the empty string a
+ * compose passthrough injects when the knob is unset.
+ */
+function pageMirrorSync(): boolean {
+  const raw = (process.env.MEMEX_PAGE_MIRROR_SYNC ?? "").trim().toLowerCase();
+  return raw !== "0" && raw !== "false";
+}
+
+/**
+ * Mirror a written page into search, or queue the mirror. Returns the response
+ * fields describing what happened: `search_indexed` (true = mirrored, false =
+ * the mirror failed and was logged), or `search_pending` + `search_job_id` when
+ * it was queued. A queue failure falls back to mirroring inline, so a write is
+ * never left with no mirror on the way.
+ */
+async function mirrorOrQueue(
   storage: Storage,
-  page: {
-    slug: string;
-    title: string | null;
-    markdown_body: string;
-    content_hash?: string;
-    source_id?: string;
-  },
-  remote = false,
-  timingLabel?: string,
-): Promise<boolean> {
+  page: { slug: string; title: string | null; markdown_body: string; content_hash?: string; source_id?: string | null },
+  remote: boolean,
+  op: "page_put" | "page_append",
+  waitForIndex: boolean,
+): Promise<{ search_indexed?: boolean; search_pending?: true; search_job_id?: string }> {
+  if (pageMirrorSync() || waitForIndex) {
+    return { search_indexed: await mirrorPage(storage, page, { remote, timingLabel: op }) };
+  }
+  // One job per write: a content-addressed id would collapse a revert, an A->B->A
+  // edit or a title-only change onto a long-finished row and enqueue nothing.
+  // The handler mirrors the page as it is when it runs, so an older job landing
+  // after a newer one is wasted work, never stale data.
+  const id = `page_mirror:${page.source_id ?? "default"}:${page.slug}:${randomUUID()}`;
   try {
-    await indexPageIntoSearch(
-      storage,
-      {
-        slug: page.slug,
-        title: page.title,
-        markdown_body: page.markdown_body,
-        ...(page.content_hash ? { content_hash: page.content_hash } : {}),
-        ...(page.source_id ? { source_id: page.source_id } : {}),
-      },
-      { remote, ...(timingLabel ? { timingLabel } : {}) },
-    );
-    return true;
+    await new Queue(storage.engine()).enqueue({
+      kind: PAGE_MIRROR_JOB_KIND,
+      payload: { slug: page.slug, remote, op, ...(page.content_hash ? { contentHash: page.content_hash } : {}) },
+      id,
+      priority: 1,
+      timeoutMs: 300_000,
+    });
+    return { search_pending: true, search_job_id: id };
   } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
     console.error(
-      `[page-index] failed to mirror page ${page.slug} into search:`,
-      reason,
+      `[page-index] could not queue the mirror for ${page.slug}, mirroring inline:`,
+      e instanceof Error ? e.message : e,
     );
-    // The caller sees search_indexed:false in this response and the cycle
-    // reconciles later, but nothing outlives the request — so a page that
-    // silently stayed unsearchable leaves no trace anyone can find afterwards.
-    // Record it. Best-effort: a logging failure must never turn a committed
-    // page write into a failed one.
-    try {
-      await logIngest(storage.engine(), {
-        source_type: "page-mirror-failed",
-        source_ref: page.slug,
-        pages_updated: [page.slug],
-        summary: reason.slice(0, 500),
-        ...(page.source_id ? { source_id: page.source_id } : {}),
-      });
-    } catch {
-      // deliberately swallowed — see above
-    }
-    return false;
+    return { search_indexed: await mirrorPage(storage, page, { remote, timingLabel: op }) };
   }
 }
 
@@ -1557,7 +1559,7 @@ async function callPageAppend(
     })(),
     ...(writeSource ? { source_id: writeSource } : {}),
   });
-  let searchIndexed: boolean | undefined;
+  let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
   if (r.changed) {
     const fresh = await getPage(storage, r.slug);
@@ -1576,7 +1578,7 @@ async function callPageAppend(
     }
     await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
     if (fresh) {
-      searchIndexed = await mirrorPageToSearch(storage, fresh, isPublic || writeSource !== undefined, "page_append");
+      mirror = await mirrorOrQueue(storage, fresh, isPublic || writeSource !== undefined, "page_append", args["wait_for_index"] === true);
       maybeEnqueueFactExtraction(storage, fresh, writeSource);
       chronicleBackstop = await maybeEnqueueChronicleExtract(
         storage,
@@ -1591,7 +1593,7 @@ async function callPageAppend(
   return jsonResult({
     ok: true,
     ...r,
-    ...(searchIndexed !== undefined ? { search_indexed: searchIndexed } : {}),
+    ...mirror,
     ...(chronicleBackstop ? { chronicle_backstop: true } : {}),
   });
 }
@@ -1612,9 +1614,20 @@ async function callPageDelete(
   if (!r.already_deleted) {
     await purgeFenceFactsForPage(storage, args["slug"]);
     // Drop the page's search mirror so a deleted page stops appearing in
-    // search hits. Best-effort — the soft-delete already succeeded.
+    // search hits. Best-effort — the soft-delete already succeeded. A tenant's
+    // mirror lives under `page://<source>/<slug>`; removing only the legacy
+    // `page://<slug>` left a deleted tenant page searchable until the cycle's
+    // orphan sweep, so both are removed.
     try {
+      const owner = await storage.engine().query<{ source_id: string | null }>(
+        "SELECT source_id FROM pages WHERE slug = $1",
+        [args["slug"]],
+      );
+      const sourceId = owner.rows[0]?.source_id ?? null;
       await removePageFromSearch(storage, args["slug"]);
+      if (sourceId && sourceId !== "default") {
+        await removePageFromSearch(storage, args["slug"], sourceId);
+      }
     } catch (e) {
       console.error(
         `[page-index] failed to drop search mirror for ${args["slug"]}:`,
@@ -1645,7 +1658,7 @@ async function callPageRestore(
     const page = await getPage(storage, r.slug);
     if (page) {
       await reconcileFactsForPage(storage, r.slug, page.content_hash, page.source_id);
-      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_restore");
+      await mirrorPage(storage, page, { remote: isPublic || writeSource !== undefined, timingLabel: "page_restore" });
     }
   }
   return jsonResult({ ok: true, ...r });
@@ -1683,7 +1696,7 @@ async function callPageRevert(
       }
       await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash, derivedSource);
-      await mirrorPageToSearch(storage, page, isPublic || writeSource !== undefined, "page_revert");
+      await mirrorPage(storage, page, { remote: isPublic || writeSource !== undefined, timingLabel: "page_revert" });
     }
   }
   return jsonResult({ ok: true, ...r });

@@ -546,7 +546,12 @@ export async function getPage(
 
 /** Exact `pages` read by slug, tenant-scoped. No redirect resolution — the
  *  single-hop primitive `getPage` layers the redirect on top of. */
-async function getPageExact(
+/**
+ * Read a page by its exact slug — no rename-redirect hop. A background job that
+ * acts for one write uses this: the redirect registry spans every source, so
+ * following it could land on another tenant's page.
+ */
+export async function getPageExact(
   storage: Storage,
   slug: string,
   sourceIds?: readonly string[],

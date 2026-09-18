@@ -620,6 +620,35 @@ mirror last, because the mirror is where every blocker sits.
   check, so a forced re-embed cannot silently downgrade an LLM-tier chunk.
   Ships before anything re-embeds at scale.
 - **R6 — move the mirror onto a `page_mirror` job (the contract change).**
+  BUILT, v1.139.0, behind `MEMEX_PAGE_MIRROR_SYNC` (default: inline, i.e. no
+  live behaviour change). Job id unique per write (a random UUID — simpler than
+  the version-keyed id and it has the same property: no edit ever collapses
+  onto an old job; the handler mirrors the page as it is when it runs, so an
+  older job landing late is wasted work, never stale data). `remote` carried in
+  the payload, fail-closed. Owner taken from the page row. Queue failure falls
+  back to inline. After security and correctness review: exact-slug read (no
+  cross-source redirect hop), `contentHash` in the payload with a superseded
+  skip (the trust flag belongs to one write), mirror removed again when the page
+  is deleted mid-embed, one failure row per page rather than per retry.
+  `wait_for_index` added. Response: `search_pending` +
+  `search_job_id` when queued; `search_indexed:false` keeps meaning "failed".
+  `page_revert` / `page_restore` stay inline. Tenant mirror removed on delete.
+  - OPEN OPERATOR DECISION: flip `MEMEX_PAGE_MIRROR_SYNC=0` live. It is the one
+    change that makes p95 independent of page size, but an agent that writes
+    and then searches in the same turn will miss the page for a few seconds
+    unless it passes `wait_for_index`. Decide after the 7-day p95 with
+    R2 + R3 (v1.134.0, v1.137.0) is in — if large pages still hold p95 above
+    3 s, flip; if not, leave it inline.
+  - Not done from the review list, with reasons: per-source single-flight lock
+    (the single elected worker at concurrency 1 already serialises, and a
+    `null` acquire read as done would lose an edit); a second interactive
+    worker lane (`page_mirror` is enqueued at priority 1, which `Queue.claim`
+    already sorts first); `jobs.source_id` (the handler never reads a source
+    from the job — only from the page row); `MEMEX_RESPONSE_VERSION` bump (the
+    new fields are additive and appear only when the operator turns async on).
+    `reconcilePageMirrors` still indexes with no `remote` flag — pre-existing,
+    and deciding it needs a stored per-page trust bit the schema does not have.
+- (original R6 spec)
   - Job id keyed on the version the write produced
     (`page_mirror:<src>:<slug>:v<n>`), NOT on `content_hash`: `page_revert`
     and any A→B→A put reproduce an old hash, `ON CONFLICT DO NOTHING` then

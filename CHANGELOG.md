@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The search mirror can move off the write path.** With
+  `MEMEX_PAGE_MIRROR_SYNC=0`, `page_put` and `page_append` commit the page and
+  queue its search mirror as a `page_mirror` job instead of building it inline,
+  so the write returns without waiting on Bedrock. The response then carries
+  `search_pending: true` and `search_job_id` rather than `search_indexed`, and
+  search sees the page once the job runs, normally within seconds. A caller that
+  must search for the page straight away passes the new `wait_for_index: true`.
+  The default is unchanged — the mirror is still built before the write
+  returns — because moving it changes what an agent that writes and then
+  searches will see. `page_revert` and `page_restore` always mirror inline.
+  A job acts for exactly one write. It reads the page by its exact slug — the
+  rename-redirect registry spans every source, so following it could land on
+  another tenant's page — files the mirror under the page's own source, and
+  treats any write not explicitly marked trusted as untrusted, so gate-owned
+  markers (`quarantine`, `embed_skip`, `content_flag`) are stripped rather than
+  honoured. It mirrors only the body its own write produced: if the page has
+  moved on it skips as superseded, since its trust flag describes the old write
+  and the newer write queued its own job. A page deleted while the job was
+  embedding has its mirror removed again, and a failing page leaves one
+  failure row rather than one per retry. Each write gets its own job, so a
+  revert or an A→B→A edit is never collapsed onto an old finished job; if the
+  job cannot be queued, the mirror is built inline instead.
+
+### Fixed
+- **Deleting a tenant's page left it searchable.** `page_delete` removed only
+  the legacy `page://<slug>` mirror, while a tenant's page is mirrored under
+  `page://<source>/<slug>`, so the deleted page kept answering searches until
+  the cycle's orphan sweep, up to six hours later. Both mirrors are removed.
+
 ## [1.138.0] — 2026-09-19
 
 ### Fixed

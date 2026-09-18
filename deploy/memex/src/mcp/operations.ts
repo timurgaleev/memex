@@ -303,7 +303,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_put",
     scope: "write",
     description:
-      "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. WRITE — internal/MCP-stdio only.",
+      "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — internal/MCP-stdio only.",
     params: {
       slug: str({
         ...req,
@@ -325,17 +325,25 @@ export const OPERATIONS: readonly Operation[] = [
           "Optional caller identifier for the audit trail (skill slug, recipe name, …).",
       }),
       allowAdHocType: bool(),
+      wait_for_index: bool({
+        description:
+          "Write the search mirror before returning even when mirrors are queued, so the page is searchable the moment this call returns. Slower.",
+      }),
     },
   },
   {
     name: "page_append",
     scope: "write",
     description:
-      "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). WRITE — internal/MCP-stdio only.",
+      "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — internal/MCP-stdio only.",
     params: {
       slug: str(req),
       content: str(req),
       written_by: str(),
+      wait_for_index: bool({
+        description:
+          "Write the search mirror before returning even when mirrors are queued, so the page is searchable the moment this call returns. Slower.",
+      }),
     },
   },
   {

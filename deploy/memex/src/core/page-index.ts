@@ -29,6 +29,7 @@ import {
 } from "./indexer.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "./chunkers/recursive.ts";
 import type { Storage } from "./storage.ts";
+import { logIngest } from "./ingest-log.ts";
 
 /**
  * Reserved source_path namespace for page-derived search documents, keyed by
@@ -462,4 +463,74 @@ export async function removePageFromSearch(
   const body = await removeDocument(storage, pageSourcePath(slug, sourceId));
   await removeDocument(storage, pageTruthSourcePath(slug, sourceId));
   return body;
+}
+
+export interface MirrorPageOptions {
+  /** The write came from an untrusted caller: gate-owned frontmatter markers
+   *  are stripped rather than honoured (see IndexFileOptions.remote). */
+  remote: boolean;
+  timingLabel?: string;
+  /** Record a `page-mirror-failed` ingest row on failure (default true). A
+   *  retried job passes false until its last attempt, so a failing page
+   *  leaves one row, not one per retry. */
+  logFailure?: boolean;
+  /** Test seams — production omits both. */
+  embedFn?: IndexFileOptions["embedFn"];
+  contextualLlmFn?: IndexFileOptions["contextualLlmFn"];
+}
+
+/**
+ * Mirror a page into the search store, best-effort. The page write it follows
+ * has already committed and is the source of truth, so a failed mirror returns
+ * `false` instead of throwing — and records a `page-mirror-failed` ingest row,
+ * because otherwise nothing outlives the request and a page that silently
+ * stayed unsearchable leaves no trace anyone can find. Used by the write path
+ * directly and by the `page_mirror` job.
+ */
+export async function mirrorPage(
+  storage: Storage,
+  page: {
+    slug: string;
+    title: string | null;
+    markdown_body: string;
+    content_hash?: string;
+    source_id?: string | null;
+  },
+  opts: MirrorPageOptions,
+): Promise<boolean> {
+  try {
+    await indexPageIntoSearch(
+      storage,
+      {
+        slug: page.slug,
+        title: page.title,
+        markdown_body: page.markdown_body,
+        ...(page.content_hash ? { content_hash: page.content_hash } : {}),
+        ...(page.source_id ? { source_id: page.source_id } : {}),
+      },
+      {
+        remote: opts.remote,
+        ...(opts.timingLabel ? { timingLabel: opts.timingLabel } : {}),
+        ...(opts.embedFn ? { embedFn: opts.embedFn } : {}),
+        ...(opts.contextualLlmFn ? { contextualLlmFn: opts.contextualLlmFn } : {}),
+      },
+    );
+    return true;
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[page-index] failed to mirror page ${page.slug} into search:`, reason);
+    if (opts.logFailure === false) return false;
+    try {
+      await logIngest(storage.engine(), {
+        source_type: "page-mirror-failed",
+        source_ref: page.slug,
+        pages_updated: [page.slug],
+        summary: reason.slice(0, 500),
+        ...(page.source_id ? { source_id: page.source_id } : {}),
+      });
+    } catch {
+      // A logging failure must never turn a committed page write into a failed one.
+    }
+    return false;
+  }
 }
