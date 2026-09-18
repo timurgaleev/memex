@@ -82,13 +82,15 @@ describe("code edges carry their document's source", () => {
 describe("a document that gets its source later", () => {
   it("hands the source on to its chunks and code edges", async () => {
     const src = ["export class Late {", "  x() { return this.y(); }", "  y() { return 2; }", "}"].join("\n");
-    const r = await indexCodeDocument(storage, { sourcePath: "/tenant-b/late.ts", text: src });
+    // mtimeMs stands in for the file indexer's stamp: the backfill classifies
+    // only documents of local provenance.
+    const r = await indexCodeDocument(storage, { sourcePath: "/tenant-b/late.ts", text: src, mtimeMs: 1 });
     const before = await storage.engine().query<{ source_id: string | null }>(
       `SELECT DISTINCT e.source_id FROM code_edges_symbol e JOIN chunks c ON c.id = e.from_chunk_id WHERE c.document_id = $1`,
       [r.documentId],
     );
     expect(before.rows.map((row) => row.source_id)).toEqual([null]);
-    await backfillDocumentSources(storage.engine());
+    await backfillDocumentSources(storage.engine(), ["/tenant-b/late.ts"]);
     const edges = await storage.engine().query<{ source_id: string | null }>(
       `SELECT DISTINCT e.source_id FROM code_edges_symbol e JOIN chunks c ON c.id = e.from_chunk_id WHERE c.document_id = $1`,
       [r.documentId],

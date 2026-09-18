@@ -7,6 +7,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Locally swept documents belonged to nobody.** A vault or code sweep and
+  `memex index <file>` index with no source — a trusted local caller is
+  deliberately not fenced to one — so the documents, chunks and call edges they
+  wrote stayed sourceless and no scoped reader could see them. All three now end
+  with a classification pass over the files the walk actually read, assigning
+  each document the source whose `path_prefix` owns its path and handing that
+  down to its chunks and code edges. It classifies only paths a local indexer
+  just wrote, or that the sweep confirmed already held its own newer index — a
+  remote `index` call labels its document in the caller's own namespace, so a
+  pass over every path a walk merely saw could hand that label a tenant's prefix
+  and drop attacker-authored text into that tenant's scoped reads. A failure is
+  reported next to the walk's result instead of discarding it, and the pass runs
+  in one transaction, repairing chunks or edges an interrupted earlier run left
+  unclassified.
+- **A registered path prefix was matched as a LIKE pattern, and at any offset.**
+  `_` and `%` in a prefix are wildcards to `LIKE`, and the system `__default__`
+  sentinel carries four, so a path of the right shape could be classified under
+  a source that does not own it; a prefix also matched mid-name, letting
+  `/vault/team` own `/vault/team-archive/x.md`. The match is now an exact
+  compare that has to end at a path separator.
+- **`registerSource` and `updateSource` accepted an empty path prefix**, which
+  prefixes every path — that source would have claimed every unclassified
+  document.
+- **`documents.source_id` was never indexed.** Migration 004 asked for the index
+  under a name migration 001 had already used for `documents(source_path)`, so
+  `CREATE INDEX IF NOT EXISTS` quietly did nothing and every source-scoped read
+  has been sequentially scanning the table. Migration 105 creates it, plus a
+  partial index for the classification pass.
 - **The connector's own CSP blocked the redirect that completes the flow.** The
   code form was served `form-action 'self'`, and `form-action` is enforced
   across a submission's *redirect chain* — so the browser silently refused the

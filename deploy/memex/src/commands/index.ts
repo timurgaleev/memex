@@ -7,10 +7,11 @@
  */
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
-import { indexFile } from "../core/indexer.ts";
+import { indexFile, normalizeSourcePath } from "../core/indexer.ts";
 import { indexCodeFile } from "../core/indexer-code.ts";
 import { languageForFile } from "../core/chunkers/parsers.ts";
 import { loadConfig } from "../core/config.ts";
+import { backfillDocumentSources } from "../core/sources.ts";
 
 export interface IndexCommandOptions {
   path: string;
@@ -29,8 +30,24 @@ export async function runIndex(opts: IndexCommandOptions): Promise<void> {
     const result = isCode
       ? await indexCodeFile(storage, opts.path)
       : await indexFile(storage, opts.path);
+    // Both indexers write no source; the registered path prefixes classify the
+    // file afterwards. The file is indexed either way, so a classification
+    // failure is reported alongside the result, not thrown over it.
+    let classifyError: string | undefined;
+    try {
+      await backfillDocumentSources(storage.raw(), [
+        normalizeSourcePath(opts.path),
+      ]);
+    } catch (e) {
+      classifyError = (e as Error).message;
+    }
     console.log(
-      JSON.stringify({ ok: true, kind: isCode ? "code" : "doc", ...result }),
+      JSON.stringify({
+        ok: true,
+        kind: isCode ? "code" : "doc",
+        ...result,
+        ...(classifyError ? { classify_error: classifyError } : {}),
+      }),
     );
   });
 }

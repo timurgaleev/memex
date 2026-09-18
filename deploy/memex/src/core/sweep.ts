@@ -13,6 +13,7 @@ import { indexFile, normalizeSourcePath } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { reconcileDeletedDocuments } from "./reconcile-deletes.ts";
+import { backfillDocumentSources } from "./sources.ts";
 
 export interface SweepOptions {
   /** Filesystem root of the vault. */
@@ -138,6 +139,11 @@ export async function sweepVault(
   const perFileDelayMs = Math.max(0, opts.perFileDelayMs ?? 0);
   const maxFiles = opts.maxFiles ?? Number.POSITIVE_INFINITY;
   let budgetBroke = false;
+  // Paths this walk CONFIRMED as local: either it indexed the file, or it
+  // skipped the file because the row already carried a newer index of it. That
+  // is the provenance fence for the source classification below — a path the
+  // walk merely saw proves nothing about who wrote the row sitting at it.
+  const indexed: string[] = [];
 
   for (const file of walkFiles(opts.vault, {
     extensions: [".md"],
@@ -148,7 +154,8 @@ export async function sweepVault(
     // With a relative --vault root the two diverge, and the mtime skip then
     // misses on every file: no corruption, but every sweep re-embeds the whole
     // vault and the skip silently stops being a skip.
-    const id = docId(normalizeSourcePath(file.path));
+    const canonical = normalizeSourcePath(file.path);
+    const id = docId(canonical);
     const lastIndexed = known.get(id) ?? null;
     const forcedByChunker = staleChunkerIds?.has(id) ?? false;
     if (forcedByChunker) seenStaleIds!.add(id);
@@ -159,6 +166,7 @@ export async function sweepVault(
       lastIndexed >= file.mtimeMs
     ) {
       result.skipped++;
+      indexed.push(canonical);
       continue;
     }
     if (result.reindexed >= maxFiles) {
@@ -170,6 +178,7 @@ export async function sweepVault(
     try {
       await indexFile(storage, file.path);
       result.reindexed++;
+      indexed.push(canonical);
     } catch (e) {
       result.errors.push({
         path: file.path,
@@ -206,6 +215,19 @@ export async function sweepVault(
     );
     result.reconciled = rec.reconciled;
     result.reconciledPaths = rec.reconciledPaths;
+  }
+
+  // indexFile writes no source (a trusted local caller must not be fenced from
+  // rows another source owns), so the registered path prefixes classify the
+  // walked files afterwards. A failure here leaves the walk's own result
+  // standing — the next sweep retries the classification.
+  try {
+    await backfillDocumentSources(storage.raw(), indexed);
+  } catch (e) {
+    result.errors.push({
+      path: opts.vault,
+      message: `source classification failed: ${(e as Error).message}`,
+    });
   }
 
   return result;

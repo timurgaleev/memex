@@ -49,7 +49,9 @@ beforeEach(async () => {
   // Two independent docs. Each write bumps the global clock + that doc's gen.
   await writeDocumentTransaction(
     storage,
-    { documentId: "doc_a", sourcePath: "/a.md", title: "Alpha", frontmatter: {} },
+    // mtimeMs marks local provenance — the source backfill classifies only rows a
+    // file indexer wrote.
+    { documentId: "doc_a", sourcePath: "/a.md", title: "Alpha", frontmatter: {}, mtimeMs: 1 },
     [{ text: "alpha content", entities: [] }],
   );
   await writeDocumentTransaction(
@@ -180,7 +182,9 @@ describe("two-layer gate through the database", () => {
     // Re-index doc_a itself → its generation bumps → Layer 2 mismatch.
     await writeDocumentTransaction(
       storage,
-      { documentId: "doc_a", sourcePath: "/a.md", title: "Alpha", frontmatter: {} },
+      // mtimeMs marks local provenance — the source backfill classifies only rows a
+    // file indexer wrote.
+    { documentId: "doc_a", sourcePath: "/a.md", title: "Alpha", frontmatter: {}, mtimeMs: 1 },
       [{ text: "alpha content edited", entities: [] }],
     );
     const newClock = await currentDocumentClock(storage.engine());
@@ -274,7 +278,7 @@ describe("non-indexer document writers invalidate the two-layer cache", () => {
     await registerSource(storage.engine(), {
       id: "src_a",
       kind: "vault",
-      pathPrefix: "/a",
+      pathPrefix: "/a.md",
     });
     const clock = await currentDocumentClock(storage.engine());
     const genBefore = await docGeneration("doc_a");
@@ -291,8 +295,9 @@ describe("non-indexer document writers invalidate the two-layer cache", () => {
     );
     expect(await getCachedQuery(storage.engine(), key, clock)).not.toBeNull();
 
-    // doc_a's source_path "/a.md" matches the "/a" prefix → source_id assigned.
-    const res = await backfillDocumentSources(storage.engine());
+    // doc_a's source_path is exactly the registered prefix → source_id assigned.
+    // (A prefix must end at a path boundary, so "/a" would NOT own "/a.md".)
+    const res = await backfillDocumentSources(storage.engine(), ["/a.md"]);
     expect(res.updated).toBeGreaterThan(0);
 
     expect(await docGeneration("doc_a")).toBeGreaterThan(genBefore!);

@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { sweepCodeRoots } from "../src/core/sweep-code.ts";
+import { registerSource } from "../src/core/sources.ts";
+import { normalizeSourcePath } from "../src/core/indexer.ts";
 import { _resetParsersForTests } from "../src/core/chunkers/parsers.ts";
 
 const dbDir = mkdtempSync(join(tmpdir(), "tb-sweep-code-db-"));
@@ -140,5 +142,72 @@ describe("sweepCodeRoots", () => {
     // The markdown doc is the VAULT sweep's corpus — a walk over .ts/.py files
     // could never reach it, so listing it here would be a phantom orphan.
     expect(r.staleChunkerUnreached).not.toContain("doc_stale_md");
+  });
+
+  it("does not classify a document at a path the walk never indexed", async () => {
+    await registerSource(storage.raw(), {
+      id: "repo",
+      kind: "code",
+      pathPrefix: `${repoDir}/`,
+    });
+    // Classify the existing tree first, so the next pass mtime-skips it and the
+    // confirmed-path list is NOT empty — an empty list would pass this for free.
+    await sweepCodeRoots(storage, { paths: [repoDir] });
+
+    // A real file the walk reaches last, plus the row a remote inline `index`
+    // call would have left at that label: no mtime stamp, so it cannot skip.
+    const plantedPath = join(repoDir, "src", "zz_planted.ts");
+    writeFileSync(plantedPath, "export function planted() {}\n");
+    await storage.raw().query(
+      `INSERT INTO documents (id, source_path, title, frontmatter, last_indexed_mtime)
+       VALUES ('planted', $1, 'planted', '{"kind":"code"}'::jsonb, NULL)`,
+      [normalizeSourcePath(plantedPath)],
+    );
+
+    // No `force`: the earlier files skip (and so ARE confirmed), while the file
+    // budget breaks the walk at zz_planted.ts before it is ever indexed.
+    const r = await sweepCodeRoots(storage, { paths: [repoDir], maxFiles: 0 });
+    expect(r.skipped).toBeGreaterThan(0);
+    expect(r.reindexed).toBe(0);
+
+    const row = await storage.raw().query<{ source_id: string | null }>(
+      `SELECT source_id FROM documents WHERE id = 'planted'`,
+    );
+    expect(row.rows[0]?.source_id).toBe(null);
+    // ...and the case cannot pass by classifying nothing at all.
+    const real = await storage.raw().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM documents
+        WHERE source_path = ANY($1::text[]) AND source_id = 'repo'`,
+      [[
+        normalizeSourcePath(join(repoDir, "src", "a.ts")),
+        normalizeSourcePath(join(repoDir, "src", "b.ts")),
+      ]],
+    );
+    expect(real.rows[0]?.n).toBe(2);
+  });
+
+  it("classifies the swept documents under the source that owns their path", async () => {
+    await registerSource(storage.raw(), {
+      id: "repo",
+      kind: "code",
+      pathPrefix: `${repoDir}/`,
+    });
+    await sweepCodeRoots(storage, { paths: [repoDir] });
+    // The sweep itself indexes with no source (a trusted local caller is not
+    // fenced); the path prefixes classify the rows afterwards, so a scoped
+    // caller's code graph can see them at all.
+    const rows = await storage.raw().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM documents
+        WHERE source_path LIKE $1 || '%' AND source_id IS DISTINCT FROM 'repo'
+          -- the row the previous case planted at a path no walk indexed
+          AND id <> 'planted'`,
+      [`${repoDir}/`],
+    );
+    expect(rows.rows[0]?.n).toBe(0);
+    const chunks = await storage.raw().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE d.source_id = 'repo' AND c.source_id IS NULL`,
+    );
+    expect(chunks.rows[0]?.n).toBe(0);
   });
 });

@@ -83,6 +83,16 @@ function rowToSource(r: RawSourceRow): SourceRow {
   };
 }
 
+/**
+ * An empty prefix prefixes every path, so that source would claim every
+ * document the next sweep classifies.
+ */
+function assertPathPrefix(pathPrefix: string): void {
+  if (pathPrefix.trim() === "") {
+    throw new Error("source: pathPrefix must not be empty");
+  }
+}
+
 export async function registerSource(
   engine: Engine,
   opts: RegisterSourceOptions,
@@ -92,6 +102,7 @@ export async function registerSource(
   if (opts.id === NO_SOURCE_SENTINEL) {
     throw new Error(`registerSource: "${NO_SOURCE_SENTINEL}" is reserved`);
   }
+  assertPathPrefix(opts.pathPrefix);
   const r = await engine.query<RawSourceRow>(
     `INSERT INTO sources (
        id, kind, path_prefix, sync_policy, indexed_policy,
@@ -181,7 +192,10 @@ export async function updateSource(
     sets.push(`${col} = $${params.length}`);
   }
   if (opts.kind !== undefined) add("kind", opts.kind);
-  if (opts.pathPrefix !== undefined) add("path_prefix", opts.pathPrefix);
+  if (opts.pathPrefix !== undefined) {
+    assertPathPrefix(opts.pathPrefix);
+    add("path_prefix", opts.pathPrefix);
+  }
   if (opts.syncPolicy !== undefined) add("sync_policy", opts.syncPolicy);
   if (opts.indexedPolicy !== undefined) add("indexed_policy", opts.indexedPolicy);
   if (opts.rateLimitPerMinute !== undefined)
@@ -272,6 +286,19 @@ export async function deleteSource(
 }
 
 /**
+ * A path belongs to a prefix when the prefix covers it up to a separator:
+ * an exact prefix compare (`_` and `%` in a prefix are LIKE wildcards, and the
+ * `__default__` sentinel carries four), and the prefix must end at a path
+ * boundary, so `/vault/a` does not own `/vault/a-shared/x.md`.
+ */
+const PATH_PREFIX_MATCH = `left($1, length(path_prefix)) = path_prefix
+        AND (
+          right(path_prefix, 1) = '/'
+          OR length($1) = length(path_prefix)
+          OR substr($1, length(path_prefix) + 1, 1) = '/'
+        )`;
+
+/**
  * Pick the most specific source for a given source_path: longest matching
  * path_prefix wins. Returns null if no source matches.
  */
@@ -279,55 +306,92 @@ export async function resolveSourceForPath(
   engine: Engine,
   sourcePath: string,
 ): Promise<string | null> {
-  const r = await engine.query<{ id: string; path_prefix: string }>(
-    `SELECT id, path_prefix FROM sources
-     WHERE $1 LIKE path_prefix || '%'
-     ORDER BY length(path_prefix) DESC
-     LIMIT 1`,
+  const r = await engine.query<{ id: string }>(
+    `SELECT id FROM sources
+      WHERE ${PATH_PREFIX_MATCH}
+      ORDER BY length(path_prefix) DESC
+      LIMIT 1`,
     [sourcePath],
   );
   return r.rows[0]?.id ?? null;
 }
 
+
 /**
- * Backfill: assign source_id to every document whose source_id is null,
- * picking the most specific path_prefix match. Idempotent: rows whose
- * source_id is already set are skipped.
+ * Classify documents that carry no source yet, picking the most specific
+ * `path_prefix` that owns their path, and hand the source down to their chunks
+ * and code edges. Idempotent, and set-based because the sweeps run it after
+ * every pass while documents no prefix matches stay NULL for good.
+ *
+ * `paths` is the provenance fence, and every caller passes one: only paths a
+ * local indexer just wrote, or that a sweep confirmed already hold its own
+ * newer index, are classified. Remote ingest (`index` with `sourcePath` +
+ * `text`) labels a document in the CALLER's namespace — an unfenced backfill
+ * would let that label pick a tenant's prefix and drop attacker-authored text
+ * into that tenant's scoped reads. Pass a path only after the local write for
+ * it succeeded; a path a walk merely saw says nothing about who wrote the row
+ * sitting at it.
  */
 export async function backfillDocumentSources(
   engine: Engine,
+  paths: readonly string[],
 ): Promise<{ updated: number; unmatched: number }> {
-  const r = await engine.query<{ id: string; source_path: string }>(
-    `SELECT id, source_path FROM documents WHERE source_id IS NULL`,
-  );
-  let updated = 0;
-  let unmatched = 0;
-  for (const row of r.rows) {
-    const sourceId = await resolveSourceForPath(engine, row.source_path);
-    if (sourceId) {
-      // `source_id` is a ranking-relevant field (source-boost weighting + the
-      // scope filter on the keyword/vector arms), so changing it must
-      // invalidate the two-layer query cache for the touched document: bump
-      // its `generation` (Layer 2). The global clock is bumped once after the
-      // loop (Layer 1) so a cached row that returned this doc invalidates.
-      await engine.query(
-        `UPDATE documents SET source_id = $1, generation = generation + 1 WHERE id = $2`,
-        [sourceId, row.id],
-      );
-      // Chunks and code edges mirror their document's source; left NULL they
-      // would stay invisible to the document's own scoped readers.
-      await engine.query(`UPDATE chunks SET source_id = $1 WHERE document_id = $2 AND source_id IS NULL`, [sourceId, row.id]);
-      await engine.query(
-        `UPDATE code_edges_symbol e SET source_id = $1
-           FROM chunks c
-          WHERE e.from_chunk_id = c.id AND c.document_id = $2 AND e.source_id IS NULL`,
-        [sourceId, row.id],
-      );
-      updated++;
-    } else {
-      unmatched++;
+  if (paths.length === 0) return { updated: 0, unmatched: 0 };
+  return engine.transaction(async (tx) => {
+    // `source_id` is a ranking-relevant field (source-boost weighting + the
+    // scope filter on the keyword/vector arms), so changing it must invalidate
+    // the two-layer query cache for the touched document: bump its `generation`
+    // (Layer 2), and the global clock once (Layer 1).
+    const moved = await tx.query<{ id: string }>(
+      `UPDATE documents d
+          SET source_id = m.source_id, generation = d.generation + 1
+         FROM (
+           SELECT DISTINCT ON (doc.id) doc.id AS doc_id, s.id AS source_id
+             FROM documents doc
+             JOIN sources s ON left(doc.source_path, length(s.path_prefix)) = s.path_prefix
+              AND (
+                right(s.path_prefix, 1) = '/'
+                OR length(doc.source_path) = length(s.path_prefix)
+                OR substr(doc.source_path, length(s.path_prefix) + 1, 1) = '/'
+              )
+            WHERE doc.source_id IS NULL
+              AND doc.source_path = ANY($1::text[])
+            ORDER BY doc.id, length(s.path_prefix) DESC
+         ) m
+        WHERE d.id = m.doc_id
+      RETURNING d.id`,
+      [paths as string[]],
+    );
+    // Chunks and code edges mirror their document's source; left NULL they
+    // would stay invisible to the document's own scoped readers. Driven off the
+    // rows' own state, not this pass's id list, so a document classified by an
+    // earlier run that died before propagating is repaired here.
+    const chunks = await tx.query<{ id: string }>(
+      `UPDATE chunks c SET source_id = d.source_id
+         FROM documents d
+        WHERE c.document_id = d.id
+          AND c.source_id IS NULL AND d.source_id IS NOT NULL
+          AND d.source_path = ANY($1::text[])
+      RETURNING c.id`,
+      [paths as string[]],
+    );
+    const edges = await tx.query<{ id: number }>(
+      `UPDATE code_edges_symbol e SET source_id = d.source_id
+         FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE e.from_chunk_id = c.id
+          AND e.source_id IS NULL AND d.source_id IS NOT NULL
+          AND d.source_path = ANY($1::text[])
+      RETURNING e.id`,
+      [paths as string[]],
+    );
+    if (moved.rows.length > 0 || chunks.rows.length > 0 || edges.rows.length > 0) {
+      await bumpDocumentClock(tx);
     }
-  }
-  if (updated > 0) await bumpDocumentClock(engine);
-  return { updated, unmatched };
+    const left = await tx.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM documents
+        WHERE source_id IS NULL AND source_path = ANY($1::text[])`,
+      [paths as string[]],
+    );
+    return { updated: moved.rows.length, unmatched: left.rows[0]?.n ?? 0 };
+  });
 }

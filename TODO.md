@@ -304,14 +304,18 @@ Release A verification:
 - [ ] Follow-up (not in the approved plan): an explicit `source_id` naming an
   archived or removed source returns `unknown_source`; code-intel ops route to
   one resolved source.
-- [ ] Follow-up: tags an unscoped writer stamped `default` on a tenant page
-  before this release stay in `default`. Moving them safely needs the tag's age
-  compared with the page's, which the table does not record.
-- [ ] Follow-up: fence facts an unscoped `page_append` / `page_revert` /
-  `page_restore` reconciled under `default` before this release are not moved;
-  the next reconcile under the page's source can leave them as stale duplicates,
-  and a `default` tombstone does not suppress the tenant copy. Needs a guarded
-  backfill against the `(source_id, source_markdown_slug, row_num)` index.
+- [ ] REFUSED for now: moving the tags and fence facts an unscoped writer left
+  under `default` on a tenant's page. A migration guarded on the row being newer
+  than the page row was written and then dropped: `renamePage` carries the old
+  row's `created_at` onto the new slug, so rows written for a slug's PREVIOUS
+  occupant pass the guard and would move to the current owner (reproduced
+  against PGLite), and a live `default` row whose owner already holds a
+  tombstone at the same `(slug, row_num)` would move in and read as live again,
+  resurrecting a forgotten claim. The fence key is partial on
+  `forgotten_at IS NULL`, so nothing would raise. Moving these rows safely needs
+  evidence of who owned the slug when the row was written — a per-slug ownership
+  history the schema does not keep. Until then they stay in `default`, which is
+  fail-closed: only the operator reads them.
 
 #### Release C — code graph `source_id`
 
@@ -339,10 +343,57 @@ Release A verification:
 - [x] Live (v1.131.0): migration 104 applied (doctor: schema at 104, 0
   failures); a source-scoped personal token's `code_flow` returns the call graph,
   empty for every scoped caller before.
-- [ ] Follow-up: the code sweep and `memex index <file>` still index code
-  documents without a source (`indexCodeFile` passes none); doctor reports them as
-  NULL-source documents, invisible to every scoped reader. Needs a path-to-source
-  rule for code roots.
+- [x] `sweepVault`, `sweepCodeRoots` and `memex index <file>` classify what they
+  indexed: each ends with `backfillDocumentSources`, which assigns the source
+  whose `path_prefix` owns the document's path and carries it down to chunks and
+  code edges. The indexers keep passing no source on purpose — a caller that
+  NAMES one is fenced from rows another source or nobody owns, so resolving the
+  source inside `indexFile` would make every re-index of a NULL-owned row a
+  `permission_denied`.
+- [x] The classification pass is fenced to local provenance: a sweep passes a
+  path only after it indexed that file, or skipped it because the row already
+  held the sweep's own newer index. Without the fence it was an escalation —
+  `index` is in `PUBLIC_WRITE_TOOLS`, its inline `sourcePath` + `text` form
+  deliberately keeps the caller's label un-canonicalized, and the static public
+  bearer carries no write source, so a remote caller could label a document
+  under a tenant's prefix. Collecting every path the walk SAW was not enough: a
+  walk that breaks on `maxFiles`, or fails on a file, would have handed the row
+  planted at that path its prefix owner. A `last_indexed_mtime IS NOT NULL`
+  condition was tried instead and dropped — a degraded code parse stores plain
+  text with no mtime on purpose (so the next sweep retries the grammar), and
+  those legitimate local documents would never have been classified.
+- [x] The prefix match is exact and boundary-anchored: `left(path, length(prefix))
+  = prefix` plus a separator check, so neither the `__default__` sentinel's four
+  LIKE wildcards nor a mid-name prefix (`/vault/team` vs `/vault/team-archive`)
+  can claim a path. `registerSource` and `updateSource` both refuse an empty
+  prefix.
+- [x] The pass runs in one transaction, and drives chunk and edge propagation
+  off the rows' own NULL state, unconditionally — so a document an interrupted
+  earlier run classified without propagating is repaired even when this pass
+  moves nothing. A failure is recorded in the sweep result instead of discarding
+  a successful walk.
+- [x] Migration `105_documents_source_id_index.sql`: migration 004's
+  `documents(source_id)` index never existed — it reused the name 001 had taken
+  for `documents(source_path)`, so every source-scoped read was a sequential
+  scan.  It also adds the partial `chunks(document_id) WHERE source_id IS NULL`
+  the classification pass needs: migration 058's chunk index is partial on
+  `source_id IS NOT NULL`, the opposite predicate, so that statement scanned
+  every chunk row on every sweep tick.
+- [x] Both provenance tests are mutation-checked: moving the sweeps' path push
+  back to "every file the walk saw" makes `tests/sweep_code.test.ts` and
+  `tests/sweep.test.ts` fail. The first version of the code-sweep case did NOT
+  — `maxFiles: 0` with `force` left the confirmed list empty, and the planted
+  path had no file on disk, so it only proved that an empty list classifies
+  nothing.
+- [ ] Follow-up (pre-existing, not introduced here): the inline `index` form
+  derives the document id from the caller's `sourcePath` label, and a caller with
+  no write source is not write-fenced, so a public-write install lets a remote
+  caller overwrite any document by naming its path. Needs the inline form to
+  namespace remote labels, or to refuse a write to an existing row it does not
+  own.
+- [ ] Follow-up (pre-existing): the `index` `path` form ignores the caller's
+  write source, so any authenticated tenant can have the daemon read a file
+  under the vault/code roots and ingest it outside their own scope.
 
 #### Gated live steps (explicit "yes" at the time)
 

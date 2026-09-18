@@ -20,6 +20,7 @@ import { normalizeSourcePath } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { SUPPORTED_EXTENSIONS } from "./chunkers/parsers.ts";
+import { backfillDocumentSources } from "./sources.ts";
 
 export interface SweepCodeOptions {
   /** Filesystem roots to sweep (each becomes its own source). */
@@ -135,6 +136,11 @@ export async function sweepCodeRoots(
   const perFileDelayMs = Math.max(0, opts.perFileDelayMs ?? 0);
   const maxFiles = opts.maxFiles ?? Number.POSITIVE_INFINITY;
   let budgetBroke = false;
+  // Paths this walk CONFIRMED as local: either it indexed the file, or it
+  // skipped the file because the row already carried a newer index of it. That
+  // is the provenance fence for the source classification below — a path the
+  // walk merely saw proves nothing about who wrote the row sitting at it.
+  const indexed: string[] = [];
 
   for (const root of opts.paths) {
     const perRoot = { root, files: 0, missing: !existsSync(root) };
@@ -152,7 +158,8 @@ export async function sweepCodeRoots(
       // path, so hashing the walked shape instead makes every mtime skip miss
       // whenever a code root is relative — the whole tree re-indexes on every
       // tick and the skip quietly stops being a skip.
-      const id = docId(normalizeSourcePath(file.path));
+      const canonical = normalizeSourcePath(file.path);
+      const id = docId(canonical);
       const lastIndexed = known.get(id) ?? null;
       const forcedByChunker = staleChunkerIds?.has(id) ?? false;
       if (forcedByChunker) seenStaleIds!.add(id);
@@ -163,6 +170,7 @@ export async function sweepCodeRoots(
         lastIndexed >= file.mtimeMs
       ) {
         result.skipped++;
+        indexed.push(canonical);
         continue;
       }
       if (result.reindexed >= maxFiles) {
@@ -172,6 +180,7 @@ export async function sweepCodeRoots(
       try {
         const out = await indexCodeFile(storage, file.path);
         result.reindexed++;
+        indexed.push(canonical);
         if (out.hasParseError) result.parseErrors++;
       } catch (e) {
         result.errors.push({
@@ -191,6 +200,19 @@ export async function sweepCodeRoots(
   if (staleChunkerIds && seenStaleIds && !budgetBroke) {
     const unreached = [...staleChunkerIds].filter((id) => !seenStaleIds.has(id));
     if (unreached.length > 0) result.staleChunkerUnreached = unreached;
+  }
+
+  // indexCodeFile writes no source (a trusted local caller must not be fenced
+  // from rows another source owns), so the registered path prefixes classify the
+  // walked files afterwards. A failure here leaves the walk's own result
+  // standing — the next sweep retries the classification.
+  try {
+    await backfillDocumentSources(storage.raw(), indexed);
+  } catch (e) {
+    result.errors.push({
+      path: opts.paths.join(", "),
+      message: `source classification failed: ${(e as Error).message}`,
+    });
   }
 
   return result;
