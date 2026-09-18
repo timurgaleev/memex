@@ -5,7 +5,14 @@
  * rather than at the first embed call.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { awsRegion, llmRequestTimeoutMs } from "../src/core/llm/gateway.ts";
+import {
+  awsRegion,
+  chatTimeoutMs,
+  embedTimeoutMs,
+  llmRequestTimeoutMs,
+  reasoningTimeoutMs,
+  utilityTimeoutMs,
+} from "../src/core/llm/gateway.ts";
 import { resolveEmbedDimensions } from "../src/core/embedding.ts";
 
 describe("llmRequestTimeoutMs", () => {
@@ -64,6 +71,58 @@ describe("env default-parameter path", () => {
   test("MEMEX_LLM_TIMEOUT_MS='' reads through the default arg to 30000", () => {
     process.env.MEMEX_LLM_TIMEOUT_MS = "";
     expect(llmRequestTimeoutMs()).toBe(30000);
+  });
+});
+
+describe("per-call-kind Bedrock timeouts", () => {
+  const KEYS = [
+    "MEMEX_LLM_TIMEOUT_MS",
+    "MEMEX_LLM_UTILITY_TIMEOUT_MS",
+    "MEMEX_LLM_REASONING_TIMEOUT_MS",
+    "MEMEX_EMBED_TIMEOUT_MS",
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+  const clear = () => {
+    for (const k of KEYS) {
+      saved[k] ??= process.env[k];
+      delete process.env[k];
+    }
+  };
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  test("each kind has its own default when nothing is set", () => {
+    clear();
+    expect(utilityTimeoutMs()).toBe(30_000);
+    expect(reasoningTimeoutMs()).toBe(120_000);
+    expect(embedTimeoutMs()).toBe(10_000);
+  });
+
+  test("the shared knob covers every kind that has no knob of its own", () => {
+    clear();
+    process.env.MEMEX_LLM_TIMEOUT_MS = "45000";
+    expect(utilityTimeoutMs()).toBe(45_000);
+    expect(reasoningTimeoutMs()).toBe(45_000);
+    expect(embedTimeoutMs()).toBe(45_000);
+  });
+
+  test("a chat timeout grows with the output it may generate", () => {
+    expect(chatTimeoutMs(30_000, 0)).toBe(30_000);
+    expect(chatTimeoutMs(120_000, 8000)).toBe(320_000);
+    expect(chatTimeoutMs(30_000, -5)).toBe(30_000);
+  });
+
+  test("a kind's own knob wins, and an empty one is unset", () => {
+    clear();
+    process.env.MEMEX_LLM_TIMEOUT_MS = "45000";
+    process.env.MEMEX_EMBED_TIMEOUT_MS = "5000";
+    process.env.MEMEX_LLM_REASONING_TIMEOUT_MS = "";
+    expect(embedTimeoutMs()).toBe(5_000);
+    expect(reasoningTimeoutMs()).toBe(45_000);
   });
 });
 

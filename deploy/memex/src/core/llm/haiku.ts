@@ -23,9 +23,14 @@ import {
   type ContentBlock,
   type ConverseCommandOutput,
 } from "@aws-sdk/client-bedrock-runtime";
-import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
-import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
+import {
+  awsRegion,
+  bedrockClientConfig,
+  chatTimeoutMs,
+  utilityTimeoutMs,
+  withInflightCap,
+} from "./gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
 /** Default utility model — Claude Haiku (Bedrock), identical to intent.ts / expansion.ts. */
@@ -96,17 +101,7 @@ const _clients = new Map<string, BedrockRuntimeClient>();
 function client(region: string): BedrockRuntimeClient {
   let c = _clients.get(region);
   if (!c) {
-    c = new BedrockRuntimeClient({
-      region,
-      // Tuned retry/backoff/timeout — the SDK gives this natively, so memex
-      // doesn't hand-roll it. Adaptive retry backs off on 429/5xx; the request
-      // timeout (MEMEX_LLM_TIMEOUT_MS, default 30s) bounds a hung call.
-      maxAttempts: 4,
-      retryMode: "adaptive",
-      requestHandler: new NodeHttpHandler({
-        requestTimeout: llmRequestTimeoutMs(),
-      }),
-    });
+    c = new BedrockRuntimeClient({ region, ...bedrockClientConfig(utilityTimeoutMs()) });
     _clients.set(region, c);
   }
   return c;
@@ -181,6 +176,7 @@ export async function callHaiku(
             temperature: input.temperature ?? 0,
           },
         }),
+        { requestTimeout: chatTimeoutMs(utilityTimeoutMs(), input.maxTokens) },
       ),
     );
 

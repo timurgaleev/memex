@@ -146,6 +146,13 @@ services:
       # concurrent write (default 4; empty = default). 1 restores the old serial
       # behaviour. Not the backfill's pool width — that is MEMEX_EMBED_CONCURRENCY.
       - MEMEX_EMBED_MAX_INFLIGHT=${MEMEX_EMBED_MAX_INFLIGHT:-}
+      # Bedrock request timeouts, in ms, per call kind; each falls back to
+      # MEMEX_LLM_TIMEOUT_MS, then to its own default (utility 30000, reasoning
+      # 120000, embedding 10000). A timeout ends the request and the SDK retries.
+      - MEMEX_LLM_TIMEOUT_MS=${MEMEX_LLM_TIMEOUT_MS:-}
+      - MEMEX_LLM_UTILITY_TIMEOUT_MS=${MEMEX_LLM_UTILITY_TIMEOUT_MS:-}
+      - MEMEX_LLM_REASONING_TIMEOUT_MS=${MEMEX_LLM_REASONING_TIMEOUT_MS:-}
+      - MEMEX_EMBED_TIMEOUT_MS=${MEMEX_EMBED_TIMEOUT_MS:-}
       # Override the paid-tier model (default eu.anthropic.claude-sonnet-4-6).
       - MEMEX_FACTS_MODEL=${MEMEX_FACTS_MODEL:-}
       # Public base URL (Cloudflare tunnel origin). When set, the OAuth 2.1

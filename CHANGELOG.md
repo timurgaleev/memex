@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Bedrock request timeouts are real.** The 30 s `requestTimeout` on the chat
+  clients only logged a warning — the request ran on, which is how a write
+  reached 116 s — and the embedding client had no timeout and no explicit retry
+  budget at all. Every Bedrock client now shares one transport: a timeout ends
+  the request and the SDK retries it, a throttle and a 5xx alike, up to 4
+  attempts. That matters more now that a write embeds its chunks in parallel,
+  where one throttled chunk used to abort the whole page. The embedding client
+  retries in standard mode rather than adaptive: it serves the bulk backfill
+  and the live search's query embed alike, and adaptive mode's client-side rate
+  limiter would let a throttled backfill slow down search.
+- **A chat call's timeout grows with the output it may generate.** Converse
+  does not stream, so the socket is silent until the whole answer exists, and a
+  call allowed 8000 output tokens legitimately runs for minutes. Cutting it at a
+  fixed limit would make the SDK re-send it, each attempt generating — and
+  likely billing — in full. A chat call now gets its tier's base plus 25 ms per
+  output token it may produce: a genuinely hung request still ends, a long one
+  no longer does.
+- **Timeouts are set per call kind.** `MEMEX_LLM_UTILITY_TIMEOUT_MS` (Haiku base,
+  default 30 s), `MEMEX_LLM_REASONING_TIMEOUT_MS` (Sonnet base, default 120 s)
+  and `MEMEX_EMBED_TIMEOUT_MS` (Titan, default 10 s), each falling back to
+  `MEMEX_LLM_TIMEOUT_MS` — which the compose file never passed through before.
+
 ## [1.134.0] — 2026-09-18
 
 ### Changed

@@ -10,7 +10,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { awsRegion } from "./llm/gateway.ts";
+import { awsRegion, bedrockClientConfig, embedTimeoutMs } from "./llm/gateway.ts";
 import { trackedInvoke } from "./budget.ts";
 
 /** Ledger label for the embedding tier. Every stored vector's dollar lands
@@ -84,7 +84,14 @@ let _defaultClient: BedrockRuntimeClient | null = null;
 
 function getClient(): BedrockRuntimeClient {
   if (_defaultClient === null) {
-    _defaultClient = new BedrockRuntimeClient({ region: DEFAULT_REGION });
+    // Standard retry, not adaptive: this one client serves the bulk backfill and
+    // the live search's query embed alike, and adaptive mode's client-side rate
+    // limiter would let a throttled backfill slow down interactive search.
+    _defaultClient = new BedrockRuntimeClient({
+      region: DEFAULT_REGION,
+      ...bedrockClientConfig(embedTimeoutMs()),
+      retryMode: "standard",
+    });
   }
   return _defaultClient;
 }

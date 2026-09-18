@@ -16,9 +16,14 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { resolveModel } from "./resolve-model.ts";
-import { awsRegion, llmRequestTimeoutMs, withInflightCap } from "./gateway.ts";
+import {
+  awsRegion,
+  bedrockClientConfig,
+  chatTimeoutMs,
+  reasoningTimeoutMs,
+  withInflightCap,
+} from "./gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
 /** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
@@ -61,16 +66,7 @@ const _clients = new Map<string, BedrockRuntimeClient>();
 function client(region: string): BedrockRuntimeClient {
   let c = _clients.get(region);
   if (!c) {
-    c = new BedrockRuntimeClient({
-      // Tuned retry/backoff/timeout via the SDK (adaptive retry on 429/5xx +
-      // MEMEX_LLM_TIMEOUT_MS request timeout, default 30s) — see gateway.ts.
-      region,
-      maxAttempts: 4,
-      retryMode: "adaptive",
-      requestHandler: new NodeHttpHandler({
-        requestTimeout: llmRequestTimeoutMs(),
-      }),
-    });
+    c = new BedrockRuntimeClient({ region, ...bedrockClientConfig(reasoningTimeoutMs()) });
     _clients.set(region, c);
   }
   return c;
@@ -129,6 +125,7 @@ export async function callSonnet(
               temperature: input.temperature ?? 0,
             },
           }),
+          { requestTimeout: chatTimeoutMs(reasoningTimeoutMs(), input.maxTokens) },
         ),
       );
       const text = resp.output?.message?.content?.[0]?.text ?? "";

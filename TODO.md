@@ -570,6 +570,28 @@ mirror last, because the mirror is where every blocker sits.
     hangs past the timeout, then 200. The old "no duplicate chunks" claim holds
     by construction (delete-then-insert with deterministic ids) and proves
     nothing about retries.
+  - DONE in v1.135.0 (see CHANGELOG), with two corrections the review forced:
+    a chat call's timeout is its tier base plus 25 ms per allowed output token
+    (Converse does not stream — a fixed 30 s/120 s limit would cut `think`'s
+    8000-token retry at ~130 s and the SDK would re-send it, billing each
+    attempt in full), and the embedding client uses standard retry, not
+    adaptive, so a throttled backfill cannot rate-limit live query embeds
+    through their shared client.
+  - Open from the R4 review:
+    - The spend ledger UNDERCOUNTS a timed-out attempt: `meter.report` only
+      runs on a response, so an attempt AWS may still bill never reaches
+      `mcp_spend_log` or the client ceiling. The token count of a cut request
+      is unknowable client-side; at least count the attempts.
+    - `skillify.ts`, `friction-propose.ts`, `search/intent.ts`,
+      `search/two-pass.ts` and `search/expansion.ts` still build their own
+      `new BedrockRuntimeClient({ region })` with SDK defaults and no real
+      timeout. Move them onto `bedrockClientConfig`.
+    - `embed-backfill.ts`'s `embedWithRetry` (6 tries) wraps the SDK's 4
+      attempts: up to 24 sends for one throttled chunk. Drop the app-level
+      loop now that the client retries, or shorten it.
+    - The query embed's 6 s race (`search/hybrid.ts`) is shorter than one
+      10 s embed attempt, so SDK retries never help an interactive search.
+      Consider a separate, shorter-timeout client for query embeds.
 - **R5 — stamp the contextual tier.** `chunks.contextual_tier` plus a tier
   resolver (page frontmatter → source row → global flag), joined into the reuse
   check, so a forced re-embed cannot silently downgrade an LLM-tier chunk.
