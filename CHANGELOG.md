@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Two optional search steps could hang a search.** LLM intent classification
+  and query expansion called Bedrock with no timeout at all, so a stalled call
+  held the whole `search` / `query` open. Both now give up after 5 s and fall
+  back as they always did on an error — the taxonomy intent, no expansion
+  variants. The 5 s covers the whole operation, including the SDK's own pauses
+  between retries: an abort signal alone never reaches those, and a throttle
+  carrying `Retry-After: 10` held expansion for 11 s. Rerank was already
+  bounded and is unchanged.
+- **Every remaining Bedrock client shares the one transport.** Skill drafting
+  and friction proposals built their own clients with SDK defaults; they now
+  use the shared retries and a timeout sized to the output they may generate.
+- **A throttled backfill chunk no longer turns into two dozen sends.** The
+  embed backfill retried a throttle 5 more times on top of the client's own 4
+  attempts. It now adds at most 2, with its longer pause; the row is picked up
+  again by the next run either way.
+
 ## [1.135.0] — 2026-09-18
 
 ### Fixed

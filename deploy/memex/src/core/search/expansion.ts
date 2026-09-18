@@ -19,7 +19,7 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { awsRegion } from "../llm/gateway.ts";
+import { awsRegion, bedrockClientConfig, SEARCH_LLM_BUDGET_MS, utilityTimeoutMs, withDeadline } from "../llm/gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -86,7 +86,7 @@ export function sanitizeExpansionOutput(alternatives: readonly unknown[], max: n
 
 let _client: BedrockRuntimeClient | null = null;
 function client(region: string): BedrockRuntimeClient {
-  if (!_client) _client = new BedrockRuntimeClient({ region });
+  if (!_client) _client = new BedrockRuntimeClient({ region, ...bedrockClientConfig(utilityTimeoutMs()) });
   return _client;
 }
 
@@ -129,13 +129,16 @@ export async function expandQuery(
   const c = opts.client ?? client(region);
   try {
     return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
-      const resp = await c.send(
-        new ConverseCommand({
-          modelId,
-          system: [{ text: SYSTEM_PROMPT.replace("N", String(max)) }],
-          messages: [{ role: "user", content: [{ text: safeQuery }] }],
-          inferenceConfig: { maxTokens: 120, temperature: 0.3 },
-        }),
+      const resp = await withDeadline(SEARCH_LLM_BUDGET_MS, (abortSignal) =>
+        c.send(
+          new ConverseCommand({
+            modelId,
+            system: [{ text: SYSTEM_PROMPT.replace("N", String(max)) }],
+            messages: [{ role: "user", content: [{ text: safeQuery }] }],
+            inferenceConfig: { maxTokens: 120, temperature: 0.3 },
+          }),
+          { abortSignal },
+        ),
       );
       if (resp.usage) {
         meter.report({

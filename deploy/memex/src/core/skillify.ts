@@ -18,7 +18,7 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { awsRegion } from "./llm/gateway.ts";
+import { awsRegion, bedrockClientConfig, chatTimeoutMs, utilityTimeoutMs } from "./llm/gateway.ts";
 import { trackedInvoke } from "./budget.ts";
 
 /** Ledger label — the one-shot skill drafter behind `memex skillify`. */
@@ -28,10 +28,15 @@ const DEFAULT_MODEL_ID =
   process.env.SKILLIFY_MODEL_ID ?? "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const DEFAULT_REGION = awsRegion();
 
+const MAX_OUTPUT_TOKENS = 1500;
+
 let _defaultClient: BedrockRuntimeClient | null = null;
 function getClient(): BedrockRuntimeClient {
   if (_defaultClient === null) {
-    _defaultClient = new BedrockRuntimeClient({ region: DEFAULT_REGION });
+    _defaultClient = new BedrockRuntimeClient({
+      region: DEFAULT_REGION,
+      ...bedrockClientConfig(utilityTimeoutMs()),
+    });
   }
   return _defaultClient;
 }
@@ -141,11 +146,13 @@ export async function draftSkill(
         ],
       },
     ],
-    inferenceConfig: { maxTokens: 1500, temperature: 0.3 },
+    inferenceConfig: { maxTokens: MAX_OUTPUT_TOKENS, temperature: 0.3 },
   });
 
   const text = await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
-    const response = await client.send(command);
+    const response = await client.send(command, {
+      requestTimeout: chatTimeoutMs(utilityTimeoutMs(), MAX_OUTPUT_TOKENS),
+    });
     if (response.usage) {
       meter.report({
         inputTokens: response.usage.inputTokens ?? 0,

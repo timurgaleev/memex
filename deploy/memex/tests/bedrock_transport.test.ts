@@ -13,8 +13,9 @@ import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { bedrockClientConfig } from "../src/core/llm/gateway.ts";
 import { EMBED_DIMENSIONS, embedText } from "../src/core/embedding.ts";
 import { callHaiku } from "../src/core/llm/haiku.ts";
+import { expandQuery } from "../src/core/search/expansion.ts";
 
-type Reply = "ok" | "throttle" | "unavailable" | "hang" | "slow-converse";
+type Reply = "ok" | "throttle" | "throttle-retry-after" | "unavailable" | "hang" | "slow-converse" | "hang-long";
 
 let server: ReturnType<typeof Bun.serve>;
 let script: Reply[] = [];
@@ -39,9 +40,23 @@ beforeAll(() => {
           usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
         });
       }
+      if (reply === "hang-long") {
+        await new Promise((r) => setTimeout(r, 20_000));
+        return new Response("too late", { status: 200 });
+      }
       if (reply === "hang") {
         await new Promise((r) => setTimeout(r, 5_000));
         return new Response("too late", { status: 200 });
+      }
+      if (reply === "throttle-retry-after") {
+        await new Promise((r) => setTimeout(r, 1_000));
+        return Response.json(
+          { message: "Too many requests" },
+          {
+            status: 429,
+            headers: { "x-amzn-errortype": "ThrottlingException", "retry-after": "10" },
+          },
+        );
       }
       if (reply === "throttle") {
         return Response.json(
@@ -137,4 +152,27 @@ describe("shared Bedrock transport", () => {
       else process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS = prev;
     }
   });
+
+  it("does not let an optional search-path LLM step hold a search hostage", async () => {
+    // Query expansion is a recall bonus that fails open; a hung call must give
+    // up at the search budget, not wait out a chat timeout.
+    script = ["hang-long", "hang-long", "hang-long", "hang-long"];
+    const started = performance.now();
+    const variants = await expandQuery("memex write latency", { client: client(60_000) });
+    const took = performance.now() - started;
+    expect(variants).toEqual([]);
+    expect(took).toBeGreaterThan(4_000);
+    expect(took).toBeLessThan(8_000);
+  }, 15_000);
+
+  it("keeps the search budget through the SDK's own retry pauses", async () => {
+    // A throttle carrying Retry-After makes the SDK sleep between attempts, and
+    // that sleep ignores an abort signal; the deadline has to cover it.
+    script = ["throttle-retry-after", "ok"];
+    const started = performance.now();
+    const variants = await expandQuery("memex write latency", { client: client(60_000) });
+    const took = performance.now() - started;
+    expect(variants).toEqual([]);
+    expect(took).toBeLessThan(6_500);
+  }, 20_000);
 });

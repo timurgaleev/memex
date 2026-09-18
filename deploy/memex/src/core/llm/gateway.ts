@@ -115,6 +115,41 @@ export function chatTimeoutMs(baseMs: number, maxTokens: number): number {
   return baseMs + Math.max(0, maxTokens) * 25;
 }
 
+/**
+ * Wall clock for an optional LLM step on the SEARCH path (intent, query
+ * expansion). Both fail open, so a slow answer is worth less than none: the
+ * search must not wait out a chat timeout. Rerank has its own knob,
+ * `MEMEX_RERANK_TIMEOUT_MS`, with the same 5 s default.
+ */
+export const SEARCH_LLM_BUDGET_MS = 5_000;
+
+/**
+ * Bound a whole SDK operation — every attempt AND the pauses between them — to
+ * `ms`. An `abortSignal` alone only reaches the HTTP handler: the SDK's retry
+ * backoff, a server's Retry-After and adaptive mode's rate-limit wait all
+ * ignore it, so a throttled call can outlive its signal by many seconds. The
+ * race returns on time; the abort stops any attempt that has not gone out yet.
+ */
+export async function withDeadline<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`operation exceeded its ${ms} ms deadline`));
+    }, ms);
+  });
+  const work = run(controller.signal);
+  // The loser of the race still settles later; it must not surface as an
+  // unhandled rejection.
+  work.catch(() => {});
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Titan embeddings: one short input, a fixed-size vector back. */
 export function embedTimeoutMs(): number {
   return kindTimeoutMs(process.env.MEMEX_EMBED_TIMEOUT_MS, 10_000);

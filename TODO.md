@@ -582,13 +582,14 @@ mirror last, because the mirror is where every blocker sits.
       runs on a response, so an attempt AWS may still bill never reaches
       `mcp_spend_log` or the client ceiling. The token count of a cut request
       is unknowable client-side; at least count the attempts.
-    - `skillify.ts`, `friction-propose.ts`, `search/intent.ts`,
-      `search/two-pass.ts` and `search/expansion.ts` still build their own
-      `new BedrockRuntimeClient({ region })` with SDK defaults and no real
-      timeout. Move them onto `bedrockClientConfig`.
-    - `embed-backfill.ts`'s `embedWithRetry` (6 tries) wraps the SDK's 4
-      attempts: up to 24 sends for one throttled chunk. Drop the app-level
-      loop now that the client retries, or shorten it.
+    - DONE (v1.136.0): `skillify.ts` and `friction-propose.ts` use
+      `bedrockClientConfig` with a `maxTokens`-scaled timeout;
+      `search/intent.ts` and `search/expansion.ts` — which had NO timeout on
+      the search path — use it plus a 5 s search budget
+      (`SEARCH_LLM_BUDGET_MS`), fail-open as before. `search/two-pass.ts` was
+      already bounded by `MEMEX_RERANK_TIMEOUT_MS` and is unchanged.
+    - DONE (v1.136.0): `embed-backfill.ts`'s throttle loop is capped at 2 extra
+      tries (was 5), so one throttled chunk costs at most 12 sends, not 24.
     - The query embed's 6 s race (`search/hybrid.ts`) is shorter than one
       10 s embed attempt, so SDK retries never help an interactive search.
       Consider a separate, shorter-timeout client for query embeds.

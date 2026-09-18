@@ -98,6 +98,19 @@ describe("embed backfill", () => {
     expect(await embeddingCount()).toBe(before); // no writes
   });
 
+  it("gives up on a throttled chunk after a bounded number of extra tries", async () => {
+    // The Bedrock client already retries a throttle 4 times; this loop must not
+    // multiply that into dozens of sends for one chunk.
+    let calls = 0;
+    const throttled = async (): Promise<number[]> => {
+      calls++;
+      throw Object.assign(new Error("slow down"), { name: "ThrottlingException" });
+    };
+    const r = await runEmbedBackfill(storage.engine(), { embed: throttled, concurrency: 1, limit: 1 });
+    expect(r.failed).toBe(1);
+    expect(calls).toBe(3); // the first try + 2 retries
+  });
+
   it("embeds exactly the two missing markdown chunks (code + already-embedded excluded)", async () => {
     const r = await runEmbedBackfill(storage.engine(), { embed: detEmbed });
     expect(r.candidates).toBe(2);

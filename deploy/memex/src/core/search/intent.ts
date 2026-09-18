@@ -24,7 +24,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { classifyQueryTaxonomy } from "./query-intent.ts";
-import { awsRegion } from "../llm/gateway.ts";
+import { awsRegion, bedrockClientConfig, SEARCH_LLM_BUDGET_MS, utilityTimeoutMs, withDeadline } from "../llm/gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
 export type Intent = "factual" | "topic" | "howto" | "personal" | "exact";
@@ -41,7 +41,7 @@ const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 let _client: BedrockRuntimeClient | null = null;
 function client(region: string): BedrockRuntimeClient {
-  if (!_client) _client = new BedrockRuntimeClient({ region });
+  if (!_client) _client = new BedrockRuntimeClient({ region, ...bedrockClientConfig(utilityTimeoutMs()) });
   return _client;
 }
 
@@ -96,13 +96,16 @@ export async function classifyIntent(
   const c = opts.client ?? client(region);
   try {
     return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
-      const resp = await c.send(
-        new ConverseCommand({
-          modelId,
-          system: [{ text: SYSTEM_PROMPT }],
-          messages: [{ role: "user", content: [{ text: trimmed }] }],
-          inferenceConfig: { maxTokens: 8, temperature: 0 },
-        }),
+      const resp = await withDeadline(SEARCH_LLM_BUDGET_MS, (abortSignal) =>
+        c.send(
+          new ConverseCommand({
+            modelId,
+            system: [{ text: SYSTEM_PROMPT }],
+            messages: [{ role: "user", content: [{ text: trimmed }] }],
+            inferenceConfig: { maxTokens: 8, temperature: 0 },
+          }),
+          { abortSignal },
+        ),
       );
       if (resp.usage) {
         meter.report({

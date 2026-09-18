@@ -74,8 +74,14 @@ import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
 const DEFAULT_CONCURRENCY = 8;
 /** Default keyset page size — chunks pulled from the DB per round-trip. */
 const DEFAULT_PAGE_SIZE = 500;
-/** Max retries for a throttled (429) embed call before it counts as failed. */
-const MAX_THROTTLE_RETRIES = 5;
+/**
+ * Max extra retries for a throttled (429) embed call before it counts as
+ * failed. Kept small because the Bedrock client already retries a throttle up
+ * to 4 times itself: a throttle that reaches this loop is one the SDK gave up
+ * on, and each retry here is another 4 sends. This loop only adds a longer
+ * pause; the row is picked up again by the next backfill run either way.
+ */
+const MAX_THROTTLE_RETRIES = 2;
 /** Base backoff (ms) for the first throttle retry; doubles each attempt. */
 const THROTTLE_BASE_DELAY_MS = 250;
 
