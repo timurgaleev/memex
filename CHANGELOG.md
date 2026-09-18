@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.138.0] — 2026-09-19
+
 ### Fixed
 - **A contextual re-embed could quietly downgrade the brain's best vectors.**
   The indexer never recorded that it had wrapped a chunk, so every chunk a live
