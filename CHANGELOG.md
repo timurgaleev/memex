@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.135.0] — 2026-09-18
+
 ### Fixed
 - **Bedrock request timeouts are real.** The 30 s `requestTimeout` on the chat
   clients only logged a warning — the request ran on, which is how a write
