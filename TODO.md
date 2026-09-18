@@ -523,7 +523,17 @@ mirror last, because the mirror is where every blocker sits.
   - Exit: re-putting a page with one edited section makes one LLM call and
     one embed call, not N; counted on the injected fns in
     `tests/reindex_reuse.test.ts`.
-- **R3 — bounded per-chunk fan-out (first move for NEW pages).**
+- **R3 — bounded per-chunk fan-out (first move for NEW pages).** Shipped
+  before R2 (live R1 data showed 96% of a write is serial Bedrock time, and
+  positional vector reuse already exists, so R2's latency win is marginal).
+  DONE, live 2026-09-18 (v1.134.0): the same 3-chunk probe went from
+  `ms_total=4135` to `ms_total=1598` — 2.6x on wall clock with the same
+  Bedrock work (sum 4309 ms) run in parallel. Only interactive writes fan out;
+  sweeps, reindex and the cycle stay serial. Open: the embedding client still
+  has default SDK retries (not adaptive), so a Titan throttle under parallel
+  load aborts the whole page — that is R4. `embed-backfill` keeps its own pool
+  of 8 outside the shared ceiling.
+- (original R3 spec)
   - Swap `withInflightCap`'s hand-rolled queue for the existing `Semaphore`
     (`concurrency.ts`), resolved lazily with a test-only reset (tests mutate
     the env per case).

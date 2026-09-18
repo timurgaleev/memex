@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.134.0] — 2026-09-18
+
 ### Changed
 - **An interactive write embeds its chunks in parallel.** Each chunk of a
   mirrored page pays a contextual Haiku call and a Titan embed, and they ran
