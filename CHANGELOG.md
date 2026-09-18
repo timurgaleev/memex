@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.139.0] — 2026-09-19
+
 ### Added
 - **The search mirror can move off the write path.** With
   `MEMEX_PAGE_MIRROR_SYNC=0`, `page_put` and `page_append` commit the page and
