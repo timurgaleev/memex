@@ -482,6 +482,124 @@ the cause.
   `cycle/index.ts`, `cycle/mirror-pages.ts`, `synthesis/takes.ts`, a tier-stamp
   migration, `deploy/docker-compose.yml`. Spend goes through `trackedInvoke`.
 
+**Release plan (design reviewed 2026-09-18).** Six lenses — request path,
+job infrastructure, embedding layer, read-after-write, phasing, tests — each
+proposal stressed by an independent critic against the code. None survived
+unchanged; 22 came back with concrete revisions and 2 were rejected. The order
+below puts the reversible, contract-preserving levers first and the async
+mirror last, because the mirror is where every blocker sits.
+
+- **R1 — make the write path attributable (no behaviour change).**
+  - Contextual Haiku calls book under `contextual-llm`, not `utility-llm`:
+    `generateChunkContext` passes `operation: CONTEXTUAL_LLM_LABEL` into
+    `resolveLlmFn`. Add an optional `client` to its options so a test can reach
+    the real transport and assert the ledger row.
+  - One structured log line per `indexDocument`: kind, slug, chunks total,
+    reused, llm ok / skipped, embed calls, fence embeds, ms total, ms tx. Paid
+    time split into queue / send / ledger through an AsyncLocalStorage
+    accumulator, the way `runWithSpendClient` already works — timing from
+    inside the indexer would count the inflight-cap queue as Bedrock time.
+  - Do NOT flip `MEMEX_REQUEST_LOG_DB`: it adds internal and static-bearer
+    calls to `mcp_request_log` and breaks comparison with the baseline above.
+    Every baseline and target query pins `token_name IS NOT NULL`.
+  - Exit: a live `page_put` log line decomposes its latency.
+- **R2 — reuse vectors by content, and prompt-cache the document.**
+  - Re-key the prior-vector map from `chunk_index` to chunk text, as two maps
+    (`markdown` and `fenced_code`, from `chunk_source`) so a prose chunk never
+    reuses a symbol body's vector built from a different input. Admit a prior
+    row only on same model and width. Keep the `document_id = $1` scope — that
+    scope IS the tenancy guarantee; never widen it into a cross-document cache.
+  - Decide reuse for every chunk first, then set `cacheDocument` only when at
+    least two chunks still need the LLM and the document clears Haiku 4.5's
+    cache minimum (4096 tokens; confirm the Bedrock figure). Below that the
+    cache write costs 1.25x with no read.
+  - A knob, if kept, reads empty or unset as ON — compose passes `""`.
+  - Exit: re-putting a page with one edited section makes one LLM call and
+    one embed call, not N; counted on the injected fns in
+    `tests/reindex_reuse.test.ts`.
+- **R3 — bounded per-chunk fan-out (first move for NEW pages).**
+  - Swap `withInflightCap`'s hand-rolled queue for the existing `Semaphore`
+    (`concurrency.ts`), resolved lazily with a test-only reset (tests mutate
+    the env per case).
+  - A new `MEMEX_EMBED_MAX_INFLIGHT` (default 4) acquired at the WRITER call
+    sites only — the indexer loop, `embedPage`, `contextual-reembed`. Never
+    inside `embedText`: `embedQueryBounded` races a 6 s wall clock that starts
+    before any wait, so a search during a backfill would silently fall back to
+    keyword-only. `MEMEX_EMBED_CONCURRENCY` keeps its meaning (backfill width,
+    default 8) and is not renamed.
+  - The chunk loop becomes an index-keyed `allSettled` with pre-sized
+    `vectors` (all four `push` sites converted), preserving the half-write
+    guard: a hard failure aborts before any write, with no stray sibling
+    rejection.
+  - Add every knob to the `deploy/docker-compose.yml` allowlist, and make
+    `resolveConcurrency` treat `""` as unset (today it becomes 0, clamped to 1).
+  - Exit: p95 `page_put` over 7 days (`token_name IS NOT NULL`) roughly
+    quartered; a query embed under a saturated ceiling still settles inside
+    `MEMEX_QUERY_EMBED_TIMEOUT_MS`.
+- **R4 — make the timeouts real.**
+  - Today's 30 s is advisory: add `throwOnRequestTimeout: true` next to every
+    `requestTimeout`, and give the embedding client an explicit handler,
+    `maxAttempts` and `retryMode: "adaptive"`.
+  - Split per call kind — `MEMEX_LLM_UTILITY_TIMEOUT_MS`,
+    `MEMEX_LLM_REASONING_TIMEOUT_MS`, `MEMEX_EMBED_TIMEOUT_MS`, each falling
+    back to `MEMEX_LLM_TIMEOUT_MS` (which is itself missing from the compose
+    allowlist today).
+  - Keep retry classification in the SDK. No app-level retry around
+    `embed`/`llmFn` on the write path — it multiplies attempts and honours
+    retry-after twice. A shared classifier, if any, replaces `isThrottle` in
+    `embed-backfill.ts` only, where the SDK has already given up.
+  - Thread an `AbortSignal` through `LlmCallInput`, both `c.send` calls in
+    `haiku.ts`, and the semaphore wait.
+  - Test at the transport seam: a stub request handler that returns 503, then
+    hangs past the timeout, then 200. The old "no duplicate chunks" claim holds
+    by construction (delete-then-insert with deterministic ids) and proves
+    nothing about retries.
+- **R5 — stamp the contextual tier.** `chunks.contextual_tier` plus a tier
+  resolver (page frontmatter → source row → global flag), joined into the reuse
+  check, so a forced re-embed cannot silently downgrade an LLM-tier chunk.
+  Ships before anything re-embeds at scale.
+- **R6 — move the mirror onto a `page_mirror` job (the contract change).**
+  - Job id keyed on the version the write produced
+    (`page_mirror:<src>:<slug>:v<n>`), NOT on `content_hash`: `page_revert`
+    and any A→B→A put reproduce an old hash, `ON CONFLICT DO NOTHING` then
+    enqueues nothing, and search serves reverted content for up to 6 h.
+    `RestoreResult` needs the version surfaced.
+  - Carry `remote` in the payload and treat missing as `true` (fail closed).
+    It is a property of the caller, not the page row; without it a scoped
+    writer plants `quarantine` / `embed_skip` / `content_flag` and the job
+    indexes them as trusted. The same hole already exists in
+    `reconcilePageMirrors` and is fixed with it.
+  - Re-read the page at run time: no-op on `deleted_at`, take the source from
+    the row (`page.source_id ?? writeSource`), and re-check `deleted_at` inside
+    the write transaction.
+  - No per-source `tryAcquireDbLock`: the single elected worker at
+    concurrency 1 already serialises, and a `null` acquire read as "done"
+    loses the edit.
+  - `search_indexed` becomes required on `page_put` / `page_append`, derived
+    from a `pageMirrorState` that shares one SQL predicate with
+    `reconcilePageMirrors`, plus `search_index: { state, vectors_pending }`;
+    the same block on `page_get`, which is the only poll handle a tenant or
+    public caller can reach. A per-call `wait_for_index` for callers that need
+    read-after-write in one turn; `MEMEX_PAGE_MIRROR_SYNC` stays default ON
+    until the job path is proven live. `MEMEX_RESPONSE_VERSION` bumps in this
+    release only. The four tool descriptions must say the mirror is deferred.
+  - Fix `callPageDelete` in the same release: it removes only the legacy
+    `page://<slug>` mirror, so a tenant's deleted page stays searchable until
+    the 6-hourly sweep.
+  - Exit: p95 `page_put` under 3 s over 7 days AND p95 mirror lag
+    (`finished_at - created_at` for kind `page_mirror`) reported next to it —
+    otherwise the latency number stops meaning "searchable".
+- **Not doing, with reasons.**
+  - The `MEMEX_CONTEXTUAL_LLM=0` experiment as specced: the flag only affects
+    indexing (`core/indexer.ts`, `contextual-reembed.ts`), and `eval-probe`
+    scores the vectors already stored, so a before/after run scores the same
+    corpus and measures noise. It also has no power at this n (0.889 is 8/9; one
+    query moves the hit rate by 11 points). A real tier comparison needs the
+    probe corpus re-embedded under each tier and a per-query diff.
+  - `embed_backfill` / `contextual_reindex` as job kinds: rejected — the job
+    row carries no source today (`ctx.job.sourceId` does not exist), so a
+    per-source job is a tenancy break until migration 106 adds one.
+
 **Depends on.** Nothing hard; RM-08 leases make long backfills safer (start on
 the existing queue).
 
