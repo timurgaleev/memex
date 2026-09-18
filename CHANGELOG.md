@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A search's query embed can retry inside its own deadline.** The search path
+  gives its query embed 6 s, but one attempt on the embedding client is allowed
+  10 s, so a hung attempt always outlasted the search and the SDK's retry could
+  never help. The query embed now caps each attempt at a third of its budget,
+  so a stalled attempt ends in time for the retry to answer.
+
 ## [1.139.0] — 2026-09-19
 
 ### Added

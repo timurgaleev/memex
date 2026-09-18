@@ -175,4 +175,15 @@ describe("shared Bedrock transport", () => {
     expect(variants).toEqual([]);
     expect(took).toBeLessThan(6_500);
   }, 20_000);
+
+  it("lets a caller cut one attempt short so a retry fits its own budget", async () => {
+    // The client allows 60 s per attempt; this call allows 300 ms, so the hung
+    // first attempt ends quickly and the retry answers.
+    script = ["hang", "ok"];
+    const started = performance.now();
+    const vec = await embedText("hello", { client: client(60_000), requestTimeoutMs: 300 });
+    expect(vec).toHaveLength(EMBED_DIMENSIONS);
+    expect(hits).toBe(2);
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
 });

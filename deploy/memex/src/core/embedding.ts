@@ -105,6 +105,12 @@ export interface EmbedOptions {
    * in-flight request instead of leaking it past the budget.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Per-attempt timeout for this call, overriding the client's. The search path
+   * sets it to a fraction of its own budget so a hung attempt ends in time for
+   * the SDK to retry inside that budget.
+   */
+  requestTimeoutMs?: number;
 }
 
 interface TitanResponseV2 {
@@ -138,7 +144,10 @@ export async function embedText(
   });
 
   return trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
-    const response = await client.send(command, { abortSignal: opts.abortSignal });
+    const response = await client.send(command, {
+      abortSignal: opts.abortSignal,
+      ...(opts.requestTimeoutMs ? { requestTimeout: opts.requestTimeoutMs } : {}),
+    });
     if (!response.body) {
       throw new Error("embedText: empty response body from Bedrock");
     }

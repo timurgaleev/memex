@@ -589,10 +589,12 @@ mirror last, because the mirror is where every blocker sits.
     adaptive, so a throttled backfill cannot rate-limit live query embeds
     through their shared client.
   - Open from the R4 review:
-    - The spend ledger UNDERCOUNTS a timed-out attempt: `meter.report` only
-      runs on a response, so an attempt AWS may still bill never reaches
-      `mcp_spend_log` or the client ceiling. The token count of a cut request
-      is unknowable client-side; at least count the attempts.
+    - Accepted as a known limit: a timed-out attempt books a $0 row (trackedInvoke
+      already writes one for a call that threw before reporting usage), so the
+      ATTEMPT is counted, but its dollars are not — the token count of a cut
+      request is unknowable client-side. The token-scaled chat timeout makes a
+      cut long generation rare. Revisit only if Cost Explorer's Bedrock line
+      drifts above the ledger total.
     - DONE (v1.136.0): `skillify.ts` and `friction-propose.ts` use
       `bedrockClientConfig` with a `maxTokens`-scaled timeout;
       `search/intent.ts` and `search/expansion.ts` — which had NO timeout on
@@ -601,9 +603,9 @@ mirror last, because the mirror is where every blocker sits.
       already bounded by `MEMEX_RERANK_TIMEOUT_MS` and is unchanged.
     - DONE (v1.136.0): `embed-backfill.ts`'s throttle loop is capped at 2 extra
       tries (was 5), so one throttled chunk costs at most 12 sends, not 24.
-    - The query embed's 6 s race (`search/hybrid.ts`) is shorter than one
-      10 s embed attempt, so SDK retries never help an interactive search.
-      Consider a separate, shorter-timeout client for query embeds.
+    - DONE (v1.140.0): the query embed caps each attempt at a third of its
+      6 s budget (a per-request timeout, no second client), so an SDK retry
+      fits inside the search deadline.
 - **R5 — stamp the contextual tier.** DONE, v1.138.0: `chunks.contextual_tier`
   (migration 106), stamped by the indexer (which, it turned out, had never set
   `contextual_embedded` at all — every live-wrapped chunk read as un-wrapped, so
