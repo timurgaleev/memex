@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **An edit pays only for the text it actually changed.** A re-indexed page
+  reused a chunk's stored vector only when the chunk sat at the SAME position
+  with the same text, so inserting a section near the top of a page shifted
+  every later chunk and paid a contextual call and an embed for each of them
+  again. Reuse is now keyed by the chunk's text within the document, so only
+  the new section is paid for. Prose chunks and fenced-code symbols are keyed
+  apart — a symbol is embedded raw, prose through its contextual wrapper, so
+  identical text can carry two different vectors — and fenced-code symbols are
+  now reused too; they were re-embedded on every write. A symbol whose stored
+  vector came from `reindex --contextual` (which wraps fenced chunks as well)
+  is still recomputed raw, so the two regimes never mix. Reuse still never
+  crosses documents, and still requires the same model and vector width.
+
 ## [1.136.0] — 2026-09-18
 
 ### Fixed

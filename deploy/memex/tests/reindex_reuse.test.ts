@@ -100,4 +100,59 @@ describe("unchanged-chunk embedding reuse", () => {
     // Model mismatch invalidates reuse — every chunk re-embeds.
     expect(embedCalls.length).toBe(chunkCount);
   });
+
+  it("reuses the chunks a mid-page insertion only shifted", async () => {
+    await indexDocument(storage, { sourcePath: SRC, text: docText() }, { embedFn: countingEmbed });
+    embedCalls = [];
+    // A new section between 1 and 2 moves sections 2 and 3 one index down. Keyed
+    // by position they looked changed and were paid for again; keyed by text
+    // only the new section is.
+    const inserted = [section(1), section(9), section(2), section(3)].join("\n\n");
+    await indexDocument(storage, { sourcePath: SRC, text: inserted }, { embedFn: countingEmbed });
+    expect(embedCalls).toHaveLength(1);
+    expect(embedCalls[0]).toContain("Section 9");
+  });
+
+  it("reuses a fenced-code symbol's vector when the fence is unchanged", async () => {
+    const withFence = (note: string) =>
+      `${section(1)}\n\n## Example\n\n${note}\n\n` +
+      "```ts\nexport function greet(name: string): string {\n  return `hello ${name}`;\n}\n```\n\n" +
+      section(3);
+    await indexDocument(storage, { sourcePath: SRC, text: withFence("First wording of the example.") }, { embedFn: countingEmbed });
+    const symbolEmbeds = embedCalls.filter((t) => t.startsWith("function greet")).length;
+    expect(symbolEmbeds).toBe(1);
+
+    embedCalls = [];
+    await indexDocument(storage, { sourcePath: SRC, text: withFence("Second wording of the example.") }, { embedFn: countingEmbed });
+    expect(embedCalls.some((t) => t.startsWith("function greet"))).toBe(false);
+  });
+
+  it("re-embeds a fenced symbol raw when its stored vector came from the contextual backfill", async () => {
+    const text =
+      `${section(1)}\n\n## Example\n\nAn example follows.\n\n` +
+      "```ts\nexport function greet(name: string): string {\n  return `hello ${name}`;\n}\n```\n\n" +
+      section(3);
+    await indexDocument(storage, { sourcePath: SRC, text }, { embedFn: countingEmbed });
+    // `reindex --contextual` wraps fenced chunks too and marks them.
+    await storage.engine().query(
+      `UPDATE chunks SET contextual_embedded = TRUE
+        WHERE chunk_source = 'fenced_code'
+          AND document_id = (SELECT id FROM documents WHERE source_path = $1)`,
+      [SRC],
+    );
+    embedCalls = [];
+    await indexDocument(storage, { sourcePath: SRC, text }, { embedFn: countingEmbed });
+    // Prose is reused; the symbol is recomputed in the raw regime it is written in.
+    expect(embedCalls).toHaveLength(1);
+    expect(embedCalls[0]!.startsWith("function greet")).toBe(true);
+  });
+
+  it("never reuses a vector from another document", async () => {
+    await indexDocument(storage, { sourcePath: SRC, text: docText() }, { embedFn: countingEmbed });
+    embedCalls = [];
+    // Byte-identical text under a different path is a different document — and
+    // possibly a different tenant's — so it pays for its own vectors.
+    await indexDocument(storage, { sourcePath: "/notes/other.md", text: docText() }, { embedFn: countingEmbed });
+    expect(embedCalls.length).toBe((await vectors()).size);
+  });
 });

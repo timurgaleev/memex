@@ -350,39 +350,51 @@ async function indexDocumentBody(
     : undefined;
   // Unchanged-chunk embedding reuse: re-indexing a doc rewrites all its chunks
   // (indexer-tx deletes + reinserts), but a chunk whose RAW text is byte-identical
-  // to the prior version at the same index — under the same embedding model —
-  // hasn't changed meaning, so we reuse its stored vector instead of paying
-  // Bedrock (and the paid contextual-LLM tier) again. Editing one line of a page
-  // then only re-embeds the chunk(s) that actually moved. The equality key is the
-  // canonical chunk text (chunks.content), matching what was stored; a global
-  // contextual-mode flip still needs a full `reindex --contextual` (guarded here
-  // by the model check — a mode change doesn't alter the model, so treat mode
-  // changes as out of scope for incremental reuse).
-  const prior = new Map<number, { content: string; vec: number[]; model: string }>();
+  // to one the document already had — under the same embedding model and width —
+  // hasn't changed meaning, so its stored vector is reused instead of paying
+  // Bedrock (and the paid contextual-LLM tier) again. The key is the chunk TEXT,
+  // not its position: inserting a section mid-page shifts every later chunk's
+  // index, and positional reuse re-paid for all of them. Prose chunks and
+  // fenced-code symbols are keyed apart — a symbol body is embedded raw, a prose
+  // chunk through its contextual wrapper, so the same text can carry two
+  // different vectors. The lookup is scoped to THIS document, which is also what
+  // keeps it inside one tenant; a global contextual-mode flip still needs a full
+  // `reindex --contextual`. Width is checked alongside model: MEMEX_EMBED_DIM can
+  // change the dimension without changing the Titan model id, and mixing widths
+  // inside one document breaks the `<=>` scan. Under contextual retrieval a
+  // reused chunk keeps its prior document-level context (title/synopsis) even if
+  // an earlier chunk or the title changed — an accepted precision tradeoff.
+  const priorProse = new Map<string, number[]>();
+  const priorFence = new Map<string, number[]>();
   if (!skipEmbed) {
     try {
       const priorRows = await storage.engine().query<{
-        chunk_index: number;
         content: string;
+        chunk_source: string | null;
+        contextual_embedded: boolean | null;
         vec: string | null;
         model: string | null;
       }>(
-        `SELECT c.chunk_index, c.content, e.vector::text AS vec, e.model
+        `SELECT c.content, c.chunk_source, c.contextual_embedded, e.vector::text AS vec, e.model
            FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id
           WHERE c.document_id = $1`,
         [id],
       );
       for (const r of priorRows.rows) {
-        if (r.vec === null || r.model === null) continue;
-        prior.set(Number(r.chunk_index), {
-          content: r.content,
-          vec: JSON.parse(r.vec) as number[],
-          model: r.model,
-        });
+        if (r.vec === null || r.model !== model) continue;
+        const fenced = r.chunk_source === "fenced_code";
+        // A symbol is written RAW here, but `reindex --contextual` wraps fenced
+        // chunks too: its vector is from a different embedding regime and must
+        // be recomputed, not carried over.
+        if (fenced && r.contextual_embedded === true) continue;
+        const vec = JSON.parse(r.vec) as number[];
+        if (vec.length !== EMBED_DIMENSIONS) continue;
+        (fenced ? priorFence : priorProse).set(r.content, vec);
       }
     } catch {
       // A read failure just means no reuse this pass — re-embed everything.
-      prior.clear();
+      priorProse.clear();
+      priorFence.clear();
     }
   }
 
@@ -396,22 +408,7 @@ async function indexDocumentBody(
   // A stored vector for byte-identical text is reused instead of paid for again.
   // Checked before a write slot is taken: a chunk with nothing to pay for must
   // not queue behind the paid ones.
-  const reusable = (i: number): number[] | null => {
-    const reuse = prior.get(i);
-    // Width is checked alongside model: MEMEX_EMBED_DIM can change the vector
-    // dimension without changing the Titan model id, and mixing widths inside
-    // one document breaks the `<=>` scan — so a stored vector of a different
-    // dimension is never reused. Note: under contextual retrieval a reused
-    // chunk keeps its prior document-level context (title/synopsis) even if an
-    // earlier chunk or the title changed — an accepted precision tradeoff; a
-    // full re-embed (`reindex --contextual`) refreshes it.
-    return reuse &&
-      reuse.model === model &&
-      reuse.vec.length === EMBED_DIMENSIONS &&
-      reuse.content === parsed.chunks[i]
-      ? reuse.vec
-      : null;
-  };
+  const reusable = (i: number): number[] | null => priorProse.get(parsed.chunks[i]!) ?? null;
 
   const vectorFor = async (i: number): Promise<void> => {
     const chunk = parsed.chunks[i]!;
@@ -515,13 +512,17 @@ async function indexDocumentBody(
       try {
         const parsedCode = await chunkCode(fence.source, `fence.${fence.lang}`, fence.lang);
         for (const sym of parsedCode.symbols) {
-          if (stats) stats.fenceEmbeds++;
-          const release = await acquireWriteEmbedSlot();
-          let vec: number[];
-          try {
-            vec = await embed(sym.body, { modelId: model });
-          } finally {
-            release();
+          let vec = priorFence.get(sym.body);
+          if (vec) {
+            if (stats) stats.reused++;
+          } else {
+            if (stats) stats.fenceEmbeds++;
+            const release = await acquireWriteEmbedSlot();
+            try {
+              vec = await embed(sym.body, { modelId: model });
+            } finally {
+              release();
+            }
           }
           chunkWrites.push({
             text: sym.body,

@@ -510,6 +510,15 @@ mirror last, because the mirror is where every blocker sits.
     ledger and the write transaction are noise. That makes R3's fan-out the
     lever for new pages and R2's reuse the lever for edits — not the database.
 - **R2 — reuse vectors by content, and prompt-cache the document.**
+  - DONE, v1.137.0: reuse keyed by chunk text within the document, prose and
+    fenced-code symbols in separate maps, fenced-code symbols reused too.
+  - REFUSED: the document prompt cache. Since R3 a write's chunks start
+    together, so no cache write has finished when its siblings send — every
+    call would pay the 1.25x write and none would read it. And a typical page
+    (about 10 chunks) stays under Haiku 4.5's 4096-token cache minimum anyway.
+    It would raise cost, not lower latency. `contextual-reembed` (serial, one
+    document at a time) keeps its cache.
+  - (original R2 spec below)
   - Re-key the prior-vector map from `chunk_index` to chunk text, as two maps
     (`markdown` and `fenced_code`, from `chunk_source`) so a prose chunk never
     reuses a symbol body's vector built from a different input. Admit a prior
