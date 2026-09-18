@@ -385,6 +385,13 @@ Release A verification:
   — `maxFiles: 0` with `force` left the confirmed list empty, and the planted
   path had no file on disk, so it only proved that an empty list classifies
   nothing.
+- [ ] Open operator decision: the 45 remaining NULL-source documents on the live
+  brain are all under `/memory/` (sample `/memory/20-projects/…`), and no
+  registered source owns that prefix — live prefixes are `__default__`,
+  `/repo-source/` and `tenant:timur`. The classification pass will not invent an
+  owner, so they stay operator-only until a source with a `/memory/` prefix is
+  registered. Registering one changes who can read them, so it is a deliberate
+  call, not a cleanup.
 - [ ] Follow-up (pre-existing, not introduced here): the inline `index` form
   derives the document id from the caller's `sourcePath` label, and a caller with
   no write source is not write-fenced, so a public-write install lets a remote

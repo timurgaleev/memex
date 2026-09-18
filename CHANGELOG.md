@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.132.0] — 2026-09-18
+
 ### Fixed
 - **Locally swept documents belonged to nobody.** A vault or code sweep and
   `memex index <file>` index with no source — a trusted local caller is
