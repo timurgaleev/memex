@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.141.0] — 2026-09-19
+
 ### Fixed
 - **Two appends racing each other lost one.** `page_append` read the page
   outside the write transaction, so two appends that overlapped both started

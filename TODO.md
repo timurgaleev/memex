@@ -775,7 +775,9 @@ lock (`lockPageSlugs`, sorted) is held by EVERY version writer — put, append,
 delete, restore, rename, merge. Appends take title/truth from the locked row
 too. CAVEAT: on PGLite the advisory locks are re-entrant in its single session,
 so the tests prove the serialization and the re-check, not the Postgres locks
-themselves — that needs the `make test-pg` lane below. Still open: the
+themselves — that needs the `make test-pg` lane below. Verified LIVE on RDS
+instead (v1.141.0): 10 concurrent appends through the real pool — 0 failures,
+all 10 lines, 11 distinct versions, 287 ms. Still open: the
 deleted-page-undone-by-a-later-write rule, pool GUCs and classified DB errors,
 degraded boot, query `signal`, stall watchdog, CLI teardown, `make test-pg`.
 
