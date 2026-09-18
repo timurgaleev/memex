@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.133.0] — 2026-09-18
+
 ### Added
 - **Each interactive write now says where its time went.** `page_put`,
   `page_append`, `page_revert` and `page_restore` log one

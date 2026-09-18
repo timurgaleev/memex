@@ -503,6 +503,12 @@ mirror last, because the mirror is where every blocker sits.
     calls to `mcp_request_log` and breaks comparison with the baseline above.
     Every baseline and target query pins `token_name IS NOT NULL`.
   - Exit: a live `page_put` log line decomposes its latency.
+  - DONE, live 2026-09-18 (v1.133.0). A 3-chunk probe `page_put` logged
+    `chunks=3 reused=0 llm_ok=3 embeds=3 ms_total=4135 ms_bedrock=3965
+    ms_queue=0 ms_ledger=45 ms_tx=86`: 96% of the write is serial Bedrock time
+    (about 1.3 s per chunk for the contextual call plus the embed); the spend
+    ledger and the write transaction are noise. That makes R3's fan-out the
+    lever for new pages and R2's reuse the lever for edits — not the database.
 - **R2 — reuse vectors by content, and prompt-cache the document.**
   - Re-key the prior-vector map from `chunk_index` to chunk text, as two maps
     (`markdown` and `fenced_code`, from `chunk_source`) so a prose chunk never
