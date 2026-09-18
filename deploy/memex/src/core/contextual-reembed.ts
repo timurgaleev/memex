@@ -111,6 +111,9 @@ export interface ContextualReembedResult {
   /** Chunks that fell back to the deterministic synopsis (LLM off, budget
    *  exhausted, or an LLM error). Zero when the LLM tier is not active. */
   deterministicFallback: number;
+  /** Chunks already on the LLM tier that this run could only have re-embedded
+   *  deterministically — left untouched rather than downgraded. */
+  tierKept: number;
   dryRun: boolean;
 }
 
@@ -122,6 +125,7 @@ interface CandidateDoc {
 interface ChunkRow {
   id: string;
   content: string;
+  contextual_tier: string | null;
 }
 
 /** Boolean fragment: documents this command is allowed to re-embed. Excludes
@@ -200,7 +204,7 @@ async function chunksToReembed(
 ): Promise<ChunkRow[]> {
   const marked = force ? "" : "AND NOT contextual_embedded";
   const r = await engine.query<ChunkRow>(
-    `SELECT id, content FROM chunks
+    `SELECT id, content, contextual_tier FROM chunks
       WHERE document_id = $1
         AND length(btrim(content)) > 0
         ${marked}
@@ -264,6 +268,7 @@ export async function runContextualReembed(
       failed: 0,
       llmContext: 0,
       deterministicFallback: 0,
+      tierKept: 0,
       dryRun: true,
     };
   }
@@ -273,6 +278,7 @@ export async function runContextualReembed(
   let failed = 0;
   let llmContext = 0;
   let deterministicFallback = 0;
+  let tierKept = 0;
 
   for (const doc of docs) {
     if (limit !== undefined && chunks >= limit) break;
@@ -293,9 +299,16 @@ export async function runContextualReembed(
 
       // Embed OUTSIDE the transaction so a Bedrock failure never half-writes a
       // document (indexer.ts's ordering). Collect vectors first, then commit.
-      const writes: { id: string; vector: number[] }[] = [];
+      const writes: { id: string; vector: number[]; tier: "llm" | "deterministic" }[] = [];
       for (const ch of pending) {
+        // Never trade a Haiku-situated vector for a deterministic one: a run
+        // without the LLM tier leaves such a chunk exactly as it is.
+        if (ch.contextual_tier === "llm" && !llmActive) {
+          tierKept++;
+          continue;
+        }
         let prefix = deterministicPrefix;
+        let tier: "llm" | "deterministic" = "deterministic";
         if (llmActive) {
           const llmCtx = await generateChunkContext(docText, ch.content, {
             ...(opts.llmFn ? { llmFn: opts.llmFn } : {}),
@@ -307,7 +320,12 @@ export async function runContextualReembed(
           });
           if (llmCtx) {
             prefix = buildContextualPrefix(doc.title, llmCtx, { isCode: false });
+            tier = "llm";
             llmContext++;
+          } else if (ch.contextual_tier === "llm") {
+            // The LLM call fell back (budget, error): same rule, keep the chunk.
+            tierKept++;
+            continue;
           } else {
             deterministicFallback++;
           }
@@ -315,7 +333,7 @@ export async function runContextualReembed(
         const vector = await embed(
           wrapChunkForEmbedding(ch.content, prefix, { isCode: false }),
         );
-        writes.push({ id: ch.id, vector });
+        writes.push({ id: ch.id, vector, tier });
       }
 
       await engine.transaction(async (tx) => {
@@ -330,8 +348,8 @@ export async function runContextualReembed(
             [w.id, JSON.stringify(w.vector), model, embeddingSignature(model, w.vector.length)],
           );
           await tx.query(
-            "UPDATE chunks SET contextual_embedded = TRUE WHERE id = $1",
-            [w.id],
+            "UPDATE chunks SET contextual_embedded = TRUE, contextual_tier = $2 WHERE id = $1",
+            [w.id, w.tier],
           );
         }
       });
@@ -364,6 +382,7 @@ export async function runContextualReembed(
     failed,
     llmContext,
     deterministicFallback,
+    tierKept,
     dryRun: false,
   };
 }

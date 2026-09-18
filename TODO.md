@@ -604,7 +604,18 @@ mirror last, because the mirror is where every blocker sits.
     - The query embed's 6 s race (`search/hybrid.ts`) is shorter than one
       10 s embed attempt, so SDK retries never help an interactive search.
       Consider a separate, shorter-timeout client for query embeds.
-- **R5 — stamp the contextual tier.** `chunks.contextual_tier` plus a tier
+- **R5 — stamp the contextual tier.** DONE, v1.138.0: `chunks.contextual_tier`
+  (migration 106), stamped by the indexer (which, it turned out, had never set
+  `contextual_embedded` at all — every live-wrapped chunk read as un-wrapped, so
+  `reindex --contextual` re-paid for them and could downgrade LLM vectors) and by
+  `reindex --contextual`, which now never lowers a tier (`tierKept`).
+  NOT done, deliberately: the per-page / per-source tier resolver over the
+  inert `contextual_retrieval_mode` columns from migration 024. Nothing writes
+  those columns and no per-source tier policy has been asked for; the global
+  flags stay the only switch until one is. Pre-106 chunks have NULL tier and are
+  not guessed at, so a forced re-embed can still lower one of THOSE — only a
+  fresh write or a re-embed under the LLM tier gives them a recorded tier.
+- (original R5 spec) `chunks.contextual_tier` plus a tier
   resolver (page frontmatter → source row → global flag), joined into the reuse
   check, so a forced re-embed cannot silently downgrade an LLM-tier chunk.
   Ships before anything re-embeds at scale.

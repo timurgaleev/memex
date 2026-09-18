@@ -119,6 +119,8 @@ export interface IndexFileOptions {
   timingLabel?: string;
 }
 
+type ContextualTier = NonNullable<ChunkWrite["contextualTier"]>;
+
 /** Per-index counts behind the `timingLabel` line. */
 interface IndexStats {
   chunks: number;
@@ -364,7 +366,7 @@ async function indexDocumentBody(
   // inside one document breaks the `<=>` scan. Under contextual retrieval a
   // reused chunk keeps its prior document-level context (title/synopsis) even if
   // an earlier chunk or the title changed — an accepted precision tradeoff.
-  const priorProse = new Map<string, number[]>();
+  const priorProse = new Map<string, { vec: number[]; tier: ContextualTier | undefined }>();
   const priorFence = new Map<string, number[]>();
   if (!skipEmbed) {
     try {
@@ -372,10 +374,12 @@ async function indexDocumentBody(
         content: string;
         chunk_source: string | null;
         contextual_embedded: boolean | null;
+        contextual_tier: ContextualTier | null;
         vec: string | null;
         model: string | null;
       }>(
-        `SELECT c.content, c.chunk_source, c.contextual_embedded, e.vector::text AS vec, e.model
+        `SELECT c.content, c.chunk_source, c.contextual_embedded, c.contextual_tier,
+                e.vector::text AS vec, e.model
            FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id
           WHERE c.document_id = $1`,
         [id],
@@ -389,7 +393,8 @@ async function indexDocumentBody(
         if (fenced && r.contextual_embedded === true) continue;
         const vec = JSON.parse(r.vec) as number[];
         if (vec.length !== EMBED_DIMENSIONS) continue;
-        (fenced ? priorFence : priorProse).set(r.content, vec);
+        if (fenced) priorFence.set(r.content, vec);
+        else priorProse.set(r.content, { vec, tier: r.contextual_tier ?? undefined });
       }
     } catch {
       // A read failure just means no reuse this pass — re-embed everything.
@@ -403,12 +408,17 @@ async function indexDocumentBody(
   // a page paid ~1.3 s of Bedrock per chunk, one chunk after another.
   // `vectors` is indexed, never pushed: completion order is not chunk order.
   const vectors: (number[] | null)[] = Array.from<number[] | null>({ length: parsed.chunks.length }).fill(null);
+  // The tier each vector was produced under, so a later re-embed can respect it.
+  const tiers: (ContextualTier | undefined)[] = Array.from<ContextualTier | undefined>({ length: parsed.chunks.length });
+  // What a chunk embedded without the LLM tier gets: the deterministic prefix
+  // when wrapping is on, raw text otherwise.
+  const baseTier: ContextualTier = wrapActive ? "deterministic" : "none";
   let budgetRefusedChunks = 0;
 
   // A stored vector for byte-identical text is reused instead of paid for again.
   // Checked before a write slot is taken: a chunk with nothing to pay for must
   // not queue behind the paid ones.
-  const reusable = (i: number): number[] | null => priorProse.get(parsed.chunks[i]!) ?? null;
+  const reusable = (i: number) => priorProse.get(parsed.chunks[i]!) ?? null;
 
   const vectorFor = async (i: number): Promise<void> => {
     const chunk = parsed.chunks[i]!;
@@ -420,7 +430,10 @@ async function indexDocumentBody(
         ...(opts.contextualLlmFn ? { llmFn: opts.contextualLlmFn } : {}),
         ...(ctxBudget ? { budget: ctxBudget } : {}),
       });
-      if (llmCtx) prefix = buildContextualPrefix(ctxTitle, llmCtx, { isCode });
+      if (llmCtx) {
+        prefix = buildContextualPrefix(ctxTitle, llmCtx, { isCode });
+        tiers[i] = "llm";
+      }
       if (stats) {
         if (llmCtx) stats.llmOk++;
         else stats.llmFallback++;
@@ -429,6 +442,7 @@ async function indexDocumentBody(
     const embedInput = wrapChunkForEmbedding(chunk, prefix, { isCode });
     try {
       if (stats) stats.embeds++;
+      tiers[i] ??= baseTier;
       vectors[i] = await embed(embedInput, { modelId: model });
     } catch (e) {
       // A spent daily budget must not destroy the note. Every other embed
@@ -439,6 +453,9 @@ async function indexDocumentBody(
       // once the budget rolls over.
       if (!(isOperationError(e) && e.code === "budget_exhausted")) throw e;
       budgetRefusedChunks++;
+      // No vector yet: `memex embed` fills it later with the deterministic
+      // prefix at most, so that is the tier this chunk will end up with.
+      tiers[i] = baseTier;
     }
   };
 
@@ -455,7 +472,8 @@ async function indexDocumentBody(
       if (skipEmbed) continue;
       const reused = reusable(i);
       if (reused) {
-        vectors[i] = reused;
+        vectors[i] = reused.vec;
+        tiers[i] = reused.tier;
         if (stats) stats.reused++;
         continue;
       }
@@ -497,6 +515,7 @@ async function indexDocumentBody(
     return {
       text,
       embedding: vectors[i] ?? null,
+      ...(tiers[i] ? { contextualTier: tiers[i] } : {}),
       entities: extractEntities(text, fm),
     };
   });
@@ -536,6 +555,7 @@ async function indexDocumentBody(
             docComment: sym.docComment,
             language: fence.lang,
             chunkSource: "fenced_code",
+            contextualTier: "none",
             entities: [],
           });
         }

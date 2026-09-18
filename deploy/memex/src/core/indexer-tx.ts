@@ -66,6 +66,12 @@ export interface ChunkWrite {
    * code chunks. Persisted to `chunks.chunk_source`.
    */
   chunkSource?: string | null;
+  /**
+   * Contextual tier the stored vector was produced under (migration 106).
+   * Also sets `contextual_embedded` (migration 057) for the wrapped tiers.
+   * Omitted = unknown, which is what code and graph-only chunks write.
+   */
+  contextualTier?: "none" | "deterministic" | "llm";
   /** Entities to attach to this chunk's row in entity_mentions. */
   entities: readonly ExtractedEntity[];
 }
@@ -286,8 +292,8 @@ export async function writeDocumentTransaction(
         `INSERT INTO chunks
            (id, document_id, chunk_index, content, start_line, end_line,
             symbol_name, symbol_type, parent_symbol_path, doc_comment, language,
-            symbol_name_qualified, source_id, chunk_source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $13, $14)`,
+            symbol_name_qualified, source_id, chunk_source, contextual_tier, contextual_embedded)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12, $13, $14, $15, $16)`,
         [
           cid,
           doc.documentId,
@@ -315,6 +321,8 @@ export async function writeDocumentTransaction(
           // stays NULL so unclassified docs don't freeze to 'default'.
           effSource,
           ch.chunkSource ?? null,
+          ch.contextualTier ?? null,
+          ch.contextualTier === "deterministic" || ch.contextualTier === "llm",
         ],
       );
 

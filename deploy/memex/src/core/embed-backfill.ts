@@ -489,12 +489,26 @@ async function embedPage(
         // counts a real insert exactly once.
         const ins = await withRetry(
           () =>
+            // The vector and the tier it was produced under land together: this
+            // path wraps with the deterministic prefix at most, so a chunk that
+            // was on the LLM tier must not keep claiming it.
             engine.query<{ chunk_id: string }>(
-              `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
-           VALUES ($1, $2::vector, $3, $4)
-           ON CONFLICT (chunk_id) DO NOTHING
-           RETURNING chunk_id`,
-              [row.id, JSON.stringify(vec), model, embeddingSignature(model, vec.length)],
+              `WITH ins AS (
+                 INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
+                 VALUES ($1, $2::vector, $3, $4)
+                 ON CONFLICT (chunk_id) DO NOTHING
+                 RETURNING chunk_id
+               )
+               UPDATE chunks c SET contextual_tier = $5
+                 FROM ins WHERE c.id = ins.chunk_id
+               RETURNING c.id AS chunk_id`,
+              [
+                row.id,
+                JSON.stringify(vec),
+                model,
+                embeddingSignature(model, vec.length),
+                row.contextual_embedded ? "deterministic" : "none",
+              ],
             ),
           BULK_RETRY_OPTS,
         );

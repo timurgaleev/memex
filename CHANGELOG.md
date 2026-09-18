@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A contextual re-embed could quietly downgrade the brain's best vectors.**
+  The indexer never recorded that it had wrapped a chunk, so every chunk a live
+  write situated with Haiku read as un-wrapped. A later `reindex --contextual`
+  then paid to redo all of them, and when it ran without the LLM tier it
+  overwrote those Haiku-situated vectors with deterministic ones. Each chunk now
+  records the tier its vector was produced under (`chunks.contextual_tier`,
+  migration 106: `none`, `deterministic` or `llm`) and the indexer sets
+  `contextual_embedded` for the wrapped tiers. A reused chunk keeps its own
+  tier. `reindex --contextual` stamps the tier it used and never lowers one: a
+  chunk already on the LLM tier is left exactly as it is when this run could
+  only produce a deterministic vector for it — the LLM tier off, its budget
+  spent, or its call failing — and the run reports those as `tierKept`. The
+  embed backfill (`memex embed`, a signature change) rebuilds with the
+  deterministic prefix at most, and now records that tier with the vector, so a
+  chunk it rebuilt is not later "kept" as if it still had its Haiku context.
+  Chunks written before this release have no recorded tier and are treated as
+  before.
+
 ## [1.137.0] — 2026-09-18
 
 ### Changed
