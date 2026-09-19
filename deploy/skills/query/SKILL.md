@@ -132,17 +132,17 @@ For relationship questions ("who knows who at X?", "connections between A and B"
 "who works at Acme?", "who attended the standup?"), use the graph layer instead
 of full-text search:
 
-- `graph_query` with `slug`, `type` (link type), `depth`, and `direction` (`in|out|both`)
+- `graph_query` with `type` (link type, required) plus `source_slug` and/or `target_slug`
 - Available link types: `attended`, `works_at`, `invested_in`, `founded`, `advises`, `mentions`, `source`
-- `direction: in` answers "who points to X?" (e.g., who works at company X)
-- `direction: out` answers "what does X point to?" (default)
-- `depth: N` controls multi-hop traversal (default 5); `traverse_graph` for open-ended walks
+- `target_slug: X` answers "who points to X?" (e.g., who works at company X)
+- `source_slug: X` answers "what does X point to?"
+- Multi-hop walks go through `traverse_graph` (`start_slug`, `direction` `outbound|inbound|both`, `type`, `max_depth`)
 
 Examples:
-- "Who works at Acme?" → `graph_query slug=companies/acme type=works_at direction=in`
-- "Who attended Demo Day W26?" → `graph_query slug=meetings/demo-day-w26 type=attended direction=out`
-- "What companies has Emily advised?" → `graph_query slug=people/emily type=advises direction=out`
-- "Who has Alice met (via meetings)?" → `graph_query slug=people/alice type=attended depth=2`
+- "Who works at Acme?" → `graph_query {"type": "works_at", "target_slug": "companies/acme"}`
+- "Who attended Demo Day W26?" → `graph_query {"type": "attended", "target_slug": "meetings/demo-day-w26"}`
+- "What companies has Emily advised?" → `graph_query {"type": "advises", "source_slug": "people/emily"}`
+- "Who has Alice met (via meetings)?" → `traverse_graph {"start_slug": "people/alice", "type": "attended", "direction": "both", "max_depth": 2}`
 
 Combine with `search` for queries that need BOTH semantic similarity AND
 graph structure. Search results are ranked with a small backlink boost so well-

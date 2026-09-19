@@ -87,7 +87,7 @@ Share the HTML file via email, Slack, Airdrop. Share the password separately.
 Store the published artifact alongside the brain for later re-sharing:
 
 ```
-put_raw_data key=shares/acme.html data=<the rendered HTML>
+put_raw_data {"slug": "<the published page slug>", "source": "publish", "data": {"file": "acme.html", "html": "<the rendered HTML>"}}
 ```
 
 Retrieve it later with `get_raw_data` — no re-render needed as long as the

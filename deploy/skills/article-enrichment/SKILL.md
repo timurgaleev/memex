@@ -79,7 +79,7 @@ deterministic CLI command. The agent uses memex's existing operations:
 
 ```bash
 # 1. Find candidate pages
-memex call search '{"query":"needs_enrichment: true type:article","limit":50}'
+memex call search '{"q":"needs_enrichment: true type:article","k":50}'
 
 # 2. For each candidate, read the page
 memex call page_get '{"slug":"media/articles/<slug>"}'

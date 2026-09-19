@@ -14,6 +14,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `code_callees` count their own mention type. Soft-deleted documents are
   excluded from both the lookups and the readiness counts, and a running code
   sweep reports `indexing` only to callers whose sources it walks.
+- **Shipped skills no longer teach tool calls that dispatch refuses.** The
+  `schema-author`, `query`, `publish`, `smoke-test`, `article-enrichment` and
+  `cold-start` examples used argument keys the tools never declared
+  (`ontology_propose {"kind","name"}`, `graph_query slug=… direction=…`,
+  `search {"query","limit"}`, `page_put {"content"}`, …); they now use the
+  declared params. `memex skillpack lint` checks the keys of `tool {json}` and
+  `memex call tool '{json}'` examples against the declared params, flags
+  `memex call` of a tool that does not exist, and reports a skill file it
+  cannot read instead of silently skipping it.
 
 ## [1.151.0] — 2026-09-19
 

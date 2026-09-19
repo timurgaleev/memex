@@ -61,7 +61,7 @@ memex call search '{"q":"<a topic you know is indexed>"}'
 ### Write-path round-trip (check 6)
 
 ```bash
-memex call page_put '{"slug":"reports/smoke/_probe","content":"# probe\nsmoke check"}'
+memex call page_put '{"slug":"reports/smoke/_probe","markdown_body":"# probe\nsmoke check"}'
 memex call page_get '{"slug":"reports/smoke/_probe"}'
 ```
 

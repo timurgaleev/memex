@@ -4,8 +4,11 @@
  * Agents follow served skills literally, so every MCP tool a skill declares
  * and every `memex <cmd> [<sub>]` it tells an agent to run must exist. The
  * lint checks both against the real surfaces (OPERATIONS and CLI_COMMANDS).
- * Command references are only taken from inline code spans and fenced blocks:
- * prose that merely mentions memex is not an instruction to run something.
+ * Tool-call examples (`tool_name {json}`, `memex call tool '{json}'`) are
+ * checked too: dispatch refuses undeclared argument keys, so an example that
+ * uses one teaches the agent a call that always fails.
+ * References are only taken from inline code spans and fenced blocks: prose
+ * that merely mentions memex is not an instruction to run something.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +21,10 @@ export type SkillLintRule =
   | "name-mismatch"
   | "unknown-tool"
   | "unknown-cli-command"
-  | "unknown-cli-subcommand";
+  | "unknown-cli-subcommand"
+  | "unknown-call-tool"
+  | "unknown-tool-arg"
+  | "unreadable";
 
 export interface SkillLintIssue {
   /** Skill slug, or the pack-relative path for `_*.md` / conventions docs. */
@@ -38,12 +44,23 @@ export interface SkillLintResult {
 
 export interface SkillLintOptions {
   opNames?: ReadonlySet<string>;
+  /** Declared argument keys per tool; a tool missing here is not key-checked. */
+  opParams?: ReadonlyMap<string, ReadonlySet<string>>;
   cliCommands?: Readonly<Record<string, CliCommandSpec>>;
 }
 
 export interface CliReference {
   command: string;
   subcommand: string | null;
+  line: number;
+}
+
+export interface ToolCallExample {
+  tool: string;
+  /** Top-level keys of the example's argument object, in order. */
+  keys: string[];
+  /** True for `memex call <tool>`, where the tool name itself must exist. */
+  viaCli: boolean;
   line: number;
 }
 
@@ -116,14 +133,15 @@ function commentStart(line: string): number {
   return idx === -1 ? line.length : idx;
 }
 
+type SegmentVisitor = (code: string, line: number) => void;
+
 /**
- * Collect `memex <cmd> [<sub>]` references from fenced blocks and inline code
- * spans. Linear: fences are tracked line by line, backtick runs are paired
- * through a precomputed next-run-of-the-same-length table, and occurrences
- * are found with indexOf.
+ * Hand every code segment — fenced lines (minus a trailing comment) and inline
+ * code spans — to `visit`. Linear: fences are tracked line by line and
+ * backtick runs are paired through a precomputed next-run-of-the-same-length
+ * table.
  */
-export function extractCliReferences(markdown: string, firstLine = 1): CliReference[] {
-  const out: CliReference[] = [];
+function forEachCodeSegment(markdown: string, firstLine: number, visit: SegmentVisitor): void {
   const lines = markdown.split("\n");
   let fence: string | null = null;
   for (let idx = 0; idx < lines.length; idx++) {
@@ -137,15 +155,21 @@ export function extractCliReferences(markdown: string, firstLine = 1): CliRefere
       continue;
     }
     if (fence !== null) {
-      scanCode(raw.slice(0, commentStart(raw)), lineNo, out);
+      visit(raw.slice(0, commentStart(raw)), lineNo);
       continue;
     }
-    scanInlineSpans(raw, lineNo, out);
+    forEachInlineSpan(raw, lineNo, visit);
   }
+}
+
+/** Collect `memex <cmd> [<sub>]` references from fenced blocks and inline code spans. */
+export function extractCliReferences(markdown: string, firstLine = 1): CliReference[] {
+  const out: CliReference[] = [];
+  forEachCodeSegment(markdown, firstLine, (code, line) => scanCode(code, line, out));
   return out;
 }
 
-function scanInlineSpans(text: string, line: number, out: CliReference[]): void {
+function forEachInlineSpan(text: string, line: number, visit: SegmentVisitor): void {
   if (!text.includes("`")) return;
   const runs: { at: number; len: number }[] = [];
   for (let i = 0; i < text.length; ) {
@@ -171,8 +195,138 @@ function scanInlineSpans(text: string, line: number, out: CliReference[]): void 
       continue;
     }
     const open = runs[r]!;
-    scanCode(text.slice(open.at + open.len, runs[close]!.at), line, out);
+    visit(text.slice(open.at + open.len, runs[close]!.at), line);
     r = close + 1;
+  }
+}
+
+function isToolChar(ch: string | undefined): boolean {
+  return ch !== undefined && ((ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "_");
+}
+
+function isToolName(token: string): boolean {
+  return token.length > 0 && token.length <= MAX_TOKEN && /^[a-z][a-z0-9_]*$/.test(token);
+}
+
+/**
+ * Top-level keys of the object opening at `open`, and where the scan stopped.
+ * Lenient on purpose: examples carry placeholders (`[...]`, `ID`, `...`) that
+ * are not JSON, so only `"key":` pairs at depth 1 are read.
+ */
+function objectKeys(text: string, open: number): { keys: string[]; end: number } {
+  const keys: string[] = [];
+  let depth = 0;
+  let i = open;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (ch === "{" || ch === "[") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      depth--;
+      i++;
+      if (depth === 0) break;
+      continue;
+    }
+    if (ch !== "\"") {
+      i++;
+      continue;
+    }
+    const start = i + 1;
+    i = start;
+    while (i < text.length && text[i] !== "\"") i += text[i] === "\\" ? 2 : 1;
+    const key = text.slice(start, i);
+    i++;
+    if (depth !== 1) continue;
+    let j = i;
+    while (text[j] === " " || text[j] === "\t") j++;
+    if (text[j] === ":") keys.push(key);
+  }
+  return { keys, end: i };
+}
+
+function scanToolCalls(text: string, line: number, opNames: ReadonlySet<string>, out: ToolCallExample[]): void {
+  // `memex call <tool> ['{json}']`: the tool name is an instruction on its own.
+  const cliObjects = new Map<number, number>();
+  let pos = 0;
+  for (;;) {
+    const k = text.indexOf("memex call", pos);
+    if (k === -1) break;
+    pos = k + 10;
+    if (k > 0 && isWordChar(text[k - 1])) continue;
+    if (text[k + 10] !== " ") continue;
+    const [first = "", second = ""] = readTokens(text, k + 11, 2);
+    const tool = stripTrailingPunctuation(first);
+    if (!isToolName(tool)) continue;
+    const example: ToolCallExample = { tool, keys: [], viaCli: true, line };
+    out.push(example);
+    if (tool.length !== first.length || !second.startsWith("'{")) continue;
+    cliObjects.set(text.indexOf("'{", k + 11 + first.length) + 1, out.length - 1);
+  }
+  // `tool_name {json}`, plus the objects of the `memex call` lines above. An
+  // object nested inside one already read is an argument value, not a call.
+  let scannedUntil = 0;
+  for (let b = text.indexOf("{"); b !== -1; b = text.indexOf("{", b + 1)) {
+    if (b < scannedUntil) continue;
+    const cli = cliObjects.get(b);
+    if (cli !== undefined) {
+      const { keys, end } = objectKeys(text, b);
+      out[cli]!.keys = keys;
+      scannedUntil = end;
+      continue;
+    }
+    let w = b;
+    while (w > 0 && (text[w - 1] === " " || text[w - 1] === "\t")) w--;
+    if (w === b) continue;
+    const nameEnd = w;
+    while (w > 0 && nameEnd - w <= MAX_TOKEN && isToolChar(text[w - 1])) w--;
+    if (w > 0 && isWordChar(text[w - 1])) continue;
+    const tool = text.slice(w, nameEnd);
+    if (!opNames.has(tool)) continue;
+    const { keys, end } = objectKeys(text, b);
+    out.push({ tool, keys, viaCli: false, line });
+    scannedUntil = end;
+  }
+}
+
+/**
+ * Collect tool-call examples from fenced blocks and inline code spans: every
+ * `memex call <tool>`, and every `<tool> {json}` whose tool is in `opNames`.
+ * Linear: each `{` is looked back from once over the gap since the previous
+ * one, and an argument object is read once.
+ */
+export function extractToolCalls(
+  markdown: string,
+  opNames: ReadonlySet<string>,
+  firstLine = 1,
+): ToolCallExample[] {
+  const out: ToolCallExample[] = [];
+  forEachCodeSegment(markdown, firstLine, (code, line) => scanToolCalls(code, line, opNames, out));
+  return out;
+}
+
+function checkToolCalls(
+  slug: string,
+  calls: readonly ToolCallExample[],
+  opNames: ReadonlySet<string>,
+  opParams: ReadonlyMap<string, ReadonlySet<string>>,
+  issues: SkillLintIssue[],
+): void {
+  for (const call of calls) {
+    if (!opNames.has(call.tool)) {
+      if (call.viaCli) {
+        issues.push({ slug, rule: "unknown-call-tool", detail: `memex call ${call.tool}`, line: call.line });
+      }
+      continue;
+    }
+    const declared = opParams.get(call.tool);
+    if (declared === undefined) continue;
+    for (const key of call.keys) {
+      if (declared.has(key)) continue;
+      issues.push({ slug, rule: "unknown-tool-arg", detail: `${call.tool} ${key}`, line: call.line });
+    }
   }
 }
 
@@ -204,13 +358,19 @@ function checkReferences(
   }
 }
 
-function lintSkillFile(
-  slug: string,
-  text: string,
-  opNames: ReadonlySet<string>,
-  table: Readonly<Record<string, CliCommandSpec>>,
-  issues: SkillLintIssue[],
-): void {
+interface PackSurfaces {
+  opNames: ReadonlySet<string>;
+  opParams: ReadonlyMap<string, ReadonlySet<string>>;
+  table: Readonly<Record<string, CliCommandSpec>>;
+}
+
+/** Command references and tool-call examples: the checks every served doc gets. */
+function checkBody(slug: string, text: string, surfaces: PackSurfaces, issues: SkillLintIssue[]): void {
+  checkReferences(slug, extractCliReferences(text), surfaces.table, issues);
+  checkToolCalls(slug, extractToolCalls(text, surfaces.opNames), surfaces.opNames, surfaces.opParams, issues);
+}
+
+function lintSkillFile(slug: string, text: string, surfaces: PackSurfaces, issues: SkillLintIssue[]): void {
   const fm = parseSkillFrontmatter(text);
   if (fm === null) {
     issues.push({
@@ -219,7 +379,7 @@ function lintSkillFile(
       detail: "skill must open with a `---` frontmatter block",
       line: 1,
     });
-    checkReferences(slug, extractCliReferences(text), table, issues);
+    checkBody(slug, text, surfaces, issues);
     return;
   }
   if (fm.name !== slug) {
@@ -231,7 +391,7 @@ function lintSkillFile(
     });
   }
   for (const tool of fm.tools) {
-    if (opNames.has(tool)) continue;
+    if (surfaces.opNames.has(tool)) continue;
     issues.push({
       slug,
       rule: "unknown-tool",
@@ -241,26 +401,40 @@ function lintSkillFile(
   }
   // Descriptions and triggers are served too, so the frontmatter is scanned
   // for command references along with the body.
-  checkReferences(slug, extractCliReferences(text), table, issues);
+  checkBody(slug, text, surfaces, issues);
 }
 
-function readText(file: string): string | null {
+/**
+ * Read a pack file. A file that exists but cannot be read is an issue, not a
+ * skip: the server would fail to serve it, and a silently skipped skill would
+ * let the lint pass on a pack it never checked.
+ */
+function readText(file: string, slug: string, issues: SkillLintIssue[]): string | null {
   try {
     return readFileSync(file, "utf8");
-  } catch {
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    issues.push({ slug, rule: "unreadable", detail: code ?? String(e), line: 1 });
     return null;
   }
+}
+
+function declaredParams(): Map<string, ReadonlySet<string>> {
+  return new Map(OPERATIONS.map((o) => [o.name, new Set(Object.keys(o.params))]));
 }
 
 /**
  * Lint a skill pack directory. Routable skills (`<slug>.md` or
  * `<slug>/SKILL.md`, the layouts listBrainSkillpacks serves) get the full
  * contract check; the shared `_*.md` docs and `conventions/*.md` are served
- * through get_skill as well, so they are scanned for command references.
+ * through get_skill as well, so they get the command and tool-call checks.
  */
 export function lintSkillpack(skillsDir: string, opts: SkillLintOptions = {}): SkillLintResult {
-  const opNames = opts.opNames ?? new Set(OPERATIONS.map((o) => o.name));
-  const table = opts.cliCommands ?? CLI_COMMANDS;
+  const surfaces: PackSurfaces = {
+    opNames: opts.opNames ?? new Set(OPERATIONS.map((o) => o.name)),
+    opParams: opts.opParams ?? declaredParams(),
+    table: opts.cliCommands ?? CLI_COMMANDS,
+  };
   if (!existsSync(skillsDir)) {
     throw new Error(`skillpack lint: skills directory not found at ${skillsDir}`);
   }
@@ -273,15 +447,16 @@ export function lintSkillpack(skillsDir: string, opts: SkillLintOptions = {}): S
     if (name === "conventions") {
       for (const doc of readdirSync(full).sort()) {
         if (!doc.endsWith(".md")) continue;
-        const text = readText(join(full, doc));
-        if (text !== null) checkReferences(`conventions/${doc}`, extractCliReferences(text), table, issues);
+        const slug = `conventions/${doc}`;
+        const text = readText(join(full, doc), slug, issues);
+        if (text !== null) checkBody(slug, text, surfaces, issues);
       }
       continue;
     }
     if (name.startsWith("_")) {
       if (!name.endsWith(".md")) continue;
-      const text = readText(full);
-      if (text !== null) checkReferences(name, extractCliReferences(text), table, issues);
+      const text = readText(full, name, issues);
+      if (text !== null) checkBody(name, text, surfaces, issues);
       continue;
     }
     let slug: string;
@@ -294,10 +469,10 @@ export function lintSkillpack(skillsDir: string, opts: SkillLintOptions = {}): S
       file = join(full, "SKILL.md");
       if (!existsSync(file)) continue;
     }
-    const text = readText(file);
-    if (text === null) continue;
     skills++;
-    lintSkillFile(slug, text, opNames, table, issues);
+    const text = readText(file, slug, issues);
+    if (text === null) continue;
+    lintSkillFile(slug, text, surfaces, issues);
   }
   return { ok: issues.length === 0, skills, issues };
 }

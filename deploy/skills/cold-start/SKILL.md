@@ -180,7 +180,7 @@ memex call search '{"q":"<topic from the imported data>"}'
 
 > **Track progress:**
 > ```
-> page_put tasks/cold-start-state {"phase_1_complete": true, "pages_imported": N}
+> page_put {"slug": "tasks/cold-start-state", "compiled_truth": {"phase_1_complete": true, "pages_imported": N}, "markdown_body": "# Cold-start state"}
 > ```
 
 ## Phase 2: Google Contacts → People Pages

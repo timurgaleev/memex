@@ -8,6 +8,7 @@ tools:
   - ontology_conflicts
   - stats
   - page_list
+  - get_recent_salience
   - page_get
   - page_put
   - query
@@ -98,7 +99,8 @@ stats
 Gives page/doc/chunk counts. Then measure type coverage directly:
 
 ```
-page_list prefix=<candidate-prefix>
+get_recent_salience {"slug_prefix": "<candidate-prefix>"}
+page_list {"type": "<candidate-type>"}
 ```
 
 and inspect frontmatter on samples via `page_get`. Look for:
@@ -108,7 +110,7 @@ and inspect frontmatter on samples via `page_get`. Look for:
 
 If coverage < 90%, there's untyped content worth typing.
 
-For an untyped-pages drilldown, `page_list` the busiest prefixes and look
+For an untyped-pages drilldown, list the busiest prefixes and look
 for shared path prefixes (e.g. "12 of these are under `research/papers/`") —
 those are candidates for a new type.
 
@@ -119,11 +121,14 @@ a pure heuristic — no model call needed), then run the proposal through the
 brain:
 
 ```
-ontology_propose  {"kind": "type", "name": "researcher", "rationale": "...", "evidence_slugs": [...]}
+ontology_propose  {"entity": "concepts/types/researcher", "dimension": "prefix", "value": "people/researchers/", "source": "<an evidence page slug>"}
 ```
 
-`ontology_propose` records the candidate against the active ontology and
-surfaces collisions with existing dimensions. Check `ontology_conflicts`
+`ontology_propose` records one `entity has dimension=value` observation, so a
+type is an entity (`concepts/types/<name>`) and each of its settings (prefix,
+primitive, extractable, expert-routed) is one dimension on it. A novel
+dimension lands quarantined; a different value on an existing one supersedes
+it. Check `ontology_conflicts`
 afterwards — a proposal that conflicts with an existing type/alias is a
 signal to alias instead of add (see `conventions/schema-evolution.md`).
 
@@ -154,8 +159,9 @@ it), record both in the same pass so the taxonomy never half-describes
 itself:
 
 ```
-ontology_propose  {"kind": "type", "name": "paper", ...}
-ontology_propose  {"kind": "link_verb", "name": "authored", "from": "researcher", "to": "paper"}
+ontology_propose  {"entity": "concepts/types/paper", "dimension": "prefix", "value": "research/papers/"}
+ontology_propose  {"entity": "concepts/link-verbs/authored", "dimension": "from", "value": "researcher"}
+ontology_propose  {"entity": "concepts/link-verbs/authored", "dimension": "to", "value": "paper"}
 ```
 
 Validate before backfill: re-run `ontology_conflicts`. It flags dangling
@@ -166,7 +172,7 @@ references and prefix collisions you'd otherwise discover only at runtime.
 Dry-run first: enumerate what would change.
 
 ```
-page_list prefix=people/researchers/
+get_recent_salience {"slug_prefix": "people/researchers"}
 ```
 
 Count the pages that would gain `type: researcher`. If the numbers look
@@ -200,9 +206,7 @@ page slugs disagree — fix the convention or the filing, not the query.
 Write the decision as a brain page so future sessions inherit it:
 
 ```
-page_put  slug=reports/taxonomy/{YYYY-MM-DD}-add-researcher
-  frontmatter: {type: report, category: taxonomy}
-  body: what was added, why, evidence, backfill counts
+page_put  {"slug": "reports/taxonomy/{YYYY-MM-DD}-add-researcher", "type": "report", "allowAdHocType": true, "compiled_truth": {"category": "taxonomy"}, "markdown_body": "<what was added, why, evidence, backfill counts>"}
 ```
 
 The background cycle picks up new conventions on its next pass — no manual

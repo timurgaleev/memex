@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { lintAndShape, validateSkill } from "../src/core/skillify.ts";
-import { extractCliReferences, lintSkillpack } from "../src/core/skillpack/lint.ts";
+import { extractCliReferences, extractToolCalls, lintSkillpack } from "../src/core/skillpack/lint.ts";
 
 const MEMEX_DIR = resolve(import.meta.dir, "..");
 const PACK_DIR = resolve(MEMEX_DIR, "..", "skills");
@@ -125,6 +125,64 @@ describe("lintSkillpack", () => {
     expect(validateSkill(shaped.markdown, "workout-recap").issues).toEqual([]);
   });
 
+  it("flags undeclared argument keys in tool-call examples", () => {
+    const dir = writePack("tool-args", {
+      "iota/SKILL.md": skill(
+        "iota",
+        "[search, page_put]",
+        [
+          `${FENCE}`,
+          `search  {"q": "x", "limit": 5}     # "limit" is not a search param`,
+          `page_put {"slug": "a/b", "compiled_truth": {"content": 1}, "content": [...]}`,
+          `${FENCE}`,
+          "Or inline: `search {\"query\": \"x\"}`.",
+          `${FENCE}bash`,
+          `memex call search '{"q":"x","k":5,"limt":5}'`,
+          "memex call not_a_tool '{}'",
+          `${FENCE}`,
+        ].join("\n"),
+      ),
+    });
+    const rules = lintSkillpack(dir).issues.map((i) => `${i.rule} ${i.detail} @${i.line}`);
+    expect(rules).toEqual([
+      "unknown-tool-arg search limit @12",
+      "unknown-tool-arg page_put content @13",
+      "unknown-tool-arg search query @15",
+      "unknown-tool-arg search limt @17",
+      "unknown-call-tool memex call not_a_tool @18",
+    ]);
+  });
+
+  it("accepts declared keys, placeholders and non-call braces", () => {
+    const dir = writePack("tool-args-clean", {
+      "kappa/SKILL.md": skill(
+        "kappa",
+        "[jobs_submit, jobs_get]",
+        [
+          `${FENCE}`,
+          `jobs_submit {"kind":"<registered kind>","payload":{"anything":1}}`,
+          `jobs_get    {"id":ID}`,
+          `memex call jobs_get '{...}'`,
+          `memex call <tool> '<args>'`,
+          `const x = {"not": "a call"};`,
+          `${FENCE}`,
+        ].join("\n"),
+      ),
+    });
+    expect(lintSkillpack(dir)).toEqual({ ok: true, skills: 1, issues: [] });
+  });
+
+  it("reports a SKILL.md it cannot read instead of skipping it", () => {
+    const dir = writePack("unreadable", {
+      "lambda/SKILL.md/placeholder": "x",
+      "mu/SKILL.md": skill("mu", "[page_get]", "Body."),
+    });
+    const r = lintSkillpack(dir);
+    expect(r.ok).toBe(false);
+    expect(r.skills).toBe(2);
+    expect(r.issues).toEqual([{ slug: "lambda", rule: "unreadable", detail: "EISDIR", line: 1 }]);
+  });
+
   it("passes on the shipped pack", () => {
     const r = lintSkillpack(PACK_DIR);
     expect(r.issues).toEqual([]);
@@ -155,6 +213,32 @@ describe("extractCliReferences cost", () => {
       Array.from({ length: n }, (_, i) => `${"`".repeat((i % 50) + 1)}memex doctor `).join("");
     const small = best(build(20_000));
     const large = best(build(40_000));
+    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+  }, 60_000);
+});
+
+describe("extractToolCalls cost", () => {
+  const ops = new Set(["search"]);
+  function best(text: string): number {
+    const runs = [0, 1, 2].map(() => {
+      const started = performance.now();
+      extractToolCalls(`${FENCE}\n${text}\n${FENCE}`, ops);
+      return performance.now() - started;
+    });
+    return Math.min(...runs);
+  }
+
+  it("stays linear on nested tool-call objects that never close", () => {
+    const build = (k: number): string => "search {\"q\": ".repeat(2 ** k);
+    const small = best(build(15));
+    const large = best(build(16));
+    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+  }, 60_000);
+
+  it("stays linear on braces separated by whitespace and memex call fragments", () => {
+    const build = (k: number): string => "memex call search '{ \"q\" ".repeat(2 ** k);
+    const small = best(build(15));
+    const large = best(build(16));
     expect(large / Math.max(small, 0.05)).toBeLessThan(3);
   }, 60_000);
 });
