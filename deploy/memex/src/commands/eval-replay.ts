@@ -66,12 +66,17 @@ export function isReplayRegression(
 export function regressionMessage(
   b: NonNullable<ReplayReport["baseline"]>,
   eps: number,
+  scored?: number,
 ): string {
   const ci = b.deltaMeanRRCi95;
+  const subset =
+    scored !== undefined && scored !== b.paired
+      ? ` over the ${b.paired} of ${scored} scored queries that have a baseline`
+      : "";
   return (
     `eval-replay: REGRESSION vs baseline — deltaMeanRR=${b.deltaMeanRR.toFixed(4)} ` +
     `[95% CI ${ci.lo.toFixed(4)}, ${ci.hi.toFixed(4)}], ` +
-    `deltaHitRate=${b.deltaHitRate.toFixed(4)} (eps=${eps}); ` +
+    `deltaHitRate=${b.deltaHitRate.toFixed(4)} (eps=${eps})${subset}; ` +
     (b.significantDrop ? "beyond noise" : "within noise (the interval includes 0)")
   );
 }
@@ -147,7 +152,7 @@ export async function runEvalReplay(opts: EvalReplayCmdOptions): Promise<void> {
         // and when there is no baseline yet (first run has nothing to regress
         // against). Retrieval quality is otherwise a silent-drift class.
         if (isReplayRegression(report, { ...(opts.promote ? { promote: true } : {}) })) {
-          console.error(regressionMessage(report.baseline!, evalRegressionEps()));
+          console.error(regressionMessage(report.baseline!, evalRegressionEps(), report.scored));
           process.exitCode = 1;
         }
         return;

@@ -55,6 +55,7 @@ describe("eval snapshots", () => {
       storage.engine(),
       report({
         baseline: {
+          paired: 4,
           meanRR: 0.4,
           hitRate: 0.75,
           deltaMeanRR: 0.02,

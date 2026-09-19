@@ -153,11 +153,12 @@ export const METRIC_GLOSSARY: Readonly<Record<string, string>> = {
   meanRRCi95: "95% percentile bootstrap interval for meanRR (2000 resamples, seed 42).",
   hitRateCi95: "95% percentile bootstrap interval for hitRate (2000 resamples, seed 42).",
   delta_ci95:
-    "Paired bootstrap 95% interval for current − baseline over queries present in both runs; an interval entirely below 0 is a drop beyond noise.",
-  deltaMeanRRCi95: "Paired bootstrap 95% interval for meanRR − baseline meanRR (replay).",
-  deltaHitRateCi95: "Paired bootstrap 95% interval for hitRate − baseline hitRate (replay).",
+    "Paired bootstrap 95% interval for current − baseline over the n queries present in both runs (of `scored`), with the paired point deltas; an interval entirely below 0 is a drop beyond noise. The pass/fail verdict compares full-set means, so it can differ when n < scored.",
+  deltaMeanRRCi95: "Paired bootstrap 95% interval for meanRR − baseline meanRR (replay), over the same `paired` queries as deltaMeanRR.",
+  deltaHitRateCi95: "Paired bootstrap 95% interval for hitRate − baseline hitRate (replay), over the same `paired` queries as deltaHitRate.",
   qrels_changed: "The baseline was scored against different qrels bytes, so the comparison is not like for like.",
   significantDrop: "True when the paired delta interval for MRR lies entirely below 0.",
-  run_config_hash: "sha256 of the canonical ranking knobs, k and qrels_sha256: equal hashes mean comparable runs.",
+  run_config_hash:
+    "sha256 of the resolved ranking knobs (explicit config over MEMEX_* env over the search-mode bundle), the ranking env knobs, the embedding signature, k and qrels_sha256. Equal hashes mean the same ranking configuration; the corpus is not covered, so runs against a changed brain can differ under one hash.",
   qrels_sha256: "sha256 of the qrels file bytes the run scored against.",
 };

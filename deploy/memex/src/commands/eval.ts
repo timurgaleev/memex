@@ -31,6 +31,9 @@ import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { hybridSearch } from "../core/search/index.ts";
+import { resolveSearchKnobs } from "../core/search/hybrid.ts";
+import { DEFAULT_RRF_K } from "../core/rrf.ts";
+import { embeddingSignature } from "../core/embedding.ts";
 import { wilsonCI, smallSampleNote, type WilsonCI } from "../core/wilson.ts";
 import { ndcgAtK, precisionAtK, binaryGrades } from "../core/search/metrics.ts";
 import { ci95, METRIC_GLOSSARY, type Ci95 } from "../core/search/bootstrap.ts";
@@ -177,12 +180,71 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
- * Run fingerprint: the ranking knobs (the display name excluded — renaming a
- * config does not change what it measures), k, and the qrels checksum.
+ * Ranking env knobs hybridSearch reads that `resolveSearchKnobs` does not
+ * already fold in. Budgets, timeouts and cache settings are left out: they
+ * bound cost or latency, and eval runs with the cache off.
  */
-export function runConfigHash(cfg: EvalKnobConfig, k: number, qrelsSha256: string): string {
-  const { name: _name, k: _k, ...knobs } = cfg;
-  return sha256Hex(canonicalJson({ knobs, k, qrels_sha256: qrelsSha256 }));
+const RANKING_ENV_KNOBS = [
+  "MEMEX_ALIAS_HOP",
+  "MEMEX_CURATION_BOOST",
+  "MEMEX_EMBED_DIM",
+  "MEMEX_GRAPH_RERANK",
+  "MEMEX_GRAPH_SIGNALS_FLOOR",
+  "MEMEX_INTENT_LLM",
+  "MEMEX_MAX_TYPE_RATIO",
+  "MEMEX_NEARDUP_JACCARD",
+  "MEMEX_RECENCY_BOOST",
+  "MEMEX_RECENCY_DECAY",
+  "MEMEX_RELATIONAL_ARM_WEIGHT",
+  "MEMEX_RELATIONAL_LLM",
+  "MEMEX_RERANK_WINDOW",
+  "MEMEX_SEARCH_EXCLUDE",
+  "MEMEX_TITLE_BOOST",
+  "MEMEX_UTILITY_MODEL",
+] as const;
+
+/**
+ * Run fingerprint over what the search actually runs with: the knobs as
+ * hybridSearch resolves them (explicit config, then MEMEX_* env, then the
+ * search-mode bundle), so the same effective setup hashes the same whether it
+ * was spelled out or defaulted; plus the raw ranking env knobs, the embedding
+ * signature, k and the qrels checksum. The display name is excluded, and so
+ * is the corpus: eval runs against the live brain.
+ */
+export function runConfigHash(
+  cfg: EvalKnobConfig,
+  k: number,
+  qrelsSha256: string,
+): string {
+  const env = process.env;
+  const resolved = resolveSearchKnobs({
+    ...(cfg.expansion !== undefined ? { expansion: cfg.expansion } : {}),
+    ...(cfg.rerank !== undefined ? { rerank: cfg.rerank } : {}),
+    ...(cfg.graphSignals !== undefined ? { graphSignals: cfg.graphSignals } : {}),
+    ...(cfg.cosineRescore !== undefined ? { cosineRescore: cfg.cosineRescore } : {}),
+    ...(cfg.relationalArm !== undefined ? { relationalArm: cfg.relationalArm } : {}),
+    ...(cfg.backlinkBoost !== undefined ? { backlinkBoost: cfg.backlinkBoost } : {}),
+    ...(cfg.tokenBudget !== undefined ? { tokenBudget: cfg.tokenBudget } : {}),
+  });
+  const envKnobs: Record<string, string | undefined> = {};
+  for (const key of RANKING_ENV_KNOBS) envKnobs[key] = env[key];
+  // evalRun applies dedupTypeRatio through the env for the run's duration.
+  if (cfg.dedupTypeRatio !== undefined) {
+    envKnobs["MEMEX_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
+  }
+  return sha256Hex(
+    canonicalJson({
+      knobs: {
+        ...resolved,
+        rrfK: cfg.rrfK ?? DEFAULT_RRF_K,
+        maxPool: cfg.maxPool ?? env.MEMEX_MAXPOOL === "1",
+      },
+      env: envKnobs,
+      embedding: embeddingSignature(),
+      k,
+      qrels_sha256: qrelsSha256,
+    }),
+  );
 }
 
 function recallAtK(found: string[], expected: string[]): number {

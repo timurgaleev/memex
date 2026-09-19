@@ -1085,7 +1085,12 @@ run-all/gate`, `eval-replay run` (`significantDrop`), `eval-probe`, the
 `eval_snapshots.detail` JSON and doctor's eval-trend line. `eval` reports
 nDCG@k and P@k. Records and gate baselines carry a run-config hash, the qrels
 sha256 and per-query scores, and the JSON outputs carry a metric glossary.
-Gate verdicts are unchanged. Done-when "a mutation (broken RRF weights) moves
+The run-config hash is taken over the resolved knobs (`resolveSearchKnobs`,
+the ranking `MEMEX_*` env knobs, the embedding signature), so it tracks env
+and mode defaults; the corpus is still not covered. The `eval gate` verdict
+is unchanged; `eval-replay run` now takes its deltas over the paired
+(baselined) queries only, matching the interval, so a capture newer than the
+last promote cannot fail it. Done-when "a mutation (broken RRF weights) moves
 the metric beyond the bootstrap interval" is proven on the real
 `reciprocalRankFusion` over a hermetic PGLite corpus
 (`tests/eval_mutation_bootstrap.test.ts`). Because `rrf.ts` treats a

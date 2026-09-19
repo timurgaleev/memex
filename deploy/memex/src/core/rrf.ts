@@ -29,11 +29,13 @@ export interface RrfResult {
   score: number;
 }
 
+export const DEFAULT_RRF_K = 60;
+
 export function reciprocalRankFusion(
   lists: ReadonlyArray<readonly string[]>,
   opts: RrfOptions = {},
 ): RrfResult[] {
-  const k = opts.k ?? 60;
+  const k = opts.k ?? DEFAULT_RRF_K;
   const acc = new Map<string, number>();
 
   for (let li = 0; li < lists.length; li++) {

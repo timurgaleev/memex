@@ -91,6 +91,10 @@ export interface ReplayReport {
   meanRRCi95: Ci95;
   hitRateCi95: Ci95;
   baseline?: {
+    /** Queries that have both a baseline and a current score. Every field
+     *  below is over this subset, so a query captured after the last
+     *  --promote never moves the delta or the gate. */
+    paired: number;
     meanRR: number;
     hitRate: number;
     deltaMeanRR: number;
@@ -440,12 +444,17 @@ export async function replayAll(
   if (baseScored > 0) {
     const baseMeanRR = baseRrSum / baseScored;
     const baseHitRate = baseHits / baseScored;
+    // The point delta and its interval must describe the same queries: the
+    // current side is re-averaged over the paired subset, not the full run.
+    const pairedMeanRR = paired.rr.reduce((a, b) => a + b, 0) / baseScored;
+    const pairedHitRate = paired.hit.reduce((a, b) => a + b, 0) / baseScored;
     const rrDeltaCi = deltaCi95(paired.baseRr, paired.rr);
     report.baseline = {
+      paired: baseScored,
       meanRR: round4(baseMeanRR),
       hitRate: round4(baseHitRate),
-      deltaMeanRR: round4(meanRR - baseMeanRR),
-      deltaHitRate: round4(hitRate - baseHitRate),
+      deltaMeanRR: round4(pairedMeanRR - baseMeanRR),
+      deltaHitRate: round4(pairedHitRate - baseHitRate),
       deltaMeanRRCi95: rrDeltaCi,
       deltaHitRateCi95: deltaCi95(paired.baseHit, paired.hit),
       significantDrop: rrDeltaCi.hi < 0,

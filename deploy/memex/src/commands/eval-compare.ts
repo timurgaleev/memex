@@ -264,13 +264,22 @@ export interface EvalBaseline {
 }
 
 /**
- * Paired current − baseline intervals over the query ids both runs scored.
+ * Paired current − baseline intervals over the query ids both runs scored,
+ * with the point deltas over that same subset: the verdict compares full-set
+ * means, which diverge from the paired view once the qrels gain or lose ids.
  * Null for a legacy baseline without per-query scores or no shared ids.
  */
 export function gateDeltaCi(
   report: Pick<EvalReport, "perQuery">,
   baseline: EvalBaseline | null,
-): { n: number; mean_recall: Ci95; mean_mrr: Ci95 } | null {
+): {
+  n: number;
+  scored: number;
+  mean_recall_delta: number;
+  mean_mrr_delta: number;
+  mean_recall: Ci95;
+  mean_mrr: Ci95;
+} | null {
   const per = baseline?.per_query;
   if (!per) return null;
   const before = { recall: [] as number[], rr: [] as number[] };
@@ -284,8 +293,14 @@ export function gateDeltaCi(
     after.rr.push(q.mrr);
   }
   if (after.rr.length === 0) return null;
+  const n = after.rr.length;
+  const meanDelta = (b: number[], a: number[]) =>
+    a.reduce((s, x, i) => s + x - b[i]!, 0) / n;
   return {
-    n: after.rr.length,
+    n,
+    scored: report.perQuery.length,
+    mean_recall_delta: meanDelta(before.recall, after.recall),
+    mean_mrr_delta: meanDelta(before.rr, after.rr),
     mean_recall: deltaCi95(before.recall, after.recall),
     mean_mrr: deltaCi95(before.rr, after.rr),
   };

@@ -78,7 +78,10 @@ describe("isReplayRegression", () => {
  * Nine captured queries, all hitting at rank 1 when promoted. The second run
  * either drops every query to rank 2 (systematic) or misses one (noise).
  */
-async function replayAfter(change: "systematic" | "one-flip" | "none") {
+async function replayAfter(
+  change: "systematic" | "one-flip" | "none",
+  unpromotedMiss = false,
+) {
   const tmp = mkdtempSync(join(tmpdir(), "memex-replay-ci-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -96,10 +99,20 @@ async function replayAfter(change: "systematic" | "one-flip" | "none") {
       searcher: async (q) => [{ documentId: docOf(q) }, { documentId: "x" }],
       promote: true,
     });
+    if (unpromotedMiss) {
+      // Captured after the promote, so it has no baseline; it misses.
+      await recordQuery(storage.engine(), {
+        id: "q-new",
+        query: "query new",
+        tag: "good",
+        expectedDocId: "d-new",
+      });
+    }
     return await replayAll(storage, {
       searcher: async (q) => {
         if (change === "systematic") return [{ documentId: "x" }, { documentId: docOf(q) }];
         if (change === "one-flip" && q === "query 0") return [{ documentId: "x" }];
+        if (q === "query new") return [{ documentId: "x" }];
         return [{ documentId: docOf(q) }, { documentId: "x" }];
       },
     });
@@ -136,5 +149,25 @@ describe("replay bootstrap intervals", () => {
     // The gate verdict is unchanged by the interval: -0.11 is past eps.
     expect(isReplayRegression(r, { eps: 0.01 })).toBe(true);
     expect(regressionMessage(r.baseline!, 0.01)).toContain("within noise");
+  });
+
+  it("keeps a query captured after the last promote out of the delta and the gate", async () => {
+    const r = await replayAfter("none", true);
+    expect(r.scored).toBe(10);
+    expect(r.meanRR).toBe(0.9);
+    expect(r.baseline?.paired).toBe(9);
+    expect(r.baseline?.deltaMeanRR).toBe(0);
+    expect(r.baseline?.deltaHitRate).toBe(0);
+    expect(r.baseline?.deltaMeanRRCi95).toEqual({ lo: 0, hi: 0 });
+    expect(isReplayRegression(r, { eps: 0.01 })).toBe(false);
+  });
+
+  it("names the paired subset in the message when it is smaller than the scored set", async () => {
+    const r = await replayAfter("systematic", true);
+    expect(r.baseline?.paired).toBe(9);
+    expect(r.baseline?.deltaMeanRR).toBe(-0.5);
+    const msg = regressionMessage(r.baseline!, 0.01, r.scored);
+    expect(msg).toContain("over the 9 of 10 scored queries that have a baseline");
+    expect(regressionMessage(r.baseline!, 0.01, 9)).not.toContain("scored queries");
   });
 });

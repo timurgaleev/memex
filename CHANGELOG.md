@@ -17,9 +17,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before. `memex eval` also reports nDCG@k and P@k. Each eval record and gate
   baseline carries a run-config hash and a sha256 of the qrels file, and the
   gate flags `qrels_changed` when the baseline was scored against different
-  qrels. The JSON outputs include a metric glossary. The gate and replay
-  pass/fail rules have not changed: the interval is reported next to the
+  qrels. The hash covers the ranking settings the search actually resolves
+  (config, `MEMEX_*` env and the search-mode defaults), so an env change
+  moves it and a spelled-out default does not; it does not cover the brain's
+  contents. The gate's `delta_ci95` carries the paired point deltas next to
+  the interval. The JSON outputs include a metric glossary. The gate
+  pass/fail rule has not changed: the interval is reported next to the
   verdict and does not replace it.
+
+### Fixed
+- **`eval-replay run` no longer counts new captures as a regression.** A
+  query captured after the last `--promote` has no baseline, but it still
+  moved `deltaMeanRR`/`deltaHitRate`, so one new miss could fail the run.
+  The deltas are now taken over the queries that have a baseline (reported
+  as `baseline.paired`), the same set the interval covers, and the
+  regression message says so when that set is smaller than the scored one.
 
 ### Security
 - **CI scans for secrets, vulnerable dependencies and workflow mistakes.**

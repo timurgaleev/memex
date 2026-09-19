@@ -12,6 +12,7 @@ import {
   parseEvalConfig,
   evalRun,
   loadQrels,
+  runConfigHash,
   type EvalOptions,
 } from "../src/commands/eval.ts";
 import { Storage } from "../src/core/storage.ts";
@@ -22,6 +23,7 @@ import {
   configForMode,
   groupLatest,
   gateVerdict,
+  gateDeltaCi,
   type EvalResultRecord,
 } from "../src/commands/eval-compare.ts";
 
@@ -269,6 +271,40 @@ describe("run fingerprint", () => {
     expect(d.run_config_hash).not.toBe(a.run_config_hash);
   });
 
+  it("moves with a ranking env knob set outside the config", () => {
+    const prev = process.env.MEMEX_MAX_TYPE_RATIO;
+    try {
+      delete process.env.MEMEX_MAX_TYPE_RATIO;
+      const unset = runConfigHash({}, 5, "q");
+      process.env.MEMEX_MAX_TYPE_RATIO = "0.4";
+      const set = runConfigHash({}, 5, "q");
+      expect(set).not.toBe(unset);
+      // The config knob and the env knob it maps onto are the same run.
+      delete process.env.MEMEX_MAX_TYPE_RATIO;
+      expect(runConfigHash({ dedupTypeRatio: 0.4 }, 5, "q")).toBe(set);
+    } finally {
+      if (prev === undefined) delete process.env.MEMEX_MAX_TYPE_RATIO;
+      else process.env.MEMEX_MAX_TYPE_RATIO = prev;
+    }
+  });
+
+  it("hashes an explicit mode bundle and the defaults it equals the same", () => {
+    const prev = process.env.MEMEX_SEARCH_MODE;
+    try {
+      delete process.env.MEMEX_SEARCH_MODE;
+      expect(runConfigHash(configForMode("conservative"), 5, "q")).toBe(runConfigHash({}, 5, "q"));
+      expect(runConfigHash({ rrfK: 60 }, 5, "q")).toBe(runConfigHash({}, 5, "q"));
+      process.env.MEMEX_SEARCH_MODE = "balanced";
+      expect(runConfigHash(configForMode("balanced"), 5, "q")).toBe(runConfigHash({}, 5, "q"));
+      expect(runConfigHash({}, 5, "q")).not.toBe(
+        runConfigHash(configForMode("conservative"), 5, "q"),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.MEMEX_SEARCH_MODE;
+      else process.env.MEMEX_SEARCH_MODE = prev;
+    }
+  });
+
   it("reports nDCG, P@k and the bootstrap intervals in eval output with a glossary", async () => {
     const cap = capture();
     try {
@@ -319,6 +355,29 @@ describe("gate intervals", () => {
     expect(out.delta_ci95.mean_mrr.lo).toBeLessThan(0);
     expect(out.qrels_changed).toBeUndefined();
     expect(out.glossary.delta_ci95).toBeString();
+  });
+
+  it("reports point deltas over the same shared ids as the interval", () => {
+    const perQuery = [
+      { id: "q1", recallAtK: 1, mrr: 1 },
+      { id: "q2", recallAtK: 1, mrr: 0.5 },
+      // Added to the qrels after the baseline was written, and it misses.
+      { id: "q3", recallAtK: 0, mrr: 0 },
+    ] as Parameters<typeof gateDeltaCi>[0]["perQuery"];
+    const d = gateDeltaCi({ perQuery }, {
+      saved_at: "",
+      k: 5,
+      mean_recall: 1,
+      mean_mrr: 1,
+      hit_rate: 1,
+      per_query: { q1: { recall: 1, rr: 1 }, q2: { recall: 1, rr: 1 } },
+    })!;
+    expect(d.n).toBe(2);
+    expect(d.scored).toBe(3);
+    expect(d.mean_recall_delta).toBe(0);
+    expect(d.mean_mrr_delta).toBe(-0.25);
+    expect(d.mean_mrr.lo).toBeLessThanOrEqual(d.mean_mrr_delta);
+    expect(d.mean_mrr.hi).toBeGreaterThanOrEqual(d.mean_mrr_delta);
   });
 
   it("gates a legacy baseline as before and flags a changed qrels checksum", async () => {
