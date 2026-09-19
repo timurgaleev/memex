@@ -71,6 +71,7 @@ export type AuthSub =
   | "list-clients"
   | "revoke-client"
   | "rescope-client"
+  | "grant-history"
   | "set-budget"
   | "enroll"
   | "enrollments"
@@ -90,14 +91,20 @@ interface ClientRow {
   source_id: string | null;
   federated_read: string[] | null;
   tenant_mode: string;
+  grant_revision: number;
   client_id_issued_at: number | null;
 }
 
 /**
- * Every `auth` flag takes a value, so there is no boolean case here — the one
- * defect was `--key=value`, which the loop read as a flag NAMED "key=value"
- * and then rejected with a misleading "needs a value". Split on the first '='
- * (redirect URIs and scope strings carry more of them).
+ * `--dry-run` is the one `auth` flag without a value. It parses to "true" (or
+ * the literal given with `=`), so a bare `--dry-run` is never mistaken for a
+ * flag missing its value.
+ */
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["dry-run"]);
+
+/**
+ * Split on the first '=' for `--key=value` (redirect URIs and scope strings
+ * carry more of them); every other flag takes the next argument as its value.
  *
  * Exported for tests.
  */
@@ -117,6 +124,10 @@ export function parseFlags(args: string[]): {
         continue;
       }
       const key = a.slice(2);
+      if (BOOLEAN_FLAGS.has(key)) {
+        flags[key] = "true";
+        continue;
+      }
       const val = args[i + 1];
       if (val === undefined || val.startsWith("--")) {
         throw new Error(`auth: flag --${key} needs a value`);
@@ -128,6 +139,15 @@ export function parseFlags(args: string[]): {
     }
   }
   return { positional, flags };
+}
+
+/** Read a boolean flag value; refuse anything that is not a clear yes or no. */
+export function parseBoolFlag(name: string, raw: string | undefined): boolean {
+  if (raw === undefined) return false;
+  const v = raw.toLowerCase();
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  throw new Error(`--${name} is a boolean flag, got '${raw}'`);
 }
 
 async function withProvider<T>(
@@ -217,7 +237,7 @@ async function listClients(): Promise<void> {
       .raw()
       .query<ClientRow>(
         `SELECT client_id, client_name, grant_types, scope, source_id,
-                federated_read, tenant_mode, client_id_issued_at
+                federated_read, tenant_mode, grant_revision, client_id_issued_at
            FROM oauth_clients WHERE deleted_at IS NULL
            ORDER BY client_id_issued_at`,
       )
@@ -253,11 +273,30 @@ export function parseFenceFlag(raw: string | undefined): string[] | undefined {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
+/**
+ * Who ran a CLI grant change, recorded in the audit row as data only — it
+ * authorizes nothing (the CLI already runs with database access).
+ */
+export function cliActor(env: Record<string, string | undefined> = process.env): string {
+  const pick = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : undefined);
+  return pick(env.MEMEX_OPERATOR) ?? pick(env.USER) ?? "cli";
+}
+
+/** Parse `--expected-revision`; undefined when absent. */
+export function parseExpectedRevision(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d{1,9}$/.test(raw)) {
+    throw new Error(`--expected-revision must be a non-negative integer, got '${raw}'`);
+  }
+  return Number(raw);
+}
+
+async function rescopeClient(clientId: string, args: string[]): Promise<void> {
   const usage =
-    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment]";
+    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment] [--expected-revision N] [--dry-run]";
   if (!clientId) throw new Error(usage);
-  const { flags } = parseFlags(rest);
+  const { flags } = parseFlags(args);
+  const dryRun = parseBoolFlag("dry-run", flags["dry-run"]);
   const sourceId = flags["source"];
   if (!sourceId) throw new Error(usage);
   const federatedRead = flags["federated-read"]
@@ -267,28 +306,39 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
   //   auth rescope-client <id> --source <src> --bound-slug-prefixes ""
   const boundSlugPrefixes = parseFenceFlag(flags["bound-slug-prefixes"]);
   const tenantMode = flags["tenant-mode"] !== undefined ? parseTenantMode(flags["tenant-mode"]) : undefined;
-  const updated = await withProvider((p) =>
-    p.rescopeClient(clientId, sourceId, federatedRead, boundSlugPrefixes, tenantMode),
+  const expectedRevision = parseExpectedRevision(flags["expected-revision"]);
+  const result = await withProvider((p) =>
+    p.rescopeClient(
+      clientId,
+      { sourceId, federatedRead, boundSlugPrefixes, tenantMode },
+      { actor: cliActor(), via: "cli", expectedRevision, dryRun },
+    ),
   );
-  if (!updated) {
-    throw new Error(`No active client "${clientId}".`);
-  }
   console.log(
     JSON.stringify(
       {
-        client_id: clientId,
-        source_id: sourceId,
-        federated_read: federatedRead ?? [sourceId],
-        ...(boundSlugPrefixes !== undefined
-          ? { bound_slug_prefixes: boundSlugPrefixes }
-          : {}),
-        ...(tenantMode !== undefined ? { tenant_mode: tenantMode } : {}),
-        updated: true,
+        client_id: result.clientId,
+        dry_run: result.dryRun,
+        revision: result.revision,
+        changed: result.changed,
+        before: result.before,
+        after: result.after,
       },
       null,
       2,
     ),
   );
+}
+
+async function grantHistory(clientId: string, args: string[]): Promise<void> {
+  if (!clientId) throw new Error("Usage: auth grant-history <client_id> [--limit N]");
+  const { flags } = parseFlags(args);
+  const limit = flags["limit"] !== undefined ? Number(flags["limit"]) : 100;
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error(`--limit must be a positive integer, got '${flags["limit"]}'`);
+  }
+  const rows = await withProvider((p) => p.listGrantAudit(clientId, limit));
+  console.log(JSON.stringify(rows, null, 2));
 }
 
 /**
@@ -725,6 +775,11 @@ async function testCommand(rest: string[]): Promise<void> {
 
 export async function runAuth(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
+  // Only rescope-client can preview. Every other subcommand would ignore the
+  // flag and mutate, which is the opposite of what it asks for.
+  if (sub !== "rescope-client" && rest.some((a) => a === "--dry-run" || a.startsWith("--dry-run="))) {
+    throw new Error(`auth ${sub ?? ""}: --dry-run is supported only by rescope-client`);
+  }
   switch (sub as AuthSub) {
     case "register-client":
       return registerClient(rest[0]!, rest.slice(1));
@@ -734,6 +789,8 @@ export async function runAuth(args: string[]): Promise<void> {
       return revokeClient(rest[0]!);
     case "rescope-client":
       return rescopeClient(rest[0]!, rest.slice(1));
+    case "grant-history":
+      return grantHistory(rest[0]!, rest.slice(1));
     case "set-budget":
       return setBudget(rest[0]!, rest[1]!);
     case "enroll":
@@ -756,7 +813,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return testCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-token|create|list|revoke|permissions|test>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|grant-token|create|list|revoke|permissions|test>",
       );
       process.exitCode = 1;
   }

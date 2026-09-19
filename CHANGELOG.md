@@ -39,6 +39,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `- page_get`) are read as lists. They were read as empty, so an unknown
   tool written that way passed the lint.
 
+### Security
+- **Client grant changes are revisioned, conflict-checked, previewable and
+  audited.** `memex auth rescope-client` and `POST /admin/api/rescope-client`
+  now write through one grant service. Each applied change bumps the client's
+  `grant_revision` and records one `oauth_grant_audit` row (actor, via,
+  before, after). `--expected-revision` / `expected_revision` refuses a stale
+  change with `grant_conflict` and writes nothing, `--dry-run` / `dry_run`
+  returns the before/after diff without writing, and validation reports every
+  problem at once (`unknown_source`, `empty_read_set`, `invalid_prefix`). The
+  admin route also takes `bound_slug_prefixes` and `tenant_mode`. `memex auth
+  grant-history <client_id>` and `GET /admin/api/grant-audit?client_id=`
+  show who changed a grant and when; `auth list-clients` shows the revision.
+  Leaving the expected revision out keeps last-writer-wins (still audited).
+  `MEMEX_OPERATOR` names the CLI actor. Migration 110; existing clients start
+  at revision 0 and no token's access changes.
+
 ## [1.147.0] — 2026-09-19
 
 ### Added

@@ -56,6 +56,7 @@ describe("admin-api auth gating", () => {
     expect((await call("/admin/api/register-client", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/update-client-ttl", { method: "POST", body: "{}" }))?.status).toBe(401);
     expect((await call("/admin/api/rescope-client", { method: "POST", body: "{}" }))?.status).toBe(401);
+    expect((await call("/admin/api/grant-audit?client_id=x"))?.status).toBe(401);
     expect((await call("/admin/api/revoke-client", { method: "POST", body: "{}" }))?.status).toBe(401);
   });
   it("401s an unknown /admin/api path when unauthenticated (no path disclosure)", async () => {
@@ -323,7 +324,10 @@ describe("admin-api credential management (authed)", () => {
       authed({ method: "POST", body: JSON.stringify({ client_id, source: "ghost" }) }),
     );
     expect(ghost?.status).toBe(400);
-    expect(((await ghost!.json()) as { error: string }).error).toContain("ghost");
+    const ghostBody = (await ghost!.json()) as { error: string; reasons: { code: string; detail: string }[] };
+    expect(ghostBody.error).toBe("invalid_grant");
+    expect(ghostBody.reasons[0]?.code).toBe("unknown_source");
+    expect(ghostBody.reasons[0]?.detail).toContain("ghost");
     const ghostRead = await call(
       "/admin/api/rescope-client",
       authed({ method: "POST", body: JSON.stringify({ client_id, source: "acme", read: ["acme", "ghost"] }) }),
@@ -335,6 +339,67 @@ describe("admin-api credential management (authed)", () => {
       authed({ method: "POST", body: JSON.stringify({ client_id: "nope", source: "acme" }) }),
     );
     expect(missing?.status).toBe(404);
+  });
+
+  it("rescope-client is revision-checked, previewable and audited", async () => {
+    const reg = await call(
+      "/admin/api/register-client",
+      authed({ method: "POST", body: JSON.stringify({ name: "agent-g", scopes: "read" }) }),
+    );
+    const { client_id } = (await reg!.json()) as { client_id: string };
+    await registerSource(storage.engine(), { id: "acme", kind: "other", pathPrefix: "/acme" });
+    const rescope = (payload: Record<string, unknown>) =>
+      call("/admin/api/rescope-client", authed({ method: "POST", body: JSON.stringify({ client_id, ...payload }) }));
+    const revisionOf = async () =>
+      Number(
+        (
+          await storage.engine().query<{ grant_revision: number }>(
+            "SELECT grant_revision FROM oauth_clients WHERE client_id = $1",
+            [client_id],
+          )
+        ).rows[0]?.grant_revision,
+      );
+
+    const dry = await rescope({ source: "acme", dry_run: true, bound_slug_prefixes: ["inbox"] });
+    expect(dry?.status).toBe(200);
+    const dryBody = (await dry!.json()) as { dry_run: boolean; revision: number; changed: string[] };
+    expect(dryBody.dry_run).toBe(true);
+    expect(dryBody.revision).toBe(0);
+    expect(dryBody.changed).toEqual(["source_id", "federated_read", "bound_slug_prefixes"]);
+    expect(await revisionOf()).toBe(0);
+
+    const ok = await rescope({ source: "acme", expected_revision: 0, bound_slug_prefixes: ["inbox"], tenant_mode: "client" });
+    expect(ok?.status).toBe(200);
+    expect(((await ok!.json()) as { revision: number }).revision).toBe(1);
+
+    const stale = await rescope({ source: "default", expected_revision: 0 });
+    expect(stale?.status).toBe(409);
+    expect(await stale!.json()).toEqual({ error: "grant_conflict", expected: 0, actual: 1 });
+    expect(await revisionOf()).toBe(1);
+
+    const invalid = await rescope({ source: "ghost", bound_slug_prefixes: ["NOT A SLUG"] });
+    expect(invalid?.status).toBe(400);
+    const invalidBody = (await invalid!.json()) as { error: string; reasons: { code: string }[] };
+    expect(invalidBody.error).toBe("invalid_grant");
+    expect(invalidBody.reasons.map((r) => r.code)).toEqual(["unknown_source", "invalid_prefix"]);
+
+    for (const bad of [{ expected_revision: -1 }, { expected_revision: "0" }, { dry_run: "yes" }, { tenant_mode: "team" }]) {
+      expect((await rescope({ source: "acme", ...bad }))?.status).toBe(400);
+    }
+
+    // null clears the fence.
+    const cleared = await rescope({ source: "acme", bound_slug_prefixes: null, expected_revision: 1 });
+    expect(((await cleared!.json()) as { after: { bound_slug_prefixes: unknown } }).after.bound_slug_prefixes).toBeNull();
+
+    const audit = await call(`/admin/api/grant-audit?client_id=${client_id}`, authed());
+    expect(audit?.status).toBe(200);
+    const rows = ((await audit!.json()) as { rows: { revision: number; via: string; actor: string; before: unknown }[] }).rows;
+    expect(rows.map((r) => r.revision)).toEqual([2, 1]);
+    expect(rows[0]).toMatchObject({ via: "admin_api", actor: "admin" });
+    expect(JSON.stringify(rows)).not.toContain("secret");
+
+    expect((await call("/admin/api/grant-audit", authed()))?.status).toBe(400);
+    expect((await call(`/admin/api/grant-audit?client_id=${client_id}`))?.status).toBe(401);
   });
 
   it("revoke-client soft-deletes and kills live tokens", async () => {

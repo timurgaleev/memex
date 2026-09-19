@@ -153,6 +153,11 @@ describe("SAFETY_FLAG_COMMANDS is derived from cli.ts, not hand-maintained", () 
     "utf8",
   );
 
+  const authSource = readFileSync(
+    join(import.meta.dir, "..", "src", "commands", "auth.ts"),
+    "utf8",
+  );
+
   function ownersOf(flag: string): string[] {
     const parts = source.split(/\n    case "([a-z0-9-]+)":/);
     const bodies = new Map<string, string>();
@@ -160,10 +165,12 @@ describe("SAFETY_FLAG_COMMANDS is derived from cli.ts, not hand-maintained", () 
       const cmd = parts[i]!;
       bodies.set(cmd, (bodies.get(cmd) ?? "") + parts[i + 1]!);
     }
-    return [...bodies]
+    const owners = [...bodies]
       .filter(([, body]) => body.includes(`flags.has("${flag}")`))
-      .map(([cmd]) => cmd)
-      .sort();
+      .map(([cmd]) => cmd);
+    // `auth` re-parses its own raw argv, so its reads live in auth.ts.
+    if (authSource.includes(`flags["${flag.slice(2)}"]`)) owners.push("auth");
+    return owners.sort();
   }
 
   for (const flag of ["--dry-run", "--apply", "--fix"]) {

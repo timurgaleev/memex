@@ -250,6 +250,7 @@ that stops making calls once the budget is spent. All default OFF.
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
 | `MEMEX_TENANT_FAIL_CLOSED` | off (`=1` on) | When on, an authenticated PUBLIC principal with no source grant reads/writes **nothing** instead of the redacted whole brain. The static bearer (no `authInfo`) is unaffected. Flip once a real remote OAuth client with a grant exists. | free |
+| `MEMEX_OPERATOR` | unset (falls back to `USER`, then `cli`) | Name recorded as the actor on grant changes made with `memex auth rescope-client`. Audit data only; it grants nothing. | free |
 | `MEMEX_PUBLIC_WRITE` | `0` | When `1`, the public `/mcp` path may call the constructive write tools (`index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`, `link`). Destructive ops + privacy-sensitive reads stay internal-only regardless. Pair with daily bearer rotation. | free |
 | `MEMEX_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. | free |
 | `MEMEX_HTTP_TRUST_PROXY` | off (`=1` on) | Let every header-keyed rate limiter fall back to `X-Forwarded-For` (first hop) then `X-Real-IP` when `Cf-Connecting-Ip` is absent. Both are attacker-controlled unless a trusted reverse proxy overwrites them, and a spoofable key is worse than none — the caller rotates values and mints a fresh bucket per request. Off, an unattributable caller is not metered per-IP at all. Turn on ONLY behind a proxy that terminates the client connection and rewrites those headers itself. | free |
@@ -461,6 +462,14 @@ you did not register fails with `redirect_uri is not registered`:
 memex auth rescope-client <client_id> --source alice --federated-read alice
 # redirect URIs are set at registration — re-register if the origin is wrong
 ```
+
+Every rescope is revisioned and audited. Preview it with `--dry-run` (prints
+the before/after diff and the current revision), then apply it with
+`--expected-revision N`: if someone changed the grant in between, it fails with
+`grant_conflict` and writes nothing. `memex auth grant-history <client_id>`
+shows who changed the grant and when; the admin API exposes the same through
+`POST /admin/api/rescope-client` (`dry_run`, `expected_revision`) and
+`GET /admin/api/grant-audit?client_id=`.
 
 Two things to know before you rely on this:
 

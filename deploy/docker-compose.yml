@@ -103,6 +103,10 @@ services:
       # link). Destructive ops + privacy-sensitive reads stay internal-only
       # regardless. Set =1 in the host .env to activate.
       - MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}
+      # Name recorded as the actor on grant changes made with `docker exec …
+      # memex auth rescope-client` (falls back to USER, then 'cli'). Audit data
+      # only; it grants nothing.
+      - MEMEX_OPERATOR=${MEMEX_OPERATOR:-}
       # Two-pass Haiku rerank (opt-in, default OFF). =1 reorders the top hybrid
       # hits with one CHEAP Claude Haiku call per search (~$1-3/mo at moderate
       # volume). The budget-friendly alternative to the paid Sonnet graph-rerank

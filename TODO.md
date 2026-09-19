@@ -1422,6 +1422,24 @@ narrowed scopes; a revoked or deleted client's tokens fail verification
 immediately; the admin editor works end to end on a two-tenant local install; a
 timing-safe compare test exists.
 
+**Progress.** Release 1 shipped the grant mutation service
+(`OAuthProvider.rescopeClient`, migration 110): `grant_revision` plus
+`SELECT … FOR UPDATE`, an optional expected revision failing closed with
+`grant_conflict`, a dry run returning the before/after diff, collected reason
+codes (`unknown_source`, `empty_read_set`, `invalid_prefix`), and one CTE that
+bumps the revision and writes the `oauth_grant_audit` row (actor, via, before,
+after). The CLI (`auth rescope-client --expected-revision/--dry-run`,
+`auth grant-history`) and the admin API (`POST /admin/api/rescope-client`,
+`GET /admin/api/grant-audit`) both go through it, for source, read set, prefix
+fence and tenant mode. Still open: rescoping scopes (and the dead `agent` /
+`sources_admin` / `users_admin` scopes), named profiles and the
+`allowed_operations` snapshot, routing enrollment redemption and
+register-client through the service (`via='enrollment'`), the stricter prefix
+grammar and an archived-source reason, token lifecycle (per-client TTLs, DCR
+clamp, PAT TTL/expiry, periodic sweep, revoke PAT by id, least-privilege mint,
+unified revocation), consent re-check, the constant-time compare module, the
+admin SPA grant editor, and the advisor collector.
+
 ### RM-11 — Retrieval pipeline v2 (honest degradation, fusion hygiene, confidence)
 
 **Why.** An agent cannot tell "the brain has nothing" from "the Bedrock embed

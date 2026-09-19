@@ -95,7 +95,8 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--bound-slug-prefixes", "--budget", "--client", "--config-a", "--config-b",
   "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
-  "--dir", "--example-limit", "--expected-doc", "--family", "--federated-read", "--file",
+  "--dir", "--example-limit", "--expected-doc", "--expected-revision", "--family",
+  "--federated-read", "--file",
   "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
   "--input", "--k", "--keep-days", "--kind", "--label", "--limit", "--max-drop",
   "--max-jobs", "--max-pages", "--max-retries", "--max-usd",
@@ -265,8 +266,9 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "auth",
     new Set([
-      "--bound-slug-prefixes", "--client", "--federated-read", "--grant-types",
-      "--label", "--redirect-uris", "--scopes", "--source", "--takes-holders",
+      "--bound-slug-prefixes", "--client", "--dry-run", "--expected-revision",
+      "--federated-read", "--grant-types", "--label", "--limit",
+      "--redirect-uris", "--scopes", "--source", "--takes-holders",
       "--tenant-mode", "--token", "--token-endpoint-auth-method", "--ttl",
     ]),
   ],
@@ -303,8 +305,8 @@ export const SAFETY_FLAG_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = ne
   [
     "--dry-run",
     new Set([
-      "apply-migrations", "embed", "extract", "jobs", "lint", "migrate-engine",
-      "reindex", "skillify",
+      "apply-migrations", "auth", "embed", "extract", "jobs", "lint",
+      "migrate-engine", "reindex", "skillify",
     ]),
   ],
   ["--apply", new Set(["eval-prune", "page-retype", "quarantine", "search"])],

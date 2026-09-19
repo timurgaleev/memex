@@ -210,7 +210,11 @@ function printUsage(): void {
   console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
   console.log("  auth rescope-client <id> --source SRC [--federated-read a,b]");
   console.log("                               [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment]");
-  console.log("                               change a client's tenancy in place — no secret rotation");
+  console.log("                               [--expected-revision N] [--dry-run]");
+  console.log("                               change a client's tenancy in place — no secret rotation;");
+  console.log("                               revision-checked, previewable, audited");
+  console.log("  auth grant-history <id> [--limit N]");
+  console.log("                               JSON audit of a client's grant changes, newest first");
   console.log("  auth enroll <source> [--label N] [--client ID] [--ttl 7d]");
   console.log("                               one-time enrollment code: a person presents it at /authorize");
   console.log("                               on an enrollment-mode client and lands in <source> (printed once)");

@@ -18,7 +18,14 @@ import type { Engine } from "../core/engine/interface.ts";
 import { getSource } from "../core/sources.ts";
 import { brainHealthMetrics } from "../core/source-health.ts";
 import { getCalibrationProfile } from "../core/synthesis/reads.ts";
-import { OAuthProvider, validateTokenEndpointAuthMethod } from "../core/oauth-provider.ts";
+import {
+  GrantConflictError,
+  GrantNotFoundError,
+  GrantValidationError,
+  OAuthProvider,
+  validateTokenEndpointAuthMethod,
+} from "../core/oauth-provider.ts";
+import type { TenantMode } from "../core/oauth-provider.ts";
 import { normalizeScopesInput } from "../core/scope.ts";
 
 export interface AdminApiDeps {
@@ -426,12 +433,20 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
   }
 
   // POST /admin/api/rescope-client — change an existing client's tenancy
-  // grant (write source + federated read set) without revoke + re-register.
-  // Same source validation as register-client; already-issued tokens pick up
-  // the new scope on their next verification (the verify path JOINs the
-  // client row).
+  // grant without revoke + re-register, through the grant mutation service:
+  // revision-checked (`expected_revision`), previewable (`dry_run`) and
+  // audited. Already-issued tokens pick up the new grant on their next
+  // verification (the verify path JOINs the client row).
   if (p === "/admin/api/rescope-client" && req.method === "POST") {
-    let body: { client_id?: unknown; source?: unknown; read?: unknown };
+    let body: {
+      client_id?: unknown;
+      source?: unknown;
+      read?: unknown;
+      bound_slug_prefixes?: unknown;
+      tenant_mode?: unknown;
+      expected_revision?: unknown;
+      dry_run?: unknown;
+    };
     try {
       body = (await req.json()) as typeof body;
     } catch {
@@ -439,34 +454,85 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
     if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
     if (typeof body.source !== "string" || body.source.length === 0) return badRequest("source required");
-    const sourceId = body.source;
+    const isIdList = (v: unknown): v is string[] =>
+      Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0);
     let federatedRead: string[] | undefined;
     if (body.read !== undefined) {
-      if (
-        !Array.isArray(body.read) ||
-        body.read.length === 0 ||
-        !body.read.every((x) => typeof x === "string" && x.length > 0)
-      ) {
+      if (!isIdList(body.read) || body.read.length === 0) {
         return badRequest("read must be a non-empty array of source ids");
       }
-      federatedRead = body.read as string[];
+      federatedRead = body.read;
+    }
+    // Tri-state fence: absent leaves it, null or [] clears it, a list replaces it.
+    let boundSlugPrefixes: string[] | undefined;
+    if (body.bound_slug_prefixes === null) boundSlugPrefixes = [];
+    else if (body.bound_slug_prefixes !== undefined) {
+      if (!isIdList(body.bound_slug_prefixes)) {
+        return badRequest("bound_slug_prefixes must be an array of slug prefixes, or null to clear");
+      }
+      boundSlugPrefixes = body.bound_slug_prefixes;
+    }
+    let tenantMode: TenantMode | undefined;
+    if (body.tenant_mode !== undefined) {
+      if (body.tenant_mode !== "client" && body.tenant_mode !== "enrollment") {
+        return badRequest("tenant_mode must be 'client' or 'enrollment'");
+      }
+      tenantMode = body.tenant_mode;
+    }
+    let expectedRevision: number | undefined;
+    if (body.expected_revision !== undefined) {
+      if (typeof body.expected_revision !== "number" || !Number.isInteger(body.expected_revision) || body.expected_revision < 0) {
+        return badRequest("expected_revision must be a non-negative integer");
+      }
+      expectedRevision = body.expected_revision;
+    }
+    if (body.dry_run !== undefined && typeof body.dry_run !== "boolean") {
+      return badRequest("dry_run must be a boolean");
     }
     try {
-      const missing = await missingSourceIds(engine, sourceId, federatedRead ?? [sourceId]);
-      if (missing.length > 0) return badRequest(`unknown source id(s): ${missing.join(", ")}`);
       const provider = new OAuthProvider({ engine });
-      const updated = await provider.rescopeClient(body.client_id, sourceId, federatedRead);
-      if (!updated) {
-        return Response.json({ error: `no active client "${body.client_id}"` }, { status: 404 });
-      }
+      const result = await provider.rescopeClient(
+        body.client_id,
+        { sourceId: body.source, federatedRead, boundSlugPrefixes, tenantMode },
+        // The admin session carries no per-person identity yet (one bootstrap
+        // secret), so every admin change is attributed to the admin role.
+        { actor: "admin", via: "admin_api", expectedRevision, dryRun: body.dry_run === true },
+      );
       return Response.json({
         ok: true,
-        client_id: body.client_id,
-        source_id: sourceId,
-        federated_read: federatedRead ?? [sourceId],
+        client_id: result.clientId,
+        dry_run: result.dryRun,
+        revision: result.revision,
+        source_id: result.after.source_id,
+        federated_read: result.after.federated_read,
+        before: result.before,
+        after: result.after,
+        changed: result.changed,
       });
     } catch (e) {
+      if (e instanceof GrantNotFoundError) {
+        return Response.json({ error: "not_found", detail: `no active client "${body.client_id}"` }, { status: 404 });
+      }
+      if (e instanceof GrantConflictError) {
+        return Response.json({ error: "grant_conflict", expected: e.expected, actual: e.actual }, { status: 409 });
+      }
+      if (e instanceof GrantValidationError) {
+        return Response.json({ error: "invalid_grant", reasons: e.reasons }, { status: 400 });
+      }
       return serverError("rescope-client", e);
+    }
+  }
+
+  // GET /admin/api/grant-audit?client_id= — who changed a client's grant and
+  // when, newest first. Grant fields only; the audit rows hold no secrets.
+  if (p === "/admin/api/grant-audit" && req.method === "GET") {
+    const clientId = url.searchParams.get("client_id");
+    if (!clientId) return badRequest("client_id required");
+    try {
+      const rows = await new OAuthProvider({ engine }).listGrantAudit(clientId, 100);
+      return Response.json({ client_id: clientId, rows });
+    } catch (e) {
+      return serverError("grant-audit", e);
     }
   }
 

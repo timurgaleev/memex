@@ -348,6 +348,130 @@ export interface OAuthProviderOptions {
   allowClientCredentialsDcr?: boolean;
 }
 
+/**
+ * A client's tenancy grant as the grant mutation service sees it. Arrays are
+ * sorted so a before/after comparison (and the audit JSON) is deterministic;
+ * the stored columns keep the caller's order.
+ */
+export interface GrantSnapshot {
+  source_id: string | null;
+  federated_read: string[];
+  bound_slug_prefixes: string[] | null;
+  tenant_mode: TenantMode;
+}
+
+/**
+ * A requested grant change. `federatedRead` omitted defaults to `[sourceId]`.
+ * `boundSlugPrefixes` is tri-state: omitted leaves the fence, `[]` clears it,
+ * a list replaces it. `tenantMode` omitted leaves the mode alone.
+ */
+export interface GrantChange {
+  sourceId: string;
+  federatedRead?: string[];
+  boundSlugPrefixes?: string[];
+  tenantMode?: TenantMode;
+}
+
+export type GrantVia = "cli" | "admin_api";
+
+export interface GrantMutationOptions {
+  /** Who asked, recorded as data only; it authorizes nothing. */
+  actor: string;
+  via: GrantVia;
+  /** When set, the change applies only if the stored revision still equals it. */
+  expectedRevision?: number;
+  dryRun?: boolean;
+}
+
+export interface GrantMutationResult {
+  clientId: string;
+  /** The revision after the change; on a dry run, the current revision. */
+  revision: number;
+  before: GrantSnapshot;
+  after: GrantSnapshot;
+  /** Grant fields whose value differs between before and after. */
+  changed: (keyof GrantSnapshot)[];
+  dryRun: boolean;
+}
+
+export type GrantReasonCode = "unknown_source" | "empty_read_set" | "invalid_prefix";
+
+export interface GrantReason {
+  code: GrantReasonCode;
+  detail: string;
+}
+
+export class GrantNotFoundError extends Error {
+  readonly code = "not_found";
+  constructor(readonly clientId: string) {
+    super(`not_found: no active client "${clientId}"`);
+    this.name = "GrantNotFoundError";
+  }
+}
+
+export class GrantConflictError extends Error {
+  readonly code = "grant_conflict";
+  constructor(
+    readonly expected: number,
+    readonly actual: number,
+  ) {
+    super(`grant_conflict: expected revision ${expected}, current revision is ${actual}`);
+    this.name = "GrantConflictError";
+  }
+}
+
+export class GrantValidationError extends Error {
+  readonly code = "invalid_grant";
+  constructor(readonly reasons: GrantReason[]) {
+    super(`invalid_grant: ${reasons.map((r) => `${r.code} (${r.detail})`).join("; ")}`);
+    this.name = "GrantValidationError";
+  }
+}
+
+/** One applied grant change, as the history read path returns it. */
+export interface GrantAuditRow {
+  id: number;
+  client_id: string;
+  revision: number;
+  actor: string;
+  via: string;
+  before: GrantSnapshot;
+  after: GrantSnapshot;
+  created_at: string;
+}
+
+const GRANT_FIELDS: (keyof GrantSnapshot)[] = [
+  "source_id",
+  "federated_read",
+  "bound_slug_prefixes",
+  "tenant_mode",
+];
+
+function sortedCopy(xs: string[]): string[] {
+  return [...xs].sort();
+}
+
+export function grantSnapshot(row: {
+  source_id: unknown;
+  federated_read: unknown;
+  bound_slug_prefixes: unknown;
+  tenant_mode: unknown;
+}): GrantSnapshot {
+  const fence = Array.isArray(row.bound_slug_prefixes) && row.bound_slug_prefixes.length > 0
+    ? sortedCopy(row.bound_slug_prefixes as string[])
+    : null;
+  return {
+    source_id: (row.source_id as string | null) ?? null,
+    federated_read: Array.isArray(row.federated_read) ? sortedCopy(row.federated_read as string[]) : [],
+    bound_slug_prefixes: fence,
+    tenant_mode: parseTenantMode(row.tenant_mode as string | null),
+  };
+}
+
+export function grantDiff(before: GrantSnapshot, after: GrantSnapshot): (keyof GrantSnapshot)[] {
+  return GRANT_FIELDS.filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
+}
+
 export class OAuthProvider {
   private engine: Engine;
   private tokenTtl: number;
@@ -576,51 +700,149 @@ export class OAuthProvider {
   }
 
   /**
-   * Change an existing client's tenancy grant in place — no revoke +
-   * re-register (which would rotate the secret). `sourceId` becomes the
-   * write source, `federatedRead` the read set (defaults to `[sourceId]`
-   * when omitted). Returns false when the client is unknown or revoked.
+   * The one write path for a client's tenancy grant (source, read set, slug
+   * fence, tenant mode). Changes it in place — no revoke + re-register, which
+   * would rotate the secret — and already-issued tokens see the new grant on
+   * their next verification, since that path JOINs the client row.
    *
-   * `boundSlugPrefixes` is TRI-STATE, so the slug write fence is no longer
-   * registration-only: `undefined` leaves the stored fence alone, an empty
-   * array clears it (unbounded), a non-empty array replaces it. Prefixes are
-   * validated exactly as at registration — a prefix that cannot match the slug
-   * grammar would silently deny the client every write. Clearing stores NULL,
-   * which `verifyAccessToken` already reads as unbounded.
+   * Runs under a row lock so the revision check, validation and write see one
+   * consistent row. A stale `expectedRevision` fails with `grant_conflict`
+   * before anything is written; validation collects every reason code instead
+   * of stopping at the first. An applied change bumps `grant_revision` and
+   * writes its audit row in the same statement, so there is no revision
+   * without history. A no-op change is still applied and audited: the attempt
+   * itself is worth recording.
+   *
+   * `boundSlugPrefixes` is tri-state (see GrantChange). Prefixes are validated
+   * exactly as at registration — a prefix that cannot match the slug grammar
+   * would silently deny the client every write.
    */
   async rescopeClient(
     clientId: string,
-    sourceId: string,
-    federatedRead?: string[],
-    boundSlugPrefixes?: string[],
-    tenantMode?: TenantMode,
-  ): Promise<boolean> {
-    const federated =
-      federatedRead && federatedRead.length > 0 ? federatedRead : [sourceId];
-    if (boundSlugPrefixes) {
-      for (const p of boundSlugPrefixes) validatePageSlug(p);
+    change: GrantChange,
+    opts: GrantMutationOptions,
+  ): Promise<GrantMutationResult> {
+    return this.engine.transaction(async (tx) => {
+      const locked = await tx.query<{
+        source_id: string | null;
+        federated_read: string[] | null;
+        bound_slug_prefixes: string[] | null;
+        tenant_mode: string | null;
+        grant_revision: number;
+      }>(
+        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision
+           FROM oauth_clients
+          WHERE client_id = $1 AND deleted_at IS NULL
+          FOR UPDATE`,
+        [clientId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new GrantNotFoundError(clientId);
+      const current = Number(row.grant_revision);
+      if (opts.expectedRevision !== undefined && opts.expectedRevision !== current) {
+        throw new GrantConflictError(opts.expectedRevision, current);
+      }
+
+      const federated = change.federatedRead ?? [change.sourceId];
+      await this.validateGrantChange(tx, change, federated);
+
+      const before = grantSnapshot(row);
+      const fence =
+        change.boundSlugPrefixes === undefined
+          ? row.bound_slug_prefixes
+          : change.boundSlugPrefixes.length > 0
+            ? change.boundSlugPrefixes
+            : null;
+      const after = grantSnapshot({
+        source_id: change.sourceId,
+        federated_read: federated,
+        bound_slug_prefixes: fence,
+        tenant_mode: change.tenantMode ?? row.tenant_mode,
+      });
+      const changed = grantDiff(before, after);
+      if (opts.dryRun) {
+        return { clientId, revision: current, before, after, changed, dryRun: true };
+      }
+
+      const setFence = change.boundSlugPrefixes !== undefined;
+      const applied = await tx.query<{ revision: number }>(
+        `WITH u AS (
+           UPDATE oauth_clients
+              SET source_id = $2, federated_read = $3::text[],
+                  bound_slug_prefixes = CASE WHEN $5::boolean THEN $4::text[]
+                                             ELSE bound_slug_prefixes END,
+                  tenant_mode = COALESCE($6, tenant_mode),
+                  grant_revision = grant_revision + 1
+            WHERE client_id = $1 AND deleted_at IS NULL
+            RETURNING grant_revision
+         )
+         INSERT INTO oauth_grant_audit (client_id, revision, actor, via, before, after)
+         SELECT $1, u.grant_revision, $7, $8, $9::jsonb, $10::jsonb FROM u
+         RETURNING revision`,
+        [
+          clientId,
+          change.sourceId,
+          federated,
+          setFence && change.boundSlugPrefixes!.length > 0 ? change.boundSlugPrefixes : null,
+          setFence,
+          change.tenantMode ?? null,
+          opts.actor,
+          opts.via,
+          JSON.stringify(before),
+          JSON.stringify(after),
+        ],
+      );
+      const revision = applied.rows[0]?.revision;
+      // The row is locked, so the UPDATE cannot miss it; a missing row here
+      // means the invariant broke and the change must not look applied.
+      if (revision === undefined) throw new Error(`grant write for "${clientId}" affected no row`);
+      return { clientId, revision: Number(revision), before, after, changed, dryRun: false };
+    });
+  }
+
+  /** Collect every reason a grant change is invalid; throw when there is any. */
+  private async validateGrantChange(tx: Engine, change: GrantChange, federated: string[]): Promise<void> {
+    const reasons: GrantReason[] = [];
+    if (federated.length === 0) {
+      reasons.push({ code: "empty_read_set", detail: "the read set must name at least one source" });
     }
-    const setFence = boundSlugPrefixes !== undefined;
-    const r = await this.engine.query<{ client_id: string }>(
-      `UPDATE oauth_clients
-          SET source_id = $2, federated_read = $3::text[],
-              bound_slug_prefixes = CASE WHEN $5::boolean THEN $4::text[]
-                                         ELSE bound_slug_prefixes END,
-              tenant_mode = COALESCE($6, tenant_mode)
-        WHERE client_id = $1 AND deleted_at IS NULL
-        RETURNING client_id`,
-      [
-        clientId,
-        sourceId,
-        federated,
-        boundSlugPrefixes && boundSlugPrefixes.length > 0
-          ? boundSlugPrefixes
-          : null,
-        setFence,
-        tenantMode ?? null,
-      ],
+    const ids = Array.from(new Set([change.sourceId, ...federated]));
+    const known = await tx.query<{ id: string }>(
+      "SELECT id FROM sources WHERE id = ANY($1::text[])",
+      [ids],
     );
-    return r.rows.length > 0;
+    const knownIds = new Set(known.rows.map((r) => r.id));
+    for (const id of ids) {
+      if (!knownIds.has(id)) {
+        const role = id === change.sourceId ? "write" : "read";
+        reasons.push({ code: "unknown_source", detail: `${role} source "${id}" is not registered` });
+      }
+    }
+    for (const p of change.boundSlugPrefixes ?? []) {
+      try {
+        validatePageSlug(p);
+      } catch (e) {
+        reasons.push({
+          code: "invalid_prefix",
+          detail: `"${p}": ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+    }
+    if (reasons.length > 0) throw new GrantValidationError(reasons);
+  }
+
+  /** A client's grant history, newest first. Grant fields only, no secrets. */
+  async listGrantAudit(clientId: string, limit = 100): Promise<GrantAuditRow[]> {
+    const capped = Math.min(Math.max(1, Math.floor(limit) || 1), 100);
+    const r = await this.engine.query<GrantAuditRow>(
+      `SELECT id, client_id, revision, actor, via, before, after, created_at::text AS created_at
+         FROM oauth_grant_audit
+        WHERE client_id = $1
+        ORDER BY revision DESC, id DESC
+        LIMIT $2`,
+      [clientId, capped],
+    );
+    return r.rows.map((row) => ({ ...row, id: Number(row.id), revision: Number(row.revision) }));
   }
 
   // -------------------------------------------------------------------------
