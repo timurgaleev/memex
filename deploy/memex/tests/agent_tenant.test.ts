@@ -78,6 +78,7 @@ afterEach(() => {
 
 interface Tenant {
   clientId: string;
+  token: string;
   auth: AuthInfo;
 }
 
@@ -100,7 +101,11 @@ async function tenant(
     );
   }
   const tokens = await provider.exchangeClientCredentials(reg.clientId, reg.clientSecret!, scopes);
-  return { clientId: reg.clientId, auth: { ...(await provider.verifyAccessToken(tokens.access_token)), isPublic: false } };
+  return { clientId: reg.clientId, token: tokens.access_token, auth: await reverify(tokens.access_token) };
+}
+
+async function reverify(token: string): Promise<AuthInfo> {
+  return { ...(await provider.verifyAccessToken(token)), isPublic: false };
 }
 
 async function call(name: string, args: Record<string, unknown>, authInfo?: AuthInfo): Promise<ToolCallResult> {
@@ -423,6 +428,41 @@ describe("get_agent_job", () => {
     expect(texts[0]).toBe(texts[1]);
     expect(texts[1]).toBe(texts[2]);
     expect(JSON.parse(texts[0]!).error).toBe("not_found");
+  });
+
+  async function answered(t: Tenant): Promise<string> {
+    const id = await submit(t);
+    await runJob(id, scriptedModel([{ stopReason: "end_turn", content: [{ text: "the answer" }] }]).fn, countingDispatch().fn);
+    return id;
+  }
+
+  it("is not found for an enrollment-bound session on the same client", async () => {
+    const a = await tenant(A);
+    const id = await answered(a);
+    const r = await call("get_agent_job", { job_id: id }, { ...a.auth, spendId: "enr-x" });
+    expect(r.isError).toBe(true);
+    expect(body(r).error).toBe("not_found");
+    expect(r.content[0]!.text).not.toContain("the answer");
+  });
+
+  it("is not found once the client is rescoped off the source the job read", async () => {
+    const a = await tenant(A);
+    const id = await answered(a);
+    await provider.rescopeClient(a.clientId, { sourceId: B }, { actor: "test", via: "cli" });
+    const r = await call("get_agent_job", { job_id: id }, await reverify(a.token));
+    expect(r.isError).toBe(true);
+    expect(body(r).error).toBe("not_found");
+    expect(r.content[0]!.text).not.toContain("the answer");
+  });
+
+  it("withholds the answer when the grant moved but the sources did not", async () => {
+    const a = await tenant(A);
+    const id = await answered(a);
+    await provider.rescopeClient(a.clientId, { sourceId: A, boundSlugPrefixes: ["team-a"] }, { actor: "test", via: "cli" });
+    const r = await call("get_agent_job", { job_id: id }, await reverify(a.token));
+    expect(r.isError, r.content[0]!.text).toBeUndefined();
+    expect(body(r)).toMatchObject({ status: "succeeded", final_text: null });
+    expect(body(r).error).toContain("withheld");
   });
 
   it("reports the grant-revoked reason on a stopped job", async () => {

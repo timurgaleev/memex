@@ -24,7 +24,7 @@ import {
   parseSubagentPayload,
 } from "./handler.ts";
 import { AGENT_READ_TOOLS } from "./tools.ts";
-import { intersectBoundTools, snapshotAuthority } from "./authority.ts";
+import { intersectBoundTools, parseAuthority, snapshotAuthority, type AgentAuthority } from "./authority.ts";
 
 /** Statuses that hold one of the client's concurrent slots. */
 const ACTIVE_STATUSES = ["pending", "running"];
@@ -196,10 +196,32 @@ function tenantSafeError(lastError: string | null, status: string): string | nul
   return status === "failed" ? "the agent run failed; the operator can see why with `memex agent logs`" : null;
 }
 
+/** The job's snapshot, when the caller holds exactly the grant it ran under; else null. */
+function snapshotForCaller(auth: AuthInfo, raw: unknown): AgentAuthority | null {
+  // A person enrolled on a shared connector shares its clientId, not its grant.
+  if (auth.spendId !== undefined) return null;
+  let snap: AgentAuthority;
+  try {
+    snap = parseAuthority(raw);
+  } catch {
+    return null;
+  }
+  if (snap.clientId !== auth.clientId || snap.spender !== auth.clientId) return null;
+  const read = effectiveReadSourceIds(auth);
+  if (!read || !sameList(read, snap.readSourceIds)) return null;
+  if ((auth.sourceId ?? null) !== snap.sourceId) return null;
+  return snap;
+}
+
+const WITHHELD = "this client's grant changed after the job ran; its answer is withheld";
+
 /**
  * A tenant's own agent job. Anything else — another client's job, an operator
- * job, a non-agent job, an id that does not exist — gets the same not-found,
- * so the answer never says whether an id is taken.
+ * job, a non-agent job, an id that does not exist, or a job that read sources
+ * the caller does not hold now — gets the same not-found, so the answer never
+ * says whether an id is taken. When the grant moved in a way the source set
+ * does not show (a narrowed slug fence), the status stays readable but the
+ * answer does not.
  */
 export async function getAgentJobForOwner(
   storage: Storage,
@@ -214,15 +236,25 @@ export async function getAgentJobForOwner(
   if (!job || job.kind !== SUBAGENT_JOB_KIND || job.submittedBy === null || job.submittedBy !== auth.clientId) {
     refuse("not_found", NOT_FOUND);
   }
+  const snap = snapshotForCaller(auth, job.authority);
+  if (!snap) refuse("not_found", NOT_FOUND);
+  const live = await storage.engine().query<{ grant_revision: number | string }>(
+    "SELECT grant_revision FROM oauth_clients WHERE client_id = $1 AND deleted_at IS NULL",
+    [auth.clientId],
+  );
+  const liveRevision = live.rows[0]?.grant_revision;
+  if (liveRevision === undefined) refuse("not_found", NOT_FOUND);
+  const withheld = Number(liveRevision) !== snap.grantRevision;
   const result = job.result ?? {};
   const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  const finalText = str(result.final_text);
   return {
     job_id: job.id,
     status: job.status,
     stop_reason: str(result.stop_reason),
-    final_text: str(result.final_text),
+    final_text: withheld ? null : finalText,
     cost_usd: job.costUsd,
     turns: typeof result.turns === "number" ? result.turns : null,
-    error: tenantSafeError(job.lastError, job.status),
+    error: tenantSafeError(job.lastError, job.status) ?? (withheld && finalText !== null ? WITHHELD : null),
   };
 }

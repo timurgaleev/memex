@@ -2452,7 +2452,12 @@ client's own grant (enrollment-bound tokens are refused), and a `FOR UPDATE`
 count against `bound_max_concurrent`. Tenant jobs are enqueued with
 `max_retries` 0, so a revoked grant never comes back as a retry. Done-when met
 in code: reads only its source, revoke stops at the next tool boundary, submit
-beyond `bound_max_concurrent` refused, matrix covers the new ops. Still open:
+beyond `bound_max_concurrent` refused, matrix covers the new ops.
+`get_agent_job` also checks the caller against the job's grant snapshot: an
+enrollment-bound session, or a client whose sources no longer match the ones
+the job read, gets the same not-found; a moved grant revision with unchanged
+sources (a narrowed slug fence) keeps the status readable but withholds the
+answer. Still open:
 the live pilot smoke, `/codex` and `security-engineer` review before deploy;
 writes confined to the grant's prefixes (needs RM-13 release B); per-tree
 budgets with children and subtree halt (needs RM-13 fan-out / RM-08); dry-run

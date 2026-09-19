@@ -36,6 +36,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   submitter and the grant snapshot on the job.
 
 ### Fixed
+- **`get_agent_job` no longer hands an answer to a caller who lost the grant
+  behind it.** An enrollment-bound session on the same connector, and a client
+  rescoped off the sources a job read, now get the same not-found as a foreign
+  job. When the grant changed but the sources did not (for example a narrowed
+  slug fence), the status stays readable and the answer is withheld.
 - **Code symbol lookups keep their data through the maintenance cycle.** The
   entity re-extract deleted every mention on a chunk but re-created only
   wikilinks, tags and dates, and a code reindex re-queued the file for it, so
