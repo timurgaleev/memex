@@ -37,7 +37,7 @@ function sdkError(name: string, message: string, status = 400): Error {
 
 const ACCESS = sdkError(
   "AccessDeniedException",
-  "User arn:aws:iam::555012345678:role/x is not authorized to perform bedrock:InvokeModel",
+  "User arn:aws:iam::5550123:role/x is not authorized to perform bedrock:InvokeModel",
   403,
 );
 
