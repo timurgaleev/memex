@@ -42,6 +42,7 @@ import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { validateSlug, getPage } from "./pages.ts";
 import { parseFactsFence, FACTS_FENCE_BEGIN } from "./facts-fence.ts";
+import { deadlockSafeTransaction } from "./retry.ts";
 
 /** Marks a fence-derived fact row's author (parallels the gazetteer's link_kind). */
 const FENCE_WRITER = "memex:facts-fence";
@@ -183,7 +184,10 @@ export async function reconcileFactsForPage(
   const delScope = scope !== null ? ` AND source_id = $2` : "";
   const insCol = scope !== null ? ", source_id" : "";
   const insVal = scope !== null ? ", $17" : "";
-  return engine.transaction(async (tx) => {
+  // Deadlock-safe: the wipe holds row locks and the re-insert then takes the
+  // withdraw lock shared through its trigger, so a concurrent forget can make
+  // this the deadlock victim (see retry.ts).
+  return deadlockSafeTransaction(engine, async (tx) => {
     // Preserve forget tombstones (mig043) across the rebuild: a fact the
     // operator explicitly forgot must not be resurrected by the next page
     // re-put. Two parts — (1) the wipe below spares tombstoned rows

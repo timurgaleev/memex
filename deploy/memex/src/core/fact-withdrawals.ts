@@ -9,6 +9,13 @@
  * exclusive lock and then waited on a fact row would deadlock against it.
  * Under the exclusive lock, only re-sweep for rows that raced in; every row
  * already committed is retired before the lock is taken.
+ *
+ * That two-sided sweep is why no single global order exists: the retirement has
+ * to run once outside the lock and once under it. Two writers in this order (a
+ * forget and a merge; a forget and a fence rebuild) can therefore still close a
+ * cycle — the second sweep waits on a row the other side holds while the other
+ * side waits for the lock — so every transaction that takes this lock goes
+ * through `deadlockSafeTransaction` and is re-run if Postgres aborts it.
  */
 import type { Engine } from "./engine/interface.ts";
 

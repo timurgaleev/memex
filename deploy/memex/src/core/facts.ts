@@ -39,6 +39,7 @@ import type { LlmFn } from "./llm/haiku.ts";
 import type { BudgetTracker } from "./budget.ts";
 import { guardFields } from "./secret-scan.ts";
 import { withdrawLockKey } from "./fact-withdrawals.ts";
+import { deadlockSafeTransaction } from "./retry.ts";
 
 /**
  * Insert-time dedup / supersede knobs (migration 038 fact embedding + the
@@ -673,7 +674,13 @@ export async function addFact(
   // commit while the embed/classify call is in flight. Recheck under the same
   // shared lock the insert trigger takes, so either this sees the committed
   // withdrawal and writes nothing, or the forget's post-lock sweep sees this row.
-  const r = await storage.engine().transaction(async (tx) => {
+  //
+  // The insert and its two corrections commit together: a crash between them
+  // would otherwise leave a superseded claim live beside its replacement, or the
+  // corrected date lost while the row it belongs to stayed. Retried on a
+  // deadlock, because the tombstone waits on an existing row's lock while this
+  // transaction holds the withdraw lock shared.
+  const landed = await deadlockSafeTransaction(storage.engine(), async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock_shared(hashtext($1))", [
       withdrawLockKey(effectiveSource),
     ]);
@@ -687,15 +694,49 @@ export async function addFact(
     ) {
       return null;
     }
-    return tx.query<{ id: number }>(
+    const r = await tx.query<{ id: number }>(
       `INSERT INTO entity_facts (${cols.join(", ")})
        VALUES (${placeholders.join(", ")})
        ${conflict}
        RETURNING id`,
       params,
     );
+    const newId = toFactIdOrNull(r.rows[0]?.id);
+    const inserted = chunkId === null ? true : r.rows.length > 0;
+
+    // A re-emitted chunk fact collapses onto the row already on file, so a
+    // CORRECTED validity date would otherwise never land — exactly the backfill
+    // `valid_from` exists for. The identity stays (entity, fact, chunk): it is
+    // the same claim, only its anchor moved, and widening the key would spawn a
+    // second row per correction instead. Two rules keep the re-run honest: an
+    // omitted date means "no opinion", never "erase the one on file", and an
+    // unchanged date touches nothing.
+    if (!inserted && validFrom !== null) {
+      await tx.query(
+        `UPDATE entity_facts
+            SET valid_from = $4::date
+          WHERE entity_slug = $1 AND fact = $2 AND source_chunk_id = $3
+            AND valid_from IS DISTINCT FROM $4::date`,
+        [input.entity_slug, fact, chunkId, validFrom],
+      );
+    }
+
+    // Retire the superseded fact only once the replacement actually landed. The
+    // tombstone reuses the mig043 forget columns plus the mig085 `superseded_by`
+    // pointer (so chains are SQL-traversable), and — paired with the reconcile
+    // tombstone-preservation — survives a fence rebuild rather than resurrecting.
+    if (inserted && supersededId !== null && newId !== null) {
+      await tx.query(
+        `UPDATE entity_facts
+            SET forgotten_at = NOW(), forgotten_reason = $2,
+                forgotten_cause = 'supersede', superseded_by = $3
+          WHERE id = $1 AND forgotten_at IS NULL`,
+        [supersededId, `superseded by fact ${newId}`, newId],
+      );
+    }
+    return { id: newId, inserted };
   });
-  if (r === null) {
+  if (landed === null) {
     return {
       id: null,
       entity_slug: input.entity_slug,
@@ -703,40 +744,7 @@ export async function addFact(
       withdrawn: true,
     };
   }
-  const newId = toFactIdOrNull(r.rows[0]?.id);
-  const inserted = chunkId === null ? true : r.rows.length > 0;
-
-  // A re-emitted chunk fact collapses onto the row already on file, so a
-  // CORRECTED validity date would otherwise never land — exactly the backfill
-  // `valid_from` exists for. The identity stays (entity, fact, chunk): it is
-  // the same claim, only its anchor moved, and widening the key would spawn a
-  // second row per correction instead. Two rules keep the re-run honest: an
-  // omitted date means "no opinion", never "erase the one on file", and an
-  // unchanged date touches nothing.
-  if (!inserted && validFrom !== null) {
-    await storage.engine().query(
-      `UPDATE entity_facts
-          SET valid_from = $4::date
-        WHERE entity_slug = $1 AND fact = $2 AND source_chunk_id = $3
-          AND valid_from IS DISTINCT FROM $4::date`,
-      [input.entity_slug, fact, chunkId, validFrom],
-    );
-  }
-
-  // Retire the superseded fact only once the replacement actually landed. The
-  // tombstone reuses the mig043 forget columns plus the mig085 `superseded_by`
-  // pointer (so chains are SQL-traversable), and — paired with the reconcile
-  // tombstone-preservation — survives a fence rebuild rather than resurrecting.
-  if (inserted && supersededId !== null && newId !== null) {
-    await storage.engine().query(
-      `UPDATE entity_facts
-          SET forgotten_at = NOW(), forgotten_reason = $2,
-              forgotten_cause = 'supersede', superseded_by = $3
-        WHERE id = $1 AND forgotten_at IS NULL`,
-      [supersededId, `superseded by fact ${newId}`, newId],
-    );
-  }
-  return { id: newId, entity_slug: input.entity_slug, inserted };
+  return { id: landed.id, entity_slug: input.entity_slug, inserted: landed.inserted };
 }
 
 /**

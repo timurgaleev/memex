@@ -20,6 +20,12 @@
 -- raced past the ledger check has committed before the forget's duplicate sweep
 -- runs, and the sweep sees it.
 --
+-- LOCK ORDER: fact row locks first, this lock after (src/core/fact-withdrawals.ts
+-- holds the full rule). Because the duplicate sweep has to run both before the
+-- lock and again under it, that order cannot be made a total one, so a forget
+-- racing a merge or a fence rebuild can still deadlock; every writer that takes
+-- this lock re-runs its transaction when Postgres names it the victim.
+--
 -- Dimensional ontology rows (dimension IS NOT NULL) have their own lifecycle and
 -- are out of scope. Supersede and consolidate retirements are not forgets and
 -- record nothing.

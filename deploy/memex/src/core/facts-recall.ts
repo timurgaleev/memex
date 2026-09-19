@@ -24,6 +24,7 @@
 import type { Storage } from "./storage.ts";
 import { andSourceScope } from "./source-scope.ts";
 import { lockWithdrawals } from "./fact-withdrawals.ts";
+import { deadlockSafeTransaction } from "./retry.ts";
 import { normalizeFactRow } from "./facts.ts";
 
 /**
@@ -157,7 +158,7 @@ export async function forgetFact(
   // scope touches nothing. Unset → whole-brain by id. The withdrawal and the
   // duplicate sweep take the flipped row's own source, so they can never reach
   // past what the scope already allowed.
-  const flipped = await storage.engine().transaction(async (tx) => {
+  const flipped = await deadlockSafeTransaction(storage.engine(), async (tx) => {
     // Flip first, lock after (the lock order in fact-withdrawals.ts): the
     // UPDATE may wait on a fence reconcile that deleted this row and is about
     // to insert under the shared lock, so it must not hold the exclusive one.

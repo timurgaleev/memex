@@ -144,6 +144,45 @@ describe("addFact valid_from on a re-emitted chunk fact", () => {
     expect(rows[0]!.valid_from).toBe("2024-03-16");
   });
 
+  /**
+   * The correction belongs to the insert attempt, not to a statement after it:
+   * a crash in between would move the date on a row the same call decided not to
+   * touch. A re-emit under another writer takes the ON CONFLICT path (the same
+   * writer collapses earlier, on the restatement lookup), and the transaction is
+   * rolled back after its callback returned.
+   */
+  it("rolls the correction back with the insert it belongs to", async () => {
+    await emit("2024-03-15");
+    const engine = storage.engine();
+    const orig = engine.transaction.bind(engine);
+    engine.transaction = (async (fn: Parameters<typeof engine.transaction>[0]) => {
+      let out: unknown;
+      try {
+        await orig(async (tx) => {
+          out = await fn(tx);
+          throw new Error("crash before commit");
+        });
+      } catch (err) {
+        if (!/crash before commit/.test(String(err))) throw err;
+      }
+      return out;
+    }) as typeof engine.transaction;
+    try {
+      await addFact(storage, {
+        entity_slug: "people/alice",
+        fact: "moved to Lisbon",
+        source_chunk_id: "chunk-1",
+        valid_from: "2024-03-16",
+        written_by: "another-extractor",
+      });
+    } finally {
+      engine.transaction = orig;
+    }
+    const rows = await listFacts(storage, "people/alice", { limit: 10 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.valid_from).toBe("2024-03-15");
+  });
+
   it("keeps the stored date when the re-emit carries none", async () => {
     await emit("2024-03-15");
     await emit();

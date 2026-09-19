@@ -39,6 +39,7 @@ afterEach(async () => {
 });
 
 const ENTITY = "people/alice";
+const STUB = "alice";
 
 interface Row {
   id: number;
@@ -387,7 +388,6 @@ describe("migration 112 backfill", () => {
 });
 
 describe("merge and rename", () => {
-  const STUB = "alice";
 
   async function forgetOnStub(fact: string): Promise<void> {
     const r = await addFact(storage, { entity_slug: STUB, fact });
@@ -439,6 +439,66 @@ describe("merge and rename", () => {
     const again = await addFact(storage, { entity_slug: ENTITY, fact: "Works remotely" });
     expect(again.withdrawn).toBe(true);
     expect(await liveRows()).toHaveLength(0);
+  });
+});
+
+describe("deadlock victims", () => {
+  /** Abort the first transaction the way Postgres aborts a deadlock victim:
+   *  before any of its work runs, so the retry starts from a clean slate. */
+  function failFirstTransaction(): () => void {
+    const engine = storage.engine();
+    const orig = engine.transaction.bind(engine);
+    let first = true;
+    engine.transaction = (async (fn: Parameters<typeof engine.transaction>[0]) => {
+      if (first) {
+        first = false;
+        throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      }
+      return orig(fn);
+    }) as typeof engine.transaction;
+    return () => {
+      engine.transaction = orig;
+    };
+  }
+
+  it("re-runs a forget the merge/forget cycle aborted", async () => {
+    const id = await seed("Owns a boat", { written_by: "w1" });
+    await seed("owns a  boat", { written_by: "w2" });
+    const restore = failFirstTransaction();
+    try {
+      const f = await forgetFact(storage, id, { reason: "sold it" });
+      expect(f).toEqual({ id, found: true, forgotten: true, withdrawn_duplicates: 1 });
+    } finally {
+      restore();
+    }
+    expect(await withdrawalCount()).toBe(1);
+    expect(await liveRows()).toHaveLength(0);
+  });
+
+  it("re-runs an aborted merge, withdrawals and all", async () => {
+    await putPage(storage, { slug: ENTITY, type: "person", markdown_body: "canon" });
+    await putPage(storage, { slug: STUB, type: "person", markdown_body: "stub" });
+    const stub = await addFact(storage, { entity_slug: STUB, fact: "Works remotely" });
+    await forgetFact(storage, stub.id as number);
+    const restore = failFirstTransaction();
+    try {
+      const m = await mergePage(storage, STUB, ENTITY);
+      expect(m.merged).toBe(true);
+    } finally {
+      restore();
+    }
+    expect((await addFact(storage, { entity_slug: ENTITY, fact: "works remotely" })).withdrawn).toBe(true);
+  });
+
+  it("re-runs an aborted insert", async () => {
+    const restore = failFirstTransaction();
+    try {
+      const r = await addFact(storage, { entity_slug: ENTITY, fact: "Keeps bees" });
+      expect(r.inserted).toBe(true);
+    } finally {
+      restore();
+    }
+    expect((await liveRows()).map((r) => r.fact)).toEqual(["Keeps bees"]);
   });
 });
 

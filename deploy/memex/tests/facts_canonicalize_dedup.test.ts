@@ -324,6 +324,45 @@ describe("addFact insert-time dedup (3)", () => {
     expect(oldRow.rows[0]!.cause).toBe("supersede");
   });
 
+  /**
+   * The tombstone is part of the insert, not a follow-up statement: a crash
+   * between the two would retire the old claim while its replacement was lost,
+   * leaving the ledger with neither. Simulated by rolling the insert's
+   * transaction back after its callback returned.
+   */
+  it("supersede: a rolled-back insert leaves the old fact live", async () => {
+    const old = await addFact(storage, {
+      entity_slug: E,
+      fact: "super-old title CFO",
+      dedup: { embed: stubEmbed, llmFn: fakeHaiku("duplicate") },
+    });
+    const engine = storage.engine();
+    const orig = engine.transaction.bind(engine);
+    engine.transaction = (async (fn: Parameters<typeof engine.transaction>[0]) => {
+      let out: unknown;
+      try {
+        await orig(async (tx) => {
+          out = await fn(tx);
+          throw new Error("crash before commit");
+        });
+      } catch (err) {
+        if (!/crash before commit/.test(String(err))) throw err;
+      }
+      return out;
+    }) as typeof engine.transaction;
+    try {
+      await addFact(storage, {
+        entity_slug: E,
+        fact: "super-new title CEO",
+        dedup: { embed: stubEmbed, llmFn: fakeHaiku("supersede") },
+      });
+    } finally {
+      engine.transaction = orig;
+    }
+    expect(await liveCount(E, "super-new title CEO")).toBe(0);
+    expect(await recallFact(storage, old.id!)).not.toBeNull();
+  });
+
   // The old assertion here was "both manual inserts land" — the legacy
   // skip-dedup-on-NULL-chunk behavior. That is the duplication defect stated as
   // a contract: the paraphrase paths above need an embedder, but the identical

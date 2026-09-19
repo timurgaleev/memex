@@ -8,7 +8,12 @@
  * query that already timed out just burns the budget again — those need
  * batch-halving, out of scope here). PGLite errors never match, so on the
  * embedded engine withRetry is a transparent passthrough.
+ *
+ * `withDeadlockRetry` is the one other envelope here: a deadlock victim is not a
+ * connection failure, and what it retries is a whole transaction, not a query.
  */
+
+import type { Engine } from "./engine/interface.ts";
 
 type Jitter = "none" | "full" | "decorrelated";
 
@@ -74,6 +79,66 @@ export function isStatementTimeoutError(err: unknown): boolean {
   return /statement_timeout|canceling statement due to statement timeout/i.test(
     errMessage(err),
   );
+}
+
+/** SQLSTATE 40P01: Postgres aborted this transaction to break a deadlock. */
+export function isDeadlockError(err: unknown): boolean {
+  if (errCode(err) === "40P01") return true;
+  return /deadlock detected/i.test(errMessage(err));
+}
+
+export interface DeadlockRetryOptions {
+  /** Total attempts, including the first. */
+  attempts?: number;
+  rng?: () => number;
+  onRetry?: (attempt: number, err: unknown) => void;
+}
+
+/**
+ * Re-run a transaction Postgres chose as a deadlock victim.
+ *
+ * The withdrawal protocol (migration 112) has to sweep duplicate claims on BOTH
+ * sides of its per-source advisory lock — before it, so no committed row lock is
+ * awaited while holding the lock, and again under it, for an insert that raced
+ * past its trigger check. Two such writers (a forget and a merge, a forget and a
+ * fence rebuild) therefore take fact row locks and the advisory lock in an order
+ * no single global rule can fix, and Postgres resolves the rare cycle by
+ * aborting one side. Re-running the whole transaction off a clean rollback is
+ * cheaper than surfacing 40P01 mid-merge.
+ *
+ * Only for a closure whose every effect is a DB write inside the transaction: a
+ * retry repeats it. PGLite is single-connection, so there it never fires.
+ */
+export async function withDeadlockRetry<T>(
+  fn: () => Promise<T>,
+  opts: DeadlockRetryOptions = {},
+): Promise<T> {
+  const attempts = opts.attempts ?? 3;
+  const rng = opts.rng ?? Math.random;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts || !isDeadlockError(err)) throw err;
+      opts.onRetry?.(attempt, err);
+      // A few ms of jitter, so two victims of the same cycle do not re-collide
+      // in lockstep.
+      await new Promise((r) => setTimeout(r, Math.round(rng() * 25 * attempt)));
+    }
+  }
+}
+
+/**
+ * `engine.transaction`, re-run when Postgres picks it as a deadlock victim.
+ * The call site reads as an ordinary transaction, which is the point: every
+ * writer that takes the migration 112 withdraw lock goes through this.
+ */
+export function deadlockSafeTransaction<T>(
+  engine: Engine,
+  fn: (tx: Engine) => Promise<T>,
+  opts: DeadlockRetryOptions = {},
+): Promise<T> {
+  return withDeadlockRetry(() => engine.transaction(fn), opts);
 }
 
 /** Next backoff delay (ms), bounded by delayMaxMs. Pure. */

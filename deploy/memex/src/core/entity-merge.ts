@@ -39,6 +39,7 @@ import { bumpPageGeneration } from "./generation.ts";
 import { setSlugAlias } from "./slug-aliases.ts";
 import { lockPageSlugs, validateSlug } from "./pages.ts";
 import { carryFactWithdrawals } from "./fact-withdrawals.ts";
+import { deadlockSafeTransaction } from "./retry.ts";
 import { BODY_TIMELINE_KEY_PREFIX } from "./timeline-body.ts";
 
 export interface MergeOptions {
@@ -88,7 +89,10 @@ export async function mergePage(
       : null;
   const writtenBy = opts.written_by ?? null;
   const engine = storage.engine();
-  return engine.transaction(async (tx) => {
+  // Deadlock-safe: the fact re-point holds row locks and `carryFactWithdrawals`
+  // then takes the withdraw lock, the order a concurrent forget uses too, so
+  // Postgres can pick either side as the victim (see retry.ts).
+  return deadlockSafeTransaction(engine, async (tx) => {
     await lockPageSlugs(tx, fromSlug, toSlug);
     // Stub must exist, be live, and (when scoped) be owned by the caller.
     const stub = await selectLivePage(tx, fromSlug, scope);

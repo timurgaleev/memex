@@ -15,6 +15,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cache-key suffix, and `MEMEX_GRAPH_RERANK` is read through the reranker's own
   gate so the key and the ranking cannot disagree. Keys for the default knobs
   are unchanged.
+- **A fact write that Postgres aborts to break a deadlock is retried instead of
+  surfacing.** The withdrawal ledger (migration 112) has to sweep duplicate
+  claims both before its per-source lock and again under it, so a forget, a
+  merge/rename and a fence rebuild cannot be put in one global lock order: the
+  rare cycle showed up as a `40P01` error mid-merge. Every writer that takes
+  that lock now re-runs its transaction off the rollback.
+- **`add_fact` commits its supersede tombstone and its `valid_from` correction
+  with the insert.** Both ran as follow-up statements, so a crash in between
+  left a superseded claim live beside its replacement, or moved a date on a row
+  the same call had decided not to touch.
 
 ## [1.153.0] — 2026-09-19
 
