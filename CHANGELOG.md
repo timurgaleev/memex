@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.150.0] — 2026-09-19
+
 ### Added
 - **`think` says why it failed and still hands back the evidence.** Every
   result now carries `synthesis_status` (`ok`, `empty_answer`, `not_json`,
