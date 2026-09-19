@@ -12,6 +12,8 @@ import {
   assessContentSanity,
   stampSanityMarkers,
   resolveOperatorLiterals,
+  resolveDisabledPatterns,
+  describeQuarantineTrip,
   ContentSanityBlockError,
   DEFAULT_BYTES_BLOCK,
 } from "../src/core/content-sanity.ts";
@@ -138,7 +140,17 @@ describe("indexDocument content-sanity wiring", () => {
     rmSync(tmp, { recursive: true, force: true });
     delete process.env.MEMEX_SANITY_DISPOSITION;
     delete process.env.MEMEX_NO_SANITY;
+    delete process.env.MEMEX_CONTENT_SANITY_DISABLE;
   });
+
+  async function quarantineAudit(): Promise<Array<{ source_ref: string; summary: string }>> {
+    const r = await storage
+      .engine()
+      .query<{ source_ref: string; summary: string }>(
+        "SELECT source_ref, summary FROM ingest_log WHERE source_type = 'quarantine' ORDER BY id",
+      );
+    return r.rows;
+  }
 
   async function frontmatterOf(sourcePath: string): Promise<Record<string, unknown>> {
     const r = await storage
@@ -159,6 +171,57 @@ describe("indexDocument content-sanity wiring", () => {
     const fm = await frontmatterOf("/junk.md");
     expect(isQuarantined(fm)).toBe(true);
     expect(isEmbedSkipped(fm)).toBe(true);
+  });
+
+  it("writes one audit row per trip naming the patterns, never the content", async () => {
+    await indexDocument(
+      storage,
+      { sourcePath: "/junk.md", text: JUNK },
+      { embedFn, inferFrontmatter: false },
+    );
+    await indexDocument(
+      storage,
+      { sourcePath: "/clean.md", text: CLEAN },
+      { embedFn, inferFrontmatter: false },
+    );
+    const rows = await quarantineAudit();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.source_ref).toBe("/junk.md");
+    expect(rows[0]!.summary).toStartWith("PAGE_JUNK_PATTERN: ");
+    expect(rows[0]!.summary).toContain("cloudflare_checking_browser");
+    expect(rows[0]!.summary).not.toContain("Ray ID");
+  });
+
+  it("audits a reject-disposition trip before throwing", async () => {
+    process.env.MEMEX_SANITY_DISPOSITION = "reject";
+    await expect(
+      indexDocument(
+        storage,
+        { sourcePath: "/junk-r.md", text: JUNK },
+        { embedFn, inferFrontmatter: false },
+      ),
+    ).rejects.toBeInstanceOf(ContentSanityBlockError);
+    expect((await quarantineAudit()).map((r) => r.source_ref)).toEqual(["/junk-r.md"]);
+  });
+
+  it("MEMEX_CONTENT_SANITY_DISABLE switches off the named patterns only", async () => {
+    const tripped = assessContentSanity({ body: JUNK, title: "" }).junk_pattern_matches;
+    process.env.MEMEX_CONTENT_SANITY_DISABLE = tripped.join(",");
+    await indexDocument(
+      storage,
+      { sourcePath: "/junk-off.md", text: JUNK },
+      { embedFn, inferFrontmatter: false },
+    );
+    expect(isQuarantined(await frontmatterOf("/junk-off.md"))).toBe(false);
+    expect(await quarantineAudit()).toHaveLength(0);
+
+    process.env.MEMEX_CONTENT_SANITY_DISABLE = tripped.slice(1).join(",");
+    await indexDocument(
+      storage,
+      { sourcePath: "/junk-on.md", text: JUNK },
+      { embedFn, inferFrontmatter: false },
+    );
+    expect(isQuarantined(await frontmatterOf("/junk-on.md"))).toBe(true);
   });
 
   it("throws on junk when disposition=reject", async () => {
@@ -235,5 +298,36 @@ describe("resolveOperatorLiterals", () => {
     expect(resolveOperatorLiterals(undefined)).toEqual([]);
     expect(resolveOperatorLiterals("")).toEqual([]);
     expect(resolveOperatorLiterals("/no/such/file/anywhere.txt")).toEqual([]);
+  });
+});
+
+describe("per-pattern disable", () => {
+  it("resolveDisabledPatterns splits, trims and lowercases; unset is empty", () => {
+    expect([...resolveDisabledPatterns(" Access_Denied , ,operator_literal_2 ")]).toEqual([
+      "access_denied",
+      "operator_literal_2",
+    ]);
+    expect(resolveDisabledPatterns(undefined).size).toBe(0);
+  });
+
+  it("skips a disabled built-in and a disabled operator literal", () => {
+    const base = {
+      body: "Access denied\nSPONSORED",
+      title: "",
+      extra_literals: [{ name: "operator_literal_1", substring: "sponsored" }],
+    };
+    const on = assessContentSanity(base);
+    expect(on.junk_pattern_matches).toEqual(["access_denied"]);
+    expect(on.literal_substring_matches).toEqual(["operator_literal_1"]);
+    expect(describeQuarantineTrip(on)).toBe(
+      "PAGE_JUNK_PATTERN: access_denied, operator_literal_1",
+    );
+
+    const off = assessContentSanity({
+      ...base,
+      disabled_patterns: new Set(["access_denied", "operator_literal_1"]),
+    });
+    expect(off.shouldQuarantine).toBe(false);
+    expect(off.reasons).not.toContain("junk_pattern");
   });
 });

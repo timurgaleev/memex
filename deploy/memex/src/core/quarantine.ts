@@ -10,7 +10,14 @@
  * change — the `? 'quarantine'` key test is the whole mechanism.
  */
 
+import type { Engine } from "./engine/interface.ts";
+import { logIngest } from "./ingest-log.ts";
+import { describeQuarantineTrip, type ContentSanityResult } from "./content-sanity.ts";
+
 export const QUARANTINE_KEY = "quarantine";
+
+/** `ingest_log.source_type` of a content-sanity trip. */
+export const QUARANTINE_AUDIT_SOURCE_TYPE = "quarantine";
 export const CONTENT_FLAG_KEY = "content_flag";
 
 /**
@@ -47,4 +54,25 @@ export function isContentFlagged(
 export function quarantineFilterFragment(docAlias = "d"): string {
   assertSqlAlias(docAlias);
   return `NOT (COALESCE(${docAlias}.frontmatter, '{}'::jsonb) ? '${QUARANTINE_KEY}')`;
+}
+
+/**
+ * One `ingest_log` row per quarantine trip, so a false positive that hides a
+ * page leaves a trail naming the pattern that fired. The summary carries the
+ * pattern names only, never the matched text: an operator literal can be a
+ * string the operator does not want echoed back.
+ */
+export async function auditQuarantine(
+  engine: Engine,
+  result: ContentSanityResult,
+  ref: string,
+  sourceId: string | null,
+): Promise<void> {
+  if (!result.shouldQuarantine) return;
+  await logIngest(engine, {
+    source_type: QUARANTINE_AUDIT_SOURCE_TYPE,
+    source_ref: ref,
+    summary: describeQuarantineTrip(result),
+    ...(sourceId ? { source_id: sourceId } : {}),
+  });
 }

@@ -25,8 +25,10 @@ import {
   assessContentSanity,
   stampSanityMarkers,
   resolveOperatorLiterals,
+  resolveDisabledPatterns,
   resolveSanityThresholds,
 } from "../core/content-sanity.ts";
+import { auditQuarantine } from "../core/quarantine.ts";
 import { bumpDocumentClock } from "../core/generation.ts";
 import { clearCache } from "../core/search/query-cache.ts";
 
@@ -117,6 +119,7 @@ function assessDoc(doc: DocRow, body: string) {
     title: doc.title ?? (typeof fm["title"] === "string" ? (fm["title"] as string) : ""),
     page_kind: fm["kind"] === "code" ? "code" : undefined,
     extra_literals: resolveOperatorLiterals(),
+    disabled_patterns: resolveDisabledPatterns(),
     ...resolveSanityThresholds(),
   });
 }
@@ -247,6 +250,7 @@ async function runScan(engine: Engine, opts: QuarantineCmdOptions): Promise<numb
         stamped,
       ]);
       if (sanity.shouldQuarantine) {
+        await auditQuarantine(engine, sanity, doc.source_path, doc.source_id);
         // A hidden doc must also leave the vector arm — junk vectors are
         // pure noise (and the chunks stay for a later `clear` to release).
         await engine.query(

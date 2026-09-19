@@ -19,6 +19,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   client with no grant gets `permission_denied` rather than finding details,
   and its refusal no longer writes an audit row into the default tenant.
 
+### Added
+- **Quarantine leaves a trail.** Every content-sanity trip writes a
+  `quarantine` row to the ingest log naming the pattern(s) that fired (never
+  the matched text), including a trip under `MEMEX_SANITY_DISPOSITION=reject`
+  and one stamped by `memex quarantine scan --apply`. `memex doctor` gains a
+  `quarantined-pages` check that warns with the count of hidden pages and the
+  top patterns holding them. `MEMEX_CONTENT_SANITY_DISABLE` (comma-separated
+  pattern names, operator literals included as `operator_literal_N`) switches
+  off one misfiring pattern without dropping the whole gate.
+
 ## [1.145.0] — 2026-09-19
 
 ### Added

@@ -51,6 +51,7 @@ describe("doctor categorize", () => {
       "pat-scopes-recorded",
       "per-source-embed-coverage",
       "pglite",
+      "quarantined-pages",
       "queue-health",
       "schema-version",
       "source-health",

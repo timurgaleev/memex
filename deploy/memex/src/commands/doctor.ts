@@ -37,6 +37,7 @@ import {
   checkEmbeddingWidth,
   checkInvalidIndexes,
   checkDuplicatePages,
+  checkQuarantinedPages,
 } from "../core/doctor-ops.ts";
 import {
   checkFederationHealth,
@@ -299,6 +300,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ["embedding-width", checkEmbeddingWidth],
       ["invalid-indexes", checkInvalidIndexes],
       ["duplicate-pages", checkDuplicatePages],
+      ["quarantined-pages", checkQuarantinedPages],
       ["code-grammars", checkGrammars],
     ] as const) {
       try {

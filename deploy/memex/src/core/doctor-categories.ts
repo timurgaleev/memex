@@ -108,6 +108,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "embedding-width",
   "chronicle-projection-health",
   "duplicate-pages",
+  "quarantined-pages",
 ]);
 
 /** Infrastructure / setup — "can the brain run here at all?" */

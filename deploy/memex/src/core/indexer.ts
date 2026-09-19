@@ -25,7 +25,7 @@ import { stripFactsFence } from "./facts-fence.ts";
 import { stripTakesFence } from "./synthesis/takes-fence.ts";
 import { embedText, EMBED_DIMENSIONS } from "./embedding.ts";
 import { isEmbedSkipped, EMBED_SKIP_KEY } from "./embed-skip.ts";
-import { QUARANTINE_KEY, CONTENT_FLAG_KEY } from "./quarantine.ts";
+import { QUARANTINE_KEY, CONTENT_FLAG_KEY, auditQuarantine } from "./quarantine.ts";
 import {
   assessContentSanity,
   stampSanityMarkers,
@@ -33,6 +33,7 @@ import {
   sanityDisposition,
   resolveSanityThresholds,
   resolveOperatorLiterals,
+  resolveDisabledPatterns,
   ContentSanityBlockError,
 } from "./content-sanity.ts";
 import {
@@ -319,8 +320,10 @@ async function indexDocumentBody(
           : ""),
       page_kind: baseFrontmatter["kind"] === "code" ? "code" : undefined,
       extra_literals: resolveOperatorLiterals(),
+      disabled_patterns: resolveDisabledPatterns(),
       ...resolveSanityThresholds(),
     });
+    await auditQuarantine(storage.engine(), sanity, input.sourcePath, input.sourceId ?? null);
     if (sanity.shouldQuarantine && sanityDisposition() === "reject") {
       throw new ContentSanityBlockError(sanity);
     }

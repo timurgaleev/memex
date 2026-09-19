@@ -986,9 +986,13 @@ every string in compiled_truth are scanned too (`guardFields` /
 `guardSecretsDeep`); a `reject` writes a `secret-rejected` audit row before
 refusing. `ontology_propose` values are scanned in `mergeOntologyFact`;
 `/ingest` scans only after the tenancy gates, so a client with no grant gets
-a 403 and leaves no audit row. Open: facts derived by reconcile/consolidate
+a 403 and leaves no audit row. R3 (unreleased): each quarantine trip writes a
+`quarantine` row to `ingest_log` (pattern names only), a `quarantined-pages`
+doctor check reports count and top patterns, and `MEMEX_CONTENT_SANITY_DISABLE`
+switches off individual patterns. Open: facts derived by reconcile/consolidate
 inherit already-scanned text and are not rescanned; no scrub of rows stored before
-(`page_versions` history); quarantine observability, junk-entity gate, CI
+(`page_versions` history); the operator-only `quarantine_list` MCP op and
+literal directives (`# name=`, `# applies_to=`), junk-entity gate, CI
 gitleaks/OSV/actionlint.
 
 ### RM-06 — Measurement program: public benchmark, judged answers, eval governance

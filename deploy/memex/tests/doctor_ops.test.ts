@@ -16,6 +16,7 @@ import {
   checkEmbeddingWidth,
   checkInvalidIndexes,
   checkDuplicatePages,
+  checkQuarantinedPages,
 } from "../src/core/doctor-ops.ts";
 import { buildRemediationEnvelope, runDoctor } from "../src/commands/doctor.ts";
 import { buildRemediationPlan } from "../src/core/remediation.ts";
@@ -131,6 +132,33 @@ describe("checkInvalidIndexes", () => {
     expect(r.ok).toBe(false);
     expect(r.status).toBe("fail");
     expect(r.detail).toContain("doctor_test_idx");
+  });
+});
+
+describe("checkQuarantinedPages", () => {
+  const insertDoc = (id: string, fm: Record<string, unknown>) =>
+    storage.engine().query(
+      `INSERT INTO documents (id, source_path, frontmatter) VALUES ($1, $2, $3::jsonb)`,
+      [id, `notes/${id}.md`, JSON.stringify(fm)],
+    );
+
+  it("reports none on a clean store", async () => {
+    const r = await checkQuarantinedPages(storage.engine());
+    expect(r.status).toBe("ok");
+    expect(r.detail).toBe("no quarantined pages");
+  });
+
+  it("warns with the count and the patterns ranked by pages held", async () => {
+    const q = (detail: string) => ({ quarantine: { reason: "junk_pattern", detail } });
+    await insertDoc("a", q("access_denied, cloudflare_ray_id"));
+    await insertDoc("b", q("access_denied"));
+    await insertDoc("c", q("operator_literal_1"));
+    await insertDoc("d", { content_flag: { reason: "oversized", detail: "x" } });
+    const r = await checkQuarantinedPages(storage.engine());
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("warn");
+    expect(r.detail).toContain("3 quarantined page(s)");
+    expect(r.detail).toContain("top patterns: access_denied=2, cloudflare_ray_id=1, operator_literal_1=1");
   });
 });
 

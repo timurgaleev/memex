@@ -226,6 +226,44 @@ export async function checkDuplicatePages(
 }
 
 /**
+ * Quarantined pages: how many the content-sanity gate is hiding and which
+ * patterns hid them. A false positive vanishes from search silently, so the
+ * count alone is not enough — the top patterns say which one to switch off
+ * (`MEMEX_CONTENT_SANITY_DISABLE`) before `memex quarantine clear`. Warn, never
+ * fail: a held page is the gate working, not a broken brain.
+ */
+export async function checkQuarantinedPages(
+  engine: Engine,
+): Promise<OpsCheckResult> {
+  const total = await engine.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM documents WHERE frontmatter ? 'quarantine'`,
+  );
+  const n = total.rows[0]?.n ?? 0;
+  if (n === 0) {
+    return { ok: true, status: "ok", detail: "no quarantined pages" };
+  }
+  // The marker's detail is the comma-joined list of pattern names that fired.
+  const top = await engine.query<{ pattern: string; n: number }>(
+    `SELECT trim(p) AS pattern, count(*)::int AS n
+       FROM documents d,
+            unnest(string_to_array(COALESCE(d.frontmatter->'quarantine'->>'detail', ''), ',')) AS p
+      WHERE d.frontmatter ? 'quarantine' AND trim(p) <> ''
+      GROUP BY trim(p)
+      ORDER BY n DESC, pattern
+      LIMIT 3`,
+  );
+  const patterns = top.rows.map((r) => `${r.pattern}=${r.n}`).join(", ");
+  return {
+    ok: true,
+    status: "warn",
+    detail:
+      `${n} quarantined page(s) hidden from search` +
+      (patterns ? `; top patterns: ${patterns}` : "") +
+      " — review with `memex quarantine list`",
+  };
+}
+
+/**
  * Embedding-width consistency: the stored vector width vs the configured
  * EMBED_DIMENSIONS (MEMEX_EMBED_DIM). The `vector(N)` column is fixed-width, so
  * a mismatch means the config was changed without migrating the column — new

@@ -120,6 +120,7 @@ describe("doctor", () => {
       "oauth-client-health",
       "pat-scopes-recorded",
       "pglite",
+      "quarantined-pages",
       "queue-health",
       "schema-version",
       "source-health",

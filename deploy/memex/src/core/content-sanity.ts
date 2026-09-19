@@ -288,6 +288,8 @@ export function assessContentSanity(opts: {
   page_kind?: string;
   /** Operator literal substrings evaluated alongside the built-ins. */
   extra_literals?: ReadonlyArray<OperatorLiteral>;
+  /** Pattern / literal names to skip — the per-pattern off switch. */
+  disabled_patterns?: ReadonlySet<string>;
 }): ContentSanityResult {
   const bytes_warn = opts.bytes_warn ?? DEFAULT_BYTES_WARN;
   const bytes_block = opts.bytes_block ?? DEFAULT_BYTES_BLOCK;
@@ -304,9 +306,11 @@ export function assessContentSanity(opts: {
   // throw on a bad title.
   const title = String(opts.title ?? "");
   const titleLower = title.toLowerCase();
+  const disabled = opts.disabled_patterns;
 
   const junk_pattern_matches: string[] = [];
   for (const p of BUILT_IN_JUNK_PATTERNS) {
+    if (disabled?.has(p.name)) continue;
     const scope = p.applies_to ?? "both";
     let matched = false;
     if (scope === "title" || scope === "both") {
@@ -321,6 +325,7 @@ export function assessContentSanity(opts: {
   const literal_substring_matches: string[] = [];
   if (opts.extra_literals) {
     for (const lit of opts.extra_literals) {
+      if (disabled?.has(lit.name)) continue;
       const scope = lit.applies_to ?? "both";
       const needle = lit.substring.toLowerCase();
       if (needle.length === 0) continue;
@@ -419,6 +424,36 @@ export function sanityGateEnabled(
 }
 
 /**
+ * Pattern names the operator switched off via `MEMEX_CONTENT_SANITY_DISABLE`
+ * (comma-separated, e.g. `access_denied,operator_literal_2`). One pattern that
+ * keeps hiding legitimate pages can be silenced without dropping the whole gate
+ * through `MEMEX_NO_SANITY`. Unknown names are ignored.
+ */
+export function resolveDisabledPatterns(
+  raw: string | undefined = process.env["MEMEX_CONTENT_SANITY_DISABLE"],
+): ReadonlySet<string> {
+  return new Set(
+    (raw ?? "")
+      .split(",")
+      .map((n) => n.trim().toLowerCase())
+      .filter((n) => n.length > 0),
+  );
+}
+
+/**
+ * The names a quarantine verdict tripped on, built-ins first. Audit rows and
+ * the doctor summary key on these, never on the content that matched.
+ */
+export function quarantinePatternNames(result: ContentSanityResult): string[] {
+  return [...result.junk_pattern_matches, ...result.literal_substring_matches];
+}
+
+/** `PAGE_JUNK_PATTERN: access_denied, operator_literal_1` — an audit summary. */
+export function describeQuarantineTrip(result: ContentSanityResult): string {
+  return `${PAGE_JUNK_PATTERN_CODE}: ${quarantinePatternNames(result).join(", ")}`;
+}
+
+/**
  * How to dispose of high-confidence junk. Default `quarantine` (hide + skip
  * embed, non-fatal). `reject` makes the caller throw `ContentSanityBlockError`
  * — the explicit hard-block error path.
@@ -503,9 +538,7 @@ export function stampSanityMarkers(
   if (result.shouldQuarantine) {
     const reason =
       result.junk_pattern_matches.length > 0 ? "junk_pattern" : "literal_substring";
-    const detail = [...result.junk_pattern_matches, ...result.literal_substring_matches].join(
-      ", ",
-    );
+    const detail = quarantinePatternNames(result).join(", ");
     return {
       ...frontmatter,
       quarantine: { reason, detail },

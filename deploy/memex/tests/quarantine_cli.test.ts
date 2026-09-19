@@ -136,6 +136,19 @@ describe("memex quarantine", () => {
     expect("quarantine" in s.fm).toBe(true);
     expect("embed_skip" in s.fm).toBe(true);
     expect(s.embeddings).toBe(0);
+    const storage = new Storage({ dbPath: join(cfgDir, "brain.pglite") });
+    await storage.init();
+    try {
+      const audit = await storage
+        .engine()
+        .query<{ source_ref: string; summary: string }>(
+          "SELECT source_ref, summary FROM ingest_log WHERE source_type = 'quarantine'",
+        );
+      expect(audit.rows.map((r) => r.source_ref)).toEqual(["notes/junk.md"]);
+      expect(audit.rows[0]!.summary).toContain("cloudflare_ray_id");
+    } finally {
+      await storage.close();
+    }
   });
 
   it("list shows the quarantined doc", async () => {
