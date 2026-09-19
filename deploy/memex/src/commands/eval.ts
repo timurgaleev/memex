@@ -3,7 +3,8 @@
  *
  * Reads tests/eval/qrels.json (curated ground-truth: query → expected
  * source_paths), runs each query through hybridSearch, computes
- * Recall@k and Mean Reciprocal Rank, prints a report.
+ * Recall@k, MRR, nDCG@k and P@k with seeded bootstrap intervals, and prints
+ * a report fingerprinted by a run-config hash and the qrels checksum.
  *
  * Config-vs-config instrumentation:
  *   memex eval [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]
@@ -23,6 +24,7 @@
  * (default 0.6), else 1. Suitable as a CI gate.
  */
 import { readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
@@ -30,6 +32,8 @@ import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { hybridSearch } from "../core/search/index.ts";
 import { wilsonCI, smallSampleNote, type WilsonCI } from "../core/wilson.ts";
+import { ndcgAtK, precisionAtK, binaryGrades } from "../core/search/metrics.ts";
+import { ci95, METRIC_GLOSSARY, type Ci95 } from "../core/search/bootstrap.ts";
 
 export interface Qrel {
   id: string;
@@ -39,6 +43,8 @@ export interface Qrel {
 }
 export interface Qrels {
   queries: Qrel[];
+  /** sha256 of the qrels file bytes; set by loadQrels. */
+  sha256?: string;
 }
 
 export interface QueryReport {
@@ -46,6 +52,8 @@ export interface QueryReport {
   query: string;
   recallAtK: number;
   mrr: number;
+  ndcg: number;
+  precision: number;
   hits: number;
   expected: number;
   topPaths: string[];
@@ -59,6 +67,14 @@ export interface EvalReport {
   configName: string;
   meanRecall: number;
   meanReciprocalRank: number;
+  meanNdcg: number;
+  meanPrecision: number;
+  recallCi95: Ci95;
+  mrrCi95: Ci95;
+  /** Fingerprint of knobs + k + qrels: two runs compare like for like only
+   *  when this matches. */
+  run_config_hash: string;
+  qrels_sha256: string;
   /** Fraction of queries that retrieved at least one expected path (a binomial
    *  proportion the Wilson CI bounds). */
   hitRate: number;
@@ -136,11 +152,37 @@ export function loadQrels(qrelsPath: string): Qrels {
   if (!existsSync(qrelsPath)) {
     throw new Error(`memex eval: qrels file not found at ${qrelsPath}`);
   }
-  const qrels = JSON.parse(readFileSync(qrelsPath, "utf8")) as Qrels;
+  const bytes = readFileSync(qrelsPath);
+  const qrels = JSON.parse(bytes.toString("utf8")) as Qrels;
   if (!qrels.queries || qrels.queries.length === 0) {
     throw new Error(`memex eval: no queries in ${qrelsPath}`);
   }
-  return qrels;
+  return { ...qrels, sha256: sha256Hex(bytes) };
+}
+
+function sha256Hex(data: string | Uint8Array): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+/** JSON with object keys sorted at every level, so key order never moves a hash. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Run fingerprint: the ranking knobs (the display name excluded — renaming a
+ * config does not change what it measures), k, and the qrels checksum.
+ */
+export function runConfigHash(cfg: EvalKnobConfig, k: number, qrelsSha256: string): string {
+  const { name: _name, k: _k, ...knobs } = cfg;
+  return sha256Hex(canonicalJson({ knobs, k, qrels_sha256: qrelsSha256 }));
 }
 
 function recallAtK(found: string[], expected: string[]): number {
@@ -217,6 +259,8 @@ export async function evalRun(
           query: q.query,
           recallAtK: recallAtK(paths, q.expected_paths),
           mrr: reciprocalRank(paths, q.expected_paths),
+          ndcg: ndcgAtK(paths, binaryGrades(q.expected_paths), k),
+          precision: precisionAtK(paths, new Set(q.expected_paths), k),
           hits: paths.length,
           expected: q.expected_paths.length,
           topPaths: paths.slice(0, 3),
@@ -229,6 +273,8 @@ export async function evalRun(
           query: q.query,
           recallAtK: 0,
           mrr: 0,
+          ndcg: 0,
+          precision: 0,
           hits: 0,
           expected: q.expected_paths.length,
           topPaths: [],
@@ -245,6 +291,9 @@ export async function evalRun(
 
   const meanRecall = perQuery.reduce((s, q) => s + q.recallAtK, 0) / perQuery.length;
   const meanReciprocalRank = perQuery.reduce((s, q) => s + q.mrr, 0) / perQuery.length;
+  const meanNdcg = perQuery.reduce((s, q) => s + q.ndcg, 0) / perQuery.length;
+  const meanPrecision = perQuery.reduce((s, q) => s + q.precision, 0) / perQuery.length;
+  const qrelsSha256 = qrels.sha256 ?? sha256Hex(canonicalJson({ queries: qrels.queries }));
   // Hit-rate: fraction of queries that retrieved at least one expected path.
   // A binomial proportion — bound it with a Wilson 95% CI so the score reads
   // as a measurement with uncertainty, not a bare number.
@@ -259,6 +308,12 @@ export async function evalRun(
     configName: cfg.name ?? "default",
     meanRecall,
     meanReciprocalRank,
+    meanNdcg,
+    meanPrecision,
+    recallCi95: ci95(perQuery.map((q) => q.recallAtK)),
+    mrrCi95: ci95(perQuery.map((q) => q.mrr)),
+    run_config_hash: runConfigHash(cfg, k, qrelsSha256),
+    qrels_sha256: qrelsSha256,
     hitRate,
     wilsonCi95,
     ...(note ? { smallSampleNote: note } : {}),
@@ -285,7 +340,9 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
         meanReciprocalRank: b.meanReciprocalRank - a.meanReciprocalRank,
         hitRate: b.hitRate - a.hitRate,
       };
-      console.log(JSON.stringify({ ok: true, mode: "ab", k, a, b, delta }, null, 2));
+      console.log(
+        JSON.stringify({ ok: true, mode: "ab", k, a, b, delta, glossary: METRIC_GLOSSARY }, null, 2),
+      );
       return;
     }
 
@@ -294,7 +351,7 @@ export async function runEval(opts: EvalOptions = {}): Promise<void> {
       ...(opts.searchFn ? { searchFn: opts.searchFn } : {}),
     });
     const ok = report.meanRecall >= minRecall;
-    console.log(JSON.stringify({ ...report, ok }, null, 2));
+    console.log(JSON.stringify({ ...report, ok, glossary: METRIC_GLOSSARY }, null, 2));
     if (!ok) process.exitCode = 1;
   });
 }

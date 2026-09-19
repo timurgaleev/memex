@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { recordEvalSnapshot, latestEvalSnapshot } from "../src/core/eval-snapshot.ts";
 import type { ReplayReport } from "../src/core/eval-replay.ts";
+import { evalTrendDetail } from "../src/commands/doctor.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -32,6 +33,8 @@ function report(overrides: Partial<ReplayReport> = {}): ReplayReport {
     scored: 4,
     meanRR: 0.42,
     hitRate: 0.8,
+    meanRRCi95: { lo: 0.21, hi: 0.63 },
+    hitRateCi95: { lo: 0.5, hi: 1 },
     perQuery: [],
     ...overrides,
   };
@@ -51,7 +54,15 @@ describe("eval snapshots", () => {
     await recordEvalSnapshot(
       storage.engine(),
       report({
-        baseline: { meanRR: 0.4, hitRate: 0.75, deltaMeanRR: 0.02, deltaHitRate: 0.05 },
+        baseline: {
+          meanRR: 0.4,
+          hitRate: 0.75,
+          deltaMeanRR: 0.02,
+          deltaHitRate: 0.05,
+          deltaMeanRRCi95: { lo: -0.1, hi: 0.15 },
+          deltaHitRateCi95: { lo: -0.25, hi: 0.25 },
+          significantDrop: false,
+        },
       }),
     );
     const latest = await latestEvalSnapshot(storage.engine());
@@ -73,5 +84,38 @@ describe("eval snapshots", () => {
     const latest = await latestEvalSnapshot(storage.engine());
     expect(latest?.total_queries).toBe(0);
     expect(latest?.scored).toBe(0);
+  });
+
+  it("round-trips the bootstrap intervals through detail", async () => {
+    await recordEvalSnapshot(storage.engine(), report());
+    const latest = await latestEvalSnapshot(storage.engine());
+    expect(latest?.detail["mean_rr_ci95"]).toEqual({ lo: 0.21, hi: 0.63 });
+    expect(latest?.detail["hit_rate_ci95"]).toEqual({ lo: 0.5, hi: 1 });
+  });
+});
+
+describe("doctor eval-trend detail", () => {
+  const row = {
+    ran_at: "2026-09-19 02:30:00+00",
+    total_queries: 9,
+    scored: 9,
+    mean_rr: 0.611,
+    hit_rate: 0.889,
+  };
+
+  it("appends the intervals from a snapshot that stored them", async () => {
+    await recordEvalSnapshot(storage.engine(), report({ meanRR: 0.611, hitRate: 0.889 }));
+    const latest = await latestEvalSnapshot(storage.engine());
+    expect(evalTrendDetail(latest!)).toContain("mean_rr=0.611 [0.21–0.63] hit_rate=0.889 [0.50–1.00] (scored 4/5)");
+  });
+
+  it("renders a legacy row byte-identically to the pre-interval format", () => {
+    expect(evalTrendDetail({ ...row, detail: { ok: true } })).toBe(
+      "last probe 2026-09-19 02:30:00+00: mean_rr=0.611 hit_rate=0.889 (scored 9/9)",
+    );
+  });
+
+  it("still reports an empty eval set as unmeasured", () => {
+    expect(evalTrendDetail({ ...row, total_queries: 0, scored: 0, detail: {} })).toContain("EMPTY");
   });
 });

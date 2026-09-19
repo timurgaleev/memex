@@ -26,6 +26,7 @@ import type { Storage } from "./storage.ts";
 import { hybridSearch, type SearchOptions } from "./search/hybrid.ts";
 import { keywordSearch } from "./search/keyword.ts";
 import { jaccardAtK, top1Stable } from "./search/metrics.ts";
+import { ci95, deltaCi95, type Ci95 } from "./search/bootstrap.ts";
 
 export type EvalTag = "good" | "bad";
 export type EvalSearchMode = "hybrid" | "keyword";
@@ -86,11 +87,19 @@ export interface ReplayReport {
   scored: number;
   meanRR: number;
   hitRate: number;
+  /** Seeded bootstrap intervals over the scored queries. */
+  meanRRCi95: Ci95;
+  hitRateCi95: Ci95;
   baseline?: {
     meanRR: number;
     hitRate: number;
     deltaMeanRR: number;
     deltaHitRate: number;
+    /** Paired intervals over the queries that have a baseline. */
+    deltaMeanRRCi95: Ci95;
+    deltaHitRateCi95: Ci95;
+    /** The MRR delta interval lies entirely below 0: a drop beyond noise. */
+    significantDrop: boolean;
   };
   /** Aggregate run-to-run stability over queries that have a baseline. */
   stability?: {
@@ -335,6 +344,11 @@ export async function replayAll(
   let baseScored = 0;
   let baseRrSum = 0;
   let baseHits = 0;
+  // Per-query scores for the intervals: every scored query, and the paired
+  // (baseline, current) scores of those that have a baseline.
+  const rrs: number[] = [];
+  const hitFlags: number[] = [];
+  const paired = { baseRr: [] as number[], rr: [] as number[], baseHit: [] as number[], hit: [] as number[] };
   // Stability aggregates — for every query that has a persisted baseline.
   let stabScored = 0;
   let jaccardSum = 0;
@@ -351,10 +365,16 @@ export async function replayAll(
       scored++;
       if (rr !== null) rrSum += rr;
       if (hit) hits++;
+      rrs.push(rr ?? 0);
+      hitFlags.push(hit ? 1 : 0);
       if (q.baselineRr !== null) {
         baseScored++;
         baseRrSum += q.baselineRr;
         if (q.baselineHit) baseHits++;
+        paired.baseRr.push(q.baselineRr);
+        paired.rr.push(rr ?? 0);
+        paired.baseHit.push(q.baselineHit ? 1 : 0);
+        paired.hit.push(hit ? 1 : 0);
         delta = {
           hit:
             q.baselineHit === null
@@ -413,16 +433,22 @@ export async function replayAll(
     scored,
     meanRR: round4(meanRR),
     hitRate: round4(hitRate),
+    meanRRCi95: ci95(rrs),
+    hitRateCi95: ci95(hitFlags),
     perQuery,
   };
   if (baseScored > 0) {
     const baseMeanRR = baseRrSum / baseScored;
     const baseHitRate = baseHits / baseScored;
+    const rrDeltaCi = deltaCi95(paired.baseRr, paired.rr);
     report.baseline = {
       meanRR: round4(baseMeanRR),
       hitRate: round4(baseHitRate),
       deltaMeanRR: round4(meanRR - baseMeanRR),
       deltaHitRate: round4(hitRate - baseHitRate),
+      deltaMeanRRCi95: rrDeltaCi,
+      deltaHitRateCi95: deltaCi95(paired.baseHit, paired.hit),
+      significantDrop: rrDeltaCi.hi < 0,
     };
   }
   if (stabScored > 0) {

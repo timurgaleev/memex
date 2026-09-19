@@ -3,7 +3,11 @@
  * and the tighter of (limit, budget-cap) wins.
  */
 import { describe, expect, it } from "bun:test";
-import { effectiveProbeLimit, PER_QUERY_USD_ESTIMATE } from "../src/commands/eval-probe.ts";
+import {
+  effectiveProbeLimit,
+  probeSummary,
+  PER_QUERY_USD_ESTIMATE,
+} from "../src/commands/eval-probe.ts";
 
 describe("effectiveProbeLimit", () => {
   it("returns the explicit limit when no USD cap is set", () => {
@@ -23,5 +27,31 @@ describe("effectiveProbeLimit", () => {
 
   it("never returns below 1 for a tiny positive budget", () => {
     expect(effectiveProbeLimit(undefined, 0.0000001)).toBe(1);
+  });
+});
+
+describe("probeSummary", () => {
+  it("prints the trend axes with their bootstrap intervals", () => {
+    const out = probeSummary(
+      {
+        ok: true,
+        ranAt: "2026-09-19T02:30:00.000Z",
+        totalQueries: 9,
+        scored: 9,
+        meanRR: 0.611,
+        hitRate: 0.889,
+        meanRRCi95: { lo: 0.39, hi: 0.83 },
+        hitRateCi95: { lo: 0.67, hi: 1 },
+        perQuery: [],
+      },
+      7,
+    );
+    expect(out).toMatchObject({
+      snapshot_id: 7,
+      mean_rr: 0.611,
+      mean_rr_ci95: { lo: 0.39, hi: 0.83 },
+      hit_rate: 0.889,
+      hit_rate_ci95: { lo: 0.67, hi: 1 },
+    });
   });
 });

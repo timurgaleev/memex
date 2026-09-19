@@ -26,6 +26,7 @@ import {
   listQueries,
   deleteQuery,
   replayAll,
+  type ReplayReport,
   type EvalSearchMode,
   type EvalTag,
 } from "../core/eval-replay.ts";
@@ -57,6 +58,21 @@ export function isReplayRegression(
   const eps = opts.eps ?? evalRegressionEps();
   return (
     report.baseline.deltaMeanRR < -eps || report.baseline.deltaHitRate < -eps
+  );
+}
+
+/** The stderr line for a gating regression: the fixed-eps verdict plus the
+ *  paired interval, so a reader can tell a real drop from one flipped query. */
+export function regressionMessage(
+  b: NonNullable<ReplayReport["baseline"]>,
+  eps: number,
+): string {
+  const ci = b.deltaMeanRRCi95;
+  return (
+    `eval-replay: REGRESSION vs baseline — deltaMeanRR=${b.deltaMeanRR.toFixed(4)} ` +
+    `[95% CI ${ci.lo.toFixed(4)}, ${ci.hi.toFixed(4)}], ` +
+    `deltaHitRate=${b.deltaHitRate.toFixed(4)} (eps=${eps}); ` +
+    (b.significantDrop ? "beyond noise" : "within noise (the interval includes 0)")
   );
 }
 
@@ -131,11 +147,7 @@ export async function runEvalReplay(opts: EvalReplayCmdOptions): Promise<void> {
         // and when there is no baseline yet (first run has nothing to regress
         // against). Retrieval quality is otherwise a silent-drift class.
         if (isReplayRegression(report, { ...(opts.promote ? { promote: true } : {}) })) {
-          const b = report.baseline!;
-          console.error(
-            `eval-replay: REGRESSION vs baseline — deltaMeanRR=${b.deltaMeanRR.toFixed(4)}, ` +
-              `deltaHitRate=${b.deltaHitRate.toFixed(4)} (eps=${evalRegressionEps()})`,
-          );
+          console.error(regressionMessage(report.baseline!, evalRegressionEps()));
           process.exitCode = 1;
         }
         return;

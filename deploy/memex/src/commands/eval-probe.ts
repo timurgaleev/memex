@@ -16,7 +16,7 @@
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
-import { replayAll } from "../core/eval-replay.ts";
+import { replayAll, type ReplayReport } from "../core/eval-replay.ts";
 import { recordEvalSnapshot } from "../core/eval-snapshot.ts";
 
 export interface EvalProbeOptions {
@@ -51,6 +51,21 @@ export function effectiveProbeLimit(
   return limit !== undefined ? Math.min(limit, budgetCap) : budgetCap;
 }
 
+/** The probe's stdout JSON: the trend axes with their bootstrap intervals. */
+export function probeSummary(report: ReplayReport, snapshotId: number): Record<string, unknown> {
+  return {
+    ok: true,
+    snapshot_id: snapshotId,
+    ran_at: report.ranAt,
+    total_queries: report.totalQueries,
+    scored: report.scored,
+    mean_rr: report.meanRR,
+    mean_rr_ci95: report.meanRRCi95,
+    hit_rate: report.hitRate,
+    hit_rate_ci95: report.hitRateCi95,
+  };
+}
+
 export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
   const config = loadConfig();
   const storage = new Storage(config);
@@ -60,20 +75,6 @@ export async function runEvalProbe(opts: EvalProbeOptions = {}): Promise<void> {
     if (effLimit !== undefined) replayOpts.limit = effLimit;
     const report = await replayAll(storage, replayOpts);
     const { id } = await recordEvalSnapshot(storage.engine(), report);
-    console.log(
-      JSON.stringify(
-        {
-          ok: true,
-          snapshot_id: id,
-          ran_at: report.ranAt,
-          total_queries: report.totalQueries,
-          scored: report.scored,
-          mean_rr: report.meanRR,
-          hit_rate: report.hitRate,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(probeSummary(report, id), null, 2));
   });
 }

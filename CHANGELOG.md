@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Eval numbers come with intervals.** `memex eval`, `eval run-all`,
+  `eval gate`, `eval-replay run` and the nightly `eval-probe` report seeded
+  (seed 42) percentile bootstrap 95% intervals for recall, MRR and hit rate,
+  and the replay and gate baselines add a paired interval for the change
+  against the baseline. On a nine-query set one flipped query is now visibly
+  "within noise" and a systematic drop "beyond noise". `memex doctor`'s
+  eval-trend line shows the probe's intervals, and older snapshots render as
+  before. `memex eval` also reports nDCG@k and P@k. Each eval record and gate
+  baseline carries a run-config hash and a sha256 of the qrels file, and the
+  gate flags `qrels_changed` when the baseline was scored against different
+  qrels. The JSON outputs include a metric glossary. The gate and replay
+  pass/fail rules have not changed: the interval is reported next to the
+  verdict and does not replace it.
+
 ### Security
 - **CI scans for secrets, vulnerable dependencies and workflow mistakes.**
   Each pushed commit range (or pull request) is scanned for secrets with

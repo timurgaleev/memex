@@ -1,13 +1,20 @@
 /**
- * eval-replay CI regression gate — the pure predicate + eps resolver.
- * Hermetic: no DB, no Bedrock; exercises isReplayRegression / evalRegressionEps.
+ * eval-replay CI regression gate — the pure predicate + eps resolver, and the
+ * paired bootstrap interval reported next to it. Hermetic: no Bedrock; the
+ * interval cases replay a stub searcher over a PGLite eval set.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isReplayRegression,
   evalRegressionEps,
+  regressionMessage,
   DEFAULT_EVAL_REGRESSION_EPS,
 } from "../src/commands/eval-replay.ts";
+import { Storage } from "../src/core/storage.ts";
+import { recordQuery, replayAll } from "../src/core/eval-replay.ts";
 
 const clean = { deltaMeanRR: 0, deltaHitRate: 0 };
 const dropped = { deltaMeanRR: -0.2, deltaHitRate: -0.1 };
@@ -64,5 +71,70 @@ describe("isReplayRegression", () => {
     process.env.EVAL_REPLAY_REGRESSION_EPS = "0.5";
     // -0.2 drop is now within tolerance
     expect(isReplayRegression({ baseline: dropped })).toBe(false);
+  });
+});
+
+/**
+ * Nine captured queries, all hitting at rank 1 when promoted. The second run
+ * either drops every query to rank 2 (systematic) or misses one (noise).
+ */
+async function replayAfter(change: "systematic" | "one-flip" | "none") {
+  const tmp = mkdtempSync(join(tmpdir(), "memex-replay-ci-"));
+  const storage = new Storage({ dbPath: join(tmp, "db") });
+  await storage.init();
+  try {
+    for (let i = 0; i < 9; i++) {
+      await recordQuery(storage.engine(), {
+        id: `q${i}`,
+        query: `query ${i}`,
+        tag: "good",
+        expectedDocId: `d${i}`,
+      });
+    }
+    const docOf = (q: string) => `d${q.split(" ")[1]}`;
+    await replayAll(storage, {
+      searcher: async (q) => [{ documentId: docOf(q) }, { documentId: "x" }],
+      promote: true,
+    });
+    return await replayAll(storage, {
+      searcher: async (q) => {
+        if (change === "systematic") return [{ documentId: "x" }, { documentId: docOf(q) }];
+        if (change === "one-flip" && q === "query 0") return [{ documentId: "x" }];
+        return [{ documentId: docOf(q) }, { documentId: "x" }];
+      },
+    });
+  } finally {
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+describe("replay bootstrap intervals", () => {
+  it("carries intervals on the report", async () => {
+    const r = await replayAfter("none");
+    expect(r.meanRRCi95).toEqual({ lo: 1, hi: 1 });
+    expect(r.hitRateCi95).toEqual({ lo: 1, hi: 1 });
+    expect(r.baseline?.deltaMeanRRCi95).toEqual({ lo: 0, hi: 0 });
+    expect(r.baseline?.significantDrop).toBe(false);
+  });
+
+  it("flags a systematic drop as beyond noise", async () => {
+    const r = await replayAfter("systematic");
+    expect(r.baseline?.deltaMeanRR).toBe(-0.5);
+    expect(r.baseline?.deltaMeanRRCi95.hi).toBeLessThan(0);
+    expect(r.baseline?.significantDrop).toBe(true);
+    expect(isReplayRegression(r, { eps: 0.01 })).toBe(true);
+    expect(regressionMessage(r.baseline!, 0.01)).toContain("beyond noise");
+  });
+
+  it("keeps one flipped query out of nine within noise, while the fixed-eps verdict still fires", async () => {
+    const r = await replayAfter("one-flip");
+    expect(r.baseline?.deltaMeanRR).toBeCloseTo(-1 / 9, 3);
+    expect(r.baseline?.deltaMeanRRCi95.lo).toBeLessThan(0);
+    expect(r.baseline?.deltaMeanRRCi95.hi).toBe(0);
+    expect(r.baseline?.significantDrop).toBe(false);
+    // The gate verdict is unchanged by the interval: -0.11 is past eps.
+    expect(isReplayRegression(r, { eps: 0.01 })).toBe(true);
+    expect(regressionMessage(r.baseline!, 0.01)).toContain("within noise");
   });
 });

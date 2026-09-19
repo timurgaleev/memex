@@ -34,7 +34,11 @@ export async function recordEvalSnapshot(
   engine: Engine,
   report: ReplayReport,
 ): Promise<{ id: number }> {
-  const detail: Record<string, unknown> = { ok: report.ok };
+  const detail: Record<string, unknown> = {
+    ok: report.ok,
+    mean_rr_ci95: report.meanRRCi95,
+    hit_rate_ci95: report.hitRateCi95,
+  };
   if (report.baseline) detail.baseline = report.baseline;
   if (report.stability) detail.stability = report.stability;
   const r = await engine.query<{ id: number }>(

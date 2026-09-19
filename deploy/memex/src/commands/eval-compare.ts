@@ -39,6 +39,7 @@ import {
   type EvalOptions,
   type EvalReport,
 } from "./eval.ts";
+import { deltaCi95, METRIC_GLOSSARY, type Ci95 } from "../core/search/bootstrap.ts";
 
 export interface EvalResultRecord {
   run_id: string;
@@ -48,10 +49,17 @@ export interface EvalResultRecord {
   status: "completed" | "failed";
   duration_ms: number;
   error?: string;
+  /** Absent on records written before the run fingerprint existed. */
+  run_config_hash?: string;
+  qrels_sha256?: string;
   metrics?: {
     mean_recall: number;
     mean_mrr: number;
     hit_rate: number;
+    ndcg?: number;
+    precision?: number;
+    recall_ci95?: Ci95;
+    mrr_ci95?: Ci95;
   };
 }
 
@@ -115,10 +123,16 @@ export async function runEvalRunAll(opts: EvalRunAllOptions = {}): Promise<numbe
           ...base,
           status: "completed",
           duration_ms: Date.now() - started,
+          run_config_hash: report.run_config_hash,
+          qrels_sha256: report.qrels_sha256,
           metrics: {
             mean_recall: report.meanRecall,
             mean_mrr: report.meanReciprocalRank,
             hit_rate: report.hitRate,
+            ndcg: report.meanNdcg,
+            precision: report.meanPrecision,
+            recall_ci95: report.recallCi95,
+            mrr_ci95: report.mrrCi95,
           },
         });
       } catch (e) {
@@ -135,7 +149,12 @@ export async function runEvalRunAll(opts: EvalRunAllOptions = {}): Promise<numbe
   for (const r of records) appendFileSync(out, JSON.stringify(r) + "\n");
   console.log(
     JSON.stringify(
-      { ok: records.every((r) => r.status === "completed"), out, records },
+      {
+        ok: records.every((r) => r.status === "completed"),
+        out,
+        records,
+        glossary: METRIC_GLOSSARY,
+      },
       null,
       2,
     ),
@@ -186,16 +205,21 @@ export async function runEvalCompareCmd(opts: EvalCompareOptions = {}): Promise<
   }
   const grouped = groupLatest(records);
   if (opts.json) {
-    console.log(JSON.stringify({ ok: true, input: path, grouped }, null, 2));
+    console.log(
+      JSON.stringify({ ok: true, input: path, grouped, glossary: METRIC_GLOSSARY }, null, 2),
+    );
     return 0;
   }
   for (const [suite, modes] of Object.entries(grouped)) {
     console.log(`Suite: ${suite}`);
-    console.log(`  ${"mode".padEnd(14)}${"recall".padStart(8)}${"mrr".padStart(8)}${"hit%".padStart(8)}  run`);
+    console.log(
+      `  ${"mode".padEnd(14)}${"recall".padStart(8)}${"mrr".padStart(8)}${"ndcg".padStart(8)}` +
+        `${"p@k".padStart(8)}${"hit%".padStart(8)}  ${"mrr ci95".padEnd(15)}  run`,
+    );
     for (const mode of SEARCH_MODES) {
       const r = modes[mode];
       if (!r) {
-        console.log(`  ${mode.padEnd(14)}${"—".padStart(8)}${"—".padStart(8)}${"—".padStart(8)}  (no run)`);
+        console.log(`  ${mode.padEnd(14)}${"—".padStart(8).repeat(5)}  ${"".padEnd(15)}  (no run)`);
         continue;
       }
       if (r.status !== "completed" || !r.metrics) {
@@ -206,7 +230,10 @@ export async function runEvalCompareCmd(opts: EvalCompareOptions = {}): Promise<
         `  ${mode.padEnd(14)}` +
           r.metrics.mean_recall.toFixed(3).padStart(8) +
           r.metrics.mean_mrr.toFixed(3).padStart(8) +
+          optMetric(r.metrics.ndcg) +
+          optMetric(r.metrics.precision) +
           (r.metrics.hit_rate * 100).toFixed(1).padStart(8) +
+          `  ${formatCi(r.metrics.mrr_ci95).padEnd(15)}` +
           `  ${r.run_id} @ ${r.ran_at}`,
       );
     }
@@ -215,12 +242,53 @@ export async function runEvalCompareCmd(opts: EvalCompareOptions = {}): Promise<
   return 0;
 }
 
+/** Records written before nDCG/P@k existed render a dash, not a zero. */
+function optMetric(v: number | undefined): string {
+  return (v === undefined ? "—" : v.toFixed(3)).padStart(8);
+}
+
+function formatCi(ci: Ci95 | undefined): string {
+  return ci ? `[${ci.lo.toFixed(3)}–${ci.hi.toFixed(3)}]` : "—";
+}
+
 export interface EvalBaseline {
   saved_at: string;
   k: number;
   mean_recall: number;
   mean_mrr: number;
   hit_rate: number;
+  /** Absent on baselines written before the paired intervals existed. */
+  per_query?: Record<string, { recall: number; rr: number }>;
+  qrels_sha256?: string;
+  run_config_hash?: string;
+}
+
+/**
+ * Paired current − baseline intervals over the query ids both runs scored.
+ * Null for a legacy baseline without per-query scores or no shared ids.
+ */
+export function gateDeltaCi(
+  report: Pick<EvalReport, "perQuery">,
+  baseline: EvalBaseline | null,
+): { n: number; mean_recall: Ci95; mean_mrr: Ci95 } | null {
+  const per = baseline?.per_query;
+  if (!per) return null;
+  const before = { recall: [] as number[], rr: [] as number[] };
+  const after = { recall: [] as number[], rr: [] as number[] };
+  for (const q of report.perQuery) {
+    const b = per[q.id];
+    if (!b) continue;
+    before.recall.push(b.recall);
+    before.rr.push(b.rr);
+    after.recall.push(q.recallAtK);
+    after.rr.push(q.mrr);
+  }
+  if (after.rr.length === 0) return null;
+  return {
+    n: after.rr.length,
+    mean_recall: deltaCi95(before.recall, after.recall),
+    mean_mrr: deltaCi95(before.rr, after.rr),
+  };
 }
 
 export interface EvalGateOptions {
@@ -292,7 +360,11 @@ export async function runEvalGate(opts: EvalGateOptions = {}): Promise<number> {
       ...(opts.searchFn ? { searchFn: opts.searchFn } : {}),
     }));
 
+  // The interval is reported next to the verdict; it does not decide it.
   const verdict = gateVerdict(report, baseline, maxDrop, minRecall);
+  const deltaCi = gateDeltaCi(report, baseline);
+  const qrelsChanged =
+    baseline?.qrels_sha256 !== undefined && baseline.qrels_sha256 !== report.qrels_sha256;
   if (opts.writeBaseline && verdict.pass) {
     const next: EvalBaseline = {
       saved_at: new Date().toISOString(),
@@ -300,6 +372,11 @@ export async function runEvalGate(opts: EvalGateOptions = {}): Promise<number> {
       mean_recall: report.meanRecall,
       mean_mrr: report.meanReciprocalRank,
       hit_rate: report.hitRate,
+      per_query: Object.fromEntries(
+        report.perQuery.map((q) => [q.id, { recall: q.recallAtK, rr: q.mrr }]),
+      ),
+      qrels_sha256: report.qrels_sha256,
+      run_config_hash: report.run_config_hash,
     };
     mkdirSync(dirname(baselinePath), { recursive: true });
     writeFileSync(baselinePath, JSON.stringify(next, null, 2) + "\n");
@@ -313,8 +390,15 @@ export async function runEvalGate(opts: EvalGateOptions = {}): Promise<number> {
         mean_recall: report.meanRecall,
         mean_mrr: report.meanReciprocalRank,
         hit_rate: report.hitRate,
+        recall_ci95: report.recallCi95,
+        mrr_ci95: report.mrrCi95,
+        ...(deltaCi ? { delta_ci95: deltaCi } : {}),
+        ...(qrelsChanged ? { qrels_changed: true } : {}),
+        run_config_hash: report.run_config_hash,
+        qrels_sha256: report.qrels_sha256,
         reasons: verdict.reasons,
         baseline_written: Boolean(opts.writeBaseline && verdict.pass),
+        glossary: METRIC_GLOSSARY,
       },
       null,
       2,

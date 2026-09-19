@@ -1078,6 +1078,29 @@ on a forced capture failure.
 **Needs operator go.** The benchmark lanes and their spend (recorded as
 deferred/ask).
 
+**Progress.** Slice 1, noise-aware metrics on the existing harnesses, is
+done. A seeded percentile bootstrap and a paired-delta bootstrap
+(`src/core/search/bootstrap.ts`) put 95% intervals on `eval`, `eval
+run-all/gate`, `eval-replay run` (`significantDrop`), `eval-probe`, the
+`eval_snapshots.detail` JSON and doctor's eval-trend line. `eval` reports
+nDCG@k and P@k. Records and gate baselines carry a run-config hash, the qrels
+sha256 and per-query scores, and the JSON outputs carry a metric glossary.
+Gate verdicts are unchanged. Done-when "a mutation (broken RRF weights) moves
+the metric beyond the bootstrap interval" is proven on the real
+`reciprocalRankFusion` over a hermetic PGLite corpus
+(`tests/eval_mutation_bootstrap.test.ts`). Because `rrf.ts` treats a
+non-positive weight as 1, the mutation silences the vector arm with a
+vanishing weight rather than 0. Still open: the LongMemEval retrieval lane and
+the judged answer lane (both need an operator go), the embedding cache, pool
+capture and the per-arm miss classifier, the cross-suite ledger with
+Bonferroni, the eval spend reservation, capture hardening (`source_id`, a
+failures table, `volunteer_context`, the doctor capture-health check; next
+slice), the sealed-gold bench loader and the seeded blind-spot corpus, NDJSON
+replay, named-thing families as a CLI, the probe's benchmark slice, the
+det-embed CLI canary, CI-based gate verdicts (an operator decision), a
+mutation proof through the full `hybridSearch` path, and the committed
+baseline receipts.
+
 ### RM-07 — MCP surface contract and discovery
 
 **Why.** Every authenticated caller receives all 91 tool definitions, including
