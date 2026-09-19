@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.153.0] — 2026-09-19
+
 ### Added
 - **A read-only agent loop for the operator (off by default).** With
   `MEMEX_AGENT_ENABLED=1`, `memex agent run "<task>" [--max-usd X] [--wait]`
