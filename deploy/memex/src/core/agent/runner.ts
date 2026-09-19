@@ -16,6 +16,13 @@
  * Spend is capped per job. The tracker starts from what the job row already
  * records (`jobs.cost_usd`), so a resume cannot buy a fresh budget, and each
  * Converse call is reserved before it is sent and settled after.
+ *
+ * The loop runs only while its attempt holds the claim. A timed-out or
+ * requeued attempt cannot be cancelled from outside, and its usage no longer
+ * reaches the job row, so it would spend past the cap unseen. Before and after
+ * every Converse call the loop writes its progress under the claim generation;
+ * a refused write means the claim is gone, and the loop stops without calling
+ * the model again, running tools or appending to the ledger.
  */
 import type { ContentBlock, Message } from "@aws-sdk/client-bedrock-runtime";
 import type { Storage } from "../storage.ts";
@@ -82,6 +89,14 @@ export type AgentStopReason =
   | "turn_cap"
   | (string & {});
 
+/** Thrown when this attempt no longer holds the job's claim. */
+export class AgentClaimLost extends Error {
+  constructor(jobId: string, generation: number) {
+    super(`agent: job ${jobId} is no longer held by claim generation ${generation}; stopping`);
+    this.name = "AgentClaimLost";
+  }
+}
+
 export interface AgentRunResult {
   final_text: string;
   turns: number;
@@ -96,6 +111,7 @@ export interface RunAgentOptions {
   task: string;
   maxUsd: number;
   recordUsage?: (usage: JobUsageDelta) => Promise<boolean>;
+  /** Fenced by claim generation; false means the claim is lost and the loop stops. */
   updateProgress?: (progress: Record<string, unknown>) => Promise<boolean>;
   converse?: ConverseFn;
   dispatch?: AgentDispatch;
@@ -253,6 +269,17 @@ async function append(
   }
 }
 
+/**
+ * Write progress as the claim check. `recordUsage` cannot serve: it also
+ * returns false for an all-zero delta.
+ */
+async function holdClaim(opts: RunAgentOptions, progress: Record<string, unknown>): Promise<void> {
+  if (!opts.updateProgress) return;
+  if (!(await opts.updateProgress(progress))) {
+    throw new AgentClaimLost(opts.job.id, opts.job.claimGeneration);
+  }
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
   const { storage, job } = opts;
   const converse = opts.converse ?? converseTurn;
@@ -298,6 +325,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
 
     const assistantTurns = rows.filter((r) => r.role === "assistant").length;
     if (assistantTurns >= maxTurns) return finish("turn_cap");
+    await holdClaim(opts, { turns: assistantTurns, cost_usd: budget.totalSpent() });
 
     const estimate = {
       inputTokens: estimateInputTokens(rows, AGENT_SYSTEM_PREAMBLE, tools),
@@ -335,6 +363,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
       tokensCacheRead: reply.usage.cacheReadInputTokens ?? 0,
       costUsd: costUsd(reply.modelId, charged),
     });
+    await holdClaim(opts, {
+      turns: assistantTurns + 1,
+      cost_usd: budget.totalSpent(),
+      last_stop_reason: reply.stopReason,
+    });
 
     const turn: AssistantTurn = {
       role: "assistant",
@@ -345,11 +378,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
     };
     await append(storage, job.id, nextTurn, "assistant", turn as unknown as Record<string, unknown>);
     rows = await listMessages(storage, job.id);
-    await opts.updateProgress?.({
-      turns: assistantTurns + 1,
-      cost_usd: budget.totalSpent(),
-      last_stop_reason: reply.stopReason,
-    });
     if (exhausted) return finish("budget_exhausted");
   }
 }

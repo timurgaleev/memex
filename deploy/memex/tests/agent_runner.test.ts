@@ -3,7 +3,8 @@
  * and a counting dispatcher: a normal run, a resume after the process died
  * mid-tool (completed tools are not re-run, a foreign pending row is skipped),
  * the per-job budget seeded from jobs.cost_usd, terminal stop reasons and the
- * turn cap. Plus the payload rules of the `subagent` handler.
+ * turn cap, and a lost claim stopping the loop. Plus the payload and timeout
+ * rules of the `subagent` handler.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -15,9 +16,14 @@ import { Queue } from "../src/core/jobs/queue.ts";
 import type { JobRow } from "../src/core/jobs/types.ts";
 import type { ConverseFn, ConverseTurnInput } from "../src/core/llm/converse.ts";
 import type { ToolCallRequest, ToolCallResult } from "../src/mcp/dispatch.ts";
-import { INTERRUPTED_TOOL_RESULT, runAgent } from "../src/core/agent/runner.ts";
+import { AgentClaimLost, INTERRUPTED_TOOL_RESULT, runAgent } from "../src/core/agent/runner.ts";
 import { listMessages, listToolExecutions } from "../src/core/subagent_ledger.ts";
-import { SUBAGENT_JOB_KIND, parseSubagentPayload } from "../src/core/agent/handler.ts";
+import {
+  AGENT_JOB_TIMEOUT_MS,
+  SUBAGENT_JOB_KIND,
+  makeSubagentHandler,
+  parseSubagentPayload,
+} from "../src/core/agent/handler.ts";
 
 const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -97,6 +103,7 @@ const use = (
 function ctxFor(job: JobRow) {
   return {
     recordUsage: (u: Parameters<Queue["recordUsage"]>[2]) => queue.recordUsage(job.id, job.claimGeneration, u),
+    updateProgress: (p: Record<string, unknown>) => queue.updateProgress(job.id, job.claimGeneration, p),
   };
 }
 
@@ -284,6 +291,99 @@ describe("runAgent", () => {
     expect(r.turns).toBe(3);
     expect(s.calls).toHaveLength(3);
     expect(d.calls).toHaveLength(3);
+  });
+});
+
+describe("runAgent after losing its claim", () => {
+  it("stops after a Converse call once a newer attempt holds the job", async () => {
+    const job = await claimNew();
+    const s = script([
+      { content: [use("t1")], stopReason: "tool_use" },
+      { content: [{ text: "never" }], stopReason: "end_turn" },
+    ]);
+    // The stall sweep requeues and re-claims the row while turn 1 is in flight.
+    const losing: ConverseFn = async (input) => {
+      const out = await s.fn(input);
+      await reclaim(job);
+      return out;
+    };
+    const d = counter();
+    await expect(
+      runAgent({
+        storage, job, task: "t", maxUsd: 0.25, modelId: HAIKU,
+        converse: losing, dispatch: d.fn, ...ctxFor(job),
+      }),
+    ).rejects.toBeInstanceOf(AgentClaimLost);
+    expect(s.calls).toHaveLength(1);
+    expect(d.calls).toHaveLength(0);
+    // Nothing after the task: the orphan's turn is not in the ledger.
+    expect((await listMessages(storage, job.id)).map((m) => m.role)).toEqual(["user"]);
+    expect(await listToolExecutions(storage, job.id)).toHaveLength(0);
+  });
+
+  it("does not call the model again when the claim is lost while tools run", async () => {
+    const job = await claimNew();
+    const s = script([
+      { content: [use("t1")], stopReason: "tool_use" },
+      { content: [{ text: "never" }], stopReason: "end_turn" },
+    ]);
+    const d = counter(async () => {
+      await reclaim(job);
+      return { content: [{ type: "text", text: "ok" }] };
+    });
+    await expect(
+      runAgent({
+        storage, job, task: "t", maxUsd: 0.25, modelId: HAIKU,
+        converse: s.fn, dispatch: d.fn, ...ctxFor(job),
+      }),
+    ).rejects.toBeInstanceOf(AgentClaimLost);
+    expect(s.calls).toHaveLength(1);
+    expect(d.calls).toHaveLength(1);
+  });
+
+  it("stops when the job was dead-lettered under the same claim", async () => {
+    const job = await claimNew();
+    const s = script([
+      { content: [use("t1")], stopReason: "tool_use" },
+      { content: [{ text: "never" }], stopReason: "end_turn" },
+    ]);
+    const timingOut: ConverseFn = async (input) => {
+      const out = await s.fn(input);
+      await queue.fail(job.id, job.claimGeneration, "timed out", { terminal: true });
+      return out;
+    };
+    const d = counter();
+    await expect(
+      runAgent({
+        storage, job, task: "t", maxUsd: 0.25, modelId: HAIKU,
+        converse: timingOut, dispatch: d.fn, ...ctxFor(job),
+      }),
+    ).rejects.toBeInstanceOf(AgentClaimLost);
+    expect(s.calls).toHaveLength(1);
+    expect(d.calls).toHaveLength(0);
+  });
+});
+
+describe("subagent handler", () => {
+  it("refuses a job queued without a timeout, before any model call", async () => {
+    const job = await claimNew();
+    expect(job.timeoutMs).toBeNull();
+    const s = script([{ content: [{ text: "never" }], stopReason: "end_turn" }]);
+    const handler = makeSubagentHandler(storage, { converse: s.fn, modelId: HAIKU });
+    await expect(handler({ task: "t" }, { job, ...ctxFor(job) })).rejects.toThrow(/timeout_ms/);
+    expect(s.calls).toHaveLength(0);
+    expect(await listMessages(storage, job.id)).toHaveLength(0);
+  });
+
+  it("runs a job queued with a timeout", async () => {
+    await queue.enqueue({
+      kind: SUBAGENT_JOB_KIND, payload: { task: "t" }, maxRetries: 0, timeoutMs: AGENT_JOB_TIMEOUT_MS,
+    });
+    const job = (await queue.claim({ kinds: [SUBAGENT_JOB_KIND] }))!;
+    const s = script([{ content: [{ text: "done" }], stopReason: "end_turn" }]);
+    const handler = makeSubagentHandler(storage, { converse: s.fn, modelId: HAIKU });
+    const r = await handler({ task: "t" }, { job, ...ctxFor(job) });
+    expect(r).toMatchObject({ stop_reason: "end_turn", final_text: "done" });
   });
 });
 

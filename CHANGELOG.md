@@ -16,7 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `MEMEX_AGENT_MAX_USD` (default $0.25), stops after 12 turns, and books every
   model call in the spend ledger under `agent`. Every turn and tool call is
   written to the ledger first, so a job resumed after a crash does not run a
-  finished tool again and never re-runs a half-done one. `memex agent logs
+  finished tool again and never re-runs a half-done one. A job that timed out
+  or was taken over by a newer attempt stops before its next model call, so
+  its spend cannot run past the cap unrecorded, and a `subagent` job queued
+  through `jobs_submit` without `timeout_ms` is refused. `memex agent logs
   <job-id>` prints the transcript. No MCP tool is added.
 
 ### Fixed

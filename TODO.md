@@ -1707,7 +1707,11 @@ per-job cap is min(payload, `MEMEX_AGENT_MAX_USD`, $0.25 default) seeded from
 plus one token per byte of what was appended since. Tests cover a resume after
 a mid-tool kill (one ledger row per finished tool, zero re-dispatches), a
 foreign pending row skipped, the budget seed, terminal stop reasons and the
-turn cap. Done-when items met in code: SIGKILL resume, allowlist excluding
+turn cap. The loop checks its claim (a progress write fenced by claim
+generation) before and after every Converse call and stops on a refusal, so a
+timed-out or requeued attempt makes no further model call, runs no tool and
+appends nothing; the handler refuses a `subagent` row without `timeout_ms`, so
+the worker always extends the claim lock over the run. Done-when items met in code: SIGKILL resume, allowlist excluding
 every public-forbidden write, `agent logs`. Still open: the live $0.25 Bedrock
 fixture run plus `/codex` and `security-engineer` review before deploy; fenced
 writes and oneshot synthesis (release B, with the hallucinated-wikilink item);

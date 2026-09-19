@@ -69,6 +69,14 @@ export type SubagentDeps = Pick<
 
 export function makeSubagentHandler(storage: Storage, deps: SubagentDeps = {}): JobHandler {
   return async (payload, ctx) => {
+    // The worker extends the claim lock only to cover a timeout. Without one
+    // (a bare `jobs_submit`), a long loop outlives its lock, the stall sweep
+    // requeues it, and two attempts run the same job.
+    if (!ctx.job.timeoutMs || ctx.job.timeoutMs <= 0) {
+      throw new Error(
+        `subagent: job has no timeout; submit it with timeout_ms (the CLI uses ${AGENT_JOB_TIMEOUT_MS})`,
+      );
+    }
     const { task, maxUsd } = parseSubagentPayload(payload);
     const result = await runAgent({
       storage,
