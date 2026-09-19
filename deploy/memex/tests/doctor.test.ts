@@ -116,6 +116,7 @@ describe("doctor", () => {
       "federation-health",
       "index-spread",
       "invalid-indexes",
+      "junk-entity-hubs",
       "links-extraction-lag",
       "oauth-client-health",
       "pat-scopes-recorded",

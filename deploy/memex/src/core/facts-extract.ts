@@ -20,6 +20,7 @@ import {
 } from "./llm/sonnet.ts";
 import { slugifyTarget } from "./links.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
+import { isJunkEntityName } from "./entity-junk.ts";
 import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 import {
   classifyFactsAbsorbError,
@@ -516,7 +517,10 @@ export async function writeExtractedFacts(
       skipped += 1;
       continue;
     }
-    if (!f.entity) {
+    // A placeholder entity ("team", "unknown", "the user") would mint a junk
+    // page, or resolve onto one, and every later fact would hang another edge
+    // on it; the claim is dropped like one with no entity at all.
+    if (!f.entity || isJunkEntityName(f.entity)) {
       skipped += 1;
       continue;
     }

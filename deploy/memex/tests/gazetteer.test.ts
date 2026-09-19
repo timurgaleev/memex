@@ -85,6 +85,14 @@ describe("buildGazetteer", () => {
     expect(g.map((e) => e.phrase)).toEqual([]); // all filtered or ambiguous
   });
 
+  it("drops placeholder titles through the shared junk-entity gate", async () => {
+    await putPage(storage, { slug: "people/someone", type: "person", title: "Someone" });
+    await putPage(storage, { slug: "companies/the-meeting", type: "company", title: "The Meeting" });
+    await putPage(storage, { slug: "companies/team-rocket", type: "company", title: "Team Rocket" });
+    const g = await buildGazetteer(storage, "journal/x");
+    expect(g.map((e) => e.phrase)).toEqual(["team rocket"]);
+  });
+
   it("drops an over-long title (regex-bloat guard)", async () => {
     await putPage(storage, {
       slug: "people/long",

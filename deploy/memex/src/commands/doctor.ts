@@ -38,6 +38,7 @@ import {
   checkInvalidIndexes,
   checkDuplicatePages,
   checkQuarantinedPages,
+  checkJunkEntityHubs,
 } from "../core/doctor-ops.ts";
 import {
   checkFederationHealth,
@@ -301,6 +302,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ["invalid-indexes", checkInvalidIndexes],
       ["duplicate-pages", checkDuplicatePages],
       ["quarantined-pages", checkQuarantinedPages],
+      ["junk-entity-hubs", checkJunkEntityHubs],
       ["code-grammars", checkGrammars],
     ] as const) {
       try {

@@ -47,6 +47,7 @@ import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { validateSlug } from "./links.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
+import { isJunkEntityName } from "./entity-junk.ts";
 
 type Direction = "outgoing" | "incoming";
 interface FieldRule {
@@ -268,6 +269,9 @@ async function collectEdges(
     const raw = fieldIndex.get(field);
     if (raw === undefined) continue;
     for (const value of fieldValues(raw)) {
+      // `attendees: [team]` must not resolve onto a placeholder page someone
+      // already created and grow it another edge.
+      if (isJunkEntityName(value)) continue;
       if (++attempts > MAX_RESOLVE_ATTEMPTS) return edges;
       const res = await resolver.resolve(value);
       // RESOLVED-ONLY + EXACT-ish: accept only the deterministic, high-precision

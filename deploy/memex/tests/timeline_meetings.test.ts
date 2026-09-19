@@ -64,6 +64,21 @@ describe("meetingTimelineEnabled / resolveMeetingDate", () => {
 });
 
 describe("extractMeetingTimelinePhase", () => {
+  it("skips placeholder attendees even when a page by that name exists", async () => {
+    await putPage(storage, { slug: "people/unknown", type: "person", title: "Unknown" });
+    await putPage(storage, { slug: "people/alice", type: "person", title: "Alice" });
+    await putPage(storage, {
+      slug: "meetings/2026-05-19-retro",
+      type: "meeting",
+      title: "Retro",
+      compiled_truth: { date: "2026-05-19", attendees: ["Unknown", "Alice"] },
+    });
+    const res = await extractMeetingTimelinePhase(storage);
+    expect(res.attendees_touched).toBe(1);
+    expect(await timelineFor("people/unknown")).toHaveLength(0);
+    expect(await timelineFor("people/alice")).toHaveLength(1);
+  });
+
   it("is a no-op when disabled", async () => {
     delete process.env.MEMEX_MEETING_TIMELINE;
     await putPage(storage, {

@@ -32,6 +32,7 @@ import type { Engine } from "./engine/interface.ts";
 import { normalizeAlias } from "./page-aliases.ts";
 import { andSourceScope } from "./source-scope.ts";
 import { stripCodeBlocks, validateSlug } from "./links.ts";
+import { isJunkEntityName } from "./entity-junk.ts";
 
 /** Entity page types eligible for gazetteer matching (named entities only). */
 const GAZETTEER_TYPES = ["person", "company"] as const;
@@ -44,16 +45,15 @@ const MAX_ENTRIES = 5000;
 /** Upper bound on the body scanned (chars) — matches the indexer's file cap intent. */
 const MAX_BODY_LEN = 1_000_000;
 /**
- * Common words a person/company title might equal but which routinely appear
- * in prose — a single-token title in this set is never auto-linked. Best-effort
- * (a stop-list is inherently incomplete); the structural defenses are the
- * proper-noun (capitalized-in-source) heuristic, the named-entity type filter,
- * the ambiguity drop, and DEFAULT-OFF.
+ * Common English words that are also frequent names/brands — a real entity may
+ * carry one as its title, but it routinely appears in prose, so it is never
+ * auto-linked. Placeholder titles ("team", "meeting", "unknown") are rejected
+ * earlier by the shared junk-entity gate. Best-effort (a stop-list is
+ * inherently incomplete); the structural defenses are the proper-noun
+ * (capitalized-in-source) heuristic, the named-entity type filter, the
+ * ambiguity drop, and DEFAULT-OFF.
  */
 const STOP_PHRASES = new Set([
-  "note", "page", "idea", "meeting", "company", "person", "team", "group",
-  "project", "task", "event", "today", "test", "draft", "inbox",
-  // common English words that are also frequent names/brands
   "mark", "will", "summer", "april", "june", "apple", "next", "square",
   "amber", "hope", "grace", "rose", "ray", "art", "max", "sky", "dawn",
   "story", "field", "river", "stone", "frank", "drew", "major", "case",
@@ -86,11 +86,12 @@ function codePointLen(s: string, cap: number): number {
   return n;
 }
 
-/** A normalized phrase is usable iff in the length band, not purely numeric,
- *  not a stop-word. Length is counted in CODE POINTS. */
+/** A normalized phrase is usable iff in the length band, not a junk entity
+ *  name (placeholders, pure numbers), not a stop-word. Length is counted in
+ *  CODE POINTS. */
 function isUsablePhrase(phrase: string): boolean {
   if (STOP_PHRASES.has(phrase)) return false;
-  if (/^[0-9\s]+$/.test(phrase)) return false;
+  if (isJunkEntityName(phrase)) return false;
   const n = codePointLen(phrase, MAX_PHRASE_LEN + 1);
   return n >= MIN_PHRASE_LEN && n <= MAX_PHRASE_LEN;
 }

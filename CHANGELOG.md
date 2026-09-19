@@ -28,6 +28,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   top patterns holding them. `MEMEX_CONTENT_SANITY_DISABLE` (comma-separated
   pattern names, operator literals included as `operator_literal_N`) switches
   off one misfiring pattern without dropping the whole gate.
+- **Placeholder names stop becoming graph hubs.** One shared gate rejects
+  entity names like `team`, `meeting`, `unknown`, `user`, `someone`, `n/a`,
+  bare numbers and single characters (exact names only, so `Team Rocket`
+  passes). Extracted facts with such an entity are skipped, chronicle events
+  drop them from `who`, and gazetteer auto-links, typed frontmatter links and
+  meeting-attendee timeline entries no longer resolve onto a page carrying
+  one. `memex doctor` gains a `junk-entity-hubs` check that warns with the
+  junk-named person/company/concept pages that hold the most links.
 
 ### Fixed
 - **A held page is audited once, not on every re-index.** Re-indexing a

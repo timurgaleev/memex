@@ -990,10 +990,15 @@ a 403 and leaves no audit row. R3 (unreleased): each quarantine trip writes a
 `quarantine` row to `ingest_log` (pattern names only; only a new or changed
 verdict, after the write commits, best-effort), a `quarantined-pages`
 doctor check reports count and top patterns, and `MEMEX_CONTENT_SANITY_DISABLE`
-switches off individual patterns. Open: facts derived by reconcile/consolidate
-inherit already-scanned text and are not rescanned; no scrub of rows stored before
-(`page_versions` history); the operator-only `quarantine_list` MCP op and
-literal directives (`# name=`, `# applies_to=`), junk-entity gate, CI
+switches off individual patterns. R4 (unreleased): `core/entity-junk.ts`
+`isJunkEntityName` (merged from the gazetteer's generic stop-phrases) gates
+fact entity resolution, chronicle `who`, gazetteer phrases, typed frontmatter
+links and meeting-attendee timeline entries; a read-only `junk-entity-hubs`
+doctor check ranks existing junk-named entity pages by links. Open: facts
+derived by reconcile/consolidate inherit already-scanned text and are not
+rescanned; no scrub of rows stored before (`page_versions` history); the
+operator-only `quarantine_list` MCP op and literal directives (`# name=`,
+`# applies_to=`), merging or deleting existing junk hubs, CI
 gitleaks/OSV/actionlint.
 
 ### RM-06 — Measurement program: public benchmark, judged answers, eval governance

@@ -123,6 +123,21 @@ describe("runChronicleExtract", () => {
     expect(ev!.type).toBe("event");
   });
 
+  it("drops placeholder participants from the stored who", async () => {
+    const slug = await seedDepth();
+    await runChronicleExtract(storage, {
+      slug,
+      sourceId: "default",
+      judge: stubJudge([
+        { when: "2026-01-10", who: ["people/alice", "team", "Someone", "7"], what: "Planning", kind: "meeting" },
+      ]),
+    });
+    const rows = await getTimelineForDate(storage, "2026-01-10", { sourceIds: ["default"] });
+    const ev = await getPage(storage, rows[0]!.event_slug!, ["default"]);
+    const event = (ev!.compiled_truth as { event: { who: string[] } }).event;
+    expect(event.who).toEqual(["people/alice"]);
+  });
+
   it("rejects the WHOLE batch when ONE proposal has a malformed date", async () => {
     const slug = await seedDepth();
     const res = await runChronicleExtract(storage, {

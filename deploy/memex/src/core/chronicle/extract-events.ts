@@ -23,6 +23,7 @@ import {
 import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { parseModelJson } from "../llm/json-output.ts";
 import { isLlmAvailable } from "../llm/gateway.ts";
+import { isJunkEntityName } from "../entity-junk.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { classifyFactsAbsorbError } from "../ingest-log.ts";
 
@@ -258,13 +259,17 @@ export async function runChronicleExtract(
   // Cap per page AFTER the barrier: the whole batch had to validate, but only
   // the first N are written (a bound on fan-out from one page).
   for (const ev of proposals.slice(0, MAX_EVENTS_PER_PAGE)) {
-    const who = ev.who.length ? ev.who : attendees;
+    // Placeholder participants ("team", "someone") are dropped from the stored
+    // `who`; the slug still hashes what the judge returned so a re-run upserts
+    // the page it wrote before this gate existed instead of forking a twin.
+    const rawWho = ev.who.length ? ev.who : attendees;
+    const who = rawWho.filter((w) => !isJunkEntityName(w));
     const when = ev.when || effectiveDate || new Date(opts.now ?? Date.now()).toISOString();
     const day = isoDay(when, tz);
     // Full normalized instant for the projection so same-day events order by
     // real time, not insertion order (isValidProposal guaranteed `when` parses).
     const occurredAt = new Date(when).toISOString();
-    const hash = eventHash8(who, ev.what, opts.slug, sourceId);
+    const hash = eventHash8(rawWho, ev.what, opts.slug, sourceId);
     const eventSlug = `life/events/${day}-${hash}`;
     await putPage(storage, {
       slug: eventSlug,

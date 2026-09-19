@@ -12,6 +12,7 @@ import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
 import { EMBED_DIMENSIONS } from "./embedding.ts";
 import { grammarSelfCheck } from "./chunkers/parsers.ts";
+import { isJunkEntityName } from "./entity-junk.ts";
 
 export interface OpsCheckResult {
   /** Exit-code driver — false only on `status:"fail"`. */
@@ -222,6 +223,55 @@ export async function checkDuplicatePages(
     ok: true,
     status: "warn",
     detail: `${total} duplicate page group(s) — same source + content under multiple slugs, e.g. ${sample}`,
+  };
+}
+
+/** Entity page types a junk name can accrete edges on. */
+const JUNK_HUB_TYPES = ["person", "company", "concept"] as const;
+/** Bound on the entity pages loaded for the name test — a doctor probe must
+ *  stay cheap on a large brain. */
+const JUNK_HUB_SCAN_LIMIT = 50_000;
+
+/**
+ * Junk entity hubs: entity pages whose name is a placeholder ("team",
+ * "unknown", "user", a bare number) ranked by edge count. The shared
+ * junk-entity gate stops new ones at every creation point, but pages minted
+ * before it keep their edges and keep pulling unrelated pages together in
+ * traversal. Read-only; warn, never fail — merging or deleting a hub is the
+ * operator's call.
+ */
+export async function checkJunkEntityHubs(
+  engine: Engine,
+): Promise<OpsCheckResult> {
+  const typeList = JUNK_HUB_TYPES.map((t) => `'${t}'`).join(", ");
+  const pages = await engine.query<{ slug: string; title: string | null }>(
+    `SELECT slug, title FROM pages
+      WHERE deleted_at IS NULL AND type IN (${typeList})
+      ORDER BY slug
+      LIMIT ${JUNK_HUB_SCAN_LIMIT}`,
+  );
+  const junk = pages.rows
+    .filter((p) => isJunkEntityName(p.slug) || (p.title !== null && p.title.trim() !== "" && isJunkEntityName(p.title)))
+    .map((p) => p.slug);
+  if (junk.length === 0) {
+    return { ok: true, status: "ok", detail: "no junk-named entity pages" };
+  }
+  const top = await engine.query<{ slug: string; n: number }>(
+    `SELECT j.slug,
+            (SELECT count(*) FROM links l
+              WHERE l.source_slug = j.slug OR l.target_slug = j.slug)::int AS n
+       FROM unnest($1::text[]) AS j(slug)
+      ORDER BY n DESC, j.slug
+      LIMIT 5`,
+    [junk],
+  );
+  const sample = top.rows.map((r) => `${r.slug} (${r.n} links)`).join(", ");
+  return {
+    ok: true,
+    status: "warn",
+    detail:
+      `${junk.length} junk-named entity page(s); most linked: ${sample}` +
+      " — merge or delete them so they stop joining unrelated pages",
   };
 }
 

@@ -61,6 +61,19 @@ describe("typedLinksEnabled", () => {
 });
 
 describe("syncTypedLinksForPage", () => {
+  it("never resolves a placeholder attendee onto an existing junk page", async () => {
+    await putPage(storage, { slug: "people/team", type: "person", title: "Team" });
+    await putPage(storage, { slug: "people/bob", type: "person", title: "Bob" });
+    await putPage(storage, {
+      slug: "meetings/sync",
+      type: "meeting",
+      compiled_truth: { attendees: ["Team", "people/team", "Bob"] },
+    });
+    const res = await sync("meetings/sync");
+    expect(res.added).toBe(1);
+    expect((await linksFor("meetings/sync")).map((l) => l.source_slug)).toEqual(["people/bob"]);
+  });
+
   it("is a no-op when disabled", async () => {
     delete process.env.MEMEX_TYPED_LINKS;
     await putPage(storage, { slug: "companies/acme", type: "company" });

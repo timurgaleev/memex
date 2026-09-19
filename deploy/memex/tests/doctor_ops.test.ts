@@ -17,6 +17,7 @@ import {
   checkInvalidIndexes,
   checkDuplicatePages,
   checkQuarantinedPages,
+  checkJunkEntityHubs,
 } from "../src/core/doctor-ops.ts";
 import { buildRemediationEnvelope, runDoctor } from "../src/commands/doctor.ts";
 import { buildRemediationPlan } from "../src/core/remediation.ts";
@@ -159,6 +160,55 @@ describe("checkQuarantinedPages", () => {
     expect(r.status).toBe("warn");
     expect(r.detail).toContain("3 quarantined page(s)");
     expect(r.detail).toContain("top patterns: access_denied=2, cloudflare_ray_id=1, operator_literal_1=1");
+  });
+});
+
+describe("checkJunkEntityHubs", () => {
+  const page = (slug: string, type: string, title: string) =>
+    storage.engine().query(
+      `INSERT INTO pages (slug, type, title, content_hash) VALUES ($1, $2, $3, $1)`,
+      [slug, type, title],
+    );
+  const link = (from: string, to: string) =>
+    storage.engine().query(
+      `INSERT INTO links (source_slug, target_slug, type) VALUES ($1, $2, 'mentions')`,
+      [from, to],
+    );
+
+  it("reports none when every entity page has a real name", async () => {
+    await page("people/alice-smith", "person", "Alice Smith");
+    await page("notes/team", "note", "Team");
+    const r = await checkJunkEntityHubs(storage.engine());
+    expect(r.status).toBe("ok");
+    expect(r.detail).toBe("no junk-named entity pages");
+  });
+
+  it("warns with junk-named entity pages ranked by edge count", async () => {
+    await page("people/unknown", "person", "Unknown");
+    await page("companies/team", "company", "Team");
+    await page("concepts/x1", "concept", "42");
+    await page("people/alice-smith", "person", "Alice Smith");
+    for (const n of ["a", "b", "c"]) await page(`notes/${n}`, "note", n);
+    await link("notes/a", "companies/team");
+    await link("notes/b", "companies/team");
+    await link("companies/team", "notes/c");
+    await link("notes/a", "people/unknown");
+    await link("notes/a", "people/alice-smith");
+    const r = await checkJunkEntityHubs(storage.engine());
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("warn");
+    expect(r.detail).toContain("3 junk-named entity page(s)");
+    expect(r.detail).toContain(
+      "companies/team (3 links), people/unknown (1 links), concepts/x1 (0 links)",
+    );
+    expect(r.detail).not.toContain("alice");
+  });
+
+  it("ignores soft-deleted pages", async () => {
+    await page("people/someone", "person", "Someone");
+    await storage.engine().query(`UPDATE pages SET deleted_at = NOW() WHERE slug = 'people/someone'`);
+    const r = await checkJunkEntityHubs(storage.engine());
+    expect(r.status).toBe("ok");
   });
 });
 
