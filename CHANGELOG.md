@@ -15,7 +15,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   secret), a `client_credentials` mint, MCP `initialize` (its version must
   match `/health`, and it must include instructions), `tools/list`, and
   `whoami`. The last check reports the credential's write and read sources.
-  `--expect-source ID` and `--expect-operator` turn that into pass or fail.
+  `--expect-source ID` and `--expect-operator` turn that into pass or fail;
+  `--expect-operator` requires a trusted credential (`is_public: false`) whose
+  reads cover the `default` source, so the operator PAT passes and the static
+  public bearer fails. Redirects are never followed — a 3xx fails the check,
+  so the secret and bearer only ever reach the origin you gave.
   A JSON-RPC error returned with HTTP 200 counts as a failure. Credentials come
   only from a 0600 file (`--client-file` or `--token-file`); group- or
   world-readable files, symlinks and secrets on the command line are refused,

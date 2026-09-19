@@ -377,8 +377,11 @@ documents, a `client_credentials` mint (with `--client-file` holding
 `{client_id, client_secret}`; a token file skips it), MCP `initialize` (its
 `serverInfo.version` must equal the `/health` stamp, which catches a stale
 container still answering), `tools/list`, `whoami`, and the caller's scope
-(`--expect-source ID` for a tenant client, `--expect-operator` for a
-whole-brain token). It exits 0 when every check passes, 1 on any failure and 2
+(`--expect-source ID` for a tenant client; `--expect-operator` for the
+operator's PAT, which passes only when `whoami` reports `is_public: false` and
+a read scope that covers the `default` source — the static public bearer
+fails it). Redirects are never followed: any 3xx fails the check and names
+where it pointed, so neither the client secret nor the bearer is re-sent. It exits 0 when every check passes, 1 on any failure and 2
 on a usage error; `--json` prints the full report.
 
 For

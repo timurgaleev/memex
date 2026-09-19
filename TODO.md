@@ -2352,7 +2352,12 @@ provision` (blocked on RM-10 profiles and least-privilege mint; it will call
 whoami and the two-tenant local scenario; instruction blocks; stub skill
 distribution (waits on RM-09); plugin manifests; `mcp-refresh.sh` extension.
 `auth test` still treats an HTTP-200 JSON-RPC error as success — retire it or
-rebuild it on the doctor as a follow-up.
+rebuild it on the doctor as a follow-up. Review fixes: `--expect-operator` now
+checks the real whoami contract (`is_public:false` and reads null or covering
+`default`), so the operator PAT passes and the public bearer, fail-closed `[]`
+and sentinel-only grants fail — tested against payloads from a live ingress
+and dispatch, not stubs; no fetch follows redirects (3xx fails, naming the
+Location origin), so a proxied 307 cannot re-post the client secret or bearer.
 
 ### RM-22 — Delegated agents for tenants
 

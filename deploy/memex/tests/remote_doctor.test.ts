@@ -2,16 +2,23 @@
  * `memex auth doctor <base-url>` — the remote doctor, driven hermetically
  * through an injectable fetch routed by URL path and JSON-RPC method.
  */
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AuthInfo } from "../src/core/auth-info.ts";
+import { OAuthProvider } from "../src/core/oauth-provider.ts";
+import { Storage } from "../src/core/storage.ts";
+import { startServer, type ServerHandle } from "../src/http/server.ts";
+import { dispatchTool } from "../src/mcp/dispatch.ts";
 import {
   readCredentialFile,
   redactSecrets,
   runRemoteDoctor,
   type DoctorCredentials,
 } from "../src/commands/remote-doctor.ts";
+import { NO_SOURCE_SENTINEL } from "../src/core/auth-info.ts";
 
 type FetchLike = typeof fetch;
 
@@ -34,6 +41,8 @@ interface ServerOpts {
   whoami?: Record<string, unknown>;
   whoamiRpcError?: boolean;
   whoamiIsError?: boolean;
+  /** path → Location: that path answers 307. */
+  redirects?: Record<string, string>;
 }
 
 interface Seen {
@@ -45,8 +54,15 @@ interface Seen {
 
 function fakeServer(opts: ServerOpts = {}): { fetchFn: FetchLike; seen: Seen[] } {
   const seen: Seen[] = [];
-  const fetchFn = (async (input: unknown, init?: RequestInit) => {
+  const fetchFn = (async (input: unknown, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
+    const location = opts.redirects?.[url.pathname];
+    if (location !== undefined && url.origin === BASE) {
+      seen.push({ url: url.href, step: `redirect ${url.pathname}`, auth: null, body: "" });
+      // Emulate fetch's default follow: a 307 re-sends method, headers and body.
+      if (init?.redirect !== "manual") return fetchFn(location, init);
+      return new Response(null, { status: 307, headers: { Location: location } });
+    }
     const headers = (init?.headers ?? {}) as Record<string, string>;
     const body = typeof init?.body === "string" ? init.body : "";
     const auth = headers["Authorization"] ?? null;
@@ -116,6 +132,7 @@ function fakeServer(opts: ServerOpts = {}): { fetchFn: FetchLike; seen: Seen[] }
         scopes: ["read", "write", "admin"],
         write_source: null,
         read_sources: null,
+        is_public: false,
       };
       return Response.json({
         jsonrpc: "2.0",
@@ -352,12 +369,13 @@ describe("runRemoteDoctor — MCP", () => {
 });
 
 describe("runRemoteDoctor — scope probe", () => {
-  const who = (write: string | null, read: string[] | null) => ({
+  const who = (write: string | null, read: string[] | null, isPublic: boolean | "omit" = false) => ({
     ok: true,
     client_id: "memex_cl_alpha",
     scopes: ["read"],
     write_source: write,
     read_sources: read,
+    ...(isPublic === "omit" ? {} : { is_public: isPublic }),
   });
 
   it("passes --expect-source when write and read agree", async () => {
@@ -389,6 +407,169 @@ describe("runRemoteDoctor — scope probe", () => {
     const { fetchFn } = fakeServer({ whoami: who(null, null) });
     const r = await runRemoteDoctor(BASE, clientCreds, { expectOperator: true }, fetchFn);
     expect(statusOf(r, "scope")).toBe("ok");
+  });
+
+  it("fails --expect-operator on a public caller even with read_sources null", async () => {
+    const { fetchFn } = fakeServer({ whoami: who(null, null, true) });
+    const r = await runRemoteDoctor(BASE, clientCreds, { expectOperator: true }, fetchFn);
+    expect(statusOf(r, "scope")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "scope")!.detail).toContain("is_public");
+  });
+
+  it("fails --expect-operator when the server does not report is_public", async () => {
+    const { fetchFn } = fakeServer({ whoami: who(null, null, "omit") });
+    const r = await runRemoteDoctor(BASE, clientCreds, { expectOperator: true }, fetchFn);
+    expect(statusOf(r, "scope")).toBe("fail");
+  });
+
+  it("fails --expect-operator on a sentinel-only grant", async () => {
+    const { fetchFn } = fakeServer({ whoami: who(null, [NO_SOURCE_SENTINEL]) });
+    const r = await runRemoteDoctor(BASE, clientCreds, { expectOperator: true }, fetchFn);
+    expect(statusOf(r, "scope")).toBe("fail");
+  });
+
+  it("fails --expect-operator on a tenant grant that excludes default", async () => {
+    const { fetchFn } = fakeServer({ whoami: who("alpha", ["alpha"]) });
+    const r = await runRemoteDoctor(BASE, clientCreds, { expectOperator: true }, fetchFn);
+    expect(statusOf(r, "scope")).toBe("fail");
+  });
+});
+
+/**
+ * The scope probe against what the server really returns: whoami payloads come
+ * from a live ingress (PAT via the provider fallback, the static public bearer)
+ * and from dispatch with the fail-closed floor on, not from hand-written stubs.
+ */
+describe("runRemoteDoctor — scope probe against the real whoami contract", () => {
+  const PUB = ["pub", "bearer", "doctor-contract"].join("-");
+  let tmp: string;
+  let storage: Storage;
+  let server: ServerHandle;
+  let url: string;
+
+  const mintPat = async (permissions?: Record<string, unknown>): Promise<string> => {
+    const token = `memex_${randomBytes(32).toString("hex")}`;
+    const hash = createHash("sha256").update(token, "utf8").digest("hex");
+    const name = `doctor-${randomBytes(4).toString("hex")}`;
+    if (permissions === undefined) {
+      await storage.raw().query(
+        `INSERT INTO access_tokens (name, token_hash, scopes) VALUES ($1, $2, $3::text[])`,
+        [name, hash, ["read", "write"]],
+      );
+    } else {
+      await storage.raw().query(
+        `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
+         VALUES ($1, $2, $3::text[], $4::jsonb)`,
+        [name, hash, ["read", "write"], permissions],
+      );
+    }
+    return token;
+  };
+
+  // Cf-Connecting-Ip marks the call as public ingress, as it is on the live host.
+  const liveWhoami = async (bearer: string): Promise<Record<string, unknown>> => {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${bearer}`,
+        "Cf-Connecting-Ip": "9.9.9.9",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "whoami", arguments: {} } }),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const line = text.split("\n").find((l) => l.startsWith("data: "));
+    const msg = JSON.parse(line ? line.slice(6) : text) as { result: { content: { text: string }[] } };
+    return JSON.parse(msg.result.content[0]!.text) as Record<string, unknown>;
+  };
+
+  const probe = async (whoami: Record<string, unknown>, opts: { expectOperator?: boolean; expectSource?: string }) => {
+    const { fetchFn } = fakeServer({ whoami });
+    const r = await runRemoteDoctor(BASE, tokenCreds, opts, fetchFn);
+    return statusOf(r, "scope");
+  };
+
+  beforeAll(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-doctor-contract-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    server = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      publicBearerToken: PUB,
+      oauthProvider: new OAuthProvider({ engine: storage.raw() }),
+    });
+    url = `http://127.0.0.1:${server.port}`;
+  });
+  afterAll(async () => {
+    await server.stop();
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("passes --expect-operator for a legacy PAT (no explicit grant lands on default)", async () => {
+    const who = await liveWhoami(await mintPat());
+    expect(who["is_public"]).toBe(false);
+    expect(await probe(who, { expectOperator: true })).toBe("ok");
+    expect(await probe(who, { expectSource: "default" })).toBe("ok");
+  });
+
+  it("fails --expect-operator for the static public bearer", async () => {
+    const who = await liveWhoami(PUB);
+    expect(who["is_public"]).toBe(true);
+    expect(await probe(who, { expectOperator: true })).toBe("fail");
+  });
+
+  it("fails --expect-operator and passes --expect-source for a tenant PAT", async () => {
+    const who = await liveWhoami(await mintPat({ source_id: "alpha" }));
+    expect(await probe(who, { expectOperator: true })).toBe("fail");
+    expect(await probe(who, { expectSource: "alpha" })).toBe("ok");
+  });
+
+  it("fails --expect-operator for a fail-closed client with no grant", async () => {
+    const prev = process.env["MEMEX_TENANT_FAIL_CLOSED"];
+    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    try {
+      const authInfo: AuthInfo = { token: "t", clientId: "memex_cl_nogrant", scopes: ["read"], isPublic: false };
+      const r = await dispatchTool(storage, { name: "whoami", arguments: {} }, { authInfo, isPublic: false });
+      const who = JSON.parse(r.content[0]?.text ?? "{}") as Record<string, unknown>;
+      expect(who["read_sources"]).toEqual([]);
+      expect(await probe(who, { expectOperator: true })).toBe("fail");
+    } finally {
+      if (prev === undefined) delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
+      else process.env["MEMEX_TENANT_FAIL_CLOSED"] = prev;
+    }
+  });
+});
+
+describe("runRemoteDoctor — redirects", () => {
+  const EVIL = "https://evil.example.net";
+
+  it("never re-posts the secret when /token answers 307 to another origin", async () => {
+    const { fetchFn, seen } = fakeServer({ redirects: { "/token": `${EVIL}/token` } });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "mint")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "mint")!.detail).toContain(EVIL);
+    expect(seen.some((s) => s.url.startsWith(EVIL))).toBe(false);
+    expect(r.ok).toBe(false);
+  });
+
+  it("never follows a /mcp redirect with the bearer", async () => {
+    const { fetchFn, seen } = fakeServer({ redirects: { "/mcp": `${EVIL}/mcp` } });
+    const r = await runRemoteDoctor(BASE, tokenCreds, {}, fetchFn);
+    expect(statusOf(r, "initialize")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "initialize")!.detail).toContain(EVIL);
+    expect(seen.some((s) => s.url.startsWith(EVIL))).toBe(false);
+  });
+
+  it("fails the health check on a redirect", async () => {
+    const { fetchFn, seen } = fakeServer({ redirects: { "/health": `${EVIL}/health` } });
+    const r = await runRemoteDoctor(BASE, tokenCreds, {}, fetchFn);
+    expect(statusOf(r, "health")).toBe("fail");
+    expect(seen.some((s) => s.url.startsWith(EVIL))).toBe(false);
   });
 });
 

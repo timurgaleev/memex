@@ -8,6 +8,7 @@
  * load balancer), not what the host sees on loopback.
  */
 import { lstatSync, readFileSync } from "node:fs";
+import { NO_SOURCE_SENTINEL } from "../core/auth-info.ts";
 import { parseMcpBody } from "./auth.ts";
 
 export type DoctorCredentials =
@@ -19,7 +20,12 @@ export interface DoctorOptions {
   expectVersion?: string;
   /** whoami must report this write source and include it in read_sources. */
   expectSource?: string;
-  /** whoami must report read_sources null (whole-brain operator). */
+  /**
+   * whoami must report a trusted (non-public, unredacted) caller whose reads
+   * cover the operator's own brain: read_sources null (trusted-local) or a
+   * grant that includes `default`, where every PAT and OAuth client without
+   * an explicit grant lands.
+   */
   expectOperator?: boolean;
 }
 
@@ -36,6 +42,8 @@ export interface DoctorWhoami {
   scopes: string[];
   write_source: string | null;
   read_sources: string[] | null;
+  /** null when the server did not report it — treated as untrusted. */
+  is_public: boolean | null;
 }
 
 export interface DoctorResult {
@@ -142,6 +150,45 @@ function sameOrigin(url: string, origin: string): boolean {
   }
 }
 
+/** The operator's own source; see `parseLegacyTokenScope` in the provider. */
+const OPERATOR_SOURCE = "default";
+
+/**
+ * Redirects are never followed. A 307/308 re-sends the body — the client
+ * secret in client_secret_post mode — and whether the bearer header survives a
+ * cross-origin hop is up to the runtime, so any 3xx is a failure that names
+ * where it pointed.
+ */
+function redirectProblem(res: Response, requestUrl: string, redact: (s: string) => string): string | null {
+  if (res.type !== "opaqueredirect" && (res.status < 300 || res.status > 399)) return null;
+  const loc = res.headers.get("Location");
+  let target = "(no Location)";
+  if (loc !== null) {
+    try {
+      target = new URL(loc, requestUrl).origin;
+    } catch {
+      target = "(unparseable Location)";
+    }
+  }
+  return `HTTP ${res.status} redirect to ${redact(target)} — not followed`;
+}
+
+export function evaluateOperatorScope(w: DoctorWhoami): string | null {
+  if (w.is_public !== false) {
+    return w.is_public === true
+      ? "is_public is true (the static public bearer: redacted bodies, restricted tools)"
+      : "whoami did not report is_public";
+  }
+  if (w.read_sources === null) return null;
+  if (w.read_sources.length === 0 || w.read_sources.every((s) => s === NO_SOURCE_SENTINEL)) {
+    return "no read grant (fail-closed)";
+  }
+  if (!w.read_sources.includes(OPERATOR_SOURCE)) {
+    return `read grant does not cover '${OPERATOR_SOURCE}'`;
+  }
+  return null;
+}
+
 interface RpcReply {
   ok: boolean;
   detail: string;
@@ -195,10 +242,14 @@ export async function runRemoteDoctor(
   };
 
   const getJson = async (path: string): Promise<{ status: number; body: unknown; text: string }> => {
-    const res = await fetchFn(`${origin}${path}`, {
+    const url = `${origin}${path}`;
+    const res = await fetchFn(url, {
       method: "GET",
       headers: { Accept: "application/json" },
+      redirect: "manual",
     });
+    const redirected = redirectProblem(res, url, redact);
+    if (redirected !== null) throw new Error(`${path}: ${redirected}`);
     const text = await res.text();
     let body: unknown = null;
     try {
@@ -299,7 +350,17 @@ export async function runRemoteDoctor(
       form.set("client_secret", creds.clientSecret);
     }
     try {
-      const res = await fetchFn(tokenEndpoint, { method: "POST", headers, body: form.toString() });
+      const res = await fetchFn(tokenEndpoint, {
+        method: "POST",
+        headers,
+        body: form.toString(),
+        redirect: "manual",
+      });
+      const redirected = redirectProblem(res, tokenEndpoint, redact);
+      if (redirected !== null) {
+        record("mint", "fail", redirected);
+        return finish();
+      }
       const text = await res.text();
       if (res.status !== 200) {
         record("mint", "fail", `HTTP ${res.status}: ${redact(text)}`);
@@ -344,7 +405,10 @@ export async function runRemoteDoctor(
           Authorization: `Bearer ${bearer}`,
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+        redirect: "manual",
       });
+      const redirected = redirectProblem(res, `${origin}/mcp`, redact);
+      if (redirected !== null) return { ok: false, detail: redirected };
       const text = await res.text();
       if (!res.ok) return { ok: false, detail: `HTTP ${res.status}: ${redact(text)}` };
       const msg = parseMcpBody(text) as { result?: unknown; error?: { message?: unknown } } | null;
@@ -412,6 +476,7 @@ export async function runRemoteDoctor(
       read_sources: Array.isArray(w.read_sources)
         ? w.read_sources.filter((s): s is string => typeof s === "string")
         : null,
+      is_public: typeof w.is_public === "boolean" ? w.is_public : null,
     };
   } catch {
     record("whoami", "fail", `whoami payload is not JSON: ${redact(text)}`);
@@ -422,14 +487,17 @@ export async function runRemoteDoctor(
   // (5) scope — what this credential can actually reach.
   const reads = whoami.read_sources === null ? "null (whole brain)" : `[${whoami.read_sources.join(",")}]`;
   const summary =
-    `scopes ${whoami.scopes.join(",") || "(none)"}, write_source ${whoami.write_source ?? "null"}, read_sources ${reads}`;
+    `scopes ${whoami.scopes.join(",") || "(none)"}, write_source ${whoami.write_source ?? "null"}, ` +
+    `read_sources ${reads}, is_public ${whoami.is_public ?? "(missing)"}`;
   if (opts.expectSource !== undefined) {
     const src = opts.expectSource;
-    const good = whoami.write_source === src && whoami.read_sources !== null && whoami.read_sources.includes(src);
+    const good = whoami.is_public === false && whoami.write_source === src &&
+      whoami.read_sources !== null && whoami.read_sources.includes(src);
     record("scope", good ? "ok" : "fail", good ? summary : `expected source ${src}; got ${summary}`);
   } else if (opts.expectOperator === true) {
-    const good = whoami.read_sources === null;
-    record("scope", good ? "ok" : "fail", good ? summary : `expected operator; got ${summary}`);
+    const problem = evaluateOperatorScope(whoami);
+    record("scope", problem === null ? "ok" : "fail",
+      problem === null ? summary : `expected operator: ${problem}; got ${summary}`);
   } else {
     record("scope", "ok", summary);
   }
