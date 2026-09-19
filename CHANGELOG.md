@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+- **A rewritten README** with a hero image, a scannable feature table, a
+  "when memex is not the right fit" list, an illustrated how-it-works section,
+  a numbered quickstart, a credential table and a security summary; every
+  claim in it was checked against the code. New images live in
+  `docs/assets/` (hero, how-it-works, feature tiles and a refreshed social
+  preview card).
+- **docs/ brought up to date:** CONFIGURATION.md lists the secret-scan,
+  content-sanity, spend and per-feature model knobs; the public-bearer tool
+  list is corrected; the vault reindex command now passes `--vault /memory`,
+  without which it fails inside the container.
+
 ### Security
 - **Credential redaction reaches every direct write.** Facts (text and
   context), timeline events, hot memory, chronicle event projections, a

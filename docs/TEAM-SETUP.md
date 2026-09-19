@@ -53,7 +53,7 @@ memex auth register-client team-connector \
   --tenant-mode enrollment \
   --scopes 'read write' --source default \
   --redirect-uris 'https://<chat-host>/api/mcp/auth_callback,https://<alt-host>/api/mcp/auth_callback'
-memex auth set-budget <client_id> 2.00
+memex auth set-budget <client_id|token_name|enrollment_id> 2.00
 ```
 
 Prints the client ID and secret **once**. Register every callback origin the
@@ -151,7 +151,7 @@ memex auth enrollments                   # id, label, source, expiry, used/revok
 memex auth revoke-enrollment <id>        # kill one that leaked before it was used
 memex auth enroll alice --label alice --client <client_id> --ttl 30d   # re-issue
 memex auth list-clients                  # who exists, in which mode, on which source
-memex auth set-budget <client_id> 2.00   # daily USD ceiling; 'none' removes it
+memex auth set-budget <client_id|token_name|enrollment_id> 2.00   # daily USD ceiling; 'none' removes it
 memex auth revoke-client <client_id>     # cut a connector off entirely
 ```
 
@@ -162,10 +162,13 @@ credential, so cleaning up is deliberate work, not one command. Removing access
 without touching data means revoking the client they authorised through, which
 on a shared connector cuts everybody off: there is no per-person revoke yet, so
 rotating the connector (re-register, re-issue codes) is today's answer.
+`memex auth revoke-enrollment` only invalidates a code that has not been
+redeemed.
 
-**Budgets are per client.** Everyone on one team connector shares one
-`budget_usd_per_day`. Size it for the group, not per head; per-grant budgets are
-not implemented (see `TODO.md`).
+**Budgets are per person.** A token redeemed from an enrollment code spends
+under that enrollment; `memex auth set-budget <enrollment_id> <usd>` caps one
+person. Without such a cap, the connector's `budget_usd_per_day` applies to each
+person separately.
 
 **Check who landed where.** Have the person run the `whoami` tool from their
 client: it returns the write source and read set their token actually carries —

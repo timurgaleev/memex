@@ -43,8 +43,10 @@ echo 'MEMEX_DREAM_SYNTHESIS=1' >> /opt/memex/.env
 #    and commit/deploy that change first.
 grep MEMEX_DREAM_SYNTHESIS deploy/docker-compose.yml
 
-# 3. Recompose only the memex service so it picks up the new env.
-docker compose --env-file .env -f deploy/docker-compose.yml up -d memex
+# 3. Rebuild and restart memex so it picks up the new env.
+bash deploy/deploy.sh
+#    Other services: docker compose --env-file .env up -d --build <service>
+#    (never add -f: it overrides COMPOSE_FILE in .env and drops the ingress overlay)
 
 # 4. Verify the process actually sees it, and the brain is healthy.
 docker exec deploy-memex-1 sh -c 'echo "$MEMEX_DREAM_SYNTHESIS"'
@@ -73,7 +75,7 @@ allowlist) and recomposing.
 
 | Tier | What you get | Flags | ~Cost/mo* |
 |------|--------------|-------|-----------|
-| **Free — Retrieval** (default) | Hybrid search + graph + code intel. No LLM calls beyond embeddings. | *(none)* | infra only (~$52) |
+| **Free — Retrieval** (runtime default) | Hybrid search + graph + code intel. No LLM calls beyond embeddings. | *(none)* | infra only (~$52) |
 | **Balanced — Haiku** *(best value)* | + Haiku two-pass rerank on every search, nightly note synthesis, per-source health, tenant fail-closed. Sharper ranking + a self-thinking brain, cheaply. | `MEMEX_RERANK` `MEMEX_DREAM_SYNTHESIS` `MEMEX_DOCTOR_PER_SOURCE` `MEMEX_TENANT_FAIL_CLOSED` | +$5–15 |
 | **Max quality — Sonnet** *(recommended for best results)* | Everything. Sonnet graph-aware rerank on every search, relational reasoning, `think`, scheduled deep-synth, take-ensemble grading, conversation→facts, per-chunk LLM contextual embeddings. The full-fat brain. | all of the above **plus** `MEMEX_GRAPH_RERANK` `MEMEX_RELATIONAL_LLM` `MEMEX_THINK` `MEMEX_DEEP_SYNTH` `MEMEX_TAKE_ENSEMBLE` `MEMEX_FACTS_EXTRACTION` `MEMEX_CONTEXTUAL_LLM` | +$25–390 |
 
@@ -85,6 +87,10 @@ cost, run the **Balanced** tier's `MEMEX_RERANK` (Haiku, ~$1–3/mo) in place of
 `MEMEX_GRAPH_RERANK` — near-identical ranking quality at a fraction of the cost.
 Every paid Sonnet slice is independently bounded by a `*_BUDGET_USD` cap
 (default `1.0`), so no single call or run can run away.
+
+The Free tier is what the code does with no flags set; `scripts/init.sh`
+proposes Max by default. Set `MEMEX_INIT_TIER=free|balanced|max` to pick
+non-interactively.
 
 ---
 
@@ -161,7 +167,17 @@ you opt in.
 | `MEMEX_TAKE_EMBED` | off (`=1` on) | Embed each synthesized take so takes are semantically searchable; off leaves the take's embedding column NULL. | cheap (embed) |
 | `MEMEX_DREAM_INTERVAL_S` | `21600` (6h) | Maintenance-cycle interval. | free |
 | `MEMEX_DREAM_STALE_DAYS` | `30` | Re-embed docs older than this many days during the cycle. | free |
-| `MEMEX_UTILITY_MODEL` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | Overrides the Haiku utility-tier model id (intent classification, query expansion, synthesis). | cheap (Haiku) |
+| `MEMEX_UTILITY_MODEL` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | Overrides the Haiku utility-tier model id (intent classification, query expansion, rerank, synthesis, contextual blurbs). **Code-only:** `deploy/docker-compose.yml` does not pass it through, so it has no effect on the deployed stack unless you add it to the compose allowlist. Use the per-feature keys below to move one call site. | cheap (Haiku) |
+| `MEMEX_INTENT_LLM` | off (`=1` on) | Paid Haiku tie-break for queries the regex intent taxonomy cannot place. Off, intent classification makes no model call. Code-only. | cheap (Haiku) |
+| `MEMEX_QUERY_EXPANSION` | off (`=1` on) | LLM query expansion: Haiku generates query variants for extra keyword passes. Off in the default search mode. Code-only. | cheap (Haiku) |
+| `MEMEX_EXPANSION_MODEL` | utility model | Model id for query expansion only. Allowlisted. | cheap (Haiku) |
+| `MEMEX_INTENT_MODEL` | utility model | Model id for the `MEMEX_INTENT_LLM` tie-break only. Allowlisted. | cheap (Haiku) |
+| `MEMEX_RERANK_MODEL` | utility model | Model id for the `MEMEX_RERANK` two-pass rerank only. Allowlisted. | cheap (Haiku) |
+| `MEMEX_CONCEPTS_MODEL` | utility model | Model id for concept synthesis only; `MEMEX_CONCEPTS_BUDGET_USD` prices the same model. Allowlisted. | cheap (Haiku) |
+
+Model ids resolve in `core/llm/resolve-model.ts`, in this order: the feature's
+own key (`MEMEX_<FEATURE>_MODEL`), then the tier key (`MEMEX_UTILITY_MODEL` or
+`MEMEX_FACTS_MODEL`), then the built-in default. An empty value falls through.
 
 ---
 
@@ -190,6 +206,9 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_FACTS_EXTRACTION` | off | Conversation → structured facts extraction via Sonnet. | **paid (Sonnet)** |
 | `MEMEX_FACTS_BUDGET_USD` | `1.0` | USD ceiling for facts extraction. | — |
 | `MEMEX_FACTS_MODEL` | `eu.anthropic.claude-sonnet-4-6` | Overrides the paid-tier Sonnet model id for the slices above. | **paid (Sonnet)** |
+| `MEMEX_THINK_MODEL` | `MEMEX_FACTS_MODEL` | Model id for `think` only. Allowlisted. | **paid (Sonnet)** |
+| `MEMEX_DRIFT_MODEL` | `MEMEX_FACTS_MODEL` | Model id for the drift judge only (the cycle phase that checks whether a take's evidence still holds). Allowlisted. | **paid (Sonnet)** |
+| `MEMEX_DEEP_MODEL` | unset (falls back to Sonnet) | Opt-in deeper model for scheduled deep-synth. Unset, deep-synth runs on the `MEMEX_FACTS_MODEL` model. Code-only. | **paid** |
 | `MEMEX_CONCEPTS_BUDGET_USD` | `0.5` | USD ceiling for one `synthesize_concepts` run. Unlike the caps above this one is ALWAYS on — `maxConcepts` bounds the call count, not the spend, and the cycle passes no tracker of its own. Concepts refused by the ceiling keep their deterministic narrative. | — |
 | `MEMEX_REFLECTIONS` | off | `reflections` cycle phase: one budget-capped Sonnet pass over recent un-reflected transcripts writes cited `reflections/<topic-slug>` pages, giving the `patterns` phase a source to mine. Runs before `patterns`. | **paid (Sonnet)** |
 | `MEMEX_REFLECTIONS_BUDGET_USD` | `1.0` | USD ceiling for the reflections pass. | — |
@@ -345,8 +364,14 @@ memex auth register-client alice-laptop \
   --scopes 'read write' --source alice --federated-read alice
 
 # 3. Optional daily ceiling, in USD, enforced across every paid op.
-memex auth set-budget <client_id> 2.00
+memex auth set-budget <client_id|token_name|enrollment_id> 2.00   # 'none' removes it
 ```
+
+A cap can sit on an OAuth client, a personal access token (by name) or an
+enrollment. To see where the money went, run `memex spend [--days N]` (default
+7) or call `GET /admin/api/spend/report?days=N`: spend by model, feature and
+spender (OAuth clients, personal access tokens, enrolled people), plus the
+unpriced models and the calls that failed before the provider reported usage.
 
 Print the client's own view any time with the `whoami` tool: it returns the
 `write_source` and the `read_sources` the token actually carries.
@@ -403,8 +428,10 @@ right shape when each person has her own individual Pro/Max account and adds
 her own connector: the tenant then comes from the client row, so
 `claude-alice` → source `alice` with no code to enter.
 
-**Budgets are per client**, so everyone on one team connector shares one
-`budget_usd_per_day`. Per-grant budgets are not implemented.
+**Budgets are per person on a team connector.** A token redeemed from an
+enrollment code spends under that enrollment, and
+`memex auth set-budget <enrollment_id> <usd>` caps one person. Without such a
+cap, the connector's `budget_usd_per_day` applies to each person separately.
 
 **`MEMEX_OAUTH_REQUIRE_LOGIN` must be OFF for this.** The flag makes
 `GET /authorize` bounce an unauthenticated browser to `/admin/login`, and that
@@ -474,10 +501,13 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMEX_MAX_BODY_BYTES` | `1048576` (1 MiB) | HTTP request-body size cap; over-cap requests get 413. | free |
 | `MEMEX_NO_SANITY` | off (`=1` on) | Kill switch for the content-sanity ingest gate. Set truthy to skip junk/oversize/markup assessment entirely. The gate runs unless this is set. | free |
 | `MEMEX_SANITY_DISPOSITION` | `quarantine` | How a junk-flagged doc is handled: default quarantines + stamps `content_flag` (still stored, embed-skipped); `reject` hard-rejects it at ingest. | free |
+| `MEMEX_CONTENT_SANITY_DISABLE` | empty | CSV of content-sanity pattern names to switch off (e.g. `access_denied,operator_literal_2`), so one pattern that keeps hiding legitimate pages can be silenced without dropping the whole gate. Unknown names are ignored. Each quarantine trip writes an audit row naming the patterns that fired, and `memex doctor` warns with the count of quarantined pages and the top patterns; disable the culprit, then `memex quarantine clear`. Allowlisted. | free |
 | `MEMEX_SANITY_LITERALS_FILE` | unset | Path to an operator literals file (one case-insensitive literal per line, blanks/`#` ignored) so site-specific boilerplate the built-in patterns miss is quarantined. Fail-open. | free |
 | `MEMEX_PAGE_WARN_BYTES` | `50000` | Byte size above which a page crosses into the markup prose-check window. | free |
 | `MEMEX_PAGE_BLOCK_BYTES` | `500000` | Byte size above which an oversize page is soft-blocked (no junk match required). | free |
 | `MEMEX_MAX_MARKUP_RATIO` | `0.85` | Markup-to-prose ratio above which a page is flagged `markup_heavy` (flagged, not hidden). | free |
+| `MEMEX_SECRET_SCAN_DISPOSITION` | `redact` | What happens to a credential found in content being stored — `page_put` / `page_append`, indexed files, facts, timeline entries, hot memory, chronicle entries, `put_raw_data`, `/ingest` and `capture`. `redact` (default) replaces each with `[REDACTED:<kind>:<fingerprint>]` before storage or embedding; `flag` stores it unchanged but still records the finding; `reject` refuses the write. Findings are recorded in the ingest log by kind and a 12-hex SHA-256 fingerprint only, never the value. Allowlisted. | free |
+| `MEMEX_SECRET_SCAN_ALLOW` | empty | CSV of 12-hex fingerprints (as printed in a redaction marker) to leave in place — for a string that matches a credential pattern but is not one. Allowlisted. | free |
 | `MEMEX_MIGRATION_LOCK_TIMEOUT` | `10s` | Per-migration advisory-lock timeout (e.g. `10s`, `500ms`, `5min`). Fail-loud on a malformed value. | free |
 | `MEMEX_LOCK_STEAL_GRACE_SECONDS` | `600` | Grace before a stale cycle-lock holder can be taken over. Auto-derived from TTL when unset. | free |
 | `MEMEX_EXTRACT_STALE_BATCH` | `50` | Batch size for the stale-links re-extract sweep. | free |
@@ -526,7 +556,7 @@ schema in `terraform/variables.tf`.
 | `availability_zone` | `eu-west-1b` | AZ for the primary subnet. |
 | `multi_az_subnet_cidrs` | `{eu-west-1a=10.0.2.0/24, eu-west-1c=10.0.3.0/24}` | Extra subnets to satisfy the RDS multi-AZ subnet group. |
 | `bedrock_allowed_regions` | EU family + `us-east-1` | Regions where the instance role may invoke the expensive Claude models; an IAM Deny blocks `anthropic.claude-*` elsewhere. |
-| `bedrock_model_id` | `global.amazon.nova-2-lite-v1:0` | Bedrock CRIS inference-profile id for the primary model, validated against an allowed list. The **runtime** utility tier is set separately via `MEMEX_UTILITY_MODEL` (Claude Haiku); this terraform var governs IAM/output scope. |
+| `bedrock_model_id` | `global.amazon.nova-2-lite-v1:0` | Bedrock CRIS inference-profile id for the primary model, validated against an allowed list. The **runtime** utility tier is the built-in Claude Haiku default (overridable per feature with the `MEMEX_<FEATURE>_MODEL` keys, or with the code-only `MEMEX_UTILITY_MODEL`); this terraform var governs IAM/output scope. |
 | `alarm_email` | `""` | Email for the EC2 status-check CloudWatch alarm. Empty skips email (alarm still fires). |
 | `ssh_allowed_cidr` | `""` | CIDR allowed inbound SSH. Empty disables SSH — use SSM Session Manager. |
 | `enable_vpc_endpoints` | `false` | Enable interface VPC endpoints (Bedrock, SM, SSM, Logs). ~$43/mo — off for personal use. |
@@ -535,6 +565,6 @@ schema in `terraform/variables.tf`.
 
 > The `bedrock_model_id` default still names Nova at the terraform/IAM layer, but
 > the **retrieval brain calls only Anthropic models via Bedrock at runtime** —
-> Claude Haiku for the utility tier (`MEMEX_UTILITY_MODEL`) and Claude Sonnet for
-> the paid slices (`MEMEX_FACTS_MODEL`). Amazon Nova was removed from the request
-> path.
+> Claude Haiku for the utility tier (built-in default; `MEMEX_UTILITY_MODEL` is
+> code-only, not in the compose allowlist) and Claude Sonnet for the paid slices
+> (`MEMEX_FACTS_MODEL`). Amazon Nova was removed from the request path.

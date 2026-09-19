@@ -263,13 +263,17 @@ The container mounts your content read-only at `/memory`
 (`MEMEX_VAULT_PATHS`) and the code checkout at `/repo-source`
 (`MEMEX_CODE_PATHS`). Content written through MCP (`page_put`, `add_fact`, …)
 is indexed immediately. Markdown *files* dropped into the EFS
-`workspace/memory` tree are indexed explicitly, one file per call (there is
+`workspace/memory` tree are indexed with one directory-level command (there is
 no `memex` alias inside the container — go through the CLI entry point):
 
 ```bash
-docker exec deploy-memex-1 sh -c \
-  'for f in /memory/**/*.md; do bun run src/cli.ts index "$f"; done'
+docker exec deploy-memex-1 bun run src/cli.ts reindex --source vault --vault /memory
 ```
+
+It is incremental (unchanged files are skipped); add `--all` to force a full
+pass and `--reconcile-deletes` to drop pages whose files were removed. Code
+roots (`MEMEX_CODE_PATHS`) are swept at serve boot; `reindex --source code`
+re-sweeps them after a `git pull`.
 
 The 6-hour maintenance cycle maintains the existing corpus (re-embeds stale
 documents, housekeeping) — it does **not** ingest new files on its own in
@@ -304,11 +308,17 @@ claude mcp add --transport http memex https://<subdomain>.example.com/mcp \
 ```
 
 Restart Claude Code. The read tools appear under `memex.*` (`search`,
-`backlinks`, `stats`, `page_{get,list,versions}`, `graph_{neighbors,query}`,
-`entity_{facts,timeline,recall}`, `jobs_{list,get,logs}`). Write tools are
-filtered from the public surface unless `MEMEX_PUBLIC_WRITE=1`. The bearer
-rotates daily — re-fetch (step 4) and update the header when a call starts
-returning 401.
+`backlinks`, `page_{get,list,versions}`, `graph_{neighbors,query}`,
+`traverse_graph`, `entity_{facts,timeline,recall}`, `source_health`,
+`whoami`). Write tools are filtered from the public surface unless
+`MEMEX_PUBLIC_WRITE=1`. The static public bearer is also denied `query`,
+`think`, every `code_*` tool, `volunteer_context`, the `find_*` analytics, the
+takes/calibration tools, `recall`, `get_chunks`, `get_tags`,
+`relational_recall`, `stats`, the `jobs_*` tools and more
+(`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in `http/public_guard.ts`); use a personal
+access token (`memex auth create <name>`) or an OAuth client for those. The
+bearer is static unless you install the optional `memex-rotate-bearer` timer
+(section 5).
 
 ---
 
@@ -323,7 +333,7 @@ curl -s https://<subdomain>.example.com/mcp \
   -H "Authorization: Bearer <token-from-step-4>" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
-       "params":{"name":"search","arguments":{"query":"hello","limit":3}}}'
+       "params":{"name":"search","arguments":{"q":"hello","k":3}}}'
 ```
 
 On the host you can also check container health directly:
@@ -341,11 +351,16 @@ instance:
 
 ```bash
 cd /opt/memex
-git fetch origin && git reset --hard origin/main
-docker compose --env-file .env -f deploy/docker-compose.yml up -d --build memex
+git pull --ff-only
+bash deploy/deploy.sh      # stamps the image with git describe, waits for healthy
 docker inspect deploy-memex-1 --format '{{.State.Health.Status}}'
-curl -s http://127.0.0.1:18790/health    # {"ok":true,...}
+curl -s http://127.0.0.1:18790/health    # {"ok":true,...,"version":"<new stamp>"}
 ```
+
+Check that `version` in `/health` matches the stamp `deploy.sh` just built. For
+a service other than memex: `docker compose --env-file .env up -d --build
+<service>` (no `-f`: it would override the `COMPOSE_FILE` line in `.env` and
+drop the Caddy overlay).
 
 Rebuild only the service(s) that changed. Infrastructure changes go through
 `terraform plan` / `apply` against the S3 state — never mutate a

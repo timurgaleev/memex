@@ -29,11 +29,12 @@ over MCP (mail, calendar, arbitrary documents). For each document it:
 When your MCP client searches, memex runs a hybrid pipeline
 (`core/search/hybrid.ts`):
 
-1. **Classify intent** — Claude Haiku works out what kind of question it is.
+1. **Classify intent** — a zero-LLM regex taxonomy works out what kind of
+   question it is (Claude Haiku only with `MEMEX_INTENT_LLM=1`).
 2. **Retrieve in parallel** — embed the query and search by *meaning* (vector) +
    search by *words* (keyword), at the same time.
-3. **Expand the query** — Haiku adds synonyms / related terms for extra keyword
-   passes.
+3. **Expand the query** (opt-in, `MEMEX_QUERY_EXPANSION=1`) — Haiku adds
+   synonyms / related terms for extra keyword passes.
 4. **Fuse** the result lists (Reciprocal Rank Fusion).
 5. **Hydrate** the top hits with their parent document + source type.
 6. **Source-boost** and 7. **de-duplicate**.
@@ -41,8 +42,9 @@ When your MCP client searches, memex runs a hybrid pipeline
    graph-aware Sonnet rerank, reorders the best hits.
 9. **Trim** to the top *k* and return them **with citations**.
 
-The important part: steps 1, 3, and 8 use an LLM **internally** — not to *write
-an answer*, but to make *retrieval sharper*.
+A default search makes one Titan embed call and no Claude call. Intent by
+LLM, query expansion and the Haiku rerank (`MEMEX_RERANK=1`) are opt-in; when
+on, they sharpen retrieval, they never write the answer.
 
 One optional shortcut sits in front of all of this: a **semantic query cache**
 (off by default). Ask the same thing a second time — or a close paraphrase — and
@@ -57,7 +59,7 @@ Three cost layers, from pennies to real money:
 | Layer | What it does | When it spends | Cost |
 |-------|--------------|----------------|------|
 | **Titan embeddings** | chunk fingerprints | on indexing + one query vector per search | pennies (~$0.026 / 1M tokens) |
-| **Claude Haiku** (utility) | understand + expand the query, nightly synthesis, contextual embedding wrapper | most searches + nightly | cheap (~$1–15/mo) |
+| **Claude Haiku** (utility) | query intent / expansion / rerank only when `MEMEX_INTENT_LLM` / `MEMEX_QUERY_EXPANSION` / `MEMEX_RERANK` are on (the Balanced and Max tiers written by `scripts/init.sh` turn `MEMEX_RERANK` on); nightly synthesis; contextual embedding wrapper | only when those flags are on | cheap (~$1–15/mo) |
 | **Claude Sonnet** (paid slices) | graph-aware rerank, relational reasoning, `think`, deep-synth, take grading | **only when a flag is set** | pay-per-call — the cost swing |
 
 The dominant variable cost is **`MEMEX_GRAPH_RERANK`** — a paid Sonnet call on
@@ -155,7 +157,26 @@ not the whole document, and it won't turn its own reflections and patterns back
 into raw input for another pass. No cron babysitting — the brain keeps itself
 current.
 
-And it checks its own work. A nightly **eval probe** runs a fixed set of
-questions against the brain and records how good the retrieval was, so quality
-drift shows up as a trend you can read (`memex doctor`) rather than a surprise. It
-runs under a spend ceiling, so the self-check can't run up a bill.
+And it can check its own work. An opt-in nightly **eval probe** (runs only
+after you install and enable `memex-eval-probe.timer` from `deploy/systemd`)
+runs a fixed set of questions against the brain and records how good the
+retrieval was, so quality drift shows up as a trend you can read
+(`memex doctor`) rather than a surprise. It runs under a spend ceiling, so the
+self-check can't run up a bill.
+
+## 8. The tools
+
+memex exposes 91 MCP tools (`deploy/memex/src/mcp/operations.ts`). The static
+public bearer sees only a read subset; a personal access token or an OAuth
+client sees what its scopes allow.
+
+| Group | Tools |
+|-------|-------|
+| **Search & pages** | `search`, `query`, `think`, `recall`, `volunteer_context`, `advisor`, `index`, `get_chunks`, `resolve_slugs`, `page_put`, `page_append`, `page_get`, `page_list`, `page_versions`, `page_revert`, `page_delete`, `page_restore`, `purge_deleted_pages`, `add_tag`, `remove_tag`, `get_tags`, `put_raw_data`, `get_raw_data`, `get_recent_transcripts` |
+| **Code** | `code_def`, `code_refs`, `code_callers`, `code_callees`, `code_blast`, `code_flow` |
+| **Facts, timeline & chronicle** | `add_fact`, `forget_fact`, `extract_facts`, `fact_supersessions`, `add_timeline_event`, `chronicle_day`, `chronicle_since`, `chronicle_on_this_day`, `chronicle_last_seen`, `chronicle_backfill`, `volunteer_chronicle`, `ontology_get`, `ontology_propose`, `ontology_dimensions`, `ontology_conflicts` |
+| **Graph & entities** | `backlinks`, `link`, `unlink`, `get_links`, `list_link_sources`, `graph_neighbors`, `graph_query`, `traverse_graph`, `relational_recall`, `entity_facts`, `entity_timeline`, `entity_recall`, `find_orphans`, `find_experts`, `find_contradictions`, `find_trajectory`, `find_anomalies`, `get_recent_salience`, `list_concepts` |
+| **Takes** | `list_takes`, `takes_search`, `set_take_status`, `takes_scorecard`, `takes_calibration`, `get_calibration_profile` |
+| **Jobs** | `jobs_submit`, `jobs_cancel`, `jobs_list`, `jobs_get`, `jobs_logs`, `retry_job`, `get_job_progress` |
+| **Skills** | `list_skills`, `get_skill`, `list_brain_skillpack` |
+| **Admin & diagnostics** | `stats`, `whoami`, `get_brain_identity`, `get_status_snapshot`, `run_doctor`, `source_health`, `sources_list`, `sources_status`, `log_friction`, `log_ingest`, `get_ingest_log` |

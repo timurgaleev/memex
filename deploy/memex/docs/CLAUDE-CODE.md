@@ -11,9 +11,9 @@ doc covers the public-internet route — Cloudflare Tunnel at
 |---|---|---|
 | `search` | Hybrid retrieve (vector + keyword + RRF) | open |
 | `backlinks` | Documents that mention an entity | open |
-| `stats` | Counts of documents / chunks / embeddings | open |
+| `stats` | Counts of documents / chunks / embeddings | internal only |
 | `index` | Index a markdown document | gated by `MEMEX_PUBLIC_WRITE` |
-| `log_friction` | Record a friction event | gated by `MEMEX_PUBLIC_WRITE` |
+| `log_friction` | Record a friction event | internal only |
 
 The mutating tools are `403`-blocked at the public guard layer
 (`src/http/public_guard.ts`) until `MEMEX_PUBLIC_WRITE=1` is set on
@@ -110,10 +110,17 @@ add the MCP server. Claude Code reads on next restart.
 ```
 
 After restart, Claude Code surfaces the memex read tools under
-`memex.*` (`search`, `backlinks`, `stats`, `page_{get,list,versions}`,
-`graph_{neighbors,query}`, `entity_{facts,timeline,recall}`,
-`jobs_{list,get,logs}`). Write tools are filtered from the public
-surface unless `MEMEX_PUBLIC_WRITE=1`.
+`memex.*` (`search`, `backlinks`, `page_{get,list,versions}`,
+`graph_{neighbors,query}`, `traverse_graph`,
+`entity_{facts,timeline,recall}`, `source_health`, `whoami`). Write
+tools are filtered from the public surface unless
+`MEMEX_PUBLIC_WRITE=1`.
+
+The static public bearer cannot call `query`, `think`, the `code_*`
+tools, `volunteer_context`, `get_chunks`, `recall`, `stats`, the
+`jobs_*` tools and others (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in
+`src/http/public_guard.ts`). Use a personal access token
+(`memex auth create <name>`) or an OAuth client for those.
 
 ## Day-to-day flow
 
