@@ -1689,9 +1689,9 @@ reason; the allowlist excludes every public-forbidden write tool not explicitly
 listed; `agent logs` renders a transcript; second-opinion and
 `security-engineer` review before any deploy.
 
-**Needs operator go.** Yes. The "Deferred by stack" table below records a
-server-side subagent runtime as not planned; building it needs an explicit
-reversal.
+**Needs operator go.** Given 2026-09-19: the operator approved RM-13 and
+RM-22 and lifted the "Not planned" mark on the server-side runtime. It stays
+opt-in (`MEMEX_AGENT_ENABLED=1`) and spend-capped.
 
 ### RM-14 — Transcript and chat ingestion pipeline
 
@@ -2405,7 +2405,7 @@ boundary; a concurrent submit beyond `bound_max_concurrent` is refused; a child
 exhausting the tree budget halts its siblings; the RM-01 isolation matrix covers
 the new ops.
 
-**Needs operator go.** Yes, the same go as RM-13.
+**Needs operator go.** Given 2026-09-19, together with RM-13.
 
 ### RM-23 — Code intelligence v2
 
@@ -2843,7 +2843,7 @@ Closed operator decisions this roadmap does not re-raise:
    first-party Amazon model — closer to the Titan embeddings allowance than to an
    external reranker. EU-region availability is unverified. If allowed, a rerank
    arm with readiness and fail-open stamps plus autocut becomes a phase of RM-11.
-2. **Agent runtime go/no-go** for RM-13 and RM-22. The ledger ships with no
+2. **Agent runtime go/no-go** for RM-13 and RM-22: **go given 2026-09-19.** The ledger ships with no
    runner (`src/core/subagent_ledger.ts`, migration 021), the `agent` scope is
    unused, `bound_tools`/`bound_max_concurrent` are never read (migration 046),
    and `deploy/skills/minion-orchestrator/SKILL.md:13-15,71` promises subagent
@@ -3472,7 +3472,7 @@ buildable has been shipped (see CHANGELOG).
 | **Autocut** (score-cliff result sizing) | Depends on a real cross-encoder score cliff; RRF has only mechanical decay, no trustworthy separatrix. | Falls out for free once a cross-encoder tier exists (above). Substitute today: intent-capped adaptive-return. |
 | **Image / multimodal + `search_by_image`** | Titan Text Embeddings v2 is text-only (1024-dim); the AWS-only stack has no multimodal embedder wired, and there is no image-asset substrate. | **AWS-buildable** — Titan Multimodal Embeddings G1 (native Bedrock, no rule change) + an image-asset page substrate + an image-embedding column + `search_by_image`. Worth doing IF an image corpus ever exists; no rule reversal needed. |
 | **Anthropic-only constraint itself** | Operator decision (2026-07-01): only Anthropic via Bedrock (Haiku/Sonnet) + Titan embeddings. Any feature needing a non-Anthropic model (external embedder like ZeroEntropy/Voyage, external reranker) is out. | An explicit operator reversal of the Anthropic-only rule. Firm today. |
-| **Minion / server-side subagent runtime** | memex has no multi-agent server runtime by design; it implements minion loops as a SINGLE Sonnet/Haiku call or onto memex's own durable job queue. | Only if a server-side multi-agent runtime is ever wanted (large architectural add). Not planned — the single-call ports cover the capability. |
+| **Minion / server-side subagent runtime** | memex has no multi-agent server runtime by design; it implements minion loops as a SINGLE Sonnet/Haiku call or onto memex's own durable job queue. | Only if a server-side multi-agent runtime is ever wanted (large architectural add). Approved 2026-09-19 as an opt-in, spend-capped runtime (RM-13, RM-22). |
 | **Schema-pack "cathedral"** (9 MCP ops + `schema-suggest` phase: typed-schema authoring, lint, graph, mutations) | A whole typed-schema-authoring subsystem memex deliberately skipped; a personal AWS brain uses a fixed type list, so ~0 payoff for a large surface. | Only if memex ever exposes operator-authored schema packs to multiple tenants. Deferred by scope, not blocked by stack. |
 | **File / S3 / raw-KV substrate + storage tiering** | memex is DB-canonical by design (RDS + EFS) rather than filesystem-first (a local markdown vault). | A decision to add an object-store tier (S3) for large/binary assets. Not needed for the DB-canonical model. |
 | **git-sync / federation / federated reads** | Operator deferred (future, not now) — needs a sync/federation model memex hasn't provisioned. | Explicit go on multi-brain federation. Deferred. |
