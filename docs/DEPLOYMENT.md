@@ -357,7 +357,31 @@ docker inspect deploy-memex-1 --format '{{.State.Health.Status}}'
 curl -s http://127.0.0.1:18790/health    # {"ok":true,...,"version":"<new stamp>"}
 ```
 
-Check that `version` in `/health` matches the stamp `deploy.sh` just built. For
+Check that `version` in `/health` matches the stamp `deploy.sh` just built.
+
+Then check the brain from outside, the way a client reaches it. From a checkout
+on your own machine, with a token in a private file (the command refuses a file
+that group or others can read, a symlink, or a secret passed on the command
+line):
+
+```bash
+umask 077; printf '{"token":"%s"}' "$PAT" > ~/.config/memex/doctor-token.json
+cd deploy/memex
+bun run src/cli.ts auth doctor https://brain.example.com \
+  --token-file ~/.config/memex/doctor-token.json \
+  --expect-operator --expect-version "$(git describe --tags)"
+```
+
+The remote doctor checks `/health` and its build stamp, both OAuth discovery
+documents, a `client_credentials` mint (with `--client-file` holding
+`{client_id, client_secret}`; a token file skips it), MCP `initialize` (its
+`serverInfo.version` must equal the `/health` stamp, which catches a stale
+container still answering), `tools/list`, `whoami`, and the caller's scope
+(`--expect-source ID` for a tenant client, `--expect-operator` for a
+whole-brain token). It exits 0 when every check passes, 1 on any failure and 2
+on a usage error; `--json` prints the full report.
+
+For
 a service other than memex: `docker compose --env-file .env up -d --build
 <service>` (no `-f`: it would override the `COMPOSE_FILE` line in `.env` and
 drop the Caddy overlay).

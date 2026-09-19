@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex auth doctor <base-url>` checks a deployed brain end to end.** It
+  runs from your machine: `/health` and its build stamp
+  (`--expect-version` turns a mismatch into a failure), both OAuth discovery
+  documents (the issuer must be the URL you gave, and the token endpoint must
+  be on the same origin, so a forged document cannot collect your client
+  secret), a `client_credentials` mint, MCP `initialize` (its version must
+  match `/health`, and it must include instructions), `tools/list`, and
+  `whoami`. The last check reports the credential's write and read sources.
+  `--expect-source ID` and `--expect-operator` turn that into pass or fail.
+  A JSON-RPC error returned with HTTP 200 counts as a failure. Credentials come
+  only from a 0600 file (`--client-file` or `--token-file`); group- or
+  world-readable files, symlinks and secrets on the command line are refused,
+  and secrets are redacted from every message. Exit codes: 0 when all checks
+  pass, 1 when any check fails, 2 on a usage error. `--json` prints the full
+  report.
+
 ## [1.150.0] — 2026-09-19
 
 ### Added

@@ -48,12 +48,22 @@
  *              Soft-revoke a personal access token by name.
  *   permissions <name> set-takes-holders a,b
  *              Replace the token's takes-visibility allow-list.
+ *   doctor <base-url> (--client-file F | --token-file F)
+ *          [--expect-source ID | --expect-operator] [--expect-version STAMP] [--json]
+ *              Client-side end-to-end check of a deployed brain (see
+ *              remote-doctor.ts). Credentials come from a 0600 file only.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { OAuthProvider, parseTenantMode } from "../core/oauth-provider.ts";
+import {
+  DoctorUsageError,
+  readCredentialFile,
+  runRemoteDoctor,
+  type DoctorOptions,
+} from "./remote-doctor.ts";
 
 /** Accepted on a token row. Mirrors core/scope.ts; a typo here would otherwise
  *  be written straight to the column and silently deny everything. */
@@ -81,7 +91,8 @@ export type AuthSub =
   | "list"
   | "revoke"
   | "permissions"
-  | "test";
+  | "test"
+  | "doctor";
 
 interface ClientRow {
   client_id: string;
@@ -100,7 +111,7 @@ interface ClientRow {
  * the literal given with `=`), so a bare `--dry-run` is never mistaken for a
  * flag missing its value.
  */
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["dry-run"]);
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["dry-run", "expect-operator", "json"]);
 
 /**
  * Split on the first '=' for `--key=value` (redirect URIs and scope strings
@@ -635,7 +646,7 @@ export interface AuthTestResult {
 }
 
 /** Parse an MCP HTTP response body (plain JSON or SSE `data:` lines). */
-function parseMcpBody(text: string): unknown {
+export function parseMcpBody(text: string): unknown {
   if (text.includes("event:") || text.startsWith("data:")) {
     for (const line of text.split("\n")) {
       if (!line.startsWith("data:")) continue;
@@ -773,6 +784,74 @@ async function testCommand(rest: string[]): Promise<void> {
   );
 }
 
+const DOCTOR_USAGE =
+  "Usage: auth doctor <base-url> (--client-file F | --token-file F)\n" +
+  "                   [--expect-source ID | --expect-operator] [--expect-version STAMP] [--json]";
+
+function doctorUsage(message: string): void {
+  console.error(`auth doctor: ${message}\n${DOCTOR_USAGE}`);
+  process.exitCode = 2;
+}
+
+async function doctorCommand(rest: string[]): Promise<void> {
+  let positional: string[];
+  let flags: Record<string, string>;
+  try {
+    ({ positional, flags } = parseFlags(rest));
+  } catch (e) {
+    return doctorUsage(e instanceof Error ? e.message : String(e));
+  }
+  const baseUrl = positional[0];
+  if (!baseUrl) return doctorUsage("a base URL is required");
+  // A secret on argv lands in shell history and `ps` — only files are accepted.
+  if (flags["token"] !== undefined) {
+    return doctorUsage("refusing a secret on the command line — put it in a 0600 file and pass --token-file");
+  }
+  const clientFile = flags["client-file"];
+  const tokenFile = flags["token-file"];
+  if ((clientFile === undefined) === (tokenFile === undefined)) {
+    return doctorUsage("pass exactly one of --client-file or --token-file");
+  }
+  const expectOperator = flags["expect-operator"] === "true";
+  const expectSource = flags["expect-source"];
+  if (expectOperator && expectSource !== undefined) {
+    return doctorUsage("--expect-source and --expect-operator are mutually exclusive");
+  }
+  const opts: DoctorOptions = { expectOperator };
+  if (expectSource !== undefined) opts.expectSource = expectSource;
+  const expectVersion = flags["expect-version"];
+  if (expectVersion !== undefined) opts.expectVersion = expectVersion;
+
+  let result;
+  try {
+    const path = (clientFile ?? tokenFile)!;
+    const creds = readCredentialFile(path);
+    if (clientFile !== undefined && creds.kind !== "client") {
+      return doctorUsage(`${path} holds a token — pass it with --token-file`);
+    }
+    if (tokenFile !== undefined && creds.kind !== "token") {
+      return doctorUsage(`${path} holds client credentials — pass it with --client-file`);
+    }
+    result = await runRemoteDoctor(baseUrl, creds, opts);
+  } catch (e) {
+    if (e instanceof DoctorUsageError) return doctorUsage(e.message);
+    throw e;
+  }
+
+  if (flags["json"] === "true") {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Checking ${result.baseUrl}...\n`);
+    const marks = { ok: "ok  ", warn: "warn", fail: "FAIL", skipped: "skip" } as const;
+    for (const c of result.checks) {
+      console.log(`  [${marks[c.status]}] ${c.name} — ${c.detail}`);
+    }
+    const secs = (result.elapsedMs / 1000).toFixed(1);
+    console.log(result.ok ? `\nRemote doctor passed in ${secs}s.` : `\nRemote doctor FAILED after ${secs}s.`);
+  }
+  if (!result.ok) process.exitCode = 1;
+}
+
 export async function runAuth(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   // Only rescope-client can preview. Every other subcommand would ignore the
@@ -811,9 +890,11 @@ export async function runAuth(args: string[]): Promise<void> {
       return setPermissions(rest[0]!, rest[1]!, rest[2]);
     case "test":
       return testCommand(rest);
+    case "doctor":
+      return doctorCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|grant-token|create|list|revoke|permissions|test>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|grant-token|create|list|revoke|permissions|test|doctor>",
       );
       process.exitCode = 1;
   }

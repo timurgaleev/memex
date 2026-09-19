@@ -2336,6 +2336,24 @@ wrong source makes it fail and revoke; remote doctor is green against the live
 host in the ship loop; stub skill install reports `identical/differs/missing`
 correctly after a local edit and a server-side change.
 
+**Progress.** Release 1 (unreleased): the remote doctor. `memex auth doctor
+<base-url>` (`src/commands/remote-doctor.ts`) runs /health + stamp drift →
+both discovery documents (issuer = given origin, same-origin token_endpoint,
+client_credentials advertised, protected-resource agrees) → client_credentials
+mint from a 0600 `--client-file` (or `--token-file`, mint skipped) →
+`initialize` (serverInfo.version = /health stamp, instructions present) →
+`tools/list` → `whoami` → scope probe (`--expect-source` / `--expect-operator`).
+HTTP-200 JSON-RPC errors and `isError` fail; exit 0/1/2. Client-side only, no
+server change; documented as a ship verify step in CLAUDE.md and
+DEPLOYMENT.md §10. Still open: running it green against the live host (and
+adding it to `/ship` as an automated gate); `memex connect` / `agent
+provision` (blocked on RM-10 profiles and least-privilege mint; it will call
+`runRemoteDoctor` as its verify step); a tenant-scoped read proof beyond
+whoami and the two-tenant local scenario; instruction blocks; stub skill
+distribution (waits on RM-09); plugin manifests; `mcp-refresh.sh` extension.
+`auth test` still treats an HTTP-200 JSON-RPC error as success — retire it or
+rebuild it on the doctor as a follow-up.
+
 ### RM-22 — Delegated agents for tenants
 
 **Why.** With RM-13 in place, a remote client (a teammate's Claude connector, a

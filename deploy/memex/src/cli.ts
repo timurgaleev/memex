@@ -233,6 +233,9 @@ function printUsage(): void {
   console.log("                               replace the token's takes-visibility allow-list");
   console.log("  auth test <url> --token <token>");
   console.log("                               live MCP smoke: initialize + tools/list + a real stats call");
+  console.log("  auth doctor <base-url> [--client-file F | --token-file F] [--expect-source ID | --expect-operator]");
+  console.log("              [--expect-version STAMP] [--json]");
+  console.log("                               remote doctor: /health stamp, OAuth discovery, mint, MCP, scope probe");
   console.log("  think <question> [--k N] [--budget USD] [--json] [--save] [--take '<claim>']");
   console.log("        [--since D] [--until D] [--anchor a,b] [--rounds N] [--model ID] [--with-calibration]");
   console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1);");

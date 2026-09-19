@@ -122,6 +122,20 @@ tools, `volunteer_context`, `get_chunks`, `recall`, `stats`, the
 `src/http/public_guard.ts`). Use a personal access token
 (`memex auth create <name>`) or an OAuth client for those.
 
+### 5. Check the connection
+
+`memex auth doctor` runs the same path Claude Code takes, from your machine:
+`/health`, OAuth discovery, a token mint, MCP `initialize`, `tools/list` and
+`whoami`, then prints which sources the credential can read. Put the
+credential in a file only you can read (`chmod 600`), either
+`{"token": "..."}` or a client's `{"client_id": "...", "client_secret": "..."}`:
+
+```bash
+bun run src/cli.ts auth doctor https://brain.<your-domain> --token-file ~/.config/memex/doctor-token.json
+```
+
+Add `--expect-source <id>` to confirm a tenant client lands in its source.
+
 ## Day-to-day flow
 
 When the daily rotation fires it swaps the bearer in Secrets Manager

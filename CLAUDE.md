@@ -150,6 +150,8 @@ for this repo:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)
    - `/health` endpoints return `ok:true`
    - For MCP changes: a `tools/call` against `deploy-memex-1` (or `brain.<domain>/mcp` with the bearer) returns real data
+   - From the operator machine: `memex auth doctor https://<host> --token-file <0600 file> --expect-version <stamp> --expect-operator`
+     (run as `bun run src/cli.ts auth doctor ...` in `deploy/memex`) exits 0 — /health stamp, OAuth discovery, MCP and whoami scope in one report
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
    - For terraform / infrastructure changes: the **S3-backed terraform
      state is the single source of truth and the ONLY path to change

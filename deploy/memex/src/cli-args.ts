@@ -40,6 +40,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--dry-run",
   "--execute",
   "--expand",
+  "--expect-operator",
   "--explain",
   "--fix",
   "--force",
@@ -92,10 +93,11 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
-  "--bound-slug-prefixes", "--budget", "--client", "--config-a", "--config-b",
-  "--corpus",
+  "--bound-slug-prefixes", "--budget", "--client", "--client-file", "--config-a",
+  "--config-b", "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
-  "--dir", "--example-limit", "--expected-doc", "--expected-revision", "--family",
+  "--dir", "--example-limit", "--expect-source", "--expect-version",
+  "--expected-doc", "--expected-revision", "--family",
   "--federated-read", "--file", "--format",
   "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
   "--input", "--k", "--keep-days", "--kind", "--label", "--limit", "--max-drop",
@@ -109,7 +111,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
   "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
   "--target", "--tenant-mode", "--threshold", "--title", "--to", "--token",
-  "--token-endpoint-auth-method", "--tool-name", "--top-skills", "--ttl",
+  "--token-endpoint-auth-method", "--token-file", "--tool-name", "--top-skills", "--ttl",
   "--type",
   "--until", "--vault", "--what", "--where", "--who", "--window-turns",
   "--written-by",
@@ -266,10 +268,12 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "auth",
     new Set([
-      "--bound-slug-prefixes", "--client", "--dry-run", "--expected-revision",
-      "--federated-read", "--grant-types", "--label", "--limit",
-      "--redirect-uris", "--scopes", "--source", "--takes-holders",
-      "--tenant-mode", "--token", "--token-endpoint-auth-method", "--ttl",
+      "--bound-slug-prefixes", "--client", "--client-file", "--dry-run",
+      "--expect-operator", "--expect-source", "--expect-version",
+      "--expected-revision", "--federated-read", "--grant-types", "--json",
+      "--label", "--limit", "--redirect-uris", "--scopes", "--source",
+      "--takes-holders", "--tenant-mode", "--token",
+      "--token-endpoint-auth-method", "--token-file", "--ttl",
     ]),
   ],
   [

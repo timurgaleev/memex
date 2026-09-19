@@ -97,6 +97,7 @@ export const CLI_COMMANDS: Readonly<Record<string, CliCommandSpec>> = {
     "revoke",
     "permissions",
     "test",
+    "doctor",
   ),
   // `search <query>` takes free text alongside its named views.
   "search": { subcommands: ["modes", "stats", "tune", "diagnose"], freePositional: true },
