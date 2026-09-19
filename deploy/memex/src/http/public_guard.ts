@@ -162,6 +162,9 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   // volunteer_context surfaces page slugs/titles + synopses (the same
   // author-written identifiers/content the public path suppresses); internal-only.
   "volunteer_context",
+  // context_pack returns entity titles, fact text and timeline events for the
+  // caller's grant — note-derived content the public path never serves.
+  "context_pack",
   // advisor surfaces operational state (pending migrations, job queue, embed
   // coverage, internal-auth config) — private infra, internal-only.
   "advisor",

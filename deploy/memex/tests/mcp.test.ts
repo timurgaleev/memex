@@ -92,6 +92,7 @@ describe("MCP HTTP transport", () => {
       "code_def",
       "code_flow",
       "code_refs",
+      "context_pack",
       "entity_facts",
       "entity_recall",
       "entity_timeline",

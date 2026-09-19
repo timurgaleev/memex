@@ -263,6 +263,10 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("set_take_status")).toBe(true);
   });
 
+  it("blocks context_pack (entity cards + fact text for the caller's grant)", () => {
+    expect(isPublicMcpToolForbidden("context_pack")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
@@ -415,6 +419,27 @@ describe("HTTP server end-to-end with public guard", () => {
       }),
     });
     const body = (await r.json()) as { error?: { code: number; message: string } };
+    expect(body.error?.code).toBe(-32600);
+    expect(body.error?.message).toMatch(/not callable from the public/);
+  });
+
+  it("public MCP tools/call name=context_pack is rejected, not answered with a pack", async () => {
+    const r = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Cf-Connecting-Ip": "1.2.3.4",
+        "Authorization": `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "context_pack", arguments: { token_budget: 800 } },
+      }),
+    });
+    const body = (await r.json()) as { result?: unknown; error?: { code: number; message: string } };
+    expect(body.result).toBeUndefined();
     expect(body.error?.code).toBe(-32600);
     expect(body.error?.message).toMatch(/not callable from the public/);
   });

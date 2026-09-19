@@ -1607,6 +1607,22 @@ expected-miss to hit.
 **Needs operator go.** The reflex arms, if the 2026-07-07 "retrieval-reflex"
 skip was meant to cover resolver arms rather than a host-side recipe.
 
+**Progress.** Slice 1 shipped: the read-only `context_pack` tool
+(`src/core/context/context-pack.ts`). It builds entity cards (title, type, top
+5 facts, 3 recent events, no page body) for up to 8 standing entities, explicit
+`slugs` first and then entities the volunteer resolver finds in `window` at
+its default gate, followed by the top decayed facts across the grant minus the
+card facts. The pack is trimmed to `token_budget` (200..8000), cards before
+facts, and `budget` reports the dropped cards, facts, card facts and card
+events. A missing, out-of-grant, soft-stub or diary-fenced slug gives the same
+output. It is grant-scoped, floored to world-visible facts for any token
+caller, public-forbidden and has a row in the RM-01 isolation matrix. No
+migration, env knob, regex or LLM call. Still open: `context_delta` and the
+`session_context_state` table (which will feed standing entities into the
+pack), open threads (no thread model exists yet), the `_meta` hot facts
+rewrite, the writeback gate, the reflex arms, the client hook and the stretch
+items. The live check waits on the next deploy.
+
 ### RM-13 — Agent tool-loop runtime (Bedrock Converse)
 
 **Why.** Every synthesis step is a single Haiku/Sonnet call

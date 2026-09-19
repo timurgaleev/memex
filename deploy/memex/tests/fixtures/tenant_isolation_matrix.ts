@@ -99,6 +99,7 @@ export const MATRIX: MatrixRow[] = [
   iso("code_blast", { symbol: CODE_SYM, exact: true }),
   iso("code_flow", { symbol: CODE_SYM, exact: true }),
   iso("volunteer_context", { window: `talking about ${WIKI_NAME} and ${SHARED_TITLE}` }),
+  iso("context_pack", { slugs: [ENTITY_SLUG, "team-b/alice"], window: `talking about ${WIKI_NAME} and ${SHARED_TITLE}` }),
   op("advisor"),
   wide("list_brain_skillpack", "repo skill pack, no tenant content"),
   op("list_concepts"),

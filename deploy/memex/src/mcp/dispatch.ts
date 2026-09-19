@@ -100,6 +100,7 @@ import { queryRefine } from "../core/search/query-refine.ts";
 import { codeCallers, codeCallees, codeDefs, codeRefs } from "../core/code-graph.ts";
 import { runRecursiveWalk } from "../core/code-walk.ts";
 import { parseWindow, volunteerContext, volunteerUsageStats } from "../core/context/volunteer.ts";
+import { buildContextPack, type ContextPackOpts } from "../core/context/context-pack.ts";
 import {
   logVolunteerEventsFireAndForget,
   volunteerEventRowsFrom,
@@ -706,6 +707,8 @@ async function dispatchToolInner(
         return await callCodeWalk(storage, args, readSources, "callees");
       case "volunteer_context":
         return await callVolunteerContext(storage, args, readSources, remote);
+      case "context_pack":
+        return await callContextPack(storage, args, redact, readSources, remote);
       case "advisor":
         return await callAdvisor(storage, readSources);
       case "list_brain_skillpack":
@@ -3059,6 +3062,40 @@ async function callVolunteerContext(
   );
 
   return jsonResult({ ok: true, pages });
+}
+
+async function callContextPack(
+  storage: Storage,
+  args: Record<string, unknown>,
+  redact = false,
+  readSources?: string[],
+  remote = false,
+): Promise<ToolCallResult> {
+  if (args["slugs"] !== undefined && !Array.isArray(args["slugs"])) {
+    return errResult("context_pack: `slugs` must be an array of strings");
+  }
+  const opts: ContextPackOpts = { remote };
+  if (Array.isArray(args["slugs"])) opts.slugs = args["slugs"];
+  if (typeof args["window"] === "string") opts.window = args["window"];
+  if (typeof args["max_entities"] === "number") opts.maxEntities = args["max_entities"];
+  if (typeof args["facts_limit"] === "number") opts.factsLimit = args["facts_limit"];
+  if (typeof args["token_budget"] === "number") opts.tokenBudget = args["token_budget"];
+  if (readSources !== undefined) opts.sourceIds = readSources;
+  // Same floors as entity_facts / entity_recall: any non-operator caller reads
+  // world-visible facts only, and decay (which reorders on hidden metadata) is
+  // off wherever bodies are redacted.
+  if (remote) {
+    opts.visibility = ["world"];
+    opts.fenced = (slug) => isRemoteDiaryFenced(storage, slug, readSources);
+  }
+  if (redact) {
+    opts.decay = false;
+    opts.redact = true;
+  } else {
+    opts.decay = true;
+  }
+  const pack = await buildContextPack(storage, opts);
+  return jsonResult({ ok: true, ...pack });
 }
 
 async function callAdvisor(
