@@ -2601,6 +2601,18 @@ the Postgres lane pass on the new identity.
 deferred in favour of tenant slug prefixes on 2026-07-02 and re-opened on
 2026-09-07).
 
+**Progress.** Release A (full-fidelity engine copy) is done locally, not yet
+deployed: `migrate-engine` reads both catalogs and copies every public table
+in FK order (`src/core/engine-copy.ts`: column intersection, generated columns
+skipped, text transport, keyset batches, triggers off via
+`session_replication_role`, upsert on the key, sequences advanced), then checks
+each table by count and an order-independent content hash and exits 1 on any
+mismatch. pglite→pglite, `--verify-only` and `--tables` are in;
+`tests/engine_copy.test.ts` proves a two-hop PGLite round trip across all
+tables. Still open: the live Postgres→PGLite check on the EC2; the resume
+manifest and the config flip; `memex import`; the backup-posture verdict; the
+composite identity itself; a CI Postgres lane.
+
 ### RM-26 — Live source connectors (chat history, GitHub)
 
 **Why.** RM-14 imports exports and sessions the operator pushes. Continuous

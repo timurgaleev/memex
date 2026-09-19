@@ -171,11 +171,52 @@ docker exec -e MEMEX_POSTGRES_URL='<new-url>' deploy-memex-1 \
   --pglite-path /tmp/brain-snapshot.pglite
 ```
 
-The script applies migrations on the destination first, then copies
-row-by-row in dependency order: migrations → sources → documents →
-chunks → embeddings → entities → entity_mentions → cycle_snapshots →
-friction_events. Idempotent (ON CONFLICT DO NOTHING) so a partial run
-can resume.
+The command applies migrations on the destination, then copies **every
+public table** the two catalogs share, in foreign-key order. Generated
+columns are skipped (the destination recomputes them), and columns are the
+intersection of both sides. Values travel as text, and each batch runs with
+`session_replication_role = replica`, so triggers and FK checks stay off and
+no insert rewrites a copied row. The destination role therefore needs
+superuser (`rds_superuser` on RDS); the run refuses up front otherwise.
+Keyed tables upsert, so a re-run resumes an interrupted copy and makes rows
+seeded by the destination's migrations equal to the source. Sequences are
+advanced to the copied maximum. The source is only read.
+
+Every table is then checked by row count and a content hash. The command
+prints one JSON summary (`ok`, per-table `src`/`dst`/`srcHash`/`dstHash`/
+`match`, `missing`, `failures`) on stdout and exits 1 on any mismatch,
+missing table or failed table.
+
+| Flag | Meaning |
+|---|---|
+| `--dry-run` | catalogs and row counts only, no writes |
+| `--verify-only` | skip the copy; compare two existing databases |
+| `--tables a,b` | restrict the copy and the check to these tables |
+| `--to-pglite-path P` | destination path for a pglite→pglite copy (`--pglite-path` is the source) |
+
+### Rollback rehearsal
+
+Before a risky schema change, prove the way back on a scratch copy. The
+live database is only read:
+
+```bash
+# Postgres -> PGLite (rehearsal copy), then check it again on its own
+docker exec deploy-memex-1 bun run src/cli.ts migrate-engine \
+  --from postgres --to pglite --pglite-path /tmp/rt-rehearsal.pglite
+docker exec deploy-memex-1 bun run src/cli.ts migrate-engine --verify-only \
+  --from postgres --to pglite --pglite-path /tmp/rt-rehearsal.pglite
+
+# PGLite -> PGLite (a second hop that must match the first)
+docker exec deploy-memex-1 bun run src/cli.ts migrate-engine \
+  --from pglite --to pglite --pglite-path /tmp/rt-rehearsal.pglite \
+  --to-pglite-path /tmp/rt-hop2.pglite
+
+docker exec deploy-memex-1 rm -rf /tmp/rt-rehearsal.pglite /tmp/rt-hop2.pglite
+```
+
+A PGLite copy holds the whole brain in the process's WASM heap next to the
+live server; watch free memory, and run it from a laptop through the SSM
+tunnel if it is tight.
 
 ## Common failure modes
 

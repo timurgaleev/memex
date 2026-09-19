@@ -41,6 +41,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   was.
 
 ### Changed
+- **`memex migrate-engine` copies and checks every table.** The table list now
+  comes from the Postgres catalog instead of a fixed list of nine legacy
+  tables, so pages, page versions, links, facts and withdrawals, timeline,
+  tags, synthesis and OAuth rows are copied too, in foreign-key order. Each
+  table is then compared by row count and content hash; the run prints one
+  JSON summary and exits 1 on any mismatch, missing table or failed table.
+  Triggers stay off during the copy (the destination role must be able to set
+  `session_replication_role`), keyed tables upsert so a re-run resumes, and
+  sequences advance past the copied rows. New flags: `--verify-only` compares
+  two existing databases, `--tables a,b` limits the run, and
+  `--to-pglite-path` allows a PGLite-to-PGLite copy, so a
+  Postgres→PGLite→PGLite round trip can rehearse a rollback.
 - **MCP tools refuse arguments they do not declare.** A misspelled key used
   to be dropped without an error, so `page_put {slug, body}` wrote the page
   without its body. Any undeclared argument now returns `invalid_params`

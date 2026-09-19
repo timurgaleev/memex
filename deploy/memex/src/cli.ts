@@ -200,7 +200,7 @@ function printUsage(): void {
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  skillpack lint [--json] [--dir PATH]");
   console.log("                               check every tool and memex command the skill pack names exists");
-  console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
+  console.log("  migrate-engine --from X --to Y [--dry-run|--verify-only] [--tables a,b] [--pglite-path P] [--to-pglite-path P2] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
   console.log("                               [--tenant-mode client|enrollment]  (enrollment = one connector, many tenants)");
@@ -1349,12 +1349,17 @@ async function main(argv: readonly string[]): Promise<number> {
       if (flags.has("--dry-run")) opts.dryRun = true;
       const pPath = values.get("--pglite-path");
       if (pPath) opts.pgliteDbPath = pPath;
+      const toPath = values.get("--to-pglite-path");
+      if (toPath) opts.toPgliteDbPath = toPath;
       const pUrl = values.get("--postgres-url");
       if (pUrl) opts.postgresUrl = pUrl;
       const batch = values.get("--batch-size");
       if (batch) opts.batchSize = Number(batch);
-      await runMigrateEngine(opts);
-      return 0;
+      if (flags.has("--verify-only")) opts.verifyOnly = true;
+      const tables = values.get("--tables");
+      if (tables) opts.tables = tables.split(",").map((t) => t.trim()).filter(Boolean);
+      const summary = await runMigrateEngine(opts);
+      return summary.ok ? 0 : 1;
     }
     case "auth": {
       // Self-issued OAuth 2.1 provider management. Re-parses its own raw flags

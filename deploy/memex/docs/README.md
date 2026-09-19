@@ -75,7 +75,7 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
 | `skillpack [--out P]` | bundle skills as tar.gz with manifest (for downstream agent loaders that consume skill packs) |
 | `jobs {list\|stats\|show\|retry\|cancel}` | inspect / reset / cancel rows in the durable job queue |
 | `friction {analyze\|propose-fix}` | counts + recents (`analyze`); Claude-Haiku-suggested skill-text edits (`propose-fix`) |
-| `migrate-engine --from X --to Y` | one-shot copy between Engine adapters |
+| `migrate-engine --from X --to Y` | copy every table between Engine adapters, then verify counts and content hashes (exit 1 on mismatch) |
 
 ## Read more
 

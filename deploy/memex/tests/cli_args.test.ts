@@ -399,3 +399,26 @@ describe("COMMAND_FLAGS is derived from the code, not hand-maintained", () => {
     }
   });
 });
+
+describe("migrate-engine flags", () => {
+  it("parses --to-pglite-path, --verify-only and --tables", () => {
+    const r = parseArgs([
+      "migrate-engine", "--from", "pglite", "--to", "pglite", "--pglite-path", "/a",
+      "--to-pglite-path", "/b", "--verify-only", "--tables", "pages,links",
+    ]);
+    expect(r.values.get("--to-pglite-path")).toBe("/b");
+    expect(r.values.get("--tables")).toBe("pages,links");
+    expect(r.flags.has("--verify-only")).toBe(true);
+    expect(r.positional).toEqual([]);
+  });
+
+  it("keeps --verify-only boolean wherever it sits", () => {
+    const r = parseArgs(["migrate-engine", "--verify-only", "--tables", "pages"]);
+    expect(r.flags.has("--verify-only")).toBe(true);
+    expect(r.values.get("--tables")).toBe("pages");
+  });
+
+  it("refuses --tables without a value", () => {
+    expect(() => parseArgs(["migrate-engine", "--tables"])).toThrow(/requires a value/);
+  });
+});

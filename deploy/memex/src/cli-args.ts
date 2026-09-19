@@ -70,6 +70,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--stale",
   "--stdin",
   "--strict",
+  "--verify-only",
   "--with-calibration",
   "--write-baseline",
   "--yes",
@@ -111,7 +112,8 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs",
   "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
   "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
-  "--target", "--tenant-mode", "--threshold", "--title", "--to", "--token",
+  "--tables", "--target", "--tenant-mode", "--threshold", "--title", "--to",
+  "--to-pglite-path", "--token",
   "--token-endpoint-auth-method", "--token-file", "--tool-name", "--top-skills", "--ttl",
   "--type",
   "--until", "--vault", "--what", "--where", "--who", "--window-turns",
@@ -263,7 +265,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     "migrate-engine",
     new Set([
       "--batch-size", "--dry-run", "--from", "--pglite-path", "--postgres-url",
-      "--to",
+      "--tables", "--to", "--to-pglite-path", "--verify-only",
     ]),
   ],
   [

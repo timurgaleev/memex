@@ -53,8 +53,9 @@ purposes:
 
 - `init --pglite` creates a local store for fresh installs / contributor dev
 - the test suite uses it as a cheap backing — no RDS required for `bun test`
-- `migrate-engine --from postgres --to pglite` ferries data when
-  re-provisioning RDS in another account
+- `migrate-engine --from postgres --to pglite` copies every table (and
+  verifies each by count and content hash) when re-provisioning RDS in
+  another account or rehearsing a rollback
 
 The migrations are engine-agnostic SQL — `vector(1024)`, `tsvector
 GENERATED ALWAYS AS`, `jsonb`, HNSW, `TIMESTAMPTZ DEFAULT NOW()` —
