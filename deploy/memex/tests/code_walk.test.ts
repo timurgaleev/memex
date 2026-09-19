@@ -108,7 +108,44 @@ describe("runRecursiveWalk — callers (code_blast)", () => {
       readiness: { state: "not_built", code_documents: 0, symbols: 0 },
     });
   });
-  it("keeps readiness off the ok and ambiguous shapes", async () => {
+  it("attaches readiness to an empty ok from a qualified start", async () => {
+    const r = await runRecursiveWalk(storage.engine(), "Foo::missing", { direction: "callers" });
+    expect(r.result).toBe("ok");
+    if (r.result !== "ok") return;
+    expect(r.depth_groups).toEqual([]);
+    expect(r.readiness?.state).toBe("ready");
+  });
+  it("attaches readiness to an empty ok from an exact start", async () => {
+    const r = await runRecursiveWalk(storage.engine(), "no_such_symbol_xyz", {
+      direction: "callers",
+      exact: true,
+    });
+    expect(r.result).toBe("ok");
+    if (r.result !== "ok") return;
+    expect(r.depth_groups).toEqual([]);
+    expect(r.readiness?.state).toBe("ready");
+  });
+  it("reports not_built on an empty ok for a caller granted nothing", async () => {
+    for (const opts of [{ exact: true }, {}]) {
+      const r = await runRecursiveWalk(storage.engine(), "Foo::alpha", {
+        direction: "callees",
+        sourceIds: [],
+        ...opts,
+      });
+      expect(r.result).toBe("ok");
+      if (r.result !== "ok") return;
+      expect(r.readiness).toEqual({ state: "not_built", code_documents: 0, symbols: 0 });
+    }
+  });
+  it("attaches readiness when a resolved def has no edges", async () => {
+    // alpha is defined and indexed but calls nothing.
+    const r = await runRecursiveWalk(storage.engine(), "alpha", { direction: "callees" });
+    expect(r.result).toBe("ok");
+    if (r.result !== "ok") return;
+    expect(r.depth_groups).toEqual([]);
+    expect(r.readiness?.state).toBe("ready");
+  });
+  it("keeps readiness off a non-empty ok and the ambiguous shape", async () => {
     const ok = await runRecursiveWalk(storage.engine(), "alpha", { direction: "callers" });
     expect(ok.result).toBe("ok");
     expect("readiness" in ok).toBe(false);

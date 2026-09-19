@@ -2472,7 +2472,9 @@ addition.
 
 **Progress.** Release 1 (readiness signal) shipped: empty `code_def` /
 `code_refs` / `code_callers` / `code_callees` results and `code_blast` /
-`code_flow` `not_found` carry `readiness: { state, code_documents, symbols }`
+`code_flow` results with no nodes (`not_found`, or `ok` with empty
+`depth_groups` from a qualified, `exact` or edgeless start) carry
+`readiness: { state, code_documents, symbols }`
 (`not_built` | `indexing` | `no_symbols` | `ready`), counted over the caller's
 sources only (capped count queries, no query at all for a caller granted
 nothing), and the `memex code-*` CLI prints it on stderr. The "empty `code_def`

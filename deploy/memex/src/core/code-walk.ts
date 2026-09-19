@@ -55,6 +55,8 @@ export type WalkResult =
       cycles_detected: boolean;
       truncation: "none" | "max_nodes" | "depth_cap" | "both";
       terminal_nodes?: { symbol: string; sink_kind: SinkKind }[];
+      /** Present only when `depth_groups` is empty. */
+      readiness?: CodeIndexReadiness;
     }
   | {
       result: "not_found";
@@ -288,6 +290,11 @@ export async function runRecursiveWalk(
   };
   if (opts.direction === "callees" && terminalNodes.length > 0) {
     result.terminal_nodes = terminalNodes;
+  }
+  // A qualified or `exact` start skips disambiguation, so an empty walk cannot
+  // tell "no callers" from "graph not built yet" without the readiness state.
+  if (depthGroups.length === 0) {
+    result.readiness = await codeIndexReadiness(engine, opts.sourceIds);
   }
   return result;
 }

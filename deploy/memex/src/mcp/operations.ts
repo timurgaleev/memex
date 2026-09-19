@@ -934,7 +934,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_blast",
     description:
-      "Blast radius: every transitive CALLER of `symbol`, grouped by hop depth (direct → 2-hop → 3-hop). Run before editing a function to size the change. BFS over the resolved code edge graph, bounded by `depth` (default 5, max 8) and `max_nodes` (default 200). Deterministic, no LLM. Returns {result, depth_groups?, cycles_detected?, truncation?, did_you_mean?, candidates?}. `result` is 'ok' | 'not_found' | 'ambiguous'. 'not_found' carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent).",
+      "Blast radius: every transitive CALLER of `symbol`, grouped by hop depth (direct → 2-hop → 3-hop). Run before editing a function to size the change. BFS over the resolved code edge graph, bounded by `depth` (default 5, max 8) and `max_nodes` (default 200). Deterministic, no LLM. Returns {result, depth_groups?, cycles_detected?, truncation?, did_you_mean?, candidates?}. `result` is 'ok' | 'not_found' | 'ambiguous'. 'not_found', and 'ok' with empty `depth_groups`, carry `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent).",
     params: {
       symbol: str({ ...req, description: "Bare or qualified symbol name (e.g. `performSync` or `Foo::performSync`)." }),
       depth: int({ minimum: 1, maximum: 8, description: "Hop cap. Default 5, max 8." }),
@@ -945,7 +945,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_flow",
     description:
-      "Execution flow: every transitive CALLEE reachable from the entry-point `symbol`, grouped by hop depth, with terminal side-effect tagging. Run to trace how a request flows to a DB write / HTTP call / file I/O. BFS over the resolved code edge graph, bounded by `depth` (default 8, max 12) and `max_nodes` (default 200). Deterministic, no LLM. Same envelope as `code_blast` plus `terminal_nodes: [{symbol, sink_kind}]` where sink_kind ∈ db_call|http_call|file_io|process_exec. 'not_found' carries `readiness` like `code_blast`.",
+      "Execution flow: every transitive CALLEE reachable from the entry-point `symbol`, grouped by hop depth, with terminal side-effect tagging. Run to trace how a request flows to a DB write / HTTP call / file I/O. BFS over the resolved code edge graph, bounded by `depth` (default 8, max 12) and `max_nodes` (default 200). Deterministic, no LLM. Same envelope as `code_blast` plus `terminal_nodes: [{symbol, sink_kind}]` where sink_kind ∈ db_call|http_call|file_io|process_exec. 'not_found' and an empty 'ok' carry `readiness` like `code_blast`.",
     params: {
       symbol: str({ ...req, description: "Entry-point symbol name (bare or qualified)." }),
       depth: int({ minimum: 1, maximum: 12, description: "Hop cap. Default 8, max 12." }),

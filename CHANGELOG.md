@@ -28,7 +28,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   report.
 - **An empty code lookup now says why it is empty.** When `code_def`,
   `code_refs`, `code_callers` or `code_callees` finds nothing, or `code_blast`
-  / `code_flow` returns `not_found`, the response carries
+  / `code_flow` returns `not_found` or an `ok` with no nodes (a qualified or
+  `exact` symbol, or a definition with no call edges), the response carries
   `readiness: { state, code_documents, symbols }`. `state` is `not_built` (no
   code indexed in your sources), `indexing` (the server's code sweep is still
   running, e.g. right after a deploy), `no_symbols` (code is indexed but holds
