@@ -843,8 +843,8 @@ async function callSearch(
   }
   const kArg = args["k"];
   // Default 20 — the hybrid-search return width a client that passes no `k`
-  // gets (autocut/adaptive return still trims the confident cluster when the
-  // reranker runs).
+  // gets, untrimmed: adaptive return only runs on `adaptive_return: true`, and
+  // the score-cliff autocut was rejected (see return-policy.ts).
   let k = 20;
   if (kArg !== undefined) {
     if (!Number.isInteger(kArg) || (kArg as number) < 1 || (kArg as number) > 100) {

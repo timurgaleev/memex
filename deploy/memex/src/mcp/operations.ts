@@ -303,7 +303,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_put",
     scope: "write",
     description:
-      "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — internal/MCP-stdio only.",
+      "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
     params: {
       slug: str({
         ...req,
@@ -339,7 +339,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_append",
     scope: "write",
     description:
-      "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — internal/MCP-stdio only.",
+      "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
     params: {
       slug: str(req),
       content: str(req),
@@ -419,7 +419,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "link",
     scope: "write",
     description:
-      "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — internal/MCP-stdio only.",
+      "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
     params: {
       source_slug: str({
         ...req,
@@ -521,7 +521,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "add_timeline_event",
     scope: "write",
     description:
-      "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — internal/MCP-stdio only.",
+      "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
     params: {
       slug: str({
         ...req,
@@ -604,7 +604,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "jobs_submit",
     description:
-      "Submit a durable job. Idempotent when `idempotency_key` is provided (re-submit returns the existing row). Optional `parent_job_id` records a fan-out edge so the parent can detect fan-in via the child-done inbox. WRITE -- internal/MCP-stdio only.",
+      "Submit a durable job. Idempotent when `idempotency_key` is provided (re-submit returns the existing row). Optional `parent_job_id` records a fan-out edge so the parent can detect fan-in via the child-done inbox. WRITE — refused on public ingress.",
     params: {
       kind: str(req),
       payload: obj(),
@@ -619,7 +619,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "jobs_cancel",
     description:
-      "Cancel a pending job. By default cascades to all pending descendants. WRITE -- internal/MCP-stdio only.",
+      "Cancel a pending job. By default cascades to all pending descendants. WRITE — refused on public ingress.",
     params: {
       id: str(req),
       cascade: bool(),
@@ -672,7 +672,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "add_tag",
     scope: "write",
     description:
-      "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — internal/MCP-stdio only.",
+      "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
     params: {
       slug: str(req),
       tag: str(req),
@@ -781,7 +781,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "get_recent_salience",
     description:
-      "Live pages ranked by the deterministic `salience` score (migration 036: high-emotion tags + graph link-degree, recomputed by the recompute-salience cycle phase) — the 'what matters' read. Optional `type` filter and `days` recency window. No LLM, no Bedrock. Surfaces page slugs/titles — internal/MCP-stdio only.",
+      "Live pages ranked by the deterministic `salience` score (migration 036: high-emotion tags + graph link-degree, recomputed by the recompute-salience cycle phase) — the 'what matters' read. Optional `type` filter and `days` recency window. No LLM, no Bedrock. Surfaces page slugs/titles — hidden from public ingress.",
     params: {
       type: str({ description: "Filter to a single page type (exact match), e.g. person." }),
       days: int({ minimum: 1, description: "Only pages updated within the last N days. Omit for all-time." }),
@@ -797,7 +797,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "find_anomalies",
     description:
-      "Deterministic structural OUTLIERS over the live page graph. memex has no retrieval/access counters, so this keys on the signals it does have: `degree_outlier` (a connectivity hub — link-degree at/above mean + sigma·stddev across live pages) and `stale_salient` (a high-salience page whose updated_at is older than staleDays — important memory gone cold). No LLM. Surfaces page slugs/titles — internal/MCP-stdio only.",
+      "Deterministic structural OUTLIERS over the live page graph. memex has no retrieval/access counters, so this keys on the signals it does have: `degree_outlier` (a connectivity hub — link-degree at/above mean + sigma·stddev across live pages) and `stale_salient` (a high-salience page whose updated_at is older than staleDays — important memory gone cold). No LLM. Surfaces page slugs/titles — hidden from public ingress.",
     params: {
       sigma: num({ minimum: 0, description: "Std-devs above the mean degree to flag a hub (default 2)." }),
       staleDays: int({ minimum: 1, description: "Days an updated_at must lag to count a salient page stale (default 90)." }),
@@ -956,7 +956,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "volunteer_context",
     description:
-      "Push-based context: given a rolling conversation window, deterministically extract entity candidates, resolve them to existing page pointers (alias 0.9 / title 0.8 / slug-suffix 0.6, + a 0.05 boost for newest-turn or >=2-turn mentions), gate by confidence, cap to N, and return volunteered pages [{slug,title,display,confidence,arm,rationale,synopsis}]. No LLM, no Bedrock. Surfaces page slugs/titles + synopses — internal/MCP-stdio only. Set `stats:true` for the per-arm used/volunteered precision feedback (approximate, derived from last_retrieved_at).",
+      "Push-based context: given a rolling conversation window, deterministically extract entity candidates, resolve them to existing page pointers (alias 0.9 / title 0.8 / slug-suffix 0.6, + a 0.05 boost for newest-turn or >=2-turn mentions), gate by confidence, cap to N, and return volunteered pages [{slug,title,display,confidence,arm,rationale,synopsis}]. No LLM, no Bedrock. Surfaces page slugs/titles + synopses — hidden from public ingress. Set `stats:true` for the per-arm used/volunteered precision feedback (approximate, derived from last_retrieved_at).",
     params: {
       window: str({ description: "Conversation window text. 'user:'/'assistant:' line prefixes set the role; unprefixed input is one user turn. Required unless stats:true." }),
       prior_context: str({
@@ -1082,7 +1082,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "get_recent_transcripts",
     description:
-      "Recently-ingested conversation transcript pages (types: meeting, email, journal, note), newest-first, within a day window. Returns each page's slug/type/title/updated_at plus a summary (first ~300 chars) or — with summary=false — the body capped at 100 KB. Tenant-scoped; limit-capped (default 50, max 200). Surfaces page bodies — internal/MCP-stdio only (bodies are stripped on public ingress). Read-only; no LLM.",
+      "Recently-ingested conversation transcript pages (types: meeting, email, journal, note), newest-first, within a day window. Returns each page's slug/type/title/updated_at plus a summary (first ~300 chars) or — with summary=false — the body capped at 100 KB. Tenant-scoped; limit-capped (default 50, max 200). Surfaces page bodies — hidden from public ingress. Read-only; no LLM.",
     params: {
       days: int({ minimum: 0, description: "Only pages updated within the last N days. Default 30." }),
       summary: bool({ description: "true (default) returns a ~300-char summary; false returns the body capped at 100 KB." }),
@@ -1112,7 +1112,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "put_raw_data",
     scope: "write",
     description:
-      "Attach a raw payload (API response, headers, importer sidecar) to a page, keyed (slug, source). Newest-wins upsert: re-putting the same key REPLACES the payload (a cache of the latest fetch, not a history). `source` is the DATA-source label ('crustdata', an importer name), NOT the tenant axis; a scoped caller may only attach to a page its own source owns. Payload capped at 1 MB. WRITE — internal/MCP-stdio only.",
+      "Attach a raw payload (API response, headers, importer sidecar) to a page, keyed (slug, source). Newest-wins upsert: re-putting the same key REPLACES the payload (a cache of the latest fetch, not a history). `source` is the DATA-source label ('crustdata', an importer name), NOT the tenant axis; a scoped caller may only attach to a page its own source owns. Payload capped at 1 MB. WRITE — refused on public ingress.",
     params: {
       slug: str({ ...req, description: "The owning page slug (must exist for scoped callers)." }),
       source: str({ ...req, description: "Data-source label, e.g. an importer name." }),
@@ -1154,7 +1154,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "retry_job",
     scope: "write",
     description:
-      "Re-queue a failed or cancelled job for another attempt (status -> pending, next_attempt_at = now). Returns the refreshed row, or found:false when the id is unknown or the job is not in a retryable state. Operator-only. WRITE — internal/MCP-stdio only.",
+      "Re-queue a failed or cancelled job for another attempt (status -> pending, next_attempt_at = now). Returns the refreshed row, or found:false when the id is unknown or the job is not in a retryable state. Operator-only. WRITE — refused on public ingress.",
     params: {
       id: str({ ...req, description: "Job id (see jobs_list)." }),
     },
@@ -1255,7 +1255,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "ontology_propose",
     scope: "write",
     description:
-      "Record a dimensional observation about an entity (entity has dimension=value, e.g. role=advisor). Sourced, confidence-weighted, and bi-temporal: a novel dimension lands quarantined, a same-value re-observation corroborates, a different value supersedes forward (or closes a backdated interval). WRITE — internal/MCP-stdio only.",
+      "Record a dimensional observation about an entity (entity has dimension=value, e.g. role=advisor). Sourced, confidence-weighted, and bi-temporal: a novel dimension lands quarantined, a same-value re-observation corroborates, a different value supersedes forward (or closes a backdated interval). WRITE — refused on public ingress.",
     params: {
       entity: str({ ...req, description: "Entity slug the claim is about (e.g. people/alice)." }),
       dimension: str({ ...req, description: "Axis name (e.g. role, employer, location)." }),
@@ -1293,7 +1293,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "chronicle_backfill",
     scope: "write",
     description:
-      "Sweep conversation-shape pages in scope and enqueue a chronicle-extract job per eligible page (diary/event pages are skipped). Each enqueued page costs one paid extraction — the response reports `pages_enqueued` and the per-page USD budget (MEMEX_CHRONICLE_WRITE_BUDGET_USD) so worst-case spend is computable before a real run. `dry_run:true` returns counts only. Operator-only. WRITE — internal/MCP-stdio only.",
+      "Sweep conversation-shape pages in scope and enqueue a chronicle-extract job per eligible page (diary/event pages are skipped). Each enqueued page costs one paid extraction — the response reports `pages_enqueued` and the per-page USD budget (MEMEX_CHRONICLE_WRITE_BUDGET_USD) so worst-case spend is computable before a real run. `dry_run:true` returns counts only. Operator-only. WRITE — refused on public ingress.",
     params: {
       dry_run: bool({ description: "Count eligible pages without enqueuing (default false)." }),
       limit: int({ minimum: 1, maximum: 500, description: "Max pages to sweep (default 100, hard cap 500)." }),

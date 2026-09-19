@@ -11,6 +11,7 @@ import { Storage } from "../src/core/storage.ts";
 import { startServer, type ServerHandle } from "../src/http/server.ts";
 import { RateLimiter } from "../src/mcp/rate_limit.ts";
 import { TOOL_DEFS } from "../src/mcp/tool_defs.ts";
+import { VERSION } from "../src/version.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -62,6 +63,12 @@ describe("MCP HTTP transport", () => {
     expect(r.result.serverInfo.name).toBe("memex");
     expect(r.result.protocolVersion).toBeTruthy();
     expect(r.result.capabilities.tools).toBeDefined();
+    expect(r.result.serverInfo.version).toBe(VERSION);
+    expect(r.result.serverInfo.version).not.toBe("0.1.0");
+    expect(typeof r.result.instructions).toBe("string");
+    expect(r.result.instructions).toContain("page_put");
+    expect(r.result.instructions).toContain("whoami");
+    expect(r.result._meta.memexResponseVersion).toBeDefined();
   });
 
   it("tools/list returns the registered tools", async () => {

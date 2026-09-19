@@ -2,7 +2,8 @@
  * MCP HTTP transport — POST /mcp accepting JSON-RPC 2.0 requests.
  *
  * Supported methods:
- *   - `initialize`               handshake, returns server capabilities
+ *   - `initialize`               handshake: capabilities, the stamped build
+ *                                version and the memex operating contract
  *   - `tools/list`               returns TOOL_DEFS
  *   - `tools/call`               { name, arguments } → tool result
  *   - `ping`                     health probe (returns {})
@@ -25,9 +26,10 @@ import { parseJsonBody } from "../http/body_limit.ts";
 import { publicSafeErrorMessage } from "../core/public_redaction.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 import { resolveClientKey } from "../http/client-key.ts";
+import { resolveServerInfo, SERVER_INSTRUCTIONS } from "./server-instructions.ts";
 
 const PROTOCOL_VERSION = "2025-03-26";
-const SERVER_INFO = { name: "memex", version: "0.1.0" };
+const SERVER_INFO = resolveServerInfo();
 
 export interface McpHandlerOptions {
   storage: Storage;
@@ -270,6 +272,7 @@ async function handleSingle(
         protocolVersion: PROTOCOL_VERSION,
         serverInfo: SERVER_INFO,
         capabilities: { tools: {} },
+        instructions: SERVER_INSTRUCTIONS,
         // memex's own response-shape version, distinct from the MCP protocol
         // version above: that pins the transport, this pins what memex puts
         // inside a tool result. A client can refuse to run against a shape it

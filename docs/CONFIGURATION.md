@@ -262,6 +262,8 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_DOCTOR_PER_SOURCE` | off (`=1` on) | Makes `doctor` WARN per-source (per-tenant) when a single source has chunks but zero embeddings. | free |
 | `MEMEX_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
 | `MEMEX_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
+| `MEMEX_DEPLOYMENT_IDENTITY` | unset | One line on what this brain is (for example "Team brain for the docs group"). Appended to the MCP `initialize` instructions as a `Deployment:` paragraph after memex's built-in operating contract. Trimmed and capped at 2000 characters. Served to **every** caller, public ingress included: public-facing prose only, never a secret. | free |
+| `MEMEX_MCP_INSTRUCTIONS` | unset | Extra operator guidance appended after the deployment identity in the `initialize` instructions (for example where meeting notes belong). Trimmed and capped at 2000 characters. Served to every caller, public ingress included, so it must not hold secrets. | free |
 
 ### Source scope contract
 

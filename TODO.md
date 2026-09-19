@@ -1179,6 +1179,21 @@ tool without a public classification fails a test.
 
 **Needs operator go.** The starter tool set.
 
+**Progress.** Slice 1 shipped: `initialize` returns `instructions` (the memex
+operating contract, plus optional `MEMEX_DEPLOYMENT_IDENTITY` and
+`MEMEX_MCP_INSTRUCTIONS`, each capped at 2000 characters) and
+`serverInfo.version` from `src/version.ts` instead of `0.1.0`; the fifteen
+"MCP-stdio only" descriptions now state the real gate, a contract test keeps
+the phrase out, and the stale autocut comment in `dispatch.ts` is corrected. No
+tool was added, hidden or reclassified. Still open: the shared visibility
+predicate for `tools/list` and dispatch (with `denied_after_list`,
+indistinguishable unknown/hidden errors and the property test over all ops),
+the public-guard allowlist flip, extended `whoami`, the capabilities resource,
+unknown-parameter warn/reject modes, surface tiers with `request_tools`, typed
+array params with a generated catalog and the live conformance runner, and the
+stretch items. The live check of the stamped version and instructions waits on
+the next deploy.
+
 ### RM-08 — Durable job runtime v2
 
 **Why.** The queue is a solid `SKIP LOCKED` core, but DAG fan-in is not wired
