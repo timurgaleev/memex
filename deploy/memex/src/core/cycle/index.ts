@@ -803,6 +803,7 @@ export async function runCycleOnce(
                   pagesConsidered: 0,
                   pagesProcessed: 0,
                   factsWritten: 0,
+                  zeroYieldRecorded: 0,
                   worthSkipped: 0,
                   spentUsd: 0,
                   budgetExhausted: false,

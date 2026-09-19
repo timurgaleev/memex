@@ -11,12 +11,13 @@
  * A brain-wide USD budget (MEMEX_FACTS_BACKFILL_BUDGET_USD, default $1) and a
  * per-run page cap bound the spend; the phase stops cleanly when either is hit.
  *
- * Idempotency WITHOUT a schema watermark: a page is "already backfilled" once it
- * has ANY fact authored by the on-write writer (`facts-extract`) keyed to its
- * slug. This is additive (no new column) and safe — a page that has yielded a
- * fact is never re-extracted. Residual (documented, bounded): a page that
- * genuinely yields ZERO facts has no marker, so it is re-attempted on a later
- * run; the per-run page cap + brain-wide budget bound that cost.
+ * Idempotency: a page is "already backfilled" once it has ANY fact authored by
+ * the on-write writer (`facts-extract`) keyed to its (slug, source_id), or a
+ * `facts_backfill_scans` zero-yield row for its (source_id, slug, content_hash,
+ * FACTS_EXTRACT_VERSION). The memo is written only when the paid call read
+ * cleanly and yielded no new fact, so editing the page or bumping the extractor
+ * version re-opens it, while malformed, truncated, budget and model-error
+ * outcomes are never memoized and stay retryable.
  *
  * FALLS-OPEN: a per-page failure is collected in `errors[]`; the phase never
  * throws (the cycle marks it `warn` when errors[] is non-empty).
@@ -24,9 +25,11 @@
 import type { Storage } from "../storage.ts";
 import {
   EXTRACTION_ELIGIBLE_TYPES,
+  FACTS_EXTRACT_VERSION,
   ON_WRITE_WRITER,
   extractFactsForPage,
 } from "../facts-extract.ts";
+import { resolveFactsModel } from "../llm/sonnet.ts";
 import type { SonnetFn } from "../llm/sonnet.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 import { filterWorthwhile, worthGateEnabled } from "../synthesis/worth-gate.ts";
@@ -55,6 +58,8 @@ export interface ConversationFactsBackfillResult {
   pagesConsidered: number;
   pagesProcessed: number;
   factsWritten: number;
+  /** Pages memoized as zero-yield this run (skipped by later runs until edited). */
+  zeroYieldRecorded: number;
   /** Pages the worth gate screened out before any Sonnet spend. */
   worthSkipped: number;
   spentUsd: number;
@@ -82,6 +87,7 @@ interface PageRow {
   type: string;
   markdown_body: string;
   source_id: string;
+  content_hash: string;
 }
 
 export async function conversationFactsBackfillPhase(
@@ -93,6 +99,7 @@ export async function conversationFactsBackfillPhase(
     pagesConsidered: 0,
     pagesProcessed: 0,
     factsWritten: 0,
+    zeroYieldRecorded: 0,
     worthSkipped: 0,
     spentUsd: 0,
     budgetExhausted: false,
@@ -112,7 +119,7 @@ export async function conversationFactsBackfillPhase(
   const cap = opts.maxBudgetUsd ?? defaultBudgetUsd();
 
   const rows = await storage.engine().query<PageRow>(
-    `SELECT p.slug, p.type, p.markdown_body, p.source_id
+    `SELECT p.slug, p.type, p.markdown_body, p.source_id, p.content_hash
        FROM pages p
       WHERE p.deleted_at IS NULL
         AND p.type = ANY($1::text[])
@@ -131,9 +138,17 @@ export async function conversationFactsBackfillPhase(
              AND f.source_id = p.source_id
              AND f.written_by = $2
         )
+        -- Before LIMIT, so memoized zero-yield pages do not take this run's slots.
+        AND NOT EXISTS (
+          SELECT 1 FROM facts_backfill_scans s
+           WHERE s.source_id = p.source_id
+             AND s.slug = p.slug
+             AND s.content_hash = p.content_hash
+             AND s.extractor_version = $4
+        )
       ORDER BY p.updated_at DESC
       LIMIT $3`,
-    [[...EXTRACTION_ELIGIBLE_TYPES], ON_WRITE_WRITER, maxPages],
+    [[...EXTRACTION_ELIGIBLE_TYPES], ON_WRITE_WRITER, maxPages, FACTS_EXTRACT_VERSION],
   );
 
   const result: ConversationFactsBackfillResult = { ...empty, ran: true };
@@ -190,6 +205,23 @@ export async function conversationFactsBackfillPhase(
           slug: page.slug,
           message: `extraction absorbed: ${r.absorbed}`,
         });
+      }
+      if (r.absorbed === null && r.factsWritten === 0) {
+        await storage.engine().query(
+          `INSERT INTO facts_backfill_scans
+             (source_id, slug, content_hash, extractor_version, outcome, facts_skipped, model_id)
+           VALUES ($1, $2, $3, $4, 'zero_yield', $5, $6)
+           ON CONFLICT DO NOTHING`,
+          [
+            page.source_id,
+            page.slug,
+            page.content_hash,
+            FACTS_EXTRACT_VERSION,
+            r.factsSkipped,
+            resolveFactsModel(opts.modelId),
+          ],
+        );
+        result.zeroYieldRecorded += 1;
       }
     } catch (e) {
       result.errors.push({

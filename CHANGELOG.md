@@ -27,6 +27,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no audit rows under any secret disposition.
 
 ### Fixed
+- **Conversation-facts backfill no longer re-bills Sonnet for transcripts that
+  yield no facts.** A page whose extraction read cleanly but produced no new
+  fact is remembered per (source, slug, content hash, extractor version), and
+  later runs skip it without a model call, so these pages also stop taking the
+  per-run page slots from newer transcripts. Editing the page or bumping the
+  extractor version makes it eligible again; malformed, truncated, over-budget
+  and failed calls are never remembered and stay retryable. The phase summary
+  reports `zeroYieldRecorded`.
 - **Re-putting an identical page no longer re-audits a flagged credential.**
   Under `MEMEX_SECRET_SCAN_DISPOSITION=flag`, every unchanged `page_put` of a
   page holding a credential added another `secret-flagged` row.

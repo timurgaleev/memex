@@ -1848,6 +1848,21 @@ hallucinated link target is refused by the manifest; re-running backfill on a
 zero-yield page makes zero model calls; atoms stop at the USD cap mid-run with a
 partial report.
 
+**Progress.** Durable zero-yield audit rows shipped (migration 111,
+`facts_backfill_scans`): a page whose paid extraction reads cleanly but yields
+no new fact is memoized per (source_id, slug, content_hash,
+`FACTS_EXTRACT_VERSION`) and the backfill discovery query skips it before
+`LIMIT`, so re-running backfill on a zero-yield page makes zero model calls
+(Done-when item met). Edits and extractor version bumps re-open the page;
+unreadable, budget and model-error outcomes stay retryable. Still open: scored
+triage (including keying `synth_worth_verdicts` by source_id, not slug alone),
+per-transcript synthesis jobs, mechanical quote verification, the
+link-candidate manifest, the atoms USD gate and quote offsets, the rest of bulk
+conversation facts (time-gap segmentation, checkpoint resume, per-page advisory
+locks, notability tiers, keyless `extract_facts` guidance), the hermetic
+mini-corpus metrics, and a doctor/stats surface plus an operator clear command
+for the zero-yield memo.
+
 ### RM-16 — Facts, takes and calibration ledger v2
 
 **Why.** A forgotten fact comes back the next time the same claim is

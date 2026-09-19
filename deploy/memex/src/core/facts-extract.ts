@@ -571,6 +571,10 @@ export async function writeExtractedFacts(
 /** Author stamped on facts extracted by the on-write hook (vs the CLI batch). */
 export const ON_WRITE_WRITER = "facts-extract";
 
+/** Bump when the extraction prompt or output schema changes, so pages the
+ *  backfill memoized as zero-yield are scanned again. */
+export const FACTS_EXTRACT_VERSION = "1";
+
 /**
  * Page types whose body is prose worth extracting conversation-shaped facts
  * from. Entity pages (person/company/concept) and structured stubs (task/event)
