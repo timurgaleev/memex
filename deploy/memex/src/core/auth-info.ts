@@ -70,6 +70,11 @@ export interface AuthInfo {
    * undefined = not resolved, so the spend chokepoint looks it up.
    */
   budgetUsdPerDay?: number | null;
+  /**
+   * Who this principal spends as, when not `clientId`: an enrollment id, so
+   * the people on one shared connector each have their own daily budget.
+   */
+  spendId?: string;
 }
 
 /**

@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Each person enrolled on a shared connector has their own daily budget.**
+  Every token a connector in enrollment mode issued spent under the
+  connector's client id, so the whole team shared one cap and one person could
+  spend it for everyone. A token redeemed from an enrollment code now spends
+  under that enrollment (carried through code, access and refresh tokens) and
+  is capped by the enrollment's `budget_usd_per_day` — set with
+  `auth set-budget <enrollment id>` — or, when it has none, by the connector's
+  cap applied to each person separately.
 - **Batch work stops at a Bedrock failure that would only repeat.** Expired
   credentials, a model the account may not use, or a spent service quota used
   to fail every item of a cycle phase or backfill in turn, each after its own

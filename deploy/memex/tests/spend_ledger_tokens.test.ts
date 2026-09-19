@@ -232,6 +232,31 @@ describe("the cap travels with the request", () => {
     expect(JSON.stringify(r.content)).toContain("budget_exhausted");
   });
 
+  it("is charged to the enrolled person, not the connector they share", async () => {
+    await runWithSpendClient({ clientId: "memex_enr_person", capUsd: 0.5 }, () =>
+      trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
+        m.report({ inputTokens: 600_000, outputTokens: 0 });
+      }),
+    );
+    const as = (spendId?: string) =>
+      dispatchTool(
+        storage,
+        { name: "extract_facts", arguments: { text: "Ada founded Acme in 2020." } },
+        {
+          authInfo: {
+            token: "t",
+            clientId: "shared-connector",
+            scopes: ["read", "write"],
+            isPublic: false,
+            budgetUsdPerDay: 0.5,
+            ...(spendId ? { spendId } : {}),
+          },
+        },
+      );
+    expect(JSON.stringify((await as("memex_enr_person")).content)).toContain("budget_exhausted");
+    expect(JSON.stringify((await as()).content)).not.toContain("budget_exhausted");
+  });
+
   it("is carried into a queued extraction", async () => {
     const q = new FactsQueue({ perSessionInflightCap: 1 });
     let seen: unknown;

@@ -227,9 +227,11 @@ export interface OAuthTokens {
 function grantFromRow(row: Record<string, unknown>): GrantScope | undefined {
   if (row["grant_bound"] !== true) return undefined;
   const fed = row["federated_read"];
+  const grantId = row["grant_id"];
   return {
     sourceId: (row["source_id"] as string | null) ?? null,
     federatedRead: Array.isArray(fed) ? (fed as string[]) : null,
+    ...(typeof grantId === "string" && grantId ? { grantId } : {}),
   };
 }
 
@@ -238,6 +240,8 @@ export interface GrantScope {
   sourceId: string | null;
   /** The federated read set. Undefined = just `sourceId`. */
   federatedRead?: string[] | null;
+  /** The enrollment this grant was redeemed from: the session spends under it. */
+  grantId?: string;
 }
 
 export interface AuthorizationParams {
@@ -267,8 +271,10 @@ export interface AuthInfo {
    *  non-empty, the dispatch write gate confines every write op to slugs
    *  under these prefixes. Undefined/empty = unbounded. */
   boundSlugPrefixes?: string[];
-  /** The OAuth client's or PAT's `budget_usd_per_day`; null when uncapped. */
+  /** The OAuth client's, PAT's or enrollment's `budget_usd_per_day`; null when uncapped. */
   budgetUsdPerDay: number | null;
+  /** Who the session spends as, when not `clientId`: an enrollment id. */
+  spendId?: string;
 }
 
 export interface TokenRevocationRequest {
@@ -706,22 +712,25 @@ export class OAuthProvider {
       return undefined;
     }
     const r = await this.engine.query<{
+      id: string;
       source_id: string;
       federated_read: string[] | null;
     }>(
+      // The redeeming connector is recorded on an any-client enrollment: its
+      // daily cap is the fallback for the person's own.
       `UPDATE oauth_enrollments
-          SET used_at = NOW()
+          SET used_at = NOW(), client_id = COALESCE(client_id, $2)
         WHERE code_hash = $1
           AND used_at IS NULL
           AND revoked_at IS NULL
           AND expires_at > NOW()
           AND (client_id IS NULL OR client_id = $2)
-        RETURNING source_id, federated_read`,
+        RETURNING id, source_id, federated_read`,
       [hashToken(code), clientId],
     );
     const row = r.rows[0];
     if (!row) return undefined;
-    return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id] };
+    return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id], grantId: row.id };
   }
 
   /**
@@ -815,7 +824,13 @@ export class OAuthProvider {
         RETURNING name`,
       [clientId, usdPerDay],
     );
-    return t.rows.length > 0;
+    if (t.rows.length > 0) return true;
+    // Or an enrollment: the person redeemed from it spends under its id.
+    const e = await this.engine.query<{ id: string }>(
+      `UPDATE oauth_enrollments SET budget_usd_per_day = $2 WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
+      [clientId, usdPerDay],
+    );
+    return e.rows.length > 0;
   }
 
   // -------------------------------------------------------------------------
@@ -865,8 +880,8 @@ export class OAuthProvider {
       `INSERT INTO oauth_codes
          (code_hash, client_id, scopes, code_challenge,
           code_challenge_method, redirect_uri, state, resource, expires_at,
-          source_id, federated_read, grant_bound)
-       VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11::text[], $12)`,
+          source_id, federated_read, grant_bound, grant_id)
+       VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11::text[], $12, $13)`,
       [
         codeHash,
         client.client_id,
@@ -880,6 +895,7 @@ export class OAuthProvider {
         grant?.sourceId ?? null,
         grant?.federatedRead ?? null,
         grant !== undefined,
+        grant?.grantId ?? null,
       ],
     );
 
@@ -928,14 +944,14 @@ export class OAuthProvider {
              WHERE code_hash = $1 AND client_id = $2
                AND redirect_uri = $3 AND expires_at > $4
              RETURNING client_id, scopes, resource, source_id, federated_read,
-                       grant_bound`,
+                       grant_bound, grant_id`,
             [codeHash, client.client_id, redirectUri, now],
           )
         : await this.rows<{ scopes: string[] }>(
             `DELETE FROM oauth_codes
              WHERE code_hash = $1 AND client_id = $2 AND expires_at > $3
              RETURNING client_id, scopes, resource, source_id, federated_read,
-                       grant_bound`,
+                       grant_bound, grant_id`,
             [codeHash, client.client_id, now],
           );
     if (rows.length === 0) {
@@ -976,7 +992,7 @@ export class OAuthProvider {
        WHERE token_hash = $1 AND token_type = 'refresh' AND client_id = $2
          AND revoked_at IS NULL
        RETURNING client_id, scopes, expires_at, source_id, federated_read,
-                 grant_bound`,
+                 grant_bound, grant_id`,
       [tokenHash, client.client_id],
     );
     if (rows.length === 0) throw new Error("Refresh token not found");
@@ -1030,9 +1046,12 @@ export class OAuthProvider {
               t.grant_bound,
               c.bound_slug_prefixes,
               c.budget_usd_per_day,
+              CASE WHEN t.grant_bound THEN t.grant_id END AS grant_id,
+              e.budget_usd_per_day AS grant_budget_usd_per_day,
               c.deleted_at AS client_deleted_at
        FROM oauth_tokens t
        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+       LEFT JOIN oauth_enrollments e ON t.grant_bound AND e.id = t.grant_id
        WHERE t.token_hash = $1 AND t.token_type = 'access'
          AND t.revoked_at IS NULL`,
       [tokenHash],
@@ -1075,7 +1094,13 @@ export class OAuthProvider {
         sourceId: (row.source_id as string | null) ?? undefined,
         allowedSources,
         ...(boundSlugPrefixes ? { boundSlugPrefixes } : {}),
-        budgetUsdPerDay: toCapUsd(row.budget_usd_per_day),
+        // A person enrolled on a shared connector spends under their own
+        // enrollment, capped by it, else by the connector's cap on their own.
+        ...(typeof row.grant_id === "string" ? { spendId: row.grant_id } : {}),
+        budgetUsdPerDay:
+          typeof row.grant_id === "string" && row.grant_budget_usd_per_day != null
+            ? toCapUsd(row.grant_budget_usd_per_day)
+            : toCapUsd(row.budget_usd_per_day),
       };
     }
 
@@ -1329,8 +1354,8 @@ export class OAuthProvider {
     await this.engine.query(
       `INSERT INTO oauth_tokens
          (token_hash, token_type, client_id, scopes, expires_at, resource,
-          source_id, federated_read, grant_bound)
-       VALUES ($1, 'access', $2, $3::text[], $4, $5, $6, $7::text[], $8)`,
+          source_id, federated_read, grant_bound, grant_id)
+       VALUES ($1, 'access', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9)`,
       [
         accessHash,
         clientId,
@@ -1340,6 +1365,7 @@ export class OAuthProvider {
         grant?.sourceId ?? null,
         grant?.federatedRead ?? null,
         grant !== undefined,
+        grant?.grantId ?? null,
       ],
     );
 
@@ -1360,8 +1386,8 @@ export class OAuthProvider {
       await this.engine.query(
         `INSERT INTO oauth_tokens
            (token_hash, token_type, client_id, scopes, expires_at, resource,
-            source_id, federated_read, grant_bound)
-         VALUES ($1, 'refresh', $2, $3::text[], $4, $5, $6, $7::text[], $8)`,
+            source_id, federated_read, grant_bound, grant_id)
+         VALUES ($1, 'refresh', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9)`,
         [
           refreshHash,
           clientId,
@@ -1371,6 +1397,7 @@ export class OAuthProvider {
           grant?.sourceId ?? null,
           grant?.federatedRead ?? null,
           grant !== undefined,
+          grant?.grantId ?? null,
         ],
       );
 

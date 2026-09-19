@@ -410,6 +410,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
                   ? { boundSlugPrefixes: info.boundSlugPrefixes }
                   : {}),
                 budgetUsdPerDay: info.budgetUsdPerDay,
+                ...(info.spendId ? { spendId: info.spendId } : {}),
                 isPublic: false,
               };
             } catch (e) {
@@ -565,6 +566,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
                   ? { boundSlugPrefixes: info.boundSlugPrefixes }
                   : {}),
                 budgetUsdPerDay: info.budgetUsdPerDay,
+                ...(info.spendId ? { spendId: info.spendId } : {}),
                 isPublic: guard.isPublic,
               };
             } catch (e) {

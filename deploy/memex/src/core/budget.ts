@@ -318,12 +318,16 @@ export async function checkClientBudget(
 }
 
 /** The cap stored for a spender id: an OAuth client's, else the active
- *  personal access token's of that name. null when neither sets one. */
+ *  personal access token's of that name, else an enrollment's (whose cap
+ *  falls back to its connector's). null when none sets one. */
 async function lookupClientCap(engine: Engine, clientId: string): Promise<number | null> {
   const r = await engine.query<{ budget_usd_per_day: string | number | null }>(
     `SELECT COALESCE(
        (SELECT budget_usd_per_day FROM oauth_clients WHERE client_id = $1),
-       (SELECT MIN(budget_usd_per_day) FROM access_tokens WHERE name = $1 AND revoked_at IS NULL)
+       (SELECT MIN(budget_usd_per_day) FROM access_tokens WHERE name = $1 AND revoked_at IS NULL),
+       (SELECT COALESCE(e.budget_usd_per_day, c.budget_usd_per_day)
+          FROM oauth_enrollments e LEFT JOIN oauth_clients c ON c.client_id = e.client_id
+         WHERE e.id = $1)
      ) AS budget_usd_per_day`,
     [clientId],
   );

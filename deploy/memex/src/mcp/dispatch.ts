@@ -436,7 +436,10 @@ export async function dispatchTool(
   // ops whose handler happens to echo `spentUsd`.
   const auth = opts.authInfo;
   const spendClient = auth
-    ? { clientId: auth.clientId, ...(auth.budgetUsdPerDay !== undefined ? { capUsd: auth.budgetUsdPerDay } : {}) }
+    ? {
+        clientId: auth.spendId ?? auth.clientId,
+        ...(auth.budgetUsdPerDay !== undefined ? { capUsd: auth.budgetUsdPerDay } : {}),
+      }
     : null;
   const result = await runWithSpendClient(spendClient, () =>
     dispatchToolInner(storage, req, opts),
@@ -3316,7 +3319,7 @@ async function withClientSpend(
   operation: string,
   run: () => Promise<ToolCallResult>,
 ): Promise<ToolCallResult> {
-  const clientId = authInfo?.clientId;
+  const clientId = authInfo?.spendId ?? authInfo?.clientId;
   if (!clientId || !PAID_OPS.has(operation)) return run();
   const check = await checkClientBudget(
     storage.engine(),

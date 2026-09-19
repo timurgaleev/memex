@@ -891,7 +891,13 @@ retries of a timed-out attempt bill more than one worst case. R3
 contextual re-embed), credential → all models, access/quota → that model, 5
 min; a timed-out phase/job's orphaned paid calls are refused. Not done: a
 cross-process cooldown row (one process spends today) and rescheduling a
-halted job at the circuit's reopen time. Next: R4 per-grant caps for enrollment tenants; R5 ambient
+halted job at the circuit's reopen time. R4 (unreleased): migration 108;
+an enrollment-redeemed token spends under the enrollment id (`grant_id` on
+codes and tokens, `AuthInfo.spendId`), capped by the enrollment's cap else the
+connector's per person. LOW: PAT names, client ids and enrollment ids share
+one spend namespace; refuse PAT names with the `memex_cl_`/`memex_enr_`
+prefixes at mint. Not done: a combined connector-wide cap across all its
+enrolled people, and the admin spend page listing enrollments. Next: R5 ambient
 `BudgetTracker` reservations.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
   cannot be capped separately (client ids are random `memex_cl_…`, so only a
