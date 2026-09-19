@@ -192,10 +192,26 @@ describe("submitJob", () => {
     );
   });
 
-  it("enqueues a valid job", async () => {
-    const j = await submitJob(queue, { kind: "embed.backfill", priority: 3 });
+  it("refuses an unknown kind and inserts nothing", async () => {
+    await expect(submitJob(queue, { kind: "no_such_kind" })).rejects.toThrow(
+      "unknown kind",
+    );
+    const r = await storage
+      .engine()
+      .query<{ n: number }>("SELECT COUNT(*)::int AS n FROM jobs");
+    expect(r.rows[0]?.n).toBe(0);
+  });
+
+  it("enqueues a built-in kind with an empty registry", async () => {
+    const j = await submitJob(queue, { kind: "page_mirror", priority: 3 });
     expect(j.status).toBe("pending");
     expect(j.priority).toBe(3);
+  });
+
+  it("enqueues a kind registered in this process", async () => {
+    registerHandler("embed.backfill", async () => ({}));
+    const j = await submitJob(queue, { kind: "embed.backfill" });
+    expect(j.kind).toBe("embed.backfill");
   });
 });
 

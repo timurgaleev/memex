@@ -8,16 +8,22 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Engine } from "../engine/interface.ts";
-import { isValidKind, registerHandler, getHandler } from "./handlers.ts";
+import {
+  isKnownJobKind,
+  isValidKind,
+  knownJobKinds,
+  registerHandler,
+  getHandler,
+} from "./handlers.ts";
 import { Queue } from "./queue.ts";
 import { Worker } from "./worker.ts";
 import type { EnqueueInput, JobRow, JobStatus } from "./types.ts";
 
 /**
  * Validated submit for operator-supplied input (CLI / MCP). Beyond
- * `Queue.enqueue`'s own numeric guards this rejects a malformed kind up
- * front — a typo'd kind would otherwise sit pending forever and then
- * dead-letter with "no handler registered".
+ * `Queue.enqueue`'s own numeric guards this rejects a malformed or unknown
+ * kind up front — a typo'd kind would otherwise burn its whole retry budget
+ * and then dead-letter with "no handler registered".
  */
 export async function submitJob(
   queue: Queue,
@@ -26,6 +32,11 @@ export async function submitJob(
   if (!input.kind || !isValidKind(input.kind)) {
     throw new Error(
       `submitJob: invalid kind '${input.kind}' (lowercase, [a-z0-9._-])`,
+    );
+  }
+  if (!isKnownJobKind(input.kind)) {
+    throw new Error(
+      `submitJob: unknown kind '${input.kind.slice(0, 64)}' (known: ${knownJobKinds().join(", ")})`,
     );
   }
   return queue.enqueue(input);

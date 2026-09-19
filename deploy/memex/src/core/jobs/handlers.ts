@@ -52,6 +52,11 @@ export function isKnownJobKind(kind: string): boolean {
   return REGISTRY.has(kind) || BUILTIN_JOB_KINDS.has(kind);
 }
 
+/** Every kind a submit may name, sorted — for refusal messages. */
+export function knownJobKinds(): string[] {
+  return [...new Set([...BUILTIN_JOB_KINDS, ...REGISTRY.keys()])].sort();
+}
+
 export function listHandlers(): string[] {
   return Array.from(REGISTRY.keys()).sort();
 }

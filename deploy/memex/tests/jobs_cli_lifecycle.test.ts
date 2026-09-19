@@ -56,9 +56,15 @@ describe("memex jobs lifecycle CLI", () => {
     await expect(
       run({ sub: "submit", kind: "Bad Kind!" }),
     ).rejects.toThrow(/invalid kind/);
+    // A well-formed kind with no handler is refused before any row is written.
+    await expect(
+      run({ sub: "submit", kind: "no_such_kind", id: "job-cli-unknown" }),
+    ).rejects.toThrow(/unknown kind/);
+    const missing = await run({ sub: "progress", id: "job-cli-unknown" });
+    expect(missing.ok).toBe(false);
     const out = await run({
       sub: "submit",
-      kind: "test.noop",
+      kind: "page_mirror",
       id: "job-cli-1",
       priority: 2,
       maxRetries: 0,
@@ -67,7 +73,7 @@ describe("memex jobs lifecycle CLI", () => {
     expect(out.ok).toBe(true);
     const job = out.job as { id: string; kind: string; status: string; payload: unknown };
     expect(job.id).toBe("job-cli-1");
-    expect(job.kind).toBe("test.noop");
+    expect(job.kind).toBe("page_mirror");
     expect(job.status).toBe("pending");
   });
 
@@ -88,7 +94,7 @@ describe("memex jobs lifecycle CLI", () => {
   });
 
   it("prune deletes old terminal rows only", async () => {
-    await run({ sub: "submit", kind: "test.noop", id: "job-cli-2", maxRetries: 0 });
+    await run({ sub: "submit", kind: "page_mirror", id: "job-cli-2", maxRetries: 0 });
     await run({ sub: "cancel", id: "job-cli-2" });
     // Age floor in the future-ward direction: olderThanDays 0 → cutoff now →
     // the just-cancelled row qualifies.

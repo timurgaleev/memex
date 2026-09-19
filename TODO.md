@@ -1261,10 +1261,12 @@ and complete/fail/extendLock/updateProgress/recordUsage match the attempt's
 generation as well as `status='running'`, so a stalled or timed-out attempt
 whose row was re-claimed cannot finish, fail or write progress/usage onto the
 newer attempt (the worker counts those as `fenced` and logs "claim lost").
-`jobs_submit` refuses a kind that is neither built in (`BUILTIN_JOB_KINDS`)
-nor registered; `jobs_get`/`jobs_list` show `claim_generation`. Both "Done
-when" items are proven on PGLite (`tests/jobs_fencing.test.ts`,
-`tests/jobs_submit_kind.test.ts`); the Postgres-lane repeat waits on RM-03's
+`jobs_submit` and `memex jobs submit` (sharing `isKnownJobKind` in
+`handlers.ts`) refuse a kind that is neither built in
+(`BUILTIN_JOB_KINDS`) nor registered; `jobs_get`/`jobs_list` show
+`claim_generation`. Both "Done when" items are proven on PGLite
+(`tests/jobs_fencing.test.ts`, `tests/jobs_submit_kind.test.ts`,
+`tests/jobs_lifecycle.test.ts`, `tests/jobs_cli_lifecycle.test.ts`); the Postgres-lane repeat waits on RM-03's
 `make test-pg`. Still open: `delayed`/`waiting_children`/`paused` statuses,
 `UnrecoverableError`, jittered backoff, pause/resume/replay; DAG fan-in in
 the terminal transaction; cascade cancel via abort; the renewal tick with
