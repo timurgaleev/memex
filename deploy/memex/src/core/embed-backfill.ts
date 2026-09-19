@@ -58,6 +58,7 @@
  * contextual vector to a raw one and the marker stays truthful on every path.
  * Unmarked chunks embed raw content, unchanged.
  */
+import { classifyBedrockError, runInBatchScope } from "./llm/bedrock-errors.ts";
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
 import { embedSkipFilterFragment } from "./embed-skip.ts";
@@ -400,11 +401,7 @@ async function invalidateStaleSignatures(engine: Engine, currentSig: string): Pr
 
 /** True for a Bedrock throttling / 429 error worth retrying with backoff. */
 function isThrottle(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const name = (err as { name?: unknown }).name;
-  if (name === "ThrottlingException" || name === "TooManyRequestsException") return true;
-  const status = (err as { $metadata?: { httpStatusCode?: unknown } }).$metadata?.httpStatusCode;
-  return status === 429;
+  return classifyBedrockError(err) === "throttle";
 }
 
 /**
@@ -528,7 +525,15 @@ async function embedPage(
   await Promise.all(pool);
 }
 
+/** Runs as a batch: a failure that would only repeat stops the run early. */
 export async function runEmbedBackfill(
+  engine: Engine,
+  opts: EmbedBackfillOptions = {},
+): Promise<EmbedBackfillResult> {
+  return runInBatchScope({ stopped: false, circuit: true }, () => runEmbedBackfillBody(engine, opts));
+}
+
+async function runEmbedBackfillBody(
   engine: Engine,
   opts: EmbedBackfillOptions = {},
 ): Promise<EmbedBackfillResult> {

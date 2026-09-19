@@ -41,6 +41,7 @@
  * or fully untouched — never half-wrapped. `--force` re-embeds even already-
  * marked chunks (for a title/synopsis change or a chunker bump).
  */
+import { runInBatchScope } from "./llm/bedrock-errors.ts";
 import type { Engine } from "./engine/interface.ts";
 import type { Storage } from "./storage.ts";
 import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
@@ -234,7 +235,15 @@ async function countAlreadyMarked(engine: Engine): Promise<number> {
  * `<context>title\nsynopsis</context>`-prefixed text, then writes the vectors +
  * marks in one transaction.
  */
+/** Runs as a batch: a failure that would only repeat stops the run early. */
 export async function runContextualReembed(
+  engine: Engine,
+  opts: ContextualReembedOptions = {},
+): Promise<ContextualReembedResult> {
+  return runInBatchScope({ stopped: false, circuit: true }, () => runContextualReembedBody(engine, opts));
+}
+
+async function runContextualReembedBody(
   engine: Engine,
   opts: ContextualReembedOptions = {},
 ): Promise<ContextualReembedResult> {

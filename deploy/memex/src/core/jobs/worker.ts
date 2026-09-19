@@ -12,6 +12,7 @@
  *   ...
  *   await worker.stop();       // waits for the in-flight job, then exits
  */
+import { type BatchScope, runInBatchScope } from "../llm/bedrock-errors.ts";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { getHandler } from "./handlers.ts";
@@ -323,10 +324,13 @@ export class Worker {
     // never crash the worker tick or escape as an unhandledRejection.
     try {
       try {
-        const result =
-          timeoutMs > 0
-            ? await runWithTimeout(() => handler(job.payload, ctx), timeoutMs)
-            : await handler(job.payload, ctx);
+        // A timed-out handler keeps running; the scope flag stops its paid calls.
+        const scope: BatchScope = { stopped: false, circuit: false };
+        const run = () => runInBatchScope(scope, () => handler(job.payload, ctx));
+        const result = await (timeoutMs > 0 ? runWithTimeout(run, timeoutMs) : run()).catch((e: unknown) => {
+          scope.stopped = true;
+          throw e;
+        });
         await this.queue.complete(
           job.id,
           result === undefined ? {} : (result as Record<string, unknown>),

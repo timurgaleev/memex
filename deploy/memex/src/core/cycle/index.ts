@@ -2,6 +2,7 @@
  * Cycle — runs the maintenance phases (see ALL_PHASES) in order, returns a
  * per-phase envelope. Phases are independent: one failing doesn't stop others.
  */
+import { type BatchScope, runInBatchScope } from "../llm/bedrock-errors.ts";
 import type { Engine } from "../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import { type ProgressSink, NOOP_PROGRESS } from "../output/progress.ts";
@@ -447,7 +448,13 @@ async function runPhase<T>(
   const start = Date.now();
   progress({ kind: "phase", op: "cycle", phase, ts: start });
   try {
-    const detail = (await withPhaseTimeout(phase, fn)) as PhaseResult["detail"];
+    // A phase that times out keeps running (JS cannot cancel it); the scope
+    // flag stops its orphaned paid calls from spending past the cutoff.
+    const scope: BatchScope = { stopped: false, circuit: true };
+    const detail = (await withPhaseTimeout(phase, () => runInBatchScope(scope, fn)).catch((e: unknown) => {
+      scope.stopped = true;
+      throw e;
+    })) as PhaseResult["detail"];
     const status = deriveStatus(phase, detail);
     // Per-phase memory telemetry: a live OOM (a bun cycle process hit 3.48 GB
     // RSS → kernel kill mid-tick) needs the spiking phase named. Cheap; on by

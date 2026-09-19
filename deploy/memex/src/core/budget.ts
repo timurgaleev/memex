@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { OperationError } from "./operation-error.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { noteWriteTiming } from "./write-timing.ts";
+import { assertBedrockOpen, noteBedrockFailure, noteBedrockSuccess } from "./llm/bedrock-errors.ts";
 import { appendAudit, auditDir } from "./audit-week-file.ts";
 import type { Engine } from "./engine/interface.ts";
 import type { SonnetUsage } from "./llm/sonnet.ts";
@@ -612,6 +613,10 @@ export async function trackedInvoke<T>(
     // attempt that actually reached the model consumed.
     report: (u) => void (usage = { ...u }),
   };
+  // Batch work stops at a failure that would only repeat (expired credentials,
+  // a model the account may not use, a spent quota) instead of paying for it
+  // once per item. Nothing was sent, so nothing is held or booked.
+  assertBedrockOpen(call.model);
   const refuseStart = performance.now();
   let holdId: string | null;
   try {
@@ -622,9 +627,12 @@ export async function trackedInvoke<T>(
   const sendStart = performance.now();
   let failure: unknown;
   try {
-    return await send(meter);
+    const result = await send(meter);
+    noteBedrockSuccess(call.model);
+    return result;
   } catch (err) {
     failure = err;
+    noteBedrockFailure(call.model, err);
     throw err;
   } finally {
     const bookStart = performance.now();

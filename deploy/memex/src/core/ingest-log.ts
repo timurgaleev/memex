@@ -13,6 +13,7 @@
  * The absorb writer is best-effort by contract: a failure to log must never
  * blow up the caller's actual work — errors are caught and stderr-warned.
  */
+import { classifyBedrockError } from "./llm/bedrock-errors.ts";
 import type { Engine } from "./engine/interface.ts";
 
 export interface IngestLogEntry {
@@ -143,15 +144,24 @@ export type FactsAbsorbReason = (typeof FACTS_ABSORB_REASONS)[number];
  */
 export function classifyFactsAbsorbError(err: unknown): FactsAbsorbReason {
   if (!err) return "pipeline_error";
-  const msg = err instanceof Error ? err.message : String(err);
+  // Bounded: several patterns below scan with `.*`.
+  const msg = (err instanceof Error ? err.message : String(err)).slice(0, 500);
   const name = err instanceof Error ? err.name : "";
 
   if (name === "BudgetExhausted") return "budget_exhausted";
+  if ((err as { code?: unknown }).code === "budget_exhausted") return "budget_exhausted";
+  // Paused batch work retries once the pause lifts.
+  if (name === "BedrockHalted") return "gateway_error";
+  // Access, credential and quota failures repeat on every retry; they are not
+  // a flaky gateway. Checked first so an ARN or account id in the message
+  // cannot pass for a status code below.
+  const bedrock = classifyBedrockError(err);
+  if (bedrock === "access" || bedrock === "credential" || bedrock === "quota") return "pipeline_error";
 
   // Bedrock / HTTP gateway shapes: timeouts, throttling, 5xx, connection loss.
   if (/timed?\s?out|ETIMEDOUT/i.test(msg)) return "gateway_error";
-  if (/429|rate[\s-]?limit|too many requests|Throttling/i.test(msg)) return "gateway_error";
-  if (/5\d\d|server error|internal server|bad gateway|service unavail/i.test(msg)) return "gateway_error";
+  if (/\b429\b|rate[\s-]?limit|too many requests|Throttling/i.test(msg)) return "gateway_error";
+  if (/\b5\d\d\b|server error|internal server|bad gateway|service unavail/i.test(msg)) return "gateway_error";
   if (/ECONNRESET|ECONNREFUSED|EAI_AGAIN|getaddrinfo/i.test(msg)) return "gateway_error";
 
   if (/JSON\.parse|unexpected token|invalid json|not valid JSON/i.test(msg)) return "parse_failure";

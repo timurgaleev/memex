@@ -6,7 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Batch work stops at a Bedrock failure that would only repeat.** Expired
+  credentials, a model the account may not use, or a spent service quota used
+  to fail every item of a cycle phase or backfill in turn, each after its own
+  retries. The first such failure in batch work now pauses those calls for up
+  to five minutes — every model for expired credentials, only that model for
+  an access or quota failure — and the rest of the run fails fast without
+  sending; any call to that model that goes through ends the pause.
+  Interactive calls and queued jobs are never paused, and throttling is left
+  to the SDK's own retries.
+- **A phase or job that timed out can no longer keep spending.** JavaScript
+  cannot cancel the work it left running; its paid calls are now refused.
+
 ### Fixed
+- **An access-denied error in fact extraction was logged as a flaky gateway.**
+  Any three-digit run starting with 5 in the message — an account id in the
+  role ARN — read as an HTTP 5xx, and chronicle retried it as transient. A
+  client budget refusal there was logged as a pipeline error rather than an
+  exhausted budget.
 - **Concurrent paid calls could overshoot a client's daily cap.** Each call
   only checked "spent < cap" before sending, so calls racing each other all
   passed and together spent past the cap. A capped client's paid call now holds

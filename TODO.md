@@ -885,8 +885,13 @@ refused an unpriced model before send. R2 (unreleased): per-call worst-case
 hold at `trackedInvoke` for capped clients, settled in the booking
 transaction; holds live to the end of the day; `withClientSpend` only refuses
 an already-spent day; search fallbacks rethrow refusals. Not covered: SDK
-retries of a timed-out attempt bill more than one worst case. Next: R3 Bedrock error classifier plus an in-process circuit
-for batch scopes; R4 per-grant caps for enrollment tenants; R5 ambient
+retries of a timed-out attempt bill more than one worst case. R3
+(unreleased): `llm/bedrock-errors.ts` classifier; in-process circuit read at
+`trackedInvoke` inside batch scopes (cycle phase, job, embed backfill,
+contextual re-embed), credential → all models, access/quota → that model, 5
+min; a timed-out phase/job's orphaned paid calls are refused. Not done: a
+cross-process cooldown row (one process spends today) and rescheduling a
+halted job at the circuit's reopen time. Next: R4 per-grant caps for enrollment tenants; R5 ambient
 `BudgetTracker` reservations.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
   cannot be capped separately (client ids are random `memex_cl_…`, so only a
