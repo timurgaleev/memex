@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.151.0] — 2026-09-19
+
 ### Added
 - **GitHub connector: `memex connectors github sync <owner/repo> --source ID`.**
   A one-shot, operator-run mirror of a repository's issues and pull requests
