@@ -25,8 +25,8 @@ import {
 
 // The signature hybridSearch computes for a plain `{ k }` call: env-level
 // rankingSignature + the resolved per-call knob suffix (knobs-hash parity).
-const hybridSig = (): string =>
-  rankingSignature() + knobsCacheSuffix(resolveSearchKnobs({}));
+const hybridSig = (opts: Parameters<typeof resolveSearchKnobs>[0] = {}): string =>
+  rankingSignature() + knobsCacheSuffix(resolveSearchKnobs(opts));
 import {
   bumpDocumentClock,
   currentDocumentClock,
@@ -76,6 +76,29 @@ describe("hybridSearch query cache (hit path, no Bedrock)", () => {
     expect(hits.map((h) => h.chunkId)).toEqual(["doc_b_c0", "doc_a_c0"]);
     expect(hits[0]!.title).toBe("Beta"); // hydrated from live tables
     expect(hits[0]!.intent).toBe("topic");
+  });
+
+  it("keys a graph-reranked ranking apart from the default one", async () => {
+    // The paid graph rerank reorders the list before it is stored, so a
+    // graphRerank call must read/write its own key — otherwise a default caller
+    // is served a reranked ordering it never paid for, and vice versa.
+    const clock = await currentDocumentClock(storage.engine());
+    await putCachedQuery(
+      storage.engine(),
+      queryCacheKey("split me", 5, undefined, false, hybridSig({ graphRerank: true })),
+      "split me",
+      5,
+      "topic",
+      ["doc_b_c0", "doc_a_c0"],
+      clock,
+    );
+    const onHit = await hybridSearch(storage, "split me", { k: 5, graphRerank: true });
+    expect(onHit.map((h) => h.chunkId)).toEqual(["doc_b_c0", "doc_a_c0"]);
+
+    // The default caller's key differs, so that row is not its to serve.
+    expect(queryCacheKey("split me", 5, undefined, false, hybridSig())).not.toBe(
+      queryCacheKey("split me", 5, undefined, false, hybridSig({ graphRerank: true })),
+    );
   });
 
   it("adaptive return-sizing trims the view without poisoning the cache", async () => {

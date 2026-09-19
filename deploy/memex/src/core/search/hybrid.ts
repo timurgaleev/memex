@@ -93,7 +93,7 @@ import { currentDocumentClock } from "../generation.ts";
 import type { Engine } from "../engine/interface.ts";
 import { expandQuery } from "./expansion.ts";
 import { rerank, type ChunkPayloadForRerank } from "./two-pass.ts";
-import { graphRerank } from "./graph-rerank.ts";
+import { graphRerank, graphRerankLiveEnabled } from "./graph-rerank.ts";
 import {
   applyGraphSignals,
   computeFloorThreshold,
@@ -169,6 +169,7 @@ const PAGE_TRUTH_PREFIX = "page-truth://";
 /** The resolved per-call ranking knob set (see {@link resolveSearchKnobs}). */
 export interface ResolvedSearchKnobs {
   rerankWanted: boolean;
+  graphRerankOn: boolean;
   expansionEnabled: boolean;
   graphSignalsOn: boolean;
   cosineRescoreOn: boolean;
@@ -195,6 +196,9 @@ export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnob
   const env = process.env;
   return {
     rerankWanted: resolveKnob(opts.rerank, env.MEMEX_RERANK, bundle.rerank),
+    // No mode bundle carries the graph rerank: it is paid Sonnet, so it stays
+    // per-call/env opt-in.
+    graphRerankOn: opts.graphRerank ?? graphRerankLiveEnabled(),
     expansionEnabled:
       !opts.noExpansion &&
       (opts.expansion ??
@@ -221,7 +225,12 @@ export function knobsCacheSuffix(kn: ResolvedSearchKnobs): string {
   return (
     `:RXP=${kn.expansionEnabled ? 1 : 0}:RGS=${kn.graphSignalsOn ? 1 : 0}` +
     `:RCR=${kn.cosineRescoreOn ? 1 : 0}:RBB=${kn.backlinkBoostOn ? 1 : 0}` +
-    `:RTA=${kn.titleArmOn ? 1 : 0}`
+    `:RTA=${kn.titleArmOn ? 1 : 0}` +
+    // Appended only when ON: the graph rerank reorders the list that gets
+    // stored, so an on/off pair must not share a key — but emitting a `=0`
+    // component would re-key every default call and discard the live cache for
+    // a knob almost nobody sets.
+    (kn.graphRerankOn ? ":RGR=1" : "")
   );
 }
 
@@ -244,7 +253,7 @@ export interface SearchOptions {
   rerank?: boolean;
   /**
    * Opt-in graph-aware Sonnet rerank (default OFF; falls back to
-   * MEMEX_GRAPH_RERANK=1). POST-FUSION: reorders the top hits with one paid
+   * MEMEX_GRAPH_RERANK). POST-FUSION: reorders the top hits with one paid
    * Sonnet call, given each hit's excerpt + a link-graph connectivity hint.
    * Fail-open — any error/budget-skip returns the pre-rerank order. Distinct
    * from `rerank` (the Haiku two-pass text reranker). See graph-rerank.ts.
@@ -674,6 +683,7 @@ export async function hybridSearch(
 
   const {
     rerankWanted,
+    graphRerankOn,
     expansionEnabled,
     graphSignalsOn,
     cosineRescoreOn,
@@ -808,6 +818,7 @@ export async function hybridSearch(
     rankingSignature() +
     knobsCacheSuffix({
       rerankWanted,
+      graphRerankOn,
       expansionEnabled,
       graphSignalsOn,
       cosineRescoreOn,
@@ -1452,7 +1463,7 @@ export async function hybridSearch(
   //     trimmed out. Self-gates (returns input unchanged unless the flag/seam is
   //     set); fail-open on any error or budget skip. Distinct from the Haiku
   //     two-pass rerank above.
-  if (opts.graphRerank ?? process.env.MEMEX_GRAPH_RERANK === "1") {
+  if (graphRerankOn) {
     organic = await graphRerank(trimmed, organic, {
       storage,
       ...(opts.sourceIds ? { sourceIds: [...opts.sourceIds] } : {}),

@@ -23,6 +23,8 @@ const ENV_KEYS = [
   "MEMEX_COSINE_RESCORE",
   "MEMEX_RELATIONAL_ARM",
   "MEMEX_BACKLINK_BOOST",
+  "MEMEX_GRAPH_RERANK",
+  "MEMEX_TITLE_ARM",
 ];
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
@@ -170,6 +172,31 @@ describe("knobs-hash in the cache signature (G14/G25)", () => {
     const kOff = queryCacheKey("q", 5, undefined, false, rankingSignature() + off);
     const kOn = queryCacheKey("q", 5, undefined, false, rankingSignature() + on);
     expect(kOn).not.toBe(kOff);
+  });
+
+  it("the graph rerank re-keys the cache, so it can't cross-serve orderings", () => {
+    clearAll();
+    // The paid Sonnet rerank reorders the list that gets STORED, so an on/off
+    // pair must never share a row — either direction is a wrong ordering.
+    const off = knobsCacheSuffix(resolveSearchKnobs({}));
+    const on = knobsCacheSuffix(resolveSearchKnobs({ graphRerank: true }));
+    expect(on).not.toBe(off);
+    expect(
+      queryCacheKey("q", 5, undefined, false, rankingSignature() + on),
+    ).not.toBe(queryCacheKey("q", 5, undefined, false, rankingSignature() + off));
+    // The env gate re-keys the same way, and reads "true" like the reranker does.
+    process.env.MEMEX_GRAPH_RERANK = "true";
+    expect(resolveSearchKnobs({}).graphRerankOn).toBe(true);
+    expect(knobsCacheSuffix(resolveSearchKnobs({}))).toBe(on);
+    // An explicit per-call OFF still opts out of the reranked namespace.
+    expect(knobsCacheSuffix(resolveSearchKnobs({ graphRerank: false }))).toBe(off);
+  });
+
+  it("leaves the default-knob suffix byte-identical", () => {
+    clearAll();
+    expect(knobsCacheSuffix(resolveSearchKnobs({}))).toBe(
+      ":RXP=0:RGS=0:RCR=0:RBB=1:RTA=1",
+    );
   });
 
   it("tenant scope participates in the cache key (verified, pre-existing)", () => {

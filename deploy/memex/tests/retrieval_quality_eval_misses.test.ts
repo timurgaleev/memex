@@ -473,6 +473,7 @@ describe("identifier arm — precision guards", () => {
   it("re-keys the query cache, so an arm-off call can't serve an arm-on ranking", () => {
     const base = {
       rerankWanted: false,
+      graphRerankOn: false,
       expansionEnabled: false,
       graphSignalsOn: false,
       cosineRescoreOn: false,

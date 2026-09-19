@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The paid graph rerank no longer shares a query-cache row with a plain
+  search.** `graphRerank` reorders the result list before it is stored, but the
+  cache key did not record that, so a reranked ordering could be served to a
+  caller that never asked for one (and an explicit `graphRerank: false` call
+  could be served the reranked list). The resolved knob is now part of the
+  cache-key suffix, and `MEMEX_GRAPH_RERANK` is read through the reranker's own
+  gate so the key and the ranking cannot disagree. Keys for the default knobs
+  are unchanged.
+
 ## [1.153.0] — 2026-09-19
 
 ### Added

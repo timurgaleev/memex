@@ -58,7 +58,12 @@ export interface GraphRerankOptions {
   degreeFn?: (slugs: string[]) => Promise<Map<string, number>>;
 }
 
-function liveEnabled(): boolean {
+/**
+ * The live env gate. Exported so hybrid.ts resolves the SAME value it puts in
+ * the query-cache key — a call-site that read the env differently could reorder
+ * a result under a key that says it didn't.
+ */
+export function graphRerankLiveEnabled(): boolean {
   const v = (process.env["MEMEX_GRAPH_RERANK"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
@@ -191,7 +196,7 @@ export async function graphRerank(
   hits: SearchHit[],
   opts: GraphRerankOptions = {},
 ): Promise<SearchHit[]> {
-  const enabled = opts.sonnetFn !== undefined || liveEnabled();
+  const enabled = opts.sonnetFn !== undefined || graphRerankLiveEnabled();
   if (!enabled || hits.length <= 1) return hits;
 
   const topNIn = opts.topNIn ?? DEFAULT_TOP_N_IN;
