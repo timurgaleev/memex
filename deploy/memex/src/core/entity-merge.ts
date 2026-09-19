@@ -39,6 +39,7 @@ import { bumpPageGeneration } from "./generation.ts";
 import { setSlugAlias } from "./slug-aliases.ts";
 import { lockPageSlugs, validateSlug } from "./pages.ts";
 import { carryFactWithdrawals } from "./fact-withdrawals.ts";
+import { BODY_TIMELINE_KEY_PREFIX } from "./timeline-body.ts";
 
 export interface MergeOptions {
   /** Caller identifier for the audit trail (marker version rows). */
@@ -213,6 +214,17 @@ export async function mergePage(
     // (mig017) and (slug, occurred_at, event, source_label, source_id) WHERE
     // chunk IS NULL (mig079). FK slug→pages; the stub row survives
     // (soft-delete), so the re-point is a plain column move.
+    //
+    // Body-derived rows are dropped, not moved: they mirror the stub's body,
+    // which this merge retires, and their `body-timeline:<stub>:` key would sit
+    // outside the canonical page's reconcile prefix, so no later write could
+    // ever remove them. The canonical's own body rows are already current.
+    await tx.query(
+      `DELETE FROM timeline_events
+        WHERE slug = $1 AND source_id = $2
+          AND starts_with(source_chunk_id, $3)`,
+      [fromSlug, owner, BODY_TIMELINE_KEY_PREFIX],
+    );
     await tx.query(
       `DELETE FROM timeline_events s
         WHERE s.slug = $1 AND s.source_id = $3

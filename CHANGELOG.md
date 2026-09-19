@@ -20,7 +20,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   events. `page_put` reports `body_timeline: {derived, added, removed}` when
   anything was derived or removed. On by default; `MEMEX_BODY_TIMELINE=0`
   turns it off. Pages written before this release are picked up on their next
-  write.
+  write. Bullets and headers are kept ahead of citations when a page hits the
+  cap, a write only inserts events new to the body, and merging a page onto
+  another drops the merged page's body-derived events instead of carrying them
+  over as duplicates.
 
 ### Changed
 - **The cycle report is versioned.** The JSON from `memex cycle` now carries

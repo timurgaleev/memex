@@ -17,6 +17,7 @@ import {
   syncBodyTimelineForPage,
 } from "../src/core/timeline-body.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
+import { mergePage } from "../src/core/entity-merge.ts";
 
 setDefaultTimeout(30000);
 
@@ -89,13 +90,36 @@ describe("parseBodyTimeline", () => {
   it("extracts bullets, a ### header and citations", () => {
     const evs = parseBodyTimeline(BODY);
     expect(evs.map((e) => [e.kind, e.date, e.event])).toEqual([
-      ["citation", "2026-01-15", "Intro prose."],
       ["bullet", "2026-02-01", "Contract drafted"],
       ["bullet", "2026-02-10", "Contract signed"],
       ["header", "2026-03-02", "Kickoff"],
+      ["citation", "2026-01-15", "Intro prose."],
       ["citation", "2026-03-02", "Team met."],
     ]);
-    expect(evs[0]!.detail).toBe("Source: Board memo");
+    expect(evs[3]!.detail).toBe("Source: Board memo");
+  });
+
+  it("keeps Timeline bullets and headers when citations above them exceed the cap", () => {
+    const cited = Array.from(
+      { length: 250 },
+      (_, i) => `Claim ${i}. [Source: Memo ${i}, 2025-01-${String((i % 28) + 1).padStart(2, "0")}]`,
+    );
+    const body = [
+      "# Page",
+      ...cited,
+      "### 2026-04-01 — Review",
+      "## Timeline",
+      "- 2026-05-01 — First",
+      "- 2026-05-02 — Second",
+    ].join("\n");
+    const evs = parseBodyTimeline(body);
+    expect(evs).toHaveLength(200);
+    expect(evs.slice(0, 3).map((e) => [e.kind, e.event])).toEqual([
+      ["header", "Review"],
+      ["bullet", "First"],
+      ["bullet", "Second"],
+    ]);
+    expect(evs.filter((e) => e.kind === "citation")).toHaveLength(197);
   });
 
   it("accepts the colon bullet form", () => {
@@ -250,6 +274,51 @@ describe("write paths", () => {
       markdown_body: BODY.replace("- 2026-02-01 — Contract drafted\n", ""),
     });
     expect(edited["body_timeline"]).toEqual({ derived: 4, added: 0, removed: 1 });
+  });
+
+  it("an append that adds one bullet performs exactly one insert", async () => {
+    const log = ["# Log", "", "## Timeline", ...Array.from(
+      { length: 50 },
+      (_, i) => `- 2026-01-${String((i % 28) + 1).padStart(2, "0")} — Entry ${i}`,
+    )].join("\n");
+    await callTool("page_put", { slug: SLUG, type: "note", markdown_body: log });
+    expect(await rows()).toHaveLength(50);
+
+    const engine = storage.engine();
+    const original = engine.query.bind(engine);
+    let inserts = 0;
+    engine.query = (async (sql: string, params?: unknown[]) => {
+      if (/INSERT INTO timeline_events/.test(sql)) inserts += 1;
+      return original(sql, params);
+    }) as typeof engine.query;
+    try {
+      await callTool("page_append", { slug: SLUG, content: "- 2026-02-01 — Entry new" });
+    } finally {
+      engine.query = original;
+    }
+    expect(inserts).toBe(1);
+    expect(await rows()).toHaveLength(51);
+  });
+
+  it("a merge drops the stub's body rows so the canonical shows a shared bullet once", async () => {
+    const bullet = "## Timeline\n- 2026-02-01 — Contract drafted\n";
+    await callTool("page_put", { slug: SLUG, type: "note", markdown_body: `# Apollo\n\n${bullet}` });
+    await callTool("page_put", { slug: "apollo", type: "note", markdown_body: `# Stub\n\n${bullet}` });
+    await addTimelineEvent(storage, { slug: "apollo", occurred_at: "2026-02-03", event: "Manual note" });
+
+    const merged = await mergePage(storage, "apollo", SLUG);
+    expect(merged.merged).toBe(true);
+    const afterMerge = await rows();
+    expect(afterMerge.map((r) => r.event).sort()).toEqual(["Contract drafted", "Manual note"]);
+
+    await callTool("page_put", {
+      slug: SLUG,
+      type: "note",
+      markdown_body: `# Apollo\n\nEdited intro.\n\n${bullet}`,
+    });
+    const drafted = (await rows()).filter((r) => r.event === "Contract drafted");
+    expect(drafted).toHaveLength(1);
+    expect(drafted[0]!.source_chunk_id!.startsWith(`body-timeline:${SLUG}:`)).toBe(true);
   });
 
   it("a page without dated lines keeps its page_put result unchanged", async () => {

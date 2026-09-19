@@ -152,9 +152,14 @@ function cleanEventText(s: string): string {
  * Parse the dated lines of a page body. Code spans and fences are masked first,
  * dates are validated as calendar days, events are capped at 500 chars and
  * deduplicated on (date, event), and at most 200 events are returned.
+ *
+ * Bullets and headers claim the cap before citations: a vault page usually
+ * cites a source on nearly every line of its compiled truth above a trailing
+ * `## Timeline`, and those citations must not crowd out the section itself.
  */
 export function parseBodyTimeline(body: string): BodyTimelineEvent[] {
   const out: BodyTimelineEvent[] = [];
+  const citations: BodyTimelineEvent[] = [];
   const seen = new Set<string>();
   const push = (ev: BodyTimelineEvent): boolean => {
     if (!ev.event) return true;
@@ -163,6 +168,15 @@ export function parseBodyTimeline(body: string): BodyTimelineEvent[] {
     seen.add(key);
     out.push(ev);
     return out.length < MAX_EVENTS_PER_PAGE;
+  };
+  // Held back until the scan ends; more than the cap can never be used.
+  const citationSeen = new Set<string>();
+  const pushCitation = (ev: BodyTimelineEvent): void => {
+    if (!ev.event || citations.length >= MAX_EVENTS_PER_PAGE) return;
+    const key = `${ev.date}|${ev.event}`;
+    if (citationSeen.has(key)) return;
+    citationSeen.add(key);
+    citations.push(ev);
   };
 
   const scannable = stripCodeBlocks(body.slice(0, MAX_SCAN_LEN));
@@ -207,8 +221,11 @@ export function parseBodyTimeline(body: string): BodyTimelineEvent[] {
     const text = cleanEventText(stripped.replace(/^#{1,6}\s/, ""));
     for (const s of spans) {
       const event = text || s.detail.slice(0, MAX_EVENT_LEN);
-      if (!push({ kind: "citation", date: s.date, event, detail: s.detail })) return out;
+      pushCitation({ kind: "citation", date: s.date, event, detail: s.detail });
     }
+  }
+  for (const ev of citations) {
+    if (!push(ev)) break;
   }
   return out;
 }
@@ -247,18 +264,34 @@ export async function syncBodyTimelineForPage(
       keyed.map((k) => k.key),
     ];
     if (sourceId) params.push(sourceId);
-    const del = await storage.engine().query<{ id: number }>(
-      `DELETE FROM timeline_events
+    // One statement both drops the stale keys and reports the kept ones, so
+    // only events new to this body pay for an insert: an append that adds one
+    // bullet to a long log page costs one insert, not one per event.
+    const diff = await storage.engine().query<{ source_chunk_id: string; stale: boolean }>(
+      `WITH del AS (
+         DELETE FROM timeline_events
+          WHERE slug = $1
+            AND starts_with(source_chunk_id, $2)
+            AND NOT (source_chunk_id = ANY($3::text[]))
+            ${sourceId ? "AND source_id = $4" : ""}
+          RETURNING source_chunk_id
+       )
+       SELECT source_chunk_id, true AS stale FROM del
+       UNION ALL
+       SELECT source_chunk_id, false AS stale FROM timeline_events
         WHERE slug = $1
-          AND starts_with(source_chunk_id, $2)
-          AND NOT (source_chunk_id = ANY($3::text[]))
-          ${sourceId ? "AND source_id = $4" : ""}
-        RETURNING id`,
+          AND source_chunk_id = ANY($3::text[])
+          ${sourceId ? "AND source_id = $4" : ""}`,
       params,
     );
-    result.removed = del.rows.length;
+    const present = new Set<string>();
+    for (const r of diff.rows) {
+      if (r.stale) result.removed += 1;
+      else present.add(r.source_chunk_id);
+    }
     result.derived = keyed.length;
     for (const { ev, key } of keyed) {
+      if (present.has(key)) continue;
       try {
         const r = await addTimelineEvent(storage, {
           slug,

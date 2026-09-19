@@ -2209,7 +2209,11 @@ headers and `[Source: X, YYYY-MM-DD]` citations into `timeline_events` from
 `page_put`, `page_append` and `page_revert`, keyed
 `body-timeline:<slug>:<hash16>` and reconciled by a keyed diff (no migration,
 no LLM, default on, `MEMEX_BODY_TIMELINE=0` off, diary pages skipped, 200
-events per page). Still open: a backfill for pages not rewritten since (a
+events per page). Review fixes: a merge drops the stub's body-derived rows
+instead of moving them outside the canonical's reconcile prefix, bullets and
+headers claim the 200-event cap before citations, and a write inserts only
+keys new to the body (one statement diffs, so an append of one bullet is one
+insert). Still open: a backfill for pages not rewritten since (a
 timeline arm in `memex extract --stale` or a dedicated command), non-ISO and
 CJK date forms, the `md5(event)` dedup index (10 KB events), link breadth,
 gazetteer hardening, the enrichment service, phantom-page redirects,
