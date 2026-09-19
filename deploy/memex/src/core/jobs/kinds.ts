@@ -7,3 +7,9 @@ export const CHRONICLE_EXTRACT_JOB_KIND = "chronicle_extract";
 export const INGEST_CAPTURE_JOB_KIND = "ingest_capture";
 export const REMEDIATION_JOB_KIND = "remediation";
 export const PAGE_MIRROR_JOB_KIND = "page_mirror";
+/**
+ * The operator's agent loop. Deliberately NOT in BUILTIN_JOB_KINDS: it is
+ * accepted only by a process that registered its handler, which serve does
+ * only when MEMEX_AGENT_ENABLED=1, so a disabled install refuses the submit.
+ */
+export const SUBAGENT_JOB_KIND = "subagent";

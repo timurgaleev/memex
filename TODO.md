@@ -1693,6 +1693,30 @@ listed; `agent logs` renders a transcript; second-opinion and
 RM-22 and lifted the "Not planned" mark on the server-side runtime. It stays
 opt-in (`MEMEX_AGENT_ENABLED=1`) and spend-capped.
 
+**Progress.** Release A (unreleased, not yet deployed) ships the read-only
+loop: `src/core/llm/converse.ts` (multi-turn Converse with `toolConfig`,
+tool-result pairing repair, booked through `trackedInvoke` as `agent`),
+`src/core/agent/{tools,runner,handler}.ts`, the `subagent` job kind registered
+only under `MEMEX_AGENT_ENABLED=1`, `memex agent run|logs`, and migration 114
+binding each ledger tool row to its `tool_use_id` and claim generation. The
+allowlist is ten read ops dispatched as the operator (`_meta` dropped, output
+capped at 16 KB); it includes four content reads the public ingress forbids
+(`get_chunks`, `get_links`, `get_tags`, `resolve_slugs`) and no write. The
+per-job cap is min(payload, `MEMEX_AGENT_MAX_USD`, $0.25 default) seeded from
+`jobs.cost_usd`; the reserve estimate is the previous call's reported tokens
+plus one token per byte of what was appended since. Tests cover a resume after
+a mid-tool kill (one ledger row per finished tool, zero re-dispatches), a
+foreign pending row skipped, the budget seed, terminal stop reasons and the
+turn cap. Done-when items met in code: SIGKILL resume, allowlist excluding
+every public-forbidden write, `agent logs`. Still open: the live $0.25 Bedrock
+fixture run plus `/codex` and `security-engineer` review before deploy; fenced
+writes and oneshot synthesis (release B, with the hallucinated-wikilink item);
+fan-out and per-tree budgets; an MCP status op; definitions in
+`MEMEX_AGENT_DEFINITIONS_DIR`; error clustering and self-fix; cache points;
+per-turn lease permits and heartbeats; charging in-tool paid calls (search
+embeddings) to the job cap; the one-call under-count when a billed Converse
+call is killed before `recordUsage`.
+
 ### RM-14 — Transcript and chat ingestion pipeline
 
 **Why.** The operator's decisions and facts live in agent sessions and chat

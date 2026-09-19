@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A read-only agent loop for the operator (off by default).** With
+  `MEMEX_AGENT_ENABLED=1`, `memex agent run "<task>" [--max-usd X] [--wait]`
+  queues a `subagent` job: a multi-turn Bedrock Converse loop that can call ten
+  read tools (`search`, `page_get`, `page_list`, `get_links`, `backlinks`,
+  `get_tags`, `get_chunks`, `entity_recall`, `entity_facts`, `resolve_slugs`)
+  and nothing that writes. Each job is capped at the lower of `--max-usd` and
+  `MEMEX_AGENT_MAX_USD` (default $0.25), stops after 12 turns, and books every
+  model call in the spend ledger under `agent`. Every turn and tool call is
+  written to the ledger first, so a job resumed after a crash does not run a
+  finished tool again and never re-runs a half-done one. `memex agent logs
+  <job-id>` prints the transcript. No MCP tool is added.
+
 ### Fixed
 - **Code symbol lookups keep their data through the maintenance cycle.** The
   entity re-extract deleted every mention on a chunk but re-created only

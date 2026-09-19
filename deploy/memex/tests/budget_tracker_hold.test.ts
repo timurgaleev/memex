@@ -56,3 +56,21 @@ describe("a hold", () => {
     expect(budget.reserve(HAIKU, { inputTokens: 1000, outputTokens: 0 })).toBeNull();
   });
 });
+
+describe("a tracker seeded with earlier spend", () => {
+  // $0.02 of Haiku input: 20,000 tokens at $1 per 1M.
+  const TWO_CENTS = { inputTokens: 20_000, outputTokens: 0 };
+
+  it("counts the seed against the cap", () => {
+    const resumed = new BudgetTracker(0.25, "agent", 0.24);
+    expect(resumed.totalSpent()).toBeCloseTo(0.24, 9);
+    expect(resumed.reserve(HAIKU, TWO_CENTS)).toBeNull();
+    // The same reserve fits a fresh tracker: the seed is what refused it.
+    expect(new BudgetTracker(0.25, "agent").reserve(HAIKU, TWO_CENTS)).not.toBeNull();
+  });
+
+  it("ignores a negative or non-finite seed", () => {
+    expect(new BudgetTracker(0.25, "agent", -1).totalSpent()).toBe(0);
+    expect(new BudgetTracker(0.25, "agent", Number.NaN).totalSpent()).toBe(0);
+  });
+});

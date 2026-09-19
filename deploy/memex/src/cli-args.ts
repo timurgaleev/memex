@@ -73,6 +73,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--stdin",
   "--strict",
   "--verify-only",
+  "--wait",
   "--with-calibration",
   "--write-baseline",
   "--yes",
@@ -262,6 +263,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["lint", new Set(["--dry-run", "--fix"])],
   ["reports", new Set(["--since"])],
   ["spend", new Set(["--days"])],
+  ["agent", new Set(["--max-usd", "--wait"])],
   ["skillpack", new Set(["--dir", "--json", "--out"])],
   [
     "migrate-engine",

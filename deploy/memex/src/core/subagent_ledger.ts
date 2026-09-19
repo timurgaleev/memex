@@ -1,16 +1,15 @@
 /**
- * Subagent durable ledger (Phase A.5).
+ * Subagent durable ledger.
  *
- * Used by the future subagent runner to write every conversation
- * turn and every tool execution into Postgres so a crash mid-run
- * can replay deterministically: the supervisor reads the message
- * log to rebuild context, and the tool_executions log to decide
- * which calls have already happened and don't need re-running.
+ * The agent runner (`core/agent/runner.ts`) writes every conversation turn and
+ * every tool execution here so a crash mid-run can replay deterministically:
+ * it reads the message log to rebuild context, and the tool_executions log to
+ * decide which calls have already happened and don't need re-running.
  *
- * No MCP surface in A.5 -- schema + thin CRUD only. The runner
- * itself + its MCP exposure lands in a later phase.
+ * There is no MCP surface: the runner is reached through the `subagent` job
+ * kind and `memex agent run|logs`.
  *
- * SECURITY (read before wiring A.6 MCP tools):
+ * SECURITY (read before adding any MCP read of these tables):
  *   * `subagent_messages.content` is the raw Bedrock Converse
  *     payload -- system prompts, tool inputs that may carry
  *     OAuth tokens / Bearer tokens / file contents, and model
@@ -146,6 +145,10 @@ export interface BeginToolExecutionInput {
   turn_num: number;
   tool_name: string;
   input: Record<string, unknown>;
+  /** The model's toolUse id; unique per job once set (migration 114). */
+  tool_use_id?: string;
+  /** jobs.claim_generation of the attempt that begins the call. */
+  run_generation?: number;
 }
 
 export interface ToolExecutionRow {
@@ -157,27 +160,35 @@ export interface ToolExecutionRow {
   output: unknown;
   status: ToolExecStatus;
   error: string | null;
+  tool_use_id: string | null;
+  run_generation: number | null;
   started_at: string;
   finished_at: string | null;
 }
 
+const TOOL_EXEC_COLS = `id, job_id, turn_num, tool_name, input, output,
+            status, error, tool_use_id, run_generation,
+            started_at::text AS started_at,
+            finished_at::text AS finished_at`;
+
 /**
- * Insert a `pending` execution row BEFORE invoking the tool. The
- * supervisor's crash-recovery sweep scans pending rows older than
- * a timeout and decides whether to retry or skip them.
+ * Insert a `pending` execution row BEFORE invoking the tool.
  *
- * TOCTOU constraint for the future supervisor (A.6+): bind each
- * pending row to a `supervisor_run_id`/`worker_id` and only that
- * worker may retry it on resume. Cross-worker pending rows MUST
- * be `skipped`, not re-executed -- otherwise a single
- * internal-token holder who can write a pending row causes the
- * next sweep to invoke `tool_name` with their forged `input`,
- * effectively a stored-command injection into the agent loop.
+ * With a `tool_use_id` the insert is idempotent: a second begin for the same
+ * (job, tool_use_id) inserts nothing and returns the row that is already
+ * there with `inserted: false`, so a resumed attempt looks at what an earlier
+ * one did instead of running the call twice.
+ *
+ * TOCTOU constraint: each pending row carries the `run_generation` that began
+ * it, and only that attempt may finish it. A pending row from any other
+ * generation MUST be `skipped`, not re-executed -- otherwise whoever can write
+ * a pending row causes the next resume to invoke `tool_name` with their
+ * forged `input`, effectively a stored-command injection into the agent loop.
  */
 export async function beginToolExecution(
   storage: Storage,
   input: BeginToolExecutionInput,
-): Promise<{ id: number }> {
+): Promise<{ id: number; inserted: boolean; existing?: ToolExecutionRow }> {
   if (!input.job_id) throw new Error("job_id is required");
   if (!Number.isInteger(input.turn_num) || input.turn_num < 0) {
     throw new Error("turn_num must be a non-negative integer");
@@ -190,15 +201,48 @@ export async function beginToolExecution(
       `tool_name exceeds ${MAX_TOOL_NAME_LEN} chars (${input.tool_name.length})`,
     );
   }
+  const toolUseId = input.tool_use_id ?? null;
+  if (toolUseId !== null && (toolUseId.length === 0 || toolUseId.length > MAX_TOOL_NAME_LEN)) {
+    throw new Error(`tool_use_id must be 1-${MAX_TOOL_NAME_LEN} chars`);
+  }
+  const runGeneration = input.run_generation ?? null;
+  if (runGeneration !== null && !Number.isInteger(runGeneration)) {
+    throw new Error("run_generation must be an integer");
+  }
   const inputJson = serialiseBounded(input.input, "input");
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO subagent_tool_executions
-       (job_id, turn_num, tool_name, input, status)
-     VALUES ($1, $2, $3, $4::text::jsonb, 'pending')
+       (job_id, turn_num, tool_name, input, status, tool_use_id, run_generation)
+     VALUES ($1, $2, $3, $4::text::jsonb, 'pending', $5, $6)
+     ON CONFLICT (job_id, tool_use_id) WHERE tool_use_id IS NOT NULL DO NOTHING
      RETURNING id`,
-    [input.job_id, input.turn_num, input.tool_name, inputJson],
+    [input.job_id, input.turn_num, input.tool_name, inputJson, toolUseId, runGeneration],
   );
-  return { id: r.rows[0]!.id };
+  if (r.rows[0]) return { id: r.rows[0].id, inserted: true };
+  const existing =
+    toolUseId === null ? null : await findToolExecution(storage, input.job_id, toolUseId);
+  if (!existing) {
+    throw new Error(
+      `beginToolExecution: ON CONFLICT fired but no row for ` +
+        `(job_id=${input.job_id}, tool_use_id=${toolUseId}); likely a CASCADE delete race`,
+    );
+  }
+  return { id: existing.id, inserted: false, existing };
+}
+
+/** The execution row for one toolUse of a job, or null when none was begun. */
+export async function findToolExecution(
+  storage: Storage,
+  jobId: string,
+  toolUseId: string,
+): Promise<ToolExecutionRow | null> {
+  const r = await storage.engine().query<ToolExecutionRow>(
+    `SELECT ${TOOL_EXEC_COLS}
+       FROM subagent_tool_executions
+       WHERE job_id = $1 AND tool_use_id = $2`,
+    [jobId, toolUseId],
+  );
+  return r.rows[0] ?? null;
 }
 
 export interface FinishToolExecutionInput {
@@ -270,13 +314,10 @@ export async function listToolExecutions(
 ): Promise<ToolExecutionRow[]> {
   const limit = clampLimit(opts.limit);
   const r = await storage.engine().query<ToolExecutionRow>(
-    `SELECT id, job_id, turn_num, tool_name, input, output,
-            status, error,
-            started_at::text AS started_at,
-            finished_at::text AS finished_at
+    `SELECT ${TOOL_EXEC_COLS}
        FROM subagent_tool_executions
        WHERE job_id = $1
-       ORDER BY turn_num ASC, started_at ASC
+       ORDER BY turn_num ASC, started_at ASC, id ASC
        LIMIT $2`,
     [jobId, limit],
   );

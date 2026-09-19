@@ -55,6 +55,7 @@ import { runPages } from "./commands/pages.ts";
 import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
 import { runSpend } from "./commands/spend.ts";
+import { runAgentCli } from "./commands/agent.ts";
 import { runSkillpack, runSkillpackLint } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
@@ -198,6 +199,9 @@ function printUsage(): void {
   console.log("                               DB frontmatter conformance (no target) or file lint with auto-repair");
   console.log("  reports [--since H]          trend report from cycle_snapshots");
   console.log("  spend [--days N]             LLM spend by model, feature and spender");
+  console.log("  agent run <task> [--max-usd X] [--wait]");
+  console.log("                               queue a read-only agent job (needs MEMEX_AGENT_ENABLED=1); prints its id");
+  console.log("  agent logs <job-id>          render an agent job's transcript and tool calls");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  skillpack lint [--json] [--dir PATH]");
   console.log("                               check every tool and memex command the skill pack names exists");
@@ -1317,6 +1321,25 @@ async function main(argv: readonly string[]): Promise<number> {
       }
       await runSpend(days === undefined ? {} : { days });
       return 0;
+    }
+    case "agent": {
+      const opts: Parameters<typeof runAgentCli>[0] = { sub: positional[0] };
+      if (positional[0] === "run") {
+        const task = positional[1];
+        if (task !== undefined) opts.task = task;
+        const maxUsdStr = values.get("--max-usd");
+        if (maxUsdStr !== undefined) {
+          const n = Number(maxUsdStr);
+          if (!Number.isFinite(n) || n <= 0) {
+            throw new Error(`memex agent run: invalid --max-usd ${maxUsdStr}`);
+          }
+          opts.maxUsd = n;
+        }
+        if (flags.has("--wait")) opts.wait = true;
+      } else if (positional[1] !== undefined) {
+        opts.jobId = positional[1];
+      }
+      return await runAgentCli(opts);
     }
     case "skillpack": {
       if (positional[0] === "lint") {

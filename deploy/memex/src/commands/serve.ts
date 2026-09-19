@@ -14,6 +14,7 @@ import { Queue } from "../core/jobs/queue.ts";
 import { registerRemediationHandlers } from "../core/jobs/remediation-handlers.ts";
 import { registerChronicleHandler } from "../core/jobs/chronicle-handler.ts";
 import { registerPageMirrorHandler } from "../core/jobs/page-mirror-handler.ts";
+import { registerSubagentHandlerIfEnabled } from "../core/agent/handler.ts";
 import { registerIngestCaptureHandler } from "../http/ingest.ts";
 import { registerSource } from "../core/sources.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
@@ -343,6 +344,11 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Register the `page_mirror` handler: with MEMEX_PAGE_MIRROR_SYNC=0 the write
   // path queues the search mirror instead of running it inline.
   registerPageMirrorHandler(storage);
+  // The operator's agent loop runs only when opted in: without the handler a
+  // `subagent` submit is refused as an unknown kind.
+  if (registerSubagentHandlerIfEnabled(storage)) {
+    console.log("[memex] agent loop enabled (subagent jobs, read-only tools)");
+  }
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
   worker.start();
   console.log(

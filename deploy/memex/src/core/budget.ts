@@ -125,14 +125,22 @@ export interface BudgetHold {
 }
 
 export class BudgetTracker {
-  private spent = 0;
+  private spent: number;
   private held = 0;
   private calls = 0;
 
+  /**
+   * `initialSpentUsd` seeds what has already been spent against this cap in an
+   * earlier process — a resumed job starts from its persisted cost, not from
+   * zero, so a crash cannot hand it a fresh budget.
+   */
   constructor(
     private readonly maxCostUsd: number,
     private readonly label: string = "facts-extract",
-  ) {}
+    initialSpentUsd = 0,
+  ) {
+    this.spent = Number.isFinite(initialSpentUsd) && initialSpentUsd > 0 ? initialSpentUsd : 0;
+  }
 
   /** Would recording this model's call (best-effort cost) exceed the cap? Used
    *  to skip a call BEFORE spending when the prior spend already left no room.

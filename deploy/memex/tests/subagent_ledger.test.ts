@@ -11,6 +11,7 @@ import {
   appendMessage,
   beginToolExecution,
   finishToolExecution,
+  findToolExecution,
   listMessages,
   listToolExecutions,
 } from "../src/core/subagent_ledger.ts";
@@ -198,5 +199,76 @@ describe("tool executions", () => {
     await storage.engine().exec(`DELETE FROM jobs WHERE id = '${job}'`);
     const r = await listToolExecutions(storage, job);
     expect(r.length).toBe(0);
+  });
+});
+
+describe("tool executions bound to a tool-use id (migration 114)", () => {
+  it("a second begin for the same tool_use_id returns the existing row", async () => {
+    const job = await newJob();
+    const first = await beginToolExecution(storage, {
+      job_id: job,
+      turn_num: 1,
+      tool_name: "search",
+      input: { q: "x" },
+      tool_use_id: "tooluse_a",
+      run_generation: 1,
+    });
+    expect(first.inserted).toBe(true);
+    const again = await beginToolExecution(storage, {
+      job_id: job,
+      turn_num: 1,
+      tool_name: "page_get",
+      input: { slug: "forged" },
+      tool_use_id: "tooluse_a",
+      run_generation: 2,
+    });
+    expect(again.inserted).toBe(false);
+    expect(again.id).toBe(first.id);
+    // The replay never overwrites what the first begin recorded.
+    expect(again.existing!.tool_name).toBe("search");
+    expect(again.existing!.run_generation).toBe(1);
+    expect((await listToolExecutions(storage, job)).length).toBe(1);
+  });
+
+  it("run_generation and tool_use_id round-trip; findToolExecution looks a call up", async () => {
+    const job = await newJob();
+    await beginToolExecution(storage, {
+      job_id: job,
+      turn_num: 3,
+      tool_name: "get_links",
+      input: { slug: "a" },
+      tool_use_id: "tooluse_b",
+      run_generation: 7,
+    });
+    const row = await findToolExecution(storage, job, "tooluse_b");
+    expect(row).not.toBeNull();
+    expect(row!.run_generation).toBe(7);
+    expect(row!.tool_use_id).toBe("tooluse_b");
+    expect(row!.status).toBe("pending");
+    expect(await findToolExecution(storage, job, "tooluse_missing")).toBeNull();
+  });
+
+  it("the same tool_use_id under another job is a separate row", async () => {
+    const a = await newJob();
+    const b = await newJob();
+    const ra = await beginToolExecution(storage, {
+      job_id: a, turn_num: 1, tool_name: "x", input: {}, tool_use_id: "tooluse_c",
+    });
+    const rb = await beginToolExecution(storage, {
+      job_id: b, turn_num: 1, tool_name: "x", input: {}, tool_use_id: "tooluse_c",
+    });
+    expect(ra.inserted).toBe(true);
+    expect(rb.inserted).toBe(true);
+    expect(ra.id).not.toBe(rb.id);
+  });
+
+  it("rows without a tool_use_id never conflict", async () => {
+    const job = await newJob();
+    await beginToolExecution(storage, { job_id: job, turn_num: 0, tool_name: "x", input: {} });
+    await beginToolExecution(storage, { job_id: job, turn_num: 0, tool_name: "x", input: {} });
+    const rows = await listToolExecutions(storage, job);
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.tool_use_id).toBeNull();
+    expect(rows[0]!.run_generation).toBeNull();
   });
 });
