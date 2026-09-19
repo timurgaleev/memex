@@ -16,6 +16,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   frontmatter through one parser, and `skillify check` validates the pack
   contract (`name`, `triggers`, `tools`, with `title`/`tags` still accepted),
   finds `<slug>/SKILL.md` skills and warns on a tool that does not exist.
+- **Search says when it ran degraded.** `search` and `query` responses carry
+  a `meta` block: whether the vector arm ran, and `degraded[]` reason codes
+  (`embed_timeout`, `vector_arm_failed`, `keyword_zero`, `budget_truncated`).
+  An empty result from a Bedrock embed timeout no longer looks like an empty
+  brain. Operators and tenants also get intent, mode, cache state and the
+  retrieved/returned counts. Public ingress gets only the vector flag and the
+  reason codes, never counts. `memex search` prints the meta in its JSON and
+  explains an empty result on stderr. Ranking and the hits are unchanged.
 
 ### Fixed
 - **The skill pack no longer tells agents to run commands memex does not

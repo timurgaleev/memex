@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { hybridSearch } from "../src/core/search/index.ts";
+import type { SearchMeta } from "../src/core/search/search-meta.ts";
 import { deterministicEmbed, deterministicEmbedQuery } from "./det-embed.ts";
 
 const CORPUS: { id: string; content: string }[] = [
@@ -54,6 +55,8 @@ afterAll(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
+let lastMeta: SearchMeta | undefined;
+
 const search = (embedQuery: (text: string) => Promise<number[]>) =>
   hybridSearch(storage, "zigbee pairing setup", {
     k: 5,
@@ -61,6 +64,9 @@ const search = (embedQuery: (text: string) => Promise<number[]>) =>
     noExpansion: true,
     noCache: true,
     embedQuery,
+    onMeta: (m) => {
+      lastMeta = m;
+    },
   });
 
 describe("bounded query-embed deadline", () => {
@@ -70,17 +76,22 @@ describe("bounded query-embed deadline", () => {
     });
     expect(result.length).toBeGreaterThan(0);
     expect(result.map((h) => toDocId(h.chunkId))).toContain("doc_zigbee");
+    expect(lastMeta?.degraded).toEqual(["vector_arm_failed"]);
   });
 
   it("falls back to keyword-only when the embedder never settles", async () => {
     const result = await search(() => new Promise<number[]>(() => {}));
     expect(result.length).toBeGreaterThan(0);
     expect(result.map((h) => toDocId(h.chunkId))).toContain("doc_zigbee");
+    expect(lastMeta?.degraded).toEqual(["embed_timeout"]);
+    expect(lastMeta?.vectorEnabled).toBe(false);
   }, 15_000);
 
   it("the control embedder succeeds (vector arm runs)", async () => {
     const result = await search(deterministicEmbedQuery);
     expect(result.length).toBeGreaterThan(0);
     expect(toDocId(result[0]!.chunkId)).toBe("doc_zigbee");
+    expect(lastMeta?.degraded).toEqual([]);
+    expect(lastMeta?.vectorEnabled).toBe(true);
   });
 });

@@ -1517,6 +1517,23 @@ cache entry; a slug query returns the page at rank 1 against a stronger body
 match elsewhere; a relational fixture keeps the edge answer in the top 3 with
 rerank on; `weak` fires on a no-answer fixture and `strong` on an exact match.
 
+**Progress.** Release 1 (honest degradation, no ranking change):
+`core/search/search-meta.ts` defines `SearchMeta` and the closed six-code
+vocabulary; `hybridSearch` reports it through an `onMeta` side channel and
+emits `embed_timeout` (a `QueryEmbedDeadlineError` or the deadline's abort),
+`vector_arm_failed`, `keyword_zero` and `budget_truncated`. `search`/`query`
+return `meta` (public ingress: `vectorEnabled` + `degraded` only, keyed on
+the ingress so `MEMEX_PUBLIC_READ_BODIES` cannot leak counts); `memex search`
+prints it and explains an empty result on stderr. Degraded runs are still
+never cached, so a cache hit reports `vectorEnabled:true`. Still open:
+emitting `expansion_failed`/`rerank_skipped` (the expander and rerankers fail
+open internally), the 60 s degraded cache entry (needs a `query_cache`
+migration), meta on the `query` `refine` path, pool underfill, AND→OR relaxed
+retry, fusion roles/variants and the pool floor, keyword confidence and the
+boost gate, the exact-lookup tier, supersede downrank and rerank pin, the
+confidence grade, snippet cap, filter pushdown, degraded counts in telemetry,
+`search_stats`/`search_modes`/`cache_stats` ops, and the CJK stretch.
+
 ### RM-12 — Ambient recall and session context
 
 **Why.** The brain helps an agent most when context arrives without the agent

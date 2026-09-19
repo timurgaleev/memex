@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import type { ToolCallResult } from "../src/mcp/dispatch.ts";
+import type { AuthInfo } from "../src/core/auth-info.ts";
 // Capture the real search exports by VALUE at file-load time — BEFORE
 // beforeAll's `mock.module` swaps them. A live `import * as` namespace would
 // point at the mock after the swap; spreading into a plain object here copies
@@ -32,6 +33,16 @@ const _realSearchExports = { ..._searchNs };
 
 const SECRET = "Confidential chunk body — Q3 revenue 4.2M, churn 12%.";
 
+const STUB_META = {
+  vectorEnabled: false,
+  intent: "topic",
+  mode: "conservative",
+  cache: "miss",
+  degraded: ["embed_timeout"],
+  retrieved: 7,
+  returned: 2,
+};
+
 let tmp: string;
 let storage: Storage;
 let dispatchTool: typeof import("../src/mcp/dispatch.ts")["dispatchTool"];
@@ -43,7 +54,13 @@ beforeAll(async () => {
   //  - a body field (`content`) and two non-allowlisted fields (`intent`,
   //    `snippet`) so we prove the fail-safe strips bodies AND novel keys.
   mock.module("../src/core/search/index.ts", () => ({
-    hybridSearch: async () => [
+    hybridSearch: async (
+      _storage: unknown,
+      _q: string,
+      opts: { onMeta?: (m: typeof STUB_META) => void },
+    ) => {
+      opts.onMeta?.(STUB_META);
+      return [
       {
         chunkId: "chunk-1",
         documentId: "doc-1",
@@ -70,7 +87,8 @@ beforeAll(async () => {
         score: 0.88,
         intent: "topic",
       },
-    ],
+    ];
+    },
   }));
   ({ dispatchTool } = await import("../src/mcp/dispatch.ts"));
 
@@ -188,6 +206,49 @@ describe("dispatchTool search redaction", () => {
   });
 });
 
+describe("dispatchTool search/query meta", () => {
+  const tenant = {
+    authInfo: {
+      token: "t",
+      clientId: "tenant-client",
+      scopes: ["read"],
+      isPublic: false,
+      allowedSources: ["default"],
+    } as AuthInfo,
+  };
+
+  it("public search gets reason codes only, never counts", async () => {
+    const out = payload(
+      await dispatchTool(
+        storage,
+        { name: "search", arguments: { q: "revenue" } },
+        { isPublic: true },
+      ),
+    );
+    expect(out.meta).toEqual({ vectorEnabled: false, degraded: ["embed_timeout"] });
+  });
+
+  it("operator search gets the full meta with returned re-counted", async () => {
+    const out = payload(
+      await dispatchTool(storage, { name: "search", arguments: { q: "revenue" } }),
+    );
+    expect(out.meta).toEqual({ ...STUB_META, returned: out.hits.length });
+  });
+
+  it("query returns meta for the operator and a tenant", async () => {
+    const op = payload(
+      await dispatchTool(storage, { name: "query", arguments: { q: "revenue" } }),
+    );
+    expect(op.meta).toEqual({ ...STUB_META, returned: op.hits.length });
+    const ten = payload(
+      await dispatchTool(storage, { name: "query", arguments: { q: "revenue" } }, tenant),
+    );
+    expect(ten.meta.degraded).toEqual(["embed_timeout"]);
+    expect(ten.meta.retrieved).toBe(7);
+    expect(ten.meta.returned).toBe(ten.hits.length);
+  });
+});
+
 describe("dispatchTool search MEMEX_PUBLIC_READ_BODIES opt-in", () => {
   // Mutates a process-global env var; relies on Bun running tests within a
   // file serially (the default) so the toggle does not bleed elsewhere.
@@ -209,5 +270,16 @@ describe("dispatchTool search MEMEX_PUBLIC_READ_BODIES opt-in", () => {
       ),
     );
     expect(out.hits[0].content).toBe(SECRET);
+  });
+
+  it("public meta stays counts-free even when bodies are opted in", async () => {
+    const out = payload(
+      await dispatchTool(
+        storage,
+        { name: "search", arguments: { q: "revenue" } },
+        { isPublic: true },
+      ),
+    );
+    expect(out.meta).toEqual({ vectorEnabled: false, degraded: ["embed_timeout"] });
   });
 });

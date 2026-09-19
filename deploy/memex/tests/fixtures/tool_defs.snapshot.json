@@ -1,7 +1,7 @@
 [
   {
     "name": "search",
-    "description": "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted.",
+    "description": "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted. The response carries `meta`: `vectorEnabled` plus `degraded[]` reason codes (embed_timeout, vector_arm_failed, keyword_zero, budget_truncated) that tell an empty brain from a degraded run; non-public callers also get intent, mode, cache, retrieved and returned.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1319,7 +1319,7 @@
   },
   {
     "name": "query",
-    "description": "Flagship full-control retrieval: hybrid search over the corpus with every per-call knob exposed — `detail` result granularity (low = 1 chunk/page, medium = default dedup, high = all chunks + temporal treatment), `salience`/`recency` ranking bias (off|on|strong; omit = auto-detected from the query), `since`/`until` content-date window, `offset` pagination, `expand` LLM query expansion (paid; default follows the mode bundle), `mode` bundle override (operator-only), `adaptive_return` intent-sized tight result sets, plus the code filters (lang / symbol_kind / near_symbol / walk_depth). Legacy refinement: pass `refine` (+weights) for the deterministic weighted-RRF two-query blend instead.",
+    "description": "Flagship full-control retrieval: hybrid search over the corpus with every per-call knob exposed — `detail` result granularity (low = 1 chunk/page, medium = default dedup, high = all chunks + temporal treatment), `salience`/`recency` ranking bias (off|on|strong; omit = auto-detected from the query), `since`/`until` content-date window, `offset` pagination, `expand` LLM query expansion (paid; default follows the mode bundle), `mode` bundle override (operator-only), `adaptive_return` intent-sized tight result sets, plus the code filters (lang / symbol_kind / near_symbol / walk_depth). Legacy refinement: pass `refine` (+weights) for the deterministic weighted-RRF two-query blend instead. Without `refine` the response carries the same `meta` block as `search` (vector arm state, degraded reason codes, cache, retrieved/returned).",
     "inputSchema": {
       "type": "object",
       "properties": {

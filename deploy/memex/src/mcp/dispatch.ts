@@ -18,6 +18,7 @@ import {
   NO_SOURCE_SENTINEL,
 } from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
+import { publicSearchMeta, type SearchMeta } from "../core/search/search-meta.ts";
 import { resolveDateBoundary } from "../core/search/filters.ts";
 import { indexDocument, indexFile } from "../core/indexer.ts";
 import { findBacklinks } from "../core/backlinks.ts";
@@ -570,6 +571,7 @@ async function dispatchToolInner(
           readSources,
           isOperator,
           opts.embedQuery,
+          opts.isPublic ?? false,
         );
       case "index":
         return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
@@ -833,6 +835,7 @@ async function callSearch(
   readSources?: string[],
   isOperator = false,
   embedQuery?: SearchOptions["embedQuery"],
+  isPublic = false,
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -926,6 +929,10 @@ async function callSearch(
   // boolean by the op contract; only an explicit true opts in.
   if (args["explain"] === true) searchOpts.explain = true;
   if (embedQuery) searchOpts.embedQuery = embedQuery;
+  let meta: SearchMeta | undefined;
+  searchOpts.onMeta = (m) => {
+    meta = m;
+  };
   const hitsAll = await hybridSearch(storage, q, searchOpts);
   const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Diary fence: a non-operator caller (public bearer OR OAuth tenant, even one
@@ -951,6 +958,10 @@ async function callSearch(
   const out = redact
     ? redactBodies(visible as unknown as Record<string, unknown>[])
     : visible;
+  // Public ingress sees reason codes only, keyed on the ingress rather than on
+  // body redaction: counts are an existence oracle even when bodies are opted in.
+  const metaOut = responseSearchMeta(meta, out.length, isPublic);
+  const metaField = metaOut ? { meta: metaOut } : {};
   // A set-shaped question ("all the companies that…", "what are the different
   // approaches to…") is exactly the shape `search` answers badly when query
   // expansion is off: it returns a plausible non-empty list the caller has no
@@ -982,9 +993,23 @@ async function callSearch(
             "expands the question first; `query` alone inherits the same " +
             "expansion setting and would not change the outcome.",
         };
-    return jsonResult({ ok: true, hits: out, hint });
+    return jsonResult({ ok: true, hits: out, hint, ...metaField });
   }
-  return jsonResult({ ok: true, hits: out });
+  return jsonResult({ ok: true, hits: out, ...metaField });
+}
+
+/**
+ * The `meta` block a search-backed tool returns. `returned` is re-counted after
+ * the offset slice and the diary/page fences, so it matches the hits the caller
+ * actually receives.
+ */
+function responseSearchMeta(
+  meta: SearchMeta | undefined,
+  returned: number,
+  isPublic: boolean,
+): SearchMeta | ReturnType<typeof publicSearchMeta> | undefined {
+  if (!meta) return undefined;
+  return isPublic ? publicSearchMeta(meta) : { ...meta, returned };
 }
 
 async function callIndex(
@@ -2885,10 +2910,17 @@ async function callQuery(
   if (args["explain"] === true) searchOpts.explain = true;
   applyPerCallMode(searchOpts, args["mode"], isOperator);
   if (embedQuery) searchOpts.embedQuery = embedQuery;
+  let meta: SearchMeta | undefined;
+  searchOpts.onMeta = (m) => {
+    meta = m;
+  };
   const hitsAll = await hybridSearch(storage, q, searchOpts);
   const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Diary fence for the non-operator caller (mirrors callSearch).
-  return jsonResult({ ok: true, hits: fenceDiaryHits(hitsOffset, isOperator) });
+  const hits = fenceDiaryHits(hitsOffset, isOperator);
+  // `query` is public-forbidden, so the caller here is the operator or a tenant.
+  const metaOut = responseSearchMeta(meta, hits.length, false);
+  return jsonResult({ ok: true, hits, ...(metaOut ? { meta: metaOut } : {}) });
 }
 
 async function callCodeCallers(

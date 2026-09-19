@@ -113,6 +113,7 @@ import {
   finalizeExplain,
   type SearchExplain,
 } from "./explain.ts";
+import type { DegradedReason, SearchMeta } from "./search-meta.ts";
 
 /**
  * RRF weight for the deterministic relational arm (opt-in 4th arm). A gentle
@@ -293,6 +294,13 @@ export interface SearchOptions {
    */
   onCapture?: (info: SearchCaptureInfo) => Promise<void> | void;
   /**
+   * Optional side-channel: invoked once per call with how the search ran
+   * (vector arm available, cache state, degraded reasons, pool and returned
+   * counts). Purely observational — it never changes ranking, the cache key or
+   * the returned hits, and a throwing callback is swallowed. See search-meta.ts.
+   */
+  onMeta?: (meta: SearchMeta) => void;
+  /**
    * Opt-in graph-signals stage (default OFF): adjacency hub boost + session
    * diversification over the link graph. Falls back to MEMEX_GRAPH_SIGNALS=1.
    * The live ranking model is immutable unless this is set. See graph-signals.ts.
@@ -450,6 +458,31 @@ export interface QueryEmbedDeadline {
   deadlineAt: number;
 }
 
+/**
+ * The query embed ran past its wall-clock budget. Distinct from any other embed
+ * failure so the search meta can say `embed_timeout` rather than
+ * `vector_arm_failed`.
+ */
+export class QueryEmbedDeadlineError extends Error {
+  override name = "QueryEmbedDeadlineError";
+}
+
+function isEmbedTimeout(e: unknown, dl: QueryEmbedDeadline): boolean {
+  if (e instanceof QueryEmbedDeadlineError) return true;
+  if (!dl.signal.aborted) return false;
+  const name = (e as { name?: unknown } | null)?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+function reportMeta(opts: SearchOptions, meta: SearchMeta): void {
+  if (!opts.onMeta) return;
+  try {
+    opts.onMeta(meta);
+  } catch {
+    // The meta channel is observational; a broken listener never fails a search.
+  }
+}
+
 export function makeQueryEmbedDeadline(ms = QUERY_EMBED_TIMEOUT_MS): QueryEmbedDeadline {
   return { signal: AbortSignal.timeout(ms), deadlineAt: Date.now() + ms };
 }
@@ -479,7 +512,7 @@ export async function embedQueryBounded(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
+      () => reject(new QueryEmbedDeadlineError(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
       remaining,
     );
   });
@@ -506,7 +539,7 @@ async function raceEmbedderAgainstDeadline(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
+      () => reject(new QueryEmbedDeadlineError(`query embed deadline ${QUERY_EMBED_TIMEOUT_MS}ms exceeded`)),
       remaining,
     );
   });
@@ -604,7 +637,18 @@ export async function hybridSearch(
   }
   // A caller granted no source reads nothing: return before the cache, any arm
   // or a paid embedding call can touch the brain.
-  if (isNoGrant(opts.sourceIds)) return [];
+  if (isNoGrant(opts.sourceIds)) {
+    reportMeta(opts, {
+      vectorEnabled: false,
+      intent: opts.intent ?? "topic",
+      mode: resolveSearchMode(),
+      cache: "off",
+      degraded: [],
+      retrieved: 0,
+      returned: 0,
+    });
+    return [];
+  }
   const startedAt = Date.now();
   const k = opts.k ?? 10;
   const fanout = Math.max(20, k * 3);
@@ -741,7 +785,19 @@ export async function hybridSearch(
     // Adaptive return-sizing (opt-in, default OFF) — the FINAL view, applied
     // after the cache read served the full stored set and after capture saw it,
     // so the cap never poisons the cache or shrinks the eval window.
-    return applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
+    const kept = applyAdaptiveReturn(hits, cachedIntent, adaptiveCfg).kept;
+    // Only healthy rankings are ever cached (see 9a), so a hit is served with the
+    // vector arm on and nothing degraded except what this call's budget cut.
+    reportMeta(opts, {
+      vectorEnabled: true,
+      intent: cachedIntent,
+      mode: resolveSearchMode(),
+      cache: "hit",
+      degraded: hydrated.length > hits.length ? ["budget_truncated"] : [],
+      retrieved: hydrated.length,
+      returned: kept.length,
+    });
+    return kept;
   };
   // Ranking signature for the cache key: the env-level signature plus the
   // per-call RESOLVED knob values — a caller that
@@ -784,6 +840,7 @@ export async function hybridSearch(
   //    error) the vector arm is dropped and we fall back to keyword-only —
   //    embedding failure is non-fatal.
   let queryVector: number[] | null = null;
+  const degraded: DegradedReason[] = [];
   const dl = makeQueryEmbedDeadline();
   try {
     queryVector = opts.embedQuery
@@ -795,6 +852,7 @@ export async function hybridSearch(
     // instead of looking like an empty brain.
     if (isOperationError(e) && e.code === "budget_exhausted") throw e;
     queryVector = null; // keyword-only fallback
+    degraded.push(isEmbedTimeout(e, dl) ? "embed_timeout" : "vector_arm_failed");
   }
 
   // 1b. Semantic query cache (opt-in, default OFF). On an exact-match miss, try
@@ -848,6 +906,7 @@ export async function hybridSearch(
       sourceBoost: armSourceBoost,
     }),
   ]);
+  if (primaryKeywordIds.length === 0) degraded.push("keyword_zero");
 
   // 3. Expansion (default OFF — see SearchOptions.expansion; skipped for
   //    exact intent regardless).
@@ -961,6 +1020,15 @@ export async function hybridSearch(
         _zeroRetried: true,
       });
     }
+    reportMeta(opts, {
+      vectorEnabled: queryVector !== null,
+      intent,
+      mode: resolveSearchMode(),
+      cache: cacheEnabled ? "miss" : "off",
+      degraded,
+      retrieved: 0,
+      returned: 0,
+    });
     return [];
   }
 
@@ -1455,6 +1523,7 @@ export async function hybridSearch(
   let hits: SearchHit[] = ranked;
   if (tokenBudget !== undefined) {
     hits = applyTokenBudget(hits, tokenBudget);
+    if (hits.length < ranked.length) degraded.push("budget_truncated");
   }
 
   // 10. Side-channel: optional capture hook for eval-capture wiring.
@@ -1491,5 +1560,15 @@ export async function hybridSearch(
   //     eval-capture hook (which records the full returned candidate set), so
   //     the cap is a pure view on the returned value: it never poisons the
   //     cache and never shrinks the eval window. Default OFF → `hits` unchanged.
-  return applyAdaptiveReturn(hits, intent, adaptiveCfg).kept;
+  const kept = applyAdaptiveReturn(hits, intent, adaptiveCfg).kept;
+  reportMeta(opts, {
+    vectorEnabled: queryVector !== null,
+    intent,
+    mode: resolveSearchMode(),
+    cache: cacheEnabled ? "miss" : "off",
+    degraded,
+    retrieved: fused.length,
+    returned: kept.length,
+  });
+  return kept;
 }

@@ -98,7 +98,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"ok\": true,\n  \"hits\": [\n    {\n      \"chunkId\": \"doc_591b77a7c7fd5f22_c0\",\n      \"documentId\": \"doc_591b77a7c7fd5f22\",\n      \"sourcePath\": \"page://tenantA/search-a/kanga\",\n      \"title\": \"Kanga A\",\n      \"content\": \"# Kanga A\\n\\nkangaroo KANGA_SECRET_AAA\",\n      \"score\": 0.016393,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    },\n    {\n      \"chunkId\": \"doc_9a6d8dae4a32247f_c0\",\n      \"documentId\": \"doc_9a6d8dae4a32247f\",\n      \"sourcePath\": \"page://tenantB/search-b/kanga\",\n      \"title\": \"Kanga B\",\n      \"content\": \"# Kanga B\\n\\nkangaroo KANGA_SECRET_BBB\",\n      \"score\": 0.016129,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    }\n  ]\n}"
+          "text": "{\n  \"ok\": true,\n  \"hits\": [\n    {\n      \"chunkId\": \"doc_591b77a7c7fd5f22_c0\",\n      \"documentId\": \"doc_591b77a7c7fd5f22\",\n      \"sourcePath\": \"page://tenantA/search-a/kanga\",\n      \"title\": \"Kanga A\",\n      \"content\": \"# Kanga A\\n\\nkangaroo KANGA_SECRET_AAA\",\n      \"score\": 0.016393,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    },\n    {\n      \"chunkId\": \"doc_9a6d8dae4a32247f_c0\",\n      \"documentId\": \"doc_9a6d8dae4a32247f\",\n      \"sourcePath\": \"page://tenantB/search-b/kanga\",\n      \"title\": \"Kanga B\",\n      \"content\": \"# Kanga B\\n\\nkangaroo KANGA_SECRET_BBB\",\n      \"score\": 0.016129,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    }\n  ],\n  \"meta\": {\n    \"vectorEnabled\": false,\n    \"intent\": \"topic\",\n    \"mode\": \"conservative\",\n    \"cache\": \"miss\",\n    \"degraded\": [\n      \"vector_arm_failed\"\n    ],\n    \"retrieved\": 2,\n    \"returned\": 2\n  }\n}"
         }
       ]
     }
@@ -157,7 +157,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"ok\": true,\n  \"hits\": []\n}"
+          "text": "{\n  \"ok\": true,\n  \"hits\": [],\n  \"meta\": {\n    \"vectorEnabled\": false,\n    \"intent\": \"topic\",\n    \"mode\": \"conservative\",\n    \"cache\": \"miss\",\n    \"degraded\": [\n      \"vector_arm_failed\",\n      \"keyword_zero\"\n    ],\n    \"retrieved\": 0,\n    \"returned\": 0\n  }\n}"
         }
       ]
     }
@@ -261,7 +261,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"ok\": true,\n  \"hits\": [\n    {\n      \"chunkId\": \"doc_591b77a7c7fd5f22_c0\",\n      \"documentId\": \"doc_591b77a7c7fd5f22\",\n      \"sourcePath\": \"page://tenantA/search-a/kanga\",\n      \"title\": \"Kanga A\",\n      \"content\": \"# Kanga A\\n\\nkangaroo KANGA_SECRET_AAA\",\n      \"score\": 0.016393,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    },\n    {\n      \"chunkId\": \"doc_9a6d8dae4a32247f_c0\",\n      \"documentId\": \"doc_9a6d8dae4a32247f\",\n      \"sourcePath\": \"page://tenantB/search-b/kanga\",\n      \"title\": \"Kanga B\",\n      \"content\": \"# Kanga B\\n\\nkangaroo KANGA_SECRET_BBB\",\n      \"score\": 0.016129,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    }\n  ]\n}"
+          "text": "{\n  \"ok\": true,\n  \"hits\": [\n    {\n      \"chunkId\": \"doc_591b77a7c7fd5f22_c0\",\n      \"documentId\": \"doc_591b77a7c7fd5f22\",\n      \"sourcePath\": \"page://tenantA/search-a/kanga\",\n      \"title\": \"Kanga A\",\n      \"content\": \"# Kanga A\\n\\nkangaroo KANGA_SECRET_AAA\",\n      \"score\": 0.016393,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    },\n    {\n      \"chunkId\": \"doc_9a6d8dae4a32247f_c0\",\n      \"documentId\": \"doc_9a6d8dae4a32247f\",\n      \"sourcePath\": \"page://tenantB/search-b/kanga\",\n      \"title\": \"Kanga B\",\n      \"content\": \"# Kanga B\\n\\nkangaroo KANGA_SECRET_BBB\",\n      \"score\": 0.016129,\n      \"intent\": \"topic\",\n      \"evidence\": \"keyword_exact\",\n      \"create_safety\": \"probable\"\n    }\n  ],\n  \"meta\": {\n    \"vectorEnabled\": false,\n    \"intent\": \"topic\",\n    \"mode\": \"conservative\",\n    \"cache\": \"miss\",\n    \"degraded\": [\n      \"vector_arm_failed\"\n    ],\n    \"retrieved\": 2,\n    \"returned\": 2\n  }\n}"
         }
       ]
     }
