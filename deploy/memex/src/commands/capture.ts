@@ -12,6 +12,7 @@
  * Default slug: `capture/<YYYY-MM-DD>-<kebab-of-first-line>`; default type:
  * `note`. Idempotent per slug — recapturing the same slug updates the page.
  */
+import { looksBinary } from "../core/binary-guard.ts";
 import { readFileSync } from "node:fs";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
@@ -124,7 +125,12 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
 
   let body: string;
   if (opts.file) {
-    body = readFileSync(opts.file, "utf-8");
+    const raw = readFileSync(opts.file);
+    if (looksBinary(raw)) {
+      console.error(`memex capture: ${opts.file} is a binary file, not text — nothing captured`);
+      return 1;
+    }
+    body = raw.toString("utf-8");
   } else if (opts.stdin) {
     body = await (opts.readStdin ?? readAllStdin)();
   } else {

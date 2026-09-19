@@ -47,6 +47,15 @@ describe("defaultCaptureSlug", () => {
 });
 
 describe("runCapture", () => {
+  it("refuses a binary file instead of capturing it as text", async () => {
+    const png = join(tmp, "shot.png");
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]));
+    expect(await runCapture({ file: png, configPath: cfgPath })).toBe(1);
+    const noMagic = join(tmp, "blob.bin");
+    writeFileSync(noMagic, Buffer.from("text then a nul \u0000 byte"));
+    expect(await runCapture({ file: noMagic, configPath: cfgPath })).toBe(1);
+  });
+
   it("refuses zero or multiple content sources", async () => {
     expect(await runCapture({ configPath: cfgPath })).toBe(1);
     expect(

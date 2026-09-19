@@ -976,6 +976,16 @@ tenants; `capture --file` on a PNG exits non-zero; gitleaks over the full
 history reports zero findings (or an allowlisted fixture set); linearity tests
 exist for every new pattern.
 
+**Progress.** R1 (unreleased): `core/secret-scan.ts` (named prefixes + bounded
+PEM/PGP blocks, fingerprint audit rows in `ingest_log`, disposition and
+allowlist env) on putPage body/append, the indexer, raw data and `/ingest`
+before enqueue; `core/binary-guard.ts` on capture and `/ingest`; sanitizer
+closers for think's evidence blocks. Open: facts, timeline, hot_memory and
+chronicle writes are not scanned; page title and compiled_truth are not
+scanned; a `reject` leaves no audit row; no scrub of rows stored before
+(`page_versions` history); quarantine observability, junk-entity gate, CI
+gitleaks/OSV/actionlint.
+
 ### RM-06 — Measurement program: public benchmark, judged answers, eval governance
 
 **Why.** Retrieval quality was first measured on 2026-08-12 (hit@5 86.1%) on a

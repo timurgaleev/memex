@@ -12,6 +12,7 @@
  * that step (slug + content_hash + chunkable body) without pulling
  * Bedrock into this module.
  */
+import { auditSecrets, guardSecrets } from "./secret-scan.ts";
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
@@ -173,6 +174,8 @@ export interface PutResult {
   changed: boolean;
   /** True when the row didn't exist before. */
   created: boolean;
+  /** Credentials found in the write (redacted unless the disposition is `flag`). */
+  secrets_found?: number;
 }
 
 export interface PageVersionRow {
@@ -253,7 +256,12 @@ export async function putPage(
     typeof input.type === "string" && input.type.trim() !== ""
       ? normaliseType(input.type, input.allowAdHocType)
       : null;
-  let body = input.markdown_body ?? "";
+  // Credentials never reach the page, its versions or its search mirror.
+  const bodyScan = guardSecrets(input.markdown_body ?? "", `page '${input.slug}'`);
+  const appendScan = input.appendContent !== undefined ? guardSecrets(input.appendContent, `page '${input.slug}'`) : null;
+  const secretFindings = [...bodyScan.findings, ...(appendScan?.findings ?? [])];
+  const appendContent = appendScan ? appendScan.text : undefined;
+  let body = input.markdown_body === undefined ? "" : bodyScan.text;
   const truth = input.compiled_truth ?? {};
   let title = input.title ?? null;
   const writtenBy = input.written_by ?? null;
@@ -286,7 +294,7 @@ export async function putPage(
   let truthJson = JSON.stringify(safeTruth);
 
   const engine = storage.engine();
-  return engine.transaction(async (tx) => {
+  const result = await engine.transaction(async (tx) => {
     await lockPageSlugs(tx, input.slug);
     const existing = await tx.query<{
       content_hash: string;
@@ -333,7 +341,7 @@ export async function putPage(
     }
 
     const current = existing.rows[0];
-    if (input.appendContent !== undefined) {
+    if (appendContent !== undefined) {
       if (current === undefined || current.deleted_at !== null) {
         throw new OperationError(
           "not_found",
@@ -342,7 +350,7 @@ export async function putPage(
       }
       const sep =
         current.markdown_body.length > 0 && !current.markdown_body.endsWith("\n") ? "\n" : "";
-      body = `${current.markdown_body}${sep}${input.appendContent}`;
+      body = `${current.markdown_body}${sep}${appendContent}`;
       hashNew = hashBody(body);
       // An append changes the body only. Title and truth come from the row read
       // under the lock too, or a title/truth edit that landed between the
@@ -522,6 +530,9 @@ export async function putPage(
       created: false,
     };
   });
+  if (secretFindings.length === 0) return result;
+  await auditSecrets(engine, secretFindings, input.slug, callerSource);
+  return { ...result, secrets_found: secretFindings.length };
 }
 
 export interface AppendInput {

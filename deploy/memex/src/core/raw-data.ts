@@ -9,6 +9,7 @@
  * name), NOT the tenant axis; tenancy rides the owning page's source_id via an
  * ownership guard on write and a pages join on read.
  */
+import { auditSecrets, guardSecrets, type SecretFinding } from "./secret-scan.ts";
 import type { Storage } from "./storage.ts";
 import { validateSlug } from "./pages.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
@@ -48,7 +49,9 @@ export async function putRawData(
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("raw_data data must be a plain object");
   }
-  const safe = wellFormJsonbValue(data) as Record<string, unknown>;
+  // Raw API payloads are where an auth header is most likely to land.
+  const findings: SecretFinding[] = [];
+  const safe = redactStrings(wellFormJsonbValue(data), `raw_data '${slug}'`, findings) as Record<string, unknown>;
   const json = JSON.stringify(safe);
   if (json.length > MAX_RAW_DATA_BYTES) {
     throw new Error(`raw_data payload exceeds ${MAX_RAW_DATA_BYTES} bytes`);
@@ -75,7 +78,26 @@ export async function putRawData(
      RETURNING (xmax = 0) AS inserted`,
     [slug, src, json],
   );
+  await auditSecrets(storage.engine(), findings, `${slug}#${src}`, scope);
   return { slug, source: src, created: r.rows[0]?.inserted ?? false };
+}
+
+/** Every string in a JSON value through the secret guard, keys included. */
+function redactStrings(value: unknown, where: string, findings: SecretFinding[]): unknown {
+  if (typeof value === "string") {
+    const r = guardSecrets(value, where);
+    findings.push(...r.findings);
+    return r.text;
+  }
+  if (Array.isArray(value)) return value.map((v) => redactStrings(v, where, findings));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[redactStrings(k, where, findings) as string] = redactStrings(v, where, findings);
+    }
+    return out;
+  }
+  return value;
 }
 
 export interface GetRawDataOptions {

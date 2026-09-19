@@ -36,6 +36,9 @@ export const INJECTION_PATTERNS: Array<{ name: string; rx: RegExp; replacement: 
   // fact text cannot break out of its own fence and inject classifier control.
   { name: "close-existing", rx: /<\s*\/\s*existing\s*>/gi, replacement: "&lt;/existing&gt;" },
   { name: "close-new", rx: /<\s*\/\s*new\s*>/gi, replacement: "&lt;/new&gt;" },
+  // think wraps its evidence in <pages>/<page>, <takes>/<take>, <trajectory>
+  // and <calibration> blocks; a note that closes one could write outside it.
+  { name: "close-evidence", rx: /<\s*\/\s*(pages?|takes?|trajectory|calibration)\s*>/gi, replacement: "&lt;/$1&gt;" },
   { name: "open-system", rx: /<\s*system\b[^>]*>/gi, replacement: "&lt;system&gt;" },
   { name: "open-instructions", rx: /<\s*instructions?\b[^>]*>/gi, replacement: "&lt;instructions&gt;" },
   // Output exfiltration.

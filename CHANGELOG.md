@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Credentials pasted into the brain are redacted before they are stored.**
+  An AWS access key or `aws_secret_access_key`, a GitHub, GitLab, Slack,
+  Stripe, OpenAI or Anthropic token, a memex access, refresh or enrollment
+  token or PAT, or a PEM or PGP private-key block in a page write, an append,
+  an indexed file, a raw-data payload, an `/ingest` body (before it is queued)
+  or a capture is replaced with
+  `[REDACTED:<kind>:<fingerprint>]` before it reaches the page, its versions,
+  a chunk or an embedding. Each hit is recorded in the ingest log by kind and
+  SHA-256 fingerprint, never by value, and `page_put` reports how many it
+  found. `MEMEX_SECRET_SCAN_DISPOSITION=flag` keeps the text and only records
+  it; `=reject` refuses the write; `MEMEX_SECRET_SCAN_ALLOW` lists
+  fingerprints to leave alone. Only named prefixes are matched, so hashes,
+  UUIDs and client ids are untouched. Pages already stored are not rewritten.
+- **A note could close one of the evidence blocks `think` wraps it in** (a
+  page, a take, a trajectory or the calibration record) and write outside it;
+  those closing tags are now neutralized like the others.
+
+### Fixed
+- **`memex capture --file` stored a binary file as text,** and `/ingest`
+  accepted one under a text content type. Both now refuse a file whose magic
+  number or a NUL byte in its first 8 KB marks it as binary.
+
 ### Added
 - **A spend report.** `memex spend [--days N]` and
   `GET /admin/api/spend/report?days=N` roll the spend ledger up by model, by

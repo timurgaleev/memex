@@ -21,6 +21,8 @@
  * apply. Events always carry `untrusted_payload: true` — the input came
  * over the network from an authenticated but otherwise untrusted source.
  */
+import { auditSecrets, guardSecrets, type SecretFinding } from "../core/secret-scan.ts";
+import { looksBinary } from "../core/binary-guard.ts";
 import { createHash } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
@@ -215,7 +217,21 @@ export async function handleIngestRoute(
     );
   }
 
-  const content = new TextDecoder().decode(read.buf);
+  // The declared type is the caller's word; the bytes are the evidence.
+  if (looksBinary(read.buf)) {
+    return err(415, "binary_content", "POST /ingest takes text; the body is a binary file");
+  }
+  // Scanned here, not only when the capture job stores it: the job payload
+  // itself sits in the jobs table.
+  let content: string;
+  let secretFindings: SecretFinding[];
+  try {
+    const scanned = guardSecrets(new TextDecoder().decode(read.buf), "POST /ingest body");
+    content = scanned.text;
+    secretFindings = scanned.findings;
+  } catch (e) {
+    return err(400, "secret_in_content", e instanceof Error ? e.message : "credential in content");
+  }
   const contentHash = createHash("sha256").update(content, "utf8").digest("hex");
   const sourceUri = (
     req.headers.get("x-memex-source-uri") ||
@@ -302,6 +318,7 @@ export async function handleIngestRoute(
       summary: `accepted ${read.buf.byteLength}B ${contentType} -> job ${job.id}`,
       source_id: event.source_id,
     }).catch(() => {});
+    void auditSecrets(deps.storage.engine(), secretFindings, sourceUri, event.source_id ?? null).catch(() => {});
 
     // Fail-visible request log (fixed-shape safe params: no caller-controlled
     // keys, no content). Fire-and-forget — never blocks the 202.
