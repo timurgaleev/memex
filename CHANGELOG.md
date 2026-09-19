@@ -43,6 +43,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   another `quarantine` ingest-log row; a row is written only when the verdict
   is new or names different patterns, and only after the document commits. A
   failed audit write now warns instead of failing the index.
+- **The junk-name gate no longer misses decorated names or drops acronyms.**
+  `Team!`, `team:` and `@team` are judged as the `team` they slugify to, and
+  the slug a fact, typed link or meeting attendee finally resolves to is
+  checked too, so a partial match can no longer land on a placeholder page.
+  All-caps `US`, `IT`, `NA` and `ME` are real entities again rather than
+  pronouns: their facts are kept and `junk-entity-hubs` no longer flags
+  `companies/us` or `concepts/it`.
 
 ## [1.145.0] — 2026-09-19
 

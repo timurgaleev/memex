@@ -47,7 +47,7 @@ import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { validateSlug } from "./links.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
-import { isJunkEntityName } from "./entity-junk.ts";
+import { isJunkEntityName, isJunkEntitySlug } from "./entity-junk.ts";
 
 type Direction = "outgoing" | "incoming";
 interface FieldRule {
@@ -281,7 +281,7 @@ async function collectEdges(
       // slugify floor (resolved=false) is already excluded.
       if (!res.resolved || !PRECISE_STAGES.has(res.stage)) continue;
       const other = res.slug;
-      if (other === pageSlug) continue; // no self-edge
+      if (other === pageSlug || isJunkEntitySlug(other)) continue; // no self-edge, no junk hub
       const source = rule.direction === "outgoing" ? pageSlug : other;
       const target = rule.direction === "outgoing" ? other : pageSlug;
       const key = `${source}|${target}|${rule.type}`;

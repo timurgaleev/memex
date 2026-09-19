@@ -12,7 +12,7 @@ import type { Engine } from "./engine/interface.ts";
 import { discoverMigrations } from "./migrate.ts";
 import { EMBED_DIMENSIONS } from "./embedding.ts";
 import { grammarSelfCheck } from "./chunkers/parsers.ts";
-import { isJunkEntityName } from "./entity-junk.ts";
+import { isJunkEntityName, isJunkEntitySlug } from "./entity-junk.ts";
 
 export interface OpsCheckResult {
   /** Exit-code driver — false only on `status:"fail"`. */
@@ -251,7 +251,7 @@ export async function checkJunkEntityHubs(
       LIMIT ${JUNK_HUB_SCAN_LIMIT}`,
   );
   const junk = pages.rows
-    .filter((p) => isJunkEntityName(p.slug) || (p.title !== null && p.title.trim() !== "" && isJunkEntityName(p.title)))
+    .filter((p) => isJunkEntitySlug(p.slug) || (p.title !== null && p.title.trim() !== "" && isJunkEntityName(p.title)))
     .map((p) => p.slug);
   if (junk.length === 0) {
     return { ok: true, status: "ok", detail: "no junk-named entity pages" };

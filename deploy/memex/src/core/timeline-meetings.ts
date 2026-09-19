@@ -35,7 +35,7 @@ import type { Storage } from "./storage.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
 import { addTimelineEvent } from "./timeline.ts";
 import { extractDates } from "./entities.ts";
-import { isJunkEntityName } from "./entity-junk.ts";
+import { isJunkEntityName, isJunkEntitySlug } from "./entity-junk.ts";
 
 /** Resolver stages precise enough to attach a meeting to a person's timeline. */
 const PRECISE_STAGES: ReadonlySet<string> = new Set([
@@ -184,7 +184,7 @@ export async function extractMeetingTimelinePhase(
       const res = await resolver.resolve(name);
       if (!res.resolved || !PRECISE_STAGES.has(res.stage)) continue;
       const attendee = res.slug;
-      if (attendee === m.slug || seen.has(attendee)) continue;
+      if (attendee === m.slug || seen.has(attendee) || isJunkEntitySlug(attendee)) continue;
       seen.add(attendee);
       await addTimelineEvent(storage, {
         slug: attendee,

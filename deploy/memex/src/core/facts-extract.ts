@@ -20,7 +20,7 @@ import {
 } from "./llm/sonnet.ts";
 import { slugifyTarget } from "./links.ts";
 import { makeSlugResolver } from "./slug-canonicalize.ts";
-import { isJunkEntityName } from "./entity-junk.ts";
+import { isJunkEntityName, isJunkEntitySlug } from "./entity-junk.ts";
 import { BudgetTracker, BudgetExhausted } from "./budget.ts";
 import {
   classifyFactsAbsorbError,
@@ -533,7 +533,8 @@ export async function writeExtractedFacts(
     } catch {
       slug = slugifyEntity(f.entity);
     }
-    if (!slug) {
+    // The resolver can land a name that passed the gate on a placeholder page.
+    if (!slug || isJunkEntitySlug(slug)) {
       skipped += 1;
       continue;
     }

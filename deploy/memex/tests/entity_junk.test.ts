@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
-import { isJunkEntityName } from "../src/core/entity-junk.ts";
+import { isJunkEntityName, isJunkEntitySlug } from "../src/core/entity-junk.ts";
 import { writeExtractedFacts, type ExtractedFact } from "../src/core/facts-extract.ts";
 import { listFacts } from "../src/core/facts.ts";
 
@@ -18,6 +18,7 @@ describe("isJunkEntityName", () => {
       "team", "Team", "MEETING", "unknown", "user", "someone", "n/a", "N/A",
       "none", "TBD", "the user", "The Team", "**Unknown**", "`guest`", "no-one",
       "people/unknown", "companies/team", "people/me",
+      "Team!", "team:", "@team", "Unknown?", "(none)", "us", "it", "Me",
     ]) {
       expect(isJunkEntityName(name)).toBe(true);
     }
@@ -33,8 +34,18 @@ describe("isJunkEntityName", () => {
     for (const name of [
       "Alice", "Acme", "Team Rocket", "Acme Meeting Rooms", "people/alice-smith",
       "companies/unknown-mortal-orchestra", "3M", "AC/DC", "Li", "Mark",
+      "US", "IT", "NA", "ME", "C++", "C#", "AT&T", "J.R.R. Tolkien",
     ]) {
       expect(isJunkEntityName(name)).toBe(false);
+    }
+  });
+
+  it("judges a slug without the acronym lookalikes, since a slug has no case", () => {
+    for (const slug of ["people/team", "team", "people/unknown", "concepts/42"]) {
+      expect(isJunkEntitySlug(slug)).toBe(true);
+    }
+    for (const slug of ["companies/us", "concepts/it", "us", "people/alice-smith"]) {
+      expect(isJunkEntitySlug(slug)).toBe(false);
     }
   });
 
@@ -73,11 +84,14 @@ describe("writeExtractedFacts", () => {
       fact("team", "shipped the release"),
       fact("The User", "prefers dark mode"),
       fact("42", "is the answer"),
+      fact("Team!", "met on Monday"),
       fact("people/bob", "moved to Lisbon"),
+      fact("US", "raised interest rates"),
     ]);
-    expect(r.written).toBe(1);
-    expect(r.skipped).toBe(3);
+    expect(r.written).toBe(2);
+    expect(r.skipped).toBe(4);
     expect(await listFacts(storage, "people/bob")).toHaveLength(1);
+    expect(await listFacts(storage, "us")).toHaveLength(1);
     for (const slug of ["team", "the-user", "42"]) {
       expect(await listFacts(storage, slug)).toHaveLength(0);
     }

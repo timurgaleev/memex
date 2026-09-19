@@ -178,6 +178,8 @@ describe("checkJunkEntityHubs", () => {
   it("reports none when every entity page has a real name", async () => {
     await page("people/alice-smith", "person", "Alice Smith");
     await page("notes/team", "note", "Team");
+    await page("companies/us", "company", "US");
+    await page("concepts/it", "concept", "IT");
     const r = await checkJunkEntityHubs(storage.engine());
     expect(r.status).toBe("ok");
     expect(r.detail).toBe("no junk-named entity pages");

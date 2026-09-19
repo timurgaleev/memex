@@ -71,7 +71,7 @@ describe("extractMeetingTimelinePhase", () => {
       slug: "meetings/2026-05-19-retro",
       type: "meeting",
       title: "Retro",
-      compiled_truth: { date: "2026-05-19", attendees: ["Unknown", "Alice"] },
+      compiled_truth: { date: "2026-05-19", attendees: ["Unknown", "Unknown!", "Alice"] },
     });
     const res = await extractMeetingTimelinePhase(storage);
     expect(res.attendees_touched).toBe(1);

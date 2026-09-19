@@ -67,7 +67,7 @@ describe("syncTypedLinksForPage", () => {
     await putPage(storage, {
       slug: "meetings/sync",
       type: "meeting",
-      compiled_truth: { attendees: ["Team", "people/team", "Bob"] },
+      compiled_truth: { attendees: ["Team", "people/team", "Team!", "@team", "Bob"] },
     });
     const res = await sync("meetings/sync");
     expect(res.added).toBe(1);
