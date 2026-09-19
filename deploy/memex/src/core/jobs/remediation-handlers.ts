@@ -16,7 +16,8 @@
  * pinned to the job's `source_id`. It only fills missing vectors: it never
  * deletes an existing one, whatever the signature-change env knob says. A run
  * that had work and embedded nothing throws, so the job retries or
- * dead-letters instead of reporting a success that fixed nothing.
+ * dead-letters instead of reporting a success that fixed nothing, and so does
+ * a pin that owns no live document.
  *
  * To activate in the live worker, call `registerRemediationHandlers(storage)`
  * once at worker startup (alongside `new Worker(...)`).
@@ -99,6 +100,17 @@ function makeBackfillReembed(
   embed: RemediationDeps["embed"],
 ): (sourceId: string) => Promise<Record<string, unknown>> {
   return async (sourceId) => {
+    // A pin that matches no live document (a display label such as
+    // '(unclassified)', or a source removed since the plan) would report
+    // candidates=0 and pass as a success that fixed nothing.
+    const owned = await engine.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM documents
+       WHERE source_id = $1 AND deleted_at IS NULL AND NOT archived`,
+      [sourceId],
+    );
+    if (Number(owned.rows[0]?.n ?? 0) === 0) {
+      throw new Error(`remediation reembed-source: no live documents for source ${sourceId}`);
+    }
     const r = await runEmbedBackfill(engine, {
       sourceId,
       // Explicit, so MEMEX_REEMBED_ON_SIGNATURE_CHANGE can never turn a

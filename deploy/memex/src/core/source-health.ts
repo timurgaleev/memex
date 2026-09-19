@@ -148,7 +148,7 @@ export interface PerSourceHealth {
   lag_seconds: number | null;
 }
 
-const UNCLASSIFIED_BUCKET = "(unclassified)";
+export const UNCLASSIFIED_BUCKET = "(unclassified)";
 
 /**
  * Per-source breakdown of the brain-level health signals. Groups by

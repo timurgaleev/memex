@@ -25,7 +25,12 @@ import {
   type CheckStatus,
 } from "../core/doctor-categories.ts";
 import { rankIssues, type RankedIssue } from "../core/doctor-cause-rank.ts";
-import { brainHealthMetrics, collectPerSourceHealth } from "../core/source-health.ts";
+import {
+  brainHealthMetrics,
+  collectPerSourceHealth,
+  UNCLASSIFIED_BUCKET,
+  type PerSourceHealth,
+} from "../core/source-health.ts";
 import { countStalePagesForExtraction, LINK_EXTRACTOR_VERSION_TS } from "../core/links.ts";
 import { countStaleChunkerDocs } from "../core/chunker-version.ts";
 import { checkCycleFreshness } from "../core/cycle-freshness.ts";
@@ -591,6 +596,25 @@ function parseNumFlag(argv: string[], flag: string): number | undefined {
 }
 
 /**
+ * Sources stuck at 0% embed coverage that a reembed-source job can fix.
+ *
+ * The NULL-source '(unclassified)' bucket is a display label, not a
+ * source_id: a backfill pinned to it matches no document, so the job would
+ * "succeed" having embedded nothing and doctor would propose it again on
+ * every run. Unclassified docs are source-routing-health's finding instead.
+ */
+export function brokenSourcesFromHealth(rows: PerSourceHealth[]): BrokenSource[] {
+  return rows
+    .filter(
+      (r) =>
+        r.source_id !== UNCLASSIFIED_BUCKET &&
+        r.embeddable_chunks > 0 &&
+        r.embedded_chunks === 0,
+    )
+    .map((r) => ({ source_id: r.source_id, embeddable_chunks: r.embeddable_chunks }));
+}
+
+/**
  * Gather the structured health signals the classifier needs. Kept off the
  * default doctor path — only runs when a remediation flag is passed.
  */
@@ -606,10 +630,7 @@ async function gatherRemediationInput(
   const input: RemediationInput = { signals };
   if (!storage) return input;
   try {
-    const rows = await collectPerSourceHealth(storage.raw());
-    const broken: BrokenSource[] = rows
-      .filter((r) => r.embeddable_chunks > 0 && r.embedded_chunks === 0)
-      .map((r) => ({ source_id: r.source_id, embeddable_chunks: r.embeddable_chunks }));
+    const broken = brokenSourcesFromHealth(await collectPerSourceHealth(storage.raw()));
     if (broken.length > 0) input.brokenSources = broken;
   } catch {
     // best-effort — a probe failure just yields no source fixes.

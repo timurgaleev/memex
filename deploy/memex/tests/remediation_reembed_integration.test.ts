@@ -5,7 +5,8 @@
  *
  * Pins that the job really fills the source's missing vectors (it used to
  * succeed as a no-op), stays inside the pinned source, is idempotent on a
- * re-run, and fails instead of succeeding when nothing could be embedded.
+ * re-run, and fails instead of succeeding when nothing could be embedded or
+ * the pin owns no document (the NULL-source '(unclassified)' bucket).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,7 +20,8 @@ import { registerRemediationHandlers } from "../src/core/jobs/remediation-handle
 import { REMEDIATION_JOB_KIND } from "../src/core/remediation.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { registerSource } from "../src/core/sources.ts";
-import { collectPerSourceHealth } from "../src/core/source-health.ts";
+import { collectPerSourceHealth, UNCLASSIFIED_BUCKET } from "../src/core/source-health.ts";
+import { brokenSourcesFromHealth } from "../src/commands/doctor.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
 const detEmbed = (t: string) => Promise.resolve(deterministicEmbed(t));
@@ -59,6 +61,12 @@ async function seed(): Promise<void> {
       { text: "beta chunk about something else", entities: [] },
       { text: "beta chunk number two", entities: [] },
     ],
+  );
+  // No sourceId → documents.source_id stays NULL: the '(unclassified)' bucket.
+  await writeDocumentTransaction(
+    storage,
+    { documentId: "doc_legacy_1", sourcePath: "legacy/one.md", title: "legacy", frontmatter: {}, embeddingModel: "det" },
+    [{ text: "legacy chunk with no owning source", entities: [] }],
   );
 }
 
@@ -146,5 +154,21 @@ describe("reembed-source remediation through the real worker", () => {
     expect(final?.status).not.toBe("succeeded");
     expect(final?.lastError).toContain("chunks embedded for source alpha");
     expect(await unembeddedChunks("doc_alpha_1")).toBe(2);
+  });
+
+  it("never plans a fix for the unclassified bucket, and a job pinned to it fails", async () => {
+    const health = await collectPerSourceHealth(storage.engine());
+    const unclassified = health.find((s) => s.source_id === UNCLASSIFIED_BUCKET);
+    expect(unclassified?.embeddable_chunks).toBe(1);
+    expect(unclassified?.embedded_chunks).toBe(0);
+
+    const broken = brokenSourcesFromHealth(health).map((b) => b.source_id).sort();
+    expect(broken).toEqual(["alpha", "beta"]);
+
+    registerRemediationHandlers(storage, { embed: detEmbed });
+    const final = await runReembedJob(UNCLASSIFIED_BUCKET);
+    expect(final?.status).not.toBe("succeeded");
+    expect(final?.lastError).toContain("no live documents for source (unclassified)");
+    expect(await unembeddedChunks("doc_legacy_1")).toBe(1);
   });
 });

@@ -2122,8 +2122,11 @@ host and trended in the SPA.
 now runs the embed backfill on the worker's own storage, pinned to its
 `source_id`, gap-fill only (never deletes vectors), reports
 candidates/embedded/failed/last_id, and fails when it had work but embedded
-nothing. `tests/remediation_reembed_integration.test.ts` proves it through the
-real Queue, Worker, handler and backfill on PGLite. Still open: `ops_audit`;
+nothing. Doctor no longer plans a re-embed for the NULL-source
+`(unclassified)` bucket (a display label, not a source_id), and a job pinned to
+a source that owns no live document fails instead of succeeding as a no-op.
+`tests/remediation_reembed_integration.test.ts` proves both through the real
+Queue, Worker, handler and backfill on PGLite. Still open: `ops_audit`;
 health score, `top_issues`, `--fast`/`--scope`/`--locks`; the doctor long tail
 (dead links, scalar frontmatter, RLS audit and the rest); the `--plan` USD
 preview; the planner/runner with `depends_on`/checkpoint/`--resume`; `advisor

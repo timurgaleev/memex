@@ -19,7 +19,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`memex doctor --remediate --execute` really re-embeds a source stuck at
   0% embedding coverage.** The job used to report success without embedding
   anything. It fills only the missing vectors of the one source it was queued
-  for, and a job that embeds nothing fails instead of succeeding.
+  for, and a job that embeds nothing fails instead of succeeding. Documents
+  with no source (the `(unclassified)` bucket) are no longer offered as a
+  re-embed fix, and a job queued for a source with no documents fails.
 - **A cycle that loses its lock stops.** The lock refresh now checks that the
   row is still this run's (pid, host and acquisition time), and when it is not,
   the run ends within one 30-second refresh as `partial / lock_stolen`: no
