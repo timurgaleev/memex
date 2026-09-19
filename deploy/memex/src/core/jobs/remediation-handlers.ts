@@ -9,18 +9,24 @@
  *   - "cycle-phase"    → re-run a wedged maintenance-cycle phase.
  *
  * memex has NO server-side subagent runtime, so each action is a plain durable
- * job the ordinary worker executes. The concrete runners are injected
- * (`RemediationDeps`) so this module stays decoupled from the heavy cycle /
- * embed code and is trivially testable. When no deps are injected the defaults
- * lazily import the real runners and are best-effort (a runner that isn't
- * available throws, and the job fails + retries via the normal queue policy).
+ * job the ordinary worker executes. The runners are injectable
+ * (`RemediationDeps`) so the dispatch logic stays trivially testable.
  *
- * To activate in the live worker, call `registerRemediationHandlers()` once at
- * worker startup (alongside `new Worker(...)`).
+ * reembed-source runs the embed backfill against the worker's own storage,
+ * pinned to the job's `source_id`. It only fills missing vectors: it never
+ * deletes an existing one, whatever the signature-change env knob says. A run
+ * that had work and embedded nothing throws, so the job retries or
+ * dead-letters instead of reporting a success that fixed nothing.
+ *
+ * To activate in the live worker, call `registerRemediationHandlers(storage)`
+ * once at worker startup (alongside `new Worker(...)`).
  */
 import type { JobHandler } from "./types.ts";
+import type { Storage } from "../storage.ts";
+import type { Engine } from "../engine/interface.ts";
 import { registerHandler } from "./handlers.ts";
 import { REMEDIATION_JOB_KIND } from "../remediation.ts";
+import { runEmbedBackfill } from "../embed-backfill.ts";
 
 /** Injectable runners so the handler never hard-couples to cycle/embed code. */
 export interface RemediationDeps {
@@ -28,6 +34,8 @@ export interface RemediationDeps {
   reembedSource?: (sourceId: string) => Promise<Record<string, unknown> | void>;
   /** Re-run one maintenance-cycle phase. */
   runCyclePhase?: (phase: string) => Promise<Record<string, unknown> | void>;
+  /** Embedder seam for the default re-embed runner; production uses Titan. */
+  embed?: (text: string) => Promise<number[]>;
 }
 
 /**
@@ -43,9 +51,19 @@ export function makeRemediationHandler(deps: RemediationDeps = {}): JobHandler {
         if (typeof sourceId !== "string" || sourceId.length === 0) {
           throw new Error("remediation reembed-source: missing source_id");
         }
-        const run = deps.reembedSource ?? defaultReembedSource;
-        const out = await run(sourceId);
-        return { action, source_id: sourceId, ...(out ?? {}) };
+        if (!deps.reembedSource) {
+          throw new Error(
+            "remediation reembed-source: no runner (register the handler with storage)",
+          );
+        }
+        const out = (await deps.reembedSource(sourceId)) ?? {};
+        const candidates = out["candidates"];
+        if (typeof candidates === "number" && candidates > 0 && out["embedded"] === 0) {
+          throw new Error(
+            `remediation reembed-source: 0/${candidates} chunks embedded for source ${sourceId}`,
+          );
+        }
+        return { action, source_id: sourceId, ...out };
       }
       case "cycle-phase": {
         const phase = typeof payload["phase"] === "string" ? payload["phase"] : "";
@@ -63,29 +81,38 @@ export function makeRemediationHandler(deps: RemediationDeps = {}): JobHandler {
 }
 
 /**
- * Register the `remediation` handler on the process-local registry. Idempotent
- * per process. Call once at worker startup.
+ * Register the `remediation` handler on the process-local registry, with the
+ * re-embed runner bound to `storage`. Idempotent per process. Call once at
+ * worker startup.
  */
-export function registerRemediationHandlers(deps: RemediationDeps = {}): void {
-  registerHandler(REMEDIATION_JOB_KIND, makeRemediationHandler(deps));
+export function registerRemediationHandlers(
+  storage: Storage,
+  deps: RemediationDeps = {},
+): void {
+  const reembedSource =
+    deps.reembedSource ?? makeBackfillReembed(storage.engine(), deps.embed);
+  registerHandler(REMEDIATION_JOB_KIND, makeRemediationHandler({ ...deps, reembedSource }));
 }
 
-/**
- * Default re-embed runner. Lazily imports the reindex path so a fix job can
- * re-embed a single source without this module pulling the embed stack into
- * every process. Best-effort: throws (→ job retry) if the runner is absent.
- */
-async function defaultReembedSource(
-  sourceId: string,
-): Promise<Record<string, unknown> | void> {
-  const mod = (await import("../../commands/reindex.ts")) as Record<string, unknown>;
-  const fn = mod["runReindex"];
-  if (typeof fn !== "function") {
-    throw new TypeError(
-      "remediation reembed-source: no reindex runner available (inject deps.reembedSource)",
-    );
-  }
-  await (fn as (o: { source: string }) => Promise<void>)({ source: sourceId });
+function makeBackfillReembed(
+  engine: Engine,
+  embed: RemediationDeps["embed"],
+): (sourceId: string) => Promise<Record<string, unknown>> {
+  return async (sourceId) => {
+    const r = await runEmbedBackfill(engine, {
+      sourceId,
+      // Explicit, so MEMEX_REEMBED_ON_SIGNATURE_CHANGE can never turn a
+      // gap-fill into a delete-and-re-embed.
+      reembedOnSignatureChange: false,
+      ...(embed ? { embed } : {}),
+    });
+    return {
+      candidates: r.candidates,
+      embedded: r.embedded,
+      failed: r.failed,
+      last_id: r.lastId,
+    };
+  };
 }
 
 /**

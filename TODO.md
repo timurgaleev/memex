@@ -2118,6 +2118,19 @@ remediation run with a failing step skips its dependents, checkpoints on budget
 exhaustion and resumes to completion; the health score is computed on the live
 host and trended in the SPA.
 
+**Progress.** The `reembed-source` fix shipped (first Done-when item): the job
+now runs the embed backfill on the worker's own storage, pinned to its
+`source_id`, gap-fill only (never deletes vectors), reports
+candidates/embedded/failed/last_id, and fails when it had work but embedded
+nothing. `tests/remediation_reembed_integration.test.ts` proves it through the
+real Queue, Worker, handler and backfill on PGLite. Still open: `ops_audit`;
+health score, `top_issues`, `--fast`/`--scope`/`--locks`; the doctor long tail
+(dead links, scalar frontmatter, RLS audit and the rest); the `--plan` USD
+preview; the planner/runner with `depends_on`/checkpoint/`--resume`; `advisor
+--apply` and history; the SPA trend. Next candidate: audit the `cycle-phase`
+default runner, which lazily calls the CLI `runCycle` (own Storage, returns
+void) and may have the same silent-success defect.
+
 ### RM-19 — Graph, timeline and entity enrichment
 
 **Why.** Out of the box the typed graph holds wikilink/code-ref edges and

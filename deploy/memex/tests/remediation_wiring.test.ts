@@ -3,7 +3,7 @@
  *
  * remediation.test.ts covers the handler's dispatch logic in isolation; this
  * file proves the end-to-end path `doctor --remediate` depends on: once
- * `registerRemediationHandlers()` runs (as `serve` now does at worker
+ * `registerRemediationHandlers(storage)` runs (as `serve` now does at worker
  * startup), an enqueued `remediation` job is claimed and executed by the
  * Worker instead of dead-lettering with "no handler registered".
  */
@@ -50,9 +50,9 @@ describe("remediation worker wiring", () => {
     expect(final?.lastError).toContain("no handler registered");
   });
 
-  it("after registerRemediationHandlers(), the same job runs end-to-end", async () => {
+  it("after registerRemediationHandlers(storage), the same job runs end-to-end", async () => {
     const reembedded: string[] = [];
-    registerRemediationHandlers({
+    registerRemediationHandlers(storage, {
       reembedSource: async (sourceId) => {
         reembedded.push(sourceId);
         return { chunks: 7 };

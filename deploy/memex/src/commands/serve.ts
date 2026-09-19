@@ -333,7 +333,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   // Register the `remediation` handler so `doctor --remediate` jobs actually
   // run instead of dead-lettering with "no handler registered".
-  registerRemediationHandlers();
+  registerRemediationHandlers(storage);
   // Register the `ingest_capture` handler so POST /ingest submissions land
   // as inbox pages instead of dead-lettering.
   registerIngestCaptureHandler(storage);

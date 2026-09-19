@@ -16,6 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stdout is always JSON). Daemon tick logs show the outcome.
 
 ### Fixed
+- **`memex doctor --remediate --execute` really re-embeds a source stuck at
+  0% embedding coverage.** The job used to report success without embedding
+  anything. It fills only the missing vectors of the one source it was queued
+  for, and a job that embeds nothing fails instead of succeeding.
 - **A cycle that loses its lock stops.** The lock refresh now checks that the
   row is still this run's (pid, host and acquisition time), and when it is not,
   the run ends within one 30-second refresh as `partial / lock_stolen`: no
