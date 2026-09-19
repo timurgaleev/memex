@@ -272,3 +272,43 @@ describe("tool executions bound to a tool-use id (migration 114)", () => {
     expect(rows[0]!.run_generation).toBeNull();
   });
 });
+
+describe("ids from a driver that returns int8 as a string", () => {
+  // The Postgres driver hands BIGSERIAL ids back as strings; PGLite does not.
+  // Simulate that so begin -> finish works on both engines.
+  it("begin, find and finish accept a stringified id", async () => {
+    const jobId = await newJob();
+    const engine = storage.engine();
+    const real = engine.query.bind(engine);
+    (engine as any).query = async (sql: string, params?: unknown[]) => {
+      const r = await real(sql, params as any);
+      return { ...r, rows: r.rows.map((row: any) => ("id" in row ? { ...row, id: String(row.id) } : row)) };
+    };
+    try {
+      const begun = await beginToolExecution(storage, {
+        job_id: jobId,
+        turn_num: 1,
+        tool_name: "search",
+        input: { q: "x" },
+        tool_use_id: "tu-1",
+      });
+      expect(typeof begun.id).toBe("number");
+      const fin = await finishToolExecution(storage, { id: begun.id, status: "succeeded", output: { text: "ok" } });
+      expect(fin.updated).toBe(true);
+      const found = await findToolExecution(storage, jobId, "tu-1");
+      expect(typeof found!.id).toBe("number");
+      const again = await beginToolExecution(storage, {
+        job_id: jobId,
+        turn_num: 1,
+        tool_name: "search",
+        input: { q: "x" },
+        tool_use_id: "tu-1",
+      });
+      expect(again.inserted).toBe(false);
+      expect(typeof again.id).toBe("number");
+      expect((await listToolExecutions(storage, jobId)).every((r) => typeof r.id === "number")).toBe(true);
+    } finally {
+      (engine as any).query = real;
+    }
+  });
+});

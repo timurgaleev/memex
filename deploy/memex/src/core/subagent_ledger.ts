@@ -101,9 +101,9 @@ export async function appendMessage(
           `likely a CASCADE delete race`,
       );
     }
-    return { id: existing.rows[0]!.id, inserted: false };
+    return { id: rowId(existing.rows[0]!.id), inserted: false };
   }
-  return { id: r.rows[0]!.id, inserted: true };
+  return { id: rowId(r.rows[0]!.id), inserted: true };
 }
 
 function clampLimit(limit: number | undefined): number {
@@ -111,6 +111,21 @@ function clampLimit(limit: number | undefined): number {
     return DEFAULT_LIST_LIMIT;
   }
   return Math.min(Math.floor(limit), MAX_LIST_LIMIT);
+}
+
+/**
+ * The ledger ids are BIGSERIAL: the Postgres driver returns int8 as a string
+ * while PGLite returns a number. Normalize at the boundary so callers (and the
+ * integer checks below) see one type on both engines.
+ */
+function rowId(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isSafeInteger(n)) throw new Error(`ledger id is not a safe integer: ${String(v).slice(0, 32)}`);
+  return n;
+}
+
+function withRowId<T extends { id: unknown }>(row: T): T {
+  return { ...row, id: rowId(row.id) };
 }
 
 export async function listMessages(
@@ -128,7 +143,7 @@ export async function listMessages(
        LIMIT $2`,
     [jobId, limit],
   );
-  return r.rows;
+  return r.rows.map(withRowId);
 }
 
 export type ToolExecStatus = "pending" | "succeeded" | "failed" | "skipped";
@@ -218,7 +233,7 @@ export async function beginToolExecution(
      RETURNING id`,
     [input.job_id, input.turn_num, input.tool_name, inputJson, toolUseId, runGeneration],
   );
-  if (r.rows[0]) return { id: r.rows[0].id, inserted: true };
+  if (r.rows[0]) return { id: rowId(r.rows[0].id), inserted: true };
   const existing =
     toolUseId === null ? null : await findToolExecution(storage, input.job_id, toolUseId);
   if (!existing) {
@@ -242,7 +257,7 @@ export async function findToolExecution(
        WHERE job_id = $1 AND tool_use_id = $2`,
     [jobId, toolUseId],
   );
-  return r.rows[0] ?? null;
+  return r.rows[0] ? withRowId(r.rows[0]) : null;
 }
 
 export interface FinishToolExecutionInput {
@@ -321,5 +336,5 @@ export async function listToolExecutions(
        LIMIT $2`,
     [jobId, limit],
   );
-  return r.rows;
+  return r.rows.map(withRowId);
 }

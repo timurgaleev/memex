@@ -53,6 +53,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `skillopt`. Nothing is written: no rows, no skill files, no MCP tool.
 
 ### Fixed
+- **The agent loop runs on Postgres.** Its ledger ids are BIGSERIAL, which the
+  Postgres driver returns as strings, so the first tool call of every agent
+  job failed with `id is required` on RDS while PGLite tests passed. Ledger ids
+  are now normalized to numbers on both engines.
 - **`get_agent_job` no longer hands an answer to a caller who lost the grant
   behind it.** An enrollment-bound session on the same connector, and a client
   rescoped off the sources a job read, now get the same not-found as a foreign
