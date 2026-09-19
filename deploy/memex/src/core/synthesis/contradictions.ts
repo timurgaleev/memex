@@ -26,6 +26,7 @@ import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } f
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 import { excludeEmptyExtractionTombstone } from "./takes.ts";
 
 export const PROBE_CONTRADICTIONS_PROMPT_VERSION = "v1-sonnet";
@@ -131,28 +132,7 @@ export interface ParsedJudgment {
 
 /** Parse a single judgment object. Tolerant; returns null on failure. */
 export function parseJudgment(raw: string): ParsedJudgment | null {
-  let text = raw.trim();
-  // No `\s*` after the info tag. Greedy run plus lazy body over the same
-  // characters means an unclosed fence re-walks the tail from every split —
-  // 0.9 ms at 2 K rising to 59.4 ms at 16 K through this function, 4.0x per
-  // doubling. The removal is invisible to callers: the run matched only what
-  // the body already matches, and group 1 is trimmed on the next line.
-  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) text = fence[1].trim();
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start));
-  } catch {
-    const end = text.lastIndexOf("}");
-    if (end === -1) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
+  const parsed = parseModelJson(raw, "{");
   if (typeof parsed !== "object" || parsed === null) return null;
   const o = parsed as Record<string, unknown>;
   if (typeof o.contradicts !== "boolean") return null;

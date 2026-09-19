@@ -44,6 +44,7 @@ import {
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 
 export const RELATIONAL_LLM_PROMPT_VERSION = "v1-sonnet";
 
@@ -153,33 +154,10 @@ function estimateUsage(system: string, user: string, maxTokens: number): SonnetU
  * {@link RelationalQuery} the fanout can consume, or null on any shortfall (bad
  * JSON, unknown kind/direction, no valid seed, an unknown link type). Never
  * throws — a null just means "the fallback found nothing", identical to a regex
- * miss. Mirrors think.ts's fence-strip → first-`{` → last-`}` recovery.
+ * miss.
  */
 export function parseRelationalLlmResponse(raw: string): RelationalQuery | null {
-  let text = raw.trim();
-  // No `\s*` after the info tag: it overlapped the lazy body, and every split
-  // of a whitespace run between the two re-walked the body to end-of-input.
-  // The `raw.trim()` above does not save it — a run only has to end in one
-  // non-space character to survive. Measured through this function on
-  // `"```" + " ".repeat(n) + "x"`: 671 ms at 50 K, 2.7 s at 100 K, 10 s at
-  // 200 K, 41 s at 400 K — ratio 4.0 on a doubling. Dropping it is inert: the
-  // next line trims the captured group, so the whitespace went either way.
-  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) text = fence[1].trim();
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start));
-  } catch {
-    const end = text.lastIndexOf("}");
-    if (end === -1) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
+  const parsed = parseModelJson(raw, "{");
   if (typeof parsed !== "object" || parsed === null) return null;
   const o = parsed as Record<string, unknown>;
 

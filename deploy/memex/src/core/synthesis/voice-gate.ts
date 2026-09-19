@@ -17,6 +17,7 @@
  */
 import type { LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 
 export type VoiceGateMode = "pattern_statement" | "nudge";
 
@@ -88,30 +89,9 @@ export function parseVoiceJudgeOutput(raw: string): VoiceGateJudgeVerdict {
   if (!raw || raw.trim().length === 0) {
     return { verdict: "academic", reason: "empty_judge_output" };
   }
-  let text = raw.trim();
-  // No `\s*` after the info tag. The greedy run and the lazy body can split the
-  // same characters n+1 ways, so a judge reply that opens a fence and never
-  // closes it re-walks the tail from every split: measured through this
-  // function at 0.9 ms for 2 K, 3.7 ms for 4 K, 14.8 ms for 8 K, 59.4 ms for
-  // 16 K — 4.0x per doubling. The run only ever matched characters the body
-  // matches too, and group 1 is trimmed on the next line, so the fences we
-  // accept and the text we hand to JSON.parse are unchanged.
-  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) text = fence[1].trim();
-  const start = text.indexOf("{");
-  if (start === -1) return { verdict: "academic", reason: "parse_failed" };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start));
-  } catch {
-    const end = text.lastIndexOf("}");
-    if (end === -1) return { verdict: "academic", reason: "parse_failed" };
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return { verdict: "academic", reason: "parse_failed" };
-    }
-  }
+  // Strict: this gate fails closed, so JSON outside the reply's fence or after
+  // a thinking block is not a verdict.
+  const parsed = parseModelJson(raw, "{", { strict: true });
   if (typeof parsed !== "object" || parsed === null) {
     return { verdict: "academic", reason: "parse_failed" };
   }

@@ -27,6 +27,7 @@ import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } f
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 
 export interface EnrichThinPhaseResult {
   ran: boolean;
@@ -232,23 +233,7 @@ interface EnrichDraft {
 }
 
 function parseEnrichment(text: string): EnrichDraft | null {
-  let obj: unknown;
-  try {
-    // Widest brace-delimited span, taken by index rather than by
-    // `/\{[\s\S]*\}/` — the same first-`{`-to-last-`}` slice facts-extract.ts
-    // uses for the same job, and provably the same span: a greedy match can
-    // only start at the leftmost `{`, and it succeeds iff some `}` follows it.
-    // The regex restarted at every brace and re-scanned the tail for a closing
-    // one, which a model that stalls mid-object triggers: measured through
-    // parseEnrichment on `{`*n at 57 ms for 12 K, 3.6 s for 100 K, ratio 4.0 on
-    // a doubling. By index it is 0.16 ms at 1 M, ratio 2.0. Identical output
-    // over 200 K random brace/JSON strings.
-    const first = text.indexOf("{");
-    const last = text.lastIndexOf("}");
-    obj = JSON.parse(first >= 0 && last > first ? text.slice(first, last + 1) : text);
-  } catch {
-    return null;
-  }
+  const obj = parseModelJson(text, "{");
   if (typeof obj !== "object" || obj === null) return null;
   const o = obj as Record<string, unknown>;
   const markdown = typeof o.markdown === "string" ? o.markdown.trim() : "";

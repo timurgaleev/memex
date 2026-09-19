@@ -34,6 +34,7 @@ import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } f
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 
 export interface DriftPhaseResult {
   ran: boolean;
@@ -194,21 +195,7 @@ interface Verdict {
 }
 
 function parseVerdicts(text: string, validIds: Set<number>): Verdict[] {
-  let arr: unknown;
-  try {
-    // First `[` to last `]` by index. `/\[[\s\S]*\]/` picks out the same span,
-    // but on an answer with no closing bracket the body walks to the end of the
-    // text from every `[`. Measured on "["*n: 2 K = 2.5 ms, 4 K = 8.4 ms,
-    // 8 K = 23.6 ms, 16 K = 96.6 ms — ratio ~4.0 per doubling. `text` is the
-    // drift judge's reply, which we do not write. Same idiom as
-    // `parseAtomsResponse`; the `?? text` keeps the old no-match fallback.
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    const span = start !== -1 && end > start ? text.slice(start, end + 1) : null;
-    arr = JSON.parse(span ?? text);
-  } catch {
-    return [];
-  }
+  const arr = parseModelJson(text, "[");
   if (!Array.isArray(arr)) return [];
   const out: Verdict[] = [];
   for (const it of arr) {

@@ -32,6 +32,7 @@ import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
 import { resolveLlmFn, type LlmFn } from "../llm/haiku.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 
 /** Allowed atom_type values. A returned type outside this set falls back. */
 export const ATOM_TYPES = [
@@ -187,34 +188,7 @@ export function atomPageSlug(
  * invalid shape. Never throws.
  */
 export function parseAtomsResponse(raw: string): ParsedAtom[] {
-  let cleaned = raw.trim();
-  // No `\s*` after the language tag. It used to be there to skip the newline
-  // before the body, but the capture is trimmed on the very next line, so the
-  // whitespace was being stripped twice — and the two quantifiers could trade
-  // characters. `\s*` had n ways to split a whitespace run and the lazy body
-  // walked to the end of the response for each one. Measured through
-  // parseAtomsResponse on "```" + "\n"*n + "x" (a tail char so .trim() cannot
-  // delete the run, and no closing fence): 2 K = 1.2 ms, 4 K = 3.9 ms,
-  // 8 K = 15.8 ms, 16 K = 61 ms — ratio ~4.0 per doubling. Dropping `\s*`
-  // leaves a single lazy scan for the closing fence, which is linear.
-  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
-  const start = cleaned.indexOf("[");
-  if (start === -1) return [];
-  cleaned = cleaned.slice(start);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    const end = cleaned.lastIndexOf("]");
-    if (end === -1) return [];
-    try {
-      parsed = JSON.parse(cleaned.slice(0, end + 1));
-    } catch {
-      return [];
-    }
-  }
+  const parsed = parseModelJson(raw, "[");
   if (!Array.isArray(parsed)) return [];
 
   const out: ParsedAtom[] = [];
@@ -260,10 +234,11 @@ export function parseAtomsResponse(raw: string): ParsedAtom[] {
  * "nothing worth distilling here" answer. `parseAtomsResponse` returns [] for
  * that AND for malformed / truncated / prose output, so the zero-yield
  * tombstone needs the stricter test: memoizing a transient parse failure would
- * permanently suppress a document that does carry atoms. Mirrors
- * `parseAtomsResponse`'s fence handling so both agree on what "the model
- * returned []" means, minus its salvage pass — output that needs salvaging is
- * not a clean empty extraction.
+ * permanently suppress a document that does carry atoms. It is
+ * deliberately stricter than `parseAtomsResponse` (which reads through the
+ * shared decoder): only a closed fence is unwrapped and nothing is salvaged, so
+ * a reply the decoder would still read — an unclosed fence, a thinking block —
+ * stays retryable rather than being memoized as empty.
  *
  * The whole (de-fenced, trimmed) response has to BE the empty array. Seeking
  * to the first `[` the way the tolerant parser does would read
@@ -275,11 +250,9 @@ export function parseAtomsResponse(raw: string): ParsedAtom[] {
 export function isWellFormedEmptyExtraction(raw: string): boolean {
   let cleaned = raw.trim();
   if (cleaned.length === 0) return false;
-  // Same fence shape, same trim on the next line, same fix as
-  // parseAtomsResponse above — see the note there. Measured through
-  // isWellFormedEmptyExtraction on the same input: 2 K = 1.2 ms, 4 K = 4.7 ms,
-  // 8 K = 15.4 ms, 16 K = 60.8 ms, ratio ~4.0. The two must keep agreeing on
-  // what "the model returned an empty array" means, so they change together.
+  // No `\s*` after the language tag: the capture is trimmed on the next line,
+  // and with it the two quantifiers trade characters on an unclosed fence —
+  // measured 1.2 ms at 2 K to 60.8 ms at 16 K, ratio ~4.0 per doubling.
   const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   try {

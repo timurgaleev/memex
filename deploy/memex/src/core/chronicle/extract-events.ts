@@ -21,6 +21,7 @@ import {
   type SonnetUsage,
 } from "../llm/sonnet.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 import { isLlmAvailable } from "../llm/gateway.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { classifyFactsAbsorbError } from "../ingest-log.ts";
@@ -347,21 +348,6 @@ function defaultJudge(
 /** Tolerant JSON-array extraction from a model response. */
 export function parseJudgeJson(text: string): ChronicleEventProposal[] {
   if (!text) return [];
-  let s = text.trim();
-  // Measured linear through parseJudgeJson: 0.03 ms at 128 K, ratio 0.15-1.83
-  // on a doubling. The scan only ever pays for one start position: a second ```
-  // anywhere after the first makes the match succeed at once, and with no second
-  // ``` there is nothing else for the `\s*` to hand back to.
-  // eslint-disable-next-line regexp/no-super-linear-backtracking
-  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) s = fence[1]!.trim();
-  const start = s.indexOf("[");
-  const end = s.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) return [];
-  try {
-    const arr = JSON.parse(s.slice(start, end + 1));
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  const arr = parseModelJson(text, "[");
+  return Array.isArray(arr) ? arr : [];
 }

@@ -901,7 +901,10 @@ enrolled people, and the admin spend page listing enrollments. R5
 (unreleased): `BudgetTracker.reserve/settle/release`; `wouldExceed` counts
 holds; `generateChunkContext` migrated. Not done: takes, drift,
 contradictions, facts-classify and facts-extract still check then record
-(sequential today); an ambient tracker read inside `trackedInvoke`.
+(sequential today); an ambient tracker read inside `trackedInvoke`. Decoder
+(unreleased): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
+in `tests/model_json.test.ts` with 5 stated exemptions; the two
+`isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
   cannot be capped separately (client ids are random `memex_cl_…`, so only a
   deliberate collision); refuse such names at mint.

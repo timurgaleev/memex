@@ -27,6 +27,7 @@ import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.
 import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 import { clampOutputTokens, outputTokensFromEnv } from "../llm/output-limits.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { embedText } from "../embedding.ts";
@@ -950,28 +951,7 @@ export function buildThinkUserMessage(opts: {
 
 /** Parse the Sonnet synthesis. Tolerant; returns null on failure. */
 export function parseThinkResponse(raw: string): ThinkSynthesis | null {
-  let text = raw.trim();
-  // Measured linear through parseThinkResponse: 0.03 ms at 128 K, ratio
-  // 0.08-1.85 on a doubling. The scan only ever pays for one start position:
-  // a second ``` anywhere after the first makes the match succeed at once, and
-  // with no second ``` there is nothing else for the `\s*` to hand back to.
-  // eslint-disable-next-line regexp/no-super-linear-backtracking
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) text = fence[1].trim();
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start));
-  } catch {
-    const end = text.lastIndexOf("}");
-    if (end === -1) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
+  const parsed = parseModelJson(raw, "{");
   if (typeof parsed !== "object" || parsed === null) return null;
   const o = parsed as Record<string, unknown>;
   const answer = typeof o.answer === "string" ? o.answer.trim() : "";

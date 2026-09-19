@@ -30,6 +30,7 @@ import {
   type SonnetUsage,
 } from "../llm/sonnet.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { parseModelJson } from "../llm/json-output.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { contentHash16 } from "./atoms.ts";
@@ -283,45 +284,9 @@ export function takeKey(
     .digest("hex");
 }
 
-/**
- * Parse the LLM proposal output. Tolerant; never throws.
- *
- * The fence matcher carries no `\s*` after the info tag, and that omission is
- * load-bearing rather than cosmetic. With it, the greedy whitespace run and the
- * lazy body can split the same characters n+1 ways, and on an opener whose
- * closing fence never arrives the body re-walks the remainder from every split
- * — quadratic. Measured through THIS function on "```" + "\n" x n + "x": 0.9 ms
- * at 2 K, 3.7 ms at 4 K, 14.7 ms at 8 K, 59.7 ms at 16 K, ratio 4.0 per
- * doubling, which extrapolates to minutes on a megabyte. The model writes this
- * input, not a person, but a truncated response that opens a fence and stops is
- * the ordinary failure of the call this parses.
- *
- * Dropping `\s*` cannot change what we accept: the run only ever matched
- * characters the lazy body also matches, so the match span is identical, and
- * the only difference is leading whitespace inside group 1 — which the very
- * next line trims. Verified over a 102-input corpus (every char JS calls `\s`,
- * matching and non-matching) plus 200 K random fenced strings: zero
- * differences.
- */
+/** Parse the LLM proposal output. Tolerant; never throws. */
 export function parseTakesResponse(raw: string): ParsedTake[] {
-  let cleaned = raw.trim();
-  const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
-  const start = cleaned.indexOf("[");
-  if (start === -1) return [];
-  cleaned = cleaned.slice(start);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    const end = cleaned.lastIndexOf("]");
-    if (end === -1) return [];
-    try {
-      parsed = JSON.parse(cleaned.slice(0, end + 1));
-    } catch {
-      return [];
-    }
-  }
+  const parsed = parseModelJson(raw, "[");
   if (!Array.isArray(parsed)) return [];
   const out: ParsedTake[] = [];
   for (const item of parsed) {
@@ -351,10 +316,11 @@ export function parseTakesResponse(raw: string): ParsedTake[] {
  * "no gradeable claims" answer the prompt asks for. `parseTakesResponse` returns
  * [] for that AND for malformed / truncated / prose output, so the zero-yield
  * tombstone needs the stricter test: memoizing a transient parse failure would
- * permanently suppress a document that does carry claims. Mirrors
- * `parseTakesResponse`'s fence handling so both agree on what "the model
- * returned []" means, minus its salvage pass — output that needs salvaging is
- * not a clean empty extraction.
+ * permanently suppress a document that does carry claims. It is
+ * deliberately stricter than `parseTakesResponse` (which reads through the
+ * shared decoder): only a closed fence is unwrapped and nothing is salvaged, so
+ * a reply the decoder would still read — an unclosed fence, a thinking block —
+ * stays retryable rather than being memoized as empty.
  *
  * The whole (de-fenced, trimmed) response has to BE the empty array. Seeking
  * to the first `[` the way the tolerant parser does would read
@@ -366,10 +332,9 @@ export function parseTakesResponse(raw: string): ParsedTake[] {
 export function isWellFormedEmptyExtraction(raw: string): boolean {
   let cleaned = raw.trim();
   if (cleaned.length === 0) return false;
-  // No `\s*` after the info tag, for the reason spelled out on
-  // `parseTakesResponse` — the two must keep matching the same fences, and this
-  // one measured the same 4.0x per doubling (0.9 ms at 2 K to 59.5 ms at 16 K)
-  // before the run came out.
+  // No `\s*` after the info tag: with it, the whitespace run and the lazy body
+  // split the same characters n+1 ways and an unclosed fence goes quadratic
+  // (0.9 ms at 2 K to 59.5 ms at 16 K before the run came out).
   const fence = cleaned.match(/```(?:json)?([\s\S]*?)```/);
   if (fence && fence[1] !== undefined) cleaned = fence[1].trim();
   try {
@@ -835,26 +800,7 @@ export function evidenceSignature(evidence: string, modelId: string): string {
 
 /** Parse a single-object verdict. Tolerant; returns null on failure. */
 export function parseVerdictResponse(raw: string): ParsedVerdict | null {
-  let text = raw.trim();
-  // No `\s*` after the info tag — see `parseTakesResponse`. Same shape, same
-  // measurement here: 1.0 ms at 2 K to 59.6 ms at 16 K, ratio 4.0 per doubling,
-  // linear once the run is gone.
-  const fence = text.match(/```(?:json)?([\s\S]*?)```/);
-  if (fence && fence[1] !== undefined) text = fence[1].trim();
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(start));
-  } catch {
-    const end = text.lastIndexOf("}");
-    if (end === -1) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
+  const parsed = parseModelJson(raw, "{");
   if (typeof parsed !== "object" || parsed === null) return null;
   const o = parsed as Record<string, unknown>;
   const rawV = typeof o.verdict === "string" ? o.verdict : "";

@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **One decoder reads every structured model reply.** Thirteen parsers each
+  carried their own copy of "find the fence, slice from the first brace"; they
+  now share one that skips a `<thinking>` block, reads an unclosed fence,
+  prefers the JSON inside a fence and falls back to the whole reply, using
+  only linear scans. Drift, pattern, enrichment and worth-gate replies wrapped
+  in a fence, and bias tags followed by prose, now parse where they used to be
+  dropped. A test keeps new parsers on it.
+
+### Fixed
+- **A malformed skill-improvement reply surfaced as a bare JSON syntax
+  error;** it now fails with a message naming what was missing.
+
 ### Added
 - **A shared per-run LLM budget now bounds calls running at the same time.**
   The contextual blurbs a write generates run several at once against one

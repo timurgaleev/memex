@@ -23,6 +23,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import type { Engine } from "./engine/interface.ts";
 import { sanitizeForPrompt } from "./llm/sanitize.ts";
+import { parseModelJson } from "./llm/json-output.ts";
 import { awsRegion, bedrockClientConfig, chatTimeoutMs, utilityTimeoutMs } from "./llm/gateway.ts";
 import { trackedInvoke } from "./budget.ts";
 
@@ -233,17 +234,11 @@ export async function proposeForSkill(
     throw new Error("proposeForSkill: empty response from model");
   }
 
-  let parsed: { rationale?: string; suggestion?: string };
-  try {
-    parsed = JSON.parse(text.trim());
-  } catch {
-    // Tolerate code-fence wrapping just in case.
-    const stripped = text
-      .trim()
-      .replace(/^```(?:json)?\s*/, "")
-      .replace(/```\s*$/, "");
-    parsed = JSON.parse(stripped);
+  const value = parseModelJson(text, "{");
+  if (typeof value !== "object" || value === null) {
+    throw new Error("proposeForSkill: the model's reply held no JSON object");
   }
+  const parsed = value as { rationale?: unknown; suggestion?: unknown };
   const rationale =
     typeof parsed.rationale === "string" ? parsed.rationale.trim() : "";
   const suggestion =
