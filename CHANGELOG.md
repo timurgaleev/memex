@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.148.0] — 2026-09-19
+
 ### Added
 - **`context_pack`: a budgeted "what matters now" pack.** One read returns
   entity cards (title, type, top facts, recent events; no page body) for up
