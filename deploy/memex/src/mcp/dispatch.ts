@@ -3483,13 +3483,20 @@ async function callThink(
       ran: false,
       reason: "no readable sources in this grant",
       synthesis: null,
+      synthesisStatus: "no_llm",
       pagesGathered: 0,
       takesGathered: 0,
       spentUsd: 0,
       modelId: null,
       budgetExhausted: false,
     };
-    return jsonResult({ ok: true, ...empty, save_applied: false, take_applied: false });
+    return jsonResult({
+      ok: true,
+      ...empty,
+      synthesis_status: empty.synthesisStatus,
+      save_applied: false,
+      take_applied: false,
+    });
   }
 
   const result = await runThink(storage, thinkOpts);
@@ -3516,6 +3523,7 @@ async function callThink(
   return jsonResult({
     ok: true,
     ...result,
+    synthesis_status: result.synthesisStatus,
     save_applied: safeSave,
     take_applied: safeTake,
     ...(saved ? { saved } : {}),

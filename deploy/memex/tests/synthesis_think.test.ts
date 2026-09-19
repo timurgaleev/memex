@@ -12,6 +12,9 @@ import type { Engine } from "../src/core/engine/interface.ts";
 import {
   runThink,
   parseThinkResponse,
+  classifyThinkResponse,
+  buildExtractiveFallback,
+  thinkFailureStatus,
   renderPagesBlock,
   renderTakesBlock,
   buildThinkUserMessage,
@@ -23,7 +26,8 @@ import { getPage } from "../src/core/pages.ts";
 import { runThinkCli } from "../src/commands/think.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
 import type { SearchHit } from "../src/core/search/hybrid.ts";
-import { BudgetTracker } from "../src/core/budget.ts";
+import { BudgetExhausted, BudgetTracker, costUsd } from "../src/core/budget.ts";
+import { BedrockHalted } from "../src/core/llm/bedrock-errors.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -306,6 +310,7 @@ describe("gaps render once on every surface", () => {
       question: "what changed",
       result: {
         ran: true,
+        synthesisStatus: "ok",
         synthesis: {
           answer: gapsInProse,
           citations: [{ ref: "notes/plan.md", kind: "page" }],
@@ -475,5 +480,233 @@ describe("runThink", () => {
     // A generous cap records the spend; sanity that BudgetTracker is wired.
     const budget = new BudgetTracker(1.0, "think-test");
     expect(budget.wouldExceed("eu.anthropic.claude-sonnet-4-6", { inputTokens: 100, outputTokens: 50 })).toBe(false);
+  });
+});
+
+describe("classifyThinkResponse", () => {
+  it("returns ok with the parsed synthesis", () => {
+    const r = classifyThinkResponse(okResponse);
+    expect(r.status).toBe("ok");
+    expect(r.synthesis!.answer).toContain("migrate");
+  });
+
+  it("returns not_json when no object parses", () => {
+    expect(classifyThinkResponse("sorry, I cannot help")).toEqual({ synthesis: null, status: "not_json" });
+  });
+
+  it("returns empty_answer for an object with a blank answer", () => {
+    expect(classifyThinkResponse(JSON.stringify({ answer: "  " }))).toEqual({
+      synthesis: null,
+      status: "empty_answer",
+    });
+  });
+});
+
+describe("thinkFailureStatus", () => {
+  const named = (name: string) => Object.assign(new Error("x"), { name });
+
+  it("maps refusals before any call to no_llm", () => {
+    expect(thinkFailureStatus(new BudgetExhausted("cost", "over"))).toBe("no_llm");
+    expect(thinkFailureStatus(new BedrockHalted("access", 0, "paused"))).toBe("no_llm");
+  });
+
+  it("maps a model the account cannot use to model_unusable", () => {
+    expect(thinkFailureStatus(named("AccessDeniedException"))).toBe("model_unusable");
+    expect(thinkFailureStatus(named("ValidationException"))).toBe("llm_error");
+    expect(
+      thinkFailureStatus(Object.assign(new Error("Input is too long for requested model"), { name: "ValidationException" })),
+    ).toBe("model_unusable");
+  });
+
+  it("maps everything else to llm_error", () => {
+    expect(thinkFailureStatus(named("ThrottlingException"))).toBe("llm_error");
+    expect(thinkFailureStatus(named("ExpiredTokenException"))).toBe("llm_error");
+    expect(thinkFailureStatus(new Error("socket hang up"))).toBe("llm_error");
+  });
+});
+
+describe("think synthesis status and extractive fallback", () => {
+  const planPages = [
+    { sourcePath: "notes/plan.md", title: "Plan", content: "The plan is to migrate the database in Q3." },
+    { sourcePath: "notes/risks.md", title: "Risks", content: "The main risk of the plan is downtime.\nSecond line." },
+  ];
+  const planRefs = planPages.map((p) => p.sourcePath);
+  const throwing = (name: string): SonnetFn => async () => {
+    throw Object.assign(new Error("x"), { name });
+  };
+
+  it("a throttled compose reports llm_error with a cited extractive digest", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: throwing("ThrottlingException"),
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+    });
+    expect(r.ran).toBe(true);
+    expect(r.synthesis).toBeNull();
+    expect(r.synthesisStatus).toBe("llm_error");
+    expect(r.spentUsd).toBe(0);
+    expect(r.fallback?.kind).toBe("extractive");
+    expect(r.fallback!.answer).toContain("Extractive digest (no synthesized answer; model status: llm_error)");
+    expect(r.fallback!.answer).toContain("[notes/plan.md]");
+    expect(r.fallback!.citations.length).toBeGreaterThan(0);
+    for (const c of r.fallback!.citations) {
+      expect(c.kind).toBe("page");
+      expect(planRefs).toContain(c.ref);
+    }
+  });
+
+  it("an access-denied compose reports model_unusable", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: throwing("AccessDeniedException"),
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+    });
+    expect(r.synthesisStatus).toBe("model_unusable");
+    expect(r.fallback?.kind).toBe("extractive");
+  });
+
+  it("unparseable output reports not_json and the digest adds no spend", async () => {
+    let calls = 0;
+    const usage = { inputTokens: 100, outputTokens: 50 };
+    const spy: SonnetFn = async () => {
+      calls++;
+      return { text: "sorry, I cannot help", modelId: "eu.anthropic.claude-sonnet-4-6", usage };
+    };
+    const r = await runThink(storage, { question: "what is the plan?", sonnetFn: spy, pagesFn: fakePages(planPages), embedFn: null });
+    expect(r.synthesis).toBeNull();
+    expect(r.synthesisStatus).toBe("not_json");
+    expect(r.reason).toContain("not_json");
+    expect(r.fallback?.kind).toBe("extractive");
+    expect(calls).toBe(2);
+    expect(r.spentUsd).toBe(Number((calls * costUsd("eu.anthropic.claude-sonnet-4-6", usage)).toFixed(6)));
+  });
+
+  it("a blank answer reports empty_answer", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: fakeSonnet(JSON.stringify({ answer: "" })),
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+    });
+    expect(r.synthesisStatus).toBe("empty_answer");
+    expect(r.fallback?.kind).toBe("extractive");
+  });
+
+  it("output cut on the cap on both calls reports output_truncated", async () => {
+    let calls = 0;
+    const cut: SonnetFn = async () => {
+      calls++;
+      return {
+        text: '{"answer": "The plan is to mig',
+        modelId: "eu.anthropic.claude-sonnet-4-6",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "max_tokens",
+      };
+    };
+    const r = await runThink(storage, { question: "what is the plan?", sonnetFn: cut, pagesFn: fakePages(planPages), embedFn: null });
+    expect(calls).toBe(2);
+    expect(r.synthesisStatus).toBe("output_truncated");
+    expect(r.fallback?.kind).toBe("extractive");
+  });
+
+  it("an unpriced model is refused before any call as model_unusable", async () => {
+    let called = false;
+    const spy: SonnetFn = async () => {
+      called = true;
+      return { text: okResponse, modelId: "x", usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: spy,
+      modelId: "eu.anthropic.claude-not-a-model",
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+    });
+    expect(called).toBe(false);
+    expect(r.synthesisStatus).toBe("model_unusable");
+    expect(r.spentUsd).toBe(0);
+    expect(r.fallback?.kind).toBe("extractive");
+  });
+
+  it("a budget that cannot fit one call reports no_llm", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: fakeSonnet(okResponse),
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+      maxBudgetUsd: 0.0000001,
+    });
+    expect(r.synthesisStatus).toBe("no_llm");
+    expect(r.budgetExhausted).toBe(true);
+    expect(r.spentUsd).toBe(0);
+  });
+
+  it("default-OFF reports no_llm with no fallback", async () => {
+    const prev = process.env.MEMEX_THINK;
+    delete process.env.MEMEX_THINK;
+    try {
+      const r = await runThink(storage, { question: "what is the plan?", pagesFn: fakePages(planPages) });
+      expect(r.synthesisStatus).toBe("no_llm");
+      expect(r.fallback).toBeUndefined();
+    } finally {
+      if (prev !== undefined) process.env.MEMEX_THINK = prev;
+    }
+  });
+
+  it("a successful run reports ok with no fallback", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: fakeSonnet(okResponse),
+      pagesFn: fakePages(planPages),
+      embedFn: null,
+    });
+    expect(r.synthesisStatus).toBe("ok");
+    expect(r.reason).toBeUndefined();
+    expect(r.fallback).toBeUndefined();
+  });
+
+  it("a failure with no gathered pages carries the status and no fallback", async () => {
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: throwing("ThrottlingException"),
+      pagesFn: fakePages(),
+      embedFn: null,
+    });
+    expect(r.synthesisStatus).toBe("llm_error");
+    expect(r.fallback).toBeUndefined();
+  });
+
+  it("a scoped run quotes only the pages its scoped retriever returned", async () => {
+    const scoped = [planPages[1]!];
+    const r = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: throwing("ThrottlingException"),
+      pagesFn: async () => scoped as SearchHit[],
+      embedFn: null,
+      sourceIds: ["tenant-a"],
+    });
+    expect(r.fallback!.citations).toEqual([{ ref: "notes/risks.md", kind: "page" }]);
+    expect(r.fallback!.answer).not.toContain("notes/plan.md");
+  });
+});
+
+describe("buildExtractiveFallback", () => {
+  it("keeps retrieval order, dedupes and caps the page count", () => {
+    const pages = [
+      { sourcePath: "a.md", content: "alpha plan" },
+      { sourcePath: "b.md", content: "beta plan" },
+      { sourcePath: "a.md", content: "alpha again" },
+      { sourcePath: "c.md", content: "gamma plan" },
+    ] as SearchHit[];
+    const f = buildExtractiveFallback("plan", pages, "llm_error", 2)!;
+    expect(f.citations.map((c) => c.ref)).toEqual(["a.md", "b.md"]);
+    expect(f.answer.indexOf("[a.md]")).toBeLessThan(f.answer.indexOf("[b.md]"));
+    expect(f.answer).not.toContain("[c.md]");
+  });
+
+  it("returns null when no page has text to quote", () => {
+    expect(buildExtractiveFallback("plan", [{ sourcePath: "a.md", content: "" }] as SearchHit[], "not_json")).toBeNull();
   });
 });

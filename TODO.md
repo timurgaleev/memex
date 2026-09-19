@@ -2268,6 +2268,17 @@ re-spending completed crosses.
 
 **Needs operator go.** The idea-generation half (recorded as ask).
 
+**Progress.** Release 1 (unreleased): every think result carries a closed
+`synthesisStatus` (`synthesis_status` on MCP) mapped from the parse outcome,
+the truncation flag, the budget pre-flight (an unpriced model is
+`model_unusable`) and the Bedrock error class. When compose fails after pages
+were gathered, a `fallback` digest (`kind:"extractive"`) quotes the top five
+pages with validated citations, makes no model call and is never persisted
+(`synthesis` stays null, so save/take, auto_think and deep-synth skip it). The
+first Done-when clause holds in tests. Still open: budget-aware excerpts,
+`YYYY-MM` windows, envelope salvage through the RM-04 decoder, RM-11 meta in the
+status and digest, the answer-quality panel, and brainstorm (needs go).
+
 ### RM-21 — Hosted onboarding, harness provisioning and skill distribution
 
 **Why.** Onboarding a new agent or teammate takes several `memex auth` calls

@@ -9,6 +9,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runThinkCli } from "../src/commands/think.ts";
+import type { SonnetFn } from "../src/core/llm/sonnet.ts";
+import type { SearchHit } from "../src/core/search/hybrid.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-think-cli-"));
 const cfgDir = join(tmp, ".memex");
@@ -87,5 +89,41 @@ describe("think CLI persistence wiring", () => {
       cap.restore();
       process.exitCode = prevExit;
     }
+  });
+
+});
+
+describe("think CLI failure reporting", () => {
+  const pagesFn = async () =>
+    [{ sourcePath: "notes/plan.md", title: "Plan", content: "The plan is to migrate in Q3." }] as SearchHit[];
+  const throttled: SonnetFn = async () => {
+    throw Object.assign(new Error("slow down"), { name: "ThrottlingException" });
+  };
+
+  it("--json carries synthesisStatus and the extractive fallback", async () => {
+    const cap = capture();
+    try {
+      await runThinkCli({ question: "what is the plan?", json: true, configPath: cfgPath, sonnetFn: throttled, pagesFn });
+    } finally {
+      cap.restore();
+    }
+    const out = JSON.parse(cap.out.join("\n"));
+    expect(out.synthesis).toBeNull();
+    expect(out.synthesisStatus).toBe("llm_error");
+    expect(out.fallback.kind).toBe("extractive");
+    expect(out.fallback.citations).toEqual([{ ref: "notes/plan.md", kind: "page" }]);
+  });
+
+  it("text mode prints the status and labels the digest", async () => {
+    const cap = capture();
+    try {
+      await runThinkCli({ question: "what is the plan?", configPath: cfgPath, sonnetFn: throttled, pagesFn });
+    } finally {
+      cap.restore();
+    }
+    const text = cap.out.join("\n");
+    expect(text).toContain("think: no synthesis (llm_error): synthesis call failed: slow down");
+    expect(text).toContain("[extractive fallback, not a synthesized answer]");
+    expect(text).toContain("[notes/plan.md]");
   });
 });

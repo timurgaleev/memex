@@ -108,9 +108,12 @@ export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
     }
     if (!report.synthesis) {
       console.log(
-        `think: no synthesis — ${report.reason ?? "model output did not parse"}` +
+        `think: no synthesis (${report.synthesisStatus}): ${report.reason ?? "model output did not parse"}` +
           ` (${report.pagesGathered} pages, ${report.takesGathered} takes, spent $${report.spentUsd.toFixed(4)})`,
       );
+      if (report.fallback) {
+        console.log(`\n[extractive fallback, not a synthesized answer]\n${report.fallback.answer}`);
+      }
       return;
     }
     const s = report.synthesis;

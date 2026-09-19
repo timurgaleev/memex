@@ -74,6 +74,7 @@ describe("synthesisSlugFor", () => {
 describe("persistThinkSynthesis", () => {
   const result = (answer: string): ThinkResult => ({
     ran: true,
+    synthesisStatus: "ok",
     synthesis: {
       answer,
       citations: [

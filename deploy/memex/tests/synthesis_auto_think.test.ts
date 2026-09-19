@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { getPage } from "../src/core/pages.ts";
 import { autoThinkPhase } from "../src/core/synthesis/auto-think.ts";
+import { runThink } from "../src/core/synthesis/think.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
 import type { SearchHit } from "../src/core/search/hybrid.ts";
 
@@ -100,6 +101,30 @@ describe("autoThinkPhase", () => {
     });
     expect(r.draftsWritten).toBe(0);
     expect(await getPage(storage, "drafts/think/a-question-with-no-answer")).toBeNull();
+  });
+
+  it("does not persist the extractive fallback of a failed compose", async () => {
+    const throttled: SonnetFn = async () => {
+      throw Object.assign(new Error("x"), { name: "ThrottlingException" });
+    };
+    const think = await runThink(storage, {
+      question: "A question the model never answered",
+      sonnetFn: throttled,
+      pagesFn: fakePages("some context"),
+      embedFn: null,
+    });
+    expect(think.synthesis).toBeNull();
+    expect(think.fallback?.kind).toBe("extractive");
+
+    const r = await autoThinkPhase(storage, {
+      sonnetFn: throttled,
+      pagesFn: fakePages("some context"),
+      embedFn: null,
+      questions: ["A question the model never answered"],
+      cooldownHours: 0,
+    });
+    expect(r.draftsWritten).toBe(0);
+    expect(await getPage(storage, "drafts/think/a-question-the-model-never-answered")).toBeNull();
   });
 
   it("treats an explicit zero budget as spend-nothing (no Sonnet call)", async () => {

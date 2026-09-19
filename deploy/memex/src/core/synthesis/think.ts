@@ -26,10 +26,11 @@ import type { Engine } from "../engine/interface.ts";
 import { hybridSearch, type SearchHit } from "../search/hybrid.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
-import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { callWithTruncationRetry, isTruncated } from "../llm/truncation.ts";
 import { parseModelJson } from "../llm/json-output.ts";
 import { clampOutputTokens, outputTokensFromEnv } from "../llm/output-limits.ts";
-import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { BudgetTracker, BudgetExhausted, isBudgetRefusal, priceFor } from "../budget.ts";
+import { BedrockHalted, classifyBedrockError } from "../llm/bedrock-errors.ts";
 import { embedText } from "../embedding.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
 import { extractCandidateEntities } from "./entity-extract.ts";
@@ -74,6 +75,32 @@ export interface ThinkSynthesis {
   answer: string;
   citations: ThinkCitation[];
   gaps: string[];
+}
+
+/**
+ * Why a run did or did not produce a synthesized answer. Closed on purpose:
+ * callers branch on it, so a new failure mode must be named here rather than
+ * leak through as free text.
+ */
+export type SynthesisStatus =
+  | "ok"
+  | "empty_answer"
+  | "not_json"
+  | "output_truncated"
+  | "no_llm"
+  | "model_unusable"
+  | "llm_error";
+
+/**
+ * What the caller gets when compose failed but retrieval found pages: excerpts
+ * of those pages, cited, with no model involved. It is never an answer and is
+ * never persisted — `synthesis` stays null so every writer skips it.
+ */
+export interface ThinkFallback {
+  kind: "extractive";
+  answer: string;
+  citations: ThinkCitation[];
+  note: string;
 }
 
 export interface ThinkOptions {
@@ -138,6 +165,9 @@ export interface ThinkResult {
   ran: boolean;
   reason?: string;
   synthesis: ThinkSynthesis | null;
+  synthesisStatus: SynthesisStatus;
+  /** Present only when compose failed after retrieval gathered pages. */
+  fallback?: ThinkFallback;
   pagesGathered: number;
   takesGathered: number;
   spentUsd: number;
@@ -951,11 +981,19 @@ export function buildThinkUserMessage(opts: {
 
 /** Parse the Sonnet synthesis. Tolerant; returns null on failure. */
 export function parseThinkResponse(raw: string): ThinkSynthesis | null {
+  return classifyThinkResponse(raw).synthesis;
+}
+
+/** Parse the Sonnet synthesis and say why it failed when it did. */
+export function classifyThinkResponse(raw: string): {
+  synthesis: ThinkSynthesis | null;
+  status: "ok" | "empty_answer" | "not_json";
+} {
   const parsed = parseModelJson(raw, "{");
-  if (typeof parsed !== "object" || parsed === null) return null;
+  if (typeof parsed !== "object" || parsed === null) return { synthesis: null, status: "not_json" };
   const o = parsed as Record<string, unknown>;
   const answer = typeof o.answer === "string" ? o.answer.trim() : "";
-  if (!answer) return null;
+  if (!answer) return { synthesis: null, status: "empty_answer" };
   const citations: ThinkCitation[] = [];
   if (Array.isArray(o.citations)) {
     for (const c of o.citations) {
@@ -970,7 +1008,72 @@ export function parseThinkResponse(raw: string): ThinkSynthesis | null {
   const gaps: string[] = Array.isArray(o.gaps)
     ? o.gaps.filter((g): g is string => typeof g === "string" && g.trim().length > 0).map((g) => g.trim())
     : [];
-  return { answer, citations, gaps };
+  return { synthesis: { answer, citations, gaps }, status: "ok" };
+}
+
+/**
+ * The status for a synthesis call that threw. A budget refusal or an open
+ * circuit means no call was made; a model the account cannot use, or an input
+ * it cannot take, will fail the same way on every retry; anything else is a
+ * call that failed this time.
+ */
+export function thinkFailureStatus(err: unknown): SynthesisStatus {
+  if (isBudgetRefusal(err) || err instanceof BedrockHalted) return "no_llm";
+  const cls = classifyBedrockError(err);
+  if (cls === "access" || cls === "input_too_long") return "model_unusable";
+  return "llm_error";
+}
+
+const FALLBACK_MAX_PAGES = 5;
+
+/**
+ * Cited excerpts of the top gathered pages, in retrieval order, for a run whose
+ * compose failed. No model call, so no spend; the citations go through the same
+ * validation as a model's, so only gathered pages can be cited. Returns null
+ * when there is nothing to quote.
+ */
+export function buildExtractiveFallback(
+  question: string,
+  pages: SearchHit[],
+  status: SynthesisStatus,
+  maxPages = FALLBACK_MAX_PAGES,
+  perPage = PAGE_EXCERPT_CHARS,
+): ThinkFallback | null {
+  const seen = new Set<string>();
+  const picked: SearchHit[] = [];
+  for (const p of pages) {
+    if (picked.length >= maxPages) break;
+    if (!p.sourcePath || seen.has(p.sourcePath)) continue;
+    seen.add(p.sourcePath);
+    picked.push(p);
+  }
+  const lines: string[] = [];
+  const cited: ThinkCitation[] = [];
+  for (const p of picked) {
+    const identity = `${p.title ?? ""} ${basenameWords(p.sourcePath)}`;
+    const excerpt = selectRelevantExcerpt(p.content ?? "", question, perPage, identity).trim();
+    if (!excerpt) continue;
+    lines.push(`- [${p.sourcePath}] ${excerpt.split("\n").join("\n  ")}`);
+    cited.push({ ref: p.sourcePath, kind: "page" });
+  }
+  if (lines.length === 0) return null;
+  const { citations } = validateCitations(cited, {
+    pageRefs: pages.map((p) => p.sourcePath),
+    takeRefs: [],
+  });
+  return {
+    kind: "extractive",
+    answer: [`Extractive digest (no synthesized answer; model status: ${status})`, "", ...lines].join("\n"),
+    citations,
+    note: "Excerpts of the top retrieved pages, quoted without a model. Not a synthesized answer and never saved.",
+  };
+}
+
+/** Attach the extractive digest to a failed run that gathered pages. */
+function withFallback(result: ThinkResult, question: string, pages: SearchHit[]): ThinkResult {
+  if (result.synthesisStatus === "ok" || pages.length === 0) return result;
+  const fallback = buildExtractiveFallback(question, pages, result.synthesisStatus);
+  return fallback ? { ...result, fallback } : result;
 }
 
 /**
@@ -1134,6 +1237,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
   let synthesis: ThinkSynthesis | null = null;
   let usedModel: string | null = null;
   let exhausted = false;
+  let status: SynthesisStatus = "ok";
   for (let round = 1; round <= rounds; round++) {
     if (round > 1) {
       if (!synthesis || synthesis.gaps.length === 0 || exhausted) break;
@@ -1153,17 +1257,23 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     // Pre-flight: a paid call must fit the budget (also stops unpriced models).
     if (budget.wouldExceed(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens))) {
       if (round === 1) {
-        return {
+        // An unpriced model is refused by the same check, but more budget
+        // would not help it.
+        const unpriced = priceFor(modelId) === null;
+        return withFallback({
           ran: true,
-          reason: "budget exhausted before synthesis",
+          reason: unpriced
+            ? `model ${modelId} has no price; refusing to spend against it`
+            : "budget exhausted before synthesis",
           synthesis: null,
+          synthesisStatus: unpriced ? "model_unusable" : "no_llm",
           pagesGathered: pages.length,
           takesGathered: takes.length,
           spentUsd: 0,
           modelId: null,
           budgetExhausted: true,
           intent,
-        };
+        }, question, pages);
       }
       exhausted = true;
       break;
@@ -1189,9 +1299,10 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
         if (e instanceof BudgetExhausted) exhausted = true;
         else throw e;
       }
-      let parsed = parseThinkResponse(resp.text);
+      let outcome = classifyThinkResponse(resp.text);
+      let cut = call.truncated;
       if (
-        !parsed &&
+        !outcome.synthesis &&
         // A truncated response already got its larger-cap retry above; replaying
         // the same prompt at the same cap would truncate identically.
         !call.truncated &&
@@ -1219,23 +1330,28 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
           if (e instanceof BudgetExhausted) exhausted = true;
           else throw e;
         }
-        parsed = parseThinkResponse(retry.text);
+        outcome = classifyThinkResponse(retry.text);
+        cut = isTruncated(retry);
       }
       // A later round that fails to parse keeps the previous round's answer.
-      if (parsed || round === 1) synthesis = parsed;
+      if (outcome.synthesis || round === 1) synthesis = outcome.synthesis;
+      if (round === 1) {
+        status = outcome.synthesis ? "ok" : cut ? "output_truncated" : outcome.status;
+      }
     } catch (e) {
       if (round > 1) break; // keep the earlier round's synthesis
-      return {
+      return withFallback({
         ran: true,
         reason: `synthesis call failed: ${e instanceof Error ? e.message : String(e)}`,
         synthesis: null,
+        synthesisStatus: thinkFailureStatus(e),
         pagesGathered: pages.length,
         takesGathered: takes.length,
         spentUsd: Number(budget.totalSpent().toFixed(6)),
         modelId: null,
         budgetExhausted: false,
         intent,
-      };
+      }, question, pages);
     }
   }
 
@@ -1255,9 +1371,11 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     }
   }
 
-  return {
+  return withFallback({
     ran: true,
+    ...(status === "ok" ? {} : { reason: `model output unusable: ${status}` }),
     synthesis,
+    synthesisStatus: status,
     pagesGathered: pages.length,
     takesGathered: takes.length,
     spentUsd: Number(budget.totalSpent().toFixed(6)),
@@ -1265,7 +1383,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     budgetExhausted: exhausted,
     intent,
     droppedCitations: dropped,
-  };
+  }, question, pages);
 }
 
 function blankResult(reason: string): ThinkResult {
@@ -1273,6 +1391,7 @@ function blankResult(reason: string): ThinkResult {
     ran: false,
     reason,
     synthesis: null,
+    synthesisStatus: "no_llm",
     pagesGathered: 0,
     takesGathered: 0,
     spentUsd: 0,

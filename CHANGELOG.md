@@ -7,6 +7,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`think` says why it failed and still hands back the evidence.** Every
+  result now carries `synthesis_status` (`ok`, `empty_answer`, `not_json`,
+  `output_truncated`, `no_llm`, `model_unusable`, `llm_error`) next to the
+  free-text reason. When the model call fails or its output cannot be used
+  after retrieval found pages, the result also carries `fallback`: a digest of
+  cited excerpts from the top gathered pages, labelled `kind: "extractive"`.
+  It makes no model call, costs nothing, cites only pages the run gathered and
+  is never saved; `synthesis` stays null, so `save`, `take`, auto-think and
+  deep-synth persist nothing from a failed run. The CLI prints the status and
+  the digest under an explicit "not a synthesized answer" banner.
 - **Dated lines in a page body become timeline events on write.** `page_put`,
   `page_append` and `page_revert` now turn bullets under a `## Timeline`
   heading (`- 2026-09-01 — text`, `- **2026-09-01** text`, `- 2026-09-01:
