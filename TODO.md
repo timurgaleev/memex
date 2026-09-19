@@ -2275,7 +2275,10 @@ the truncation flag, the budget pre-flight (an unpriced model is
 were gathered, a `fallback` digest (`kind:"extractive"`) quotes the top five
 pages with validated citations, makes no model call and is never persisted
 (`synthesis` stays null, so save/take, auto_think and deep-synth skip it). The
-first Done-when clause holds in tests. Still open: budget-aware excerpts,
+first Done-when clause holds in tests. Non-operator callers get the `search`
+diary fence on every think page stream (hybrid, gap rounds, anchor subgraph),
+so neither the prompt nor the verbatim digest carries `life/diary/*`; covered
+by an MCP-level tenant test. Still open: budget-aware excerpts,
 `YYYY-MM` windows, envelope salvage through the RM-04 decoder, RM-11 meta in the
 status and digest, the answer-quality panel, and brainstorm (needs go).
 

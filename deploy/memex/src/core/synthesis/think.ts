@@ -39,6 +39,7 @@ import { findTrajectory, type TrajectoryPoint } from "../insights.ts";
 import { getCalibrationProfile } from "./reads.ts";
 import { traverseGraph } from "../links.ts";
 import { pageSourcePath } from "../page-index.ts";
+import { isDiarySourcePath } from "../pages.ts";
 
 export const THINK_PROMPT_VERSION = "v2-sonnet";
 
@@ -135,6 +136,11 @@ export interface ThinkOptions {
    */
   embedFn?: ((text: string) => Promise<number[]>) | null;
   /**
+   * Test seam — query embedder for the default page retriever, forwarded to
+   * hybridSearch so a hermetic dispatch run gathers pages without Bedrock.
+   */
+  embedQuery?: (text: string) => Promise<number[]>;
+  /**
    * Restrict retrieval (pages + takes) to these source ids. Set by any caller
    * that PERSISTS think output pinned to a tenant (e.g. the auto_think phase) so
    * one tenant's private pages/takes never feed — and get durably attributed to
@@ -142,6 +148,12 @@ export interface ThinkOptions {
    * deep-synth, which are operator-only and unscoped by design).
    */
   sourceIds?: readonly string[];
+  /**
+   * Drop life/diary/* pages from every page stream before the model or the
+   * extractive fallback sees them. Set for any non-operator caller, matching
+   * the diary fence on `search`.
+   */
+  fenceDiary?: boolean;
   /** Only gather pages whose content date is >= this ISO date (temporal focus). */
   since?: string;
   /** Only gather pages whose content date is <= this ISO date. */
@@ -493,10 +505,12 @@ async function gatherPages(
   k: number,
   sourceIds?: readonly string[],
   window?: { since?: string; until?: string },
+  embedQuery?: (text: string) => Promise<number[]>,
 ): Promise<SearchHit[]> {
   try {
     return await hybridSearch(storage, question, {
       k,
+      ...(embedQuery ? { embedQuery } : {}),
       ...(sourceIds !== undefined ? { sourceIds } : {}),
       ...(window?.since ? { since: window.since } : {}),
       ...(window?.until ? { until: window.until } : {}),
@@ -1178,7 +1192,10 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     opts.since || opts.until
       ? { ...(opts.since ? { since: opts.since } : {}), ...(opts.until ? { until: opts.until } : {}) }
       : undefined;
-  const pagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk, scopeIds, window));
+  const fence = (hits: SearchHit[]): SearchHit[] =>
+    opts.fenceDiary ? hits.filter((h) => !isDiarySourcePath(h.sourcePath)) : hits;
+  const rawPagesFn = opts.pagesFn ?? ((q, kk) => gatherPages(storage, q, kk, scopeIds, window, opts.embedQuery));
+  const pagesFn = async (q: string, kk: number): Promise<SearchHit[]> => fence(await rawPagesFn(q, kk));
   const [hybridPages, takesKw, takesVec] = await Promise.all([
     pagesFn(question, k),
     gatherTakes(engine, question, maxTakes, scopeIds),
@@ -1210,7 +1227,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
   // WITHOUT anchors (hermetic paths stay hermetic).
   let pages = hybridPages;
   if (anchors.length > 0) {
-    const graphPages = await gatherGraphPages(storage, anchors, k, scopeIds);
+    const graphPages = fence(await gatherGraphPages(storage, anchors, k, scopeIds));
     if (graphPages.length > 0) pages = fusePageStreams(hybridPages, graphPages, Math.max(k, hybridPages.length));
   }
 

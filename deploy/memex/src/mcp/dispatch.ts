@@ -47,6 +47,7 @@ import {
   listPages,
   pageVersions,
   KNOWN_PAGE_TYPES,
+  isDiarySourcePath,
   type PageInput,
 } from "../core/pages.ts";
 import type { Engine } from "../core/engine/interface.ts";
@@ -744,6 +745,7 @@ async function dispatchToolInner(
         return await withClientSpend(storage, opts.authInfo, "think", () =>
           callThink(storage, args, {
             isOperator,
+            ...(opts.embedQuery ? { embedQuery: opts.embedQuery } : {}),
             ...(readSources ? { readSources } : {}),
             ...(writeSource ? { writeSource } : {}),
           }),
@@ -1430,18 +1432,6 @@ function maybeEnqueueFactExtraction(
 function isDiaryPage(type: string | undefined, slug: string): boolean {
   const t = (type ?? "").trim().toLowerCase();
   return t === "diary" || t === "journal" || slug.startsWith("life/diary/");
-}
-
-/** A search-mirror source_path pointing at a diary page. Mirror ids are
- *  `page://<slug>` (default tenant) or `page://<sourceId>/<slug>` (scoped), so a
- *  diary page (slug `life/diary/…`) appears either right after the scheme or
- *  after a tenant prefix — match the slug segment, not just the scheme. */
-function isDiarySourcePath(sourcePath: string): boolean {
-  return (
-    sourcePath.startsWith("page://life/diary/") ||
-    sourcePath.startsWith("page-truth://life/diary/") ||
-    sourcePath.includes("/life/diary/")
-  );
 }
 
 /** Drop life/diary/* page-mirror hits for a non-operator caller (the diary
@@ -3440,7 +3430,12 @@ function headlineClaim(answer: string): string {
 async function callThink(
   storage: Storage,
   args: Record<string, unknown>,
-  ctx: { isOperator: boolean; readSources?: string[]; writeSource?: string },
+  ctx: {
+    isOperator: boolean;
+    readSources?: string[];
+    writeSource?: string;
+    embedQuery?: SearchOptions["embedQuery"];
+  },
 ): Promise<ToolCallResult> {
   const question = args["question"];
   if (typeof question !== "string" || question.trim().length === 0) {
@@ -3475,6 +3470,13 @@ async function callThink(
   if (typeof args["k"] === "number") thinkOpts.k = args["k"] as number;
   if (typeof args["max_takes"] === "number") thinkOpts.maxTakes = args["max_takes"] as number;
   if (ctx.readSources !== undefined) thinkOpts.sourceIds = ctx.readSources;
+  // Same diary fence as `search`: a failed compose quotes gathered pages
+  // verbatim, so a non-operator must never gather life/diary/* at all.
+  if (!ctx.isOperator) thinkOpts.fenceDiary = true;
+  if (ctx.embedQuery) {
+    thinkOpts.embedQuery = ctx.embedQuery;
+    thinkOpts.embedFn = ctx.embedQuery;
+  }
 
   // A caller granted no source has no evidence to gather; answer without
   // spending a paid synthesis call.

@@ -16,7 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It makes no model call, costs nothing, cites only pages the run gathered and
   is never saved; `synthesis` stays null, so `save`, `take`, auto-think and
   deep-synth persist nothing from a failed run. The CLI prints the status and
-  the digest under an explicit "not a synthesized answer" banner.
+  the digest under an explicit "not a synthesized answer" banner. For every
+  caller other than the operator, `think` applies the same diary fence as
+  `search`: `life/diary/*` pages are dropped before the model or the digest
+  sees them, so a tenant scoped into the diary's source never gets diary
+  excerpts or refs back.
 - **Dated lines in a page body become timeline events on write.** `page_put`,
   `page_append` and `page_revert` now turn bullets under a `## Timeline`
   heading (`- 2026-09-01 — text`, `- **2026-09-01** text`, `- 2026-09-01:

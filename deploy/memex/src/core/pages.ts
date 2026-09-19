@@ -88,6 +88,18 @@ export function inferPageType(slug: string): KnownPageType | null {
   return SLUG_PREFIX_TYPE[seg] ?? null;
 }
 
+/** A search-mirror source_path pointing at a diary page. Mirror ids are
+ *  `page://<slug>` (default tenant) or `page://<sourceId>/<slug>` (scoped), so a
+ *  diary page (slug `life/diary/…`) appears either right after the scheme or
+ *  after a tenant prefix — match the slug segment, not just the scheme. */
+export function isDiarySourcePath(sourcePath: string): boolean {
+  return (
+    sourcePath.startsWith("page://life/diary/") ||
+    sourcePath.startsWith("page-truth://life/diary/") ||
+    sourcePath.includes("/life/diary/")
+  );
+}
+
 // Slug grammar:
 //   - lowercase/caseless letters of any script, combining marks, digits, hyphen
 //     (\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N} — ASCII slugs are a strict subset)

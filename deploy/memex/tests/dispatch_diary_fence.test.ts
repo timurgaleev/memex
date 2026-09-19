@@ -16,9 +16,11 @@ import { Storage } from "../src/core/storage.ts";
 import { dispatchTool, type ToolCallResult } from "../src/mcp/dispatch.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
 import { putPage } from "../src/core/pages.ts";
+import { indexPageIntoSearch } from "../src/core/page-index.ts";
 import { addLink } from "../src/core/links.ts";
 import { addFact } from "../src/core/facts.ts";
 import { registerSource } from "../src/core/sources.ts";
+import { deterministicEmbed } from "./det-embed.ts";
 
 const SOURCE = "fence-a";
 const NORMAL = "projects/roadmap";
@@ -43,8 +45,14 @@ function payload(result: ToolCallResult): any {
   return JSON.parse(result.content[0]!.text);
 }
 
+const embedQuery = async (text: string) => deterministicEmbed(text);
+
 const call = async (name: string, args: Record<string, unknown>, remote: boolean) =>
-  await dispatchTool(storage, { name, arguments: args }, remote ? { authInfo: tenant } : {});
+  await dispatchTool(
+    storage,
+    { name, arguments: args },
+    remote ? { authInfo: tenant, embedQuery } : { embedQuery },
+  );
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-dispatch-fence-"));
@@ -139,5 +147,53 @@ describe("recall diary fence", () => {
 
     const out = payload(await call("recall", { id: normalFactId }, true));
     expect(out.fact.source_slug).toBe(NORMAL);
+  });
+});
+
+describe("think fallback diary fence", () => {
+  const WORD = "quokkaharbor";
+  const DIARY_TEXT = `diary interiority ${WORD} never shared`;
+  const NOTE_TEXT = `roadmap note ${WORD} milestone`;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeAll(async () => {
+    // Core putPage does not mirror into search (the dispatch write path does),
+    // and think gathers from the search store, so index explicitly.
+    for (const [slug, title, body] of [
+      ["projects/harbor", "Harbor", NOTE_TEXT],
+      ["life/diary/2026-07-02", "Diary 2026-07-02", DIARY_TEXT],
+    ] as const) {
+      await putPage(storage, { slug, title, markdown_body: body, source_id: SOURCE });
+      await indexPageIntoSearch(storage, { slug, title, markdown_body: body, source_id: SOURCE }, { embedFn: embedQuery });
+    }
+    // Live gate on, budget too small for any call: the pre-flight refuses, so
+    // the run ends on the extractive fallback without touching a model.
+    for (const k of ["MEMEX_THINK", "MEMEX_THINK_BUDGET_USD"]) saved[k] = process.env[k];
+    process.env["MEMEX_THINK"] = "1";
+    process.env["MEMEX_THINK_BUDGET_USD"] = "0.0000001";
+  });
+
+  afterAll(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it("operator's fallback may quote the diary page", async () => {
+    const out = payload(await call("think", { question: WORD }, false));
+    expect(out.synthesis).toBeNull();
+    expect(out.fallback?.kind).toBe("extractive");
+    expect(out.fallback.answer).toContain("life/diary/2026-07-02");
+  });
+
+  it("a tenant scoped into the diary's source gets no diary text or ref", async () => {
+    const res = await call("think", { question: WORD }, true);
+    const out = payload(res);
+    expect(out.synthesis).toBeNull();
+    expect(out.fallback?.kind).toBe("extractive");
+    expect(out.fallback.answer).toContain("milestone");
+    expect(res.content[0]!.text).not.toContain("never shared");
+    expect(res.content[0]!.text).not.toContain("life/diary");
   });
 });

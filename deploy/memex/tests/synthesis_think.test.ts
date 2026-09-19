@@ -690,6 +690,39 @@ describe("think synthesis status and extractive fallback", () => {
     expect(r.fallback!.citations).toEqual([{ ref: "notes/risks.md", kind: "page" }]);
     expect(r.fallback!.answer).not.toContain("notes/plan.md");
   });
+
+  it("fenceDiary keeps life/diary pages out of both the prompt and the digest", async () => {
+    const diaryText = "private diary interiority about the plan";
+    const pages = [
+      { sourcePath: "page://tenant-a/life/diary/2026-07-01", title: "Diary", content: diaryText },
+      ...planPages,
+    ];
+    const prompts: string[] = [];
+    const recording: SonnetFn = async (input) => {
+      prompts.push(input.user);
+      throw Object.assign(new Error("x"), { name: "ThrottlingException" });
+    };
+    const fenced = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: recording,
+      pagesFn: fakePages(pages),
+      embedFn: null,
+      fenceDiary: true,
+    });
+    expect(fenced.pagesGathered).toBe(planPages.length);
+    expect(fenced.fallback!.answer).not.toContain(diaryText);
+    expect(fenced.fallback!.answer).not.toContain("life/diary");
+    expect(fenced.fallback!.citations.map((c) => c.ref)).not.toContain(pages[0]!.sourcePath);
+    expect(prompts.join("\n")).not.toContain(diaryText);
+
+    const open = await runThink(storage, {
+      question: "what is the plan?",
+      sonnetFn: throwing("ThrottlingException"),
+      pagesFn: fakePages(pages),
+      embedFn: null,
+    });
+    expect(open.fallback!.answer).toContain("life/diary");
+  });
 });
 
 describe("buildExtractiveFallback", () => {
