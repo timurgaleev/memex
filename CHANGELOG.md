@@ -53,7 +53,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   show who changed a grant and when; `auth list-clients` shows the revision.
   Leaving the expected revision out keeps last-writer-wins (still audited).
   `MEMEX_OPERATOR` names the CLI actor. Migration 110; existing clients start
-  at revision 0 and no token's access changes.
+  at revision 0 and no token's access changes. Audit rows keep `before` and
+  `after` as JSON objects on Postgres, not as quoted strings.
 
 ## [1.147.0] — 2026-09-19
 

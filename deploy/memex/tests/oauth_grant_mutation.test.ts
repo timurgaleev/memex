@@ -6,7 +6,7 @@
  * every reason code at once and writes nothing.
  */
 import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
@@ -140,6 +140,12 @@ describe("rescopeClient — apply", () => {
     expect(history[0]).toMatchObject({ client_id: clientId, revision: 1, actor: "ops", via: "cli" });
     expect(history[0]!.before).toEqual({ source_id: "default", federated_read: ["default"], bound_slug_prefixes: null, tenant_mode: "client" });
     expect(history[0]!.after).toEqual(res.after);
+
+    const kinds = await storage.raw().query<{ b: string; a: string }>(
+      "SELECT jsonb_typeof(before) AS b, jsonb_typeof(after) AS a FROM oauth_grant_audit WHERE client_id = $1",
+      [clientId],
+    );
+    expect(kinds.rows[0]).toEqual({ b: "object", a: "object" });
   });
 
   it("records a no-op change too, so the attempt is on the record", async () => {
@@ -184,6 +190,24 @@ describe("rescopeClient — revision conflicts", () => {
     expect(row.source_id).toBe(winner.after.source_id);
     expect(Number(row.grant_revision)).toBe(1);
     expect(await auditCount(clientId)).toBe(1);
+  });
+
+  // PGLite serializes engine.transaction, so the test above passes with or
+  // without the row lock. On Postgres (READ COMMITTED) the lock is what keeps
+  // two writers at the same revision from both passing the check, so pin it
+  // at the source level.
+  it("the revision read inside rescopeClient locks the client row", () => {
+    const src = readFileSync(join(import.meta.dir, "../src/core/oauth-provider.ts"), "utf8");
+    const start = src.indexOf("async rescopeClient(");
+    expect(start).toBeGreaterThan(-1);
+    const read = src.indexOf("FROM oauth_clients", start);
+    const check = src.indexOf("new GrantConflictError(", start);
+    expect(read).toBeGreaterThan(start);
+    expect(check).toBeGreaterThan(read);
+    const lockedRead = src.slice(read, check);
+    const end = lockedRead.indexOf("`");
+    expect(end).toBeGreaterThan(-1);
+    expect(lockedRead.slice(0, end).replace(/\s+/g, " ")).toContain("FOR UPDATE");
   });
 
   it("a later stale write fails and changes nothing", async () => {

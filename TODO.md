@@ -1431,7 +1431,11 @@ bumps the revision and writes the `oauth_grant_audit` row (actor, via, before,
 after). The CLI (`auth rescope-client --expected-revision/--dry-run`,
 `auth grant-history`) and the admin API (`POST /admin/api/rescope-client`,
 `GET /admin/api/grant-audit`) both go through it, for source, read set, prefix
-fence and tenant mode. Still open: rescoping scopes (and the dead `agent` /
+fence and tenant mode. The audit snapshots bind through `::text::jsonb` (a
+bare `::jsonb` stored them as string scalars on Postgres), and a source-level
+test pins the `FOR UPDATE` on the revision read, since PGLite serializes
+transactions and cannot prove the lock; a Postgres-backed concurrency test is
+still missing. Still open: rescoping scopes (and the dead `agent` /
 `sources_admin` / `users_admin` scopes), named profiles and the
 `allowed_operations` snapshot, routing enrollment redemption and
 register-client through the service (`via='enrollment'`), the stricter prefix

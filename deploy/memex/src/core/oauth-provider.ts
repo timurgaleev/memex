@@ -777,7 +777,7 @@ export class OAuthProvider {
             RETURNING grant_revision
          )
          INSERT INTO oauth_grant_audit (client_id, revision, actor, via, before, after)
-         SELECT $1, u.grant_revision, $7, $8, $9::jsonb, $10::jsonb FROM u
+         SELECT $1, u.grant_revision, $7, $8, $9::text::jsonb, $10::text::jsonb FROM u
          RETURNING revision`,
         [
           clientId,
