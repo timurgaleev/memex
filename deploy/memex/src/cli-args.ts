@@ -254,7 +254,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["lint", new Set(["--dry-run", "--fix"])],
   ["reports", new Set(["--since"])],
   ["spend", new Set(["--days"])],
-  ["skillpack", new Set(["--out"])],
+  ["skillpack", new Set(["--dir", "--json", "--out"])],
   [
     "migrate-engine",
     new Set([

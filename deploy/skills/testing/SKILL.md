@@ -77,7 +77,7 @@ This mode guarantees:
 
 ```bash
 bun test tests/brain_resident_skillpack.test.ts   # pack enumeration
-memex skillpack check                             # frontmatter contract
+memex skillpack lint                              # tools + commands exist
 ```
 
 The CI-gated check is the package.json `test` script.

@@ -980,7 +980,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "list_brain_skillpack",
     description:
-      "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. After orienting, ask the user whether to install the pack (memex skillpack).",
+      "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. The skills are served, not installed: read one with get_skill (list_skills is the flat listing). On the host, `memex skillpack` builds a tarball with a sha256 manifest for verification and `memex skillpack lint` checks the pack against the real tools and commands.",
     params: {},
   },
   {

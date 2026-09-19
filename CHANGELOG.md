@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex skillpack lint [--json] [--dir PATH]`.** Checks the skill pack
+  against the real surface: every `tools:` entry must be an MCP operation and
+  every `memex <command> [<subcommand>]` a skill shows in code must exist.
+  It lints the pack the server serves (`MEMEX_SKILLS_DIR`, else
+  `deploy/skills`) and exits 1 on any finding; a test gate runs it over the
+  shipped pack. Skills, the listing and `memex skillify check` now read
+  frontmatter through one parser, and `skillify check` validates the pack
+  contract (`name`, `triggers`, `tools`, with `title`/`tags` still accepted),
+  finds `<slug>/SKILL.md` skills and warns on a tool that does not exist.
+
+### Fixed
+- **The skill pack no longer tells agents to run commands memex does not
+  have.** `skillpack-check` now works from `run_doctor` / `memex doctor`
+  instead of a nonexistent `memex skillpack check`; `minion-orchestrator`
+  drops the shell-job lane and submits only registered job kinds;
+  `schema-author` backfills with `memex page-retype`; `skillify` uses a
+  second-model review instead of a nonexistent `memex eval cross-modal`.
+  `skill-optimizer`, `skillpack-harvest` and `schema-unify` are removed:
+  they were built on commands and job kinds that do not exist.
+- **`list_brain_skillpack` no longer asks agents to install the pack.** Its
+  description says skills are served through `get_skill`, and that
+  `memex skillpack` builds a verifiable tarball.
+- `memex skillpack <anything else>` is refused instead of silently building
+  a tarball.
+
 ## [1.147.0] — 2026-09-19
 
 ### Added

@@ -55,7 +55,7 @@ import { runPages } from "./commands/pages.ts";
 import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
 import { runSpend } from "./commands/spend.ts";
-import { runSkillpack } from "./commands/skillpack.ts";
+import { runSkillpack, runSkillpackLint } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
 import { runCall } from "./commands/call.ts";
@@ -197,6 +197,8 @@ function printUsage(): void {
   console.log("  reports [--since H]          trend report from cycle_snapshots");
   console.log("  spend [--days N]             LLM spend by model, feature and spender");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
+  console.log("  skillpack lint [--json] [--dir PATH]");
+  console.log("                               check every tool and memex command the skill pack names exists");
   console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
@@ -1302,6 +1304,17 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "skillpack": {
+      if (positional[0] === "lint") {
+        const lintOpts: Parameters<typeof runSkillpackLint>[0] = {};
+        const dir = values.get("--dir");
+        if (dir) lintOpts.dir = dir;
+        if (flags.has("--json")) lintOpts.json = true;
+        return runSkillpackLint(lintOpts);
+      }
+      if (positional[0] !== undefined) {
+        console.error(`memex skillpack: unknown subcommand '${positional[0]}' (expected: lint)`);
+        return 1;
+      }
       const out = values.get("--out");
       const opts: Parameters<typeof runSkillpack>[0] = {};
       if (out) opts.out = out;

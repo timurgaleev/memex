@@ -11,9 +11,6 @@ tools:
   - page_get
   - page_put
   - query
-  - jobs_submit
-  - jobs_get
-  - jobs_logs
   - find_experts
 triggers:
   - "add a page type"
@@ -174,15 +171,15 @@ page_list prefix=people/researchers/
 
 Count the pages that would gain `type: researcher`. If the numbers look
 right, backfill. For a handful of pages, edit frontmatter directly with
-`page_get` + `page_put`. For large batches, submit a durable job so the
-work survives the session:
+`page_get` + `page_put`. For large batches, the operator runs the retype on
+the host — a dry run by default, `--apply` to write:
 
 ```
-jobs_submit  {"kind": "retype-backfill", "params": {"prefix": "people/researchers/", "type": "researcher"}}
+memex page-retype --to researcher --path-prefix people/researchers/ --json
+memex page-retype --to researcher --path-prefix people/researchers/ --apply
 ```
 
-Follow with `jobs_get` / `jobs_logs`. Backfill must be idempotent: a second
-run finds nothing to update. Never rewrite page bodies during a retype —
+Backfill must be idempotent: a second run finds nothing to update. Never rewrite page bodies during a retype —
 frontmatter only.
 
 ### Phase 6 — Verify
@@ -281,8 +278,5 @@ parameter.
   disagree. `page_list` the prefix and compare against the convention.
 - **`find_experts` misses the new type** → the pages carry the type but the
   filing prefix doesn't match the convention page. Reconcile them.
-- **Concurrent backfills** → durable jobs serialize per kind; the second
-  submission reports the in-flight job instead of double-running. Wait for
-  `jobs_get` to show the first one done.
 - **Permission denied (public surface)** → taxonomy ops are internal-only.
   Use the internal MCP surface or `memex call` from the host.

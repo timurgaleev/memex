@@ -2,18 +2,14 @@
 name: minion-orchestrator
 version: 1.0.0
 description: |
-  Unified background-work skill for both deterministic server-side jobs and
-  agent-side subagent orchestration. Use when: submitting durable jobs,
-  shell/background tasks, spawning subagents, checking progress,
-  cancelling/retrying running work, parallel fan-out. One durable,
+  Unified background-work skill for durable server-side jobs of the kinds the
+  brain registers, and for agent-side subagent orchestration. Use when:
+  submitting a durable job, checking progress, cancelling/retrying running
+  work, parallel fan-out through the agent's own subagents. One durable,
   observable queue interface plus the agent's own fan-out.
 triggers:
   - "jobs submit"
   - "submit a job"
-  - "submit a shell job"
-  - "shell job"
-  - "run shell command in background"
-  - "deterministic background task"
   - "spawn agent"
   - "background task"
   - "run in background"
@@ -45,7 +41,7 @@ mutating: true
 durable job queue for observable server-side work; agent-side reasoning
 fan-out uses the agent harness's own subagents (e.g. the Claude Code Task
 tool). This single skill handles both lanes:
-- Deterministic server jobs (`jobs_submit` / `memex jobs` from the shell)
+- Durable server jobs of a registered kind (`jobs_submit` / `memex jobs submit`)
 - LLM subagent work (the agent's own subagent runtime)
 
 When to route to the durable queue: work that must survive restarts, be
@@ -68,8 +64,8 @@ submit a corrected one.
 
 | Condition | Action |
 |---|---|
-| User asks for deterministic command/script run | Server job (shell lane, operator CLI) |
-| User asks for reindex / embed backfill / maintenance sweep | Server job (`jobs_submit`, or the corresponding `memex` CLI command) |
+| User asks to run an arbitrary shell command in the background | Not a queue job — the queue runs registered kinds only; the operator runs it on the host |
+| User asks for reindex / embed backfill / maintenance sweep | The corresponding `memex` CLI command on the host (`memex reindex`, `memex embed`, `memex cycle`), or the doctor's remediation plan |
 | User asks for research/reasoning/iterative agent work | Agent-side subagent (harness Task tool) |
 | User asks to cancel/retry running work | `jobs_cancel` / `retry_job` |
 | Single simple operation under ~30s | Consider inline execution first |
@@ -79,57 +75,50 @@ submit a corrected one.
 If intent is ambiguous, ask one clarification:
 "Do you want a deterministic server job, or agent-side LLM work?"
 
-## Server Jobs (Deterministic Work)
+## Server Jobs (Registered Kinds)
 
-Use for reproducible command execution, ETL steps, scheduled work, and
-scriptable tasks where no LLM reasoning loop is needed.
+The queue runs only job kinds the server knows: the built-in
+`chronicle_extract`, `ingest_capture`, `remediation` and `page_mirror`, plus
+any handler the server registers at start. A submit naming any other kind is
+refused with the list of known kinds — there is no generic shell or script
+job, and none should be invented.
 
-### Preconditions (read before submitting your first shell job)
-
-- **Shell-command jobs are an operator-side privilege.** Enabling
-  arbitrary command execution on the server is a remote-code-execution
-  surface; treat it as privileged infrastructure authorization. It is
-  gated by server configuration — if shell jobs are not enabled, the
-  handler refuses and submissions will not run.
-- **MCP boundary:** shell-command submission is CLI-only (operator shell,
-  `memex jobs` / `memex call`), never over the public MCP surface.
-  Agents CAN observe such jobs via `jobs_get` / `jobs_list` /
-  `get_job_progress`, and can cancel or retry them, but the operator
-  submits.
-- **Recurring work belongs to the host, not the queue:** cron-style
-  scheduling is done with systemd timers on the host (operator-side), and
-  the brain's own background `cycle` already runs routine maintenance
-  (embedding backfill, cache hygiene, decay). Don't submit a job for
-  something the cycle already does — check `get_status_snapshot` first.
-- **Verify setup:** after configuration, run `memex jobs` from the shell
-  to confirm the worker is registered and consuming the queue.
+Recurring work belongs to the host, not the queue: cron-style scheduling is
+done with systemd timers on the host (operator-side), and the brain's own
+background `cycle` already runs routine maintenance (embedding backfill,
+cache hygiene, decay). Don't submit a job for something the cycle already
+does — check `get_status_snapshot` first.
 
 ### Submit
+
+Over MCP:
+
+```
+jobs_submit {"kind":"<registered kind>","payload":{...}}
+```
 
 From the operator shell:
 
 ```
-memex call jobs_submit '{"name":"<handler>","params":{...}}'
+memex jobs submit <kind> --payload '<json>'
 ```
 
-Or over MCP with the `jobs_submit` tool for non-privileged handler names.
-Use idempotency keys in params for recurring workloads to avoid duplicate
-runs. `jobs_submit` accepts queue/lifecycle tuning where the handler
-supports it (priority, delay, max attempts, timeout).
+Pass an `idempotency_key` for recurring workloads so a repeat submit does not
+create a duplicate; `priority`, `max_retries` and `not_before` tune the run.
 
 ### Monitor (agents or operator)
 
 These operations are MCP-callable and safe for agent use:
 
 ```
-jobs_list   {"status":"active"}
+jobs_list   {"status":"running"}
 jobs_get    {"id":ID}
 get_job_progress {"id":ID}
 jobs_logs   {"id":ID}
 ```
 
 Check structured result fields (exit status, log tails, attempts, timings)
-from `jobs_get`. Use `memex jobs` (CLI) for the queue health dashboard,
+from `jobs_get`. Use `memex jobs stats` (CLI) for the queue counts,
 and `retry_job` to re-run a failed job.
 
 ### Control (MCP-callable)
@@ -170,7 +159,7 @@ Your harness reports child progress. For server-side jobs running
 alongside, poll lightly:
 
 ```
-jobs_list {"status":"active"}      # what's running server-side?
+jobs_list {"status":"running"}     # what's running server-side?
 jobs_get  {"id":ID}                # full details + result
 get_job_progress {"id":ID}         # structured progress snapshot
 jobs_logs {"id":ID}                # log tail
@@ -236,17 +225,17 @@ Server jobs alongside: #ID (reindex) — active
 
 - Don't spawn a background job for a single search query (use `search` directly)
 - Don't fire-and-forget without checking results (`jobs_get` or `page_get` the deliverable)
-- Don't spawn > 5 concurrent subagents without checking `memex jobs` / `get_status_snapshot` first
+- Don't spawn > 5 concurrent subagents without checking `get_status_snapshot` first
 - Don't submit a job for maintenance the background cycle already covers
 - Don't poll `jobs_get` in a tight loop (use `get_job_progress` for lightweight checks)
 
 ## Tools Used
 
-- Submit a background job — `jobs_submit` (MCP, non-privileged handlers; shell-command jobs are operator-CLI-only)
+- Submit a background job — `jobs_submit` (MCP; registered kinds only)
 - Get job details — `jobs_get` (MCP)
 - List jobs with filters — `jobs_list` (MCP)
 - Cancel a job — `jobs_cancel` (MCP)
 - Retry a job — `retry_job` (MCP)
 - Get structured progress — `get_job_progress` (MCP)
 - Read job logs — `jobs_logs` (MCP)
-- Queue dashboard — `memex jobs` (CLI; no MCP equivalent)
+- Queue counts — `memex jobs stats` (CLI)

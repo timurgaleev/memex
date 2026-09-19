@@ -1334,6 +1334,26 @@ command and passes on the whole pack; the lockfile test detects a one-byte
 change; `get_skill` refuses a body over the cap; doctor shows a `skills`
 category on the live host; the routing eval passes with negative cases.
 
+**Progress.** R1 (unreleased): pack honesty. One frontmatter parser
+(`src/core/skillpack/frontmatter.ts`) now backs the listing, `get_skill` and
+`skillify check`; `src/core/skillpack/lint.ts` checks every `tools:` entry
+against OPERATIONS and every `memex <cmd> [<sub>]` in code spans and fenced
+blocks against `src/cli-commands.ts` (a drift test pins that table to
+cli.ts's switch); `memex skillpack lint [--json] [--dir PATH]` runs it on the
+mounted pack. The real-pack gate (`tests/skillpack_lint.test.ts`) is green on
+50 skills: `skillpack-check` rewritten around `run_doctor`/`memex doctor`,
+`minion-orchestrator` without the shell lane, `schema-author` on
+`memex page-retype`, `skillify` without `eval cross-modal`, and
+`skill-optimizer`, `skillpack-harvest`, `schema-unify` removed (the last
+submitted a `unify-types` job kind that was never registered).
+`list_brain_skillpack` no longer promises installation. "Done when" item 1 is
+met. Still open: the lockfile, the doctor `skills` category, `get_skill`
+hardening (byte cap, field allowlist, section filter, realpath confinement),
+a `memex skillpack check` wrapper, `skillify` emitting `<slug>/SKILL.md`
+with a routing-eval file, the brain-first rule, the routing eval, library
+currency, and a lint rule for `jobs_submit` kinds (today only prose review
+caught `unify-types`/`retype-backfill`).
+
 ### RM-10 — Grants, access profiles and the admin grant editor
 
 **Why.** Rescoping a client is one blind UPDATE of source, federated read,

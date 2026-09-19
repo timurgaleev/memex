@@ -25,7 +25,7 @@ This skill guarantees:
 - MECE check: no overlap with existing skills' triggers
 - Frontmatter `triggers:` route the intended phrases
 - New skill shows up in `list_skills`
-- Skill passes the conformance audit (`memex skillpack check`)
+- Skill passes the conformance checks (`memex skillify check <name>` and `memex skillpack lint`)
 
 ## Phases
 
@@ -71,7 +71,7 @@ mutating: {true|false}
    separate routing file to update.
 5. **Confirm discovery.** `list_skills` should return the new slug, and
    `get_skill {name}` should return the file you just wrote.
-6. **Verify.** Run `memex skillpack check` to confirm the new skill passes conformance.
+6. **Verify.** Run `memex skillify check <name>` and `memex skillpack lint` to confirm the new skill passes conformance.
 
 ## Output Format
 

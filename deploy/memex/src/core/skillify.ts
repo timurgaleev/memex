@@ -20,6 +20,8 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { awsRegion, bedrockClientConfig, chatTimeoutMs, utilityTimeoutMs } from "./llm/gateway.ts";
 import { trackedInvoke } from "./budget.ts";
+import { OPERATIONS } from "../mcp/operations.ts";
+import { parseSkillFrontmatter } from "./skillpack/frontmatter.ts";
 
 /** Ledger label — the one-shot skill drafter behind `memex skillify`. */
 const SPEND_OP = "skillify";
@@ -330,14 +332,19 @@ export interface SkillValidationReport {
  * and warnings (advisory). `--strict` mode in the CLI flips warnings
  * into a non-zero exit too; the function itself stays neutral.
  *
+ * Reads the pack contract through the shared skill frontmatter parser:
+ * `name` (legacy `title` accepted), `description`, `triggers` (legacy
+ * `tags` accepted) and `tools`.
+ *
  * Rules:
  *   error  | frontmatter-missing       — leading `---` block absent
- *   error  | title-missing             — frontmatter.title empty
- *   error  | title-mismatch            — frontmatter.title ≠ <slug>
+ *   error  | name-missing              — neither name nor title set
+ *   error  | name-mismatch             — name ≠ <slug>
  *   error  | description-missing       — frontmatter.description empty
  *   warning| description-too-long      — description > 160 chars
- *   error  | tags-missing              — tags absent or unparseable
- *   warning| tags-non-canonical        — tags contain mixed case / spaces
+ *   error  | triggers-missing          — neither triggers nor tags set
+ *   warning| tags-non-canonical        — legacy tags with mixed case / spaces
+ *   warning| tools-unknown             — a `tools:` entry is not an MCP operation
  *   warning| body-missing-heading      — first body line is not `# …`
  *   warning| body-too-short            — body shorter than 30 chars
  */
@@ -346,8 +353,8 @@ export function validateSkill(
   slug: string,
 ): SkillValidationReport {
   const issues: SkillValidationIssue[] = [];
-  const parsed = parseFrontmatter(markdown);
-  if (!parsed) {
+  const fm = parseSkillFrontmatter(markdown);
+  if (!fm) {
     issues.push({
       rule: "frontmatter-missing",
       severity: "error",
@@ -356,27 +363,27 @@ export function validateSkill(
     return { ok: false, slug, issues };
   }
 
-  const title = parsed.fields["title"] ?? "";
-  if (!title) {
+  const name = fm.name ?? fm.scalars["title"] ?? "";
+  if (!name) {
     issues.push({
-      rule: "title-missing",
+      rule: "name-missing",
       severity: "error",
-      message: "frontmatter.title is required",
+      message: "frontmatter.name is required",
     });
-  } else if (title !== slug) {
+  } else if (name !== slug) {
     issues.push({
-      rule: "title-mismatch",
+      rule: "name-mismatch",
       severity: "error",
-      message: `frontmatter.title='${title}' does not match expected slug='${slug}'`,
+      message: `frontmatter.name='${name}' does not match expected slug='${slug}'`,
     });
   }
 
-  const desc = (parsed.fields["description"] ?? "").trim();
+  const desc = (fm.description ?? "").trim();
   if (desc.length === 0) {
     issues.push({
       rule: "description-missing",
       severity: "error",
-      message: "frontmatter.description is required (single line, ≤ 160 chars)",
+      message: "frontmatter.description is required",
     });
   } else if (desc.length > MAX_DESCRIPTION) {
     issues.push({
@@ -386,39 +393,37 @@ export function validateSkill(
     });
   }
 
-  if (parsed.rawTags === null) {
+  const legacyTags = fm.lists["tags"] ?? [];
+  if (fm.triggers.length === 0 && legacyTags.length === 0) {
     issues.push({
-      rule: "tags-missing",
+      rule: "triggers-missing",
       severity: "error",
-      message: "frontmatter.tags is required (inline array of lowercase tags)",
+      message: "frontmatter.triggers is required (the phrases that route to this skill)",
     });
-  } else {
-    const normalised = normaliseTags(parsed.rawTags, []);
-    if (normalised.length === 0) {
+  } else if (fm.triggers.length === 0) {
+    const normalised = legacyTags
+      .map((t) => t.toLowerCase())
+      .filter((t) => /^[a-z0-9][a-z0-9-]*$/.test(t));
+    if (legacyTags.some((t, i) => normalised[i] !== t)) {
       issues.push({
-        rule: "tags-missing",
-        severity: "error",
-        message: "frontmatter.tags parsed to zero valid lowercase tokens",
+        rule: "tags-non-canonical",
+        severity: "warning",
+        message: `tags contain non-canonical tokens (lowercase, [a-z0-9-]+): ${legacyTags.join(", ")}`,
       });
-    } else {
-      // Compare to the original spelling — flag if normalisation altered any token.
-      const inline = /^\[(.*)\]$/.exec(parsed.rawTags);
-      const raw = (inline ? inline[1]! : parsed.rawTags)
-        .split(",")
-        .map((t) => t.trim().replace(/^["']|["']$/g, ""))
-        .filter((t) => t.length > 0);
-      const drift = raw.some((t, i) => normalised[i] !== t);
-      if (drift) {
-        issues.push({
-          rule: "tags-non-canonical",
-          severity: "warning",
-          message: `tags contain non-canonical tokens (lowercase, [a-z0-9-]+): ${raw.join(", ")}`,
-        });
-      }
     }
   }
 
-  const body = parsed.body.trim();
+  const opNames = new Set(OPERATIONS.map((o) => o.name));
+  for (const tool of fm.tools) {
+    if (opNames.has(tool)) continue;
+    issues.push({
+      rule: "tools-unknown",
+      severity: "warning",
+      message: `tools lists '${tool}', which is not an MCP operation`,
+    });
+  }
+
+  const body = fm.body.trim();
   if (body.length < 30) {
     issues.push({
       rule: "body-too-short",

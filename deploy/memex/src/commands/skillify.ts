@@ -78,9 +78,12 @@ export async function runSkillifyCheck(
   if (!opts.slug) {
     throw new Error("memex skillify check: <slug> is required");
   }
-  const target = resolve(
-    join(opts.skillsDir ?? DEFAULT_SKILLS_DIR, `${opts.slug}.md`),
-  );
+  // The pack ships `<slug>/SKILL.md`; the flat `<slug>.md` layout is what
+  // `memex skillify` drafts. Either is a skill.
+  const dir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
+  const flat = resolve(join(dir, `${opts.slug}.md`));
+  const nested = resolve(join(dir, opts.slug, "SKILL.md"));
+  const target = existsSync(flat) || !existsSync(nested) ? flat : nested;
   if (!existsSync(target)) {
     console.log(
       JSON.stringify(

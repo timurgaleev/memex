@@ -1,21 +1,21 @@
 ---
 name: skillpack-check
-version: 1.0.0
+version: 2.0.0
 description: |
-  Run `memex skillpack check` to produce an agent-readable JSON health report
-  for the brain install. Wraps `memex doctor` + the embedding/source status
-  rollup so a host agent (a morning-briefing run, any scheduled check) can see
-  at a glance whether the brain needs attention.
+  Produce an agent-readable health verdict for the brain install from the
+  doctor report (`run_doctor` over MCP, `memex doctor` on the host), plus the
+  status and per-source rollups, so a host agent (a morning-briefing run, any
+  scheduled check) can see at a glance whether the brain needs attention.
 
   Use when the user asks "is the brain healthy?", when a timer fires a morning
   check, or proactively when something seems off (jobs not running, brain
   not updating, background cycle silent).
 triggers:
-  - "skillpack check"
   - "is the brain healthy"
   - "brain health"
   - "check the brain"
   - "is the brain working"
+  - "health check"
 tools:
   - run_doctor
   - get_status_snapshot
@@ -27,113 +27,79 @@ mutating: false
 
 ## Contract
 
-Running `memex skillpack check` returns a JSON report with:
+The verdict comes from the doctor. Over MCP, call `run_doctor` (operator
+only, read-only, no LLM). On the host, `memex doctor` prints the same report
+as JSON and exits `0` when healthy, `1` when any check failed.
 
-- **`healthy`** (bool): true if no action needed.
-- **`summary`** (string): one-line summary safe to quote in a briefing.
-- **`actions`** (string[]): every remediation command. If non-empty, run them.
-- **`doctor`**: full `memex doctor --fast --json` output (brain/ops/meta checks).
-- **`coverage`**: embedded/unembedded chunk counts + per-source health from
-  the source rollup.
+The report carries:
 
-Exit code:
-- `0` — healthy, nothing to do.
-- `1` — action needed. Read `actions[]` and execute.
-- `2` — could not determine (binary crash or missing subcommand). Investigate.
+- **`ok`** (bool): true when no check failed.
+- **`status`**: the overall verdict.
+- **`checks`** (array): each check with `name`, `category`, `status`
+  (`ok` / `warn` / `fail`) and a `detail` line; a failing detail often names
+  the fix.
+- **`summary.ranked_failures`**: the failures, most urgent first — read these
+  before anything else.
 
-From MCP, the same signal is available without shell access: `run_doctor`
-for the check detail, `get_status_snapshot` for the one-glance rollup,
-`source_health` for per-source ingest state.
+Add `get_status_snapshot` for the one-glance rollup (counts, cache, jobs) and
+`source_health` when you need to know which source stopped updating.
 
 ## When to run
 
-- **Daily timer** (e.g. a systemd timer feeding the morning briefing):
-  `memex skillpack check --quiet`. Exit code alone tells you if anything is
-  wrong; surface a one-liner in the briefing only when exit != 0. No JSON
-  noise in happy-path briefings.
-- **On demand**: `memex skillpack check` for the full JSON when debugging.
+- **Daily timer** (e.g. a systemd timer feeding the morning briefing): run
+  `memex doctor` and look only at the exit code; surface a one-liner in the
+  briefing when it is non-zero. No JSON noise in happy-path briefings.
+- **On demand**: `run_doctor` (or `memex doctor`) for the full report when
+  debugging.
 - **In a CI pipeline**: same pattern — exit code gates, JSON is the evidence.
 
 ## What to do with the output
 
-### Happy path (`healthy: true`)
+### Happy path (`ok: true`)
 
-Surface the summary in the agent's output only if asked. Nothing else.
+Surface a one-line summary only if asked. Nothing else.
 
-### Action needed (`healthy: false`)
+### Action needed (`ok: false`)
 
-The `actions[]` array contains the commands to run, in order. Execute them:
+Walk `summary.ranked_failures` in order. For each failure, quote the check
+name and detail. When the detail names a command, offer to run it — do not
+run commands the report does not point at. The usual fixes by failure:
 
-```bash
-for cmd in $(echo "$REPORT" | jq -r '.actions[]'); do
-  eval "$cmd"
-done
-```
-
-Common `actions[]` entries and what they mean:
-
-- `memex embed` — Embedding coverage has fallen behind (unembedded chunks
-  exist). Run it (it's idempotent); it backfills only what's missing.
-- `memex reindex` — Index drift between pages and the search index.
-- `memex cycle` — Background maintenance is overdue (the server's own cycle
+- `memex embed` — embedding coverage has fallen behind. Idempotent; it
+  backfills only what is missing.
+- `memex reindex` — drift between pages and the search index.
+- `memex cycle` — background maintenance is overdue (the server's own cycle
   normally handles this; a manual run catches it up).
-- Free-text action (no `Run:` prefix in the source message) — agent judgment
-  needed. Quote it in the report for the user.
+- `memex apply-migrations` — schema migrations are pending.
 
-### Determine failure (`exit 2`)
+A read-only plan of what the doctor would enqueue for each failing check is
+`memex doctor --remediation-plan`; nothing runs until the operator asks.
 
-Treat as urgent. Probably means the memex binary is missing from `$PATH` or
-a required subcommand crashed. Check:
+### The doctor itself failed
 
-1. `which memex` returns a path
-2. `memex --version` exits 0
-3. The server answers: `memex status` (or the `whoami` tool over MCP)
+If `run_doctor` errors or `memex doctor` crashes, treat it as urgent — a
+crashed doctor is worse than a failing check because nothing is known. Check:
 
-## Output format
-
-```json
-{
-  "version": "1.0.0",
-  "ts": "2026-04-18T12:34:56.789Z",
-  "healthy": false,
-  "summary": "brain needs attention: 1 action(s) — memex embed",
-  "actions": ["memex embed"],
-  "doctor": {
-    "exit_code": 1,
-    "checks": [
-      { "name": "embed_coverage", "status": "fail", "message": "EMBEDDING COVERAGE LOW (unembedded chunks present). Run: memex embed" }
-    ]
-  },
-  "coverage": {
-    "chunks_total": 1307,
-    "chunks_embedded": 528,
-    "sources": [{ "source": "memory", "status": "ok" }]
-  }
-}
-```
+1. `memex version` exits 0 on the host
+2. The server answers: `memex status` (or the `whoami` tool over MCP)
 
 ## Anti-Patterns
 
-- ❌ Running without `--quiet` in a timer that mails or messages its output —
-  you'll get the full JSON blob in every daily briefing. Use `--quiet` in
-  scheduled runs.
-- ❌ Ignoring exit code 2. A crashed doctor is worse than a failing check
-  because you don't even know what's wrong.
+- ❌ Mailing or messaging the full JSON from a timer — report the exit code
+  and the ranked failures only.
+- ❌ Ignoring a doctor crash.
 - ❌ Running on every chat turn. Once per hour (or on user request) is plenty.
-- ❌ Treating warnings as failures. Only `fail` status needs action;
-  `warn` is informational.
+- ❌ Treating warnings as failures. Only `fail` needs action; `warn` is
+  informational.
 
 ## Output Format
 
-The skill itself doesn't write files; it reports the CLI output verbatim to
-the user (or to the agent's briefing pipeline). One-line summary first,
-then the action list, then (only if relevant) the full JSON for debugging.
+The skill itself writes nothing; it reports the verdict to the user (or to
+the agent's briefing pipeline). One-line summary first, then the ranked
+failures with their fix commands, then (only if relevant) the full JSON.
 
 ## Related
 
-- `memex doctor` — the underlying DB + config check. skillpack-check
-  composes this. (`run_doctor` over MCP.)
-- `memex status` / `get_status_snapshot` — the one-glance status view.
-- `source_health` — per-source ingest state, for pinpointing which source
-  stopped updating.
+- `get_status_snapshot` / `memex status` — the one-glance status view.
+- `source_health` — per-source ingest state.
 - `skills/briefing` — the briefing skill that consumes the one-line summary.

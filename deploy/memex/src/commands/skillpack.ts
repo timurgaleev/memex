@@ -23,6 +23,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { lintSkillpack } from "../core/skillpack/lint.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SKILLS_DIR = resolve(__dirname, "..", "..", "..", "skills");
@@ -118,4 +119,33 @@ export async function runSkillpack(opts: SkillpackOptions = {}): Promise<void> {
       2,
     ),
   );
+}
+
+export interface SkillpackLintOptions {
+  /** Pack to lint. Default MEMEX_SKILLS_DIR (the pack the server serves), then deploy/skills. */
+  dir?: string;
+  json?: boolean;
+}
+
+/**
+ * `memex skillpack lint [--json] [--dir PATH]` — check that every MCP tool and
+ * `memex` command the pack names exists. Returns the exit code: 1 on any issue.
+ */
+export function runSkillpackLint(opts: SkillpackLintOptions = {}): number {
+  const envDir = process.env.MEMEX_SKILLS_DIR?.trim();
+  const dir = opts.dir ?? (envDir || DEFAULT_SKILLS_DIR);
+  const result = lintSkillpack(dir);
+  if (opts.json) {
+    console.log(JSON.stringify(result));
+  } else {
+    for (const i of result.issues) {
+      console.log(`${i.slug}:${i.line}  ${i.rule}  ${i.detail}`);
+    }
+    console.log(
+      result.ok
+        ? `skillpack lint: ${result.skills} skills, no issues`
+        : `skillpack lint: ${result.skills} skills, ${result.issues.length} issue(s)`,
+    );
+  }
+  return result.ok ? 0 : 1;
 }

@@ -206,10 +206,59 @@ Body paragraph that's long enough to pass the body-too-short check.
     expect(r.issues[0]?.severity).toBe("error");
   });
 
-  it("emits title-mismatch when slug doesn't match", () => {
+  it("emits name-mismatch when slug doesn't match (legacy title)", () => {
     const r = validateSkill(goodSkill, "different-slug");
     expect(r.ok).toBe(false);
-    expect(r.issues.some((i) => i.rule === "title-mismatch")).toBe(true);
+    expect(r.issues.some((i) => i.rule === "name-mismatch")).toBe(true);
+  });
+
+  const packSkill = `---
+name: my-skill
+version: 1.0.0
+description: |
+  Use to do the thing in the right circumstances.
+triggers:
+  - "do the thing"
+tools:
+  - search
+  - page_get
+mutating: false
+---
+
+# My Skill — Canonical Path
+
+Body paragraph that's long enough to pass the body-too-short check.
+`;
+
+  it("accepts the pack contract (name / triggers / tools)", () => {
+    const r = validateSkill(packSkill, "my-skill");
+    expect(r.ok).toBe(true);
+    expect(r.issues).toEqual([]);
+  });
+
+  it("flags a pack-shaped name mismatch", () => {
+    const r = validateSkill(packSkill, "other");
+    expect(r.ok).toBe(false);
+    expect(r.issues.map((i) => i.rule)).toEqual(["name-mismatch"]);
+  });
+
+  it("warns tools-unknown on an operation that does not exist", () => {
+    const r = validateSkill(packSkill.replace("  - page_get", "  - not_a_tool"), "my-skill");
+    expect(r.ok).toBe(true);
+    expect(r.issues).toEqual([
+      {
+        rule: "tools-unknown",
+        severity: "warning",
+        message: "tools lists 'not_a_tool', which is not an MCP operation",
+      },
+    ]);
+  });
+
+  it("errors when neither triggers nor legacy tags are set", () => {
+    const md = packSkill.replace('triggers:\n  - "do the thing"\n', "");
+    const r = validateSkill(md, "my-skill");
+    expect(r.ok).toBe(false);
+    expect(r.issues.map((i) => i.rule)).toEqual(["triggers-missing"]);
   });
 
   it("emits description-too-long as a warning, ok stays true", () => {

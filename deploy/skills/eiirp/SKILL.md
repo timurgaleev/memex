@@ -354,8 +354,7 @@ EIIRP produces a single Phase 7 report block. Plain markdown:
 ```
 
 Always machine-readable: stable section headers + bullet-per-item. The
-report doubles as a sync checkpoint for downstream skills (skillpack-check
-reads it; doctor cross-references the skillpack state). File the report
+report doubles as a sync checkpoint for downstream skills. File the report
 itself as a brain page under `reports/` (`page_put reports/eiirp-<topic>-<date>`)
 so it survives the chat.
 

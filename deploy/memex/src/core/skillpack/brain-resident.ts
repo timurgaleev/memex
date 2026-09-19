@@ -9,13 +9,14 @@
  * to scope by, and no git-remote scaffold spec to hand a thin client.
  *
  * This REUSES what `commands/skillpack.ts` already knows (the default skills
- * dir, the `.md`-per-skill layout) and the fixed `title`/`description`
- * frontmatter contract `core/skillify.ts` shapes. Read-only: no writes, no LLM,
+ * dir, the `.md`-per-skill layout) and the skill frontmatter contract
+ * `frontmatter.ts` parses. Read-only: no writes, no LLM,
  * no filesystem path leaked to the client (we surface slug + description only).
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseSkillFrontmatter } from "./frontmatter.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
@@ -48,10 +49,9 @@ export interface ListBrainSkillpacksOptions {
 }
 
 /**
- * Read the `description` from a skill `.md` file's frontmatter. Tolerant of the
- * same mild drift `skillify.ts` handles (quoted values). Returns a placeholder
- * when the file has no frontmatter or no description, so a malformed skill never
- * aborts the listing.
+ * Read the `description` from a skill `.md` file's frontmatter through the
+ * shared parser. Returns a placeholder when the file has no frontmatter or no
+ * description, so a malformed skill never aborts the listing.
  */
 function readSkillDescription(skillFile: string): string {
   let text: string;
@@ -60,46 +60,7 @@ function readSkillDescription(skillFile: string): string {
   } catch {
     return "(no description)";
   }
-  // The opener's trailing run excludes `\n` on purpose. With `\s*` it and the
-  // lazy body could trade newlines: on a skill file of `---` + `\n`*n + `x`
-  // every split of the run re-scans the whole body for a closing fence that is
-  // not there — measured through listBrainSkillpacks at 9 ms for 6 K newlines,
-  // 611 ms for 50 K, ratio 4.0 on a doubling. `[^\S\n]*` still eats the spaces,
-  // tabs and CR that may pad the `---` line, but leaves exactly one way to
-  // match, so the body is scanned once: 1 ms at 2 M newlines, ratio 2.0. The
-  // description this feeds is unchanged over 400 K random frontmatter strings.
-  const m = /^---[^\S\n]*\n([\s\S]*?)\n---\s*\n/.exec(text);
-  if (!m) return "(no description)";
-  const block = m[1] ?? "";
-  const lines = block.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    // Measured linear through listBrainSkillpacks: 1.2 ms on a 1 MB run of
-    // spaces after `description:`, ratio 2.0 on a doubling. `lines` comes from
-    // split("\n"), so no element holds a newline — `$` can only be end-of-line,
-    // which `.*` always reaches, so the match never fails and never backtracks.
-    // eslint-disable-next-line regexp/no-super-linear-backtracking
-    const kv = /^description:\s*(.*)$/.exec(lines[i] ?? "");
-    if (!kv) continue;
-    const value = (kv[1] ?? "").trim().replace(/^["']|["']$/g, "");
-    // YAML block scalar (`description: |` / `>`): the text lives on the
-    // following more-indented lines — join them into one line.
-    if (value === "|" || value === ">" || value === "|-" || value === ">-") {
-      const parts: string[] = [];
-      for (let j = i + 1; j < lines.length; j++) {
-        const l = lines[j] ?? "";
-        if (l.trim().length === 0) {
-          if (parts.length > 0) break;
-          continue;
-        }
-        if (!/^\s/.test(l)) break;
-        parts.push(l.trim());
-      }
-      const joined = parts.join(" ").trim();
-      return joined.length > 0 ? joined : "(no description)";
-    }
-    return value.length > 0 ? value : "(no description)";
-  }
-  return "(no description)";
+  return parseSkillFrontmatter(text)?.description ?? "(no description)";
 }
 
 /**
