@@ -14,7 +14,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `add_timeline_event` is stored as a `[REDACTED:kind:fingerprint]` marker and
   audited. Under `MEMEX_SECRET_SCAN_DISPOSITION=reject` a refused write now
   leaves a `secret-rejected` row in the ingest log (kind and fingerprint only)
-  instead of no trace.
+  instead of no trace. `ontology_propose` values get the same scan. `POST
+  /ingest` now checks the caller's write grant before scanning the body, so a
+  client with no grant gets `permission_denied` rather than finding details,
+  and its refusal no longer writes an audit row into the default tenant.
 
 ## [1.145.0] — 2026-09-19
 

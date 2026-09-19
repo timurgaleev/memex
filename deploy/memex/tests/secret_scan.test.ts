@@ -248,6 +248,25 @@ describe("the other writes", () => {
     expect((await auditRows("secret-redacted")).map((a) => a.source_ref)).toContain("chronicle:notes/event");
   });
 
+  it("redacts an ontology observation's value and the fact text built from it", async () => {
+    const { mergeOntologyFact } = await import("../src/core/ontology-facts.ts");
+    const r = await mergeOntologyFact(storage, {
+      entitySlug: "people/ops",
+      dimension: "role",
+      value: `holds ${AWS}`,
+      source_slug: "notes/day",
+      sourceId: "default",
+    });
+    expect(r.action).toBe("inserted");
+    const rows = await storage.engine().query<{ fact: string; value: string }>(
+      `SELECT fact, value FROM entity_facts WHERE entity_slug = 'people/ops' AND dimension = 'role'`,
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]!.value).toContain("[REDACTED:aws-access-key:");
+    expect(rows.rows[0]!.fact).not.toContain(AWS);
+    expect((await auditRows("secret-redacted"))[0]!.source_ref).toBe("ontology:people/ops");
+  });
+
   it("audits a rejected write before refusing it, on every path", async () => {
     process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
     const { addFact } = await import("../src/core/facts.ts");

@@ -984,8 +984,10 @@ closers for think's evidence blocks. R2 (unreleased): facts (text and
 context), timeline events, hot_memory, chronicle projections, page title and
 every string in compiled_truth are scanned too (`guardFields` /
 `guardSecretsDeep`); a `reject` writes a `secret-rejected` audit row before
-refusing. Open: facts derived by reconcile/consolidate/ontology inherit
-already-scanned text and are not rescanned; no scrub of rows stored before
+refusing. `ontology_propose` values are scanned in `mergeOntologyFact`;
+`/ingest` scans only after the tenancy gates, so a client with no grant gets
+a 403 and leaves no audit row. Open: facts derived by reconcile/consolidate
+inherit already-scanned text and are not rescanned; no scrub of rows stored before
 (`page_versions` history); quarantine observability, junk-entity gate, CI
 gitleaks/OSV/actionlint.
 

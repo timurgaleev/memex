@@ -152,6 +152,52 @@ describe("POST /ingest route", () => {
     expect(r.rows[0]?.token_name).toBe("shortcuts-client");
   });
 
+  it("refuses a client with no write grant before scanning, and audits nothing", async () => {
+    const saved = {
+      f: process.env.MEMEX_TENANT_FAIL_CLOSED,
+      d: process.env.MEMEX_SECRET_SCAN_DISPOSITION,
+    };
+    process.env.MEMEX_TENANT_FAIL_CLOSED = "1";
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    try {
+      const { sourceId: _granted, ...noGrant } = writeAuth;
+      const key = ["AK", "IA", "Q3EXAMPLE7WXYZ12"].join("");
+      const res = await handleIngestRoute(ingestReq(`key ${key}`), deps(noGrant));
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toBe("permission_denied");
+      await new Promise((r) => setTimeout(r, 50)); // any detached audit insert
+      const audit = await storage.engine().query(`SELECT 1 FROM ingest_log`);
+      expect(audit.rows).toHaveLength(0);
+    } finally {
+      for (const [k, v] of [["MEMEX_TENANT_FAIL_CLOSED", saved.f], ["MEMEX_SECRET_SCAN_DISPOSITION", saved.d]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it("audits a granted client's rejected body under its own source", async () => {
+    const saved = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    try {
+      await storage.engine().query(
+        `INSERT INTO sources (id, kind, path_prefix) VALUES ('tenant-a', 'other', 'tenant:tenant-a')
+         ON CONFLICT DO NOTHING`,
+      );
+      const key = ["AK", "IA", "Q3EXAMPLE7WXYZ12"].join("");
+      const res = await handleIngestRoute(ingestReq(`key ${key}`), deps({ ...writeAuth, sourceId: "tenant-a" }));
+      expect(res.status).toBe(400);
+      await new Promise((r) => setTimeout(r, 50));
+      const audit = await storage.engine().query<{ source_id: string }>(
+        `SELECT source_id FROM ingest_log WHERE source_type = 'secret-rejected'`,
+      );
+      expect(audit.rows.map((r) => r.source_id)).toEqual(["tenant-a"]);
+    } finally {
+      if (saved === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+      else process.env.MEMEX_SECRET_SCAN_DISPOSITION = saved;
+    }
+  });
+
   it("rejects an invalid X-Memex-Slug with 400", async () => {
     const res = await handleIngestRoute(
       ingestReq("# hi", { "content-type": "text/markdown", "x-memex-slug": "Bad Slug!" }),

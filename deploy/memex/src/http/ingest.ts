@@ -221,27 +221,6 @@ export async function handleIngestRoute(
   if (looksBinary(read.buf)) {
     return err(415, "binary_content", "POST /ingest takes text; the body is a binary file");
   }
-  // Scanned here, not only when the capture job stores it: the job payload
-  // itself sits in the jobs table.
-  let content: string;
-  let secretFindings: SecretFinding[];
-  try {
-    const scanned = guardSecrets(new TextDecoder().decode(read.buf), "POST /ingest body");
-    content = scanned.text;
-    secretFindings = scanned.findings;
-  } catch (e) {
-    if (e instanceof SecretRejectedError) {
-      const src = effectiveWriteSourceIdForIngress(auth, { failClosed: tenantFailClosedEnabled() });
-      void auditRejection(
-        deps.storage.engine(),
-        e,
-        `mcp-webhook:${auth.clientId}`,
-        src === NO_SOURCE_SENTINEL ? null : (src ?? null),
-      ).catch(() => {});
-    }
-    return err(400, "secret_in_content", e instanceof Error ? e.message : "credential in content");
-  }
-  const contentHash = createHash("sha256").update(content, "utf8").digest("hex");
   const sourceUri = (
     req.headers.get("x-memex-source-uri") ||
     `mcp-webhook:${auth.clientId}:${Date.now()}`
@@ -285,6 +264,29 @@ export async function handleIngestRoute(
       );
     }
   }
+
+  // Scanned here, not only when the capture job stores it: the job payload
+  // itself sits in the jobs table. Scanned only after the tenancy gates, so a
+  // client with no grant learns nothing about the body and leaves no audit row
+  // in someone else's ingest_log.
+  let content: string;
+  let secretFindings: SecretFinding[];
+  try {
+    const scanned = guardSecrets(new TextDecoder().decode(read.buf), "POST /ingest body");
+    content = scanned.text;
+    secretFindings = scanned.findings;
+  } catch (e) {
+    if (e instanceof SecretRejectedError) {
+      void auditRejection(
+        deps.storage.engine(),
+        e,
+        `mcp-webhook:${auth.clientId}`,
+        writeSourceRaw ?? "default",
+      ).catch(() => {});
+    }
+    return err(400, "secret_in_content", e instanceof Error ? e.message : "credential in content");
+  }
+  const contentHash = createHash("sha256").update(content, "utf8").digest("hex");
   const event: IngestionEvent = {
     source_id: writeSourceRaw ?? "default",
     source_kind: "webhook",

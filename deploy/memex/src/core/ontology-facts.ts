@@ -14,6 +14,7 @@
  *   (e) novel dimension (not a seed/alias)                   → quarantined
  */
 import type { Storage } from "./storage.ts";
+import { guardFields } from "./secret-scan.ts";
 import {
   valueHash,
   normalizeDimension,
@@ -51,8 +52,18 @@ function requireScope(sourceIds: readonly string[] | undefined): string[] {
 
 export async function mergeOntologyFact(
   storage: Storage,
-  obs: OntologyObservationInput & { sourceId: string },
+  input: OntologyObservationInput & { sourceId: string },
 ): Promise<OntologyMergeResult> {
+  // Guarded before the hash: a redacted value must dedup against itself, not
+  // against the raw credential.
+  const guarded = await guardFields(
+    storage.engine(),
+    `ontology:${input.entitySlug}`,
+    input.sourceId,
+    `ontology fact on '${input.entitySlug}'`,
+    { value: input.value, dimension: input.dimension },
+  );
+  const obs = { ...input, ...guarded };
   const dimension = normalizeDimension(obs.dimension);
   const vh = valueHash(obs.value);
   const conf = clampConfidence(obs.confidence);
