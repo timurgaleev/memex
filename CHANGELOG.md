@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.142.0] — 2026-09-19
+
 ### Fixed
 - **A wedged transaction could freeze every write to a page.** Page writes now
   hold a per-slug lock for their transaction, and `statement_timeout` never
