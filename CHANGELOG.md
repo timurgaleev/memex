@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Concurrent paid calls could overshoot a client's daily cap.** Each call
+  only checked "spent < cap" before sending, so calls racing each other all
+  passed and together spent past the cap. A capped client's paid call now holds
+  its worst-case cost (input bounded by its UTF-8 bytes, a prompt-cache prefix
+  at the cache-write rate, output at `maxTokens`) under the client's lock
+  before it is sent, and is refused when that hold would not fit; the hold
+  settles in the same commit that books the call's actual cost. A call cut off
+  by a timeout, which the model may still have billed, keeps its worst case
+  held; a hold left by a crash keeps counting until the day rolls over. Near the cap this refuses a
+  call whose actual cost would have fit.
+- **`think`, `extract_facts` and `relational_recall` held a fixed estimate on
+  top of their calls' own spend.** The op-level hold counted the same calls a
+  second time; those ops now only refuse up front when the day is already
+  spent.
+- **Query expansion and intent classification swallowed a budget refusal** and
+  returned a quietly degraded result; they now pass it to the caller. The
+  rerank pass still returns its results un-reranked, since the search has
+  already found them.
+
 ## [1.143.0] — 2026-09-19
 
 ### Added

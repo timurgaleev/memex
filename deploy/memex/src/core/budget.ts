@@ -472,9 +472,8 @@ export async function expireStaleReservations(
 // operation label naming the feature, which is what makes "where did the $42
 // go" answerable with a GROUP BY.
 //
-// It also refuses a call from a client that has already spent its daily cap
-// (see refuseIfClientExhausted). It holds no reservation of its own, so
-// concurrent calls can still overshoot the cap by what they spend in flight.
+// For a capped client it also holds the call's worst case against the day
+// before sending, and refuses the call when that would not fit (holdForCall).
 // ---------------------------------------------------------------------------
 
 /** memex's only paid provider. */
@@ -487,6 +486,41 @@ export interface TrackedCall {
   model: string;
   /** Defaults to "bedrock". */
   provider?: string;
+  /**
+   * What the call can cost at most, held against a capped client's day before
+   * it is sent. `input` is everything sent as plain input and `cachedInput` a
+   * prompt-cache prefix (billed higher when it is written); both are bounded by
+   * their UTF-8 byte length, since no token is shorter than a byte.
+   */
+  worstCase: { input: string; cachedInput?: string; maxOutputTokens: number };
+}
+
+/** Per-message framing the provider adds on top of the text (role markers,
+ *  template tokens): small, but it is what a short intent call is made of. */
+const WORST_CASE_OVERHEAD_TOKENS = 64;
+
+/** The most `call` can cost; null when its model has no price. */
+export function worstCaseUsd(call: TrackedCall): number | null {
+  if (priceFor(call.model) === null) return null;
+  const w = call.worstCase;
+  return costUsd(
+    call.model,
+    chargeableUsage({
+      inputTokens: Buffer.byteLength(w.input, "utf8") + WORST_CASE_OVERHEAD_TOKENS,
+      outputTokens: w.maxOutputTokens,
+      cacheWriteInputTokens: w.cachedInput ? Buffer.byteLength(w.cachedInput, "utf8") : 0,
+    }),
+  );
+}
+
+/** A client's daily budget refused this call. Fallbacks that swallow errors
+ *  (query expansion, intent, rerank) must rethrow it: the caller is owed the
+ *  refusal, not a quietly degraded answer. */
+export function isBudgetRefusal(err: unknown): boolean {
+  return (
+    (err instanceof OperationError && err.code === "budget_exhausted") ||
+    err instanceof BudgetExhausted
+  );
 }
 
 /** Sink a wrapped call reports its ACTUAL billed usage to, as soon as the
@@ -579,74 +613,111 @@ export async function trackedInvoke<T>(
     report: (u) => void (usage = { ...u }),
   };
   const refuseStart = performance.now();
+  let holdId: string | null;
   try {
-    await refuseIfClientExhausted(call);
+    holdId = await holdForCall(call);
   } finally {
     noteWriteTiming("ledgerMs", performance.now() - refuseStart);
   }
   const sendStart = performance.now();
+  let failure: unknown;
   try {
     return await send(meter);
+  } catch (err) {
+    failure = err;
+    throw err;
   } finally {
     const bookStart = performance.now();
     noteWriteTiming("sendMs", bookStart - sendStart);
-    await bookSpend(call, usage);
+    // A call cut off mid-flight reported nothing, yet the model may have run
+    // and billed it: its hold keeps counting the worst case for the day rather
+    // than settling at $0.
+    const keepHold = usage === undefined && failure !== undefined && mayHaveBilled(failure);
+    await bookSpend(call, usage, keepHold ? null : holdId);
     noteWriteTiming("ledgerMs", performance.now() - bookStart);
   }
 }
 
+/** A per-call hold outlives any call; it only has to outlive the day it counts in. */
+const CALL_HOLD_TTL_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Refuse a paid call from a client that has already spent its daily cap.
+ * Hold a paid call's worst-case cost against the calling client's daily cap,
+ * or refuse it when the hold would not fit. Returns the hold to settle, or null
+ * when nothing is held.
  *
- * This is the chokepoint every paid Bedrock call passes through, which is why
- * the check lives here rather than in a per-op wrapper: `withClientSpend`
- * covers three ops, so a capped client could exhaust its budget and keep
- * calling `search` — whose embedding is paid — forever. A tool that spends
- * nothing never reaches this function and is never refused.
+ * This is the chokepoint every paid Bedrock call passes through, so the cap
+ * covers all of them, not only the ops `withClientSpend` wraps. Holding the
+ * worst case BEFORE sending is what keeps concurrent calls inside the cap: each
+ * one sees the others' holds under the same per-client lock `reserveSpend`
+ * takes, where a bare "spent < cap" check let K racing calls all pass and
+ * overshoot by K calls. Near the cap this refuses a call whose actual cost
+ * would still have fit — the error is on the safe side.
  *
- * Uncapped clients (`budget_usd_per_day` NULL, the default) and callers with no
- * client in scope skip the query entirely. A failure of the accounting query
- * itself ALLOWS the call: accounting must never break a paid path, the same
- * contract `bookSpend` keeps.
+ * Uncapped clients (the default) and callers with no client in scope hold
+ * nothing and pay no query. A failure of the accounting query itself ALLOWS
+ * the call unheld: accounting must never break a paid path, the same contract
+ * `bookSpend` keeps.
  */
-async function refuseIfClientExhausted(call: TrackedCall): Promise<void> {
+async function holdForCall(call: TrackedCall): Promise<string | null> {
   const ctx = currentSpendContext();
   const engine = _ledgerEngine;
-  if (!ctx || !engine) return;
-  let check: ClientBudgetCheck;
+  if (!ctx || !engine) return null;
+  let capUsd: number | null;
   try {
-    // The cap FIRST, and from the auth context when it is known: on the default
-    // install every client is uncapped, and paying a lookup plus two aggregates
-    // per embedded chunk to learn that would be a real cost for a check that
-    // can never fire.
-    const capUsd = ctx.capUsd !== undefined ? ctx.capUsd : await lookupClientCap(engine, ctx.clientId);
-    if (capUsd === null) return;
-    // A capped client cannot be charged for a call nobody can price: it would
-    // book an unknown cost and the cap would never see it.
-    if (priceFor(call.model) === null) {
-      throw new OperationError(
-        "budget_exhausted",
-        `'${call.operation}' uses model '${call.model}', which has no price, so it ` +
-          `cannot be counted against this client's daily budget`,
-        "Price the model in MODEL_PRICING/EMBEDDING_PRICING, or clear the client's budget.",
-      );
-    }
-    check = await checkClientBudget(engine, ctx.clientId, new Date(), capUsd);
-  } catch (err) {
-    if (err instanceof OperationError) throw err;
-    return;
+    capUsd = ctx.capUsd !== undefined ? ctx.capUsd : await lookupClientCap(engine, ctx.clientId);
+  } catch {
+    return null;
   }
-  if (check.allowed) return;
+  if (capUsd === null) return null;
+  const worst = worstCaseUsd(call);
+  // A capped client cannot be charged for a call nobody can price: it would
+  // book an unknown cost and the cap would never see it.
+  if (worst === null) {
+    throw new OperationError(
+      "budget_exhausted",
+      `'${call.operation}' uses model '${call.model}', which has no price, so it ` +
+        `cannot be counted against this client's daily budget`,
+      "Price the model in MODEL_PRICING/EMBEDDING_PRICING, or clear the client's budget.",
+    );
+  }
+  let reserved: ReserveSpendResult;
+  try {
+    reserved = await reserveSpend(engine, {
+      clientId: ctx.clientId,
+      capUsd,
+      estimatedUsd: worst,
+      model: call.model,
+      provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
+      // Held for the rest of the day unless settled: a hold stranded by a
+      // crash over-counts until the day rolls over instead of dropping out
+      // while the call it stood for may still be billing.
+      ttlMs: CALL_HOLD_TTL_MS,
+    });
+  } catch {
+    return null;
+  }
+  if (reserved.reserved) return reserved.reservationId;
   // OperationError, not BudgetExhausted: the MCP layer renders this code as a
   // proper `budget_exhausted` envelope, so the caller is told its budget ran
   // out rather than being handed a generic failure.
+  const check = reserved.check;
   throw new OperationError(
     "budget_exhausted",
     `daily budget exhausted for this client (spent $${check.spentUsd.toFixed(4)}` +
       (check.capUsd !== null ? ` of $${check.capUsd.toFixed(2)}` : "") +
-      `) — '${call.operation}' refused`,
+      `; '${call.operation}' may cost up to $${worst.toFixed(4)}) — refused`,
     "Wait for the UTC day to roll over, or raise the client's budget_usd_per_day.",
   );
+}
+
+/** A timeout or an aborted read (including `withDeadline`'s): the request may
+ *  have reached the model. An
+ *  error returned BY the service (throttling, validation, access) was not billed. */
+function mayHaveBilled(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError" || err.name === "TimeoutError") return true;
+  return /timed? ?out|socket hang up|ECONNRESET/i.test(err.message);
 }
 
 /**
@@ -654,7 +725,11 @@ async function refuseIfClientExhausted(call: TrackedCall): Promise<void> {
  * accounting must never break a paid path, the same contract search telemetry
  * already keeps.
  */
-async function bookSpend(call: TrackedCall, usage: ReportedUsage | undefined): Promise<void> {
+async function bookSpend(
+  call: TrackedCall,
+  usage: ReportedUsage | undefined,
+  holdId: string | null,
+): Promise<void> {
   const engine = _ledgerEngine;
   if (!engine) return;
   const priced = priceFor(call.model) !== null;
@@ -665,15 +740,32 @@ async function bookSpend(call: TrackedCall, usage: ReportedUsage | undefined): P
         `book an unknown (NULL) cost until MODEL_PRICING/EMBEDDING_PRICING learns it`,
     );
   }
+  // Nothing reported means nothing billed; an unpriced model's cost is unknown.
+  const cost = !usage ? 0 : priced ? costUsd(call.model, chargeableUsage(usage)) : null;
+  const entry: SpendLogInput = {
+    operation: call.operation,
+    costUsd: cost,
+    ...(usage ? { usage } : {}),
+    provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
+    model: call.model,
+    clientId: currentSpendClient(),
+  };
   try {
-    await logSpend(engine, {
-      operation: call.operation,
-      // Nothing reported means nothing billed; an unpriced model's cost is unknown.
-      costUsd: !usage ? 0 : priced ? costUsd(call.model, chargeableUsage(usage)) : null,
-      ...(usage ? { usage } : {}),
-      provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
-      model: call.model,
-      clientId: currentSpendClient(),
+    if (!holdId) {
+      await logSpend(engine, entry);
+      return;
+    }
+    // The actual and the settled hold land in ONE commit, so the call is never
+    // counted twice (row + hold) nor dropped (hold gone, row missing). If this
+    // fails the hold stays pending and keeps counting its worst case.
+    await engine.transaction(async (tx) => {
+      await logSpend(tx, entry);
+      await tx.query(
+        `UPDATE mcp_spend_reservations
+            SET status = 'settled', actual_cents = $2, settled_at = NOW()
+          WHERE reservation_id = $1 AND status = 'pending'`,
+        [holdId, usdToCents(cost ?? 0)],
+      );
     });
   } catch (err) {
     console.warn(

@@ -25,6 +25,9 @@ import {
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import { FactsQueue } from "../src/core/facts-queue.ts";
 
+/** A tiny worst case: holds a fraction of a cent against a capped client. */
+const SMALL = { input: "x", maxOutputTokens: 0 };
+
 const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const UNPRICED = "example.unpriced-model-v1:0";
 
@@ -79,7 +82,7 @@ function counting(engine: Engine): { engine: Engine; sql: string[] } {
 
 describe("the ledger row", () => {
   it("keeps the raw token counts and prices the cache-adjusted usage", async () => {
-    await trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+    await trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
       m.report({
         inputTokens: 1_000_000,
         outputTokens: 100_000,
@@ -100,7 +103,7 @@ describe("the ledger row", () => {
 
   it("leaves the tokens NULL when the call reported nothing", async () => {
     await expect(
-      trackedInvoke({ operation: "think", model: HAIKU }, async () => {
+      trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async () => {
         throw new Error("down");
       }),
     ).rejects.toThrow("down");
@@ -111,10 +114,10 @@ describe("the ledger row", () => {
 
   it("does not let an unknown cost leak into the day's total", async () => {
     await runWithSpendClient({ clientId: "c", capUsd: null }, async () => {
-      await trackedInvoke({ operation: "think", model: UNPRICED }, async (m) => {
+      await trackedInvoke({ operation: "think", model: UNPRICED, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 10, outputTokens: 10 });
       });
-      await trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+      await trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 1_000_000, outputTokens: 0 });
       });
     });
@@ -127,7 +130,7 @@ describe("a cap known from authentication", () => {
     const c = counting(storage.engine());
     setSpendLedgerEngine(c.engine);
     await runWithSpendClient({ clientId: "someone", capUsd: null }, () =>
-      trackedInvoke({ operation: "embedding", model: HAIKU }, async (m) => {
+      trackedInvoke({ operation: "embedding", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 10, outputTokens: 0 });
       }),
     );
@@ -139,7 +142,7 @@ describe("a cap known from authentication", () => {
     const c = counting(storage.engine());
     setSpendLedgerEngine(c.engine);
     await runWithSpendClient("someone", () =>
-      trackedInvoke({ operation: "embedding", model: HAIKU }, async (m) => {
+      trackedInvoke({ operation: "embedding", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 10, outputTokens: 0 });
       }),
     );
@@ -150,7 +153,7 @@ describe("a cap known from authentication", () => {
     let sent = false;
     await expect(
       runWithSpendClient({ clientId: "capped", capUsd: 5 }, () =>
-        trackedInvoke({ operation: "think", model: UNPRICED }, async () => {
+        trackedInvoke({ operation: "think", model: UNPRICED, worstCase: SMALL }, async () => {
           sent = true;
         }),
       ),
@@ -161,13 +164,13 @@ describe("a cap known from authentication", () => {
   it("refuses a capped caller once the cap is spent", async () => {
     const ctx = { clientId: "capped", capUsd: 0.01 };
     await runWithSpendClient(ctx, () =>
-      trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+      trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 1_000_000, outputTokens: 0 });
       }),
     );
     await expect(
       runWithSpendClient(ctx, () =>
-        trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+        trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
           m.report({ inputTokens: 1, outputTokens: 0 });
         }),
       ),
@@ -201,12 +204,12 @@ describe("a personal access token's cap", () => {
     const info = await provider.verifyAccessToken("memex_pat_secret");
     const ctx = { clientId: info.clientId, capUsd: info.budgetUsdPerDay };
     await runWithSpendClient(ctx, () =>
-      trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+      trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 1_000_000, outputTokens: 0 });
       }),
     );
     await expect(
-      runWithSpendClient(ctx, () => trackedInvoke({ operation: "think", model: HAIKU }, async () => {})),
+      runWithSpendClient(ctx, () => trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async () => {})),
     ).rejects.toMatchObject({ code: "budget_exhausted" });
   });
 
@@ -247,12 +250,12 @@ describe("the cap travels with the request", () => {
       [["read"]],
     );
     await runWithSpendClient("queued-pat", () =>
-      trackedInvoke({ operation: "think", model: HAIKU }, async (m) => {
+      trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (m) => {
         m.report({ inputTokens: 1_000_000, outputTokens: 0 });
       }),
     );
     await expect(
-      runWithSpendClient("queued-pat", () => trackedInvoke({ operation: "think", model: HAIKU }, async () => {})),
+      runWithSpendClient("queued-pat", () => trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async () => {})),
     ).rejects.toMatchObject({ code: "budget_exhausted" });
   });
 });

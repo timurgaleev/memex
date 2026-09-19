@@ -15,6 +15,9 @@ import { withInflightCap } from "../src/core/llm/gateway.ts";
 import { trackedInvoke } from "../src/core/budget.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
+/** A tiny worst case: holds a fraction of a cent against a capped client. */
+const SMALL = { input: "x", maxOutputTokens: 0 };
+
 let tmp: string;
 let storage: Storage;
 
@@ -140,7 +143,7 @@ describe("write timing scope", () => {
     // time is what must land, or the live split would read zero Bedrock time.
     const timing = newWriteTiming();
     await runWithWriteTiming(timing, () =>
-      trackedInvoke({ operation: "embedding", model: "amazon.titan-embed-text-v2:0" }, async () => {
+      trackedInvoke({ operation: "embedding", model: "amazon.titan-embed-text-v2:0", worstCase: SMALL }, async () => {
         await new Promise((r) => setTimeout(r, 25));
         return null;
       }),

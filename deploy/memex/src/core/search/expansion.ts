@@ -20,7 +20,7 @@ import {
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { awsRegion, bedrockClientConfig, SEARCH_LLM_BUDGET_MS, utilityTimeoutMs, withDeadline } from "../llm/gateway.ts";
-import { trackedInvoke } from "../budget.ts";
+import { isBudgetRefusal, trackedInvoke } from "../budget.ts";
 
 const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -128,7 +128,9 @@ export async function expandQuery(
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const c = opts.client ?? client(region);
   try {
-    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+    return await trackedInvoke(
+      { operation: SPEND_OP, model: modelId, worstCase: { input: SYSTEM_PROMPT + safeQuery, maxOutputTokens: 120 } },
+      async (meter) => {
       const resp = await withDeadline(SEARCH_LLM_BUDGET_MS, (abortSignal) =>
         c.send(
           new ConverseCommand({
@@ -155,7 +157,8 @@ export async function expandQuery(
       // Untrusted output — strip control chars / cap length / dedupe / cap count.
       return sanitizeExpansionOutput(lines, max);
     });
-  } catch {
+  } catch (err) {
+    if (isBudgetRefusal(err)) throw err;
     // Expansion is a recall bonus, never a dependency — a failed call still
     // books its row inside `trackedInvoke` before we fall back to no variants.
     return [];

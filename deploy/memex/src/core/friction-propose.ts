@@ -211,7 +211,13 @@ export async function proposeForSkill(
     messages: [{ role: "user", content: [{ text: userPrompt }] }],
     inferenceConfig: { maxTokens: MAX_OUTPUT_TOKENS, temperature: 0.2 },
   });
-  const text = await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+  const text = await trackedInvoke(
+    {
+      operation: SPEND_OP,
+      model: modelId,
+      worstCase: { input: SYSTEM_PROMPT + userPrompt, maxOutputTokens: MAX_OUTPUT_TOKENS },
+    },
+    async (meter) => {
     const response = await client.send(command, {
       requestTimeout: chatTimeoutMs(utilityTimeoutMs(), MAX_OUTPUT_TOKENS),
     });

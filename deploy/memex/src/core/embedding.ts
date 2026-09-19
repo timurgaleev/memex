@@ -143,7 +143,9 @@ export async function embedText(
     accept: "application/json",
   });
 
-  return trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+  return trackedInvoke(
+    { operation: SPEND_OP, model: modelId, worstCase: { input: text, maxOutputTokens: 0 } },
+    async (meter) => {
     const response = await client.send(command, {
       abortSignal: opts.abortSignal,
       ...(opts.requestTimeoutMs ? { requestTimeout: opts.requestTimeoutMs } : {}),

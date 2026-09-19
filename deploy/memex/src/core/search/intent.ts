@@ -25,7 +25,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { classifyQueryTaxonomy } from "./query-intent.ts";
 import { awsRegion, bedrockClientConfig, SEARCH_LLM_BUDGET_MS, utilityTimeoutMs, withDeadline } from "../llm/gateway.ts";
-import { trackedInvoke } from "../budget.ts";
+import { isBudgetRefusal, trackedInvoke } from "../budget.ts";
 
 export type Intent = "factual" | "topic" | "howto" | "personal" | "exact";
 
@@ -95,7 +95,9 @@ export async function classifyIntent(
   const modelId = opts.modelId ?? DEFAULT_MODEL;
   const c = opts.client ?? client(region);
   try {
-    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+    return await trackedInvoke(
+      { operation: SPEND_OP, model: modelId, worstCase: { input: SYSTEM_PROMPT + trimmed, maxOutputTokens: 8 } },
+      async (meter) => {
       const resp = await withDeadline(SEARCH_LLM_BUDGET_MS, (abortSignal) =>
         c.send(
           new ConverseCommand({
@@ -119,7 +121,8 @@ export async function classifyIntent(
       if (VALID_INTENTS.has(word as Intent)) return word as Intent;
       return taxonomyToIntent(trimmed);
     });
-  } catch {
+  } catch (err) {
+    if (isBudgetRefusal(err)) throw err;
     // Network blip / model unavailable → the zero-LLM taxonomy still answers.
     return taxonomyToIntent(trimmed);
   }

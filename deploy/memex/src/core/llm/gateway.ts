@@ -136,7 +136,11 @@ export async function withDeadline<T>(ms: number, run: (signal: AbortSignal) => 
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`operation exceeded its ${ms} ms deadline`));
+      // Named like the SDK's own timeout: the attempt may already have reached
+      // the model, and the spend ledger keeps its hold on that name.
+      const err = new Error(`operation exceeded its ${ms} ms deadline`);
+      err.name = "TimeoutError";
+      reject(err);
     }, ms);
   });
   const work = run(controller.signal);

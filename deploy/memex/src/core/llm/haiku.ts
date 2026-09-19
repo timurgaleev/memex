@@ -186,7 +186,15 @@ export async function callHaiku(
   // in the pure `toLlmCallResult`, which is what carries the stop reason a
   // structured-output caller reads.
   return trackedInvoke(
-    { operation: opts.operation ?? DEFAULT_UTILITY_SPEND_OP, model: modelId },
+    {
+      operation: opts.operation ?? DEFAULT_UTILITY_SPEND_OP,
+      model: modelId,
+      worstCase: {
+        input: input.system + input.user,
+        ...(input.cachePrefix ? { cachedInput: input.cachePrefix } : {}),
+        maxOutputTokens: input.maxTokens,
+      },
+    },
     async (meter) => {
       let resp;
       try {

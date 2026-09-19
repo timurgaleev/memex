@@ -103,7 +103,13 @@ export async function rerank<T extends ChunkPayloadForRerank>(
   };
 
   try {
-    return await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+    return await trackedInvoke(
+      {
+        operation: SPEND_OP,
+        model: modelId,
+        worstCase: { input: SYSTEM_PROMPT + userMessage, maxOutputTokens: MAX_OUTPUT_TOKENS },
+      },
+      async (meter) => {
       const resp = await c.send(
         new ConverseCommand({
           modelId,
@@ -156,6 +162,8 @@ export async function rerank<T extends ChunkPayloadForRerank>(
       return out;
     });
   } catch (err) {
+    // A budget refusal lands here too: the search already has its results, so
+    // they are returned un-reranked rather than failed after the fact.
     const timedOut =
       err instanceof Error &&
       (err.name === "AbortError" || err.name === "TimeoutError");

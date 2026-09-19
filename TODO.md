@@ -877,14 +877,15 @@ a seeded day; an AccessDenied on the first item stops a synthesis phase after
 one call; a grep gate in a test proves every structured parser uses the shared
 decoder.
 
-**Progress.** R1 (unreleased): PAT caps (`access_tokens.budget_usd_per_day`,
+**Progress.** R1 (v1.143.0): PAT caps (`access_tokens.budget_usd_per_day`,
 set with `auth set-budget`, inherited on re-mint); the cap is read at token
 verification and carried on the spend context (null = uncapped, zero lookups);
 raw token columns and a nullable cost on `mcp_spend_log`; a capped caller is
-refused an unpriced model before send. Next: R2 per-call worst-case
-reservation at `trackedInvoke` settled in the booking transaction, replacing
-the op-level hold in `withClientSpend`, with holds that keep counting past the
-TTL until reconciled; R3 Bedrock error classifier plus an in-process circuit
+refused an unpriced model before send. R2 (unreleased): per-call worst-case
+hold at `trackedInvoke` for capped clients, settled in the booking
+transaction; holds live to the end of the day; `withClientSpend` only refuses
+an already-spent day; search fallbacks rethrow refusals. Not covered: SDK
+retries of a timed-out attempt bill more than one worst case. Next: R3 Bedrock error classifier plus an in-process circuit
 for batch scopes; R4 per-grant caps for enrollment tenants; R5 ambient
 `BudgetTracker` reservations.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and

@@ -149,7 +149,16 @@ export async function draftSkill(
     inferenceConfig: { maxTokens: MAX_OUTPUT_TOKENS, temperature: 0.3 },
   });
 
-  const text = await trackedInvoke({ operation: SPEND_OP, model: modelId }, async (meter) => {
+  const text = await trackedInvoke(
+    {
+      operation: SPEND_OP,
+      model: modelId,
+      worstCase: {
+        input: `${SYSTEM_PROMPT}Generate a skill for this request:\n\n${userPrompt}`,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+      },
+    },
+    async (meter) => {
     const response = await client.send(command, {
       requestTimeout: chatTimeoutMs(utilityTimeoutMs(), MAX_OUTPUT_TOKENS),
     });

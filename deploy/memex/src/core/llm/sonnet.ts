@@ -112,7 +112,11 @@ export async function callSonnet(
   const modelId = resolveFactsModel(opts.modelId);
   const c = opts.client ?? client(region);
   return trackedInvoke(
-    { operation: opts.operation ?? DEFAULT_REASONING_SPEND_OP, model: modelId },
+    {
+      operation: opts.operation ?? DEFAULT_REASONING_SPEND_OP,
+      model: modelId,
+      worstCase: { input: input.system + input.user, maxOutputTokens: input.maxTokens },
+    },
     async (meter) => {
       const resp = await withInflightCap(() =>
         c.send(

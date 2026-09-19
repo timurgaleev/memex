@@ -31,6 +31,9 @@ import { callHaiku } from "../src/core/llm/haiku.ts";
 import { callSonnet } from "../src/core/llm/sonnet.ts";
 import { CONTEXTUAL_LLM_LABEL, generateChunkContext } from "../src/core/search/contextual-llm.ts";
 
+/** A tiny worst case: holds a fraction of a cent against a capped client. */
+const SMALL = { input: "x", maxOutputTokens: 0 };
+
 const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const TITAN = "amazon.titan-embed-text-v2:0";
 
@@ -85,7 +88,7 @@ afterEach(async () => {
 
 describe("trackedInvoke", () => {
   it("books one labelled row carrying the call's actual cost", async () => {
-    const out = await trackedInvoke({ operation: "think", model: HAIKU }, async (meter) => {
+    const out = await trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (meter) => {
       meter.report({ inputTokens: 1_000_000, outputTokens: 200_000 });
       return "answer";
     });
@@ -105,7 +108,7 @@ describe("trackedInvoke", () => {
     // The tokens were charged to the account whether or not the caller got an
     // answer out of them — booking on the success path alone loses that money.
     await expect(
-      trackedInvoke({ operation: "embedding", model: HAIKU }, async (meter) => {
+      trackedInvoke({ operation: "embedding", model: HAIKU, worstCase: SMALL }, async (meter) => {
         meter.report({ inputTokens: 1_000_000, outputTokens: 0 });
         throw new Error("malformed response");
       }),
@@ -118,7 +121,7 @@ describe("trackedInvoke", () => {
 
   it("books a $0 row for a call that threw before reporting usage", async () => {
     await expect(
-      trackedInvoke({ operation: "query-expansion", model: HAIKU }, async () => {
+      trackedInvoke({ operation: "query-expansion", model: HAIKU, worstCase: SMALL }, async () => {
         throw new Error("upstream down");
       }),
     ).rejects.toThrow("upstream down");
@@ -131,7 +134,7 @@ describe("trackedInvoke", () => {
   it("books ONE row when the wrapped call retries internally", async () => {
     // The cachePoint fallback in callHaiku reports twice for one logical call;
     // the second report must replace the first, not add a row.
-    await trackedInvoke({ operation: "enrich-thin", model: HAIKU }, async (meter) => {
+    await trackedInvoke({ operation: "enrich-thin", model: HAIKU, worstCase: SMALL }, async (meter) => {
       meter.report({ inputTokens: 500_000, outputTokens: 0 });
       meter.report({ inputTokens: 1_000_000, outputTokens: 0 });
       return null;
@@ -142,7 +145,7 @@ describe("trackedInvoke", () => {
   });
 
   it("charges prompt-cache tokens at their real rates, not the flat input rate", async () => {
-    await trackedInvoke({ operation: "enrich-thin", model: HAIKU }, async (meter) => {
+    await trackedInvoke({ operation: "enrich-thin", model: HAIKU, worstCase: SMALL }, async (meter) => {
       meter.report({
         inputTokens: 200,
         cacheWriteInputTokens: 8_000,
@@ -169,7 +172,7 @@ describe("trackedInvoke", () => {
       },
     } as unknown as Engine;
     setSpendLedgerEngine(broken);
-    const out = await trackedInvoke({ operation: "think", model: HAIKU }, async (meter) => {
+    const out = await trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (meter) => {
       meter.report({ inputTokens: 10, outputTokens: 1 });
       return "still answered";
     });
@@ -185,7 +188,7 @@ describe("trackedInvoke", () => {
     console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
     let out: number;
     try {
-      out = await trackedInvoke({ operation: "think", model: HAIKU }, async (meter) => {
+      out = await trackedInvoke({ operation: "think", model: HAIKU, worstCase: SMALL }, async (meter) => {
         meter.report({ inputTokens: 10, outputTokens: 1 });
         return 42;
       });
@@ -205,7 +208,7 @@ describe("trackedInvoke", () => {
     console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
     try {
       await trackedInvoke(
-        { operation: "think", model: "global.amazon.nova-2-lite-v1:0" },
+        { operation: "think", model: "global.amazon.nova-2-lite-v1:0", worstCase: SMALL },
         async (m) => {
           m.report({ inputTokens: 1_000_000, outputTokens: 1_000_000 });
           return null;

@@ -28,6 +28,9 @@ import {
   trackedInvoke,
 } from "../src/core/budget.ts";
 
+/** A tiny worst case: holds a fraction of a cent against a capped client. */
+const SMALL = { input: "x", maxOutputTokens: 0 };
+
 const HAIKU = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 let tmp: string;
@@ -35,7 +38,7 @@ let storage: Storage;
 
 /** One paid call that reports `inputTokens` and returns. */
 async function paidCall(inputTokens: number): Promise<void> {
-  await trackedInvoke({ operation: "search.expand", model: HAIKU }, async (meter) => {
+  await trackedInvoke({ operation: "search.expand", model: HAIKU, worstCase: SMALL }, async (meter) => {
     meter.report({ inputTokens, outputTokens: 0 });
   });
 }
@@ -105,7 +108,7 @@ describe("spend client context", () => {
   it("survives awaits inside the tracked call", async () => {
     await reset();
     await runWithSpendClient("capped", async () => {
-      await trackedInvoke({ operation: "search.expand", model: HAIKU }, async (meter) => {
+      await trackedInvoke({ operation: "search.expand", model: HAIKU, worstCase: SMALL }, async (meter) => {
         await new Promise((r) => setTimeout(r, 5));
         expect(currentSpendClient()).toBe("capped");
         meter.report({ inputTokens: 1_000_000, outputTokens: 0 });

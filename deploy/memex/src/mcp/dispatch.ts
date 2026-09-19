@@ -198,9 +198,7 @@ import {
   checkInvalidIndexes,
 } from "../core/doctor-ops.ts";
 import {
-  reserveSpend,
-  settleSpend,
-  releaseReservation,
+  checkClientBudget,
   runWithSpendClient,
 } from "../core/budget.ts";
 import { MODE_BUNDLES, isSearchMode, expansionActive } from "../core/search/mode.ts";
@@ -2111,11 +2109,9 @@ async function callRelationalRecall(
     if (opts.limit !== undefined) llmOpts.limit = opts.limit;
     if (opts.depth !== undefined) llmOpts.depth = opts.depth;
     if (opts.sourceIds !== undefined) llmOpts.sourceIds = [...opts.sourceIds];
-    // Only THIS arm spends Bedrock, so the client-budget hold wraps it alone —
+    // Only THIS arm spends Bedrock, so the client-budget refusal wraps it alone —
     // the deterministic arm above stays free and unmetered. The arm reports its
-    // real cost through onMeta; echo it as `spentUsd` so withClientSpend settles
-    // the reservation with the ACTUAL spend. Without that echo the hold is
-    // released as zero-cost and the daily cap never accumulates.
+    // real cost through onMeta, echoed to the caller as `spentUsd`.
     let spentUsd = 0;
     llmOpts.onMeta = (meta) => {
       spentUsd = typeof meta.spentUsd === "number" ? meta.spentUsd : 0;
@@ -3305,26 +3301,14 @@ function applyPerCallMode(
   }
 }
 
-/**
- * Rough per-call reserve estimates (USD) for the client spend ledger. The
- * settle records the ACTUAL cost the handler reports; the estimate only sizes
- * the pre-flight hold, so precision is not required — it just has to be
- * non-trivial enough that racing calls near the cap get caught.
- */
-const PAID_OP_ESTIMATE_USD: Record<string, number> = {
-  think: 0.25,
-  extract_facts: 0.02,
-  // Charged only when the opt-in LLM fallback arm actually runs (see
-  // callRelationalRecall) — one Sonnet classification per call.
-  relational_recall: 0.02,
-};
+/** The paid ops refused up front once the caller's day is spent. */
+const PAID_OPS = new Set(["think", "extract_facts", "relational_recall"]);
 
 /**
- * Client-budget enforcement for paid ops (G5): before the call, reserve the
- * estimate against oauth_clients.budget_usd_per_day (fail-CLOSED when the
- * ledger says exceeded); after it, settle the reservation with the actual
- * `spentUsd` the handler reported (releasing a zero-cost hold). Operator
- * callers (no clientId) bypass the ledger — there is no per-client cap axis.
+ * Refuse a paid op from a client whose daily cap is already spent, before the
+ * handler starts work it cannot finish. The spending itself is held and booked
+ * per call at `trackedInvoke`; an op-level hold here as well would count the
+ * same calls twice. Operator callers (no clientId) have no cap axis.
  */
 async function withClientSpend(
   storage: Storage,
@@ -3333,47 +3317,24 @@ async function withClientSpend(
   run: () => Promise<ToolCallResult>,
 ): Promise<ToolCallResult> {
   const clientId = authInfo?.clientId;
-  const estimate = PAID_OP_ESTIMATE_USD[operation];
-  if (!clientId || estimate === undefined) return run();
-  const engine = storage.engine();
-  const reserved = await reserveSpend(engine, {
+  if (!clientId || !PAID_OPS.has(operation)) return run();
+  const check = await checkClientBudget(
+    storage.engine(),
     clientId,
-    ...(authInfo?.budgetUsdPerDay !== undefined ? { capUsd: authInfo.budgetUsdPerDay } : {}),
-    estimatedUsd: estimate,
-    model: "bedrock",
-    provider: "bedrock",
-  });
-  if (!reserved.reserved) {
-    const cap = reserved.check.capUsd;
+    new Date(),
+    ...(authInfo?.budgetUsdPerDay !== undefined ? [authInfo.budgetUsdPerDay] : []),
+  );
+  if (!check.allowed) {
+    const cap = check.capUsd;
     throw new OperationError(
       "budget_exhausted",
-      `daily budget exhausted for this client (spent $${reserved.check.spentUsd.toFixed(4)}` +
+      `daily budget exhausted for this client (spent $${check.spentUsd.toFixed(4)}` +
         (cap !== null ? ` of $${cap.toFixed(2)}` : "") +
         ")",
       "Wait for the UTC day to roll over, or raise the client's budget_usd_per_day.",
     );
   }
-  let result: ToolCallResult;
-  try {
-    result = await run();
-  } catch (e) {
-    await releaseReservation(engine, reserved.reservationId).catch(() => {});
-    throw e;
-  }
-  let actual = 0;
-  try {
-    const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>;
-    const v = payload["spentUsd"] ?? payload["spent_usd"];
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) actual = v;
-  } catch {
-    // Non-JSON result — treat as zero-cost.
-  }
-  if (actual > 0) {
-    await settleSpend(engine, reserved.reservationId, actual).catch(() => {});
-  } else {
-    await releaseReservation(engine, reserved.reservationId).catch(() => {});
-  }
-  return result;
+  return run();
 }
 
 /** First substantive line of a synthesis answer — the take's claim text. */
