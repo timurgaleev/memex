@@ -6,30 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Documentation
-- **A rewritten README** with a hero image, a scannable feature table, a
-  "when memex is not the right fit" list, an illustrated how-it-works section,
-  a numbered quickstart, a credential table and a security summary; every
-  claim in it was checked against the code. New images live in
-  `docs/assets/` (hero, how-it-works, feature tiles and a refreshed social
-  preview card).
-- **docs/ brought up to date:** CONFIGURATION.md lists the secret-scan,
-  content-sanity, spend and per-feature model knobs; the public-bearer tool
-  list is corrected; the vault reindex command now passes `--vault /memory`,
-  without which it fails inside the container.
-
-### Security
-- **Credential redaction reaches every direct write.** Facts (text and
-  context), timeline events, hot memory, chronicle event projections, a
-  page's title and every string inside its `compiled_truth` (keys included)
-  now pass the same scan as page bodies, so a token pasted into `add_fact` or
-  `add_timeline_event` is stored as a `[REDACTED:kind:fingerprint]` marker and
-  audited. Under `MEMEX_SECRET_SCAN_DISPOSITION=reject` a refused write now
-  leaves a `secret-rejected` row in the ingest log (kind and fingerprint only)
-  instead of no trace. `ontology_propose` values get the same scan. `POST
-  /ingest` now checks the caller's write grant before scanning the body, so a
-  client with no grant gets `permission_denied` rather than finding details,
-  and its refusal no longer writes an audit row into the default tenant.
+## [1.146.0] — 2026-09-19
 
 ### Added
 - **Quarantine leaves a trail.** Every content-sanity trip writes a
@@ -62,6 +39,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   All-caps `US`, `IT`, `NA` and `ME` are real entities again rather than
   pronouns: their facts are kept and `junk-entity-hubs` no longer flags
   `companies/us` or `concepts/it`.
+
+### Security
+- **Credential redaction reaches every direct write.** Facts (text and
+  context), timeline events, hot memory, chronicle event projections, a
+  page's title and every string inside its `compiled_truth` (keys included)
+  now pass the same scan as page bodies, so a token pasted into `add_fact` or
+  `add_timeline_event` is stored as a `[REDACTED:kind:fingerprint]` marker and
+  audited. Under `MEMEX_SECRET_SCAN_DISPOSITION=reject` a refused write now
+  leaves a `secret-rejected` row in the ingest log (kind and fingerprint only)
+  instead of no trace. `ontology_propose` values get the same scan. `POST
+  /ingest` now checks the caller's write grant before scanning the body, so a
+  client with no grant gets `permission_denied` rather than finding details,
+  and its refusal no longer writes an audit row into the default tenant.
+
+### Documentation
+- **A rewritten README** with a hero image, a scannable feature table, a
+  "when memex is not the right fit" list, an illustrated how-it-works section,
+  a numbered quickstart, a credential table and a security summary; every
+  claim in it was checked against the code. New images live in
+  `docs/assets/` (hero, how-it-works, feature tiles and a refreshed social
+  preview card).
+- **docs/ brought up to date:** CONFIGURATION.md lists the secret-scan,
+  content-sanity, spend and per-feature model knobs; the public-bearer tool
+  list is corrected; the vault reindex command now passes `--vault /memory`,
+  without which it fails inside the container.
 
 ## [1.145.0] — 2026-09-19
 
