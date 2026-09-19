@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.145.0] — 2026-09-19
+
+### Added
+- **A spend report.** `memex spend [--days N]` and
+  `GET /admin/api/spend/report?days=N` roll the spend ledger up by model, by
+  feature and by spender (OAuth clients, personal access tokens and enrolled
+  people alike) over the last N days (default 7), and name the calls the
+  totals cannot see: unpriced models and calls that failed before reporting
+  usage.
+
+### Fixed
+- **`memex capture --file` stored a binary file as text,** and `/ingest`
+  accepted one under a text content type. Both now refuse a file whose magic
+  number or a NUL byte in its first 8 KB marks it as binary.
+- **A vault sweep capped by `maxFiles` stopped at a different file on Linux
+  than on macOS.** The walk followed the filesystem's directory order — sorted
+  on APFS, hash order on ext4 — so where a capped sweep stopped, and which
+  files it confirmed, depended on the host. It now walks in name order.
+
 ### Security
 - **Credentials pasted into the brain are redacted before they are stored.**
   An AWS access key or `aws_secret_access_key`, a GitHub, GitLab, Slack,
@@ -23,25 +42,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A note could close one of the evidence blocks `think` wraps it in** (a
   page, a take, a trajectory or the calibration record) and write outside it;
   those closing tags are now neutralized like the others.
-
-### Fixed
-- **`memex capture --file` stored a binary file as text,** and `/ingest`
-  accepted one under a text content type. Both now refuse a file whose magic
-  number or a NUL byte in its first 8 KB marks it as binary.
-
-### Added
-- **A spend report.** `memex spend [--days N]` and
-  `GET /admin/api/spend/report?days=N` roll the spend ledger up by model, by
-  feature and by spender (OAuth clients, personal access tokens and enrolled
-  people alike) over the last N days (default 7), and name the calls the
-  totals cannot see: unpriced models and calls that failed before reporting
-  usage.
-
-### Fixed
-- **A vault sweep capped by `maxFiles` stopped at a different file on Linux
-  than on macOS.** The walk followed the filesystem's directory order — sorted
-  on APFS, hash order on ext4 — so where a capped sweep stopped, and which
-  files it confirmed, depended on the host. It now walks in name order.
 
 ## [1.144.0] — 2026-09-19
 

@@ -2476,6 +2476,30 @@ Closed operator decisions this roadmap does not re-raise:
 ---
 
 
+## Docs overhaul — README, repository About and images (2026-09-19)
+
+**Why.** The README is the project's front page and it undersells it: long,
+text-only, and out of date against what shipped (tenancy, spend caps, secret
+redaction, code graph, think). The GitHub About line ("Self-hosted personal AI
+knowledge brain -- hybrid (vector + keyword + entity-graph) search over your
+notes and code, served to any MCP agent …") is dense and reads as a feature
+list rather than a promise.
+
+**Scope.**
+- Rewrite README.md top to bottom: a one-line pitch, a hero image, what it
+  does in three or four scannable blocks, a diagram of how the pieces fit,
+  quickstart, the MCP tool surface, deployment, security posture, and links
+  into docs/ — every claim checked against the code.
+- Refresh docs/ so nothing in it contradicts the README or the current code.
+- Generated images (hero banner, architecture/flow diagram, feature tiles)
+  in a consistent style, stored under docs/assets/ with alt text.
+- A new repository About description and topics (`gh repo edit`).
+- Advice gathered from several models (GPT/Codex, Gemini, Grok, and the
+  OpenRouter models configured in deliberation) before writing.
+
+**Done when.** README renders on GitHub with its images, every command in it
+runs as written, `make audit` passes, and the About line and topics are set.
+
 ## The `[] = no grant` contract is enforced in some layers, not all (2026-09-08)
 
 Tracked in RM-01 (Release A).
