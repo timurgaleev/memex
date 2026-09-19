@@ -17,7 +17,8 @@
  * FACTS_EXTRACT_VERSION). The memo is written only when the paid call read
  * cleanly and yielded no new fact, so editing the page or bumping the extractor
  * version re-opens it, while malformed, truncated, budget and model-error
- * outcomes are never memoized and stay retryable.
+ * outcomes, and extracted facts that failed to write, are never memoized and
+ * stay retryable.
  *
  * FALLS-OPEN: a per-page failure is collected in `errors[]`; the phase never
  * throws (the cycle marks it `warn` when errors[] is non-empty).
@@ -206,7 +207,15 @@ export async function conversationFactsBackfillPhase(
           message: `extraction absorbed: ${r.absorbed}`,
         });
       }
-      if (r.absorbed === null && r.factsWritten === 0) {
+      // Facts that failed to write were never persisted: the page is not
+      // empty, so it must stay open for the next run rather than be memoized.
+      if (r.factsFailed > 0) {
+        result.errors.push({
+          slug: page.slug,
+          message: `${r.factsFailed} extracted fact(s) failed to write`,
+        });
+      }
+      if (r.absorbed === null && r.factsWritten === 0 && r.factsFailed === 0) {
         await storage.engine().query(
           `INSERT INTO facts_backfill_scans
              (source_id, slug, content_hash, extractor_version, outcome, facts_skipped, model_id)

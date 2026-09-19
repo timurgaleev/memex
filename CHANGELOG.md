@@ -35,6 +35,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   extractor version makes it eligible again; malformed, truncated, over-budget
   and failed calls are never remembered and stay retryable. The phase summary
   reports `zeroYieldRecorded`.
+- **Imported transcripts now reach fact extraction and reflections.** Pages
+  written by `memex transcripts ingest` (type `conversation`) were skipped by
+  the conversation-facts backfill, on-write extraction and reflections; they
+  are now eligible like notes and meetings.
+- **A page whose extracted facts failed to write is no longer remembered as
+  empty.** When the model returned facts but storing them failed (for example
+  a dropped database connection), the backfill recorded the page as zero-yield
+  and never retried it. It now reports the failure and retries the page on the
+  next run.
 - **Re-putting an identical page no longer re-audits a flagged credential.**
   Under `MEMEX_SECRET_SCAN_DISPOSITION=flag`, every unchanged `page_put` of a
   page holding a credential added another `secret-flagged` row.

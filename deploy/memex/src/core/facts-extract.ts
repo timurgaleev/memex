@@ -501,9 +501,12 @@ export async function writeExtractedFacts(
      */
     notabilityFilter?: "all" | "high-only";
   } = {},
-): Promise<{ written: number; skipped: number; fact_ids: number[] }> {
+): Promise<{ written: number; skipped: number; failed: number; fact_ids: number[] }> {
   let written = 0;
   let skipped = 0;
+  // Write errors, counted apart from deliberate drops: a caller that memoizes
+  // "this page yields nothing" must not mistake a DB blip for an empty page.
+  let failed = 0;
   const factIds: number[] = [];
   const notabilityFilter = opts.notabilityFilter ?? "all";
   // Exclude the transcript's own page from the candidate set, and scope
@@ -561,9 +564,10 @@ export async function writeExtractedFacts(
       if (r.inserted && r.id !== null) factIds.push(r.id);
     } catch {
       skipped += 1;
+      failed += 1;
     }
   }
-  return { written, skipped, fact_ids: factIds };
+  return { written, skipped, failed, fact_ids: factIds };
 }
 // MEMEX_FACTS_EXTRACTION gate + BudgetTracker as the CLI batch path.
 // ---------------------------------------------------------------------------
@@ -579,9 +583,11 @@ export const FACTS_EXTRACT_VERSION = "1";
  * Page types whose body is prose worth extracting conversation-shaped facts
  * from. Entity pages (person/company/concept) and structured stubs (task/event)
  * are excluded — they carry attributes, not narrated claims. Drawn from memex's
- * KNOWN_PAGE_TYPES.
+ * KNOWN_PAGE_TYPES, plus `conversation`, the type `memex transcripts ingest`
+ * writes imported chat sessions under.
  */
 export const EXTRACTION_ELIGIBLE_TYPES: readonly string[] = [
+  "conversation",
   "note",
   "meeting",
   "email",
@@ -657,6 +663,8 @@ export interface ExtractForPageOptions {
 export interface ExtractForPageResult {
   factsWritten: number;
   factsSkipped: number;
+  /** Facts the model returned that failed to write (a subset of factsSkipped). */
+  factsFailed: number;
   spentUsd: number;
   /**
    * The absorb reason filed for this page, or null when the extraction ran
@@ -695,6 +703,7 @@ export async function extractFactsForPage(
     return {
       factsWritten: 0,
       factsSkipped: 0,
+      factsFailed: 0,
       spentUsd: 0,
       absorbed: "budget_exhausted",
     };
@@ -717,7 +726,7 @@ export async function extractFactsForPage(
       e instanceof Error ? e.message : String(e),
       opts.sourceId ?? "default",
     );
-    return { factsWritten: 0, factsSkipped: 0, spentUsd: 0, absorbed: reason };
+    return { factsWritten: 0, factsSkipped: 0, factsFailed: 0, spentUsd: 0, absorbed: reason };
   }
   try {
     budget.record(result.modelId, result.usage);
@@ -751,6 +760,7 @@ export async function extractFactsForPage(
   return {
     factsWritten: w.written,
     factsSkipped: w.skipped,
+    factsFailed: w.failed,
     spentUsd: Number(budget.totalSpent().toFixed(6)),
     absorbed,
   };

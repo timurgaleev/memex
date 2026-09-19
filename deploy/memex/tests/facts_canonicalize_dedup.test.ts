@@ -113,7 +113,7 @@ describe("writeExtractedFacts canonicalization (2a)", () => {
     const r = await writeExtractedFacts(storage, [
       { fact: "orphan", kind: "fact", entity: null, confidence: 0.5, notability: "low" },
     ]);
-    expect(r).toEqual({ written: 0, skipped: 1, fact_ids: [] });
+    expect(r).toEqual({ written: 0, skipped: 1, failed: 0, fact_ids: [] });
   });
 
   it("notabilityFilter 'high-only' drops non-high facts (notability backstop)", async () => {

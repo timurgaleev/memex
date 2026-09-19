@@ -4,7 +4,7 @@
  * facts-extract facts yet, and skips them once they do (idempotency without a
  * schema watermark).
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,9 @@ import {
 } from "../src/core/cycle/conversation-facts-backfill.ts";
 import { FACTS_EXTRACT_VERSION } from "../src/core/facts-extract.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
+import { ingestSessions } from "../src/core/transcripts/ingest.ts";
+import type { TranscriptSession } from "../src/core/transcripts/types.ts";
+import { deterministicEmbed } from "./det-embed.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -230,6 +233,32 @@ describe("zero-yield memo (facts_backfill_scans)", () => {
     expect(m.calls()).toBe(1);
   });
 
+  it("never memoizes a page whose extracted facts all failed to write", async () => {
+    await putPage(storage, { slug: "notes/alice-sync", type: "note", markdown_body: LONG_BODY });
+    const engine = storage.engine();
+    const realQuery = engine.query.bind(engine);
+    const spy = spyOn(engine, "query").mockImplementation(((sql: string, params?: unknown[]) => {
+      if (/INSERT INTO entity_facts/i.test(sql)) {
+        return Promise.reject(new Error("connection reset"));
+      }
+      return realQuery(sql, params);
+    }) as typeof engine.query);
+    let first;
+    try {
+      first = await conversationFactsBackfillPhase(storage, { sonnetFn: fakeSonnet() });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(first.factsWritten).toBe(0);
+    expect(first.zeroYieldRecorded).toBe(0);
+    expect(first.errors.map((e) => e.message)).toEqual(["1 extracted fact(s) failed to write"]);
+    expect(await scanRows()).toEqual([]);
+
+    const second = await conversationFactsBackfillPhase(storage, { sonnetFn: fakeSonnet() });
+    expect(second.pagesProcessed).toBe(1);
+    expect(second.factsWritten).toBe(1);
+  });
+
   it("the migration is idempotent across a second init", async () => {
     await putPage(storage, { slug: "notes/quiet", type: "note", markdown_body: LONG_BODY });
     await conversationFactsBackfillPhase(storage, { sonnetFn: countingSonnet(EMPTY).fn });
@@ -237,5 +266,44 @@ describe("zero-yield memo (facts_backfill_scans)", () => {
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     expect((await scanRows()).length).toBe(1);
+  });
+});
+
+describe("imported transcripts", () => {
+  it("backfills a part written by transcript ingest, then memoizes it when empty", async () => {
+    const t0 = Date.parse("2026-04-02T08:00:00Z");
+    const session: TranscriptSession = {
+      format: "chatgpt",
+      id: "tea",
+      title: "Tea talk",
+      startedAt: t0,
+      messages: [
+        { id: "m0", role: "user", speaker: "User", text: LONG_BODY, ts: t0 },
+        { id: "m1", role: "assistant", speaker: "ChatGPT", text: "Noted, tea and Gotham.", ts: t0 + 1000 },
+      ],
+    };
+    const ingested = await ingestSessions(storage, [session], {
+      sourceId: "default",
+      embedFn: async (t: string) => deterministicEmbed(t),
+    });
+    expect(ingested.parts_written).toBe(1);
+
+    let calls = 0;
+    const sonnetFn: SonnetFn = async () => {
+      calls += 1;
+      return {
+        text: JSON.stringify({ facts: [] }),
+        modelId: "eu.anthropic.claude-sonnet-4-6",
+        usage: { inputTokens: 100, outputTokens: 10 },
+      };
+    };
+    const first = await conversationFactsBackfillPhase(storage, { sonnetFn });
+    expect(calls).toBe(1);
+    expect(first.zeroYieldRecorded).toBe(1);
+    const memo = await storage.engine().query<{ slug: string }>("SELECT slug FROM facts_backfill_scans");
+    expect(memo.rows.map((r) => r.slug)).toEqual(["transcripts/chatgpt/tea-p1"]);
+
+    await conversationFactsBackfillPhase(storage, { sonnetFn });
+    expect(calls).toBe(1);
   });
 });

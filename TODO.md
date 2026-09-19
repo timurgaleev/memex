@@ -1854,7 +1854,10 @@ no new fact is memoized per (source_id, slug, content_hash,
 `FACTS_EXTRACT_VERSION`) and the backfill discovery query skips it before
 `LIMIT`, so re-running backfill on a zero-yield page makes zero model calls
 (Done-when item met). Edits and extractor version bumps re-open the page;
-unreadable, budget and model-error outcomes stay retryable. Still open: scored
+unreadable, budget and model-error outcomes, and facts that failed to write,
+stay retryable. Pages written by `memex transcripts ingest` (type
+`conversation`) are now extraction-eligible, so imported ChatGPT/Claude.ai
+sessions reach the backfill, on-write extraction and reflections. Still open: scored
 triage (including keying `synth_worth_verdicts` by source_id, not slug alone),
 per-transcript synthesis jobs, mechanical quote verification, the
 link-candidate manifest, the atoms USD gate and quote offsets, the rest of bulk
