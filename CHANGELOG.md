@@ -32,9 +32,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from another page or transcript, or an agent re-asserting it (whitespace and
   case do not matter) no longer brings it back. `add_fact` returns
   `withdrawn: true` without writing, `forget_fact` also retires every other
-  live copy of the claim and reports `withdrawn_duplicates`, and copies that
-  already came back after an earlier forget are retired when the upgrade
-  migrates. A superseded fact is not withdrawn and can still re-enter.
+  live copy of the claim and reports `withdrawn_duplicates`, and a merge or
+  rename carries the withdrawal to the new slug. The upgrade withdraws earlier
+  forgets but changes no live fact: a claim that was added again after its
+  forget stays live (forget it again to withdraw it), and the migration logs
+  how many such claims it left alone. A superseded fact is not withdrawn and
+  can still re-enter.
 - **Conversation-facts backfill no longer re-bills Sonnet for transcripts that
   yield no facts.** A page whose extraction read cleanly but produced no new
   fact is remembered per (source, slug, content hash, extractor version), and

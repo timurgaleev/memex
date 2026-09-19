@@ -1944,8 +1944,14 @@ transaction.
 `fact_withdrawals`, the `memex_fact_claim_key()` SQL normalization (trim,
 collapse whitespace, lowercase, md5), a BEFORE INSERT trigger on
 `entity_facts` that lands any withdrawn claim already forgotten whatever the
-write path, and a backfill from existing `forget`/legacy tombstones that also
-retires the live copies that came back. `forget_fact` records the withdrawal
+write path, and a backfill from existing `forget`/legacy tombstones. The
+backfill changes no live row: a claim with a live copy today may have been
+re-added on purpose (the only way to undo a forget before 112), so it is left
+unwithdrawn and counted in a migration NOTICE. Merge and rename carry the old
+slug's withdrawals to the new one and retire moved live copies. Lock order
+(documented in `fact-withdrawals.ts`): fact row locks first, the per-source
+withdraw lock after, so a forget cannot deadlock against a fence reconcile;
+there is no two-connection Postgres test yet (the suite runs on PGLite). `forget_fact` records the withdrawal
 and retires every live duplicate in the row's own source in one transaction
 under a per-source advisory lock (`withdrawn_duplicates` in the result);
 `add_fact` refuses a withdrawn claim before the paid embed/classify path

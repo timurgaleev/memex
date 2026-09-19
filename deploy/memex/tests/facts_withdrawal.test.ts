@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { addFact } from "../src/core/facts.ts";
 import { forgetFact } from "../src/core/facts-recall.ts";
-import { putPage } from "../src/core/pages.ts";
+import { putPage, renamePage } from "../src/core/pages.ts";
+import { mergePage } from "../src/core/entity-merge.ts";
 import { reconcileFactsForPage } from "../src/core/facts-reconcile.ts";
 import { renderFactsFence, type ParsedFact } from "../src/core/facts-fence.ts";
 
@@ -290,34 +291,35 @@ describe("migration 112 backfill", () => {
     "utf8",
   );
 
-  it("withdraws legacy forgets and retires the copies that came back", async () => {
-    // A pre-062 tombstone (NULL cause), a resurrected live copy, a supersede
-    // tombstone that must not count, and an unrelated live claim.
+  it("withdraws legacy forgets and leaves a re-asserted claim live", async () => {
+    // A pre-062 tombstone with no live copy, a tombstone whose claim was added
+    // again (the only way to take a forget back before this migration), a
+    // supersede tombstone that must not count, and an unrelated live claim.
     await storage.engine().query(
       `INSERT INTO entity_facts (entity_slug, fact, confidence, written_by, kind, forgotten_at, forgotten_cause)
-       VALUES ($1, 'Drives a red car', 1, 'w', 'belief', now(), NULL),
+       VALUES ($1, 'Sold the boat', 1, 'w', 'belief', now(), NULL),
+              ($1, 'Drives a red car', 1, 'w', 'belief', now(), 'forget'),
               ($1, 'Was CTO', 1, 'w', 'belief', now(), 'supersede')`,
       [ENTITY],
     );
     await storage.engine().query(
       `INSERT INTO entity_facts (entity_slug, fact, confidence, written_by, kind)
-       VALUES ($1, 'drives a  red car', 1, 'extractor', 'belief'),
+       VALUES ($1, 'drives a  red car', 1, 'operator', 'belief'),
               ($1, 'Was CTO', 1, 'extractor', 'belief'),
               ($1, 'Has two cats', 1, 'extractor', 'belief')`,
       [ENTITY],
     );
+    const before = JSON.stringify(await rows());
     await storage.engine().exec(sql);
     expect(await withdrawalCount()).toBe(1);
-    const live = (await liveRows()).map((r) => r.fact).sort();
-    expect(live).toEqual(["Has two cats", "Was CTO"]);
-    const retired = (await rows()).find((r) => r.fact === "drives a  red car")!;
-    expect(retired.forgotten_reason).toBe("withdrawn (backfill)");
-    expect(retired.forgotten_cause).toBe("forget");
+    // No row changes: live copies stay live, whatever their writer.
+    expect(JSON.stringify(await rows())).toBe(before);
+    expect((await addFact(storage, { entity_slug: ENTITY, fact: "sold the boat" })).withdrawn).toBe(true);
+    expect((await addFact(storage, { entity_slug: ENTITY, fact: "Drives a red car", written_by: "x" })).withdrawn)
+      .toBeUndefined();
 
-    const snapshot = JSON.stringify(await rows());
     await storage.engine().exec(sql);
     expect(await withdrawalCount()).toBe(1);
-    expect(JSON.stringify(await rows())).toBe(snapshot);
   });
 
   it("a second init applies nothing and keeps the ledger", async () => {
@@ -329,6 +331,62 @@ describe("migration 112 backfill", () => {
     expect(await withdrawalCount()).toBe(1);
     const r = await addFact(storage, { entity_slug: ENTITY, fact: "drinks oat milk" });
     expect(r.withdrawn).toBe(true);
+  });
+});
+
+describe("merge and rename", () => {
+  const STUB = "alice";
+
+  async function forgetOnStub(fact: string): Promise<void> {
+    const r = await addFact(storage, { entity_slug: STUB, fact });
+    await forgetFact(storage, r.id as number);
+  }
+
+  it("a merge carries the withdrawal to the canonical slug", async () => {
+    await putPage(storage, { slug: ENTITY, type: "person", markdown_body: "canon" });
+    await putPage(storage, { slug: STUB, type: "person", markdown_body: "stub" });
+    await forgetOnStub("Works remotely");
+    const m = await mergePage(storage, STUB, ENTITY);
+    expect(m.merged).toBe(true);
+    const again = await addFact(storage, { entity_slug: ENTITY, fact: "works remotely" });
+    expect(again.withdrawn).toBe(true);
+    expect(await liveRows()).toHaveLength(0);
+  });
+
+  it("a merge retires a live stub copy of a claim withdrawn on the canonical slug", async () => {
+    await putPage(storage, { slug: ENTITY, type: "person", markdown_body: "canon" });
+    await putPage(storage, { slug: STUB, type: "person", markdown_body: "stub" });
+    await forgetFact(storage, await seed("Plays chess"));
+    await addFact(storage, { entity_slug: STUB, fact: "plays  chess" });
+    await addFact(storage, { entity_slug: STUB, fact: "Has two cats" });
+    const m = await mergePage(storage, STUB, ENTITY);
+    expect(m.moved?.withdrawn_facts).toBe(1);
+    expect((await liveRows()).map((r) => r.fact)).toEqual(["Has two cats"]);
+    const moved = (await rows()).find((r) => r.fact === "plays  chess")!;
+    expect(moved.forgotten_cause).toBe("forget");
+  });
+
+  it("a scoped merge carries only the owner's withdrawals", async () => {
+    await putPage(storage, { slug: ENTITY, type: "person", markdown_body: "canon" });
+    await putPage(storage, { slug: STUB, type: "person", markdown_body: "stub" });
+    const other = await addFact(storage, { entity_slug: STUB, fact: "Works remotely", source_id: "tenant-a" });
+    await forgetFact(storage, other.id as number);
+    await mergePage(storage, STUB, ENTITY);
+    const r = await storage.engine().query<{ source_id: string }>(
+      "SELECT source_id FROM fact_withdrawals WHERE entity_slug = $1",
+      [ENTITY],
+    );
+    expect(r.rows).toEqual([]);
+  });
+
+  it("a rename carries the withdrawal to the new slug", async () => {
+    await putPage(storage, { slug: STUB, type: "person", markdown_body: "stub" });
+    await forgetOnStub("Works remotely");
+    const rn = await renamePage(storage, STUB, ENTITY);
+    expect(rn.renamed).toBe(true);
+    const again = await addFact(storage, { entity_slug: ENTITY, fact: "Works remotely" });
+    expect(again.withdrawn).toBe(true);
+    expect(await liveRows()).toHaveLength(0);
   });
 });
 

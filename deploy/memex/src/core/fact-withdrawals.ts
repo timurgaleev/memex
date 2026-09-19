@@ -1,0 +1,93 @@
+/**
+ * Claim withdrawals (migration 112): a forgotten claim stays forgotten under
+ * its (source_id, visibility, entity_slug, claim_key) key.
+ *
+ * Lock order, for every transaction that touches both: take fact row locks
+ * first (UPDATE/DELETE of entity_facts), the per-source withdraw lock after.
+ * Inserts take the lock shared from the migration 112 trigger, and a fence
+ * reconcile deletes a page's rows before it inserts, so a writer that took the
+ * exclusive lock and then waited on a fact row would deadlock against it.
+ * Under the exclusive lock, only re-sweep for rows that raced in; every row
+ * already committed is retired before the lock is taken.
+ */
+import type { Engine } from "./engine/interface.ts";
+
+/** Advisory-lock key serializing a source's withdrawals against its fact
+ *  inserts (the insert trigger in migration 112 takes the same key shared). */
+export function withdrawLockKey(sourceId: string): string {
+  return `memex:fact-withdraw:${sourceId}`;
+}
+
+/** Take the exclusive withdraw lock for each source, in a stable order so two
+ *  multi-source lockers cannot deadlock on each other. */
+export async function lockWithdrawals(tx: Engine, sourceIds: Iterable<string>): Promise<void> {
+  for (const id of [...new Set(sourceIds)].sort()) {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [withdrawLockKey(id)]);
+  }
+}
+
+/**
+ * Carry the withdrawals keyed on `fromSlug` over to `toSlug` when a merge or a
+ * rename re-points facts, and retire any live fact on `toSlug` that is now
+ * withdrawn. The re-point is an UPDATE, which the insert trigger never sees,
+ * so without this a moved claim, or the next re-extraction of it onto the new
+ * slug, would land live. `sourceId` confines both steps to one source (a
+ * merge); null covers every source (a rename moves all of a slug's facts).
+ * Run it in the re-point's transaction, after the entity_facts UPDATE.
+ * Returns the number of facts retired.
+ */
+export async function carryFactWithdrawals(
+  tx: Engine,
+  fromSlug: string,
+  toSlug: string,
+  sourceId: string | null,
+): Promise<number> {
+  const params: unknown[] = [fromSlug, toSlug];
+  let scope = "";
+  if (sourceId !== null) {
+    params.push(sourceId);
+    scope = " AND source_id = $3";
+  }
+  await tx.query(
+    `INSERT INTO fact_withdrawals
+       (source_id, visibility, entity_slug, claim_key, first_fact_id, reason)
+     SELECT source_id, visibility, $2, claim_key, first_fact_id, reason
+       FROM fact_withdrawals
+      WHERE entity_slug = $1${scope}
+     ON CONFLICT DO NOTHING`,
+    params,
+  );
+  // Withdrawals already on the target count too: a stub-side live copy of a
+  // claim forgotten on the canonical slug was just moved onto it.
+  const onTarget = await tx.query<{ source_id: string }>(
+    `SELECT DISTINCT source_id FROM fact_withdrawals
+      WHERE entity_slug = $1${sourceId !== null ? " AND source_id = $2" : ""}`,
+    sourceId !== null ? [toSlug, sourceId] : [toSlug],
+  );
+  const sources = onTarget.rows.map((r) => r.source_id);
+  if (sources.length === 0) return 0;
+  const sweep = async (): Promise<number> => {
+    const swept = await tx.query<{ id: number }>(
+      `UPDATE entity_facts ef
+          SET forgotten_at = NOW(), forgotten_cause = 'forget',
+              forgotten_reason = 'withdrawn (moved from ' || $1 || ')'
+         FROM fact_withdrawals w
+        WHERE ef.entity_slug = $2
+          AND ef.forgotten_at IS NULL
+          AND ef.dimension IS NULL
+          AND w.source_id = ef.source_id
+          AND w.visibility = ef.visibility
+          AND w.entity_slug = ef.entity_slug
+          AND w.claim_key = memex_fact_claim_key(ef.fact)${sourceId !== null ? " AND ef.source_id = $3" : ""}
+        RETURNING ef.id`,
+      params,
+    );
+    return swept.rows.length;
+  };
+  // Same order as forgetFact: retire the committed rows before taking the lock,
+  // then sweep once more under it for an insert that raced past its trigger
+  // check (it holds the lock shared until it commits).
+  const early = await sweep();
+  await lockWithdrawals(tx, sources);
+  return early + (await sweep());
+}

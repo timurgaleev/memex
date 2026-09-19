@@ -38,6 +38,7 @@ import type { Engine } from "./engine/interface.ts";
 import { bumpPageGeneration } from "./generation.ts";
 import { setSlugAlias } from "./slug-aliases.ts";
 import { lockPageSlugs, validateSlug } from "./pages.ts";
+import { carryFactWithdrawals } from "./fact-withdrawals.ts";
 
 export interface MergeOptions {
   /** Caller identifier for the audit trail (marker version rows). */
@@ -157,6 +158,9 @@ export async function mergePage(
         WHERE source_markdown_slug = $1 AND source_id = $3`,
       [fromSlug, toSlug, owner],
     );
+    // Forgotten claims follow the facts to the canonical slug (migration 112).
+    const withdrawnFacts = await carryFactWithdrawals(tx, fromSlug, toSlug, owner);
+    if (withdrawnFacts > 0) moved.withdrawn_facts = withdrawnFacts;
 
     // ── links (outbound) ──────────────────────────────────────────────────
     // Unique key (mig059): (source_slug, target_slug, type, source_id). Drop

@@ -72,25 +72,61 @@ CREATE TRIGGER entity_facts_withdrawn_on_insert
 
 -- Backfill from the forgets already on file. A NULL cause is a pre-062 row, and
 -- every tombstone of that era came from forget_fact.
-INSERT INTO fact_withdrawals (source_id, visibility, entity_slug, claim_key, first_fact_id, reason)
-SELECT source_id, visibility, entity_slug, memex_fact_claim_key(fact), MIN(id), 'backfill'
-  FROM entity_facts
- WHERE forgotten_at IS NOT NULL
-   AND (forgotten_cause IS NULL OR forgotten_cause = 'forget')
-   AND dimension IS NULL
- GROUP BY source_id, visibility, entity_slug, memex_fact_claim_key(fact)
-ON CONFLICT DO NOTHING;
-
--- Retire the copies that came back after their claim was forgotten. A re-run
--- finds none left.
-UPDATE entity_facts ef
-   SET forgotten_at = now(),
-       forgotten_cause = 'forget',
-       forgotten_reason = 'withdrawn (backfill)'
-  FROM fact_withdrawals w
- WHERE ef.forgotten_at IS NULL
-   AND ef.dimension IS NULL
-   AND ef.source_id = w.source_id
-   AND ef.visibility = w.visibility
-   AND ef.entity_slug = w.entity_slug
-   AND memex_fact_claim_key(ef.fact) = w.claim_key;
+--
+-- Live rows are left alone. Before this migration, re-adding a forgotten claim
+-- was the only way to take a forget back, so a claim with a live copy today may
+-- be a deliberate re-assertion; it is not withdrawn, and a later forget_fact on
+-- it withdraws it and retires every copy. The NOTICE reports how many claims
+-- were skipped that way; list them with:
+--   SELECT DISTINCT f.source_id, f.visibility, f.entity_slug, f.fact
+--     FROM entity_facts f
+--    WHERE f.forgotten_at IS NULL AND f.dimension IS NULL
+--      AND EXISTS (SELECT 1 FROM entity_facts t
+--                   WHERE t.forgotten_at IS NOT NULL
+--                     AND (t.forgotten_cause IS NULL OR t.forgotten_cause = 'forget')
+--                     AND t.dimension IS NULL
+--                     AND t.source_id = f.source_id AND t.visibility = f.visibility
+--                     AND t.entity_slug = f.entity_slug
+--                     AND memex_fact_claim_key(t.fact) = memex_fact_claim_key(f.fact));
+DO $mig$
+DECLARE
+  withdrawn INT;
+  kept_live INT;
+BEGIN
+  WITH forgotten AS (
+    SELECT source_id, visibility, entity_slug,
+           memex_fact_claim_key(fact) AS claim_key, MIN(id) AS first_fact_id
+      FROM entity_facts
+     WHERE forgotten_at IS NOT NULL
+       AND (forgotten_cause IS NULL OR forgotten_cause = 'forget')
+       AND dimension IS NULL
+     GROUP BY 1, 2, 3, 4
+  ), live AS (
+    SELECT DISTINCT source_id, visibility, entity_slug,
+           memex_fact_claim_key(fact) AS claim_key
+      FROM entity_facts
+     WHERE forgotten_at IS NULL
+       AND dimension IS NULL
+       AND entity_slug IN (SELECT entity_slug FROM forgotten)
+  ), kept AS (
+    SELECT COUNT(*)::int AS n
+      FROM forgotten f JOIN live l USING (source_id, visibility, entity_slug, claim_key)
+  ), ins AS (
+    INSERT INTO fact_withdrawals (source_id, visibility, entity_slug, claim_key, first_fact_id, reason)
+    SELECT f.source_id, f.visibility, f.entity_slug, f.claim_key, f.first_fact_id, 'backfill'
+      FROM forgotten f
+     WHERE NOT EXISTS (
+       SELECT 1 FROM live l
+        WHERE l.source_id = f.source_id AND l.visibility = f.visibility
+          AND l.entity_slug = f.entity_slug AND l.claim_key = f.claim_key)
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+  )
+  SELECT (SELECT COUNT(*)::int FROM ins), (SELECT n FROM kept)
+    INTO withdrawn, kept_live;
+  IF withdrawn > 0 OR kept_live > 0 THEN
+    RAISE NOTICE '112: withdrew % forgotten claim(s); left % claim(s) with a live copy unwithdrawn',
+      withdrawn, kept_live;
+  END IF;
+END
+$mig$;

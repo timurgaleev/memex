@@ -22,6 +22,7 @@ import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
 import { resolveSlugWithAlias, setSlugAlias } from "./slug-aliases.ts";
 import { OperationError } from "./operation-error.ts";
 import { andSourceScope } from "./source-scope.ts";
+import { carryFactWithdrawals } from "./fact-withdrawals.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -1162,6 +1163,9 @@ export async function renamePage(
       `UPDATE entity_facts SET source_markdown_slug = $2 WHERE source_markdown_slug = $1`,
       [fromSlug, toSlug],
     );
+    // Forgotten claims follow the facts to the new slug (migration 112).
+    const withdrawnFacts = await carryFactWithdrawals(tx, fromSlug, toSlug, null);
+    if (withdrawnFacts > 0) moved.withdrawn_facts = withdrawnFacts;
     await move(
       "hot_memory",
       `UPDATE hot_memory SET entity_slug = $2 WHERE entity_slug = $1 RETURNING 1 AS one`,

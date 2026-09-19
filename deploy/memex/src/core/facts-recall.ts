@@ -23,6 +23,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { andSourceScope } from "./source-scope.ts";
+import { lockWithdrawals } from "./fact-withdrawals.ts";
 
 /**
  * A single fact row as returned by `recallFact`. Mirrors the projection in
@@ -125,12 +126,6 @@ export interface ForgetFactResult {
   withdrawn_duplicates: number;
 }
 
-/** Advisory-lock key serializing a source's forgets against its fact inserts
- *  (the insert trigger in migration 112 takes the same key shared). */
-function withdrawLockKey(sourceId: string): string {
-  return `memex:fact-withdraw:${sourceId}`;
-}
-
 /**
  * Tombstone a fact by id. Sets `forgotten_at = NOW()` (and `forgotten_reason`
  * when provided) on a live row; the row is retained for audit. Idempotent:
@@ -161,23 +156,11 @@ export async function forgetFact(
   // duplicate sweep take the flipped row's own source, so they can never reach
   // past what the scope already allowed.
   const flipped = await storage.engine().transaction(async (tx) => {
-    const lookParams: unknown[] = [factId];
-    const lookFilter = andSourceScope("source_id", sourceIds, lookParams);
-    const live = await tx.query<{ source_id: string }>(
-      `SELECT source_id FROM entity_facts
-        WHERE id = $1 AND forgotten_at IS NULL${lookFilter}`,
-      lookParams,
-    );
-    const row = live.rows[0];
-    if (!row) return null;
-    // Taken before the flip: an insert of this claim that already passed its
-    // ledger check holds the lock shared until it commits, so the sweep below
-    // sees it.
-    if (cause === "forget") {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        withdrawLockKey(row.source_id),
-      ]);
-    }
+    // Flip first, lock after (the lock order in fact-withdrawals.ts): the
+    // UPDATE may wait on a fence reconcile that deleted this row and is about
+    // to insert under the shared lock, so it must not hold the exclusive one.
+    const updParams: unknown[] = [factId, reason, cause];
+    const updFilter = andSourceScope("source_id", sourceIds, updParams);
     const upd = await tx.query<{
       source_id: string;
       visibility: string;
@@ -187,10 +170,10 @@ export async function forgetFact(
     }>(
       `UPDATE entity_facts
           SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
-        WHERE id = $1 AND forgotten_at IS NULL
+        WHERE id = $1 AND forgotten_at IS NULL${updFilter}
         RETURNING source_id, visibility, entity_slug, dimension,
                   memex_fact_claim_key(fact) AS claim_key`,
-      [factId, reason, cause],
+      updParams,
     );
     const hit = upd.rows[0];
     if (!hit) return null;
@@ -202,26 +185,35 @@ export async function forgetFact(
        ON CONFLICT DO NOTHING`,
       [hit.source_id, hit.visibility, hit.entity_slug, hit.claim_key, factId, reason],
     );
-    const swept = await tx.query<{ id: number }>(
-      `UPDATE entity_facts
-          SET forgotten_at = NOW(), forgotten_cause = 'forget',
-              forgotten_reason = $6
-        WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
-          AND memex_fact_claim_key(fact) = $4
-          AND id <> $5
-          AND forgotten_at IS NULL
-          AND dimension IS NULL
-        RETURNING id`,
-      [
-        hit.source_id,
-        hit.visibility,
-        hit.entity_slug,
-        hit.claim_key,
-        factId,
-        `withdrawn with fact ${factId}`,
-      ],
-    );
-    return { duplicates: swept.rows.length };
+    const sweep = async (): Promise<number> => {
+      const swept = await tx.query<{ id: number }>(
+        `UPDATE entity_facts
+            SET forgotten_at = NOW(), forgotten_cause = 'forget',
+                forgotten_reason = $6
+          WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
+            AND memex_fact_claim_key(fact) = $4
+            AND id <> $5
+            AND forgotten_at IS NULL
+            AND dimension IS NULL
+          RETURNING id`,
+        [
+          hit.source_id,
+          hit.visibility,
+          hit.entity_slug,
+          hit.claim_key,
+          factId,
+          `withdrawn with fact ${factId}`,
+        ],
+      );
+      return swept.rows.length;
+    };
+    // The committed duplicates are retired before the lock, so their row locks
+    // are never awaited while holding it. An insert of this claim that passed
+    // its trigger check holds the lock shared until it commits; once the
+    // exclusive lock is granted, the second sweep (a new statement) sees it.
+    const early = await sweep();
+    await lockWithdrawals(tx, [hit.source_id]);
+    return { duplicates: early + (await sweep()) };
   });
   if (flipped !== null) {
     return {
