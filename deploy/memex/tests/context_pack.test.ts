@@ -65,6 +65,11 @@ describe("context_pack over the two-tenant brain", () => {
     await putPage(storage, { slug: "life/diary/2026-01-01", type: "journal", title: "Diary Day", markdown_body: "d", source_id: A, allowAdHocType: true });
     await addFact(storage, { entity_slug: "life/diary/2026-01-01", fact: "AAA_DIARY_FACT", source_id: A, visibility: "world" });
     await putPage(storage, { slug: "notes/musings", type: "journal", title: "Musings", markdown_body: "m", source_id: A, allowAdHocType: true });
+    await addFact(storage, { entity_slug: "notes/musings", fact: "AAA_JOURNAL_FACT", source_id: A, visibility: "world", confidence: 0.99 });
+    // A journal page with a declared alias resolves ahead of a title match.
+    // A declared alias resolves ahead of a title match.
+    await putPage(storage, { slug: "notes/evening-log", type: "journal", title: "Evening Log", markdown_body: "e", compiled_truth: { aliases: ["Evening Log"] }, source_id: A, allowAdHocType: true });
+    await putPage(storage, { slug: "projects/koala", type: "note", title: "Koala Launch", markdown_body: "k", source_id: A });
   });
 
   afterAll(async () => {
@@ -165,8 +170,35 @@ describe("context_pack over the two-tenant brain", () => {
     const missing = await call({ slugs: ["life/diary/1999-01-01", "notes/nothing"], facts_limit: 25, token_budget: 8000 }, auth(A));
     expect(JSON.stringify(remote)).toBe(JSON.stringify(missing));
 
+    // Fenced by page type only: its world-visible facts stay out of facts[] too.
+    const brain = await call({ facts_limit: 25, token_budget: 8000 }, auth(A));
+    expect(brain.facts.some(f => f.entity_slug === "notes/musings")).toBe(false);
+    expect(JSON.stringify(brain)).not.toContain("AAA_JOURNAL_FACT");
+
     const operator = await call({ slugs: ["life/diary/2026-01-01", "notes/musings"] });
     expect(operator.cards.map(c => c.slug)).toEqual(["life/diary/2026-01-01", "notes/musings"]);
+  });
+
+  it("does not let a fenced window match take an entity slot", async () => {
+    const window = "user: Evening Log and Koala Launch";
+    // The operator sees the journal page win the only slot.
+    const operator = await call({ window, max_entities: 1, token_budget: 8000 });
+    expect(operator.cards.map(c => c.slug)).toEqual(["notes/evening-log"]);
+    const withJournal = await call({ window, max_entities: 1, token_budget: 8000 }, auth(A));
+    const without = await call({ window: "user: Nothing Here and Koala Launch", max_entities: 1, token_budget: 8000 }, auth(A));
+    expect(withJournal.cards.map(c => c.slug)).toEqual(["projects/koala"]);
+    expect(JSON.stringify(withJournal)).toBe(JSON.stringify(without));
+  });
+
+  it("fills facts_limit past fenced facts", async () => {
+    const p = await buildContextPack(storage, {
+      factsLimit: 3,
+      fenced: async slug => slug !== "projects/wombat",
+    });
+    expect(p.facts.map(f => f.entity_slug)).toEqual(["projects/wombat"]);
+    const q = await buildContextPack(storage, { factsLimit: 5, fenced: async slug => slug === "people/ghost" });
+    expect(q.facts).toHaveLength(5);
+    expect(q.facts.some(f => f.entity_slug === "people/ghost")).toBe(false);
   });
 
   it("returns top brain facts under the budget for an empty call", async () => {

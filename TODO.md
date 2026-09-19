@@ -1621,7 +1621,11 @@ migration, env knob, regex or LLM call. Still open: `context_delta` and the
 `session_context_state` table (which will feed standing entities into the
 pack), open threads (no thread model exists yet), the `_meta` hot facts
 rewrite, the writeback gate, the reflex arms, the client hook and the stretch
-items. The live check waits on the next deploy.
+items. The live check waits on the next deploy. A review fix applies one
+diary fence (slug prefix and `diary`/`journal` page type) to all three
+sections: brain facts on a fenced entity are dropped (the fact read widens so
+`facts_limit` still fills), and a fenced page named in `window` no longer
+takes an entity slot, so a token caller cannot tell it exists.
 
 ### RM-13 — Agent tool-loop runtime (Bedrock Converse)
 

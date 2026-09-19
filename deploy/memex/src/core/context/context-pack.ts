@@ -34,6 +34,8 @@ export const CONTEXT_PACK_MIN_BUDGET = 200;
 export const CONTEXT_PACK_MAX_BUDGET = 8000;
 export const CONTEXT_PACK_CARD_FACTS = 5;
 export const CONTEXT_PACK_CARD_EVENTS = 3;
+/** listFacts' own row cap; the fenced over-fetch never asks for more. */
+const FACT_FETCH_CAP = 1000;
 
 export interface PackCardFact {
   id: number;
@@ -90,7 +92,7 @@ export interface ContextPackOpts {
   decay?: boolean;
   /** Strip free-text fact/event bodies (public-ingress shape). */
   redact?: boolean;
-  /** Untrusted caller: facts about diary entities are left out of the pack. */
+  /** Untrusted caller: diary entities (slug prefix at least) are left out of the pack. */
   remote?: boolean;
   /** True when the caller must not see this entity (the diary fence). */
   fenced?: (slug: string) => Promise<boolean>;
@@ -107,6 +109,27 @@ const PACK_OVERHEAD = estTokens(JSON.stringify({ cards: [], facts: [] }));
 
 function isDiarySlug(slug: string): boolean {
   return slug.startsWith("life/diary/");
+}
+
+/**
+ * One fence predicate for every section of the pack, memoised per slug. A
+ * remote caller without an explicit `fenced` still gets the slug-prefix check.
+ */
+function fenceOf(opts: Pick<ContextPackOpts, "remote" | "fenced">): ((slug: string) => Promise<boolean>) | null {
+  if (opts.fenced) {
+    const fenced = opts.fenced;
+    const seen = new Map<string, Promise<boolean>>();
+    return (slug) => {
+      let v = seen.get(slug);
+      if (!v) {
+        v = fenced(slug);
+        seen.set(slug, v);
+      }
+      return v;
+    };
+  }
+  if (opts.remote) return async (slug) => isDiarySlug(slug);
+  return null;
 }
 
 function toDate(v: unknown): string {
@@ -146,6 +169,7 @@ async function windowEntities(
 export async function selectPackEntities(
   storage: Storage,
   opts: Pick<ContextPackOpts, "slugs" | "window" | "maxEntities" | "sourceIds">,
+  isFenced: ((slug: string) => Promise<boolean>) | null = null,
 ): Promise<string[]> {
   const max = clampInt(opts.maxEntities, CONTEXT_PACK_DEFAULT_ENTITIES, 1, CONTEXT_PACK_MAX_ENTITIES);
   const out: string[] = [];
@@ -157,7 +181,14 @@ export async function selectPackEntities(
     }
   };
   for (const s of opts.slugs ?? []) if (validSlug(s)) take(s);
-  for (const s of await windowEntities(storage, opts.window, max - out.length, opts.sourceIds)) take(s);
+  // A missing explicit slug takes a slot too, so fencing it later reveals
+  // nothing. A window name that matches nothing never resolves, though, so a
+  // fenced window match must not take a slot either.
+  for (const s of await windowEntities(storage, opts.window, max - out.length, opts.sourceIds)) {
+    if (out.length >= max) break;
+    if (isFenced && (await isFenced(s))) continue;
+    take(s);
+  }
   return out;
 }
 
@@ -165,8 +196,9 @@ async function buildCard(
   storage: Storage,
   slug: string,
   opts: ContextPackOpts,
+  isFenced: ((slug: string) => Promise<boolean>) | null,
 ): Promise<PackCard | null> {
-  if (opts.fenced && (await opts.fenced(slug))) return null;
+  if (isFenced && (await isFenced(slug))) return null;
   const r = await entityRecall(storage, slug, {
     redact_body: true,
     fact_limit: CONTEXT_PACK_CARD_FACTS,
@@ -231,32 +263,41 @@ export async function buildContextPack(
   );
   const factsLimit = clampInt(opts.factsLimit, CONTEXT_PACK_DEFAULT_FACTS, 1, CONTEXT_PACK_MAX_FACTS);
 
-  const slugs = await selectPackEntities(storage, opts);
+  const isFenced = fenceOf(opts);
+  const slugs = await selectPackEntities(storage, opts, isFenced);
   const built: PackCard[] = [];
   for (const slug of slugs) {
-    const card = await buildCard(storage, slug, opts);
+    const card = await buildCard(storage, slug, opts, isFenced);
     if (card) built.push(card);
   }
 
   const onCards = new Set<number>();
   for (const c of built) for (const f of c.facts) onCards.add(f.id);
-  // Fetch enough rows that excluding every card fact still leaves factsLimit.
-  const rows: FactRow[] = await listFacts(storage, null, {
-    limit: factsLimit + onCards.size,
-    order: "confidence",
-    ...(opts.decay !== undefined ? { decay: opts.decay } : {}),
-    ...(opts.sourceIds !== undefined ? { sourceIds: opts.sourceIds } : {}),
-    ...(opts.visibility?.length ? { visibility: opts.visibility } : {}),
-  });
-  const brainFacts: PackFact[] = rows
-    .filter((f) => !onCards.has(f.id))
-    .filter((f) => !(opts.remote && isDiarySlug(f.entity_slug)))
-    .slice(0, factsLimit)
-    .map((f) =>
-      opts.redact
-        ? { id: f.id, entity_slug: f.entity_slug, confidence: f.confidence }
-        : { id: f.id, entity_slug: f.entity_slug, fact: f.fact, confidence: f.confidence },
-    );
+  const kept: FactRow[] = [];
+  // Fetch enough rows that excluding every card fact still leaves factsLimit;
+  // fenced entities can eat more, so widen the read until it fills or runs dry.
+  for (let limit = factsLimit + onCards.size; ; limit = Math.min(FACT_FETCH_CAP, limit * 4)) {
+    const rows: FactRow[] = await listFacts(storage, null, {
+      limit,
+      order: "confidence",
+      ...(opts.decay !== undefined ? { decay: opts.decay } : {}),
+      ...(opts.sourceIds !== undefined ? { sourceIds: opts.sourceIds } : {}),
+      ...(opts.visibility?.length ? { visibility: opts.visibility } : {}),
+    });
+    kept.length = 0;
+    for (const f of rows) {
+      if (kept.length >= factsLimit) break;
+      if (onCards.has(f.id)) continue;
+      if (isFenced && (await isFenced(f.entity_slug))) continue;
+      kept.push(f);
+    }
+    if (kept.length >= factsLimit || rows.length < limit || limit >= FACT_FETCH_CAP) break;
+  }
+  const brainFacts: PackFact[] = kept.map((f) =>
+    opts.redact
+      ? { id: f.id, entity_slug: f.entity_slug, confidence: f.confidence }
+      : { id: f.id, entity_slug: f.entity_slug, fact: f.fact, confidence: f.confidence },
+  );
 
   // Charged on what the caller is allowed to see, so the dropped counts say
   // nothing about rows behind the grant or the visibility floor.

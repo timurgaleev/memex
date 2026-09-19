@@ -14,8 +14,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   your grant that are not already on a card. It fits `token_budget` (default
   1500, 200..8000), keeps cards ahead of facts and reports what it dropped.
   It stays inside the caller's grant, gives token callers world-visible
-  facts only, treats a slug you cannot see exactly like a missing one, and is
-  not available on public ingress. No LLM call.
+  facts only, treats a slug you cannot see exactly like a missing one, keeps
+  diary and journal entities out of token callers' cards, facts and window
+  matches, and is not available on public ingress. No LLM call.
 - **`memex skillpack lint [--json] [--dir PATH]`.** Checks the skill pack
   against the real surface: every `tools:` entry must be an MCP operation and
   every `memex <command> [<subcommand>]` a skill shows in code must exist.
