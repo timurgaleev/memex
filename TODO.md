@@ -2042,6 +2042,12 @@ totals and spend rollup, job deadline with a reserve and the signal threaded
 into each phase's inner loops (DB work in an aborted phase still drains),
 configurable quiet hours, `MEMEX_CYCLE_EXTRA_PHASES`, the link-extraction
 drain, the net-fact-deletion warning, and an admin consumer of schema v2.
+A follow-up closed two gaps: the quiet-hours deep-synth pass now runs in a
+BatchScope stopped by the heartbeat signal and checks the signal between
+questions, and an aborted phase gets a bounded 10 s settle wait before the run
+returns, with `orphanedPhase` in the report when it is still running. The
+signal is still not threaded into the phases' own DB loops, so an orphaned
+phase's writes can overlap the new holder.
 
 ### RM-18 — Doctor, advisor and self-healing v2
 

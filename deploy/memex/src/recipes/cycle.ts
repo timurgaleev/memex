@@ -12,6 +12,7 @@ import {
   ALL_PHASES,
   SYNTHESIS_PHASES,
   runCycleOnce,
+  runInAbortableBatchScope,
   type CycleOptions,
   type PhaseName,
 } from "../core/cycle/index.ts";
@@ -148,6 +149,18 @@ export function selectTickPhases(opts: {
   return base.filter((p) => !opts.skipPhases.has(p));
 }
 
+/**
+ * The paid deep-synth pass, bound to the cycle lock's heartbeat: a lock lost
+ * mid-pass stops its Bedrock calls at once and ends it before the next question.
+ */
+export function runDeepSynthUnderLock(
+  storage: Storage,
+  signal: AbortSignal,
+  run: typeof runDeepSynthPhase = runDeepSynthPhase,
+): ReturnType<typeof runDeepSynthPhase> {
+  return runInAbortableBatchScope(signal, () => run(storage, { signal }));
+}
+
 export function startCycleLoop(
   storage: Storage,
   options: CycleLoopOptions,
@@ -240,9 +253,9 @@ export function startCycleLoop(
         const summary = r.phases
           .map((p) => `${p.phase}=${mark(p.status)}`)
           .join(" ");
-        const stopped = r.outcome === "partial"
+        const stopped = (r.outcome === "partial"
           ? ` reason=${r.reason ?? "aborted"} phasesNotRun=${(r.phasesNotRun ?? []).join(",") || "-"}`
-          : "";
+          : "") + (r.orphanedPhase ? ` orphanedPhase=${r.orphanedPhase}` : "");
         console.log(
           `[cycle] tick status=${mark(r.status)} outcome=${r.outcome}${stopped} ${summary} duration=${
             new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
@@ -256,12 +269,13 @@ export function startCycleLoop(
         // A run that lost its lock must not start more paid work.
         if (inQuiet && r.outcome === "complete" && process.env.MEMEX_DEEP_SYNTH === "1") {
           try {
-            const ds = await runDeepSynthPhase(storage, {});
+            const ds = await runDeepSynthUnderLock(storage, heartbeat.signal);
             if (ds.ran) {
               console.log(
                 `[cycle] deep-synth: ${ds.syntheses.length}/${ds.questionsAsked} synthesized,` +
                   ` spent $${ds.spentUsd.toFixed(4)}` +
-                  (ds.budgetExhausted ? " [budget exhausted]" : ""),
+                  (ds.budgetExhausted ? " [budget exhausted]" : "") +
+                  (heartbeat.signal.aborted ? ` [stopped: ${String(heartbeat.signal.reason)}]` : ""),
               );
             }
           } catch (e) {

@@ -18,9 +18,13 @@ import {
 import {
   CYCLE_REPORT_SCHEMA_VERSION,
   runCycleOnce,
+  runInAbortableBatchScope,
   runPhase,
   skippedCycleResult,
 } from "../src/core/cycle/index.ts";
+import { runDeepSynthUnderLock } from "../src/recipes/cycle.ts";
+import type { Storage } from "../src/core/storage.ts";
+import type { DeepSynthResult } from "../src/core/synthesis/deep-synth.ts";
 import { assertBedrockOpen } from "../src/core/llm/bedrock-errors.ts";
 import { NOOP_PROGRESS } from "../src/core/output/progress.ts";
 
@@ -152,12 +156,88 @@ describe("runPhase — abort during a phase", () => {
     const c = new AbortController();
     setTimeout(() => c.abort("lock_stolen"), 10);
     const start = Date.now();
-    const r = await runPhase({} as Engine, "extract", hang, NOOP_PROGRESS, c.signal);
+    const origError = console.error;
+    console.error = () => {};
+    let r;
+    try {
+      r = await runPhase({} as Engine, "extract", hang, NOOP_PROGRESS, c.signal, 20);
+    } finally {
+      console.error = origError;
+    }
     expect(Date.now() - start).toBeLessThan(1000);
     expect(r.status).toBe("fail");
     expect(r.ok).toBe(false);
     expect(r.error).toBe("aborted: lock_stolen");
+    // It never wound down inside the settle window, so the report says so.
+    expect(r.orphaned).toBe(true);
     await sleep(60);
+    expect(probe).toBe("halted");
+  });
+
+  it("waits for an aborted phase that winds down inside the settle window", async () => {
+    let finished = false;
+    const slowToStop = () =>
+      new Promise<{ errors: string[] }>((resolve) => {
+        setTimeout(() => {
+          finished = true;
+          resolve({ errors: [] });
+        }, 50);
+      });
+    const c = new AbortController();
+    setTimeout(() => c.abort("lock_stolen"), 10);
+    const r = await runPhase({} as Engine, "extract", slowToStop, NOOP_PROGRESS, c.signal, 2000);
+    // The run did not return while the phase's own work was still in flight.
+    expect(finished).toBe(true);
+    expect(r.status).toBe("fail");
+    expect(r.error).toBe("aborted: lock_stolen");
+    expect(r.orphaned).toBeUndefined();
+  });
+});
+
+describe("deep-synth under the cycle lock", () => {
+  const blankResult = (questionsAsked: number): DeepSynthResult => ({
+    ran: true,
+    questionsAsked,
+    syntheses: [],
+    spentUsd: 0,
+    budgetExhausted: false,
+  });
+
+  it("an abort mid-pass stops further Bedrock calls and reaches the pass", async () => {
+    const c = new AbortController();
+    const probes: string[] = [];
+    let seenSignal: AbortSignal | undefined;
+    const probe = () => {
+      try {
+        assertBedrockOpen("any-model");
+        probes.push("open");
+      } catch {
+        probes.push("halted");
+      }
+    };
+    const fakeRun = async (_s: Storage, opts: { signal?: AbortSignal } = {}) => {
+      seenSignal = opts.signal;
+      probe(); // before the steal: calls go out
+      c.abort("lock_stolen");
+      await sleep(5);
+      probe(); // after: the heartbeat's abort halts them
+      return blankResult(1);
+    };
+    await runDeepSynthUnderLock({} as Storage, c.signal, fakeRun as never);
+    expect(probes).toEqual(["open", "halted"]);
+    expect(seenSignal).toBe(c.signal);
+  });
+
+  it("a scope entered after the lock was lost is already stopped", async () => {
+    let probe: string | undefined;
+    await runInAbortableBatchScope(abortedWith("lock_stolen"), async () => {
+      try {
+        assertBedrockOpen("any-model");
+        probe = "open";
+      } catch {
+        probe = "halted";
+      }
+    });
     expect(probe).toBe("halted");
   });
 });

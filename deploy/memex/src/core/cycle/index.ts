@@ -247,6 +247,9 @@ export interface PhaseResult {
     | ConversationFactsBackfillResult
     | RechunkSweepResult;
   error?: string;
+  /** The run was aborted during this phase and the phase's own work had not
+   *  wound down when the run returned: its database writes may still land. */
+  orphaned?: true;
 }
 
 /**
@@ -279,6 +282,9 @@ export interface CycleResult {
   /** Requested phases that never started, in request order. */
   phasesNotRun?: PhaseName[];
   phases: PhaseResult[];
+  /** Set when an abort left a phase still running after the report was built
+   *  (see PhaseResult.orphaned). Its paid calls are stopped; its DB work is not. */
+  orphanedPhase?: PhaseName;
   /** Back-compat: true unless a phase FAILED (warns don't flip it). A partial
    *  run is false. */
   ok: boolean;
@@ -430,8 +436,10 @@ export interface CycleOptions {
   progress?: ProgressSink;
   /**
    * Stops the run: checked before every phase, and an abort during a phase
-   * halts its paid Bedrock calls and ends the phase at once. The cycle lock
-   * heartbeat aborts it with `lock_stolen`.
+   * halts its paid Bedrock calls at once and fails the phase. The phase's own
+   * DB work cannot be cancelled; the run waits up to ABORT_SETTLE_MS for it and
+   * reports `orphanedPhase` if it is still going. The cycle lock heartbeat
+   * aborts it with `lock_stolen`.
    */
   signal?: AbortSignal;
 }
@@ -523,25 +531,75 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined, onAbort
   });
 }
 
+/**
+ * How long runPhase waits, after an abort, for the phase's own promise to wind
+ * down. Paid calls stop at once through the batch scope, but the phase's DB
+ * work (extract writes, purge deletes) does not; waiting a bounded moment lets
+ * the usual in-flight batch finish before the caller releases the lock or
+ * closes the engine, without letting a wedged phase hold the run hostage.
+ */
+export const ABORT_SETTLE_MS = 10_000;
+
+/** Resolves true once `p` settles, false if `ms` passes first. */
+function settlesWithin(p: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(resolve, ms, false);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    const done = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    p.then(done, done);
+  });
+}
+
+/**
+ * Run `fn` as batch work whose paid Bedrock calls stop once `signal` aborts.
+ * For paid work that runs under the cycle lock outside runCycleOnce (the
+ * deep-synth pass): the heartbeat's abort must reach it too.
+ */
+export async function runInAbortableBatchScope<T>(
+  signal: AbortSignal,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const scope: BatchScope = { stopped: signal.aborted, circuit: true };
+  const stop = () => {
+    scope.stopped = true;
+  };
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    return await runInBatchScope(scope, fn);
+  } finally {
+    signal.removeEventListener("abort", stop);
+  }
+}
+
 export async function runPhase<T>(
   engine: Engine,
   phase: PhaseName,
   fn: () => Promise<T>,
   progress: ProgressSink,
   signal?: AbortSignal,
+  settleMs: number = ABORT_SETTLE_MS,
 ): Promise<PhaseResult> {
   const start = Date.now();
   progress({ kind: "phase", op: "cycle", phase, ts: start });
+  // A phase that times out or is aborted keeps running (JS cannot cancel
+  // it); the scope flag stops its orphaned paid calls from spending past
+  // the cutoff.
+  const scope: BatchScope = { stopped: false, circuit: true };
+  const stop = () => {
+    scope.stopped = true;
+  };
+  let aborted = false;
+  let orphaned = false;
+  const work = withPhaseTimeout(phase, () => runInBatchScope(scope, fn));
   try {
-    // A phase that times out or is aborted keeps running (JS cannot cancel
-    // it); the scope flag stops its orphaned paid calls from spending past
-    // the cutoff.
-    const scope: BatchScope = { stopped: false, circuit: true };
-    const stop = () => {
-      scope.stopped = true;
+    const onAbort = () => {
+      aborted = true;
+      stop();
     };
-    const work = withPhaseTimeout(phase, () => runInBatchScope(scope, fn));
-    const detail = (await raceAbort(work, signal, stop).catch((e: unknown) => {
+    const detail = (await raceAbort(work, signal, onAbort).catch((e: unknown) => {
       stop();
       throw e;
     })) as PhaseResult["detail"];
@@ -572,6 +630,12 @@ export async function runPhase<T>(
     };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
+    if (aborted && !(await settlesWithin(work, settleMs))) {
+      orphaned = true;
+      console.error(
+        `[cycle] phase ${phase} still running ${settleMs}ms after abort — paid calls are stopped, its database work is not`,
+      );
+    }
     reclaimBetweenPhases();
     progress({
       kind: "log",
@@ -586,6 +650,7 @@ export async function runPhase<T>(
       status: "fail",
       durationMs: Date.now() - start,
       error,
+      ...(orphaned ? { orphaned: true as const } : {}),
     };
   }
 }
@@ -952,6 +1017,7 @@ export async function runCycleOnce(
       ? "warn"
       : "ok";
   const reason = partial ? cycleReasonOf(signal) : undefined;
+  const orphanedPhase = phases.find((p) => p.orphaned)?.phase;
   progress({
     kind: ok ? "completed" : "failed",
     op: "cycle",
@@ -966,6 +1032,7 @@ export async function runCycleOnce(
     outcome: partial ? "partial" : "complete",
     ...(reason ? { reason, phasesNotRun } : {}),
     phases,
+    ...(orphanedPhase ? { orphanedPhase } : {}),
     ok,
     status,
   };

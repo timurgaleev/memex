@@ -22,6 +22,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   further phase starts, the running phase's Bedrock calls are refused, and the
   quiet-hours deep-synthesis pass is skipped. Release is fenced the same way,
   so a run that lost its lock no longer deletes the new holder's row.
+- **A lost lock also stops a deep-synthesis pass already under way.** Its
+  Bedrock calls are refused from the moment the lock is lost and it asks no
+  further question. A phase interrupted by a lost lock gets up to 10 seconds to
+  finish its current database work before the run returns; if it is still
+  going, the report names it as `orphanedPhase` (its paid calls are stopped,
+  its database writes are not).
 
 ## [1.149.0] — 2026-09-19
 

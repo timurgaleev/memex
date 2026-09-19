@@ -176,4 +176,22 @@ describe("runDeepSynthPhase", () => {
     expect(r.syntheses).toEqual([]);
     expect(r.spentUsd).toBeGreaterThan(0);
   });
+
+  it("stops before the next question once its signal aborts", async () => {
+    const c = new AbortController();
+    let calls = 0;
+    const abortingSonnet: SonnetFn = async () => {
+      calls++;
+      c.abort("lock_stolen");
+      return { text: okResponse, modelId: "eu.anthropic.claude-sonnet-4-6", usage: { inputTokens: 100, outputTokens: 50 } };
+    };
+    const r = await runDeepSynthPhase(storage, {
+      questions: ["first?", "second?", "third?"],
+      sonnetFn: abortingSonnet,
+      pagesFn: fakePages(),
+      signal: c.signal,
+    });
+    expect(calls).toBe(1);
+    expect(r.questionsAsked).toBe(1);
+  });
 });

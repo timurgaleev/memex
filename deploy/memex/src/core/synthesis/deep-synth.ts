@@ -66,6 +66,8 @@ export interface DeepSynthOptions {
    * rather than hit Bedrock.
    */
   pagesFn?: (question: string, k: number) => Promise<SearchHit[]>;
+  /** Stops the run before the next question (the cycle lock was lost). */
+  signal?: AbortSignal;
 }
 
 export interface DeepSynthResult {
@@ -175,6 +177,7 @@ export async function runDeepSynthPhase(
   let budgetExhausted = false;
 
   for (const question of questions) {
+    if (opts.signal?.aborted) break;
     // Pre-flight: don't dispatch a paid think when the worst-case cost would
     // breach the shared cap (also stops unpriced models — wouldExceed → true).
     if (budget.wouldExceed(modelId, estimateUsage(question))) {
