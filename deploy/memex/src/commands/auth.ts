@@ -60,6 +60,7 @@ import { loadConfig } from "../core/config.ts";
 import { OAuthProvider, parseTenantMode } from "../core/oauth-provider.ts";
 import {
   DoctorUsageError,
+  formatDoctorReport,
   readCredentialFile,
   runRemoteDoctor,
   type DoctorOptions,
@@ -841,13 +842,7 @@ async function doctorCommand(rest: string[]): Promise<void> {
   if (flags["json"] === "true") {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`Checking ${result.baseUrl}...\n`);
-    const marks = { ok: "ok  ", warn: "warn", fail: "FAIL", skipped: "skip" } as const;
-    for (const c of result.checks) {
-      console.log(`  [${marks[c.status]}] ${c.name} — ${c.detail}`);
-    }
-    const secs = (result.elapsedMs / 1000).toFixed(1);
-    console.log(result.ok ? `\nRemote doctor passed in ${secs}s.` : `\nRemote doctor FAILED after ${secs}s.`);
+    console.log(formatDoctorReport(result));
   }
   if (!result.ok) process.exitCode = 1;
 }

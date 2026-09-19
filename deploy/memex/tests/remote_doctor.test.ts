@@ -13,9 +13,11 @@ import { Storage } from "../src/core/storage.ts";
 import { startServer, type ServerHandle } from "../src/http/server.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import {
+  formatDoctorReport,
   readCredentialFile,
   redactSecrets,
   runRemoteDoctor,
+  sanitizeForTerminal,
   type DoctorCredentials,
 } from "../src/commands/remote-doctor.ts";
 import { NO_SOURCE_SENTINEL } from "../src/core/auth-info.ts";
@@ -315,6 +317,24 @@ describe("runRemoteDoctor — discovery", () => {
     expect(seen.some((s) => s.body.includes(SECRET))).toBe(false);
   });
 
+  it("accepts discovery URLs that differ from the origin only in case, default port or slash", async () => {
+    const { fetchFn } = fakeServer({
+      asMeta: { ...good, issuer: "https://BRAIN.example.com:443/" },
+      prMeta: {
+        resource: "https://Brain.Example.com",
+        authorization_servers: ["https://brain.example.com:443"],
+      },
+    });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "discovery")).toBe("ok");
+  });
+
+  it("still fails an issuer that carries a path", async () => {
+    const { fetchFn } = fakeServer({ asMeta: { ...good, issuer: `${BASE}/tenant` } });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "discovery")).toBe("fail");
+  });
+
   it("fails when the protected-resource document names another server", async () => {
     const { fetchFn } = fakeServer({
       prMeta: { resource: BASE, authorization_servers: ["https://other.example.com"] },
@@ -389,6 +409,13 @@ describe("runRemoteDoctor — scope probe", () => {
     const { fetchFn } = fakeServer({ whoami: who("beta", ["alpha"]) });
     const r = await runRemoteDoctor(BASE, clientCreds, { expectSource: "alpha" }, fetchFn);
     expect(statusOf(r, "scope")).toBe("fail");
+  });
+
+  it("fails --expect-source when the grant also reads other sources, naming them", async () => {
+    const { fetchFn } = fakeServer({ whoami: who("alpha", ["alpha", "beta"]) });
+    const r = await runRemoteDoctor(BASE, clientCreds, { expectSource: "alpha" }, fetchFn);
+    expect(statusOf(r, "scope")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "scope")?.detail).toContain("extra read sources [beta]");
   });
 
   it("fails --expect-source on an operator (whole-brain) caller", async () => {
@@ -595,6 +622,36 @@ describe("runRemoteDoctor — transport", () => {
     });
     const r = await runRemoteDoctor(local, tokenCreds, {}, fetchFn);
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("formatDoctorReport", () => {
+  it("strips control characters and truncates server-controlled detail", async () => {
+    const esc = String.fromCharCode(0x1B);
+    const csi = String.fromCharCode(0x9B);
+    const hostile = `${esc}[2J${esc}]0;owned${String.fromCharCode(7)}${csi}31mx\r\nFAKE ok line`;
+    const { fetchFn } = fakeServer({
+      whoami: {
+        ok: true,
+        client_id: hostile + "y".repeat(1000),
+        scopes: ["read"],
+        write_source: null,
+        read_sources: null,
+        is_public: false,
+      },
+    });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    const out = formatDoctorReport(r);
+    for (const code of [0x1B, 0x9B, 0x07, 0x0D]) {
+      expect(out.includes(String.fromCharCode(code))).toBe(false);
+    }
+    const whoLine = out.split("\n").find((l) => l.includes("whoami"))!;
+    expect(whoLine).toContain("FAKE ok line");
+    expect(whoLine.length).toBeLessThan(400);
+  });
+
+  it("drops only control characters", () => {
+    expect(sanitizeForTerminal("a\tb\u0085c é ✓")).toBe("abc é ✓");
   });
 });
 

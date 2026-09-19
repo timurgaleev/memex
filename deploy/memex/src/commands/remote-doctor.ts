@@ -18,7 +18,7 @@ export type DoctorCredentials =
 export interface DoctorOptions {
   /** A /health stamp other than this one is drift (FAIL). */
   expectVersion?: string;
-  /** whoami must report this write source and include it in read_sources. */
+  /** whoami must report this write source and read from it alone. */
   expectSource?: string;
   /**
    * whoami must report a trusted (non-public, unredacted) caller whose reads
@@ -140,6 +140,21 @@ export function readCredentialFile(path: string): DoctorCredentials {
 
 function stripSlash(s: string): string {
   return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+/**
+ * Compare discovery URLs the way the origin was derived: through the URL
+ * parser, so case, a default port or a trailing slash is not drift. A value
+ * with a real path stays distinct from the bare origin.
+ */
+function normalizeUrl(s: string): string {
+  try {
+    const u = new URL(s);
+    if (u.pathname === "/" && u.search === "" && u.hash === "") return u.origin;
+    return stripSlash(u.href);
+  } catch {
+    return stripSlash(s);
+  }
 }
 
 function sameOrigin(url: string, origin: string): boolean {
@@ -296,9 +311,9 @@ export async function runRemoteDoctor(
     const problems: string[] = [];
     if (as.status !== 200 || as.body === null) problems.push(`authorization-server metadata HTTP ${as.status}`);
     if (pr.status !== 200 || pr.body === null) problems.push(`protected-resource metadata HTTP ${pr.status}`);
-    const issuer = typeof meta.issuer === "string" ? stripSlash(meta.issuer) : "";
+    const issuer = typeof meta.issuer === "string" ? normalizeUrl(meta.issuer) : "";
     if (problems.length === 0) {
-      if (issuer !== origin) problems.push(`issuer ${issuer || "(missing)"} is not ${origin}`);
+      if (issuer !== origin) problems.push(`issuer ${redact(issuer) || "(missing)"} is not ${origin}`);
       if (typeof meta.token_endpoint !== "string") {
         problems.push("token_endpoint missing");
       } else if (!sameOrigin(meta.token_endpoint, origin)) {
@@ -311,11 +326,11 @@ export async function runRemoteDoctor(
       authMethods = Array.isArray(meta.token_endpoint_auth_methods_supported)
         ? meta.token_endpoint_auth_methods_supported.filter((m): m is string => typeof m === "string")
         : [];
-      const resource = typeof res.resource === "string" ? stripSlash(res.resource) : "";
+      const resource = typeof res.resource === "string" ? normalizeUrl(res.resource) : "";
       const servers = Array.isArray(res.authorization_servers)
-        ? res.authorization_servers.filter((s): s is string => typeof s === "string").map(stripSlash)
+        ? res.authorization_servers.filter((s): s is string => typeof s === "string").map(normalizeUrl)
         : [];
-      if (resource !== origin) problems.push(`protected resource ${resource || "(missing)"} is not ${origin}`);
+      if (resource !== origin) problems.push(`protected resource ${redact(resource) || "(missing)"} is not ${origin}`);
       if (!servers.includes(origin)) problems.push("authorization_servers does not name the issuer");
     }
     if (problems.length > 0) {
@@ -491,9 +506,13 @@ export async function runRemoteDoctor(
     `read_sources ${reads}, is_public ${whoami.is_public ?? "(missing)"}`;
   if (opts.expectSource !== undefined) {
     const src = opts.expectSource;
+    // A tenant credential that can also read other sources is not scoped to
+    // src, however its write source looks.
+    const extra = whoami.read_sources?.filter((s) => s !== src) ?? [];
     const good = whoami.is_public === false && whoami.write_source === src &&
-      whoami.read_sources !== null && whoami.read_sources.includes(src);
-    record("scope", good ? "ok" : "fail", good ? summary : `expected source ${src}; got ${summary}`);
+      whoami.read_sources !== null && whoami.read_sources.includes(src) && extra.length === 0;
+    const why = extra.length > 0 ? `; extra read sources [${extra.join(",")}]` : "";
+    record("scope", good ? "ok" : "fail", good ? summary : `expected source ${src}${why}; got ${summary}`);
   } else if (opts.expectOperator === true) {
     const problem = evaluateOperatorScope(whoami);
     record("scope", problem === null ? "ok" : "fail",
@@ -502,4 +521,34 @@ export async function runRemoteDoctor(
     record("scope", "ok", summary);
   }
   return finish();
+}
+
+const PRINT_MAX = 300;
+
+/**
+ * Make server-controlled text safe for a terminal: drop C0/C1 control
+ * characters (escape sequences could rewrite the report or the screen) and
+ * cap the length. A char-code scan, no regex.
+ */
+export function sanitizeForTerminal(text: string, max = PRINT_MAX): string {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c < 0x20 || (c >= 0x7F && c <= 0x9F)) continue;
+    out += ch;
+    if (out.length > max) return `${out.slice(0, max)}…`;
+  }
+  return out;
+}
+
+/** The human-readable report; every detail may carry server-controlled text. */
+export function formatDoctorReport(result: DoctorResult): string {
+  const marks = { ok: "ok  ", warn: "warn", fail: "FAIL", skipped: "skip" } as const;
+  const lines = [`Checking ${sanitizeForTerminal(result.baseUrl)}...`, ""];
+  for (const c of result.checks) {
+    lines.push(`  [${marks[c.status]}] ${c.name} — ${sanitizeForTerminal(c.detail)}`);
+  }
+  const secs = (result.elapsedMs / 1000).toFixed(1);
+  lines.push("", result.ok ? `Remote doctor passed in ${secs}s.` : `Remote doctor FAILED after ${secs}s.`);
+  return lines.join("\n");
 }

@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **`memex auth doctor --expect-source` fails a grant that reads more than
+  that source** and names the extra sources. Discovery compares issuer,
+  resource and authorization servers after URL normalization, and the text
+  report strips control characters from server strings and truncates them.
 - **The GitHub connector indexes issue and pull request text as untrusted.**
   Gate-owned frontmatter markers (`quarantine`, `content_flag`, `embed_skip`)
   are stripped from mirrored items, as they are for remote writes.
