@@ -28,8 +28,11 @@ export interface SpendReport {
     /** Calls whose model has no price: their cost is missing from every total. */
     unpriced_calls: number;
     unpriced_models: string[];
-    /** Calls that failed before the provider reported usage. */
+    /** Calls that failed before the provider reported usage (nothing billed). */
     no_usage_calls: number;
+    /** Priced rows with no token counts: booked before the ledger kept tokens,
+     *  so the group token sums leave them out. */
+    tokens_unrecorded_calls: number;
   };
 }
 
@@ -66,7 +69,8 @@ export async function spendReport(engine: Engine, opts: { days?: number; now?: D
 
   const cov = await engine.query<Record<string, unknown>>(
     `SELECT count(*) FILTER (WHERE spend_cents IS NULL)::int AS unpriced_calls,
-            count(*) FILTER (WHERE input_tokens IS NULL)::int AS no_usage_calls,
+            count(*) FILTER (WHERE input_tokens IS NULL AND spend_cents = 0)::int AS no_usage_calls,
+            count(*) FILTER (WHERE input_tokens IS NULL AND spend_cents > 0)::int AS tokens_unrecorded_calls,
             COALESCE(array_agg(DISTINCT model) FILTER (WHERE spend_cents IS NULL), '{}') AS unpriced_models
        FROM mcp_spend_log
       WHERE created_at >= $1::timestamptz`,
@@ -84,6 +88,7 @@ export async function spendReport(engine: Engine, opts: { days?: number; now?: D
       unpriced_calls: Number(c.unpriced_calls ?? 0),
       unpriced_models: ((c.unpriced_models as (string | null)[] | null) ?? []).filter((m): m is string => !!m),
       no_usage_calls: Number(c.no_usage_calls ?? 0),
+      tokens_unrecorded_calls: Number(c.tokens_unrecorded_calls ?? 0),
     },
   };
 }

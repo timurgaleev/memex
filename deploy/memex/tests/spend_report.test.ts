@@ -49,9 +49,15 @@ describe("spendReport", () => {
   it("names what the totals cannot see", async () => {
     await row("think", "unpriced-model", "bob", null, 50);
     await row("think", "sonnet", "bob", 0, null);
+    await row("think", "sonnet", "bob", 40, null); // booked before tokens were kept
     const r = await spendReport(storage.engine(), { days: 1 });
-    expect(r.coverage).toEqual({ unpriced_calls: 1, unpriced_models: ["unpriced-model"], no_usage_calls: 1 });
-    expect(r.total_usd).toBe(0);
+    expect(r.coverage).toEqual({
+      unpriced_calls: 1,
+      unpriced_models: ["unpriced-model"],
+      no_usage_calls: 1,
+      tokens_unrecorded_calls: 1,
+    });
+    expect(r.total_usd).toBeCloseTo(0.4, 9);
   });
 
   it("refuses a window it cannot mean", async () => {
