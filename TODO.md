@@ -996,12 +996,18 @@ fact entity resolution, chronicle `who`, gazetteer phrases, typed frontmatter
 links and meeting-attendee timeline entries; a read-only `junk-entity-hubs`
 doctor check ranks existing junk-named entity pages by links; the gate strips
 the punctuation the slugifier drops, `isJunkEntitySlug` re-checks the resolved
-slug at every write site, and all-caps acronyms (`US`, `IT`) are not junk. Open: facts
+slug at every write site, and all-caps acronyms (`US`, `IT`) are not junk. R5
+(unreleased): every action in `ci.yml` is SHA-pinned; advisory
+`supply-chain.yml` (gitleaks over the pushed commit range with a per-commit
+fixture allowlist in `.gitleaks.toml`, actionlint) and `deps-audit.yml` (`bun
+audit` + OSV on `bun.lock` changes, weekly, manual), every job
+`continue-on-error`, scanner binaries checksum-verified;
+`tests/test_workflows.py` holds the shape. The full history scans clean with
+that allowlist. Open: facts
 derived by reconcile/consolidate inherit already-scanned text and are not
 rescanned; no scrub of rows stored before (`page_versions` history); the
 operator-only `quarantine_list` MCP op and literal directives (`# name=`,
-`# applies_to=`), merging or deleting existing junk hubs, CI
-gitleaks/OSV/actionlint.
+`# applies_to=`), merging or deleting existing junk hubs.
 
 ### RM-06 — Measurement program: public benchmark, judged answers, eval governance
 

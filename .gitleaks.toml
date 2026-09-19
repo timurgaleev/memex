@@ -1,0 +1,62 @@
+# gitleaks configuration for the CI secret scan (.github/workflows/supply-chain.yml).
+# The default rule set applies unchanged. Each allowlist below is pinned to the
+# exact commits AND file that introduced a known test fixture, so the same
+# shape anywhere else — or in any later commit — is still reported. New
+# fixtures are assembled at runtime and should never need an entry here.
+
+[extend]
+useDefault = true
+
+# Placeholder bearer constants for the public-ingress auth tests; never a
+# credential for any deployment.
+[[allowlists]]
+description = "public-bearer placeholder in token_destructive_scope tests"
+condition = "AND"
+commits = [
+  "947e7f31589a943f3db98039ebdb27fd30844362",
+  "d6dcc47734be0d4557b8000830fa4902b2655004",
+]
+paths = ['''^deploy/memex/tests/token_destructive_scope\.test\.ts$''']
+
+[[allowlists]]
+description = "public-bearer placeholder in oauth_provider_ingress tests"
+condition = "AND"
+commits = [
+  "e0691afb79eb2d02d249a3577812adb4edd6be1b",
+  "f9568d8f0f6189a2a0fd90b51183c84ce6bda878",
+]
+paths = ['''^deploy/memex/tests/oauth_provider_ingress\.test\.ts$''']
+
+[[allowlists]]
+description = "public-bearer placeholder in mcp_internal_token tests"
+condition = "AND"
+commits = ["56e199807508f85e2eeb2619eb4f2f84181be915"]
+paths = ['''^deploy/memex/tests/mcp_internal_token\.test\.ts$''']
+
+[[allowlists]]
+description = "public-bearer placeholder in internal_auth_and_redaction tests"
+condition = "AND"
+commits = ["bddc65390fd930a6d56d63cbc460f9fc2556503b"]
+paths = ['''^deploy/memex/tests/internal_auth_and_redaction\.test\.ts$''']
+
+# The widely published sample JWT, used to prove the eval-capture scrubber
+# redacts JWT shapes.
+[[allowlists]]
+description = "sample JWT in eval_capture scrubber tests"
+condition = "AND"
+commits = [
+  "0db51b703400c141bb5f8583ef36f7cd03a76901",
+  "a23b2700f4b66518f2c4e4093e5c945b85c9283d",
+]
+paths = ['''^deploy/memex/tests/eval_capture\.test\.ts$''']
+
+# A marker string that must never leak across tenants; the name says "secret",
+# the value is a nonsense word pair.
+[[allowlists]]
+description = "cross-tenant leak marker in tenant_isolation tests"
+condition = "AND"
+commits = [
+  "8902dbf0a757a78be1d6d1fcee4127fb1f13499c",
+  "b764fddd7d6406429eca209c0f81cee3a300e9e8",
+]
+paths = ['''^deploy/memex/tests/tenant_isolation\.test\.ts$''']

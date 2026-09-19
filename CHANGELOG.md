@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **CI scans for secrets, vulnerable dependencies and workflow mistakes.**
+  Each pushed commit range (or pull request) is scanned for secrets with
+  gitleaks and every workflow is linted with actionlint; `bun audit` and
+  OSV-Scanner check `deploy/memex/bun.lock` when it or `package.json`
+  changes, weekly, and on demand. Every GitHub Action is pinned to a commit
+  SHA. All of it is advisory: no new required check, and the local gates
+  (`make audit`, `make scrub-audit`, the test suites) are unchanged. The full
+  history scans clean against a narrow, per-commit fixture allowlist
+  (`.gitleaks.toml`).
+
 ## [1.146.0] — 2026-09-19
 
 ### Added

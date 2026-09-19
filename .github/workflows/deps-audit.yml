@@ -1,0 +1,66 @@
+name: Dependency audit
+
+# Advisory only: every job is continue-on-error and none is a required check.
+# Runs when the Bun lockfile or manifest changes, weekly (advisories appear
+# for packages that did not change), and on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/memex/bun.lock
+      - deploy/memex/package.json
+      - .github/workflows/deps-audit.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - deploy/memex/bun.lock
+      - deploy/memex/package.json
+      - .github/workflows/deps-audit.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bun-audit:
+    name: bun audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - name: bun audit
+        # Reads bun.lock directly; no install needed.
+        working-directory: deploy/memex
+        run: bun audit
+
+  osv:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    env:
+      OSV_VERSION: "2.6.0"
+      OSV_SHA256: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: install osv-scanner
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o osv-scanner \
+            "${GITHUB_SERVER_URL}/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: osv-scanner
+        run: osv-scanner scan --lockfile deploy/memex/bun.lock
