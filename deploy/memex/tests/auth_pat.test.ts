@@ -202,4 +202,29 @@ describe("personal access tokens (access_tokens fallback)", () => {
     const r = await mcp(token);
     expect(r.status).toBe(401);
   });
+
+  it("a PAT's daily cap refuses its paid ops over the wire", async () => {
+    const { token, hash } = mintPat();
+    await insertPat("capped-pat", hash);
+    await storage.raw().query(
+      "UPDATE access_tokens SET budget_usd_per_day = 0 WHERE name = $1",
+      ["capped-pat"],
+    );
+    const r = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "Cf-Connecting-Ip": "9.9.9.9",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "extract_facts", arguments: { text: "Ada founded Acme in 2020." } },
+      }),
+    });
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(await r.json())).toContain("budget_exhausted");
+  });
 });

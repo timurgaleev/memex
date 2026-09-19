@@ -197,7 +197,7 @@ describe("trackedInvoke", () => {
     expect(await ledger()).toHaveLength(0);
   });
 
-  it("books an unpriced model's call at $0 and says so out loud", async () => {
+  it("books an unpriced model's call at an unknown cost and says so out loud", async () => {
     // Attribution survives even when the cost can't be computed; the operator
     // gets a warning rather than a silently invented price.
     const warnings: string[] = [];
@@ -216,7 +216,8 @@ describe("trackedInvoke", () => {
     }
     const rows = await ledger();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.spend_cents).toBe(0);
+    // NULL, not 0: a 0 reads as a free call, and this one was not.
+    expect(rows[0]!.spend_cents).toBeNull();
     expect(rows[0]!.model).toBe("global.amazon.nova-2-lite-v1:0");
     expect(warnings.some((w) => /no pricing for model/.test(w))).toBe(true);
   });

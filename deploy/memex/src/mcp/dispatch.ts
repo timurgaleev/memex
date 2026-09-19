@@ -436,7 +436,11 @@ export async function dispatchTool(
   // Every paid Bedrock call inside this dispatch books against the calling
   // client, so `budget_usd_per_day` covers all of them and not only the three
   // ops whose handler happens to echo `spentUsd`.
-  const result = await runWithSpendClient(opts.authInfo?.clientId, () =>
+  const auth = opts.authInfo;
+  const spendClient = auth
+    ? { clientId: auth.clientId, ...(auth.budgetUsdPerDay !== undefined ? { capUsd: auth.budgetUsdPerDay } : {}) }
+    : null;
+  const result = await runWithSpendClient(spendClient, () =>
     dispatchToolInner(storage, req, opts),
   );
   const injectable =
@@ -3334,6 +3338,7 @@ async function withClientSpend(
   const engine = storage.engine();
   const reserved = await reserveSpend(engine, {
     clientId,
+    ...(authInfo?.budgetUsdPerDay !== undefined ? { capUsd: authInfo.budgetUsdPerDay } : {}),
     estimatedUsd: estimate,
     model: "bedrock",
     provider: "bedrock",

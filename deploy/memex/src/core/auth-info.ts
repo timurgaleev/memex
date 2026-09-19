@@ -64,6 +64,12 @@ export interface AuthInfo {
    * takes_holders grant).
    */
   takesHolders?: string[];
+  /**
+   * The principal's daily spend cap in USD, read with the token: the OAuth
+   * client's or the PAT's `budget_usd_per_day`. null = verified uncapped;
+   * undefined = not resolved, so the spend chokepoint looks it up.
+   */
+  budgetUsdPerDay?: number | null;
 }
 
 /**

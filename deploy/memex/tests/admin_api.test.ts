@@ -153,6 +153,19 @@ describe("admin-api credential management (authed)", () => {
     expect(again?.status).toBe(404);
   });
 
+  it("keeps a key's daily cap when the name is revoked and minted again", async () => {
+    // Spend is booked under the name, so a fresh row with no cap would uncap it.
+    const first = await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "capped-key" }) }));
+    expect(first?.status).toBe(200);
+    const provider = new OAuthProvider({ engine: storage.engine() });
+    expect(await provider.setClientBudget("capped-key", 1.5)).toBe(true);
+    await call("/admin/api/api-keys/revoke", authed({ method: "POST", body: JSON.stringify({ name: "capped-key" }) }));
+
+    const second = await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "capped-key" }) }));
+    const minted = (await second!.json()) as { token: string };
+    expect((await provider.verifyAccessToken(minted.token)).budgetUsdPerDay).toBe(1.5);
+  });
+
   it("registers an OAuth client with a token_ttl the exchange honors", async () => {
     const reg = await call(
       "/admin/api/register-client",

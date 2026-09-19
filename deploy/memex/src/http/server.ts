@@ -409,6 +409,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
                 ...(info.boundSlugPrefixes != null
                   ? { boundSlugPrefixes: info.boundSlugPrefixes }
                   : {}),
+                budgetUsdPerDay: info.budgetUsdPerDay,
                 isPublic: false,
               };
             } catch (e) {
@@ -563,6 +564,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
                 ...(info.boundSlugPrefixes != null
                   ? { boundSlugPrefixes: info.boundSlugPrefixes }
                   : {}),
+                budgetUsdPerDay: info.budgetUsdPerDay,
                 isPublic: guard.isPublic,
               };
             } catch (e) {

@@ -16,7 +16,7 @@
  * and extraction is strictly best-effort, so a job still in flight at exit is an
  * acceptable loss (the backfill cycle phase re-covers missed pages).
  */
-import { currentSpendClient, runWithSpendClient } from "./budget.ts";
+import { currentSpendContext, runWithSpendClient } from "./budget.ts";
 
 
 export interface FactsQueueCounters {
@@ -78,7 +78,7 @@ export class FactsQueue {
     // another job's `finally`, so without this it would inherit whatever
     // client happened to be in scope on that continuation — and one tenant's
     // extraction would be billed to the tenant whose job ran just before it.
-    const client = currentSpendClient();
+    const client = currentSpendContext();
     const bound: FactsJob = () => runWithSpendClient(client, job);
     this.pending.push({ job: bound, sessionId, ...(onError ? { onError } : {}) });
     this.counters.enqueued += 1;

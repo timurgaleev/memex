@@ -14,14 +14,18 @@
         ]
       },
       {
-        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model) VALUES ($1, $2, $3, $4, $5, $6)",
+        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         "params": [
           null,
           null,
           "embedding",
           0,
           "bedrock",
-          "amazon.titan-embed-text-v2:0"
+          "amazon.titan-embed-text-v2:0",
+          null,
+          null,
+          null,
+          null
         ]
       },
       {
@@ -114,14 +118,18 @@
         ]
       },
       {
-        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model) VALUES ($1, $2, $3, $4, $5, $6)",
+        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         "params": [
           null,
           null,
           "embedding",
           0,
           "bedrock",
-          "amazon.titan-embed-text-v2:0"
+          "amazon.titan-embed-text-v2:0",
+          null,
+          null,
+          null,
+          null
         ]
       },
       {
@@ -169,14 +177,18 @@
         ]
       },
       {
-        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model) VALUES ($1, $2, $3, $4, $5, $6)",
+        "text": "INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         "params": [
           null,
           null,
           "embedding",
           0,
           "bedrock",
-          "amazon.titan-embed-text-v2:0"
+          "amazon.titan-embed-text-v2:0",
+          null,
+          null,
+          null,
+          null
         ]
       },
       {

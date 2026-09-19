@@ -25,7 +25,7 @@
  *              never the code itself.
  *   revoke-enrollment <enrollment_id>
  *              Kill an unused code.
- *   set-budget <client_id> <usd-per-day|none>
+ *   set-budget <client_id|token_name> <usd-per-day|none>
  *              Set or clear the client's daily USD ceiling, enforced across
  *              every paid op. `none` removes the cap (the default).
  *   rescope-client <client_id> --source SRC [--federated-read a,b]
@@ -297,7 +297,7 @@ async function rescopeClient(clientId: string, rest: string[]): Promise<void> {
  * editing the database — so a cap was in practice unsettable.
  */
 async function setBudget(clientId: string, amount: string): Promise<void> {
-  const usage = "Usage: auth set-budget <client_id> <usd-per-day|none>";
+  const usage = "Usage: auth set-budget <client_id|token_name> <usd-per-day|none>";
   if (!clientId || amount === undefined) throw new Error(usage);
   let usdPerDay: number | null;
   if (amount === "none" || amount === "null" || amount === "") {
@@ -307,7 +307,7 @@ async function setBudget(clientId: string, amount: string): Promise<void> {
     if (!Number.isFinite(usdPerDay)) throw new Error(usage);
   }
   const updated = await withProvider((p) => p.setClientBudget(clientId, usdPerDay));
-  if (!updated) throw new Error(`No active client "${clientId}".`);
+  if (!updated) throw new Error(`No active client or token "${clientId}".`);
   console.log(
     JSON.stringify(
       { client_id: clientId, budget_usd_per_day: usdPerDay, updated: true },
@@ -433,8 +433,12 @@ async function createToken(name: string, rest: string[]): Promise<void> {
     // "double-encode bug class"), which breaks permissions.source_id scope
     // resolution.
     await storage.raw().query(
-      `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
-       VALUES ($1, $2, $3::text[], $4::jsonb)`,
+      // A re-minted name keeps its predecessor's daily cap: spend is booked
+      // under the name, so a new row with no cap would silently uncap it.
+      `INSERT INTO access_tokens (name, token_hash, scopes, permissions, budget_usd_per_day)
+       VALUES ($1, $2, $3::text[], $4::jsonb,
+               (SELECT p.budget_usd_per_day FROM access_tokens p
+                 WHERE p.name = $1 ORDER BY p.id DESC LIMIT 1))`,
       [name, tokenHash, ["read", "write"], { takes_holders: takesHolders }],
     );
   });

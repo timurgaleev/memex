@@ -10,8 +10,8 @@
  *     and the durable per-client reservation ledger below. A cap with NO
  *     pricing match HARD-FAILS: never spend against an unpriced model.
  *   - Attribution (`trackedInvoke`, bottom of file) — the chokepoint every
- *     paid call passes through, booking a labelled row per call. Accounting
- *     only; it never refuses a call.
+ *     paid call passes through, booking a labelled row per call and refusing
+ *     a call from a client that has spent its daily cap.
  */
 import { randomUUID } from "node:crypto";
 import { OperationError } from "./operation-error.ts";
@@ -203,7 +203,10 @@ export const SPEND_RESERVATION_TTL_MS = 120_000;
 
 const CENTS_PER_USD = 100;
 
-function usdToCents(usd: number): number {
+function usdToCents(usd: number): number;
+function usdToCents(usd: number | null): number | null;
+function usdToCents(usd: number | null): number | null {
+  if (usd === null) return null;
   if (!Number.isFinite(usd) || usd < 0) {
     throw new Error(`spend amount must be a non-negative finite USD number (got ${usd})`);
   }
@@ -220,9 +223,12 @@ export interface SpendLogInput {
   clientId?: string | null;
   tokenName?: string | null;
   operation: string;
-  costUsd: number;
+  /** Null when the model has no price: the cost is unknown, not zero. */
+  costUsd: number | null;
   provider?: string | null;
   model?: string | null;
+  /** What the provider reported; omitted when it reported nothing. */
+  usage?: ReportedUsage;
 }
 
 /** Append one completed paid call to the durable spend log. */
@@ -231,8 +237,9 @@ export async function logSpend(engine: Engine, e: SpendLogInput): Promise<void> 
     throw new Error("logSpend: operation must be a non-empty string");
   }
   await engine.query(
-    `INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO mcp_spend_log (client_id, token_name, operation, spend_cents, provider, model,
+                                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       e.clientId ?? null,
       e.tokenName ?? null,
@@ -240,6 +247,10 @@ export async function logSpend(engine: Engine, e: SpendLogInput): Promise<void> 
       usdToCents(e.costUsd),
       e.provider ?? null,
       e.model ?? null,
+      e.usage ? e.usage.inputTokens : null,
+      e.usage ? e.usage.outputTokens : null,
+      e.usage ? (e.usage.cacheReadInputTokens ?? 0) : null,
+      e.usage ? (e.usage.cacheWriteInputTokens ?? 0) : null,
     ],
   );
 }
@@ -290,13 +301,9 @@ export async function checkClientBudget(
   engine: Engine,
   clientId: string,
   now: Date = new Date(),
+  knownCapUsd?: number | null,
 ): Promise<ClientBudgetCheck> {
-  const r = await engine.query<{ budget_usd_per_day: string | number | null }>(
-    `SELECT budget_usd_per_day FROM oauth_clients WHERE client_id = $1`,
-    [clientId],
-  );
-  const raw = r.rows[0]?.budget_usd_per_day ?? null;
-  const capUsd = raw === null ? null : Number(raw);
+  const capUsd = knownCapUsd !== undefined ? knownCapUsd : await lookupClientCap(engine, clientId);
   const spentUsd = await daySpendUsd(engine, clientId, now);
   if (capUsd === null || !Number.isFinite(capUsd)) {
     return { allowed: true, capUsd: null, spentUsd, remainingUsd: null };
@@ -309,8 +316,24 @@ export async function checkClientBudget(
   };
 }
 
+/** The cap stored for a spender id: an OAuth client's, else the active
+ *  personal access token's of that name. null when neither sets one. */
+async function lookupClientCap(engine: Engine, clientId: string): Promise<number | null> {
+  const r = await engine.query<{ budget_usd_per_day: string | number | null }>(
+    `SELECT COALESCE(
+       (SELECT budget_usd_per_day FROM oauth_clients WHERE client_id = $1),
+       (SELECT MIN(budget_usd_per_day) FROM access_tokens WHERE name = $1 AND revoked_at IS NULL)
+     ) AS budget_usd_per_day`,
+    [clientId],
+  );
+  const raw = r.rows[0]?.budget_usd_per_day ?? null;
+  return raw === null ? null : Number(raw);
+}
+
 export interface ReserveSpendInput {
   clientId: string;
+  /** The cap resolved when the caller authenticated; omitted = look it up. */
+  capUsd?: number | null;
   estimatedUsd: number;
   model: string;
   provider: string;
@@ -344,7 +367,7 @@ export async function reserveSpend(
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `memex_spend:${input.clientId}`,
     ]);
-    const check = await checkClientBudget(tx, input.clientId, now);
+    const check = await checkClientBudget(tx, input.clientId, now, input.capUsd);
     if (
       check.capUsd !== null &&
       check.spentUsd + estCents / CENTS_PER_USD > check.capUsd
@@ -449,10 +472,9 @@ export async function expireStaleReservations(
 // operation label naming the feature, which is what makes "where did the $42
 // go" answerable with a GROUP BY.
 //
-// This is accounting, NOT enforcement: it never refuses a call and never
-// touches a budget ceiling. Ceilings stay exactly where they were —
-// BudgetTracker (per-call-site, in-process) and reserveSpend (per-client,
-// durable).
+// It also refuses a call from a client that has already spent its daily cap
+// (see refuseIfClientExhausted). It holds no reservation of its own, so
+// concurrent calls can still overshoot the cap by what they spend in flight.
 // ---------------------------------------------------------------------------
 
 /** memex's only paid provider. */
@@ -498,18 +520,36 @@ export function setSpendLedgerEngine(engine: Engine | null): void {
  * Empty (operator CLI, cycle, internal token) books NULL exactly as before —
  * those have no per-client cap axis.
  */
-const _spendClient = new AsyncLocalStorage<string | null>();
+const _spendClient = new AsyncLocalStorage<SpendClient | null>();
 
-/** Run `fn` with every paid call inside it booked to `clientId`. */
+/**
+ * Who a paid call is made for. `capUsd` is the daily cap resolved when the
+ * caller authenticated: a number is the cap, null means verified uncapped, and
+ * undefined means unknown, so the chokepoint looks it up per call.
+ */
+export interface SpendClient {
+  clientId: string;
+  capUsd?: number | null;
+}
+
+/** Run `fn` with every paid call inside it booked to `client`. A bare id is a
+ *  client whose cap is not known yet. */
 export function runWithSpendClient<T>(
-  clientId: string | null | undefined,
+  client: SpendClient | string | null | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return _spendClient.run(clientId ?? null, fn);
+  const ctx = typeof client === "string" ? { clientId: client } : (client ?? null);
+  return _spendClient.run(ctx && ctx.clientId ? ctx : null, fn);
 }
 
 /** The client id in scope for the current paid call, or null. */
 export function currentSpendClient(): string | null {
+  return _spendClient.getStore()?.clientId ?? null;
+}
+
+/** The whole spend context in scope, cap included — what a deferred job has to
+ *  carry so it is capped exactly like the request that queued it. */
+export function currentSpendContext(): SpendClient | null {
   return _spendClient.getStore() ?? null;
 }
 
@@ -531,16 +571,16 @@ export async function trackedInvoke<T>(
   call: TrackedCall,
   send: (meter: SpendMeter) => Promise<T>,
 ): Promise<T> {
-  let usage: SonnetUsage = { inputTokens: 0, outputTokens: 0 };
+  let usage: ReportedUsage | undefined;
   const meter: SpendMeter = {
     // A second report REPLACES the first: a retry inside `send` (the cachePoint
     // fallback) is one logical call that was billed once, at whatever the
     // attempt that actually reached the model consumed.
-    report: (u) => void (usage = chargeableUsage(u)),
+    report: (u) => void (usage = { ...u }),
   };
   const refuseStart = performance.now();
   try {
-    await refuseIfClientExhausted(call.operation);
+    await refuseIfClientExhausted(call);
   } finally {
     noteWriteTiming("ledgerMs", performance.now() - refuseStart);
   }
@@ -569,23 +609,31 @@ export async function trackedInvoke<T>(
  * itself ALLOWS the call: accounting must never break a paid path, the same
  * contract `bookSpend` keeps.
  */
-async function refuseIfClientExhausted(operation: string): Promise<void> {
-  const clientId = currentSpendClient();
+async function refuseIfClientExhausted(call: TrackedCall): Promise<void> {
+  const ctx = currentSpendContext();
   const engine = _ledgerEngine;
-  if (!clientId || !engine) return;
+  if (!ctx || !engine) return;
   let check: ClientBudgetCheck;
   try {
-    // Cheap cap lookup FIRST. `checkClientBudget` computes the whole-day
-    // rollup before it reads the cap, and on the default install every client
-    // is uncapped — paying two aggregates per embedded chunk to learn that
-    // would be a real cost for a check that can never fire.
-    const cap = await engine.query<{ budget_usd_per_day: string | number | null }>(
-      "SELECT budget_usd_per_day FROM oauth_clients WHERE client_id = $1",
-      [clientId],
-    );
-    if ((cap.rows[0]?.budget_usd_per_day ?? null) === null) return;
-    check = await checkClientBudget(engine, clientId);
-  } catch {
+    // The cap FIRST, and from the auth context when it is known: on the default
+    // install every client is uncapped, and paying a lookup plus two aggregates
+    // per embedded chunk to learn that would be a real cost for a check that
+    // can never fire.
+    const capUsd = ctx.capUsd !== undefined ? ctx.capUsd : await lookupClientCap(engine, ctx.clientId);
+    if (capUsd === null) return;
+    // A capped client cannot be charged for a call nobody can price: it would
+    // book an unknown cost and the cap would never see it.
+    if (priceFor(call.model) === null) {
+      throw new OperationError(
+        "budget_exhausted",
+        `'${call.operation}' uses model '${call.model}', which has no price, so it ` +
+          `cannot be counted against this client's daily budget`,
+        "Price the model in MODEL_PRICING/EMBEDDING_PRICING, or clear the client's budget.",
+      );
+    }
+    check = await checkClientBudget(engine, ctx.clientId, new Date(), capUsd);
+  } catch (err) {
+    if (err instanceof OperationError) throw err;
     return;
   }
   if (check.allowed) return;
@@ -596,7 +644,7 @@ async function refuseIfClientExhausted(operation: string): Promise<void> {
     "budget_exhausted",
     `daily budget exhausted for this client (spent $${check.spentUsd.toFixed(4)}` +
       (check.capUsd !== null ? ` of $${check.capUsd.toFixed(2)}` : "") +
-      `) — '${operation}' refused`,
+      `) — '${call.operation}' refused`,
     "Wait for the UTC day to roll over, or raise the client's budget_usd_per_day.",
   );
 }
@@ -606,20 +654,23 @@ async function refuseIfClientExhausted(operation: string): Promise<void> {
  * accounting must never break a paid path, the same contract search telemetry
  * already keeps.
  */
-async function bookSpend(call: TrackedCall, usage: SonnetUsage): Promise<void> {
+async function bookSpend(call: TrackedCall, usage: ReportedUsage | undefined): Promise<void> {
   const engine = _ledgerEngine;
   if (!engine) return;
-  if (priceFor(call.model) === null && !_unpricedWarned.has(call.model)) {
+  const priced = priceFor(call.model) !== null;
+  if (!priced && !_unpricedWarned.has(call.model)) {
     _unpricedWarned.add(call.model);
     console.warn(
       `[memex] spend ledger: no pricing for model '${call.model}' — its calls ` +
-        `book $0, so the ledger under-reports until MODEL_PRICING/EMBEDDING_PRICING learns it`,
+        `book an unknown (NULL) cost until MODEL_PRICING/EMBEDDING_PRICING learns it`,
     );
   }
   try {
     await logSpend(engine, {
       operation: call.operation,
-      costUsd: costUsd(call.model, usage),
+      // Nothing reported means nothing billed; an unpriced model's cost is unknown.
+      costUsd: !usage ? 0 : priced ? costUsd(call.model, chargeableUsage(usage)) : null,
+      ...(usage ? { usage } : {}),
       provider: call.provider ?? DEFAULT_SPEND_PROVIDER,
       model: call.model,
       clientId: currentSpendClient(),

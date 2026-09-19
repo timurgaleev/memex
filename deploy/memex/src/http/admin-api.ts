@@ -241,8 +241,12 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       const token = "memex_" + randomBytes(32).toString("hex");
       // JSONB params are JS objects, never pre-stringified (double-encode bug class).
       const inserted = await engine.query<{ id: number | string }>(
-        `INSERT INTO access_tokens (name, token_hash, scopes, permissions)
-         VALUES ($1, $2, $3::text[], $4::jsonb) RETURNING id`,
+        // A re-minted name keeps its predecessor's daily cap (spend is booked
+        // under the name).
+        `INSERT INTO access_tokens (name, token_hash, scopes, permissions, budget_usd_per_day)
+         VALUES ($1, $2, $3::text[], $4::jsonb,
+                 (SELECT p.budget_usd_per_day FROM access_tokens p
+                 WHERE p.name = $1 ORDER BY p.id DESC LIMIT 1)) RETURNING id`,
         [name, sha256Hex(token), ["read", "write"], { takes_holders: ["world"] }],
       );
       return Response.json({

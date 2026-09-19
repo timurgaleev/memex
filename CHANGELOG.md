@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A personal access token can be given a daily spend cap.** `auth set-budget`
+  now accepts a token name as well as an OAuth client id. A PAT spends under its
+  name, which matched no client row, so it could never be capped. The cap
+  survives revoking the token and minting a new one under the same name.
+- **The spend ledger records what Bedrock reported.** Each row now carries the
+  input, output, cache-read and cache-write token counts; they are NULL when the
+  call failed before reporting any usage.
+
+### Changed
+- **An unpriced model's call books an unknown cost (NULL), not $0.** A $0 row
+  read as a free call. A client with a daily cap is refused a call to a model
+  that has no price, since the cap could not count it; uncapped callers are
+  unaffected.
+- **An uncapped caller no longer pays a cap lookup on every paid call.** The
+  daily cap is read with the token at authentication and carried with the
+  request, so an embedded chunk from an uncapped client costs one ledger insert
+  instead of an extra query first.
+
 ## [1.142.0] — 2026-09-19
 
 ### Fixed

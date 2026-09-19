@@ -267,6 +267,8 @@ export interface AuthInfo {
    *  non-empty, the dispatch write gate confines every write op to slugs
    *  under these prefixes. Undefined/empty = unbounded. */
   boundSlugPrefixes?: string[];
+  /** The OAuth client's or PAT's `budget_usd_per_day`; null when uncapped. */
+  budgetUsdPerDay: number | null;
 }
 
 export interface TokenRevocationRequest {
@@ -280,6 +282,15 @@ export class InvalidTokenError extends Error {
     super(message);
     this.name = "InvalidTokenError";
   }
+}
+
+/** A NUMERIC budget column as dollars; null = uncapped. An unreadable value
+ *  fails the token rather than silently uncapping it. */
+function toCapUsd(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new InvalidTokenError("Corrupt budget_usd_per_day on token row");
+  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +781,8 @@ export class OAuthProvider {
   }
 
   /**
-   * Set (or clear) a client's daily USD ceiling. `null` removes the cap, which
+   * Set (or clear) the daily USD ceiling of a client, or of a personal access
+   * token when no client has that id. `null` removes the cap, which
    * is also the default — an uncapped client is allowed, exactly as before the
    * column existed. The column is NUMERIC(10,2); a value that would not fit is
    * refused here rather than silently rounded by the database.
@@ -794,7 +806,16 @@ export class OAuthProvider {
         RETURNING client_id`,
       [clientId, usdPerDay],
     );
-    return r.rows.length > 0;
+    if (r.rows.length > 0) return true;
+    // Not an OAuth client: a personal access token spends under its name.
+    const t = await this.engine.query<{ name: string }>(
+      `UPDATE access_tokens
+          SET budget_usd_per_day = $2
+        WHERE name = $1 AND revoked_at IS NULL
+        RETURNING name`,
+      [clientId, usdPerDay],
+    );
+    return t.rows.length > 0;
   }
 
   // -------------------------------------------------------------------------
@@ -1008,6 +1029,7 @@ export class OAuthProvider {
               CASE WHEN t.grant_bound THEN t.federated_read ELSE c.federated_read END AS federated_read,
               t.grant_bound,
               c.bound_slug_prefixes,
+              c.budget_usd_per_day,
               c.deleted_at AS client_deleted_at
        FROM oauth_tokens t
        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
@@ -1053,6 +1075,7 @@ export class OAuthProvider {
         sourceId: (row.source_id as string | null) ?? undefined,
         allowedSources,
         ...(boundSlugPrefixes ? { boundSlugPrefixes } : {}),
+        budgetUsdPerDay: toCapUsd(row.budget_usd_per_day),
       };
     }
 
@@ -1062,7 +1085,7 @@ export class OAuthProvider {
     let legacyRows: Record<string, unknown>[];
     try {
       legacyRows = await this.rows(
-        `SELECT name, permissions, scopes FROM access_tokens
+        `SELECT name, permissions, scopes, budget_usd_per_day FROM access_tokens
          WHERE token_hash = $1 AND revoked_at IS NULL`,
         [tokenHash],
       );
@@ -1138,6 +1161,7 @@ export class OAuthProvider {
         sourceId,
         allowedSources,
         ...(takesHolders && takesHolders.length > 0 ? { takesHolders } : {}),
+        budgetUsdPerDay: toCapUsd(row.budget_usd_per_day),
       };
     }
 
