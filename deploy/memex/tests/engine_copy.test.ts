@@ -467,7 +467,9 @@ describe("runMigrateEngine", () => {
       from: "pglite", to: "pglite", pgliteDbPath: a, toPgliteDbPath: b, verifyOnly: true,
     });
     expect(bad.ok).toBe(false);
-  });
+    // Four PGLite instances, each running every migration: past the amd64
+    // gate's 5s per-test budget on a cold runner.
+  }, 30000);
 
   it("refuses a source whose schema is behind the binary, in every mode", async () => {
     const a = join(tmp, "behind-a");
@@ -479,7 +481,7 @@ describe("runMigrateEngine", () => {
       const run = runMigrateEngine({ from: "pglite", to: "pglite", pgliteDbPath: a, toPgliteDbPath: b, ...mode });
       await expect(run).rejects.toThrow(/source schema is behind this binary .*apply-migrations/);
     }
-  });
+  }, 30000);
 
   it("refuses the same database as source and destination", () => {
     expect(() => resolveEndpoints({ from: "pglite", to: "pglite", pgliteDbPath: "/tmp/x", toPgliteDbPath: "/tmp/../tmp/x" }))

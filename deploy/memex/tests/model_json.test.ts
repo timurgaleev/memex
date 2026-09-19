@@ -46,9 +46,13 @@ describe("parseModelJson", () => {
       parseModelJson(s, "{");
       return performance.now() - t;
     };
+    // The fastest of three runs per size: a shared CI runner can stall a
+    // single measurement long enough to make a linear scan look quadratic,
+    // and the minimum is the one sample no scheduler noise inflates.
+    const fastest = (n: number) => Math.min(time(n), time(n), time(n));
     time(1000);
-    const small = Math.max(time(20_000), 0.5);
-    const big = time(80_000);
+    const small = Math.max(fastest(20_000), 1);
+    const big = fastest(80_000);
     // Linear: 4x the input costs ~4x; quadratic would be ~16x.
     expect(big / small).toBeLessThan(10);
   });
