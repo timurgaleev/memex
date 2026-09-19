@@ -142,14 +142,103 @@ export function guardSecrets(text: string, where: string): SecretScanResult {
   const scanned = scanSecrets(text, allowedFingerprints());
   if (scanned.findings.length === 0) return { text, findings: [] };
   const disposition = secretDisposition();
-  if (disposition === "reject") {
-    throw new OperationError(
+  if (disposition === "reject") throw new SecretRejectedError(where, scanned.findings);
+  return disposition === "flag" ? { text, findings: scanned.findings } : scanned;
+}
+
+/** A write refused under the reject disposition; carries what was found so the
+ *  refusal can be audited like a redaction. */
+export class SecretRejectedError extends OperationError {
+  constructor(
+    where: string,
+    public readonly findings: SecretFinding[],
+  ) {
+    super(
       "invalid_params",
-      `${where} contains what looks like a credential (${describeFindings(scanned.findings)}); the write was refused`,
+      `${where} contains what looks like a credential (${describeFindings(findings)}); the write was refused`,
       "Remove the credential, or allow its fingerprint in MEMEX_SECRET_SCAN_ALLOW if it is not one.",
     );
   }
-  return disposition === "flag" ? { text, findings: scanned.findings } : scanned;
+}
+
+/** Every string in a JSON value through `guardSecrets`, keys included. */
+export function guardSecretsDeep(value: unknown, where: string, findings: SecretFinding[]): unknown {
+  if (typeof value === "string") {
+    const r = guardSecrets(value, where);
+    findings.push(...r.findings);
+    return r.text;
+  }
+  if (Array.isArray(value)) return value.map((v) => guardSecretsDeep(v, where, findings));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[guardSecretsDeep(k, where, findings) as string] = guardSecretsDeep(v, where, findings);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Run a write's scans. A refusal is audited before it propagates, so a
+ * rejected credential leaves the same trail a redacted one does.
+ */
+export async function guardWrite<T>(
+  engine: Engine,
+  ref: string,
+  sourceId: string | null,
+  scan: () => T,
+): Promise<T> {
+  try {
+    return scan();
+  } catch (e) {
+    if (e instanceof SecretRejectedError) await auditRejection(engine, e, ref, sourceId);
+    throw e;
+  }
+}
+
+/**
+ * Guard a write's free-text fields and audit what they carried. Each string
+ * field comes back redacted (or unchanged under `flag`); a non-string passes
+ * through for the caller's own validation.
+ */
+export async function guardFields<T extends Record<string, unknown>>(
+  engine: Engine,
+  ref: string,
+  sourceId: string | null,
+  where: string,
+  fields: T,
+): Promise<T> {
+  const findings: SecretFinding[] = [];
+  const out = await guardWrite(engine, ref, sourceId, () => {
+    const guarded: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (typeof v !== "string") {
+        guarded[k] = v;
+        continue;
+      }
+      const r = guardSecrets(v, where);
+      findings.push(...r.findings);
+      guarded[k] = r.text;
+    }
+    return guarded as T;
+  });
+  await auditSecrets(engine, findings, ref, sourceId);
+  return out;
+}
+
+export async function auditRejection(
+  engine: Engine,
+  e: SecretRejectedError,
+  ref: string,
+  sourceId: string | null,
+): Promise<void> {
+  await logIngest(engine, {
+    source_type: "secret-rejected",
+    source_ref: ref,
+    summary: describeFindings(e.findings),
+    ...(sourceId ? { source_id: sourceId } : {}),
+  });
 }
 
 /** Record what a write carried, by kind and fingerprint — never the value. */

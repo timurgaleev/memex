@@ -166,3 +166,104 @@ describe("raw data", () => {
     expect(stored).toContain("[REDACTED:github-token:");
   });
 });
+
+describe("the other writes", () => {
+  const auditRows = async (type: string) =>
+    (await storage.engine().query<{ source_ref: string; summary: string }>(
+      `SELECT source_ref, summary FROM ingest_log WHERE source_type = $1`,
+      [type],
+    )).rows;
+
+  it("redacts a page title and every string in compiled_truth, keys included", async () => {
+    await putPage(storage, {
+      slug: "notes/truth",
+      title: `deploy ${GH}`,
+      markdown_body: "clean",
+      compiled_truth: { env: { key: AWS }, list: [PEM], [PAT]: "k" },
+    });
+    const stored = await storage.engine().query<{ title: string; truth: string }>(
+      `SELECT title, compiled_truth::text AS truth FROM pages WHERE slug = 'notes/truth'`,
+    );
+    const row = stored.rows[0]!;
+    for (const secret of [GH, AWS, PAT, "MIIEpAIBAAKCAQEAtest"]) expect(row.title + row.truth).not.toContain(secret);
+    const snaps = await storage.engine().query<{ t: string }>(
+      `SELECT compiled_truth_snapshot::text AS t FROM page_versions WHERE slug = 'notes/truth'`,
+    );
+    for (const s of snaps.rows) expect(s.t).not.toContain(AWS);
+    const audit = await auditRows("secret-redacted");
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.summary.split(", ")).toHaveLength(4);
+  });
+
+  it("redacts a fact and its context", async () => {
+    const { addFact } = await import("../src/core/facts.ts");
+    await addFact(storage, { entity_slug: "people/ops", fact: `uses key ${AWS}`, context: `from ${GH}` });
+    const rows = await storage.engine().query<{ fact: string; context: string | null }>(
+      `SELECT fact, context FROM entity_facts WHERE entity_slug = 'people/ops'`,
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]!.fact).toContain("[REDACTED:aws-access-key:");
+    expect(rows.rows[0]!.context).not.toContain(GH);
+    expect((await auditRows("secret-redacted"))[0]!.source_ref).toBe("fact:people/ops");
+  });
+
+  it("redacts a timeline event and its detail", async () => {
+    const { addTimelineEvent } = await import("../src/core/timeline.ts");
+    await putPage(storage, { slug: "notes/day", markdown_body: "day" });
+    await addTimelineEvent(storage, { slug: "notes/day", occurred_at: "2026-01-02T00:00:00Z", event: `rotated ${AWS}`, detail: PEM });
+    const rows = await storage.engine().query<{ event: string; detail: string }>(
+      `SELECT event, detail FROM timeline_events WHERE slug = 'notes/day'`,
+    );
+    expect(rows.rows[0]!.event).not.toContain(AWS);
+    expect(rows.rows[0]!.detail).not.toContain("MIIEpAIBAAKCAQEAtest");
+    expect((await auditRows("secret-redacted")).map((r) => r.source_ref)).toContain("timeline:notes/day");
+  });
+
+  it("redacts a hot memory fact", async () => {
+    const { recordHotFact, listHotFacts } = await import("../src/core/hot_memory.ts");
+    await recordHotFact(storage, { entity_slug: "people/ops", fact: `token ${GH}` });
+    const rows = await listHotFacts(storage, "people/ops");
+    expect(rows[0]!.fact).not.toContain(GH);
+    expect((await auditRows("secret-redacted"))[0]!.source_ref).toBe("hot:people/ops");
+  });
+
+  it("redacts a chronicle event projection", async () => {
+    const { upsertEventProjection } = await import("../src/core/chronicle.ts");
+    await putPage(storage, { slug: "notes/depth", markdown_body: "depth" });
+    await putPage(storage, { slug: "notes/event", markdown_body: "event" });
+    const r = await upsertEventProjection(storage, {
+      depthSlug: "notes/depth",
+      eventSlug: "notes/event",
+      dateISO: "2026-01-02",
+      summary: `leaked ${PAT}`,
+      detail: `and ${AWS}`,
+      sourceId: "default",
+    });
+    expect(r.projected).toBe(true);
+    const rows = await storage.engine().query<{ event: string; detail: string }>(
+      `SELECT event, detail FROM timeline_events WHERE event_slug = 'notes/event'`,
+    );
+    expect(rows.rows[0]!.event).not.toContain(PAT);
+    expect(rows.rows[0]!.detail).not.toContain(AWS);
+    expect((await auditRows("secret-redacted")).map((a) => a.source_ref)).toContain("chronicle:notes/event");
+  });
+
+  it("audits a rejected write before refusing it, on every path", async () => {
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    const { addFact } = await import("../src/core/facts.ts");
+    const { recordHotFact } = await import("../src/core/hot_memory.ts");
+    const { putRawData } = await import("../src/core/raw-data.ts");
+    await expect(putPage(storage, { slug: "notes/nope", markdown_body: "ok", title: `t ${AWS}` })).rejects.toMatchObject({ code: "invalid_params" });
+    await expect(addFact(storage, { entity_slug: "people/ops", fact: `k ${AWS}` })).rejects.toMatchObject({ code: "invalid_params" });
+    await expect(recordHotFact(storage, { entity_slug: "people/ops", fact: `k ${GH}` })).rejects.toMatchObject({ code: "invalid_params" });
+    await expect(putRawData(storage, "notes/nope", "http", { h: GH })).rejects.toMatchObject({ code: "invalid_params" });
+    const facts = await storage.engine().query(`SELECT 1 FROM entity_facts`);
+    expect(facts.rows).toHaveLength(0);
+    const audit = await auditRows("secret-rejected");
+    expect(audit.map((a) => a.source_ref).sort()).toEqual(["fact:people/ops", "hot:people/ops", "notes/nope", "notes/nope#http"]);
+    for (const a of audit) {
+      expect(a.summary).toMatch(/^(aws-access-key|github-token):[0-9a-f]{12}$/);
+      expect(a.summary).not.toContain(AWS);
+    }
+  });
+});

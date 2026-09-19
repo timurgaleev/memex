@@ -12,6 +12,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { finalizeLastSeen } from "./chronicle/last-seen.ts";
+import { guardFields } from "./secret-scan.ts";
 import type {
   ChronicleTimelineRow,
   ChronicleTimelineOpts,
@@ -234,6 +235,13 @@ export async function upsertEventProjection(
   // that index (which the ON CONFLICT target doesn't infer) and the extract job
   // retry-loops on a unique_violation.
   const occurredAt = input.occurredAt ?? `${input.dateISO}T00:00:00Z`;
+  const { summary, detail } = await guardFields(
+    storage.engine(),
+    `chronicle:${input.eventSlug}`,
+    input.sourceId,
+    `chronicle event '${input.eventSlug}'`,
+    { summary: input.summary, detail: input.detail ?? "" },
+  );
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO timeline_events
        (slug, occurred_at, event, detail, source_label, event_slug, source_id)
@@ -251,8 +259,8 @@ export async function upsertEventProjection(
       input.depthSlug,
       input.eventSlug,
       occurredAt,
-      input.summary,
-      input.detail ?? "",
+      summary,
+      detail,
       input.sourceId,
     ],
   );

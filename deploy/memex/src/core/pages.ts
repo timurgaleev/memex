@@ -12,7 +12,7 @@
  * that step (slug + content_hash + chunkable body) without pulling
  * Bedrock into this module.
  */
-import { auditSecrets, guardSecrets } from "./secret-scan.ts";
+import { auditSecrets, guardSecrets, guardSecretsDeep, guardWrite, type SecretFinding } from "./secret-scan.ts";
 import { createHash } from "node:crypto";
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
@@ -256,14 +256,28 @@ export async function putPage(
     typeof input.type === "string" && input.type.trim() !== ""
       ? normaliseType(input.type, input.allowAdHocType)
       : null;
-  // Credentials never reach the page, its versions or its search mirror.
-  const bodyScan = guardSecrets(input.markdown_body ?? "", `page '${input.slug}'`);
-  const appendScan = input.appendContent !== undefined ? guardSecrets(input.appendContent, `page '${input.slug}'`) : null;
-  const secretFindings = [...bodyScan.findings, ...(appendScan?.findings ?? [])];
-  const appendContent = appendScan ? appendScan.text : undefined;
-  let body = input.markdown_body === undefined ? "" : bodyScan.text;
-  const truth = input.compiled_truth ?? {};
-  let title = input.title ?? null;
+  // Credentials never reach the page, its title, its truth, its versions or
+  // its search mirror.
+  const where = `page '${input.slug}'`;
+  const callerSourceForAudit = typeof input.source_id === "string" && input.source_id.trim().length > 0 ? input.source_id : null;
+  const secretFindings: SecretFinding[] = [];
+  const scanned = await guardWrite(storage.engine(), input.slug, callerSourceForAudit, () => {
+    const guard = (text: string): string => {
+      const r = guardSecrets(text, where);
+      secretFindings.push(...r.findings);
+      return r.text;
+    };
+    return {
+      body: guard(input.markdown_body ?? ""),
+      append: input.appendContent !== undefined ? guard(input.appendContent) : undefined,
+      title: typeof input.title === "string" ? guard(input.title) : (input.title ?? null),
+      truth: guardSecretsDeep(input.compiled_truth ?? {}, where, secretFindings) as Record<string, unknown>,
+    };
+  });
+  const appendContent = scanned.append;
+  let body = input.markdown_body === undefined ? "" : scanned.body;
+  const truth = scanned.truth;
+  let title = scanned.title;
   const writtenBy = input.written_by ?? null;
   // An OMITTED source means "operator, unscoped" — the local CLI, the internal
   // token, the cycle. It is not the `default` tenant. Coercing it to `default`

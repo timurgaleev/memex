@@ -37,6 +37,7 @@ import {
 } from "./facts-classify.ts";
 import type { LlmFn } from "./llm/haiku.ts";
 import type { BudgetTracker } from "./budget.ts";
+import { guardFields } from "./secret-scan.ts";
 
 /**
  * Insert-time dedup / supersede knobs (migration 038 fact embedding + the
@@ -431,7 +432,6 @@ export async function addFact(
   // Lifecycle metadata (mig085): normalized-or-NULL, stamped only when set so
   // the columns' DEFAULTs apply otherwise.
   const visibility = normaliseVisibility(input.visibility);
-  const factContext = normaliseText(input.context);
   const sourceSession = normaliseText(input.source_session);
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
   // column's DEFAULT 'default' applies otherwise (never pass NULL).
@@ -440,6 +440,16 @@ export async function addFact(
       ? input.source_id
       : null;
   const effectiveSource = sourceId ?? "default";
+  // Credentials never reach the ledger — nor the dedup embed, which would send
+  // them to the embedding provider.
+  const { fact, context } = await guardFields(
+    storage.engine(),
+    `fact:${input.entity_slug}`,
+    sourceId,
+    `fact on '${input.entity_slug}'`,
+    { fact: input.fact, context: input.context },
+  );
+  const factContext = normaliseText(context);
 
   // Restatement collapse. Free, deterministic and always on, so it runs BEFORE
   // the paid embed/classify path below: the same claim, same subject, same
@@ -450,7 +460,7 @@ export async function addFact(
   const onFile = await findLiveClaim(storage.engine(), {
     entity_slug: input.entity_slug,
     source_id: effectiveSource,
-    fact: input.fact,
+    fact,
     written_by: writtenBy,
   });
   if (onFile !== null) {
@@ -474,7 +484,7 @@ export async function addFact(
   if (dedup) {
     let vec: number[] | null = null;
     try {
-      vec = await dedup.embed(input.fact);
+      vec = await dedup.embed(fact);
     } catch {
       vec = null;
     }
@@ -487,7 +497,7 @@ export async function addFact(
         effectiveSource,
         dedup.candidateLimit,
       );
-      const verdict = await classifyFact({ fact: input.fact, kind }, candidates, {
+      const verdict = await classifyFact({ fact, kind }, candidates, {
         ...(dedup.llmFn ? { llmFn: dedup.llmFn } : {}),
         ...(dedup.budget ? { budget: dedup.budget } : {}),
         ...(dedup.modelId ? { modelId: dedup.modelId } : {}),
@@ -519,7 +529,7 @@ export async function addFact(
   ];
   const params: unknown[] = [
     input.entity_slug,
-    input.fact,
+    fact,
     conf,
     sourceSlug,
     chunkId,
@@ -608,7 +618,7 @@ export async function addFact(
           SET valid_from = $4::date
         WHERE entity_slug = $1 AND fact = $2 AND source_chunk_id = $3
           AND valid_from IS DISTINCT FROM $4::date`,
-      [input.entity_slug, input.fact, chunkId, validFrom],
+      [input.entity_slug, fact, chunkId, validFrom],
     );
   }
 

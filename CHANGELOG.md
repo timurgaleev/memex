@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Credential redaction reaches every direct write.** Facts (text and
+  context), timeline events, hot memory, chronicle event projections, a
+  page's title and every string inside its `compiled_truth` (keys included)
+  now pass the same scan as page bodies, so a token pasted into `add_fact` or
+  `add_timeline_event` is stored as a `[REDACTED:kind:fingerprint]` marker and
+  audited. Under `MEMEX_SECRET_SCAN_DISPOSITION=reject` a refused write now
+  leaves a `secret-rejected` row in the ingest log (kind and fingerprint only)
+  instead of no trace.
+
 ## [1.145.0] — 2026-09-19
 
 ### Added

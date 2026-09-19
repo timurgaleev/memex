@@ -21,7 +21,7 @@
  * apply. Events always carry `untrusted_payload: true` — the input came
  * over the network from an authenticated but otherwise untrusted source.
  */
-import { auditSecrets, guardSecrets, type SecretFinding } from "../core/secret-scan.ts";
+import { auditRejection, auditSecrets, guardSecrets, SecretRejectedError, type SecretFinding } from "../core/secret-scan.ts";
 import { looksBinary } from "../core/binary-guard.ts";
 import { createHash } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
@@ -230,6 +230,15 @@ export async function handleIngestRoute(
     content = scanned.text;
     secretFindings = scanned.findings;
   } catch (e) {
+    if (e instanceof SecretRejectedError) {
+      const src = effectiveWriteSourceIdForIngress(auth, { failClosed: tenantFailClosedEnabled() });
+      void auditRejection(
+        deps.storage.engine(),
+        e,
+        `mcp-webhook:${auth.clientId}`,
+        src === NO_SOURCE_SENTINEL ? null : (src ?? null),
+      ).catch(() => {});
+    }
     return err(400, "secret_in_content", e instanceof Error ? e.message : "credential in content");
   }
   const contentHash = createHash("sha256").update(content, "utf8").digest("hex");

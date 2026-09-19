@@ -11,7 +11,7 @@
  * the markdown indexer (this file, embeds via Titan) and the code
  * indexer (`core/indexer-code.ts`, graph-only) share one txn shape.
  */
-import { auditSecrets, guardSecrets } from "./secret-scan.ts";
+import { auditSecrets, guardSecrets, guardWrite } from "./secret-scan.ts";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { isOperationError } from "./operation-error.ts";
 import { resolve } from "node:path";
@@ -260,7 +260,8 @@ async function indexDocumentBody(
   // already starts with `---` is returned untouched.
   // Credentials never reach a chunk or an embedding, whatever path the text
   // came in on (a vault file, /ingest, a capture, a page mirror).
-  const secrets = guardSecrets(input.text, input.sourcePath);
+  const secrets = await guardWrite(storage.engine(), input.sourcePath, input.sourceId ?? null, () =>
+    guardSecrets(input.text, input.sourcePath));
   if (secrets.findings.length > 0) {
     await auditSecrets(storage.engine(), secrets.findings, input.sourcePath, input.sourceId ?? null);
   }

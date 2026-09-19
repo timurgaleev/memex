@@ -13,6 +13,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { validateSlug } from "./pages.ts";
+import { guardFields } from "./secret-scan.ts";
 
 export interface AddTimelineEventInput {
   slug: string;
@@ -94,7 +95,7 @@ export async function addTimelineEvent(
   const chunkId = input.source_chunk_id ?? null;
   // mig079 columns — NOT NULL DEFAULT '' in the schema; normalize here so the
   // manual dedup key compares deterministically.
-  const detail = typeof input.detail === "string" ? input.detail : "";
+  const rawDetail = typeof input.detail === "string" ? input.detail : "";
   const sourceLabel =
     typeof input.source_label === "string" ? input.source_label.trim() : "";
   // Tenant scope (mig047): stamp source_id only when provided so the NOT NULL
@@ -121,13 +122,20 @@ export async function addTimelineEvent(
     }
   }
   const sourceCol = sourceId !== null ? ", source_id" : "";
+  const { event, detail } = await guardFields(
+    storage.engine(),
+    `timeline:${input.slug}`,
+    sourceId,
+    `timeline event on '${input.slug}'`,
+    { event: input.event, detail: rawDetail },
+  );
 
   // Manual/API events (no chunk id) dedup on the mig079 key: a retried write
   // with identical (slug, time, wording, label, tenant) is a no-op. Distinct
   // provenance (source_label) still coexists — the key was widened for exactly
   // that.
   if (chunkId === null) {
-    const params: unknown[] = [input.slug, occurred, input.event, detail, sourceLabel];
+    const params: unknown[] = [input.slug, occurred, event, detail, sourceLabel];
     if (sourceId !== null) params.push(sourceId);
     const r = await storage.engine().query<{ id: number }>(
       `INSERT INTO timeline_events
@@ -146,7 +154,7 @@ export async function addTimelineEvent(
       inserted: r.rows.length > 0,
     };
   }
-  const params: unknown[] = [input.slug, occurred, input.event, detail, sourceLabel, chunkId];
+  const params: unknown[] = [input.slug, occurred, event, detail, sourceLabel, chunkId];
   if (sourceId !== null) params.push(sourceId);
   const r = await storage.engine().query<{ id: number }>(
     `INSERT INTO timeline_events

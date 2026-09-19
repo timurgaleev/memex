@@ -20,6 +20,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { validateSlug } from "./pages.ts";
+import { guardFields } from "./secret-scan.ts";
 
 const MAX_FACT_LEN = 4000;
 const MAX_FREEFORM_LEN = 256;
@@ -86,6 +87,13 @@ export async function recordHotFact(
   if (input.fact.length > MAX_FACT_LEN) {
     throw new Error(`fact exceeds ${MAX_FACT_LEN} chars (${input.fact.length})`);
   }
+  const { fact } = await guardFields(
+    storage.engine(),
+    `hot:${input.entity_slug}`,
+    null,
+    `hot fact on '${input.entity_slug}'`,
+    { fact: input.fact },
+  );
   const conf = normaliseConfidence(input.effective_confidence);
   if (input.source_slug !== undefined) validateSlug(input.source_slug);
   const sessionId = boundFreeform(input.session_id, "session_id");
@@ -99,7 +107,7 @@ export async function recordHotFact(
      RETURNING id`,
     [
       input.entity_slug,
-      input.fact,
+      fact,
       conf,
       sessionId,
       input.source_slug ?? null,

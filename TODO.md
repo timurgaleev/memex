@@ -976,13 +976,16 @@ tenants; `capture --file` on a PNG exits non-zero; gitleaks over the full
 history reports zero findings (or an allowlisted fixture set); linearity tests
 exist for every new pattern.
 
-**Progress.** R1 (unreleased): `core/secret-scan.ts` (named prefixes + bounded
+**Progress.** R1 (1.145.0): `core/secret-scan.ts` (named prefixes + bounded
 PEM/PGP blocks, fingerprint audit rows in `ingest_log`, disposition and
 allowlist env) on putPage body/append, the indexer, raw data and `/ingest`
 before enqueue; `core/binary-guard.ts` on capture and `/ingest`; sanitizer
-closers for think's evidence blocks. Open: facts, timeline, hot_memory and
-chronicle writes are not scanned; page title and compiled_truth are not
-scanned; a `reject` leaves no audit row; no scrub of rows stored before
+closers for think's evidence blocks. R2 (unreleased): facts (text and
+context), timeline events, hot_memory, chronicle projections, page title and
+every string in compiled_truth are scanned too (`guardFields` /
+`guardSecretsDeep`); a `reject` writes a `secret-rejected` audit row before
+refusing. Open: facts derived by reconcile/consolidate/ontology inherit
+already-scanned text and are not rescanned; no scrub of rows stored before
 (`page_versions` history); quarantine observability, junk-entity gate, CI
 gitleaks/OSV/actionlint.
 
