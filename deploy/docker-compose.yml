@@ -168,6 +168,9 @@ services:
       # comma-separated 12-hex fingerprints to leave alone.
       - MEMEX_SECRET_SCAN_DISPOSITION=${MEMEX_SECRET_SCAN_DISPOSITION:-}
       - MEMEX_SECRET_SCAN_ALLOW=${MEMEX_SECRET_SCAN_ALLOW:-}
+      # Largest export `memex transcripts ingest` will read, in bytes (default
+      # 104857600). A bigger file is refused, never truncated.
+      - MEMEX_TRANSCRIPT_MAX_FILE_BYTES=${MEMEX_TRANSCRIPT_MAX_FILE_BYTES:-}
       # Content-sanity pattern names to switch off (comma-separated), e.g.
       # access_denied,operator_literal_2 — see `memex doctor` quarantined-pages.
       - MEMEX_CONTENT_SANITY_DISABLE=${MEMEX_CONTENT_SANITY_DISABLE:-}

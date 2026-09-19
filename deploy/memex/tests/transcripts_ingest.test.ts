@@ -1,0 +1,280 @@
+/**
+ * Transcript ingest end to end on PGLite: idempotent re-runs, stale-part
+ * deletion within one source, whole-session secret handling, vector coverage
+ * of a long session, and the CLI's refusals and dry run.
+ *
+ * Credential fixtures are assembled at run time so no literal credential
+ * shape sits in the repository.
+ */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Storage } from "../src/core/storage.ts";
+import { getPage, putPage } from "../src/core/pages.ts";
+import { pageSourcePath } from "../src/core/page-index.ts";
+import { fingerprintSecret } from "../src/core/secret-scan.ts";
+import { listRecentTranscripts } from "../src/core/transcripts-read.ts";
+import { ingestSessions } from "../src/core/transcripts/ingest.ts";
+import type { TranscriptSession } from "../src/core/transcripts/types.ts";
+import { runTranscripts } from "../src/commands/transcripts.ts";
+import { deterministicEmbed } from "./det-embed.ts";
+
+const embedFn = async (t: string) => deterministicEmbed(t);
+const PAT = `memex_${"cd34".repeat(16)}`;
+const T0 = Date.parse("2026-04-02T08:00:00Z");
+
+function session(id: string, n: number, filler = 1500, text?: (i: number) => string): TranscriptSession {
+  return {
+    format: "chatgpt",
+    id,
+    title: `Session ${id}`,
+    startedAt: T0,
+    messages: Array.from({ length: n }, (_, i) => ({
+      id: `${id}-m${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      speaker: i % 2 === 0 ? "User" : "ChatGPT",
+      text: text ? text(i) : `turn ${i} ${"words about retrieval ".repeat(filler / 22)}`,
+      ts: T0 + i * 1000,
+    })),
+  };
+}
+
+async function count(storage: Storage, sql: string, params: unknown[] = []): Promise<number> {
+  const r = await storage.engine().query<{ n: number }>(sql, params);
+  return Number(r.rows[0]!.n);
+}
+
+async function liveParts(storage: Storage, base: string): Promise<string[]> {
+  const r = await storage.engine().query<{ slug: string }>(
+    `SELECT slug FROM pages WHERE slug LIKE $1 AND deleted_at IS NULL ORDER BY slug`,
+    [`${base}-p%`],
+  );
+  return r.rows.map((x) => x.slug);
+}
+
+async function chunkCount(storage: Storage, slug: string, sourceId: string): Promise<number> {
+  return count(
+    storage,
+    `SELECT COUNT(*)::int AS n FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.source_path = $1`,
+    [pageSourcePath(slug, sourceId)],
+  );
+}
+
+let tmp: string;
+let storage: Storage;
+const savedDisposition = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+
+beforeEach(async () => {
+  tmp = mkdtempSync(join(tmpdir(), "memex-transcripts-"));
+  storage = new Storage({ dbPath: join(tmp, "db") });
+  await storage.init();
+  for (const id of ["alpha", "other"]) {
+    await storage.engine().query(`INSERT INTO sources (id, kind, path_prefix) VALUES ($1, 'other', $2)`, [id, `/srv/${id}`]);
+  }
+});
+afterEach(async () => {
+  if (savedDisposition === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+  else process.env.MEMEX_SECRET_SCAN_DISPOSITION = savedDisposition;
+  await storage.close();
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+describe("ingestSessions", () => {
+  it("writes conversation parts under the source, and an unchanged re-run writes nothing", async () => {
+    const s = session("abc", 60);
+    const first = await ingestSessions(storage, [s], { sourceId: "default", embedFn, ref: "t" });
+    expect(first.parts_written).toBeGreaterThan(1);
+    const parts = await liveParts(storage, "transcripts/chatgpt/abc");
+    expect(parts).toHaveLength(first.parts_written);
+    const p1 = await getPage(storage, "transcripts/chatgpt/abc-p1");
+    expect(p1).toMatchObject({ type: "conversation", source_id: "default" });
+    expect(await chunkCount(storage, "transcripts/chatgpt/abc-p1", "default")).toBeGreaterThan(0);
+
+    const versions = await count(storage, `SELECT COUNT(*)::int AS n FROM page_versions`);
+    const logs = await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log`);
+    expect(logs).toBe(1);
+    const again = await ingestSessions(storage, [s], { sourceId: "default", embedFn, ref: "t" });
+    expect(again).toMatchObject({ parts_written: 0, parts_deleted: 0, parts_unchanged: first.parts_written });
+    expect(await count(storage, `SELECT COUNT(*)::int AS n FROM page_versions`)).toBe(versions);
+    expect(await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log`)).toBe(logs);
+  });
+
+  it("soft-deletes the parts a shrunken session no longer has, only in its own source", async () => {
+    const long = session("shrink", 80);
+    const first = await ingestSessions(storage, [long], { sourceId: "default", embedFn });
+    expect(first.parts_written).toBeGreaterThanOrEqual(3);
+    // A page in another source that happens to share the prefix.
+    await putPage(storage, {
+      slug: "transcripts/chatgpt/shrink-p99",
+      type: "conversation",
+      allowAdHocType: true,
+      markdown_body: "User: someone else's page",
+      source_id: "other",
+    });
+
+    const short = { ...long, messages: long.messages.slice(0, 4) };
+    const r = await ingestSessions(storage, [short], { sourceId: "default", embedFn });
+    expect(r.parts_deleted).toBe(first.parts_written - 1);
+    expect(await liveParts(storage, "transcripts/chatgpt/shrink")).toEqual([
+      "transcripts/chatgpt/shrink-p1",
+      "transcripts/chatgpt/shrink-p99",
+    ]);
+    expect(await chunkCount(storage, "transcripts/chatgpt/shrink-p2", "default")).toBe(0);
+    expect(await chunkCount(storage, "transcripts/chatgpt/shrink-p1", "default")).toBeGreaterThan(0);
+    expect((await getPage(storage, "transcripts/chatgpt/shrink-p99"))?.deleted_at).toBeNull();
+  });
+
+  it("stores a credential redacted in every part and audits it by fingerprint", async () => {
+    const s = session("secret", 40, 1500, (i) => `turn ${i} token ${PAT} ${"padding text ".repeat(120)}`);
+    const r = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
+    expect(r.parts_written).toBeGreaterThan(1);
+    expect(r.redactions).toBe(40);
+    for (const slug of await liveParts(storage, "transcripts/chatgpt/secret")) {
+      const body = (await getPage(storage, slug))!.markdown_body;
+      expect(body).not.toContain(PAT);
+      expect(body).toContain(`[REDACTED:memex-pat:${fingerprintSecret(PAT)}]`);
+    }
+    const chunks = await storage.engine().query<{ content: string }>(`SELECT content FROM chunks`);
+    for (const c of chunks.rows) expect(c.content).not.toContain(PAT);
+    const audit = await storage.engine().query<{ summary: string; source_ref: string }>(
+      `SELECT summary, source_ref FROM ingest_log WHERE source_type = 'secret-redacted'`,
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0]!.source_ref).toBe("transcripts/chatgpt/secret");
+    expect(audit.rows[0]!.summary).toContain(fingerprintSecret(PAT));
+    expect(audit.rows[0]!.summary).not.toContain(PAT);
+  });
+
+  it("refuses the whole session under the reject disposition", async () => {
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    // The credential sits in the last message, so a per-part scan would have
+    // written the earlier parts first.
+    const s = session("refused", 60, 1500, (i) => (i === 59 ? `late ${PAT}` : `turn ${i} ${"filler ".repeat(300)}`));
+    const clean = session("fine", 2);
+    const r = await ingestSessions(storage, [s, clean], { sourceId: "default", embedFn });
+    expect(r).toMatchObject({ sessions_rejected: 1, parts_written: 1 });
+    expect(await liveParts(storage, "transcripts/chatgpt/refused")).toEqual([]);
+    expect(await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log WHERE source_type = 'secret-rejected'`)).toBe(1);
+  });
+
+  it("splits a 5 MB session into searchable parts with vector coverage", async () => {
+    const s = session("big", 2600, 2000);
+    const r = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
+    expect(r.parts_written).toBeGreaterThanOrEqual(100);
+    expect(r.mirror_failures).toBe(0);
+    const docs = await storage.engine().query<{ source_path: string; skipped: boolean; chunks: number; vectors: number }>(
+      `SELECT d.source_path,
+              (d.frontmatter ? 'embed_skip') AS skipped,
+              COUNT(c.id)::int AS chunks,
+              COUNT(e.chunk_id)::int AS vectors
+         FROM documents d
+         LEFT JOIN chunks c ON c.document_id = d.id
+         LEFT JOIN embeddings e ON e.chunk_id = c.id
+        WHERE d.source_path LIKE 'page://transcripts/chatgpt/big-p%'
+        GROUP BY d.source_path, d.frontmatter`,
+    );
+    expect(docs.rows).toHaveLength(r.parts_written);
+    for (const d of docs.rows) {
+      expect(d.skipped).toBe(false);
+      expect(d.chunks).toBeGreaterThan(0);
+      expect(d.vectors).toBe(d.chunks);
+    }
+  }, 180_000);
+
+  it("lists ingested parts in get_recent_transcripts for their source only", async () => {
+    await expect(ingestSessions(storage, [session("x", 2)], { sourceId: "nope" })).rejects.toThrow("unknown source");
+    await ingestSessions(storage, [session("listed", 2)], { sourceId: "alpha", embedFn });
+    const own = await listRecentTranscripts(storage.engine(), { sourceIds: ["alpha"] });
+    expect(own.map((t) => [t.slug, t.type])).toEqual([["transcripts/chatgpt/listed-p1", "conversation"]]);
+    expect(await listRecentTranscripts(storage.engine(), { sourceIds: [] })).toEqual([]);
+    expect(await listRecentTranscripts(storage.engine(), { sourceIds: ["beta"] })).toEqual([]);
+  });
+});
+
+describe("memex transcripts ingest", () => {
+  const cliTmp = mkdtempSync(join(tmpdir(), "memex-transcripts-cli-"));
+  const cfgPath = join(cliTmp, ".memex", "config.json");
+  const exportPath = join(cliTmp, "conversations.json");
+  let log: ReturnType<typeof spyOn>;
+
+  beforeAll(() => {
+    mkdirSync(join(cliTmp, ".memex"), { recursive: true });
+    writeFileSync(
+      cfgPath,
+      JSON.stringify({
+        database: { type: "pglite", path: join(cliTmp, ".memex", "brain.pglite") },
+        embedding: { provider: "bedrock-titan", model: "amazon.titan-embed-text-v2:0", region: "eu-west-1" },
+        storage: {},
+      }),
+    );
+    writeFileSync(
+      exportPath,
+      JSON.stringify([
+        {
+          uuid: "cli-conv",
+          name: "From the CLI",
+          created_at: "2026-04-02T08:00:00Z",
+          chat_messages: [
+            { uuid: "u1", sender: "human", text: "Remember the deploy window", created_at: "2026-04-02T08:00:01Z" },
+            { uuid: "u2", sender: "assistant", text: "Noted: Tuesdays.", created_at: "2026-04-02T08:00:02Z" },
+          ],
+        },
+      ]),
+    );
+  });
+  beforeEach(() => {
+    log = spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => log.mockRestore());
+  afterAll(() => rmSync(cliTmp, { recursive: true, force: true }));
+
+  const lastJson = () => JSON.parse(String(log.mock.calls.at(-1)![0]));
+
+  async function pagesInCliBrain(): Promise<number> {
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    const s = new Storage(cfg);
+    await s.init();
+    try {
+      return await count(s, `SELECT COUNT(*)::int AS n FROM pages`);
+    } finally {
+      await s.close();
+    }
+  }
+
+  it("refuses a binary file before parsing it", async () => {
+    const bin = join(cliTmp, "export.bin");
+    writeFileSync(bin, Buffer.from("[{\"uuid\": \"x\"}]   tail"));
+    const err = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await runTranscripts({ sub: "ingest", file: bin, configPath: cfgPath })).toBe(1);
+      expect(String(err.mock.calls[0]![0])).toContain("binary");
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("exits non-zero on format drift", async () => {
+    const odd = join(cliTmp, "odd.json");
+    writeFileSync(odd, JSON.stringify([{ something: "else" }]));
+    expect(await runTranscripts({ sub: "ingest", file: odd, json: true, configPath: cfgPath })).toBe(1);
+    expect(lastJson()).toMatchObject({ ok: false, diagnostics: { format_drift: true, sessions: 0 } });
+  });
+
+  it("previews on --dry-run without writing, then imports for real", async () => {
+    expect(await runTranscripts({ sub: "ingest", file: exportPath, dryRun: true, json: true, configPath: cfgPath })).toBe(0);
+    expect(lastJson()).toMatchObject({
+      ok: true,
+      dry_run: true,
+      diagnostics: { format: "claude-ai", format_drift: false, sessions: 1 },
+      preview: { sessions: 1, parts: 1 },
+    });
+    expect(await pagesInCliBrain()).toBe(0);
+
+    const run = () => runTranscripts({ sub: "ingest", file: exportPath, json: true, sourceId: "default", configPath: cfgPath, embedFn });
+    expect(await run()).toBe(0);
+    expect(lastJson().result).toMatchObject({ parts_written: 1, parts_deleted: 0 });
+    expect(await run()).toBe(0);
+    expect(lastJson().result).toMatchObject({ parts_written: 0, parts_unchanged: 1, parts_deleted: 0 });
+  });
+});

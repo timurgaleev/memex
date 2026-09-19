@@ -66,6 +66,7 @@ import { runSearchStats, runSearchTune } from "./commands/search-stats.ts";
 import { runSearchDiagnose } from "./commands/search-diagnose.ts";
 import { runConfig, type ConfigSub } from "./commands/config.ts";
 import { runCapture } from "./commands/capture.ts";
+import { runTranscripts } from "./commands/transcripts.ts";
 import { runQuarantine, type QuarantineSub } from "./commands/quarantine.ts";
 import {
   runEvalRunAll,
@@ -240,6 +241,8 @@ function printUsage(): void {
   console.log("  config unset --pattern <pfx> bulk-delete keys by prefix");
   console.log("  capture [<text>] [--stdin] [--file P] [--slug S] [--type T] [--source ID] [--title T]");
   console.log("                               one-command note capture → page + search mirror");
+  console.log("  transcripts ingest <export.json> [--format auto|chatgpt|claude-ai] [--source ID] [--dry-run] [--json]");
+  console.log("                               import a ChatGPT / Claude.ai export as split, redacted conversation pages");
   console.log("  quarantine list [--include-flagged] [--json]");
   console.log("  quarantine clear <slug|path> [--force]");
   console.log("  quarantine scan [--limit N] [--apply]");
@@ -1472,6 +1475,18 @@ async function main(argv: readonly string[]): Promise<number> {
       if (depth) opts.depth = depth;
       if (flags.has("--json")) opts.json = true;
       return await runCapture(opts);
+    }
+    case "transcripts": {
+      const opts: Parameters<typeof runTranscripts>[0] = { sub: positional[0] };
+      const file = positional[1];
+      if (file) opts.file = file;
+      const format = values.get("--format");
+      if (format) opts.format = format;
+      const src = values.get("--source");
+      if (src) opts.sourceId = src;
+      if (flags.has("--dry-run")) opts.dryRun = true;
+      if (flags.has("--json")) opts.json = true;
+      return await runTranscripts(opts);
     }
     case "quarantine": {
       const sub = positional[0];

@@ -15,9 +15,10 @@ import { normalizeScope } from "./source-scope.ts";
  * Page types memex treats as conversation/transcript prose — a subset of the
  * fact-extraction-eligible types, narrowed to the kinds that actually carry a
  * back-and-forth transcript (a meeting log, an email thread, a journal entry, a
- * captured note) rather than a synthesized artifact.
+ * captured note, an imported chat export) rather than a synthesized artifact.
  */
 export const TRANSCRIPT_PAGE_TYPES: readonly string[] = [
+  "conversation",
   "meeting",
   "email",
   "journal",

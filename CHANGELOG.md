@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`memex transcripts ingest <export.json>` imports ChatGPT and Claude.ai
+  exports.** Each conversation becomes `conversation` pages at
+  `transcripts/<format>/<id>-pN`, split at message boundaries into parts under
+  the embed-warn size (with one message of overlap), so long sessions are
+  vector-searchable instead of one unembedded page. ChatGPT exports follow the
+  branch you last saw, so regenerated answers you abandoned are left out.
+  Credentials are redacted across the whole session before anything is
+  written (under `reject` the session is refused whole), message text cannot
+  pose as another speaker's turn, and only real source timestamps are kept.
+  Re-running an unchanged export writes nothing; a session that shrank has its
+  extra parts deleted. `--format` overrides detection, `--source` picks the
+  owning source, `--dry-run` previews sessions, parts and bytes to embed, and
+  an export no adapter can read exits non-zero instead of importing nothing.
+  Files over `MEMEX_TRANSCRIPT_MAX_FILE_BYTES` (default 100 MiB) are refused.
+  `get_recent_transcripts` now lists `conversation` pages.
+
 ## [1.148.0] — 2026-09-19
 
 ### Added

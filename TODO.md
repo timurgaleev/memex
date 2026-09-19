@@ -1761,6 +1761,25 @@ stored redacted; a 5 MB session splits into searchable parts with vector
 coverage; the valve refuses a sweep of an unmounted root; parser fixtures are
 green with linearity growth ratios recorded.
 
+**Progress.** R1 (unreleased): `memex transcripts ingest <export.json>
+[--format auto|chatgpt|claude-ai] [--source ID] [--dry-run] [--json]` over a
+new `src/core/transcripts/` seam (ordered detection with override, per-file
+diagnostics, format drift exits non-zero, `MEMEX_TRANSCRIPT_MAX_FILE_BYTES`
+refuses rather than truncates). ChatGPT walks `current_node` up the parent
+pointers (orphan/cycle-safe, newest-leaf fallback); Claude.ai reads
+`chat_messages`. Whole-session secret scan before render, continuation lines
+indented so no message line parses as a turn, parts of <= 40 KB at message
+boundaries with one message of overlap as `transcripts/<format>/<id>-pN`
+(metadata in compiled truth, not frontmatter: a page body's frontmatter is not
+parsed by the mirror), content-hash no-op re-runs, stale parts soft-deleted in
+the same source, changed parts mirrored; `get_recent_transcripts` lists
+`conversation`. Done-when items 1-5 are covered by tests. Open: durable jobs +
+`transcripts status`, `raw_data` sidecar and `since` checkpoint, `/ingest`
+content type, Claude Code/Codex adapters, client-side capture, supervised
+source interface, parser breadth, sweep valve and failure ledger, retiring
+`scripts/import-chat-history.ts` (its timestamp-sort flattening remains), and
+the stretch items.
+
 ### RM-15 — Transcript synthesis and grounding
 
 **Why.** Once transcripts arrive, memex turns them into knowledge through one
