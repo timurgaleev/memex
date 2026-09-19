@@ -202,6 +202,7 @@ import {
   checkEmbeddingWidth,
   checkInvalidIndexes,
 } from "../core/doctor-ops.ts";
+import { checkConnectorHealth } from "../core/connectors/health.ts";
 import {
   checkClientBudget,
   runWithSpendClient,
@@ -3831,6 +3832,7 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     ["schema-version", checkSchemaVersion],
     ["embedding-width", checkEmbeddingWidth],
     ["invalid-indexes", checkInvalidIndexes],
+    ["connector-health", checkConnectorHealth],
   ] as const) {
     try {
       const r = await probe(engine);

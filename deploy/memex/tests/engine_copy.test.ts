@@ -342,6 +342,25 @@ describe("source fidelity", () => {
     }
   });
 
+  it("fails a dry run on a table the destination lacks, but not on a count difference", async () => {
+    const s = await open("dry-src");
+    const d = await open("dry-dst");
+    try {
+      await putPage(s, { slug: "notes/d", type: "note", markdown_body: "d" });
+      const lagging = await copyEngine(s.engine(), d.engine(), { tables: ["pages"], dryRun: true });
+      expect(lagging.ok).toBe(true);
+      expect(lagging.tables[0]!.match).toBe(false);
+
+      await d.engine().query("ALTER TABLE tags RENAME TO tags_hidden");
+      const missing = await copyEngine(s.engine(), d.engine(), { tables: ["tags"], dryRun: true });
+      expect(missing.ok).toBe(false);
+      expect(missing.missing).toEqual([{ name: "tags", side: "destination" }]);
+    } finally {
+      await s.close();
+      await d.close();
+    }
+  });
+
   it("fails on a source column the destination lacks unless dropping is allowed", async () => {
     const s = await open("drop-src");
     const d = await open("drop-dst");
@@ -363,6 +382,10 @@ describe("source fidelity", () => {
         allowDroppedColumns: true,
       });
       expect(lax.ok).toBe(true);
+
+      const preview = await copyEngine(s.engine(), d.engine(), { tables: ["tags"], dryRun: true });
+      expect(preview.ok).toBe(false);
+      expect(preview.failures).toEqual(strict.failures);
     } finally {
       await s.close();
       await d.close();
@@ -389,6 +412,18 @@ describe("runMigrateEngine", () => {
       from: "pglite", to: "pglite", pgliteDbPath: a, toPgliteDbPath: b, verifyOnly: true,
     });
     expect(bad.ok).toBe(false);
+  });
+
+  it("refuses a source whose schema is behind the binary, in every mode", async () => {
+    const a = join(tmp, "behind-a");
+    const b = join(tmp, "behind-b");
+    const sa = await open("behind-a");
+    await sa.engine().query("DELETE FROM migrations WHERE id = (SELECT MAX(id) FROM migrations)");
+    await sa.close();
+    for (const mode of [{}, { dryRun: true }, { verifyOnly: true }]) {
+      const run = runMigrateEngine({ from: "pglite", to: "pglite", pgliteDbPath: a, toPgliteDbPath: b, ...mode });
+      await expect(run).rejects.toThrow(/source schema is behind this binary .*apply-migrations/);
+    }
   });
 
   it("refuses the same database as source and destination", () => {

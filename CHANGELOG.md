@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The GitHub connector indexes issue and pull request text as untrusted.**
+  Gate-owned frontmatter markers (`quarantine`, `content_flag`, `embed_skip`)
+  are stripped from mirrored items, as they are for remote writes.
+- **MCP `run_doctor` runs the `connector-health` probe** the CLI doctor already
+  ran, so an agent sees a connector that needs re-auth or has stalled.
+- **`migrate-engine --dry-run` reports `ok:false` when the real run would
+  fail** on a missing table or a dropped source column. Count differences stay
+  informational, since a dry run precedes the copy.
+- **`migrate-engine` refuses a source whose schema is behind the binary** in
+  every mode, and tells the operator to run `memex apply-migrations` against
+  the source first.
 - **Code-tool readiness now counts the graph each tool actually reads.**
   `code_blast`/`code_flow` count `code_edges_symbol` rows instead of `code-def`
   mentions, so a brain whose edges exist but whose mentions do not no longer

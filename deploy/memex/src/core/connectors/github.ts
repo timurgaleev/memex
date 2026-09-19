@@ -301,10 +301,12 @@ async function writeItem(
   changed.push(rendered);
   // Under `flag` the credential is still in the text and putPage audited it.
   if (secretDisposition() !== "flag") await auditSecrets(storage.engine(), rendered.findings, rendered.slug, sourceId);
+  // Issue and PR text is written by whoever can open one, so it is indexed as
+  // untrusted: gate-owned frontmatter markers are stripped, never honoured.
   const ok = await mirrorPage(
     storage,
     { slug: rendered.slug, title: rendered.title, markdown_body: rendered.body, content_hash: put.content_hash, source_id: sourceId },
-    { remote: false, timingLabel: "connector_github", ...(opts.embedFn ? { embedFn: opts.embedFn } : {}) },
+    { remote: true, timingLabel: "connector_github", ...(opts.embedFn ? { embedFn: opts.embedFn } : {}) },
   );
   if (!ok) result.mirror_failures++;
 }

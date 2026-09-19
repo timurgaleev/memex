@@ -51,6 +51,12 @@ describe("MCP run_doctor", () => {
     }
   });
 
+  it("runs the connector-health probe the CLI doctor runs", async () => {
+    const payload = await runDoctorTool();
+    const c = payload.checks.find((x) => x.name === "connector-health");
+    expect(c).toMatchObject({ ok: true, status: "ok", detail: "no connector has run" });
+  });
+
   it("reports an unreadable ops probe as a warn, not as a pass", async () => {
     await storage.engine().query("ALTER TABLE cycle_locks RENAME TO cycle_locks_hidden");
     const payload = await runDoctorTool();

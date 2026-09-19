@@ -19,11 +19,16 @@
  *
  * `--dry-run` reads catalogs and counts and writes nothing. `--verify-only`
  * runs step 3 alone against two existing databases.
+ *
+ * Every mode refuses a source whose schema is behind this binary: the
+ * destination is migrated to the current schema, so an older source would copy
+ * into columns and tables it never had, and a rollback rehearsal would pass on
+ * data no current brain holds.
  */
 import { resolve } from "node:path";
 import { PGliteEngine } from "../core/engine/pglite.ts";
 import { PostgresEngine } from "../core/engine/postgres.ts";
-import { runMigrations } from "../core/migrate.ts";
+import { discoverMigrations, runMigrations } from "../core/migrate.ts";
 import { copyEngine, type CopySummary } from "../core/engine-copy.ts";
 import type { Engine } from "../core/engine/interface.ts";
 
@@ -83,6 +88,26 @@ export function resolveEndpoints(
   return { src, dst };
 }
 
+/** Throw when the source has not applied every migration this binary ships. */
+export async function assertSourceSchemaCurrent(src: Engine): Promise<void> {
+  const fix = "run `memex apply-migrations` against the source first, then retry";
+  let applied: Set<number>;
+  try {
+    const r = await src.query<{ id: number }>("SELECT id::int AS id FROM migrations");
+    applied = new Set(r.rows.map((row) => Number(row.id)));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`migrate-engine: cannot read the source schema version (${msg}); ${fix}`);
+  }
+  const pending = discoverMigrations().map((m) => m.id).filter((id) => !applied.has(id));
+  if (pending.length > 0) {
+    throw new Error(
+      `migrate-engine: source schema is behind this binary (${pending.length} migration(s) unapplied, ` +
+        `first ${Math.min(...pending)}); ${fix}`,
+    );
+  }
+}
+
 function openEngine(ep: Endpoint): Engine {
   return ep.kind === "pglite"
     ? new PGliteEngine({ dbPath: ep.path })
@@ -98,6 +123,7 @@ export async function runMigrateEngine(opts: MigrateEngineOptions): Promise<Copy
     const mode = opts.dryRun ? "dry-run" : opts.verifyOnly ? "verify-only" : "copy";
     console.error(`[migrate-engine] from=${opts.from} to=${opts.to} mode=${mode}`);
     await src.ready();
+    await assertSourceSchemaCurrent(src);
     await dst.ready();
 
     if (!opts.dryRun && !opts.verifyOnly) {

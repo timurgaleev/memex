@@ -577,7 +577,10 @@ async function copyFromSnapshot(
       log(`  ${t.name}: src=${s} dst=${d} (dry-run, no write)`);
       tables.push({ name: t.name, src: s, dst: d, srcHash: "", dstHash: "", match: s === d });
     }
-    return { ok: true, dryRun: true, tables, missing: plan.missing, failures };
+    // Count differences are not failures here: a dry run precedes the copy,
+    // so the destination is expected to lag. A missing table or a column the
+    // copy would drop fails the real run, so it fails the preview too.
+    return { ok: failures.length === 0, dryRun: true, tables, missing: plan.missing, failures };
   }
 
   const copied = new Map<string, number>();

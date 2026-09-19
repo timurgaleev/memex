@@ -12,6 +12,7 @@ import { Storage } from "../src/core/storage.ts";
 import { getPage } from "../src/core/pages.ts";
 import { registerSource } from "../src/core/sources.ts";
 import * as pages from "../src/core/pages.ts";
+import * as pageIndex from "../src/core/page-index.ts";
 import { OperationError } from "../src/core/operation-error.ts";
 import { SecretRejectedError } from "../src/core/secret-scan.ts";
 import {
@@ -147,6 +148,17 @@ describe("a fixture repository", () => {
     expect(result.counts).toMatchObject({ items: 3, pages_written: 0, pages_unchanged: 3 });
     expect(await count(`SELECT COUNT(*)::int AS n FROM page_versions`)).toBe(versions);
     expect(await count(`SELECT COUNT(*)::int AS n FROM ingest_log`)).toBe(audits);
+  });
+
+  it("indexes issue and pull request text as untrusted", async () => {
+    const mirror = spyOn(pageIndex, "mirrorPage");
+    try {
+      await sync(FULL_REPO());
+      expect(mirror).toHaveBeenCalledTimes(3);
+      for (const call of mirror.mock.calls) expect(call[2].remote).toBe(true);
+    } finally {
+      mirror.mockRestore();
+    }
   });
 
   it("refuses a source that is not a github source, before any request", async () => {
