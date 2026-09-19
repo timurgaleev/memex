@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Transcript ingest keeps distinct conversations apart and audits what
+  lands.** A vendor id that slug normalization changes (case, punctuation,
+  length) now carries a hash of the raw id, so two ids that normalize alike no
+  longer share parts; ids that are already slug-safe, such as the lowercase
+  UUIDs both exports use, keep their slugs. A session whose later part fails
+  still writes its redaction audit row for the parts that landed. A split
+  piece of a long message no longer opens on a blank line that the parser
+  could not read as a turn. Parts are now at most 11,000 bytes, inside the
+  12,000-character window fact extraction reads, so no part's tail goes
+  unextracted; the next import rewrites existing parts once at the new size.
+  The part lookups use the slug index under any collation.
 - **Search never caches a degraded ranking.** A `keyword_zero` run used to be
   stored and later replayed as a hit reporting `degraded: []`; only clean
   rankings are cached now. `meta.cache` reports `error` (not `miss`) when the

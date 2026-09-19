@@ -92,11 +92,10 @@ export interface IngestTranscriptsResult {
 /** Part slugs this session would write that another source already owns. */
 async function foreignParts(storage: Storage, prepared: PreparedSession, sourceId: string): Promise<string[]> {
   const r = await storage.engine().query<{ slug: string }>(
-    `SELECT slug FROM pages WHERE slug LIKE $1 AND source_id <> $2`,
-    [`${prepared.base}-p%`, sourceId],
+    `SELECT slug FROM pages WHERE slug = ANY($1::text[]) AND source_id <> $2`,
+    [prepared.parts.map((p) => p.slug), sourceId],
   );
-  const mine = new Set(prepared.parts.map((p) => p.slug));
-  return r.rows.map((row) => row.slug).filter((slug) => mine.has(slug)).sort();
+  return r.rows.map((row) => row.slug).sort();
 }
 
 /**
@@ -120,10 +119,13 @@ async function auditRejectionOnce(
 
 async function staleParts(storage: Storage, base: string, sourceId: string, keep: number): Promise<string[]> {
   const prefix = `${base}-p`;
+  // A parameterized LIKE cannot use the slug index under a non-C collation;
+  // the range bounds the index scan (a slug-safe prefix ends in `-p`, so `-q`
+  // is its successor) and the LIKE keeps the match exact.
   const r = await storage.engine().query<{ slug: string }>(
     `SELECT slug FROM pages
-      WHERE slug LIKE $1 AND source_id = $2 AND deleted_at IS NULL`,
-    [`${prefix}%`, sourceId],
+      WHERE slug >= $1 AND slug < $2 AND slug LIKE $3 AND source_id = $4 AND deleted_at IS NULL`,
+    [prefix, `${base}-q`, `${prefix}%`, sourceId],
   );
   return r.rows
     .map((row) => row.slug)
@@ -143,52 +145,56 @@ async function writeSession(
   touched: string[],
 ): Promise<void> {
   let sessionChanged = false;
-  for (const part of prepared.parts) {
-    const put = await putPage(storage, {
-      slug: part.slug,
-      type: TRANSCRIPT_PAGE_TYPE,
-      allowAdHocType: true,
-      title: part.title,
-      markdown_body: part.body,
-      compiled_truth: part.truth,
-      written_by: WRITTEN_BY,
-      source_id: sourceId,
-    });
-    if (!put.changed && !put.created) {
-      result.parts_unchanged++;
-      continue;
-    }
-    sessionChanged = true;
-    result.parts_written++;
-    touched.push(part.slug);
-    const ok = await mirrorPage(
-      storage,
-      {
+  try {
+    for (const part of prepared.parts) {
+      const put = await putPage(storage, {
         slug: part.slug,
+        type: TRANSCRIPT_PAGE_TYPE,
+        allowAdHocType: true,
         title: part.title,
         markdown_body: part.body,
-        content_hash: put.content_hash,
+        compiled_truth: part.truth,
+        written_by: WRITTEN_BY,
         source_id: sourceId,
-      },
-      { remote: false, timingLabel: "transcripts_ingest", ...(opts.embedFn ? { embedFn: opts.embedFn } : {}) },
-    );
-    if (!ok) result.mirror_failures++;
-  }
+      });
+      if (!put.changed && !put.created) {
+        result.parts_unchanged++;
+        continue;
+      }
+      sessionChanged = true;
+      result.parts_written++;
+      touched.push(part.slug);
+      const ok = await mirrorPage(
+        storage,
+        {
+          slug: part.slug,
+          title: part.title,
+          markdown_body: part.body,
+          content_hash: put.content_hash,
+          source_id: sourceId,
+        },
+        { remote: false, timingLabel: "transcripts_ingest", ...(opts.embedFn ? { embedFn: opts.embedFn } : {}) },
+      );
+      if (!ok) result.mirror_failures++;
+    }
 
-  for (const slug of await staleParts(storage, prepared.base, sourceId, prepared.parts.length)) {
-    const del = await deletePage(storage, slug, WRITTEN_BY, sourceId);
-    if (del.already_deleted) continue;
-    await removePageFromSearch(storage, slug, sourceId);
-    sessionChanged = true;
-    result.parts_deleted++;
-    touched.push(slug);
-  }
-
-  // Audited only when the session was written, so an unchanged re-run leaves
-  // no new rows. Under `flag` the credential is still in each part's text and
-  // putPage audits every part it writes; a session row would repeat that.
-  if (sessionChanged && secretDisposition() !== "flag") {
-    await auditSecrets(storage.engine(), prepared.findings, prepared.base, sourceId);
+    for (const slug of await staleParts(storage, prepared.base, sourceId, prepared.parts.length)) {
+      const del = await deletePage(storage, slug, WRITTEN_BY, sourceId);
+      if (del.already_deleted) continue;
+      await removePageFromSearch(storage, slug, sourceId);
+      sessionChanged = true;
+      result.parts_deleted++;
+      touched.push(slug);
+    }
+  } finally {
+    // Audited only when the session was written, so an unchanged re-run leaves
+    // no new rows, and also when a later part failed: the parts that landed
+    // hold the redactions. Under `flag` the credential is still in each part's
+    // text and putPage audits every part it writes; a session row would repeat
+    // that.
+    if (sessionChanged && secretDisposition() !== "flag") {
+      await auditSecrets(storage.engine(), prepared.findings, prepared.base, sourceId);
+    }
   }
 }
 

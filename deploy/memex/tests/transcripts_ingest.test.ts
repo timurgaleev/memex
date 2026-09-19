@@ -225,6 +225,21 @@ describe("ingestSessions", () => {
     expect(await liveParts(storage, "transcripts/chatgpt/next")).toEqual(["transcripts/chatgpt/next-p1"]);
   });
 
+  it("audits the redactions of a session that only partly landed", async () => {
+    await ingestSessions(storage, [session("partial", 20)], { sourceId: "default", embedFn });
+    await putPage(storage, { slug: "notes/canon", type: "note", markdown_body: "canonical", source_id: "default" });
+    expect((await mergePage(storage, "transcripts/chatgpt/partial-p2", "notes/canon")).merged).toBe(true);
+
+    const edited = session("partial", 20, 1500, (i) => `edited ${i} token ${PAT} ${"padding text ".repeat(110)}`);
+    const r = await ingestSessions(storage, [edited], { sourceId: "default", embedFn });
+    expect(r).toMatchObject({ sessions_failed: 1, parts_written: 1 });
+    expect((await getPage(storage, "transcripts/chatgpt/partial-p1"))!.markdown_body).toContain("[REDACTED:memex-pat:");
+    const audit = await storage.engine().query<{ source_ref: string }>(
+      `SELECT source_ref FROM ingest_log WHERE source_type = 'secret-redacted'`,
+    );
+    expect(audit.rows.map((row) => row.source_ref)).toEqual(["transcripts/chatgpt/partial"]);
+  });
+
   it("splits a 5 MB session into searchable parts with vector coverage", async () => {
     const s = session("big", 2600, 2000);
     const r = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
@@ -311,7 +326,7 @@ describe("memex transcripts ingest", () => {
 
   it("refuses a binary file before parsing it", async () => {
     const bin = join(cliTmp, "export.bin");
-    writeFileSync(bin, Buffer.from("[{\"uuid\": \"x\"}]   tail"));
+    writeFileSync(bin, Buffer.from(`[{"uuid": "x"}] ${String.fromCharCode(0)} tail`));
     const err = spyOn(console, "error").mockImplementation(() => {});
     try {
       expect(await runTranscripts({ sub: "ingest", file: bin, configPath: cfgPath })).toBe(1);

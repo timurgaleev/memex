@@ -344,6 +344,9 @@ export function sanitizeEntityHints(hints: unknown): string[] {
   return out;
 }
 
+/** Characters of a turn or page body the extractor reads; the rest is cut. */
+export const EXTRACT_WINDOW_CHARS = 12_000;
+
 /** Parse status widened with the one failure the parser cannot see by itself. */
 export type ExtractOutcome = FactsParseStatus | "truncated";
 
@@ -373,7 +376,7 @@ export async function extractFactsFromTurn(
     ...(opts.modelId ? { modelId: opts.modelId } : {}),
     ...(opts.region ? { region: opts.region } : {}),
   });
-  const { text: clean } = sanitizeForPrompt(turnText, 12_000);
+  const { text: clean } = sanitizeForPrompt(turnText, EXTRACT_WINDOW_CHARS);
   const hints = sanitizeEntityHints(opts.entityHints);
   const hintBlock =
     hints.length > 0

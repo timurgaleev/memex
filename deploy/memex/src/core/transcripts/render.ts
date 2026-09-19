@@ -17,8 +17,12 @@
 import { createHash } from "node:crypto";
 import type { TranscriptMessage, TranscriptSession } from "./types.ts";
 
-/** Well under the 50 KB embed-warn threshold, leaving room for the title. */
-export const PART_BUDGET_BYTES = 40_000;
+/**
+ * Fact extraction reads a page body through a 12,000-character window, so a
+ * part must fit inside it or everything past the window is never extracted.
+ * Bytes bound characters from above; the slack covers the prompt sanitizer.
+ */
+export const PART_BUDGET_BYTES = 11_000;
 const INDENT = "  ";
 const TURN_SEPARATOR = "\n\n";
 const TITLE_MAX = 200;
@@ -80,12 +84,19 @@ export function cleanTitle(raw: string | null): string {
   return t.length > 0 ? t : "Untitled conversation";
 }
 
-/** A slug-safe form of the vendor id; a hash when nothing of it survives. */
+/**
+ * A slug-safe form of the vendor id. Normalizing is lossy (case, punctuation,
+ * length), so an id it changed carries a hash of the raw id: two ids that
+ * normalize alike must not share parts. An id that is already slug-safe (the
+ * lowercase UUIDs both vendors use) is kept as is, so its slugs never move.
+ */
 export function slugSafeId(id: string): string {
   const parts = id.toLowerCase().split(/[^a-z0-9]+/);
   const joined = parts.filter((p) => p.length > 0).join("-").slice(0, 120);
   const trimmed = joined.endsWith("-") ? joined.slice(0, -1) : joined;
-  return trimmed.length > 0 ? trimmed : `c${createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16)}`;
+  if (trimmed === id) return trimmed;
+  const hash = createHash("sha256").update(id, "utf8").digest("hex");
+  return trimmed.length > 0 ? `${trimmed}-h${hash.slice(0, 12)}` : `c${hash.slice(0, 16)}`;
 }
 
 export function sessionBaseSlug(session: TranscriptSession): string {
@@ -116,9 +127,15 @@ function textLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
-/** One turn: header plus the first line, then every other line indented. */
+/**
+ * One turn: header plus the first line, then every other line indented. Blank
+ * leading lines are dropped: the parser does not read a bare `Speaker:` line
+ * as a turn, and a split piece of a long message can start on one.
+ */
 export function renderTurn(m: TranscriptMessage, lines: readonly string[] = textLines(m.text)): string {
-  const [first = "", ...rest] = lines;
+  let start = 0;
+  while (start < lines.length - 1 && lines[start]!.trim().length === 0) start++;
+  const [first = "", ...rest] = lines.slice(start);
   const tail = rest.map((l) => (l.length > 0 ? INDENT + l : "")).join("\n");
   return rest.length > 0 ? `${turnHeader(m)}${first}\n${tail}` : `${turnHeader(m)}${first}`;
 }

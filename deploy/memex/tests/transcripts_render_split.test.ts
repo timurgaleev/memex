@@ -6,7 +6,8 @@
 import { describe, expect, it } from "bun:test";
 import { parseConversation } from "../src/core/conversation-parser.ts";
 import { DEFAULT_BYTES_WARN } from "../src/core/content-sanity.ts";
-import { packBlocks, renderSession, renderTurn, slugSafeId } from "../src/core/transcripts/render.ts";
+import { EXTRACT_WINDOW_CHARS } from "../src/core/facts-extract.ts";
+import { PART_BUDGET_BYTES, packBlocks, renderSession, renderTurn, slugSafeId } from "../src/core/transcripts/render.ts";
 import type { TranscriptMessage, TranscriptSession } from "../src/core/transcripts/types.ts";
 
 const T0 = Date.parse("2026-03-01T10:00:00Z");
@@ -57,11 +58,43 @@ describe("renderSession", () => {
   it("keys parts by format and a slug-safe conversation id, with a clean title", () => {
     const parts = renderSession(session([message(0, "a"), message(1, "b")]));
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.slug).toBe("transcripts/chatgpt/conv-abc-1-p1");
+    expect(parts[0]!.slug).toMatch(/^transcripts\/chatgpt\/conv-abc-1-h[0-9a-f]{12}-p1$/);
     expect(parts[0]!.title).toBe("Line one (part 1)");
     expect(parts[0]!.truth).toMatchObject({ conversation_id: "Conv-ABC_1", format: "chatgpt", part: 1, date: "2026-03-01" });
     expect(parts[0]!.truth).toMatchObject({ first_message_id: "m0", last_message_id: "m1" });
     expect(slugSafeId("///")).toMatch(/^c[0-9a-f]{16}$/);
+  });
+
+  it("keeps an already slug-safe id as is, and keeps ids that normalize alike apart", () => {
+    const uuid = "6650a0e4-2f0c-4c7e-9a4b-1d2e3f405162";
+    expect(slugSafeId(uuid)).toBe(uuid);
+    const lossy = ["Conv-ABC_1", "conv-abc-1x".slice(0, -1).toUpperCase(), "conv abc 1", "conv_abc_1"];
+    expect(new Set(lossy.map(slugSafeId)).size).toBe(lossy.length);
+    expect(lossy.map(slugSafeId)).not.toContain("conv-abc-1");
+    const long = (tail: string) => `${"a".repeat(130)}${tail}`;
+    expect(slugSafeId(long("x"))).not.toBe(slugSafeId(long("y")));
+  });
+
+  it("fits every part inside the fact extractor's window", () => {
+    expect(PART_BUDGET_BYTES).toBeLessThan(EXTRACT_WINDOW_CHARS);
+  });
+
+  it("opens every piece of a split message on text, even with no time", () => {
+    const paragraphs = Array.from({ length: 400 }, (_, i) => `paragraph ${i} ${"prose ".repeat(12)}`);
+    // Runs of blank lines of every length, so some cut lands inside one.
+    const text = paragraphs.map((l, i) => `${l}${"\n".repeat(2 + (i % 40))}`).join("").trim();
+    const parts = renderSession(session([message(0, "go", null), message(1, text, null)]), 1000);
+    expect(parts.length).toBeGreaterThan(5);
+    const seen: string[] = [];
+    for (const p of parts) {
+      for (const line of p.body.split("\n").filter((l) => l.length > 0 && !l.startsWith(" "))) {
+        expect(line).toMatch(/^(?:User|ChatGPT): \S/);
+      }
+      for (const t of parseConversation(p.body)) {
+        if (t.speaker === "ChatGPT") seen.push(...t.text.split("\n").filter((l) => l.length > 0));
+      }
+    }
+    expect(new Set(seen)).toEqual(new Set(paragraphs.map((l) => l.trim())));
   });
 
   it("splits at message boundaries under the embed-warn size, with one message of overlap", () => {
@@ -90,7 +123,7 @@ describe("renderSession", () => {
     expect(parts.length).toBeGreaterThan(1);
     const seen: string[] = [];
     for (const p of parts) {
-      expect(bytes(p.body)).toBeLessThanOrEqual(40_001);
+      expect(bytes(p.body)).toBeLessThanOrEqual(PART_BUDGET_BYTES + 1);
       for (const t of parseConversation(p.body)) {
         if (t.speaker === "ChatGPT") seen.push(...t.text.split("\n"));
       }
@@ -101,8 +134,8 @@ describe("renderSession", () => {
 
   it("cuts a single line longer than a part at byte boundaries", () => {
     const parts = renderSession(session([message(0, CYRILLIC.repeat(60_000))]));
-    expect(parts.length).toBe(4);
-    for (const p of parts) expect(bytes(p.body)).toBeLessThanOrEqual(40_001);
+    expect(parts.length).toBe(Math.ceil((60_000 * 2) / (PART_BUDGET_BYTES - 64)));
+    for (const p of parts) expect(bytes(p.body)).toBeLessThanOrEqual(PART_BUDGET_BYTES + 1);
     const text = parts.map((p) => parseConversation(p.body)[0]!.text).join("");
     expect(text).toBe(CYRILLIC.repeat(60_000));
   });
