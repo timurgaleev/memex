@@ -26,6 +26,7 @@ import {
 import {
   SKILLOPT_MAX_TOKENS,
   SKILLOPT_SPEND_OP,
+  collateralRegressions,
   heldoutGate,
   preflightUsd,
   runRoutingEval,
@@ -299,6 +300,47 @@ describe("runRoutingEval", () => {
       converse: router([]),
     });
     expect(heldoutGate(same, 0.05)!.accept).toBe(false);
+  });
+
+  it("collateral: flags another skill whose held-out cases the candidate took", async () => {
+    const theirs: RoutingCase[] = cases(2).map((c, i) => ({
+      ...c,
+      skill: "garden",
+      line: i + 1,
+      intent: `when to plant bed ${i}`,
+      expected_skill: "garden",
+    }));
+    // The candidate keeps every people case and takes every garden case.
+    const greedy: ConverseFn = async (input) => {
+      const own = (input.messages[0]?.content?.[0]?.text ?? "").startsWith("who");
+      const answer = own || input.system.includes("anything") ? "people" : "garden";
+      return {
+        message: { role: "assistant", content: [{ text: answer }] },
+        stopReason: "end_turn",
+        usage: { inputTokens: 500, outputTokens: 2 },
+        modelId: input.modelId!,
+      };
+    };
+    const wide = catalog().map((e) =>
+      e.slug === "people" ? { ...e, description: `${e.description}, or anything else` } : e,
+    );
+    const r = await runRoutingEval({
+      cases: [...cases(2), ...theirs],
+      variants: [
+        { name: "baseline", catalog: catalog() },
+        { name: "candidate", catalog: wide },
+      ],
+      repeats: 3,
+      maxUsd: 1,
+      converse: greedy,
+    });
+    expect(heldoutGate(r, 0.05, "people")!.delta).toBe(0);
+    expect(collateralRegressions(r, 0.05, "people")).toEqual([
+      { skill: "garden", baselineMedian: 1, candidateMedian: 0, delta: -1 },
+    ]);
+    // The target itself is never its own collateral, and an even trade is not flagged.
+    expect(collateralRegressions(r, 0.05, "garden")).toEqual([]);
+    expect(collateralRegressions({ ...r, stopReason: "budget_exhausted" }, 0.05, "people")).toBeNull();
   });
 
   it("scores only the held-out cases in the gate", async () => {

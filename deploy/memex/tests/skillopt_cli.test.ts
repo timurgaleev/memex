@@ -173,6 +173,49 @@ describe("memex skillopt eval", () => {
     }
   });
 
+  it("rejects a greedy candidate that wins its own cases by taking another skill's", async () => {
+    const pack = mkdtempSync(join(tmpdir(), "memex-skillopt-cli-greedy-"));
+    try {
+      mkdirSync(join(pack, "people"));
+      writeFileSync(join(pack, "people", "SKILL.md"), skill("people", "Unrelated notes about soil"));
+      writeFileSync(
+        join(pack, "people", "routing-eval.jsonl"),
+        JSON.stringify({ intent: "who is Ada", expected_skill: "people" }),
+      );
+      mkdirSync(join(pack, "garden"));
+      writeFileSync(join(pack, "garden", "SKILL.md"), skill("garden", "Plan a vegetable garden"));
+      writeFileSync(
+        join(pack, "garden", "routing-eval.jsonl"),
+        JSON.stringify({ intent: "when to plant tomatoes", expected_skill: "garden" }),
+      );
+      const greedy = join(pack, "greedy.md");
+      writeFileSync(greedy, skill("people", "Look up a person, or handle anything else"));
+      const h = { out: [] as string[], calls: 0 };
+      const converse: ConverseFn = async (input) => {
+        h.calls++;
+        const line = input.system.split("\n").find((l) => l.startsWith("- people:")) ?? "";
+        const intent = input.messages[0]?.content?.[0]?.text ?? "";
+        const wants = intent.startsWith("who") ? line.includes("person") : line.includes("anything");
+        return {
+          message: { role: "assistant", content: [{ text: wants ? "people" : "garden" }] },
+          stopReason: "end_turn",
+          usage: { inputTokens: 300, outputTokens: 2 },
+          modelId: input.modelId!,
+        };
+      };
+      const { opts } = harness({ skillsDir: pack, candidate: greedy, converse, out: (l: string) => h.out.push(l) });
+      expect(await runSkilloptCli(opts)).toBe(SKILLOPT_EXIT_REJECT);
+      const text = h.out.join("\n");
+      expect(text).toContain("collateral: garden  candidate 0.000 vs baseline 1.000");
+      expect(text).toContain("gate: REJECT  candidate 1.000 vs baseline 0.000  delta +1.000");
+      expect(text).toContain("collateral garden");
+      // Both files' held-out cases: 2 cases x 3 repeats x 2 variants.
+      expect(h.calls).toBe(12);
+    } finally {
+      rmSync(pack, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a candidate whose name is another skill", async () => {
     const { h, opts } = harness({ skill: "people", candidate: join(dir, "renamed.md") });
     expect(await runSkilloptCli(opts)).toBe(1);

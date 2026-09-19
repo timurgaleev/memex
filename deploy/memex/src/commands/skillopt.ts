@@ -5,7 +5,9 @@
  * Measures how well the Haiku tier routes the pack's benchmark intents to the
  * right skill, per split, as the median of N repeats. With --candidate it also
  * scores that file's description and triggers against the current ones on the
- * held-out cases and prints ACCEPT or REJECT (exit 3) against epsilon.
+ * held-out cases of every benchmark in the pack and prints ACCEPT or REJECT
+ * (exit 3): ACCEPT needs the target skill to gain more than epsilon and no
+ * other skill to lose more than epsilon.
  *
  * Operator-only and read-only: it writes no rows, no skill files and no pages.
  * Its only side effect is the paid calls, each booked in mcp_spend_log under
@@ -37,6 +39,7 @@ import {
   DEFAULT_SKILLOPT_EPSILON,
   DEFAULT_SKILLOPT_REPEATS,
   MAX_SKILLOPT_REPEATS,
+  collateralRegressions,
   heldoutGate,
   preflightUsd,
   runRoutingEval,
@@ -179,7 +182,12 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
     return fail(`no benchmark for skill '${target}'; skills with one: ${available.join(", ")}`);
   }
 
-  const load = target !== undefined ? loadSkillBenchmark(skillsDir, target) : loadPackBenchmark(skillsDir);
+  // A candidate is scored against the whole pack: its catalog line competes
+  // with every other skill, so its cost can land in any file.
+  const load =
+    target !== undefined && candidateText === undefined
+      ? loadSkillBenchmark(skillsDir, target)
+      : loadPackBenchmark(skillsDir);
   if (load.errors.length > 0) {
     for (const e of load.errors) err(`  ${e}`);
     return fail(`${load.errors.length} benchmark error(s); fix them first`);
@@ -205,7 +213,9 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
     return fail(
       `worst case ${usd(worst)} for ${cases.length} case(s) x ${parsed.repeats} repeat(s) x ` +
         `${variants.length} variant(s) exceeds the cap ${usd(parsed.maxUsd)}; ` +
-        "narrow it with --skill, --split or --repeats, or raise MEMEX_SKILLOPT_MAX_USD",
+        (candidateText !== undefined
+          ? "a candidate is scored on every skill's held-out cases; lower --repeats or raise MEMEX_SKILLOPT_MAX_USD"
+          : "narrow it with --skill, --split or --repeats, or raise MEMEX_SKILLOPT_MAX_USD"),
     );
   }
 
@@ -231,15 +241,24 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
   if (result.stopReason === "preflight_refused") return 1;
   if (candidateText === undefined) return 0;
 
-  const verdict = heldoutGate(result, parsed.epsilon);
-  if (!verdict) {
+  const verdict = heldoutGate(result, parsed.epsilon, target);
+  const collateral = collateralRegressions(result, parsed.epsilon, target!);
+  if (!verdict || !collateral) {
     out(`gate: REJECT (no verdict: the run ended with stop_reason ${result.stopReason})`);
     return SKILLOPT_EXIT_REJECT;
   }
+  for (const c of collateral) {
+    out(
+      `collateral: ${c.skill}  candidate ${pct(c.candidateMedian)} vs baseline ${pct(c.baselineMedian)}` +
+        `  delta ${pct(c.delta)}`,
+    );
+  }
+  const accept = verdict.accept && collateral.length === 0;
   const sign = verdict.delta >= 0 ? "+" : "";
   out(
-    `gate: ${verdict.accept ? "ACCEPT" : "REJECT"}  candidate ${pct(verdict.candidateMedian)} vs ` +
-      `baseline ${pct(verdict.baselineMedian)}  delta ${sign}${pct(verdict.delta)}  epsilon ${pct(parsed.epsilon)}`,
+    `gate: ${accept ? "ACCEPT" : "REJECT"}  candidate ${pct(verdict.candidateMedian)} vs ` +
+      `baseline ${pct(verdict.baselineMedian)}  delta ${sign}${pct(verdict.delta)}  epsilon ${pct(parsed.epsilon)}` +
+      (collateral.length > 0 ? `  collateral ${collateral.map((c) => c.skill).join(",")}` : ""),
   );
-  return verdict.accept ? 0 : SKILLOPT_EXIT_REJECT;
+  return accept ? 0 : SKILLOPT_EXIT_REJECT;
 }

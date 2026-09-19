@@ -2796,7 +2796,11 @@ slug/description/triggers catalog and swaps in a candidate with its name held
 fixed. `judge.ts` is the linear rule judge plus median and the epsilon gate.
 `evaluate.ts` runs tool-less 32-token Haiku Converse calls booked as
 `skillopt`, refuses a worst case over the cap before any call, and stops at
-the cap with a partial report. Only the worst case is priced (one token per
+the cap with a partial report. `--candidate` scores both catalogs on every
+file's held-out cases and rejects an edit that costs any other skill more than
+epsilon, so a greedy description cannot buy its own recall with another
+skill's requests; that makes a candidate run pack-wide (35 held-out cases, 210 calls at 3
+repeats), above the default cap. Only the worst case is priced (one token per
 prompt byte, about 4x the real cost), so the default $0.25 buys about 12 calls
 with the whole-pack catalog: scope runs with `--skill`. Still open:
 checkpoints, version store and rejected-edit buffer in RDS (the cap stop has

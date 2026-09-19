@@ -41,8 +41,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   description, triggers), scores the answers by rule, and prints per-skill
   accuracy for a fixed train/held-out split as the median of N repeats (default
   3). `--candidate <SKILL.md>` also scores that file's description and triggers
-  against the current ones on the held-out cases and prints ACCEPT, or REJECT
-  with exit code 3, against `--epsilon` (default 0.05). The calls use no tools
+  against the current ones on the held-out cases of every benchmark in the
+  pack and prints ACCEPT, or REJECT with exit code 3: ACCEPT needs the edited
+  skill to gain more than `--epsilon` (default 0.05) and no other skill to lose
+  more than that, so a description broad enough to take other skills' requests
+  is rejected even when its own cases improve. The calls use no tools
   and at most 32 output tokens each. Every run is capped at the lower of
   `--max-usd` and `MEMEX_SKILLOPT_MAX_USD` (default $0.25): a run whose worst
   case exceeds the cap is refused before any call, and a run that hits the cap
