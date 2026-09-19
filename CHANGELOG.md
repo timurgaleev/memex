@@ -7,6 +7,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **GitHub connector: `memex connectors github sync <owner/repo> --source ID`.**
+  A one-shot, operator-run mirror of a repository's issues and pull requests
+  into a source registered with the new `github` kind, as
+  `github/<owner>/<repo>/issues/<n>` and `.../pulls/<n>` pages. `#n` and
+  `Closes/Fixes/Resolves #n` become links in the graph, and every title and
+  body is secret-scanned before it is stored. Each run reads only what changed
+  since the last clean run (plus a short re-read window,
+  `MEMEX_CONNECTOR_GAP_HEAL_MINUTES`); `--full` reads everything, `--dry-run`
+  previews without touching the brain, and an unchanged re-run writes nothing.
+  A run ends `success`, `nothing_new`, `partial`, `auth_required` or
+  `forbidden` (exit 0, 0, 1, 2, 2), and only a clean run moves the watermark.
+  The client talks only to `api.github.com`, spaces its requests, and waits out
+  rate limits up to a cap. The token comes from `MEMEX_GITHUB_TOKEN` or
+  `--token-file` and is never stored or printed. `memex connectors status`
+  shows each connector's watermark and last run, and `memex doctor` warns when
+  a connector needs re-auth or has had no clean run for
+  `MEMEX_CONNECTOR_STALL_DAYS` (default 7).
 - **`memex auth doctor <base-url>` checks a deployed brain end to end.** It
   runs from your machine: `/health` and its build stamp
   (`--expect-version` turns a mismatch into a failure), both OAuth discovery
@@ -67,6 +84,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   client that cannot be fixed yet.
 
 ### Fixed
+- **Re-writing a page with the same compiled truth no longer versions it.**
+  The unchanged check compared the stored truth with a plain string, and the
+  database keeps object keys in its own order, so a truth whose keys were
+  written in another order counted as a change every time.
 - **Fact ids round-trip as numbers.** On Postgres, `add_fact`, `entity_facts`,
   `fact_supersessions` and `recall` returned fact ids as JSON strings, which
   `recall` and `forget_fact` then refused. Ids now go out as numbers on every

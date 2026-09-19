@@ -174,6 +174,12 @@ services:
       # Largest export `memex transcripts ingest` will read, in bytes (default
       # 104857600). A bigger file is refused, never truncated.
       - MEMEX_TRANSCRIPT_MAX_FILE_BYTES=${MEMEX_TRANSCRIPT_MAX_FILE_BYTES:-}
+      # `memex connectors github sync`: the token (or pass --token-file), the
+      # minutes re-read behind the watermark (default 15), and the days after
+      # which doctor flags a connector with no clean run (default 7).
+      - MEMEX_GITHUB_TOKEN=${MEMEX_GITHUB_TOKEN:-}
+      - MEMEX_CONNECTOR_GAP_HEAL_MINUTES=${MEMEX_CONNECTOR_GAP_HEAL_MINUTES:-}
+      - MEMEX_CONNECTOR_STALL_DAYS=${MEMEX_CONNECTOR_STALL_DAYS:-}
       # Content-sanity pattern names to switch off (comma-separated), e.g.
       # access_denied,operator_literal_2 — see `memex doctor` quarantined-pages.
       - MEMEX_CONTENT_SANITY_DISABLE=${MEMEX_CONTENT_SANITY_DISABLE:-}

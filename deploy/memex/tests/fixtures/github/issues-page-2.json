@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "headers": { "content-type": "application/json; charset=utf-8" },
+  "body": [
+    {
+      "number": 3,
+      "title": "CI token leaked in a log",
+      "body": "The deploy step printed {{TOKEN}} into the job output. Rotate it.",
+      "state": "open",
+      "user": { "login": "dana" },
+      "labels": [{ "name": "security" }],
+      "created_at": "2026-09-03T08:00:00Z",
+      "updated_at": "2026-09-03T09:30:00Z",
+      "closed_at": null
+    }
+  ]
+}

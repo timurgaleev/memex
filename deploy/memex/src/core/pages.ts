@@ -202,6 +202,15 @@ export interface PageVersionRow {
   written_at: string;
 }
 
+/** JSON with every object's keys sorted, for an order-free comparison. */
+function sortedKeysJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v !== null && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
 function hashBody(body: string): string {
   return createHash("sha256").update(body, "utf8").digest("hex");
 }
@@ -487,10 +496,13 @@ export async function putPage(
     }
 
     const prev = existing.rows[0]!;
+    // JSONB stores object keys in its own order (shorter first), so the stored
+    // truth is compared key-order-free; a raw stringify saw every truth whose
+    // keys were written in another order as changed and versioned it again.
     const truthEq =
       typeof prev.compiled_truth === "object" &&
       prev.compiled_truth !== null &&
-      JSON.stringify(prev.compiled_truth) === truthJson;
+      sortedKeysJson(prev.compiled_truth) === sortedKeysJson(JSON.parse(truthJson));
     // A soft-deleted row is never idempotent however identical the content:
     // the write must reach the update branch below to clear `deleted_at`.
     const idempotent =

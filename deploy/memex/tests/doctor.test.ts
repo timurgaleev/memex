@@ -108,6 +108,7 @@ describe("doctor", () => {
       "chunker-version-lag",
       "code-grammars",
       "config",
+      "connector-health",
       "contradiction-trend",
       "cycle-freshness",
       "duplicate-pages",

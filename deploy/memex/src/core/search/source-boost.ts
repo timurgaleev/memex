@@ -29,6 +29,8 @@ const DEFAULT_WEIGHTS: Record<SourceKind, number> = {
   // this entry the multiplier would be NaN and code hits would sort
   // unpredictably (typically last) after RRF + boost.
   code: 0.85,
+  // Issue and pull-request pages mirrored by the GitHub connector.
+  github: 0.75,
   other: 0.8,
 };
 

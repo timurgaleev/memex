@@ -45,6 +45,7 @@ import {
   checkQuarantinedPages,
   checkJunkEntityHubs,
 } from "../core/doctor-ops.ts";
+import { checkConnectorHealth } from "../core/connectors/health.ts";
 import {
   checkFederationHealth,
   checkOauthClientHealth,
@@ -336,6 +337,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       ["quarantined-pages", checkQuarantinedPages],
       ["junk-entity-hubs", checkJunkEntityHubs],
       ["code-grammars", checkGrammars],
+      ["connector-health", checkConnectorHealth],
     ] as const) {
       try {
         const r = await probe(storage.raw());

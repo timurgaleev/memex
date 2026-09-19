@@ -1,0 +1,1 @@
+{ "status": 403, "headers": { "content-type": "application/json; charset=utf-8", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1800000030" }, "body": { "message": "API rate limit exceeded for user." } }

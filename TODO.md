@@ -2657,6 +2657,28 @@ expired credential.
 
 **Needs operator go.** Yes (Gmail/Calendar stay out; see open decisions).
 
+**Progress.** R1 (unreleased): the provider seam and the GitHub connector as a
+one-shot operator CLI. `core/connectors/`: a pure response classifier (ok,
+rate_limited, auth_required, forbidden, challenge, server_error; a GitHub
+secondary-limit 403 is told from a real one), a fixed-origin client (paths
+only, same-origin pagination, no redirects, spacing, Retry-After and
+X-RateLimit-Reset waits up to a cap, bounded retries, token scrubbed from
+errors), a clean-run-only watermark in `recipe_state` with a gap-heal window,
+and the run statuses. `memex connectors github sync <owner/repo> --source ID
+[--full] [--dry-run] [--json]` writes issue and PR pages into a `github`-kind
+source (migration 113) through `putPage`, secret-scanned, with `#n` and
+closing keywords as wiki links (a PR page aliases its `issues/<n>` slug so a
+bare `#n` lands on it); `memex connectors status`; a `connector-health` doctor
+check. Token from `MEMEX_GITHUB_TOKEN` or `--token-file`, no MCP op, no
+ingress change. Also fixed: `putPage` versioned an unchanged truth whose keys
+were in another order. Known effect: an item refused under the `reject`
+disposition keeps every run `partial` (the watermark cannot pass it) until the
+item is edited or its fingerprint allowlisted; doctor reports it as stalled.
+Still open: the HMAC-verified webhook route (the last "Done when" item),
+Secrets Manager token, `connector_sync` job kind and schedule on RM-14's
+supervised interface, reviews/comments/checks pages and deletion reconcile,
+chat connectors, links to code-graph symbols, and the live check on the EC2.
+
 ### RM-27 — Skill optimization loop
 
 **Why.** memex ships a `skill-optimizer` skill with no backing code

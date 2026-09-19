@@ -46,6 +46,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--explain",
   "--fix",
   "--force",
+  "--full",
   "--graph-signals",
   "--help",
   "--http",
@@ -297,6 +298,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     new Set(["--apply", "--force", "--include-flagged", "--json", "--limit"]),
   ],
   ["transcripts", new Set(["--dry-run", "--format", "--json", "--source"])],
+  ["connectors", new Set(["--dry-run", "--full", "--json", "--source", "--token-file"])],
   ["version", new Set<string>()],
   ["help", new Set<string>()],
 ]);
@@ -315,7 +317,7 @@ export const SAFETY_FLAG_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = ne
     "--dry-run",
     new Set([
       "apply-migrations", "auth", "embed", "extract", "jobs", "lint",
-      "migrate-engine", "reindex", "skillify", "transcripts",
+      "connectors", "migrate-engine", "reindex", "skillify", "transcripts",
     ]),
   ],
   ["--apply", new Set(["eval-prune", "page-retype", "quarantine", "search"])],

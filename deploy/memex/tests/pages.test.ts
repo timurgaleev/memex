@@ -159,6 +159,13 @@ describe("putPage — idempotency", () => {
     expect(versions.length).toBe(1);
   });
 
+  it("re-put with the same truth in another key order is a no-op", async () => {
+    await putPage(storage, { slug: "alice", type: "person", markdown_body: "x", compiled_truth: { url: "u", closes: [1], n: { zeta: 1, a: 2 } } });
+    const b = await putPage(storage, { slug: "alice", type: "person", markdown_body: "x", compiled_truth: { n: { a: 2, zeta: 1 }, closes: [1], url: "u" } });
+    expect(b.changed).toBe(false);
+    expect((await pageVersions(storage, "alice")).length).toBe(1);
+  });
+
   it("body change bumps version", async () => {
     await putPage(storage, {
       slug: "alice",

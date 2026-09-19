@@ -67,6 +67,7 @@ import { runSearchDiagnose } from "./commands/search-diagnose.ts";
 import { runConfig, type ConfigSub } from "./commands/config.ts";
 import { runCapture } from "./commands/capture.ts";
 import { runTranscripts } from "./commands/transcripts.ts";
+import { runConnectors } from "./commands/connectors.ts";
 import { runQuarantine, type QuarantineSub } from "./commands/quarantine.ts";
 import {
   runEvalRunAll,
@@ -246,6 +247,10 @@ function printUsage(): void {
   console.log("                               one-command note capture → page + search mirror");
   console.log("  transcripts ingest <export.json> [--format auto|chatgpt|claude-ai] [--source ID] [--dry-run] [--json]");
   console.log("                               import a ChatGPT / Claude.ai export as split, redacted conversation pages");
+  console.log("  connectors github sync <owner/repo> --source ID [--token-file F] [--full] [--dry-run] [--json]");
+  console.log("                               mirror a repository's issues and pull requests into a github source");
+  console.log("                               (token: MEMEX_GITHUB_TOKEN or --token-file; exit 1 partial, 2 re-auth)");
+  console.log("  connectors status [--json]   watermark and last run of every connector");
   console.log("  quarantine list [--include-flagged] [--json]");
   console.log("  quarantine clear <slug|path> [--force]");
   console.log("  quarantine scan [--limit N] [--apply]");
@@ -1496,6 +1501,21 @@ async function main(argv: readonly string[]): Promise<number> {
       if (flags.has("--dry-run")) opts.dryRun = true;
       if (flags.has("--json")) opts.json = true;
       return await runTranscripts(opts);
+    }
+    case "connectors": {
+      const opts: Parameters<typeof runConnectors>[0] = { sub: positional[0] };
+      const action = positional[1];
+      if (action) opts.action = action;
+      const target = positional[2];
+      if (target) opts.target = target;
+      const src = values.get("--source");
+      if (src) opts.sourceId = src;
+      const tokenFile = values.get("--token-file");
+      if (tokenFile) opts.tokenFile = tokenFile;
+      if (flags.has("--full")) opts.full = true;
+      if (flags.has("--dry-run")) opts.dryRun = true;
+      if (flags.has("--json")) opts.json = true;
+      return await runConnectors(opts);
     }
     case "quarantine": {
       const sub = positional[0];
