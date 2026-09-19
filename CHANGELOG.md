@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.143.0] — 2026-09-19
+
 ### Added
 - **A personal access token can be given a daily spend cap.** `auth set-budget`
   now accepts a token name as well as an OAuth client id. A PAT spends under its
