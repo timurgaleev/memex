@@ -40,6 +40,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   same state on stderr when a lookup is empty, so `--json` output stays as it
   was.
 
+### Changed
+- **MCP tools refuse arguments they do not declare.** A misspelled key used
+  to be dropped without an error, so `page_put {slug, body}` wrote the page
+  without its body. Any undeclared argument now returns `invalid_params`
+  naming it, with a "did you mean `markdown_body`?" hint when a declared argument is
+  one or two edits away, or the list of accepted arguments otherwise.
+  `MEMEX_MCP_LENIENT_ARGS=1` restores the old accept-and-ignore behavior for a
+  client that cannot be fixed yet.
+
+### Fixed
+- **Fact ids round-trip as numbers.** On Postgres, `add_fact`, `entity_facts`,
+  `fact_supersessions` and `recall` returned fact ids as JSON strings, which
+  `recall` and `forget_fact` then refused. Ids now go out as numbers on every
+  engine, and `recall` / `forget_fact` also accept an id written as a plain
+  decimal string (`"42"`).
+
 ## [1.150.0] — 2026-09-19
 
 ### Added

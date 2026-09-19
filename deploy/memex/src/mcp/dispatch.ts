@@ -464,12 +464,37 @@ export async function dispatchTool(
   return result;
 }
 
+/** Tools whose `id` is an entity_facts id a client may hold as a string. */
+const FACT_ID_TOOLS = new Set(["recall", "forget_fact"]);
+// Anchored with a bounded repeat, so matching is linear in the input; 16
+// digits covers every safe integer and the isSafeInteger check below drops
+// the few 16-digit values above 2^53.
+const CANONICAL_FACT_ID = /^[1-9]\d{0,15}$/;
+
+/**
+ * A fact id may come back as the canonical decimal string: JSON clients that
+ * keep 64-bit ids as text, and callers that stored an id handed out before ids
+ * were normalized to numbers. Only that exact shape is converted, on a copy;
+ * anything else is left for the integer check to refuse.
+ */
+export function coerceFactIdArg(
+  name: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!FACT_ID_TOOLS.has(name)) return args;
+  const id = args["id"];
+  if (typeof id !== "string" || !CANONICAL_FACT_ID.test(id)) return args;
+  const n = Number(id);
+  if (!Number.isSafeInteger(n)) return args;
+  return { ...args, id: n };
+}
+
 async function dispatchToolInner(
   storage: Storage,
   req: ToolCallRequest,
   opts: DispatchOptions = {},
 ): Promise<ToolCallResult> {
-  const args = req.arguments ?? {};
+  const args = coerceFactIdArg(req.name, req.arguments ?? {});
   // Mirror the REST layer's public-read policy exactly: redact bodies on
   // public ingress unless the operator opted into MEMEX_PUBLIC_READ_BODIES.
   const redact =

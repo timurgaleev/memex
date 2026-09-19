@@ -19,6 +19,7 @@
 // tool's def in tool_defs.ts instead of routing it through the generator, so a
 // constraint is never silently dropped expecting the generator to carry it.
 import { OperationError } from "../core/operation-error.ts";
+import { nearest } from "../core/did-you-mean.ts";
 
 export type ParamType = "string" | "integer" | "number" | "boolean" | "object" | "array";
 
@@ -85,10 +86,10 @@ export function operationInputSchema(op: Operation): Record<string, unknown> {
  *   - Required-PRESENCE is left to the per-handler guards — they carry richer,
  *     tool-specific messages (e.g. `search: \`q\` is required`); duplicating it
  *     here would shadow those. This validates only what's present.
- *   - Unknown params are NOT rejected: a handler may read an undeclared field,
- *     and the JSON-Schema `additionalProperties:false` already documents the
- *     surface for clients. Tightening to reject unknowns is a separate, riskier
- *     decision.
+ *   - Unknown params ARE rejected, with a did-you-mean hint: a misspelled key
+ *     (`page_put {body}` for `markdown_body`) used to be dropped silently and
+ *     the write went ahead without it. `MEMEX_MCP_LENIENT_ARGS=1` restores the
+ *     old accept-and-ignore behavior for a client that cannot be fixed yet.
  *
  * Safe to enforce uniformly: the MCP client derives its params FROM this same
  * contract (the ParamDefs generate the advertised inputSchema), so a
@@ -100,6 +101,7 @@ export function validateParams(
   op: Operation,
   params: Record<string, unknown>,
 ): void {
+  rejectUnknownParams(op, params);
   const fail = (key: string, reason: string, suggestion: string): never => {
     throw new OperationError(
       "invalid_params",
@@ -170,6 +172,34 @@ export function validateParams(
       }
     }
   }
+}
+
+/** Caps on what an unknown-argument error echoes back from the payload. */
+const MAX_UNKNOWN_REPORTED = 5;
+const MAX_UNKNOWN_KEY_CHARS = 64;
+
+function rejectUnknownParams(op: Operation, params: Record<string, unknown>): void {
+  if (process.env.MEMEX_MCP_LENIENT_ARGS === "1") return;
+  const declared = Object.keys(op.params);
+  const unknown = Object.keys(params).filter((k) => !Object.hasOwn(op.params, k));
+  if (unknown.length === 0) return;
+  const shown = unknown
+    .slice(0, MAX_UNKNOWN_REPORTED)
+    .map((k) => `\`${k.length > MAX_UNKNOWN_KEY_CHARS ? `${k.slice(0, MAX_UNKNOWN_KEY_CHARS)}…` : k}\``);
+  const more = unknown.length > MAX_UNKNOWN_REPORTED
+    ? ` (+${unknown.length - MAX_UNKNOWN_REPORTED} more)`
+    : "";
+  const hint = unknown.length === 1 ? nearest(unknown[0]!, declared) : null;
+  const suggestion = hint
+    ? `Did you mean \`${hint}\`?`
+    : declared.length > 0
+      ? `Accepted arguments: ${declared.join(", ")}.`
+      : `${op.name} takes no arguments.`;
+  throw new OperationError(
+    "invalid_params",
+    `${op.name}: unknown argument(s): ${shown.join(", ")}${more}`,
+    suggestion,
+  );
 }
 
 // --- helpers to keep the contract terse + matching the original defs --------

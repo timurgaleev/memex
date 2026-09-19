@@ -63,7 +63,7 @@ export const MATRIX: MatrixRow[] = [
   iso("traverse_graph", { start_slug: GATEWAY, direction: "outbound", max_depth: 3 }),
   write("add_fact"),
   write("add_timeline_event"),
-  iso("entity_facts", { slug: ENTITY_SLUG }),
+  iso("entity_facts", { entity_slug: ENTITY_SLUG }),
   iso("fact_supersessions", { limit: 500 }),
   iso("entity_timeline", { slug: ENTITY_SLUG }),
   iso("entity_recall", { slug: ENTITY_SLUG }),

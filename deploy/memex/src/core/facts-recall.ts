@@ -24,6 +24,7 @@
 import type { Storage } from "./storage.ts";
 import { andSourceScope } from "./source-scope.ts";
 import { lockWithdrawals } from "./fact-withdrawals.ts";
+import { normalizeFactRow } from "./facts.ts";
 
 /**
  * A single fact row as returned by `recallFact`. Mirrors the projection in
@@ -89,7 +90,8 @@ export async function recallFact(
        WHERE id = $1 AND forgotten_at IS NULL${scopeFilter}`,
     params,
   );
-  return r.rows[0] ?? null;
+  const row = r.rows[0];
+  return row ? normalizeFactRow(row) : null;
 }
 
 /**

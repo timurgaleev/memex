@@ -2532,6 +2532,21 @@ enumerates every `process.env.MEMEX_*` read and fails if a key is missing from
 the registry or the compose allowlist; `memex embed --progress-json` emits
 parseable events on stderr while stdout stays valid JSON.
 
+**Progress.** Release A (MCP argument contract) shipped: every MCP operation
+refuses undeclared argument keys with a did-you-mean hint (the bounded
+edit-distance helper now lives in `src/core/did-you-mean.ts`, shared with the
+CLI flag check and ready for `config set`), with `MEMEX_MCP_LENIENT_ARGS=1` as
+the escape; fact ids leave `facts.ts` / `facts-recall.ts` as numbers on both
+engines and `recall` / `forget_fact` accept canonical decimal strings. The new
+check caught two test calls that passed `entity_facts {slug}` (ignored, so the
+read ran brain-wide) and `volunteer_context {q}`. Still open: the config key
+registry with did-you-mean on `config set`, set-time validation and a report of
+already-stored unknown keys; the truthiness helper and the drift test against
+docs and the compose allowlist; global flags and the stderr progress reporter;
+the yes/no prompt; `reinit-pglite`; `pages purge-deleted`; the insights CLI
+wrappers; the scorecard stretch; and returning the other BIGSERIAL ids
+(timeline events, jobs, versions) as numbers.
+
 ### RM-25 — Composite page identity and full-fidelity portability
 
 **Why.** `pages.slug` is the global primary key (migration 015): one owner per

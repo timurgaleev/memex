@@ -23,6 +23,7 @@
  * which reindex never reads and therefore silently dropped. "Does THIS command
  * read THIS flag" is the only question whose answer is useful to the caller.
  */
+import { nearest } from "./core/did-you-mean.ts";
 
 /**
  * Flags that never take a value — one entry per boolean the command cases in
@@ -340,40 +341,6 @@ export interface ParseArgsOptions {
  */
 export class UnknownFlagError extends Error {}
 
-/**
- * "Did you mean" for a typo — one edit away, cheap Levenshtein under a cap.
- * The candidates are the flags the CURRENT command accepts: suggesting a flag
- * that would itself be refused is worse than suggesting nothing.
- */
-function nearest(flag: string, candidates: Iterable<string>): string | null {
-  let best: string | null = null;
-  let bestD = 3;
-  for (const known of candidates) {
-    const d = editDistance(flag, known);
-    if (d < bestD) {
-      bestD = d;
-      best = known;
-    }
-  }
-  return best;
-}
-
-function editDistance(a: string, b: string): number {
-  if (Math.abs(a.length - b.length) > 2) return 99;
-  const prev = Array.from<number>({ length: b.length + 1 }).fill(0);
-  const cur = Array.from<number>({ length: b.length + 1 }).fill(0);
-  for (let j = 0; j <= b.length; j++) prev[j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    cur[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + cost);
-    }
-    for (let j = 0; j <= b.length; j++) prev[j] = cur[j]!;
-  }
-  return prev[b.length]!;
-}
-
 /** Validate the parsed flags against the vocabulary of the command being run. */
 export function validateFlags(parsed: ParsedArgs): void {
   const { cmd } = parsed;
@@ -400,6 +367,8 @@ export function validateFlags(parsed: ParsedArgs): void {
   for (const flag of seen) {
     if (UNIVERSAL_FLAGS.has(flag)) continue;
     if (accepted === undefined ? KNOWN_FLAGS.has(flag) : accepted.has(flag)) continue;
+    // Suggest only flags the CURRENT command accepts: suggesting a flag that
+    // would itself be refused is worse than suggesting nothing.
     const hint = nearest(flag, accepted ?? KNOWN_FLAGS);
     const guess = hint ? ` — did you mean ${hint}?` : "";
     const takes =

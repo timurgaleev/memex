@@ -258,6 +258,37 @@ function resolveDedup(input: AddFactInput): ResolvedDedup | null {
 }
 
 /**
+ * `entity_facts.id` is BIGSERIAL, and the Postgres driver hands int8 back as a
+ * string while PGLite returns a number. Every id that leaves this module goes
+ * through here so a client sees one JSON type on both engines and can pass the
+ * id straight back to `recall` / `forget_fact`. Throws instead of returning NaN
+ * so a corrupt value fails loudly rather than being written to a response.
+ */
+export function toFactId(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" || typeof v === "bigint" ? Number(v) : Number.NaN;
+  if (!Number.isSafeInteger(n) || n < 1) {
+    throw new Error(`fact id is not a positive safe integer: ${String(v).slice(0, 32)}`);
+  }
+  return n;
+}
+
+function toFactIdOrNull(v: unknown): number | null {
+  return v === null || v === undefined ? null : toFactId(v);
+}
+
+/** Normalize the BIGINT id columns of a fact row (see `toFactId`). */
+export function normalizeFactRow<
+  T extends { id: number; superseded_by: number | null; consolidated_into: number | null },
+>(row: T): T {
+  return {
+    ...row,
+    id: toFactId(row.id),
+    superseded_by: toFactIdOrNull(row.superseded_by),
+    consolidated_into: toFactIdOrNull(row.consolidated_into),
+  };
+}
+
+/**
  * Entity-prefiltered nearest-neighbour candidates for the classifier, scored by
  * cosine similarity (`1 - <=> distance`) and ordered best-first. Scoped to the
  * new fact's effective source so dedup never crosses a tenant boundary, and to
@@ -289,7 +320,7 @@ async function fetchDedupCandidates(
     [entitySlug, vecJson, effectiveSource, limit],
   );
   return r.rows.map((row) => ({
-    id: row.id,
+    id: toFactId(row.id),
     fact: row.fact,
     kind: row.kind,
     cos: Number(row.cos),
@@ -346,7 +377,7 @@ export async function findLiveClaim(
       LIMIT 1`,
     [id.entity_slug, id.source_id, id.fact, id.written_by],
   );
-  return r.rows[0]?.id ?? null;
+  return toFactIdOrNull(r.rows[0]?.id);
 }
 
 export interface FactRow {
@@ -644,7 +675,7 @@ export async function addFact(
      RETURNING id`,
     params,
   );
-  const newId = r.rows[0]?.id ?? null;
+  const newId = toFactIdOrNull(r.rows[0]?.id);
   const inserted = chunkId === null ? true : r.rows.length > 0;
 
   // A re-emitted chunk fact collapses onto the row already on file, so a
@@ -889,8 +920,9 @@ export async function listFacts(
        LIMIT $${params.length}`,
     params,
   );
-  if (!wantDecay) return r.rows;
-  return rankByDecay(r.rows, limit);
+  const rows = r.rows.map(normalizeFactRow);
+  if (!wantDecay) return rows;
+  return rankByDecay(rows, limit);
 }
 
 /**
@@ -982,7 +1014,7 @@ export async function listSupersessions(
        LIMIT $${params.length}`,
     params,
   );
-  return r.rows;
+  return r.rows.map(normalizeFactRow);
 }
 
 /**

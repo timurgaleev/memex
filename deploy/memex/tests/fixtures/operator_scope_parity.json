@@ -631,11 +631,12 @@
     }
   },
   {
-    "call": "entity_facts {\"slug\":\"people/alice\"}",
+    "call": "entity_facts {\"entity_slug\":\"people/alice\"}",
     "sql": [
       {
-        "text": "SELECT id, entity_slug, fact, confidence, source_slug, source_chunk_id, written_by, written_at::text AS written_at, kind, notability, valid_from::text AS valid_from, valid_until::text AS valid_until, visibility, superseded_by, consolidated_into, context, source_session, forgotten_at::text AS forgotten_at FROM entity_facts WHERE forgotten_at IS NULL AND dimension IS NULL AND (valid_until IS NULL OR valid_until >= CURRENT_DATE) ORDER BY confidence DESC, written_at DESC, id DESC LIMIT $1",
+        "text": "SELECT id, entity_slug, fact, confidence, source_slug, source_chunk_id, written_by, written_at::text AS written_at, kind, notability, valid_from::text AS valid_from, valid_until::text AS valid_until, visibility, superseded_by, consolidated_into, context, source_session, forgotten_at::text AS forgotten_at FROM entity_facts WHERE entity_slug = $1 AND forgotten_at IS NULL AND dimension IS NULL AND (valid_until IS NULL OR valid_until >= CURRENT_DATE) ORDER BY confidence DESC, written_at DESC, id DESC LIMIT $2",
         "params": [
+          "people/alice",
           1000
         ]
       }
@@ -644,7 +645,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"ok\": true,\n  \"entity_slug\": null,\n  \"facts\": [\n    {\n      \"id\": 2,\n      \"entity_slug\": \"people/alice\",\n      \"fact\": \"BBB_FACT_TRAJECTORY_seed\",\n      \"confidence\": 1,\n      \"source_slug\": null,\n      \"source_chunk_id\": null,\n      \"written_by\": \"unattributed\",\n      \"written_at\": \"<ts>\",\n      \"kind\": \"belief\",\n      \"notability\": null,\n      \"valid_from\": null,\n      \"valid_until\": null,\n      \"visibility\": \"private\",\n      \"superseded_by\": null,\n      \"consolidated_into\": null,\n      \"context\": null,\n      \"source_session\": null,\n      \"forgotten_at\": null\n    },\n    {\n      \"id\": 1,\n      \"entity_slug\": \"people/alice\",\n      \"fact\": \"AAA_FACT_TRAJECTORY_seed\",\n      \"confidence\": 1,\n      \"source_slug\": null,\n      \"source_chunk_id\": null,\n      \"written_by\": \"unattributed\",\n      \"written_at\": \"<ts>\",\n      \"kind\": \"belief\",\n      \"notability\": null,\n      \"valid_from\": null,\n      \"valid_until\": null,\n      \"visibility\": \"private\",\n      \"superseded_by\": null,\n      \"consolidated_into\": null,\n      \"context\": null,\n      \"source_session\": null,\n      \"forgotten_at\": null\n    }\n  ]\n}"
+          "text": "{\n  \"ok\": true,\n  \"entity_slug\": \"people/alice\",\n  \"facts\": [\n    {\n      \"id\": 2,\n      \"entity_slug\": \"people/alice\",\n      \"fact\": \"BBB_FACT_TRAJECTORY_seed\",\n      \"confidence\": 1,\n      \"source_slug\": null,\n      \"source_chunk_id\": null,\n      \"written_by\": \"unattributed\",\n      \"written_at\": \"<ts>\",\n      \"kind\": \"belief\",\n      \"notability\": null,\n      \"valid_from\": null,\n      \"valid_until\": null,\n      \"visibility\": \"private\",\n      \"superseded_by\": null,\n      \"consolidated_into\": null,\n      \"context\": null,\n      \"source_session\": null,\n      \"forgotten_at\": null\n    },\n    {\n      \"id\": 1,\n      \"entity_slug\": \"people/alice\",\n      \"fact\": \"AAA_FACT_TRAJECTORY_seed\",\n      \"confidence\": 1,\n      \"source_slug\": null,\n      \"source_chunk_id\": null,\n      \"written_by\": \"unattributed\",\n      \"written_at\": \"<ts>\",\n      \"kind\": \"belief\",\n      \"notability\": null,\n      \"valid_from\": null,\n      \"valid_until\": null,\n      \"visibility\": \"private\",\n      \"superseded_by\": null,\n      \"consolidated_into\": null,\n      \"context\": null,\n      \"source_session\": null,\n      \"forgotten_at\": null\n    }\n  ]\n}"
         }
       ]
     }
@@ -943,16 +944,15 @@
     }
   },
   {
-    "call": "volunteer_context {\"q\":\"kangaroo\"}",
+    "call": "volunteer_context {\"window\":\"kangaroo\"}",
     "sql": [],
     "result": {
       "content": [
         {
           "type": "text",
-          "text": "volunteer_context: `window` is required"
+          "text": "{\n  \"ok\": true,\n  \"pages\": []\n}"
         }
-      ],
-      "isError": true
+      ]
     }
   },
   {
@@ -1088,6 +1088,7 @@
         "text": "SELECT slug, type, title, updated_at::text AS updated_at, length(markdown_body) AS length, markdown_body FROM pages WHERE deleted_at IS NULL AND type = ANY($1::text[]) AND updated_at >= $2::timestamptz ORDER BY updated_at DESC LIMIT $3",
         "params": [
           [
+            "conversation",
             "meeting",
             "email",
             "journal",

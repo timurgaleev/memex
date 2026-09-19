@@ -1,7 +1,8 @@
 /**
  * Contract-derived param validation — `validateParams` enforces the declared
  * type / enum / min-max of present params, throwing OperationError. Required-
- * presence is left to the per-handler guards; unknown params are not rejected.
+ * presence is left to the per-handler guards. Unknown params are rejected with a
+ * did-you-mean hint unless MEMEX_MCP_LENIENT_ARGS=1.
  *
  * The PARITY test is the safety proof: for every operation, a param set built
  * from the contract's own valid boundary values must pass — so enabling
@@ -85,8 +86,71 @@ describe("validateParams — unit", () => {
     expect(() => validateParams(backlinks, { name: "a", type: "bogus" })).toThrow();
   });
 
-  it("ignores unknown params (lenient)", () => {
-    expect(() => validateParams(search, { q: "x", made_up_field: 99 })).not.toThrow();
+  const caught = (fn: () => void): { code: string; message: string; suggestion?: string } => {
+    try {
+      fn();
+    } catch (e) {
+      expect(isOperationError(e)).toBe(true);
+      return e as { code: string; message: string; suggestion?: string };
+    }
+    throw new Error("should have thrown");
+  };
+
+  it("rejects an unknown param by default, naming it", () => {
+    const e = caught(() => validateParams(search, { q: "x", made_up_field: 99 }));
+    expect(e.code).toBe("invalid_params");
+    expect(e.message).toContain("`made_up_field`");
+  });
+
+  it("suggests the declared key a misspelling is one edit from", () => {
+    const e = caught(() => validateParams(opByName("page_put"), { slug: "s", markdown_bdy: "b" }));
+    expect(e.suggestion).toBe("Did you mean `markdown_body`?");
+  });
+
+  it("lists the accepted arguments when no declared key is close", () => {
+    const e = caught(() => validateParams(opByName("page_put"), { slug: "s", body: "b" }));
+    expect(e.message).toContain("`body`");
+    expect(e.suggestion).toContain("Accepted arguments:");
+    expect(e.suggestion).toContain("markdown_body");
+  });
+
+  it("reports at most 5 unknown keys, each truncated to 64 characters", () => {
+    const long = "z".repeat(500);
+    const params: Record<string, unknown> = { q: "x", [long]: 1 };
+    for (let i = 0; i < 8; i++) params[`extra_${i}`] = i;
+    const e = caught(() => validateParams(search, params));
+    expect(e.message).toContain(`\`${"z".repeat(64)}…\``);
+    expect(e.message).not.toContain("z".repeat(65));
+    expect(e.message).toContain("(+4 more)");
+    expect(e.message.match(/`/g)?.length).toBe(10);
+  });
+
+  it("accepts unknown params again with MEMEX_MCP_LENIENT_ARGS=1", () => {
+    const prev = process.env.MEMEX_MCP_LENIENT_ARGS;
+    process.env.MEMEX_MCP_LENIENT_ARGS = "1";
+    try {
+      expect(() => validateParams(search, { q: "x", made_up_field: 99 })).not.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.MEMEX_MCP_LENIENT_ARGS;
+      else process.env.MEMEX_MCP_LENIENT_ARGS = prev;
+    }
+  });
+
+  it("refuses a huge unknown key in time linear in its length", () => {
+    const op = opByName("page_put");
+    const time = (len: number): number => {
+      const key = "k".repeat(len);
+      const t0 = performance.now();
+      for (let i = 0; i < 20; i++) {
+        expect(() => validateParams(op, { slug: "s", [key]: 1 })).toThrow();
+      }
+      return performance.now() - t0;
+    };
+    time(10_000); // warm-up
+    const small = Math.max(time(10_000), 0.5);
+    const big = time(100_000);
+    // 10x the input: a linear path grows ~10x, a quadratic distance ~100x.
+    expect(big / small).toBeLessThan(40);
   });
 
   // Assert the throw is specifically an Operation('invalid_params'), not a raw
