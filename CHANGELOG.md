@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.147.0] — 2026-09-19
+
 ### Added
 - **Connected agents get the memex contract at `initialize`.** The MCP
   handshake now returns `instructions`: search before writing, treat
