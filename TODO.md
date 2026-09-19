@@ -1940,6 +1940,26 @@ stubbed failing judge ends `judge_failed`; accepting a proposal writes exactly
 one fence row; undoing a grading wave restores prior take statuses in one
 transaction.
 
+**Progress.** Release A (unreleased), durable withdrawal: migration 112 adds
+`fact_withdrawals`, the `memex_fact_claim_key()` SQL normalization (trim,
+collapse whitespace, lowercase, md5), a BEFORE INSERT trigger on
+`entity_facts` that lands any withdrawn claim already forgotten whatever the
+write path, and a backfill from existing `forget`/legacy tombstones that also
+retires the live copies that came back. `forget_fact` records the withdrawal
+and retires every live duplicate in the row's own source in one transaction
+under a per-source advisory lock (`withdrawn_duplicates` in the result);
+`add_fact` refuses a withdrawn claim before the paid embed/classify path
+(`withdrawn: true`, `id: null`); fence reconcile skips withdrawn claims so
+re-puts do not pile up tombstones. The first "Done when" item holds. Deviation
+from the scope text: the key also carries `entity_slug`, so a short claim
+forgotten on one subject is not suppressed on another. Withdrawals are
+permanent: there is no unwithdraw path yet (needs an operator decision). Still
+open: takes write tools and holder-gated `set_take_status` (needs RM-07),
+`add_fact` kind/notability/source_session, contradiction honesty, the proposal
+queue, calibration consumers, the `idea` kind and fence `superseded by #N` /
+`forgotten: reason`, bulk-path entity canonicalization check, and the stretch
+items. Live trigger latency on RDS is still to be measured after deploy.
+
 ### RM-17 — Tenant-aware cycle orchestration
 
 **Why.** `runCycleOnce` is one brain-wide pass that never takes a source

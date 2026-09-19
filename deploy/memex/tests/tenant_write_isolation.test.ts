@@ -219,7 +219,7 @@ describe("forgetFact write scope", () => {
   it("a forget scoped to B tombstones B's own fact; unscoped works too", async () => {
     const idA = (await addFact(storage, { entity_slug: ENTITY, fact: "a-own fact", source_id: A })).id!;
     const idB = (await addFact(storage, { entity_slug: ENTITY, fact: "b-own fact", source_id: B })).id!;
-    expect(await forgetFact(storage, idB, {}, [B])).toEqual({ id: idB, found: true, forgotten: true });
+    expect(await forgetFact(storage, idB, {}, [B])).toEqual({ id: idB, found: true, forgotten: true, withdrawn_duplicates: 0 });
     expect(await recallFact(storage, idB)).toBeNull();
     // Behavior-neutral: an unscoped forget still tombstones the fact.
     expect((await forgetFact(storage, idA)).forgotten).toBe(true);

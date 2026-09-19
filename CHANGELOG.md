@@ -27,6 +27,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no audit rows under any secret disposition.
 
 ### Fixed
+- **Forgotten facts stay forgotten.** Forgetting a fact now withdraws the
+  claim for that entity, source and visibility: re-adding it, re-extracting it
+  from another page or transcript, or an agent re-asserting it (whitespace and
+  case do not matter) no longer brings it back. `add_fact` returns
+  `withdrawn: true` without writing, `forget_fact` also retires every other
+  live copy of the claim and reports `withdrawn_duplicates`, and copies that
+  already came back after an earlier forget are retired when the upgrade
+  migrates. A superseded fact is not withdrawn and can still re-enter.
 - **Conversation-facts backfill no longer re-bills Sonnet for transcripts that
   yield no facts.** A page whose extraction read cleanly but produced no new
   fact is remembered per (source, slug, content hash, extractor version), and

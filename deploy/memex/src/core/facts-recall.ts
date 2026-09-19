@@ -117,6 +117,18 @@ export interface ForgetFactResult {
   found: boolean;
   /** True only when this call flipped a live fact to forgotten. */
   forgotten: boolean;
+  /**
+   * Other live copies of the same claim (same source, visibility, subject and
+   * normalized text) this forget also retired. Always 0 for a supersede or an
+   * unflipped call.
+   */
+  withdrawn_duplicates: number;
+}
+
+/** Advisory-lock key serializing a source's forgets against its fact inserts
+ *  (the insert trigger in migration 112 takes the same key shared). */
+function withdrawLockKey(sourceId: string): string {
+  return `memex:fact-withdraw:${sourceId}`;
 }
 
 /**
@@ -125,6 +137,10 @@ export interface ForgetFactResult {
  *   - unknown id          -> { found: false, forgotten: false }
  *   - already-forgotten   -> { found: true,  forgotten: false }
  *   - live -> tombstoned  -> { found: true,  forgotten: true  }
+ *
+ * A `forget` (not a `supersede`) also withdraws the claim (migration 112): the
+ * claim key is recorded in `fact_withdrawals`, every other live copy of it in
+ * the row's source is retired, and any later insert of it lands forgotten.
  */
 export async function forgetFact(
   storage: Storage,
@@ -137,25 +153,83 @@ export async function forgetFact(
   // Structured cause (mig062) — defaults to 'forget'; a supersede/dedup path
   // passes 'supersede'. The CHECK constraint rejects any other value.
   const cause: ForgetCause = input.cause === "supersede" ? "supersede" : "forget";
-  // Tenant write scope (mig047): when a scope is given, both the
+  // Tenant write scope (mig047): when a scope is given, the row lookup, the
   // tombstone UPDATE and the existence probe are confined to it. A fact owned by
-  // another source neither flips (out of the UPDATE) nor reports found — a
-  // scoped caller can never forget, or even prove the existence of, a sibling
-  // tenant's fact. An empty scope touches nothing. Unset → whole-brain by id.
-  // Single statement: stamp the tombstone ONLY on a currently-live row. The
-  // RETURNING tells us whether this call did the flip; a separate existence
-  // probe disambiguates unknown-id from already-forgotten.
-  const updParams: unknown[] = [factId, reason, cause];
-  const updFilter = andSourceScope("source_id", sourceIds, updParams);
-  const upd = await storage.engine().query<{ id: number }>(
-    `UPDATE entity_facts
-        SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
-      WHERE id = $1 AND forgotten_at IS NULL${updFilter}
-      RETURNING id`,
-    updParams,
-  );
-  if (upd.rows.length > 0) {
-    return { id: factId, found: true, forgotten: true };
+  // another source neither flips nor reports found — a scoped caller can never
+  // forget, or even prove the existence of, a sibling tenant's fact. An empty
+  // scope touches nothing. Unset → whole-brain by id. The withdrawal and the
+  // duplicate sweep take the flipped row's own source, so they can never reach
+  // past what the scope already allowed.
+  const flipped = await storage.engine().transaction(async (tx) => {
+    const lookParams: unknown[] = [factId];
+    const lookFilter = andSourceScope("source_id", sourceIds, lookParams);
+    const live = await tx.query<{ source_id: string }>(
+      `SELECT source_id FROM entity_facts
+        WHERE id = $1 AND forgotten_at IS NULL${lookFilter}`,
+      lookParams,
+    );
+    const row = live.rows[0];
+    if (!row) return null;
+    // Taken before the flip: an insert of this claim that already passed its
+    // ledger check holds the lock shared until it commits, so the sweep below
+    // sees it.
+    if (cause === "forget") {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        withdrawLockKey(row.source_id),
+      ]);
+    }
+    const upd = await tx.query<{
+      source_id: string;
+      visibility: string;
+      entity_slug: string;
+      dimension: string | null;
+      claim_key: string;
+    }>(
+      `UPDATE entity_facts
+          SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
+        WHERE id = $1 AND forgotten_at IS NULL
+        RETURNING source_id, visibility, entity_slug, dimension,
+                  memex_fact_claim_key(fact) AS claim_key`,
+      [factId, reason, cause],
+    );
+    const hit = upd.rows[0];
+    if (!hit) return null;
+    if (cause !== "forget" || hit.dimension !== null) return { duplicates: 0 };
+    await tx.query(
+      `INSERT INTO fact_withdrawals
+         (source_id, visibility, entity_slug, claim_key, first_fact_id, reason)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT DO NOTHING`,
+      [hit.source_id, hit.visibility, hit.entity_slug, hit.claim_key, factId, reason],
+    );
+    const swept = await tx.query<{ id: number }>(
+      `UPDATE entity_facts
+          SET forgotten_at = NOW(), forgotten_cause = 'forget',
+              forgotten_reason = $6
+        WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
+          AND memex_fact_claim_key(fact) = $4
+          AND id <> $5
+          AND forgotten_at IS NULL
+          AND dimension IS NULL
+        RETURNING id`,
+      [
+        hit.source_id,
+        hit.visibility,
+        hit.entity_slug,
+        hit.claim_key,
+        factId,
+        `withdrawn with fact ${factId}`,
+      ],
+    );
+    return { duplicates: swept.rows.length };
+  });
+  if (flipped !== null) {
+    return {
+      id: factId,
+      found: true,
+      forgotten: true,
+      withdrawn_duplicates: flipped.duplicates,
+    };
   }
   // No flip: either the id is unknown (or out of scope), or it was already
   // forgotten. One cheap, same-scope existence probe tells the two apart so the
@@ -170,5 +244,6 @@ export async function forgetFact(
     id: factId,
     found: exists.rows.length > 0,
     forgotten: false,
+    withdrawn_duplicates: 0,
   };
 }

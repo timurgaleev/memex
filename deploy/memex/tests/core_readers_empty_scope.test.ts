@@ -173,7 +173,7 @@ describe("facts", () => {
   });
 
   it("forgetFact with [] neither forgets nor proves existence", async () => {
-    expect(await forgetFact(storage, factId, {}, NONE)).toEqual({ id: factId, found: false, forgotten: false });
+    expect(await forgetFact(storage, factId, {}, NONE)).toEqual({ id: factId, found: false, forgotten: false, withdrawn_duplicates: 0 });
     expect((await recallFact(storage, factId))?.forgotten_at).toBeNull();
   });
 });

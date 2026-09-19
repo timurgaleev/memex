@@ -181,12 +181,12 @@ describe("restating a claim", () => {
     const first = await addFact(storage, { entity_slug: E, fact: "runs the office" });
     await forgetFact(storage, first.id!, { reason: "wrong" });
     const again = await addFact(storage, { entity_slug: E, fact: "runs the office" });
-    // A new row, not the tombstone brought back to life.
-    expect(again.inserted).toBe(true);
-    expect(again.id).not.toBe(first.id);
-    const live = await listFacts(storage, E);
-    expect(live).toHaveLength(1);
-    expect(live[0]!.id).toBe(again.id!);
+    // Neither the tombstone brought back to life nor a fresh copy: the forget
+    // withdrew the claim (migration 112).
+    expect(again.inserted).toBe(false);
+    expect(again.withdrawn).toBe(true);
+    expect(again.id).toBeNull();
+    expect(await listFacts(storage, E)).toHaveLength(0);
   });
 
   it("agrees with the consolidate phase about what is already on file", async () => {

@@ -218,6 +218,25 @@ export async function reconcileFactsForPage(
       else forgottenLegacyText.add(r.fact);
     }
 
+    // A claim withdrawn by a forget anywhere in this source — an add_fact row, a
+    // transcript extraction, another fence row — is skipped too (migration 112).
+    // The insert trigger would land it forgotten anyway, but the wipe spares
+    // tombstones, so every re-put would pile up one more. Fence rows take the
+    // column DEFAULTs: visibility 'private', source 'default' when unscoped.
+    const withdrawnClaims = new Set<string>();
+    if (facts.length > 0) {
+      const w = await tx.query<{ claim: string }>(
+        `SELECT c.claim FROM unnest($1::text[]) AS c(claim)
+          WHERE EXISTS (
+            SELECT 1 FROM fact_withdrawals w
+             WHERE w.source_id = $2 AND w.visibility = 'private'
+               AND w.entity_slug = $3
+               AND w.claim_key = memex_fact_claim_key(c.claim))`,
+        [facts.map((f) => f.claim), scope ?? "default", pageSlug],
+      );
+      for (const r of w.rows) withdrawnClaims.add(r.claim);
+    }
+
     const delParams: unknown[] = [pageSlug];
     if (scope !== null) delParams.push(scope);
     const del = await tx.query<{ c: number }>(
@@ -235,6 +254,7 @@ export async function reconcileFactsForPage(
       // A forgotten row stays forgotten across a fence rebuild (by row_num; legacy
       // NULL-row tombstones by text).
       if (forgottenRows.has(f.rowNum) || forgottenLegacyText.has(f.claim)) continue;
+      if (withdrawnClaims.has(f.claim)) continue;
       const insParams: unknown[] = [
         pageSlug,
         f.claim,

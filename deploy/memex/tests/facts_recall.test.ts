@@ -71,7 +71,7 @@ describe("forgetFact", () => {
   it("tombstones a live fact and hides it from recall", async () => {
     const id = await seedFact();
     const r = await forgetFact(storage, id);
-    expect(r).toEqual({ id, found: true, forgotten: true });
+    expect(r).toEqual({ id, found: true, forgotten: true, withdrawn_duplicates: 0 });
     expect(await recallFact(storage, id)).toBeNull();
   });
 
@@ -79,12 +79,12 @@ describe("forgetFact", () => {
     const id = await seedFact();
     await forgetFact(storage, id);
     const second = await forgetFact(storage, id);
-    expect(second).toEqual({ id, found: true, forgotten: false });
+    expect(second).toEqual({ id, found: true, forgotten: false, withdrawn_duplicates: 0 });
   });
 
   it("reports found=false for an unknown id", async () => {
     const r = await forgetFact(storage, 999999);
-    expect(r).toEqual({ id: 999999, found: false, forgotten: false });
+    expect(r).toEqual({ id: 999999, found: false, forgotten: false, withdrawn_duplicates: 0 });
   });
 
   it("stores the optional reason on the tombstoned row", async () => {

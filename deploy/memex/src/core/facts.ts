@@ -329,8 +329,8 @@ type Queryable = Pick<Engine, "query">;
 /**
  * Id of the LIVE row already holding this claim, or null. Tombstoned rows are
  * excluded on purpose: a forgotten claim stays forgotten, and re-asserting it
- * lands a new row rather than quietly resurrecting the one the operator
- * retired. Dimensional ontology rows (mig097) have their own write path and are
+ * never quietly resurrects the row the operator retired (the withdrawal ledger,
+ * migration 112, keeps it from landing live at all). Dimensional ontology rows (mig097) have their own write path and are
  * never a match here.
  */
 export async function findLiveClaim(
@@ -380,6 +380,28 @@ export interface AddFactResult {
   /** False when the claim was already on file — the row on file was refreshed
    *  (see `findLiveClaim`) or the chunk tuple collided — so nothing new landed. */
   inserted: boolean;
+  /** Set when the claim was withdrawn by an earlier forget (migration 112):
+   *  nothing was written and `id` is null. */
+  withdrawn?: true;
+}
+
+/**
+ * True when a forget has withdrawn this claim for this source, visibility and
+ * subject (migration 112). The claim key is computed by the same SQL function
+ * the insert trigger uses, so the two cannot disagree on what "the same claim"
+ * means.
+ */
+export async function isClaimWithdrawn(
+  q: Queryable,
+  key: { source_id: string; visibility: string; entity_slug: string; fact: string },
+): Promise<boolean> {
+  const r = await q.query<{ hit: number }>(
+    `SELECT 1 AS hit FROM fact_withdrawals
+      WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
+        AND claim_key = memex_fact_claim_key($4)`,
+    [key.source_id, key.visibility, key.entity_slug, key.fact],
+  );
+  return r.rows.length > 0;
 }
 
 function normaliseConfidence(c: number | undefined): number {
@@ -450,6 +472,26 @@ export async function addFact(
     { fact: input.fact, context: input.context },
   );
   const factContext = normaliseText(context);
+
+  // A forgotten claim stays forgotten. Checked before the restatement lookup
+  // and the paid embed/classify path: a withdrawn claim costs nothing and
+  // writes nothing. The insert trigger enforces the same rule for every other
+  // write path; this only spares the tombstone and the Bedrock call.
+  if (
+    await isClaimWithdrawn(storage.engine(), {
+      source_id: effectiveSource,
+      visibility: visibility ?? "private",
+      entity_slug: input.entity_slug,
+      fact,
+    })
+  ) {
+    return {
+      id: null,
+      entity_slug: input.entity_slug,
+      inserted: false,
+      withdrawn: true,
+    };
+  }
 
   // Restatement collapse. Free, deterministic and always on, so it runs BEFORE
   // the paid embed/classify path below: the same claim, same subject, same
