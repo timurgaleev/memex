@@ -571,7 +571,6 @@ async function dispatchToolInner(
           readSources,
           isOperator,
           opts.embedQuery,
-          opts.isPublic ?? false,
         );
       case "index":
         return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
@@ -835,7 +834,6 @@ async function callSearch(
   readSources?: string[],
   isOperator = false,
   embedQuery?: SearchOptions["embedQuery"],
-  isPublic = false,
 ): Promise<ToolCallResult> {
   const q = args["q"];
   if (typeof q !== "string" || q.length === 0) {
@@ -958,9 +956,10 @@ async function callSearch(
   const out = redact
     ? redactBodies(visible as unknown as Record<string, unknown>[])
     : visible;
-  // Public ingress sees reason codes only, keyed on the ingress rather than on
-  // body redaction: counts are an existence oracle even when bodies are opted in.
-  const metaOut = responseSearchMeta(meta, out.length, isPublic);
+  // Non-operators see corpus-independent reason codes only, keyed on the caller
+  // rather than on body redaction: counts are an existence oracle even when
+  // bodies are opted in.
+  const metaOut = responseSearchMeta(meta, out.length, isOperator);
   const metaField = metaOut ? { meta: metaOut } : {};
   // A set-shaped question ("all the companies that…", "what are the different
   // approaches to…") is exactly the shape `search` answers badly when query
@@ -999,17 +998,19 @@ async function callSearch(
 }
 
 /**
- * The `meta` block a search-backed tool returns. `returned` is re-counted after
- * the offset slice and the diary/page fences, so it matches the hits the caller
- * actually receives.
+ * The `meta` block a search-backed tool returns. The operator gets the full
+ * meta with `returned` re-counted after the offset slice. Everyone else (public
+ * ingress and OAuth tenants alike) gets the redacted form: `retrieved`,
+ * keyword_zero and budget_truncated are measured before hydrate re-scopes the
+ * pool and before the diary/page fences, so they would confirm fenced matches.
  */
 function responseSearchMeta(
   meta: SearchMeta | undefined,
   returned: number,
-  isPublic: boolean,
+  isOperator: boolean,
 ): SearchMeta | ReturnType<typeof publicSearchMeta> | undefined {
   if (!meta) return undefined;
-  return isPublic ? publicSearchMeta(meta) : { ...meta, returned };
+  return isOperator ? { ...meta, returned } : publicSearchMeta(meta);
 }
 
 async function callIndex(
@@ -2918,8 +2919,7 @@ async function callQuery(
   const hitsOffset = offset > 0 ? hitsAll.slice(offset) : hitsAll;
   // Diary fence for the non-operator caller (mirrors callSearch).
   const hits = fenceDiaryHits(hitsOffset, isOperator);
-  // `query` is public-forbidden, so the caller here is the operator or a tenant.
-  const metaOut = responseSearchMeta(meta, hits.length, false);
+  const metaOut = responseSearchMeta(meta, hits.length, isOperator);
   return jsonResult({ ok: true, hits, ...(metaOut ? { meta: metaOut } : {}) });
 }
 

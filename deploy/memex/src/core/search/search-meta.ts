@@ -3,9 +3,11 @@
  * search ran degraded". `hybridSearch` reports it through the `onMeta` side
  * channel; the hits array itself never changes shape.
  *
- * The degraded vocabulary is closed on purpose: a reason code is safe to show
- * on public ingress, a count is not (retrieved/returned would turn an empty
- * public result into an existence oracle for chunks the caller cannot see).
+ * The degraded vocabulary is closed on purpose. A non-operator caller gets
+ * only the codes that describe the pipeline rather than the corpus: counts,
+ * keyword_zero and budget_truncated are all computed before the dispatch-side
+ * page and diary fences, so on an empty fenced result they would still tell
+ * the caller that hidden content matched its query.
  */
 import type { Intent } from "./intent.ts";
 
@@ -40,8 +42,18 @@ export interface PublicSearchMeta {
   degraded: DegradedReason[];
 }
 
+/** Reason codes that do not depend on what the corpus holds. */
+const CORPUS_INDEPENDENT_REASONS: ReadonlySet<DegradedReason> = new Set([
+  "embed_timeout",
+  "vector_arm_failed",
+]);
+
+/** The meta a non-operator caller (public ingress or an OAuth tenant) sees. */
 export function publicSearchMeta(meta: SearchMeta): PublicSearchMeta {
-  return { vectorEnabled: meta.vectorEnabled, degraded: [...meta.degraded] };
+  return {
+    vectorEnabled: meta.vectorEnabled,
+    degraded: meta.degraded.filter((r) => CORPUS_INDEPENDENT_REASONS.has(r)),
+  };
 }
 
 const REASON_TEXT: Record<DegradedReason, string> = {

@@ -38,7 +38,7 @@ const STUB_META = {
   intent: "topic",
   mode: "conservative",
   cache: "miss",
-  degraded: ["embed_timeout"],
+  degraded: ["embed_timeout", "keyword_zero"],
   retrieved: 7,
   returned: 2,
 };
@@ -243,9 +243,16 @@ describe("dispatchTool search/query meta", () => {
     const ten = payload(
       await dispatchTool(storage, { name: "query", arguments: { q: "revenue" } }, tenant),
     );
-    expect(ten.meta.degraded).toEqual(["embed_timeout"]);
-    expect(ten.meta.retrieved).toBe(7);
-    expect(ten.meta.returned).toBe(ten.hits.length);
+    // A tenant is a non-operator: counts and corpus-dependent codes are
+    // measured before the diary fence, so it gets the redacted form.
+    expect(ten.meta).toEqual({ vectorEnabled: false, degraded: ["embed_timeout"] });
+  });
+
+  it("tenant search gets the redacted meta too", async () => {
+    const out = payload(
+      await dispatchTool(storage, { name: "search", arguments: { q: "revenue" } }, tenant),
+    );
+    expect(out.meta).toEqual({ vectorEnabled: false, degraded: ["embed_timeout"] });
   });
 });
 

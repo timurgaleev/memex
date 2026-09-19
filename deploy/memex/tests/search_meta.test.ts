@@ -79,13 +79,13 @@ const failingEmbedder = async (): Promise<number[]> => {
 };
 
 describe("SearchMeta helpers", () => {
-  it("publicSearchMeta keeps only the vector flag and reason codes", () => {
+  it("publicSearchMeta keeps only the vector flag and corpus-independent reason codes", () => {
     const pub = publicSearchMeta({
       vectorEnabled: false,
       intent: "topic",
       mode: "conservative",
       cache: "miss",
-      degraded: ["embed_timeout"],
+      degraded: ["embed_timeout", "keyword_zero", "budget_truncated"],
       retrieved: 12,
       returned: 3,
     });

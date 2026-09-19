@@ -1522,8 +1522,12 @@ rerank on; `weak` fires on a no-answer fixture and `strong` on an exact match.
 vocabulary; `hybridSearch` reports it through an `onMeta` side channel and
 emits `embed_timeout` (a `QueryEmbedDeadlineError` or the deadline's abort),
 `vector_arm_failed`, `keyword_zero` and `budget_truncated`. `search`/`query`
-return `meta` (public ingress: `vectorEnabled` + `degraded` only, keyed on
-the ingress so `MEMEX_PUBLIC_READ_BODIES` cannot leak counts); `memex search`
+return `meta`; only the operator gets the full block. Public callers and OAuth
+tenants get `vectorEnabled` plus the corpus-independent codes (`embed_timeout`,
+`vector_arm_failed`), keyed on the caller rather than on body redaction:
+counts, `keyword_zero` and `budget_truncated` are computed before the page and
+diary fences, so they would confirm fenced matches (real-Storage test in
+`tests/search_meta_fences.test.ts`); `memex search`
 prints it and explains an empty result on stderr. Degraded runs are still
 never cached, so a cache hit reports `vectorEnabled:true`. Still open:
 emitting `expansion_failed`/`rerank_skipped` (the expander and rerankers fail
@@ -1532,7 +1536,8 @@ migration), meta on the `query` `refine` path, pool underfill, AND→OR relaxed
 retry, fusion roles/variants and the pool floor, keyword confidence and the
 boost gate, the exact-lookup tier, supersede downrank and rerank pin, the
 confidence grade, snippet cap, filter pushdown, degraded counts in telemetry,
-`search_stats`/`search_modes`/`cache_stats` ops, and the CJK stretch.
+`search_stats`/`search_modes`/`cache_stats` ops, the CJK stretch, and
+recomputing `keyword_zero`/counts after the fences so tenants can get them.
 
 ### RM-12 — Ambient recall and session context
 
