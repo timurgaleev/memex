@@ -8,26 +8,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.144.0] — 2026-09-19
 
-### Changed
-- **Six call sites can run on a model of their own.** `MEMEX_THINK_MODEL`,
-  `MEMEX_DRIFT_MODEL`, `MEMEX_CONCEPTS_MODEL`, `MEMEX_EXPANSION_MODEL`,
-  `MEMEX_INTENT_MODEL` and `MEMEX_RERANK_MODEL` override the tier's model for
-  that one feature (an explicit per-call model still wins). Query expansion,
-  intent classification and the rerank pass had their Haiku id written into
-  the code and ignored `MEMEX_UTILITY_MODEL`; they now follow it. With none of
-  these set nothing changes.
-- **One decoder reads every structured model reply.** Thirteen parsers each
-  carried their own copy of "find the fence, slice from the first brace"; they
-  now share one that skips a `<thinking>` block, reads an unclosed fence,
-  prefers the JSON inside a fence and falls back to the whole reply, using
-  only linear scans. Drift, pattern, enrichment and worth-gate replies wrapped
-  in a fence, and bias tags followed by prose, now parse where they used to be
-  dropped. A test keeps new parsers on it.
-
-### Fixed
-- **A malformed skill-improvement reply surfaced as a bare JSON syntax
-  error;** it now fails with a message naming what was missing.
-
 ### Added
 - **A shared per-run LLM budget now bounds calls running at the same time.**
   The contextual blurbs a write generates run several at once against one
@@ -55,7 +35,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A phase or job that timed out can no longer keep spending.** JavaScript
   cannot cancel the work it left running; its paid calls are now refused.
 
+### Changed
+- **Six call sites can run on a model of their own.** `MEMEX_THINK_MODEL`,
+  `MEMEX_DRIFT_MODEL`, `MEMEX_CONCEPTS_MODEL`, `MEMEX_EXPANSION_MODEL`,
+  `MEMEX_INTENT_MODEL` and `MEMEX_RERANK_MODEL` override the tier's model for
+  that one feature (an explicit per-call model still wins). Query expansion,
+  intent classification and the rerank pass had their Haiku id written into
+  the code and ignored `MEMEX_UTILITY_MODEL`; they now follow it. With none of
+  these set nothing changes.
+- **One decoder reads every structured model reply.** Thirteen parsers each
+  carried their own copy of "find the fence, slice from the first brace"; they
+  now share one that skips a `<thinking>` block, reads an unclosed fence,
+  prefers the JSON inside a fence and falls back to the whole reply, using
+  only linear scans. Drift, pattern, enrichment and worth-gate replies wrapped
+  in a fence, and bias tags followed by prose, now parse where they used to be
+  dropped. A test keeps new parsers on it.
+
 ### Fixed
+- **A malformed skill-improvement reply surfaced as a bare JSON syntax
+  error;** it now fails with a message naming what was missing.
 - **An access-denied error in fact extraction was logged as a flaky gateway.**
   Any three-digit run starting with 5 in the message — an account id in the
   role ARN — read as an HTTP 5xx, and chronicle retried it as transient. A
