@@ -881,31 +881,31 @@ decoder.
 set with `auth set-budget`, inherited on re-mint); the cap is read at token
 verification and carried on the spend context (null = uncapped, zero lookups);
 raw token columns and a nullable cost on `mcp_spend_log`; a capped caller is
-refused an unpriced model before send. R2 (unreleased): per-call worst-case
+refused an unpriced model before send. R2 (v1.144.0): per-call worst-case
 hold at `trackedInvoke` for capped clients, settled in the booking
 transaction; holds live to the end of the day; `withClientSpend` only refuses
 an already-spent day; search fallbacks rethrow refusals. Not covered: SDK
 retries of a timed-out attempt bill more than one worst case. R3
-(unreleased): `llm/bedrock-errors.ts` classifier; in-process circuit read at
+(v1.144.0): `llm/bedrock-errors.ts` classifier; in-process circuit read at
 `trackedInvoke` inside batch scopes (cycle phase, job, embed backfill,
 contextual re-embed), credential → all models, access/quota → that model, 5
 min; a timed-out phase/job's orphaned paid calls are refused. Not done: a
 cross-process cooldown row (one process spends today) and rescheduling a
-halted job at the circuit's reopen time. R4 (unreleased): migration 108;
+halted job at the circuit's reopen time. R4 (v1.144.0): migration 108;
 an enrollment-redeemed token spends under the enrollment id (`grant_id` on
 codes and tokens, `AuthInfo.spendId`), capped by the enrollment's cap else the
 connector's per person. LOW: PAT names, client ids and enrollment ids share
 one spend namespace; refuse PAT names with the `memex_cl_`/`memex_enr_`
 prefixes at mint. Not done: a combined connector-wide cap across all its
 enrolled people, and the admin spend page listing enrollments. R5
-(unreleased): `BudgetTracker.reserve/settle/release`; `wouldExceed` counts
+(v1.144.0): `BudgetTracker.reserve/settle/release`; `wouldExceed` counts
 holds; `generateChunkContext` migrated. Not done: takes, drift,
 contradictions, facts-classify and facts-extract still check then record
 (sequential today); an ambient tracker read inside `trackedInvoke`. Decoder
-(unreleased): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
+(v1.144.0): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
 in `tests/model_json.test.ts` with 5 stated exemptions; the two
 `isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose. Model keys
-(unreleased): `resolveModel(tier, override, feature)` with
+(v1.144.0): `resolveModel(tier, override, feature)` with
 `MEMEX_<FEATURE>_MODEL` for think, drift, concepts, expansion, intent, rerank.
 Not done: runtime-config overrides and the `v1-nova` prompt-version rename.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and

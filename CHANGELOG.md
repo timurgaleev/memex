@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.144.0] — 2026-09-19
+
 ### Changed
 - **Six call sites can run on a model of their own.** `MEMEX_THINK_MODEL`,
   `MEMEX_DRIFT_MODEL`, `MEMEX_CONCEPTS_MODEL`, `MEMEX_EXPANSION_MODEL`,
