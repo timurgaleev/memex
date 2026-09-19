@@ -16,6 +16,7 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { andSourceScope, normalizeScope } from "./source-scope.ts";
+import { codeIndexReadiness, type CodeIndexReadiness } from "./code-graph.ts";
 
 export type WalkDirection = "callers" | "callees";
 
@@ -55,7 +56,11 @@ export type WalkResult =
       truncation: "none" | "max_nodes" | "depth_cap" | "both";
       terminal_nodes?: { symbol: string; sink_kind: SinkKind }[];
     }
-  | { result: "not_found"; did_you_mean: { symbol_qualified: string }[] }
+  | {
+      result: "not_found";
+      did_you_mean: { symbol_qualified: string }[];
+      readiness: CodeIndexReadiness;
+    }
   | { result: "ambiguous"; candidates: { symbol_qualified: string }[] };
 
 export interface WalkOpts {
@@ -197,7 +202,11 @@ export async function runRecursiveWalk(
       // written bare at top level) rather than a hard not_found.
       const bareHop = await hop(engine, symbol, opts.direction, 1, sources);
       if (bareHop.length === 0) {
-        return { result: "not_found", did_you_mean: [] };
+        return {
+          result: "not_found",
+          did_you_mean: [],
+          readiness: await codeIndexReadiness(engine, opts.sourceIds),
+        };
       }
     } else if (matches.length > 1) {
       return {

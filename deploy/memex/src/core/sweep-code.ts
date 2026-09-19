@@ -97,10 +97,33 @@ function docId(sourcePath: string): string {
   return `doc_${shortHash(sourcePath)}`;
 }
 
+// Sweeps running in THIS process. The boot sweep runs inside the server that
+// answers MCP calls, so a process-local count is enough for the code tools to
+// tell "still indexing" from "not there"; an out-of-process `memex reindex` is
+// not visible here.
+let sweepsInFlight = 0;
+
+/** True while a code sweep started by this process has not finished. */
+export function codeSweepInProgress(): boolean {
+  return sweepsInFlight > 0;
+}
+
 /**
  * Walk every code path, mtime-skip, reindex stale.
  */
 export async function sweepCodeRoots(
+  storage: Storage,
+  opts: SweepCodeOptions,
+): Promise<SweepCodeResult> {
+  sweepsInFlight++;
+  try {
+    return await sweepCodeRootsInner(storage, opts);
+  } finally {
+    sweepsInFlight--;
+  }
+}
+
+async function sweepCodeRootsInner(
   storage: Storage,
   opts: SweepCodeOptions,
 ): Promise<SweepCodeResult> {

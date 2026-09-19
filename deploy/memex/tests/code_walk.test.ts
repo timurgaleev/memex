@@ -92,6 +92,32 @@ describe("runRecursiveWalk — callers (code_blast)", () => {
       direction: "callers",
     });
     expect(r.result).toBe("not_found");
+    if (r.result !== "not_found") return;
+    // The index is built here, so the symbol really is absent.
+    expect(r.readiness.state).toBe("ready");
+    expect(r.readiness.code_documents).toBeGreaterThanOrEqual(2);
+  });
+  it("gives a caller granted nothing not_built readiness on not_found", async () => {
+    const r = await runRecursiveWalk(storage.engine(), "alpha", {
+      direction: "callers",
+      sourceIds: [],
+    });
+    expect(r).toEqual({
+      result: "not_found",
+      did_you_mean: [],
+      readiness: { state: "not_built", code_documents: 0, symbols: 0 },
+    });
+  });
+  it("keeps readiness off the ok and ambiguous shapes", async () => {
+    const ok = await runRecursiveWalk(storage.engine(), "alpha", { direction: "callers" });
+    expect(ok.result).toBe("ok");
+    expect("readiness" in ok).toBe(false);
+    const dupPath = join(repoDir, "dup.ts");
+    writeFileSync(dupPath, `export function delta() { return 1; }\nexport class D {\n  delta() { return 2; }\n}\n`);
+    await indexCodeFile(storage, dupPath);
+    const amb = await runRecursiveWalk(storage.engine(), "delta", { direction: "callers" });
+    expect(amb.result).toBe("ambiguous");
+    expect("readiness" in amb).toBe(false);
   });
 });
 

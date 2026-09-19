@@ -58,11 +58,13 @@ describe("codeCallers", () => {
     expect(r.query.type).toBe("code-caller");
     expect(r.count).toBeGreaterThanOrEqual(1);
     expect(r.mentions.some((m) => m.source_path === betaPath)).toBe(true);
+    expect("readiness" in r).toBe(false);
   });
   it("returns empty for an unknown symbol", async () => {
     const r = await codeCallers(storage.engine(), "no_such_symbol_xyz");
     expect(r.count).toBe(0);
     expect(r.mentions).toEqual([]);
+    expect(r.readiness?.state).toBe("ready");
   });
 });
 

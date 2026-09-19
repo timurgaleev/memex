@@ -898,7 +898,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_callers",
     description:
-      "Call-graph: who calls the symbol `name`. Returns the `code-caller` mentions (surface form + chunk + source path) over the indexed code corpus. Deterministic, no LLM. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+      "Call-graph: who calls the symbol `name`. Returns the `code-caller` mentions (surface form + chunk + source path) over the indexed code corpus. Deterministic, no LLM. An empty result carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent). Optional `limit` (1..1000, default 200).",
     params: {
       name: str({ ...req, description: "Bare symbol name to find callers of (e.g. `hybridSearch`)." }),
       limit: int({ minimum: 1, maximum: 1000 }),
@@ -907,7 +907,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_callees",
     description:
-      "Call-graph: what the symbol enclosing `<path>:<line>` calls. Two-phase — resolves the innermost code-def covering that file:line, then returns its `code-callee` mentions. `resolved_symbol` reports which symbol was matched (null = none covers that line). Deterministic, no LLM. Optional `limit` (1..1000, default 200).",
+      "Call-graph: what the symbol enclosing `<path>:<line>` calls. Two-phase — resolves the innermost code-def covering that file:line, then returns its `code-callee` mentions. `resolved_symbol` reports which symbol was matched (null = none covers that line). Deterministic, no LLM. An empty result carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent). Optional `limit` (1..1000, default 200).",
     params: {
       target: str({ ...req, description: "`<path>:<line>` of a call site / symbol body (e.g. `src/x.ts:42`)." }),
       limit: int({ minimum: 1, maximum: 1000 }),
@@ -916,7 +916,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_def",
     description:
-      "Where is the symbol `name` defined. Returns the `code-def` mentions (surface form + chunk + source path) for a bare symbol name across the indexed code corpus. Deterministic, no LLM. Complements `code_callers`/`code_callees` with 'where is X defined'. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+      "Where is the symbol `name` defined. Returns the `code-def` mentions (surface form + chunk + source path) for a bare symbol name across the indexed code corpus. Deterministic, no LLM. Complements `code_callers`/`code_callees` with 'where is X defined'. An empty result carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent). Optional `limit` (1..1000, default 200).",
     params: {
       name: str({ ...req, description: "Bare symbol name to locate definitions of (e.g. `hybridSearch`, `Storage`)." }),
       limit: int({ minimum: 1, maximum: 1000 }),
@@ -925,7 +925,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_refs",
     description:
-      "All references to the symbol `name` — the `code-ref` mentions (imports, type uses, non-call references) over the indexed code corpus. Deterministic, no LLM. Complements `code_callers` (call sites) for proof-grade symbol tracing. Empty when the symbol is unknown or no code is indexed. Optional `limit` (1..1000, default 200).",
+      "All references to the symbol `name` — the `code-ref` mentions (imports, type uses, non-call references) over the indexed code corpus. Deterministic, no LLM. Complements `code_callers` (call sites) for proof-grade symbol tracing. An empty result carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent). Optional `limit` (1..1000, default 200).",
     params: {
       name: str({ ...req, description: "Bare symbol name to find references to (e.g. `hybridSearch`)." }),
       limit: int({ minimum: 1, maximum: 1000 }),
@@ -934,7 +934,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_blast",
     description:
-      "Blast radius: every transitive CALLER of `symbol`, grouped by hop depth (direct → 2-hop → 3-hop). Run before editing a function to size the change. BFS over the resolved code edge graph, bounded by `depth` (default 5, max 8) and `max_nodes` (default 200). Deterministic, no LLM. Returns {result, depth_groups?, cycles_detected?, truncation?, did_you_mean?, candidates?}. `result` is 'ok' | 'not_found' | 'ambiguous'.",
+      "Blast radius: every transitive CALLER of `symbol`, grouped by hop depth (direct → 2-hop → 3-hop). Run before editing a function to size the change. BFS over the resolved code edge graph, bounded by `depth` (default 5, max 8) and `max_nodes` (default 200). Deterministic, no LLM. Returns {result, depth_groups?, cycles_detected?, truncation?, did_you_mean?, candidates?}. `result` is 'ok' | 'not_found' | 'ambiguous'. 'not_found' carries `readiness: {state, code_documents, symbols}` for your sources, where state is `not_built` | `indexing` | `no_symbols` | `ready` (`ready` means the symbol really is absent).",
     params: {
       symbol: str({ ...req, description: "Bare or qualified symbol name (e.g. `performSync` or `Foo::performSync`)." }),
       depth: int({ minimum: 1, maximum: 8, description: "Hop cap. Default 5, max 8." }),
@@ -945,7 +945,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "code_flow",
     description:
-      "Execution flow: every transitive CALLEE reachable from the entry-point `symbol`, grouped by hop depth, with terminal side-effect tagging. Run to trace how a request flows to a DB write / HTTP call / file I/O. BFS over the resolved code edge graph, bounded by `depth` (default 8, max 12) and `max_nodes` (default 200). Deterministic, no LLM. Same envelope as `code_blast` plus `terminal_nodes: [{symbol, sink_kind}]` where sink_kind ∈ db_call|http_call|file_io|process_exec.",
+      "Execution flow: every transitive CALLEE reachable from the entry-point `symbol`, grouped by hop depth, with terminal side-effect tagging. Run to trace how a request flows to a DB write / HTTP call / file I/O. BFS over the resolved code edge graph, bounded by `depth` (default 8, max 12) and `max_nodes` (default 200). Deterministic, no LLM. Same envelope as `code_blast` plus `terminal_nodes: [{symbol, sink_kind}]` where sink_kind ∈ db_call|http_call|file_io|process_exec. 'not_found' carries `readiness` like `code_blast`.",
     params: {
       symbol: str({ ...req, description: "Entry-point symbol name (bare or qualified)." }),
       depth: int({ minimum: 1, maximum: 12, description: "Hop cap. Default 8, max 12." }),

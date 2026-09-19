@@ -18,6 +18,8 @@ import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
 import { entityId, type EntityType } from "../core/entities.ts";
+import { codeIndexReadiness } from "../core/code-graph.ts";
+import type { Engine } from "../core/engine/interface.ts";
 
 export type CodeSub = "code-def" | "code-refs" | "code-callers" | "code-callees";
 
@@ -55,6 +57,14 @@ function parsePathLine(target: string): { file: string; line: number } | null {
   if (!Number.isInteger(line) || line < 1) return null;
   if (file.length === 0) return null;
   return { file, line };
+}
+
+// stderr, so `--json` and piped stdout stay exactly as they were.
+async function printReadiness(engine: Engine): Promise<void> {
+  const r = await codeIndexReadiness(engine);
+  console.error(
+    `no results — code index: ${r.state} (${r.code_documents} code documents, ${r.symbols} symbols)`,
+  );
 }
 
 export async function runCode(opts: CodeCommandOptions): Promise<void> {
@@ -104,6 +114,7 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
         } else {
           console.error(msg);
         }
+        await printReadiness(engine);
         process.exitCode = 1;
         return;
       }
@@ -125,6 +136,7 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
       [eid],
     );
 
+    if (r.rows.length === 0) await printReadiness(engine);
     if (opts.json) {
       console.log(
         JSON.stringify(

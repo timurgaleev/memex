@@ -2470,6 +2470,20 @@ source returns `not_built`; decorated Python functions include their decorators.
 language coverage is recorded as deferred); JavaScript is the recommended first
 addition.
 
+**Progress.** Release 1 (readiness signal) shipped: empty `code_def` /
+`code_refs` / `code_callers` / `code_callees` results and `code_blast` /
+`code_flow` `not_found` carry `readiness: { state, code_documents, symbols }`
+(`not_built` | `indexing` | `no_symbols` | `ready`), counted over the caller's
+sources only (capped count queries, no query at all for a caller granted
+nothing), and the `memex code-*` CLI prints it on stderr. The "empty `code_def`
+on an unindexed source returns `not_built`" criterion is met. `indexing` comes
+from a process-local flag, so it covers the in-server boot sweep but not an
+out-of-process `memex reindex`. Still open: new grammars (operator go),
+embedding code chunks (RM-02, RM-06), class headers / decorator ranges /
+qualified-name separators, receiver-type resolution and the edge watermark,
+ranked definitions and the remaining CLI surface, the code-retrieval eval, and
+a persisted `indexing` signal.
+
 ### RM-24 — Operator CLI and config plane
 
 **Why.** `memex config set` accepts any key matching `^MEMEX_[A-Z0-9_]{1,64}$`,

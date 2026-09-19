@@ -133,4 +133,24 @@ describe("runCode", () => {
     expect(parsed?.ok).toBe(false);
     expect(parsed?.error).toContain("no code symbol covers");
   });
+
+  it("an empty lookup names the index state on stderr and leaves stdout unchanged", async () => {
+    let errOut = "";
+    const origErr = console.error;
+    console.error = mock((...args: unknown[]) => {
+      errOut += args.join(" ") + "\n";
+    });
+    try {
+      const { parsed } = await runAndCapture({ sub: "code-def", name: "zzNoSuchSymbol" });
+      expect(parsed).toEqual({
+        ok: true,
+        count: 0,
+        query: { type: "code-def", name: "zzNoSuchSymbol" },
+        mentions: [],
+      });
+    } finally {
+      console.error = origErr;
+    }
+    expect(errOut).toMatch(/^no results — code index: ready \(2 code documents, \d+ symbols\)\n$/);
+  });
 });

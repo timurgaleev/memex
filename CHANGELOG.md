@@ -26,6 +26,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and secrets are redacted from every message. Exit codes: 0 when all checks
   pass, 1 when any check fails, 2 on a usage error. `--json` prints the full
   report.
+- **An empty code lookup now says why it is empty.** When `code_def`,
+  `code_refs`, `code_callers` or `code_callees` finds nothing, or `code_blast`
+  / `code_flow` returns `not_found`, the response carries
+  `readiness: { state, code_documents, symbols }`. `state` is `not_built` (no
+  code indexed in your sources), `indexing` (the server's code sweep is still
+  running, e.g. right after a deploy), `no_symbols` (code is indexed but holds
+  no definitions) or `ready` (the index is built and the symbol really is
+  absent). Counts cover only the sources you can read; a caller granted no
+  source always gets `not_built` with zero counts. A non-empty result is
+  unchanged. `memex code-def|code-refs|code-callers|code-callees` prints the
+  same state on stderr when a lookup is empty, so `--json` output stays as it
+  was.
 
 ## [1.150.0] — 2026-09-19
 

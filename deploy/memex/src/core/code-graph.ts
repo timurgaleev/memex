@@ -15,7 +15,8 @@
  */
 import type { Engine } from "./engine/interface.ts";
 import { entityId, type EntityType } from "./entities.ts";
-import { normalizeScope } from "./source-scope.ts";
+import { andSourceScope, isNoGrant, normalizeScope, type SourceScope } from "./source-scope.ts";
+import { codeSweepInProgress } from "./sweep-code.ts";
 
 export interface CodeMention {
   surface_form: string;
@@ -24,10 +25,30 @@ export interface CodeMention {
   source_path: string;
 }
 
+/**
+ * Why a code lookup came back empty. `ready` means the index is built and the
+ * symbol really is absent; the other states mean the answer cannot be trusted.
+ */
+export type CodeIndexState = "not_built" | "indexing" | "no_symbols" | "ready";
+
+export interface CodeIndexReadiness {
+  state: CodeIndexState;
+  /** Code documents in the caller's scope, saturating at READINESS_COUNT_CAP + 1. */
+  code_documents: number;
+  /** `code-def` mentions in the caller's scope, same saturation. */
+  symbols: number;
+}
+
+// Readiness only needs "zero or not"; the cap keeps the count cheap on a large
+// corpus while still giving the caller a rough size.
+const READINESS_COUNT_CAP = 10_000;
+
 export interface CodeGraphResult {
   query: { type: EntityType; name: string };
   count: number;
   mentions: CodeMention[];
+  /** Present only when `count` is 0. */
+  readiness?: CodeIndexReadiness;
 }
 
 export interface CodeCalleesResult extends CodeGraphResult {
@@ -57,6 +78,54 @@ function clampLimit(limit: number | undefined): number {
 }
 
 
+/**
+ * How far the code index is built for the caller's scope. A caller granted
+ * nothing gets `not_built` without a query, so it learns nothing about other
+ * tenants' code.
+ */
+export async function codeIndexReadiness(
+  engine: Engine,
+  sourceIds?: SourceScope,
+): Promise<CodeIndexReadiness> {
+  if (isNoGrant(sourceIds)) {
+    return { state: "not_built", code_documents: 0, symbols: 0 };
+  }
+  const params: unknown[] = [READINESS_COUNT_CAP + 1];
+  const docScope = andSourceScope("d.source_id", sourceIds, params);
+  const r = await engine.query<{ code_documents: number | string; symbols: number | string }>(
+    `SELECT
+       (SELECT count(*) FROM (
+          SELECT 1 FROM documents d
+           WHERE d.frontmatter->>'kind' = 'code'${docScope}
+           LIMIT $1) docs) AS code_documents,
+       (SELECT count(*) FROM (
+          SELECT 1 FROM entity_mentions em
+            JOIN entities e ON e.id = em.entity_id
+            JOIN chunks c ON c.id = em.chunk_id
+            JOIN documents d ON d.id = c.document_id
+           WHERE e.type = 'code-def'${docScope}
+           LIMIT $1) defs) AS symbols`,
+    params,
+  );
+  const code_documents = Number(r.rows[0]?.code_documents ?? 0);
+  const symbols = Number(r.rows[0]?.symbols ?? 0);
+  let state: CodeIndexState;
+  if (codeSweepInProgress()) state = "indexing";
+  else if (code_documents === 0) state = "not_built";
+  else if (symbols === 0) state = "no_symbols";
+  else state = "ready";
+  return { state, code_documents, symbols };
+}
+
+async function withReadiness<T extends CodeGraphResult>(
+  engine: Engine,
+  result: T,
+  sourceIds?: string[],
+): Promise<T> {
+  if (result.count > 0) return result;
+  return { ...result, readiness: await codeIndexReadiness(engine, sourceIds) };
+}
+
 async function mentionsFor(
   engine: Engine,
   type: EntityType,
@@ -84,7 +153,11 @@ async function mentionsFor(
       LIMIT $2`,
     params,
   );
-  return { query: { type, name }, count: r.rows.length, mentions: r.rows };
+  return withReadiness(
+    engine,
+    { query: { type, name }, count: r.rows.length, mentions: r.rows },
+    sourceIds,
+  );
 }
 
 /** Who calls `name` — the `code-caller` mentions for a symbol. */
@@ -164,12 +237,16 @@ export async function codeCallees(
   }
   const sym = await resolveSymbolAt(engine, parsed.file, parsed.line, sourceIds);
   if (!sym) {
-    return {
-      query: { type: "code-callee", name: target },
-      count: 0,
-      mentions: [],
-      resolved_symbol: null,
-    };
+    return withReadiness(
+      engine,
+      {
+        query: { type: "code-callee", name: target },
+        count: 0,
+        mentions: [],
+        resolved_symbol: null,
+      },
+      sourceIds,
+    );
   }
   const res = await mentionsFor(engine, "code-callee", sym, clampLimit(limit), sourceIds);
   return { ...res, resolved_symbol: sym };
