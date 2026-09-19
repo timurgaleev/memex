@@ -199,12 +199,12 @@ export async function generateChunkContext(
   // split for caching, so a large document can't slip past a near-empty budget.
   const user = `${docBlock}\n\n${tail}`;
 
-  // Pre-flight: skip the paid call BEFORE spending when the prior spend already
-  // left no room. Fail-open — a budget skip returns null (deterministic prefix),
+  // Pre-flight: skip the paid call BEFORE spending when the prior spend plus the
+  // calls still in flight (the indexer runs several at once on one tracker)
+  // leave no room. Fail-open — a budget skip returns null (deterministic prefix),
   // never an error. This is the gate that lets a shared budget cap a whole run.
-  if (budget.wouldExceed(modelId, estimateUsage(SYSTEM_PROMPT, user, maxTokens))) {
-    return null;
-  }
+  const hold = budget.reserve(modelId, estimateUsage(SYSTEM_PROMPT, user, maxTokens));
+  if (!hold) return null;
 
   // With caching on, the document is the cache PREFIX and only the chunk tail is
   // the (uncached) user turn; without it, one combined block. The merged wire
@@ -223,7 +223,7 @@ export async function generateChunkContext(
       ? usageFromReported(resp.usage)
       : estimateUsage(SYSTEM_PROMPT, user, Math.ceil((resp.text?.length ?? 0) / 4));
     try {
-      budget.record(modelId, usage);
+      budget.settle(hold, modelId, usage);
     } catch (e) {
       // The call already happened (and is priced); a ceiling hit doesn't undo the
       // response. Only a non-budget error rethrows into the fail-open catch.
@@ -233,6 +233,7 @@ export async function generateChunkContext(
     if (!ctx) return null;
     return ctx.slice(0, MAX_CONTEXT_CHARS);
   } catch {
+    budget.release(hold);
     return null; // fail-open on any model/network/parse error
   }
 }

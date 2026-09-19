@@ -118,8 +118,15 @@ export interface BudgetSnapshot {
   callsRecorded: number;
 }
 
+/** Budget set aside for one call in flight; settle or release it exactly once. */
+export interface BudgetHold {
+  readonly usd: number;
+  done: boolean;
+}
+
 export class BudgetTracker {
   private spent = 0;
+  private held = 0;
   private calls = 0;
 
   constructor(
@@ -133,7 +140,33 @@ export class BudgetTracker {
    *  which hard-fails rather than spend against an unpriced model. */
   wouldExceed(modelId: string, estUsage: SonnetUsage): boolean {
     if (priceFor(modelId) === null) return true;
-    return this.spent + costUsd(modelId, estUsage) > this.maxCostUsd;
+    return this.spent + this.held + costUsd(modelId, estUsage) > this.maxCostUsd;
+  }
+
+  /**
+   * Set the estimate aside before the call, or return null when it would not
+   * fit. Concurrent callers sharing one tracker each see the others' holds, so
+   * a "would it fit?" check followed by an await no longer lets N of them pass
+   * against the same headroom.
+   */
+  reserve(modelId: string, estUsage: SonnetUsage): BudgetHold | null {
+    if (this.wouldExceed(modelId, estUsage)) return null;
+    const usd = costUsd(modelId, estUsage);
+    this.held += usd;
+    return { usd, done: false };
+  }
+
+  /** Give a hold back without spending (the call failed before it cost). */
+  release(hold: BudgetHold): void {
+    if (hold.done) return;
+    hold.done = true;
+    this.held -= hold.usd;
+  }
+
+  /** Replace a hold with what the call actually used. Throws like `record`. */
+  settle(hold: BudgetHold, modelId: string, usage: SonnetUsage): void {
+    this.release(hold);
+    this.record(modelId, usage);
   }
 
   /**

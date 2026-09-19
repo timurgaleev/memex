@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **A shared per-run LLM budget now bounds calls running at the same time.**
+  The contextual blurbs a write generates run several at once against one
+  budget, and each only checked "would this fit?" before waiting on the
+  model, so all of them could pass against the same headroom. Each call now
+  sets its estimate aside first and settles it with the actual usage (or
+  gives it back when the call fails).
 - **Each person enrolled on a shared connector has their own daily budget.**
   Every token a connector in enrollment mode issued spent under the
   connector's client id, so the whole team shared one cap and one person could
