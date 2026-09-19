@@ -2024,6 +2024,25 @@ refresh interval; a phase with no work reports `skipped` with a reason; report
 totals equal the sum of phase spend rows; the freshness doctor shows per-source
 ages.
 
+**Progress.** Release 1 shipped the fenced lock, the abort signal and the
+versioned report: `refresh()` and `release()` match pid + host +
+`acquired_at` and `refresh()` returns whether the row is still ours;
+`startLockHeartbeat` (shared by the daemon and `memex cycle`) aborts with
+`lock_stolen` on a zero-row refresh and only logs a thrown one; `runCycleOnce`
+takes `signal`, checks it before each phase and, mid-phase, stops the phase's
+BatchScope and returns at once; `CycleResult` has `schemaVersion: 2`,
+`outcome`, `reason` (`cycle_already_running` / `lock_stolen` / `aborted`) and
+`phasesNotRun`; a lost acquire prints a real `skipped` report; the stale
+"6-phase" header and `frontmatter-inference` comments are gone. A simulated
+steal ends the run as `partial/lock_stolen` within one refresh interval. Still
+open: phase-scope map and per-source cycle jobs on RM-08 (single-flight,
+cooldown, per-source stamps and freshness rows), tenant-correct synthesis,
+phase-level `skipped` with reasons, error class/hint and `budget_exhausted`,
+totals and spend rollup, job deadline with a reserve and the signal threaded
+into each phase's inner loops (DB work in an aborted phase still drains),
+configurable quiet hours, `MEMEX_CYCLE_EXTRA_PHASES`, the link-extraction
+drain, the net-fact-deletion warning, and an admin consumer of schema v2.
+
 ### RM-18 — Doctor, advisor and self-healing v2
 
 **Why.** The one automatic data fix does nothing: `reembed-source` passes a

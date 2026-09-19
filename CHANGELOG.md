@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **The cycle report is versioned.** The JSON from `memex cycle` now carries
+  `schemaVersion: 2`, an `outcome` (`complete`, `partial` or `skipped`), a
+  `reason` (`cycle_already_running`, `lock_stolen` or `aborted`) and the
+  `phasesNotRun` list. `ok` and `status` keep their meaning; a partial run is
+  `ok: false`. When the daemon holds the lock, `memex cycle` now prints a
+  `skipped` report instead of a text line (the message moved to stderr, so
+  stdout is always JSON). Daemon tick logs show the outcome.
+
+### Fixed
+- **A cycle that loses its lock stops.** The lock refresh now checks that the
+  row is still this run's (pid, host and acquisition time), and when it is not,
+  the run ends within one 30-second refresh as `partial / lock_stolen`: no
+  further phase starts, the running phase's Bedrock calls are refused, and the
+  quiet-hours deep-synthesis pass is skipped. Release is fenced the same way,
+  so a run that lost its lock no longer deletes the new holder's row.
+
 ## [1.149.0] — 2026-09-19
 
 ### Added

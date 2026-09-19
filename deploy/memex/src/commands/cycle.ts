@@ -13,8 +13,10 @@
  *
  * Concurrency: this shares the daemon's `memex-cycle` DB lock, so a one-shot
  * run and a periodic tick can't overlap and double Bedrock spend. If the daemon
- * is mid-tick when this runs, the one-shot skips with a message and exits 0
- * (the phases are idempotent; the daemon's tick already covers the work).
+ * is mid-tick when this runs, the one-shot prints a `skipped` report
+ * (reason `cycle_already_running`) and exits 0 (the phases are idempotent; the
+ * daemon's tick already covers the work). If the lock is taken mid-run, the
+ * run stops and prints a `partial` report with reason `lock_stolen`.
  */
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
@@ -25,6 +27,7 @@ import {
   FACTS_MAINT_PHASES,
   CHUNKER_SWEEP_PHASES,
   runCycleOnce,
+  skippedCycleResult,
   type CycleOptions,
   type PhaseName,
 } from "../core/cycle/index.ts";
@@ -32,6 +35,7 @@ import {
   CYCLE_LOCK_ID,
   tryAcquireDbLock,
   reapDeadHolderLocks,
+  startLockHeartbeat,
 } from "../core/db-lock.ts";
 
 // Same TTL the daemon loop uses (recipes/cycle.ts) so the two contend on
@@ -107,26 +111,25 @@ export async function runCycle(opts: CycleCmdOptions = {}): Promise<void> {
       LOCK_TTL_MINUTES,
     );
     if (!lock) {
-      console.log(
+      // stdout stays pure JSON so a caller can parse the report either way.
+      console.error(
         `[cycle] skipped: another holder owns ${CYCLE_LOCK_ID} (daemon mid-tick) — nothing to do`,
       );
+      console.log(JSON.stringify(skippedCycleResult("cycle_already_running", opts.phases ?? [...ALL_PHASES]), null, 2));
       return;
     }
     // Heartbeat so a long one-shot (a heavy embed-stale pass) can't outlive the
-    // short TTL and let the daemon acquire concurrently. unref so it never pins
-    // the event loop past the run.
-    const refresher = setInterval(() => {
-      void lock.refresh().catch(() => {});
-    }, 30 * 1000);
-    (refresher as unknown as { unref?: () => void }).unref?.();
+    // short TTL and let the daemon acquire concurrently; if the lock is lost
+    // anyway, its signal stops the run.
+    const heartbeat = startLockHeartbeat(lock);
     try {
-      const cycleOpts: CycleOptions = { storage };
+      const cycleOpts: CycleOptions = { storage, signal: heartbeat.signal };
       if (opts.phases !== undefined) cycleOpts.phases = opts.phases;
       if (opts.staleDays !== undefined) cycleOpts.staleDays = opts.staleDays;
       const r = await runCycleOnce(storage.engine(), cycleOpts);
       console.log(JSON.stringify(r, null, 2));
     } finally {
-      clearInterval(refresher);
+      heartbeat.stop();
       await lock.release();
     }
   }, { owned: !injected });

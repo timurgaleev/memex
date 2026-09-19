@@ -124,6 +124,50 @@ describe("cycle lock — db-lock + migration 050", () => {
     );
     expect(Number(r.rows[0]?.holder_pid)).toBe(process.pid); // reclaimed by us
   });
+
+  it("refresh() returns true while held and bumps last_refreshed_at", async () => {
+    const handle = (await tryAcquireDbLock(engine, CYCLE_LOCK_ID, 30))!;
+    await engine.query(
+      `UPDATE cycle_locks SET last_refreshed_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`,
+      [CYCLE_LOCK_ID],
+    );
+    expect(await handle.refresh()).toBe(true);
+    const snap = (await inspectLock(engine, CYCLE_LOCK_ID))!;
+    expect(snap.ms_since_last_refresh!).toBeLessThan(60_000);
+  });
+
+  // Each case replaces our row with another holder's; the old handle must see
+  // the loss. The same-pid cases prove the fence is not pid-only.
+  const thieves: Array<{ name: string; pid: () => number; host: () => string }> = [
+    { name: "another pid", pid: () => process.pid + 1, host: () => hostname() },
+    { name: "the same pid on another host", pid: () => process.pid, host: () => "other-host" },
+    { name: "the same pid and host, a later tenure", pid: () => process.pid, host: () => hostname() },
+  ];
+  for (const t of thieves) {
+    it(`refresh() returns false once the row is taken by ${t.name}`, async () => {
+      const handle = (await tryAcquireDbLock(engine, CYCLE_LOCK_ID, 30))!;
+      await engine.query(`DELETE FROM cycle_locks WHERE id = $1`, [CYCLE_LOCK_ID]);
+      // ageMin -1 puts acquired_at a minute away from our tenure.
+      await insertHolder(engine, { pid: t.pid(), host: t.host(), ageMin: -1 });
+      expect(await handle.refresh()).toBe(false);
+    });
+  }
+
+  it("refresh() returns false after the row is deleted", async () => {
+    const handle = (await tryAcquireDbLock(engine, CYCLE_LOCK_ID, 30))!;
+    await engine.query(`DELETE FROM cycle_locks WHERE id = $1`, [CYCLE_LOCK_ID]);
+    expect(await handle.refresh()).toBe(false);
+  });
+
+  it("release() by the old handle after a steal leaves the new holder's row intact", async () => {
+    const handle = (await tryAcquireDbLock(engine, CYCLE_LOCK_ID, 30))!;
+    await engine.query(`DELETE FROM cycle_locks WHERE id = $1`, [CYCLE_LOCK_ID]);
+    await insertHolder(engine, { pid: process.pid, host: hostname(), ageMin: -1 });
+    await handle.release();
+    const snap = await inspectLock(engine, CYCLE_LOCK_ID);
+    expect(snap).not.toBeNull();
+    expect(snap!.holder_pid).toBe(process.pid);
+  });
 });
 
 describe("classifyHolderLiveness", () => {

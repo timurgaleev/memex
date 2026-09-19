@@ -116,4 +116,43 @@ describe("runCycle holds the daemon cycle lock (no double Bedrock spend)", () =>
     expect(Number(row.rows[0]!.salience)).toBe(0);
     await held!.release();
   });
+
+  it("prints a parseable skipped report when a foreign holder owns the lock", async () => {
+    await storage.engine().query(
+      `INSERT INTO cycle_locks (id, holder_pid, holder_host, acquired_at, ttl_expires_at, last_refreshed_at)
+       VALUES ($1, $2, $3, NOW(), NOW() + INTERVAL '5 minutes', NOW())`,
+      [CYCLE_LOCK_ID, process.pid + 1, "other-host"],
+    );
+    const out: string[] = [];
+    const origLog = console.log;
+    const origError = console.error;
+    console.log = (...a: unknown[]) => out.push(a.map(String).join(" "));
+    console.error = () => {};
+    try {
+      await runCycle({ phases: ["recompute-salience"], storage });
+    } finally {
+      console.log = origLog;
+      console.error = origError;
+    }
+    const report = JSON.parse(out.join("\n"));
+    expect(report.schemaVersion).toBe(2);
+    expect(report.outcome).toBe("skipped");
+    expect(report.reason).toBe("cycle_already_running");
+    expect(report.phasesNotRun).toEqual(["recompute-salience"]);
+    expect(report.phases).toEqual([]);
+  });
+
+  it("prints a complete report when it holds the lock", async () => {
+    const out: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => out.push(a.map(String).join(" "));
+    try {
+      await runCycle({ phases: ["recompute-salience"], storage });
+    } finally {
+      console.log = origLog;
+    }
+    const report = JSON.parse(out.join("\n"));
+    expect(report.outcome).toBe("complete");
+    expect(report.phases.map((p: { phase: string }) => p.phase)).toEqual(["recompute-salience"]);
+  });
 });

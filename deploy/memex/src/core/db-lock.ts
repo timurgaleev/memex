@@ -26,8 +26,14 @@ import type { Engine } from "./engine/interface.ts";
 
 export interface DbLockHandle {
   id: string;
+  /** Deletes the row only while it is still ours; a no-op after a steal. */
   release: () => Promise<void>;
-  refresh: () => Promise<void>;
+  /**
+   * Extends the TTL. Resolves false when the row no longer belongs to this
+   * holder (stolen after a starved refresh, or deleted by hand), so the caller
+   * can stop work that is no longer protected by the lock.
+   */
+  refresh: () => Promise<boolean>;
 }
 
 /** Lock id for the broad cycle lock — serializes a single cycle invocation. */
@@ -188,7 +194,7 @@ export async function tryAcquireDbLock(
   const acquireOnce = async (): Promise<DbLockHandle | null> => {
     // last_refreshed_at = acquired_at on initial INSERT; every refresh() tick
     // bumps both ttl_expires_at AND last_refreshed_at.
-    const { rows } = await engine.query<{ id: string }>(
+    const { rows } = await engine.query<{ id: string; acquired_at: Date | string }>(
       `INSERT INTO cycle_locks (id, holder_pid, holder_host, acquired_at, ttl_expires_at, last_refreshed_at)
        VALUES ($1, $2, $3, NOW(), NOW() + ($4)::interval, NOW())
        ON CONFLICT (id) DO UPDATE
@@ -200,31 +206,44 @@ export async function tryAcquireDbLock(
          WHERE cycle_locks.ttl_expires_at < NOW()
            AND (cycle_locks.last_refreshed_at IS NULL
                 OR cycle_locks.last_refreshed_at < NOW() - $5 * INTERVAL '1 second')
-       RETURNING id`,
+       RETURNING id, acquired_at`,
       [lockId, pid, host, ttl, stealGraceSeconds],
     );
     if (rows.length === 0) return null;
 
-    const deregister = registerCleanup(`db-lock:${lockId}`, async () => {
-      await engine.query(`DELETE FROM cycle_locks WHERE id = $1 AND holder_pid = $2`, [lockId, pid]);
-    });
+    // Fencing token. pid alone is not enough: a thief can be the same process
+    // (a later acquire after a steal) or share the pid on another host. The
+    // acquisition time pins this exact tenure; compared at ms precision for the
+    // same reason as deleteLockRowExact.
+    const raw = rows[0]!.acquired_at;
+    const acquiredAt = raw instanceof Date ? raw : new Date(raw);
+    const fence = `id = $1 AND holder_pid = $2 AND holder_host = $3
+       AND date_trunc('milliseconds', acquired_at) = $4`;
+    const fenceParams = [lockId, pid, host, acquiredAt];
+    const releaseOwnRow = async (): Promise<void> => {
+      await engine.query(`DELETE FROM cycle_locks WHERE ${fence}`, fenceParams);
+    };
+
+    const deregister = registerCleanup(`db-lock:${lockId}`, releaseOwnRow);
 
     return {
       id: lockId,
       refresh: async () => {
         // Bump BOTH ttl_expires_at AND last_refreshed_at. memex has a single
         // pool, so engine.query is the path here.
-        await engine.query(
+        const r = await engine.query<{ id: string }>(
           `UPDATE cycle_locks
-              SET ttl_expires_at = NOW() + ($1)::interval,
+              SET ttl_expires_at = NOW() + ($5)::interval,
                   last_refreshed_at = NOW()
-            WHERE id = $2 AND holder_pid = $3`,
-          [ttl, lockId, pid],
+            WHERE ${fence}
+          RETURNING id`,
+          [...fenceParams, ttl],
         );
+        return r.rows.length === 1;
       },
       release: async () => {
         deregister();
-        await engine.query(`DELETE FROM cycle_locks WHERE id = $1 AND holder_pid = $2`, [lockId, pid]);
+        await releaseOwnRow();
       },
     };
   };
@@ -252,6 +271,63 @@ export async function tryAcquireDbLock(
     // Auto-takeover is best-effort; never throw from the acquire path.
   }
   return null;
+}
+
+/** Refresh cadence for a held cycle lock: TTL/10 for the 5 min cycle TTL. */
+export const LOCK_HEARTBEAT_MS = 30_000;
+
+/** Abort reason the heartbeat uses when the lock row is no longer ours. */
+export const LOCK_STOLEN_REASON = "lock_stolen";
+
+export interface LockHeartbeat {
+  /** Aborts with reason `lock_stolen` once a refresh finds the row gone. */
+  signal: AbortSignal;
+  stop: () => void;
+}
+
+/**
+ * Keep a held lock alive and report when it is lost. A refresh that matches no
+ * row means another holder now owns the lock, so the work it protected must
+ * stop: the signal aborts and the heartbeat ends. A refresh that throws (a
+ * transient DB error) is only logged — the TTL and the steal grace already
+ * cover a holder whose refresh is briefly starved, and aborting on a blip
+ * would throw away a healthy run.
+ */
+export function startLockHeartbeat(
+  lock: DbLockHandle,
+  opts: { intervalMs?: number; onLost?: () => void } = {},
+): LockHeartbeat {
+  const controller = new AbortController();
+  let inFlight = false;
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (inFlight || stopped || controller.signal.aborted) return;
+    inFlight = true;
+    lock.refresh().then(
+      (held) => {
+        inFlight = false;
+        if (held || stopped || controller.signal.aborted) return;
+        clearInterval(timer);
+        controller.abort(LOCK_STOLEN_REASON);
+        opts.onLost?.();
+      },
+      (e: unknown) => {
+        inFlight = false;
+        console.error(
+          `[db-lock] refresh of ${lock.id} failed (holding on until TTL):`,
+          e instanceof Error ? e.message : e,
+        );
+      },
+    );
+  }, opts.intervalMs ?? LOCK_HEARTBEAT_MS);
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return {
+    signal: controller.signal,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
 }
 
 export interface LockSnapshot {

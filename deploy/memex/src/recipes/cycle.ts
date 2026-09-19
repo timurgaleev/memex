@@ -1,7 +1,7 @@
 /**
  * Cycle loop recipe — replaces the old dream.ts.
  *
- * Periodically runs `core/cycle/runCycleOnce()` (the 6-phase maintenance
+ * Periodically runs `core/cycle/runCycleOnce()` (the maintenance phase
  * pipeline). Honours quiet hours so it doesn't fight interactive MCP
  * recall traffic for CPU. Skips embed-stale during quiet hours but still
  * runs the cheap read-only phases (reconcile-links, snapshot) — those are
@@ -21,6 +21,7 @@ import {
   tryAcquireDbLock,
   reapDeadHolderLocks,
   CYCLE_LOCK_ID,
+  startLockHeartbeat,
   type DbLockHandle,
 } from "../core/db-lock.ts";
 
@@ -167,7 +168,7 @@ export function startCycleLoop(
   // with a live defect (e.g. a memory spike that SIGKILLs the tick before it can
   // snapshot) can be isolated WITHOUT losing the rest of the maintenance cycle,
   // while the defect is root-caused. CSV of PhaseName, e.g.
-  // MEMEX_CYCLE_SKIP_PHASES=frontmatter-inference.
+  // MEMEX_CYCLE_SKIP_PHASES=extract-timeline.
   const skipPhases = parseSkipPhases(process.env.MEMEX_CYCLE_SKIP_PHASES);
 
   // Opt-in (default-OFF) auto-think: appends the Haiku synthesis chain
@@ -224,29 +225,26 @@ export function startCycleLoop(
     );
     if (!lock) {
       skipped = true;
-      console.log(`[cycle] tick skipped: another holder owns ${CYCLE_LOCK_ID}`);
+      console.log(`[cycle] tick status=skipped reason=cycle_already_running (another holder owns ${CYCLE_LOCK_ID})`);
     } else {
       currentLock = lock;
       // Heartbeat: refresh the lock every ~TTL/10 (30s for the 5 min TTL) so a
       // long run (a heavy embed-stale pass) cannot outlive the short TTL and let
       // a second cycle acquire concurrently. The short TTL is what lets a crashed
       // holder on ANY host be reclaimed fast; this refresh keeps a HEALTHY long
-      // run alive under it. Fire-and-forget; unref so the timer never pins the loop.
-      const refresher = setInterval(
-        () => {
-          void lock.refresh().catch(() => {});
-        },
-        30 * 1000,
-      );
-      (refresher as unknown as { unref?: () => void }).unref?.();
+      // run alive under it, and its signal stops a run whose lock was taken.
+      const heartbeat = startLockHeartbeat(lock);
       try {
-        const r = await runCycleOnce(storage.engine(), opts);
+        const r = await runCycleOnce(storage.engine(), { ...opts, signal: heartbeat.signal });
         const mark = (s: string) => (s === "fail" ? "FAIL" : s); // ok | warn | FAIL
         const summary = r.phases
           .map((p) => `${p.phase}=${mark(p.status)}`)
           .join(" ");
+        const stopped = r.outcome === "partial"
+          ? ` reason=${r.reason ?? "aborted"} phasesNotRun=${(r.phasesNotRun ?? []).join(",") || "-"}`
+          : "";
         console.log(
-          `[cycle] tick status=${mark(r.status)} ${summary} duration=${
+          `[cycle] tick status=${mark(r.status)} outcome=${r.outcome}${stopped} ${summary} duration=${
             new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
           }ms${inQuiet ? " (quiet — embed-stale skipped)" : ""}`,
         );
@@ -255,7 +253,8 @@ export function startCycleLoop(
         // Quiet hours only (heaviest + paid) and inside the held lock so it never
         // overlaps another cycle. Results are RETURNED (memex writes nothing back);
         // logged for the operator. Fail-soft — never let it abort the tick.
-        if (inQuiet && process.env.MEMEX_DEEP_SYNTH === "1") {
+        // A run that lost its lock must not start more paid work.
+        if (inQuiet && r.outcome === "complete" && process.env.MEMEX_DEEP_SYNTH === "1") {
           try {
             const ds = await runDeepSynthPhase(storage, {});
             if (ds.ran) {
@@ -278,7 +277,7 @@ export function startCycleLoop(
           e instanceof Error ? e.message : e,
         );
       } finally {
-        clearInterval(refresher);
+        heartbeat.stop();
         try {
           await lock.release();
         } catch (e) {

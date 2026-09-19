@@ -249,14 +249,64 @@ export interface PhaseResult {
   error?: string;
 }
 
+/**
+ * Why a cycle did not run to completion. `cycle_already_running`: another
+ * holder owned the cycle lock, so nothing ran. `lock_stolen`: the lock was
+ * taken mid-run and the run stopped. `aborted`: any other abort.
+ */
+export type CycleReason = "cycle_already_running" | "lock_stolen" | "aborted";
+
+const CYCLE_REASONS: ReadonlySet<string> = new Set<CycleReason>([
+  "cycle_already_running",
+  "lock_stolen",
+  "aborted",
+]);
+
+/** Bumped whenever the report shape changes, so a consumer can tell them apart. */
+export const CYCLE_REPORT_SCHEMA_VERSION = 2;
+
+export type CycleOutcome = "complete" | "partial" | "skipped";
+
 export interface CycleResult {
+  schemaVersion: typeof CYCLE_REPORT_SCHEMA_VERSION;
   startedAt: string;
   finishedAt: string;
+  /** complete: every requested phase ran; partial: the run stopped early;
+   *  skipped: nothing ran. Independent of the phases' own status. */
+  outcome: CycleOutcome;
+  /** Set whenever outcome is not complete. */
+  reason?: CycleReason;
+  /** Requested phases that never started, in request order. */
+  phasesNotRun?: PhaseName[];
   phases: PhaseResult[];
-  /** Back-compat: true unless a phase FAILED (warns don't flip it). */
+  /** Back-compat: true unless a phase FAILED (warns don't flip it). A partial
+   *  run is false. */
   ok: boolean;
-  /** Worst phase outcome: fail if any failed, else warn if any warned, else ok. */
+  /** Worst phase outcome: fail if any failed, else warn if any warned, else ok.
+   *  A partial run is fail. */
   status: PhaseStatus;
+}
+
+function cycleReasonOf(signal: AbortSignal): CycleReason {
+  const r: unknown = signal.reason;
+  return typeof r === "string" && CYCLE_REASONS.has(r) ? (r as CycleReason) : "aborted";
+}
+
+/** The report for a cycle that never started (e.g. the lock was held). Not a
+ *  failure: ok stays true, the outcome says why nothing ran. */
+export function skippedCycleResult(reason: CycleReason, phasesNotRun?: PhaseName[]): CycleResult {
+  const now = new Date().toISOString();
+  return {
+    schemaVersion: CYCLE_REPORT_SCHEMA_VERSION,
+    startedAt: now,
+    finishedAt: now,
+    outcome: "skipped",
+    reason,
+    ...(phasesNotRun ? { phasesNotRun: [...phasesNotRun] } : {}),
+    phases: [],
+    ok: true,
+    status: "ok",
+  };
 }
 
 /**
@@ -304,7 +354,7 @@ export function deriveStatus(
   }
   if (phase === "lint") {
     // A non-empty flagged count is content-conformance debt → warn (the phase
-    // measures; frontmatter-inference fixes). Zero violations → ok.
+    // only measures). Zero violations → ok.
     return ((detail as LintPhaseResult | undefined)?.flagged ?? 0) > 0
       ? "warn"
       : "ok";
@@ -340,8 +390,7 @@ export function deriveStatus(
     const errs = (detail as { errors?: unknown[] } | undefined)?.errors;
     return Array.isArray(errs) && errs.length > 0 ? "warn" : "ok";
   }
-  // reconcile-links, frontmatter-inference, recompute-salience,
-  // extract-timeline: no failure-bearing detail — they either complete or throw
+  // reconcile-links, recompute-salience, extract-timeline: no failure-bearing detail — they either complete or throw
   // (a single failed write aborts the whole phase → caught as fail above), so a
   // SUCCEEDED run is always ok. A NEW phase falls here too: add an explicit rule
   // above if it can partially fail, rather than letting it default to ok
@@ -379,6 +428,12 @@ export interface CycleOptions {
   };
   /** Optional progress sink. */
   progress?: ProgressSink;
+  /**
+   * Stops the run: checked before every phase, and an abort during a phase
+   * halts its paid Bedrock calls and ends the phase at once. The cycle lock
+   * heartbeat aborts it with `lock_stolen`.
+   */
+  signal?: AbortSignal;
 }
 
 // Per-phase wall-clock deadline. A phase that hangs (e.g. a Bedrock/Haiku call
@@ -425,7 +480,7 @@ export function withPhaseTimeout<T>(
 // Force a full GC between phases. On the small live host (~3.7 GB) the cycle's
 // cumulative working set — un-GC'd phase garbage + page cache — climbed across
 // phases and tripped the container mem_limit (cgroup OOM-kill of PID 1, silent
-// SIGKILL mid-`frontmatter-inference`, no JS exception). Reclaiming each phase's
+// SIGKILL mid-phase, no JS exception). Reclaiming each phase's
 // intermediate allocations before the next starts lowers the cumulative peak so
 // the cycle fits. Bun-only (`Bun.gc`); a no-op elsewhere. Disable with
 // MEMEX_CYCLE_GC=0.
@@ -439,20 +494,55 @@ function reclaimBetweenPhases(): void {
   }
 }
 
-async function runPhase<T>(
+/**
+ * Settle with `work`, or reject with `aborted: <reason>` as soon as `signal`
+ * aborts. `onAbort` runs first so the caller can halt the orphaned work.
+ */
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined, onAbort: () => void): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      onAbort();
+      reject(new Error(`aborted: ${cycleReasonOf(signal)}`));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(
+      (v) => {
+        signal.removeEventListener("abort", abort);
+        resolve(v);
+      },
+      (e: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(e);
+      },
+    );
+  });
+}
+
+export async function runPhase<T>(
   engine: Engine,
   phase: PhaseName,
   fn: () => Promise<T>,
   progress: ProgressSink,
+  signal?: AbortSignal,
 ): Promise<PhaseResult> {
   const start = Date.now();
   progress({ kind: "phase", op: "cycle", phase, ts: start });
   try {
-    // A phase that times out keeps running (JS cannot cancel it); the scope
-    // flag stops its orphaned paid calls from spending past the cutoff.
+    // A phase that times out or is aborted keeps running (JS cannot cancel
+    // it); the scope flag stops its orphaned paid calls from spending past
+    // the cutoff.
     const scope: BatchScope = { stopped: false, circuit: true };
-    const detail = (await withPhaseTimeout(phase, () => runInBatchScope(scope, fn)).catch((e: unknown) => {
+    const stop = () => {
       scope.stopped = true;
+    };
+    const work = withPhaseTimeout(phase, () => runInBatchScope(scope, fn));
+    const detail = (await raceAbort(work, signal, stop).catch((e: unknown) => {
+      stop();
       throw e;
     })) as PhaseResult["detail"];
     const status = deriveStatus(phase, detail);
@@ -509,19 +599,25 @@ export async function runCycleOnce(
   const startedAt = new Date().toISOString();
   progress({ kind: "started", op: "cycle", ts: Date.now() });
 
+  const signal = options.signal;
   const phases: PhaseResult[] = [];
+  const phasesNotRun: PhaseName[] = [];
   for (const p of requested) {
+    if (signal?.aborted) {
+      phasesNotRun.push(p);
+      continue;
+    }
     let r: PhaseResult;
     switch (p) {
       case "lint":
-        r = await runPhase(engine, p, () => lintPhase(engine), progress);
+        r = await runPhase(engine, p, () => lintPhase(engine), progress, signal);
         break;
       case "embed-stale": {
         const o: EmbedStaleOptions = {};
         if (options.staleDays !== undefined) o.staleDays = options.staleDays;
         if (options.embedMaxPerCycle !== undefined)
           o.maxPerCycle = options.embedMaxPerCycle;
-        r = await runPhase(engine, p, () => embedStalePhase(engine, o), progress);
+        r = await runPhase(engine, p, () => embedStalePhase(engine, o), progress, signal);
         break;
       }
       case "mirror-pages": {
@@ -539,26 +635,27 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
       case "embed-facts":
-        r = await runPhase(engine, p, () => embedFactsPhase(engine), progress);
+        r = await runPhase(engine, p, () => embedFactsPhase(engine), progress, signal);
         break;
       case "extract": {
         const o: ExtractPhaseOptions = {};
         if (options.extractMaxDocs !== undefined) o.maxDocs = options.extractMaxDocs;
-        r = await runPhase(engine, p, () => extractPhase(engine, o), progress);
+        r = await runPhase(engine, p, () => extractPhase(engine, o), progress, signal);
         break;
       }
       case "resolve-symbol-edges":
-        r = await runPhase(engine, p, () => resolveSymbolEdgesPhase(engine), progress);
+        r = await runPhase(engine, p, () => resolveSymbolEdgesPhase(engine), progress, signal);
         break;
       case "reconcile-links":
-        r = await runPhase(engine, p, () => reconcileLinksPhase(engine), progress);
+        r = await runPhase(engine, p, () => reconcileLinksPhase(engine), progress, signal);
         break;
       case "orphans-purge":
-        r = await runPhase(engine, p, () => orphansPurgePhase(engine), progress);
+        r = await runPhase(engine, p, () => orphansPurgePhase(engine), progress, signal);
         break;
       case "recompute-salience":
         r = await runPhase(
@@ -566,6 +663,7 @@ export async function runCycleOnce(
           p,
           () => recomputeSaliencePhase(engine),
           progress,
+          signal,
         );
         break;
       case "extract-timeline": {
@@ -582,6 +680,7 @@ export async function runCycleOnce(
                   attendees_touched: 0,
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -598,14 +697,15 @@ export async function runCycleOnce(
                   events_written: 0,
                 }),
           progress,
+          signal,
         );
         break;
       }
       case "snapshot":
-        r = await runPhase(engine, p, () => snapshotPhase(engine), progress);
+        r = await runPhase(engine, p, () => snapshotPhase(engine), progress, signal);
         break;
       case "purge":
-        r = await runPhase(engine, p, () => purgePhase(engine), progress);
+        r = await runPhase(engine, p, () => purgePhase(engine), progress, signal);
         break;
       // Synthesis phases (Wave 5) — LLM-backed, opt-in. Order matters:
       // atoms -> concepts -> takes -> grade -> calibration.
@@ -621,6 +721,7 @@ export async function runCycleOnce(
               ...(options.storage ? { storage: options.storage } : {}),
             }),
           progress,
+          signal,
         );
         break;
       case "synthesize-concepts":
@@ -634,6 +735,7 @@ export async function runCycleOnce(
               ...(options.storage ? { storage: options.storage } : {}),
             }),
           progress,
+          signal,
         );
         break;
       case "propose-takes":
@@ -642,6 +744,7 @@ export async function runCycleOnce(
           p,
           () => proposeTakesPhase(engine, options.synthesis ?? {}),
           progress,
+          signal,
         );
         break;
       case "grade-takes":
@@ -650,6 +753,7 @@ export async function runCycleOnce(
           p,
           () => gradeTakesPhase(engine, options.synthesis ?? {}),
           progress,
+          signal,
         );
         break;
       case "calibration-profile":
@@ -658,6 +762,7 @@ export async function runCycleOnce(
           p,
           () => calibrationProfilePhase(engine, options.synthesis ?? {}),
           progress,
+          signal,
         );
         break;
       case "probe-contradictions":
@@ -668,6 +773,7 @@ export async function runCycleOnce(
           // its own model/budget from env; no Haiku synthesis seam applies here.
           () => probeContradictionsPhase(engine, {}),
           progress,
+          signal,
         );
         break;
       case "reflections": {
@@ -691,6 +797,7 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -714,6 +821,7 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -738,6 +846,7 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -760,6 +869,7 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -782,12 +892,13 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
       // Facts-maintenance phases — opt-in, default-OFF (see FACTS_MAINT_PHASES).
       case "consolidate-facts":
-        r = await runPhase(engine, p, () => consolidateFactsPhase(engine), progress);
+        r = await runPhase(engine, p, () => consolidateFactsPhase(engine), progress, signal);
         break;
       case "conversation-facts-backfill": {
         const storage = options.storage;
@@ -810,6 +921,7 @@ export async function runCycleOnce(
                   errors: [],
                 }),
           progress,
+          signal,
         );
         break;
       }
@@ -817,7 +929,7 @@ export async function runCycleOnce(
       // Reads its own caps from env; a safe no-op (ran:false) when the flag is
       // unset, so requesting it explicitly never surprises with Bedrock spend.
       case "rechunk-sweep":
-        r = await runPhase(engine, p, () => rechunkSweepPhase(engine, {}), progress);
+        r = await runPhase(engine, p, () => rechunkSweepPhase(engine, {}), progress, signal);
         break;
       default:
         r = {
@@ -832,18 +944,29 @@ export async function runCycleOnce(
   }
 
   const finishedAt = new Date().toISOString();
-  const ok = phases.every((p) => p.ok);
-  const status: PhaseStatus = phases.some((p) => p.status === "fail")
+  const partial = signal?.aborted === true;
+  const ok = !partial && phases.every((p) => p.ok);
+  const status: PhaseStatus = partial || phases.some((p) => p.status === "fail")
     ? "fail"
     : phases.some((p) => p.status === "warn")
       ? "warn"
       : "ok";
+  const reason = partial ? cycleReasonOf(signal) : undefined;
   progress({
     kind: ok ? "completed" : "failed",
     op: "cycle",
     result: { phases: phases.length, ok },
-    error: ok ? undefined : "one or more phases failed",
+    error: ok ? undefined : reason ? `cycle stopped: ${reason}` : "one or more phases failed",
     ts: Date.now(),
   } as never);
-  return { startedAt, finishedAt, phases, ok, status };
+  return {
+    schemaVersion: CYCLE_REPORT_SCHEMA_VERSION,
+    startedAt,
+    finishedAt,
+    outcome: partial ? "partial" : "complete",
+    ...(reason ? { reason, phasesNotRun } : {}),
+    phases,
+    ok,
+    status,
+  };
 }
