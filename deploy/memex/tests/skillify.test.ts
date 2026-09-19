@@ -5,7 +5,7 @@
  * Coverage:
  *   - slugify: basic + edge cases
  *   - lintAndShape: clean draft, missing frontmatter, drifted fields,
- *     short body, oversized description, malformed tags
+ *     short body, oversized description, legacy tags, unknown tools
  *   - skillify(): wires the stub through draftSkill → lintAndShape
  */
 import { describe, expect, it } from "bun:test";
@@ -50,9 +50,11 @@ describe("slugify", () => {
 
 describe("lintAndShape", () => {
   const cleanDraft = `---
-title: clean-skill
+name: clean-skill
 description: Use this when X happens — runs the canonical pipeline.
-tags: [memory, retrieval]
+triggers:
+  - "run the canonical pipeline"
+tools: [search]
 ---
 
 # Clean Skill — Canonical Path
@@ -69,22 +71,27 @@ Body paragraph that's long enough to pass the body-too-short check.
   it("passes a clean draft through with no issues", () => {
     const r = lintAndShape(cleanDraft, "clean-skill", "use this when X");
     expect(r.issues).toEqual([]);
-    expect(r.markdown).toContain("title: clean-skill");
-    expect(r.markdown).toContain("tags: [memory, retrieval]");
+    expect(r.markdown.startsWith(
+      '---\nname: clean-skill\ndescription: Use this when X happens — runs the canonical pipeline.\ntriggers:\n  - "run the canonical pipeline"\ntools:\n  - search\n---\n\n# Clean Skill',
+    )).toBe(true);
   });
 
   it("rebuilds frontmatter when missing", () => {
     const r = lintAndShape("# Body only\n\nNo frontmatter here.", "my-slug", "do thing");
     expect(r.issues).toContain("frontmatter-missing");
-    expect(r.markdown.startsWith("---\ntitle: my-slug\n")).toBe(true);
-    expect(r.markdown).toContain("tags: [skill]");
+    expect(r.markdown.startsWith("---\nname: my-slug\n")).toBe(true);
+    expect(r.markdown).toContain('triggers:\n  - "do thing"\n');
+    expect(r.markdown).not.toContain("tools:");
   });
 
-  it("corrects a drifted title to the requested slug", () => {
-    const drifted = cleanDraft.replace("clean-skill", "wrong-title");
+  it("corrects a drifted name or legacy title to the requested slug", () => {
+    const drifted = cleanDraft.replace("clean-skill", "wrong-name");
     const r = lintAndShape(drifted, "clean-skill", "use this");
-    expect(r.issues).toContain("title-mismatch-corrected");
-    expect(r.markdown).toContain("title: clean-skill");
+    expect(r.issues).toContain("name-mismatch-corrected");
+    expect(r.markdown).toContain("name: clean-skill\n");
+    const legacy = lintAndShape(cleanDraft.replace("name: clean-skill", "title: old"), "clean-skill", "u");
+    expect(legacy.issues).toContain("name-mismatch-corrected");
+    expect(legacy.markdown).not.toContain("title:");
   });
 
   it("truncates oversized descriptions", () => {
@@ -98,13 +105,20 @@ Body paragraph that's long enough to pass the body-too-short check.
     expect(desc.length).toBeLessThanOrEqual(160);
   });
 
-  it("normalises tags and falls back to [skill] if all are invalid", () => {
-    const garbage =
-      `---\ntitle: x\ndescription: d\ntags: [Foo Bar, "with space", !bad]\n---\n\n# x\n\n` +
+  it("falls back to the prompt as trigger when the draft only has legacy tags", () => {
+    const legacy =
+      `---\ntitle: x\ndescription: d\ntags: [a, b]\n---\n\n# x\n\n` +
       "long enough body to bypass the short-body branch";
-    const r = lintAndShape(garbage, "x", "p");
-    expect(r.issues).toContain("tags-fallback");
-    expect(r.markdown).toContain("tags: [skill]");
+    const r = lintAndShape(legacy, "x", "recap my \"week\"");
+    expect(r.issues).toContain("triggers-fallback");
+    expect(r.markdown).toContain('triggers:\n  - "recap my week"\n');
+    expect(r.markdown).not.toContain("tags:");
+  });
+
+  it("drops tools that are not MCP operations", () => {
+    const r = lintAndShape(cleanDraft.replace("tools: [search]", "tools: [search, not_a_tool]"), "clean-skill", "u");
+    expect(r.issues).toEqual(["tools-unknown-dropped"]);
+    expect(r.markdown).toContain("tools:\n  - search\n---");
   });
 
   it("scaffolds a body when the model returns nothing useful", () => {
@@ -119,9 +133,10 @@ Body paragraph that's long enough to pass the body-too-short check.
 describe("skillify (end-to-end with stub)", () => {
   it("returns final markdown using the slugified prompt", async () => {
     const draft = `---
-title: skill-that-counts-workouts
+name: skill-that-counts-workouts
 description: Use to summarise the last 5 logged workouts.
-tags: [fitness, recall]
+triggers:
+  - "recap my workouts"
 ---
 
 # Skill That Counts Workouts — Recap
@@ -149,7 +164,7 @@ Pulls the most recent five logged workouts via memex.
     });
     expect(r.slug).toBe("skill-that-counts-workouts");
     expect(r.issues).toEqual([]);
-    expect(r.markdown).toContain("title: skill-that-counts-workouts");
+    expect(r.markdown).toContain("name: skill-that-counts-workouts\n");
     expect(r.markdown).toContain("/opt/memex/bin/memex");
   });
 
@@ -160,7 +175,7 @@ Pulls the most recent five logged workouts via memex.
     });
     expect(r.slug).toBe("foo-bar-baz");
     expect(r.issues).toContain("frontmatter-missing");
-    expect(r.markdown.startsWith("---\ntitle: foo-bar-baz")).toBe(true);
+    expect(r.markdown.startsWith("---\nname: foo-bar-baz")).toBe(true);
   });
 
   it("rejects an empty prompt", async () => {
@@ -259,6 +274,14 @@ Body paragraph that's long enough to pass the body-too-short check.
     const r = validateSkill(md, "my-skill");
     expect(r.ok).toBe(false);
     expect(r.issues.map((i) => i.rule)).toEqual(["triggers-missing"]);
+  });
+
+  it("reads triggers and tools written at column 0", () => {
+    const md = packSkill
+      .replace('triggers:\n  - "do the thing"', 'triggers:\n- "do the thing"')
+      .replace("tools:\n  - search\n  - page_get", "tools:\n- search\n- not_a_tool");
+    const r = validateSkill(md, "my-skill");
+    expect(r.issues.map((i) => i.rule)).toEqual(["tools-unknown"]);
   });
 
   it("emits description-too-long as a warning, ok stays true", () => {

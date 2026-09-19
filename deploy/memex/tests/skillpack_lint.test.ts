@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { lintAndShape, validateSkill } from "../src/core/skillify.ts";
 import { extractCliReferences, lintSkillpack } from "../src/core/skillpack/lint.ts";
 
 const MEMEX_DIR = resolve(import.meta.dir, "..");
@@ -101,6 +102,27 @@ describe("lintSkillpack", () => {
       "delta name-mismatch",
       "epsilon frontmatter-missing",
     ]);
+  });
+
+  it("checks a tools list written at column 0", () => {
+    const dir = writePack("column-zero", {
+      "zeta/SKILL.md": "---\nname: zeta\ndescription: d\ntriggers:\n- \"t\"\ntools:\n- page_get\n- not_a_tool\n---\n\n# zeta\n\nBody.\n",
+    });
+    expect(lintSkillpack(dir).issues).toEqual([
+      { slug: "zeta", rule: "unknown-tool", detail: "not_a_tool", line: 6 },
+    ]);
+  });
+
+  it("passes a skill drafted by memex skillify", () => {
+    const draft = "---\ntitle: drifted\ndescription: Recap recent workouts.\ntags: [fitness]\ntools: [search, not_a_tool]\n---\n\n# Recap\n\nRun `memex search workout` and summarise the hits.\n";
+    const shaped = lintAndShape(draft, "workout-recap", "recap my workouts");
+    const scaffolded = lintAndShape("nothing useful", "empty-draft", "summarise workouts");
+    const dir = writePack("skillify", {
+      "workout-recap.md": shaped.markdown,
+      "empty-draft.md": scaffolded.markdown,
+    });
+    expect(lintSkillpack(dir)).toEqual({ ok: true, skills: 2, issues: [] });
+    expect(validateSkill(shaped.markdown, "workout-recap").issues).toEqual([]);
   });
 
   it("passes on the shipped pack", () => {

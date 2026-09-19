@@ -107,6 +107,16 @@ describe("parseSkillFrontmatter", () => {
     expect(crlf.tools).toEqual(lf.tools);
   });
 
+  it("reads block sequences written at the key's own column", () => {
+    const fm = parseSkillFrontmatter(
+      "---\nname: a\ntriggers:\n- \"do the thing\"\n-\ntools:\n- search\n- not_a_tool\nmutating: false\n---\nbody",
+    )!;
+    expect(fm.triggers).toEqual(["do the thing"]);
+    expect(fm.tools).toEqual(["search", "not_a_tool"]);
+    expect(fm.mutating).toBe(false);
+    expect(fm.scalars["tools"]).toBeUndefined();
+  });
+
   it("returns null without a fence and keeps legacy keys reachable", () => {
     expect(parseSkillFrontmatter("# no frontmatter\n")).toBeNull();
     expect(parseSkillFrontmatter("---\nname: x\nno closing fence\n")).toBeNull();

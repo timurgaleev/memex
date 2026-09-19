@@ -1346,7 +1346,11 @@ mounted pack. The real-pack gate (`tests/skillpack_lint.test.ts`) is green on
 `memex page-retype`, `skillify` without `eval cross-modal`, and
 `skill-optimizer`, `skillpack-harvest`, `schema-unify` removed (the last
 submitted a `unify-types` job kind that was never registered).
-`list_brain_skillpack` no longer promises installation. "Done when" item 1 is
+`list_brain_skillpack` no longer promises installation. `memex skillify`
+now drafts the pack contract (`name`, `description`, `triggers`, known
+`tools` only) through the same parser, and a test lints its output with
+`lintSkillpack`; the parser reads column-0 `- item` lists, so such a
+`tools:` list is checked instead of passing empty. "Done when" item 1 is
 met. Still open: the lockfile, the doctor `skills` category, `get_skill`
 hardening (byte cap, field allowlist, section filter, realpath confinement),
 a `memex skillpack check` wrapper, `skillify` emitting `<slug>/SKILL.md`

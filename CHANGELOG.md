@@ -31,6 +31,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `memex skillpack` builds a verifiable tarball.
 - `memex skillpack <anything else>` is refused instead of silently building
   a tarball.
+- **`memex skillify` drafts skills the pack lint accepts.** It wrote the
+  legacy `title`/`tags` frontmatter, which `memex skillpack lint` rejects; it
+  now writes `name`, `description`, `triggers` and only `tools` that are real
+  MCP operations.
+- Skill frontmatter lists written at the key's own column (`tools:` then
+  `- page_get`) are read as lists. They were read as empty, so an unknown
+  tool written that way passed the lint.
 
 ## [1.147.0] — 2026-09-19
 

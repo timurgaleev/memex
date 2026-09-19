@@ -135,7 +135,10 @@ export function parseSkillFrontmatter(text: string): SkillFrontmatter | null {
       for (; j < lines.length; j++) {
         const l = lines[j] ?? "";
         if (l.trim().length === 0) continue;
-        if (!isIndented(l)) break;
+        // YAML also allows a block sequence at the key's own column
+        // (`tools:\n- page_get`); anything else unindented is the next key.
+        const columnZeroItem = l.startsWith("- ") || l.trimEnd() === "-";
+        if (!isIndented(l) && !columnZeroItem) break;
         const t = l.trim();
         if (t.startsWith("- ")) items.push(unquote(t.slice(2).trim()));
         else if (t === "-") items.push("");

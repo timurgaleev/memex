@@ -7,9 +7,10 @@
  *      first-pass markdown body. The model is steered with a system prompt
  *      that demands the exact frontmatter contract used by `deploy/skills/`.
  *   2. `lintAndShape` is a deterministic post-processor that guarantees
- *      the contract holds even if the model drifts. It rewrites
- *      missing/malformed fields, normalises tags, anchors the file to a
- *      stable slug, and emits a list of repairs.
+ *      the pack contract (`name`, `description`, `triggers`, `tools`) holds
+ *      even if the model drifts. It rewrites missing/malformed fields, drops
+ *      tools that are not MCP operations, anchors the file to a stable slug,
+ *      and emits a list of repairs. Its output passes `memex skillpack lint`.
  *
  * The deterministic linter is what makes the command safe to use unattended.
  * If it had to retry-LLM-on-failure the loop could hide model regressions.
@@ -87,9 +88,13 @@ const SYSTEM_PROMPT = `You write memex skill files.
 OUTPUT FORMAT — strictly markdown, NO surrounding code fences, NO commentary:
 
 ---
-title: <kebab-case slug, lowercase, hyphens only>
+name: <kebab-case slug, lowercase, hyphens only>
 description: <one sentence, present tense, when-to-use>
-tags: [<2–4 lowercase tags>]
+triggers:
+  - "<a phrase a user would say that should route to this skill>"
+  - "<another such phrase>"
+tools:
+  - <an MCP tool the skill calls, only if it calls one>
 ---
 
 # <Skill Name> — <punchy subtitle>
@@ -117,7 +122,8 @@ tags: [<2–4 lowercase tags>]
 
 RULES:
 - description must be a single line, ≤ 160 chars.
-- tags lowercase, no spaces.
+- 2–4 triggers, each a short quoted phrase.
+- Omit tools entirely when the skill calls no MCP tool.
 - Use \`/opt/memex/bin/memex\` as the canonical CLI path.
 - Do not invent flags or commands the user didn't mention.`;
 
@@ -178,76 +184,23 @@ export async function draftSkill(
   return text.trim();
 }
 
-interface ParsedFrontmatter {
-  raw: string;
-  body: string;
-  fields: Record<string, string>;
-  rawTags: string | null;
-}
-
-/**
- * Best-effort frontmatter parse. We don't pull yaml here because the
- * frontmatter contract is fixed (title / description / tags) and we need
- * to be tolerant of mild model drift (trailing commas, mixed quotes).
- */
-function parseFrontmatter(markdown: string): ParsedFrontmatter | null {
-  // The opening fence's trailing run is horizontal-only. A plain `\s*` there
-  // also accepts `\n`, so it and the lazy body could trade newlines: every
-  // split of a `\n` run re-walked the body to end-of-input. Measured through
-  // validateSkill on `"---" + "\n".repeat(n)`: 3.8 s at 125 K, 15 s at 250 K,
-  // 59 s at 500 K, 242 s at 1 MB — ratio 4.0 on a doubling. `[^\S\n]` keeps
-  // CRLF and trailing-space fences matching; the mandatory `\n` after it is
-  // now the only place a newline can go, so there is nothing to trade.
-  // The second `\s*` is a different story and safe: what follows it is
-  // `([\s\S]*)$`, which cannot reject, so it never has to give a character
-  // back. Measured linear through validateSkill on a valid block plus a
-  // trailing `\n` run: 0.4 ms at 1 MB, ratio 1.91 on a doubling.
-  // eslint-disable-next-line regexp/no-super-linear-backtracking
-  const m = /^---[^\S\n]*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(markdown);
-  if (!m) return null;
-  const raw = m[1] ?? "";
-  const body = m[2] ?? "";
-  const fields: Record<string, string> = {};
-  let rawTags: string | null = null;
-  for (const line of raw.split("\n")) {
-    // Measured linear through validateSkill: 1.0 ms for a 1 M-char `k:` plus a
-    // space run, 2.1 ms for a 1 M-char key run with no colon, ratio 1.89 and
-    // 2.36 on a doubling. `line` is a split on `\n`, so `\s*` and `.*` never
-    // see one; and `(.*)$` cannot reject at end-of-line, so the `\s*` it is
-    // said to trade with is never asked to give a character back.
-    // eslint-disable-next-line regexp/no-super-linear-backtracking
-    const kv = /^([a-z_][\w-]*):\s*(.*)$/i.exec(line);
-    if (!kv) continue;
-    const key = kv[1]!;
-    const value = (kv[2] ?? "").trim();
-    if (key === "tags") {
-      rawTags = value;
-    } else {
-      fields[key] = value.replace(/^["']|["']$/g, "");
-    }
-  }
-  return { raw, body, fields, rawTags };
-}
-
-function normaliseTags(rawTags: string | null, fallback: string[]): string[] {
-  if (!rawTags) return fallback;
-  // Accept either inline list `[a, b]` or YAML block `- a\n- b` (block parsed
-  // up-stream, only inline is reachable here).
-  const inline = /^\[(.*)\]$/.exec(rawTags);
-  const items = inline
-    ? (inline[1] ?? "").split(",")
-    : rawTags.split(",");
-  const out = items
-    .map((t) => t.trim().replace(/^["']|["']$/g, "").toLowerCase())
-    .filter((t) => t.length > 0 && /^[a-z0-9][a-z0-9-]*$/.test(t));
-  return out.length > 0 ? out : fallback;
-}
-
 const MAX_DESCRIPTION = 160;
 
 /**
- * Take a (possibly drifted) draft and return a strictly conformant skill
- * markdown. Always succeeds; reports what it had to repair via `issues`.
+ * Make a trigger safe to emit as a quoted YAML list item. The shared parser
+ * strips only the surrounding quotes, so an inner `"` or a newline would
+ * corrupt the entry rather than be escaped.
+ */
+function cleanTrigger(raw: string): string {
+  const flat = raw.replace(/["\n\r]/g, " ").replace(/\s+/g, " ").trim();
+  return flat.length > MAX_DESCRIPTION ? flat.slice(0, MAX_DESCRIPTION).trimEnd() : flat;
+}
+
+/**
+ * Take a (possibly drifted) draft and return a skill markdown that holds the
+ * pack contract, so a drafted skill committed to `deploy/skills` passes the
+ * same `memex skillpack lint` the shipped pack does. Always succeeds; reports
+ * what it had to repair via `issues`.
  */
 export function lintAndShape(
   draft: string,
@@ -255,27 +208,24 @@ export function lintAndShape(
   fallbackPrompt: string,
 ): { markdown: string; issues: string[] } {
   const issues: string[] = [];
-  const parsed = parseFrontmatter(draft);
+  const fm = parseSkillFrontmatter(draft);
 
-  let title = slug;
   let description = "";
-  let tags: string[] = [];
+  let triggers: string[] = [];
+  let tools: string[] = [];
   let body = "";
 
-  if (!parsed) {
+  if (!fm) {
     issues.push("frontmatter-missing");
     body = draft;
+    description = fallbackDescription(fallbackPrompt);
   } else {
-    body = parsed.body.trim();
-    const fmTitle = parsed.fields["title"];
-    if (!fmTitle || fmTitle !== slug) {
-      if (fmTitle && fmTitle !== slug) issues.push("title-mismatch-corrected");
-      title = slug;
-    } else {
-      title = fmTitle;
-    }
-    const fmDesc = parsed.fields["description"] ?? "";
-    description = fmDesc.replace(/\s+/g, " ").trim();
+    body = fm.body.trim();
+    // A legacy `title` is the name a drifted model most often writes.
+    const fmName = fm.name ?? fm.scalars["title"] ?? null;
+    if (fmName !== null && fmName !== slug) issues.push("name-mismatch-corrected");
+
+    description = (fm.description ?? "").replace(/\s+/g, " ").trim();
     if (description.length === 0) {
       issues.push("description-missing");
       description = fallbackDescription(fallbackPrompt);
@@ -283,17 +233,17 @@ export function lintAndShape(
       issues.push("description-truncated");
       description = description.slice(0, MAX_DESCRIPTION - 1).trimEnd() + "…";
     }
-    tags = normaliseTags(parsed.rawTags, ["skill"]);
-    // Only flag when normalisation collapsed everything to the fallback —
-    // routine cleanups (lowercasing, quote-strip) aren't worth the noise.
-    if (parsed.rawTags && tags.length === 1 && tags[0] === "skill") {
-      issues.push("tags-fallback");
-    }
+
+    triggers = [...new Set(fm.triggers.map(cleanTrigger).filter((t) => t.length > 0))];
+
+    const opNames = new Set(OPERATIONS.map((o) => o.name));
+    tools = [...new Set(fm.tools)].filter((t) => opNames.has(t));
+    if (tools.length < new Set(fm.tools).size) issues.push("tools-unknown-dropped");
   }
 
-  if (parsed === null) {
-    description = fallbackDescription(fallbackPrompt);
-    tags = ["skill"];
+  if (triggers.length === 0) {
+    if (fm) issues.push("triggers-fallback");
+    triggers = [cleanTrigger(fallbackDescription(fallbackPrompt))];
   }
 
   if (!body || body.length < 30) {
@@ -304,14 +254,17 @@ export function lintAndShape(
     body = `# ${slug}\n\n${body}`;
   }
 
-  const fm =
-    `---\n` +
-    `title: ${title}\n` +
-    `description: ${description}\n` +
-    `tags: [${tags.join(", ")}]\n` +
-    `---\n\n`;
+  const lines = [
+    "---",
+    `name: ${slug}`,
+    `description: ${description}`,
+    "triggers:",
+    ...triggers.map((t) => `  - "${t}"`),
+  ];
+  if (tools.length > 0) lines.push("tools:", ...tools.map((t) => `  - ${t}`));
+  lines.push("---", "", "");
 
-  return { markdown: fm + body.trim() + "\n", issues };
+  return { markdown: lines.join("\n") + body.trim() + "\n", issues };
 }
 
 export interface SkillValidationIssue {
