@@ -127,6 +127,15 @@ describe("parseBodyTimeline", () => {
     expect(evs).toEqual([{ kind: "bullet", date: "2026-04-01", event: "Launched", detail: "" }]);
   });
 
+  it("truncates an over-long bullet or header instead of dropping it", () => {
+    const long = "x".repeat(2500);
+    const evs = parseBodyTimeline(`### 2026-04-02 — ${long}\n## Timeline\n- 2026-04-01 — ${long}\n`);
+    expect(evs.map((e) => [e.kind, e.date, e.event.length])).toEqual([
+      ["header", "2026-04-02", 500],
+      ["bullet", "2026-04-01", 500],
+    ]);
+  });
+
   it("ignores bullets outside the Timeline section and dates inside code", () => {
     const body = [
       "## Notes",
@@ -193,10 +202,10 @@ describe("syncBodyTimelineForPage", () => {
 
   it("keeps row ids across an unchanged re-sync", async () => {
     await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
-    const first = await syncBodyTimelineForPage(storage, SLUG, "note", BODY);
+    const first = await syncBodyTimelineForPage(storage, SLUG);
     expect(first).toEqual({ derived: 5, added: 5, removed: 0 });
     const before = await rows();
-    const second = await syncBodyTimelineForPage(storage, SLUG, "note", BODY);
+    const second = await syncBodyTimelineForPage(storage, SLUG);
     expect(second).toEqual({ derived: 5, added: 0, removed: 0 });
     expect(await rows()).toEqual(before);
     for (const r of before) expect(r.source_chunk_id).toMatch(/^body-timeline:projects\/apollo:[0-9a-f]{16}$/);
@@ -204,7 +213,7 @@ describe("syncBodyTimelineForPage", () => {
 
   it("replaces only an edited bullet and leaves foreign rows alone", async () => {
     await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
-    await syncBodyTimelineForPage(storage, SLUG, "note", BODY);
+    await syncBodyTimelineForPage(storage, SLUG);
     await addTimelineEvent(storage, { slug: SLUG, occurred_at: "2026-05-01", event: "manual entry" });
     await addTimelineEvent(storage, {
       slug: SLUG,
@@ -215,7 +224,8 @@ describe("syncBodyTimelineForPage", () => {
     const before = await rows();
 
     const edited = BODY.replace("Contract signed", "Contract countersigned");
-    expect(await syncBodyTimelineForPage(storage, SLUG, "note", edited)).toEqual({
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: edited });
+    expect(await syncBodyTimelineForPage(storage, SLUG)).toEqual({
       derived: 5,
       added: 1,
       removed: 1,
@@ -227,7 +237,8 @@ describe("syncBodyTimelineForPage", () => {
     expect(fresh.map((r) => r.event)).toEqual(["Contract countersigned"]);
 
     // Emptying the body removes every derived row and nothing else.
-    expect(await syncBodyTimelineForPage(storage, SLUG, "note", "# Apollo\n")).toEqual({
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: "# Apollo\n" });
+    expect(await syncBodyTimelineForPage(storage, SLUG)).toEqual({
       derived: 0,
       added: 0,
       removed: 5,
@@ -238,17 +249,41 @@ describe("syncBodyTimelineForPage", () => {
   it("derives nothing for a diary page", async () => {
     await putPage(storage, { slug: "life/diary/2026-03-02", type: "note", markdown_body: BODY });
     await putPage(storage, { slug: "notes/journal-day", type: "journal", markdown_body: BODY });
-    expect((await syncBodyTimelineForPage(storage, "life/diary/2026-03-02", "note", BODY)).derived).toBe(0);
-    expect((await syncBodyTimelineForPage(storage, "notes/journal-day", "journal", BODY)).derived).toBe(0);
+    expect((await syncBodyTimelineForPage(storage, "life/diary/2026-03-02")).derived).toBe(0);
+    expect((await syncBodyTimelineForPage(storage, "notes/journal-day")).derived).toBe(0);
     expect(await rows("life/diary/2026-03-02")).toEqual([]);
     expect(await rows("notes/journal-day")).toEqual([]);
   });
 
+  it("derives from the committed body, whatever the caller last read", async () => {
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
+    // A second write committed after the first one's re-read and before its
+    // reconcile: the reconcile must land the rows of the body on file.
+    const newer = "# Apollo\n\n## Timeline\n- 2026-06-01 — Relaunched\n";
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: newer });
+    await syncBodyTimelineForPage(storage, SLUG);
+    expect((await rows()).map((r) => r.event)).toEqual(["Relaunched"]);
+  });
+
+  it("replaces a citation's row when only its source label changes", async () => {
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
+    await syncBodyTimelineForPage(storage, SLUG);
+    await putPage(storage, {
+      slug: SLUG,
+      type: "note",
+      markdown_body: BODY.replace("Source: Board memo", "Source: Board minutes"),
+    });
+    expect(await syncBodyTimelineForPage(storage, SLUG)).toEqual({ derived: 5, added: 1, removed: 1 });
+    expect((await rows()).map((r) => r.detail)).toContain("Source: Board minutes");
+    expect((await rows()).map((r) => r.detail)).not.toContain("Source: Board memo");
+  });
+
   it("MEMEX_BODY_TIMELINE=0 derives nothing and removes nothing", async () => {
     await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
-    await syncBodyTimelineForPage(storage, SLUG, "note", BODY);
+    await syncBodyTimelineForPage(storage, SLUG);
     process.env.MEMEX_BODY_TIMELINE = "0";
-    expect(await syncBodyTimelineForPage(storage, SLUG, "note", "# empty\n")).toEqual({
+    await putPage(storage, { slug: SLUG, type: "note", markdown_body: "# empty\n" });
+    expect(await syncBodyTimelineForPage(storage, SLUG)).toEqual({
       derived: 0,
       added: 0,
       removed: 0,

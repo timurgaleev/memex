@@ -20,7 +20,8 @@
  * existing derived rows alone).
  */
 import { createHash } from "node:crypto";
-import type { Storage } from "./storage.ts";
+import { Storage } from "./storage.ts";
+import { lockPageSlugs } from "./pages.ts";
 import { stripCodeBlocks } from "./links.ts";
 import { addTimelineEvent } from "./timeline.ts";
 
@@ -58,9 +59,11 @@ const CITATION_OPEN = "[Source:";
 
 // Both patterns are anchored and every quantifier is bounded, so each match
 // costs a constant over a line already capped at MAX_LINE_LEN.
+// The text group is not anchored at the end: a longer line keeps its first
+// N chars (and cleanEventText caps it again) rather than failing the match.
 const BULLET_RE =
-  /^\s{0,8}[-*]\s{1,4}(?:\*\*)?(\d{4}-\d{2}-\d{2})(?:\*\*)?\s{0,4}(?:[—–:-]\s{0,4})?(.{1,2000})$/;
-const HEADER_RE = /^###\s{1,4}(\d{4}-\d{2}-\d{2})\s{0,4}(?:[—–:-]\s{0,4})?(.{1,500})$/;
+  /^\s{0,8}[-*]\s{1,4}(?:\*\*)?(\d{4}-\d{2}-\d{2})(?:\*\*)?\s{0,4}(?:[—–:-]\s{0,4})?(.{1,2000})/;
+const HEADER_RE = /^###\s{1,4}(\d{4}-\d{2}-\d{2})\s{0,4}(?:[—–:-]\s{0,4})?(.{1,500})/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function bodyTimelineEnabled(
@@ -230,85 +233,112 @@ export function parseBodyTimeline(body: string): BodyTimelineEvent[] {
   return out;
 }
 
-/** Stable row key for one derived event on one page. */
+/** Stable row key for one derived event on one page. The detail (a citation's
+ *  source label) is part of it, so relabelling a citation replaces its row;
+ *  events without one keep the key they always had. */
 export function bodyTimelineKey(slug: string, ev: BodyTimelineEvent): string {
+  const base = `${ev.kind}|${ev.date}|${ev.event}`;
   const h = createHash("sha256")
-    .update(`${ev.kind}|${ev.date}|${ev.event}`)
+    .update(ev.detail ? `${base}|${ev.detail}` : base)
     .digest("hex")
     .slice(0, 16);
   return `${BODY_TIMELINE_KEY_PREFIX}${slug}:${h}`;
 }
 
 /**
- * Reconcile the page's body-derived timeline rows with its current body.
+ * Reconcile the page's body-derived timeline rows with its committed body.
  * Best-effort: a failure is logged and swallowed so it never fails the write.
  * `sourceId` is the page owner's source, stamped on every derived row.
+ *
+ * Runs under the page's write lock and reads the body there, not from the
+ * caller: two writes racing on one page each reconcile after their own commit,
+ * and one holding a body read before the other committed would otherwise
+ * leave the rows describing a body the page no longer has.
  */
 export async function syncBodyTimelineForPage(
   storage: Storage,
   slug: string,
-  type: string | undefined,
-  body: string,
   sourceId?: string,
 ): Promise<BodyTimelineSyncResult> {
-  const result: BodyTimelineSyncResult = { derived: 0, added: 0, removed: 0 };
-  if (!bodyTimelineEnabled()) return result;
+  const empty: BodyTimelineSyncResult = { derived: 0, added: 0, removed: 0 };
+  if (!bodyTimelineEnabled()) return empty;
   try {
-    // A diary page derives nothing; running the diff with an empty set also
-    // drops rows left from before the page became a diary entry.
-    const events = isDiaryPage(type, slug) ? [] : parseBodyTimeline(body);
-    const keyed = events.map((ev) => ({ ev, key: bodyTimelineKey(slug, ev) }));
-    const params: unknown[] = [
-      slug,
-      `${BODY_TIMELINE_KEY_PREFIX}${slug}:`,
-      keyed.map((k) => k.key),
-    ];
-    if (sourceId) params.push(sourceId);
-    // One statement both drops the stale keys and reports the kept ones, so
-    // only events new to this body pay for an insert: an append that adds one
-    // bullet to a long log page costs one insert, not one per event.
-    const diff = await storage.engine().query<{ source_chunk_id: string; stale: boolean }>(
-      `WITH del AS (
-         DELETE FROM timeline_events
-          WHERE slug = $1
-            AND starts_with(source_chunk_id, $2)
-            AND NOT (source_chunk_id = ANY($3::text[]))
-            ${sourceId ? "AND source_id = $4" : ""}
-          RETURNING source_chunk_id
-       )
-       SELECT source_chunk_id, true AS stale FROM del
-       UNION ALL
-       SELECT source_chunk_id, false AS stale FROM timeline_events
-        WHERE slug = $1
-          AND source_chunk_id = ANY($3::text[])
-          ${sourceId ? "AND source_id = $4" : ""}`,
-      params,
-    );
-    const present = new Set<string>();
-    for (const r of diff.rows) {
-      if (r.stale) result.removed += 1;
-      else present.add(r.source_chunk_id);
-    }
-    result.derived = keyed.length;
-    for (const { ev, key } of keyed) {
-      if (present.has(key)) continue;
-      try {
-        const r = await addTimelineEvent(storage, {
-          slug,
-          occurred_at: ev.date,
-          event: ev.event,
-          detail: ev.detail,
-          source_label: "body",
-          source_chunk_id: key,
-          ...(sourceId ? { source_id: sourceId } : {}),
-        });
-        if (r.inserted) result.added += 1;
-      } catch (e) {
-        console.error(`[memex] body-timeline event on '${slug}' skipped (non-fatal):`, e);
-      }
-    }
+    return await storage.engine().transaction(async (tx) => {
+      await lockPageSlugs(tx, slug);
+      const page = await tx.query<{ type: string | null; markdown_body: string | null }>(
+        `SELECT type, markdown_body FROM pages WHERE slug = $1 AND deleted_at IS NULL`,
+        [slug],
+      );
+      const row = page.rows[0];
+      if (!row) return empty;
+      return reconcile(new Storage(tx), slug, row.type ?? undefined, row.markdown_body ?? "", sourceId);
+    });
   } catch (e) {
     console.error(`[memex] body-timeline sync for '${slug}' failed (non-fatal):`, e);
+    return empty;
+  }
+}
+
+async function reconcile(
+  storage: Storage,
+  slug: string,
+  type: string | undefined,
+  body: string,
+  sourceId: string | undefined,
+): Promise<BodyTimelineSyncResult> {
+  const result: BodyTimelineSyncResult = { derived: 0, added: 0, removed: 0 };
+  // A diary page derives nothing; running the diff with an empty set also
+  // drops rows left from before the page became a diary entry.
+  const events = isDiaryPage(type, slug) ? [] : parseBodyTimeline(body);
+  const keyed = events.map((ev) => ({ ev, key: bodyTimelineKey(slug, ev) }));
+  const params: unknown[] = [
+    slug,
+    `${BODY_TIMELINE_KEY_PREFIX}${slug}:`,
+    keyed.map((k) => k.key),
+  ];
+  if (sourceId) params.push(sourceId);
+  // One statement both drops the stale keys and reports the kept ones, so
+  // only events new to this body pay for an insert: an append that adds one
+  // bullet to a long log page costs one insert, not one per event.
+  const diff = await storage.engine().query<{ source_chunk_id: string; stale: boolean }>(
+    `WITH del AS (
+       DELETE FROM timeline_events
+        WHERE slug = $1
+          AND starts_with(source_chunk_id, $2)
+          AND NOT (source_chunk_id = ANY($3::text[]))
+          ${sourceId ? "AND source_id = $4" : ""}
+        RETURNING source_chunk_id
+     )
+     SELECT source_chunk_id, true AS stale FROM del
+     UNION ALL
+     SELECT source_chunk_id, false AS stale FROM timeline_events
+      WHERE slug = $1
+        AND source_chunk_id = ANY($3::text[])
+        ${sourceId ? "AND source_id = $4" : ""}`,
+    params,
+  );
+  const present = new Set<string>();
+  for (const r of diff.rows) {
+    if (r.stale) result.removed += 1;
+    else present.add(r.source_chunk_id);
+  }
+  result.derived = keyed.length;
+  for (const { ev, key } of keyed) {
+    if (present.has(key)) continue;
+    try {
+      const r = await addTimelineEvent(storage, {
+        slug,
+        occurred_at: ev.date,
+        event: ev.event,
+        detail: ev.detail,
+        source_label: "body",
+        source_chunk_id: key,
+        ...(sourceId ? { source_id: sourceId } : {}),
+      });
+      if (r.inserted) result.added += 1;
+    } catch (e) {
+      console.error(`[memex] body-timeline event on '${slug}' skipped (non-fatal):`, e);
+    }
   }
   return result;
 }

@@ -7,6 +7,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **A fact forgotten while `add_fact` waits on its embed/classify call stays
+  forgotten.** The withdrawal ledger is checked again under the per-source
+  withdraw lock right before the insert, so the write reports `withdrawn`
+  instead of landing a tombstoned row.
+- **A cycle whose lock was lost after its last phase finished reports
+  `complete`.** `partial` now means a phase was cut short or never ran, and a
+  Bedrock call halted by that abort names the real reason (`lock_stolen`)
+  instead of "already timed out".
+- **Body timeline rows follow the page.** Over-long `## Timeline` bullets and
+  `### date` headers are truncated instead of dropped, relabelling a citation's
+  source replaces its row, and the reconcile runs under the page's write lock
+  against the committed body, so two racing writes cannot leave stale rows.
+- **`think` reports `model_unusable` for a request or model id Bedrock
+  rejects** (`ValidationException`, `ResourceNotFoundException`), not a
+  transient `llm_error`.
+- **The re-embed remediation no longer fails a source another embedder already
+  fixed**, and the embed backfill and the coverage metric share one
+  embeddable-chunk predicate: blank chunks and chunks of deleted or archived
+  documents neither count against coverage nor get embedded.
 - **Transcript ingest keeps distinct conversations apart and audits what
   lands.** A vendor id that slug normalization changes (case, punctuation,
   length) now carries a hash of the raw id, so two ids that normalize alike no

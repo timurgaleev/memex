@@ -23,6 +23,7 @@ import { registerSource } from "../src/core/sources.ts";
 import { collectPerSourceHealth, UNCLASSIFIED_BUCKET } from "../src/core/source-health.ts";
 import { brokenSourcesFromHealth } from "../src/commands/doctor.ts";
 import { deterministicEmbed } from "./det-embed.ts";
+import { runEmbedBackfill } from "../src/core/embed-backfill.ts";
 
 const detEmbed = (t: string) => Promise.resolve(deterministicEmbed(t));
 
@@ -154,6 +155,43 @@ describe("reembed-source remediation through the real worker", () => {
     expect(final?.status).not.toBe("succeeded");
     expect(final?.lastError).toContain("chunks embedded for source alpha");
     expect(await unembeddedChunks("doc_alpha_1")).toBe(2);
+  });
+
+  it("succeeds when another embedder filled the chunks this run failed on", async () => {
+    let filled = false;
+    registerRemediationHandlers(storage, {
+      embed: async () => {
+        if (!filled) {
+          filled = true;
+          await runEmbedBackfill(storage.engine(), { sourceId: "alpha", embed: detEmbed });
+        }
+        throw new Error("embedder down");
+      },
+    });
+    const final = await runReembedJob("alpha");
+    expect(final?.status).toBe("succeeded");
+    expect(final?.result).toMatchObject({ embedded: 0, remaining: 0 });
+    expect(await unembeddedChunks("doc_alpha_1")).toBe(0);
+  });
+
+  it("does not count a blank chunk or a deleted document's chunk as embeddable", async () => {
+    await writeDocumentTransaction(
+      storage,
+      { documentId: "doc_alpha_gone", sourcePath: "alpha/gone.md", title: "gone", frontmatter: {}, embeddingModel: "det", sourceId: "alpha" },
+      [{ text: "alpha chunk of a deleted page", entities: [] }],
+    );
+    await storage.engine().query(`UPDATE documents SET deleted_at = NOW() WHERE id = 'doc_alpha_gone'`);
+    await storage.engine().query(`UPDATE chunks SET content = '   ' WHERE document_id = 'doc_alpha_2'`);
+
+    const health = await collectPerSourceHealth(storage.engine(), ["alpha"]);
+    expect(health[0]?.embeddable_chunks).toBe(ALPHA_EMBEDDABLE - 1);
+    const dry = await runEmbedBackfill(storage.engine(), { sourceId: "alpha", dryRun: true });
+    expect(dry.candidates).toBe(ALPHA_EMBEDDABLE - 1);
+
+    registerRemediationHandlers(storage, { embed: detEmbed });
+    expect((await runReembedJob("alpha"))?.status).toBe("succeeded");
+    expect((await collectPerSourceHealth(storage.engine(), ["alpha"]))[0]?.embed_coverage_pct).toBe(1);
+    expect(await unembeddedChunks("doc_alpha_gone")).toBe(1);
   });
 
   it("never plans a fix for the unclassified bucket, and a job pinned to it fails", async () => {

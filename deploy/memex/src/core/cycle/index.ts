@@ -293,6 +293,11 @@ export interface CycleResult {
   status: PhaseStatus;
 }
 
+/** Phase results the abort cut short. Kept off the report so its shape stays
+ *  put; runCycleOnce reads it to tell a stopped run from one whose abort only
+ *  landed after its last phase had already finished. */
+const interruptedPhases = new WeakSet<PhaseResult>();
+
 function cycleReasonOf(signal: AbortSignal): CycleReason {
   const r: unknown = signal.reason;
   return typeof r === "string" && CYCLE_REASONS.has(r) ? (r as CycleReason) : "aborted";
@@ -562,9 +567,14 @@ export async function runInAbortableBatchScope<T>(
   signal: AbortSignal,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const scope: BatchScope = { stopped: signal.aborted, circuit: true };
+  const scope: BatchScope = {
+    stopped: signal.aborted,
+    circuit: true,
+    ...(signal.aborted ? { stopReason: cycleReasonOf(signal) } : {}),
+  };
   const stop = () => {
     scope.stopped = true;
+    scope.stopReason = cycleReasonOf(signal);
   };
   signal.addEventListener("abort", stop, { once: true });
   try {
@@ -597,6 +607,7 @@ export async function runPhase<T>(
   try {
     const onAbort = () => {
       aborted = true;
+      if (signal) scope.stopReason = cycleReasonOf(signal);
       stop();
     };
     const detail = (await raceAbort(work, signal, onAbort).catch((e: unknown) => {
@@ -644,7 +655,7 @@ export async function runPhase<T>(
       message: `phase ${phase} failed: ${error}`,
       ts: Date.now(),
     });
-    return {
+    const result: PhaseResult = {
       phase,
       ok: false,
       status: "fail",
@@ -652,6 +663,8 @@ export async function runPhase<T>(
       error,
       ...(orphaned ? { orphaned: true as const } : {}),
     };
+    if (aborted) interruptedPhases.add(result);
+    return result;
   }
 }
 
@@ -1009,14 +1022,14 @@ export async function runCycleOnce(
   }
 
   const finishedAt = new Date().toISOString();
-  const partial = signal?.aborted === true;
+  const partial = phasesNotRun.length > 0 || phases.some((p) => interruptedPhases.has(p));
   const ok = !partial && phases.every((p) => p.ok);
   const status: PhaseStatus = partial || phases.some((p) => p.status === "fail")
     ? "fail"
     : phases.some((p) => p.status === "warn")
       ? "warn"
       : "ok";
-  const reason = partial ? cycleReasonOf(signal) : undefined;
+  const reason = partial && signal ? cycleReasonOf(signal) : undefined;
   const orphanedPhase = phases.find((p) => p.orphaned)?.phase;
   progress({
     kind: ok ? "completed" : "failed",

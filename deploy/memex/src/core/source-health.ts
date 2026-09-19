@@ -20,7 +20,7 @@
  * probe.
  */
 import type { Engine } from "./engine/interface.ts";
-import { embedSkipFilterFragment } from "./embed-skip.ts";
+import { embeddableChunkFragment } from "./embed-skip.ts";
 
 export interface BrainHealthMetrics {
   /** Chunks expected to carry a vector (non-code, not under an embed-skip page). */
@@ -76,12 +76,10 @@ export async function brainHealthMetrics(
   }>(
     `SELECT
        COUNT(DISTINCT c.id) FILTER (
-         WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-           AND ${embedSkipFilterFragment("d")}
+         WHERE ${embeddableChunkFragment("d", "c")}
        )::int AS embeddable,
        COUNT(DISTINCT c.id) FILTER (
-         WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-           AND ${embedSkipFilterFragment("d")}
+         WHERE ${embeddableChunkFragment("d", "c")}
            AND em.chunk_id IS NOT NULL
        )::int AS embedded,
        COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code
@@ -196,12 +194,10 @@ export async function collectPerSourceHealth(
     `SELECT COALESCE(d.source_id, '${UNCLASSIFIED_BUCKET}') AS source_id,
             COUNT(DISTINCT c.id)::int AS chunk_count,
             COUNT(DISTINCT c.id) FILTER (
-              WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-                AND ${embedSkipFilterFragment("d")}
+              WHERE ${embeddableChunkFragment("d", "c")}
             )::int AS embeddable,
             COUNT(DISTINCT c.id) FILTER (
-              WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-                AND ${embedSkipFilterFragment("d")}
+              WHERE ${embeddableChunkFragment("d", "c")}
                 AND em.chunk_id IS NOT NULL
             )::int AS embedded,
             COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code

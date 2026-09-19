@@ -123,6 +123,9 @@ export function noteBedrockSuccess(model: string): void {
 export interface BatchScope {
   stopped: boolean;
   circuit: boolean;
+  /** Why the run stopped when it was not a timeout (an abort such as
+   *  `lock_stolen`), so a halted call names the real cause. */
+  stopReason?: string;
 }
 
 /** Run `fn` as batch work. Inside an existing scope the outer one stays in
@@ -136,7 +139,13 @@ export function assertBedrockOpen(model: string, now = Date.now()): void {
   const scope = _batch.getStore();
   if (!scope) return;
   if (scope.stopped) {
-    throw new BedrockHalted("other", now, "the batch run this call belongs to has already timed out");
+    throw new BedrockHalted(
+      "other",
+      now,
+      scope.stopReason
+        ? `the batch run this call belongs to was stopped: ${scope.stopReason}`
+        : "the batch run this call belongs to has already timed out",
+    );
   }
   if (!scope.circuit) return;
   for (const key of ["*", model]) {

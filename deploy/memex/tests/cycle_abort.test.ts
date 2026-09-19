@@ -3,7 +3,7 @@
  * signal, and runCycleOnce / runPhase stop on it with a versioned report.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGliteEngine } from "../src/core/engine/pglite.ts";
@@ -110,6 +110,58 @@ describe("cycle abort — with a PGLite brain", () => {
     expect(r.phasesNotRun).toBeUndefined();
     expect(r.phases.map((p) => p.phase)).toEqual(["lint", "snapshot"]);
   });
+
+  // runPhase logs "phase <name> done" after the phase's work settled and
+  // before it returns, which is the one hook between two phases.
+  async function runAbortingAfter(phaseDone: string, reason: string) {
+    const c = new AbortController();
+    const origError = console.error;
+    const origRss = process.env.MEMEX_CYCLE_RSS_LOG;
+    delete process.env.MEMEX_CYCLE_RSS_LOG;
+    console.error = (...args: unknown[]) => {
+      if (String(args[0]).includes(`phase ${phaseDone} done`)) c.abort(reason);
+    };
+    try {
+      return await runCycleOnce(engine, { phases: ["lint", "snapshot"], signal: c.signal });
+    } finally {
+      console.error = origError;
+      if (origRss === undefined) delete process.env.MEMEX_CYCLE_RSS_LOG;
+      else process.env.MEMEX_CYCLE_RSS_LOG = origRss;
+    }
+  }
+
+  it("an abort between phases runs no further phase and reports partial", async () => {
+    const r = await runAbortingAfter("lint", "lock_stolen");
+    expect(r.outcome).toBe("partial");
+    expect(r.reason).toBe("lock_stolen");
+    expect(r.phases.map((p) => [p.phase, p.ok])).toEqual([["lint", true]]);
+    expect(r.phasesNotRun).toEqual(["snapshot"]);
+    expect(r.ok).toBe(false);
+  });
+
+  it("an abort after the last phase finished leaves the run complete", async () => {
+    const r = await runAbortingAfter("snapshot", "lock_stolen");
+    expect(r.outcome).toBe("complete");
+    expect(r.reason).toBeUndefined();
+    expect(r.phasesNotRun).toBeUndefined();
+    expect(r.phases.map((p) => p.phase)).toEqual(["lint", "snapshot"]);
+  });
+});
+
+describe("cycle callers wire the lock heartbeat into the run", () => {
+  const src = (rel: string) => readFileSync(join(import.meta.dir, "../src", rel), "utf8");
+
+  it("the daemon tick passes heartbeat.signal to runCycleOnce", () => {
+    expect(src("recipes/cycle.ts")).toMatch(
+      /runCycleOnce\(storage\.engine\(\), \{[^}]*signal: heartbeat\.signal[^}]*\}\)/,
+    );
+  });
+
+  it("the one-shot command passes heartbeat.signal to runCycleOnce", () => {
+    const text = src("commands/cycle.ts");
+    expect(text).toMatch(/const cycleOpts: CycleOptions = \{[^}]*signal: heartbeat\.signal[^}]*\}/);
+    expect(text).toContain("runCycleOnce(storage.engine(), cycleOpts)");
+  });
 });
 
 describe("startLockHeartbeat — transient refresh errors", () => {
@@ -140,6 +192,7 @@ describe("startLockHeartbeat — transient refresh errors", () => {
 describe("runPhase — abort during a phase", () => {
   it("fails the phase at once with the reason and stops its paid calls", async () => {
     let probe: "open" | "halted" | undefined;
+    let haltMessage = "";
     // Never settles; a timer inside the phase's batch scope checks whether a
     // Bedrock call would still be allowed after the abort.
     const hang = () =>
@@ -148,8 +201,9 @@ describe("runPhase — abort during a phase", () => {
           try {
             assertBedrockOpen("any-model");
             probe = "open";
-          } catch {
+          } catch (e) {
             probe = "halted";
+            haltMessage = (e as Error).message;
           }
         }, 40);
       });
@@ -172,6 +226,8 @@ describe("runPhase — abort during a phase", () => {
     expect(r.orphaned).toBe(true);
     await sleep(60);
     expect(probe).toBe("halted");
+    expect(haltMessage).toContain("stopped: lock_stolen");
+    expect(haltMessage).not.toContain("timed out");
   });
 
   it("waits for an aborted phase that winds down inside the settle window", async () => {
@@ -234,11 +290,11 @@ describe("deep-synth under the cycle lock", () => {
       try {
         assertBedrockOpen("any-model");
         probe = "open";
-      } catch {
-        probe = "halted";
+      } catch (e) {
+        probe = (e as Error).message;
       }
     });
-    expect(probe).toBe("halted");
+    expect(probe).toBe("BedrockHalted: the batch run this call belongs to was stopped: lock_stolen");
   });
 });
 

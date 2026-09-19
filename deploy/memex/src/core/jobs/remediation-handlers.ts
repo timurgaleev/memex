@@ -15,9 +15,9 @@
  * reembed-source runs the embed backfill against the worker's own storage,
  * pinned to the job's `source_id`. It only fills missing vectors: it never
  * deletes an existing one, whatever the signature-change env knob says. A run
- * that had work and embedded nothing throws, so the job retries or
- * dead-letters instead of reporting a success that fixed nothing, and so does
- * a pin that owns no live document.
+ * that had work, embedded nothing and still leaves chunks unembedded throws, so
+ * the job retries or dead-letters instead of reporting a success that fixed
+ * nothing, and so does a pin that owns no live document.
  *
  * To activate in the live worker, call `registerRemediationHandlers(storage)`
  * once at worker startup (alongside `new Worker(...)`).
@@ -59,7 +59,15 @@ export function makeRemediationHandler(deps: RemediationDeps = {}): JobHandler {
         }
         const out = (await deps.reembedSource(sourceId)) ?? {};
         const candidates = out["candidates"];
-        if (typeof candidates === "number" && candidates > 0 && out["embedded"] === 0) {
+        // `remaining` is the recount after the run: another embedder (the
+        // indexer, a concurrent backfill) may have filled the chunks this run
+        // failed on, and a source with nothing left to embed is fixed.
+        if (
+          typeof candidates === "number" &&
+          candidates > 0 &&
+          out["embedded"] === 0 &&
+          out["remaining"] !== 0
+        ) {
           throw new Error(
             `remediation reembed-source: 0/${candidates} chunks embedded for source ${sourceId}`,
           );
@@ -118,12 +126,21 @@ function makeBackfillReembed(
       reembedOnSignatureChange: false,
       ...(embed ? { embed } : {}),
     });
-    return {
+    const out: Record<string, unknown> = {
       candidates: r.candidates,
       embedded: r.embedded,
       failed: r.failed,
       last_id: r.lastId,
     };
+    if (r.candidates > 0 && r.embedded === 0) {
+      const left = await runEmbedBackfill(engine, {
+        sourceId,
+        reembedOnSignatureChange: false,
+        dryRun: true,
+      });
+      out["remaining"] = left.candidates;
+    }
+    return out;
   };
 }
 

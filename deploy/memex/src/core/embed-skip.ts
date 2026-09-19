@@ -64,3 +64,20 @@ export function embedSkipFilterFragment(docAlias = "d"): string {
   assertSqlAlias(docAlias);
   return `NOT (COALESCE(${docAlias}.frontmatter, '{}'::jsonb) ? '${EMBED_SKIP_KEY}')`;
 }
+
+/**
+ * The embeddable-chunk predicate (a boolean SQL expression, NO leading `AND`):
+ * a chunk of a live document that is not code, not embed-skipped, and has
+ * content to embed. The embed backfill picks its candidates with it and the
+ * coverage metric (source-health, and doctor / remediation behind it) counts
+ * its denominator with it: a chunk one side counts and the other never embeds
+ * pins coverage below 100% and fails every re-embed that "embedded nothing".
+ */
+export function embeddableChunkFragment(docAlias = "d", chunkAlias = "c"): string {
+  assertSqlAlias(docAlias);
+  assertSqlAlias(chunkAlias);
+  return `${docAlias}.deleted_at IS NULL AND NOT ${docAlias}.archived
+        AND COALESCE(${docAlias}.frontmatter->>'kind','') <> 'code'
+        AND ${embedSkipFilterFragment(docAlias)}
+        AND length(btrim(${chunkAlias}.content)) > 0`;
+}

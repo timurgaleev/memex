@@ -11,8 +11,8 @@
  * vectors so the vector arm sees the whole corpus again.
  *
  * Code chunks are graph-only by design (no embeddings) and are excluded: the
- * candidate set matches `source-health`'s `embeddable` definition (document
- * frontmatter `kind` <> 'code').
+ * candidate set is `source-health`'s `embeddable` definition, the same SQL
+ * (`embeddableChunkFragment`).
  *
  * Provenance auto-invalidation (migration 066, OPT-IN): when
  * `reembedOnSignatureChange` (env `MEMEX_REEMBED_ON_SIGNATURE_CHANGE=1`) is set,
@@ -61,7 +61,7 @@
 import { classifyBedrockError, runInBatchScope } from "./llm/bedrock-errors.ts";
 import type { Engine } from "./engine/interface.ts";
 import { embedText, DEFAULT_MODEL_ID, embeddingSignature } from "./embedding.ts";
-import { embedSkipFilterFragment } from "./embed-skip.ts";
+import { embeddableChunkFragment } from "./embed-skip.ts";
 import {
   buildContextualPrefix,
   wrapChunkForEmbedding,
@@ -240,9 +240,7 @@ function buildCandidateWhere(
 ): { where: string; params: unknown[] } {
   const params: unknown[] = [];
   let where = `em.chunk_id IS NULL
-        AND COALESCE(d.frontmatter->>'kind','') <> 'code'
-        AND ${embedSkipFilterFragment("d")}
-        AND length(btrim(c.content)) > 0`;
+        AND ${embeddableChunkFragment("d", "c")}`;
   where += scopeFragment(params, scope);
   if (cursor !== undefined) {
     params.push(cursor);
@@ -323,8 +321,7 @@ function scopedEmbeddingsSelector(scope?: EmbedScope): {
       SELECT c.id
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-       WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-         AND ${embedSkipFilterFragment("d")}${scopeFragment(params, scope)}
+       WHERE ${embeddableChunkFragment("d", "c")}${scopeFragment(params, scope)}
     )`;
   return { where, params };
 }
@@ -363,8 +360,7 @@ function staleSignatureSelector(currentSig: string): { where: string; params: [s
       SELECT c.id
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-       WHERE COALESCE(d.frontmatter->>'kind','') <> 'code'
-         AND ${embedSkipFilterFragment("d")}
+       WHERE ${embeddableChunkFragment("d", "c")}
     )
     AND em.embedding_signature IS NOT NULL
     AND em.embedding_signature <> $1`;

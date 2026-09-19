@@ -512,7 +512,8 @@ describe("thinkFailureStatus", () => {
 
   it("maps a model the account cannot use to model_unusable", () => {
     expect(thinkFailureStatus(named("AccessDeniedException"))).toBe("model_unusable");
-    expect(thinkFailureStatus(named("ValidationException"))).toBe("llm_error");
+    expect(thinkFailureStatus(named("ValidationException"))).toBe("model_unusable");
+    expect(thinkFailureStatus(named("ResourceNotFoundException"))).toBe("model_unusable");
     expect(
       thinkFailureStatus(Object.assign(new Error("Input is too long for requested model"), { name: "ValidationException" })),
     ).toBe("model_unusable");

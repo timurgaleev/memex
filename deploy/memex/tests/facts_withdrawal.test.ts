@@ -136,6 +136,58 @@ describe("addFact after a forget", () => {
   });
 });
 
+describe("addFact against a forget that lands during the paid window", () => {
+  it("rechecks the ledger before the insert and writes nothing", async () => {
+    const id = await seed("Owns a boat", { written_by: "agent-a" });
+    const r = await addFact(storage, {
+      entity_slug: ENTITY,
+      fact: "Owns a boat",
+      written_by: "agent-b",
+      dedup: {
+        embed: async () => {
+          await forgetFact(storage, id);
+          return [];
+        },
+      },
+    });
+    expect(r).toEqual({ id: null, entity_slug: ENTITY, inserted: false, withdrawn: true });
+    expect(await rows()).toHaveLength(1);
+  });
+
+  it("takes the shared withdraw lock inside the insert's transaction, before the recheck", async () => {
+    const engine = storage.engine();
+    const log: string[] = [];
+    const origTx = engine.transaction.bind(engine);
+    engine.transaction = (async (fn: Parameters<typeof engine.transaction>[0]) =>
+      origTx(async (tx) => {
+        const spy = Object.create(tx) as typeof tx;
+        spy.query = ((sql: string, params?: unknown[]) => {
+          log.push(sql);
+          return tx.query(sql, params);
+        }) as typeof tx.query;
+        return fn(spy);
+      })) as typeof engine.transaction;
+    try {
+      const r = await addFact(storage, {
+        entity_slug: ENTITY,
+        fact: "Keeps bees",
+        dedup: { embed: async () => [] },
+      });
+      expect(r.inserted).toBe(true);
+    } finally {
+      engine.transaction = origTx;
+    }
+    const lock = log.findIndex(
+      (q) => q.includes("pg_advisory_xact_lock_shared") && !q.includes("INSERT"),
+    );
+    const recheck = log.findIndex((q) => q.includes("FROM fact_withdrawals"));
+    const insert = log.findIndex((q) => q.includes("INSERT INTO entity_facts"));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(recheck).toBeGreaterThan(lock);
+    expect(insert).toBeGreaterThan(recheck);
+  });
+});
+
 describe("insert trigger", () => {
   it("lands a raw bulk insert of a withdrawn claim already forgotten", async () => {
     const id = await seed("Prefers tea");

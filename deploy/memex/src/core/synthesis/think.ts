@@ -1025,16 +1025,25 @@ export function classifyThinkResponse(raw: string): {
   return { synthesis: { answer, citations, gaps }, status: "ok" };
 }
 
+/** Bedrock rejections the service makes before running the model: a request
+ *  it will not accept, or a model id it does not know. Resending cannot help. */
+const NON_RETRYABLE_ERROR_NAMES: ReadonlySet<string> = new Set([
+  "ValidationException",
+  "ResourceNotFoundException",
+]);
+
 /**
  * The status for a synthesis call that threw. A budget refusal or an open
- * circuit means no call was made; a model the account cannot use, or an input
- * it cannot take, will fail the same way on every retry; anything else is a
- * call that failed this time.
+ * circuit means no call was made; a model the account cannot use, an input it
+ * cannot take, or a request or model id the service rejects will fail the same
+ * way on every retry; anything else is a call that failed this time.
  */
 export function thinkFailureStatus(err: unknown): SynthesisStatus {
   if (isBudgetRefusal(err) || err instanceof BedrockHalted) return "no_llm";
   const cls = classifyBedrockError(err);
   if (cls === "access" || cls === "input_too_long") return "model_unusable";
+  const name = typeof err === "object" && err !== null ? (err as { name?: unknown }).name : undefined;
+  if (typeof name === "string" && NON_RETRYABLE_ERROR_NAMES.has(name)) return "model_unusable";
   return "llm_error";
 }
 

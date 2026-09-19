@@ -38,6 +38,7 @@ import {
 import type { LlmFn } from "./llm/haiku.ts";
 import type { BudgetTracker } from "./budget.ts";
 import { guardFields } from "./secret-scan.ts";
+import { withdrawLockKey } from "./fact-withdrawals.ts";
 
 /**
  * Insert-time dedup / supersede knobs (migration 038 fact embedding + the
@@ -668,13 +669,40 @@ export async function addFact(
            WHERE source_chunk_id IS NOT NULL
            DO NOTHING`
       : "";
-  const r = await storage.engine().query<{ id: number }>(
-    `INSERT INTO entity_facts (${cols.join(", ")})
-     VALUES (${placeholders.join(", ")})
-     ${conflict}
-     RETURNING id`,
-    params,
-  );
+  // The ledger check above ran before the paid window, unlocked; a forget can
+  // commit while the embed/classify call is in flight. Recheck under the same
+  // shared lock the insert trigger takes, so either this sees the committed
+  // withdrawal and writes nothing, or the forget's post-lock sweep sees this row.
+  const r = await storage.engine().transaction(async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock_shared(hashtext($1))", [
+      withdrawLockKey(effectiveSource),
+    ]);
+    if (
+      await isClaimWithdrawn(tx, {
+        source_id: effectiveSource,
+        visibility: visibility ?? "private",
+        entity_slug: input.entity_slug,
+        fact,
+      })
+    ) {
+      return null;
+    }
+    return tx.query<{ id: number }>(
+      `INSERT INTO entity_facts (${cols.join(", ")})
+       VALUES (${placeholders.join(", ")})
+       ${conflict}
+       RETURNING id`,
+      params,
+    );
+  });
+  if (r === null) {
+    return {
+      id: null,
+      entity_slug: input.entity_slug,
+      inserted: false,
+      withdrawn: true,
+    };
+  }
   const newId = toFactIdOrNull(r.rows[0]?.id);
   const inserted = chunkId === null ? true : r.rows.length > 0;
 
