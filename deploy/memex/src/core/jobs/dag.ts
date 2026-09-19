@@ -404,6 +404,8 @@ export interface JobSummary {
   parent_job_id: string | null;
   depth: number;
   idempotency_key: string | null;
+  /** Bumped by every claim; 0 for a job never claimed since migration 109. */
+  claim_generation: number;
   created_at: string;
   updated_at: string;
 }
@@ -446,7 +448,7 @@ export async function listJobs(
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const r = await engine.query<JobSummary>(
     `SELECT id, kind, status, priority, retry_count,
-            parent_job_id, depth, idempotency_key,
+            parent_job_id, depth, idempotency_key, claim_generation,
             created_at::text AS created_at,
             updated_at::text AS updated_at
        FROM jobs
@@ -490,6 +492,7 @@ export async function getJob(
     parent_job_id: string | null;
     depth: number;
     idempotency_key: string | null;
+    claim_generation: number;
     next_attempt_at: string;
     result: Record<string, unknown> | string | null;
     last_error: string | null;
@@ -499,7 +502,7 @@ export async function getJob(
     updated_at: string;
   }>(
     `SELECT id, kind, payload, status, priority, retry_count,
-            parent_job_id, depth, idempotency_key,
+            parent_job_id, depth, idempotency_key, claim_generation,
             next_attempt_at::text AS next_attempt_at,
             result, last_error,
             started_at::text AS started_at,
@@ -551,6 +554,7 @@ export async function getJob(
     parent_job_id: row.parent_job_id,
     depth: row.depth,
     idempotency_key: row.idempotency_key,
+    claim_generation: row.claim_generation,
     next_attempt_at: row.next_attempt_at,
     result: parseResult(row.result),
     last_error: row.last_error,

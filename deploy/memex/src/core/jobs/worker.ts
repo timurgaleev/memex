@@ -79,6 +79,11 @@ export interface WorkerStats {
   stallsTerminallyFailed: number;
   /** Jobs dead-lettered by the per-job wall-clock timeout. */
   timedOut: number;
+  /**
+   * Attempts whose final complete/fail was refused because a newer attempt
+   * had re-claimed the row (or it was cancelled or removed meanwhile).
+   */
+  fenced: number;
 }
 
 export class Worker {
@@ -101,6 +106,7 @@ export class Worker {
     stallsRequeued: 0,
     stallsTerminallyFailed: 0,
     timedOut: 0,
+    fenced: 0,
   };
 
   constructor(
@@ -267,12 +273,16 @@ export class Worker {
 
   private async runJob(job: JobRow): Promise<void> {
     this.stats.picked++;
+    // The claim token for this attempt: every write below presents it, so once
+    // a newer attempt re-claims the row, this one's writes change nothing.
+    const gen = job.claimGeneration;
     const handler = getHandler(job.kind);
     if (!handler) {
       const msg = `no handler registered for kind '${job.kind}'`;
       this.log("error", `[${job.id}] ${msg}`);
       try {
-        const updated = await this.queue.fail(job.id, msg);
+        const updated = await this.queue.fail(job.id, gen, msg);
+        if (!updated && (await this.claimLost(job.id, gen))) return;
         if (updated && updated.status === "pending") this.stats.retried++;
         else this.stats.failed++;
       } catch (e) {
@@ -297,6 +307,7 @@ export class Worker {
         try {
           extended = await this.queue.extendLock(
             job.id,
+            gen,
             new Date(Date.now() + timeoutMs + TIMEOUT_LOCK_GRACE_MS),
           );
         } catch (e) {
@@ -312,13 +323,13 @@ export class Worker {
       }
     }
     // Handler context: progress + token/cost usage persist onto the job row
-    // while it runs (running-gated, so a lost claim makes them no-ops).
+    // while it runs (fenced by `gen`, so a lost claim makes them no-ops).
     const ctx = {
       job,
       updateProgress: (progress: Record<string, unknown>) =>
-        this.queue.updateProgress(job.id, progress),
-      recordUsage: (usage: Parameters<Queue["recordUsage"]>[1]) =>
-        this.queue.recordUsage(job.id, usage),
+        this.queue.updateProgress(job.id, gen, progress),
+      recordUsage: (usage: Parameters<Queue["recordUsage"]>[2]) =>
+        this.queue.recordUsage(job.id, gen, usage),
     };
     // The whole body is guarded: a persistence failure (complete/fail) must
     // never crash the worker tick or escape as an unhandledRejection.
@@ -331,11 +342,14 @@ export class Worker {
           scope.stopped = true;
           throw e;
         });
-        await this.queue.complete(
+        const done = await this.queue.complete(
           job.id,
+          gen,
           result === undefined ? {} : (result as Record<string, unknown>),
         );
-        this.stats.succeeded++;
+        if (done || !(await this.claimLost(job.id, gen))) {
+          this.stats.succeeded++;
+        }
       } catch (e) {
         const message = asMessage(e);
         // A hard timeout dead-letters (terminal): JS cannot cancel the orphaned
@@ -347,10 +361,12 @@ export class Worker {
         );
         const updated = await this.queue.fail(
           job.id,
+          gen,
           message,
           timedOut ? { terminal: true } : {},
         );
         if (timedOut) this.stats.timedOut++;
+        if (!updated && (await this.claimLost(job.id, gen))) return;
         if (updated && updated.status === "pending") {
           this.stats.retried++;
         } else {
@@ -360,6 +376,22 @@ export class Worker {
     } catch (e) {
       this.log("error", `[${job.id}] job bookkeeping failed: ${asMessage(e)}`);
     }
+  }
+
+  /**
+   * After a refused terminal write: true (and counted as fenced) when a newer
+   * attempt has re-claimed the row. A row that was cancelled or removed under
+   * the same claim returns false and keeps the old accounting.
+   */
+  private async claimLost(id: string, gen: number): Promise<boolean> {
+    const row = await this.queue.get(id);
+    if (!row || row.claimGeneration === gen) return false;
+    this.stats.fenced++;
+    this.log(
+      "warn",
+      `[${id}] claim lost to a newer attempt (gen ${gen}); result discarded`,
+    );
+    return true;
   }
 
   private log(level: "info" | "warn" | "error", msg: string): void {
@@ -400,8 +432,8 @@ export class JobTimeoutError extends Error {
  * on the normal path so it can't keep the event loop alive.
  *
  * NOTE the orphan can still mutate NON-queue state (documents, chunks, ...)
- * after the dead-letter — the queue row is protected by `status='running'`
- * write guards, but a handler with external side effects must be idempotent.
+ * after the dead-letter — the queue row is protected by claim-generation
+ * write fences, but a handler with external side effects must be idempotent.
  */
 function runWithTimeout<T>(start: () => Promise<T>, ms: number): Promise<T> {
   let work: Promise<T>;

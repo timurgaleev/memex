@@ -39,7 +39,9 @@ import { dispatchTool, slugUnderPrefixes } from "../mcp/dispatch.ts";
 import { readBodyWithCap } from "./body_limit.ts";
 import { logIngest } from "../core/ingest-log.ts";
 
-export const INGEST_CAPTURE_JOB_KIND = "ingest_capture";
+import { INGEST_CAPTURE_JOB_KIND } from "../core/jobs/kinds.ts";
+
+export { INGEST_CAPTURE_JOB_KIND };
 
 const DEFAULT_INGEST_MAX_BYTES = 1_048_576; // 1 MiB
 

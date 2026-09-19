@@ -34,6 +34,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   verdict and does not replace it.
 
 ### Fixed
+- **A job attempt that lost its claim can no longer overwrite the newer
+  attempt.** When an attempt stalled or timed out and its job was re-claimed,
+  the old attempt could still complete or fail the job and write progress and
+  token usage onto the new one. Every claim now gets a generation
+  (`claim_generation`, shown by `jobs_get` and `jobs_list`), and an attempt's
+  writes only land while it still holds that generation. `jobs_submit` now
+  refuses a kind no handler exists for, instead of queueing a job that
+  spends its retries and dead-letters.
 - **`initialize` reports the real build version.** `serverInfo.version` is
   the deployed `git describe` stamp (the same value as `/health`) instead of
   a hard-coded `0.1.0`.

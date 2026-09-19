@@ -24,7 +24,9 @@ import { getPageExact } from "../pages.ts";
 import { mirrorPage, removePageFromSearch } from "../page-index.ts";
 import type { IndexFileOptions } from "../indexer.ts";
 
-export const PAGE_MIRROR_JOB_KIND = "page_mirror";
+import { PAGE_MIRROR_JOB_KIND } from "./kinds.ts";
+
+export { PAGE_MIRROR_JOB_KIND };
 
 export interface RegisterPageMirrorHandlerOpts {
   /** Test seams — production omits both. */

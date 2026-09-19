@@ -124,10 +124,10 @@ describe("progress + usage accounting", () => {
     await queue.enqueue({ kind: "a", id: "j1" });
     const claimed = await queue.claim();
     expect(claimed?.id).toBe("j1");
-    expect(await queue.updateProgress("j1", { step: 2, of: 5 })).toBe(true);
+    expect(await queue.updateProgress("j1", 1, { step: 2, of: 5 })).toBe(true);
     expect((await queue.get("j1"))?.progress).toEqual({ step: 2, of: 5 });
-    await queue.complete("j1", {});
-    expect(await queue.updateProgress("j1", { step: 5, of: 5 })).toBe(false);
+    await queue.complete("j1", 1, {});
+    expect(await queue.updateProgress("j1", 1, { step: 5, of: 5 })).toBe(false);
     // Progress written while running survives completion.
     expect((await queue.get("j1"))?.progress).toEqual({ step: 2, of: 5 });
   });
@@ -136,10 +136,10 @@ describe("progress + usage accounting", () => {
     await queue.enqueue({ kind: "a", id: "j1" });
     await queue.claim();
     expect(
-      await queue.recordUsage("j1", { tokensInput: 100, tokensOutput: 20, costUsd: 0.01 }),
+      await queue.recordUsage("j1", 1, { tokensInput: 100, tokensOutput: 20, costUsd: 0.01 }),
     ).toBe(true);
     expect(
-      await queue.recordUsage("j1", { tokensInput: 50, tokensCacheRead: 400, costUsd: 0.005 }),
+      await queue.recordUsage("j1", 1, { tokensInput: 50, tokensCacheRead: 400, costUsd: 0.005 }),
     ).toBe(true);
     const j = await queue.get("j1");
     expect(j?.tokensInput).toBe(150);
@@ -150,9 +150,9 @@ describe("progress + usage accounting", () => {
 
   it("recordUsage rejects no-op and non-running writes", async () => {
     await queue.enqueue({ kind: "a", id: "j1" });
-    expect(await queue.recordUsage("j1", {})).toBe(false);
-    expect(await queue.recordUsage("j1", { tokensInput: 10 })).toBe(false); // pending
-    expect(await queue.recordUsage("j1", { tokensInput: -5 })).toBe(false); // clamped
+    expect(await queue.recordUsage("j1", 1, {})).toBe(false);
+    expect(await queue.recordUsage("j1", 1, { tokensInput: 10 })).toBe(false); // pending
+    expect(await queue.recordUsage("j1", 1, { tokensInput: -5 })).toBe(false); // clamped
   });
 
   it("the worker exposes updateProgress/recordUsage in the handler context", async () => {
@@ -204,7 +204,7 @@ describe("getJobProgress", () => {
     expect(await getJobProgress(queue, "nope")).toBeNull();
     await queue.enqueue({ kind: "a", id: "j1" });
     await queue.claim();
-    await queue.updateProgress("j1", { pct: 40 });
+    await queue.updateProgress("j1", 1, { pct: 40 });
     expect(await getJobProgress(queue, "j1")).toEqual({
       id: "j1",
       kind: "a",

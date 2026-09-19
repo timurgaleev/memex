@@ -17,7 +17,9 @@ import {
 } from "../chronicle/extract-events.ts";
 import { chronicleTz } from "../chronicle/config.ts";
 
-export const CHRONICLE_EXTRACT_JOB_KIND = "chronicle_extract";
+import { CHRONICLE_EXTRACT_JOB_KIND } from "./kinds.ts";
+
+export { CHRONICLE_EXTRACT_JOB_KIND };
 
 export interface RegisterChronicleHandlerOpts {
   /** Test seam — inject a stub judge; production omits it to select the paid

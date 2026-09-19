@@ -1255,6 +1255,22 @@ renewal tick; 50 identical submits create one waiting job; a CPU-starved worker
 does not evict its own healthy job; `get_job_stats` flags a seeded wedge;
 submitting an unknown kind is refused.
 
+**Progress.** R1 (unreleased): attempt fencing and submit-side kind
+validation. Migration 109 adds `jobs.claim_generation`; every claim bumps it,
+and complete/fail/extendLock/updateProgress/recordUsage match the attempt's
+generation as well as `status='running'`, so a stalled or timed-out attempt
+whose row was re-claimed cannot finish, fail or write progress/usage onto the
+newer attempt (the worker counts those as `fenced` and logs "claim lost").
+`jobs_submit` refuses a kind that is neither built in (`BUILTIN_JOB_KINDS`)
+nor registered; `jobs_get`/`jobs_list` show `claim_generation`. Both "Done
+when" items are proven on PGLite (`tests/jobs_fencing.test.ts`,
+`tests/jobs_submit_kind.test.ts`); the Postgres-lane repeat waits on RM-03's
+`make test-pg`. Still open: `delayed`/`waiting_children`/`paused` statuses,
+`UnrecoverableError`, jittered backoff, pause/resume/replay; DAG fan-in in
+the terminal transaction; cascade cancel via abort; the renewal tick with
+verify-before-evict; admission control; tenant-scoped idempotency keys; the
+concurrency pool and worker runtime; `get_job_stats` and the admin page.
+
 ### RM-09 — Skill pack integrity and library currency
 
 **Why.** The brain serves its skill pack to every connected agent

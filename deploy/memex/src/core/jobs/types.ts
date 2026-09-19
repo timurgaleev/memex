@@ -47,6 +47,11 @@ export interface JobRow {
   tokensCacheRead: number;
   /** Accumulated dollar estimate of paid calls made by this job (migration 083). */
   costUsd: number;
+  /**
+   * Bumped by every claim (migration 109). An attempt's writes match the
+   * generation it claimed, so a stale attempt can't write onto a newer one.
+   */
+  claimGeneration: number;
 }
 
 /** Incremental token/cost usage a handler reports mid-run. All fields add. */
@@ -65,7 +70,7 @@ export interface JobUsageDelta {
  * `updateProgress` / `recordUsage` are provided by the Worker (optional so
  * tests can invoke handlers with a bare `{ job }` context): progress replaces
  * the row's `progress` JSONB, usage deltas accumulate onto the token/cost
- * columns. Both are running-status-gated no-ops after the claim is lost.
+ * columns. Both are no-ops once the attempt has lost its claim.
  */
 export type JobHandler = (
   payload: Record<string, unknown>,

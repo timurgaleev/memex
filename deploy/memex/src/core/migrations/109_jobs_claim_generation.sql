@@ -1,0 +1,11 @@
+-- 109_jobs_claim_generation.sql — fence every attempt's writes to its claim.
+--
+-- A handler that stalls or times out keeps running. Once the stall sweep
+-- requeues its row and a newer attempt claims it, the status gate alone
+-- ('running') let the old attempt's late complete/fail/progress/usage writes
+-- land on the new attempt. Each claim now bumps `claim_generation`, and every
+-- attempt write also matches the generation it was handed.
+--
+-- Additive; existing rows start at 0 and pick up 1 on their next claim.
+-- Gated writes already filter by primary key, so no index is needed.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS claim_generation INTEGER NOT NULL DEFAULT 0;

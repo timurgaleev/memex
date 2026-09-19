@@ -28,8 +28,10 @@
 import { createHash } from "node:crypto";
 import type { Queue } from "./jobs/queue.ts";
 
+import { REMEDIATION_JOB_KIND } from "./jobs/kinds.ts";
+
 /** Job kind for every remediation fix enqueued by this layer. */
-export const REMEDIATION_JOB_KIND = "remediation";
+export { REMEDIATION_JOB_KIND };
 
 /** Default per-run USD budget cap. Override with MEMEX_REMEDIATION_MAX_USD. */
 export const DEFAULT_REMEDIATION_MAX_USD = 1.0;

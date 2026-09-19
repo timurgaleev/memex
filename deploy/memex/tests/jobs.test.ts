@@ -149,7 +149,7 @@ describe("Queue.complete + fail", () => {
   it("complete persists the result and finished_at", async () => {
     const j = await queue.enqueue({ kind: "x" });
     await queue.claim();
-    await queue.complete(j.id, { reembedded: 3 });
+    await queue.complete(j.id, 1, { reembedded: 3 });
     const fetched = await queue.get(j.id);
     expect(fetched?.status).toBe("succeeded");
     expect(fetched?.result).toEqual({ reembedded: 3 });
@@ -160,7 +160,7 @@ describe("Queue.complete + fail", () => {
     const j = await queue.enqueue({ kind: "x", maxRetries: 2 });
     await queue.claim();
     const now = new Date("2026-05-08T12:00:00Z");
-    const updated = await queue.fail(j.id, "boom", { baseMs: 1000, now });
+    const updated = await queue.fail(j.id, 1, "boom", { baseMs: 1000, now });
     expect(updated?.status).toBe("pending");
     expect(updated?.retryCount).toBe(1);
     expect(updated?.lastError).toBe("boom");
@@ -172,7 +172,7 @@ describe("Queue.complete + fail", () => {
     const j = await queue.enqueue({ kind: "x" });
     await queue.claim();
     await queue.cancel(j.id);
-    const updated = await queue.complete(j.id, { ignored: true });
+    const updated = await queue.complete(j.id, 1, { ignored: true });
     expect(updated).toBeNull();
     const fetched = await queue.get(j.id);
     expect(fetched?.status).toBe("cancelled");
@@ -182,7 +182,7 @@ describe("Queue.complete + fail", () => {
     const j = await queue.enqueue({ kind: "x", maxRetries: 5 });
     await queue.claim();
     await queue.cancel(j.id);
-    const updated = await queue.fail(j.id, "should-not-apply");
+    const updated = await queue.fail(j.id, 1, "should-not-apply");
     expect(updated).toBeNull();
     const fetched = await queue.get(j.id);
     expect(fetched?.status).toBe("cancelled");
@@ -193,14 +193,14 @@ describe("Queue.complete + fail", () => {
     const j = await queue.enqueue({ kind: "x", maxRetries: 1 });
     await queue.claim();
     const t0 = new Date("2026-05-08T12:00:00Z");
-    await queue.fail(j.id, "first", { baseMs: 10, now: t0 });
+    await queue.fail(j.id, 1, "first", { baseMs: 10, now: t0 });
     // Advance the clock past the first retry's next_attempt_at so the
     // second claim flips status back to 'running'. Without this, the
     // status-guard on fail() correctly refuses (pending != running).
     const t1 = new Date(t0.getTime() + 100);
     const reclaimed = await queue.claim({ now: t1 });
     expect(reclaimed?.id).toBe(j.id);
-    const second = await queue.fail(j.id, "second", { baseMs: 10, now: t1 });
+    const second = await queue.fail(j.id, 2, "second", { baseMs: 10, now: t1 });
     expect(second?.status).toBe("failed");
     expect(second?.retryCount).toBe(2);
     expect(second?.lastError).toBe("second");
@@ -219,7 +219,7 @@ describe("Queue.cancel + retry + list + stats", () => {
   it("retry resets failed → pending", async () => {
     const j = await queue.enqueue({ kind: "x", maxRetries: 0 });
     await queue.claim();
-    await queue.fail(j.id, "die");
+    await queue.fail(j.id, 1, "die");
     const fetched = await queue.get(j.id);
     expect(fetched?.status).toBe("failed");
     const restored = await queue.retry(j.id);
@@ -233,10 +233,10 @@ describe("Queue.cancel + retry + list + stats", () => {
     const j = await queue.enqueue({ kind: "x", maxRetries: 1 });
     await queue.claim();
     const t0 = new Date("2026-05-08T12:00:00Z");
-    await queue.fail(j.id, "first", { baseMs: 10, now: t0 });
+    await queue.fail(j.id, 1, "first", { baseMs: 10, now: t0 });
     const t1 = new Date(t0.getTime() + 100);
     await queue.claim({ now: t1 });
-    const dead = await queue.fail(j.id, "second", { baseMs: 10, now: t1 });
+    const dead = await queue.fail(j.id, 2, "second", { baseMs: 10, now: t1 });
     expect(dead?.status).toBe("failed");
     expect(dead?.retryCount).toBe(2); // budget spent
 
@@ -245,7 +245,7 @@ describe("Queue.cancel + retry + list + stats", () => {
     // retry() re-stamps next_attempt_at to NOW(), so re-claim on the real clock.
     const reclaimed = await queue.claim();
     expect(reclaimed?.id).toBe(j.id);
-    const again = await queue.fail(j.id, "third", { baseMs: 10 });
+    const again = await queue.fail(j.id, 3, "third", { baseMs: 10 });
     expect(again?.status).toBe("pending");
     expect(again?.retryCount).toBe(1);
   });

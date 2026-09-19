@@ -37,6 +37,7 @@ interface RawJobRow {
   tokens_output: number | string;
   tokens_cache_read: number | string;
   cost_usd: number | string;
+  claim_generation: number;
 }
 
 function toDate(v: string | Date): Date {
@@ -85,6 +86,7 @@ function rowToJob(r: RawJobRow): JobRow {
     tokensCacheRead: toNum(r.tokens_cache_read),
     // NUMERIC comes back as a string from postgres-js.
     costUsd: toNum(r.cost_usd),
+    claimGeneration: r.claim_generation,
   };
 }
 
@@ -95,7 +97,7 @@ function toNum(v: number | string | null | undefined): number {
 }
 
 const SELECT_COLS =
-  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms, progress, tokens_input, tokens_output, tokens_cache_read, cost_usd";
+  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms, progress, tokens_input, tokens_output, tokens_cache_read, cost_usd, claim_generation";
 
 const DEFAULT_LOCK_SECONDS = 300; // 5 min — comfortably bigger than any
                                   // realistic job duration we run today.
@@ -229,6 +231,10 @@ export class Queue {
    * The lock_until field is what `handleStalled()` watches: a worker
    * that dies between claim and complete leaves a stale `running` row,
    * but once `lock_until` passes, the row gets requeued.
+   *
+   * Every claim bumps `claim_generation` in the same statement; the returned
+   * row carries the new value, and each write the attempt makes afterwards
+   * must present it (see complete/fail/extendLock/updateProgress/recordUsage).
    */
   async claim(opts: ClaimOptions = {}): Promise<JobRow | null> {
     const now = opts.now ?? new Date();
@@ -247,7 +253,8 @@ export class Queue {
           SET status = 'running',
               started_at = $1,
               updated_at = $1,
-              lock_until = $2
+              lock_until = $2,
+              claim_generation = claim_generation + 1
         WHERE id = (
           SELECT id FROM jobs
            WHERE status = 'pending'
@@ -268,15 +275,16 @@ export class Queue {
    * Extend a running job's `lock_until`. The worker calls this when a job's
    * hard `timeout_ms` is longer than the claim lock, so the stall sweep can't
    * requeue the row out from under an in-flight handler before its timeout
-   * fires. Returns true if a `running` row was extended, false if the row is no
-   * longer `running` (claim already lost) so the caller can abort the attempt.
+   * fires. Returns true if the attempt's claim was extended, false if the claim
+   * is gone (row no longer `running`, or re-claimed by a newer generation) so
+   * the caller can abort the attempt.
    */
-  async extendLock(id: string, lockUntil: Date): Promise<boolean> {
+  async extendLock(id: string, gen: number, lockUntil: Date): Promise<boolean> {
     const r = await this.engine.query<{ id: string }>(
-      `UPDATE jobs SET lock_until = $2, updated_at = NOW()
-        WHERE id = $1 AND status = 'running'
+      `UPDATE jobs SET lock_until = $3, updated_at = NOW()
+        WHERE id = $1 AND status = 'running' AND claim_generation = $2
         RETURNING id`,
-      [id, lockUntil],
+      [id, gen, lockUntil],
     );
     return r.rows.length > 0;
   }
@@ -349,12 +357,14 @@ export class Queue {
   }
 
   /**
-   * Mark a `running` job as `succeeded`. Status-gated so a stray
-   * `complete()` after a `cancel()` (or a duplicate worker tick) can't
-   * silently overwrite the cancelled-or-already-finished row.
+   * Mark a `running` job as `succeeded`. Fenced by claim generation: a stray
+   * `complete()` after a `cancel()`, or from an attempt whose row was
+   * requeued and re-claimed by a newer attempt, returns null and writes
+   * nothing.
    */
   async complete(
     id: string,
+    gen: number,
     result?: Record<string, unknown>,
   ): Promise<JobRow | null> {
     const r = await this.engine.query<RawJobRow>(
@@ -365,9 +375,9 @@ export class Queue {
               updated_at = NOW(),
               last_error = NULL,
               lock_until = NULL
-        WHERE id = $1 AND status = 'running'
+        WHERE id = $1 AND status = 'running' AND claim_generation = $3
         RETURNING ${SELECT_COLS}`,
-      [id, JSON.stringify(result ?? {})],
+      [id, JSON.stringify(result ?? {}), gen],
     );
     return r.rows[0] ? rowToJob(r.rows[0]) : null;
   }
@@ -376,17 +386,20 @@ export class Queue {
    * Mark the in-flight job as failed. If retry budget remains, schedule
    * the next attempt via exponential backoff; otherwise terminal-fail.
    *
-   * Status-gated on `running` — a `fail()` racing a `cancel()` is a no-op
-   * (returns null) so the cancelled row isn't reanimated into pending.
+   * Fenced by claim generation — a `fail()` racing a `cancel()`, or coming
+   * from an attempt that lost its claim to a newer one, is a no-op (returns
+   * null): the cancelled row isn't reanimated into pending, and the newer
+   * attempt's retry budget isn't spent by the stale one.
    */
   async fail(
     id: string,
+    gen: number,
     error: string,
     opts: FailOptions = {},
   ): Promise<JobRow | null> {
     const job = await this.get(id);
     if (!job) return null;
-    if (job.status !== "running") return null;
+    if (job.status !== "running" || job.claimGeneration !== gen) return null;
     const nextRetry = job.retryCount + 1;
     if (opts.terminal || nextRetry > job.maxRetries) {
       const r = await this.engine.query<RawJobRow>(
@@ -397,9 +410,9 @@ export class Queue {
                 finished_at = NOW(),
                 updated_at = NOW(),
                 lock_until = NULL
-          WHERE id = $1 AND status = 'running'
+          WHERE id = $1 AND status = 'running' AND claim_generation = $4
           RETURNING ${SELECT_COLS}`,
-        [id, nextRetry, error],
+        [id, nextRetry, error, gen],
       );
       return r.rows[0] ? rowToJob(r.rows[0]) : null;
     }
@@ -417,9 +430,9 @@ export class Queue {
               next_attempt_at = $4,
               started_at = NULL,
               updated_at = NOW()
-        WHERE id = $1 AND status = 'running'
+        WHERE id = $1 AND status = 'running' AND claim_generation = $5
         RETURNING ${SELECT_COLS}`,
-      [id, nextRetry, error, next],
+      [id, nextRetry, error, next, gen],
     );
     return r.rows[0] ? rowToJob(r.rows[0]) : null;
   }
@@ -495,30 +508,34 @@ export class Queue {
   }
 
   /**
-   * Replace a running job's structured progress. Status-gated on `running`
-   * (no lock token in memex's single-active-worker model): a late write after
-   * the claim is lost or the job finished is a no-op. Returns true when a row
-   * was updated.
+   * Replace a running job's structured progress. Fenced by claim generation:
+   * a late write after the job finished, or from an attempt a newer one has
+   * re-claimed, is a no-op. Returns true when a row was updated.
    */
   async updateProgress(
     id: string,
+    gen: number,
     progress: Record<string, unknown>,
   ): Promise<boolean> {
     const r = await this.engine.query<{ id: string }>(
       `UPDATE jobs SET progress = $2::text::jsonb, updated_at = NOW()
-        WHERE id = $1 AND status = 'running'
+        WHERE id = $1 AND status = 'running' AND claim_generation = $3
         RETURNING id`,
-      [id, JSON.stringify(progress)],
+      [id, JSON.stringify(progress), gen],
     );
     return r.rows.length > 0;
   }
 
   /**
    * Accumulate token/cost usage onto a running job's counters (migration 083).
-   * Deltas add; negative or non-finite inputs are clamped to 0. Running-gated
-   * like updateProgress. Returns true when a row was updated.
+   * Deltas add; negative or non-finite inputs are clamped to 0. Fenced by claim
+   * generation like updateProgress. Returns true when a row was updated.
    */
-  async recordUsage(id: string, usage: JobUsageDelta): Promise<boolean> {
+  async recordUsage(
+    id: string,
+    gen: number,
+    usage: JobUsageDelta,
+  ): Promise<boolean> {
     const clamp = (v: number | undefined): number =>
       v !== undefined && Number.isFinite(v) && v > 0 ? v : 0;
     const inTok = Math.trunc(clamp(usage.tokensInput));
@@ -535,9 +552,9 @@ export class Queue {
               tokens_cache_read = tokens_cache_read + $4,
               cost_usd = cost_usd + $5,
               updated_at = NOW()
-        WHERE id = $1 AND status = 'running'
+        WHERE id = $1 AND status = 'running' AND claim_generation = $6
         RETURNING id`,
-      [id, inTok, outTok, cacheTok, cost],
+      [id, inTok, outTok, cacheTok, cost, gen],
     );
     return r.rows.length > 0;
   }

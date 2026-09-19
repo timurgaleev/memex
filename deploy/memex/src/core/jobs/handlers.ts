@@ -6,6 +6,12 @@
  * a clear error so a forgotten registration surfaces immediately rather
  * than silently piling up in the table.
  */
+import {
+  CHRONICLE_EXTRACT_JOB_KIND,
+  INGEST_CAPTURE_JOB_KIND,
+  PAGE_MIRROR_JOB_KIND,
+  REMEDIATION_JOB_KIND,
+} from "./kinds.ts";
 import type { JobHandler } from "./types.ts";
 
 const REGISTRY = new Map<string, JobHandler>();
@@ -26,6 +32,24 @@ export function registerHandler(kind: string, fn: JobHandler): void {
 
 export function getHandler(kind: string): JobHandler | undefined {
   return REGISTRY.get(kind);
+}
+
+/**
+ * Kinds memex ships a handler for. Submit-side validation needs this static
+ * list because `memex call` runs in a process that never registers serve's
+ * handlers; the lifecycle smoke kind stays out on purpose, since only the
+ * self-test that registers it should ever enqueue it.
+ */
+export const BUILTIN_JOB_KINDS: ReadonlySet<string> = new Set([
+  CHRONICLE_EXTRACT_JOB_KIND,
+  INGEST_CAPTURE_JOB_KIND,
+  REMEDIATION_JOB_KIND,
+  PAGE_MIRROR_JOB_KIND,
+]);
+
+/** True when a worker could run this kind: built in, or registered here. */
+export function isKnownJobKind(kind: string): boolean {
+  return REGISTRY.has(kind) || BUILTIN_JOB_KINDS.has(kind);
 }
 
 export function listHandlers(): string[] {

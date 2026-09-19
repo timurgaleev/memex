@@ -169,6 +169,11 @@ import { putRawData, getRawData } from "../core/raw-data.ts";
 import { logIngest, getIngestLog } from "../core/ingest-log.ts";
 import { Queue } from "../core/jobs/queue.ts";
 import { PAGE_MIRROR_JOB_KIND } from "../core/jobs/page-mirror-handler.ts";
+import {
+  BUILTIN_JOB_KINDS,
+  isKnownJobKind,
+  listHandlers,
+} from "../core/jobs/handlers.ts";
 import { getJobProgress } from "../core/jobs/lifecycle.ts";
 import { runThink, type ThinkOptions, type ThinkResult } from "../core/synthesis/think.ts";
 import { isNoGrant } from "../core/source-scope.ts";
@@ -2443,6 +2448,14 @@ async function callJobsSubmit(
 ): Promise<ToolCallResult> {
   if (typeof args["kind"] !== "string")
     return errResult("jobs_submit: `kind` is required");
+  // An unknown kind would sit in the queue and burn its whole retry budget
+  // before dead-lettering; refuse it here instead.
+  if (!isKnownJobKind(args["kind"])) {
+    const known = [...new Set([...BUILTIN_JOB_KINDS, ...listHandlers()])].sort();
+    return errResult(
+      `jobs_submit: unknown kind ${JSON.stringify(args["kind"].slice(0, 64))} (known: ${known.join(", ")})`,
+    );
+  }
   const input: SubmitJobInput = { kind: args["kind"] };
   if (typeof args["payload"] === "object" && args["payload"] !== null)
     input.payload = args["payload"] as Record<string, unknown>;

@@ -83,7 +83,7 @@ describe("queue.fail terminal", () => {
   it("forces a terminal failed even with retries remaining", async () => {
     await queue.enqueue({ kind: "x", id: "t1", maxRetries: 5 });
     const claimed = await queue.claim();
-    const r = await queue.fail(claimed!.id, "boom", { terminal: true });
+    const r = await queue.fail(claimed!.id, claimed!.claimGeneration, "boom", { terminal: true });
     expect(r?.status).toBe("failed");
     expect(r?.lockUntil).toBeNull();
   });
@@ -96,7 +96,7 @@ describe("extendLock (timeout outlasting the claim lock)", () => {
     expect(claimed!.id).toBe("ex");
     // The worker extends the lock to cover a long timeout. A sweep 2s later
     // (past the original 1s lock) must NOT requeue it.
-    expect(await queue.extendLock("ex", new Date(Date.now() + 10_000))).toBe(
+    expect(await queue.extendLock("ex", 1, new Date(Date.now() + 10_000))).toBe(
       true,
     );
     const r = await queue.handleStalled({ now: new Date(Date.now() + 2000) });
@@ -107,7 +107,7 @@ describe("extendLock (timeout outlasting the claim lock)", () => {
   it("returns false and is a no-op on a job that is no longer running", async () => {
     await queue.enqueue({ kind: "x", id: "ex2" });
     // ex2 is still pending (never claimed) -> extendLock must not touch it.
-    expect(await queue.extendLock("ex2", new Date(Date.now() + 10_000))).toBe(
+    expect(await queue.extendLock("ex2", 0, new Date(Date.now() + 10_000))).toBe(
       false,
     );
     expect((await queue.get("ex2"))?.lockUntil).toBeNull();

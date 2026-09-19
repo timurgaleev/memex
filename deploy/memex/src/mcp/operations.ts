@@ -604,7 +604,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "jobs_submit",
     description:
-      "Submit a durable job. Idempotent when `idempotency_key` is provided (re-submit returns the existing row). Optional `parent_job_id` records a fan-out edge so the parent can detect fan-in via the child-done inbox. WRITE — refused on public ingress.",
+      "Submit a durable job; `kind` must be a registered handler kind. Idempotent when `idempotency_key` is provided (re-submit returns the existing row). Optional `parent_job_id` records a fan-out edge so the parent can detect fan-in via the child-done inbox. WRITE — refused on public ingress.",
     params: {
       kind: str(req),
       payload: obj(),
