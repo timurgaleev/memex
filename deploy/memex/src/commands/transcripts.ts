@@ -137,7 +137,7 @@ export async function runTranscripts(opts: TranscriptsCmdOptions): Promise<numbe
     }),
   );
   if (opts.json) {
-    console.log(JSON.stringify({ ok: result.sessions_rejected === 0, dry_run: false, file, diagnostics, result }, null, 2));
+    console.log(JSON.stringify({ ok: result.sessions_rejected + result.sessions_failed === 0, dry_run: false, file, diagnostics, result }, null, 2));
   } else {
     console.log(
       `${file} (${diagnostics.format ?? "empty"}): ${result.sessions} sessions, ` +
@@ -146,9 +146,10 @@ export async function runTranscripts(opts: TranscriptsCmdOptions): Promise<numbe
         (result.mirror_failures > 0 ? `, ${result.mirror_failures} not yet searchable` : ""),
     );
     for (const r of result.rejected) console.log(`  refused ${r.id}: ${r.reason}`);
+    for (const f of result.failed) console.log(`  failed ${f.id} (${f.code}): ${f.reason}`);
     printSkipped(diagnostics.skipped, diagnostics.skippedMessages);
   }
-  return result.sessions_rejected > 0 ? 1 : 0;
+  return result.sessions_rejected + result.sessions_failed > 0 ? 1 : 0;
 }
 
 function printSkipped(skipped: ReadonlyArray<{ index: number; id?: string; reason: string }>, messages: number): void {

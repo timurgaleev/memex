@@ -1773,7 +1773,11 @@ boundaries with one message of overlap as `transcripts/<format>/<id>-pN`
 (metadata in compiled truth, not frontmatter: a page body's frontmatter is not
 parsed by the mirror), content-hash no-op re-runs, stale parts soft-deleted in
 the same source, changed parts mirrored; `get_recent_transcripts` lists
-`conversation`. Done-when items 1-5 are covered by tests. Open: durable jobs +
+`conversation`. Done-when items 1-5 are covered by tests; the zero-rows
+re-run holds under all three secret dispositions (a flagged part is audited
+only when written, an identical refusal is audited once). A session whose part
+another source owns or that was merged away is reported as failed (exit 1)
+and the run continues. Open: durable jobs +
 `transcripts status`, `raw_data` sidecar and `since` checkpoint, `/ingest`
 content type, Claude Code/Codex adapters, client-side capture, supervised
 source interface, parser breadth, sweep valve and failure ledger, retiring

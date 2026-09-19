@@ -22,6 +22,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an export no adapter can read exits non-zero instead of importing nothing.
   Files over `MEMEX_TRANSCRIPT_MAX_FILE_BYTES` (default 100 MiB) are refused.
   `get_recent_transcripts` now lists `conversation` pages.
+  A session whose parts belong to another source (or were merged away) is
+  reported as failed and the rest of the export still imports; re-runs add
+  no audit rows under any secret disposition.
+
+### Fixed
+- **Re-putting an identical page no longer re-audits a flagged credential.**
+  Under `MEMEX_SECRET_SCAN_DISPOSITION=flag`, every unchanged `page_put` of a
+  page holding a credential added another `secret-flagged` row.
 
 ## [1.148.0] — 2026-09-19
 

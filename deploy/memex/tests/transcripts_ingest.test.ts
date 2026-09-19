@@ -15,6 +15,7 @@ import { getPage, putPage } from "../src/core/pages.ts";
 import { pageSourcePath } from "../src/core/page-index.ts";
 import { fingerprintSecret } from "../src/core/secret-scan.ts";
 import { listRecentTranscripts } from "../src/core/transcripts-read.ts";
+import { mergePage } from "../src/core/entity-merge.ts";
 import { ingestSessions } from "../src/core/transcripts/ingest.ts";
 import type { TranscriptSession } from "../src/core/transcripts/types.ts";
 import { runTranscripts } from "../src/commands/transcripts.ts";
@@ -156,6 +157,72 @@ describe("ingestSessions", () => {
     expect(r).toMatchObject({ sessions_rejected: 1, parts_written: 1 });
     expect(await liveParts(storage, "transcripts/chatgpt/refused")).toEqual([]);
     expect(await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log WHERE source_type = 'secret-rejected'`)).toBe(1);
+  });
+
+  it("does not re-audit a refused session on an unchanged re-run", async () => {
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    const s = session("again", 4, 1500, (i) => (i === 3 ? `late ${PAT}` : `turn ${i}`));
+    for (let run = 0; run < 3; run++) {
+      const r = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
+      expect(r.sessions_rejected).toBe(1);
+    }
+    expect(await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log`)).toBe(1);
+  });
+
+  it("audits flagged credentials once per written part, and not again on a re-run", async () => {
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "flag";
+    const s = session("flagged", 40, 1500, (i) => `turn ${i} token ${PAT} ${"padding text ".repeat(120)}`);
+    const first = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
+    expect(first.parts_written).toBeGreaterThan(1);
+    expect((await getPage(storage, "transcripts/chatgpt/flagged-p1"))!.markdown_body).toContain(PAT);
+    // Rows come from each written part, not from a session-level row on top.
+    const refs = await storage.engine().query<{ source_ref: string }>(
+      `SELECT DISTINCT source_ref FROM ingest_log WHERE source_type = 'secret-flagged' ORDER BY source_ref`,
+    );
+    expect(refs.rows.length).toBeGreaterThan(0);
+    for (const r of refs.rows) expect(r.source_ref).toMatch(/flagged-p\d+$/);
+    const logs = await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log`);
+    const again = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
+    expect(again).toMatchObject({ parts_written: 0, parts_unchanged: first.parts_written });
+    expect(await count(storage, `SELECT COUNT(*)::int AS n FROM ingest_log`)).toBe(logs);
+  });
+
+  it("fails a session whose part another source owns, and carries on with the rest", async () => {
+    await putPage(storage, {
+      slug: "transcripts/chatgpt/moved-p1",
+      type: "conversation",
+      allowAdHocType: true,
+      markdown_body: "User: moved to a tenant",
+      source_id: "other",
+    });
+    const r = await ingestSessions(storage, [session("moved", 2), session("after", 2)], {
+      sourceId: "default",
+      embedFn,
+      ref: "t",
+    });
+    expect(r).toMatchObject({ sessions_failed: 1, sessions_rejected: 0, parts_written: 1 });
+    expect(r.failed).toEqual([
+      expect.objectContaining({ id: "moved", code: "permission_denied" }),
+    ]);
+    expect((await getPage(storage, "transcripts/chatgpt/moved-p1"))!.source_id).toBe("other");
+    expect(await liveParts(storage, "transcripts/chatgpt/after")).toEqual(["transcripts/chatgpt/after-p1"]);
+    const log = await storage.engine().query<{ summary: string }>(
+      `SELECT summary FROM ingest_log WHERE source_type = 'transcripts'`,
+    );
+    expect(log.rows).toHaveLength(1);
+    expect(log.rows[0]!.summary).toContain("failed 1");
+  });
+
+  it("fails a session whose part was merged away, and carries on with the rest", async () => {
+    await ingestSessions(storage, [session("merged", 2)], { sourceId: "default", embedFn });
+    await putPage(storage, { slug: "notes/canon", type: "note", markdown_body: "canonical", source_id: "default" });
+    expect((await mergePage(storage, "transcripts/chatgpt/merged-p1", "notes/canon")).merged).toBe(true);
+
+    const edited = session("merged", 2, 1500, (i) => `edited turn ${i}`);
+    const r = await ingestSessions(storage, [edited, session("next", 2)], { sourceId: "default", embedFn });
+    expect(r.sessions_failed).toBe(1);
+    expect(r.failed[0]!.id).toBe("merged");
+    expect(await liveParts(storage, "transcripts/chatgpt/next")).toEqual(["transcripts/chatgpt/next-p1"]);
   });
 
   it("splits a 5 MB session into searchable parts with vector coverage", async () => {

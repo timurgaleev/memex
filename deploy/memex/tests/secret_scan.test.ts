@@ -116,6 +116,20 @@ describe("a page write", () => {
     expect(await getPage(storage, "notes/refused")).toBeNull();
   });
 
+  it("audits a flagged credential once, not on every identical re-put", async () => {
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "flag";
+    const flagged = async () =>
+      Number((await storage.engine().query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM ingest_log WHERE source_type = 'secret-flagged' AND source_ref = 'notes/flagged'`,
+      )).rows[0]!.n);
+    const first = await putPage(storage, { slug: "notes/flagged", markdown_body: `key ${AWS}` });
+    expect(first.secrets_found).toBe(1);
+    expect(await flagged()).toBe(1);
+    const again = await putPage(storage, { slug: "notes/flagged", markdown_body: `key ${AWS}` });
+    expect(again).toMatchObject({ changed: false, secrets_found: 1 });
+    expect(await flagged()).toBe(1);
+  });
+
   it("keeps an allowed fingerprint", async () => {
     process.env.MEMEX_SECRET_SCAN_ALLOW = fingerprintSecret(AWS);
     await putPage(storage, { slug: "notes/allowed", markdown_body: `example ${AWS}` });

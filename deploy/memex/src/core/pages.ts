@@ -544,8 +544,11 @@ export async function putPage(
       created: false,
     };
   });
+  // A no-op stored nothing, so there is nothing new to audit; under `flag` the
+  // credential sits in the unchanged body and would otherwise be re-audited on
+  // every identical re-put.
   if (secretFindings.length === 0) return result;
-  await auditSecrets(engine, secretFindings, input.slug, callerSource);
+  if (result.changed) await auditSecrets(engine, secretFindings, input.slug, callerSource);
   return { ...result, secrets_found: secretFindings.length };
 }
 
