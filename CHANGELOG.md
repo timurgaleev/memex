@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A vault sweep capped by `maxFiles` stopped at a different file on Linux
+  than on macOS.** The walk followed the filesystem's directory order — sorted
+  on APFS, hash order on ext4 — so where a capped sweep stopped, and which
+  files it confirmed, depended on the host. It now walks in name order.
+
 ## [1.144.0] — 2026-09-19
 
 ### Added

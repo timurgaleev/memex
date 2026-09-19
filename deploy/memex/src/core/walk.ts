@@ -73,6 +73,10 @@ function* walkInner(
   } catch {
     return;
   }
+  // readdir order is the filesystem's (sorted on APFS, hash order on ext4), so
+  // a walk cut short by a budget would stop at a different file per platform.
+  // Name order makes the walk, and where a capped sweep resumes, the same.
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   for (const ent of entries) {
     const name = String(ent.name);
     if (opts.ignore.has(name)) continue;
