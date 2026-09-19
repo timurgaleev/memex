@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A spend report.** `memex spend [--days N]` and
+  `GET /admin/api/spend/report?days=N` roll the spend ledger up by model, by
+  feature and by spender (OAuth clients, personal access tokens and enrolled
+  people alike) over the last N days (default 7), and name the calls the
+  totals cannot see: unpriced models and calls that failed before reporting
+  usage.
+
 ### Fixed
 - **A vault sweep capped by `maxFiles` stopped at a different file on Linux
   than on macOS.** The walk followed the filesystem's directory order — sorted

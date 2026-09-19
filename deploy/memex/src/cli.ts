@@ -54,6 +54,7 @@ import { runPageRetype } from "./commands/page-retype.ts";
 import { runPages } from "./commands/pages.ts";
 import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
+import { runSpend } from "./commands/spend.ts";
 import { runSkillpack } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
@@ -194,6 +195,7 @@ function printUsage(): void {
   console.log("  lint [<dir|file.md>] [--fix] [--dry-run]");
   console.log("                               DB frontmatter conformance (no target) or file lint with auto-repair");
   console.log("  reports [--since H]          trend report from cycle_snapshots");
+  console.log("  spend [--days N]             LLM spend by model, feature and spender");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  migrate-engine --from X --to Y [--dry-run] [--pglite-path P] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
@@ -1288,6 +1290,15 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.sinceHours = n;
       }
       await runReports(opts);
+      return 0;
+    }
+    case "spend": {
+      const daysStr = values.get("--days");
+      const days = daysStr === undefined ? undefined : Number(daysStr);
+      if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > 366)) {
+        throw new Error(`memex spend: invalid --days ${daysStr}`);
+      }
+      await runSpend(days === undefined ? {} : { days });
       return 0;
     }
     case "skillpack": {

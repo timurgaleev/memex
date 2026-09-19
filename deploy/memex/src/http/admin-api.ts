@@ -11,6 +11,7 @@
  * EVERY route gates on `requireAdmin` itself — the public bearer guard exempts
  * `/admin*`, so there is no ambient protection here.
  */
+import { spendReport } from "../core/spend-report.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
 import type { Engine } from "../core/engine/interface.ts";
@@ -601,6 +602,21 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       return Response.json({ agents: rows.rows });
     } catch (e) {
       return serverError("agents-spend", e);
+    }
+  }
+
+  // GET /admin/api/spend/report?days=N — the ledger by model, feature and
+  // spender, with the calls the totals cannot price.
+  if (p === "/admin/api/spend/report" && req.method === "GET") {
+    const raw = url.searchParams.get("days");
+    const days = raw === null ? 7 : Number(raw);
+    if (!Number.isInteger(days) || days < 1 || days > 366) {
+      return badRequest("days must be a whole number from 1 to 366");
+    }
+    try {
+      return Response.json(await spendReport(engine, { days }));
+    } catch (e) {
+      return serverError("spend-report", e);
     }
   }
 

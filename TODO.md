@@ -907,7 +907,10 @@ in `tests/model_json.test.ts` with 5 stated exemptions; the two
 `isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose. Model keys
 (v1.144.0): `resolveModel(tier, override, feature)` with
 `MEMEX_<FEATURE>_MODEL` for think, drift, concepts, expansion, intent, rerank.
-Not done: runtime-config overrides and the `v1-nova` prompt-version rename.
+Not done: runtime-config overrides and the `v1-nova` prompt-version rename. Spend report
+(unreleased): `core/spend-report.ts`, `memex spend`, `/admin/api/spend/report`
+— operator-only surfaces, no MCP op (a remote tool would need tenancy rules
+for a cross-tenant rollup).
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
   cannot be capped separately (client ids are random `memex_cl_…`, so only a
   deliberate collision); refuse such names at mint.

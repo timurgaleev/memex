@@ -153,6 +153,21 @@ describe("admin-api credential management (authed)", () => {
     expect(again?.status).toBe(404);
   });
 
+  it("reports spend by model, feature and spender", async () => {
+    await storage.engine().query(
+      `INSERT INTO mcp_spend_log (client_id, operation, spend_cents, model, input_tokens, output_tokens)
+       VALUES ('someone', 'think', 150, 'sonnet', 10, 5)`,
+    );
+    const ok = await call("/admin/api/spend/report?days=3", authed());
+    expect(ok?.status).toBe(200);
+    const body = (await ok!.json()) as { days: number; total_usd: number; by_client: { key: string }[] };
+    expect(body.days).toBe(3);
+    expect(body.total_usd).toBeCloseTo(1.5, 9);
+    expect(body.by_client[0]?.key).toBe("someone");
+    expect((await call("/admin/api/spend/report?days=0", authed()))?.status).toBe(400);
+    expect((await call("/admin/api/spend/report"))?.status).toBe(401);
+  });
+
   it("keeps a key's daily cap when the name is revoked and minted again", async () => {
     // Spend is booked under the name, so a fresh row with no cap would uncap it.
     const first = await call("/admin/api/api-keys", authed({ method: "POST", body: JSON.stringify({ name: "capped-key" }) }));
