@@ -46,10 +46,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tables, so pages, page versions, links, facts and withdrawals, timeline,
   tags, synthesis and OAuth rows are copied too, in foreign-key order. Each
   table is then compared by row count and content hash; the run prints one
-  JSON summary and exits 1 on any mismatch, missing table or failed table.
-  Triggers stay off during the copy (the destination role must be able to set
-  `session_replication_role`), keyed tables upsert so a re-run resumes, and
-  sequences advance past the copied rows. New flags: `--verify-only` compares
+  JSON summary and exits 1 on any mismatch, missing table or failed table,
+  or on a source column the destination lacks (`--allow-dropped-columns`
+  accepts that loss explicitly). The source is read through one read-only
+  snapshot for both the copy and the check, so copying a database the service
+  is still writing to passes. Triggers stay off during the copy (the
+  destination role must be able to set `session_replication_role`), keyed
+  tables upsert so a re-run resumes, and sequences advance past both the copied
+  rows and the source sequence, so an id the source deleted is never handed out
+  again. New flags: `--verify-only` compares
   two existing databases, `--tables a,b` limits the run, and
   `--to-pglite-path` allows a PGLite-to-PGLite copy, so a
   Postgres→PGLite→PGLite round trip can rehearse a rollback.

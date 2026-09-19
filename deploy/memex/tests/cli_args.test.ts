@@ -418,6 +418,12 @@ describe("migrate-engine flags", () => {
     expect(r.values.get("--tables")).toBe("pages");
   });
 
+  it("keeps --allow-dropped-columns boolean", () => {
+    const r = parseArgs(["migrate-engine", "--allow-dropped-columns", "--tables", "pages"]);
+    expect(r.flags.has("--allow-dropped-columns")).toBe(true);
+    expect(r.values.get("--tables")).toBe("pages");
+  });
+
   it("refuses --tables without a value", () => {
     expect(() => parseArgs(["migrate-engine", "--tables"])).toThrow(/requires a value/);
   });

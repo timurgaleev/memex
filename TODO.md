@@ -2609,7 +2609,10 @@ skipped, text transport, keyset batches, triggers off via
 each table by count and an order-independent content hash and exits 1 on any
 mismatch. pglite→pglite, `--verify-only` and `--tables` are in;
 `tests/engine_copy.test.ts` proves a two-hop PGLite round trip across all
-tables. Still open: the live Postgres→PGLite check on the EC2; the resume
+tables. Review fixes: every source read (catalog, copy, hash) runs in one
+`REPEATABLE READ READ ONLY` transaction so a live source verifies; sequences
+take the later of the copied maximum and the source sequence's last value;
+a source-only column fails the run unless `--allow-dropped-columns`. Still open: the live Postgres→PGLite check on the EC2; the resume
 manifest and the config flip; `memex import`; the backup-posture verdict; the
 composite identity itself; a CI Postgres lane.
 

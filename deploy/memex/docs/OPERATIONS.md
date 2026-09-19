@@ -180,17 +180,24 @@ no insert rewrites a copied row. The destination role therefore needs
 superuser (`rds_superuser` on RDS); the run refuses up front otherwise.
 Keyed tables upsert, so a re-run resumes an interrupted copy and makes rows
 seeded by the destination's migrations equal to the source. Sequences are
-advanced to the copied maximum. The source is only read.
+advanced to the later of the copied maximum and the source sequence, so an id
+the source handed out and then deleted is never reissued. The source is only
+read, through one `REPEATABLE READ READ ONLY` snapshot that covers both the
+copy and the check, so a source the service keeps writing to is copied as one
+point in time. On Postgres that snapshot is one transaction held open for the
+whole run.
 
 Every table is then checked by row count and a content hash. The command
 prints one JSON summary (`ok`, per-table `src`/`dst`/`srcHash`/`dstHash`/
 `match`, `missing`, `failures`) on stdout and exits 1 on any mismatch,
-missing table or failed table.
+missing table, failed table, or source column the destination lacks (its
+data would be dropped).
 
 | Flag | Meaning |
 |---|---|
 | `--dry-run` | catalogs and row counts only, no writes |
-| `--verify-only` | skip the copy; compare two existing databases |
+| `--verify-only` | skip the copy; compare two existing databases (against a live source it also reports every row written since the copy) |
+| `--allow-dropped-columns` | accept source columns the destination lacks, e.g. a rollback onto an older schema; their data is not copied |
 | `--tables a,b` | restrict the copy and the check to these tables |
 | `--to-pglite-path P` | destination path for a pglite→pglite copy (`--pglite-path` is the source) |
 
@@ -200,10 +207,9 @@ Before a risky schema change, prove the way back on a scratch copy. The
 live database is only read:
 
 ```bash
-# Postgres -> PGLite (rehearsal copy), then check it again on its own
+# Postgres -> PGLite (rehearsal copy); the run checks itself against the
+# same source snapshot it copied, so it passes while the service writes
 docker exec deploy-memex-1 bun run src/cli.ts migrate-engine \
-  --from postgres --to pglite --pglite-path /tmp/rt-rehearsal.pglite
-docker exec deploy-memex-1 bun run src/cli.ts migrate-engine --verify-only \
   --from postgres --to pglite --pglite-path /tmp/rt-rehearsal.pglite
 
 # PGLite -> PGLite (a second hop that must match the first)

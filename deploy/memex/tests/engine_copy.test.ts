@@ -14,6 +14,7 @@ import { addFact } from "../src/core/facts.ts";
 import { forgetFact } from "../src/core/facts-recall.ts";
 import { addTimelineEvent } from "../src/core/timeline.ts";
 import { addTag } from "../src/core/tags.ts";
+import type { Engine } from "../src/core/engine/interface.ts";
 import {
   copyEngine,
   planCopy,
@@ -273,6 +274,99 @@ describe("copyEngine round trip", () => {
     const pages = r.tables.find((t) => t.name === "pages")!;
     expect(pages.src).toBe(pages.dst);
     expect(r.failures.map((f) => f.table)).toEqual(["pages"]);
+  });
+});
+
+describe("source fidelity", () => {
+  it("reads the source through one read-only repeatable-read transaction", async () => {
+    const s = await open("snap-src");
+    const d = await open("snap-dst");
+    try {
+      await putPage(s, { slug: "notes/snap", type: "note", markdown_body: "snap" });
+      const real = s.engine();
+      let transactions = 0;
+      const statements: string[] = [];
+      const counted: Engine = {
+        kind: real.kind,
+        ready: () => real.ready(),
+        query: <U>(sql: string, params?: unknown[]) => real.query<U>(sql, params),
+        exec: (sql: string) => real.exec(sql),
+        close: async () => {},
+        transaction: <U>(fn: (tx: Engine) => Promise<U>) => {
+          transactions++;
+          return real.transaction((tx) => fn({
+            kind: tx.kind,
+            ready: () => tx.ready(),
+            exec: (sql: string) => tx.exec(sql),
+            close: () => tx.close(),
+            transaction: (inner) => tx.transaction(inner),
+            query: <V>(sql: string, params?: unknown[]) => {
+              statements.push(sql);
+              return tx.query<V>(sql, params);
+            },
+          }));
+        },
+      };
+      const r = await copyEngine(counted, d.engine(), { batchSize: 1 });
+      expect(r.ok).toBe(true);
+      expect(transactions).toBe(1);
+      expect(statements[0]).toBe("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+      expect(statements.length).toBeGreaterThan(10);
+    } finally {
+      await s.close();
+      await d.close();
+    }
+  });
+
+  it("does not reissue an id the source handed out and then deleted", async () => {
+    const s = await open("seq-src");
+    const d = await open("seq-dst");
+    try {
+      const ids = (await s.engine().query<{ id: string }>(
+        `INSERT INTO raw_data (slug, source, data)
+         VALUES ('a', 'crm', '{}'::jsonb), ('b', 'crm', '{}'::jsonb), ('c', 'crm', '{}'::jsonb)
+         RETURNING id::text AS id`,
+      )).rows.map((r) => Number(r.id));
+      const top = Math.max(...ids);
+      await s.engine().query("DELETE FROM raw_data WHERE id = $1", [top]);
+
+      const r = await copyEngine(s.engine(), d.engine(), { tables: ["raw_data"] });
+      expect(r.ok).toBe(true);
+      const next = await d.engine().query<{ id: string }>(
+        "INSERT INTO raw_data (slug, source, data) VALUES ('d', 'crm', '{}'::jsonb) RETURNING id::text AS id",
+      );
+      expect(Number(next.rows[0]!.id)).toBeGreaterThan(top);
+    } finally {
+      await s.close();
+      await d.close();
+    }
+  });
+
+  it("fails on a source column the destination lacks unless dropping is allowed", async () => {
+    const s = await open("drop-src");
+    const d = await open("drop-dst");
+    try {
+      await putPage(s, { slug: "notes/t", type: "note", markdown_body: "t" });
+      await addTag(s, "notes/t", "kept");
+      await s.engine().query("ALTER TABLE tags ADD COLUMN note text");
+      await s.engine().query("UPDATE tags SET note = 'lost on copy'");
+
+      const strict = await copyEngine(s.engine(), d.engine(), { tables: ["tags"] });
+      expect(strict.ok).toBe(false);
+      expect(strict.failures).toEqual([
+        { table: "tags", error: "source-only columns not copied: note" },
+      ]);
+      expect(strict.tables[0]!.sourceOnlyColumns).toEqual(["note"]);
+
+      const lax = await copyEngine(s.engine(), d.engine(), {
+        tables: ["tags"],
+        allowDroppedColumns: true,
+      });
+      expect(lax.ok).toBe(true);
+    } finally {
+      await s.close();
+      await d.close();
+    }
   });
 });
 

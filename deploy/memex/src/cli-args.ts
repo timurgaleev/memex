@@ -34,6 +34,7 @@ import { nearest } from "./core/did-you-mean.ts";
  */
 export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--all",
+  "--allow-dropped-columns",
   "--apply",
   "--catch-up",
   "--contextual",
@@ -264,7 +265,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "migrate-engine",
     new Set([
-      "--batch-size", "--dry-run", "--from", "--pglite-path", "--postgres-url",
+      "--allow-dropped-columns", "--batch-size", "--dry-run", "--from", "--pglite-path", "--postgres-url",
       "--tables", "--to", "--to-pglite-path", "--verify-only",
     ]),
   ],

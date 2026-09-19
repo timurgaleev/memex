@@ -11,6 +11,10 @@
  * driver's native codec (driver round trips are what double-encoded jsonb
  * once). The bind is typed `text` because PGLite serializes a parameter by its
  * inferred type and refuses 't' for a boolean.
+ *
+ * Every source read — catalog, copy pages, hashes — runs in one REPEATABLE
+ * READ READ ONLY transaction, so a live source (the service keeps writing
+ * heartbeats, logs and jobs) is copied and checked as one point in time.
  */
 import type { Engine } from "./engine/interface.ts";
 
@@ -78,6 +82,12 @@ export interface CopyOptions {
   batchSize?: number;
   dryRun?: boolean;
   verifyOnly?: boolean;
+  /**
+   * Accept source columns the destination lacks (their data is dropped).
+   * Off by default: a rollback onto an older schema would otherwise lose the
+   * newer columns with a passing check.
+   */
+  allowDroppedColumns?: boolean;
   log?: (line: string) => void;
 }
 
@@ -287,6 +297,43 @@ async function pinTextFormat(tx: Engine): Promise<void> {
   await tx.query("SET LOCAL bytea_output = 'hex'");
 }
 
+/**
+ * Run `fn` against one snapshot of the source. The handle it gets joins the
+ * open transaction on `transaction()`, so the page readers below need no
+ * separate snapshot-aware path.
+ */
+async function withSourceSnapshot<T>(src: Engine, fn: (snap: Engine) => Promise<T>): Promise<T> {
+  return src.transaction(async (tx) => {
+    await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+    await pinTextFormat(tx);
+    const snap: Engine = {
+      kind: tx.kind,
+      ready: async () => {},
+      query: <U>(sql: string, params?: unknown[]) => tx.query<U>(sql, params),
+      exec: (sql: string) => tx.exec(sql),
+      close: async () => {},
+      transaction: <U>(inner: (e: Engine) => Promise<U>) => inner(snap),
+    };
+    return fn(snap);
+  });
+}
+
+/**
+ * The source sequence's last handed-out value, or null when it never handed
+ * one out. Rows with the highest ids may have been deleted since (retention,
+ * purge, a rolled-back insert), so the copied maximum alone would reissue ids
+ * that clients or unkeyed references still hold.
+ */
+async function sourceSequenceValue(src: Engine, table: string, column: string): Promise<string | null> {
+  const r = await src.query<{ v: string | null }>(
+    `SELECT pg_sequence_last_value(s::regclass)::text AS v
+       FROM (SELECT pg_get_serial_sequence($1, $2) AS s) x
+      WHERE s IS NOT NULL`,
+    [quoteIdent(table), column],
+  );
+  return r.rows[0]?.v ?? null;
+}
+
 interface Cursor {
   /** Key column values (text) of the last row read, or the last ctid for a keyless table. */
   after: string[] | null;
@@ -395,10 +442,7 @@ async function copyTable(
   let copied = 0;
   for (;;) {
     const page = pageQuery(t, types, projection, cursor, rowsPerBatch);
-    const rows = await src.transaction(async (tx) => {
-      await pinTextFormat(tx);
-      return (await tx.query<Record<string, unknown>>(page.sql, page.params)).rows;
-    });
+    const rows = (await src.query<Record<string, unknown>>(page.sql, page.params)).rows;
     if (rows.length === 0) break;
 
     const params: unknown[] = [];
@@ -425,11 +469,13 @@ async function copyTable(
 
   for (const c of t.columns) {
     if (!c.hasSequence) continue;
+    const used = await sourceSequenceValue(src, t.name, c.name);
     await dst.query(
       `SELECT setval(pg_get_serial_sequence($1, $2), m)
-         FROM (SELECT max(${quoteIdent(c.name)}) AS m FROM ${quoteIdent(t.name)}) x
+         FROM (SELECT GREATEST(max(${quoteIdent(c.name)}), $3::text::bigint) AS m
+                 FROM ${quoteIdent(t.name)}) x
         WHERE m IS NOT NULL`,
-      [quoteIdent(t.name), c.name],
+      [quoteIdent(t.name), c.name, used],
     );
   }
   return copied;
@@ -499,12 +545,29 @@ export async function copyEngine(
   dst: Engine,
   opts: CopyOptions = {},
 ): Promise<CopySummary> {
+  return withSourceSnapshot(src, (snap) => copyFromSnapshot(snap, dst, opts));
+}
+
+async function copyFromSnapshot(
+  src: Engine,
+  dst: Engine,
+  opts: CopyOptions,
+): Promise<CopySummary> {
   const log = opts.log ?? (() => {});
   const plan = planCopy(await readCatalog(src), await readCatalog(dst), opts.tables);
   const failures: CopySummary["failures"] = plan.missing.map((m) => ({
     table: m.name,
     error: `table missing on ${m.side}`,
   }));
+  if (!opts.allowDroppedColumns) {
+    for (const t of plan.tables) {
+      if (t.sourceOnlyColumns.length === 0) continue;
+      failures.push({
+        table: t.name,
+        error: `source-only columns not copied: ${t.sourceOnlyColumns.join(", ")}`,
+      });
+    }
+  }
 
   if (opts.dryRun) {
     const tables: TableReport[] = [];

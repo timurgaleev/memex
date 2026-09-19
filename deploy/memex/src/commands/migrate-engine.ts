@@ -8,7 +8,11 @@
  *      triggers and FK checks off so no insert rewrites a copied row.
  *      Keyed tables upsert, so a re-run resumes and converges.
  *   3. Verify each table by row count and content hash; any mismatch,
- *      missing table or failed table makes the run fail (exit 1).
+ *      missing table, failed table or source-only column makes the run
+ *      fail (exit 1).
+ *
+ * Steps 2 and 3 read the source through one REPEATABLE READ snapshot, so a
+ * source that keeps taking writes is copied and checked as one point in time.
  *
  * The source is only read. pglite→pglite (two paths) is allowed, which makes
  * Postgres→PGLite→Postgres a checkable rollback rehearsal.
@@ -36,6 +40,8 @@ export interface MigrateEngineOptions {
   tables?: string[];
   /** Rows per copy batch. Default 500. */
   batchSize?: number;
+  /** Pass when a source column the destination lacks may be dropped. */
+  allowDroppedColumns?: boolean;
 }
 
 export type Endpoint =
@@ -105,6 +111,7 @@ export async function runMigrateEngine(opts: MigrateEngineOptions): Promise<Copy
       batchSize: opts.batchSize,
       dryRun: opts.dryRun,
       verifyOnly: opts.verifyOnly,
+      allowDroppedColumns: opts.allowDroppedColumns,
       log: (line) => console.error(line),
     });
     console.log(JSON.stringify(summary, null, 2));
