@@ -777,8 +777,11 @@ too. CAVEAT: on PGLite the advisory locks are re-entrant in its single session,
 so the tests prove the serialization and the re-check, not the Postgres locks
 themselves — that needs the `make test-pg` lane below. Verified LIVE on RDS
 instead (v1.141.0): 10 concurrent appends through the real pool — 0 failures,
-all 10 lines, 11 distinct versions, 287 ms. Still open: the
-deleted-page-undone-by-a-later-write rule, pool GUCs and classified DB errors,
+all 10 lines, 11 distinct versions, 287 ms. Pool GUCs DONE (v1.142.0): `idle_in_transaction_session_timeout` 60 s,
+`connect_timeout` 10 s; `max_lifetime` is already jittered 30-60 min by
+postgres-js's default. Still open: the deleted-page-undone-by-a-later-write
+rule (an operator call — the current behaviour is a documented tradeoff),
+classified DB errors,
 degraded boot, query `signal`, stall watchdog, CLI teardown, `make test-pg`.
 
 **Depends on.** Nothing.

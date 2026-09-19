@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A wedged transaction could freeze every write to a page.** Page writes now
+  hold a per-slug lock for their transaction, and `statement_timeout` never
+  fires between statements, so a transaction left idle by a stuck caller would
+  have held that lock indefinitely. Postgres sessions now end a transaction
+  idle for 60 s (`idle_in_transaction_session_timeout`), and a connect to a dead
+  endpoint fails after 10 s instead of hanging the request.
+
 ## [1.141.0] — 2026-09-19
 
 ### Fixed

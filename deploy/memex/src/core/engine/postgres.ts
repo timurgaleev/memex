@@ -37,10 +37,18 @@ export class PostgresEngine implements Engine {
       // to plaintext when someone fat-fingers the URL.
       ssl: opts.url.includes("sslmode=disable") ? false : "require",
       idle_timeout: 30,
+      // Fail a connect in bounded time instead of hanging a request on a dead
+      // endpoint.
+      connect_timeout: 10,
       connection: {
         // Each session inherits this; ensures a runaway query can't pin a
         // worker forever.
         statement_timeout: statementTimeout,
+        // statement_timeout never fires between statements, so a transaction
+        // left idle — its caller wedged mid-way — would keep its locks forever.
+        // Page writes hold a per-slug advisory lock for their transaction, so
+        // that would freeze every write to the slug. End such a session.
+        idle_in_transaction_session_timeout: 60_000,
       },
       // Suppress the default debug logger; we route via the cycle / progress
       // channels instead.
