@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.152.0] — 2026-09-19
+
 ### Fixed
 - **A fact forgotten while `add_fact` waits on its embed/classify call stays
   forgotten.** The withdrawal ledger is checked again under the per-source
