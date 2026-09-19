@@ -7,6 +7,10 @@
  * (slug, occurred_at, event, source_label, source_id) for manual/API events
  * (mig079 — a retried `timeline_add` no longer duplicates).
  *
+ * Chunk-keyed provenances that own and replace their rows by source_chunk_id:
+ * `meeting-timeline:<slug>` (timeline-meetings.ts) and
+ * `body-timeline:<slug>:<hash>` (timeline-body.ts, dated lines in page bodies).
+ *
  * No update or delete surface — corrections become new events. A
  * future dream-cycle phase can mark superseded events but it never
  * mutates existing rows.

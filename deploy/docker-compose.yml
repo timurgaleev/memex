@@ -155,6 +155,9 @@ services:
       # job, so the write returns at once and search sees the page seconds later
       # (the response then says search_pending; callers can pass wait_for_index).
       - MEMEX_PAGE_MIRROR_SYNC=${MEMEX_PAGE_MIRROR_SYNC:-}
+      # Dated body lines (## Timeline bullets, ### date headers, [Source: X,
+      # date] citations) become timeline events on write. Default on; 0 = off.
+      - MEMEX_BODY_TIMELINE=${MEMEX_BODY_TIMELINE:-}
       # Bedrock request timeouts, in ms, per call kind; each falls back to
       # MEMEX_LLM_TIMEOUT_MS, then to its own default (utility 30000, reasoning
       # 120000, embedding 10000). A timeout ends the request and the SDK retries.

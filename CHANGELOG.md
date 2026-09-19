@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Dated lines in a page body become timeline events on write.** `page_put`,
+  `page_append` and `page_revert` now turn bullets under a `## Timeline`
+  heading (`- 2026-09-01 — text`, `- **2026-09-01** text`, `- 2026-09-01:
+  text`), `### 2026-09-01 — title` headers and `[Source: X, 2026-09-01]`
+  citations into `timeline_events` on that page, so `entity_timeline` is no
+  longer empty for pages that already carry dates. It is deterministic and
+  spends nothing. Re-putting the same body keeps every event id, editing one
+  bullet replaces only that event, and events added by hand, by meetings or by
+  the chronicle are never touched. Dates inside code and invalid calendar days
+  are skipped, diary pages derive nothing, and a page holds at most 200 derived
+  events. `page_put` reports `body_timeline: {derived, added, removed}` when
+  anything was derived or removed. On by default; `MEMEX_BODY_TIMELINE=0`
+  turns it off. Pages written before this release are picked up on their next
+  write.
+
 ### Changed
 - **The cycle report is versioned.** The JSON from `memex cycle` now carries
   `schemaVersion: 2`, an `outcome` (`complete`, `partial` or `skipped`), a

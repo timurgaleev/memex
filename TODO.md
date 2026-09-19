@@ -2203,6 +2203,19 @@ stale scan lists the old mention edges; a phantom stub folds onto its canonical
 page with facts moved and an audit row; `traverse_graph` on a 10 k-edge hub
 returns at most the cap with `truncated:true`.
 
+**Progress.** Release 1 (unreleased): body timeline parsing on write.
+`src/core/timeline-body.ts` turns `## Timeline` bullets, `### YYYY-MM-DD`
+headers and `[Source: X, YYYY-MM-DD]` citations into `timeline_events` from
+`page_put`, `page_append` and `page_revert`, keyed
+`body-timeline:<slug>:<hash16>` and reconciled by a keyed diff (no migration,
+no LLM, default on, `MEMEX_BODY_TIMELINE=0` off, diary pages skipped, 200
+events per page). Still open: a backfill for pages not rewritten since (a
+timeline arm in `memex extract --stale` or a dedicated command), non-ISO and
+CJK date forms, the `md5(event)` dedup index (10 KB events), link breadth,
+gazetteer hardening, the enrichment service, phantom-page redirects,
+`writer_lint`, the traversal cap, chronicle auto-extract for grant writers and
+the stretch items.
+
 ### RM-20 — Think v2 and idea generation
 
 **Why.** `think` is the cross-page answer layer and it fails silently: a

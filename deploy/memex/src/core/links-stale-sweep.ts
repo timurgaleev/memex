@@ -11,8 +11,9 @@
  *
  * memex stack notes:
  *  - re-uses memex's per-page `sync*ForPage` functions (the dispatch put path)
- *    — same edges, one code path. No timeline arm (memex's put path extracts
- *    links only).
+ *    — same edges, one code path. No timeline arm yet: body timeline rows
+ *    are derived on write (timeline-body.ts); backfilling pages written
+ *    before that is still open.
  *  - keysets on the `slug` PK.
  *  - `engine.query` everywhere ($N), no postgres/pglite branch.
  */

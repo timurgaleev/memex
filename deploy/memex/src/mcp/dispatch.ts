@@ -158,6 +158,7 @@ import {
   getEntityTimeline,
   type ListTimelineOptions,
 } from "../core/timeline.ts";
+import { syncBodyTimelineForPage, type BodyTimelineSyncResult } from "../core/timeline-body.ts";
 import {
   addFact,
   listFacts,
@@ -1297,6 +1298,7 @@ async function callPagePut(
   const r = await putPage(storage, input);
   let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
+  let bodyTimeline: BodyTimelineSyncResult | undefined;
   if (r.changed) {
     // Fetch the canonical row once: an omitted title lands as NULL while an
     // omitted body keeps the page's current one, so the stored row — not
@@ -1326,6 +1328,10 @@ async function callPagePut(
     if (linkVerbInferEnabled() && page) {
       await syncVerbLinksForPage(storage, r.slug, page.type, body, derivedSource);
     }
+    // Dated body lines (`## Timeline` bullets, `### date` headers, citations)
+    // become this page's own timeline rows; a keyed diff, so an unchanged
+    // section keeps its row ids.
+    bodyTimeline = await syncBodyTimelineForPage(storage, r.slug, page?.type, body, derivedSource);
     // Advance the link-extraction watermark now that the full edge set is
     // synced (migration 051) — stamped after updated_at, so the staleness
     // predicate reads clean until the next edit / extractor-version bump.
@@ -1375,6 +1381,9 @@ async function callPagePut(
     ...r,
     ...mirror,
     ...(chronicleBackstop ? { chronicle_backstop: true } : {}),
+    ...(bodyTimeline && (bodyTimeline.derived > 0 || bodyTimeline.removed > 0)
+      ? { body_timeline: bodyTimeline }
+      : {}),
   });
 }
 
@@ -1613,6 +1622,7 @@ async function callPageAppend(
     if (linkVerbInferEnabled() && fresh) {
       await syncVerbLinksForPage(storage, r.slug, fresh.type, body, derivedSource);
     }
+    await syncBodyTimelineForPage(storage, r.slug, fresh?.type, body, derivedSource);
     await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
     if (fresh) {
       mirror = await mirrorOrQueue(storage, fresh, isPublic || writeSource !== undefined, "page_append", args["wait_for_index"] === true);
@@ -1731,6 +1741,7 @@ async function callPageRevert(
       if (linkVerbInferEnabled()) {
         await syncVerbLinksForPage(storage, r.slug, page.type, page.markdown_body, derivedSource);
       }
+      await syncBodyTimelineForPage(storage, r.slug, page.type, page.markdown_body, derivedSource);
       await stampLinksExtracted(storage.engine(), r.slug, derivedSource); // watermark (mig 051)
       await reconcileFactsForPage(storage, r.slug, page.content_hash, derivedSource);
       await mirrorPage(storage, page, { remote: isPublic || writeSource !== undefined, timingLabel: "page_revert" });
