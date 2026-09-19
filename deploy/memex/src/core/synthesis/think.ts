@@ -20,11 +20,11 @@
  * rounds are wired; persistence (--save/--take) lives in think-persist.ts.
  * Sonnet injected via `sonnetFn`; NO live Bedrock in tests.
  */
+import { resolveModel } from "../llm/resolve-model.ts";
 import type { Storage } from "../storage.ts";
 import type { Engine } from "../engine/interface.ts";
 import { hybridSearch, type SearchHit } from "../search/hybrid.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
-import { resolveFactsModel } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
 import { parseModelJson } from "../llm/json-output.ts";
@@ -1048,7 +1048,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     opts.maxTokens ?? outputTokensFromEnv("MEMEX_THINK_OUTPUT_TOKENS", DEFAULT_OUTPUT_TOKENS),
   );
   const budget = new BudgetTracker(opts.maxBudgetUsd ?? defaultBudget(), "think");
-  const modelId = resolveFactsModel(opts.modelId);
+  const modelId = resolveModel("reasoning", opts.modelId, "think");
   // Price the pre-flight and the live call on the same model (test seam ignores).
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId });
 

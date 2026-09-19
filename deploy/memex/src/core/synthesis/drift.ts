@@ -27,10 +27,11 @@
  * flag for hermetic tests (no live Bedrock).
  */
 
+import { resolveModel } from "../llm/resolve-model.ts";
 import type { Engine } from "./../engine/interface.ts";
 import type { Storage } from "../storage.ts";
 import { putPage } from "../pages.ts";
-import { resolveSonnetFn, resolveFactsModel, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
+import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
 import { callWithTruncationRetry } from "../llm/truncation.ts";
@@ -282,7 +283,7 @@ export async function driftPhase(
   }
 
   const budget = opts.budget ?? new BudgetTracker(defaultBudget(), "drift");
-  const model = resolveFactsModel(opts.modelId);
+  const model = resolveModel("reasoning", opts.modelId, "drift");
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: model });
   const maxTokens = 1200;
 

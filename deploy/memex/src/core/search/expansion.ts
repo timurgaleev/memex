@@ -15,6 +15,7 @@
  * untrusted output. `sanitizeQueryForPrompt` neutralizes the query before it
  * reaches the model; `sanitizeExpansionOutput` validates what comes back.
  */
+import { resolveModel } from "../llm/resolve-model.ts";
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -22,7 +23,6 @@ import {
 import { awsRegion, bedrockClientConfig, SEARCH_LLM_BUDGET_MS, utilityTimeoutMs, withDeadline } from "../llm/gateway.ts";
 import { isBudgetRefusal, trackedInvoke } from "../budget.ts";
 
-const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 /** Upper bound on chars sent to / accepted from the expansion LLM. */
 const MAX_QUERY_CHARS = 500;
@@ -125,7 +125,7 @@ export async function expandQuery(
   const max = opts.max ?? 3;
 
   const region = opts.region ?? awsRegion();
-  const modelId = opts.modelId ?? DEFAULT_MODEL;
+  const modelId = resolveModel("utility", opts.modelId, "expansion");
   const c = opts.client ?? client(region);
   try {
     return await trackedInvoke(

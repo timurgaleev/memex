@@ -11,6 +11,7 @@
  * under a per-call wall-clock timeout (MEMEX_RERANK_TIMEOUT_MS, default
  * 5000ms) so a hung connection can't stall search.
  */
+import { resolveModel } from "../llm/resolve-model.ts";
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -24,7 +25,6 @@ import {
 import { awsRegion } from "../llm/gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
-const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 /** Ledger label — the opt-in paid rerank behind MEMEX_RERANK=1. */
 const SPEND_OP = "rerank-two-pass";
@@ -88,7 +88,7 @@ export async function rerank<T extends ChunkPayloadForRerank>(
   const userMessage = `QUERY: ${query}\n\nCANDIDATES:\n${items.join("\n")}`;
 
   const region = opts.region ?? awsRegion();
-  const modelId = opts.modelId ?? DEFAULT_MODEL;
+  const modelId = resolveModel("utility", opts.modelId, "rerank");
   const timeoutMs = opts.timeoutMs ?? rerankTimeoutMs();
   const c = opts.client ?? client(region);
 

@@ -154,12 +154,13 @@ export async function synthesizeConceptsPhase(
   // through, so a phase that only honours an explicitly-passed tracker has no
   // ceiling in production — which is where the money is actually spent.
   const budget = opts.budget ?? new BudgetTracker(conceptsBudgetUsd(), "synthesize-concepts");
-  const budgetModel = resolveModel("utility", opts.modelId);
+  const budgetModel = resolveModel("utility", opts.modelId, "concepts");
   // One BudgetExhausted stops every later paid call. Without this an unpriced
   // model throws on record without adding to spend, so wouldExceed stays false
   // and the phase repeats the same unpriced call up to maxConcepts.
   let paidCallsStopped = false;
-  const llm = resolveLlmFn(opts.llmFn, opts.modelId ? { modelId: opts.modelId } : {});
+  // The call runs on the same model the budget prices.
+  const llm = resolveLlmFn(opts.llmFn, { modelId: budgetModel });
   const writePages = opts.storage !== undefined && synthPagesEnabled();
   const result: SynthesizeConceptsResult = {
     atomsSeen: 0,

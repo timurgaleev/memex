@@ -19,6 +19,7 @@
  * MEMEX_INTENT_LLM=1 for operators who want the paid tie-break on unmatched
  * queries.
  */
+import { resolveModel } from "../llm/resolve-model.ts";
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -37,7 +38,6 @@ export const VALID_INTENTS: ReadonlySet<Intent> = new Set([
   "exact",
 ]);
 
-const DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 let _client: BedrockRuntimeClient | null = null;
 function client(region: string): BedrockRuntimeClient {
@@ -92,7 +92,7 @@ export async function classifyIntent(
   }
 
   const region = opts.region ?? awsRegion();
-  const modelId = opts.modelId ?? DEFAULT_MODEL;
+  const modelId = resolveModel("utility", opts.modelId, "intent");
   const c = opts.client ?? client(region);
   try {
     return await trackedInvoke(

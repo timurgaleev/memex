@@ -904,7 +904,10 @@ contradictions, facts-classify and facts-extract still check then record
 (sequential today); an ambient tracker read inside `trackedInvoke`. Decoder
 (unreleased): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
 in `tests/model_json.test.ts` with 5 stated exemptions; the two
-`isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose.
+`isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose. Model keys
+(unreleased): `resolveModel(tier, override, feature)` with
+`MEMEX_<FEATURE>_MODEL` for think, drift, concepts, expansion, intent, rerank.
+Not done: runtime-config overrides and the `v1-nova` prompt-version rename.
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
   cannot be capped separately (client ids are random `memex_cl_…`, so only a
   deliberate collision); refuse such names at mint.

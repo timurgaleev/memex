@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Six call sites can run on a model of their own.** `MEMEX_THINK_MODEL`,
+  `MEMEX_DRIFT_MODEL`, `MEMEX_CONCEPTS_MODEL`, `MEMEX_EXPANSION_MODEL`,
+  `MEMEX_INTENT_MODEL` and `MEMEX_RERANK_MODEL` override the tier's model for
+  that one feature (an explicit per-call model still wins). Query expansion,
+  intent classification and the rerank pass had their Haiku id written into
+  the code and ignored `MEMEX_UTILITY_MODEL`; they now follow it. With none of
+  these set nothing changes.
 - **One decoder reads every structured model reply.** Thirteen parsers each
   carried their own copy of "find the fence, slice from the first brace"; they
   now share one that skips a `<thinking>` block, reads an unclosed fence,
