@@ -2435,6 +2435,31 @@ the new ops.
 
 **Needs operator go.** Given 2026-09-19, together with RM-13.
 
+**Progress.** Release A (unreleased, not yet deployed): `submit_agent` and
+`get_agent_job` (scope `agent`, forbidden on public ingress, `skip` rows in the
+isolation matrix owned by `tests/agent_tenant.test.ts`) run the RM-13 loop as
+the submitting client. Migration 115 adds `jobs.submitted_by` and
+`jobs.authority`, the grant snapshot (client, spender, grant revision, sources,
+token scopes, tools, payload hash). `src/core/agent/authority.ts` re-checks it
+against the live client row at claim and before every Converse call and tool
+dispatch, and refuses a deleted client, a moved revision, a withdrawn `agent`
+scope or daily cap, changed sources and narrowed `bound_tools`. The run
+dispatches as the rebuilt tenant AuthInfo inside `runWithSpendClient(spender)`
+with no fixed cap, so each call reads the live cap, and a spent cap ends the
+run as `budget_exhausted`. Submit is gated by both env flags, the `agent`
+scope, a finite budget, a non-empty read grant, a token that carries its
+client's own grant (enrollment-bound tokens are refused), and a `FOR UPDATE`
+count against `bound_max_concurrent`. Tenant jobs are enqueued with
+`max_retries` 0, so a revoked grant never comes back as a retry. Done-when met
+in code: reads only its source, revoke stops at the next tool boundary, submit
+beyond `bound_max_concurrent` refused, matrix covers the new ops. Still open:
+the live pilot smoke, `/codex` and `security-engineer` review before deploy;
+writes confined to the grant's prefixes (needs RM-13 release B); per-tree
+budgets with children and subtree halt (needs RM-13 fan-out / RM-08); dry-run
+cost preview and queue position; a delegation audit table; enrollment-bound
+sessions; other LLM-spending kinds for tenants; out-of-process isolation; a
+tenant transcript view; owner cancel.
+
 ### RM-23 — Code intelligence v2
 
 **Why.** memex parses five languages with six grammars

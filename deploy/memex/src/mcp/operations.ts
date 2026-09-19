@@ -42,12 +42,13 @@ export interface Operation {
   /**
    * Authorization scope, co-located with the op. A `"write"` op needs a write
    * source grant (public callers without one are denied); an `"admin"` op needs
-   * the admin scope; default `"read"`. The scope hierarchy lives in
+   * the admin scope; an `"agent"` op needs the standalone agent scope; default
+   * `"read"`. The scope hierarchy lives in
    * core/scope.ts. `WRITE_SCOPED_TOOLS` is DERIVED from this field (see
    * below) so the write set has a single source of truth on the op itself, not
    * a parallel hand-kept list.
    */
-  scope?: "read" | "write" | "admin";
+  scope?: "read" | "write" | "admin" | "agent";
   /** Declaration order is preserved into `properties` + `required`. */
   params: Record<string, ParamDef>;
 }
@@ -679,6 +680,23 @@ export const OPERATIONS: readonly Operation[] = [
     description:
       "Compact log view of a job: status, retries, last_error, children count + status breakdown, unread inbox count. Designed to fit in a single chat reply.",
     params: { id: str(req) },
+  },
+  {
+    name: "submit_agent",
+    description:
+      "Queue a read-only research agent that runs under your own grant: it reads only your sources, uses only the read tools your client is bound to, spends against your daily budget, and stops if your grant is revoked or changed. Returns a job_id; poll get_agent_job. Needs the 'agent' scope, a daily budget on your client, and a free slot under your client's concurrency limit. Writes nothing.",
+    scope: "agent",
+    params: {
+      task: str({ ...req, description: "What the agent should find out, in plain language (at most 8 KB)." }),
+      max_usd: num({ description: "Spend ceiling for this job in USD; clamped to the brain's per-job ceiling." }),
+    },
+  },
+  {
+    name: "get_agent_job",
+    description:
+      "Status and answer of an agent job you submitted with submit_agent: status, stop_reason, final_text, cost_usd, turns and an error when it failed. A job that is not yours reads as not found.",
+    scope: "agent",
+    params: { job_id: str(req) },
   },
   {
     name: "get_chunks",

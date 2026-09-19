@@ -52,6 +52,10 @@ export interface JobRow {
    * generation it claimed, so a stale attempt can't write onto a newer one.
    */
   claimGeneration: number;
+  /** The OAuth client that submitted this job (migration 115); null for operator jobs. */
+  submittedBy: string | null;
+  /** Grant snapshot taken at submit, re-checked by the handler; null for operator jobs. */
+  authority: Record<string, unknown> | null;
 }
 
 /** Incremental token/cost usage a handler reports mid-run. All fields add. */
@@ -98,4 +102,8 @@ export interface EnqueueInput {
    * dead-letters it (terminal, no retry). Omit to use the worker default.
    */
   timeoutMs?: number;
+  /** Submitting client, for a job run under a tenant's grant. Requires `authority`. */
+  submittedBy?: string;
+  /** Grant snapshot the handler re-checks against the live client. Requires `submittedBy`. */
+  authority?: Record<string, unknown>;
 }

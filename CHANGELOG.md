@@ -21,6 +21,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its spend cannot run past the cap unrecorded, and a `subagent` job queued
   through `jobs_submit` without `timeout_ms` is refused. `memex agent logs
   <job-id>` prints the transcript. No MCP tool is added.
+- **Tenants can hand the brain a read-only agent task (off by default).** Two
+  new MCP tools, `submit_agent` and `get_agent_job`, run the same agent loop as
+  the submitting OAuth client instead of the operator. The run reads only the
+  client's sources, calls only the read tools its `bound_tools` allow, books
+  every model call to the client under `agent` against its live daily cap, and
+  stops at the next model call or tool once the grant is revoked, rescoped, or
+  loses its `agent` scope or its cap. Submission needs `MEMEX_AGENT_ENABLED=1`
+  and the new `MEMEX_AGENT_TENANT_ENABLED=1`, a client granted `agent` by the
+  operator CLI (dynamic registration drops it), a finite daily budget, and a
+  free slot under `bound_max_concurrent`. Enrollment-bound sessions and the
+  public bearer are refused. `get_agent_job` returns only the caller's own
+  jobs, with one not-found for everything else. Migration 115 records the
+  submitter and the grant snapshot on the job.
 
 ### Fixed
 - **Code symbol lookups keep their data through the maintenance cycle.** The

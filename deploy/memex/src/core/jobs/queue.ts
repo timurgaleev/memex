@@ -38,6 +38,8 @@ interface RawJobRow {
   tokens_cache_read: number | string;
   cost_usd: number | string;
   claim_generation: number;
+  submitted_by: string | null;
+  authority: Record<string, unknown> | string | null;
 }
 
 function toDate(v: string | Date): Date {
@@ -87,6 +89,8 @@ function rowToJob(r: RawJobRow): JobRow {
     // NUMERIC comes back as a string from postgres-js.
     costUsd: toNum(r.cost_usd),
     claimGeneration: r.claim_generation,
+    submittedBy: r.submitted_by ?? null,
+    authority: toJson<Record<string, unknown>>(r.authority),
   };
 }
 
@@ -97,7 +101,7 @@ function toNum(v: number | string | null | undefined): number {
 }
 
 const SELECT_COLS =
-  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms, progress, tokens_input, tokens_output, tokens_cache_read, cost_usd, claim_generation";
+  "id, kind, payload, status, priority, retry_count, max_retries, next_attempt_at, quiet_hours_skip, last_error, result, created_at, updated_at, started_at, finished_at, lock_until, stall_count, max_stalled, timeout_ms, progress, tokens_input, tokens_output, tokens_cache_read, cost_usd, claim_generation, submitted_by, authority";
 
 const DEFAULT_LOCK_SECONDS = 300; // 5 min — comfortably bigger than any
                                   // realistic job duration we run today.
@@ -188,9 +192,15 @@ export class Queue {
       }
       timeoutMs = input.timeoutMs;
     }
+    // Authority travels only with its submitter: a snapshot nobody owns could
+    // not be fenced to an owner, and an owner without one would run unchecked.
+    if ((input.submittedBy === undefined) !== (input.authority === undefined)) {
+      throw new Error("Queue.enqueue: submittedBy and authority go together");
+    }
     const r = await this.engine.query<RawJobRow>(
-      `INSERT INTO jobs (id, kind, payload, priority, max_retries, next_attempt_at, quiet_hours_skip, timeout_ms)
-       VALUES ($1, $2, $3::text::jsonb, $4, $5, COALESCE($6, NOW()), $7, $8)
+      `INSERT INTO jobs (id, kind, payload, priority, max_retries, next_attempt_at, quiet_hours_skip, timeout_ms,
+                         submitted_by, authority)
+       VALUES ($1, $2, $3::text::jsonb, $4, $5, COALESCE($6, NOW()), $7, $8, $9, $10::text::jsonb)
        ON CONFLICT (id) DO NOTHING
        RETURNING ${SELECT_COLS}`,
       [
@@ -202,6 +212,8 @@ export class Queue {
         input.runAt ?? null,
         input.quietHoursSkip ?? false,
         timeoutMs,
+        input.submittedBy ?? null,
+        input.authority === undefined ? null : JSON.stringify(input.authority),
       ],
     );
     if (r.rows[0]) return rowToJob(r.rows[0]);

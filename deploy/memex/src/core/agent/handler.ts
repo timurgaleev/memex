@@ -5,12 +5,21 @@
  * Registered by serve only when MEMEX_AGENT_ENABLED=1. The kind is not a
  * built-in, so with the flag off a submit is refused outright rather than
  * queued for a worker that will never run it.
+ *
+ * A row that carries a submitter and an authority snapshot is a tenant job
+ * (`submit_agent`). It runs only while MEMEX_AGENT_TENANT_ENABLED=1, only if
+ * its payload still hashes to what was submitted, and only as long as the
+ * live grant backs the snapshot: every Converse call is booked to the
+ * tenant's spender against its live daily cap, and every tool is dispatched
+ * as the tenant. Operator rows run exactly as before.
  */
 import type { Storage } from "../storage.ts";
 import type { JobHandler } from "../jobs/types.ts";
 import { registerHandler } from "../jobs/handlers.ts";
 import { SUBAGENT_JOB_KIND } from "../jobs/kinds.ts";
+import { runWithSpendClient } from "../budget.ts";
 import { runAgent, type RunAgentOptions } from "./runner.ts";
+import { parseAuthority, payloadSha256, resolveLiveAuthority } from "./authority.ts";
 
 export { SUBAGENT_JOB_KIND };
 
@@ -21,6 +30,13 @@ export const MAX_AGENT_TASK_BYTES = 8 * 1024;
 export const AGENT_JOB_TIMEOUT_MS = 600_000;
 
 export function agentEnabled(raw: string | undefined = process.env.MEMEX_AGENT_ENABLED): boolean {
+  return raw === "1";
+}
+
+/** Tenant-submitted agent jobs are a second opt-in on top of MEMEX_AGENT_ENABLED. */
+export function agentTenantEnabled(
+  raw: string | undefined = process.env.MEMEX_AGENT_TENANT_ENABLED,
+): boolean {
   return raw === "1";
 }
 
@@ -77,6 +93,9 @@ export function makeSubagentHandler(storage: Storage, deps: SubagentDeps = {}): 
         `subagent: job has no timeout; submit it with timeout_ms (the CLI uses ${AGENT_JOB_TIMEOUT_MS})`,
       );
     }
+    if (ctx.job.submittedBy !== null || ctx.job.authority !== null) {
+      return runTenantJob(storage, deps, payload, ctx);
+    }
     const { task, maxUsd } = parseSubagentPayload(payload);
     const result = await runAgent({
       storage,
@@ -89,6 +108,45 @@ export function makeSubagentHandler(storage: Storage, deps: SubagentDeps = {}): 
     });
     return { ...result };
   };
+}
+
+async function runTenantJob(
+  storage: Storage,
+  deps: SubagentDeps,
+  payload: Record<string, unknown>,
+  ctx: Parameters<JobHandler>[1],
+): Promise<Record<string, unknown>> {
+  if (!agentTenantEnabled()) {
+    throw new Error("subagent: tenant agent jobs are off; set MEMEX_AGENT_TENANT_ENABLED=1 to run them");
+  }
+  const snap = parseAuthority(ctx.job.authority);
+  if (ctx.job.submittedBy !== snap.clientId) {
+    throw new Error("subagent: job submitter does not match its authority");
+  }
+  if (payloadSha256(payload) !== snap.payloadSha256) {
+    throw new Error("subagent: job payload does not match the hash recorded at submit");
+  }
+  const { task, maxUsd } = parseSubagentPayload(payload);
+  const engine = storage.engine();
+  const authorize = () => resolveLiveAuthority(engine, snap);
+  // Checked at claim, before the ledger gets its first row.
+  await authorize();
+  // No capUsd: the chokepoint reads the spender's live cap on every call, so
+  // a lowered or spent budget stops the next call rather than the next run.
+  const result = await runWithSpendClient({ clientId: snap.spender }, () =>
+    runAgent({
+      storage,
+      job: ctx.job,
+      task,
+      maxUsd,
+      tools: snap.tools,
+      authorize,
+      ...(ctx.recordUsage ? { recordUsage: ctx.recordUsage } : {}),
+      ...(ctx.updateProgress ? { updateProgress: ctx.updateProgress } : {}),
+      ...deps,
+    }),
+  );
+  return { ...result };
 }
 
 export function registerSubagentHandler(storage: Storage, deps: SubagentDeps = {}): void {

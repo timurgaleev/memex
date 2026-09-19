@@ -72,6 +72,8 @@ export const MATRIX: MatrixRow[] = [
   op("jobs_list"),
   op("jobs_get"),
   op("jobs_logs"),
+  skip("submit_agent", "runs an agent job under the caller's grant; needs a worker and a scripted model", "tests/agent_tenant.test.ts"),
+  skip("get_agent_job", "reads only the caller's own agent jobs; needs a submitted job", "tests/agent_tenant.test.ts"),
   iso("get_chunks", { source_path: SHARED_PATH }),
   iso("resolve_slugs", { query: SHARED_TITLE }),
   write("add_tag"),

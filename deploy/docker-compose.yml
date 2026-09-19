@@ -221,9 +221,11 @@ services:
       - MEMEX_MCP_LENIENT_ARGS=${MEMEX_MCP_LENIENT_ARGS:-}
       - MEMEX_JOB_TIMEOUT_MS=${MEMEX_JOB_TIMEOUT_MS:-}
       # Operator agent loop (`memex agent run`): off unless set to 1; the
-      # per-job dollar ceiling defaults to 0.25.
+      # per-job dollar ceiling defaults to 0.25. MEMEX_AGENT_TENANT_ENABLED=1
+      # additionally lets OAuth clients granted 'agent' use submit_agent.
       - MEMEX_AGENT_ENABLED=${MEMEX_AGENT_ENABLED:-}
       - MEMEX_AGENT_MAX_USD=${MEMEX_AGENT_MAX_USD:-}
+      - MEMEX_AGENT_TENANT_ENABLED=${MEMEX_AGENT_TENANT_ENABLED:-}
       - MEMEX_HNSW_ZOMBIE_SWEEP=${MEMEX_HNSW_ZOMBIE_SWEEP:-}
       - MEMEX_MAX_BODY_BYTES=${MEMEX_MAX_BODY_BYTES:-}
       - MEMEX_INGEST_MAX_BYTES=${MEMEX_INGEST_MAX_BYTES:-}

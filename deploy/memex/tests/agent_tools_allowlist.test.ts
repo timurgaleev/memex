@@ -15,6 +15,7 @@ import {
   dispatchAgentTool,
   isAgentTool,
 } from "../src/core/agent/tools.ts";
+import { intersectBoundTools } from "../src/core/agent/authority.ts";
 import type { Storage } from "../src/core/storage.ts";
 
 const storage = {} as Storage;
@@ -64,6 +65,34 @@ describe("AGENT_READ_TOOLS", () => {
     for (const name of PUBLIC_GUARD_INTERNALS.PUBLIC_WRITE_TOOLS) {
       expect(isAgentTool(name), name).toBe(false);
     }
+  });
+});
+
+describe("a tenant job's tool set", () => {
+  it("is a subset of the read allowlist with no write-scoped op, whatever bound_tools names", () => {
+    const everyOp = OPERATIONS.map((o) => o.name);
+    for (const bound of [null, everyOp, [...WRITE_SCOPED_TOOLS], ["search", "page_put", "jobs_submit"]]) {
+      const tools = intersectBoundTools(AGENT_READ_TOOLS, bound);
+      for (const name of tools) {
+        expect(AGENT_READ_TOOLS.includes(name), name).toBe(true);
+        expect(WRITE_SCOPED_TOOLS.has(name), name).toBe(false);
+        expect(OPERATOR_ONLY_TOOLS.has(name), name).toBe(false);
+      }
+    }
+    expect(intersectBoundTools(AGENT_READ_TOOLS, [...WRITE_SCOPED_TOOLS])).toEqual([]);
+  });
+
+  it("refuses an allowlisted tool outside the job's own set without dispatching it", async () => {
+    const d = countingDispatch({ content: [{ type: "text", text: "x" }] });
+    const r = await dispatchAgentTool(storage, "page_get", { slug: "a" }, d.fn, { tools: ["search"] });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("not available");
+    expect(d.calls).toHaveLength(0);
+  });
+
+  it("advertises only the job's own tools to the model", () => {
+    expect(agentToolSpecs(["search", "page_get"]).map((s) => s.name)).toEqual(["search", "page_get"]);
+    expect(() => agentToolSpecs(["page_put"])).toThrow(/not an agent tool/);
   });
 });
 

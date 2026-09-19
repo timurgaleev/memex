@@ -693,6 +693,16 @@ async function dispatchToolInner(
         return await callJobsCancel(storage, args);
       case "jobs_logs":
         return await callJobsLogs(storage, args, redact);
+      case "submit_agent": {
+        // Loaded on use: the agent modules import dispatchTool themselves, so a
+        // static import here would close a module cycle.
+        const { submitTenantAgent } = await import("../core/agent/submit.ts");
+        return jsonResult(await submitTenantAgent(storage, opts.authInfo, args));
+      }
+      case "get_agent_job": {
+        const { getAgentJobForOwner } = await import("../core/agent/submit.ts");
+        return jsonResult(await getAgentJobForOwner(storage, opts.authInfo, args["job_id"]));
+      }
       case "get_links":
         return await callGetLinks(storage, args, readSources, remote);
       case "list_link_sources":

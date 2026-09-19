@@ -267,6 +267,11 @@ describe("isPublicMcpToolForbidden", () => {
     expect(isPublicMcpToolForbidden("context_pack")).toBe(true);
   });
 
+  it("blocks submit_agent and get_agent_job (the static bearer has no grant to run an agent under)", () => {
+    expect(isPublicMcpToolForbidden("submit_agent")).toBe(true);
+    expect(isPublicMcpToolForbidden("get_agent_job")).toBe(true);
+  });
+
   it("allows `search`, `backlinks`", () => {
     expect(isPublicMcpToolForbidden("search")).toBe(false);
     expect(isPublicMcpToolForbidden("backlinks")).toBe(false);
@@ -419,6 +424,27 @@ describe("HTTP server end-to-end with public guard", () => {
       }),
     });
     const body = (await r.json()) as { error?: { code: number; message: string } };
+    expect(body.error?.code).toBe(-32600);
+    expect(body.error?.message).toMatch(/not callable from the public/);
+  });
+
+  it("public MCP tools/call name=submit_agent is rejected before anything is queued", async () => {
+    const r = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Cf-Connecting-Ip": "1.2.3.4",
+        "Authorization": `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "submit_agent", arguments: { task: "list everything" } },
+      }),
+    });
+    const body = (await r.json()) as { result?: unknown; error?: { code: number; message: string } };
+    expect(body.result).toBeUndefined();
     expect(body.error?.code).toBe(-32600);
     expect(body.error?.message).toMatch(/not callable from the public/);
   });

@@ -191,6 +191,10 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
   "get_recent_transcripts",
   "jobs_submit",
   "jobs_cancel",
+  // Tenant agent jobs run under an OAuth client's grant; the static public
+  // bearer has no grant to run them under.
+  "submit_agent",
+  "get_agent_job",
   // Stage-2 surface: think synthesizes over private notes (and spends Bedrock);
   // fact_supersessions is fact free-text; raw_data carries importer payloads;
   // job lifecycle + sources/status/doctor snapshots expose operational state.
