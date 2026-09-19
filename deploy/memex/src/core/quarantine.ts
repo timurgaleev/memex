@@ -12,7 +12,11 @@
 
 import type { Engine } from "./engine/interface.ts";
 import { logIngest } from "./ingest-log.ts";
-import { describeQuarantineTrip, type ContentSanityResult } from "./content-sanity.ts";
+import {
+  describeQuarantineTrip,
+  quarantinePatternNames,
+  type ContentSanityResult,
+} from "./content-sanity.ts";
 
 export const QUARANTINE_KEY = "quarantine";
 
@@ -57,10 +61,29 @@ export function quarantineFilterFragment(docAlias = "d"): string {
 }
 
 /**
+ * True when `result` quarantines a page whose stored frontmatter did not
+ * already carry the same verdict. Re-indexing a held page (a page mirror, a
+ * rechunk sweep, a reindex) re-runs the gate and trips again; only a page
+ * newly held, or held on a different set of patterns, is a new trip.
+ */
+export function isNewQuarantineVerdict(
+  prior: Record<string, unknown> | null | undefined,
+  result: ContentSanityResult,
+): boolean {
+  if (!result.shouldQuarantine) return false;
+  if (!isQuarantined(prior)) return true;
+  const marker = prior![QUARANTINE_KEY];
+  const priorDetail =
+    marker && typeof marker === "object" ? (marker as Record<string, unknown>)["detail"] : undefined;
+  return priorDetail !== quarantinePatternNames(result).join(", ");
+}
+
+/**
  * One `ingest_log` row per quarantine trip, so a false positive that hides a
  * page leaves a trail naming the pattern that fired. The summary carries the
  * pattern names only, never the matched text: an operator literal can be a
- * string the operator does not want echoed back.
+ * string the operator does not want echoed back. Best-effort: the trail must
+ * never fail the write it describes.
  */
 export async function auditQuarantine(
   engine: Engine,
@@ -69,10 +92,17 @@ export async function auditQuarantine(
   sourceId: string | null,
 ): Promise<void> {
   if (!result.shouldQuarantine) return;
-  await logIngest(engine, {
-    source_type: QUARANTINE_AUDIT_SOURCE_TYPE,
-    source_ref: ref,
-    summary: describeQuarantineTrip(result),
-    ...(sourceId ? { source_id: sourceId } : {}),
-  });
+  try {
+    await logIngest(engine, {
+      source_type: QUARANTINE_AUDIT_SOURCE_TYPE,
+      source_ref: ref,
+      summary: describeQuarantineTrip(result),
+      ...(sourceId ? { source_id: sourceId } : {}),
+    });
+  } catch (e) {
+    console.warn(
+      `[quarantine] failed to audit the trip for ${ref}: ` +
+        (e instanceof Error ? e.message : String(e)),
+    );
+  }
 }

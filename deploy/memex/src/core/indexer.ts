@@ -25,7 +25,12 @@ import { stripFactsFence } from "./facts-fence.ts";
 import { stripTakesFence } from "./synthesis/takes-fence.ts";
 import { embedText, EMBED_DIMENSIONS } from "./embedding.ts";
 import { isEmbedSkipped, EMBED_SKIP_KEY } from "./embed-skip.ts";
-import { QUARANTINE_KEY, CONTENT_FLAG_KEY, auditQuarantine } from "./quarantine.ts";
+import {
+  QUARANTINE_KEY,
+  CONTENT_FLAG_KEY,
+  auditQuarantine,
+  isNewQuarantineVerdict,
+} from "./quarantine.ts";
 import {
   assessContentSanity,
   stampSanityMarkers,
@@ -35,6 +40,7 @@ import {
   resolveOperatorLiterals,
   resolveDisabledPatterns,
   ContentSanityBlockError,
+  type ContentSanityResult,
 } from "./content-sanity.ts";
 import {
   contextualRetrievalEnabled,
@@ -310,6 +316,7 @@ async function indexDocumentBody(
   // turns it into an explicit hard-block error. Oversize soft-blocks (embed_skip
   // + content_flag); markup-heavy flags. Kill switch: `MEMEX_NO_SANITY=1`.
   let frontmatter = baseFrontmatter;
+  let sanityTrip: ContentSanityResult | null = null;
   if (sanityGateEnabled()) {
     const sanity = assessContentSanity({
       body: parsed.chunks.join("\n\n"),
@@ -323,10 +330,11 @@ async function indexDocumentBody(
       disabled_patterns: resolveDisabledPatterns(),
       ...resolveSanityThresholds(),
     });
-    await auditQuarantine(storage.engine(), sanity, input.sourcePath, input.sourceId ?? null);
     if (sanity.shouldQuarantine && sanityDisposition() === "reject") {
+      await auditQuarantine(storage.engine(), sanity, input.sourcePath, input.sourceId ?? null);
       throw new ContentSanityBlockError(sanity);
     }
+    if (sanity.shouldQuarantine) sanityTrip = sanity;
     frontmatter = stampSanityMarkers(baseFrontmatter, sanity);
   }
 
@@ -577,6 +585,9 @@ async function indexDocumentBody(
   }
 
   if (stats) stats.chunks = parsed.chunks.length;
+  // Read before the write replaces it: a trip is audited only when it changes
+  // the stored verdict, and only once the document has committed.
+  const priorFrontmatter = sanityTrip ? await storedFrontmatter(storage, id) : null;
   const txStart = performance.now();
   const written = await writeDocumentTransaction(
     storage,
@@ -602,7 +613,23 @@ async function indexDocumentBody(
     chunkWrites,
   );
   if (stats) stats.txMs = performance.now() - txStart;
+  if (sanityTrip && isNewQuarantineVerdict(priorFrontmatter, sanityTrip)) {
+    await auditQuarantine(storage.engine(), sanityTrip, input.sourcePath, input.sourceId ?? null);
+  }
   return written;
+}
+
+async function storedFrontmatter(
+  storage: Storage,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const r = await storage
+    .engine()
+    .query<{ frontmatter: Record<string, unknown> | null }>(
+      "SELECT frontmatter FROM documents WHERE id = $1",
+      [id],
+    );
+  return r.rows[0]?.frontmatter ?? null;
 }
 
 /**

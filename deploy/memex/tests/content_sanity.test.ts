@@ -17,7 +17,13 @@ import {
   ContentSanityBlockError,
   DEFAULT_BYTES_BLOCK,
 } from "../src/core/content-sanity.ts";
-import { isQuarantined, isContentFlagged } from "../src/core/quarantine.ts";
+import {
+  isQuarantined,
+  isContentFlagged,
+  isNewQuarantineVerdict,
+  auditQuarantine,
+} from "../src/core/quarantine.ts";
+import type { Engine } from "../src/core/engine/interface.ts";
 import { isEmbedSkipped } from "../src/core/embed-skip.ts";
 import { indexDocument } from "../src/core/indexer.ts";
 import { Storage } from "../src/core/storage.ts";
@@ -192,6 +198,18 @@ describe("indexDocument content-sanity wiring", () => {
     expect(rows[0]!.summary).not.toContain("Ray ID");
   });
 
+  it("re-indexing a held page does not audit the same trip again", async () => {
+    for (const text of [JUNK, JUNK, `${JUNK}\n\nMore junk after the challenge.`]) {
+      await indexDocument(
+        storage,
+        { sourcePath: "/junk-twice.md", text },
+        { embedFn, inferFrontmatter: false },
+      );
+    }
+    expect(isQuarantined(await frontmatterOf("/junk-twice.md"))).toBe(true);
+    expect((await quarantineAudit()).map((r) => r.source_ref)).toEqual(["/junk-twice.md"]);
+  });
+
   it("audits a reject-disposition trip before throwing", async () => {
     process.env.MEMEX_SANITY_DISPOSITION = "reject";
     await expect(
@@ -329,5 +347,36 @@ describe("per-pattern disable", () => {
     });
     expect(off.shouldQuarantine).toBe(false);
     expect(off.reasons).not.toContain("junk_pattern");
+  });
+});
+
+describe("quarantine audit bookkeeping", () => {
+  const trip = assessContentSanity({ body: JUNK, title: "" });
+  const stamped = stampSanityMarkers({}, trip);
+
+  it("isNewQuarantineVerdict is true only for a changed or first verdict", () => {
+    expect(trip.shouldQuarantine).toBe(true);
+    expect(isNewQuarantineVerdict(null, trip)).toBe(true);
+    expect(isNewQuarantineVerdict({ title: "x" }, trip)).toBe(true);
+    expect(isNewQuarantineVerdict(stamped, trip)).toBe(false);
+    expect(
+      isNewQuarantineVerdict({ quarantine: { reason: "junk_pattern", detail: "access_denied" } }, trip),
+    ).toBe(true);
+    expect(isNewQuarantineVerdict(null, assessContentSanity({ body: CLEAN, title: "" }))).toBe(false);
+  });
+
+  it("an audit write failure warns instead of throwing", async () => {
+    const failing = {
+      query: () => Promise.reject(new Error("ingest_log unavailable")),
+    } as unknown as Engine;
+    const warn = console.warn;
+    const warned: string[] = [];
+    console.warn = (m: string) => void warned.push(m);
+    try {
+      await expect(auditQuarantine(failing, trip, "/x.md", null)).resolves.toBeUndefined();
+    } finally {
+      console.warn = warn;
+    }
+    expect(warned[0]).toContain("/x.md");
   });
 });

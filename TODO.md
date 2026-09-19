@@ -987,7 +987,8 @@ every string in compiled_truth are scanned too (`guardFields` /
 refusing. `ontology_propose` values are scanned in `mergeOntologyFact`;
 `/ingest` scans only after the tenancy gates, so a client with no grant gets
 a 403 and leaves no audit row. R3 (unreleased): each quarantine trip writes a
-`quarantine` row to `ingest_log` (pattern names only), a `quarantined-pages`
+`quarantine` row to `ingest_log` (pattern names only; only a new or changed
+verdict, after the write commits, best-effort), a `quarantined-pages`
 doctor check reports count and top patterns, and `MEMEX_CONTENT_SANITY_DISABLE`
 switches off individual patterns. Open: facts derived by reconcile/consolidate
 inherit already-scanned text and are not rescanned; no scrub of rows stored before

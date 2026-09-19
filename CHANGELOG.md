@@ -29,6 +29,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pattern names, operator literals included as `operator_literal_N`) switches
   off one misfiring pattern without dropping the whole gate.
 
+### Fixed
+- **A held page is audited once, not on every re-index.** Re-indexing a
+  quarantined page (a page mirror, a rechunk sweep, a reindex) no longer adds
+  another `quarantine` ingest-log row; a row is written only when the verdict
+  is new or names different patterns, and only after the document commits. A
+  failed audit write now warns instead of failing the index.
+
 ## [1.145.0] — 2026-09-19
 
 ### Added
