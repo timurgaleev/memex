@@ -97,10 +97,10 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  * typo, so adding a new value-taking flag means adding it here too.
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
-  "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight",
+  "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight", "--candidate",
   "--bound-slug-prefixes", "--budget", "--client", "--client-file", "--config-a",
   "--config-b", "--corpus",
-  "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description",
+  "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description", "--epsilon",
   "--dir", "--example-limit", "--expect-source", "--expect-version",
   "--expected-doc", "--expected-revision", "--family",
   "--federated-read", "--file", "--format",
@@ -111,8 +111,8 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--older-than-days", "--out", "--path-prefix", "--paths", "--pattern",
   "--payload", "--pglite-path", "--phases", "--port", "--postgres-url",
   "--priority", "--qrels", "--query", "--question", "--rate-limit-per-minute",
-  "--reason", "--redirect-uris", "--rounds", "--rrf-k", "--scopes",
-  "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs",
+  "--reason", "--redirect-uris", "--repeats", "--rounds", "--rrf-k", "--scopes",
+  "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs", "--split",
   "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
   "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
   "--tables", "--target", "--tenant-mode", "--threshold", "--title", "--to",
@@ -264,6 +264,10 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["reports", new Set(["--since"])],
   ["spend", new Set(["--days"])],
   ["agent", new Set(["--max-usd", "--wait"])],
+  [
+    "skillopt",
+    new Set(["--candidate", "--epsilon", "--max-usd", "--repeats", "--skill", "--split"]),
+  ],
   ["skillpack", new Set(["--dir", "--json", "--out"])],
   [
     "migrate-engine",

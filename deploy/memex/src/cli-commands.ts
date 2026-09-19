@@ -80,6 +80,7 @@ export const CLI_COMMANDS: Readonly<Record<string, CliCommandSpec>> = {
   "reports": bare,
   "spend": bare,
   "agent": subs("run", "logs"),
+  "skillopt": subs("eval"),
   "skillpack": subs("lint"),
   "transcripts": subs("ingest"),
   "connectors": subs("github"),

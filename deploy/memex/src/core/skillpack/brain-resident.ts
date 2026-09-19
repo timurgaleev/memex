@@ -25,7 +25,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * only deploy/memex), so the compose file mounts the pack read-only and
  * points MEMEX_SKILLS_DIR at it.
  */
-const DEFAULT_SKILLS_DIR =
+export const DEFAULT_SKILLS_DIR =
   process.env.MEMEX_SKILLS_DIR && process.env.MEMEX_SKILLS_DIR.trim().length > 0
     ? process.env.MEMEX_SKILLS_DIR
     : resolve(__dirname, "..", "..", "..", "..", "skills");

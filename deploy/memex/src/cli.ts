@@ -56,6 +56,7 @@ import { runLint } from "./commands/lint.ts";
 import { runReports } from "./commands/reports.ts";
 import { runSpend } from "./commands/spend.ts";
 import { runAgentCli } from "./commands/agent.ts";
+import { runSkilloptCli } from "./commands/skillopt.ts";
 import { runSkillpack, runSkillpackLint } from "./commands/skillpack.ts";
 import { runMigrateEngine } from "./commands/migrate-engine.ts";
 import { runCache } from "./commands/cache.ts";
@@ -202,6 +203,8 @@ function printUsage(): void {
   console.log("  agent run <task> [--max-usd X] [--wait]");
   console.log("                               queue a read-only agent job (needs MEMEX_AGENT_ENABLED=1); prints its id");
   console.log("  agent logs <job-id>          render an agent job's transcript and tool calls");
+  console.log("  skillopt eval [--skill S] [--split heldout|train|all] [--repeats N] [--candidate SKILL.md] [--epsilon X] [--max-usd X]");
+  console.log("                               score skill routing on the pack benchmark (needs MEMEX_SKILLOPT_ENABLED=1); exit 3 = candidate rejected");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  skillpack lint [--json] [--dir PATH]");
   console.log("                               check every tool and memex command the skill pack names exists");
@@ -1340,6 +1343,22 @@ async function main(argv: readonly string[]): Promise<number> {
         opts.jobId = positional[1];
       }
       return await runAgentCli(opts);
+    }
+    case "skillopt": {
+      // Raw strings: runSkilloptCli validates them, before anything is opened.
+      const raw = {
+        skill: values.get("--skill"),
+        split: values.get("--split"),
+        repeats: values.get("--repeats"),
+        candidate: values.get("--candidate"),
+        epsilon: values.get("--epsilon"),
+        maxUsd: values.get("--max-usd"),
+      };
+      const opts: Parameters<typeof runSkilloptCli>[0] = { sub: positional[0] };
+      for (const [k, v] of Object.entries(raw) as [keyof typeof raw, string | undefined][]) {
+        if (v !== undefined) opts[k] = v;
+      }
+      return await runSkilloptCli(opts);
     }
     case "skillpack": {
       if (positional[0] === "lint") {

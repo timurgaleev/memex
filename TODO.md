@@ -2786,6 +2786,26 @@ rejected; a run stops at its USD cap with a checkpoint; proposed diffs pass
 
 **Needs operator go.** Yes (recorded as deferred, low priority).
 
+**Progress.** Release A (unreleased): `memex skillopt eval` behind
+`MEMEX_SKILLOPT_ENABLED=1` — the scorer and gate everything else needs.
+`src/core/skillopt/benchmark.ts` loads the 16 `routing-eval.jsonl` files (93
+cases; confined to `<skillsDir>/<slug>/`, no symlinks, 64 KB cap, line-numbered
+errors; `expected_skill: null` is a negative case answered `none`) and splits
+each file deterministically, ceil(30%) held out. `catalog.ts` builds the
+slug/description/triggers catalog and swaps in a candidate with its name held
+fixed. `judge.ts` is the linear rule judge plus median and the epsilon gate.
+`evaluate.ts` runs tool-less 32-token Haiku Converse calls booked as
+`skillopt`, refuses a worst case over the cap before any call, and stops at
+the cap with a partial report. Only the worst case is priced (one token per
+prompt byte, about 4x the real cost), so the default $0.25 buys about 12 calls
+with the whole-pack catalog: scope runs with `--skill`. Still open:
+checkpoints, version store and rejected-edit buffer in RDS (the cap stop has
+no checkpoint yet); the markdown patcher and LLM proposal loop; the LLM judge
+and task benchmarks run through the agent loop; benchmark bootstrap with a
+review sentinel; per-skill DB lock and audit trail; the cycle phase; the
+operator-only MCP op; proposed-diff output checked by `make scrub-audit`;
+prompt-cache points on the catalog prompt.
+
 ### Not planned
 
 Not in any roadmap item, with the reason:

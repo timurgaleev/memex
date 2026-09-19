@@ -34,6 +34,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   public bearer are refused. `get_agent_job` returns only the caller's own
   jobs, with one not-found for everything else. Migration 115 records the
   submitter and the grant snapshot on the job.
+- **A skill routing benchmark with an accept/reject gate (off by default).**
+  With `MEMEX_SKILLOPT_ENABLED=1`, `memex skillopt eval [--skill S] [--split
+  heldout|train|all] [--repeats N]` asks the Haiku tier to route each intent in
+  the pack's `routing-eval.jsonl` files to one skill from the catalog (slug,
+  description, triggers), scores the answers by rule, and prints per-skill
+  accuracy for a fixed train/held-out split as the median of N repeats (default
+  3). `--candidate <SKILL.md>` also scores that file's description and triggers
+  against the current ones on the held-out cases and prints ACCEPT, or REJECT
+  with exit code 3, against `--epsilon` (default 0.05). The calls use no tools
+  and at most 32 output tokens each. Every run is capped at the lower of
+  `--max-usd` and `MEMEX_SKILLOPT_MAX_USD` (default $0.25): a run whose worst
+  case exceeds the cap is refused before any call, and a run that hits the cap
+  stops with a partial report. Every call is booked in the spend ledger under
+  `skillopt`. Nothing is written: no rows, no skill files, no MCP tool.
 
 ### Fixed
 - **`get_agent_job` no longer hands an answer to a caller who lost the grant
