@@ -380,4 +380,20 @@ describe("write paths", () => {
     expect(await getEntityTimeline(storage, "acme/deal", { sourceIds: ["acme"] })).toHaveLength(5);
     expect(await getEntityTimeline(storage, "acme/deal", { sourceIds: [] })).toEqual([]);
   });
+
+  it("drops the page's stale derived rows whatever source stamped them", async () => {
+    await registerSource(storage.engine(), { id: "acme", kind: "vault", pathPrefix: "/acme" });
+    await putPage(storage, { slug: "acme/deal", type: "note", markdown_body: "# Deal\n", source_id: "acme" });
+    await callTool("page_put", { slug: "acme/deal", type: "note", markdown_body: BODY });
+    expect(await rows("acme/deal")).toHaveLength(5);
+    // As rows written before the derivation stamped the page owner look: the
+    // key still says they belong to this page's body.
+    await storage.engine().query(
+      "UPDATE timeline_events SET source_id = 'default' WHERE slug = 'acme/deal'",
+    );
+
+    const emptied = await callTool("page_put", { slug: "acme/deal", type: "note", markdown_body: "# Deal\n" });
+    expect(emptied["body_timeline"]).toEqual({ derived: 0, added: 0, removed: 5 });
+    expect(await rows("acme/deal")).toEqual([]);
+  });
 });

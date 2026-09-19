@@ -247,8 +247,8 @@ export interface PhaseResult {
     | ConversationFactsBackfillResult
     | RechunkSweepResult;
   error?: string;
-  /** The run was aborted during this phase and the phase's own work had not
-   *  wound down when the run returned: its database writes may still land. */
+  /** The phase was aborted or hit its deadline and its own work had not wound
+   *  down when the run returned: its database writes may still land. */
   orphaned?: true;
 }
 
@@ -282,8 +282,9 @@ export interface CycleResult {
   /** Requested phases that never started, in request order. */
   phasesNotRun?: PhaseName[];
   phases: PhaseResult[];
-  /** Set when an abort left a phase still running after the report was built
-   *  (see PhaseResult.orphaned). Its paid calls are stopped; its DB work is not. */
+  /** Set when an abort or a phase deadline left a phase still running after the
+   *  report was built (see PhaseResult.orphaned). Its paid calls are stopped;
+   *  its DB work is not. */
   orphanedPhase?: PhaseName;
   /** Back-compat: true unless a phase FAILED (warns don't flip it). A partial
    *  run is false. */
@@ -457,13 +458,18 @@ export interface CycleOptions {
 // Default 15 min (generous for a large embed-stale backlog under its per-cycle
 // cap); `MEMEX_CYCLE_PHASE_TIMEOUT_MS=0` disables. A timed-out phase is recorded
 // as `fail` and the cycle proceeds to its remaining phases (incl. snapshot) and
-// releases the lock — liveness over the leaked in-flight work.
+// releases the lock — liveness over the leaked in-flight work, which the run
+// waits ABORT_SETTLE_MS for and reports as `orphaned` if it is still going.
 function phaseTimeoutMs(): number {
   const raw = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
   if (raw === undefined || raw === "") return 15 * 60 * 1000;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 15 * 60 * 1000;
 }
+
+/** A phase that blew its deadline. Its own promise keeps running, so runPhase
+ *  waits for it the way it waits after an abort before marking it orphaned. */
+export class PhaseTimeoutError extends Error {}
 
 export function withPhaseTimeout<T>(
   phase: PhaseName,
@@ -473,7 +479,7 @@ export function withPhaseTimeout<T>(
   if (ms <= 0) return fn();
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error(`phase ${phase} timed out after ${ms}ms`)),
+      () => reject(new PhaseTimeoutError(`phase ${phase} timed out after ${ms}ms`)),
       ms,
     );
     (timer as unknown as { unref?: () => void }).unref?.();
@@ -603,14 +609,17 @@ export async function runPhase<T>(
   };
   let aborted = false;
   let orphaned = false;
-  const work = withPhaseTimeout(phase, () => runInBatchScope(scope, fn));
+  // The phase's own promise is kept apart from the deadline wrapper: once the
+  // deadline rejects, only this one still tracks the work that is still going.
+  const work = runInBatchScope(scope, fn);
+  const deadlined = withPhaseTimeout(phase, () => work);
   try {
     const onAbort = () => {
       aborted = true;
       if (signal) scope.stopReason = cycleReasonOf(signal);
       stop();
     };
-    const detail = (await raceAbort(work, signal, onAbort).catch((e: unknown) => {
+    const detail = (await raceAbort(deadlined, signal, onAbort).catch((e: unknown) => {
       stop();
       throw e;
     })) as PhaseResult["detail"];
@@ -641,10 +650,14 @@ export async function runPhase<T>(
     };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    if (aborted && !(await settlesWithin(work, settleMs))) {
+    // A deadline leaves the phase running exactly as an abort does, so it gets
+    // the same settle window and the same marker: without it the report showed
+    // a plain fail while the phase kept writing past the cycle's lock.
+    const timedOut = e instanceof PhaseTimeoutError;
+    if ((aborted || timedOut) && !(await settlesWithin(work, settleMs))) {
       orphaned = true;
       console.error(
-        `[cycle] phase ${phase} still running ${settleMs}ms after abort — paid calls are stopped, its database work is not`,
+        `[cycle] phase ${phase} still running ${settleMs}ms after ${timedOut ? "its deadline" : "abort"} — paid calls are stopped, its database work is not`,
       );
     }
     reclaimBetweenPhases();

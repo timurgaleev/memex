@@ -296,7 +296,10 @@ async function reconcile(
     `${BODY_TIMELINE_KEY_PREFIX}${slug}:`,
     keyed.map((k) => k.key),
   ];
-  if (sourceId) params.push(sourceId);
+  // The key prefix alone scopes the diff: a page has one owner, so every row
+  // under it is this page's. Scoping by source_id too stranded rows stamped
+  // under another one (a re-owned page, a write that carried no source) —
+  // undeletable, and their keyed re-insert hits the mig017 index and no-ops.
   // One statement both drops the stale keys and reports the kept ones, so
   // only events new to this body pay for an insert: an append that adds one
   // bullet to a long log page costs one insert, not one per event.
@@ -306,15 +309,13 @@ async function reconcile(
         WHERE slug = $1
           AND starts_with(source_chunk_id, $2)
           AND NOT (source_chunk_id = ANY($3::text[]))
-          ${sourceId ? "AND source_id = $4" : ""}
         RETURNING source_chunk_id
      )
      SELECT source_chunk_id, true AS stale FROM del
      UNION ALL
      SELECT source_chunk_id, false AS stale FROM timeline_events
       WHERE slug = $1
-        AND source_chunk_id = ANY($3::text[])
-        ${sourceId ? "AND source_id = $4" : ""}`,
+        AND source_chunk_id = ANY($3::text[])`,
     params,
   );
   const present = new Set<string>();

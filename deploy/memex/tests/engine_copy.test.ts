@@ -342,6 +342,61 @@ describe("source fidelity", () => {
     }
   });
 
+  it("does not wind the destination's sequence back below ids it already handed out", async () => {
+    const s = await open("seqback-src");
+    const d = await open("seqback-dst");
+    try {
+      await s.engine().query(
+        `INSERT INTO raw_data (slug, source, data)
+         VALUES ('a', 'crm', '{}'::jsonb), ('b', 'crm', '{}'::jsonb)`,
+      );
+      // The destination handed out four ids and then purged every row — its
+      // sequence is ahead of anything the copy can see in the table.
+      const purged = (await d.engine().query<{ id: string }>(
+        `INSERT INTO raw_data (slug, source, data)
+         VALUES ('p1', 'crm', '{}'::jsonb), ('p2', 'crm', '{}'::jsonb),
+                ('p3', 'crm', '{}'::jsonb), ('p4', 'crm', '{}'::jsonb)
+         RETURNING id::text AS id`,
+      )).rows.map((r) => Number(r.id));
+      await d.engine().query("DELETE FROM raw_data");
+      const top = Math.max(...purged);
+
+      const r = await copyEngine(s.engine(), d.engine(), { tables: ["raw_data"] });
+      expect(r.ok).toBe(true);
+      const next = await d.engine().query<{ id: string }>(
+        "INSERT INTO raw_data (slug, source, data) VALUES ('e', 'crm', '{}'::jsonb) RETURNING id::text AS id",
+      );
+      expect(Number(next.rows[0]!.id)).toBeGreaterThan(top);
+    } finally {
+      await s.close();
+      await d.close();
+    }
+  });
+
+  it("copies a column the source computes and the destination stores plainly", async () => {
+    const s = await open("gen-src");
+    const d = await open("gen-dst");
+    try {
+      await putPage(s, { slug: "notes/g", type: "note", markdown_body: "g" });
+      await addTag(s, "notes/g", "kept");
+      await s.engine().query(
+        "ALTER TABLE tags ADD COLUMN label text GENERATED ALWAYS AS (slug || ':' || tag) STORED",
+      );
+      await d.engine().query("ALTER TABLE tags ADD COLUMN label text");
+
+      const r = await copyEngine(s.engine(), d.engine(), { tables: ["tags"] });
+      expect(r.ok).toBe(true);
+      expect(r.tables[0]!.sourceOnlyColumns).toBeUndefined();
+      const labels = async (st: Storage) =>
+        (await st.engine().query<{ label: string | null }>("SELECT label FROM tags ORDER BY tag")).rows;
+      expect(await labels(d)).toEqual(await labels(s));
+      expect(await labels(d)).toEqual([{ label: "notes/g:kept" }]);
+    } finally {
+      await s.close();
+      await d.close();
+    }
+  });
+
   it("fails a dry run on a table the destination lacks, but not on a count difference", async () => {
     const s = await open("dry-src");
     const d = await open("dry-dst");

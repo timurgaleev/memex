@@ -15,6 +15,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cache-key suffix, and `MEMEX_GRAPH_RERANK` is read through the reranker's own
   gate so the key and the ranking cannot disagree. Keys for the default knobs
   are unchanged.
+- **`migrate-engine` keeps the destination's own sequence position and copies a
+  column the source computes.** The sequence sync took `GREATEST(max(id),
+  source last_value)` and ignored where the destination's sequence already
+  stood, so a restore into a database that had handed out higher ids and purged
+  those rows wound the sequence back and reissued them. And a column that is
+  STORED-generated on the source but plain on the destination was dropped from
+  the copy, from `sourceOnlyColumns` and from the content hash — the run passed
+  while the column's data was missing. Only the destination's definition now
+  decides what it recomputes.
+- **A cycle phase that blows its deadline is reported like an aborted one.** The
+  settle wait and the `orphaned` marker ran only on an abort, so a timed-out
+  phase — still running, still writing — was recorded as a plain fail while the
+  cycle moved on and released the lock with nothing in the report saying so.
+- **The body-timeline diff finds a page's derived rows by key, not by source.**
+  Scoping the delete by `source_id` as well stranded rows stamped under another
+  source (a re-owned page, a write that carried none): they could never be
+  removed, their keyed re-insert hit the mig017 dedup index and no-oped, and the
+  added/removed counts understated the write.
 - **A fact write that Postgres aborts to break a deadlock is retried instead of
   surfacing.** The withdrawal ledger (migration 112) has to sweep duplicate
   claims both before its per-source lock and again under it, so a forget, a

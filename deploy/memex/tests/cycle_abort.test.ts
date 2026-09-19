@@ -230,6 +230,39 @@ describe("runPhase — abort during a phase", () => {
     expect(haltMessage).not.toContain("timed out");
   });
 
+  it("marks a phase that blew its deadline and kept running as orphaned", async () => {
+    const prev = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
+    process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = "20";
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      const hang = () => new Promise<never>(() => {});
+      const r = await runPhase({} as Engine, "extract", hang, NOOP_PROGRESS, undefined, 20);
+      expect(r.status).toBe("fail");
+      expect(r.error).toMatch(/timed out after 20ms/);
+      expect(r.orphaned).toBe(true);
+
+      // One that winds down inside the settle window is not orphaned: the run
+      // waited for its writes before returning.
+      let finished = false;
+      const slow = () =>
+        new Promise<{ errors: string[] }>((resolve) => {
+          setTimeout(() => {
+            finished = true;
+            resolve({ errors: [] });
+          }, 50);
+        });
+      const ok = await runPhase({} as Engine, "extract", slow, NOOP_PROGRESS, undefined, 2000);
+      expect(finished).toBe(true);
+      expect(ok.error).toMatch(/timed out after 20ms/);
+      expect(ok.orphaned).toBeUndefined();
+    } finally {
+      console.error = origError;
+      if (prev === undefined) delete process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
+      else process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = prev;
+    }
+  });
+
   it("waits for an aborted phase that winds down inside the settle window", async () => {
     let finished = false;
     const slowToStop = () =>

@@ -43,7 +43,7 @@ export type Catalog = Map<string, TableInfo>;
 
 export interface TablePlan {
   name: string;
-  /** Columns present on both sides, generated columns excluded, source order. */
+  /** Columns present on both sides, destination-generated ones excluded, source order. */
   columns: ColumnInfo[];
   key: string[] | null;
   /** Columns the source has and the destination lacks (their data is not copied). */
@@ -274,7 +274,11 @@ export function planCopy(src: Catalog, dst: Catalog, only?: string[]): CopyPlan 
         if (!c.generated) sourceOnlyColumns.push(c.name);
         continue;
       }
-      if (c.generated || dc.generated) continue;
+      // Only the DESTINATION's definition decides: a column it computes itself
+      // must not be written. A column generated on the source and plain on the
+      // destination is copied like any other — skipping it left the destination
+      // holding the column's default with a passing hash check.
+      if (dc.generated) continue;
       // The destination's type is the one the value is bound into.
       columns.push({ ...dc });
     }
@@ -470,10 +474,17 @@ async function copyTable(
   for (const c of t.columns) {
     if (!c.hasSequence) continue;
     const used = await sourceSequenceValue(src, t.name, c.name);
+    // The destination's own position counts too: a restore into a database
+    // that handed out ids above the copied maximum and then purged those rows
+    // would otherwise wind its sequence backwards and reissue them.
     await dst.query(
-      `SELECT setval(pg_get_serial_sequence($1, $2), m)
-         FROM (SELECT GREATEST(max(${quoteIdent(c.name)}), $3::text::bigint) AS m
-                 FROM ${quoteIdent(t.name)}) x
+      `SELECT setval(s, m)
+         FROM (SELECT s,
+                      GREATEST((SELECT max(${quoteIdent(c.name)}) FROM ${quoteIdent(t.name)}),
+                               $3::text::bigint,
+                               pg_sequence_last_value(s::regclass)) AS m
+                 FROM (SELECT pg_get_serial_sequence($1, $2) AS s) q
+                WHERE s IS NOT NULL) x
         WHERE m IS NOT NULL`,
       [quoteIdent(t.name), c.name, used],
     );
