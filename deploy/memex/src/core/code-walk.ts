@@ -207,7 +207,7 @@ export async function runRecursiveWalk(
         return {
           result: "not_found",
           did_you_mean: [],
-          readiness: await codeIndexReadiness(engine, opts.sourceIds),
+          readiness: await codeIndexReadiness(engine, opts.sourceIds, "edges"),
         };
       }
     } else if (matches.length > 1) {
@@ -294,7 +294,7 @@ export async function runRecursiveWalk(
   // A qualified or `exact` start skips disambiguation, so an empty walk cannot
   // tell "no callers" from "graph not built yet" without the readiness state.
   if (depthGroups.length === 0) {
-    result.readiness = await codeIndexReadiness(engine, opts.sourceIds);
+    result.readiness = await codeIndexReadiness(engine, opts.sourceIds, "edges");
   }
   return result;
 }

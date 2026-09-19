@@ -17,8 +17,8 @@
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
-import { entityId, type EntityType } from "../core/entities.ts";
-import { codeIndexReadiness } from "../core/code-graph.ts";
+import { entityId } from "../core/entities.ts";
+import { codeIndexReadiness, type CodeReadinessGraph } from "../core/code-graph.ts";
 import type { Engine } from "../core/engine/interface.ts";
 
 export type CodeSub = "code-def" | "code-refs" | "code-callers" | "code-callees";
@@ -39,7 +39,7 @@ interface MentionRow {
   source_path: string;
 }
 
-const ENTITY_TYPE_FOR_SUB: Record<CodeSub, EntityType> = {
+const ENTITY_TYPE_FOR_SUB: Record<CodeSub, Exclude<CodeReadinessGraph, "edges">> = {
   "code-def": "code-def",
   "code-refs": "code-ref",
   "code-callers": "code-caller",
@@ -60,8 +60,8 @@ function parsePathLine(target: string): { file: string; line: number } | null {
 }
 
 // stderr, so `--json` and piped stdout stay exactly as they were.
-async function printReadiness(engine: Engine): Promise<void> {
-  const r = await codeIndexReadiness(engine);
+async function printReadiness(engine: Engine, graph: CodeReadinessGraph): Promise<void> {
+  const r = await codeIndexReadiness(engine, undefined, graph);
   console.error(
     `no results — code index: ${r.state} (${r.code_documents} code documents, ${r.symbols} symbols)`,
   );
@@ -114,7 +114,7 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
         } else {
           console.error(msg);
         }
-        await printReadiness(engine);
+        await printReadiness(engine, "code-def");
         process.exitCode = 1;
         return;
       }
@@ -136,7 +136,7 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
       [eid],
     );
 
-    if (r.rows.length === 0) await printReadiness(engine);
+    if (r.rows.length === 0) await printReadiness(engine, entityType);
     if (opts.json) {
       console.log(
         JSON.stringify(

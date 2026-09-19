@@ -16,7 +16,7 @@
 import type { Engine } from "./engine/interface.ts";
 import { entityId, type EntityType } from "./entities.ts";
 import { andSourceScope, isNoGrant, normalizeScope, type SourceScope } from "./source-scope.ts";
-import { codeSweepInProgress } from "./sweep-code.ts";
+import { codeSweepCovers, codeSweepInProgress } from "./sweep-code.ts";
 
 export interface CodeMention {
   surface_form: string;
@@ -33,11 +33,19 @@ export type CodeIndexState = "not_built" | "indexing" | "no_symbols" | "ready";
 
 export interface CodeIndexReadiness {
   state: CodeIndexState;
-  /** Code documents in the caller's scope, saturating at READINESS_COUNT_CAP + 1. */
+  /** Live code documents in the caller's scope, saturating at READINESS_COUNT_CAP + 1. */
   code_documents: number;
-  /** `code-def` mentions in the caller's scope, same saturation. */
+  /** Rows of the graph the tool reads, in the caller's scope, same saturation. */
   symbols: number;
 }
+
+/**
+ * Which graph a tool reads: the mention-based tools look up one entity type in
+ * `entity_mentions`; `code_blast`/`code_flow` walk `code_edges_symbol`. The two
+ * are written by the same indexer but can drift apart (the edges survive a
+ * mention wipe), so readiness counts the one the caller actually queried.
+ */
+export type CodeReadinessGraph = "code-def" | "code-ref" | "code-caller" | "code-callee" | "edges";
 
 // Readiness only needs "zero or not"; the cap keeps the count cheap on a large
 // corpus while still giving the caller a rough size.
@@ -79,56 +87,91 @@ function clampLimit(limit: number | undefined): number {
 
 
 /**
- * How far the code index is built for the caller's scope. A caller granted
- * nothing gets `not_built` without a query, so it learns nothing about other
- * tenants' code.
+ * How far the code index is built for the caller's scope, counted over the
+ * graph `graph` names. A caller granted nothing gets `not_built` without a
+ * query, so it learns nothing about other tenants' code.
  */
 export async function codeIndexReadiness(
   engine: Engine,
   sourceIds?: SourceScope,
+  graph: CodeReadinessGraph = "code-def",
 ): Promise<CodeIndexReadiness> {
   if (isNoGrant(sourceIds)) {
     return { state: "not_built", code_documents: 0, symbols: 0 };
   }
   const params: unknown[] = [READINESS_COUNT_CAP + 1];
   const docScope = andSourceScope("d.source_id", sourceIds, params);
+  let symbolsSql: string;
+  if (graph === "edges") {
+    // The walk filters on the edge's own source_id, so readiness does too.
+    const edgeScope = andSourceScope("e.source_id", sourceIds, params);
+    symbolsSql = `SELECT 1 FROM code_edges_symbol e
+             JOIN chunks c ON c.id = e.from_chunk_id
+             JOIN documents d ON d.id = c.document_id
+            WHERE d.deleted_at IS NULL${edgeScope}`;
+  } else {
+    // Driven from entities(type, name)'s unique index, then the mention index —
+    // the same rows mentionsFor reads by entity_id.
+    params.push(graph);
+    symbolsSql = `SELECT 1 FROM entities e
+             JOIN entity_mentions em ON em.entity_id = e.id
+             JOIN chunks c ON c.id = em.chunk_id
+             JOIN documents d ON d.id = c.document_id
+            WHERE e.type = $${params.length} AND d.deleted_at IS NULL${docScope}`;
+  }
   const r = await engine.query<{ code_documents: number | string; symbols: number | string }>(
     `SELECT
        (SELECT count(*) FROM (
           SELECT 1 FROM documents d
-           WHERE d.frontmatter->>'kind' = 'code'${docScope}
+           WHERE d.frontmatter->>'kind' = 'code' AND d.deleted_at IS NULL${docScope}
            LIMIT $1) docs) AS code_documents,
        (SELECT count(*) FROM (
-          SELECT 1 FROM entity_mentions em
-            JOIN entities e ON e.id = em.entity_id
-            JOIN chunks c ON c.id = em.chunk_id
-            JOIN documents d ON d.id = c.document_id
-           WHERE e.type = 'code-def'${docScope}
-           LIMIT $1) defs) AS symbols`,
+          ${symbolsSql}
+           LIMIT $1) syms) AS symbols`,
     params,
   );
   const code_documents = Number(r.rows[0]?.code_documents ?? 0);
   const symbols = Number(r.rows[0]?.symbols ?? 0);
   let state: CodeIndexState;
-  if (codeSweepInProgress()) state = "indexing";
+  if (await sweepCoversScope(engine, sourceIds)) state = "indexing";
   else if (code_documents === 0) state = "not_built";
   else if (symbols === 0) state = "no_symbols";
   else state = "ready";
   return { state, code_documents, symbols };
 }
 
+/**
+ * A running sweep only makes a tenant's answer untrustworthy when it walks a
+ * root that tenant's sources own; the operator sees every sweep.
+ */
+async function sweepCoversScope(engine: Engine, sourceIds: SourceScope): Promise<boolean> {
+  if (!codeSweepInProgress()) return false;
+  const sources = normalizeScope(sourceIds);
+  if (sources === undefined) return true;
+  if (sources.length === 0) return false;
+  const r = await engine.query<{ path_prefix: string | null }>(
+    "SELECT path_prefix FROM sources WHERE id = ANY($1::text[])",
+    [sources],
+  );
+  const prefixes = r.rows
+    .map((row) => row.path_prefix)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  return codeSweepCovers(prefixes);
+}
+
 async function withReadiness<T extends CodeGraphResult>(
   engine: Engine,
   result: T,
+  graph: CodeReadinessGraph,
   sourceIds?: string[],
 ): Promise<T> {
   if (result.count > 0) return result;
-  return { ...result, readiness: await codeIndexReadiness(engine, sourceIds) };
+  return { ...result, readiness: await codeIndexReadiness(engine, sourceIds, graph) };
 }
 
 async function mentionsFor(
   engine: Engine,
-  type: EntityType,
+  type: "code-def" | "code-ref" | "code-caller" | "code-callee",
   name: string,
   limit: number,
   sourceIds?: string[],
@@ -148,7 +191,7 @@ async function mentionsFor(
        FROM entity_mentions em
        JOIN chunks c ON c.id = em.chunk_id
        JOIN documents d ON d.id = c.document_id
-      WHERE em.entity_id = $1${sourceFilter}
+      WHERE em.entity_id = $1 AND d.deleted_at IS NULL${sourceFilter}
       ORDER BY d.source_path, c.start_line NULLS FIRST
       LIMIT $2`,
     params,
@@ -156,6 +199,7 @@ async function mentionsFor(
   return withReadiness(
     engine,
     { query: { type, name }, count: r.rows.length, mentions: r.rows },
+    type,
     sourceIds,
   );
 }
@@ -213,6 +257,7 @@ export async function resolveSymbolAt(
        JOIN entity_mentions em ON em.chunk_id = c.id
        JOIN entities e ON e.id = em.entity_id
       WHERE d.source_path = $1
+        AND d.deleted_at IS NULL
         AND $2 BETWEEN c.start_line AND c.end_line
         AND e.type = 'code-def'${sourceFilter}
       ORDER BY (c.end_line - c.start_line) ASC
@@ -245,6 +290,7 @@ export async function codeCallees(
         mentions: [],
         resolved_symbol: null,
       },
+      "code-def",
       sourceIds,
     );
   }

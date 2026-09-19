@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Code-tool readiness now counts the graph each tool actually reads.**
+  `code_blast`/`code_flow` count `code_edges_symbol` rows instead of `code-def`
+  mentions, so a brain whose edges exist but whose mentions do not no longer
+  reports `no_symbols` to the walk tools; `code_refs`/`code_callers`/
+  `code_callees` count their own mention type. Soft-deleted documents are
+  excluded from both the lookups and the readiness counts, and a running code
+  sweep reports `indexing` only to callers whose sources it walks.
+
 ## [1.151.0] — 2026-09-19
 
 ### Added

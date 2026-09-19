@@ -100,12 +100,34 @@ function docId(sourcePath: string): string {
 // Sweeps running in THIS process. The boot sweep runs inside the server that
 // answers MCP calls, so a process-local count is enough for the code tools to
 // tell "still indexing" from "not there"; an out-of-process `memex reindex` is
-// not visible here.
+// not visible here. The roots are kept too, so a tenant whose sources the
+// sweep never touches is not told its index is still building.
 let sweepsInFlight = 0;
+const rootsInFlight = new Map<string, number>();
 
 /** True while a code sweep started by this process has not finished. */
 export function codeSweepInProgress(): boolean {
   return sweepsInFlight > 0;
+}
+
+function trimSlash(p: string): string {
+  return p.endsWith("/") ? p.slice(0, -1) : p;
+}
+
+/** One path sits at or under the other, on a `/` boundary. */
+function pathsOverlap(a: string, b: string): boolean {
+  const x = trimSlash(a);
+  const y = trimSlash(b);
+  if (x === "" || y === "") return true;
+  return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+}
+
+/** True while an in-flight sweep walks a root overlapping any of `prefixes`. */
+export function codeSweepCovers(prefixes: readonly string[]): boolean {
+  for (const root of rootsInFlight.keys()) {
+    if (prefixes.some((p) => pathsOverlap(root, p))) return true;
+  }
+  return false;
 }
 
 /**
@@ -115,11 +137,18 @@ export async function sweepCodeRoots(
   storage: Storage,
   opts: SweepCodeOptions,
 ): Promise<SweepCodeResult> {
+  const roots = opts.paths.map((p) => normalizeSourcePath(p));
   sweepsInFlight++;
+  for (const r of roots) rootsInFlight.set(r, (rootsInFlight.get(r) ?? 0) + 1);
   try {
     return await sweepCodeRootsInner(storage, opts);
   } finally {
     sweepsInFlight--;
+    for (const r of roots) {
+      const n = (rootsInFlight.get(r) ?? 1) - 1;
+      if (n > 0) rootsInFlight.set(r, n);
+      else rootsInFlight.delete(r);
+    }
   }
 }
 

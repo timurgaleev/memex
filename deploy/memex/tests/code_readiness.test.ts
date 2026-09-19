@@ -14,6 +14,7 @@ import { indexCodeDocument } from "../src/core/indexer-code.ts";
 import { _resetParsersForTests } from "../src/core/chunkers/parsers.ts";
 import { codeCallees, codeCallers, codeDefs, codeIndexReadiness, codeRefs } from "../src/core/code-graph.ts";
 import { codeSweepInProgress, sweepCodeRoots } from "../src/core/sweep-code.ts";
+import { runRecursiveWalk } from "../src/core/code-walk.ts";
 import type { Engine } from "../src/core/engine/interface.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 
@@ -110,6 +111,8 @@ describe("codeIndexReadiness", () => {
       await registerSource(engine, { id: "tenant-a", kind: "vault", pathPrefix: "/tenant-a" });
       await registerSource(engine, { id: "tenant-b", kind: "vault", pathPrefix: "/tenant-b" });
       await registerSource(engine, { id: "tenant-c", kind: "vault", pathPrefix: "/tenant-c" });
+      await registerSource(engine, { id: "tenant-d", kind: "vault", pathPrefix: "/tenant-d" });
+      await registerSource(engine, { id: "tenant-e", kind: "vault", pathPrefix: "/tenant-e" });
       await indexCodeDocument(storage, {
         sourcePath: "/tenant-a/svc.ts",
         text: "export function alpha() { return 1; }\nexport function beta() { return alpha(); }\n",
@@ -120,6 +123,67 @@ describe("codeIndexReadiness", () => {
         text: "import os\nprint(os.getcwd())\nx = 1\n",
         sourceId: "tenant-c",
       });
+      // Edges intact, mentions gone — the state a mention wipe leaves behind.
+      await indexCodeDocument(storage, {
+        sourcePath: "/tenant-d/walk.ts",
+        text: "export function gamma() { return 1; }\nexport function delta() { return gamma(); }\n",
+        sourceId: "tenant-d",
+      });
+      await engine.query(
+        `DELETE FROM entity_mentions em USING chunks c, documents d
+          WHERE em.chunk_id = c.id AND c.document_id = d.id AND d.source_id = 'tenant-d'`,
+      );
+      await indexCodeDocument(storage, {
+        sourcePath: "/tenant-e/gone.ts",
+        text: "export function epsilon() { return 1; }\n",
+        sourceId: "tenant-e",
+      });
+      await engine.query("UPDATE documents SET deleted_at = now() WHERE source_id = 'tenant-e'");
+    });
+
+    it("counts the edge graph for the walk tools, the mention graph for the lookups", async () => {
+      const walk = await runRecursiveWalk(engine, "zzNoSuchSymbol", {
+        direction: "callers",
+        exact: true,
+        sourceIds: ["tenant-d"],
+      });
+      expect(walk.result).toBe("ok");
+      const readiness = walk.result === "ok" ? walk.readiness : undefined;
+      expect(readiness?.state).toBe("ready");
+      expect(readiness?.symbols).toBeGreaterThan(0);
+      expect((await codeDefs(engine, "zzNoSuchSymbol", undefined, ["tenant-d"])).readiness?.state)
+        .toBe("no_symbols");
+    });
+
+    it("counts the entity type the lookup reads", async () => {
+      // tenant-c holds an import (code-ref) and no definition.
+      expect((await codeRefs(engine, "zzNoSuchSymbol", undefined, ["tenant-c"])).readiness?.state)
+        .toBe("ready");
+      expect((await codeDefs(engine, "zzNoSuchSymbol", undefined, ["tenant-c"])).readiness?.state)
+        .toBe("no_symbols");
+    });
+
+    it("ignores soft-deleted documents in both the lookup and the readiness", async () => {
+      const r = await codeDefs(engine, "epsilon", undefined, ["tenant-e"]);
+      expect(r.count).toBe(0);
+      expect(r.readiness).toEqual({ state: "not_built", code_documents: 0, symbols: 0 });
+      expect(await codeIndexReadiness(engine, ["tenant-e"], "edges"))
+        .toEqual({ state: "not_built", code_documents: 0, symbols: 0 });
+    });
+
+    it("reports indexing only to callers whose sources the sweep walks", async () => {
+      const { storage: fake, release } = blockingStorage();
+      const run = sweepCodeRoots(fake, { paths: ["/tenant-a/"] });
+      try {
+        expect((await codeIndexReadiness(engine, ["tenant-a"])).state).toBe("indexing");
+        expect((await codeIndexReadiness(engine, ["tenant-b", "tenant-a"])).state).toBe("indexing");
+        expect((await codeIndexReadiness(engine, ["tenant-c"])).state).toBe("no_symbols");
+        expect((await codeIndexReadiness(engine)).state).toBe("indexing");
+      } finally {
+        release(false);
+        await run;
+      }
+      expect((await codeIndexReadiness(engine, ["tenant-a"])).state).toBe("ready");
     });
 
     it("reports ready when the index is built and the symbol really is absent", async () => {
@@ -145,7 +209,8 @@ describe("codeIndexReadiness", () => {
     it("counts every tenant for the operator", async () => {
       const r = await codeIndexReadiness(engine);
       expect(r.state).toBe("ready");
-      expect(r.code_documents).toBe(2);
+      // a, c and d — the soft-deleted e is not counted.
+      expect(r.code_documents).toBe(3);
     });
 
     it("keeps another tenant's code out of a grant caller's readiness", async () => {
