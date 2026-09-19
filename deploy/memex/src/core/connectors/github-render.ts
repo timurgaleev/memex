@@ -15,6 +15,7 @@
  * The reference scanner is indexOf plus a bounded digit run and a bounded
  * look-back for the keyword, so it is linear in the body.
  */
+import { createHash } from "node:crypto";
 import { guardSecrets, type SecretFinding } from "../secret-scan.ts";
 
 export interface GithubItem {
@@ -51,18 +52,55 @@ const MAX_KEYWORD_LEN = 8;
 const MAX_KEYWORD_GAP = 4;
 const FENCE = "```";
 
-/** A GitHub owner or repository name as a slug segment. */
+const SEGMENT_HASH_LEN = 8;
+
+function isSlugChar(c: string): boolean {
+  return (c >= "a" && c <= "z") || (c >= "0" && c <= "9");
+}
+
+function isHex(c: string): boolean {
+  return (c >= "0" && c <= "9") || (c >= "a" && c <= "f");
+}
+
+/** Lowercase letters and digits in single-hyphen-separated runs. */
+function isPlainSegment(s: string): boolean {
+  if (s === "" || !isSlugChar(s[0]!) || !isSlugChar(s[s.length - 1]!)) return false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (isSlugChar(c)) continue;
+    if (c !== "-" || s[i - 1] === "-") return false;
+  }
+  return true;
+}
+
+/** Ends in `-` plus SEGMENT_HASH_LEN hex digits: the shape of a folded segment. */
+function looksFolded(s: string): boolean {
+  const tail = s.length - SEGMENT_HASH_LEN - 1;
+  if (tail < 1 || s[tail] !== "-") return false;
+  for (let i = tail + 1; i < s.length; i++) if (!isHex(s[i]!)) return false;
+  return true;
+}
+
+/**
+ * A GitHub owner or repository name as a slug segment, one-to-one: GitHub lets
+ * `foo.bar`, `foo_bar` and `foo-bar` sit side by side, and the slug grammar has
+ * only letters, digits and `-`. A plain name maps to itself; any other name is
+ * folded and suffixed with a hash of the lowercased name, and so is a plain
+ * name that already ends in such a suffix, so no two names share a segment.
+ * Names compare case-insensitively on GitHub, so case is folded first.
+ */
 export function slugSegment(name: string): string {
+  const lower = name.toLowerCase();
+  if (isPlainSegment(lower) && !looksFolded(lower)) return lower;
   let out = "";
-  for (const ch of name.toLowerCase()) {
-    const ok = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
-    if (ok) out += ch;
+  for (const ch of lower) {
+    if (isSlugChar(ch)) out += ch;
     else if (!out.endsWith("-")) out += "-";
   }
   while (out.startsWith("-")) out = out.slice(1);
   while (out.endsWith("-")) out = out.slice(0, -1);
-  if (out === "") throw new Error(`cannot build a slug segment from ${JSON.stringify(name)}`);
-  return out;
+  const hash = createHash("sha256").update(lower).digest("hex").slice(0, SEGMENT_HASH_LEN);
+  return out === "" ? hash : `${out}-${hash}`;
 }
 
 export function repoSlugBase(owner: string, repo: string): string {
@@ -75,6 +113,11 @@ export function issueSlug(base: string, n: number): string {
 
 export function pullSlug(base: string, n: number): string {
   return `${base}/pulls/${n}`;
+}
+
+export function itemSlug(owner: string, repo: string, item: Pick<GithubItem, "number" | "is_pull_request">): string {
+  const base = repoSlugBase(owner, repo);
+  return item.is_pull_request ? pullSlug(base, item.number) : issueSlug(base, item.number);
 }
 
 export interface IssueRef {
@@ -207,15 +250,28 @@ function day(iso: string | null): string {
 
 /**
  * Render one item. Throws SecretRejectedError under the `reject` disposition
- * when the title or body carries a credential.
+ * when the title, body, a label or the author carries a credential.
  */
 export function renderItem(owner: string, repo: string, item: GithubItem): RenderedItem {
   const base = repoSlugBase(owner, repo);
-  const slug = item.is_pull_request ? pullSlug(base, item.number) : issueSlug(base, item.number);
+  const slug = itemSlug(owner, repo, item);
   const where = `github item '${slug}'`;
   const title = guardSecrets(item.title, where);
   const body = guardSecrets(item.body, where);
   const findings = [...title.findings, ...body.findings];
+  // Labels and the author reach the page too; scanning them here refuses the
+  // item once, instead of putPage refusing it on every re-fetch.
+  const labels = item.labels.map((l) => {
+    const r = guardSecrets(l, where);
+    findings.push(...r.findings);
+    return r.text;
+  });
+  let author = item.author;
+  if (author !== null) {
+    const r = guardSecrets(author, where);
+    findings.push(...r.findings);
+    author = r.text;
+  }
 
   const refs = findIssueRefs(body.text);
   const closes = item.is_pull_request
@@ -230,11 +286,11 @@ export function renderItem(owner: string, repo: string, item: GithubItem): Rende
     `# ${heading}`,
     "",
     `${kind} ${owner}/${repo}#${item.number} · ${state}` +
-      (item.author ? ` · opened by @${item.author}` : "") +
+      (author ? ` · opened by @${author}` : "") +
       ` on ${day(item.created_at)}`,
     "",
   ];
-  if (item.labels.length > 0) lines.push(`- Labels: ${item.labels.join(", ")}`);
+  if (labels.length > 0) lines.push(`- Labels: ${labels.join(", ")}`);
   lines.push(`- Updated: ${item.updated_at}`);
   if (item.merged_at !== null) lines.push(`- Merged: ${item.merged_at}`);
   else if (item.closed_at !== null) lines.push(`- Closed: ${item.closed_at}`);
@@ -250,8 +306,8 @@ export function renderItem(owner: string, repo: string, item: GithubItem): Rende
     number: item.number,
     kind: item.is_pull_request ? "pull_request" : "issue",
     state,
-    author: item.author,
-    labels: item.labels,
+    author,
+    labels,
     created_at: item.created_at,
     updated_at: item.updated_at,
     closed_at: item.closed_at,

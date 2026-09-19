@@ -11,8 +11,19 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { getPage } from "../src/core/pages.ts";
 import { registerSource } from "../src/core/sources.ts";
-import { githubClient, issuesPath, syncGithub, type RepoRef } from "../src/core/connectors/github.ts";
-import { connectorRecipeId, readLastRun, readWatermark } from "../src/core/connectors/watermark.ts";
+import * as pages from "../src/core/pages.ts";
+import { OperationError } from "../src/core/operation-error.ts";
+import { SecretRejectedError } from "../src/core/secret-scan.ts";
+import {
+  githubClient,
+  githubTarget,
+  isDeterministicRefusal,
+  issuesPath,
+  syncGithub,
+  type RepoRef,
+} from "../src/core/connectors/github.ts";
+import { checkConnectorHealth } from "../src/core/connectors/health.ts";
+import { connectorRecipeId, readLastRun, readRefused, readWatermark } from "../src/core/connectors/watermark.ts";
 import { runConnectors } from "../src/commands/connectors.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 import { API, fakeClock, LEAKED_TOKEN, recorded, replay, type Recorded } from "./github-recorded.ts";
@@ -33,19 +44,39 @@ async function count(sql: string, params: unknown[] = []): Promise<number> {
   return Number(r.rows[0]!.n);
 }
 
-async function sync(responses: Array<Recorded | Error>, opts: { full?: boolean } = {}) {
+async function sync(responses: Array<Recorded | Error>, opts: { full?: boolean; sourceId?: string } = {}) {
   const clock = fakeClock();
   const fake = replay(responses);
+  const { sourceId = "gh-acme", ...rest } = opts;
   const result = await syncGithub(storage, {
     ref: REF,
-    sourceId: "gh-acme",
+    sourceId,
     client: githubClient(API_TOKEN, { fetch: fake.fetch, now: clock.now, sleep: clock.sleep }),
     now: clock.now,
     embedFn,
-    ...opts,
+    ...rest,
   });
   return { result, fake };
 }
+
+async function withDisposition<T>(value: string, fn: () => Promise<T>): Promise<T> {
+  const saved = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+  process.env.MEMEX_SECRET_SCAN_DISPOSITION = value;
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+    else process.env.MEMEX_SECRET_SCAN_DISPOSITION = saved;
+  }
+}
+
+const listPage = (items: Array<{ number: number; updated_at: string }>, nextPage: number | null): Recorded => ({
+  status: 200,
+  headers: nextPage === null
+    ? {}
+    : { link: `<${API}/repositories/4242/issues?state=all&sort=updated&direction=desc&per_page=2&page=${nextPage}>; rel="next"` },
+  body: items.map((i) => ({ ...i, title: `Item ${i.number}`, body: "", state: "open" })),
+});
 
 beforeEach(async () => {
   process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES = "30";
@@ -68,7 +99,7 @@ describe("a fixture repository", () => {
     expect(result.status).toBe("success");
     expect(result.counts).toMatchObject({ items: 3, pages_written: 3, items_rejected: 0, items_failed: 0 });
     expect(result.redactions).toBe(1);
-    expect(fake.urls[1]).toBe(`${API}/repositories/4242/issues?state=all&sort=updated&direction=asc&per_page=100&page=2`);
+    expect(fake.urls[1]).toBe(`${API}/repositories/4242/issues?state=all&sort=updated&direction=desc&per_page=100&page=2`);
 
     const pr = await getPage(storage, "github/acme/widgets/pulls/2");
     expect(pr?.source_id).toBe("gh-acme");
@@ -179,19 +210,95 @@ describe("run statuses and the watermark", () => {
     expect(await readWatermark(storage.engine(), RECIPE)).toBeNull();
   });
 
-  it("is partial when an item is refused under the reject disposition", async () => {
-    const saved = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+  it("records an item refused under reject without holding the watermark, and clears it once written", async () => {
+    const first = await withDisposition("reject", () => sync(FULL_REPO()));
+    expect(first.result.status).toBe("success");
+    expect(first.result.counts).toMatchObject({ pages_written: 2, items_rejected: 1 });
+    expect(await getPage(storage, "github/acme/widgets/issues/3")).toBeNull();
+    expect(await readWatermark(storage.engine(), RECIPE)).toBe("2026-09-03T09:30:00Z");
+    expect(await readRefused(storage.engine(), RECIPE)).toMatchObject([{ slug: "github/acme/widgets/issues/3", code: "invalid_params" }]);
+    const doctor = await checkConnectorHealth(storage.engine(), Date.parse("2026-09-19T12:00:00Z"));
+    expect(doctor.status).toBe("warn");
+    expect(doctor.detail).toContain("1 item(s) refused, github/acme/widgets/issues/3 (invalid_params:");
+
+    await sync(FULL_REPO(), { full: true });
+    expect(await getPage(storage, "github/acme/widgets/issues/3")).not.toBeNull();
+    expect(await readRefused(storage.engine(), RECIPE)).toEqual([]);
+    expect((await checkConnectorHealth(storage.engine(), Date.parse("2026-09-19T12:00:00Z"))).status).toBe("ok");
+  });
+
+  it("does not stall on slugs another source owns: refused, named, watermark advanced", async () => {
+    await sync(FULL_REPO());
+    await registerSource(storage.engine(), { id: "gh-copy", kind: "github", pathPrefix: "github/acme/widgets-copy/" });
+    const { result } = await sync(FULL_REPO(), { sourceId: "gh-copy" });
+    expect(result.status).toBe("success");
+    expect(result.counts).toMatchObject({ items: 3, pages_written: 0, items_failed: 3 });
+    expect(result.failed.every((f) => f.code === "permission_denied" && !f.retryable)).toBe(true);
+    const copy = connectorRecipeId("github", "acme/widgets@gh-copy");
+    expect(await readWatermark(storage.engine(), copy)).toBe("2026-09-03T09:30:00Z");
+    expect((await readRefused(storage.engine(), copy)).map((r) => r.slug).sort()).toEqual([
+      "github/acme/widgets/issues/1",
+      "github/acme/widgets/issues/3",
+      "github/acme/widgets/pulls/2",
+    ]);
+  });
+
+  it("is partial on a write failure a retry may fix, and keeps the watermark", async () => {
+    const put = spyOn(pages, "putPage").mockImplementationOnce(async () => {
+      throw new OperationError("storage_error", "connection reset");
+    });
     try {
       const { result } = await sync(FULL_REPO());
       expect(result.status).toBe("partial");
-      expect(result.counts).toMatchObject({ pages_written: 2, items_rejected: 1 });
-      expect(await getPage(storage, "github/acme/widgets/issues/3")).toBeNull();
+      expect(result.failed).toMatchObject([{ code: "storage_error", retryable: true }]);
       expect(await readWatermark(storage.engine(), RECIPE)).toBeNull();
+      expect(await readRefused(storage.engine(), RECIPE)).toEqual([]);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-      else process.env.MEMEX_SECRET_SCAN_DISPOSITION = saved;
+      put.mockRestore();
     }
+  });
+
+  it("tells a refusal that repeats from a failure that may not", () => {
+    expect(isDeterministicRefusal(new SecretRejectedError("x", []))).toBe(true);
+    expect(isDeterministicRefusal(new OperationError("permission_denied", "owned elsewhere"))).toBe(true);
+    expect(isDeterministicRefusal(new OperationError("storage_error", "reset"))).toBe(false);
+  });
+});
+
+describe("a list that changes while the run pages through it", () => {
+  // Newest first, two per page. Item 3 is updated after the run starts, so it
+  // jumps to the front (a page already read) and every item behind it shifts
+  // one place: item 4 shows up on page 1 and again on page 2.
+  const shifted = () => [
+    listPage([{ number: 6, updated_at: "2026-09-19T12:00:30Z" }, { number: 5, updated_at: "2026-09-10T00:00:00Z" }], 2),
+    listPage([{ number: 4, updated_at: "2026-09-09T00:00:00Z" }, { number: 2, updated_at: "2026-09-07T00:00:00Z" }], 3),
+    listPage([{ number: 1, updated_at: "2026-09-06T00:00:00Z" }], null),
+  ];
+
+  it("repeats an item instead of skipping one, and writes every item it saw once", async () => {
+    const { result } = await sync(shifted());
+    expect(result.status).toBe("success");
+    expect(result.counts).toMatchObject({ items: 5, pages_written: 5, items_failed: 0 });
+    for (const n of [1, 2, 4, 5, 6]) expect(await getPage(storage, `github/acme/widgets/issues/${n}`)).not.toBeNull();
+  });
+
+  it("never moves the watermark past the run's start, so an item updated mid-run is the next run's", async () => {
+    await sync(shifted());
+    // Item 6 carries a time after the run began; the watermark stops at the start.
+    expect(await readWatermark(storage.engine(), RECIPE)).toBe("2026-09-19T12:00:00.000Z");
+    const { result } = await sync([recorded("empty")]);
+    // Item 3's new version (updated at 12:00:10) falls inside the next delta.
+    expect(Date.parse(result.since!)).toBeLessThanOrEqual(Date.parse("2026-09-19T12:00:10Z"));
+  });
+
+  it("asks for the newest items first", () => {
+    expect(issuesPath(REF, null)).toContain("direction=desc");
+  });
+});
+
+describe("targets", () => {
+  it("fold case, so one repository has one watermark", () => {
+    expect(githubTarget({ owner: "Acme", repo: "Widgets" }, "gh-acme")).toBe(githubTarget(REF, "gh-acme"));
   });
 });
 

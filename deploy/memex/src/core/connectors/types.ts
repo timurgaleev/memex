@@ -15,10 +15,12 @@ export type ResponseClass =
 /**
  * How a connector run ended.
  *
- *   success       — every page fetched, every item written or unchanged;
+ *   success       — every page fetched, every item written, unchanged, or
+ *                   refused for a reason a retry cannot fix (kept in the
+ *                   connector's refusal ledger);
  *   nothing_new   — the delta was empty;
- *   partial       — some items or pages failed, or the run stopped on a rate
- *                   limit, a challenge page or a server error;
+ *   partial       — an item failed in a way a retry may fix, or the run
+ *                   stopped on a rate limit, a challenge page or a server error;
  *   auth_required — the provider refused the credential (expired or revoked);
  *   forbidden     — the credential is valid but may not read the target.
  *

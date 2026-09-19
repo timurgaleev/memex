@@ -2671,9 +2671,15 @@ closing keywords as wiki links (a PR page aliases its `issues/<n>` slug so a
 bare `#n` lands on it); `memex connectors status`; a `connector-health` doctor
 check. Token from `MEMEX_GITHUB_TOKEN` or `--token-file`, no MCP op, no
 ingress change. Also fixed: `putPage` versioned an unchanged truth whose keys
-were in another order. Known effect: an item refused under the `reject`
-disposition keeps every run `partial` (the watermark cannot pass it) until the
-item is edited or its fingerprint allowlisted; doctor reports it as stalled.
+were in another order. Review fixes (unreleased): the list is paged newest
+first and the watermark is capped at the run's start, so a mid-run edit shifts
+items into a repeat instead of a gap (recorded shifted-page test); refusals a
+retry cannot fix (secret `reject`, ownership fence, malformed element) go to a
+per-connector refusal ledger in `recipe_state` that doctor names, and no longer
+pin the run at `partial`; only a retryable write failure or a stopped fetch
+keeps the watermark; labels and the author are secret-scanned at render;
+repository slug segments are one-to-one (a non-plain name is folded plus a
+hash suffix) and the target folds case.
 Still open: the HMAC-verified webhook route (the last "Done when" item),
 Secrets Manager token, `connector_sync` job kind and schedule on RM-14's
 supervised interface, reviews/comments/checks pages and deletion reconcile,

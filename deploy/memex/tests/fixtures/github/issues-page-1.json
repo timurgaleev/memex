@@ -3,19 +3,19 @@
   "headers": {
     "content-type": "application/json; charset=utf-8",
     "x-ratelimit-remaining": "4990",
-    "link": "<{{API}}/repositories/4242/issues?state=all&sort=updated&direction=asc&per_page=100&page=2>; rel=\"next\", <{{API}}/repositories/4242/issues?state=all&sort=updated&direction=asc&per_page=100&page=2>; rel=\"last\""
+    "link": "<{{API}}/repositories/4242/issues?state=all&sort=updated&direction=desc&per_page=100&page=2>; rel=\"next\", <{{API}}/repositories/4242/issues?state=all&sort=updated&direction=desc&per_page=100&page=2>; rel=\"last\""
   },
   "body": [
     {
-      "number": 1,
-      "title": "Search drops results after a reindex",
-      "body": "After `memex reindex` the query returns nothing until restart.\n\n```\nerror #42 in the log is unrelated\n```\n",
-      "state": "closed",
+      "number": 3,
+      "title": "CI token leaked in a log",
+      "body": "The deploy step printed {{TOKEN}} into the job output. Rotate it.",
+      "state": "open",
       "user": { "login": "dana" },
-      "labels": [{ "name": "bug" }, { "name": "search" }],
-      "created_at": "2026-09-01T09:00:00Z",
-      "updated_at": "2026-09-02T10:00:00Z",
-      "closed_at": "2026-09-02T10:00:00Z"
+      "labels": [{ "name": "security" }],
+      "created_at": "2026-09-03T08:00:00Z",
+      "updated_at": "2026-09-03T09:30:00Z",
+      "closed_at": null
     },
     {
       "number": 2,

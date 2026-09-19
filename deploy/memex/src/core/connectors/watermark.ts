@@ -3,7 +3,11 @@
  * `connector:<provider>:<target>`.
  *
  *   watermark — the newest provider `updated_at` a clean run has seen;
- *   last_run  — how the latest run ended (see ConnectorRunRecord).
+ *   last_run  — how the latest run ended (see ConnectorRunRecord);
+ *   refused   — items refused for a reason a retry cannot fix (a credential
+ *               under `reject`, a slug another source owns, an element that is
+ *               not an item). They do not hold the watermark back, so they are
+ *               kept here, by slug, until a later run writes the item.
  *
  * The watermark moves only on a clean run. A partial run leaves it where it
  * was, so the next run fetches the same delta again; putPage's content-hash
@@ -21,6 +25,9 @@ import { isCleanRun, type ConnectorRunRecord } from "./types.ts";
 export const CONNECTOR_RECIPE_PREFIX = "connector:";
 const WATERMARK_KEY = "watermark";
 const LAST_RUN_KEY = "last_run";
+const REFUSED_KEY = "refused";
+/** Newest entries kept; the doctor names only the first few anyway. */
+const MAX_REFUSED = 200;
 const DEFAULT_GAP_HEAL_MINUTES = 15;
 
 interface WatermarkRow {
@@ -88,27 +95,72 @@ export async function recordRun(
   return record;
 }
 
+export interface RefusedItem {
+  slug: string;
+  code: string;
+  reason: string;
+  /** ISO time of the run that refused it. */
+  at: string;
+}
+
+interface RefusedRow {
+  items: RefusedItem[];
+}
+
+export async function readRefused(engine: Engine, recipeId: string): Promise<RefusedItem[]> {
+  const row = await getRecipeState<RefusedRow>(engine, recipeId, REFUSED_KEY);
+  return Array.isArray(row?.items) ? row.items : [];
+}
+
+/**
+ * Fold one run into the refusal ledger: drop every slug the run wrote or found
+ * unchanged, then add or refresh what it refused. Items the run did not see
+ * keep their entry.
+ */
+export async function updateRefused(
+  engine: Engine,
+  recipeId: string,
+  settled: ReadonlySet<string>,
+  refused: readonly RefusedItem[],
+): Promise<RefusedItem[]> {
+  const previous = await readRefused(engine, recipeId);
+  if (previous.length === 0 && refused.length === 0) return previous;
+  const bySlug = new Map<string, RefusedItem>();
+  for (const r of previous) if (!settled.has(r.slug)) bySlug.set(r.slug, r);
+  for (const r of refused) {
+    bySlug.delete(r.slug);
+    bySlug.set(r.slug, r);
+  }
+  const next = [...bySlug.values()].slice(-MAX_REFUSED);
+  await setRecipeState<RefusedRow>(engine, recipeId, REFUSED_KEY, { items: next });
+  return next;
+}
+
 export interface ConnectorStateRow {
   recipe_id: string;
   watermark: string | null;
   last_run: ConnectorRunRecord | null;
+  refused: RefusedItem[];
 }
 
 /** Every connector's state, for `connectors status` and the doctor. */
 export async function listConnectorStates(engine: Engine): Promise<ConnectorStateRow[]> {
   const r = await engine.query<{ recipe_id: string; key: string; value: unknown }>(
     `SELECT recipe_id, key, value FROM recipe_state
-      WHERE recipe_id LIKE $1 AND key IN ($2, $3)
+      WHERE recipe_id LIKE $1 AND key IN ($2, $3, $4)
       ORDER BY recipe_id`,
-    [`${CONNECTOR_RECIPE_PREFIX}%`, WATERMARK_KEY, LAST_RUN_KEY],
+    [`${CONNECTOR_RECIPE_PREFIX}%`, WATERMARK_KEY, LAST_RUN_KEY, REFUSED_KEY],
   );
   const byId = new Map<string, ConnectorStateRow>();
   for (const row of r.rows) {
     const value = typeof row.value === "string" ? safeParse(row.value) : row.value;
-    const entry = byId.get(row.recipe_id) ?? { recipe_id: row.recipe_id, watermark: null, last_run: null };
+    const entry = byId.get(row.recipe_id) ?? { recipe_id: row.recipe_id, watermark: null, last_run: null, refused: [] };
     if (row.key === WATERMARK_KEY) {
       const w = (value as WatermarkRow | null)?.watermark;
       entry.watermark = typeof w === "string" ? w : null;
+    } else if (row.key === REFUSED_KEY) {
+      const items = (value as RefusedRow | null)?.items;
+      entry.refused = Array.isArray(items) ? items : [];
     } else {
       entry.last_run = (value as ConnectorRunRecord | null) ?? null;
     }

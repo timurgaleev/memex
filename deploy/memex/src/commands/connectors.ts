@@ -180,7 +180,9 @@ async function runGithubSync(opts: ConnectorsCmdOptions): Promise<number> {
         (result.error ? ` (stopped: ${result.error})` : ""),
     );
     for (const r of result.rejected) console.log(`  refused ${r.slug}: ${r.reason}`);
-    for (const f of result.failed) console.log(`  failed ${f.slug} (${f.code}): ${f.reason}`);
+    for (const f of result.failed) {
+      console.log(`  ${f.retryable ? "failed, retried next run" : "refused"} ${f.slug} (${f.code}): ${f.reason}`);
+    }
     if (code === 2) console.log("  the token was refused or cannot read this repository; replace it and re-run");
   }
   return code;
@@ -201,7 +203,8 @@ async function runStatus(opts: ConnectorsCmdOptions): Promise<number> {
     const run = s.last_run;
     console.log(
       `${s.recipe_id}: watermark ${s.watermark ?? "none"}` +
-        (run ? `, last run ${run.status} at ${run.at}, last clean run ${run.last_success_at ?? "never"}` : ""),
+        (run ? `, last run ${run.status} at ${run.at}, last clean run ${run.last_success_at ?? "never"}` : "") +
+        (s.refused.length > 0 ? `, ${s.refused.length} item(s) refused` : ""),
     );
   }
   return 0;

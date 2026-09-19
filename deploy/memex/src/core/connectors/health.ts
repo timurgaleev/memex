@@ -1,6 +1,7 @@
 /**
  * Doctor check for connectors: a credential the provider stopped honouring,
- * and a connector whose last clean run is too old.
+ * a connector whose last clean run is too old, and items a connector refused
+ * for a reason a retry cannot fix.
  *
  * Warn, never fail: a connector is optional capture, and a stale mirror is not
  * a broken brain. The detail names the connector and what to do.
@@ -12,6 +13,8 @@ import { CONNECTOR_RECIPE_PREFIX, listConnectorStates } from "./watermark.ts";
 
 const DEFAULT_STALL_DAYS = 7;
 const DAY_MS = 86_400_000;
+/** Refused items named per connector; the rest are counted. */
+const REFUSED_NAMED = 3;
 
 /** MEMEX_CONNECTOR_STALL_DAYS, a positive integer (default 7). */
 export function connectorStallDays(): number {
@@ -21,14 +24,20 @@ export function connectorStallDays(): number {
 
 export async function checkConnectorHealth(engine: Engine, now: number = Date.now()): Promise<OpsCheckResult> {
   const states = await listConnectorStates(engine);
-  const runs = states.filter((s) => s.last_run !== null);
+  const runs = states.filter((s) => s.last_run !== null || s.refused.length > 0);
   if (runs.length === 0) return { ok: true, status: "ok", detail: "no connector has run" };
 
   const stallDays = connectorStallDays();
   const problems: string[] = [];
   for (const s of runs) {
-    const run = s.last_run!;
     const name = s.recipe_id.slice(CONNECTOR_RECIPE_PREFIX.length);
+    if (s.refused.length > 0) {
+      const named = s.refused.slice(0, REFUSED_NAMED).map((r) => `${r.slug} (${r.code}: ${r.reason})`);
+      const more = s.refused.length > REFUSED_NAMED ? ` and ${s.refused.length - REFUSED_NAMED} more` : "";
+      problems.push(`${name}: ${s.refused.length} item(s) refused, ${named.join("; ")}${more}`);
+    }
+    const run = s.last_run;
+    if (run === null) continue;
     if (needsReauth(run.status)) {
       problems.push(`${name}: re-auth needed (last run ${run.status}${run.http_status ? ` HTTP ${run.http_status}` : ""} at ${run.at})`);
       continue;

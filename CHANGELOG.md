@@ -18,6 +18,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   previews without touching the brain, and an unchanged re-run writes nothing.
   A run ends `success`, `nothing_new`, `partial`, `auth_required` or
   `forbidden` (exit 0, 0, 1, 2, 2), and only a clean run moves the watermark.
+  The list is read newest first and the watermark never passes the run's
+  start, so an item edited while a run pages through the repository is picked
+  up by the next run instead of being skipped. An item that can never be
+  written (a credential under the `reject` disposition, a slug another source
+  already owns) is counted and kept in the connector's refusal list rather
+  than holding every later run at `partial`; `connectors status` counts it
+  and `memex doctor` names it with the reason. Repository names that differ
+  only by `.`, `_` or `-` get distinct page slugs, and `Owner/Repo` and
+  `owner/repo` share one watermark.
   The client talks only to `api.github.com`, spaces its requests, and waits out
   rate limits up to a cap. The token comes from `MEMEX_GITHUB_TOKEN` or
   `--token-file` and is never stored or printed. `memex connectors status`

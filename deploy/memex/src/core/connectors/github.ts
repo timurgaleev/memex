@@ -3,8 +3,12 @@
  * named source.
  *
  * One run pages through `/repos/<owner>/<repo>/issues` (GitHub lists pull
- * requests there too) sorted by `updated_at`, from the watermark minus the
- * gap-heal window, or from the start with `full`. Each item is rendered,
+ * requests there too) newest `updated_at` first, from the watermark minus the
+ * gap-heal window, or from the start with `full`. The list is paged by page
+ * number, so an item updated mid-run moves; newest-first moves it onto a page
+ * already read, which repeats a later item instead of skipping one, and the
+ * watermark never passes the run's start, so the moved item's new version is
+ * the next run's. Each item is rendered,
  * secret-scanned and written through `putPage`, whose content-hash no-op makes
  * an unchanged item free; only pages that changed are mirrored into search.
  * Wiki links are synced after every page of the run is written, so a reference
@@ -15,10 +19,14 @@
  *     repository the token cannot see); nothing after it is fetched;
  *   partial — a page fetch failed (rate limit past the cap, server error after
  *     retries, challenge page, a pagination link off the origin), or an item
- *     was refused or could not be written;
+ *     could not be written for a reason a retry may fix;
  *   nothing_new — the delta was empty;
  *   success — otherwise.
- * Only success and nothing_new move the watermark.
+ * Only success and nothing_new move the watermark. An item refused for a
+ * reason a retry cannot fix (a credential under `reject`, a slug another
+ * source owns, an element that is not an item) is counted, audited and kept
+ * in the connector's refusal ledger, which the doctor names; it does not hold
+ * the watermark back, or one bad item would re-fetch an ever-growing delta.
  */
 import type { Storage } from "../storage.ts";
 import type { EmbedFn } from "../indexer.ts";
@@ -36,7 +44,7 @@ import {
   secretDisposition,
 } from "../secret-scan.ts";
 import { ConnectorClient, ConnectorRequestError, type FetchFn } from "./client.ts";
-import { parseGithubItem, renderItem, type RenderedItem } from "./github-render.ts";
+import { itemSlug, parseGithubItem, renderItem, type RenderedItem } from "./github-render.ts";
 import type { ConnectorRunCounts, ConnectorRunStatus, ResponseClass } from "./types.ts";
 import {
   connectorRecipeId,
@@ -45,6 +53,8 @@ import {
   readWatermark,
   recordRun,
   sinceFor,
+  updateRefused,
+  type RefusedItem,
 } from "./watermark.ts";
 
 export const GITHUB_API_ORIGIN = "https://api.github.com";
@@ -54,6 +64,7 @@ const PER_PAGE = 100;
 /** 100 000 items; a run past this stops as partial rather than looping forever. */
 const MAX_PAGES = 1000;
 const LOG_SLUG_CAP = 500;
+const UNPARSED = "(unparsed)";
 
 // GitHub's documented limits: owner up to 39 chars of [A-Za-z0-9-], a
 // repository name up to 100 of [A-Za-z0-9._-]. Both bounded, so linear.
@@ -75,8 +86,9 @@ export function parseRepoRef(s: string): RepoRef | null {
   return { owner, repo };
 }
 
+/** GitHub names compare case-insensitively, so the target (and its watermark) does too. */
 export function githubTarget(ref: RepoRef, sourceId: string): string {
-  return `${ref.owner}/${ref.repo}@${sourceId}`;
+  return `${ref.owner.toLowerCase()}/${ref.repo.toLowerCase()}@${sourceId}`;
 }
 
 export function githubClient(token: string, opts: { fetch?: FetchFn; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): ConnectorClient {
@@ -93,7 +105,7 @@ export function githubClient(token: string, opts: { fetch?: FetchFn; now?: () =>
 }
 
 export function issuesPath(ref: RepoRef, since: string | null): string {
-  const q = new URLSearchParams({ state: "all", sort: "updated", direction: "asc", per_page: String(PER_PAGE) });
+  const q = new URLSearchParams({ state: "all", sort: "updated", direction: "desc", per_page: String(PER_PAGE) });
   if (since !== null) q.set("since", since);
   return `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/issues?${q.toString()}`;
 }
@@ -115,7 +127,8 @@ export interface GithubSyncResult {
   watermark_before: string | null;
   watermark_after: string | null;
   rejected: Array<{ slug: string; reason: string }>;
-  failed: Array<{ slug: string; code: string; reason: string }>;
+  /** `retryable`: the next run tries it again; otherwise it is in the refusal ledger. */
+  failed: Array<{ slug: string; code: string; reason: string; retryable: boolean }>;
 }
 
 export interface FetchedItems {
@@ -151,6 +164,39 @@ export async function fetchIssuePages(client: ConnectorClient, ref: RepoRef, sin
   return { items, stopClass: null, stopStatus: null, stopError: null };
 }
 
+/**
+ * One element per item number, the most recently updated: newest-first paging
+ * repeats an item when the list shifts under it.
+ */
+export function dedupeItems(raw: readonly unknown[]): unknown[] {
+  const out: unknown[] = [];
+  const at = new Map<number, number>();
+  for (const r of raw) {
+    const item = parseGithubItem(r);
+    if (item === null) {
+      out.push(r);
+      continue;
+    }
+    const seen = at.get(item.number);
+    if (seen === undefined) {
+      at.set(item.number, out.length);
+      out.push(r);
+    } else if (Date.parse(item.updated_at) > Date.parse(parseGithubItem(out[seen])!.updated_at)) {
+      out[seen] = r;
+    }
+  }
+  return out;
+}
+
+/** A write refusal the same input will meet again on every run. */
+export function isDeterministicRefusal(e: OperationError): boolean {
+  return e instanceof SecretRejectedError || e.code === "permission_denied" || e.code === "invalid_params" || e.code === "unsupported";
+}
+
+function earlierOf(a: string, b: string): string {
+  return Date.parse(b) < Date.parse(a) ? b : a;
+}
+
 /** The run status for a fetch that stopped on `cls` (null: it did not stop). */
 function statusForStop(cls: ResponseClass | null): ConnectorRunStatus | null {
   if (cls === null || cls === "ok") return null;
@@ -169,7 +215,8 @@ export interface RenderPreview {
 }
 
 /** Render every fetched item without writing: what `--dry-run` reports. */
-export function previewItems(ref: RepoRef, raw: readonly unknown[]): RenderPreview {
+export function previewItems(ref: RepoRef, fetched: readonly unknown[]): RenderPreview {
+  const raw = dedupeItems(fetched);
   const out: RenderPreview = { items: raw.length, issues: 0, pull_requests: 0, rejected: 0, invalid: 0, redactions: 0 };
   for (const r of raw) {
     const item = parseGithubItem(r);
@@ -292,6 +339,7 @@ export async function syncGithub(storage: Storage, opts: GithubSyncOptions): Pro
     failed: [],
   };
 
+  const fetchStart = new Date(now()).toISOString();
   const fetched = await fetchIssuePages(opts.client, ref, since);
   const stopStatus = statusForStop(fetched.stopClass);
   result.error_class = fetched.stopClass;
@@ -299,19 +347,28 @@ export async function syncGithub(storage: Storage, opts: GithubSyncOptions): Pro
   result.error = fetched.stopError;
 
   const changed: RenderedItem[] = [];
+  const settled = new Set<string>();
+  const refused: RefusedItem[] = [];
+  let retryable = 0;
   let maxUpdated: string | null = null;
+  const refuse = (slug: string, code: string, reason: string): void => {
+    refused.push({ slug, code, reason, at: fetchStart });
+  };
   // A refused credential ends the run before anything is written: the items
   // of a page that did arrive belong to a token the provider no longer honours.
-  if (stopStatus !== "auth_required" && stopStatus !== "forbidden") {
-    for (const raw of fetched.items) {
+  const processed = stopStatus !== "auth_required" && stopStatus !== "forbidden";
+  if (processed) {
+    for (const raw of dedupeItems(fetched.items)) {
       const item = parseGithubItem(raw);
       result.counts.items++;
       if (item === null) {
         result.counts.items_failed++;
-        result.failed.push({ slug: "(unparsed)", code: "invalid_item", reason: "list element is not an issue" });
+        result.failed.push({ slug: UNPARSED, code: "invalid_item", reason: "list element is not an issue", retryable: false });
+        refuse(UNPARSED, "invalid_item", "list element is not an issue");
         continue;
       }
       maxUpdated = laterOf(maxUpdated, item.updated_at);
+      const slug = itemSlug(ref.owner, ref.repo, item);
       let rendered: RenderedItem;
       try {
         rendered = renderItem(ref.owner, ref.repo, item);
@@ -321,15 +378,20 @@ export async function syncGithub(storage: Storage, opts: GithubSyncOptions): Pro
         await auditRejectionOnce(storage, e, slugRef, sourceId);
         result.counts.items_rejected++;
         result.rejected.push({ slug: slugRef, reason: e.message });
+        refuse(slug, e.code, e.message);
         continue;
       }
       result.redactions += rendered.findings.length;
       try {
         await writeItem(storage, rendered, sourceId, opts, result, changed);
+        settled.add(slug);
       } catch (e) {
         if (!(e instanceof OperationError)) throw e;
+        const deterministic = isDeterministicRefusal(e);
         result.counts.items_failed++;
-        result.failed.push({ slug: rendered.slug, code: e.code, reason: e.message });
+        result.failed.push({ slug, code: e.code, reason: e.message, retryable: !deterministic });
+        if (deterministic) refuse(slug, e.code, e.message);
+        else retryable++;
       }
     }
     for (const page of changed) {
@@ -338,13 +400,15 @@ export async function syncGithub(storage: Storage, opts: GithubSyncOptions): Pro
     }
   }
 
-  const itemTrouble = result.counts.items_rejected + result.counts.items_failed > 0;
   result.status =
-    stopStatus ?? (itemTrouble ? "partial" : result.counts.items === 0 ? "nothing_new" : "success");
+    stopStatus ?? (retryable > 0 ? "partial" : result.counts.items === 0 ? "nothing_new" : "success");
 
-  // An empty delta advances to the run's start. The next since is that minus
-  // the gap-heal window, which also absorbs a clock skew smaller than it.
-  const newWatermark = result.status === "nothing_new" ? new Date(now()).toISOString() : maxUpdated;
+  // An empty delta advances to the run's start. A full one advances to the
+  // newest item seen, but never past the run's start: an item updated while the
+  // run paged is picked up by the next one. The next since is the watermark
+  // minus the gap-heal window, which also absorbs a clock skew smaller than it.
+  const newWatermark =
+    result.status === "nothing_new" ? fetchStart : maxUpdated === null ? null : earlierOf(maxUpdated, fetchStart);
   await recordRun(
     engine,
     recipeId,
@@ -361,6 +425,11 @@ export async function syncGithub(storage: Storage, opts: GithubSyncOptions): Pro
     newWatermark,
   );
   result.watermark_after = await readWatermark(engine, recipeId);
+  if (processed) {
+    // A malformed element has no slug to key it by; its entry lasts until a run sees none.
+    if (!refused.some((r) => r.slug === UNPARSED)) settled.add(UNPARSED);
+    await updateRefused(engine, recipeId, settled, refused);
+  }
 
   if (changed.length > 0) {
     await logIngest(engine, {

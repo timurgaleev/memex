@@ -22,24 +22,39 @@ afterEach(() => {
 
 const page1 = recorded("issues-page-1").body as unknown[];
 const page2 = recorded("issues-page-2").body as unknown[];
-const item = (raw: unknown) => parseGithubItem(raw)!;
+const item = (n: number) => parseGithubItem([...page1, ...page2].find((r) => (r as { number: number }).number === n))!;
 
 describe("slugs", () => {
   it("puts issues and pull requests under the repository", () => {
-    expect(renderItem("acme", "widgets", item(page1[0])).slug).toBe("github/acme/widgets/issues/1");
-    expect(renderItem("acme", "widgets", item(page1[1])).slug).toBe("github/acme/widgets/pulls/2");
+    expect(renderItem("acme", "widgets", item(1)).slug).toBe("github/acme/widgets/issues/1");
+    expect(renderItem("acme", "widgets", item(2)).slug).toBe("github/acme/widgets/pulls/2");
   });
 
-  it("folds names that are not slug-safe into one kebab segment", () => {
-    expect(repoSlugBase("Acme-Corp", "my.repo_v2")).toBe("github/acme-corp/my-repo-v2");
-    expect(slugSegment(".github")).toBe("github");
-    expect(() => slugSegment("..")).toThrow();
+  it("keeps a plain name and folds any other into a hash-suffixed kebab segment", () => {
+    expect(repoSlugBase("Acme-Corp", "widgets")).toBe("github/acme-corp/widgets");
+    expect(slugSegment("my.repo_v2")).toMatch(/^my-repo-v2-[0-9a-f]{8}$/);
+    expect(slugSegment(".github")).toMatch(/^github-[0-9a-f]{8}$/);
+    expect(slugSegment("..")).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it("never maps two repository names to one segment", () => {
+    const names = ["foo-bar", "foo.bar", "foo_bar", "foo--bar", "foo-bar-", ".foo-bar", "foo..bar"];
+    const segments = names.map(slugSegment);
+    expect(new Set(segments).size).toBe(names.length);
+    // A plain name shaped like a folded one is suffixed too, so it cannot meet the fold of another.
+    const folded = slugSegment("foo.bar");
+    expect(slugSegment(folded)).not.toBe(folded);
+    expect(repoSlugBase("acme", "foo.bar")).not.toBe(repoSlugBase("acme", "foo-bar"));
+  });
+
+  it("folds case, because GitHub names compare case-insensitively", () => {
+    expect(repoSlugBase("Acme", "Foo.Bar")).toBe(repoSlugBase("acme", "foo.bar"));
   });
 
   it("gives a pull request its issue slug as an alias, so a bare #n reaches it", () => {
-    const pr = renderItem("acme", "widgets", item(page1[1]));
+    const pr = renderItem("acme", "widgets", item(2));
     expect(pr.truth["aliases"]).toEqual(["github/acme/widgets/issues/2"]);
-    expect(renderItem("acme", "widgets", item(page1[0])).truth["aliases"]).toBeUndefined();
+    expect(renderItem("acme", "widgets", item(1)).truth["aliases"]).toBeUndefined();
   });
 });
 
@@ -63,20 +78,20 @@ describe("references", () => {
   });
 
   it("renders references as wiki links the extractor reads, and lists what a PR closes", () => {
-    const pr = renderItem("acme", "widgets", item(page1[1]));
+    const pr = renderItem("acme", "widgets", item(2));
     expect(pr.body).toContain("[[github/acme/widgets/issues/1|#1]]");
     expect(pr.body).toContain("- Closes: [[github/acme/widgets/issues/1|#1]]");
     expect(pr.truth["closes"]).toEqual([1]);
     expect(pr.truth["state"]).toBe("merged");
     expect(extractWikilinks(pr.body).sort()).toEqual(["github/acme/widgets/issues/1", "github/acme/widgets/issues/3"]);
-    const issue = renderItem("acme", "widgets", item(page1[0]));
+    const issue = renderItem("acme", "widgets", item(1));
     expect(extractWikilinks(issue.body)).toEqual([]);
   });
 });
 
 describe("secrets", () => {
   it("redacts a credential in the body before render and reports it", () => {
-    const r = renderItem("acme", "widgets", item(page2[0]));
+    const r = renderItem("acme", "widgets", item(3));
     expect(r.body).not.toContain(LEAKED_TOKEN);
     expect(r.body).toContain("[REDACTED:github-token:");
     expect(r.findings).toHaveLength(1);
@@ -84,7 +99,16 @@ describe("secrets", () => {
 
   it("refuses the item under the reject disposition", () => {
     process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
-    expect(() => renderItem("acme", "widgets", item(page2[0]))).toThrow(SecretRejectedError);
+    expect(() => renderItem("acme", "widgets", item(3))).toThrow(SecretRejectedError);
+  });
+
+  it("scans labels too, so the refusal happens here and not in every write", () => {
+    const labelled = { ...item(1), labels: [`leak ${LEAKED_TOKEN}`] };
+    const r = renderItem("acme", "widgets", labelled);
+    expect(JSON.stringify(r)).not.toContain(LEAKED_TOKEN);
+    expect(r.findings).toHaveLength(1);
+    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    expect(() => renderItem("acme", "widgets", labelled)).toThrow(SecretRejectedError);
   });
 });
 
