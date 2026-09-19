@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.154.0] — 2026-09-20
+
 ### Fixed
 - **The fact-withdrawal trigger pins its `search_path`.** Migration 112 created
   `memex_fact_withdrawn_on_insert()` without it, so the function resolved
