@@ -3110,7 +3110,8 @@ async function callContextPack(
   if (readSources !== undefined) opts.sourceIds = readSources;
   // Same floors as entity_facts / entity_recall: any non-operator caller reads
   // world-visible facts only, and decay (which reorders on hidden metadata) is
-  // off wherever bodies are redacted.
+  // off wherever bodies are redacted; everyone else gets the MEMEX_FACT_DECAY
+  // default through the recall layer.
   if (remote) {
     opts.visibility = ["world"];
     opts.fenced = (slug) => isRemoteDiaryFenced(storage, slug, readSources);
@@ -3118,8 +3119,6 @@ async function callContextPack(
   if (redact) {
     opts.decay = false;
     opts.redact = true;
-  } else {
-    opts.decay = true;
   }
   const pack = await buildContextPack(storage, opts);
   return jsonResult({ ok: true, ...pack });

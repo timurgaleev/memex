@@ -235,13 +235,20 @@ function fitCard(
 ): { card: PackCard; cost: number; factsDropped: number; eventsDropped: number } | null {
   const full = unitCost(card);
   if (full <= room) return { card, cost: full, factsDropped: 0, eventsDropped: 0 };
-  const trimmed: PackCard = { ...card, facts: [], recent: [...card.recent] };
-  while (trimmed.recent.length > 0 && unitCost(trimmed) > room) trimmed.recent.pop();
+  const trimmed: PackCard = { ...card, facts: [], recent: [] };
   if (unitCost(trimmed) > room) return null;
   for (const f of card.facts) {
     const next = { ...trimmed, facts: [...trimmed.facts, f] };
     if (unitCost(next) > room) break;
     trimmed.facts = next.facts;
+  }
+  // Events only once every fact is in, so a later event never outlasts a fact.
+  if (trimmed.facts.length === card.facts.length) {
+    for (const e of card.recent) {
+      const next = { ...trimmed, recent: [...trimmed.recent, e] };
+      if (unitCost(next) > room) break;
+      trimmed.recent = next.recent;
+    }
   }
   return {
     card: trimmed,

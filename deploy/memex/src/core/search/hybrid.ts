@@ -113,7 +113,7 @@ import {
   finalizeExplain,
   type SearchExplain,
 } from "./explain.ts";
-import type { DegradedReason, SearchMeta } from "./search-meta.ts";
+import type { DegradedReason, SearchCacheState, SearchMeta } from "./search-meta.ts";
 
 /**
  * RRF weight for the deterministic relational arm (opt-in 4th arm). A gentle
@@ -739,6 +739,7 @@ export async function hybridSearch(
   let cacheKey = "";
   let cacheClock = 0;
   let cacheReady = false;
+  let cacheErrored = false;
   // Serve a cache hit (exact or semantic): re-hydrate from the live tables,
   // stamp the uniform evidence + content-flag contract, fire capture, and apply
   // the final adaptive-return view. Shared by both cache arms so they behave
@@ -824,8 +825,12 @@ export async function hybridSearch(
       if (cached) return await serveCachedRanking(cached);
     } catch {
       cacheReady = false; // fall through to a normal search
+      cacheErrored = true;
     }
   }
+  // "miss" only when the cache was actually consulted; a read that threw never
+  // looked, so reporting a miss would hide a broken cache behind normal traffic.
+  const cacheState: SearchCacheState = !cacheEnabled ? "off" : cacheErrored ? "error" : "miss";
 
   // 1. Intent (cheap heuristic + Claude Haiku). Allow override for tests.
   const intent = opts.intent ?? (await classifyIntent(trimmed));
@@ -1024,7 +1029,7 @@ export async function hybridSearch(
       vectorEnabled: queryVector !== null,
       intent,
       mode: resolveSearchMode(),
-      cache: cacheEnabled ? "miss" : "off",
+      cache: cacheState,
       degraded,
       retrieved: 0,
       returned: 0,
@@ -1491,8 +1496,10 @@ export async function hybridSearch(
   //     (`queryVector === null`): that result is keyword-only/degraded, and the
   //     cache key has no vector-availability component, so caching it would pin
   //     the degraded ranking for the whole cache window even after Bedrock
-  //     recovers. Recompute next time instead.
-  if (cacheReady && queryVector !== null) {
+  //     recovers. Recompute next time instead. The same holds for any other
+  //     degraded run (keyword_zero): a hit replays no degraded list, so only a
+  //     clean ranking may be stored.
+  if (cacheReady && queryVector !== null && degraded.length === 0) {
     // Semantic arm (migration 065, opt-in): stamp the bucket key + query
     // embedding so a later paraphrase can match this row by cosine. Only when
     // the arm is on — the default path writes no extra vector per search.
@@ -1550,7 +1557,7 @@ export async function hybridSearch(
   //      off the hot path; "miss" only when the cache was in play this call.
   recordSearchTelemetry(
     engine,
-    { mode: resolveSearchMode(), intent, cache: cacheEnabled ? "miss" : "off" },
+    { mode: resolveSearchMode(), intent, cache: cacheState },
     hits,
     ranked.length - hits.length,
   );
@@ -1565,7 +1572,7 @@ export async function hybridSearch(
     vectorEnabled: queryVector !== null,
     intent,
     mode: resolveSearchMode(),
-    cache: cacheEnabled ? "miss" : "off",
+    cache: cacheState,
     degraded,
     retrieved: fused.length,
     returned: kept.length,

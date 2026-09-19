@@ -209,6 +209,24 @@ describe("context_pack over the two-tenant brain", () => {
     expect(p.budget.used_tokens).toBeLessThanOrEqual(1500);
   });
 
+  it("honors the operator MEMEX_FACT_DECAY default instead of forcing decay on", async () => {
+    await putPage(storage, { slug: "projects/numbat", type: "note", title: "Numbat", markdown_body: "n" });
+    await addFact(storage, { entity_slug: "projects/numbat", fact: "NUMBAT_EXPIRED claim", confidence: 0.9 });
+    await storage.engine().query(
+      "UPDATE entity_facts SET valid_until = '2000-01-01' WHERE entity_slug = $1",
+      ["projects/numbat"],
+    );
+    const facts = async () =>
+      (await call({ slugs: ["projects/numbat"], token_budget: 8000 })).cards[0]!.facts.map(f => f.fact);
+    expect(await facts()).toEqual([]);
+    process.env["MEMEX_FACT_DECAY"] = "0";
+    try {
+      expect(await facts()).toEqual(["NUMBAT_EXPIRED claim"]);
+    } finally {
+      delete process.env["MEMEX_FACT_DECAY"];
+    }
+  });
+
   it("rejects a non-array `slugs`", async () => {
     const r = await dispatchTool(storage, { name: "context_pack", arguments: { slugs: "projects/quokka" } }, {});
     expect(r.isError).toBe(true);
@@ -254,6 +272,8 @@ describe("context_pack budget", () => {
       expect(cardFacts + p.budget.card_facts_dropped).toBe(5 * p.cards.length);
       const cardEvents = p.cards.reduce((n, c) => n + c.recent.length, 0);
       expect(cardEvents + p.budget.card_events_dropped).toBe(p.cards.length);
+      // Facts outrank events: a card that lost a fact carries no event.
+      for (const c of p.cards) if (c.facts.length < 5) expect(c.recent).toEqual([]);
       // Facts only once every card is in.
       if (p.facts.length > 0) expect(p.budget.cards_dropped).toBe(0);
       expect(p.cards.length).toBeGreaterThan(0);

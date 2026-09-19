@@ -205,6 +205,38 @@ describe("hybridSearch onMeta", () => {
     expect(hit!.degraded).toEqual([]);
   });
 
+  it("a keyword_zero ranking is never cached, so no hit replays it as clean", async () => {
+    const q = "qqvx unmatched wording";
+    const first = await searchWithMeta(q, { embedQuery: deterministicEmbedQuery });
+    expect(first.hits.length).toBeGreaterThan(0);
+    expect(first.meta.degraded).toEqual(["keyword_zero"]);
+    // Give the fire-and-forget write every chance to land before re-asking.
+    for (let i = 0; i < 10; i++) {
+      await Bun.sleep(25);
+      const again = await searchWithMeta(q, { embedQuery: deterministicEmbedQuery });
+      expect(again.meta.cache).toBe("miss");
+      expect(again.meta.degraded).toEqual(["keyword_zero"]);
+    }
+  });
+
+  it("a cache read that throws reports cache error, not a miss", async () => {
+    const engine = storage.engine();
+    const realQuery = engine.query.bind(engine);
+    engine.query = (async (sql: string, params?: unknown[]) => {
+      if (sql.includes("FROM query_cache")) throw new Error("cache table boom");
+      return realQuery(sql, params);
+    }) as typeof engine.query;
+    try {
+      const { hits, meta } = await searchWithMeta("zigbee pairing guide", {
+        embedQuery: deterministicEmbedQuery,
+      });
+      expect(hits.length).toBeGreaterThan(0);
+      expect(meta.cache).toBe("error");
+    } finally {
+      engine.query = realQuery;
+    }
+  });
+
   it("an empty grant reports zero retrieved without embedding", async () => {
     let embedCalls = 0;
     const { hits, meta } = await searchWithMeta("zigbee pairing setup", {

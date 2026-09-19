@@ -22,7 +22,8 @@ export const DEGRADED_REASONS = [
 
 export type DegradedReason = (typeof DEGRADED_REASONS)[number];
 
-export type SearchCacheState = "hit" | "miss" | "off";
+/** "error": the cache read threw, so it was never consulted. */
+export type SearchCacheState = "hit" | "miss" | "off" | "error";
 
 export interface SearchMeta {
   /** A query vector was available, so the vector arm (or a cache built on one) served this call. */

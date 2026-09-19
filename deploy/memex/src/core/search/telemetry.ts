@@ -22,14 +22,15 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import type { Evidence } from "./evidence.ts";
+import type { SearchCacheState } from "./search-meta.ts";
 
 export interface SearchTelemetryMeta {
   /** Active search mode (conservative/balanced/tokenmax). */
   mode: string;
   /** Resolved intent for the call. */
   intent: string;
-  /** Query-cache outcome: hit / miss / off (cache bypassed or disabled). */
-  cache: "hit" | "miss" | "off";
+  /** Query-cache outcome: hit / miss / off (bypassed or disabled) / error (read threw; counted as neither). */
+  cache: SearchCacheState;
 }
 
 /** Minimal hit shape the recorder needs — SearchHit satisfies it. */

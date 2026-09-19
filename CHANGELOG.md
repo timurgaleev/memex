@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Search never caches a degraded ranking.** A `keyword_zero` run used to be
+  stored and later replayed as a hit reporting `degraded: []`; only clean
+  rankings are cached now. `meta.cache` reports `error` (not `miss`) when the
+  cache read threw, and telemetry stops counting those as misses.
+- **`context_pack` keeps a card's facts ahead of its recent events** when the
+  budget trims it, as the tool promises, and operator calls honor the
+  `MEMEX_FACT_DECAY` default instead of forcing decay on.
 - **`memex auth doctor --expect-source` fails a grant that reads more than
   that source** and names the extra sources. Discovery compares issuer,
   resource and authorization servers after URL normalization, and the text
