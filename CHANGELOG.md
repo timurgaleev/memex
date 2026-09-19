@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.149.0] — 2026-09-19
+
 ### Added
 - **`memex transcripts ingest <export.json>` imports ChatGPT and Claude.ai
   exports.** Each conversation becomes `conversation` pages at
