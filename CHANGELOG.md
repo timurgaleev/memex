@@ -12,7 +12,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gitleaks and every workflow is linted with actionlint; `bun audit` and
   OSV-Scanner check `deploy/memex/bun.lock` when it or `package.json`
   changes, weekly, and on demand. Every GitHub Action is pinned to a commit
-  SHA. All of it is advisory: no new required check, and the local gates
+  SHA. A push run is never cancelled by the next push, so no commit range
+  goes unscanned, and a weekly run rescans the full history. All of it is advisory: no new required check, and the local gates
   (`make audit`, `make scrub-audit`, the test suites) are unchanged. The full
   history scans clean against a narrow, per-commit fixture allowlist
   (`.gitleaks.toml`).

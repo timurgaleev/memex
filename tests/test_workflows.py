@@ -109,3 +109,15 @@ def test_gitleaks_scans_with_repo_config_and_full_history():
     assert "--config .gitleaks.toml" in runs
     assert "--redact" in runs
     assert (REPO_ROOT / ".gitleaks.toml").exists()
+
+
+def test_gitleaks_push_ranges_are_never_superseded():
+    wf = _load("supply-chain.yml")
+    group = wf["concurrency"]["group"]
+    # Only PR runs may share a group (and so cancel each other); every push
+    # run is keyed by its own run id.
+    assert "github.run_id" in group
+    assert "github.event_name == 'pull_request' && github.ref" in group
+    assert _triggers(wf).get("schedule"), "supply-chain.yml needs a scheduled full-history run"
+    runs = " ".join(s.get("run", "") for s in wf["jobs"]["gitleaks"]["steps"])
+    assert 'RANGE="--all"' in runs

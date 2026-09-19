@@ -1003,7 +1003,9 @@ fixture allowlist in `.gitleaks.toml`, actionlint) and `deps-audit.yml` (`bun
 audit` + OSV on `bun.lock` changes, weekly, manual), every job
 `continue-on-error`, scanner binaries checksum-verified;
 `tests/test_workflows.py` holds the shape. The full history scans clean with
-that allowlist. Open: facts
+that allowlist. Push runs never share a concurrency group, so no pushed range
+is cancelled unscanned, and a weekly scheduled run rescans the full history.
+Open: facts
 derived by reconcile/consolidate inherit already-scanned text and are not
 rescanned; no scrub of rows stored before (`page_versions` history); the
 operator-only `quarantine_list` MCP op and literal directives (`# name=`,

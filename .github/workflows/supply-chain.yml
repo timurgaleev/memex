@@ -9,13 +9,22 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly full-history gitleaks pass (a scheduled run has no range and
+    # falls through to --all): the backstop for any push range a run missed.
+    - cron: "23 5 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# gitleaks scans only the range each push adds, so a push run must never be
+# cancelled or replaced: a superseded run's commits would go unscanned. GitHub
+# keeps one pending run per group even with cancel-in-progress off, so pushes
+# get a group of their own. A PR run scans base..head, so the newest one
+# covers everything a superseded one would have.
 concurrency:
-  group: supply-chain-${{ github.ref }}
+  group: supply-chain-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
