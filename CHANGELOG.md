@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Code symbol lookups keep their data through the maintenance cycle.** The
+  entity re-extract deleted every mention on a chunk but re-created only
+  wikilinks, tags and dates, and a code reindex re-queued the file for it, so
+  `code_def`, `code_refs`, `code_callers`, `code_callees`, `code_blast` and
+  `code_flow` came back empty on any brain with indexed code. It now replaces
+  only the mention types it writes. Existing installs rebuild the graph once
+  with `memex reindex --source code --all` (graph-only, no Bedrock spend).
+
 ## [1.152.0] — 2026-09-19
 
 ### Fixed

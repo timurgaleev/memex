@@ -275,6 +275,18 @@ pass and `--reconcile-deletes` to drop pages whose files were removed. Code
 roots (`MEMEX_CODE_PATHS`) are swept at serve boot; `reindex --source code`
 re-sweeps them after a `git pull`.
 
+To rebuild the code graph (definitions, references, callers, callees) in
+place, force a full code pass:
+
+```bash
+docker exec deploy-memex-1 bun run src/cli.ts reindex --source code --all
+```
+
+It is graph-only (tree-sitter, no Bedrock calls, no spend). Run it once after
+upgrading past the release that stopped the entity re-extract from deleting
+code symbol mentions, or whenever an empty `code_def` reports readiness
+`no_symbols` while code documents exist.
+
 The 6-hour maintenance cycle maintains the existing corpus (re-embeds stale
 documents, housekeeping) — it does **not** ingest new files on its own in
 the DB-canonical design. If search misses content you expect, check the

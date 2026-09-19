@@ -2484,7 +2484,14 @@ out-of-process `memex reindex`. Still open: new grammars (operator go),
 embedding code chunks (RM-02, RM-06), class headers / decorator ranges /
 qualified-name separators, receiver-type resolution and the edge watermark,
 ranked definitions and the remaining CLI surface, the code-retrieval eval, and
-a persisted `indexing` signal.
+a persisted `indexing` signal. The code-mention wipe is fixed: the entity
+re-extract deleted every mention on each chunk of a re-staled doc but
+re-created only wikilink/tag/date, and a code reindex re-stales the doc through
+`updated_at`, so every cycle emptied the code-def/ref/caller/callee graph (prod
+showed `no_symbols` over 187 code documents). The delete is now scoped to
+`TEXT_ENTITY_TYPES`, and `docs/DEPLOYMENT.md` documents the one-shot repair
+`reindex --source code --all`. Still open besides the list above: an automatic
+repair on upgrade, and skipping code documents in the text extract altogether.
 
 ### RM-24 — Operator CLI and config plane
 

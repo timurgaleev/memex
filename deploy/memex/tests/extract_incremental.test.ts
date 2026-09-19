@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { extractAll } from "../src/core/extract.ts";
+import { entityId } from "../src/core/entities.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -62,6 +63,32 @@ describe("incremental extract (watermark)", () => {
     await extractAll(storage); // stamps d1 with GREATEST(2026-01-01, version)
     const r = await extractAll(storage);
     expect(r.documents).toBe(0); // d1 did NOT re-stale on the version arm
+  });
+
+  it("a code reindex re-staling the doc does not wipe its code-def mentions", async () => {
+    const db = storage.raw();
+    await extractAll(storage);
+    const eid = entityId("code-def", "runCycleOnce");
+    await db.query("INSERT INTO entities (id, type, name) VALUES ($1, 'code-def', 'runCycleOnce')", [eid]);
+    await db.query(
+      "INSERT INTO entity_mentions (chunk_id, entity_id, surface_form) VALUES ('d1c0', $1, 'runCycleOnce')",
+      [eid],
+    );
+    const count = async () =>
+      (await db.query<{ c: number }>(
+        `SELECT COUNT(*)::int AS c FROM entity_mentions em
+           JOIN entities e ON e.id = em.entity_id WHERE e.type = 'code-def'`,
+      )).rows[0]!.c;
+    expect(await count()).toBe(1);
+
+    // What indexer-tx does on a code reindex: updated_at moves past the watermark.
+    await db.query(
+      "UPDATE documents SET updated_at = NOW() + INTERVAL '1 hour' WHERE id = $1",
+      ["d1"],
+    );
+    const r = await extractAll(storage);
+    expect(r.documents).toBe(1);
+    expect(await count()).toBe(1);
   });
 
   it("--all forces a full walk regardless of watermark", async () => {

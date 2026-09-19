@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { extractAll } from "../src/core/extract.ts";
+import { entityId, extractEntities, TEXT_ENTITY_TYPES } from "../src/core/entities.ts";
+import { codeDefs, codeIndexReadiness } from "../src/core/code-graph.ts";
 
 let tmp: string;
 let storage: Storage;
@@ -78,6 +80,60 @@ describe("extractAll", () => {
        WHERE em.chunk_id='d1c0'`,
     );
     expect(after.rows.map((r) => r.name)).toEqual(["New"]);
+  });
+
+  it("keeps code-* mentions on a code chunk while replacing its text mentions", async () => {
+    const db = storage.raw();
+    await db.exec(`
+      INSERT INTO documents (id, source_path, title, frontmatter) VALUES
+        ('d1', '/repo/src/core/cycle/index.ts', 'index.ts', '{"kind":"code"}'::jsonb);
+      INSERT INTO chunks (id, document_id, chunk_index, content) VALUES
+        ('d1c0', 'd1', 0, 'export async function runCycleOnce() { /* see #cycle on 2026-09-01 */ }');
+    `);
+    const seeded = [
+      { type: "code-def", name: "runCycleOnce" },
+      { type: "code-ref", name: "Storage" },
+      { type: "wikilink", name: "Stale" },
+    ] as const;
+    for (const e of seeded) {
+      const eid = entityId(e.type, e.name);
+      await db.query("INSERT INTO entities (id, type, name) VALUES ($1, $2, $3)", [eid, e.type, e.name]);
+      await db.query(
+        "INSERT INTO entity_mentions (chunk_id, entity_id, surface_form) VALUES ('d1c0', $1, $2)",
+        [eid, e.name],
+      );
+    }
+
+    const r = await extractAll(storage, { all: true });
+    expect(r.errors).toEqual([]);
+
+    const rows = await db.query<{ type: string; name: string }>(
+      `SELECT e.type, e.name FROM entity_mentions em
+         JOIN entities e ON e.id = em.entity_id
+        WHERE em.chunk_id = 'd1c0' ORDER BY e.type, e.name`,
+    );
+    const got = rows.rows.map((x) => `${x.type}:${x.name}`);
+    expect(got).toContain("code-def:runCycleOnce");
+    expect(got).toContain("code-ref:Storage");
+    expect(got).not.toContain("wikilink:Stale");
+    expect(got).toContain("tag:cycle");
+    expect(got).toContain("date:2026-09-01");
+
+    const engine = storage.engine();
+    const def = await codeDefs(engine, "runCycleOnce");
+    expect(def.count).toBe(1);
+    expect(def.mentions[0]!.source_path).toBe("/repo/src/core/cycle/index.ts");
+    expect((await codeIndexReadiness(engine)).state).toBe("ready");
+  });
+
+  it("every type extractEntities emits is one the re-extract replaces", () => {
+    const ents = extractEntities(
+      "See [[Alpha]], [[Beta|b]], #tag-one #nested/tag on 2026-01-02 and 2025-12-31",
+      { tags: ["fm-tag"] },
+    );
+    const types = new Set(ents.map((e) => e.type));
+    expect(types.size).toBeGreaterThan(0);
+    for (const t of types) expect(TEXT_ENTITY_TYPES).toContain(t);
   });
 
   it("respects maxDocs cap", async () => {

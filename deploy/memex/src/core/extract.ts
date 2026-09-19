@@ -6,14 +6,18 @@
  *   - manual repair after entity_mentions corruption
  *
  * Cheaper than the dream loop: no Bedrock calls. Walks chunks, runs the
- * pure regex pass, wipes the chunk's existing entity_mentions, inserts
- * fresh ones. Frontmatter tags attach to chunk 0 only — same convention
- * the indexer uses.
+ * pure regex pass, replaces the chunk's wikilink/tag/date mentions (only the
+ * types it re-creates) with fresh ones. Code-* mentions come from the
+ * tree-sitter indexer and are left alone: a code reindex bumps updated_at,
+ * which re-stales the doc here, so an unscoped delete would erase the code
+ * graph on every cycle. Frontmatter tags attach to chunk 0 only — same
+ * convention the indexer uses.
  */
 import type { Storage } from "./storage.ts";
 import {
   extractEntities,
   entityId,
+  TEXT_ENTITY_TYPES,
   type ExtractedEntity,
 } from "./entities.ts";
 
@@ -122,8 +126,10 @@ export async function extractAll(
         await db.transaction(async (tx) => {
           for (const c of chunks.rows) {
             await tx.query(
-              "DELETE FROM entity_mentions WHERE chunk_id = $1",
-              [c.id],
+              `DELETE FROM entity_mentions
+                WHERE chunk_id = $1
+                  AND entity_id IN (SELECT id FROM entities WHERE type = ANY($2::text[]))`,
+              [c.id, TEXT_ENTITY_TYPES],
             );
             // Only chunk 0 carries the doc-level frontmatter tags; extractEntities
             // reads `fm["tags"]`, so reconstruct just that field from fm_tags.

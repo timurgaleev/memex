@@ -26,6 +26,13 @@ export type EntityType =
   | "code-caller"
   | "code-callee";
 
+/**
+ * The types extractEntities() emits. The entity re-extract replaces exactly
+ * these on a chunk; the code-* mentions belong to the tree-sitter indexer and
+ * must survive it.
+ */
+export const TEXT_ENTITY_TYPES: readonly EntityType[] = ["wikilink", "tag", "date"];
+
 export interface ExtractedEntity {
   type: EntityType;
   /** Canonical key — lowercased for tags, original-case otherwise. */
