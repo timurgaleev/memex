@@ -105,3 +105,73 @@ describe("fact id round trip through dispatch", () => {
     }
   });
 });
+
+// PGLite returns BIGSERIAL as a number, so the block above cannot see the
+// Postgres failure. Here every entity_facts id column is turned into the
+// decimal string postgres.js actually hands back, and each tool that emits a
+// fact id must still answer with a JSON number.
+describe("fact ids stay numeric when the engine returns int8 as strings", () => {
+  const ID_COLUMNS = ["id", "superseded_by", "consolidated_into"] as const;
+  let restore: () => void = () => {};
+  let oldId = 0;
+  let newId = 0;
+
+  beforeAll(async () => {
+    const engine = storage.engine();
+    const original = engine.query.bind(engine);
+    engine.query = (async (sql: string, params?: unknown[]) => {
+      const r = await original(sql, params);
+      if (!sql.includes("entity_facts")) return r;
+      const rows = (r.rows as Record<string, unknown>[]).map((row) => {
+        const out = { ...row };
+        for (const col of ID_COLUMNS) {
+          if (typeof out[col] === "number") out[col] = String(out[col]);
+        }
+        return out;
+      });
+      return { ...r, rows };
+    }) as typeof engine.query;
+    restore = () => {
+      engine.query = original;
+    };
+  });
+
+  afterAll(() => restore());
+
+  it("add_fact returns a number for a fresh insert", async () => {
+    const a = envelope(await call("add_fact", { entity_slug: "people/pg", fact: "old claim" }));
+    const b = envelope(await call("add_fact", { entity_slug: "people/pg", fact: "new claim" }));
+    expect(typeof a.id).toBe("number");
+    expect(typeof b.id).toBe("number");
+    oldId = a.id;
+    newId = b.id;
+  });
+
+  it("entity_facts returns numeric ids and a null-or-number pointer", async () => {
+    const res = envelope(await call("entity_facts", { entity_slug: "people/pg" }));
+    expect(res.facts.length).toBe(2);
+    for (const f of res.facts) {
+      expect(typeof f.id).toBe("number");
+      expect(f.superseded_by).toBeNull();
+      expect(f.consolidated_into).toBeNull();
+    }
+  });
+
+  it("recall returns the id as a number", async () => {
+    const res = envelope(await call("recall", { id: oldId }));
+    expect(res.fact.id).toBe(oldId);
+  });
+
+  it("fact_supersessions returns id and superseded_by as numbers", async () => {
+    await storage.engine().query(
+      `UPDATE entity_facts
+          SET forgotten_at = now(), forgotten_cause = 'supersede', superseded_by = $2
+        WHERE id = $1`,
+      [oldId, newId],
+    );
+    const res = envelope(await call("fact_supersessions", { entity_slug: "people/pg" }));
+    expect(res.supersessions.length).toBe(1);
+    expect(res.supersessions[0].id).toBe(oldId);
+    expect(res.supersessions[0].superseded_by).toBe(newId);
+  });
+});

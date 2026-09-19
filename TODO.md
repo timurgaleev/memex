@@ -2537,7 +2537,8 @@ refuses undeclared argument keys with a did-you-mean hint (the bounded
 edit-distance helper now lives in `src/core/did-you-mean.ts`, shared with the
 CLI flag check and ready for `config set`), with `MEMEX_MCP_LENIENT_ARGS=1` as
 the escape; fact ids leave `facts.ts` / `facts-recall.ts` as numbers on both
-engines and `recall` / `forget_fact` accept canonical decimal strings. The new
+engines and `recall` / `forget_fact` accept canonical decimal strings, pinned by
+a dispatch test that serves int8 as strings the way postgres.js does. The new
 check caught two test calls that passed `entity_facts {slug}` (ignored, so the
 read ran brain-wide) and `volunteer_context {q}`. Still open: the config key
 registry with did-you-mean on `config set`, set-time validation and a report of
