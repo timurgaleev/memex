@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS fact_withdrawals (
 
 CREATE OR REPLACE FUNCTION memex_fact_withdrawn_on_insert()
 RETURNS trigger
-LANGUAGE plpgsql AS $fn$
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public AS $fn$
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtext('memex:fact-withdraw:' || NEW.source_id));
   IF EXISTS (

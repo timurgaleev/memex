@@ -701,7 +701,7 @@
     "call": "code_def {\"name\":\"processPayment\"}",
     "sql": [
       {
-        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
+        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 AND d.deleted_at IS NULL ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
         "params": [
           "ent_code-def_processpayment",
           200
@@ -721,7 +721,7 @@
     "call": "code_refs {\"name\":\"processPayment\"}",
     "sql": [
       {
-        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
+        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 AND d.deleted_at IS NULL ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
         "params": [
           "ent_code-ref_processpayment",
           200
@@ -741,7 +741,7 @@
     "call": "code_callers {\"name\":\"processPayment\"}",
     "sql": [
       {
-        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
+        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 AND d.deleted_at IS NULL ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
         "params": [
           "ent_code-caller_processpayment",
           200
@@ -761,14 +761,14 @@
     "call": "code_callees {\"target\":\"/shared/pay.ts:2\"}",
     "sql": [
       {
-        "text": "SELECT e.name FROM chunks c JOIN documents d ON d.id = c.document_id JOIN entity_mentions em ON em.chunk_id = c.id JOIN entities e ON e.id = em.entity_id WHERE d.source_path = $1 AND $2 BETWEEN c.start_line AND c.end_line AND e.type = 'code-def' ORDER BY (c.end_line - c.start_line) ASC LIMIT 1",
+        "text": "SELECT e.name FROM chunks c JOIN documents d ON d.id = c.document_id JOIN entity_mentions em ON em.chunk_id = c.id JOIN entities e ON e.id = em.entity_id WHERE d.source_path = $1 AND d.deleted_at IS NULL AND $2 BETWEEN c.start_line AND c.end_line AND e.type = 'code-def' ORDER BY (c.end_line - c.start_line) ASC LIMIT 1",
         "params": [
           "/shared/pay.ts",
           2
         ]
       },
       {
-        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
+        "text": "SELECT em.surface_form, em.chunk_id, c.document_id, d.source_path FROM entity_mentions em JOIN chunks c ON c.id = em.chunk_id JOIN documents d ON d.id = c.document_id WHERE em.entity_id = $1 AND d.deleted_at IS NULL ORDER BY d.source_path, c.start_line NULLS FIRST LIMIT $2",
         "params": [
           "ent_code-callee_processpayment",
           200
@@ -1116,11 +1116,11 @@
         "params": []
       },
       {
-        "text": "SELECT COALESCE(d.source_id, '(unclassified)') AS source_id, COUNT(DISTINCT c.id)::int AS chunk_count, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived GROUP BY COALESCE(d.source_id, '(unclassified)')",
+        "text": "SELECT COALESCE(d.source_id, '(unclassified)') AS source_id, COUNT(DISTINCT c.id)::int AS chunk_count, COUNT(DISTINCT c.id) FILTER ( WHERE d.deleted_at IS NULL AND NOT d.archived AND COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND length(btrim(c.content)) > 0 )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE d.deleted_at IS NULL AND NOT d.archived AND COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND length(btrim(c.content)) > 0 AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived GROUP BY COALESCE(d.source_id, '(unclassified)')",
         "params": []
       },
       {
-        "text": "SELECT COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived",
+        "text": "SELECT COUNT(DISTINCT c.id) FILTER ( WHERE d.deleted_at IS NULL AND NOT d.archived AND COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND length(btrim(c.content)) > 0 )::int AS embeddable, COUNT(DISTINCT c.id) FILTER ( WHERE d.deleted_at IS NULL AND NOT d.archived AND COALESCE(d.frontmatter->>'kind','') <> 'code' AND NOT (COALESCE(d.frontmatter, '{}'::jsonb) ? 'embed_skip') AND length(btrim(c.content)) > 0 AND em.chunk_id IS NOT NULL )::int AS embedded, COUNT(DISTINCT c.id) FILTER (WHERE COALESCE(d.frontmatter->>'kind','') = 'code')::int AS code FROM chunks c JOIN documents d ON d.id = c.document_id LEFT JOIN embeddings em ON em.chunk_id = c.id WHERE d.deleted_at IS NULL AND NOT d.archived",
         "params": null
       },
       {

@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The fact-withdrawal trigger pins its `search_path`.** Migration 112 created
+  `memex_fact_withdrawn_on_insert()` without it, so the function resolved
+  `fact_withdrawals` through the caller's `search_path`; migration 116
+  redefines it on a brain that already applied 112.
 - **The paid graph rerank no longer shares a query-cache row with a plain
   search.** `graphRerank` reorders the result list before it is stored, but the
   cache key did not record that, so a reranked ordering could be served to a
