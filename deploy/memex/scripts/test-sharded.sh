@@ -23,6 +23,11 @@
 #                 before the job's timeout-minutes cap, which would
 #                 otherwise CANCEL the run instead of failing it.
 #   TEST_DIR      directory scanned for *.test.ts (default tests)
+#   SHARD_GROUPS  number of parallel workers the shards are dealt to
+#                 (default 1 = this process runs every shard)
+#   SHARD_GROUP   this worker's index, 0-based (default 0). Shards are dealt
+#                 round-robin, so each worker gets an even spread of the
+#                 suite's slow and fast files.
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
@@ -31,6 +36,8 @@ SHARD_SIZE="${SHARD_SIZE:-20}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-30000}"
 MAX_SECONDS="${MAX_SECONDS:-0}"
 TEST_DIR="${TEST_DIR:-tests}"
+SHARD_GROUPS="${SHARD_GROUPS:-1}"
+SHARD_GROUP="${SHARD_GROUP:-0}"
 
 # Group markers fold the per-shard output in the Actions log; plain runs
 # would only see the literal text, so emit them only under CI.
@@ -50,12 +57,15 @@ if [ "${#files[@]}" -eq 0 ]; then
   echo "no test files found under ${TEST_DIR}/" >&2
   exit 2
 fi
-echo "discovered ${#files[@]} test files; shard size ${SHARD_SIZE}"
+echo "discovered ${#files[@]} test files; shard size ${SHARD_SIZE}; group ${SHARD_GROUP}/${SHARD_GROUPS}"
 
 fail=0
 for ((i = 0; i < ${#files[@]}; i += SHARD_SIZE)); do
   slice=("${files[@]:i:SHARD_SIZE}")
   shard=$((i / SHARD_SIZE))
+  if [ "${SHARD_GROUPS}" -gt 1 ] && [ $((shard % SHARD_GROUPS)) -ne "${SHARD_GROUP}" ]; then
+    continue
+  fi
   if [ "${MAX_SECONDS}" -gt 0 ] && [ "${SECONDS}" -ge "${MAX_SECONDS}" ]; then
     echo "::warning::wall-clock budget ${MAX_SECONDS}s reached after ${SECONDS}s; stopping at shard ${shard} (non-gating)"
     break

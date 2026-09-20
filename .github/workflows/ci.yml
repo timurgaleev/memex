@@ -87,7 +87,7 @@ jobs:
     # on amd64. Run the bun suite on both so an arm64-only Bun runtime
     # regression — or a transitive native module that has no arm64
     # wheel — fails CI before it can quietly break the EC2 deploy.
-    name: Memex Bun tests (${{ matrix.arch }})
+    name: Memex Bun tests (${{ matrix.arch }}${{ matrix.groups > 1 && format(' {0}/{1}', matrix.group, matrix.groups) || '' }})
     runs-on: ${{ matrix.runner }}
     # arm64 is the production target (t4g.medium) but free arm64
     # runners are 3-4x slower than amd64 for this PGLite-heavy
@@ -114,8 +114,40 @@ jobs:
             # Default bun per-test timeout (5s) — amd64 is the gate, so
             # keep it tight to catch genuine perf regressions.
             test_timeout_ms: 5000
-            # 0 = no wall-clock budget: the GATE always runs every shard.
+            # 0 = no wall-clock budget: the GATE always runs every shard
+            # dealt to this worker.
             max_seconds: 0
+            # The suite outgrew one sequential runner: at 444 files it ran
+            # 90 min and the job cap CANCELLED the gate. Three workers take
+            # every third shard, so wall clock is a third of that.
+            groups: 3
+            group: 0
+          - arch: amd64
+            runner: ubuntu-latest
+            # Default bun per-test timeout (5s) — amd64 is the gate, so
+            # keep it tight to catch genuine perf regressions.
+            test_timeout_ms: 5000
+            # 0 = no wall-clock budget: the GATE always runs every shard
+            # dealt to this worker.
+            max_seconds: 0
+            # The suite outgrew one sequential runner: at 444 files it ran
+            # 90 min and the job cap CANCELLED the gate. Three workers take
+            # every third shard, so wall clock is a third of that.
+            groups: 3
+            group: 1
+          - arch: amd64
+            runner: ubuntu-latest
+            # Default bun per-test timeout (5s) — amd64 is the gate, so
+            # keep it tight to catch genuine perf regressions.
+            test_timeout_ms: 5000
+            # 0 = no wall-clock budget: the GATE always runs every shard
+            # dealt to this worker.
+            max_seconds: 0
+            # The suite outgrew one sequential runner: at 444 files it ran
+            # 90 min and the job cap CANCELLED the gate. Three workers take
+            # every third shard, so wall clock is a third of that.
+            groups: 3
+            group: 2
           - arch: arm64
             runner: ubuntu-24.04-arm
             # Free arm64 runners are 3-4x slower; PGLite cold-init +
@@ -135,6 +167,10 @@ jobs:
             # `failure`, and a pure time-overrun is a clean partial signal —
             # neither cancels the run. 4200s = 70 min.
             max_seconds: 4200
+            # The canary stays one worker: it is a signal, not a gate, and
+            # its own wall-clock budget already stops it before the cap.
+            groups: 1
+            group: 0
     defaults:
       run:
         working-directory: deploy/memex
@@ -165,4 +201,6 @@ jobs:
           TEST_TIMEOUT: ${{ matrix.test_timeout_ms }}
           MAX_SECONDS: ${{ matrix.max_seconds }}
           SHARD_SIZE: "20"
+          SHARD_GROUPS: ${{ matrix.groups }}
+          SHARD_GROUP: ${{ matrix.group }}
         run: bash scripts/test-sharded.sh
