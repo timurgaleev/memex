@@ -2995,6 +2995,13 @@ Closed operator decisions this roadmap does not re-raise:
   boot on a prefix/root spelling mismatch.
 - **Sweep refusals surface only as a log line.** Report refused paths in the
   sweep result so doctor can show them.
+- **RFC 8707 validation needs a stable issuer.** With `MEMEX_PUBLIC_URL`
+  unset the issuer is rebuilt from the request, so behind a TLS-terminating
+  tunnel it can read `http://…` while the client sends `resource=https://…`
+  and gets `invalid_target`. Compare host only when the issuer is derived, or
+  warn at boot when OAuth is on and `MEMEX_PUBLIC_URL` is empty. Also: repeated
+  `resource` params are read first-value-only, and `client_credentials` ignores
+  `resource` (tokens stay unbound, which `/mcp` accepts by design).
 - **`exchangeRefreshToken`/`exchangeAuthorizationCode` are now transactional**;
   the rest of token lifecycle (family ids, reuse detection, PAT `--source`,
   grant_types enforcement) is Batch C of the 2026-09-28 gap report.

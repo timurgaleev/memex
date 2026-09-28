@@ -23,10 +23,12 @@ import { handleHealth } from "./health.ts";
 import {
   handleOAuthMetadataRoute,
   handleProtectedResourceRoute,
+  canonicalResource,
   resolveIssuer,
   wwwAuthenticateChallenge,
   OAUTH_METADATA_PATH,
   OAUTH_PROTECTED_RESOURCE_PATH,
+  OAUTH_PROTECTED_RESOURCE_MCP_PATH,
 } from "./oauth-metadata.ts";
 import {
   CORS_PATHS,
@@ -66,6 +68,17 @@ function rateLimited(): Response {
     { error: "slow_down", error_description: "rate limit exceeded" },
     { status: 429, headers: { "Retry-After": "60" } },
   );
+}
+
+/**
+ * RFC 8707 audience check. A token minted for a named resource is honored only
+ * here, at this server; a token with no resource (issued before binding, a
+ * PAT, a client_credentials token) never named one and stays valid.
+ */
+function assertAudience(resource: URL | undefined, issuer: string): void {
+  if (resource && canonicalResource(resource.toString(), issuer) === null) {
+    throw new InvalidTokenError("Token is bound to a different resource");
+  }
 }
 
 /** Failed pre-auth attempts per minute for a caller we can name. */
@@ -417,6 +430,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
             }
             try {
               const info = await opts.oauthProvider.verifyAccessToken(m[1]);
+              assertAudience(info.resource, resolveIssuer(url, opts.publicUrl));
               guard = { allow: true, isPublic: false };
               oauthAuth = {
                 token: info.token,
@@ -463,6 +477,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         if (url.pathname === "/mcp" && guard.status === 401) {
           headers["WWW-Authenticate"] = wwwAuthenticateChallenge(
             resolveIssuer(url, opts.publicUrl),
+            req.headers.has("Authorization"),
           );
         }
         return Response.json(
@@ -481,8 +496,21 @@ export function startServer(opts: ServerOptions): ServerHandle {
         return handleOAuthMetadataRoute(url, opts.publicUrl, dcrEnabled);
       }
       // RFC 9728 protected-resource metadata — public for the same reason.
-      if (url.pathname === OAUTH_PROTECTED_RESOURCE_PATH && req.method === "GET") {
+      if (
+        (url.pathname === OAUTH_PROTECTED_RESOURCE_PATH ||
+          url.pathname === OAUTH_PROTECTED_RESOURCE_MCP_PATH) &&
+        req.method === "GET"
+      ) {
         return handleProtectedResourceRoute(url, opts.publicUrl);
+      }
+      // Any other discovery probe (openid-configuration, a path-inserted AS
+      // document, …) is a document memex does not publish — say so, rather
+      // than a 401 that tells a client to go and authenticate for it.
+      if (url.pathname.startsWith("/.well-known/") && req.method === "GET") {
+        return Response.json(
+          { error: "not_found" },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
       }
       // OAuth 2.1 authorization endpoints. Public (exempted in the guard) —
       // authenticated by client_id/secret + PKCE downstream, NOT the public
@@ -509,7 +537,12 @@ export function startServer(opts: ServerOptions): ServerHandle {
             console.warn(`[oauth] POST /token rate-limited for bucket ${ip}`);
             return rateLimited();
           }
-          return handleTokenRoute(req, oauthProvider, !oauthRequireLogin);
+          return handleTokenRoute(
+            req,
+            oauthProvider,
+            !oauthRequireLogin,
+            resolveIssuer(url, opts.publicUrl),
+          );
         }
         // POST is the enrollment-code submission for an enrollment-mode
         // client; the handler rejects it for every other client.
@@ -536,7 +569,13 @@ export function startServer(opts: ServerOptions): ServerHandle {
               // refuse every request rather than silently auto-approving the
               // posture the flag exists to prevent.
               : () => false;
-          return handleAuthorizeRoute(req, oauthProvider, requireLogin, !oauthRequireLogin);
+          return handleAuthorizeRoute(
+            req,
+            oauthProvider,
+            requireLogin,
+            !oauthRequireLogin,
+            resolveIssuer(url, opts.publicUrl),
+          );
         }
         if (url.pathname === "/register" && req.method === "POST") {
           // DCR off (default) → no self-registration surface at all.
@@ -574,6 +613,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           if (m && m[1]) {
             try {
               const info = await opts.oauthProvider.verifyAccessToken(m[1]);
+              assertAudience(info.resource, resolveIssuer(url, opts.publicUrl));
               ingestAuth = {
                 token: info.token,
                 clientId: info.clientId,

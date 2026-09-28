@@ -305,12 +305,20 @@ export async function runRemoteDoctor(
   let authMethods: string[] = [];
   try {
     const as = await getJson("/.well-known/oauth-authorization-server");
+    // The bare path is what older connectors cached; the `/mcp` form is what a
+    // client derives from the connector URL (RFC 9728 §3.1). Both must answer,
+    // and with the same resource, or one population of clients breaks.
     const pr = await getJson("/.well-known/oauth-protected-resource");
+    const prMcp = await getJson("/.well-known/oauth-protected-resource/mcp");
     const meta = (as.body ?? {}) as Record<string, unknown>;
     const res = (pr.body ?? {}) as Record<string, unknown>;
+    const resMcp = (prMcp.body ?? {}) as Record<string, unknown>;
     const problems: string[] = [];
     if (as.status !== 200 || as.body === null) problems.push(`authorization-server metadata HTTP ${as.status}`);
     if (pr.status !== 200 || pr.body === null) problems.push(`protected-resource metadata HTTP ${pr.status}`);
+    if (prMcp.status !== 200 || prMcp.body === null) {
+      problems.push(`protected-resource metadata at /mcp HTTP ${prMcp.status}`);
+    }
     const issuer = typeof meta.issuer === "string" ? normalizeUrl(meta.issuer) : "";
     if (problems.length === 0) {
       if (issuer !== origin) problems.push(`issuer ${redact(issuer) || "(missing)"} is not ${origin}`);
@@ -327,10 +335,18 @@ export async function runRemoteDoctor(
         ? meta.token_endpoint_auth_methods_supported.filter((m): m is string => typeof m === "string")
         : [];
       const resource = typeof res.resource === "string" ? normalizeUrl(res.resource) : "";
+      const resourceMcp = typeof resMcp.resource === "string" ? normalizeUrl(resMcp.resource) : "";
       const servers = Array.isArray(res.authorization_servers)
         ? res.authorization_servers.filter((s): s is string => typeof s === "string").map(normalizeUrl)
         : [];
-      if (resource !== origin) problems.push(`protected resource ${redact(resource) || "(missing)"} is not ${origin}`);
+      if (resource !== origin && resource !== `${origin}/mcp`) {
+        problems.push(`protected resource ${redact(resource) || "(missing)"} is not ${origin}/mcp`);
+      }
+      if (resourceMcp !== resource) {
+        problems.push(
+          `protected resource at /mcp ${redact(resourceMcp) || "(missing)"} disagrees with ${redact(resource) || "(missing)"}`,
+        );
+      }
       if (!servers.includes(origin)) problems.push("authorization_servers does not name the issuer");
     }
     if (problems.length > 0) {

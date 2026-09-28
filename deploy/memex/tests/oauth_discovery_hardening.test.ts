@@ -11,8 +11,10 @@ import { Storage } from "../src/core/storage.ts";
 import { startServer, type ServerHandle } from "../src/http/server.ts";
 import {
   buildProtectedResourceMetadata,
+  canonicalResource,
   wwwAuthenticateChallenge,
   OAUTH_PROTECTED_RESOURCE_PATH,
+  OAUTH_PROTECTED_RESOURCE_MCP_PATH,
 } from "../src/http/oauth-metadata.ts";
 import {
   parseCorsAllowlist,
@@ -47,22 +49,58 @@ afterAll(async () => {
 });
 
 describe("protected-resource metadata (RFC 9728)", () => {
-  it("builds resource == authorization server == issuer", () => {
+  it("builds resource = the /mcp endpoint, authorization server = issuer", () => {
     const doc = buildProtectedResourceMetadata("https://brain.example");
-    expect(doc.resource).toBe("https://brain.example");
+    expect(doc.resource).toBe("https://brain.example/mcp");
     expect(doc.authorization_servers).toEqual(["https://brain.example"]);
     expect(doc.bearer_methods_supported).toEqual(["header"]);
-    expect(doc.scopes_supported.length).toBeGreaterThan(0);
+    expect(doc.scopes_supported).toEqual(["read", "write"]);
   });
 
-  it("serves the document publicly (no bearer required)", async () => {
-    const res = await fetch(`${url}${OAUTH_PROTECTED_RESOURCE_PATH}`, {
+  it("serves the /mcp path form publicly with resource = issuer/mcp", async () => {
+    expect(OAUTH_PROTECTED_RESOURCE_MCP_PATH).toBe("/.well-known/oauth-protected-resource/mcp");
+    const res = await fetch(`${url}${OAUTH_PROTECTED_RESOURCE_MCP_PATH}`, {
       headers: { "Cf-Connecting-Ip": "1.2.3.4" },
     });
     expect(res.status).toBe(200);
     const doc = (await res.json()) as { resource: string; authorization_servers: string[] };
-    expect(doc.authorization_servers.length).toBe(1);
-    expect(doc.resource).toBe(doc.authorization_servers[0]!);
+    expect(doc.authorization_servers).toEqual([url]);
+    expect(doc.resource).toBe(`${url}/mcp`);
+  });
+
+  it("keeps the bare path answering with the same document", async () => {
+    const [bare, path] = await Promise.all(
+      [OAUTH_PROTECTED_RESOURCE_PATH, OAUTH_PROTECTED_RESOURCE_MCP_PATH].map(async (p) => {
+        const res = await fetch(`${url}${p}`, { headers: { "Cf-Connecting-Ip": "1.2.3.4" } });
+        expect(res.status).toBe(200);
+        return res.json();
+      }),
+    );
+    expect(bare).toEqual(path);
+  });
+
+  it("answers an unpublished /.well-known document with a 404, not a 401", async () => {
+    for (const p of [
+      "/.well-known/openid-configuration",
+      "/.well-known/oauth-authorization-server/mcp",
+    ]) {
+      const res = await fetch(`${url}${p}`, { headers: { "Cf-Connecting-Ip": "1.2.3.4" } });
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      expect(res.headers.get("WWW-Authenticate")).toBeNull();
+    }
+  });
+
+  it("challenges a request with no credential without an error code, naming the scopes", async () => {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: { "Cf-Connecting-Ip": "1.2.3.4", "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toBe(
+      `Bearer resource_metadata="${url}${OAUTH_PROTECTED_RESOURCE_MCP_PATH}", scope="read write"`,
+    );
   });
 
   it("challenges a 401 on /mcp with resource_metadata (WWW-Authenticate)", async () => {
@@ -76,16 +114,47 @@ describe("protected-resource metadata (RFC 9728)", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
     expect(res.status).toBe(401);
-    const challenge = res.headers.get("WWW-Authenticate");
-    expect(challenge).toContain("Bearer");
-    expect(challenge).toContain(OAUTH_PROTECTED_RESOURCE_PATH);
+    expect(res.headers.get("WWW-Authenticate")).toBe(
+      `Bearer error="invalid_token", resource_metadata="${url}${OAUTH_PROTECTED_RESOURCE_MCP_PATH}"`,
+    );
   });
 
-  it("wwwAuthenticateChallenge points at the issuer's metadata path", () => {
-    const v = wwwAuthenticateChallenge("https://brain.example");
-    expect(v).toBe(
-      'Bearer error="invalid_token", resource_metadata="https://brain.example/.well-known/oauth-protected-resource"',
+  it("wwwAuthenticateChallenge points at the /mcp metadata path", () => {
+    expect(wwwAuthenticateChallenge("https://brain.example")).toBe(
+      'Bearer error="invalid_token", resource_metadata="https://brain.example/.well-known/oauth-protected-resource/mcp"',
     );
+    expect(wwwAuthenticateChallenge("https://brain.example", false)).toBe(
+      'Bearer resource_metadata="https://brain.example/.well-known/oauth-protected-resource/mcp", scope="read write"',
+    );
+  });
+});
+
+describe("canonicalResource (RFC 8707)", () => {
+  const issuer = "https://brain.example";
+  it("folds both spellings of this server, with or without a slash, onto /mcp", () => {
+    for (const v of [
+      "https://brain.example",
+      "https://brain.example/",
+      "https://BRAIN.example:443/",
+      "https://brain.example/mcp",
+      "https://brain.example/mcp/",
+    ]) {
+      expect(canonicalResource(v, issuer)).toBe("https://brain.example/mcp");
+    }
+  });
+
+  it("refuses any other resource", () => {
+    for (const v of [
+      "https://evil.example/mcp",
+      "http://brain.example/mcp",
+      "https://brain.example/mcp/other",
+      "https://brain.example/admin",
+      "https://brain.example/mcp?x=1",
+      "https://brain.example/mcp#frag",
+      "not a url",
+    ]) {
+      expect(canonicalResource(v, issuer)).toBeNull();
+    }
   });
 });
 

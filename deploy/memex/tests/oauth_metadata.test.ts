@@ -15,7 +15,6 @@ import {
   resolveIssuer,
   OAUTH_METADATA_PATH,
 } from "../src/http/oauth-metadata.ts";
-import { ALLOWED_SCOPES_LIST } from "../src/core/scope.ts";
 
 const TOKEN = "test-bearer-abc123";
 
@@ -52,7 +51,8 @@ describe("buildOAuthMetadata — full standard surface", () => {
     expect(m.authorization_endpoint).toBe("https://brain.example/authorize");
     expect(m.token_endpoint).toBe("https://brain.example/token");
     expect(m.revocation_endpoint).toBe("https://brain.example/revoke");
-    expect(m.scopes_supported).toEqual([...ALLOWED_SCOPES_LIST]);
+    // Only what a connector can obtain; operator-only scopes are not offered.
+    expect(m.scopes_supported).toEqual(["read", "write"]);
     // DCR is OFF by default → the self-registration endpoint is NOT advertised.
     expect(m.registration_endpoint).toBeUndefined();
     // When DCR is enabled, it appears.
@@ -108,7 +108,7 @@ describe("GET /.well-known/oauth-authorization-server — live route", () => {
     expect(body.issuer).toBe(base);
     expect(body.token_endpoint).toBe(`${base}/token`);
     expect(body.authorization_endpoint).toBe(`${base}/authorize`);
-    expect(body.scopes_supported).toEqual([...ALLOWED_SCOPES_LIST]);
+    expect(body.scopes_supported).toEqual(["read", "write"]);
     expect(body.grant_types_supported).toEqual([
       "authorization_code",
       "refresh_token",

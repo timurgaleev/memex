@@ -26,6 +26,7 @@ import type {
 } from "../core/oauth-provider.ts";
 import { GrantConflictError, needsOperatorConsent } from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
+import { canonicalResource } from "./oauth-metadata.ts";
 import { isSameOriginPost } from "./same-origin.ts";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
@@ -150,6 +151,8 @@ export async function handleTokenRoute(
    * past the /authorize refusal for good. Defaults to true, failing closed.
    */
   autoApproves = true,
+  /** The issuer a `resource` parameter is judged against (RFC 8707). */
+  issuer = publicOrigin(new URL(req.url)),
 ): Promise<Response> {
   const params = await readParams(req);
   if (!params) return oauthError("invalid_request", "malformed body", 400);
@@ -160,8 +163,7 @@ export async function handleTokenRoute(
   console.info(`[oauth] POST /token grant_type=${grantType ?? "<absent>"}`);
 
   if (grantType === "client_credentials") {
-    const clientId = params.get("client_id");
-    const clientSecret = params.get("client_secret");
+    const { clientId, clientSecret } = clientAuthFromRequest(req, params);
     if (!clientId || !clientSecret) {
       return oauthError(
         "invalid_client",
@@ -202,6 +204,23 @@ export async function handleTokenRoute(
       );
     }
 
+    // RFC 8707: a resource this server does not serve is refused before any
+    // code or refresh token is looked at, let alone consumed.
+    const resourceParam = params.get("resource");
+    let resource: URL | undefined;
+    if (resourceParam) {
+      const canonical = canonicalResource(resourceParam, issuer);
+      if (canonical === null) {
+        return oauthError("invalid_target", "resource is not served by this server", 400);
+      }
+      resource = new URL(canonical);
+    }
+    /** A stored resource that is not the one this request names. */
+    const conflicts = (stored: string | null): boolean =>
+      resource !== undefined &&
+      stored !== null &&
+      canonicalResource(stored, issuer) !== resource.toString();
+
     try {
       if (grantType === "authorization_code") {
         const code = params.get("code");
@@ -226,11 +245,15 @@ export async function handleTokenRoute(
         if (!verifyPkceS256(codeVerifier, challenge)) {
           return oauthError("invalid_grant", "PKCE verification failed", 400);
         }
+        if (conflicts(await provider.resourceForAuthorizationCode(client, code))) {
+          return oauthError("invalid_target", "resource does not match the authorization", 400);
+        }
         const tokens = await provider.exchangeAuthorizationCode(
           client,
           code,
           codeVerifier,
           redirectUri,
+          resource,
         );
         return Response.json(tokens, { status: 200, headers: NO_STORE });
       }
@@ -240,12 +263,16 @@ export async function handleTokenRoute(
       if (!refreshToken) {
         return oauthError("invalid_request", "refresh_token is required", 400);
       }
+      if (conflicts(await provider.resourceForRefreshToken(client, refreshToken))) {
+        return oauthError("invalid_target", "resource does not match the refresh token", 400);
+      }
       const scopeParam = params.get("scope");
       const scopes = scopeParam ? parseScopeString(scopeParam) : undefined;
       const tokens = await provider.exchangeRefreshToken(
         client,
         refreshToken,
         scopes,
+        resource,
       );
       return Response.json(tokens, { status: 200, headers: NO_STORE });
     } catch (e) {
@@ -322,6 +349,8 @@ export async function handleAuthorizeRoute(
    * so a caller that forgets to say fails closed.
    */
   autoApproves = true,
+  /** The issuer a `resource` parameter is judged against (RFC 8707). */
+  issuer = publicOrigin(new URL(req.url)),
 ): Promise<Response> {
   const q = new URL(req.url).searchParams;
   const clientId = q.get("client_id");
@@ -366,14 +395,21 @@ export async function handleAuthorizeRoute(
   }
 
   const scopeParam = q.get("scope");
+  // RFC 8707 §2: a resource this server does not serve is `invalid_target`.
+  // Either spelling of this server is stored as the one canonical audience.
   const resourceParam = q.get("resource");
   let resource: URL | undefined;
   if (resourceParam) {
-    try {
-      resource = new URL(resourceParam);
-    } catch {
-      // A bad resource indicator is non-fatal — drop it rather than fail.
+    const canonical = canonicalResource(resourceParam, issuer);
+    if (canonical === null) {
+      return errorRedirect(
+        redirectUri,
+        "invalid_target",
+        state,
+        "resource is not served by this server",
+      );
     }
+    resource = new URL(canonical);
   }
 
   const authorizeParams = {

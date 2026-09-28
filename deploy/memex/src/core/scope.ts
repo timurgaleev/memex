@@ -35,8 +35,8 @@ export const ALLOWED_SCOPES: ReadonlySet<Scope> = new Set<Scope>([
 ]);
 
 /**
- * Sorted list (deterministic for OAuth metadata + drift-check output).
- * Use this when emitting `scopes_supported` over the wire.
+ * Sorted list (deterministic for drift-check output). Discovery does not
+ * advertise all of these: see `DISCOVERY_SCOPES` in http/oauth-metadata.ts.
  */
 export const ALLOWED_SCOPES_LIST: ReadonlyArray<Scope> = Object.freeze([
   'admin',

@@ -16,13 +16,30 @@
  * exactly like `/health`, since a client must reach it BEFORE it holds any
  * credential.
  */
-import { ALLOWED_SCOPES_LIST } from "../core/scope.ts";
-
 export const OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server";
 
 /** RFC 9728 protected-resource metadata path (served alongside the AS doc). */
 export const OAUTH_PROTECTED_RESOURCE_PATH =
   "/.well-known/oauth-protected-resource";
+
+/** The protected resource itself: the MCP endpoint. */
+export const MCP_RESOURCE_PATH = "/mcp";
+
+/**
+ * RFC 9728 §3.1 path-inserted metadata URL for the `/mcp` resource — the one
+ * a client derives from a connector URL of `<issuer>/mcp`. The bare path above
+ * serves the same document for clients that learned it before.
+ */
+export const OAUTH_PROTECTED_RESOURCE_MCP_PATH =
+  `${OAUTH_PROTECTED_RESOURCE_PATH}${MCP_RESOURCE_PATH}`;
+
+/**
+ * The scopes discovery advertises: the ones a connector can actually come away
+ * with. Operator-only scopes (`admin`, `agent`, `*_admin`) are granted by
+ * registering the client, never by asking at /authorize, and a client that
+ * copies `scopes_supported` into its request would otherwise ask for them.
+ */
+export const DISCOVERY_SCOPES: ReadonlyArray<string> = Object.freeze(["read", "write"]);
 
 /**
  * RFC 8414 authorization-server metadata. Only the fields memex actually
@@ -85,7 +102,7 @@ export function buildOAuthMetadata(
     token_endpoint: `${issuer}/token`,
     ...(dcrEnabled ? { registration_endpoint: `${issuer}/register` } : {}),
     revocation_endpoint: `${issuer}/revoke`,
-    scopes_supported: [...ALLOWED_SCOPES_LIST],
+    scopes_supported: [...DISCOVERY_SCOPES],
     response_types_supported: ["code"],
     grant_types_supported: [
       "authorization_code",
@@ -126,8 +143,9 @@ export function handleOAuthMetadataRoute(
 
 /**
  * RFC 9728 OAuth protected-resource metadata. memex is both the resource
- * server (`/mcp`) and its own authorization server, so `resource` and the
- * single `authorization_servers` entry are the same issuer. Standard MCP
+ * server and its own authorization server: `resource` is the `/mcp` endpoint
+ * a connector is pointed at, and the single `authorization_servers` entry is
+ * the issuer. Standard MCP
  * OAuth clients (Claude, ChatGPT, …) fetch this document when a 401's
  * `WWW-Authenticate` challenge points at it, then discover the AS from it —
  * closing the loop for clients that start at the resource instead of the
@@ -145,9 +163,9 @@ export function buildProtectedResourceMetadata(
   issuer: string,
 ): ProtectedResourceMetadata {
   return {
-    resource: issuer,
+    resource: `${issuer}${MCP_RESOURCE_PATH}`,
     authorization_servers: [issuer],
-    scopes_supported: [...ALLOWED_SCOPES_LIST],
+    scopes_supported: [...DISCOVERY_SCOPES],
     // Bearer tokens are accepted in the Authorization header only (RFC 6750
     // §2.1) — never as query param or form field.
     bearer_methods_supported: ["header"],
@@ -155,7 +173,7 @@ export function buildProtectedResourceMetadata(
   };
 }
 
-/** Route handler for `GET /.well-known/oauth-protected-resource`. Same
+/** Route handler for both protected-resource paths (bare and `/mcp`). Same
  *  issuer + cache rules as the authorization-server document. */
 export function handleProtectedResourceRoute(
   url: URL,
@@ -175,7 +193,50 @@ export function handleProtectedResourceRoute(
  * The `resource_metadata` parameter tells a standards-aware client exactly
  * where to fetch the protected-resource document above, from which it
  * discovers the authorization server and starts the OAuth flow unattended.
+ * A request that carried no credential gets no error code (RFC 6750 §3.1) and
+ * the scope it would need; only a presented-and-refused token is
+ * `invalid_token`.
  */
-export function wwwAuthenticateChallenge(issuer: string): string {
-  return `Bearer error="invalid_token", resource_metadata="${issuer}${OAUTH_PROTECTED_RESOURCE_PATH}"`;
+export function wwwAuthenticateChallenge(
+  issuer: string,
+  tokenPresented = true,
+): string {
+  const metadata = `resource_metadata="${issuer}${OAUTH_PROTECTED_RESOURCE_MCP_PATH}"`;
+  return tokenPresented
+    ? `Bearer error="invalid_token", ${metadata}`
+    : `Bearer ${metadata}, scope="${DISCOVERY_SCOPES.join(" ")}"`;
+}
+
+function withoutTrailingSlashes(v: string): string {
+  let end = v.length;
+  while (end > 0 && v.charCodeAt(end - 1) === 0x2f) end--;
+  return v.slice(0, end);
+}
+
+/**
+ * RFC 8707 resource indicator → the audience memex binds a token to, or null
+ * when the value names some other resource. Two spellings are this server:
+ * the `/mcp` endpoint (what discovery advertises now) and the bare issuer
+ * (what it advertised before, and what connectors authorized against it may
+ * still send). Both collapse to `<issuer>/mcp`, so a client that switches
+ * spelling between /authorize, /token and refresh is still talking about one
+ * resource. A trailing slash is not a different resource; a query or fragment
+ * is (RFC 8707 §2 forbids the fragment outright).
+ */
+export function canonicalResource(value: string, issuer: string): string | null {
+  let u: URL;
+  let base: URL;
+  try {
+    u = new URL(value);
+    base = new URL(issuer);
+  } catch {
+    return null;
+  }
+  if (u.search !== "" || u.hash !== "" || u.username !== "" || u.password !== "") {
+    return null;
+  }
+  const root = withoutTrailingSlashes(base.origin + base.pathname);
+  const mcp = `${root}${MCP_RESOURCE_PATH}`;
+  const got = withoutTrailingSlashes(u.origin + u.pathname);
+  return got === root || got === mcp ? mcp : null;
 }

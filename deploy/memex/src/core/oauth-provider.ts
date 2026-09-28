@@ -256,6 +256,19 @@ function grantFromRow(row: Record<string, unknown>): GrantScope | undefined {
 }
 
 /**
+ * The resource a consumed code or refresh row was bound to, else `requested`.
+ * Refusing a request that names a DIFFERENT resource is the caller's job and
+ * happens before the row is consumed (see `resourceForAuthorizationCode`).
+ */
+function boundResource(
+  row: Record<string, unknown>,
+  requested: URL | undefined,
+): URL | undefined {
+  const stored = row["resource"];
+  return typeof stored === "string" && stored ? new URL(stored) : requested;
+}
+
+/**
  * True for a grant-bound row with no grant_id (redeemed before migration 108)
  * whose client and source match a redeemed enrollment that has been revoked:
  * the same rows `revokeGrant` deletes. Checked at use, not only at revoke, so a
@@ -1370,6 +1383,36 @@ export class OAuthProvider {
     return rows[0]!.code_challenge;
   }
 
+  /**
+   * The resource (RFC 8707) a code was approved for, or null when none was
+   * named or the code is not this client's. Read without consuming the code,
+   * so a /token request naming another resource can be refused while the
+   * code stays redeemable. A code's resource never changes after /authorize.
+   */
+  async resourceForAuthorizationCode(
+    client: OAuthClientInfo,
+    authorizationCode: string,
+  ): Promise<string | null> {
+    const rows = await this.rows<{ resource: string | null }>(
+      `SELECT resource FROM oauth_codes WHERE code_hash = $1 AND client_id = $2`,
+      [hashToken(authorizationCode), client.client_id],
+    );
+    return rows[0]?.resource ?? null;
+  }
+
+  /** Same as `resourceForAuthorizationCode`, for a refresh token. */
+  async resourceForRefreshToken(
+    client: OAuthClientInfo,
+    refreshToken: string,
+  ): Promise<string | null> {
+    const rows = await this.rows<{ resource: string | null }>(
+      `SELECT resource FROM oauth_tokens
+        WHERE token_hash = $1 AND token_type = 'refresh' AND client_id = $2`,
+      [hashToken(refreshToken), client.client_id],
+    );
+    return rows[0]?.resource ?? null;
+  }
+
   async exchangeAuthorizationCode(
     client: OAuthClientInfo,
     authorizationCode: string,
@@ -1416,10 +1459,12 @@ export class OAuthProvider {
       }
 
       const scopes = (rows[0]!.scopes as string[]) || [];
+      // The resource approved at /authorize binds the tokens; a request-time
+      // value only fills in for a code that named none.
       return this.issueTokens(
         client.client_id,
         scopes,
-        resource,
+        boundResource(rows[0]!, resource),
         true,
         undefined,
         grantFromRow(rows[0]!),
@@ -1459,8 +1504,8 @@ export class OAuthProvider {
                AND revoked_at IS NULL
                AND ${grantNotRevoked("oauth_tokens")}
                AND ${unboundAllowed("oauth_tokens")}
-             RETURNING client_id, scopes, expires_at, source_id, federated_read,
-                       grant_bound, grant_id`,
+             RETURNING client_id, scopes, expires_at, resource, source_id,
+                       federated_read, grant_bound, grant_id`,
             [tokenHash, client.client_id],
           )
         ).rows;
@@ -1483,11 +1528,12 @@ export class OAuthProvider {
         const tokenScopes = scopes ?? grantedScopes;
         // The tenant is copied from the consumed refresh row and is NEVER read from
         // the request: a holder may narrow scope on refresh, never move source.
+        // The resource rides along the same way, so rotation keeps the audience.
         return {
           tokens: await this.issueTokens(
             client.client_id,
             tokenScopes,
-            resource,
+            boundResource(row, resource),
             true,
             undefined,
             grantFromRow(row),

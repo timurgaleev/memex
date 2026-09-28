@@ -681,6 +681,143 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(loc.searchParams.get("error")).toBe("unauthorized_client");
     expect(loc.searchParams.get("code")).toBeNull();
   });
+
+  describe("resource binding (RFC 8707)", () => {
+    const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
+
+    async function codeFor(resource?: string): Promise<{ code: string; verifier: string }> {
+      const { verifier, challenge } = pkce();
+      const res = await authorize({
+        response_type: "code",
+        client_id: webClientId,
+        redirect_uri: REDIRECT,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        ...(resource !== undefined ? { resource } : {}),
+      });
+      expect(res.status).toBe(302);
+      const code = new URL(res.headers.get("location")!).searchParams.get("code");
+      expect(code).toMatch(/^memex_code_/);
+      return { code: code!, verifier };
+    }
+
+    function exchange(code: string, verifier: string, resource?: string): Promise<Response> {
+      return tokenForm({
+        grant_type: "authorization_code",
+        client_id: webClientId,
+        client_secret: webClientSecret,
+        code,
+        redirect_uri: REDIRECT,
+        code_verifier: verifier,
+        ...(resource !== undefined ? { resource } : {}),
+      });
+    }
+
+    function refresh(refreshToken: string, resource?: string): Promise<Response> {
+      return tokenForm({
+        grant_type: "refresh_token",
+        client_id: webClientId,
+        client_secret: webClientSecret,
+        refresh_token: refreshToken,
+        ...(resource !== undefined ? { resource } : {}),
+      });
+    }
+
+    async function storedResource(token: string): Promise<string | null> {
+      const r = await storage.raw().query<{ resource: string | null }>(
+        "SELECT resource FROM oauth_tokens WHERE token_hash = $1",
+        [sha(token)],
+      );
+      return r.rows[0]?.resource ?? null;
+    }
+
+    it("carries the approved resource from the code into access + refresh tokens and across rotation", async () => {
+      // Authorized against the bare issuer (what discovery advertised before),
+      // redeemed naming /mcp with a trailing slash: one resource, one audience.
+      const { code, verifier } = await codeFor(url);
+      const tok = await exchange(code, verifier, `${url}/mcp/`);
+      expect(tok.status).toBe(200);
+      const pair = (await tok.json()) as { access_token: string; refresh_token: string };
+      expect(await storedResource(pair.access_token)).toBe(`${url}/mcp`);
+      expect(await storedResource(pair.refresh_token)).toBe(`${url}/mcp`);
+      expect((await provider.verifyAccessToken(pair.access_token)).resource?.toString()).toBe(
+        `${url}/mcp`,
+      );
+
+      // A refresh that does not name the resource keeps it.
+      const rotated = await refresh(pair.refresh_token);
+      expect(rotated.status).toBe(200);
+      const next = (await rotated.json()) as { access_token: string; refresh_token: string };
+      expect(await storedResource(next.access_token)).toBe(`${url}/mcp`);
+      expect(await storedResource(next.refresh_token)).toBe(`${url}/mcp`);
+    });
+
+    it("a code approved with no resource still issues unbound tokens", async () => {
+      const { code, verifier } = await codeFor();
+      const tok = await exchange(code, verifier);
+      expect(tok.status).toBe(200);
+      const pair = (await tok.json()) as { access_token: string };
+      expect(await storedResource(pair.access_token)).toBeNull();
+    });
+
+    it("/authorize refuses a resource this server does not serve (invalid_target, no code)", async () => {
+      const { challenge } = pkce();
+      const res = await authorize({
+        response_type: "code",
+        client_id: webClientId,
+        redirect_uri: REDIRECT,
+        state: "st",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        resource: "https://evil.example/mcp",
+      });
+      expect(res.status).toBe(302);
+      const loc = new URL(res.headers.get("location")!);
+      expect(loc.searchParams.get("error")).toBe("invalid_target");
+      expect(loc.searchParams.get("state")).toBe("st");
+      expect(loc.searchParams.get("code")).toBeNull();
+    });
+
+    it("/token refuses a foreign resource without consuming the code", async () => {
+      const { code, verifier } = await codeFor(`${url}/mcp`);
+      const bad = await exchange(code, verifier, "https://evil.example/mcp");
+      expect(bad.status).toBe(400);
+      expect(((await bad.json()) as { error: string }).error).toBe("invalid_target");
+      expect((await exchange(code, verifier, `${url}/mcp`)).status).toBe(200);
+    });
+
+    it("/token refuses a resource that differs from the approved one without consuming the code", async () => {
+      const { code, verifier } = await codeFor(`${url}/mcp`);
+      // A code approved under another issuer (e.g. before a domain move).
+      await storage.raw().query("UPDATE oauth_codes SET resource = $1 WHERE code_hash = $2", [
+        "https://old.example/mcp",
+        sha(code),
+      ]);
+      const bad = await exchange(code, verifier, `${url}/mcp`);
+      expect(bad.status).toBe(400);
+      expect(((await bad.json()) as { error: string }).error).toBe("invalid_target");
+      const ok = await exchange(code, verifier);
+      expect(ok.status).toBe(200);
+      const pair = (await ok.json()) as { access_token: string };
+      expect(await storedResource(pair.access_token)).toBe("https://old.example/mcp");
+    });
+
+    it("refresh refuses a mismatched resource without burning the refresh token", async () => {
+      const { code, verifier } = await codeFor(`${url}/mcp`);
+      const pair = (await (await exchange(code, verifier)).json()) as { refresh_token: string };
+      const foreign = await refresh(pair.refresh_token, "https://evil.example/mcp");
+      expect(foreign.status).toBe(400);
+      expect(((await foreign.json()) as { error: string }).error).toBe("invalid_target");
+      await storage.raw().query("UPDATE oauth_tokens SET resource = $1 WHERE token_hash = $2", [
+        "https://old.example/mcp",
+        sha(pair.refresh_token),
+      ]);
+      const mismatched = await refresh(pair.refresh_token, url);
+      expect(mismatched.status).toBe(400);
+      expect(((await mismatched.json()) as { error: string }).error).toBe("invalid_target");
+      expect((await refresh(pair.refresh_token)).status).toBe(200);
+    });
+  });
 });
 
 /**

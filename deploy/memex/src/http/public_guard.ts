@@ -38,10 +38,6 @@ import { timingSafeEqual } from "node:crypto";
 // Canonical definition lives in core so the MCP layer shares it without
 // importing this http/ module (which would create an import cycle).
 import { publicReadBodiesAllowed } from "../core/public_redaction.ts";
-import {
-  OAUTH_METADATA_PATH,
-  OAUTH_PROTECTED_RESOURCE_PATH,
-} from "./oauth-metadata.ts";
 
 export interface PublicGuardOptions {
   /** Bearer token. If undefined, every public request is rejected. */
@@ -333,7 +329,8 @@ export function evaluateInternalAuth(
  *
  * Every one of them authenticates itself downstream or exposes nothing:
  *   - GET /health — liveness + counts, used by uptime probes.
- *   - OAuth discovery (RFC 8414 / RFC 9728) — static metadata documents.
+ *   - OAuth discovery (RFC 8414 / RFC 9728) — static metadata documents, at
+ *     both protected-resource paths; any other /.well-known/ GET is a 404.
  *   - /authorize, /token, /register, /revoke — client authentication, PKCE
  *     S256 and the exact-match redirect_uri allowlist live in the handlers.
  *     POST /authorize is the enrollment-code submission: the person arrives
@@ -344,11 +341,10 @@ export function evaluateInternalAuth(
  */
 function isPreCredentialRoute(req: Request, url: URL): boolean {
   if (url.pathname === "/health" && req.method === "GET") return true;
-  if (
-    (url.pathname === OAUTH_METADATA_PATH ||
-      url.pathname === OAUTH_PROTECTED_RESOURCE_PATH) &&
-    req.method === "GET"
-  ) {
+  // Every GET under /.well-known/ is discovery: the two OAuth documents are
+  // served, anything else answers 404 — a probe must not be told to
+  // authenticate for a document that does not exist.
+  if (url.pathname.startsWith("/.well-known/") && req.method === "GET") {
     return true;
   }
   if (

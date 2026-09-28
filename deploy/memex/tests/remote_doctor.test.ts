@@ -35,6 +35,9 @@ interface ServerOpts {
   healthBody?: Record<string, unknown>;
   asMeta?: Record<string, unknown>;
   prMeta?: Record<string, unknown>;
+  /** The `/mcp` path form; defaults to whatever the bare path serves. */
+  prMcpMeta?: Record<string, unknown>;
+  prMcpStatus?: number;
   tokenStatus?: number;
   tokenBody?: Record<string, unknown>;
   initResult?: Record<string, unknown>;
@@ -88,7 +91,14 @@ function fakeServer(opts: ServerOpts = {}): { fetchFn: FetchLike; seen: Seen[] }
     }
     if (url.pathname === "/.well-known/oauth-protected-resource") {
       record("pr-meta");
-      return Response.json(opts.prMeta ?? { resource: BASE, authorization_servers: [BASE] });
+      return Response.json(opts.prMeta ?? { resource: `${BASE}/mcp`, authorization_servers: [BASE] });
+    }
+    if (url.pathname === "/.well-known/oauth-protected-resource/mcp") {
+      record("pr-meta-mcp");
+      return Response.json(
+        opts.prMcpMeta ?? opts.prMeta ?? { resource: `${BASE}/mcp`, authorization_servers: [BASE] },
+        { status: opts.prMcpStatus ?? 200 },
+      );
     }
     if (url.pathname === "/token") {
       record("token");
@@ -170,6 +180,7 @@ describe("runRemoteDoctor — happy paths", () => {
       "health",
       "as-meta",
       "pr-meta",
+      "pr-meta-mcp",
       "token",
       "initialize",
       "tools/list",
@@ -333,6 +344,29 @@ describe("runRemoteDoctor — discovery", () => {
     const { fetchFn } = fakeServer({ asMeta: { ...good, issuer: `${BASE}/tenant` } });
     const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
     expect(statusOf(r, "discovery")).toBe("fail");
+  });
+
+  it("accepts a bare-issuer resource from a server that predates the /mcp form", async () => {
+    const { fetchFn } = fakeServer({ prMeta: { resource: BASE, authorization_servers: [BASE] } });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "discovery")).toBe("ok");
+  });
+
+  it("fails when the /mcp protected-resource path is not served", async () => {
+    const { fetchFn } = fakeServer({ prMcpStatus: 401 });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "discovery")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "discovery")?.detail).toContain("/mcp HTTP 401");
+  });
+
+  it("fails when the two protected-resource paths name different resources", async () => {
+    const { fetchFn } = fakeServer({
+      prMeta: { resource: BASE, authorization_servers: [BASE] },
+      prMcpMeta: { resource: `${BASE}/mcp`, authorization_servers: [BASE] },
+    });
+    const r = await runRemoteDoctor(BASE, clientCreds, {}, fetchFn);
+    expect(statusOf(r, "discovery")).toBe("fail");
+    expect(r.checks.find((c) => c.name === "discovery")?.detail).toContain("disagrees");
   });
 
   it("fails when the protected-resource document names another server", async () => {

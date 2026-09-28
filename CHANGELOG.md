@@ -6,6 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **OAuth tokens are bound to the resource they were approved for (RFC 8707).**
+  `/authorize` stored the `resource` a connector named, but the code and refresh
+  exchanges issued tokens from a `resource` argument `/token` never passed, so
+  every token came out unbound. The approved resource now carries into the
+  access and refresh tokens and survives rotation. Two spellings are this server,
+  `<issuer>` and `<issuer>/mcp` (a trailing slash is not a difference), and both
+  are stored as `<issuer>/mcp`. Any other `resource` is `invalid_target`: at
+  `/authorize` as an error redirect, at `/token` before the code or refresh token
+  is consumed, so the legitimate holder can still redeem it. `/mcp` refuses a
+  token bound to any other resource; tokens with no resource — everything issued
+  before this, PATs and `client_credentials` tokens — are unchanged.
+
+### Fixed
+- **Protected-resource metadata is served where clients look for it.** A client
+  pointed at `<issuer>/mcp` derives `/.well-known/oauth-protected-resource/mcp`
+  (RFC 9728 §3.1), which answered 401. It now serves the document with
+  `resource: <issuer>/mcp`; the bare path serves the same document for clients
+  that cached it. The `/mcp` 401 challenge points at the path form.
+- **A 401 on `/mcp` with no credential no longer says `invalid_token`.** RFC 6750
+  §3.1 reserves the error code for a token that was presented; the no-credential
+  challenge carries `scope="read write"` instead. A refused token still gets
+  `error="invalid_token"`.
+- **Any other `/.well-known/` probe (`openid-configuration`, a path-inserted AS
+  document) is a 404 JSON answer**, not a 401 telling the client to authenticate
+  for a document that does not exist.
+- **`client_credentials` accepts HTTP Basic client authentication.** Discovery
+  already advertised `client_secret_basic`; only the body form worked.
+
+### Changed
+- **Discovery advertises `scopes_supported: ["read", "write"]`** in both metadata
+  documents — the scopes a connector can obtain. `admin`, `agent`,
+  `sources_admin` and `users_admin` are granted by registering a client, and a
+  client that copied the list into its request asked for them. What DCR, PATs and
+  registered clients accept is unchanged.
+- **`memex auth doctor` checks both protected-resource paths** and fails when
+  either does not answer or they name different resources.
+
 ## [1.155.0] — 2026-09-28
 
 ### Added

@@ -7,6 +7,7 @@
  * the static public bearer is also enforced. A bad/garbage token still 401s.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,5 +129,81 @@ describe("self-issued client_credentials on the MCP ingress", () => {
     expect(r.status).toBe(200);
     const body = (await r.json()) as { result?: unknown };
     expect(body.result).toBeDefined();
+  });
+
+  it("client_credentials accepts HTTP Basic client authentication", async () => {
+    const basic = Buffer.from(
+      `${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`,
+    ).toString("base64");
+    const r = await fetch(`${url}/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basic}`,
+      },
+      body: new URLSearchParams({ grant_type: "client_credentials" }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { access_token: string };
+    expect((await provider.verifyAccessToken(body.access_token)).clientId).toBe(clientId);
+
+    const wrong = Buffer.from(`${clientId}:memex_cs_wrong`).toString("base64");
+    const bad = await fetch(`${url}/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${wrong}`,
+      },
+      body: new URLSearchParams({ grant_type: "client_credentials" }),
+    });
+    expect(bad.status).toBe(401);
+  });
+
+  describe("audience (RFC 8707) on the public /mcp ingress", () => {
+    async function publicMcp(bearer: string): Promise<Response> {
+      return fetch(`${url}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Connecting-Ip": "1.2.3.4",
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(readCall),
+      });
+    }
+
+    async function minted(resource: string | null): Promise<string> {
+      const t = (await (await token(clientSecret)).json()) as { access_token: string };
+      await storage.raw().query(
+        `UPDATE oauth_tokens SET resource = $1 WHERE token_hash = $2`,
+        [resource, createHash("sha256").update(t.access_token, "utf8").digest("hex")],
+      );
+      return t.access_token;
+    }
+
+    it("accepts a token with no resource (every token issued before binding)", async () => {
+      expect((await publicMcp(await minted(null))).status).toBe(200);
+    });
+
+    it("accepts a token bound to either spelling of this server", async () => {
+      expect((await publicMcp(await minted(`${url}/mcp`))).status).toBe(200);
+      expect((await publicMcp(await minted(`${url}/`))).status).toBe(200);
+    });
+
+    it("refuses a token bound to another resource with invalid_token", async () => {
+      const r = await publicMcp(await minted("https://other.example/mcp"));
+      expect(r.status).toBe(401);
+      expect(r.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+    });
+
+    it("still accepts a legacy PAT and the static public bearer", async () => {
+      const pat = `memex_${randomBytes(32).toString("hex")}`;
+      await storage.raw().query(
+        `INSERT INTO access_tokens (name, token_hash, scopes) VALUES ($1, $2, $3::text[])`,
+        ["laptop", createHash("sha256").update(pat, "utf8").digest("hex"), ["read", "write"]],
+      );
+      expect((await publicMcp(pat)).status).toBe(200);
+      expect((await publicMcp(PUB_TOKEN)).status).toBe(200);
+    });
   });
 });
