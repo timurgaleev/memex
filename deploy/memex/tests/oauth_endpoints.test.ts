@@ -438,7 +438,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     });
   });
 
-  it("DCR defaults an omitted grant_types to authorization_code", async () => {
+  it("DCR defaults an omitted grant_types to authorization_code + refresh_token", async () => {
     await withDcr(async (base) => {
       const res = await fetch(`${base}/register`, {
         method: "POST",
@@ -455,9 +455,9 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
         client_id: string;
         grant_types: string[];
       };
-      expect(body.grant_types).toEqual(["authorization_code"]);
+      expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
       const stored = await provider.getClient(body.client_id);
-      expect(stored?.grant_types).toEqual(["authorization_code"]);
+      expect(stored?.grant_types).toEqual(["authorization_code", "refresh_token"]);
     });
   });
 

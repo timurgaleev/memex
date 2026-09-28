@@ -24,7 +24,7 @@ import type {
   OAuthProvider,
   OAuthClientInfo,
 } from "../core/oauth-provider.ts";
-import { GrantConflictError, needsOperatorConsent } from "../core/oauth-provider.ts";
+import { GrantConflictError, clientAllowsGrant, needsOperatorConsent } from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
 import { canonicalResource } from "./oauth-metadata.ts";
 import { isSameOriginPost } from "./same-origin.ts";
@@ -263,6 +263,13 @@ export async function handleTokenRoute(
       if (!refreshToken) {
         return oauthError("invalid_request", "refresh_token is required", 400);
       }
+      if (!clientAllowsGrant(client.grant_types, "refresh_token")) {
+        return oauthError(
+          "unauthorized_client",
+          "this client is not registered for the refresh_token grant",
+          400,
+        );
+      }
       if (conflicts(await provider.resourceForRefreshToken(client, refreshToken))) {
         return oauthError("invalid_target", "resource does not match the refresh token", 400);
       }
@@ -371,6 +378,14 @@ export async function handleAuthorizeRoute(
 
   // redirect_uri is now trusted — parameter errors go back to it.
   const state = q.get("state") ?? undefined;
+  if (!clientAllowsGrant(client.grant_types, "authorization_code")) {
+    return errorRedirect(
+      redirectUri,
+      "unauthorized_client",
+      state,
+      "this client is not registered for the authorization_code grant",
+    );
+  }
   if (q.get("response_type") !== "code") {
     return errorRedirect(redirectUri, "unsupported_response_type", state);
   }

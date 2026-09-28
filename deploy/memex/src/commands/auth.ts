@@ -6,6 +6,7 @@
  * Subcommands:
  *   register-client <name> [--grant-types G] [--scopes S] [--source SRC]
  *                          [--redirect-uris u1,u2] [--bound-slug-prefixes p1,p2]
+ *                          [--access-ttl 1h] [--refresh-ttl 30d]
  *              --redirect-uris makes it an authorization-code (browser) client
  *              — e.g. a hosted MCP connector's callback. Grants then default to
  *              authorization_code,refresh_token unless --grant-types is given.
@@ -38,15 +39,23 @@
  *              source + federated read set) — no revoke + re-register.
  *              --bound-slug-prefixes also replaces the slug write fence; pass
  *              an empty value ("") to lift it. Omit the flag to leave it as-is.
+ *              --access-ttl / --refresh-ttl set the client's token lifetimes
+ *              (access 5m..1d, refresh 1h..90d); "default" clears one.
+ *   invalidate-tokens <client_id> [--grant ENROLLMENT_ID]
+ *              Delete every access token, refresh token and code of the client
+ *              (or of one enrollment grant on it). The client stays registered.
  *   grant-token <client_id> <client_secret> [--scopes S]
  *              Exchange client_credentials for an access token locally (for a
  *              handoff / smoke test) — equivalent to POST /token.
- *   create <name> [--takes-holders a,b]
+ *   create <name> [--takes-holders a,b] [--source SRC] [--federated-read a,b]
+ *          [--scopes read,write]
  *              Mint a long-lived personal access token (access_tokens row).
  *              Prints the token ONCE — only the SHA-256 hash persists. Tenant
- *              scope comes from `permissions.source_id` (operator-set): a
- *              scalar is write+read source, an array is a federated read set
- *              anchored on its first element.
+ *              scope comes from `permissions.source_id`: a scalar is
+ *              write+read source, an array is a federated read set anchored on
+ *              its first element. --source (a registered source) writes it;
+ *              --federated-read adds read sources. --scopes is read and/or
+ *              write (default both).
  *   list       Table of personal access tokens (no hashes).
  *   revoke <name>
  *              Soft-revoke a personal access token by name.
@@ -66,6 +75,7 @@ import {
   needsOperatorConsent,
   oauthRequireLoginFromEnv,
   parseTenantMode,
+  resolvePatGrant,
 } from "../core/oauth-provider.ts";
 import {
   DoctorUsageError,
@@ -97,6 +107,7 @@ export type AuthSub =
   | "enrollments"
   | "revoke-enrollment"
   | "revoke-grant"
+  | "invalidate-tokens"
   | "grant-token"
   | "create"
   | "list"
@@ -213,6 +224,8 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
     ? flags["bound-slug-prefixes"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
   const tenantMode = parseTenantMode(flags["tenant-mode"]);
+  const accessTtlSeconds = parseClientTtlFlag("access-ttl", flags["access-ttl"]);
+  const refreshTtlSeconds = parseClientTtlFlag("refresh-ttl", flags["refresh-ttl"]);
   if (
     tokenEndpointAuthMethod === "none" &&
     needsOperatorConsent({ tenant_mode: tenantMode }) &&
@@ -238,6 +251,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
       tokenEndpointAuthMethod,
       boundSlugPrefixes,
       tenantMode,
+      { accessTtlSeconds, refreshTtlSeconds },
     ),
   );
   // The secret is shown ONCE — only its hash is stored.
@@ -252,6 +266,8 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
         source_id: sourceId,
         federated_read: federatedRead ?? [sourceId],
         tenant_mode: tenantMode,
+        access_ttl_seconds: accessTtlSeconds ?? null,
+        refresh_ttl_seconds: refreshTtlSeconds ?? null,
         ...(tokenEndpointAuthMethod
           ? { token_endpoint_auth_method: tokenEndpointAuthMethod }
           : {}),
@@ -326,9 +342,25 @@ export function parseExpectedRevision(raw: string | undefined): number | undefin
   return Number(raw);
 }
 
+/**
+ * Parse `--access-ttl` / `--refresh-ttl` (`1h`, `30d`, seconds). Undefined when
+ * the flag is absent; `default` (or `none`) is null, which clears an override
+ * on rescope. The provider enforces the bounds.
+ */
+export function parseClientTtlFlag(name: string, raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "default" || raw === "none") return null;
+  if (raw.trim() === "") throw new Error(`--${name} needs a value like 1h or 30d`);
+  try {
+    return parseTtl(raw, 0);
+  } catch {
+    throw new Error(`--${name} must look like 15m, 1h, 30d or 3600s (got '${raw}')`);
+  }
+}
+
 async function rescopeClient(clientId: string, args: string[]): Promise<void> {
   const usage =
-    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment] [--expected-revision N] [--dry-run]";
+    "Usage: auth rescope-client <client_id> --source SRC [--federated-read a,b] [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment] [--access-ttl 1h|default] [--refresh-ttl 30d|default] [--expected-revision N] [--dry-run]";
   if (!clientId) throw new Error(usage);
   const { flags } = parseFlags(args);
   const dryRun = parseBoolFlag("dry-run", flags["dry-run"]);
@@ -342,10 +374,12 @@ async function rescopeClient(clientId: string, args: string[]): Promise<void> {
   const boundSlugPrefixes = parseFenceFlag(flags["bound-slug-prefixes"]);
   const tenantMode = flags["tenant-mode"] !== undefined ? parseTenantMode(flags["tenant-mode"]) : undefined;
   const expectedRevision = parseExpectedRevision(flags["expected-revision"]);
+  const accessTtlSeconds = parseClientTtlFlag("access-ttl", flags["access-ttl"]);
+  const refreshTtlSeconds = parseClientTtlFlag("refresh-ttl", flags["refresh-ttl"]);
   const result = await withProvider((p) =>
     p.rescopeClient(
       clientId,
-      { sourceId, federatedRead, boundSlugPrefixes, tenantMode },
+      { sourceId, federatedRead, boundSlugPrefixes, tenantMode, accessTtlSeconds, refreshTtlSeconds },
       { actor: cliActor(), via: "cli", expectedRevision, dryRun },
     ),
   );
@@ -362,6 +396,36 @@ async function rescopeClient(clientId: string, args: string[]): Promise<void> {
           access_tokens: result.revokedUnbound.accessTokens,
           refresh_tokens: result.revokedUnbound.refreshTokens,
           codes: result.revokedUnbound.codes,
+        },
+        access_ttl_seconds: result.ttls.accessTtlSeconds,
+        refresh_ttl_seconds: result.ttls.refreshTtlSeconds,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function invalidateTokens(clientId: string, args: string[]): Promise<void> {
+  if (!clientId) throw new Error("Usage: auth invalidate-tokens <client_id> [--grant ENROLLMENT_ID]");
+  const { flags } = parseFlags(args);
+  const r = await withProvider((p) =>
+    p.invalidateClientTokens(clientId, {
+      actor: cliActor(),
+      via: "cli",
+      ...(flags["grant"] ? { grantId: flags["grant"] } : {}),
+    }),
+  );
+  console.log(
+    JSON.stringify(
+      {
+        client_id: r.clientId,
+        grant_id: r.grantId,
+        revision: r.revision,
+        deleted: {
+          access_tokens: r.deleted.accessTokens,
+          refresh_tokens: r.deleted.refreshTokens,
+          codes: r.deleted.codes,
         },
       },
       null,
@@ -498,8 +562,18 @@ async function grantToken(
   console.log(JSON.stringify(tokens, null, 2));
 }
 
+/** A comma list flag as a list; undefined when the flag is absent. */
+function listFlag(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 async function createToken(name: string, rest: string[]): Promise<void> {
-  if (!name) throw new Error("Usage: auth create <name> [--takes-holders a,b]");
+  if (!name) {
+    throw new Error(
+      "Usage: auth create <name> [--takes-holders a,b] [--source SRC] [--federated-read a,b] [--scopes read,write]",
+    );
+  }
   const { flags } = parseFlags(rest);
   // Default ['world'] keeps private takes hidden from MCP-bound tokens
   // until the operator explicitly widens the allow-list.
@@ -513,7 +587,12 @@ async function createToken(name: string, rest: string[]): Promise<void> {
   const token = "memex_" + randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
 
-  await withProvider(async (_p, storage) => {
+  const minted = await withProvider(async (_p, storage) => {
+    const grant = await resolvePatGrant(storage.raw(), {
+      ...(flags["source"] !== undefined ? { sourceId: flags["source"] } : {}),
+      ...(flags["scopes"] !== undefined ? { scopes: listFlag(flags["scopes"])! } : {}),
+      ...(flags["federated-read"] !== undefined ? { federatedRead: listFlag(flags["federated-read"])! } : {}),
+    });
     const existing = await storage
       .raw()
       .query<{ id: number }>(
@@ -536,14 +615,25 @@ async function createToken(name: string, rest: string[]): Promise<void> {
        VALUES ($1, $2, $3::text[], $4::jsonb,
                (SELECT p.budget_usd_per_day FROM access_tokens p
                  WHERE p.name = $1 ORDER BY p.id DESC LIMIT 1))`,
-      [name, tokenHash, ["read", "write"], { takes_holders: takesHolders }],
+      [
+        name,
+        tokenHash,
+        grant.scopes,
+        {
+          takes_holders: takesHolders,
+          ...(grant.sourceGrant !== undefined ? { source_id: grant.sourceGrant } : {}),
+        },
+      ],
     );
+    return grant;
   });
   console.log(
     JSON.stringify(
       {
         name,
         token,
+        scopes: minted.scopes,
+        ...(minted.sourceGrant !== undefined ? { source_id: minted.sourceGrant } : {}),
         takes_holders: takesHolders,
         note: "Store the token now — only its hash persists. Revoke with: memex auth revoke <name>.",
       },
@@ -910,6 +1000,8 @@ export async function runAuth(args: string[]): Promise<void> {
       return revokeEnrollment(rest[0]!);
     case "revoke-grant":
       return revokeGrant(rest[0]!);
+    case "invalidate-tokens":
+      return invalidateTokens(rest[0]!, rest.slice(1));
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     case "create":
@@ -926,7 +1018,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return doctorCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|grant-token|create|list|revoke|permissions|test|doctor>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|invalidate-tokens|grant-token|create|list|revoke|permissions|test|doctor>",
       );
       process.exitCode = 1;
   }

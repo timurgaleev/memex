@@ -203,6 +203,9 @@ services:
       # only way a browser-based connector (Claude Desktop, ChatGPT) reaches
       # a consent screen you control.
       - MEMEX_OAUTH_REQUIRE_LOGIN=${MEMEX_OAUTH_REQUIRE_LOGIN:-}
+      # A refresh token replayed after its 60s grace window: off (default)
+      # refuses and logs it; =1 also deletes every token of that sign-in.
+      - MEMEX_OAUTH_REFRESH_REUSE_REVOKE=${MEMEX_OAUTH_REFRESH_REUSE_REVOKE:-}
       # Dynamic Client Registration (RFC 7591). Off by default — pre-register
       # clients with `auth register-client` instead.
       - MEMEX_ENABLE_DCR=${MEMEX_ENABLE_DCR:-}

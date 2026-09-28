@@ -136,6 +136,7 @@ def test_serve_time_env_vars_reach_the_container(compose):
         "MEMEX_PUBLIC_URL",
         "MEMEX_ASSUME_PUBLIC",
         "MEMEX_OAUTH_REQUIRE_LOGIN",
+        "MEMEX_OAUTH_REFRESH_REUSE_REVOKE",
         "MEMEX_ENABLE_DCR",
         "MEMEX_ENABLE_DCR_INSECURE",
         "MEMEX_ADMIN_BOOTSTRAP",

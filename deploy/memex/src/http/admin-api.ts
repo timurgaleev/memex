@@ -23,6 +23,7 @@ import {
   GrantNotFoundError,
   GrantValidationError,
   OAuthProvider,
+  resolvePatGrant,
   validateTokenEndpointAuthMethod,
 } from "../core/oauth-provider.ts";
 import type { TenantMode } from "../core/oauth-provider.ts";
@@ -228,9 +229,11 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
   // POST /admin/api/api-keys — mint a personal access token (= `auth create`).
   // The plaintext token is returned ONCE; only the SHA-256 hash persists. The
   // default permissions block matches the CLI: takes_holders ['world'] keeps
-  // private takes hidden until the operator widens the allow-list.
+  // private takes hidden until the operator widens the allow-list. Optional
+  // `source` (write source), `read` (extra read sources) and `scopes` (read
+  // and/or write) are validated exactly as `auth create` validates them.
   if (p === "/admin/api/api-keys" && req.method === "POST") {
-    let body: { name?: unknown };
+    let body: { name?: unknown; source?: unknown; read?: unknown; scopes?: unknown };
     try {
       body = (await req.json()) as typeof body;
     } catch {
@@ -238,6 +241,23 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) return badRequest("name required");
+    const isIdList = (v: unknown): v is string[] =>
+      Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0);
+    if (body.source !== undefined && (typeof body.source !== "string" || body.source.length === 0)) {
+      return badRequest("source must be a source id");
+    }
+    if (body.read !== undefined && !isIdList(body.read)) return badRequest("read must be an array of source ids");
+    if (body.scopes !== undefined && !isIdList(body.scopes)) return badRequest("scopes must be an array of scopes");
+    let grant: Awaited<ReturnType<typeof resolvePatGrant>>;
+    try {
+      grant = await resolvePatGrant(engine, {
+        ...(typeof body.source === "string" ? { sourceId: body.source } : {}),
+        ...(isIdList(body.read) ? { federatedRead: body.read } : {}),
+        ...(isIdList(body.scopes) ? { scopes: body.scopes } : {}),
+      });
+    } catch (e) {
+      return badRequest(e instanceof Error ? e.message : "invalid token grant");
+    }
     try {
       const dup = await engine.query<{ id: number }>(
         "SELECT id FROM access_tokens WHERE name = $1 AND revoked_at IS NULL",
@@ -255,13 +275,23 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
          VALUES ($1, $2, $3::text[], $4::jsonb,
                  (SELECT p.budget_usd_per_day FROM access_tokens p
                  WHERE p.name = $1 ORDER BY p.id DESC LIMIT 1)) RETURNING id`,
-        [name, sha256Hex(token), ["read", "write"], { takes_holders: ["world"] }],
+        [
+          name,
+          sha256Hex(token),
+          grant.scopes,
+          {
+            takes_holders: ["world"],
+            ...(grant.sourceGrant !== undefined ? { source_id: grant.sourceGrant } : {}),
+          },
+        ],
       );
       return Response.json({
         ok: true,
         id: String(inserted.rows[0]?.id ?? ""),
         name,
         token,
+        scopes: grant.scopes,
+        ...(grant.sourceGrant !== undefined ? { source_id: grant.sourceGrant } : {}),
         note: "Store the token now — only its hash persists.",
       });
     } catch (e) {
@@ -525,6 +555,45 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
         return Response.json({ error: "invalid_grant", reasons: e.reasons }, { status: 400 });
       }
       return serverError("rescope-client", e);
+    }
+  }
+
+  // POST /admin/api/invalidate-tokens — delete every token and code of a
+  // client, or of one enrollment grant on it (`grant_id`), keeping the client
+  // (= `auth invalidate-tokens`). Audited like a rescope.
+  if (p === "/admin/api/invalidate-tokens" && req.method === "POST") {
+    let body: { client_id?: unknown; grant_id?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
+    if (body.grant_id !== undefined && (typeof body.grant_id !== "string" || body.grant_id.length === 0)) {
+      return badRequest("grant_id must be an enrollment id");
+    }
+    try {
+      const r = await new OAuthProvider({ engine }).invalidateClientTokens(body.client_id, {
+        actor: "admin",
+        via: "admin_api",
+        ...(typeof body.grant_id === "string" ? { grantId: body.grant_id } : {}),
+      });
+      return Response.json({
+        ok: true,
+        client_id: r.clientId,
+        grant_id: r.grantId,
+        revision: r.revision,
+        deleted: {
+          access_tokens: r.deleted.accessTokens,
+          refresh_tokens: r.deleted.refreshTokens,
+          codes: r.deleted.codes,
+        },
+      });
+    } catch (e) {
+      if (e instanceof GrantNotFoundError) {
+        return Response.json({ error: "not_found", detail: `no active client "${body.client_id}"` }, { status: 404 });
+      }
+      return serverError("invalidate-tokens", e);
     }
   }
 

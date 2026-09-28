@@ -20,7 +20,7 @@
  * persisted.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Engine } from "./engine/interface.ts";
 import { validateSlug as validatePageSlug } from "./pages.ts";
 import {
@@ -396,6 +396,49 @@ function parseLegacyTokenScope(grant: unknown): {
   return { sourceId: "default" };
 }
 
+/** The scopes a personal access token may be minted with. */
+const PAT_MINT_SCOPES = ["read", "write"];
+
+/**
+ * Validate the tenancy and scopes of a personal access token about to be
+ * minted, and return what goes on its row. Omitted scopes keep the historical
+ * read+write; omitted source keeps the token unscoped (the 'default' floor), as
+ * every existing token is. A write source must be registered, and so must every
+ * read source; the read set always contains the write source, because the row
+ * stores it as the first element of `permissions.source_id`.
+ */
+export async function resolvePatGrant(
+  engine: Engine,
+  input: { sourceId?: string; scopes?: string[]; federatedRead?: string[] },
+): Promise<{ scopes: string[]; sourceGrant?: string | string[] }> {
+  const scopes = input.scopes ?? PAT_MINT_SCOPES;
+  if (scopes.length === 0) throw new Error("scopes cannot be empty");
+  const bad = scopes.filter((x) => !PAT_MINT_SCOPES.includes(x));
+  if (bad.length > 0) {
+    throw new Error(
+      `a personal access token is minted with read and/or write, got: ${bad.join(", ")} ` +
+        "(grant admin later with `auth permissions <name> set-scopes`)",
+    );
+  }
+  const federated = input.federatedRead ?? [];
+  if (input.sourceId === undefined) {
+    if (federated.length > 0) throw new Error("--federated-read needs --source");
+    return { scopes: Array.from(new Set(scopes)) };
+  }
+  const wanted = Array.from(new Set([input.sourceId, ...federated]));
+  const known = await engine.query<{ id: string }>(
+    "SELECT id FROM sources WHERE id = ANY($1::text[])",
+    [wanted],
+  );
+  const knownIds = new Set(known.rows.map((r) => r.id));
+  const missing = wanted.filter((id) => !knownIds.has(id));
+  if (missing.length > 0) throw new Error(`Unknown source '${missing.join("', '")}'`);
+  return {
+    scopes: Array.from(new Set(scopes)),
+    sourceGrant: wanted.length > 1 ? wanted : input.sourceId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
@@ -439,6 +482,15 @@ export interface GrantChange {
   federatedRead?: string[];
   boundSlugPrefixes?: string[];
   tenantMode?: TenantMode;
+  /** Per-client token lifetimes: omitted leaves them, null clears them. */
+  accessTtlSeconds?: number | null;
+  refreshTtlSeconds?: number | null;
+}
+
+/** Per-client token lifetimes in seconds; absent or null = the server default. */
+export interface ClientTtls {
+  accessTtlSeconds?: number | null;
+  refreshTtlSeconds?: number | null;
 }
 
 export type GrantVia = "cli" | "admin_api";
@@ -466,6 +518,8 @@ export interface GrantMutationResult {
    * non-zero only when the write source or the tenant mode changed.
    */
   revokedUnbound: UnboundRevocation;
+  /** The client's token lifetimes after the change (null = server default). */
+  ttls: { accessTtlSeconds: number | null; refreshTtlSeconds: number | null };
 }
 
 export interface UnboundRevocation {
@@ -474,7 +528,7 @@ export interface UnboundRevocation {
   codes: number;
 }
 
-export type GrantReasonCode = "unknown_source" | "empty_read_set" | "invalid_prefix";
+export type GrantReasonCode = "unknown_source" | "empty_read_set" | "invalid_prefix" | "invalid_ttl";
 
 export interface GrantReason {
   code: GrantReasonCode;
@@ -563,13 +617,105 @@ function tallyUnbound(tokens: { token_type: string }[], codes: number): UnboundR
 }
 
 /**
+ * How long a consumed refresh token may be presented again without revoking its
+ * family. A client that retries a refresh whose response it never saw (or races
+ * two of them) presents the same token twice within seconds; that is refused,
+ * but it is not treated as theft.
+ */
+export const REFRESH_REUSE_GRACE_SECONDS = 60;
+
+/**
+ * `MEMEX_OAUTH_REFRESH_REUSE_REVOKE` as the server reads it: `1` or `true`
+ * deletes the family of a replayed refresh token. Off, the replay is refused and
+ * logged, and the family keeps working.
+ */
+export function refreshReuseRevokeFromEnv(): boolean {
+  const v = (process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/** Bounds on a per-client access-token lifetime: 5 minutes to 1 day. */
+export const ACCESS_TTL_BOUNDS = { min: 300, max: 86_400 } as const;
+/** Bounds on a per-client refresh-token lifetime: 1 hour to 90 days. */
+export const REFRESH_TTL_BOUNDS = { min: 3600, max: 90 * 86_400 } as const;
+
+/**
+ * Throw unless `seconds` is a whole number inside `bounds`. `null` (clear the
+ * override) and `undefined` (leave it) pass.
+ */
+export function assertClientTtl(
+  name: "access_ttl_seconds" | "refresh_ttl_seconds",
+  seconds: number | null | undefined,
+): void {
+  if (seconds === null || seconds === undefined) return;
+  const b = name === "access_ttl_seconds" ? ACCESS_TTL_BOUNDS : REFRESH_TTL_BOUNDS;
+  if (!Number.isInteger(seconds) || seconds < b.min || seconds > b.max) {
+    throw new Error(`${name} must be a whole number of seconds from ${b.min} to ${b.max}, got ${seconds}`);
+  }
+}
+
+/**
+ * Whether a client registered with `grantTypes` may use `grant`. An empty list
+ * predates enforcement of the browser grants, so it keeps the historical
+ * default of authorization_code + refresh_token (and never client_credentials).
+ */
+export function clientAllowsGrant(grantTypes: readonly string[] | null | undefined, grant: string): boolean {
+  if (!grantTypes || grantTypes.length === 0) {
+    return grant === "authorization_code" || grant === "refresh_token";
+  }
+  return grantTypes.includes(grant);
+}
+
+/** What a code or refresh exchange reads off the locked client row. */
+interface IssuePolicy {
+  grantRevision: number;
+  grantTypes: string[] | null;
+  accessTtl: number | undefined;
+  refreshTtl: number | undefined;
+}
+
+function positiveOrUndefined(raw: unknown): number | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
  * Share-lock the client row for a code or refresh exchange. rescopeClient takes
  * it FOR UPDATE, so an exchange either finishes (its new unbound tokens are then
  * there for the rescope to revoke) or starts after the rescope committed and
- * judges `unboundAllowed` against the new row.
+ * judges `unboundAllowed` against the new row. Returns what issuance needs from
+ * that same row, or undefined when the client is gone.
  */
-async function lockClientForIssue(tx: Engine, clientId: string): Promise<void> {
-  await tx.query(`SELECT 1 FROM oauth_clients WHERE client_id = $1 FOR SHARE`, [clientId]);
+async function lockClientForIssue(tx: Engine, clientId: string): Promise<IssuePolicy | undefined> {
+  const r = await tx.query<{
+    grant_revision: number | string;
+    grant_types: string[] | null;
+    access_ttl_seconds: number | string | null;
+    refresh_ttl_seconds: number | string | null;
+  }>(
+    `SELECT grant_revision, grant_types, access_ttl_seconds, refresh_ttl_seconds
+       FROM oauth_clients WHERE client_id = $1 FOR SHARE`,
+    [clientId],
+  );
+  const row = r.rows[0];
+  if (!row) return undefined;
+  return {
+    grantRevision: Number(row.grant_revision),
+    grantTypes: row.grant_types,
+    accessTtl: positiveOrUndefined(row.access_ttl_seconds),
+    refreshTtl: positiveOrUndefined(row.refresh_ttl_seconds),
+  };
+}
+
+/** Options for one issuance: lifetimes, the tenant grant, the refresh family. */
+interface IssueOptions {
+  accessTtl?: number;
+  refreshTtl?: number;
+  grant?: GrantScope;
+  /** The refresh family the new tokens join; minted fresh when absent. */
+  familyId?: string;
+  db?: Engine;
 }
 
 interface ClientGrantState {
@@ -672,7 +818,11 @@ export class OAuthProvider {
     for (const uri of client.redirect_uris || []) {
       validateRedirectUri(String(uri));
     }
-    const requestedScopes = parseScopeString(client.scope);
+    // A request that names no scope gets what the clamp below would grant a
+    // client asking for everything, not a client that can do nothing.
+    const requestedScopes = parseScopeString(
+      client.scope !== undefined && client.scope.trim() !== "" ? client.scope : "read write",
+    );
     assertAllowedScopes(requestedScopes);
     // SECURITY: Dynamic Client Registration is UNAUTHENTICATED (public /register).
     // A self-registered client must NEVER hold an elevated scope — otherwise
@@ -701,7 +851,7 @@ export class OAuthProvider {
     const grantTypes =
       client.grant_types && client.grant_types.length > 0
         ? client.grant_types
-        : ["authorization_code"];
+        : ["authorization_code", "refresh_token"];
     if (
       !this.allowClientCredentialsDcr &&
       grantTypes.includes("client_credentials")
@@ -779,8 +929,11 @@ export class OAuthProvider {
     tokenEndpointAuthMethod?: string,
     boundSlugPrefixes?: string[],
     tenantMode: TenantMode = "client",
+    ttls: ClientTtls = {},
   ): Promise<{ clientId: string; clientSecret?: string }> {
     assertAllowedScopes(parseScopeString(scopes));
+    assertClientTtl("access_ttl_seconds", ttls.accessTtlSeconds);
+    assertClientTtl("refresh_ttl_seconds", ttls.refreshTtlSeconds);
     const authMethod = validateTokenEndpointAuthMethod(
       tokenEndpointAuthMethod,
     );
@@ -805,9 +958,9 @@ export class OAuthProvider {
          (client_id, client_secret_hash, client_name, redirect_uris,
           grant_types, scope, token_endpoint_auth_method,
           client_id_issued_at, source_id, federated_read, bound_slug_prefixes,
-          tenant_mode)
+          tenant_mode, access_ttl_seconds, refresh_ttl_seconds)
        VALUES ($1, $2, $3, $4::text[], $5::text[], $6, $7, $8, $9, $10::text[],
-               $11::text[], $12)`,
+               $11::text[], $12, $13, $14)`,
       [
         clientId,
         secretHash,
@@ -823,6 +976,8 @@ export class OAuthProvider {
           ? boundSlugPrefixes
           : null,
         tenantMode,
+        ttls.accessTtlSeconds ?? null,
+        ttls.refreshTtlSeconds ?? null,
       ],
     );
 
@@ -869,8 +1024,11 @@ export class OAuthProvider {
         tenant_mode: string | null;
         grant_revision: number;
         grant_types: string[] | null;
+        access_ttl_seconds: number | null;
+        refresh_ttl_seconds: number | null;
       }>(
-        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision, grant_types
+        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision, grant_types,
+                access_ttl_seconds, refresh_ttl_seconds
            FROM oauth_clients
           WHERE client_id = $1 AND deleted_at IS NULL
           FOR UPDATE`,
@@ -900,6 +1058,23 @@ export class OAuthProvider {
         tenant_mode: change.tenantMode ?? row.tenant_mode,
       });
       const changed = grantDiff(before, after);
+      const ttlsBefore = {
+        accessTtlSeconds: row.access_ttl_seconds === null ? null : Number(row.access_ttl_seconds),
+        refreshTtlSeconds: row.refresh_ttl_seconds === null ? null : Number(row.refresh_ttl_seconds),
+      };
+      const ttls = {
+        accessTtlSeconds: change.accessTtlSeconds === undefined ? ttlsBefore.accessTtlSeconds : change.accessTtlSeconds,
+        refreshTtlSeconds: change.refreshTtlSeconds === undefined ? ttlsBefore.refreshTtlSeconds : change.refreshTtlSeconds,
+      };
+      // Lifetimes are not part of the tenancy snapshot, but a change to them is
+      // recorded alongside it when one was asked for.
+      const setsTtl = change.accessTtlSeconds !== undefined || change.refreshTtlSeconds !== undefined;
+      const auditBefore = setsTtl
+        ? { ...before, access_ttl_seconds: ttlsBefore.accessTtlSeconds, refresh_ttl_seconds: ttlsBefore.refreshTtlSeconds }
+        : before;
+      const auditAfter = setsTtl
+        ? { ...after, access_ttl_seconds: ttls.accessTtlSeconds, refresh_ttl_seconds: ttls.refreshTtlSeconds }
+        : after;
       // Only the authorization-code flow puts a person behind an unbound token;
       // a client_credentials-only client's tokens stay the machine's and follow
       // the client row as before.
@@ -908,7 +1083,7 @@ export class OAuthProvider {
         (row.grant_types ?? []).includes("authorization_code");
       if (opts.dryRun) {
         const revokedUnbound = movesTenant ? await countUnbound(tx, clientId) : NO_UNBOUND_REVOKED;
-        return { clientId, revision: current, before, after, changed, dryRun: true, revokedUnbound };
+        return { clientId, revision: current, before, after, changed, dryRun: true, revokedUnbound, ttls };
       }
 
       const setFence = change.boundSlugPrefixes !== undefined;
@@ -919,6 +1094,8 @@ export class OAuthProvider {
                   bound_slug_prefixes = CASE WHEN $5::boolean THEN $4::text[]
                                              ELSE bound_slug_prefixes END,
                   tenant_mode = COALESCE($6, tenant_mode),
+                  access_ttl_seconds = CASE WHEN $11::boolean THEN $12::integer ELSE access_ttl_seconds END,
+                  refresh_ttl_seconds = CASE WHEN $13::boolean THEN $14::integer ELSE refresh_ttl_seconds END,
                   grant_revision = grant_revision + 1
             WHERE client_id = $1 AND deleted_at IS NULL
             RETURNING grant_revision
@@ -935,8 +1112,12 @@ export class OAuthProvider {
           change.tenantMode ?? null,
           opts.actor,
           opts.via,
-          JSON.stringify(before),
-          JSON.stringify(after),
+          JSON.stringify(auditBefore),
+          JSON.stringify(auditAfter),
+          change.accessTtlSeconds !== undefined,
+          change.accessTtlSeconds ?? null,
+          change.refreshTtlSeconds !== undefined,
+          change.refreshTtlSeconds ?? null,
         ],
       );
       const revision = applied.rows[0]?.revision;
@@ -944,7 +1125,7 @@ export class OAuthProvider {
       // means the invariant broke and the change must not look applied.
       if (revision === undefined) throw new Error(`grant write for "${clientId}" affected no row`);
       const revokedUnbound = movesTenant ? await deleteUnbound(tx, clientId) : NO_UNBOUND_REVOKED;
-      return { clientId, revision: Number(revision), before, after, changed, dryRun: false, revokedUnbound };
+      return { clientId, revision: Number(revision), before, after, changed, dryRun: false, revokedUnbound, ttls };
     });
   }
 
@@ -976,6 +1157,16 @@ export class OAuthProvider {
         });
       }
     }
+    for (const [name, value] of [
+      ["access_ttl_seconds", change.accessTtlSeconds],
+      ["refresh_ttl_seconds", change.refreshTtlSeconds],
+    ] as const) {
+      try {
+        assertClientTtl(name, value);
+      } catch (e) {
+        reasons.push({ code: "invalid_ttl", detail: e instanceof Error ? e.message : String(e) });
+      }
+    }
     if (reasons.length > 0) throw new GrantValidationError(reasons);
   }
 
@@ -991,6 +1182,82 @@ export class OAuthProvider {
       [clientId, capped],
     );
     return r.rows.map((row) => ({ ...row, id: Number(row.id), revision: Number(row.revision) }));
+  }
+
+  /**
+   * Delete every access token, refresh token and authorization code of a
+   * client — or of one enrollment grant on it — and keep the client itself: its
+   * registration, secret and grant are untouched, so a machine client mints a
+   * fresh token with its secret and a browser client signs in again.
+   *
+   * Audited like a rescope: the revision is bumped and one audit row written in
+   * the same transaction, under the same row lock. The bump also stops agent
+   * jobs the client submitted, which re-check the revision before every step.
+   */
+  async invalidateClientTokens(
+    clientId: string,
+    opts: { actor: string; via: GrantVia; grantId?: string },
+  ): Promise<{ clientId: string; revision: number; grantId: string | null; deleted: UnboundRevocation }> {
+    return this.engine.transaction(async (tx) => {
+      const locked = await tx.query<{
+        source_id: string | null;
+        federated_read: string[] | null;
+        bound_slug_prefixes: string[] | null;
+        tenant_mode: string | null;
+      }>(
+        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode
+           FROM oauth_clients
+          WHERE client_id = $1 AND deleted_at IS NULL
+          FOR UPDATE`,
+        [clientId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new GrantNotFoundError(clientId);
+      const grantId = opts.grantId ?? null;
+      const t = await tx.query<{ token_type: string }>(
+        `DELETE FROM oauth_tokens
+          WHERE client_id = $1 AND ($2::text IS NULL OR (grant_bound AND grant_id = $2::text))
+          RETURNING token_type`,
+        [clientId, grantId],
+      );
+      const c = await tx.query<{ n: number }>(
+        `DELETE FROM oauth_codes
+          WHERE client_id = $1 AND ($2::text IS NULL OR (grant_bound AND grant_id = $2::text))
+          RETURNING 1 AS n`,
+        [clientId, grantId],
+      );
+      const deleted = tallyUnbound(t.rows, c.rows.length);
+      const snapshot = grantSnapshot(row);
+      const applied = await tx.query<{ revision: number }>(
+        `WITH u AS (
+           UPDATE oauth_clients SET grant_revision = grant_revision + 1
+            WHERE client_id = $1 AND deleted_at IS NULL
+            RETURNING grant_revision
+         )
+         INSERT INTO oauth_grant_audit (client_id, revision, actor, via, before, after)
+         SELECT $1, u.grant_revision, $2, $3, $4::text::jsonb, $5::text::jsonb FROM u
+         RETURNING revision`,
+        [
+          clientId,
+          opts.actor,
+          opts.via,
+          JSON.stringify(snapshot),
+          JSON.stringify({
+            ...snapshot,
+            action: "invalidate_tokens",
+            grant_id: grantId,
+            deleted: {
+              access_tokens: deleted.accessTokens,
+              refresh_tokens: deleted.refreshTokens,
+              codes: deleted.codes,
+            },
+          }),
+        ],
+      );
+      const revision = applied.rows[0]?.revision;
+      if (revision === undefined) throw new Error(`token invalidation for "${clientId}" affected no row`);
+      return { clientId, revision: Number(revision), grantId, deleted };
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1339,8 +1606,8 @@ export class OAuthProvider {
         `INSERT INTO oauth_codes
            (code_hash, client_id, scopes, code_challenge,
             code_challenge_method, redirect_uri, state, resource, expires_at,
-            source_id, federated_read, grant_bound, grant_id)
-         VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11::text[], $12, $13)`,
+            source_id, federated_read, grant_bound, grant_id, grant_revision)
+         VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11::text[], $12, $13, $14)`,
         [
           codeHash,
           client.client_id,
@@ -1355,6 +1622,9 @@ export class OAuthProvider {
           grant?.federatedRead ?? null,
           grant !== undefined,
           grant?.grantId ?? null,
+          // The revision this approval was made against: /token refuses the
+          // code once the client has been rescoped since.
+          Number(approved.grant_revision),
         ],
       );
     });
@@ -1430,47 +1700,73 @@ export class OAuthProvider {
     // Consume and issue share one transaction behind a share lock on the client
     // row, so a rescope (FOR UPDATE) cannot land between them and miss the
     // unbound tokens this issues.
-    return this.engine.transaction(async (tx) => {
-      await lockClientForIssue(tx, client.client_id);
-      const rows = (
-        redirectUri !== undefined
-          ? await tx.query<{ scopes: string[] }>(
-              `DELETE FROM oauth_codes
-               WHERE code_hash = $1 AND client_id = $2
-                 AND redirect_uri = $3 AND expires_at > $4
-                 AND ${grantNotRevoked("oauth_codes")}
-                 AND ${unboundAllowed("oauth_codes")}
-               RETURNING client_id, scopes, resource, source_id, federated_read,
-                         grant_bound, grant_id`,
-              [codeHash, client.client_id, redirectUri, now],
-            )
-          : await tx.query<{ scopes: string[] }>(
-              `DELETE FROM oauth_codes
-               WHERE code_hash = $1 AND client_id = $2 AND expires_at > $3
-                 AND ${grantNotRevoked("oauth_codes")}
-                 AND ${unboundAllowed("oauth_codes")}
-               RETURNING client_id, scopes, resource, source_id, federated_read,
-                         grant_bound, grant_id`,
-              [codeHash, client.client_id, now],
-            )
-      ).rows;
-      if (rows.length === 0) {
-        throw new Error("Authorization code not found or expired");
-      }
+    // A code refused for a stale consent stays consumed: the error travels out
+    // as a value so the DELETE commits (see exchangeRefreshToken).
+    const outcome = await this.engine.transaction(
+      async (tx): Promise<{ tokens: OAuthTokens } | { error: string }> => {
+        const policy = await lockClientForIssue(tx, client.client_id);
+        const rows = (
+          redirectUri !== undefined
+            ? await tx.query<{ scopes: string[] }>(
+                `DELETE FROM oauth_codes
+                 WHERE code_hash = $1 AND client_id = $2
+                   AND redirect_uri = $3 AND expires_at > $4
+                   AND ${grantNotRevoked("oauth_codes")}
+                   AND ${unboundAllowed("oauth_codes")}
+                 RETURNING client_id, scopes, resource, source_id, federated_read,
+                           grant_bound, grant_id, grant_revision`,
+                [codeHash, client.client_id, redirectUri, now],
+              )
+            : await tx.query<{ scopes: string[] }>(
+                `DELETE FROM oauth_codes
+                 WHERE code_hash = $1 AND client_id = $2 AND expires_at > $3
+                   AND ${grantNotRevoked("oauth_codes")}
+                   AND ${unboundAllowed("oauth_codes")}
+                 RETURNING client_id, scopes, resource, source_id, federated_read,
+                           grant_bound, grant_id, grant_revision`,
+                [codeHash, client.client_id, now],
+              )
+        ).rows;
+        if (rows.length === 0) {
+          throw new Error("Authorization code not found or expired");
+        }
+        const row = rows[0]! as Record<string, unknown>;
 
-      const scopes = (rows[0]!.scopes as string[]) || [];
-      // The resource approved at /authorize binds the tokens; a request-time
-      // value only fills in for a code that named none.
-      return this.issueTokens(
-        client.client_id,
-        scopes,
-        boundResource(rows[0]!, resource),
-        true,
-        undefined,
-        grantFromRow(rows[0]!),
-        tx,
-      );
-    });
+        // The operator approved the client as it stood at /authorize. A rescope
+        // since then changed what this code would grant, so the person has to
+        // go through /authorize again. A code minted before the column existed
+        // carries NULL and is redeemed as before.
+        const approvedRevision = row["grant_revision"];
+        if (
+          approvedRevision !== null &&
+          approvedRevision !== undefined &&
+          (policy === undefined || Number(approvedRevision) !== policy.grantRevision)
+        ) {
+          return { error: "The client's grant changed after this code was approved; authorize again" };
+        }
+
+        const scopes = (row["scopes"] as string[]) || [];
+        const withRefresh = clientAllowsGrant(policy?.grantTypes, "refresh_token");
+        // The resource approved at /authorize binds the tokens; a request-time
+        // value only fills in for a code that named none.
+        return {
+          tokens: await this.issueTokens(
+            client.client_id,
+            scopes,
+            boundResource(row, resource),
+            withRefresh,
+            {
+              accessTtl: policy?.accessTtl,
+              refreshTtl: policy?.refreshTtl,
+              grant: grantFromRow(row),
+              db: tx,
+            },
+          ),
+        };
+      },
+    );
+    if ("error" in outcome) throw new Error(outcome.error);
+    return outcome.tokens;
   }
 
   // -------------------------------------------------------------------------
@@ -1494,9 +1790,18 @@ export class OAuthProvider {
     // Consume and issue share one transaction behind a share lock on the client
     // row (see exchangeAuthorizationCode). A refused refresh still commits its
     // DELETE, so the token stays burned: the error travels out as a value.
+    //
+    // Rotation keeps the refresh family and leaves the consumed hash behind. A
+    // hash that comes back is either a retry (inside the grace window: refused,
+    // nothing revoked) or a second holder of the chain (after it: the whole
+    // family is revoked, since there is no telling which holder is legitimate,
+    // once MEMEX_OAUTH_REFRESH_REUSE_REVOKE is on; until then it is only logged).
     const outcome = await this.engine.transaction(
-      async (tx): Promise<{ tokens: OAuthTokens } | { error: string }> => {
-        await lockClientForIssue(tx, client.client_id);
+      async (tx): Promise<{ tokens: OAuthTokens } | { error: string; replayedFamily?: string }> => {
+        const policy = await lockClientForIssue(tx, client.client_id);
+        if (!clientAllowsGrant(policy?.grantTypes, "refresh_token")) {
+          return { error: "Refresh token grant not authorized for this client" };
+        }
         const rows = (
           await tx.query<{ scopes: string[]; expires_at: unknown }>(
             `DELETE FROM oauth_tokens
@@ -1505,15 +1810,26 @@ export class OAuthProvider {
                AND ${grantNotRevoked("oauth_tokens")}
                AND ${unboundAllowed("oauth_tokens")}
              RETURNING client_id, scopes, expires_at, resource, source_id,
-                       federated_read, grant_bound, grant_id`,
+                       federated_read, grant_bound, grant_id, family_id`,
             [tokenHash, client.client_id],
           )
         ).rows;
-        if (rows.length === 0) return { error: "Refresh token not found" };
+        if (rows.length === 0) return this.refreshReplay(tx, tokenHash, client.client_id, now);
 
         const row = rows[0]!;
+        // A token minted before families existed starts one here.
+        const familyId =
+          typeof (row as Record<string, unknown>)["family_id"] === "string"
+            ? ((row as Record<string, unknown>)["family_id"] as string)
+            : randomUUID();
         // NULL expires_at is treated as expired (fail-closed).
         const expiresAt = coerceTimestamp(row.expires_at);
+        await tx.query(
+          `INSERT INTO oauth_refresh_consumed (token_hash, family_id, client_id, consumed_at, expires_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (token_hash) DO NOTHING`,
+          [tokenHash, familyId, client.client_id, now, expiresAt ?? now],
+        );
         if (expiresAt === undefined || expiresAt < now) {
           return { error: "Refresh token expired" };
         }
@@ -1535,15 +1851,78 @@ export class OAuthProvider {
             tokenScopes,
             boundResource(row, resource),
             true,
-            undefined,
-            grantFromRow(row),
-            tx,
+            {
+              accessTtl: policy?.accessTtl,
+              refreshTtl: policy?.refreshTtl,
+              grant: grantFromRow(row),
+              familyId,
+              db: tx,
+            },
           ),
         };
       },
     );
-    if ("error" in outcome) throw new Error(outcome.error);
+    if ("error" in outcome) {
+      if (outcome.replayedFamily === undefined) throw new Error(outcome.error);
+      if (!refreshReuseRevokeFromEnv()) {
+        console.warn(
+          `[oauth] refresh token reuse for client ${client.client_id}: family ${outcome.replayedFamily} left live (MEMEX_OAUTH_REFRESH_REUSE_REVOKE off)`,
+        );
+        throw new Error("Refresh token reuse detected");
+      }
+      const revoked = await this.revokeRefreshFamily(client.client_id, outcome.replayedFamily);
+      console.warn(
+        `[oauth] refresh token reuse for client ${client.client_id}: revoked ${revoked} token(s) of its family`,
+      );
+      throw new Error("Refresh token reuse detected; the session was revoked");
+    }
     return outcome.tokens;
+  }
+
+  /**
+   * The refusal for a refresh token that matched no live row. When it is one
+   * this client already rotated, past the grace window, it also names the
+   * family to revoke. Bound to the presenting client, so presenting another
+   * client's spent token revokes nothing of theirs. A tombstone past the spent
+   * token's own expiry is ignored whether or not the sweep has pruned it yet.
+   */
+  private async refreshReplay(
+    tx: Engine,
+    tokenHash: string,
+    clientId: string,
+    now: number,
+  ): Promise<{ error: string; replayedFamily?: string }> {
+    const spent = (
+      await tx.query<{ family_id: string; consumed_at: number | string }>(
+        `SELECT family_id, consumed_at FROM oauth_refresh_consumed
+          WHERE token_hash = $1 AND client_id = $2 AND expires_at >= $3`,
+        [tokenHash, clientId, now],
+      )
+    ).rows[0];
+    if (!spent) return { error: "Refresh token not found" };
+    if (now - Number(spent.consumed_at) <= REFRESH_REUSE_GRACE_SECONDS) {
+      return { error: "Refresh token already used" };
+    }
+    return { error: "Refresh token reuse detected", replayedFamily: spent.family_id };
+  }
+
+  /**
+   * Delete every live token of one refresh family. Runs in its own transaction
+   * behind FOR UPDATE on the client row: that waits out every rotation already
+   * holding the share lock, so a token such a rotation inserts into the family
+   * is committed (and visible) before the DELETE runs, and blocks new rotations
+   * until it is done. Deleting from inside the replay's own transaction would
+   * miss those rows under READ COMMITTED.
+   */
+  private async revokeRefreshFamily(clientId: string, familyId: string): Promise<number> {
+    return this.engine.transaction(async (tx) => {
+      await tx.query(`SELECT 1 FROM oauth_clients WHERE client_id = $1 FOR UPDATE`, [clientId]);
+      const revoked = await tx.query<{ token_type: string }>(
+        `DELETE FROM oauth_tokens WHERE family_id = $1 AND client_id = $2 RETURNING token_type`,
+        [familyId, clientId],
+      );
+      return revoked.rows.length;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1806,23 +2185,17 @@ export class OAuthProvider {
       hasScope(allowedScopes, s),
     );
 
-    // Per-client TTL override (oauth_clients.token_ttl); fall through if the
-    // column is absent on an older schema.
-    let clientTtl: number | undefined;
-    try {
-      const ttlRows = await this.rows<{ token_ttl: unknown }>(
-        `SELECT token_ttl FROM oauth_clients WHERE client_id = $1`,
-        [clientId],
-      );
-      if (ttlRows.length > 0 && ttlRows[0]!.token_ttl) {
-        clientTtl = Number(ttlRows[0]!.token_ttl);
-      }
-    } catch (e) {
-      if (!isUndefinedColumnError(e, "token_ttl")) throw e;
-    }
+    // Per-client TTL override: access_ttl_seconds, else the older token_ttl
+    // that only this grant ever read.
+    const ttlRows = await this.rows<{ token_ttl: unknown; access_ttl_seconds: unknown }>(
+      `SELECT token_ttl, access_ttl_seconds FROM oauth_clients WHERE client_id = $1`,
+      [clientId],
+    );
+    const clientTtl =
+      positiveOrUndefined(ttlRows[0]?.access_ttl_seconds) ?? positiveOrUndefined(ttlRows[0]?.token_ttl);
 
     // Client credentials: access token only, no refresh (RFC 6749 §4.4.3).
-    return this.issueTokens(clientId, grantedScopes, undefined, false, clientTtl);
+    return this.issueTokens(clientId, grantedScopes, undefined, false, { accessTtl: clientTtl });
   }
 
   /**
@@ -1862,7 +2235,13 @@ export class OAuthProvider {
       `DELETE FROM oauth_codes WHERE expires_at < $1 RETURNING 1`,
       [now],
     );
-    return tokens.length + codes.length;
+    // A spent refresh token past its own expiry would be refused as unknown
+    // anyway; its tombstone has nothing left to detect.
+    const consumed = await this.rows(
+      `DELETE FROM oauth_refresh_consumed WHERE expires_at < $1 RETURNING 1`,
+      [now],
+    );
+    return tokens.length + codes.length + consumed.length;
   }
 
   // -------------------------------------------------------------------------
@@ -1874,21 +2253,25 @@ export class OAuthProvider {
     scopes: string[],
     resource: URL | undefined,
     includeRefresh: boolean,
-    ttlOverride?: number,
-    grant?: GrantScope,
-    db: Engine = this.engine,
+    opts: IssueOptions = {},
   ): Promise<OAuthTokens> {
+    const db = opts.db ?? this.engine;
+    const grant = opts.grant;
+    // Access and refresh tokens of one authorization share a family, so reuse
+    // of a spent refresh token can revoke everything the chain issued. A
+    // client_credentials token has no refresh, and no family.
+    const familyId = includeRefresh ? (opts.familyId ?? randomUUID()) : null;
     const accessToken = generateToken("memex_at_");
     const accessHash = hashToken(accessToken);
     const now = Math.floor(Date.now() / 1000);
-    const effectiveTtl = ttlOverride || this.tokenTtl;
+    const effectiveTtl = opts.accessTtl || this.tokenTtl;
     const accessExpiry = now + effectiveTtl;
 
     await db.query(
       `INSERT INTO oauth_tokens
          (token_hash, token_type, client_id, scopes, expires_at, resource,
-          source_id, federated_read, grant_bound, grant_id)
-       VALUES ($1, 'access', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9)`,
+          source_id, federated_read, grant_bound, grant_id, family_id)
+       VALUES ($1, 'access', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9, $10)`,
       [
         accessHash,
         clientId,
@@ -1899,6 +2282,7 @@ export class OAuthProvider {
         grant?.federatedRead ?? null,
         grant !== undefined,
         grant?.grantId ?? null,
+        familyId,
       ],
     );
 
@@ -1912,15 +2296,15 @@ export class OAuthProvider {
     if (includeRefresh) {
       const refreshToken = generateToken("memex_rt_");
       const refreshHash = hashToken(refreshToken);
-      const refreshExpiry = now + this.refreshTtl;
+      const refreshExpiry = now + (opts.refreshTtl || this.refreshTtl);
 
       // The refresh row carries the grant too: rotation reads it back, so a
       // refreshed session stays pinned to the source the operator approved.
       await db.query(
         `INSERT INTO oauth_tokens
            (token_hash, token_type, client_id, scopes, expires_at, resource,
-            source_id, federated_read, grant_bound, grant_id)
-         VALUES ($1, 'refresh', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9)`,
+            source_id, federated_read, grant_bound, grant_id, family_id)
+         VALUES ($1, 'refresh', $2, $3::text[], $4, $5, $6, $7::text[], $8, $9, $10)`,
         [
           refreshHash,
           clientId,
@@ -1931,6 +2315,7 @@ export class OAuthProvider {
           grant?.federatedRead ?? null,
           grant !== undefined,
           grant?.grantId ?? null,
+          familyId,
         ],
       );
 

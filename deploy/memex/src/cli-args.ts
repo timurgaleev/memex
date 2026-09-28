@@ -97,21 +97,21 @@ const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "0", "no"]);
  * typo, so adding a new value-taking flag means adding it here too.
  */
 export const VALUE_FLAGS: ReadonlySet<string> = new Set([
-  "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight", "--candidate",
+  "--access-ttl", "--anchor", "--args", "--baseline", "--batch-size", "--boost-weight", "--candidate",
   "--bound-slug-prefixes", "--budget", "--client", "--client-file", "--config-a",
   "--config-b", "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description", "--epsilon",
   "--dir", "--example-limit", "--expect-source", "--expect-version",
   "--expected-doc", "--expected-revision", "--family",
   "--federated-read", "--file", "--format",
-  "--filter", "--from", "--grant-types", "--host", "--id", "--indexed-policy",
+  "--filter", "--from", "--grant", "--grant-types", "--host", "--id", "--indexed-policy",
   "--input", "--k", "--keep-days", "--kind", "--label", "--limit", "--max-drop",
   "--max-jobs", "--max-pages", "--max-retries", "--max-usd",
   "--min-confidence", "--min-recall", "--model", "--modes", "--notes",
   "--older-than-days", "--out", "--path-prefix", "--paths", "--pattern",
   "--payload", "--pglite-path", "--phases", "--port", "--postgres-url",
   "--priority", "--qrels", "--query", "--question", "--rate-limit-per-minute",
-  "--reason", "--redirect-uris", "--repeats", "--rounds", "--rrf-k", "--scopes",
+  "--reason", "--redirect-uris", "--refresh-ttl", "--repeats", "--rounds", "--rrf-k", "--scopes",
   "--search-mode", "--severity", "--since", "--skill", "--slug", "--slugs", "--split",
   "--source", "--source-id", "--source-path", "--source-slug", "--stale-days",
   "--status", "--sync-policy", "--tag", "--take", "--takes-holders",
@@ -279,10 +279,10 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     "auth",
     new Set([
-      "--bound-slug-prefixes", "--client", "--client-file", "--dry-run",
+      "--access-ttl", "--bound-slug-prefixes", "--client", "--client-file", "--dry-run",
       "--expect-operator", "--expect-source", "--expect-version",
-      "--expected-revision", "--federated-read", "--grant-types", "--json",
-      "--label", "--limit", "--redirect-uris", "--scopes", "--source",
+      "--expected-revision", "--federated-read", "--grant", "--grant-types", "--json",
+      "--label", "--limit", "--redirect-uris", "--refresh-ttl", "--scopes", "--source",
       "--takes-holders", "--tenant-mode", "--token",
       "--token-endpoint-auth-method", "--token-file", "--ttl",
     ]),

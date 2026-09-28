@@ -6,6 +6,56 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **A reused refresh token can revoke its session.** Every access and refresh
+  token minted from one sign-in now shares a family, and a rotated refresh token
+  leaves its hash behind (migration 117). Presenting it again within 60 seconds
+  is refused with `invalid_grant` and nothing else happens: that is a client
+  retrying a refresh whose answer it never saw. Presenting it later means two
+  parties hold the chain. It is refused and logged as `[oauth] refresh token
+  reuse`; with `MEMEX_OAUTH_REFRESH_REUSE_REVOKE=1` every live token of the
+  family is also deleted. That is off by default until the logs show no
+  legitimate client replays a rotated token late. The deletion waits for any
+  rotation of the same client already in flight, so a token that rotation
+  mints is deleted too. Only the client the token was issued to can trigger
+  it. Refresh tokens issued before this rotate normally and start a family on
+  their first rotation.
+- **A code approved before a rescope is refused at `/token`.** The code now
+  records the client's grant revision at `/authorize`; if the client was
+  rescoped in between (a read-set change, say, which leaves unbound codes in
+  place), the exchange fails with `invalid_grant` and the code is spent. Codes
+  minted before the upgrade redeem as before.
+- **`grant_types` is enforced.** `/authorize` redirects `unauthorized_client`
+  for a client registered without `authorization_code`; a refresh by a client
+  without `refresh_token` is `unauthorized_client`, and the code exchange stops
+  issuing it a refresh token. Neither grant was checked before, so migration 117
+  adds both to every existing client that has a redirect URI and lacks them —
+  nothing that works today stops working. An empty list keeps the historical
+  browser grants.
+
+### Added
+- **`memex auth invalidate-tokens <client_id> [--grant ENROLLMENT_ID]`** (and
+  `POST /admin/api/invalidate-tokens`) deletes every access token, refresh
+  token and code of a client, or of one enrollment grant on it, and keeps the
+  client, its secret and its grant. It bumps the grant revision and writes an
+  audit row like a rescope, which also stops agent jobs the client submitted.
+- **Per-client token lifetimes.** `auth register-client` and `auth
+  rescope-client` take `--access-ttl` (5m to 1d) and `--refresh-ttl` (1h to 90d);
+  `default` clears one on rescope. Unset, a client keeps the server defaults
+  (1 hour / 30 days). For `client_credentials`, `--access-ttl` wins over the
+  older `token_ttl`.
+- **`memex auth create` takes `--source`, `--federated-read` and `--scopes`**
+  (and `POST /admin/api/api-keys` takes `source`, `read` and `scopes`). The
+  sources must be registered; scopes are `read` and/or `write`. `whoami` reports
+  the source. Without the flags a token is minted exactly as before, and existing
+  tokens are untouched.
+
+### Changed
+- **A client that registers itself without a scope gets `read write`**, what
+  the registration clamp grants a client asking for everything, instead of no
+  scope at all. A self-registered client that names no `grant_types` now gets
+  `authorization_code` and `refresh_token`.
+
 ## [1.156.0] — 2026-09-28
 
 ### Security
