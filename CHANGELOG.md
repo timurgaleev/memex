@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.159.0] — 2026-09-28
+
 ### Added
 - **Conditional page writes.** `page_put`, `page_revert` and `page_delete`
   take an optional `expected_version`: the write lands only if the page is
