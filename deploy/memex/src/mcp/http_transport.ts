@@ -4,7 +4,7 @@
  * Supported methods:
  *   - `initialize`               handshake: capabilities, the stamped build
  *                                version and the memex operating contract
- *   - `tools/list`               returns TOOL_DEFS
+ *   - `tools/list`               the tools this caller can call (mcp/visibility.ts)
  *   - `tools/call`               { name, arguments } → tool result
  *   - `ping`                     health probe (returns {})
  *
@@ -16,8 +16,8 @@
  */
 import type { Storage } from "../core/storage.ts";
 import { MEMEX_RESPONSE_VERSION } from "./response-contract.ts";
-import { TOOL_DEFS } from "./tool_defs.ts";
 import { dispatchTool } from "./dispatch.ts";
+import { ingressRefusal, visibleToolDefs } from "./visibility.ts";
 import { logToolCall } from "./param-redaction.ts";
 import { logToolCallToDb } from "./request-log-db.ts";
 import { publishToolCallEvent } from "../http/admin-events.ts";
@@ -328,14 +328,10 @@ async function handleSingle(
         ok: true,
         params: null,
       });
-      // For public requests we filter the tool list so an external
-      // client can't even DISCOVER the mutating tools.
-      if (ctx.isPublic) {
-        return rpcOk(id, {
-          tools: TOOL_DEFS.filter((t) => !forbidPublic(t.name)),
-        });
-      }
-      return rpcOk(id, { tools: TOOL_DEFS });
+      // Advertise exactly what this caller can call: the ingress walls plus
+      // the credential's scope, operator-only and tenant gates, judged by the
+      // same predicate tools/call and dispatch use.
+      return rpcOk(id, { tools: visibleToolDefs(ctx, forbidPublic) });
     case "tools/call": {
       const params = (req.params ?? {}) as {
         name?: string;
@@ -344,7 +340,8 @@ async function handleSingle(
       if (typeof params.name !== "string") {
         return rpcError(id, ERR_INVALID_REQUEST, "tools/call: `name` required");
       }
-      if (ctx.isPublic && forbidPublic(params.name)) {
+      const wall = ingressRefusal(params.name, ctx, forbidPublic);
+      if (wall?.kind === "public_ingress") {
         logToolCallToDb(storage.engine(), {
           tool: params.name,
           ...logIdentity,
@@ -368,18 +365,10 @@ async function handleSingle(
       // An AUTHENTICATED principal (ctx.authInfo present — OAuth/PAT, never
       // the static public bearer nor a bare bridge sibling) is NOT what this
       // wall defends against; such a caller is gated on
-      // scope alone. Letting the wall catch it also made `tools/list` and the
-      // callable set disagree: the list is filtered on `isPublic`, which a
-      // token request is not, so every token client was advertised ~60 tools
-      // it could never call. Authorization for these callers rests in
-      // dispatch — the per-op scope gate, OPERATOR_ONLY_TOOLS, the token's
-      // source scoping, and the public-redaction bit.
-      if (
-        !ctx.isPublic &&
-        forbidPublic(params.name) &&
-        ctx.internalAuthOk === false &&
-        ctx.authInfo === undefined
-      ) {
+      // scope alone. Authorization for these callers rests in dispatch — the
+      // per-op scope gate, OPERATOR_ONLY_TOOLS, the token's source scoping,
+      // and the public-redaction bit.
+      if (wall?.kind === "internal_token") {
         logToolCallToDb(storage.engine(), {
           tool: params.name,
           ...logIdentity,

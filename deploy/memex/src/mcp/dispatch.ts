@@ -236,7 +236,7 @@ import {
 } from "../core/public_redaction.ts";
 import { OperationError, isOperationError } from "../core/operation-error.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
-import { MAX_REQUEST_ID_LEN, OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
+import { MAX_REQUEST_ID_LEN, OPERATIONS, validateParams } from "./operations.ts";
 import {
   claimWriteRequest,
   completeWriteRequest,
@@ -246,6 +246,9 @@ import {
 } from "../core/write-requests.ts";
 import { hasScope } from "../core/scope.ts";
 import { insufficientScopeChallenge } from "../http/oauth-metadata.ts";
+import { dispatchRefusal, SLUG_PARAMS_BY_WRITE_TOOL } from "./visibility.ts";
+
+export { OPERATOR_ONLY_TOOLS } from "./visibility.ts";
 
 // Operation lookup by tool name, built once (the contract is static).
 const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
@@ -287,81 +290,6 @@ const VALID_ENTITY_TYPES: ReadonlySet<EntityType> = new Set([
  * source_id FK is still the backstop if one is ever mis-tagged (the sentinel
  * can't reference a real row).
  */
-
-/**
- * Operator-only operational tools. These expose brain-wide state that has no
- * per-source axis — the job queue (jobs_* return another tenant's job
- * payload/result/logs: vault paths, note snippets) and the advisor/stats
- * dashboards (migrations, embed coverage, whole-brain counts, internal-auth
- * config). They are refused for any authenticated tenant principal
- * (`authInfo !== undefined`), i.e. an OAuth `memex_at_` caller. The static
- * daily bearer and the trusted-local/internal path (both `authInfo === undefined`)
- * keep full access — they are the operator. `source_health` is deliberately NOT
- * here: it is the per-source (tenant-safe) health view.
- */
-export const OPERATOR_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  "stats",
-  "advisor",
-  "jobs_submit",
-  "jobs_list",
-  "jobs_get",
-  "jobs_cancel",
-  "jobs_logs",
-  // list_concepts reads synth_concepts, which has no source axis — its narratives
-  // are clustered across EVERY tenant's atoms. An OAuth tenant token is trusted
-  // (isPublic:false) so the public denylist doesn't cover it; gate it operator-only
-  // so one tenant can never read concepts derived from another tenant's notes.
-  // (Proper per-tenant concepts would need a source_id column on synth_concepts.)
-  "list_concepts",
-  // Job lifecycle mutators/reads share the jobs_* posture: another tenant's
-  // job rows carry payload/progress free text.
-  "retry_job",
-  "get_job_progress",
-  // Whole-brain operational snapshots (admin scope).
-  "get_status_snapshot",
-  "run_doctor",
-  // purge_deleted_pages is NOT operator-only: it is gated at the
-  // `admin` scope (the per-op scope gate below enforces it), reachable by an
-  // admin-scoped token. The static bearer + internal
-  // path are never gated here anyway.
-  // chronicle_backfill sweeps EVERY conversation-shape page in scope and spends
-  // (queued) chronicle-extract work — an operator maintenance action, not a
-  // tenant-reachable one.
-  "chronicle_backfill",
-]);
-
-/**
- * Which params of a write op name the slugs it MUTATES — the surface the
- * per-client slug-prefix fence (`oauth_clients.bound_slug_prefixes`) checks.
- * Provenance-only pointers (add_fact's `source_slug`, `source_chunk_id`) are
- * deliberately not listed: the fence bounds what a client can change, not
- * what it can cite. A write/admin op ABSENT from this map names no slug and
- * is refused for bound clients outright (deny-by-default), so a future write
- * tool cannot bypass the fence by omission.
- *
- * DELIBERATELY OUTSIDE the fence: edges/facts the BRAIN derives from an
- * in-prefix page's body (wikilink/mention/typed-link sync, on-write fact
- * extraction). Those are the server's own indexing of ingested content —
- * the background cycle would derive the identical set from the same body —
- * and they never mutate another page's content, only reference it. Fencing
- * them would fork the derivation pipeline per principal for no containment
- * gain.
- */
-const SLUG_PARAMS_BY_WRITE_TOOL: Readonly<Record<string, readonly string[]>> = {
-  page_put: ["slug"],
-  page_append: ["slug"],
-  page_delete: ["slug"],
-  page_restore: ["slug"],
-  page_revert: ["slug"],
-  add_tag: ["slug"],
-  remove_tag: ["slug"],
-  add_timeline_event: ["slug"],
-  put_raw_data: ["slug"],
-  link: ["source_slug", "target_slug"],
-  unlink: ["source_slug", "target_slug"],
-  add_fact: ["entity_slug"],
-  ontology_propose: ["entity"],
-};
 
 export function slugUnderPrefixes(
   slug: string,
@@ -548,51 +476,51 @@ async function dispatchToolInner(
   // undefined for the operator path and knobless credentials.
   const takesHolders = effectiveTakesHolders(opts.authInfo);
   try {
-    // Fail-closed write gate: reject a scopeless authenticated public principal
-    // from every write op before dispatch (default-OFF unless
-    // MEMEX_TENANT_FAIL_CLOSED=1). Reads are unaffected.
-    if (writeDenied && WRITE_SCOPED_TOOLS.has(req.name)) {
+    // Tool-level gates, in order: the fail-closed write gate (a scopeless
+    // authenticated principal on a write op, default-OFF unless
+    // MEMEX_TENANT_FAIL_CLOSED=1), operator-only tools for any authenticated
+    // tenant principal, the per-op OAuth scope, and a slug-bound client's
+    // deny-by-default on write ops that name no slug. The static daily bearer
+    // and trusted-local path (`authInfo === undefined`) are the operator and
+    // pass all of them. tools/list asks the same predicate (mcp/visibility.ts),
+    // so a listed tool is never refused here.
+    const refusal = dispatchRefusal(req.name, opts.authInfo);
+    if (refusal?.kind === "no_write_source") {
       throw new OperationError(
         "permission_denied",
         `no write source is granted to this client for '${req.name}'`,
         "Request a write scope for your client, or use a scoped token.",
       );
     }
-    // Operator-only gate: an authenticated tenant principal (OAuth `memex_at_`
-    // token, `authInfo` present) cannot reach the brain-wide operational tools —
-    // they have no per-source scope and would leak another tenant's job
-    // payload/logs or the whole-brain advisor/stats. The static bearer + internal
-    // path (`authInfo === undefined`) are the operator and keep access.
-    if (opts.authInfo !== undefined && OPERATOR_ONLY_TOOLS.has(req.name)) {
+    if (refusal?.kind === "operator_only") {
       throw new OperationError(
         "permission_denied",
         `tool '${req.name}' is operator-only and not callable by a tenant token`,
         "Use the per-source 'source_health' tool for tenant-scoped health.",
       );
     }
-    // Per-op scope gate: an OAuth caller (`authInfo` present)
-    // may only invoke a tool its granted scope covers — a `read`-scoped token
-    // cannot call a `write` op. Each op declares `scope` ("write" for mutations),
-    // defaulting to "read". The static daily bearer + trusted-local path
-    // (`authInfo === undefined`) are the operator and are unaffected.
-    if (opts.authInfo !== undefined) {
-      const op = OPERATIONS.find((o) => o.name === req.name);
-      const requiredScope = op?.scope ?? "read";
-      if (!hasScope(opts.authInfo.scopes ?? [], requiredScope)) {
-        const refusal = new OperationError(
-          "insufficient_scope",
-          `tool '${req.name}' requires the '${requiredScope}' scope`,
-          "Request a token granted the required scope.",
-        );
-        // The Bearer challenge a client would get on an HTTP 403, carried in
-        // the result because a tool call's HTTP status is always 200. A client
-        // that understands it re-authorizes for the wider scope (step-up).
-        const stepUp = [...new Set([...(opts.authInfo.scopes ?? []), requiredScope])];
-        return {
-          ...errResult(JSON.stringify(refusal.toEnvelope(opts.isPublic ?? false))),
-          _meta: { "mcp/www_authenticate": insufficientScopeChallenge(stepUp, opts.issuer) },
-        };
-      }
+    if (refusal?.kind === "insufficient_scope" && opts.authInfo !== undefined) {
+      const { requiredScope } = refusal;
+      const scopeRefusal = new OperationError(
+        "insufficient_scope",
+        `tool '${req.name}' requires the '${requiredScope}' scope`,
+        "Request a token granted the required scope.",
+      );
+      // The Bearer challenge a client would get on an HTTP 403, carried in
+      // the result because a tool call's HTTP status is always 200. A client
+      // that understands it re-authorizes for the wider scope (step-up).
+      const stepUp = [...new Set([...(opts.authInfo.scopes ?? []), requiredScope])];
+      return {
+        ...errResult(JSON.stringify(scopeRefusal.toEnvelope(opts.isPublic ?? false))),
+        _meta: { "mcp/www_authenticate": insufficientScopeChallenge(stepUp, opts.issuer) },
+      };
+    }
+    if (refusal?.kind === "slug_bound") {
+      throw new OperationError(
+        "permission_denied",
+        `tool '${req.name}' is not callable by a slug-bound client`,
+        "This client is bound to slug prefixes; only slug-addressed write tools are allowed.",
+      );
     }
     // Enforce the declared param contract (type / enum / min-max of present
     // params) before dispatch. Known tools only — an unknown name falls through
