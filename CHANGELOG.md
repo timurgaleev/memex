@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.158.0] — 2026-09-28
+
 ### Security
 - **Every mutating admin API route refuses a cross-origin request.** The panel's
   session cookie is `SameSite=Strict`, but a sibling subdomain counts as the same
