@@ -4,8 +4,11 @@
  * rendering, splitting, idempotent writes) is shared and format-blind.
  */
 
-export const TRANSCRIPT_FORMATS = ["chatgpt", "claude-ai"] as const;
+export const TRANSCRIPT_FORMATS = ["chatgpt", "claude-ai", "codex", "claude-code"] as const;
 export type TranscriptFormat = (typeof TRANSCRIPT_FORMATS)[number];
+
+/** Session logs written one JSON record per line, one file per session. */
+export const JSONL_TRANSCRIPT_FORMATS: ReadonlySet<TranscriptFormat> = new Set(["codex", "claude-code"]);
 
 export function isTranscriptFormat(v: string): v is TranscriptFormat {
   return (TRANSCRIPT_FORMATS as readonly string[]).includes(v);
@@ -64,6 +67,10 @@ export interface TranscriptDiagnostics {
   skippedMessages: number;
   /** Bytes were read but nothing usable came out: the export shape moved. */
   format_drift: boolean;
+  /** JSONL input only: lines that were not valid JSON. */
+  malformed_lines?: number;
+  /** Directory input only: session files read. */
+  files?: number;
 }
 
 export function asRecord(v: unknown): Record<string, unknown> | null {

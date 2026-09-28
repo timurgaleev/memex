@@ -264,8 +264,9 @@ function printUsage(): void {
   console.log("  config unset --pattern <pfx> bulk-delete keys by prefix");
   console.log("  capture [<text>] [--stdin] [--file P] [--slug S] [--type T] [--source ID] [--title T]");
   console.log("                               one-command note capture → page + search mirror");
-  console.log("  transcripts ingest <export.json> [--format auto|chatgpt|claude-ai] [--source ID] [--dry-run] [--json]");
-  console.log("                               import a ChatGPT / Claude.ai export as split, redacted conversation pages");
+  console.log("  transcripts ingest <path> [--format auto|chatgpt|claude-ai|codex|claude-code] [--source ID] [--dry-run] [--json]");
+  console.log("                               import a ChatGPT / Claude.ai export or Codex / Claude Code session logs");
+  console.log("                               (one file or a directory) as split, redacted conversation pages");
   console.log("  connectors github sync <owner/repo> --source ID [--token-file F] [--full] [--dry-run] [--json]");
   console.log("                               mirror a repository's issues and pull requests into a github source");
   console.log("                               (token: MEMEX_GITHUB_TOKEN or --token-file; exit 1 partial, 2 re-auth)");

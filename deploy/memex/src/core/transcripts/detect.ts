@@ -8,6 +8,9 @@
  */
 import { chatGptAdapter } from "./chatgpt.ts";
 import { claudeAiAdapter } from "./claude-ai.ts";
+import { claudeCodeAdapter } from "./claude-code.ts";
+import { codexAdapter } from "./codex.ts";
+import { parseJsonlRecords } from "./jsonl.ts";
 import {
   asRecord,
   type TranscriptAdapter,
@@ -16,7 +19,12 @@ import {
   type TranscriptSession,
 } from "./types.ts";
 
-export const TRANSCRIPT_ADAPTERS: readonly TranscriptAdapter[] = [chatGptAdapter, claudeAiAdapter];
+export const TRANSCRIPT_ADAPTERS: readonly TranscriptAdapter[] = [
+  chatGptAdapter,
+  claudeAiAdapter,
+  codexAdapter,
+  claudeCodeAdapter,
+];
 
 export const DEFAULT_TRANSCRIPT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 
@@ -48,8 +56,8 @@ export function conversationItems(data: unknown): unknown[] | null {
   return null;
 }
 
-export function detectFormat(items: readonly unknown[]): TranscriptFormat | null {
-  const probe = items.slice(0, DETECT_PROBE);
+export function detectFormat(items: readonly unknown[], probeSize: number = DETECT_PROBE): TranscriptFormat | null {
+  const probe = items.slice(0, probeSize);
   return TRANSCRIPT_ADAPTERS.find((a) => a.detect(probe))?.format ?? null;
 }
 
@@ -69,10 +77,11 @@ export function parseTranscriptExport(
   data: unknown,
   bytes: number,
   override?: TranscriptFormat,
+  probeSize: number = DETECT_PROBE,
 ): ParsedExport {
   const found = conversationItems(data);
   const items = found ?? [];
-  const format = override ?? detectFormat(items);
+  const format = override ?? detectFormat(items, probeSize);
   const adapter = TRANSCRIPT_ADAPTERS.find((a) => a.format === format);
   const result = adapter ? adapter.parse(items) : { sessions: [], skipped: [], skippedMessages: 0 };
   return {
@@ -89,6 +98,25 @@ export function parseTranscriptExport(
       // that no adapter could read is.
       format_drift:
         result.sessions.length === 0 && bytes > 0 && (items.length > 0 || (found === null && !isEmptyValue(data))),
+    },
+  };
+}
+
+/**
+ * One session log (Codex rollout, Claude Code session): a JSON record per
+ * line. Detection reads every record, since a Claude Code log can open with
+ * any number of bookkeeping lines before its first turn. A file of nothing
+ * but broken lines is drift, not an empty log.
+ */
+export function parseTranscriptJsonl(raw: string, bytes: number, override?: TranscriptFormat): ParsedExport {
+  const { records, malformed } = parseJsonlRecords(raw);
+  const parsed = parseTranscriptExport(records, bytes, override, records.length);
+  return {
+    sessions: parsed.sessions,
+    diagnostics: {
+      ...parsed.diagnostics,
+      format_drift: parsed.diagnostics.format_drift || (parsed.sessions.length === 0 && malformed > 0),
+      malformed_lines: malformed,
     },
   };
 }
