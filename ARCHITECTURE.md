@@ -87,7 +87,7 @@ https://brain.<domain>/mcp   →  cloudflared  →  memex:18790  POST /mcp
 Hard guarantees:
 
 - **Bearer-gated public ingress.** Every public `/mcp` request needs
-  `Authorization: Bearer <public-bearer>`; the token rotates daily.
+  `Authorization: Bearer <public-bearer>`; the token is static unless the optional rotation timer is installed.
   Write tools are filtered from discovery and rejected from the public
   surface; internal write tools require `MEMEX_INTERNAL_TOKEN`.
 - **Body redaction.** Public read tools omit note bodies unless
@@ -122,7 +122,7 @@ unit references a script that exists in the repo.
 
 | Unit | Cadence | Owns |
 |---|---|---|
-| `memex-rotate-bearer.timer` | `*-*-* 06:00:00 Europe/Berlin` (daily) | Rotate `<secrets_prefix>/memex-public-bearer`, restage `.secrets/memex.env`, restart `memex` so it re-reads the new value. |
+| `memex-rotate-bearer.timer` (optional, not installed by bootstrap) | `*-*-* 06:00:00 Europe/Berlin` (daily) | Rotate `<secrets_prefix>/memex-public-bearer`, restage `.secrets/memex.env`, restart `memex` so it re-reads the new value. |
 | `memex-eval-probe.timer` | `*-*-* 04:30:00 Europe/Berlin` (daily) | Nightly retrieval-quality probe: replays a golden query set, records hit-rate / rank metrics into `eval_snapshots`, and surfaces the latest snapshot in `memex doctor`. Staggered clear of the 06:00 rotation so the two units never contend for the container; `Persistent=true` reruns a missed slot. Takes a per-run USD ceiling (`--max-usd`). |
 
 ## Storage layout
@@ -178,7 +178,7 @@ carries:
 |---|---|---|
 | `cloudflared-tunnel-token` | cloudflared | Manual; from Cloudflare Zero Trust dashboard. |
 | `memex-postgres-url` | memex | terraform — auto-populated from RDS endpoint. |
-| `memex-public-bearer` | memex | terraform — `random_password` resource generates at apply. memex validates incoming public `/mcp` bearers against it. Rotated daily by `memex-rotate-bearer.timer`. |
+| `memex-public-bearer` | memex | terraform — `random_password` resource generates at apply. memex validates incoming public `/mcp` bearers against it. Static unless the optional `memex-rotate-bearer.timer` is installed. |
 | `memex-internal-token` | memex (internal MCP write tools) | Manual; gates write `tools/call` on the internal path. |
 | `github-deploy-key` | bootstrap | terraform — conditional, only when `use_ssh_deploy_key = true`. |
 
