@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.157.0] — 2026-09-28
+
 ### Security
 - **A reused refresh token can revoke its session.** Every access and refresh
   token minted from one sign-in now shares a family, and a rotated refresh token
