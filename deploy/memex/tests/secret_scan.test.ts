@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { appendPage, getPage, putPage } from "../src/core/pages.ts";
 import { indexDocument } from "../src/core/indexer.ts";
-import { fingerprintSecret, scanSecrets } from "../src/core/secret-scan.ts";
+import { fingerprintSecret, guardSecretsDeep, scanSecrets, type SecretFinding } from "../src/core/secret-scan.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
 const AWS = ["AK", "IA", "Q3EXAMPLE7WXYZ12"].join("");
@@ -67,6 +67,83 @@ describe("scanSecrets", () => {
   it("leaves ids, hashes and client ids alone", () => {
     const text = `client memex_cl_${"f".repeat(64)} enrollment memex_enr_${"0".repeat(32)} sha ${"a".repeat(64)} uuid 123e4567-e89b-12d3-a456-4266141740ab`;
     expect(scanSecrets(text)).toEqual({ text, findings: [] });
+  });
+
+  it("catches memex client secrets and authorization codes", () => {
+    const cs = `memex_${"cs"}_${"9f".repeat(32)}`;
+    const code = `memex_${"code"}_${"4e".repeat(32)}`;
+    const r = scanSecrets(`secret ${cs}\ncode ${code}`);
+    expect(r.findings.map((f) => f.kind)).toEqual(["memex-token", "memex-token"]);
+    expect(r.text).toBe(`secret [REDACTED:memex-token:${fingerprintSecret(cs)}]\ncode [REDACTED:memex-token:${fingerprintSecret(code)}]`);
+  });
+
+  it("catches a JWT, a bearer token and a database URL with a password", () => {
+    const jwt = [`ey${"J"}hbGciOiJIUzI1NiJ9`, "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"].join(".");
+    const opaque = `tok_${"Zq8".repeat(10)}`;
+    const dbUrl = `${"postgres"}ql://app:${"s3cr3t".repeat(3)}@db.internal:5432/app`;
+    const text = `Authorization: Bearer ${opaque}\nAuthorization: Bearer ${jwt}\nDATABASE_URL=${dbUrl}`;
+    const r = scanSecrets(text);
+    expect(r.findings.map((f) => f.kind)).toEqual(["jwt", "database-url", "bearer-token"]);
+    for (const secret of [opaque, jwt, "s3cr3t"]) expect(r.text).not.toContain(secret);
+    expect(r.text).toContain(`Authorization: Bearer [REDACTED:bearer-token:${fingerprintSecret(opaque)}]`);
+    expect(r.text).toContain(`Authorization: Bearer [REDACTED:jwt:${fingerprintSecret(jwt)}]`);
+    for (const header of [
+      `curl -H "authorization: bearer ${opaque}"`,
+      `{"Authorization": "Bearer ${opaque}"}`,
+      `AUTHORIZATION=Bearer ${opaque}`,
+    ]) {
+      expect(scanSecrets(header).findings.map((f) => f.kind)).toEqual(["bearer-token"]);
+    }
+    expect(r.text).toContain("db.internal:5432/app");
+  });
+
+  it("catches a JWT whose claims segment is an empty object", () => {
+    const jwt = [`ey${"J"}hbGciOiJIUzI1NiJ9`, "e30", "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"].join(".");
+    const r = scanSecrets(`token ${jwt}`);
+    expect(r.findings.map((f) => f.kind)).toEqual(["jwt"]);
+    expect(r.text).toBe(`token [REDACTED:jwt:${fingerprintSecret(jwt)}]`);
+  });
+
+  it("catches a bearer token stored as the value of an Authorization key", () => {
+    const opaque = `tok_${"Zq8".repeat(10)}`;
+    const findings: SecretFinding[] = [];
+    const out = guardSecretsDeep(
+      { headers: { Authorization: `Bearer ${opaque}`, "proxy-authorization": `bearer ${opaque}`, Accept: `Bearer ${opaque}` } },
+      "test",
+      findings,
+    );
+    const fp = fingerprintSecret(opaque);
+    expect(out).toEqual({
+      headers: {
+        Authorization: `Bearer [REDACTED:bearer-token:${fp}]`,
+        "proxy-authorization": `bearer [REDACTED:bearer-token:${fp}]`,
+        Accept: `Bearer ${opaque}`,
+      },
+    });
+    expect(findings.map((f) => f.kind)).toEqual(["bearer-token", "bearer-token"]);
+  });
+
+  it("leaves bearer prose, password-less URLs and JWT-like fragments alone", () => {
+    const text = [
+      "Send a Bearer token in the header.",
+      "Bearer authentication/authorization is documented below.",
+      "the bearer instrument-of-record-transfer applies",
+      "bearer /var/lib/memex/something/long.txt",
+      "Authorization: Bearer ${TOKEN}",
+      "postgres://db.internal:5432/app and mysql://user@host/db",
+      "eyJhbGciOiJIUzI1NiJ9 alone is only a header",
+    ].join("\n");
+    expect(scanSecrets(text)).toEqual({ text, findings: [] });
+  });
+
+  it("scans a 1 MB line of near-miss prefixes in well under 200 ms", () => {
+    const unit = "eyJaaaaaaaa-Bearer\tpostgres://u:pmemex_cs_xmongodb+srv://";
+    const line = unit.repeat(Math.ceil(1_048_576 / unit.length)).slice(0, 1_048_576);
+    for (const s of [line, "eyJ-".repeat(262_144), `Authorization: Bearer ${"a".repeat(1_048_550)}`, "Authorization: Bearer ".repeat(47_663), `postgres://${":".repeat(1_048_565)}`]) {
+      const t = performance.now();
+      scanSecrets(s);
+      expect(performance.now() - t).toBeLessThan(200);
+    }
   });
 
   it("stays linear on adversarial text", () => {
@@ -207,6 +284,21 @@ describe("the other writes", () => {
     const audit = await auditRows("secret-redacted");
     expect(audit).toHaveLength(1);
     expect(audit[0]!.summary.split(", ")).toHaveLength(4);
+  });
+
+  it("redacts a bearer token held under an Authorization key in compiled_truth", async () => {
+    const opaque = `tok_${"Zq8".repeat(10)}`;
+    const r = await putPage(storage, {
+      slug: "notes/headers",
+      markdown_body: "clean",
+      compiled_truth: { Authorization: `Bearer ${opaque}` },
+    });
+    expect(r.secrets_found).toBe(1);
+    const stored = await storage.engine().query<{ truth: string }>(
+      `SELECT compiled_truth::text AS truth FROM pages WHERE slug = 'notes/headers'`,
+    );
+    expect(stored.rows[0]!.truth).not.toContain(opaque);
+    expect(stored.rows[0]!.truth).toContain(`Bearer [REDACTED:bearer-token:${fingerprintSecret(opaque)}]`);
   });
 
   it("redacts a fact and its context", async () => {

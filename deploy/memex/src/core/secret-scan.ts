@@ -42,10 +42,23 @@ const PATTERNS: Array<{ kind: string; regex: RegExp }> = [
   { kind: "openai-key", regex: /\bsk-(?:proj|svcacct|admin)-[\w-]{20,300}/g },
   { kind: "slack-webhook", regex: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,200}/g },
   { kind: "anthropic-key", regex: /\bsk-ant-[\w-]{20,300}/g },
-  // memex's own: OAuth access/refresh tokens, enrollment codes, and PATs.
+  // memex's own: OAuth access/refresh tokens, client secrets, authorization and
+  // enrollment codes, and PATs.
   // Client ids (`memex_cl_`) and enrollment ids (`memex_enr_`) are not secrets.
-  { kind: "memex-token", regex: /\bmemex_(?:at|rt|en)_[\w-]{16,200}/g },
+  { kind: "memex-token", regex: /\bmemex_(?:at|rt|cs|code|en)_[\w-]{16,200}/g },
   { kind: "memex-pat", regex: /\bmemex_[0-9a-f]{64}\b/g },
+  // The lookbehind keeps a start from landing mid-run, so a long `-`/`_` run
+  // is scanned once, not once per `eyJ` in it.
+  { kind: "jwt", regex: /(?<![\w-])eyJ[\w-]{8,4096}\.[\w-]{2,4096}\.[\w-]{8,4096}/g },
+  { kind: "database-url", regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s:/@"']{0,128}:[^\s@"']{1,256}@/g },
+  // Last, so a vendor token or JWT after `Bearer` keeps its own kind. Only the
+  // token is replaced; the scheme word stays. Anchored on the header name:
+  // "Bearer authentication/authorization" is prose, and redacting it would
+  // rewrite stored text for good.
+  {
+    kind: "bearer-token",
+    regex: /(?<=\bAuthorization["']?[ \t]{0,4}[:=][ \t]{0,4}["']?Bearer[ \t]{1,8})[\w.~+/=-]{20,4096}/gi,
+  },
 ];
 
 const PEM_OPEN = "-----BEGIN ";
@@ -161,6 +174,20 @@ export class SecretRejectedError extends OperationError {
   }
 }
 
+const AUTH_HEADER_KEY = /^(?:proxy-)?authorization$/i;
+const AUTH_HEADER_PREFIX = "Authorization: ";
+
+/**
+ * A header value stored under its own key, `{"Authorization": "Bearer …"}`:
+ * the bearer detector is anchored on the header name, so the value is scanned
+ * as the header line it came from.
+ */
+function guardHeaderValue(value: string, where: string, findings: SecretFinding[]): string {
+  const r = guardSecrets(AUTH_HEADER_PREFIX + value, where);
+  findings.push(...r.findings);
+  return r.text.slice(AUTH_HEADER_PREFIX.length);
+}
+
 /** Every string in a JSON value through `guardSecrets`, keys included. */
 export function guardSecretsDeep(value: unknown, where: string, findings: SecretFinding[]): unknown {
   if (typeof value === "string") {
@@ -172,7 +199,8 @@ export function guardSecretsDeep(value: unknown, where: string, findings: Secret
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[guardSecretsDeep(k, where, findings) as string] = guardSecretsDeep(v, where, findings);
+      out[guardSecretsDeep(k, where, findings) as string] =
+        typeof v === "string" && AUTH_HEADER_KEY.test(k) ? guardHeaderValue(v, where, findings) : guardSecretsDeep(v, where, findings);
     }
     return out;
   }
