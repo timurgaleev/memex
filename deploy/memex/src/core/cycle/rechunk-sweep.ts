@@ -43,6 +43,7 @@ import { indexDocument } from "../indexer.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "../chunkers/recursive.ts";
 import { loadAllowedRootSpellings } from "../path_guard.ts";
 import { loadRereadGuard, readGuardedFile, REREAD_SCAN_FACTOR, rereadCandidateWhere } from "../sources.ts";
+import { phaseCheckpoint, phaseFenceCheck } from "./phase-context.ts";
 
 const DEFAULT_MAX_DOCS = 25;
 const DEFAULT_MAX_CHARS = 1_000_000;
@@ -171,10 +172,12 @@ export async function rechunkSweepPhase(
     result.scanned += page.length;
     after = page[page.length - 1]!.source_path;
     for (const row of page) {
+      phaseCheckpoint();
       if (!existsSync(row.source_path)) {
         result.skippedMissing++;
         continue; // orphans-purge handles a doc whose file is gone
       }
+      await phaseFenceCheck();
       try {
         const file = readGuardedFile(mayReread, row.source_path, {
           sourceId: row.source_id,

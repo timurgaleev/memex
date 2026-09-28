@@ -14,6 +14,7 @@ import {
 import { purgeStaleVolunteerEvents } from "../context/volunteer-events.ts";
 import { purgeDeletedPages } from "../pages-purge.ts";
 import { purgeExpiredWriteRequests } from "../write-requests.ts";
+import { phaseFenceCheck } from "./phase-context.ts";
 
 export interface PurgeResult {
   purged_documents_deleted: number;
@@ -31,14 +32,18 @@ export async function purgePhase(
   opts: { ttlHours?: number } = {},
 ): Promise<PurgeResult> {
   const ttlHours = opts.ttlHours ?? SOFT_DELETE_TTL_HOURS;
+  await phaseFenceCheck();
   const docs = await purgeExpiredDocuments(engine, ttlHours);
   // Pages purge: a page soft-deleted past the TTL is hard-removed. Its search
   // mirror (page://<slug> document) was already dropped on soft-delete, so this
   // only reaps the canonical row + its version chain (FK cascade).
+  await phaseFenceCheck();
   const p = await purgeDeletedPages(engine, ttlHours);
   // Telemetry GC: prune volunteer-context feedback events past their TTL.
   // Best-effort (the helper swallows its own errors), never blocks the reaper.
+  await phaseFenceCheck();
   const purged_volunteer_events = await purgeStaleVolunteerEvents(engine);
+  await phaseFenceCheck();
   const purged_write_requests = await purgeExpiredWriteRequests(engine);
   return {
     purged_documents_deleted: docs.purged_deleted,

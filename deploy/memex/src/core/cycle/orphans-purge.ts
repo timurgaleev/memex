@@ -22,6 +22,7 @@
 import { existsSync } from "node:fs";
 import type { Engine } from "../engine/interface.ts";
 import { notEmptySourceFragment } from "../empty-source.ts";
+import { phaseCheckpoint, phaseFenceCheck } from "./phase-context.ts";
 
 export interface OrphansPurgeResult {
   deleted: {
@@ -55,6 +56,7 @@ export async function orphansPurgePhase(
   engine: Engine,
 ): Promise<OrphansPurgeResult> {
   // --- Safe deletes ----------------------------------------------------
+  await phaseFenceCheck();
   const e = await engine.query<{ c: number }>(
     `DELETE FROM embeddings
      WHERE chunk_id NOT IN (SELECT id FROM chunks)
@@ -62,6 +64,7 @@ export async function orphansPurgePhase(
   );
   const embeddings = e.rows.length;
 
+  await phaseFenceCheck();
   const m = await engine.query<{ c: number }>(
     `DELETE FROM entity_mentions
      WHERE chunk_id NOT IN (SELECT id FROM chunks)
@@ -69,6 +72,7 @@ export async function orphansPurgePhase(
   );
   const entity_mentions = m.rows.length;
 
+  await phaseFenceCheck();
   const ent = await engine.query<{ c: number }>(
     `DELETE FROM entities
      WHERE id NOT IN (SELECT DISTINCT entity_id FROM entity_mentions)
@@ -84,6 +88,7 @@ export async function orphansPurgePhase(
   // Roots probed once per run: "/vault" → does /vault exist here at all?
   const rootExists = new Map<string, boolean>();
   for (const d of allDocs.rows) {
+    phaseCheckpoint();
     // Virtual documents (page:// and page-truth:// mirrors, gmail:/gcal:
     // channel items) live only in the DB — they never have a file on disk, so
     // the disk-existence probe would flag every one of them forever. Only an

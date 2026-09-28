@@ -34,6 +34,12 @@ export interface DbLockHandle {
    * can stop work that is no longer protected by the lock.
    */
   refresh: () => Promise<boolean>;
+  /**
+   * Read-only check that the row still carries this tenure (pid + host +
+   * acquired_at). Work under the lock calls it before a write to shared state,
+   * so a holder whose lock was taken stops before overlapping the new one.
+   */
+  isHeld?: () => Promise<boolean>;
 }
 
 /** Lock id for the broad cycle lock — serializes a single cycle invocation. */
@@ -241,6 +247,13 @@ export async function tryAcquireDbLock(
         );
         return r.rows.length === 1;
       },
+      isHeld: async () => {
+        const r = await engine.query<{ id: string }>(
+          `SELECT id FROM cycle_locks WHERE ${fence}`,
+          fenceParams,
+        );
+        return r.rows.length === 1;
+      },
       release: async () => {
         deregister();
         await releaseOwnRow();
@@ -279,6 +292,14 @@ export const LOCK_HEARTBEAT_MS = 30_000;
 /** Abort reason the heartbeat uses when the lock row is no longer ours. */
 export const LOCK_STOLEN_REASON = "lock_stolen";
 
+const heartbeatLocks = new WeakMap<AbortSignal, DbLockHandle>();
+
+/** The lock a heartbeat's signal belongs to, so work given only the signal can
+ *  still fence its writes on the lock's tenure. */
+export function heldLockOf(signal: AbortSignal | undefined): DbLockHandle | undefined {
+  return signal ? heartbeatLocks.get(signal) : undefined;
+}
+
 export interface LockHeartbeat {
   /** Aborts with reason `lock_stolen` once a refresh finds the row gone. */
   signal: AbortSignal;
@@ -298,6 +319,7 @@ export function startLockHeartbeat(
   opts: { intervalMs?: number; onLost?: () => void } = {},
 ): LockHeartbeat {
   const controller = new AbortController();
+  heartbeatLocks.set(controller.signal, lock);
   let inFlight = false;
   let stopped = false;
   const timer = setInterval(() => {

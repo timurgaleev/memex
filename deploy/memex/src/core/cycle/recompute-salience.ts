@@ -22,6 +22,7 @@ import {
   parseHighEmotionTagsEnv,
   type SalienceOpts,
 } from "../salience-score.ts";
+import { phaseFenceCheck } from "./phase-context.ts";
 
 export interface RecomputeSalienceResult {
   scanned: number;
@@ -147,6 +148,7 @@ export async function recomputeSaliencePhase(
   }
 
   if (changes.length > 0) {
+    await phaseFenceCheck();
     const params: unknown[] = [];
     const tuples = changes.map((c) => {
       params.push(c.slug, c.salience);

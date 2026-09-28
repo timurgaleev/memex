@@ -21,6 +21,7 @@
  */
 import type { Engine } from "../engine/interface.ts";
 import { embedText } from "../embedding.ts";
+import { phaseCheckpoint, phaseFenceCheck, PhaseStoppedError } from "./phase-context.ts";
 
 export interface EmbedFactsOptions {
   /** Hard cap on facts embedded per cycle (bounds Bedrock spend). Default 100. */
@@ -64,14 +65,17 @@ export async function embedFactsPhase(
   };
 
   for (const row of rows.rows) {
+    phaseCheckpoint();
     try {
       const vec = await embed(row.fact);
+      await phaseFenceCheck();
       await engine.query(
         `UPDATE entity_facts SET embedding = $1::vector WHERE id = $2`,
         [JSON.stringify(vec), row.id],
       );
       result.embedded += 1;
     } catch (e) {
+      if (e instanceof PhaseStoppedError) throw e;
       result.errors.push({
         id: row.id,
         message: e instanceof Error ? e.message : String(e),

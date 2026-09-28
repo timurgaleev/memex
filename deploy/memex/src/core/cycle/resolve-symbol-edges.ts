@@ -14,6 +14,7 @@
  * processed once, then stamped, until a re-index clears the stamp on its chunks.
  */
 import type { Engine } from "../engine/interface.ts";
+import { phaseFenceCheck } from "./phase-context.ts";
 
 export interface ResolveSymbolEdgesResult {
   documents: number;
@@ -42,6 +43,7 @@ export async function resolveSymbolEdgesPhase(
   );
 
   for (const { document_id } of docs.rows) {
+    await phaseFenceCheck();
     result.documents++;
     try {
       // Defining symbols in this document: bare name AND qualified name →

@@ -29,6 +29,7 @@
 import type { Engine } from "../engine/interface.ts";
 import { findLiveClaim, type ClaimIdentity } from "../facts.ts";
 import { DEFAULT_FACT_KIND } from "../facts-decay.ts";
+import { phaseFenceCheck } from "./phase-context.ts";
 
 /** Author stamped on a promoted take — also half its claim identity. */
 const CONSOLIDATE_WRITER = "facts-consolidate";
@@ -170,6 +171,7 @@ export async function consolidateFactsPhase(
   result.bucketsScanned = buckets.rows.length;
 
   for (const b of buckets.rows) {
+    await phaseFenceCheck();
     try {
       const processed = await consolidateBucket(engine, b, {
         threshold,

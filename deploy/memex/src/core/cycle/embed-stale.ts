@@ -15,6 +15,7 @@ import { Storage } from "../storage.ts";
 import { indexDocument } from "../indexer.ts";
 import { loadAllowedRootSpellings } from "../path_guard.ts";
 import { loadRereadGuard, readGuardedFile, REREAD_SCAN_FACTOR, rereadCandidateWhere } from "../sources.ts";
+import { phaseCheckpoint, phaseFenceCheck } from "./phase-context.ts";
 
 export interface EmbedStaleOptions {
   /** Days threshold. Default 30. */
@@ -100,7 +101,9 @@ export async function embedStalePhase(
     result.scanned += page.length;
     after = page[page.length - 1]!.source_path;
     for (const row of page) {
+      phaseCheckpoint();
       if (!existsSync(row.source_path)) continue; // orphans-purge handles
+      await phaseFenceCheck();
       try {
         const file = readGuardedFile(mayReread, row.source_path, {
           sourceId: row.source_id,

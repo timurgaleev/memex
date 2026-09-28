@@ -34,6 +34,7 @@ import { resolveFactsModel } from "../llm/sonnet.ts";
 import type { SonnetFn } from "../llm/sonnet.ts";
 import type { LlmFn } from "../llm/haiku.ts";
 import { filterWorthwhile, worthGateEnabled } from "../synthesis/worth-gate.ts";
+import { phaseFenceCheck } from "./phase-context.ts";
 
 export interface ConversationFactsBackfillOptions {
   /** Cap on pages processed per run. Default 50. */
@@ -176,6 +177,7 @@ export async function conversationFactsBackfillPhase(
   }
 
   for (const page of pages) {
+    await phaseFenceCheck();
     result.pagesConsidered += 1;
     // Brain-wide budget stop: if the prior spend already reached the cap, stop
     // before dispatching another paid call.

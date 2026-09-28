@@ -100,6 +100,8 @@ import {
   type RechunkSweepResult,
 } from "./rechunk-sweep.ts";
 import type { LlmFn } from "../llm/haiku.ts";
+import { heldLockOf } from "../db-lock.ts";
+import { runInPhaseContext } from "./phase-context.ts";
 
 export type PhaseName =
   | "lint"
@@ -339,6 +341,29 @@ export function deriveStatus(
   phase: PhaseName,
   detail: PhaseResult["detail"],
 ): PhaseStatus {
+  const status = derivePhaseRuleStatus(phase, detail);
+  return status === "ok" && reportsAbsorbedFailures(detail) ? "warn" : status;
+}
+
+/**
+ * A phase that caught its own failures and still returned must not read as a
+ * clean run: a non-empty `errors`, or a positive `failed` count, is a warn for
+ * every phase, whether or not it has an explicit rule below. `rejected` is not
+ * a failure: embed-stale and rechunk-sweep count re-read guard refusals there
+ * (a denied name, another owner, a path outside the roots), which repeat every
+ * cycle by policy and would pin both phases at warn for good.
+ */
+function reportsAbsorbedFailures(detail: PhaseResult["detail"]): boolean {
+  if (!detail || typeof detail !== "object") return false;
+  const d = detail as { errors?: unknown; failed?: unknown };
+  if (Array.isArray(d.errors) && d.errors.length > 0) return true;
+  return typeof d.failed === "number" && d.failed > 0;
+}
+
+function derivePhaseRuleStatus(
+  phase: PhaseName,
+  detail: PhaseResult["detail"],
+): PhaseStatus {
   if (
     phase === "embed-stale" ||
     phase === "embed-facts" ||
@@ -442,12 +467,19 @@ export interface CycleOptions {
   progress?: ProgressSink;
   /**
    * Stops the run: checked before every phase, and an abort during a phase
-   * halts its paid Bedrock calls at once and fails the phase. The phase's own
-   * DB work cannot be cancelled; the run waits up to ABORT_SETTLE_MS for it and
-   * reports `orphanedPhase` if it is still going. The cycle lock heartbeat
-   * aborts it with `lock_stolen`.
+   * halts its paid Bedrock calls at once, fails the phase, and stops the
+   * phase's own loops at their next checkpoint (see phase-context.ts). The run
+   * waits up to ABORT_SETTLE_MS for the phase to wind down and reports
+   * `orphanedPhase` if it is still going. The cycle lock heartbeat aborts it
+   * with `lock_stolen`.
    */
   signal?: AbortSignal;
+  /**
+   * Checks that the cycle lock is still ours; phases call it before writes to
+   * shared state, and a false answer stops the run as `lock_stolen`. Defaults
+   * to the lock behind `signal` when that is a lock heartbeat's signal.
+   */
+  fence?: () => Promise<boolean>;
 }
 
 // Per-phase wall-clock deadline. A phase that hangs (e.g. a Bedrock/Haiku call
@@ -597,21 +629,26 @@ export async function runPhase<T>(
   progress: ProgressSink,
   signal?: AbortSignal,
   settleMs: number = ABORT_SETTLE_MS,
+  fence?: () => Promise<boolean>,
 ): Promise<PhaseResult> {
   const start = Date.now();
   progress({ kind: "phase", op: "cycle", phase, ts: start });
   // A phase that times out or is aborted keeps running (JS cannot cancel
-  // it); the scope flag stops its orphaned paid calls from spending past
-  // the cutoff.
+  // it): the scope flag stops its orphaned paid calls from spending past the
+  // cutoff, and the phase signal stops its own loops at their next checkpoint.
   const scope: BatchScope = { stopped: false, circuit: true };
-  const stop = () => {
+  const phaseStop = new AbortController();
+  const stop = (reason: string = scope.stopReason ?? "phase_stopped") => {
     scope.stopped = true;
+    if (!phaseStop.signal.aborted) phaseStop.abort(reason);
   };
   let aborted = false;
   let orphaned = false;
   // The phase's own promise is kept apart from the deadline wrapper: once the
   // deadline rejects, only this one still tracks the work that is still going.
-  const work = runInBatchScope(scope, fn);
+  const work = runInBatchScope(scope, () =>
+    runInPhaseContext({ signal: phaseStop.signal, ...(fence ? { fence } : {}) }, fn),
+  );
   const deadlined = withPhaseTimeout(phase, () => work);
   try {
     const onAbort = () => {
@@ -620,7 +657,7 @@ export async function runPhase<T>(
       stop();
     };
     const detail = (await raceAbort(deadlined, signal, onAbort).catch((e: unknown) => {
-      stop();
+      stop(e instanceof PhaseTimeoutError ? "phase_timeout" : undefined);
       throw e;
     })) as PhaseResult["detail"];
     const status = deriveStatus(phase, detail);
@@ -690,30 +727,69 @@ export async function runCycleOnce(
   const startedAt = new Date().toISOString();
   progress({ kind: "started", op: "cycle", ts: Date.now() });
 
-  const signal = options.signal;
+  // The run's own signal follows the caller's and is also aborted when a phase
+  // finds the lock gone, so a steal the heartbeat has not seen yet still stops
+  // the run.
+  const run = new AbortController();
+  const outer = options.signal;
+  const follow = () => run.abort(outer?.reason);
+  if (outer?.aborted) follow();
+  else outer?.addEventListener("abort", follow, { once: true });
+  const signal = run.signal;
+  const lockCheck = options.fence ?? heldLockOf(outer)?.isHeld;
+  const fence = lockCheck
+    ? async () => {
+        const held = await lockCheck();
+        if (!held && !run.signal.aborted) run.abort("lock_stolen");
+        return held;
+      }
+    : undefined;
+  try {
+    return await runPhases(engine, options, progress, requested, startedAt, signal, fence);
+  } finally {
+    outer?.removeEventListener("abort", follow);
+  }
+}
+
+async function runPhases(
+  engine: Engine,
+  options: CycleOptions,
+  progress: ProgressSink,
+  requested: readonly PhaseName[],
+  startedAt: string,
+  signal: AbortSignal,
+  fence: (() => Promise<boolean>) | undefined,
+): Promise<CycleResult> {
+  const runFenced = <T>(
+    e: Engine,
+    p: PhaseName,
+    fn: () => Promise<T>,
+    sink: ProgressSink,
+    sig: AbortSignal | undefined,
+  ) => runPhase(e, p, fn, sink, sig, ABORT_SETTLE_MS, fence);
   const phases: PhaseResult[] = [];
   const phasesNotRun: PhaseName[] = [];
   for (const p of requested) {
-    if (signal?.aborted) {
+    if (signal.aborted) {
       phasesNotRun.push(p);
       continue;
     }
     let r: PhaseResult;
     switch (p) {
       case "lint":
-        r = await runPhase(engine, p, () => lintPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => lintPhase(engine), progress, signal);
         break;
       case "embed-stale": {
         const o: EmbedStaleOptions = {};
         if (options.staleDays !== undefined) o.staleDays = options.staleDays;
         if (options.embedMaxPerCycle !== undefined)
           o.maxPerCycle = options.embedMaxPerCycle;
-        r = await runPhase(engine, p, () => embedStalePhase(engine, o), progress, signal);
+        r = await runFenced(engine, p, () => embedStalePhase(engine, o), progress, signal);
         break;
       }
       case "mirror-pages": {
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -731,25 +807,25 @@ export async function runCycleOnce(
         break;
       }
       case "embed-facts":
-        r = await runPhase(engine, p, () => embedFactsPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => embedFactsPhase(engine), progress, signal);
         break;
       case "extract": {
         const o: ExtractPhaseOptions = {};
         if (options.extractMaxDocs !== undefined) o.maxDocs = options.extractMaxDocs;
-        r = await runPhase(engine, p, () => extractPhase(engine, o), progress, signal);
+        r = await runFenced(engine, p, () => extractPhase(engine, o), progress, signal);
         break;
       }
       case "resolve-symbol-edges":
-        r = await runPhase(engine, p, () => resolveSymbolEdgesPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => resolveSymbolEdgesPhase(engine), progress, signal);
         break;
       case "reconcile-links":
-        r = await runPhase(engine, p, () => reconcileLinksPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => reconcileLinksPhase(engine), progress, signal);
         break;
       case "orphans-purge":
-        r = await runPhase(engine, p, () => orphansPurgePhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => orphansPurgePhase(engine), progress, signal);
         break;
       case "recompute-salience":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () => recomputeSaliencePhase(engine),
@@ -759,7 +835,7 @@ export async function runCycleOnce(
         break;
       case "extract-timeline": {
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -777,7 +853,7 @@ export async function runCycleOnce(
       }
       case "timeline-anchor": {
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -793,15 +869,15 @@ export async function runCycleOnce(
         break;
       }
       case "snapshot":
-        r = await runPhase(engine, p, () => snapshotPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => snapshotPhase(engine), progress, signal);
         break;
       case "purge":
-        r = await runPhase(engine, p, () => purgePhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => purgePhase(engine), progress, signal);
         break;
       // Synthesis phases (Wave 5) — LLM-backed, opt-in. Order matters:
       // atoms -> concepts -> takes -> grade -> calibration.
       case "extract-atoms":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           // Storage enables the atoms/<date>/<slug> page mirror (retrievable
@@ -816,7 +892,7 @@ export async function runCycleOnce(
         );
         break;
       case "synthesize-concepts":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           // Storage enables the concepts/<slug> page mirror.
@@ -830,7 +906,7 @@ export async function runCycleOnce(
         );
         break;
       case "propose-takes":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () => proposeTakesPhase(engine, options.synthesis ?? {}),
@@ -839,7 +915,7 @@ export async function runCycleOnce(
         );
         break;
       case "grade-takes":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () => gradeTakesPhase(engine, options.synthesis ?? {}),
@@ -848,7 +924,7 @@ export async function runCycleOnce(
         );
         break;
       case "calibration-profile":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () => calibrationProfilePhase(engine, options.synthesis ?? {}),
@@ -857,7 +933,7 @@ export async function runCycleOnce(
         );
         break;
       case "probe-contradictions":
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           // Paid Sonnet, default-OFF (gated on MEMEX_PROBE_CONTRADICTIONS). Reads
@@ -871,7 +947,7 @@ export async function runCycleOnce(
         // Paid Sonnet, default-OFF (MEMEX_REFLECTIONS). Writes real
         // reflections/<slug> pages, so it needs the Storage handle (putPage).
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -896,7 +972,7 @@ export async function runCycleOnce(
         // Paid Sonnet, default-OFF (MEMEX_PATTERNS). Writes real patterns/<slug>
         // pages, so it needs the Storage handle (putPage), not just the engine.
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -920,7 +996,7 @@ export async function runCycleOnce(
         // Paid Sonnet, default-OFF (MEMEX_ENRICH_THIN). Rewrites real pages in
         // place, so it needs the Storage handle (putPage).
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -944,7 +1020,7 @@ export async function runCycleOnce(
       case "auto-think": {
         // Paid Sonnet, default-OFF (MEMEX_AUTO_THINK). Writes drafts/think/ pages.
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -967,7 +1043,7 @@ export async function runCycleOnce(
       case "drift": {
         // Paid Sonnet, default-OFF (MEMEX_DRIFT). Writes a drift-reports/ page.
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -989,11 +1065,11 @@ export async function runCycleOnce(
       }
       // Facts-maintenance phases — opt-in, default-OFF (see FACTS_MAINT_PHASES).
       case "consolidate-facts":
-        r = await runPhase(engine, p, () => consolidateFactsPhase(engine), progress, signal);
+        r = await runFenced(engine, p, () => consolidateFactsPhase(engine), progress, signal);
         break;
       case "conversation-facts-backfill": {
         const storage = options.storage;
-        r = await runPhase(
+        r = await runFenced(
           engine,
           p,
           () =>
@@ -1020,7 +1096,7 @@ export async function runCycleOnce(
       // Reads its own caps from env; a safe no-op (ran:false) when the flag is
       // unset, so requesting it explicitly never surprises with Bedrock spend.
       case "rechunk-sweep":
-        r = await runPhase(engine, p, () => rechunkSweepPhase(engine, {}), progress, signal);
+        r = await runFenced(engine, p, () => rechunkSweepPhase(engine, {}), progress, signal);
         break;
       default:
         r = {
@@ -1042,7 +1118,7 @@ export async function runCycleOnce(
     : phases.some((p) => p.status === "warn")
       ? "warn"
       : "ok";
-  const reason = partial && signal ? cycleReasonOf(signal) : undefined;
+  const reason = partial ? cycleReasonOf(signal) : undefined;
   const orphanedPhase = phases.find((p) => p.orphaned)?.phase;
   progress({
     kind: ok ? "completed" : "failed",
