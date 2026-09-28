@@ -102,15 +102,14 @@ Secrets Manager (via `fetch-secrets.sh`), not the compose allowlist.
 | Variable | Default | What it does | Cost |
 |---|---|---|---|
 | `MEMEX_POSTGRES_URL` | *(none — required)* | RDS Postgres connection URL (`postgres://…?sslmode=require`). Injected from the `<prefix>/memex-postgres-url` secret via `.secrets/memex.env`. Without it the index has nowhere to live. | free |
-| `MEMEX_PUBLIC_BEARER` | *(none)* | Bearer token that authenticates incoming public `/mcp` requests. Injected from `<prefix>/memex-public-bearer`. Static unless you install the optional `memex-rotate-bearer` systemd timer, which rotates it daily via `scripts/rotate-memex-public-bearer.sh`. | free |
+| `MEMEX_PUBLIC_BEARER` | *(none)* | Static bearer token accepted on public `/mcp` requests. Injected from `<prefix>/memex-public-bearer`. It carries no tenant and reaches only the public read subset, so give people a personal access token (`memex auth create <name> --source <src>`) or an OAuth client instead. `deploy/systemd` ships a rotation timer that bootstrap does not install. | free |
 | `MEMEX_INTERNAL_TOKEN` | *(none)* | Shared bearer authenticating peer containers on the internal docker bridge to memex's mutating routes. From `<prefix>/memex-internal-token`. | free |
 | `MEMEX_HOST` | `127.0.0.1` | Bind host / public hostname for the server. `init.sh` sets it to `<subdomain>.<domain>`; the CLI `--host` flag overrides. | free |
 | `MEMEX_SUBDOMAIN` | `brain` | The public MCP subdomain. Consumed by `init.sh`/`bootstrap.sh` to compose `MEMEX_HOST`; it is *not* read directly by the server at runtime (the terraform var `memex_subdomain` is the source of truth). | free |
 | `MEMEX_VAULT_PATHS` | `/memory` (compose) | CSV of directory roots the indexer may sweep and the path-guard treats as in-bounds. Mounted read-only into the container. | free |
 | `MEMEX_CODE_PATHS` | `/repo-source` (compose) | CSV of repo checkouts the code-chunkers index (call/def/ref graph). Empty → boot warns "0 indexable files" and continues. | free |
-
-`MEMEX_VAULT_PATH` (singular) is a legacy fallback read only by the `integrity`
-command; prefer the plural `MEMEX_VAULT_PATHS`.
+| `MEMEX_VAULT_PATH` | unset | Single vault path used by `reindex`, `integrity` and `doctor` when no `--vault` flag and no `storage.vault` in the config file are given. Code-only; the server sweeps `MEMEX_VAULT_PATHS`. | free |
+| `MEMEX_VERSION` | `dev` | Build stamp baked into the image by `deploy/deploy.sh` (`git describe`). `/health` and MCP `serverInfo.version` report it; `memex auth doctor --expect-version` compares against it. Set by the deploy script, not by hand. Allowlisted (build arg). | free |
 
 ---
 
@@ -140,6 +139,20 @@ to `environment:` before overriding.
 | `MEMEX_CHUNK_OVERLAP` | `0` (off) | Characters of tail-of-previous-chunk to prepend to each chunk. `0` = byte-identical to no overlap. Capped at half the previous chunk. | free |
 | `MEMEX_TRACK_RETRIEVAL` | on (`=0` off) | Write-back `last_retrieved` timestamps on hit. | free |
 | `MEMEX_ANOMALY_SIGMA` | `2` | k in `mean + k·stddev` for usage-insight anomaly flags. | free |
+| `MEMEX_SEARCH_MODE` | `conservative` | Picks a bundle of search knobs at once. `conservative`: every optional stage off, no token cap. `balanced`: Haiku rerank, graph signals, cosine rescore and the relational arm on, 12000-token result cap. `tokenmax`: all of that plus LLM query expansion, no cap. A per-knob env set to `1`/`0` wins over the bundle. Unknown values fall back to `conservative`. | paid in `balanced`/`tokenmax` (Haiku) |
+| `MEMEX_RELATIONAL_ARM` | from the mode bundle | `1` adds the relational (typed-edge) arm to hybrid search, `0` removes it, whatever the mode says. | free |
+| `MEMEX_RELATIONAL_ARM_WEIGHT` | `1.0` | RRF weight of the relational arm. Non-positive or invalid values fall back to the default. | free |
+| `MEMEX_TITLE_ARM` | on (`=0` off) | Title-match arm that lets a query naming a page reach it directly. | free |
+| `MEMEX_MAXPOOL` | off (`=1` on) | Each retrieval arm returns its best chunk per page, so the candidate budget covers distinct pages. Skipped for `exact` intent and structural walks. | free |
+| `MEMEX_MAX_TYPE_RATIO` | `0.6` | Largest share of the candidate set one page type may hold. `>= 1` disables the cap. Fail-loud on a malformed value. | free |
+| `MEMEX_RECENCY_BOOST` | built-in map | Per-prefix recency boost (`prefix:halfLifeDays:coefficient`, CSV), merged over the defaults. `0` for either number marks a prefix evergreen. Fail-loud on a malformed entry. | free |
+| `MEMEX_QUERY_CACHE_SIM` | `0.92` | Cosine floor for a hit on the semantic query-cache arm (`MEMEX_QUERY_CACHE_SEMANTIC`). Values outside `(0, 1]` fall back to the default. | free |
+| `MEMEX_QUERY_CACHE_TTL` | `3600` | Seconds a semantic query-cache entry lives. | free |
+| `MEMEX_RERANK_WINDOW` | `30` | How many top candidates the rerank pass sees; it may promote one from below the return cutoff. Clamped to `>= k`. Allowlisted. | free (the rerank call itself is priced under `MEMEX_RERANK`) |
+| `MEMEX_RERANK_TIMEOUT_MS` | `5000` | Wall-clock limit for one rerank call; on timeout the hits come back unreranked. | free |
+| `MEMEX_TRAJECTORY_REGRESSION_THRESHOLD` | `0.1` | Drop in `find_trajectory` score that counts as a regression. Must be in `(0, 1)`; anything else uses the default. | free |
+| `MEMEX_ORPHAN_EXCLUDE_WRITERS` | built-in list | Replaces the list of `written_by` values whose pages never count as orphans. Presence decides: set to empty, every page counts. CSV. | free |
+| `MEMEX_ORPHAN_EXCLUDE_EXTRA` | empty | Adds `written_by` values to that list. CSV. | free |
 
 `near_symbol` and `walk_depth` are **search-tool parameters**, not env vars —
 pass them per call (`walk_depth` 1–2, capped at 2; inert unless `walk_depth > 0`
@@ -174,6 +187,9 @@ you opt in.
 | `MEMEX_INTENT_MODEL` | utility model | Model id for the `MEMEX_INTENT_LLM` tie-break only. Allowlisted. | cheap (Haiku) |
 | `MEMEX_RERANK_MODEL` | utility model | Model id for the `MEMEX_RERANK` two-pass rerank only. Allowlisted. | cheap (Haiku) |
 | `MEMEX_CONCEPTS_MODEL` | utility model | Model id for concept synthesis only; `MEMEX_CONCEPTS_BUDGET_USD` prices the same model. Allowlisted. | cheap (Haiku) |
+| `MEMEX_WORTH_GATE` | off (`=1` on) | A cached Haiku verdict ("is this transcript worth synthesizing?") in front of the paid transcript consumers (reflections, conversation-facts backfill). Fail-open: a judge error lets the transcript through. | cheap (Haiku) |
+| `MEMEX_SYNTH_PAGES` | on (`=0` off) | Mirrors synthesis atoms and concepts into pages. `0` keeps them in the `synth_*` tables only. | free |
+| `MEMEX_LLM_MAX_INFLIGHT` | `4` | Bedrock chat calls one process runs at once; the rest wait. | — |
 
 Model ids resolve in `core/llm/resolve-model.ts`, in this order: the feature's
 own key (`MEMEX_<FEATURE>_MODEL`), then the tier key (`MEMEX_UTILITY_MODEL` or
@@ -218,6 +234,30 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_PATTERNS_BUDGET_USD` | `1.0` | USD ceiling for the patterns pass. | — |
 | `MEMEX_PATTERNS_REFLECTION_PREFIX` | `reflections/` | Slug prefix the miner reads (kept in lockstep with what the reflections phase writes). | — |
 | `MEMEX_PATTERNS_MIN_EVIDENCE` | `3` | Minimum distinct reflections a theme must span before a pattern page is written. | — |
+| `MEMEX_PATTERNS_LOOKBACK_DAYS` | `30` | How far back the patterns pass reads reflections. | — |
+| `MEMEX_PATTERNS_MAX_REFLECTIONS` | `100` | Max reflections fed into one patterns pass. | — |
+| `MEMEX_AUTO_THINK` | off (`=1` on) | `auto-think` cycle phase: runs the questions in `MEMEX_AUTO_THINK_QUESTIONS` through `think` and writes each answer as a draft page under `drafts/think/`. | **paid (Sonnet)** |
+| `MEMEX_AUTO_THINK_QUESTIONS` | empty | CSV of standing questions. With none set the phase does nothing. | — |
+| `MEMEX_AUTO_THINK_MAX` | `5` | Max questions per run. | — |
+| `MEMEX_AUTO_THINK_BUDGET_USD` | `2.0` | USD ceiling for one run, shared across its questions. `0` is a real cap. | — |
+| `MEMEX_AUTO_THINK_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. `0` disables the cooldown. | — |
+| `MEMEX_DRIFT` | off (`=1` on) | `drift` cycle phase: takes (weight 0.3–0.85) whose source document was re-ingested after the take was made are judged against the new text, and the result is written to a `drift-reports/` page. | **paid (Sonnet)** |
+| `MEMEX_DRIFT_BUDGET_USD` | `1.0` | USD ceiling for one drift run. `0` is a real cap. | — |
+| `MEMEX_DRIFT_COOLDOWN_HOURS` | `12` | Minimum hours between drift runs per tenant. | — |
+| `MEMEX_DRIFT_MAX_CANDIDATES` | `12` | Max takes judged per run. | — |
+| `MEMEX_ENRICH_THIN` | off (`=1` on) | `enrich-thin` cycle phase: rewrites a few short real pages in place, expanding each from its linked neighbours only (one Sonnet call per page, citations as wiki links). | **paid (Sonnet)** |
+| `MEMEX_ENRICH_THIN_BUDGET_USD` | `1.0` | USD ceiling for one run. `0` is a real cap. | — |
+| `MEMEX_ENRICH_THIN_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. | — |
+| `MEMEX_ENRICH_THIN_MAX_PAGES` | `3` | Max pages rewritten per run. | — |
+| `MEMEX_ENRICH_THIN_THRESHOLD` | `400` | Body length (characters) under which a page counts as thin. | — |
+| `MEMEX_ENRICH_THIN_TYPES` | `person,company,concept,note` | Page types eligible for enrichment. CSV. | — |
+| `MEMEX_FACTS_WRITE_BUDGET_USD` | `0.05` | USD ceiling for the facts extraction one page write triggers when `MEMEX_FACTS_EXTRACTION` is on. | — |
+| `MEMEX_AUTO_CHRONICLE` | off (`=1` on) | On an operator write of a conversation-shaped page, queue one `chronicle_extract` job that projects its events into the chronicle. Tenant and public writes never trigger it. | **paid (Sonnet)** |
+| `MEMEX_CHRONICLE_WRITE_BUDGET_USD` | `0.05` | USD ceiling for one page's chronicle extraction (also what `chronicle_backfill` quotes per page). | — |
+| `MEMEX_CHRONICLE_TZ` | `UTC` | Time zone used to turn a chronicle event's time into a date. | free |
+| `MEMEX_TAKE_AUTO_RESOLVE` | off (`=1` on) | Lets a high-confidence ensemble verdict resolve a take instead of staying advisory. Never overwrites a human resolution. | free (uses the ensemble's calls) |
+| `MEMEX_PROBE_VERDICT_TTL_DAYS` | `30` | Days a cached contradiction-probe verdict is reused before the pair is judged again. | — |
+| `MEMEX_REMEDIATION_MAX_USD` | `1.0` | USD ceiling for one `memex doctor --remediate` run (the re-embed and re-run jobs it queues). | — |
 | `MEMEX_PROBE_CONTRADICTIONS` | off | Latent-contradiction probe (mig 064): a paid cycle phase that caches LLM-suspected fact conflicts so `find_contradictions` can surface them. Paired candidates stay `source_id`-scoped (no cross-tenant pairing). | **paid (Sonnet)** |
 | `MEMEX_PROBE_CONTRADICTIONS_BUDGET_USD` | `1.0` | USD ceiling for the contradiction probe. | — |
 | `MEMEX_FACTS_BACKFILL` | off | `conversation-facts-backfill` cycle phase: extracts facts from historical transcripts that predate on-write extraction. Synthesis-written pages (`reflections/`, `patterns/`) are excluded from the selector. No-ops unless set truthy. | **paid (Sonnet)** |
@@ -251,7 +291,10 @@ that stops making calls once the budget is spent. All default OFF.
 |---|---|---|---|
 | `MEMEX_TENANT_FAIL_CLOSED` | off (`=1` on) | When on, an authenticated PUBLIC principal with no source grant reads/writes **nothing** instead of the redacted whole brain. The static bearer (no `authInfo`) is unaffected. Flip once a real remote OAuth client with a grant exists. | free |
 | `MEMEX_OPERATOR` | unset (falls back to `USER`, then `cli`) | Name recorded as the actor on grant changes made with `memex auth rescope-client`. Audit data only; it grants nothing. | free |
-| `MEMEX_PUBLIC_WRITE` | `0` | When `1`, the public `/mcp` path may call the constructive write tools (`index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`, `link`). Destructive ops + privacy-sensitive reads stay internal-only regardless. Pair with daily bearer rotation. | free |
+| `MEMEX_PUBLIC_WRITE` | `0` | When `1`, the public `/mcp` path may call the constructive write tools (`index`, `page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`, `link`). Destructive ops + privacy-sensitive reads stay internal-only regardless. The static bearer is permanent, so anyone holding it can then write; prefer scoped PATs or OAuth clients for writers. | free |
+| `MEMEX_ASSUME_PUBLIC` | off (`=1` on) | Treat every HTTP request as public ingress. Public detection otherwise keys on the `Cf-Connecting-Ip` header a Cloudflare Tunnel injects; behind another proxy that does not add it, set this (or inject the header) or remote callers are judged as internal peers. Allowlisted. | free |
+| `MEMEX_HTTP_CORS_ORIGIN` | unset (no cross-origin) | CSV of browser origins allowed to call memex cross-origin. Unset denies every cross-origin request. Allowlisted. | free |
+| `MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE` | unset (off) | Per-credential cap on `/mcp` requests per minute, applied after authentication, on top of the per-IP limiter. Allowlisted. | free |
 | `MEMEX_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. | free |
 | `MEMEX_HTTP_TRUST_PROXY` | off (`=1` on) | Let every header-keyed rate limiter fall back to `X-Forwarded-For` (first hop) then `X-Real-IP` when `Cf-Connecting-Ip` is absent. Both are attacker-controlled unless a trusted reverse proxy overwrites them, and a spoofable key is worse than none — the caller rotates values and mints a fresh bucket per request. Off, an unattributable caller is not metered per-IP at all. Turn on ONLY behind a proxy that terminates the client connection and rewrites those headers itself. | free |
 | `MEMEX_ADMIN_BOOTSTRAP` | unset | Admin-panel bootstrap token consumed by `serve.ts` at start. Must be 32+ chars from `[A-Za-z0-9_-]` or the server refuses to boot; unset ⇒ an ephemeral per-run token is printed to stderr. | free |
@@ -267,6 +310,19 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMEX_DEPLOYMENT_IDENTITY` | unset | One line on what this brain is (for example "Team brain for the docs group"). Appended to the MCP `initialize` instructions as a `Deployment:` paragraph after memex's built-in operating contract. Trimmed and capped at 2000 characters. Served to **every** caller, public ingress included: public-facing prose only, never a secret. | free |
 | `MEMEX_MCP_INSTRUCTIONS` | unset | Extra operator guidance appended after the deployment identity in the `initialize` instructions (for example where meeting notes belong). Trimmed and capped at 2000 characters. Served to every caller, public ingress included, so it must not hold secrets. | free |
 | `MEMEX_MCP_LENIENT_ARGS` | off | MCP calls that pass an argument the tool does not declare are refused with `invalid_params` and a did-you-mean hint. `=1` accepts and ignores unknown arguments again: a temporary escape for an old client, since a misspelled key is then dropped without an error. | free |
+
+### Agent jobs and skill optimization
+
+Both are off unless switched on, and both run under a per-run dollar ceiling.
+
+| Variable | Default | What it does | Cost |
+|---|---|---|---|
+| `MEMEX_AGENT_ENABLED` | off (`=1` on) | Registers the `subagent` job kind: a read-only research agent (`memex agent run`) that uses memex's read tools and writes nothing. Allowlisted. | **paid (Sonnet)** |
+| `MEMEX_AGENT_TENANT_ENABLED` | off (`=1` on) | Also lets OAuth clients holding the `agent` scope queue jobs with `submit_agent` / `get_agent_job`, run under the submitter's grant and daily budget. Needs `MEMEX_AGENT_ENABLED=1`. Allowlisted. | **paid (Sonnet)** |
+| `MEMEX_AGENT_MAX_USD` | `0.25` | Per-job ceiling; a job's own `max_usd` is clamped to it. Allowlisted. | — |
+| `MEMEX_SKILLOPT_ENABLED` | off (`=1` on) | Enables `memex skillopt eval`, which scores skill routing on the pack benchmark. Allowlisted. | **paid (Haiku)** |
+| `MEMEX_SKILLOPT_MAX_USD` | `0.25` | Per-run ceiling; `--max-usd` can lower it, not raise it. Allowlisted. | — |
+| `MEMEX_SKILLS_DIR` | `deploy/skills` (compose: `/skills`) | Skill pack served by `list_skills` / `get_skill` and linted by `memex skillpack lint`. Allowlisted. | free |
 
 ### Source scope contract
 
@@ -390,7 +446,8 @@ What a scoped client can reach, and what it cannot:
 | an enrollment code | single-use, expiring; binds the grant to one source |
 | `index` / `page_put` onto another tenant's path | refused (`permission_denied`) |
 | `get_brain_identity` counters | its own read set; `sources` is the size of that set |
-| `run_doctor`, `stats`, `sources_list` (whole brain) | refused — operator-only |
+| `run_doctor`, `stats`, `get_status_snapshot` (whole brain) | refused — operator-only |
+| `sources_list` | only the sources its grant covers |
 | `purge_deleted_pages` | needs the `admin` scope, recorded deliberately |
 
 ### Connecting a whole team through ONE connector
@@ -414,55 +471,74 @@ memex auth register-client team-connector --tenant-mode enrollment \
   --redirect-uris 'https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback'
 
 # 3. One code per person, bound to her source. Printed ONCE.
-memex auth enroll alice --label alice --ttl 7d
+memex auth enroll alice --label alice --client <client_id> --ttl 7d
 ```
 
 The Owner puts the connector URL + `client_id` + `client_secret` into the
 organisation's connector once (Advanced settings). Each person clicks
 **Connect**, is asked for her enrollment code, and from then on her sessions —
-and every refresh after them — are pinned to her own source. Nobody but the
-Owner ever sees the client secret, and nobody needs an operator login.
+and every refresh after them — are pinned to her own source.
 
-`memex auth enrollments` lists what was issued (never the codes);
-`memex auth revoke-enrollment <id>` kills one that leaked before it was used.
-A code is single-use, expires (7 days by default), and a wrong, used, expired
-or revoked code all fail identically so the form cannot be used to probe.
+**In enrollment mode the code is the per-person credential; the client secret
+is shared.** The `client_id` and secret identify the connector, not a person,
+and every organisation admin can read them in the connector settings. That is
+safe only because a browser client (registered with `--redirect-uris`) has no
+`client_credentials` grant, so the secret alone mints nothing: `/authorize`
+shows the code form and stops there. Check the grant list with
+`memex auth list-clients`; the step-by-step is in
+[TEAM-SETUP.md](./TEAM-SETUP.md#why-sharing-the-connector-secret-is-safe).
+
+`memex auth enrollments [--client <client_id>]` lists what was issued (never
+the codes). `memex auth revoke-enrollment <id>` kills a code that has not been
+used; `memex auth revoke-grant <id>` cuts off a person who already redeemed
+hers and deletes that grant's tokens, while everyone else on the connector keeps
+working. `memex auth enroll --replaces <id>` issues a new code for the same
+person, keeping her source, read set, spend key and daily cap. A code is
+single-use, expires (7 days by default), and a wrong, used, expired or revoked
+code all fail identically so the form cannot be used to probe. The admin
+panel's Credentials page has the same actions under **Members** for each
+browser connector.
 
 **Per-person connectors** (`--tenant-mode client`, the default) are still the
 right shape when each person has her own individual Pro/Max account and adds
 her own connector: the tenant then comes from the client row, so
-`claude-alice` → source `alice` with no code to enter.
+`claude-alice` → source `alice` with no code to enter. Here the client secret
+IS the per-person credential — hand it over the way you would a password, and
+never share one client between two people.
 
 **Budgets are per person on a team connector.** A token redeemed from an
 enrollment code spends under that enrollment, and
 `memex auth set-budget <enrollment_id> <usd>` caps one person. Without such a
 cap, the connector's `budget_usd_per_day` applies to each person separately.
 
-**`MEMEX_OAUTH_REQUIRE_LOGIN` must be OFF for this.** The flag makes
-`GET /authorize` bounce an unauthenticated browser to `/admin/login`, and that
-page accepts exactly one credential: the operator bootstrap token (a magic link
-is minted by whoever holds it and grants a 7-day ADMIN session). memex has no
-per-user login. So with the flag on, the only way a teammate can complete the
-flow is by holding an operator session for the whole brain — which is strictly
-worse than what the flag was protecting against.
+**`MEMEX_OAUTH_REQUIRE_LOGIN` does not apply to an enrollment-mode client** —
+the code is the resource-owner authentication. It does gate a `client`-mode
+connector: the flag makes `GET /authorize` bounce an unauthenticated browser to
+`/admin/login`, and that page accepts exactly one credential, the operator
+bootstrap token (a magic link minted by whoever holds it grants a 7-day ADMIN
+session). memex has no per-user login, so with the flag on a teammate can only
+finish a `client`-mode flow by holding an operator session for the whole brain.
+Keep it on for a brain that serves one operator; turn it off before handing a
+`client`-mode connector to anyone else.
 
-Turning it off does not make `/authorize` a free-for-all:
+With the flag off, `/authorize` is still not a free-for-all:
 
 - a code is only ever sent to a **registered** `redirect_uri` on that client;
 - exchanging the code for a token requires the **client secret**, so a caller
   who knows only the `client_id` gets nothing;
+- a public client (no secret) in `client` mode is refused with
+  `unauthorized_client` while `/authorize` auto-approves;
 - Dynamic Client Registration stays off, so nobody can mint a client.
-
-The client secret IS the per-person credential — hand it over the way you would
-a password, and never share one client between two people.
 
 Register the callback the person's account actually uses. `claude.ai` and
 `claude.com` are different origins to the allow-list; a connector on the origin
-you did not register fails with `redirect_uri is not registered`:
+you did not register fails with `redirect_uri is not registered for this
+client`. Replace a client's list without rotating its secret:
 
 ```bash
+memex auth set-redirect-uris <client_id> \
+  https://claude.ai/api/mcp/auth_callback https://claude.com/api/mcp/auth_callback
 memex auth rescope-client <client_id> --source alice --federated-read alice
-# redirect URIs are set at registration — re-register if the origin is wrong
 ```
 
 Every rescope is revisioned and audited. Preview it with `--dry-run` (prints
@@ -506,8 +582,6 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMEX_CYCLE_FRESHNESS_FAIL_HOURS` | `24` | Hours of cycle staleness before a failure. | free |
 | `MEMEX_CYCLE_GC` | on (`=0` off) | Run the manual GC step each cycle. | free |
 | `MEMEX_CYCLE_RSS_LOG` | on (`=0` off) | Log per-phase RSS memory during the cycle. | free |
-| `MEMEX_SWEEP_DELAY_MS` | `50` (compose) | Delay between files during the content sweep. | free |
-| `MEMEX_SWEEP_MAX_FILES` | `1000` (compose) | Max files swept per pass. | free |
 | `MEMEX_CODE_SWEEP_DELAY_MS` | `20` (compose) / `0` | Delay between files during the code-index sweep. | free |
 | `MEMEX_PARSE_TIMEOUT_MS` | `5000` (5s) | Per-file chunker parse cap; `0` disables the cap. | free |
 | `MEMEX_JOB_TIMEOUT_MS` | off | Per-job wall-clock cap. Off unless set. | free |
@@ -544,6 +618,23 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMEX_CONFIG_PATH` | built-in | Override path to the on-disk config file. | free |
 | `MEMEX_AUDIT_DIR` | built-in | Directory for the weekly audit file. | free |
 | `MEMEX_WASM_DIR` | built-in | Override path to the tree-sitter WASM parser directory. | free |
+| `MEMEX_INGEST_MAX_BYTES` | `1048576` (1 MiB) | Payload cap for `POST /ingest`, counted as the body streams. Allowlisted. | free |
+| `MEMEX_TRANSCRIPT_MAX_FILE_BYTES` | `104857600` (100 MiB) | Largest export `memex transcripts ingest` accepts; a bigger file is refused whole, never truncated. Allowlisted. | free |
+| `MEMEX_MAX_FENCES_PER_PAGE` | `100` | Fenced code blocks per markdown page that are chunked as code. | free |
+| `MEMEX_BODY_TIMELINE` | on (`=0` off) | Turns `## Timeline` bullets, `### YYYY-MM-DD` headers and `[Source: X, YYYY-MM-DD]` citations in a written page into timeline events. Allowlisted. | free |
+| `MEMEX_TIMELINE_ANCHOR` | off (`=1` on) | Writes one anchor timeline event per dated page, a capped batch per run. | free |
+| `MEMEX_RECHUNK_SWEEP` | off (`=1` on) | Cycle phase that re-chunks and re-embeds documents written by an older chunker version, a bounded batch per tick. | Titan embeds |
+| `MEMEX_RECHUNK_SWEEP_MAX` | `25` | Max documents per tick. | — |
+| `MEMEX_RECHUNK_SWEEP_MAX_CHARS` | `1000000` | Character budget per tick; at least one document always runs. | — |
+| `MEMEX_DOCTOR_JOB_WEDGE_SEC` | `3600` | Seconds a running job may go without progress before `doctor` calls it wedged. | free |
+| `MEMEX_HNSW_ZOMBIE_SWEEP` | off (`=1` on) | Drops invalid (half-built) vector indexes at boot. Postgres only, best-effort. `doctor` reports them either way. Allowlisted. | free |
+| `MEMEX_PG_POOL_MAX` | `10` | Postgres connection pool size. | free |
+| `MEMEX_PG_STATEMENT_TIMEOUT_MS` | `30000` | `statement_timeout` for the engine's sessions. Migrations use their own. | free |
+| `MEMEX_MIGRATION_STATEMENT_TIMEOUT` | `30min` | Statement timeout for one migration (`600s`, `30min`, milliseconds). Fail-loud on a malformed value. | free |
+| `MEMEX_MIGRATE_BACKOFF_MS` | unset (5s/15s/45s) | Replaces the migration retry backoff with one fixed delay. For tests. | free |
+| `MEMEX_BULK_MAX_RETRIES` | built-in | Retries for a transient database error in bulk work. `0` disables retries. | free |
+| `MEMEX_NO_DB_CONFIG` | off (`=1` on) | Skips the `memex config set` overlay: stored `MEMEX_*` values are normally applied at boot where the real environment leaves a key unset. | free |
+| `MEMEX_PGLITE_NO_LOCK` | off (`=1` on) | Skips the lock file that stops two processes opening one PGLite directory. Only for a filesystem that cannot hold it. | free |
 
 ---
 

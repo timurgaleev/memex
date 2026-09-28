@@ -8,17 +8,34 @@
 Self-hostable personal knowledge brain, reached over MCP only:
 - **memex** — knowledge brain (Bun + Postgres + pgvector). Hybrid
   search + graph-signals ranking, entity + code call graph
-  (callers/callees), push-context, advisor, 91 MCP tools. Retrieval-first
+  (callers/callees), push-context, advisor; every MCP tool is declared in
+  `deploy/memex/src/mcp/operations.ts`. Retrieval-first
   — Bedrock Titan v2 embeddings + Claude Haiku intent/expansion; answer synthesis
   is the MCP client's job. An opt-in, off-by-default LLM step distils notes
   into a separate `synth_*` store (source notes never touched). PGLite is a
   dev-only fallback.
 - **cloudflared** — public HTTPS ingress for the MCP server
-  (`brain.<domain>/mcp`) so MCP clients (Claude Code, Cursor, …) connect.
+  (`brain.<domain>/mcp`) so MCP clients (Claude Code, Codex, claude.ai,
+  ChatGPT, …) connect.
   `ingress_mode = "caddy"` swaps it for a Caddy + Let's Encrypt sidecar
   on a public IP instead (see `docs/DEPLOYMENT.md`).
 
 Both run as Docker Compose services on a single `t4g.medium` EC2.
+
+## How callers authenticate
+
+- **Personal access token** — `memex auth create <name> --source <src>`, sent as
+  `Authorization: Bearer <token>`. Bound to one source; `read,write` by default.
+- **OAuth 2.1 client** — `memex auth register-client …`. memex is its own
+  authorization server (`/authorize`, `/token`, RFC 8414/9728 discovery).
+  Browser connectors (claude.ai, ChatGPT) and CLI sign-ins use the
+  authorization-code flow; `--tenant-mode enrollment` lets one connector serve
+  a team, each person bound to their source by a one-time code. Dynamic Client
+  Registration is off by default.
+- **Static public bearer** — `<prefix>/memex-public-bearer`, permanent, no
+  tenant, public read subset only. Not for people; hand out PATs or clients.
+
+`whoami` shows what a credential carries. Per-client guides: `docs/clients/`.
 
 ## Where to read first
 
@@ -32,6 +49,8 @@ Both run as Docker Compose services on a single `t4g.medium` EC2.
 | memex subsystem deep-dive | `deploy/memex/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
 | Onboarding (`make init` flow) | `README.md` |
 | Every env knob, with cost tier | `docs/CONFIGURATION.md` |
+| Connecting a client (Claude Code, Codex, claude.ai, ChatGPT) | `docs/clients/*.md` |
+| One connector for a team, enrollment codes | `docs/TEAM-SETUP.md` |
 | Install / ingress modes / upgrade | `docs/DEPLOYMENT.md` |
 | Plain-language tour of the pipeline | `docs/HOW-IT-WORKS.md` |
 
@@ -50,8 +69,8 @@ deploy/
 │   │   ├── commands/            one file per subcommand (serve, index, search,
 │   │   │                        reindex, doctor, cycle, jobs, auth, eval-*, …).
 │   │   │                        `bun run src/cli.ts --help` is the live list.
-│   │   ├── http/                two-route HTTP surface (/health + /mcp;
-│   │   │                        legacy REST routes removed in Phase A.7)
+│   │   ├── http/                /health, /mcp, OAuth discovery + /authorize +
+│   │   │                        /token, /ingest, /admin
 │   │   ├── mcp/                 JSON-RPC transport, tool dispatch, rate limiter
 │   │   └── core/
 │   │       └── engine/          adapter pattern (interface, pglite, postgres, factory)
@@ -62,7 +81,7 @@ deploy/
 ├── secrets/                     AWS Secrets Manager fetch
 │   ├── fetch-secrets.sh         reads <secrets_prefix>/* into deploy/.secrets/
 │   └── README.md
-└── systemd/                     timer + service for the bearer-rotation job
+└── systemd/                     optional units (eval probe, bearer rotation); bootstrap installs neither
 
 scripts/
 ├── audit.sh                     PII gate
@@ -71,7 +90,7 @@ scripts/
 │   ├── pii-patterns.txt         audit input
 │   └── pii-allowlist.txt        files exempt from audit
 ├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
-└── rotate-memex-public-bearer.sh   daily bearer rotation (restarts memex)
+└── rotate-memex-public-bearer.sh   bearer rotation for the optional timer (not installed)
 
 terraform/
 ├── main.tf                      providers + partial backend

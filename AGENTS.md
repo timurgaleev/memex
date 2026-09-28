@@ -8,7 +8,8 @@
 - TDD where the logic is testable; smoke-test where the network is the test.
 - Containers run on a single EC2; deploy = `git pull && docker compose up -d --build` over SSM.
 - memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
-- memex is reached over MCP only (`POST /mcp`, through cloudflared or — with `ingress_mode = "caddy"` — a Caddy sidecar on the instance's own IP). No chat surface, no bot — just MCP clients (Claude Code, Cursor, …).
+- memex is reached over MCP only (`POST /mcp`, through cloudflared or — with `ingress_mode = "caddy"` — a Caddy sidecar on the instance's own IP). No chat surface, no bot — just MCP clients (Claude Code, Codex, claude.ai, ChatGPT, …).
+- Callers authenticate with a personal access token bound to a source (`memex auth create <name> --source <src>`) or an OAuth client (`memex auth register-client`, enrollment mode for a shared team connector). The static public bearer is permanent, tenant-less and read-limited. Guides: `docs/clients/`.
 
 ## Required workflow — run the skill for every change
 
@@ -138,14 +139,12 @@ AWS_REGION=<your-region>          # required
 AWS_PROFILE=default               # required, not optional
 SECRETS_PREFIX=memex              # AWS Secrets Manager namespace
 MEMEX_VAULT_PATHS=/memory         # paths memex sweeps for content
-MEMEX_SWEEP_DELAY_MS=50
-MEMEX_SWEEP_MAX_FILES=1000
 MEMEX_DREAM_INTERVAL_S=21600
 MEMEX_DREAM_STALE_DAYS=30
 MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
 BRAIN_PORT=18790
-MEMEX_PUBLIC_BEARER=<token>       # validated on public /mcp; static unless the
-                                  #   optional rotation timer is installed
+MEMEX_PUBLIC_BEARER=<token>       # static public bearer: no tenant, public read
+                                  #   subset only; people get PATs or OAuth clients
 MEMEX_INTERNAL_TOKEN=<token>      # gates MCP write tools on the internal path
 TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
@@ -154,13 +153,14 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 
 | Symptom | Likely cause |
 |---|---|
-| Public `/mcp` returns 401 | `MEMEX_PUBLIC_BEARER` missing/stale in `memex.env`; rotation didn't restart memex |
+| Public `/mcp` returns 401 | The token is unknown or revoked (`memex auth list`, `memex auth list-clients`) |
+| Public `/mcp` returns 503 `public bearer token not configured` | `MEMEX_PUBLIC_BEARER` is missing from `memex.env`; every credential on public ingress, PATs and OAuth included, fails until it is set |
 | memex healthcheck flaps `starting → unhealthy` | PGLite cold-init / RDS unreachable; check `docker logs deploy-memex-1` |
 | MCP write tool returns -32001 on internal path | `MEMEX_INTERNAL_TOKEN` not configured or not sent |
 | Cloudflared retries forever, no traffic | `--protocol http2` not set; SG blocks UDP |
 | memex `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root or correct EFS chown |
 | SSM `ConnectionLost`, healthz down | Likely OOM on too-small instance during sweep |
-| MCP returns `401` for tools/call | Bearer in `Authorization: Bearer <token>` header doesn't match `MEMEX_PUBLIC_BEARER` env on the memex container; rotation may have advanced AWSCURRENT |
+| MCP tool returns `insufficient_scope` or `permission_denied` | The credential lacks the scope, or the tool is operator-only; `whoami` shows what it carries |
 
 ## When you don't know what to do
 

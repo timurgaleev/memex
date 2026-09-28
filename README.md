@@ -62,7 +62,7 @@ that search to every MCP client you use, with the source attached.
 | **Secrets redacted on write** | Pasted AWS keys, API tokens and PEM keys become `[REDACTED:<kind>:<fingerprint>]` before they are stored or embedded. |
 | **Your infra** | One Graviton `t4g.medium` instance and encrypted RDS Postgres 16, all in Terraform. Zero telemetry. |
 
-91 MCP tools, each declared once in [deploy/memex/src/mcp/operations.ts](./deploy/memex/src/mcp/operations.ts); `tools/list` returns them with their schemas.
+Every MCP tool is declared once in [deploy/memex/src/mcp/operations.ts](./deploy/memex/src/mcp/operations.ts); `tools/list` returns them with their schemas and `annotations` (`readOnlyHint`, and `destructiveHint` / `idempotentHint` on the writes), so a client can ask before it writes.
 
 **When memex is not the right fit**
 
@@ -193,17 +193,25 @@ Everything else (Caddy ingress, secrets, updates, verification) is in
 
 ## Connect your agent and pick a credential
 
-Claude Code, Cursor and Codex all connect to the same `/mcp` URL with the same
-`Authorization: Bearer` header. What the caller can do depends on the credential:
+Every client connects to the same `/mcp` URL, with a bearer token or through
+OAuth. What the caller can do depends on the credential:
 
 | Credential | How you get it | What it unlocks |
 |---|---|---|
-| Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memex-public-bearer` | Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads. No `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes (`page_put`, `add_fact` and a few more) only with `MEMEX_PUBLIC_WRITE=1`. |
-| Personal access token | `memex auth create <name>` | Scoped access for one person or machine, with its own optional daily cap. |
-| OAuth 2.1 client | `memex auth register-client ...` | Machine clients (client credentials) or browser connectors that sign in through `/authorize`, including enrollment mode for teams. |
+| Personal access token | `memex auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
+| OAuth 2.1 client | `memex auth register-client ...` | Browser connectors (claude.ai, ChatGPT) and CLI sign-ins through `/authorize`, machine clients through client credentials, and enrollment mode for one connector shared by a team. |
+| Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memex-public-bearer` | No tenant. Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads; no `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes only with `MEMEX_PUBLIC_WRITE=1`. |
 
 Run the `whoami` tool to see the scopes, write source and read sources of the
-credential you are using. Client setup: [deploy/memex/docs/CLAUDE-CODE.md](./deploy/memex/docs/CLAUDE-CODE.md).
+credential you are using. Step-by-step guides, each with a troubleshooting table:
+
+| Client | Guide |
+|---|---|
+| Claude Code | [docs/clients/CLAUDE_CODE.md](./docs/clients/CLAUDE_CODE.md) |
+| Codex CLI | [docs/clients/CODEX.md](./docs/clients/CODEX.md) |
+| claude.ai (Pro, Max) | [docs/clients/CLAUDE_AI.md](./docs/clients/CLAUDE_AI.md) |
+| Claude Team, Enterprise | [docs/clients/CLAUDE_TEAM.md](./docs/clients/CLAUDE_TEAM.md) |
+| ChatGPT (developer mode, workspace apps) | [docs/clients/CHATGPT.md](./docs/clients/CHATGPT.md) |
 
 ## Deploy and operate
 
@@ -214,7 +222,8 @@ credential you are using. Client setup: [deploy/memex/docs/CLAUDE-CODE.md](./dep
   stamps the build, and `/health` must report the new stamp.
 - **Operate.** `memex doctor`, `memex spend --days 7` and the `/admin` panel.
 - **Optional units.** `deploy/systemd` ships a nightly eval probe and a bearer
-  rotation timer. Bootstrap does not install either.
+  rotation timer. Bootstrap installs neither, and the static public bearer is
+  meant to stay fixed; hand people PATs or OAuth clients instead.
 
 See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
 
@@ -223,7 +232,8 @@ See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/CONFIGURATION.md](./doc
 - Every route except `GET /health`, the OAuth metadata and flow endpoints and
   `/admin` (which has its own sign-in) needs a credential. `/mcp` is the agent contract.
 - A built-in OAuth 2.1 server. Dynamic client registration is off unless
-  `MEMEX_ENABLE_DCR_INSECURE=1`.
+  `MEMEX_ENABLE_DCR=1`, and then the server boots only with
+  `MEMEX_OAUTH_REQUIRE_LOGIN=1` (or the explicit `MEMEX_ENABLE_DCR_INSECURE=1`).
 - Enrollment codes are single-use, and only their SHA-256 is stored.
 - Credentials pasted into pages, facts, timeline entries, indexed files or
   `/ingest` are redacted before storage by default
@@ -243,7 +253,7 @@ Details: [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) and [SECURITY.md](./SECURITY
 | [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | First install, tunnel or Caddy, updates, verification |
 | [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Every env var, quality tiers, per-feature models and budgets |
 | [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) | One connector for a team, enrollment, budgets |
-| [deploy/memex/docs/CLAUDE-CODE.md](./deploy/memex/docs/CLAUDE-CODE.md) | MCP client setup |
+| [docs/clients/](./docs/clients/) | Connecting Claude Code, Codex, claude.ai, Claude Team and ChatGPT |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Topology, containers, security model |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 

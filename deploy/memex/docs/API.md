@@ -5,16 +5,18 @@ The memex daemon binds `0.0.0.0:18790` inside its container but is
 callers (via Docker DNS as `http://memex:18790`) and through Cloudflare
 Tunnel for the public MCP surface at `https://brain.<your-domain>/mcp`.
 
-The contract is exactly two routes:
+Routes:
 
+- `POST /mcp` — JSON-RPC 2.0 entry point; every tool is reached via
+  `tools/call`. Accepts a personal access token, an OAuth access token or
+  the public bearer; in-stack callers send `MEMEX_INTERNAL_TOKEN`.
 - `GET /health` — operational probe (no auth).
-- `POST /mcp` — JSON-RPC 2.0 entry point; all read/write capability
-  lives here via `tools/call`.
-
-> The legacy REST routes (`/index`, `/search`, `/backlinks`,
-> `/friction`, `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`,
-> `/jobs/*`) shipped in phases A.1–A.4 were **removed in Phase A.7**.
-> Every behaviour is reachable via `tools/call name=<tool>` on `/mcp`.
+- `GET /.well-known/…` — OAuth authorization-server and protected-resource
+  metadata (no auth).
+- `/authorize`, `/token`, `/register`, `/revoke` — the OAuth flow; each
+  handler authenticates the client itself.
+- `POST /ingest` — webhook capture (needs the `write` scope).
+- `/admin` — the admin panel, behind its own sign-in.
 
 ## `GET /health`
 
@@ -59,8 +61,8 @@ or batched (array).
 ```
 
 Returns every registered tool, each with a JSON-Schema draft-7
-`inputSchema`. **`tools/list` is the live source of truth** (currently
-91 tools); the groups below are a map, not an exhaustive contract:
+`inputSchema`. **`tools/list` is the live source of truth**, and each tool carries
+MCP `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`); the groups below are a map, not an exhaustive contract:
 
 - **Search / retrieval** — `search`, `query` (refinement), `backlinks`,
   `get_chunks`, `resolve_slugs`, `relational_recall`, `stats`.

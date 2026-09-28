@@ -397,16 +397,19 @@ Release A verification:
   no write source is not write-fenced, so a public-write install lets a remote
   caller overwrite any document by naming its path. Needs the inline form to
   namespace remote labels, or to refuse a write to an existing row it does not
-  own.
-- [ ] Follow-up (pre-existing): the `index` `path` form ignores the caller's
-  write source, so any authenticated tenant can have the daemon read a file
-  under the vault/code roots and ingest it outside their own scope.
+  own. v1.155.0 narrowed it: a non-operator label equal to or under a vault/code
+  root, or under another source's path prefix, is refused; any other label is
+  still open.
+- [x] Follow-up (pre-existing): the `index` `path` form ignored the caller's
+  write source. Done in v1.155.0: the path form is operator-only, and every
+  local re-read goes through the owner guard.
 
 #### Gated live steps (explicit "yes" at the time)
 
 - [ ] Commit, push, deploy and tag each release through `/ship`.
-- [ ] Set `MEMEX_TENANT_FAIL_CLOSED=1` in the live compose env, then verify: a
-  no-grant client gets empty `search`, `query`, `think` and `page_list`; no
+- [ ] `MEMEX_TENANT_FAIL_CLOSED=1` is already set in the live compose env (see the
+  v1.129.0 live check above); verify: a no-grant client gets empty `search`,
+  `query`, `think` and `page_list`; no
   `think` spend row is written; writes return `permission_denied`; the static
   bearer still reads the whole brain.
 - [ ] Stretch: RLS policies bound to a session scope GUC as defence in depth,
@@ -806,9 +809,10 @@ added to the ship gate list.
 `refuseIfClientExhausted` and overshoot by K× the per-call cost; a PAT is never
 capped; an enrollment connector shares one cap across the whole team; the
 ledger stores cents but no tokens, cache tokens, phase or grant; an unpriced
-model books $0 (`src/core/budget.ts:251-275`, `:562`; see "Per-grant budgets",
-"Spend ceiling — known gaps" and "Spend ledger — remaining approximations"
-below). `BudgetTracker` records after the fact, so parallel synthesis passes
+model books $0 (`src/core/budget.ts:251-275`, `:562`). The concurrent
+overshoot, the uncapped PAT and the shared team cap are fixed (v1.143.0,
+v1.144.0); what is left is under "Spend ledger — remaining approximations"
+below. `BudgetTracker` records after the fact, so parallel synthesis passes
 `wouldExceed` against the same total, and any call site that forgets a tracker
 is uncapped. Expired credentials or throttled quota make every phase burn a
 30 s timeout per item. `core/search/intent.ts` and `expansion.ts` build their
@@ -908,7 +912,7 @@ in `tests/model_json.test.ts` with 5 stated exemptions; the two
 (v1.144.0): `resolveModel(tier, override, feature)` with
 `MEMEX_<FEATURE>_MODEL` for think, drift, concepts, expansion, intent, rerank.
 Not done: runtime-config overrides and the `v1-nova` prompt-version rename. Spend report
-(unreleased): `core/spend-report.ts`, `memex spend`, `/admin/api/spend/report`
+(v1.145.0): `core/spend-report.ts`, `memex spend`, `/admin/api/spend/report`
 — operator-only surfaces, no MCP op (a remote tool would need tenancy rules
 for a cross-tenant rollup).
 - LOW: a PAT whose name equals an OAuth client id shares its ledger key and
@@ -980,24 +984,24 @@ exist for every new pattern.
 PEM/PGP blocks, fingerprint audit rows in `ingest_log`, disposition and
 allowlist env) on putPage body/append, the indexer, raw data and `/ingest`
 before enqueue; `core/binary-guard.ts` on capture and `/ingest`; sanitizer
-closers for think's evidence blocks. R2 (unreleased): facts (text and
+closers for think's evidence blocks. R2 (1.146.0): facts (text and
 context), timeline events, hot_memory, chronicle projections, page title and
 every string in compiled_truth are scanned too (`guardFields` /
 `guardSecretsDeep`); a `reject` writes a `secret-rejected` audit row before
 refusing. `ontology_propose` values are scanned in `mergeOntologyFact`;
 `/ingest` scans only after the tenancy gates, so a client with no grant gets
-a 403 and leaves no audit row. R3 (unreleased): each quarantine trip writes a
+a 403 and leaves no audit row. R3 (1.146.0): each quarantine trip writes a
 `quarantine` row to `ingest_log` (pattern names only; only a new or changed
 verdict, after the write commits, best-effort), a `quarantined-pages`
 doctor check reports count and top patterns, and `MEMEX_CONTENT_SANITY_DISABLE`
-switches off individual patterns. R4 (unreleased): `core/entity-junk.ts`
+switches off individual patterns. R4 (1.146.0): `core/entity-junk.ts`
 `isJunkEntityName` (merged from the gazetteer's generic stop-phrases) gates
 fact entity resolution, chronicle `who`, gazetteer phrases, typed frontmatter
 links and meeting-attendee timeline entries; a read-only `junk-entity-hubs`
 doctor check ranks existing junk-named entity pages by links; the gate strips
 the punctuation the slugifier drops, `isJunkEntitySlug` re-checks the resolved
 slug at every write site, and all-caps acronyms (`US`, `IT`) are not junk. R5
-(unreleased): every action in `ci.yml` is SHA-pinned; advisory
+(1.147.0): every action in `ci.yml` is SHA-pinned; advisory
 `supply-chain.yml` (gitleaks over the pushed commit range with a per-commit
 fixture allowlist in `.gitleaks.toml`, actionlint) and `deps-audit.yml` (`bun
 audit` + OSV on `bun.lock` changes, weekly, manual), every job
@@ -1255,7 +1259,7 @@ renewal tick; 50 identical submits create one waiting job; a CPU-starved worker
 does not evict its own healthy job; `get_job_stats` flags a seeded wedge;
 submitting an unknown kind is refused.
 
-**Progress.** R1 (unreleased): attempt fencing and submit-side kind
+**Progress.** R1 (1.147.0): attempt fencing and submit-side kind
 validation. Migration 109 adds `jobs.claim_generation`; every claim bumps it,
 and complete/fail/extendLock/updateProgress/recordUsage match the attempt's
 generation as well as `status='running'`, so a stalled or timed-out attempt
@@ -1334,7 +1338,7 @@ command and passes on the whole pack; the lockfile test detects a one-byte
 change; `get_skill` refuses a body over the cap; doctor shows a `skills`
 category on the live host; the routing eval passes with negative cases.
 
-**Progress.** R1 (unreleased): pack honesty. One frontmatter parser
+**Progress.** R1 (1.152.0): pack honesty. One frontmatter parser
 (`src/core/skillpack/frontmatter.ts`) now backs the listing, `get_skill` and
 `skillify check`; `src/core/skillpack/lint.ts` checks every `tools:` entry
 against OPERATIONS and every `memex <cmd> [<sub>]` in code spans and fenced
@@ -1693,7 +1697,7 @@ listed; `agent logs` renders a transcript; second-opinion and
 RM-22 and lifted the "Not planned" mark on the server-side runtime. It stays
 opt-in (`MEMEX_AGENT_ENABLED=1`) and spend-capped.
 
-**Progress.** Release A (unreleased, not yet deployed) ships the read-only
+**Progress.** Release A (1.153.0, live) ships the read-only
 loop: `src/core/llm/converse.ts` (multi-turn Converse with `toolConfig`,
 tool-result pairing repair, booked through `trackedInvoke` as `agent`),
 `src/core/agent/{tools,runner,handler}.ts`, the `subagent` job kind registered
@@ -1789,7 +1793,7 @@ stored redacted; a 5 MB session splits into searchable parts with vector
 coverage; the valve refuses a sweep of an unmounted root; parser fixtures are
 green with linearity growth ratios recorded.
 
-**Progress.** R1 (unreleased): `memex transcripts ingest <export.json>
+**Progress.** R1 (1.149.0): `memex transcripts ingest <export.json>
 [--format auto|chatgpt|claude-ai] [--source ID] [--dry-run] [--json]` over a
 new `src/core/transcripts/` seam (ordered detection with override, per-file
 diagnostics, format drift exits non-zero, `MEMEX_TRANSCRIPT_MAX_FILE_BYTES`
@@ -1968,7 +1972,7 @@ stubbed failing judge ends `judge_failed`; accepting a proposal writes exactly
 one fence row; undoing a grading wave restores prior take statuses in one
 transaction.
 
-**Progress.** Release A (unreleased), durable withdrawal: migration 112 adds
+**Progress.** Release A (1.154.0), durable withdrawal: migration 112 adds
 `fact_withdrawals`, the `memex_fact_claim_key()` SQL normalization (trim,
 collapse whitespace, lowercase, md5), a BEFORE INSERT trigger on
 `entity_facts` that lands any withdrawn claim already forgotten whatever the
@@ -2231,7 +2235,7 @@ stale scan lists the old mention edges; a phantom stub folds onto its canonical
 page with facts moved and an audit row; `traverse_graph` on a 10 k-edge hub
 returns at most the cap with `truncated:true`.
 
-**Progress.** Release 1 (unreleased): body timeline parsing on write.
+**Progress.** Release 1 (1.150.0): body timeline parsing on write.
 `src/core/timeline-body.ts` turns `## Timeline` bullets, `### YYYY-MM-DD`
 headers and `[Source: X, YYYY-MM-DD]` citations into `timeline_events` from
 `page_put`, `page_append` and `page_revert`, keyed
@@ -2296,7 +2300,7 @@ re-spending completed crosses.
 
 **Needs operator go.** The idea-generation half (recorded as ask).
 
-**Progress.** Release 1 (unreleased): every think result carries a closed
+**Progress.** Release 1 (1.150.0): every think result carries a closed
 `synthesisStatus` (`synthesis_status` on MCP) mapped from the parse outcome,
 the truncation flag, the budget pre-flight (an unpriced model is
 `model_unusable`) and the Bedrock error class. When compose fails after pages
@@ -2364,7 +2368,7 @@ wrong source makes it fail and revoke; remote doctor is green against the live
 host in the ship loop; stub skill install reports `identical/differs/missing`
 correctly after a local edit and a server-side change.
 
-**Progress.** Release 1 (unreleased): the remote doctor. `memex auth doctor
+**Progress.** Release 1 (1.151.0): the remote doctor. `memex auth doctor
 <base-url>` (`src/commands/remote-doctor.ts`) runs /health + stamp drift →
 both discovery documents (issuer = given origin, same-origin token_endpoint,
 client_credentials advertised, protected-resource agrees) → client_credentials
@@ -2435,7 +2439,7 @@ the new ops.
 
 **Needs operator go.** Given 2026-09-19, together with RM-13.
 
-**Progress.** Release A (unreleased, not yet deployed): `submit_agent` and
+**Progress.** Release A (1.153.0, live): `submit_agent` and
 `get_agent_job` (scope `agent`, forbidden on public ingress, `skip` rows in the
 isolation matrix owned by `tests/agent_tenant.test.ts`) run the RM-13 loop as
 the submitting client. Migration 115 adds `jobs.submitted_by` and
@@ -2722,7 +2726,7 @@ expired credential.
 
 **Needs operator go.** Yes (Gmail/Calendar stay out; see open decisions).
 
-**Progress.** R1 (unreleased): the provider seam and the GitHub connector as a
+**Progress.** R1 (1.151.0): the provider seam and the GitHub connector as a
 one-shot operator CLI. `core/connectors/`: a pure response classifier (ok,
 rate_limited, auth_required, forbidden, challenge, server_error; a GitHub
 secondary-limit 403 is told from a real one), a fixed-origin client (paths
@@ -2736,7 +2740,7 @@ closing keywords as wiki links (a PR page aliases its `issues/<n>` slug so a
 bare `#n` lands on it); `memex connectors status`; a `connector-health` doctor
 check. Token from `MEMEX_GITHUB_TOKEN` or `--token-file`, no MCP op, no
 ingress change. Also fixed: `putPage` versioned an unchanged truth whose keys
-were in another order. Review fixes (unreleased): the list is paged newest
+were in another order. Review fixes (1.151.0): the list is paged newest
 first and the watermark is capped at the run's start, so a mid-run edit shifts
 items into a repeat instead of a gap (recorded shifted-page test); refusals a
 retry cannot fix (secret `reject`, ownership fence, malformed element) go to a
@@ -2786,7 +2790,7 @@ rejected; a run stops at its USD cap with a checkpoint; proposed diffs pass
 
 **Needs operator go.** Yes (recorded as deferred, low priority).
 
-**Progress.** Release A (unreleased): `memex skillopt eval` behind
+**Progress.** Release A (1.153.0): `memex skillopt eval` behind
 `MEMEX_SKILLOPT_ENABLED=1` — the scorer and gate everything else needs.
 `src/core/skillopt/benchmark.ts` loads the 16 `routing-eval.jsonl` files (93
 cases; confined to `<skillsDir>/<slug>/`, no symlinks, 64 KB cap, line-numbered
@@ -2962,8 +2966,9 @@ Closed operator decisions this roadmap does not re-raise:
 9. **`MEMEX_OAUTH_REQUIRE_LOGIN` on prod.** Owner consent on authorization-code
    connections is desirable, but with memex's single operator login the flag
    blocks teammates on an enrollment connector (`docs/CONFIGURATION.md`).
-10. **`MEMEX_TENANT_FAIL_CLOSED=1` live**, set and verified before any
-    second-tenant credential (RM-01 gated step).
+10. **`MEMEX_TENANT_FAIL_CLOSED=1` live.** Already set on the host at the
+    v1.129.0 deploy (RM-01 live check). Still open: the check with a real
+    no-grant client (RM-01).
 11. **Revoke unused clients** `operator` and `cloud-app`; the admin bootstrap
     secret.
 12. **`MEMEX_CONTEXTUAL_LLM=0` experiment** against the eval-probe baseline
@@ -3105,24 +3110,13 @@ by codex while reviewing the mig-059 test, 2026-09-08.
 from "slug is free" (`ok`), so one tenant can probe which slugs exist in
 another. Low severity on its own — it leaks the existence of a slug, never
 content — but it is the discovery half of the `index` overwrite fixed in
-`[Unreleased]`, so it should not stand indefinitely.
+v1.124.0, so it should not stand indefinitely.
 
 Closing it properly means `pages.slug` stops being a global primary key
 (migration 015) and becomes `(source_id, slug)`, which touches every read path
 that resolves a slug plus `slug_aliases`, merge and rename. That is a schema
 migration, not a patch — plan it deliberately rather than bolting a generic
 error onto `putPage`, which would only move the oracle to a timing difference.
-
-## Per-grant budgets (2026-09-09)
-
-Enrollment mode lets one connector serve many tenants, but
-`budget_usd_per_day` still hangs off `oauth_clients` — so everyone on a team
-connector shares one daily cap, and one person can spend the whole team's
-allowance. The ceiling itself works (`refuseIfClientExhausted`); what is
-missing is a per-grant amount to check against. Natural shape: a
-`budget_usd_per_day` on the enrollment row, copied onto the grant, with
-`daySpendUsd` summing by grant when the token is grant-bound. Needs the spend
-log to carry the grant, not just the client.
 
 ## Page mirror path collision (2026-09-08)
 
@@ -3143,28 +3137,6 @@ real fix either changes the path scheme (and re-mirrors the corpus) or refuses
 a new default-tenant slug whose first segment names an existing source. The
 second is cheap but would reject slugs that are legal today, so it needs a
 migration-time audit of existing pages first.
-
-## Spend ceiling — known gaps (2026-09-08)
-
-The per-client ceiling added in v1.126.0 is a check-then-act, not a lock. Two
-consequences worth knowing before anyone treats it as a hard guarantee:
-
-- **Concurrent calls all pass.** `refuseIfClientExhausted` reads the day's spend
-  and takes no hold, unlike `reserveSpend`. K simultaneous requests from one
-  client all observe the same pre-booking sum and are all admitted; the actuals
-  land afterwards in `bookSpend`'s `finally`. Overshoot is roughly K x the
-  per-call cost, and K is the caller's choice. It matters most on the embedding
-  and search-arm sites, which no reservation backstops. Fix is to reserve/settle
-  at the chokepoint, or to take the same advisory lock `reserveSpend` uses.
-- **A PAT is never capped.** A personal access token's `clientId` is the token
-  name, which is not a row in `oauth_clients`, and `checkClientBudget` treats an
-  unknown client as uncapped. Per-token budgets need their own column, or PATs
-  need client rows.
-
-Boundary detail: at exactly `spent == cap` a reservation is admitted
-(`spent + est <= cap`) and the chokepoint then refuses it, so `withClientSpend`
-can refuse a reservation it just took. Harmless — the hold is released — but the
-two comparisons should agree.
 
 ## Spend ledger — remaining approximations (2026-09-08)
 
@@ -3187,7 +3159,7 @@ affects an uncapped client:
 Found by comparing a fresh `ingress_mode=caddy` install against the
 reference `cloudflare` one. The compose-file-set, admin-token,
 systemd-region and tunnel-secret defects from that audit are fixed in
-`[Unreleased]`; these are the ones left open on purpose.
+v1.124.0; these are the ones left open on purpose.
 
 - **Gate `cloudflared` behind a compose profile in the base file.** Today
   the parking lives only in the Caddy overlay bootstrap writes, so the
@@ -3637,10 +3609,6 @@ Value-1 items intentionally left unbuilt (zero consumer on a text-only brain):
 - **postgres.ts onnotice is a no-op** — migration NOTICEs (082 RLS trigger
   skipped, 092 repaired/skipped counts) are invisible on live RDS deploys.
   Route NOTICE to the migrate log so the operator can confirm 082/092 outcomes.
-- **`MEMEX_TENANT_FAIL_CLOSED=1` must be verified/set on the live container**
-  before handing out any second-tenant credential — a scopeless client
-  otherwise reads whole-brain and writes 'default'. (Action item, not code:
-  confirm on SSO restore.)
 
 ## LOW backlog (v1.81.0 build review, 2026-07-06)
 
@@ -3761,26 +3729,6 @@ self-hosted + low-spend constraints):
   (`/token` + `memex auth register-client` + `memex_at_` verify on `/mcp`). The
   earlier AWS Cognito path was built then removed — an external IdP is the wrong
   tool for an agent-served brain (more deps, wrong fit).
-
----
-
-## Operator post-install steps
-
-Things `make init` + `terraform apply` + `bootstrap.sh` do NOT
-automate today. Run these once after the first deploy:
-
-- **Install the host-side bearer-rotation timer:**
-  ```bash
-  sudo install -m 644 deploy/systemd/memex-rotate-bearer.{service,timer} \
-                       /etc/systemd/system/
-  sudo install -d /var/log/memex
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now memex-rotate-bearer.timer
-  ```
-  Verify with `systemctl list-timers memex-* --all`.
-
-These steps are documented to be folded into `bootstrap.sh` in a
-future release.
 
 ---
 

@@ -24,32 +24,32 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
   authoritative list is `ALL_PHASES` in `src/core/cycle/index.ts`. The
   paid synthesis and facts-maintenance phases are opt-in and run only
   when named explicitly.
-- Exposes 91 MCP tools (search, index, backlinks, stats,
+- Exposes its MCP tools (search, index, backlinks, stats,
   page_{put,append,delete,get,list,versions}, link, unlink,
   graph_{neighbors,query}, entity_{facts,timeline,recall},
   add_fact, add_timeline_event, jobs_{submit,list,get,cancel,logs},
-  log_friction). Reads gate on the public bearer; writes gate on
-  `MEMEX_INTERNAL_TOKEN`.
-- Two HTTP routes by contract: `GET /health` + `POST /mcp`. The
-  legacy `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`,
-  `/jobs/*`, `/search`, `/index`, `/friction` routes shipped during
-  phases A.1-A.4 were removed in Phase A.7 — everything is reachable
-  via `tools/call` on `/mcp`.
+  log_friction). `/mcp` accepts a personal access token, an OAuth access
+  token or the public bearer; what a caller may do follows its scopes and
+  sources. In-stack callers send `MEMEX_INTERNAL_TOKEN`.
+- HTTP routes: `POST /mcp` (the agent contract), `GET /health`, the OAuth
+  discovery documents under `/.well-known/`, the OAuth flow at
+  `/authorize`, `/token`, `/register` and `/revoke`, `POST /ingest` for
+  webhook capture, and `/admin` with its own sign-in. Every tool is
+  reached through `tools/call` on `/mcp`.
 
 ## What it isn't
 
 - Not a public-facing API by default. The internal Docker network is
   the primary route. The optional public MCP HTTPS surface
-  (`https://brain.<your-domain>/mcp`, bearer-auth, read-only) is the
-  remote AI client path.
+  (`https://brain.<your-domain>/mcp`) is the remote AI client path; each
+  client authenticates with its own token.
 - Not a generic vector DB. The data model is markdown-shaped:
   `documents` → `chunks` → `embeddings` + `entities` + `entity_mentions`,
   layered with `pages`, `links`, `entity_facts`, `timeline_events`,
-  `hot_memory`, `jobs`, and `subagent_*` ledgers added in phases
-  A.1–A.5.
+  `hot_memory`, `jobs`, and `subagent_*` ledgers.
 - Per-credential source scoping (each remote client confined to its sources;
-  opt-in fail-closed via `MEMEX_TENANT_FAIL_CLOSED`). One brain serves one
-  person.
+  opt-in fail-closed via `MEMEX_TENANT_FAIL_CLOSED`). One brain can serve a
+  team; see [docs/TEAM-SETUP.md](../../../docs/TEAM-SETUP.md).
 
 ## Quick CLI surface
 

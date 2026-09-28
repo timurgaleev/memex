@@ -5,7 +5,11 @@ with their own private space. Task-oriented; the knob-by-knob reference lives in
 [CONFIGURATION.md](./CONFIGURATION.md), the install in
 [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-Everything here assumes memex is already deployed and healthy.
+Everything here assumes memex is already deployed and healthy. Per-client
+checklists live in [docs/clients/](./clients/):
+[Claude Team/Enterprise](./clients/CLAUDE_TEAM.md),
+[claude.ai Pro/Max](./clients/CLAUDE_AI.md), [ChatGPT](./clients/CHATGPT.md),
+[Claude Code](./clients/CLAUDE_CODE.md) and [Codex](./clients/CODEX.md).
 
 ---
 
@@ -30,6 +34,20 @@ On a Team or Enterprise plan **only an Owner can add a connector**, and every
 member authorises against that one client. One connector would therefore be one
 tenant for everybody. That is what **enrollment mode** exists for: the tenant is
 bound to the *authorisation* instead of to the client.
+
+Who adds the connector, and where (checked against the vendors' help pages on
+2026-09-28; menu labels move, so treat these as a starting point):
+
+| Plan | Who adds it | Where | Credentials go in |
+|---|---|---|---|
+| Claude Pro / Max | each person | **Customize → Connectors**, **+**, **Add custom connector** | **Advanced settings**: OAuth Client ID and Secret |
+| Claude Team / Enterprise | an Owner, once | **Organization settings → Connectors**, **Add**, **Custom → Web**; members then click **Connect** | **Advanced settings**: OAuth Client ID and Secret |
+| ChatGPT Plus / Pro | each person | **Settings → Security and login → Developer mode**, then create an app for the MCP server | the app's OAuth fields |
+| ChatGPT Business / Enterprise | a workspace admin | enable custom MCP apps for the workspace, create the app, publish it (exact admin menu names unverified) | the app's OAuth fields |
+
+Callbacks to register: `https://claude.ai/api/mcp/auth_callback` and
+`https://claude.com/api/mcp/auth_callback` for Claude,
+`https://chatgpt.com/connector_platform_oauth_redirect` for ChatGPT.
 
 Publishing one connector per person into a shared organisation catalogue is not
 a third option — every member sees all of them and can enable any one. That is
@@ -57,8 +75,8 @@ memex auth set-budget <client_id|token_name|enrollment_id> 2.00
 ```
 
 Prints the client ID and secret **once**. Register every callback origin the
-client might use — the list is fixed at registration, and changing it means
-re-registering, which rotates the secret.
+client might use. `memex auth set-redirect-uris <client_id> <uri>...` replaces
+the list later without touching the secret or issued tokens.
 
 `--source default` here is only the fallback for a grant that names nothing; an
 enrolled session always overrides it.
@@ -147,23 +165,33 @@ else; take it off otherwise.
 ## Day-2 operations
 
 ```bash
-memex auth enrollments                   # id, label, source, expiry, used/revoked — never the code
-memex auth revoke-enrollment <id>        # kill one that leaked before it was used
-memex auth enroll alice --label alice --client <client_id> --ttl 30d   # re-issue
+memex auth enrollments [--client <client_id>]   # id, label, source, expiry, used/revoked, last token — never the code
+memex auth revoke-enrollment <id>        # kill a code that leaked before it was used
+memex auth revoke-grant <id>             # cut off one person who already redeemed a code
+memex auth enroll --replaces <id>        # new code for the same person; keeps source, spend key and cap
+memex auth enroll alice --label alice --client <client_id> --ttl 30d   # a code for someone new
 memex auth list-clients                  # who exists, in which mode, on which source
 memex auth set-budget <client_id|token_name|enrollment_id> 2.00   # daily USD ceiling; 'none' removes it
 memex auth revoke-client <client_id>     # cut a connector off entirely
 ```
 
-**Someone leaves.** Revoke any unused code of theirs. Their source keeps their
-notes, and `memex sources delete` refuses while any content or live grant still
-names it — it prints what is holding the reference rather than orphaning a
-credential, so cleaning up is deliberate work, not one command. Removing access
-without touching data means revoking the client they authorised through, which
-on a shared connector cuts everybody off: there is no per-person revoke yet, so
-rotating the connector (re-register, re-issue codes) is today's answer.
-`memex auth revoke-enrollment` only invalidates a code that has not been
-redeemed.
+The admin panel does the same without an SSM session: **Credentials**, then
+**Members** on a browser connector's row lists each person (label, source,
+redeemed, revoked, last token) with **Revoke code**, **Revoke grant**, **New
+code** and **Issue code**. Every change is audited with who made it.
+
+**Someone leaves.** `memex auth revoke-grant <enrollment_id>` (or **Revoke
+grant**) revokes their enrollment and deletes every token minted under it, in
+one transaction; everyone else on the connector keeps working. For a code they
+never used, `memex auth revoke-enrollment <id>` is enough. Their source keeps
+their notes, and `memex sources delete` refuses while any content or live grant
+still names it — it prints what is holding the reference rather than orphaning
+a credential, so cleaning up data is deliberate work, not one command.
+
+**Someone lost their connection.** A broken refresh chain or a new device
+needs a new code: `memex auth enroll --replaces <enrollment_id>` keeps their
+source, read set, spend key and daily cap. The old grant keeps working until
+the new code is redeemed, then it is revoked.
 
 **Budgets are per person.** A token redeemed from an enrollment code spends
 under that enrollment; `memex auth set-budget <enrollment_id> <usd>` caps one
@@ -180,7 +208,7 @@ the fastest way to confirm an enrollment did what you meant.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `redirect_uri is not registered` | the callback origin was never registered; hosts differ between a vendor's domains | re-register the client with every origin |
+| `redirect_uri is not registered for this client` | the callback origin was never registered; hosts differ between a vendor's domains | `memex auth set-redirect-uris <client_id> <uri>...` with every origin |
 | Person sees an admin login, not a code field | the client is in `client` mode with the login gate on | `rescope-client … --tenant-mode enrollment`, or take the gate off |
 | `That code was not accepted` | used, expired, revoked, or issued for another client — deliberately indistinguishable | `auth enrollments` shows which; re-issue |
 | Person lands in the wrong space | codes were swapped at handover | revoke, re-issue, hand over again |

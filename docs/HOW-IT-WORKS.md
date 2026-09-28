@@ -166,17 +166,34 @@ self-check can't run up a bill.
 
 ## 8. The tools
 
-memex exposes 91 MCP tools (`deploy/memex/src/mcp/operations.ts`). The static
-public bearer sees only a read subset; a personal access token or an OAuth
-client sees what its scopes allow.
+memex's MCP tools are declared in `deploy/memex/src/mcp/operations.ts`; the
+table below groups all of them. Each carries MCP `annotations` derived from its
+scope: `readOnlyHint` on reads, and `destructiveHint` / `idempotentHint` on
+writes, so a client can ask before it changes anything. The static public
+bearer sees only a read subset; a personal access token or an OAuth client sees
+what its scopes allow.
 
 | Group | Tools |
 |-------|-------|
-| **Search & pages** | `search`, `query`, `think`, `recall`, `volunteer_context`, `advisor`, `index`, `get_chunks`, `resolve_slugs`, `page_put`, `page_append`, `page_get`, `page_list`, `page_versions`, `page_revert`, `page_delete`, `page_restore`, `purge_deleted_pages`, `add_tag`, `remove_tag`, `get_tags`, `put_raw_data`, `get_raw_data`, `get_recent_transcripts` |
+| **Search & pages** | `search`, `query`, `think`, `recall`, `volunteer_context`, `context_pack`, `advisor`, `index`, `get_chunks`, `resolve_slugs`, `page_put`, `page_append`, `page_get`, `page_list`, `page_versions`, `page_revert`, `page_delete`, `page_restore`, `purge_deleted_pages`, `add_tag`, `remove_tag`, `get_tags`, `put_raw_data`, `get_raw_data`, `get_recent_transcripts` |
 | **Code** | `code_def`, `code_refs`, `code_callers`, `code_callees`, `code_blast`, `code_flow` |
 | **Facts, timeline & chronicle** | `add_fact`, `forget_fact`, `extract_facts`, `fact_supersessions`, `add_timeline_event`, `chronicle_day`, `chronicle_since`, `chronicle_on_this_day`, `chronicle_last_seen`, `chronicle_backfill`, `volunteer_chronicle`, `ontology_get`, `ontology_propose`, `ontology_dimensions`, `ontology_conflicts` |
 | **Graph & entities** | `backlinks`, `link`, `unlink`, `get_links`, `list_link_sources`, `graph_neighbors`, `graph_query`, `traverse_graph`, `relational_recall`, `entity_facts`, `entity_timeline`, `entity_recall`, `find_orphans`, `find_experts`, `find_contradictions`, `find_trajectory`, `find_anomalies`, `get_recent_salience`, `list_concepts` |
 | **Takes** | `list_takes`, `takes_search`, `set_take_status`, `takes_scorecard`, `takes_calibration`, `get_calibration_profile` |
-| **Jobs** | `jobs_submit`, `jobs_cancel`, `jobs_list`, `jobs_get`, `jobs_logs`, `retry_job`, `get_job_progress` |
+| **Jobs & agents** | `jobs_submit`, `jobs_cancel`, `jobs_list`, `jobs_get`, `jobs_logs`, `retry_job`, `get_job_progress`, `submit_agent`, `get_agent_job` |
 | **Skills** | `list_skills`, `get_skill`, `list_brain_skillpack` |
 | **Admin & diagnostics** | `stats`, `whoami`, `get_brain_identity`, `get_status_snapshot`, `run_doctor`, `source_health`, `sources_list`, `sources_status`, `log_friction`, `log_ingest`, `get_ingest_log` |
+
+A few that are easy to miss:
+
+- `context_pack` builds a "what matters now" pack for the start of a turn:
+  entity cards (title, type, top facts, recent events) for the slugs you name or
+  the entities a conversation window mentions, then the top facts across your
+  grant, trimmed to a token budget. No LLM, read-only.
+- `get_recent_transcripts` lists recently ingested meeting, email, journal and
+  note pages, newest first, with a short summary or the capped body. It is not
+  on the public ingress.
+- `submit_agent` queues a read-only research agent that runs under your own
+  grant, sources and daily budget, and `get_agent_job` returns its status and
+  answer. Both need the `agent` scope, a daily budget on the client, and
+  `MEMEX_AGENT_ENABLED=1` plus `MEMEX_AGENT_TENANT_ENABLED=1` on the host.

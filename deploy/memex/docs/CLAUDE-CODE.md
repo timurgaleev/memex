@@ -1,166 +1,60 @@
 # Using memex as an MCP server in Claude Code
 
-memex exposes JSON-RPC MCP at `POST /mcp`. Any MCP-compatible client
-(Claude Code, Claude Desktop, Cursor, Codex, …) can talk to it. This
-doc covers the public-internet route — Cloudflare Tunnel at
-`https://brain.<your-domain>/mcp` with bearer auth.
+memex serves MCP at `POST /mcp`, at `https://brain.<your-domain>/mcp` behind
+the Cloudflare Tunnel or the Caddy ingress. The step-by-step guide, with OAuth
+and troubleshooting, is [docs/clients/CLAUDE_CODE.md](../../../docs/clients/CLAUDE_CODE.md).
+Guides for the other clients sit next to it in
+[docs/clients/](../../../docs/clients/).
 
-## Tools exposed
+## The short version
 
-| Tool | What it does | Public default |
+Mint a personal access token bound to the person's source, on the host:
+
+```bash
+docker exec deploy-memex-1 bun run src/cli.ts auth create alice-laptop --source alice
+```
+
+The token is printed once. Then, on the person's machine:
+
+```bash
+claude mcp add --transport http --scope user memex https://brain.<your-domain>/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Ask Claude Code to call `whoami`; `write_source` should be `alice`.
+
+## Which credential
+
+| Credential | Tenant | Reaches |
 |---|---|---|
-| `search` | Hybrid retrieve (vector + keyword + RRF) | open |
-| `backlinks` | Documents that mention an entity | open |
-| `stats` | Counts of documents / chunks / embeddings | internal only |
-| `index` | Index a markdown document | gated by `MEMEX_PUBLIC_WRITE` |
-| `log_friction` | Record a friction event | internal only |
+| PAT from `auth create <name> --source <src>` | the named source | the tools its scopes cover (`read,write` by default), scoped to its sources |
+| OAuth client from `auth register-client` | the client's source, or the person's enrollment | the same, per client |
+| Static public bearer (`<prefix>/memex-public-bearer`) | none | the public read subset only |
 
-The mutating tools are `403`-blocked at the public guard layer
-(`src/http/public_guard.ts`) until `MEMEX_PUBLIC_WRITE=1` is set on
-the memex container.
+The static public bearer is permanent: its rotation timer is disabled on
+purpose, and bootstrap does not install it. It carries no tenant, so it cannot
+tell two people apart, and it cannot call `query`, `think`, `recall`,
+`get_chunks`, `volunteer_context`, the `code_*` and `jobs_*` tools and others
+(`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in `src/http/public_guard.ts`). With
+`MEMEX_PUBLIC_WRITE=1` it can also call the constructive writes (`index`,
+`page_put`, `page_append`, `add_fact`, `add_timeline_event`, `add_tag`,
+`link`); anyone holding it can then write, so prefer PATs.
 
-## One-time setup
+## Check the connection
 
-### 1. Enable public write on the EC2
-
-`deploy/secrets/fetch-secrets.sh` writes `MEMEX_PUBLIC_WRITE=1` into
-`deploy/.secrets/memex.env` by default. After pulling the latest
-commit on the EC2:
-
-```bash
-cd /opt/<project>/deploy
-./secrets/fetch-secrets.sh
-docker restart deploy-memex-1
-```
-
-Verify the container picked it up:
+`memex auth doctor` runs the path a client takes, from your machine: `/health`,
+both OAuth discovery documents, MCP `initialize`, `tools/list` and `whoami`.
+Put the token in a file only you can read, holding `{"token": "..."}`:
 
 ```bash
-docker exec deploy-memex-1 printenv MEMEX_PUBLIC_WRITE
-# expected: 1
+bun run src/cli.ts auth doctor https://brain.<your-domain> \
+  --token-file ~/.config/memex/alice.json --expect-source alice
 ```
 
-### 2. Install the daily bearer-rotation timer
+## Local-only alternative: SSM port-forward
 
-The rotation regenerates the public bearer token on its configured
-schedule and restarts memex so it validates against the new value. The
-token lives in Secrets Manager — pull it on demand (step 3).
-
-```bash
-# Run from the repo root on the EC2.
-sudo install -m 0755 \
-  scripts/rotate-memex-public-bearer.sh \
-  /opt/<project>/bin/rotate-memex-public-bearer.sh
-
-sudo install -m 0644 \
-  deploy/systemd/memex-rotate-bearer.service \
-  /etc/systemd/system/memex-rotate-bearer.service
-
-sudo install -m 0644 \
-  deploy/systemd/memex-rotate-bearer.timer \
-  /etc/systemd/system/memex-rotate-bearer.timer
-
-sudo mkdir -p /var/log/<project>
-sudo systemctl daemon-reload
-sudo systemctl enable --now memex-rotate-bearer.timer
-```
-
-Verify:
-
-```bash
-systemctl status memex-rotate-bearer.timer
-# Active: active (waiting); Trigger: <date> HH:MM:SS
-```
-
-You can fire a one-off rotation now to confirm it works:
-
-```bash
-sudo systemctl start memex-rotate-bearer.service
-sudo journalctl -u memex-rotate-bearer.service --since '5 min ago'
-```
-
-### 3. Get the current token
-
-Fetch it from Secrets Manager any time:
-
-```bash
-AWS_PROFILE=<your-profile> aws secretsmanager get-secret-value \
-  --secret-id <secrets_prefix>/memex-public-bearer \
-  --region <your-region> \
-  --query SecretString --output text
-```
-
-### 4. Configure Claude Code
-
-Edit `~/.claude.json` (global) or `.claude.json` (per-project) and
-add the MCP server. Claude Code reads on next restart.
-
-```jsonc
-{
-  "mcpServers": {
-    "memex": {
-      "type": "http",
-      "url": "https://brain.<your-domain>/mcp",
-      "headers": {
-        "Authorization": "Bearer <token-from-secrets-manager>"
-      }
-    }
-  }
-}
-```
-
-After restart, Claude Code surfaces the memex read tools under
-`memex.*` (`search`, `backlinks`, `page_{get,list,versions}`,
-`graph_{neighbors,query}`, `traverse_graph`,
-`entity_{facts,timeline,recall}`, `source_health`, `whoami`). Write
-tools are filtered from the public surface unless
-`MEMEX_PUBLIC_WRITE=1`.
-
-The static public bearer cannot call `query`, `think`, the `code_*`
-tools, `volunteer_context`, `get_chunks`, `recall`, `stats`, the
-`jobs_*` tools and others (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in
-`src/http/public_guard.ts`). Use a personal access token
-(`memex auth create <name>`) or an OAuth client for those.
-
-### 5. Check the connection
-
-`memex auth doctor` runs the same path Claude Code takes, from your machine:
-`/health`, OAuth discovery, a token mint, MCP `initialize`, `tools/list` and
-`whoami`, then prints which sources the credential can read. Put the
-credential in a file only you can read (`chmod 600`), either
-`{"token": "..."}` or a client's `{"client_id": "...", "client_secret": "..."}`:
-
-```bash
-bun run src/cli.ts auth doctor https://brain.<your-domain> --token-file ~/.config/memex/doctor-token.json
-```
-
-Add `--expect-source <id>` to confirm a tenant client lands in its source.
-
-## Day-to-day flow
-
-When the daily rotation fires it swaps the bearer in Secrets Manager
-and restarts memex. Pull the new token (step 3) and update
-`~/.claude.json` after `Bearer `, then reload the MCP connection
-(`/mcp` slash command in Claude Code).
-
-The *previous* day's token is invalidated by the new
-`put-secret-value` (Secrets Manager keeps it as `AWSPREVIOUS` for one
-rollback if needed).
-
-## Failure modes
-
-| Symptom | What to check |
-|---|---|
-| Claude Code reports `tools/list` empty | Token may be stale — fetch live token from Secrets Manager (step 3 above). |
-| `index` returns 403 from Claude Code | `MEMEX_PUBLIC_WRITE` not set on the container (step 1 verification). |
-| `index` returns 401 | Bearer header malformed or token rotated since last paste. |
-| Token seems stale after rotation | `journalctl -u memex-rotate-bearer.service --since '5 min ago'` to confirm the rotation ran; re-fetch from Secrets Manager (step 3). |
-
-## Local-only alternative — SSM port-forward
-
-If you'd rather not expose write on the public internet at all, you
-can leave `MEMEX_PUBLIC_WRITE=0` and tunnel directly from your
-workstation when you need write access:
+To reach the full tool set without any public credential, tunnel to the
+container from your workstation:
 
 ```bash
 AWS_PROFILE=<your-profile> aws ssm start-session \
@@ -170,27 +64,17 @@ AWS_PROFILE=<your-profile> aws ssm start-session \
   --parameters '{"host":["memex"],"portNumber":["18790"],"localPortNumber":["18790"]}'
 ```
 
-While the session runs, point Claude Code at
-`http://localhost:18790/mcp` (no `Authorization` header — the
-internal Docker bridge has no public exposure, so no bearer is
-required). Close the session and write goes back to "blocked from
-public, read-only over Cloudflare".
+While the session runs, point Claude Code at `http://localhost:18790/mcp`. A
+request that arrives this way carries no `Cf-Connecting-Ip` header, so memex
+treats it as an internal peer: every call, read or write, needs
+`Authorization: Bearer <MEMEX_INTERNAL_TOKEN>` (or a personal access token,
+which is verified on this path too):
 
-This is the more conservative posture.
+```bash
+claude mcp add --transport http --scope user memex http://localhost:18790/mcp \
+  --header "Authorization: Bearer <MEMEX_INTERNAL_TOKEN>"
+```
 
-## Security notes
-
-- The bearer lives only in Secrets Manager (encrypted at rest) and in
-  your local `~/.claude.json`. Each token is short-lived (daily
-  rotation), so the blast radius of a leak is bounded to one day.
-- Cloudflare Tunnel is the public surface. Ingress logs flow into
-  CloudWatch via the cloudflared sidecar. Anomalous request patterns
-  show up there.
-- The bearer is stored in Secrets Manager (KMS-encrypted); the
-  rotation job runs via systemd as root with the EC2's IAM role —
-  never commit a token to git or paste it into shared docs.
-- To temporarily lock down: `sudo systemctl stop
-  memex-rotate-bearer.timer` keeps the current token forever; flip
-  the env back to `MEMEX_PUBLIC_WRITE=0` (in `fetch-secrets.sh` or
-  manually in `memex.env`) and `docker restart deploy-memex-1` to
-  re-block writes.
+Behind an ingress other than a Cloudflare Tunnel, `MEMEX_ASSUME_PUBLIC=1`
+changes that classification; see
+[docs/CONFIGURATION.md](../../../docs/CONFIGURATION.md).
