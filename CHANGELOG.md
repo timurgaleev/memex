@@ -6,6 +6,47 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **OAuth, secret redaction and write-request edges.** `/authorize` re-checks the
+  redirect URI against the locked client row, so a `set-redirect-uris` that lands
+  mid-flow mints no code for the removed URI. A new `enroll --replaces` revokes
+  the predecessor's earlier unredeemed replacement and refuses to inherit a
+  deleted connector. `invalidate-tokens --grant` answers `not_found` for an id
+  that is not an enrollment of that client instead of bumping its revision.
+  A client row with NULL `grant_types` reads as `client_credentials` at the
+  provider too. `rescope-client` refuses to move a public client into client
+  mode while `/authorize` auto-approves. `/token` and `/authorize` judge every
+  `resource` value, `client_credentials` refuses a foreign `resource` (a
+  machine client that names its `https://` URL now needs `MEMEX_PUBLIC_URL`
+  set to that origin, or it gets `invalid_target`), a stored
+  resource this server does not serve is refused with `invalid_grant` before it
+  is consumed, and `client_secret_basic` credentials decode `+` as a space.
+  `serve` warns at boot when OAuth is on without `MEMEX_PUBLIC_URL`. PAT mint
+  errors in the admin panel no longer quote CLI flags, and the panel sends the
+  client's revision with a redirect-URI change and reports a conflict. Secret
+  redaction covers a database password with a raw `@` and a bearer token past
+  4096 characters. The inline `index` strips gate-owned markers for every
+  token holder, not only scoped or public ones. A write-request claim is
+  fenced, so a stale holder that fails late cannot release or stamp the call
+  that took it over. The pgvector version is read again after a failed read,
+  and the incompleteness probe runs on Postgres only, so short filtered PGLite
+  searches are cached again; from hybrid search only temporal queries reach the
+  iterative scan. A cycle phase whose fence query throws stops as
+  `fence_error`. The vault sweep result lists the paths it refused
+  (`refused`). `memex index` of a file outside the configured roots stays
+  refused. `make test-pg` exits 130 or 143 on a signal and cleans up once.
+  Docs: the 401 troubleshooting rows key on the `invalid_token` challenge,
+  the public surface lists the OAuth and `/admin` routes, `MEMEX_VAULT_PATH`
+  takes precedence over `storage.vault`, and `expected_version: 0` notes that a
+  deleted page keeps its version counter.
+- **Synthesis and search calls hold their budget too.** Patterns, reflections,
+  thin-page enrichment, concepts, `think`, deep synthesis, the graph rerank, the
+  relational recall fallback, chronicle event extraction and conversation-fact
+  extraction now set their estimate aside before the model call and settle it
+  from actual usage, like the sites fixed in 1.160.0. Parallel calls sharing one
+  tracker can no longer all pass the same headroom, a truncation retry grows
+  the first call's hold, and a call that throws gives its hold back.
+
 ## [1.160.0] — 2026-09-28
 
 ### Added

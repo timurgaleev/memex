@@ -68,6 +68,10 @@ so future contributors don't reach for them blindly.
 | `core/search/query-cache.ts` | Semantic query cache (migration 065): a normalized-query + embedding-nearest lookup that returns a prior result set when a new query is semantically close enough, saving a full hybrid retrieval + embed round-trip. |
 | `core/embed-backfill.ts` + `core/embedding.ts` | Embed provenance. Every vector is stamped with an `embedding_signature` (model + dim + contextual flag, migration 066); the opt-in `MEMEX_REEMBED_ON_SIGNATURE_CHANGE` auto-invalidates + re-embeds any row whose stored signature drifts from the current one. `core/embed-skip.ts` marks oversize / junk frontmatter as keyword-only (indexed, never embedded). Re-indexing a doc reuses a chunk's stored vector when its text is unchanged, so an edit only pays to embed the chunks that actually moved. |
 | `core/scope.ts` + `core/visibility.ts` | Source scoping. Every row carries a `source_id` key; Postgres RLS (migration 049) + write-time fail-closed checks confine each remote credential (OAuth client / PAT) to its granted sources, and `scope.ts` defines the OAuth scope hierarchy (`read`/`write`/`admin`/`sources_admin`/`users_admin`/`agent`) the ingress gate enforces. |
+| `mcp/visibility.ts` | The one predicate behind `tools/list` and `tools/call`: the ingress walls (public denylist, internal-token wall) and the per-credential gates (fail-closed write source, operator-only tools, per-op scope, slug-bound deny-by-default). `tools/list` advertises exactly the tools it finds no refusal for, so a listed tool is never refused for scope or permission. Argument-level refusals (a slug outside the bound prefixes) stay in dispatch. |
+| `core/write-requests.ts` | Retry-safe writes. A `request_id` on `page_put`, `page_append`, `add_fact` or `add_timeline_event` claims a `write_requests` row keyed by caller grant, tool and id; a retry with the same arguments replays the stored result, other arguments are refused, and a retry during the first call gets `request_in_progress`. Conditional writes (`expected_version`) are checked in `core/pages.ts` under the slug's write lock. |
+| `core/cycle/phase-context.ts` | Cycle fencing. Each phase runs with its own abort signal and a lock fence in async context: `phaseCheckpoint()` at the top of each loop iteration stops a timed-out or aborted phase, and `phaseFenceCheck()` before a shared-state write confirms the cycle lock still carries this run's tenure, so a run whose lock was taken ends as `partial/lock_stolen` instead of overlapping the new holder. |
+| `core/transcripts/*` | Transcript import behind `memex transcripts ingest`: format detection plus ChatGPT, Claude.ai, Codex rollout and Claude Code session adapters. Only what was said is kept (tool traffic, reasoning, sub-agent logs and system reminders are dropped); secrets are redacted before render and long sessions split into `-pN` parts at message boundaries. |
 | `http/oauth.ts` | **Default-OFF** optional OAuth/JWT bearer path. When `auth.oauth.enabled`, a Bearer JWT is verified against the issuer JWKS (RS256/ES256 via WebCrypto, no new dep); a valid token maps to the **public, redacted** read scope only — never internal, never a write path. |
 
 ## Access — MCP only
@@ -92,9 +96,52 @@ Hard guarantees:
   surface; internal write tools require `MEMEX_INTERNAL_TOKEN`.
 - **Body redaction.** Public read tools omit note bodies unless
   `MEMEX_PUBLIC_READ_BODIES=1` — a leaked bearer can't exfil the vault.
+- **`tools/list` is what the caller can call.** A token sees only the tools
+  its scope, the operator-only set, the fail-closed write gate and its slug
+  binding allow (`mcp/visibility.ts`); the operator's list is unchanged. Each
+  tool carries MCP `annotations` (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`) derived from its scope.
 - **Prompt-injection scrubs.** Retrieved chunks are wrapped in `<note>`
   tags; literal `<note>` / `<system>` / `[INST]` / `</s>` tokens inside
   chunk text are neutralised before going to Bedrock.
+
+### OAuth flow
+
+memex is its own OAuth 2.1 authorization server and protected resource
+(`http/oauth-endpoints.ts`, `http/oauth-metadata.ts`, `core/oauth-provider.ts`).
+
+- **Discovery.** Protected-resource metadata (RFC 9728) is served at the path
+  form `/.well-known/oauth-protected-resource/mcp`, which a client pointed at
+  `<issuer>/mcp` derives, and at the bare path for clients that cached it; both
+  name `resource: <issuer>/mcp`. The `/mcp` 401 challenge points at the path
+  form, and a request with no credential gets no `invalid_token` error code.
+  Both metadata documents advertise `scopes_supported: ["read", "write"]`.
+  Any other `/.well-known/` probe is a 404.
+- **Resource binding (RFC 8707).** The `resource` approved at `/authorize`
+  (`<issuer>` or `<issuer>/mcp`, stored as `<issuer>/mcp`) carries into the
+  access and refresh tokens and survives rotation; any other value is
+  `invalid_target`, at `/token` before the code or refresh token is consumed.
+  `/mcp` refuses a token bound to another resource; unbound tokens (older
+  tokens, PATs, `client_credentials`) are accepted. The issuer comes from
+  `MEMEX_PUBLIC_URL`, or from the request when that is unset.
+- **Codes.** A code records the client's `grant_revision`; a rescope between
+  `/authorize` and `/token` makes it `invalid_grant`. `grant_types` is
+  enforced on both grants, and `/authorize` redirects carry RFC 9207 `iss`.
+- **Refresh families.** Every token minted from one sign-in shares a
+  `family_id`, and a rotated refresh token leaves its hash in
+  `oauth_refresh_consumed`. A replay within 60 seconds is refused as a
+  retry; a later replay is refused and logged as reuse, and with
+  `MEMEX_OAUTH_REFRESH_REUSE_REVOKE=1` the whole family is deleted. Per-client
+  access and refresh lifetimes override the 1 hour / 30 day defaults.
+- **Enrollment lifecycle.** On an enrollment-mode connector the operator
+  issues, lists and revokes codes (CLI or `/admin/api/enrollments`), revokes
+  one redeemed person with `revoke-grant`, and replaces a lost connector with
+  `enroll --replaces`, which keeps the person's source, spend key and cap and
+  revokes the old grant once redeemed. Every change writes an
+  `oauth_enrollment_audit` row. `invalidate-tokens` drops a client's or one
+  grant's tokens and codes without touching the client or its secret, and
+  `revoke-client` marks the client deleted and deletes its tokens, keeping its
+  grant history and spend rows.
 
 ## AWS resource inventory
 
@@ -143,7 +190,7 @@ second git checkout used by the memex code chunkers as their index
 source. `scripts/bootstrap.sh` keeps it in sync on every boot.
 
 The authoritative store is RDS Postgres, evolved by the numbered
-migration runner (`core/migrate.ts`, through ~068). Beyond the core
+migration runner (`core/migrate.ts`, through 119). Beyond the core
 `documents` / `chunks` / `pages` / `entity_mentions` tables, the schema
 carries:
 
@@ -171,6 +218,21 @@ carries:
   at `/authorize`; the code is single-use, expiring and revocable, and only its
   SHA-256 is stored. `oauth_clients.tenant_mode` selects which flow a client
   uses (`client` = the row's own source, the default; `enrollment` = ask).
+- Token lifecycle (migration 117): `oauth_tokens.family_id` ties every token
+  from one sign-in together, and `oauth_refresh_consumed` keeps the hash of each
+  rotated refresh token until its own expiry so a late replay is recognised.
+  `oauth_clients.access_ttl_seconds` / `refresh_ttl_seconds` hold per-client
+  lifetimes, and `oauth_codes.grant_revision` the client revision a code was
+  approved under.
+- Enrollment lifecycle (migration 118): `oauth_enrollments.spend_id` is the key
+  a person spends under (a replacement code copies its predecessor's, so the
+  day's spend and cap stay in one place) and `replaces_id` the enrollment it
+  supersedes. `oauth_enrollment_audit` records every issue, revoke and replace
+  with actor and channel, with no FK so the history outlives the rows.
+- `write_requests` (migration 119) — one row per caller grant, tool and
+  `request_id`, holding an argument hash and the first call's result, so a
+  retried write replays instead of writing twice. The cycle's purge phase
+  drops rows after 7 days.
 
 ## Secrets — what goes where
 

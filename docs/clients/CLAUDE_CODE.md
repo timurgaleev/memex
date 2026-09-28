@@ -109,7 +109,7 @@ like the one in Option B has no client-credentials grant, so check it with
 
 | Symptom | First check |
 |---|---|
-| `401` with `{"ok":false,"error":"missing or invalid bearer token"}` | The header reached memex without a valid token: a typo, a revoked token (`memex auth list`), or a PAT pasted without `Bearer `. |
+| `401` with `WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"` | The header reached memex without a valid token: a typo, a revoked token (`memex auth list`), or a PAT pasted without `Bearer `. |
 | `WWW-Authenticate: Bearer resource_metadata="…", scope="read write"` and Claude Code offers to sign in | No `Authorization` header was sent. Re-add the server with `--header`, or finish the OAuth sign-in with `/mcp`. |
 | Browser shows `redirect_uri is not registered for this client` | The callback differs from the registered one in scheme, host or path. `memex auth set-redirect-uris <client_id> http://localhost:8765/callback` fixes it without rotating the secret. |
 | Callback carries `error=unauthorized_client` | The client has no secret and is in `client` mode while `/authorize` auto-approves. Register a confidential client (drop `--token-endpoint-auth-method none`). |

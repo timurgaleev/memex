@@ -785,7 +785,12 @@ all 10 lines, 11 distinct versions, 287 ms. Pool GUCs DONE (v1.142.0): `idle_in_
 postgres-js's default. Still open: the deleted-page-undone-by-a-later-write
 rule (an operator call — the current behaviour is a documented tradeoff),
 classified DB errors,
-degraded boot, query `signal`, stall watchdog, CLI teardown, `make test-pg`.
+degraded boot, query `signal`, stall watchdog, CLI teardown, and adding
+`make test-pg` to the ship gate list. Postgres lane DONE (v1.160.0): `make
+test-pg` runs the Postgres-only tests and applies every migration twice
+against a throwaway `pgvector/pgvector:pg16` container (or a scratch database
+named by `MEMEX_TEST_POSTGRES_URL`) and removes the container even on failure;
+CI runs it as an advisory `Postgres tests` job.
 
 **Depends on.** Nothing.
 
@@ -899,17 +904,21 @@ halted job at the circuit's reopen time. R4 (v1.144.0): migration 108;
 an enrollment-redeemed token spends under the enrollment id (`grant_id` on
 codes and tokens, `AuthInfo.spendId`), capped by the enrollment's cap else the
 connector's per person. PAT names starting with `memex_cl_`/`memex_enr_` are
-refused at mint, so a PAT can no longer share an OAuth client's or an
+refused at mint (v1.160.0), so a PAT can no longer share an OAuth client's or an
 enrollment's ledger key. Not done: a combined connector-wide cap across all its
 enrolled people, and the admin spend page listing enrollments. R5
 (v1.144.0): `BudgetTracker.reserve/settle/release`; `wouldExceed` counts
 holds; `generateChunkContext` migrated; takes, drift, contradictions,
 facts-classify and facts-extract now reserve before the call and settle from
-actual usage (a truncation retry grows its hold). Not done: `synthesis/patterns.ts`,
-`reflections.ts`, `enrich-thin.ts`, `think.ts`, `deep-synth.ts`, `concepts.ts`,
+actual usage (a truncation retry grows its hold) (v1.160.0). The remaining ten
+check-then-record sites — `synthesis/patterns.ts`, `reflections.ts`,
+`enrich-thin.ts`, `think.ts`, `deep-synth.ts`, `concepts.ts`,
 `search/graph-rerank.ts`, `search/relational-llm.ts`,
-`chronicle/extract-events.ts` and `commands/extract-conversation-facts.ts` still
-check then record; an ambient tracker read inside `trackedInvoke`. Decoder
+`chronicle/extract-events.ts` and `commands/extract-conversation-facts.ts` —
+now reserve, settle and release on failure too (Unreleased, after v1.160.0;
+`tests/budget_reserve_search_synthesis.test.ts` admits exactly
+floor(cap / estimate) of 12 parallel calls). Not done: an ambient tracker read
+inside `trackedInvoke`. Decoder
 (v1.144.0): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
 in `tests/model_json.test.ts` with 5 stated exemptions; the two
 `isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose. Model keys
@@ -1190,10 +1199,18 @@ operating contract, plus optional `MEMEX_DEPLOYMENT_IDENTITY` and
 `serverInfo.version` from `src/version.ts` instead of `0.1.0`; the fifteen
 "MCP-stdio only" descriptions now state the real gate, a contract test keeps
 the phrase out, and the stale autocut comment in `dispatch.ts` is corrected. No
-tool was added, hidden or reclassified. Still open: the shared visibility
-predicate for `tools/list` and dispatch (with `denied_after_list`,
-indistinguishable unknown/hidden errors and the property test over all ops),
-the public-guard allowlist flip, extended `whoami`, the capabilities resource,
+tool was added, hidden or reclassified. v1.158.0: every tool carries MCP
+`annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+`openWorldHint: false`) derived from its scope, although the scope above left
+annotations out; `initialize` negotiates 2025-03-26, 2025-06-18 or 2025-11-25
+and a wrong `MCP-Protocol-Version` header is a 400; an `insufficient_scope`
+refusal carries the step-up challenge in `_meta`. Visibility predicate DONE
+(v1.160.0): `src/mcp/visibility.ts` is the one check behind `tools/list` and
+dispatch (ingress walls plus scope, operator-only, fail-closed write gate and
+slug binding), and `tests/tools_list_visibility.test.ts` asserts that
+`tools/list` equals the callable set for each caller shape. Still open:
+`denied_after_list`, indistinguishable unknown/hidden errors with did-you-mean
+limited to visible tools, the public-guard allowlist flip, extended `whoami`, the capabilities resource,
 unknown-parameter warn/reject modes, surface tiers with `request_tools`, typed
 array params with a generated catalog and the live conformance runner, and the
 stretch items. The live check of the stamped version and instructions waits on
@@ -1444,10 +1461,23 @@ still missing. Still open: rescoping scopes (and the dead `agent` /
 `sources_admin` / `users_admin` scopes), named profiles and the
 `allowed_operations` snapshot, routing enrollment redemption and
 register-client through the service (`via='enrollment'`), the stricter prefix
-grammar and an archived-source reason, token lifecycle (per-client TTLs, DCR
-clamp, PAT TTL/expiry, periodic sweep, revoke PAT by id, least-privilege mint,
-unified revocation), consent re-check, the constant-time compare module, the
-admin SPA grant editor, and the advisor collector.
+grammar and an archived-source reason.
+
+Lifecycle parts shipped since: `auth revoke-grant` revokes one redeemed
+enrollment and deletes that grant's tokens and codes (v1.155.0); per-client
+access and refresh TTLs (`--access-ttl`, `--refresh-ttl`, migration 117),
+`auth invalidate-tokens [--grant]`, a code refused at `/token` after a rescope
+(the code records `grant_revision`), `grant_types` enforced, and optional
+`--source`/`--federated-read`/`--scopes` on PAT mint (v1.157.0); enrollment
+codes and member grants issued, listed and revoked from the admin API and a
+Members panel, `enroll --replaces`, `auth set-redirect-uris`, the
+`oauth_enrollment_audit` trail (migration 118), and `revoke-client` revoking
+instead of deleting (v1.158.0). Still open: rescoping scopes and the dead
+scopes, profiles, the DCR TTL clamp, PAT TTL/expiry, a periodic expired-token
+sweep, revoke PAT by id, a mint that requires scopes and a source, a consent
+re-check that intersects redemption and refresh with the current grant, the
+constant-time compare module, the admin grant editor (dry-run, revision-checked
+save, tenant mode, prefixes, budgets), and the advisor collector.
 
 ### RM-11 — Retrieval pipeline v2 (honest degradation, fusion hygiene, confidence)
 
@@ -1812,10 +1842,16 @@ only when written, an identical refusal is audited once). A session whose part
 another source owns or that was merged away is reported as failed (exit 1)
 and the run continues. Open: durable jobs +
 `transcripts status`, `raw_data` sidecar and `since` checkpoint, `/ingest`
-content type, Claude Code/Codex adapters, client-side capture, supervised
+content type, client-side capture, supervised
 source interface, parser breadth, sweep valve and failure ledger, retiring
 `scripts/import-chat-history.ts` (its timestamp-sort flattening remains), and
-the stretch items.
+the stretch items. R2 (v1.160.0): Codex rollout
+(`~/.codex/sessions/**/rollout-*.jsonl`) and Claude Code session
+(`~/.claude/projects/<project>/<session>.jsonl`) adapters, one file or a
+directory, `--format codex|claude-code` or detection; tool calls and results,
+reasoning, sub-agent traffic, system reminders and slash-command bookkeeping
+are dropped, as are whole Codex sub-agent rollouts; same redaction and split
+as the export adapters.
 
 ### RM-15 — Transcript synthesis and grounding
 
@@ -2078,7 +2114,7 @@ drain, the net-fact-deletion warning, and an admin consumer of schema v2.
 A follow-up closed two gaps: the quiet-hours deep-synth pass now runs in a
 BatchScope stopped by the heartbeat signal and checks the signal between
 questions, and an aborted phase gets a bounded 10 s settle wait before the run
-returns, with `orphanedPhase` in the report when it is still running. The
+returns, with `orphanedPhase` in the report when it is still running. In v1.160.0 the
 phases under `cycle/` (embed-stale, embed-facts, rechunk sweep, consolidation,
 conversation-facts backfill, symbol-edge resolution, salience, orphans purge,
 purge) now call `phaseCheckpoint()` in their loops and `await phaseFenceCheck()`
@@ -2169,7 +2205,9 @@ Queue, Worker, handler and backfill on PGLite. Still open: `ops_audit`;
 health score, `top_issues`, `--fast`/`--scope`/`--locks`; the doctor long tail
 (dead links, scalar frontmatter, RLS audit and the rest); the `--plan` USD
 preview; the planner/runner with `depends_on`/checkpoint/`--resume`; `advisor
---apply` and history; the SPA trend. Confirmed defect, still open: the
+--apply` and history; the SPA trend. Since v1.160.0 the cycle report marks a
+phase that absorbed errors or failed rows as `warn`, not `ok` (RM-17), so
+that status is there to pass through. Confirmed defect, still open: the
 `cycle-phase` job's `defaultRunCyclePhase` calls the CLI `runCycle`, which
 returns `void`, so the job succeeds even when the phase failed. `runCycle`
 should return its `CycleResult`, and the handler should throw on
@@ -2400,6 +2438,11 @@ checks the real whoami contract (`is_public:false` and reads null or covering
 and sentinel-only grants fail — tested against payloads from a live ingress
 and dispatch, not stubs; no fetch follows redirects (3xx fails, naming the
 Location origin), so a proxied 307 cannot re-post the client secret or bearer.
+Client docs (v1.159.0): `docs/clients/` has a connect guide per client —
+Claude.ai personal and Team/Enterprise, ChatGPT, Codex CLI and Claude Code —
+with registration, exact steps, verification and a troubleshooting table
+built from the server's real error strings. They are hand-written steps, not
+the `memex connect` automation above, which stays open.
 
 ### RM-22 — Delegated agents for tenants
 
@@ -2991,7 +3034,7 @@ Closed operator decisions this roadmap does not re-raise:
 ---
 
 
-## Auth and re-read hardening follow-ups (2026-09-28, v1.155.0)
+## Auth and re-read hardening follow-ups (2026-09-28, v1.155.0–v1.160.0)
 
 - **Four `timur`-owned `/memory` rows carry no `last_indexed_mtime`.** The
   re-read guard refuses them (no source covers `/memory`, and a row without the
@@ -3008,15 +3051,50 @@ Closed operator decisions this roadmap does not re-raise:
   is configured through the symlink** makes the sweep skip every new file
   (`(none) ≠ S`). Compare labels against canonicalised prefixes too, or warn at
   boot on a prefix/root spelling mismatch.
-- **Sweep refusals surface only as a log line.** Report refused paths in the
-  sweep result so doctor can show them.
-- **RFC 8707 validation needs a stable issuer.** With `MEMEX_PUBLIC_URL`
-  unset the issuer is rebuilt from the request, so behind a TLS-terminating
-  tunnel it can read `http://…` while the client sends `resource=https://…`
-  and gets `invalid_target`. Compare host only when the issuer is derived, or
-  warn at boot when OAuth is on and `MEMEX_PUBLIC_URL` is empty. Also: repeated
-  `resource` params are read first-value-only, and `client_credentials` ignores
-  `resource` (tokens stay unbound, which `/mcp` accepts by design).
+- **Sweep refusals reach the sweep result (`refused`) but not doctor.** Showing
+  them there, and a way for the operator to reclaim a refused path, are still
+  open; reclaiming is a design decision.
+- **RFC 8707 with a derived issuer.** With `MEMEX_PUBLIC_URL` unset behind a
+  TLS-terminating proxy the issuer reads `http://…` and a client's `https://`
+  resource gets `invalid_target`. `serve` now warns at boot; relaxing the
+  compare to host-only is not done on purpose.
+- **An empty `resource=` still reads as absent** at `/authorize` and `/token`
+  (`requestedResource` in `http/oauth-endpoints.ts`). Refusing it is stricter
+  RFC 8707, but check what the Claude.ai and ChatGPT connectors send first.
+- **Basic and body client credentials together are accepted, body winning**
+  (`clientAuthFromRequest`). RFC 6749 §2.3 says to refuse; confirm neither
+  production connector sends both before changing it.
+- **`enroll --replaces` accepts a new source and keeps the spend key and budget**
+  (`issueEnrollment` in `core/oauth-provider.ts`). The CLI help documents the
+  override as intended; refusing it, or gating it on a flag, is an operator call.
+- **A replacement keeps the predecessor's recorded client**, so an any-client
+  code's successor is pinned to the connector that redeemed it. Supporting an
+  any-client replacement needs a choice: derive it from the issue audit row, or
+  add `--any-client` / `client_id: null` to the CLI and admin API.
+- **`hnsw.scan_mem_multiplier` / `work_mem` may cap the iterative scan**
+  (`core/search/vector.ts`). Unverified; needs `EXPLAIN (ANALYZE, BUFFERS)` on
+  live RDS before any change.
+- **The candidates-incomplete probe runs for every caller, and
+  `max_scan_tuples` is fixed** (`hybrid.ts` always passes
+  `onCandidatesIncomplete`). Skipping it for non-operators means plumbing
+  caller identity into hybrid; changing the cap needs a p95 measurement on RDS.
+- **Refresh reuse inside the grace window does not revoke even when the
+  successor was already used** (`REFRESH_REUSE_GRACE_SECONDS`). Deliberate, and
+  tightening it could log claude-web out on retry races; a design change.
+- **A grant-scoped `invalidate-tokens` bumps the client-wide revision**, which
+  retires other grants' pending codes and stops the client's agent jobs.
+  Skipping the bump changes audit and agent-job semantics; moving codes to the
+  new revision is a design choice. Otherwise document it.
+- **The same bump affects other grants on `invalidate-tokens --grant`.** The
+  grant-existence half is fixed (an unknown or foreign grant id is `not_found`);
+  the cross-grant half waits on the bump decision above.
+- **The root protected-resource metadata advertises its own `resource` value**
+  (`http/oauth-metadata.ts`). Changing it affects discovery Claude.ai and
+  ChatGPT may read; needs an operator decision and a live connector test.
+- **`memex index <file outside the roots>` is refused** since `guardLocalIndex`
+  falls back to `[sourcePath]` only with no roots configured. Kept as the safer
+  behaviour and noted in the CHANGELOG; allowing it means guarding over
+  `[canonicalPath]` from `commands/index.ts`, which is the operator's call.
 - **`exchangeRefreshToken`/`exchangeAuthorizationCode` are now transactional**;
   the rest of token lifecycle (family ids, reuse detection, PAT `--source`,
   grant_types enforcement) is Batch C of the 2026-09-28 gap report.

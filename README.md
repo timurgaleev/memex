@@ -58,7 +58,9 @@ that search to every MCP client you use, with the source attached.
 | **Code intelligence** | `code_callers`, `code_callees`, `code_def`, `code_refs`, `code_blast` (transitive callers, depth 5 by default, max 8) and `code_flow`, over TS/TSX, Python and Go. |
 | **Push context** | `volunteer_context` surfaces relevant pages and `volunteer_chronicle` the recent timeline for the entities in play, before you ask. Both are deterministic, with no LLM call. |
 | **Facts, timelines, history** | `add_fact` / `recall` / `find_trajectory`, the `chronicle_*` tools, and `page_versions` / `page_revert` for every page. |
-| **Team-ready** | One connector for a team, a separate source per person through single-use enrollment codes, and daily USD caps per OAuth client, per PAT and per person. |
+| **Chats and agent sessions** | `memex transcripts ingest` imports ChatGPT and Claude.ai exports, Codex CLI rollouts and Claude Code session logs, keeping what was said and redacting credentials. |
+| **Safe writes** | `request_id` makes a retried write replay instead of landing twice; `expected_version` lets exactly one of two racing writers commit. |
+| **Team-ready** | One connector for a team, a separate source per person through single-use enrollment codes, and daily USD caps per OAuth client, per PAT and per person. One person can be revoked or re-enrolled without touching the others. |
 | **Secrets redacted on write** | Pasted AWS keys, API tokens and PEM keys become `[REDACTED:<kind>:<fingerprint>]` before they are stored or embedded. |
 | **Your infra** | One Graviton `t4g.medium` instance and encrypted RDS Postgres 16, all in Terraform. Zero telemetry. |
 

@@ -24,6 +24,14 @@ over MCP (mail, calendar, arbitrary documents). For each document it:
 3. Stores everything in **Postgres (RDS)** — the database is the single source of
    truth, not the files on disk.
 
+Conversations come in the same way. `memex transcripts ingest` reads ChatGPT and
+Claude.ai exports, Codex CLI rollouts (`~/.codex/sessions`) and Claude Code
+session logs (`~/.claude/projects`), one file or a whole directory. It keeps
+only what was said: tool calls and results, reasoning, sub-agent traffic and
+system reminders are dropped, credentials are redacted, and a long session is
+split into parts at message boundaries. Re-running it on unchanged input writes
+nothing.
+
 ## 2. How a question is answered (the pipeline)
 
 When your MCP client searches, memex runs a hybrid pipeline
@@ -139,8 +147,9 @@ authorises against that same client. See
 
 memex is deliberately small: **one Docker container on one EC2 instance**, an
 **RDS Postgres** for the index, an **EFS** mount for config that survives rebuilds,
-and **AWS Secrets Manager** for the tokens. The only public surface is `POST /mcp`
-(+ `GET /health`), reached through a **Cloudflare Tunnel** — no load balancer, no
+and **AWS Secrets Manager** for the tokens. The public surface is `POST /mcp`,
+`GET /health`, the OAuth discovery and flow endpoints, and `/admin` (behind
+its own sign-in), reached through a **Cloudflare Tunnel** — no load balancer, no
 extra AWS ingress. (If you'd rather not depend on Cloudflare, the Caddy ingress
 mode serves the same route over Let's Encrypt TLS on the instance's own IP; see
 [DEPLOYMENT.md](./DEPLOYMENT.md#alternative-caddy-ingress-no-cloudflare).) It fits
@@ -193,6 +202,14 @@ A few that are easy to miss:
 - `get_recent_transcripts` lists recently ingested meeting, email, journal and
   note pages, newest first, with a short summary or the capped body. It is not
   on the public ingress.
+- Writes are safe to retry and to race. `page_put`, `page_append`, `add_fact`
+  and `add_timeline_event` take an optional `request_id`: a retry with the same
+  id and arguments returns the first result with `replayed: true` and writes
+  nothing, so a timed-out append retried by a client does not land twice.
+  `page_put`, `page_revert` and `page_delete` take an optional
+  `expected_version` (from `page_get`): the write lands only if the page is
+  still at that version, so of two writers that read the same version exactly
+  one commits and the other gets `version_conflict`.
 - `submit_agent` queues a read-only research agent that runs under your own
   grant, sources and daily budget, and `get_agent_job` returns its status and
   answer. Both need the `agent` scope, a daily budget on the client, and

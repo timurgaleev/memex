@@ -119,7 +119,7 @@ bun run src/cli.ts auth doctor https://brain.<domain> \
 
 | Symptom | First check |
 |---|---|
-| `401` with `{"ok":false,"error":"missing or invalid bearer token"}` | `BRAIN_MCP_TOKEN` is unset or stale in the environment Codex was started from, or the token was revoked (`memex auth list`). |
+| `401` with `WWW-Authenticate: Bearer error="invalid_token", resource_metadata="…"` | A token was sent and refused: `BRAIN_MCP_TOKEN` is stale in the environment Codex was started from, or the token was revoked (`memex auth list`). |
 | `WWW-Authenticate: Bearer resource_metadata="…", scope="read write"` | No `Authorization` header at all: the environment variable is empty. |
 | Browser shows `redirect_uri is not registered for this client` | The host or path differs from the registered URI (`localhost` ≠ `127.0.0.1`). Register the URL Codex printed with `memex auth set-redirect-uris`. |
 | Callback carries `error=unauthorized_client` | The client is public and in `client` tenant mode. Re-register it with `--tenant-mode enrollment`, as in step 1. |
