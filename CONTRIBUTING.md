@@ -23,6 +23,31 @@ make audit   # PII gate
 make lint    # shellcheck if installed
 ```
 
+### Postgres tests
+
+The Bun suite runs on PGLite, which serializes transactions. Races and
+driver-specific behaviour only show up on a real Postgres, so a few tests
+read `MEMEX_TEST_POSTGRES_URL` and skip without it. To run them:
+
+```bash
+make test-pg   # needs docker and bun
+```
+
+It starts a throwaway `pgvector/pgvector:pg16` container on a free
+loopback port, applies every migration to the empty database, applies
+them again (the second pass must apply nothing), runs every test file
+under `deploy/memex/tests` that reads `MEMEX_TEST_POSTGRES_URL`, and
+removes the container whether the run passed or failed.
+
+With `MEMEX_TEST_POSTGRES_URL` already set, it uses that database and
+starts no container. Point it only at a scratch database: migrations and
+tests write to it. A new Postgres-only test needs no registration — read
+`MEMEX_TEST_POSTGRES_URL` in the file (`describe.skipIf(!url)`) and
+`make test-pg` picks it up.
+
+CI runs the same target in the advisory `Postgres tests` job
+(`continue-on-error`) against a service container.
+
 ## Coding conventions
 
 ### Bash

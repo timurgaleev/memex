@@ -8,13 +8,14 @@
 #   make init      interactive bootstrap (writes .env, tfvars, backend.hcl)
 #   make audit     fail if any PII pattern matches a tracked file
 #   make test      run bash unit tests in tests/
+#   make test-pg   run the Postgres-only tests + migrations against a throwaway pgvector container
 #   make plan      terraform init + plan (depends on audit)
 #   make apply     terraform apply (depends on audit + plan)
 #   make deploy    rebuild and restart the docker-compose stack (depends on audit)
 #   make destroy   terraform destroy (NO automatic safeguards — answer carefully)
 #   make help      show this list
 
-.PHONY: help init audit scrub-audit typecheck lint-ts test plan apply deploy destroy lint
+.PHONY: help init audit scrub-audit typecheck lint-ts test test-pg plan apply deploy destroy lint
 
 # Default target — print help.
 help:
@@ -46,6 +47,9 @@ test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
 	  bash "$$f" || status=$$?; \
 	done; \
 	exit $$status
+
+test-pg: ## Postgres-only tests + migrations (twice) against a throwaway pgvector container (needs docker)
+	@bash scripts/test-pg.sh
 
 lint: ## Static check of bash scripts (shellcheck if available)
 	@if command -v shellcheck >/dev/null 2>&1; then \
