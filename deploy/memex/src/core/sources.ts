@@ -16,9 +16,12 @@
  * wires this in. Phases 5+ honour it (search source-boost,
  * cycle skips tombstoned sources, etc.).
  */
+import { readFileSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import type { Engine } from "./engine/interface.ts";
 import { bumpDocumentClock } from "./generation.ts";
 import { NO_SOURCE_SENTINEL } from "./auth-info.ts";
+import { canonicalPath, isUnderRoot, isWithinAllowedRoot, loadAllowedRootSpellings } from "./path_guard.ts";
 
 export type SourceKind =
   | "vault"
@@ -316,6 +319,175 @@ export async function resolveSourceForPath(
     [sourcePath],
   );
   return r.rows[0]?.id ?? null;
+}
+
+interface SourcePrefix {
+  id: string;
+  prefix: string;
+}
+
+/** `PATH_PREFIX_MATCH` + `resolveSourceForPath` in JS, over a preloaded list. */
+function owningSource(path: string, prefixes: readonly SourcePrefix[]): string | null {
+  let best: SourcePrefix | null = null;
+  for (const s of prefixes) {
+    if (!path.startsWith(s.prefix)) continue;
+    const bounded =
+      s.prefix.endsWith("/") ||
+      path.length === s.prefix.length ||
+      path[s.prefix.length] === "/";
+    if (bounded && (best === null || s.prefix.length > best.prefix.length)) best = s;
+  }
+  return best?.id ?? null;
+}
+
+/** What the daemon knows about the row a local re-read would overwrite. */
+export interface StoredDocument {
+  sourceId: string | null;
+  lastIndexedMtime: number | null;
+}
+
+export type RereadVerdict =
+  | { ok: true; canonical: string }
+  | { ok: false; canonical: string; reason: string };
+
+export type RereadGuard = (
+  sourcePath: string,
+  stored: StoredDocument | null,
+) => RereadVerdict;
+
+/**
+ * Decides whether the daemon may read `sourcePath` off disk into the document
+ * stored under it. The inline `index` form lets a remote caller label its
+ * document with any path; a sweep or the cycle re-reading that label would copy
+ * the daemon's file into a document the caller reads.
+ *
+ * The file is judged by where a read would land: its canonical path must sit
+ * under `roots`, and the source owning that canonical path must be the owner
+ * the row carries — or, for an unowned or absent row, the owner the path-prefix
+ * backfill will give it from its label. A label that reaches another source's
+ * file through `..` or a symlink fails that comparison. An unowned row a
+ * registered source covers must also carry a file mtime, which only a local
+ * read records: the inline form never does. An owned row whose file no source
+ * covers passes on that mtime too: the operator reassigned a locally read row.
+ */
+export async function loadRereadGuard(
+  engine: Engine,
+  roots: readonly string[],
+): Promise<RereadGuard> {
+  const r = await engine.query<{ id: string; path_prefix: string }>(
+    "SELECT id, path_prefix FROM sources",
+  );
+  const labelled: SourcePrefix[] = r.rows.map((s) => ({ id: s.id, prefix: s.path_prefix }));
+  const canonical: SourcePrefix[] = labelled
+    .filter((s) => isAbsolute(s.prefix))
+    .map((s) => ({ id: s.id, prefix: canonicalPath(s.prefix) }));
+  const canonicalRoots = roots.map(canonicalPath);
+  return (sourcePath, stored) => {
+    const path = canonicalPath(sourcePath);
+    if (!isUnderRoot(path, canonicalRoots)) {
+      return { ok: false, canonical: path, reason: "outside the configured roots" };
+    }
+    const owner = owningSource(path, canonical);
+    const rowOwner = stored?.sourceId ?? owningSource(sourcePath, labelled);
+    const reassigned =
+      owner === null && stored !== null && stored.sourceId !== null && stored.lastIndexedMtime !== null;
+    if (rowOwner !== owner && !reassigned) {
+      return {
+        ok: false,
+        canonical: path,
+        reason: `document belongs to source ${rowOwner ?? "(none)"}, the file to ${owner ?? "(none)"}`,
+      };
+    }
+    if (stored && stored.sourceId === null && owner !== null && stored.lastIndexedMtime === null) {
+      return { ok: false, canonical: path, reason: "unowned document was not written by a local read" };
+    }
+    return { ok: true, canonical: path };
+  };
+}
+
+/**
+ * The one way a daemon path turns a stored `source_path` into file content.
+ * Reads the canonical file only when `guard` passes the row and the file is not
+ * a denied name (.env, .git) inside a root; null otherwise. The caller still
+ * passes `expectOwner` on the write, since the guard judged a snapshot.
+ */
+export function readGuardedFile(
+  guard: RereadGuard,
+  sourcePath: string,
+  stored: StoredDocument | null,
+): { text: string; mtimeMs: number } | null {
+  const verdict = guard(sourcePath, stored);
+  if (!verdict.ok || !isWithinAllowedRoot(verdict.canonical)) return null;
+  const mtimeMs = Math.floor(statSync(verdict.canonical).mtimeMs);
+  return { text: readFileSync(verdict.canonical, "utf8"), mtimeMs };
+}
+
+/**
+ * The check `indexFile` and `indexCodeFile` make before reading a file into the
+ * row stored under `sourcePath`, whoever calls them: the row is loaded fresh and
+ * judged by `guard`, or by one over the configured vault and code roots. With no
+ * root configured the caller named the file itself, so only ownership is judged.
+ * Throws when the verdict fails; otherwise returns the owner the write must still
+ * find (`expectOwner`), since a label can land between this read and the write.
+ */
+export async function guardLocalIndex(
+  engine: Engine,
+  sourcePath: string,
+  guard?: RereadGuard,
+): Promise<string | null> {
+  const row = (
+    await engine.query<{ source_id: string | null; last_indexed_mtime: number | null }>(
+      "SELECT source_id, last_indexed_mtime FROM documents WHERE source_path = $1",
+      [sourcePath],
+    )
+  ).rows[0];
+  const stored = row ? { sourceId: row.source_id, lastIndexedMtime: row.last_indexed_mtime } : null;
+  let judge = guard;
+  if (!judge) {
+    const roots = loadAllowedRootSpellings();
+    judge = await loadRereadGuard(engine, roots.length > 0 ? roots : [sourcePath]);
+  }
+  const verdict = judge(sourcePath, stored);
+  if (!verdict.ok) throw new Error(`not indexing ${sourcePath}: ${verdict.reason}`);
+  return stored?.sourceId ?? null;
+}
+
+/**
+ * How many candidate rows a capped re-read phase may scan per row of work. The
+ * SQL prefilter is looser than the guard, so a row it admits can still be
+ * refused every tick; paging past refused rows up to this many keeps them from
+ * holding the cap while bounding the scan.
+ */
+export const REREAD_SCAN_FACTOR = 10;
+
+/**
+ * The SQL side of `loadRereadGuard`, over `documents d`: a cheap prefilter that
+ * keeps a capped batch spent on rows the guard can pass. `$<rootsParam>` is a
+ * `text[]` of root spellings. The label must sit under a root, and the row's
+ * owner must be the source its label's prefix names — or the row is unowned and
+ * carries a local read's mtime, which the guard then judges by canonical path.
+ * Labels are compared as stored, so `..` and symlinks get past it; every row it
+ * admits still goes through the guard before any read.
+ */
+export function rereadCandidateWhere(rootsParam: number): string {
+  const labelOwner = `(
+           SELECT s.id FROM sources s
+            WHERE left(d.source_path, length(s.path_prefix)) = s.path_prefix
+              AND (
+                right(s.path_prefix, 1) = '/'
+                OR length(d.source_path) = length(s.path_prefix)
+                OR substr(d.source_path, length(s.path_prefix) + 1, 1) = '/'
+              )
+            ORDER BY length(s.path_prefix) DESC
+            LIMIT 1)`;
+  return `EXISTS (SELECT 1 FROM unnest($${rootsParam}::text[]) AS r(root)
+                   WHERE d.source_path = r.root
+                      OR left(d.source_path, length(rtrim(r.root, '/')) + 1) = rtrim(r.root, '/') || '/')
+       AND (
+         d.source_id IS NOT DISTINCT FROM ${labelOwner}
+         OR (d.source_id IS NULL AND d.last_indexed_mtime IS NOT NULL)
+         OR (d.source_id IS NOT NULL AND d.last_indexed_mtime IS NOT NULL AND ${labelOwner} IS NULL)
+       )`;
 }
 
 

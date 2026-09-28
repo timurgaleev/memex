@@ -38,6 +38,7 @@ import {
   type IndexTxResult,
 } from "./indexer-tx.ts";
 import { normalizeSourcePath } from "./indexer.ts";
+import { guardLocalIndex, type RereadGuard } from "./sources.ts";
 
 export interface IndexCodeResult extends IndexTxResult {
   /**
@@ -59,6 +60,8 @@ export interface IndexCodeInput {
   mtimeMs?: number;
   /** Owning source; the document and every edge extracted from it carry it. */
   sourceId?: string | null;
+  /** See DocumentWrite.expectOwner — the code sweep only. */
+  expectOwner?: string | null;
 }
 
 function shortHash(s: string): string {
@@ -268,6 +271,7 @@ export async function indexCodeDocument(
       embeddingModel: null,
       chunkerVersion: CODE_CHUNKER_VERSION,
       sourceId: input.sourceId ?? null,
+      ...(input.expectOwner !== undefined ? { expectOwner: input.expectOwner } : {}),
     },
     chunkWrites,
   );
@@ -304,6 +308,7 @@ const MAX_INDEX_CODE_FILE_BYTES = 5 * 1024 * 1024;
 export async function indexCodeFile(
   storage: Storage,
   filePath: string,
+  opts: { rereadGuard?: RereadGuard } = {},
 ): Promise<IndexCodeResult> {
   let stat;
   try {
@@ -317,14 +322,18 @@ export async function indexCodeFile(
         `${MAX_INDEX_CODE_FILE_BYTES} byte cap (likely a vendored bundle)`,
     );
   }
+  // Same canonicalization as indexFile, and the reason is sharper here: the
+  // reported repro is `memex index foo.ts`, and commands/index.ts routes any
+  // recognised code extension to THIS function, so fixing only the markdown
+  // path would have left the case that was actually filed.
+  const sourcePath = normalizeSourcePath(filePath);
+  // Same owner check as indexFile, before the file is read.
+  const expectOwner = await guardLocalIndex(storage.raw(), sourcePath, opts.rereadGuard);
   const text = readFileSync(filePath, "utf8");
   return indexCodeDocument(storage, {
-    // Same canonicalization as indexFile, and the reason is sharper here: the
-    // reported repro is `memex index foo.ts`, and commands/index.ts routes any
-    // recognised code extension to THIS function, so fixing only the markdown
-    // path would have left the case that was actually filed.
-    sourcePath: normalizeSourcePath(filePath),
+    sourcePath,
     text,
     mtimeMs: Math.floor(stat.mtimeMs),
+    expectOwner,
   });
 }

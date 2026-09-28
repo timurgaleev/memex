@@ -9,10 +9,12 @@
  * Originally lived in `recipes/dream.ts`. split it out so each
  * cycle phase is a single-responsibility module.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { Engine } from "../engine/interface.ts";
 import { Storage } from "../storage.ts";
 import { indexDocument } from "../indexer.ts";
+import { loadAllowedRootSpellings } from "../path_guard.ts";
+import { loadRereadGuard, readGuardedFile, REREAD_SCAN_FACTOR, rereadCandidateWhere } from "../sources.ts";
 
 export interface EmbedStaleOptions {
   /** Days threshold. Default 30. */
@@ -24,28 +26,47 @@ export interface EmbedStaleOptions {
 export interface EmbedStaleResult {
   scanned: number;
   reembedded: number;
+  /** Candidates the re-read guard refused (denied name, wrong owner, outside the roots). */
+  rejected: number;
   errors: { sourcePath: string; message: string }[];
 }
 
 interface StaleRow {
   doc_id: string;
   source_path: string;
+  source_id: string | null;
+  last_indexed_mtime: number | null;
 }
 
+/**
+ * Only documents a local sweep could have written are re-read from disk. A
+ * remote `index` call labels its document with any `sourcePath` it likes —
+ * `/proc/self/environ`, or a vault file not indexed yet — and re-reading that
+ * label would copy the daemon's file into the caller's document.
+ *
+ * `rereadCandidateWhere` keeps the cap spent on rows the guard can pass;
+ * `readGuardedFile` judges each by its canonical path before any read. `after`
+ * is the last `source_path` of the previous page.
+ */
 export async function findStale(
   engine: Engine,
   staleDays: number,
   limit: number,
+  roots: readonly string[],
+  after: string | null = null,
 ): Promise<StaleRow[]> {
+  if (roots.length === 0) return [];
   const r = await engine.query<StaleRow>(
-    `SELECT DISTINCT d.id AS doc_id, d.source_path
+    `SELECT DISTINCT d.id AS doc_id, d.source_path, d.source_id, d.last_indexed_mtime
      FROM documents d
      JOIN chunks c     ON c.document_id = d.id
      JOIN embeddings e ON e.chunk_id = c.id
      WHERE e.created_at < NOW() - ($1 || ' days')::interval
+       AND ${rereadCandidateWhere(3)}
+       AND ($4::text IS NULL OR d.source_path > $4::text)
      ORDER BY d.source_path
      LIMIT $2`,
-    [String(staleDays), limit],
+    [String(staleDays), limit, roots as string[], after],
   );
   return r.rows;
 }
@@ -56,29 +77,54 @@ export async function embedStalePhase(
 ): Promise<EmbedStaleResult> {
   const staleDays = opts.staleDays ?? 30;
   const maxPerCycle = opts.maxPerCycle ?? 50;
-  const stale = await findStale(engine, staleDays, maxPerCycle);
+  const roots = loadAllowedRootSpellings();
+  const mayReread = await loadRereadGuard(engine, roots);
   const result: EmbedStaleResult = {
-    scanned: stale.length,
+    scanned: 0,
     reembedded: 0,
+    rejected: 0,
     errors: [],
   };
 
   // indexDocument lives on Storage; wrap engine in one for the phase.
   const storage = new Storage(engine);
-  for (const row of stale) {
-    if (!existsSync(row.source_path)) continue; // orphans-purge handles
-    try {
-      const text = readFileSync(row.source_path, "utf8");
-      await indexDocument(storage, {
-        sourcePath: row.source_path,
-        text,
-      });
-      result.reembedded++;
-    } catch (e) {
-      result.errors.push({
-        sourcePath: row.source_path,
-        message: e instanceof Error ? e.message : String(e),
-      });
+  // The cap counts re-embeds attempted; rows skipped before any read only
+  // spend the scan budget, so a row refused every tick cannot hold the cap.
+  const scanBudget = maxPerCycle * REREAD_SCAN_FACTOR;
+  let attempted = 0;
+  let after: string | null = null;
+  while (attempted < maxPerCycle && result.scanned < scanBudget) {
+    const limit = Math.min(maxPerCycle - attempted, scanBudget - result.scanned);
+    const page = await findStale(engine, staleDays, limit, roots, after);
+    if (page.length === 0) break;
+    result.scanned += page.length;
+    after = page[page.length - 1]!.source_path;
+    for (const row of page) {
+      if (!existsSync(row.source_path)) continue; // orphans-purge handles
+      try {
+        const file = readGuardedFile(mayReread, row.source_path, {
+          sourceId: row.source_id,
+          lastIndexedMtime: row.last_indexed_mtime,
+        });
+        if (!file) {
+          result.rejected++;
+          continue;
+        }
+        attempted++;
+        await indexDocument(storage, {
+          sourcePath: row.source_path,
+          text: file.text,
+          // Keeps the local-read mark the guard relies on for an unowned row.
+          mtimeMs: file.mtimeMs,
+          expectOwner: row.source_id,
+        });
+        result.reembedded++;
+      } catch (e) {
+        result.errors.push({
+          sourcePath: row.source_path,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
   }
   return result;

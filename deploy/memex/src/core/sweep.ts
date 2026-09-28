@@ -13,7 +13,7 @@ import { indexFile, normalizeSourcePath } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { reconcileDeletedDocuments } from "./reconcile-deletes.ts";
-import { backfillDocumentSources } from "./sources.ts";
+import { backfillDocumentSources, loadRereadGuard, type StoredDocument } from "./sources.ts";
 
 export interface SweepOptions {
   /** Filesystem root of the vault. */
@@ -117,15 +117,16 @@ export async function sweepVault(
 
   // Pull all known last_indexed_mtime in one shot — vault is small enough
   // that this is much cheaper than per-file SELECT.
-  const known = new Map<string, number | null>();
+  const known = new Map<string, StoredDocument>();
   const rows = await storage
     .raw()
-    .query<{ id: string; last_indexed_mtime: number | null }>(
-      "SELECT id, last_indexed_mtime FROM documents",
+    .query<{ id: string; source_id: string | null; last_indexed_mtime: number | null }>(
+      "SELECT id, source_id, last_indexed_mtime FROM documents",
     );
   for (const r of rows.rows) {
-    known.set(r.id, r.last_indexed_mtime);
+    known.set(r.id, { sourceId: r.source_id, lastIndexedMtime: r.last_indexed_mtime });
   }
+  const mayReread = await loadRereadGuard(storage.raw(), [opts.vault]);
 
   // Targeted re-chunk: the ids whose chunks predate the current chunker
   // version. A walked file in this set is re-indexed regardless of mtime.
@@ -156,7 +157,16 @@ export async function sweepVault(
     // vault and the skip silently stops being a skip.
     const canonical = normalizeSourcePath(file.path);
     const id = docId(canonical);
-    const lastIndexed = known.get(id) ?? null;
+    const stored = known.get(id) ?? null;
+    // A remote `index` may have labelled a row with this path first; indexFile
+    // keeps the row's owner, so reading the file into it would hand the file
+    // to whoever wrote the label.
+    const verdict = mayReread(canonical, stored);
+    if (!verdict.ok) {
+      console.warn(`[sweep] not indexing ${canonical}: ${verdict.reason}`);
+      continue;
+    }
+    const lastIndexed = stored?.lastIndexedMtime ?? null;
     const forcedByChunker = staleChunkerIds?.has(id) ?? false;
     if (forcedByChunker) seenStaleIds!.add(id);
     if (
@@ -176,7 +186,9 @@ export async function sweepVault(
       break;
     }
     try {
-      await indexFile(storage, file.path);
+      // The verdict above is against `known`, a snapshot from the start of
+      // the walk; indexFile judges the row again as it stands now.
+      await indexFile(storage, file.path, { rereadGuard: mayReread });
       result.reindexed++;
       indexed.push(canonical);
     } catch (e) {

@@ -16,11 +16,13 @@ import { indexDocument, type EmbedFn } from "../src/core/indexer.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { countStaleChunkerDocs } from "../src/core/chunker-version.ts";
 import { rechunkSweepPhase } from "../src/core/cycle/rechunk-sweep.ts";
+import { registerSource } from "../src/core/sources.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
 let tmp: string;
 let vault: string;
 let storage: Storage;
+let savedRoots: { vault?: string; code?: string };
 
 const embed: EmbedFn = async (text) => deterministicEmbed(text);
 
@@ -34,8 +36,16 @@ beforeEach(async () => {
   vault = mkdtempSync(join(tmpdir(), "memex-rechunk-vault-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
+  // The sweep re-reads only files under the configured roots.
+  savedRoots = { vault: process.env.MEMEX_VAULT_PATHS, code: process.env.MEMEX_CODE_PATHS };
+  process.env.MEMEX_VAULT_PATHS = vault;
+  delete process.env.MEMEX_CODE_PATHS;
 });
 afterEach(async () => {
+  if (savedRoots.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
+  else process.env.MEMEX_VAULT_PATHS = savedRoots.vault;
+  if (savedRoots.code === undefined) delete process.env.MEMEX_CODE_PATHS;
+  else process.env.MEMEX_CODE_PATHS = savedRoots.code;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
   rmSync(vault, { recursive: true, force: true });
@@ -60,6 +70,15 @@ async function makeStale(
     .engine()
     .query("UPDATE documents SET chunker_version = 0 WHERE source_path = $1", [p]);
   return p;
+}
+
+async function chunkText(sourcePath: string): Promise<string[]> {
+  const r = await storage.engine().query<{ content: string }>(
+    `SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id
+      WHERE d.source_path = $1 ORDER BY c.chunk_index`,
+    [sourcePath],
+  );
+  return r.rows.map((x) => x.content);
 }
 
 describe("rechunk-sweep gating", () => {
@@ -210,7 +229,7 @@ describe("rechunk-sweep drain", () => {
       storage,
       {
         documentId: "d_gone",
-        sourcePath: "/nonexistent/gone.md",
+        sourcePath: join(vault, "gone.md"),
         title: "gone",
         frontmatter: {},
         embeddingModel: "det",
@@ -225,5 +244,75 @@ describe("rechunk-sweep drain", () => {
     expect(r.skippedMissing).toBe(1);
     // Still stale — nothing re-stamped it.
     expect(await countStaleChunkerDocs(storage.engine())).toBe(1);
+  });
+});
+
+describe("rechunk-sweep: which documents it may re-read from disk", () => {
+  it("leaves a tenant's placeholder under an operator path unread and still drains operator docs", async () => {
+    const e = storage.engine();
+    await registerSource(e, { id: "vault-src", kind: "vault", pathPrefix: vault });
+    await registerSource(e, { id: "tenant-a", kind: "other", pathPrefix: "/tenants/a" });
+    const secret = join(vault, "secret.md");
+    writeFileSync(secret, "# operator secret");
+    // A tenant inline-indexed placeholder text under the operator's path.
+    await indexDocument(
+      storage,
+      { sourcePath: secret, text: "placeholder", sourceId: "tenant-a" },
+      { embedFn: embed, embeddingModel: "det" },
+    );
+    await e.query("UPDATE documents SET chunker_version = 0 WHERE source_path = $1", [secret]);
+    const own = await makeStale("own.md", body(1), "vault-src");
+
+    const r = await rechunkSweepPhase(e, { embedFn: embed, embeddingModel: "det" });
+    expect(r.errors).toEqual([]);
+    expect(r.rechunked).toBe(1);
+    expect((await chunkText(secret)).join("\n")).not.toContain("operator secret");
+    expect((await chunkText(own)).join("\n")).toContain("body of note 1");
+  });
+
+  it("pages past a candidate the guard refuses every tick instead of stalling on it", async () => {
+    const e = storage.engine();
+    await registerSource(e, { id: "vault-src", kind: "vault", pathPrefix: vault });
+    // Sorts ahead of every note and passes the SQL prefilter, but is a denied name.
+    const envFile = await makeStale(".env.example", "SECRET=1", "vault-src");
+    const own = await makeStale("own.md", body(1), "vault-src");
+
+    const r = await rechunkSweepPhase(e, { maxDocs: 1, embedFn: embed, embeddingModel: "det" });
+    expect(r.errors).toEqual([]);
+    expect(r.rejected).toBe(1);
+    expect(r.rechunked).toBe(1);
+    expect((await chunkText(own)).join("\n")).toContain("body of note 1");
+    const { rows } = await e.query<{ v: number }>(
+      "SELECT chunker_version AS v FROM documents WHERE source_path = $1",
+      [envFile],
+    );
+    expect(rows[0]?.v).toBe(0);
+  });
+
+  it("does not read a daemon file outside the roots into a public label", async () => {
+    const outside = join(tmp, "daemon.env.md");
+    writeFileSync(outside, "SECRET=1");
+    await indexDocument(
+      storage,
+      { sourcePath: outside, text: "placeholder" },
+      { embedFn: embed, embeddingModel: "det" },
+    );
+    await storage.engine().query("UPDATE documents SET chunker_version = 0 WHERE source_path = $1", [outside]);
+
+    const r = await rechunkSweepPhase(storage.engine(), { embedFn: embed, embeddingModel: "det" });
+    expect(r.scanned).toBe(0);
+    expect((await chunkText(outside)).join("\n")).not.toContain("SECRET");
+  });
+
+  it("keeps a local read's mtime mark on the rows it refreshes", async () => {
+    const p = await makeStale("marked.md", body(2));
+    await rechunkSweepPhase(storage.engine(), { embedFn: embed, embeddingModel: "det" });
+    const { rows } = await storage
+      .engine()
+      .query<{ m: number | null }>(
+        "SELECT last_indexed_mtime AS m FROM documents WHERE source_path = $1",
+        [p],
+      );
+    expect(rows[0]?.m).not.toBeNull();
   });
 });

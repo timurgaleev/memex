@@ -20,7 +20,7 @@
  * a row that DOES exist under the other source.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
@@ -431,5 +431,60 @@ describe("an empty grant reads nothing in the search arms", () => {
       await s3.close();
       rmSync(tmp3, { recursive: true, force: true });
     }
+  });
+});
+
+describe("index `path` form is operator-only", () => {
+  // The path form reads a server file through indexFile, which carries no write
+  // source — a tenant reaching it would index daemon files into unowned rows.
+  let root: string;
+  const saved = {
+    vault: process.env.MEMEX_VAULT_PATHS,
+    code: process.env.MEMEX_CODE_PATHS,
+  };
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "memex-index-path-"));
+    writeFileSync(join(root, "server.md"), "a file on the daemon's disk");
+    process.env.MEMEX_VAULT_PATHS = root;
+    delete process.env.MEMEX_CODE_PATHS;
+  });
+
+  afterAll(() => {
+    if (saved.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
+    else process.env.MEMEX_VAULT_PATHS = saved.vault;
+    if (saved.code === undefined) delete process.env.MEMEX_CODE_PATHS;
+    else process.env.MEMEX_CODE_PATHS = saved.code;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function documentCount(): Promise<number> {
+    const r = await storage.engine().query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM documents`,
+    );
+    return r.rows[0]?.n ?? 0;
+  }
+
+  it("refuses a tenant's path form inside an allowed root and writes nothing", async () => {
+    const before = await documentCount();
+    const res = await dispatchTool(
+      storage,
+      { name: "index", arguments: { path: join(root, "server.md") } },
+      { authInfo: auth(A) },
+    );
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/internal-only/);
+    expect(await documentCount()).toBe(before);
+  });
+
+  it("the operator's path form still passes the gate and reaches the root guard", async () => {
+    const res = await dispatchTool(
+      storage,
+      { name: "index", arguments: { path: join(tmp, "outside.md") } },
+    );
+    expect(res.isError).toBe(true);
+    const text = JSON.stringify(res.content);
+    expect(text).not.toMatch(/internal-only/);
+    expect(text).toMatch(/outside the configured/);
   });
 });

@@ -58,6 +58,7 @@ import { BudgetTracker } from "./budget.ts";
 import type { LlmFn } from "./llm/haiku.ts";
 import { extractEntities } from "./entities.ts";
 import { bumpDocumentClock } from "./generation.ts";
+import { guardLocalIndex, type RereadGuard } from "./sources.ts";
 import { newWriteTiming, noteWriteTiming, runWithWriteTiming } from "./write-timing.ts";
 import { acquireWriteEmbedSlot, writeEmbedWidth } from "./concurrency.ts";
 import type { Storage } from "./storage.ts";
@@ -125,6 +126,8 @@ export interface IndexFileOptions {
    * reindex leave it unset and stay quiet.
    */
   timingLabel?: string;
+  /** `indexFile` only: a guard the caller already loaded, in place of one over the configured roots. */
+  rereadGuard?: RereadGuard;
 }
 
 type ContextualTier = NonNullable<ChunkWrite["contextualTier"]>;
@@ -193,6 +196,8 @@ export interface IndexInput {
   sourceId?: string | null;
   /** See DocumentWrite.claimUnowned — page-mirror writers only. */
   claimUnowned?: boolean;
+  /** See DocumentWrite.expectOwner — the local re-readers only. */
+  expectOwner?: string | null;
 }
 
 /**
@@ -609,6 +614,7 @@ async function indexDocumentBody(
       chunkerVersion: MARKDOWN_CHUNKER_VERSION,
       sourceId: input.sourceId ?? null,
       ...(input.claimUnowned === true ? { claimUnowned: true } : {}),
+      ...(input.expectOwner !== undefined ? { expectOwner: input.expectOwner } : {}),
     },
     chunkWrites,
   );
@@ -667,17 +673,23 @@ export async function indexFile(
   }
   // Re-stat via the regular statSync purely so the IndexResult timestamp
   // matches what the rest of the codebase computes elsewhere.
+  // Normalize the read path, not the override: an explicit `sourcePath` is
+  // the caller declaring the row's identity (the page mirror's `page://…`),
+  // and second-guessing it here would rewrite a key it owns.
+  const sourcePath = opts.sourcePath ?? normalizeSourcePath(filePath);
+  // A remote inline `index` may have labelled a row with this path first, and
+  // the write keeps a row's owner: reading the file into it would hand the file
+  // to whoever wrote the label.
+  const expectOwner = await guardLocalIndex(storage.raw(), sourcePath, opts.rereadGuard);
   const stat = statSync(filePath);
   const text = readFileSync(filePath, "utf8");
   return indexDocument(
     storage,
     {
-      // Normalize the read path, not the override: an explicit `sourcePath` is
-      // the caller declaring the row's identity (the page mirror's `page://…`),
-      // and second-guessing it here would rewrite a key it owns.
-      sourcePath: opts.sourcePath ?? normalizeSourcePath(filePath),
+      sourcePath,
       text,
       mtimeMs: Math.floor(stat.mtimeMs),
+      expectOwner,
     },
     opts,
   );

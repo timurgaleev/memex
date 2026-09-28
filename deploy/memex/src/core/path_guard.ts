@@ -69,13 +69,17 @@ function isDeniedPath(canonical: string): boolean {
   return false;
 }
 
-function loadAllowedRoots(): string[] {
-  const parts = [
+function configuredRoots(): string[] {
+  return [
     ...(process.env.MEMEX_VAULT_PATHS ?? "").split(","),
     ...(process.env.MEMEX_CODE_PATHS ?? "").split(","),
   ]
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
+}
+
+export function loadAllowedRoots(): string[] {
+  const parts = configuredRoots();
   // Deduplicate while preserving order. We resolve symlinks at root
   // load so `path.relative` can compare canonical-to-canonical.
   const resolved = new Set<string>();
@@ -88,6 +92,41 @@ function loadAllowedRoots(): string[] {
     }
   }
   return [...resolved];
+}
+
+/**
+ * Every spelling a document path under a configured root may carry: the
+ * canonical root, and the root as configured (resolved but not realpath'd).
+ * Rows store `resolve()`d paths, so when a root sits behind a symlink
+ * (`/tmp` → `/private/tmp`) only the configured spelling matches them.
+ */
+export function loadAllowedRootSpellings(): string[] {
+  const out = new Set(loadAllowedRoots());
+  for (const p of configuredRoots()) out.add(resolve(p));
+  return [...out];
+}
+
+/**
+ * The path the kernel would actually open: symlinks and `..` resolved by
+ * realpath, so `/vault/a/../b/x.md` through a symlinked `/vault/a` lands where
+ * a read would. A missing file falls back to the lexical `resolve`.
+ */
+export function canonicalPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** True iff `canonical` is one of `roots` or sits below one. Both sides canonical. */
+export function isUnderRoot(canonical: string, roots: readonly string[]): boolean {
+  for (const root of roots) {
+    const rel = relative(root, canonical);
+    // "" when equal, "foo/bar" below; "../x" sideways, absolute across drives.
+    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return true;
+  }
+  return false;
 }
 
 /**

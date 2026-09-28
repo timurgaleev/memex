@@ -8,6 +8,7 @@
  * are reserved for protocol-level failures (malformed request etc.).
  */
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import type { Storage } from "../core/storage.ts";
 import {
   type AuthInfo,
@@ -28,6 +29,7 @@ import {
 } from "../core/source-health.ts";
 import {
   isWithinAllowedRoot,
+  loadAllowedRootSpellings,
   PathGuardConfigError,
 } from "../core/path_guard.ts";
 import {
@@ -181,7 +183,7 @@ import {
   persistThinkSynthesis,
   saveThinkTake,
 } from "../core/synthesis/think-persist.ts";
-import { listSources, getSource, SOURCE_KINDS, type SourceKind } from "../core/sources.ts";
+import { listSources, getSource, resolveSourceForPath, SOURCE_KINDS, type SourceKind } from "../core/sources.ts";
 import { cacheStats } from "../core/search/query-cache.ts";
 import { currentDocumentClock } from "../core/generation.ts";
 import {
@@ -602,7 +604,7 @@ async function dispatchToolInner(
           opts.embedQuery,
         );
       case "index":
-        return await callIndex(storage, args, opts.isPublic ?? false, writeSource);
+        return await callIndex(storage, args, opts.isPublic ?? false, writeSource, isOperator);
       case "backlinks":
         return await callBacklinks(storage, args, redact, readSources, remote);
       case "stats":
@@ -1055,22 +1057,61 @@ function responseSearchMeta(
   return isOperator ? { ...meta, returned } : publicSearchMeta(meta);
 }
 
+const URI_SCHEME = /^[a-z][a-z0-9+.-]+:\/\//i;
+
+/**
+ * A remote label names a path the daemon's sweeps and cycle may later judge
+ * by prefix; `..`, `./` and `//` let the same label read as one source's path
+ * and resolve into another's. `page://…` style labels keep their `//`.
+ */
+function isNormalizedLabel(sourcePath: string): boolean {
+  const scheme = URI_SCHEME.exec(sourcePath)?.[0] ?? "";
+  const rest = sourcePath.slice(scheme.length);
+  if (rest.split("/").some((seg) => seg === ".." || seg === ".")) return false;
+  return posix.normalize(rest) === rest || rest === "";
+}
+
+/**
+ * Why a non-operator's inline label may not be written, or null. A label under
+ * a vault/code root names a file the daemon's own re-reads refresh, and one
+ * under another source's prefix lands in that source's namespace.
+ */
+async function inlineLabelSquat(
+  engine: Engine,
+  sourcePath: string,
+  writeSource: string | undefined,
+): Promise<string | null> {
+  for (const root of loadAllowedRootSpellings()) {
+    const base = root.endsWith("/") ? root.slice(0, -1) : root;
+    if (sourcePath === base || sourcePath.startsWith(`${base}/`)) {
+      return "lies under a configured vault/code root";
+    }
+  }
+  const owner = await resolveSourceForPath(engine, sourcePath);
+  if (owner !== null && owner !== writeSource) {
+    return `lies under source ${owner}'s path prefix`;
+  }
+  return null;
+}
+
 async function callIndex(
   storage: Storage,
   args: Record<string, unknown>,
   isPublic = false,
   writeSource?: string,
+  isOperator = false,
 ): Promise<ToolCallResult> {
   const path = args["path"];
   if (typeof path === "string" && path.length > 0) {
     // The `path` form reads a file off the daemon's filesystem. Even though
-    // isWithinAllowedRoot caps it to the vault/code roots, the public ingress
-    // must never trigger a server-side file read — remote callers index inline
-    // (`sourcePath` + `text`) only. Defence-in-depth on top of the root guard.
-    if (isPublic) {
+    // isWithinAllowedRoot caps it to the vault/code roots, only the operator
+    // may trigger a server-side file read — public and OAuth tenant callers
+    // index inline (`sourcePath` + `text`) only. indexFile carries no write
+    // source, so a tenant reaching it would mint an unowned document.
+    if (!isOperator) {
       return errResult(
         "index: the `path` form is internal-only; pass `sourcePath` + `text` " +
-          "to index inline content from the public path",
+          "to index inline content",
       );
     }
     let allowed: boolean;
@@ -1086,12 +1127,24 @@ async function callIndex(
           "MEMEX_CODE_PATHS roots — refusing to index",
       );
     }
+    // indexFile refuses a row a tenant's inline `index` labelled with this path
+    // first, the same check every local read of a file makes.
     const r = await indexFile(storage, path);
     return jsonResult({ ok: true, ...r });
   }
   const sourcePath = args["sourcePath"];
   const text = args["text"];
   if (typeof sourcePath === "string" && typeof text === "string") {
+    if (!isOperator && !isNormalizedLabel(sourcePath)) {
+      return errResult(
+        "index: `sourcePath` must be a normalized path — no `.` or `..` " +
+          "segments and no repeated `/`",
+      );
+    }
+    if (!isOperator) {
+      const squat = await inlineLabelSquat(storage.engine(), sourcePath, writeSource);
+      if (squat) return errResult(`index: \`sourcePath\` ${squat}; choose a label in your own namespace`);
+    }
     // The `path` form above goes through indexFile, which canonicalizes to an
     // absolute source_path. This form deliberately does NOT: the caller's
     // `sourcePath` is a label in THEIR namespace (a laptop's /vault path, a

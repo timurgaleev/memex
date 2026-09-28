@@ -20,7 +20,7 @@ import { normalizeSourcePath } from "./indexer.ts";
 import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { SUPPORTED_EXTENSIONS } from "./chunkers/parsers.ts";
-import { backfillDocumentSources } from "./sources.ts";
+import { backfillDocumentSources, loadRereadGuard, type StoredDocument } from "./sources.ts";
 
 export interface SweepCodeOptions {
   /** Filesystem roots to sweep (each becomes its own source). */
@@ -167,15 +167,16 @@ async function sweepCodeRootsInner(
   };
 
   // Pull all known last_indexed_mtime in one shot — cheaper than per-file SELECT.
-  const known = new Map<string, number | null>();
+  const known = new Map<string, StoredDocument>();
   const rows = await storage
     .raw()
-    .query<{ id: string; last_indexed_mtime: number | null }>(
-      "SELECT id, last_indexed_mtime FROM documents",
+    .query<{ id: string; source_id: string | null; last_indexed_mtime: number | null }>(
+      "SELECT id, source_id, last_indexed_mtime FROM documents",
     );
   for (const r of rows.rows) {
-    known.set(r.id, r.last_indexed_mtime);
+    known.set(r.id, { sourceId: r.source_id, lastIndexedMtime: r.last_indexed_mtime });
   }
+  const mayReread = await loadRereadGuard(storage.raw(), opts.paths);
 
   // Targeted re-chunk: the code-doc ids whose chunks predate the current code
   // chunker version. A walked file in this set is re-indexed regardless of
@@ -212,7 +213,15 @@ async function sweepCodeRootsInner(
       // tick and the skip quietly stops being a skip.
       const canonical = normalizeSourcePath(file.path);
       const id = docId(canonical);
-      const lastIndexed = known.get(id) ?? null;
+      const stored = known.get(id) ?? null;
+      // Same fence as the vault sweep: never read a file into a row a remote
+      // `index` labelled for another source.
+      const verdict = mayReread(canonical, stored);
+      if (!verdict.ok) {
+        console.warn(`[sweep-code] not indexing ${canonical}: ${verdict.reason}`);
+        continue;
+      }
+      const lastIndexed = stored?.lastIndexedMtime ?? null;
       const forcedByChunker = staleChunkerIds?.has(id) ?? false;
       if (forcedByChunker) seenStaleIds!.add(id);
       if (
@@ -230,7 +239,8 @@ async function sweepCodeRootsInner(
         break;
       }
       try {
-        const out = await indexCodeFile(storage, file.path);
+        // Same re-check as the vault sweep: `known` is a snapshot.
+        const out = await indexCodeFile(storage, file.path, { rereadGuard: mayReread });
         result.reindexed++;
         indexed.push(canonical);
         if (out.hasParseError) result.parseErrors++;

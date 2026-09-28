@@ -7,13 +7,15 @@
  * The full runCycleOnce is also smoke-tested with all 6 phases enabled
  * to confirm the orchestrator returns a stable shape.
  */
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { deriveStatus, runCycleOnce } from "../src/core/cycle/index.ts";
-import { embedStalePhase } from "../src/core/cycle/embed-stale.ts";
+import { embedStalePhase, findStale } from "../src/core/cycle/embed-stale.ts";
+import { registerSource } from "../src/core/sources.ts";
 import { extractPhase } from "../src/core/cycle/extract.ts";
 import { reconcileLinksPhase } from "../src/core/cycle/reconcile-links.ts";
 import { orphansPurgePhase } from "../src/core/cycle/orphans-purge.ts";
@@ -69,6 +71,108 @@ describe("embed-stale phase", () => {
     expect(r.scanned).toBe(0);
     expect(r.reembedded).toBe(0);
     expect(r.errors).toEqual([]);
+  });
+});
+
+describe("embed-stale: which documents it may re-read from disk", () => {
+  const ZERO_VEC = `[${Array(1024).fill(0).join(",")}]`;
+  let saved: { vault?: string; code?: string };
+  let vault: string;
+
+  beforeEach(() => {
+    saved = { vault: process.env.MEMEX_VAULT_PATHS, code: process.env.MEMEX_CODE_PATHS };
+    vault = join(tmp, "vault");
+    mkdirSync(vault);
+    // realpath: macOS tmpdir is a symlink, and indexed source_paths are canonical.
+    vault = realpathSync(vault);
+    process.env.MEMEX_VAULT_PATHS = vault;
+    delete process.env.MEMEX_CODE_PATHS;
+  });
+
+  afterEach(() => {
+    if (saved.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
+    else process.env.MEMEX_VAULT_PATHS = saved.vault;
+    if (saved.code === undefined) delete process.env.MEMEX_CODE_PATHS;
+    else process.env.MEMEX_CODE_PATHS = saved.code;
+  });
+
+  async function staleDoc(id: string, sourcePath: string, sourceId: string | null) {
+    const e = storage.engine();
+    await e.query(
+      `INSERT INTO documents (id, source_id, source_path, title, frontmatter) VALUES ($1, $2, $3, NULL, '{}'::jsonb)`,
+      [id, sourceId, sourcePath],
+    );
+    await e.query(
+      `INSERT INTO chunks (id, document_id, chunk_index, content) VALUES ($1, $2, 0, 'placeholder')`,
+      [`${id}c0`, id],
+    );
+    await e.query(
+      `INSERT INTO embeddings (chunk_id, vector, model, created_at)
+       VALUES ($1, $2::vector, 'test', NOW() - interval '90 days')`,
+      [`${id}c0`, ZERO_VEC],
+    );
+  }
+
+  it("skips a remote label outside the roots and a tenant-owned label inside them", async () => {
+    const e = storage.engine();
+    await registerSource(e, { id: "vault-src", kind: "vault", pathPrefix: vault });
+    await registerSource(e, { id: "tenant-a", kind: "other", pathPrefix: "/tenants/a" });
+    writeFileSync(join(vault, "mine.md"), "# mine");
+    writeFileSync(join(vault, "not-yet-indexed.md"), "# operator secret");
+    writeFileSync(join(tmp, "daemon.env"), "SECRET=1");
+
+    await staleDoc("op", join(vault, "mine.md"), "vault-src");
+    await staleDoc("op-null", join(vault, "mine.md") + ".bak", null);
+    // A tenant indexed placeholder text under a vault path before the sweep got there.
+    await staleDoc("ten", join(vault, "not-yet-indexed.md"), "tenant-a");
+    // A public inline index under an absolute daemon path, outside every root.
+    await staleDoc("pub", join(tmp, "daemon.env"), null);
+    await staleDoc("envfile", join(vault, ".env"), "vault-src");
+
+    const rows = await findStale(e, 30, 50, [vault]);
+    expect(rows.map((r) => r.doc_id).sort()).toEqual(["envfile", "op"]);
+  });
+
+  it("pages past a candidate the guard refuses every tick instead of stalling on it", async () => {
+    const e = storage.engine();
+    await registerSource(e, { id: "vault-src", kind: "vault", pathPrefix: vault });
+    // Sorts first and passes the SQL prefilter, but is a denied name.
+    writeFileSync(join(vault, ".env.example"), "SECRET=1");
+    writeFileSync(join(vault, "mine.md"), "---\nembed_skip: true\n---\n\n# refreshed\n");
+    // The ids the indexer derives from the path, so the re-read replaces these rows.
+    const id = (p: string) => `doc_${createHash("sha256").update(p).digest("hex").slice(0, 16)}`;
+    await staleDoc(id(join(vault, ".env.example")), join(vault, ".env.example"), "vault-src");
+    await staleDoc(id(join(vault, "mine.md")), join(vault, "mine.md"), "vault-src");
+
+    const r = await embedStalePhase(e, { staleDays: 30, maxPerCycle: 1 });
+    expect(r.errors).toEqual([]);
+    expect(r.rejected).toBe(1);
+    expect(r.reembedded).toBe(1);
+    const text = async (p: string) =>
+      (await e.query<{ content: string }>(
+        `SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id
+          WHERE d.source_path = $1 ORDER BY c.chunk_index`,
+        [p],
+      )).rows.map((x) => x.content).join("\n");
+    expect(await text(join(vault, ".env.example"))).toBe("placeholder");
+    expect(await text(join(vault, "mine.md"))).toContain("refreshed");
+  });
+
+  it("the phase leaves a tenant's or public caller's placeholder text as it was", async () => {
+    const e = storage.engine();
+    await registerSource(e, { id: "tenant-a", kind: "other", pathPrefix: "/tenants/a" });
+    writeFileSync(join(vault, "not-yet-indexed.md"), "# operator secret");
+    writeFileSync(join(tmp, "daemon.env"), "SECRET=1");
+    await staleDoc("ten", join(vault, "not-yet-indexed.md"), "tenant-a");
+    await staleDoc("pub", join(tmp, "daemon.env"), null);
+
+    const r = await embedStalePhase(e, { staleDays: 30 });
+    expect(r).toEqual({ scanned: 0, reembedded: 0, rejected: 0, errors: [] });
+    expect(await findStale(e, 30, 50, [])).toEqual([]);
+    const body = await e.query<{ content: string }>(
+      `SELECT content FROM chunks WHERE document_id IN ('ten', 'pub') ORDER BY id`,
+    );
+    expect(body.rows.map((x) => x.content)).toEqual(["placeholder", "placeholder"]);
   });
 });
 

@@ -110,6 +110,15 @@ export interface DocumentWrite {
    * path leaves it unset and is refused instead.
    */
   claimUnowned?: boolean;
+  /**
+   * The owner this caller saw on the row when it decided to write — `null` for
+   * an unowned or absent row. When set, the write lands only if the row is
+   * still absent or still carries that owner. The local re-readers pass it:
+   * they judge a file against a snapshot taken at the start of a long walk, and
+   * a remote `index` that labels the same path in the meantime would otherwise
+   * keep its ownership through the COALESCE below and receive the file.
+   */
+  expectOwner?: string | null;
 }
 
 export interface IndexTxResult {
@@ -223,9 +232,10 @@ export async function writeDocumentTransaction(
        -- Re-state the rule where the write happens, so the database arbitrates:
        -- an unscoped caller ($6 NULL) keeps whatever owner is there, and a
        -- scoped one may only update a row that is already its own.
-       WHERE $6::text IS NULL
+       WHERE ($6::text IS NULL
           OR documents.source_id IS NOT DISTINCT FROM $6::text
-          OR ($11::boolean AND documents.source_id IS NULL)
+          OR ($11::boolean AND documents.source_id IS NULL))
+         AND (NOT $12::boolean OR documents.source_id IS NOT DISTINCT FROM $13::text)
        RETURNING id`,
       [
         doc.documentId,
@@ -247,6 +257,8 @@ export async function writeDocumentTransaction(
         effectiveDate.source,
         importFilename(doc.sourcePath),
         doc.claimUnowned === true,
+        doc.expectOwner !== undefined,
+        doc.expectOwner ?? null,
       ],
     );
 
