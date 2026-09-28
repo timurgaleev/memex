@@ -102,6 +102,7 @@ describe("dispatch injection gating", () => {
   it("never attaches _meta for a tenant-scoped (authInfo) call", async () => {
     const authInfo = {
       clientId: "memex_at_x",
+      scopes: ["read"],
       allowedSources: ["tenant-a"],
       sourceId: "tenant-a",
     } as unknown as NonNullable<Parameters<typeof dispatchTool>[2]>["authInfo"];
@@ -110,6 +111,7 @@ describe("dispatch injection gating", () => {
       { name: "get_brain_identity", arguments: {} },
       { authInfo },
     );
+    expect(r.isError).toBeFalsy();
     expect(r._meta).toBeUndefined();
   });
 });
