@@ -6,6 +6,48 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Conditional page writes.** `page_put`, `page_revert` and `page_delete`
+  take an optional `expected_version`: the write lands only if the page is
+  still at that version, checked under the slug's write lock, so of two
+  writers that read the same version exactly one commits. The loser gets a
+  `version_conflict` error that names `current_version` and writes nothing.
+  `expected_version: 0` means the page must not exist yet. `force: true`
+  states an unconditional overwrite and cannot be combined with it. `page_get`
+  now returns the page's current `version`. Omitting both keeps today's
+  behaviour.
+- **Retry-safe writes.** `page_put`, `page_append`, `add_fact` and
+  `add_timeline_event` take an optional `request_id` (up to 128 characters).
+  A retry with the same id and arguments returns the first call's result with
+  `replayed: true` and writes nothing, so a timed-out `page_append` retried by
+  a client no longer appends its text twice. The same id with different
+  arguments is refused; a retry while the first call is still running gets
+  `request_in_progress`. A page write stores its receipt in the same
+  transaction as the page, so a retry after the write committed replays even
+  when the call itself failed afterwards. Ids are kept per caller grant (client, enrollment and
+  write source; `operator` for the local path), so one tenant cannot replay or
+  probe another's results. Records live in a new `write_requests` table
+  (migration 119) and the cycle's purge phase prunes them after 7 days.
+- **Filtered vector searches keep reading the index.** On Postgres with
+  pgvector 0.8 or later, a vector search narrowed by source or chunk filters
+  and ordered by raw distance runs with `hnsw.iterative_scan = relaxed_order`
+  and `hnsw.max_scan_tuples = 40000`, so a tenant whose chunks are a small
+  slice of the index no longer gets a short candidate list. The version is
+  read once per engine; PGLite and older pgvector are left as they were.
+  When a filtered index scan still comes back short while more matching rows
+  exist, search meta reports the new degraded reason
+  `vector_candidates_incomplete` (operator callers only).
+
+### Fixed
+- **`get_raw_data` no longer returns a soft-deleted page's payloads.** Raw rows
+  are read only through a live page, like the page's body and search mirror.
+- **Re-embedding never pins an old text's vector onto a re-chunked chunk.**
+  Chunk ids are positional, so a re-index during `memex embed` or
+  `reindex --contextual` could leave a chunk id holding new text while the run
+  wrote the vector it had computed from the old text. Both now write only
+  while the chunk still holds the text that was embedded, and report the
+  skipped rows as `stale`.
+
 ## [1.158.0] — 2026-09-28
 
 ### Security

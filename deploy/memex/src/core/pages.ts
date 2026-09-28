@@ -20,10 +20,11 @@ import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
 import { resolveSlugWithAlias, setSlugAlias } from "./slug-aliases.ts";
-import { OperationError } from "./operation-error.ts";
+import { OperationError, type PublicErrorEnvelope } from "./operation-error.ts";
 import { andSourceScope } from "./source-scope.ts";
 import { carryFactWithdrawals } from "./fact-withdrawals.ts";
 import { deadlockSafeTransaction } from "./retry.ts";
+import { recordWriteRequest, type WriteRequestKey } from "./write-requests.ts";
 
 // Catalogue of well-known page types. Not enforced at the DB level (see
 // migration 015 comment); kept here so application code can normalise +
@@ -162,6 +163,58 @@ export interface PageInput {
    * owned by a different source is refused (no cross-tenant overwrite).
    */
   source_id?: string;
+  /**
+   * Optimistic concurrency: the version the caller last read (`page_get`'s
+   * `version`, the top `page_versions` row). Checked under the slug lock; a
+   * different current version refuses the write with `VersionConflictError`.
+   * 0 means "the page must not exist yet". Omitted = no check.
+   */
+  expectedVersion?: number;
+  /** A claimed `request_id` (write-requests.ts): its receipt commits with this write. */
+  receipt?: WriteRequestKey;
+}
+
+/**
+ * A conditional write lost the race: the page moved on since the caller read
+ * it. Carries the current version in the envelope on every ingress — the
+ * caller needs it to re-read and retry, and it is a counter, not content.
+ */
+export class VersionConflictError extends OperationError {
+  constructor(
+    slug: string,
+    public readonly currentVersion: number,
+    public readonly expectedVersion: number,
+  ) {
+    super(
+      "version_conflict",
+      `page '${slug}' is at version ${currentVersion}, not the expected ${expectedVersion}; nothing was written`,
+      "Re-read the page (page_get or page_versions), reconcile, and retry with its current version, or pass force: true to overwrite on purpose.",
+    );
+    this.name = "VersionConflictError";
+  }
+
+  override toEnvelope(isPublic: boolean): PublicErrorEnvelope & { current_version: number; expected_version: number } {
+    return {
+      ...super.toEnvelope(isPublic),
+      current_version: this.currentVersion,
+      expected_version: this.expectedVersion,
+    };
+  }
+}
+
+function checkExpectedVersion(slug: string, current: number, expected: number | undefined): void {
+  if (expected !== undefined && current !== expected) {
+    throw new VersionConflictError(slug, current, expected);
+  }
+}
+
+/** The page's current version number — the top of its version chain, 0 when none. */
+export async function currentPageVersion(db: Engine, slug: string): Promise<number> {
+  const r = await db.query<{ n: number }>(
+    "SELECT COALESCE(MAX(version_n), 0)::int AS n FROM page_versions WHERE slug = $1",
+    [slug],
+  );
+  return Number(r.rows[0]?.n ?? 0);
 }
 
 export interface PageRow {
@@ -176,6 +229,9 @@ export interface PageRow {
   deleted_at: string | null;
   /** Owning source (tenant). Carried so the search mirror propagates it. */
   source_id: string;
+  /** Top of the version chain, read in the same statement as the row. Set only
+   *  when read with `withVersion`. */
+  version?: number;
 }
 
 export interface PutResult {
@@ -331,7 +387,7 @@ export async function putPage(
   let truthJson = JSON.stringify(safeTruth);
 
   const engine = storage.engine();
-  const result = await engine.transaction(async (tx) => {
+  const writeLocked = async (tx: Engine): Promise<PutResult> => {
     await lockPageSlugs(tx, input.slug);
     const existing = await tx.query<{
       content_hash: string;
@@ -376,6 +432,7 @@ export async function putPage(
         "Use a slug within your own source, or request access.",
       );
     }
+    checkExpectedVersion(input.slug, Number(existing.rows[0]?.version_n ?? 0), input.expectedVersion);
 
     const current = existing.rows[0];
     if (appendContent !== undefined) {
@@ -569,6 +626,11 @@ export async function putPage(
       changed: true,
       created: false,
     };
+  };
+  const result = await engine.transaction(async (tx) => {
+    const r = await writeLocked(tx);
+    if (input.receipt !== undefined) await recordWriteRequest(tx, input.receipt, { ok: true, ...r });
+    return r;
   });
   // A no-op stored nothing, so there is nothing new to audit; under `flag` the
   // credential sits in the unchanged body and would otherwise be re-audited on
@@ -590,6 +652,8 @@ export interface AppendInput {
    * as "does not exist").
    */
   source_id?: string;
+  /** A claimed `request_id` (write-requests.ts): its receipt commits with this write. */
+  receipt?: WriteRequestKey;
 }
 
 export async function appendPage(
@@ -634,12 +698,20 @@ export async function appendPage(
     written_by: input.written_by,
     source_id: writeSourceId,
     allowAdHocType: true, // existing type, definitionally allowed
+    ...(input.receipt !== undefined ? { receipt: input.receipt } : {}),
   });
 }
 
 export interface GetPageOptions {
   /** Surface a soft-deleted page (deleted_at populated) instead of hiding it. */
   includeDeleted?: boolean;
+  /**
+   * Also read the page's current version, in the same statement as the body,
+   * so the pair can serve as an `expected_version` precondition: a write that
+   * commits between two separate reads would pair the old body with the new
+   * version, and a conditional put would then overwrite an edit never seen.
+   */
+  withVersion?: boolean;
 }
 
 export async function getPage(
@@ -677,12 +749,16 @@ export async function getPageExact(
   const params: unknown[] = [slug];
   const scope = andSourceScope("source_id", sourceIds, params);
   const deletedFilter = opts.includeDeleted === true ? "" : " AND deleted_at IS NULL";
+  const versionCol = opts.withVersion === true
+    ? `,
+            (SELECT COALESCE(MAX(v.version_n), 0) FROM page_versions v WHERE v.slug = pages.slug)::int AS version`
+    : "";
   const r = await storage.engine().query<PageRow>(
     `SELECT slug, type, title, compiled_truth,
             markdown_body, content_hash, source_id,
             created_at::text AS created_at,
             updated_at::text AS updated_at,
-            deleted_at::text AS deleted_at
+            deleted_at::text AS deleted_at${versionCol}
        FROM pages
        WHERE slug = $1${deletedFilter}${scope}`,
     params,
@@ -813,6 +889,7 @@ export async function deletePage(
   slug: string,
   writtenBy?: string,
   writeSource?: string,
+  opts: { expectedVersion?: number } = {},
 ): Promise<DeleteResult> {
   validateSlug(slug);
   // Tenant write scope (mig047): when a scoped caller supplies its write source,
@@ -835,6 +912,12 @@ export async function deletePage(
          FROM pages WHERE slug = $1${sourceFilter}`,
       params,
     );
+    if (opts.expectedVersion !== undefined) {
+      // A page outside the caller's scope reads as absent — version 0 — so the
+      // conflict never reports another tenant's version chain.
+      const current = r.rows.length === 0 ? 0 : await currentPageVersion(tx, slug);
+      checkExpectedVersion(slug, current, opts.expectedVersion);
+    }
     if (r.rows.length === 0 || r.rows[0]!.deleted_at !== null) {
       return { slug, already_deleted: true };
     }
@@ -960,6 +1043,7 @@ export async function revertPage(
   targetVersion: number,
   writtenBy?: string,
   writeSource?: string,
+  opts: { expectedVersion?: number } = {},
 ): Promise<RevertResult> {
   validateSlug(slug);
   // Tenant write scope (mig047): confine the page fetch, the version snapshot
@@ -1017,6 +1101,9 @@ export async function revertPage(
     // Stamp the re-put with the caller's write source so putPage's cross-tenant
     // guard accepts it (the page is owned by `scope`, not 'default').
     ...(scope !== null ? { source_id: scope } : {}),
+    // Checked by putPage under the slug lock, so an edit that lands between
+    // the snapshot read above and the re-put is caught, not reverted over.
+    ...(opts.expectedVersion !== undefined ? { expectedVersion: opts.expectedVersion } : {}),
   });
   return {
     slug,

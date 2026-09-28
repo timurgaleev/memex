@@ -76,8 +76,9 @@ export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
         console.error(`embed-backfill: ${done}/${total}`),
     });
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-    // Total failure → non-zero so an unattended run is detectable.
-    if (!result.dryRun && result.candidates > 0 && result.embedded === 0) {
+    // Total failure → non-zero so an unattended run is detectable. A row
+    // skipped because a re-index changed it under the run is not a failure.
+    if (!result.dryRun && result.candidates > 0 && result.embedded === 0 && result.stale < result.candidates) {
       return 1;
     }
     return 0;

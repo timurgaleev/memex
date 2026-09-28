@@ -18,6 +18,7 @@ export const DEGRADED_REASONS = [
   "expansion_failed",
   "budget_truncated",
   "rerank_skipped",
+  "vector_candidates_incomplete",
 ] as const;
 
 export type DegradedReason = (typeof DEGRADED_REASONS)[number];
@@ -64,6 +65,7 @@ const REASON_TEXT: Record<DegradedReason, string> = {
   expansion_failed: "query expansion failed",
   budget_truncated: "token budget dropped hits",
   rerank_skipped: "rerank skipped",
+  vector_candidates_incomplete: "vector arm ran out of candidates inside the filter",
 };
 
 /** One-line explanation of an empty result, for the CLI's stderr. */

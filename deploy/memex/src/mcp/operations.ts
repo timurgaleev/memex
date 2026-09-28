@@ -212,11 +212,28 @@ const obj = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "object", ...
 const arr = (o: Omit<ParamDef, "type"> = {}): ParamDef => ({ type: "array", ...o });
 const req = { required: true } as const;
 
+/** Upper bound on `request_id` length (checked by the dispatch handler). */
+export const MAX_REQUEST_ID_LEN = 128;
+
+const expectedVersionParam = int({
+  minimum: 0,
+  description:
+    "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write.",
+});
+const forceParam = bool({
+  description:
+    "Overwrite unconditionally, on purpose. Cannot be combined with expected_version.",
+});
+const requestIdParam = str({
+  description:
+    `Optional caller-chosen id for this write (1-${MAX_REQUEST_ID_LEN} chars). Retrying with the same id and the same arguments returns the first call's result with \`replayed: true\` and writes nothing; the same id with different arguments is refused. Remembered for 7 days.`,
+});
+
 export const OPERATIONS: readonly Operation[] = [
   {
     name: "search",
     description:
-      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted. The response carries `meta`: `vectorEnabled` plus `degraded[]` reason codes (embed_timeout, vector_arm_failed, keyword_zero, budget_truncated) that tell an empty brain from a degraded run; non-public callers also get intent, mode, cache, retrieved and returned.",
+      "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted. The response carries `meta`: `vectorEnabled` plus `degraded[]` reason codes (embed_timeout, vector_arm_failed, keyword_zero, budget_truncated, vector_candidates_incomplete) that tell an empty brain from a degraded run; non-public callers also get intent, mode, cache, retrieved and returned.",
     params: {
       q: str({ ...req, description: "Natural-language query." }),
       k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 20." }),
@@ -364,6 +381,9 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "Write the search mirror before returning even when mirrors are queued, so the page is searchable the moment this call returns. Slower.",
       }),
+      expected_version: expectedVersionParam,
+      force: forceParam,
+      request_id: requestIdParam,
     },
   },
   {
@@ -379,6 +399,7 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "Write the search mirror before returning even when mirrors are queued, so the page is searchable the moment this call returns. Slower.",
       }),
+      request_id: requestIdParam,
     },
   },
   {
@@ -389,6 +410,8 @@ export const OPERATIONS: readonly Operation[] = [
     params: {
       slug: str(req),
       written_by: str(),
+      expected_version: expectedVersionParam,
+      force: forceParam,
     },
   },
   {
@@ -410,12 +433,14 @@ export const OPERATIONS: readonly Operation[] = [
       slug: str(req),
       version: int({ ...req, minimum: 1 }),
       written_by: str(),
+      expected_version: expectedVersionParam,
+      force: forceParam,
     },
   },
   {
     name: "page_get",
     description:
-      "Read a page by slug. Returns an error if the page does not exist. `fuzzy:true` falls back to fuzzy slug resolution on a miss (a unique candidate is auto-read; multiple candidates return `ambiguous_slug` + the list). `include_deleted:true` surfaces a soft-deleted page with deleted_at populated (restore workflows).",
+      "Read a page by slug. Returns an error if the page does not exist. `fuzzy:true` falls back to fuzzy slug resolution on a miss (a unique candidate is auto-read; multiple candidates return `ambiguous_slug` + the list). `include_deleted:true` surfaces a soft-deleted page with deleted_at populated (restore workflows). The response carries `version`, the page's current version number — pass it as `expected_version` to a later page_put, page_revert or page_delete to write only if nobody changed the page in between.",
     params: {
       slug: str(req),
       fuzzy: bool({ description: "Fuzzy slug resolution on a miss (default false)." }),
@@ -546,6 +571,7 @@ export const OPERATIONS: readonly Operation[] = [
         description:
           "Who may read the fact back. `private` (the default) is operator-only; `world` is also readable by tenant-scoped and public callers. Ignored on public ingress, which always writes `private`.",
       }),
+      request_id: requestIdParam,
     },
   },
   {
@@ -566,6 +592,7 @@ export const OPERATIONS: readonly Operation[] = [
       }),
       event: str(req),
       source_chunk_id: str(),
+      request_id: requestIdParam,
     },
   },
   {

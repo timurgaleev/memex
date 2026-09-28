@@ -236,7 +236,14 @@ import {
 } from "../core/public_redaction.ts";
 import { OperationError, isOperationError } from "../core/operation-error.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
-import { OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
+import { MAX_REQUEST_ID_LEN, OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
+import {
+  claimWriteRequest,
+  completeWriteRequest,
+  releaseWriteRequest,
+  writeRequestArgsHash,
+  type WriteRequestKey,
+} from "../core/write-requests.ts";
 import { hasScope } from "../core/scope.ts";
 import { insufficientScopeChallenge } from "../http/oauth-metadata.ts";
 
@@ -627,20 +634,26 @@ async function dispatchToolInner(
       case "log_friction":
         return await callLogFriction(storage, args);
       case "page_put":
-        return await callPagePut(
-          storage,
-          args,
-          writeSource,
-          opts.isPublic ?? false,
-          remoteWriterIdentity(opts),
+        return await withWriteRequest(storage, req.name, args, writeRequestPrincipal(opts, writeSource), (receipt) =>
+          callPagePut(
+            storage,
+            args,
+            writeSource,
+            opts.isPublic ?? false,
+            remoteWriterIdentity(opts),
+            receipt,
+          ),
         );
       case "page_append":
-        return await callPageAppend(
-          storage,
-          args,
-          writeSource,
-          opts.isPublic ?? false,
-          remoteWriterIdentity(opts),
+        return await withWriteRequest(storage, req.name, args, writeRequestPrincipal(opts, writeSource), (receipt) =>
+          callPageAppend(
+            storage,
+            args,
+            writeSource,
+            opts.isPublic ?? false,
+            remoteWriterIdentity(opts),
+            receipt,
+          ),
         );
       case "page_delete":
         return await callPageDelete(storage, args, writeSource);
@@ -683,15 +696,19 @@ async function dispatchToolInner(
           remote,
         );
       case "add_fact":
-        return await callAddFact(
-          storage,
-          args,
-          writeSource,
-          opts.isPublic ?? false,
-          writerIdentity(opts),
+        return await withWriteRequest(storage, req.name, args, writeRequestPrincipal(opts, writeSource), () =>
+          callAddFact(
+            storage,
+            args,
+            writeSource,
+            opts.isPublic ?? false,
+            writerIdentity(opts),
+          ),
         );
       case "add_timeline_event":
-        return await callAddTimelineEvent(storage, args, writeSource);
+        return await withWriteRequest(storage, req.name, args, writeRequestPrincipal(opts, writeSource), () =>
+          callAddTimelineEvent(storage, args, writeSource),
+        );
       case "entity_facts":
         return await callEntityFacts(storage, args, redact, readSources, remote);
       case "entity_timeline":
@@ -869,6 +886,94 @@ async function dispatchToolInner(
     // leak across the public boundary; fully redact it there, log server-side.
     return errResult(publicSafeErrorMessage(e, opts.isPublic ?? false));
   }
+}
+
+/**
+ * Who a `request_id` belongs to: the grant, not the transport. An OAuth or PAT
+ * caller is its client (and enrollment, on a shared connector) plus its write
+ * source; the static public bearer is `public`; the trusted local path is
+ * `operator`. Two callers never share a key space, so one cannot replay — or
+ * probe — another's results.
+ */
+export function writeRequestPrincipal(opts: DispatchOptions, writeSource: string | undefined): string {
+  const auth = opts.authInfo;
+  const parts = [
+    auth !== undefined ? `client:${auth.clientId}` : opts.isPublic ? "public" : "operator",
+  ];
+  if (auth?.spendId !== undefined && auth.spendId !== auth.clientId) parts.push(`enrollment:${auth.spendId}`);
+  if (writeSource !== undefined) parts.push(`source:${writeSource}`);
+  return parts.join("|");
+}
+
+/**
+ * Run a write under its optional `request_id`: a retry of a completed call
+ * replays the stored result with `replayed: true` and writes nothing.
+ *
+ * `run` gets the claimed key. A page write passes it down so its receipt
+ * commits in the same transaction as the page; from then on the key reads as
+ * done even if the derived work after the commit fails or the process dies,
+ * and a retry replays that receipt instead of writing again. A failure before
+ * the commit leaves no receipt, and only then is the claim released for a
+ * retry to run the write. add_fact and add_timeline_event are one statement
+ * with no work after it, and a re-run of either collapses onto the row already
+ * on file, so for them the receipt stored after the call is enough.
+ */
+async function withWriteRequest(
+  storage: Storage,
+  tool: string,
+  args: Record<string, unknown>,
+  principal: string,
+  run: (receipt: WriteRequestKey | undefined) => Promise<ToolCallResult>,
+): Promise<ToolCallResult> {
+  const requestId = args["request_id"];
+  if (requestId === undefined) return run(undefined);
+  if (typeof requestId !== "string" || requestId.trim().length === 0 || requestId.length > MAX_REQUEST_ID_LEN) {
+    throw new OperationError(
+      "invalid_params",
+      `${tool}: \`request_id\` must be a non-blank string of at most ${MAX_REQUEST_ID_LEN} characters`,
+      "Pass a short caller-generated id such as a UUID.",
+    );
+  }
+  const engine = storage.engine();
+  const key: WriteRequestKey = { principal, tool, requestId };
+  const claim = await claimWriteRequest(engine, key, writeRequestArgsHash(args));
+  if (claim.kind === "replay") return jsonResult({ ...claim.result, replayed: true });
+  let result: ToolCallResult;
+  try {
+    result = await run(key);
+  } catch (e) {
+    await releaseWriteRequest(engine, key);
+    throw e;
+  }
+  const text = result.content[0]?.type === "text" ? result.content[0].text : undefined;
+  if (result.isError || text === undefined) {
+    await releaseWriteRequest(engine, key);
+    return result;
+  }
+  try {
+    await completeWriteRequest(engine, key, JSON.parse(text) as Record<string, unknown>);
+  } catch (e) {
+    // A page write keeps the receipt its transaction stamped, which still
+    // blocks a second write; only the fuller response is lost.
+    console.error(`[write-request] could not store the result of ${tool} ${requestId}:`, e instanceof Error ? e.message : e);
+  }
+  return result;
+}
+
+/**
+ * The optimistic-concurrency pair every conditional write takes. `force: true`
+ * states an unconditional overwrite, so it cannot also name a version.
+ */
+function writePrecondition(tool: string, args: Record<string, unknown>): { expectedVersion?: number } {
+  const expected = args["expected_version"];
+  if (expected !== undefined && args["force"] === true) {
+    throw new OperationError(
+      "invalid_params",
+      `${tool}: \`expected_version\` and \`force: true\` cannot be combined`,
+      "Pass the version you read for a conditional write, or force: true for an intentional overwrite.",
+    );
+  }
+  return typeof expected === "number" ? { expectedVersion: expected } : {};
 }
 
 function errResult(msg: string): ToolCallResult {
@@ -1395,10 +1500,14 @@ async function callPagePut(
   writeSource?: string,
   isPublic = false,
   remoteIdentity?: string,
+  receipt?: WriteRequestKey,
 ): Promise<ToolCallResult> {
   const input = asPageInput(args, remoteIdentity);
   if (typeof input === "string") return errResult(input);
   if (writeSource) input.source_id = writeSource;
+  const { expectedVersion } = writePrecondition("page_put", args);
+  if (expectedVersion !== undefined) input.expectedVersion = expectedVersion;
+  if (receipt !== undefined) input.receipt = receipt;
   const r = await putPage(storage, input);
   let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
@@ -1681,6 +1790,7 @@ async function callPageAppend(
   writeSource?: string,
   isPublic = false,
   remoteIdentity?: string,
+  receipt?: WriteRequestKey,
 ): Promise<ToolCallResult> {
   if (typeof args["slug"] !== "string") {
     return errResult("page_append: `slug` is required");
@@ -1696,6 +1806,7 @@ async function callPageAppend(
       return w !== undefined ? { written_by: w } : {};
     })(),
     ...(writeSource ? { source_id: writeSource } : {}),
+    ...(receipt !== undefined ? { receipt } : {}),
   });
   let mirror: Awaited<ReturnType<typeof mirrorOrQueue>> = {};
   let chronicleBackstop = false;
@@ -1747,7 +1858,7 @@ async function callPageDelete(
   }
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
-  const r = await deletePage(storage, args["slug"], writtenBy, writeSource);
+  const r = await deletePage(storage, args["slug"], writtenBy, writeSource, writePrecondition("page_delete", args));
   // A soft-deleted page must stop serving its fence-derived facts; explicit
   // (NULL source_markdown_slug) facts are left intact.
   if (!r.already_deleted) {
@@ -1818,7 +1929,7 @@ async function callPageRevert(
   }
   const writtenBy =
     typeof args["written_by"] === "string" ? args["written_by"] : undefined;
-  const r = await revertPage(storage, args["slug"], v as number, writtenBy, writeSource);
+  const r = await revertPage(storage, args["slug"], v as number, writtenBy, writeSource, writePrecondition("page_revert", args));
   if (r.reverted) {
     // The body changed — refresh links, mentions, facts, and the search mirror,
     // exactly as a normal page_put would.
@@ -1855,7 +1966,7 @@ async function callPageGet(
   const scopeIds = readSources;
   const fuzzy = args["fuzzy"] === true;
   const includeDeleted = args["include_deleted"] === true && !redact;
-  const getOpts = includeDeleted ? { includeDeleted: true } : {};
+  const getOpts = { withVersion: true, ...(includeDeleted ? { includeDeleted: true } : {}) };
   let page: Awaited<ReturnType<typeof getPage>> = null;
   let resolvedSlug: string | undefined;
   try {
@@ -1904,9 +2015,11 @@ async function callPageGet(
   // drain needed). page_get is the unambiguous page-surface op; search hits are
   // chunk/document-level and don't carry a page slug, so they don't feed it.
   await bumpLastRetrievedAt(storage.engine(), [page.slug], page.source_id);
+  const { version, ...row } = page;
   return jsonResult({
     ok: true,
-    page: redact ? redactBody(page as unknown as Record<string, unknown>) : page,
+    page: redact ? redactBody(row as unknown as Record<string, unknown>) : row,
+    version: Number(version ?? 0),
     ...(resolvedSlug ? { resolved_slug: resolvedSlug } : {}),
   });
 }

@@ -913,6 +913,7 @@ export async function hybridSearch(
           filters: chunkFilters,
           maxPool: maxPoolOn,
           sourceBoost: armSourceBoost,
+          onCandidatesIncomplete: () => degraded.push("vector_candidates_incomplete"),
         })
       : Promise.resolve<string[]>([]),
     keywordSearch(engine, trimmed, fanout, {

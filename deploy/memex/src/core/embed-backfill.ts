@@ -153,6 +153,9 @@ export interface EmbedBackfillResult {
   embedded: number;
   /** Rows whose embed call threw (skipped, not fatal). */
   failed: number;
+  /** Rows whose chunk text changed (a re-index) while the vector was being
+   *  computed — not written, since the vector describes text no longer there. */
+  stale: number;
   /**
    * Embeddings deleted because their stored signature differed from the current
    * one (migration 066). In a dry run this is the count that WOULD be deleted.
@@ -466,6 +469,7 @@ async function embedPage(
   concurrency: number,
   onEmbedded: () => void,
   onFailed: () => void,
+  onStale: () => void,
 ): Promise<void> {
   let next = 0;
   const total = page.length;
@@ -485,29 +489,42 @@ async function embedPage(
             // The vector and the tier it was produced under land together: this
             // path wraps with the deterministic prefix at most, so a chunk that
             // was on the LLM tier must not keep claiming it.
-            engine.query<{ chunk_id: string }>(
-              `WITH ins AS (
+            // Chunk ids are positional (`<doc>_c<i>`), so a re-index during the
+            // embed call can leave this id holding different text: the insert
+            // only lands while the chunk still holds the text that was embedded
+            // (FOR SHARE: a concurrent re-index's delete is waited for, not
+            // raced).
+            engine.query<{ fresh: number; inserted: number }>(
+              `WITH cur AS (
+                 SELECT id FROM chunks WHERE id = $1 AND content = $6 FOR SHARE
+               ), ins AS (
                  INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
-                 VALUES ($1, $2::vector, $3, $4)
+                 SELECT cur.id, $2::vector, $3, $4 FROM cur
                  ON CONFLICT (chunk_id) DO NOTHING
                  RETURNING chunk_id
+               ), upd AS (
+                 UPDATE chunks c SET contextual_tier = $5
+                   FROM ins WHERE c.id = ins.chunk_id
+                 RETURNING c.id
                )
-               UPDATE chunks c SET contextual_tier = $5
-                 FROM ins WHERE c.id = ins.chunk_id
-               RETURNING c.id AS chunk_id`,
+               SELECT (SELECT count(*) FROM cur)::int AS fresh,
+                      (SELECT count(*) FROM upd)::int AS inserted`,
               [
                 row.id,
                 JSON.stringify(vec),
                 model,
                 embeddingSignature(model, vec.length),
                 row.contextual_embedded ? "deterministic" : "none",
+                row.content,
               ],
             ),
           BULK_RETRY_OPTS,
         );
         // Count only a REAL insert: a concurrent indexer may have written the
         // row first, in which case ON CONFLICT no-ops and we added nothing.
-        if (ins.rows.length > 0) onEmbedded();
+        const outcome = ins.rows[0];
+        if (Number(outcome?.fresh ?? 0) === 0) onStale();
+        else if (Number(outcome?.inserted ?? 0) > 0) onEmbedded();
       } catch (err) {
         onFailed();
         console.error(
@@ -582,6 +599,7 @@ async function runEmbedBackfillBody(
       candidates: opts.forceReembed ? total + forceCleared : total,
       embedded: 0,
       failed: 0,
+      stale: 0,
       signatureStale,
       forceCleared,
       dryRun: true,
@@ -591,6 +609,7 @@ async function runEmbedBackfillBody(
 
   let embedded = 0;
   let failed = 0;
+  let stale = 0;
   let processed = 0;
   let cursor = opts.startAfterId;
   let lastId: string | null = null;
@@ -601,6 +620,9 @@ async function runEmbedBackfillBody(
   };
   const onFailed = (): void => {
     failed++;
+  };
+  const onStale = (): void => {
+    stale++;
   };
 
   // Keyset walk: one page at a time, advancing the cursor by the last id seen.
@@ -615,7 +637,7 @@ async function runEmbedBackfillBody(
     const page = await fetchCandidatePage(engine, cursor, pageLimit, scope);
     if (page.length === 0) break;
 
-    await embedPage(engine, page, model, embed, concurrency, onEmbedded, onFailed);
+    await embedPage(engine, page, model, embed, concurrency, onEmbedded, onFailed, onStale);
 
     processed += page.length;
     cursor = page[page.length - 1]!.id;
@@ -645,6 +667,7 @@ async function runEmbedBackfillBody(
     candidates: processed,
     embedded,
     failed,
+    stale,
     signatureStale,
     forceCleared,
     dryRun: false,

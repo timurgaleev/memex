@@ -92,7 +92,7 @@ export interface GetRawDataOptions {
   sourceIds?: string[];
 }
 
-/** Read the raw payload rows for a page, newest first. */
+/** Read the raw payload rows for a live (not soft-deleted) page, newest first. */
 export async function getRawData(
   storage: Storage,
   slug: string,
@@ -105,10 +105,11 @@ export async function getRawData(
     params.push(opts.source.trim());
     where.push(`r.source = $${params.length}`);
   }
-  let join = "";
+  // A soft-deleted page's raw payloads go with it, like its body and mirror.
+  let join = " JOIN pages p ON p.slug = r.slug AND p.deleted_at IS NULL";
   if (opts.sourceIds !== undefined) {
     params.push(opts.sourceIds);
-    join = ` JOIN pages p ON p.slug = r.slug AND p.source_id = ANY($${params.length}::text[])`;
+    join += ` AND p.source_id = ANY($${params.length}::text[])`;
   }
   const limit =
     typeof opts.limit === "number" && opts.limit >= 1 && opts.limit <= 200

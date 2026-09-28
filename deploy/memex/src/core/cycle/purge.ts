@@ -13,6 +13,7 @@ import {
 } from "../destructive-guard.ts";
 import { purgeStaleVolunteerEvents } from "../context/volunteer-events.ts";
 import { purgeDeletedPages } from "../pages-purge.ts";
+import { purgeExpiredWriteRequests } from "../write-requests.ts";
 
 export interface PurgeResult {
   purged_documents_deleted: number;
@@ -21,6 +22,8 @@ export interface PurgeResult {
   /** Expired pages left in place because a non-cascading row still references them. */
   blocked_pages: number;
   purged_volunteer_events: number;
+  /** request_id records past their replay window. */
+  purged_write_requests: number;
 }
 
 export async function purgePhase(
@@ -36,11 +39,13 @@ export async function purgePhase(
   // Telemetry GC: prune volunteer-context feedback events past their TTL.
   // Best-effort (the helper swallows its own errors), never blocks the reaper.
   const purged_volunteer_events = await purgeStaleVolunteerEvents(engine);
+  const purged_write_requests = await purgeExpiredWriteRequests(engine);
   return {
     purged_documents_deleted: docs.purged_deleted,
     purged_documents_archived: docs.purged_archived,
     purged_pages: p.count,
     blocked_pages: p.blocked.length,
     purged_volunteer_events,
+    purged_write_requests,
   };
 }

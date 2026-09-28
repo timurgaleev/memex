@@ -308,7 +308,7 @@
     "call": "page_get {\"slug\":\"shared/gateway\"}",
     "sql": [
       {
-        "text": "SELECT slug, type, title, compiled_truth, markdown_body, content_hash, source_id, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM pages WHERE slug = $1 AND deleted_at IS NULL",
+        "text": "SELECT slug, type, title, compiled_truth, markdown_body, content_hash, source_id, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, (SELECT COALESCE(MAX(v.version_n), 0) FROM page_versions v WHERE v.slug = pages.slug)::int AS version FROM pages WHERE slug = $1 AND deleted_at IS NULL",
         "params": [
           "shared/gateway"
         ]
@@ -327,7 +327,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"ok\": true,\n  \"page\": {\n    \"slug\": \"shared/gateway\",\n    \"type\": \"note\",\n    \"title\": \"Gateway\",\n    \"compiled_truth\": {},\n    \"markdown_body\": \"g\",\n    \"content_hash\": \"cd0aa9856147b6c5b4ff2b7dfee5da20aa38253099ef1b4a64aced233c9afe29\",\n    \"source_id\": \"tenantA\",\n    \"created_at\": \"<ts>\",\n    \"updated_at\": \"<ts>\",\n    \"deleted_at\": null\n  }\n}"
+          "text": "{\n  \"ok\": true,\n  \"page\": {\n    \"slug\": \"shared/gateway\",\n    \"type\": \"note\",\n    \"title\": \"Gateway\",\n    \"compiled_truth\": {},\n    \"markdown_body\": \"g\",\n    \"content_hash\": \"cd0aa9856147b6c5b4ff2b7dfee5da20aa38253099ef1b4a64aced233c9afe29\",\n    \"source_id\": \"tenantA\",\n    \"created_at\": \"<ts>\",\n    \"updated_at\": \"<ts>\",\n    \"deleted_at\": null\n  },\n  \"version\": 1\n}"
         }
       ]
     }
@@ -1008,7 +1008,7 @@
     "call": "get_raw_data {\"slug\":\"team-b/alice\"}",
     "sql": [
       {
-        "text": "SELECT r.id, r.slug, r.source, r.data, r.created_at::text AS created_at FROM raw_data r WHERE r.slug = $1 ORDER BY r.created_at DESC, r.id DESC LIMIT $2",
+        "text": "SELECT r.id, r.slug, r.source, r.data, r.created_at::text AS created_at FROM raw_data r JOIN pages p ON p.slug = r.slug AND p.deleted_at IS NULL WHERE r.slug = $1 ORDER BY r.created_at DESC, r.id DESC LIMIT $2",
         "params": [
           "team-b/alice",
           50

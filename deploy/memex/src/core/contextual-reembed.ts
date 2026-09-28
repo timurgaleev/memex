@@ -115,6 +115,9 @@ export interface ContextualReembedResult {
   /** Chunks already on the LLM tier that this run could only have re-embedded
    *  deterministically — left untouched rather than downgraded. */
   tierKept: number;
+  /** Chunks whose text changed (a re-index) while their vector was being
+   *  computed — skipped, since that vector describes text no longer there. */
+  stale: number;
   dryRun: boolean;
 }
 
@@ -278,6 +281,7 @@ async function runContextualReembedBody(
       llmContext: 0,
       deterministicFallback: 0,
       tierKept: 0,
+      stale: 0,
       dryRun: true,
     };
   }
@@ -288,6 +292,7 @@ async function runContextualReembedBody(
   let llmContext = 0;
   let deterministicFallback = 0;
   let tierKept = 0;
+  let stale = 0;
 
   for (const doc of docs) {
     if (limit !== undefined && chunks >= limit) break;
@@ -308,7 +313,7 @@ async function runContextualReembedBody(
 
       // Embed OUTSIDE the transaction so a Bedrock failure never half-writes a
       // document (indexer.ts's ordering). Collect vectors first, then commit.
-      const writes: { id: string; vector: number[]; tier: "llm" | "deterministic" }[] = [];
+      const writes: { id: string; content: string; vector: number[]; tier: "llm" | "deterministic" }[] = [];
       for (const ch of pending) {
         // Never trade a Haiku-situated vector for a deterministic one: a run
         // without the LLM tier leaves such a chunk exactly as it is.
@@ -342,29 +347,43 @@ async function runContextualReembedBody(
         const vector = await embed(
           wrapChunkForEmbedding(ch.content, prefix, { isCode: false }),
         );
-        writes.push({ id: ch.id, vector, tier });
+        writes.push({ id: ch.id, content: ch.content, vector, tier });
       }
 
-      await engine.transaction(async (tx) => {
+      // Chunk ids are positional (`<doc>_c<i>`), so a re-index during the
+      // embed calls above can leave the same id holding different text. The
+      // write only lands on a chunk whose text is still what was embedded, and
+      // FOR SHARE holds that row: a re-index deleting it concurrently makes the
+      // guard wait and then drop it, instead of passing on the old row and
+      // overwriting the vector the re-index writes for the new one.
+      const { written, skipped: staleHere } = await engine.transaction(async (tx) => {
+        let n = 0;
         for (const w of writes) {
-          await tx.query(
+          const ins = await tx.query<{ chunk_id: string }>(
             `INSERT INTO embeddings (chunk_id, vector, model, embedding_signature)
-             VALUES ($1, $2::vector, $3, $4)
+             SELECT c.id, $2::vector, $3, $4 FROM chunks c
+              WHERE c.id = $1 AND c.content = $5
+              FOR SHARE
              ON CONFLICT (chunk_id) DO UPDATE
                SET vector = EXCLUDED.vector,
                    model = EXCLUDED.model,
-                   embedding_signature = EXCLUDED.embedding_signature`,
-            [w.id, JSON.stringify(w.vector), model, embeddingSignature(model, w.vector.length)],
+                   embedding_signature = EXCLUDED.embedding_signature
+             RETURNING chunk_id`,
+            [w.id, JSON.stringify(w.vector), model, embeddingSignature(model, w.vector.length), w.content],
           );
+          if (ins.rows.length === 0) continue;
           await tx.query(
             "UPDATE chunks SET contextual_embedded = TRUE, contextual_tier = $2 WHERE id = $1",
             [w.id, w.tier],
           );
+          n++;
         }
+        return { written: n, skipped: writes.length - n };
       });
+      stale += staleHere;
 
       documents++;
-      chunks += writes.length;
+      chunks += written;
       opts.onProgress?.(documents, chunks);
     } catch (err) {
       failed++;
@@ -392,6 +411,7 @@ async function runContextualReembedBody(
     llmContext,
     deterministicFallback,
     tierKept,
+    stale,
     dryRun: false,
   };
 }
