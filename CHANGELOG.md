@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.160.0] — 2026-09-28
+
 ### Added
 - **`make test-pg`** runs the Postgres-only tests and applies every migration
   twice against a throwaway `pgvector/pgvector:pg16` container (or a scratch
