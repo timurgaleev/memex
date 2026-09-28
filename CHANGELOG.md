@@ -6,6 +6,55 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`make test-pg`** runs the Postgres-only tests and applies every migration
+  twice against a throwaway `pgvector/pgvector:pg16` container (or a scratch
+  database named by `MEMEX_TEST_POSTGRES_URL`) and removes the container even on
+  failure. CI runs it as an advisory `Postgres tests` job.
+- **Codex CLI and Claude Code session logs as transcripts.** `memex transcripts ingest`
+  now reads Codex rollouts (`~/.codex/sessions/**/rollout-*.jsonl`) and Claude Code
+  session logs (`~/.claude/projects/<project>/<session>.jsonl`), one file or a whole
+  directory, with `--format codex|claude-code` or by detection. Only what was said is
+  kept: tool calls and results, reasoning, sub-agent traffic, system reminders and
+  slash-command bookkeeping are dropped, as are whole Codex sub-agent rollouts (review
+  and spawned-task workers), and credentials go through the same redaction and split
+  as the ChatGPT and Claude.ai imports.
+- `make test-pg` runs the Postgres-only tests and applies every migration twice
+  against a throwaway pgvector/pgvector:pg16 container (or an existing scratch
+  database named by `MEMEX_TEST_POSTGRES_URL`), then removes the container even on
+  failure; CI runs it as an advisory `Postgres tests` job against a service container.
+
+### Fixed
+- **Every capped model call holds its budget before it runs.** Take grading, drift,
+  contradiction probes, fact classification and fact extraction set their estimate
+  aside before awaiting the model and settle it from actual usage, so callers sharing
+  one cap can no longer all pass the same headroom; a truncation retry grows the
+  first call's hold instead of counting it twice. Token names starting with
+  `memex_cl_` or `memex_enr_` are refused at mint, since spend is booked under the
+  name and would share an OAuth client's or enrollment's ledger and cap.
+- **`tools/list` shows only the tools the caller can call.** A token no longer sees
+  tools its scope, the operator-only set, the fail-closed write gate or its slug
+  binding would refuse, and an anonymous bridge caller without the internal token no
+  longer sees the tools walled behind it. Listing and calling now ask the same check,
+  so the two cannot drift. The operator's list is unchanged.
+- **A cycle phase that was cut off stops writing.** A phase that timed out or whose
+  run was aborted now stops at its next loop checkpoint instead of writing on past
+  the report, and the phases that write shared state (embed-stale, embed-facts,
+  rechunk sweep, consolidation, conversation-facts backfill, symbol-edge resolution,
+  salience, orphans purge, purge) check before each write that the cycle lock still
+  carries this run's tenure, so a run whose lock was taken ends as
+  `partial/lock_stolen` before its next write rather than overlapping the new
+  holder. A phase that caught its own failures and returned errors or failed rows is
+  reported as `warn`, never `ok`; files the re-read guard refuses by policy do not
+  count as failures.
+- **Link typing.** Prose-inferred `attended` edges on meeting pages now come only
+  from people listed under an Attendees or Participants heading or on an
+  `Attendees:` line, so a person merely mentioned in the notes stays `mentions`. The
+  person→company role prior no longer fires for companies named only in Timeline,
+  See also or Related-style list sections. `slugifyTarget` strips emoji and
+  ideographic variation selectors, so `東京` typed with or without VS16 lands on one
+  slug.
+
 ## [1.159.0] — 2026-09-28
 
 ### Added

@@ -898,14 +898,18 @@ cross-process cooldown row (one process spends today) and rescheduling a
 halted job at the circuit's reopen time. R4 (v1.144.0): migration 108;
 an enrollment-redeemed token spends under the enrollment id (`grant_id` on
 codes and tokens, `AuthInfo.spendId`), capped by the enrollment's cap else the
-connector's per person. LOW: PAT names, client ids and enrollment ids share
-one spend namespace; refuse PAT names with the `memex_cl_`/`memex_enr_`
-prefixes at mint. Not done: a combined connector-wide cap across all its
+connector's per person. PAT names starting with `memex_cl_`/`memex_enr_` are
+refused at mint, so a PAT can no longer share an OAuth client's or an
+enrollment's ledger key. Not done: a combined connector-wide cap across all its
 enrolled people, and the admin spend page listing enrollments. R5
 (v1.144.0): `BudgetTracker.reserve/settle/release`; `wouldExceed` counts
-holds; `generateChunkContext` migrated. Not done: takes, drift,
-contradictions, facts-classify and facts-extract still check then record
-(sequential today); an ambient tracker read inside `trackedInvoke`. Decoder
+holds; `generateChunkContext` migrated; takes, drift, contradictions,
+facts-classify and facts-extract now reserve before the call and settle from
+actual usage (a truncation retry grows its hold). Not done: `synthesis/patterns.ts`,
+`reflections.ts`, `enrich-thin.ts`, `think.ts`, `deep-synth.ts`, `concepts.ts`,
+`search/graph-rerank.ts`, `search/relational-llm.ts`,
+`chronicle/extract-events.ts` and `commands/extract-conversation-facts.ts` still
+check then record; an ambient tracker read inside `trackedInvoke`. Decoder
 (v1.144.0): `llm/json-output.ts` `parseModelJson`, 13 parsers migrated, gate
 in `tests/model_json.test.ts` with 5 stated exemptions; the two
 `isWellFormedEmptyExtraction` checks keep their exact-`[]` rule on purpose. Model keys
@@ -915,9 +919,6 @@ Not done: runtime-config overrides and the `v1-nova` prompt-version rename. Spen
 (v1.145.0): `core/spend-report.ts`, `memex spend`, `/admin/api/spend/report`
 — operator-only surfaces, no MCP op (a remote tool would need tenancy rules
 for a cross-tenant rollup).
-- LOW: a PAT whose name equals an OAuth client id shares its ledger key and
-  cannot be capped separately (client ids are random `memex_cl_…`, so only a
-  deliberate collision); refuse such names at mint.
 - LOW: the admin spend page lists OAuth clients only; PAT caps and spend are
   not shown there.
 
@@ -2078,8 +2079,14 @@ A follow-up closed two gaps: the quiet-hours deep-synth pass now runs in a
 BatchScope stopped by the heartbeat signal and checks the signal between
 questions, and an aborted phase gets a bounded 10 s settle wait before the run
 returns, with `orphanedPhase` in the report when it is still running. The
-signal is still not threaded into the phases' own DB loops, so an orphaned
-phase's writes can overlap the new holder.
+phases under `cycle/` (embed-stale, embed-facts, rechunk sweep, consolidation,
+conversation-facts backfill, symbol-edge resolution, salience, orphans purge,
+purge) now call `phaseCheckpoint()` in their loops and `await phaseFenceCheck()`
+before each write, so a stolen or aborted run stops before its next write; a
+phase that absorbed errors or failed rows reports `warn`. Still unfenced:
+`core/extract.ts`, `page-index.ts` (mirror-pages), `timeline-meetings.ts`,
+`timeline-anchor.ts` and the `synthesis/*` phases — their paid calls stop
+through the batch scope, their DB loops do not.
 
 ### RM-18 — Doctor, advisor and self-healing v2
 
@@ -2162,9 +2169,12 @@ Queue, Worker, handler and backfill on PGLite. Still open: `ops_audit`;
 health score, `top_issues`, `--fast`/`--scope`/`--locks`; the doctor long tail
 (dead links, scalar frontmatter, RLS audit and the rest); the `--plan` USD
 preview; the planner/runner with `depends_on`/checkpoint/`--resume`; `advisor
---apply` and history; the SPA trend. Next candidate: audit the `cycle-phase`
-default runner, which lazily calls the CLI `runCycle` (own Storage, returns
-void) and may have the same silent-success defect.
+--apply` and history; the SPA trend. Confirmed defect, still open: the
+`cycle-phase` job's `defaultRunCyclePhase` calls the CLI `runCycle`, which
+returns `void`, so the job succeeds even when the phase failed. `runCycle`
+should return its `CycleResult`, and the handler should throw on
+`status === "fail"` or `outcome !== "complete"` and pass `warn` through in its
+output.
 
 ### RM-19 — Graph, timeline and entity enrichment
 
