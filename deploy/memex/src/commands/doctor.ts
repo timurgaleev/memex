@@ -49,6 +49,7 @@ import { checkConnectorHealth } from "../core/connectors/health.ts";
 import {
   checkFederationHealth,
   checkOauthClientHealth,
+  checkOauthClientHygiene,
   checkPatScopesRecorded,
   checkSourceRoutingHealth,
 } from "../core/doctor-tenancy.ts";
@@ -353,6 +354,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     // Each check turns its own probe errors into a `warn` verdict.
     checks.push(await checkFederationHealth(storage.raw()));
     checks.push(await checkOauthClientHealth(storage.raw()));
+    checks.push(await checkOauthClientHygiene(storage.raw()));
     checks.push(await checkPatScopesRecorded(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
 

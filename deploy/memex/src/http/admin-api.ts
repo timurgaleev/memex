@@ -22,12 +22,14 @@ import {
   GrantConflictError,
   GrantNotFoundError,
   GrantValidationError,
+  isAllowedRedirectUri,
   OAuthProvider,
   resolvePatGrant,
   validateTokenEndpointAuthMethod,
 } from "../core/oauth-provider.ts";
 import type { TenantMode } from "../core/oauth-provider.ts";
 import { normalizeScopesInput } from "../core/scope.ts";
+import { isSameOriginPost } from "./same-origin.ts";
 
 export interface AdminApiDeps {
   storage: Storage;
@@ -128,6 +130,11 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
   // Single auth gate for the whole data surface — BEFORE touching the engine,
   // so an unauthenticated caller triggers no work at all.
   if (!deps.requireAdmin(req)) return unauthorized();
+  // The session cookie is SameSite=Strict, but a sibling subdomain is same-SITE,
+  // so every mutating route also needs the request to come from our own origin.
+  if (req.method !== "GET" && req.method !== "HEAD" && !isSameOriginPost(req, url)) {
+    return Response.json({ error: "Cross-origin request refused" }, { status: 403 });
+  }
   const engine = deps.storage.engine();
 
   // GET /admin/api/full-stats — brain health + corpus counts (Dashboard).
@@ -162,11 +169,13 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
         token_ttl: number | null;
         source_id: string | null;
         federated_read: string[] | null;
+        redirect_uris: string[] | null;
+        tenant_mode: string | null;
         status: string;
         created_at: string;
       }>(
         `SELECT client_id AS id, client_name AS name, grant_types, scope,
-                token_ttl, source_id, federated_read,
+                token_ttl, source_id, federated_read, redirect_uris, tenant_mode,
                 CASE WHEN deleted_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status,
                 created_at::text AS created_at
            FROM oauth_clients
@@ -198,6 +207,8 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
             token_ttl: null,
             source_id: null,
             federated_read: null,
+            redirect_uris: null,
+            tenant_mode: null,
             status: k.status,
             created_at: k.created_at,
             usage: { ...u, last_used_at: u.last_used_at ?? k.last_used_at },
@@ -450,7 +461,7 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
     try {
       const r = await engine.query<{ client_id: string }>(
-        "UPDATE oauth_clients SET token_ttl = $1 WHERE client_id = $2 RETURNING client_id",
+        "UPDATE oauth_clients SET token_ttl = $1 WHERE client_id = $2 AND deleted_at IS NULL RETURNING client_id",
         [ttl, body.client_id],
       );
       if (r.rows.length === 0) {
@@ -611,9 +622,8 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
   }
 
   // POST /admin/api/revoke-client — soft-delete an OAuth client and kill its
-  // live tokens. Soft-delete (not the CLI's hard DELETE) keeps the audit row;
-  // deleting the oauth_tokens rows makes every issued access/refresh token
-  // fail verification immediately.
+  // live tokens and codes (= `auth revoke-client`). The row stays, so the grant
+  // history and spend keep pointing at something. Audited like a rescope.
   if (p === "/admin/api/revoke-client" && req.method === "POST") {
     let body: { client_id?: unknown };
     try {
@@ -623,30 +633,199 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
     if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
     try {
-      const exists = await engine.query<{ client_id: string }>(
-        "SELECT client_id FROM oauth_clients WHERE client_id = $1",
-        [body.client_id],
-      );
-      if (exists.rows.length === 0) {
+      const r = await new OAuthProvider({ engine }).revokeClient(body.client_id, { actor: "admin", via: "admin_api" });
+      return Response.json({
+        ok: true,
+        revoked: r.revoked,
+        client_id: r.clientId,
+        revision: r.revision,
+        tokens_deleted: r.deleted.accessTokens + r.deleted.refreshTokens,
+        codes_deleted: r.deleted.codes,
+      });
+    } catch (e) {
+      if (e instanceof GrantNotFoundError) {
         return Response.json({ error: `no client "${body.client_id}"` }, { status: 404 });
       }
-      const soft = await engine.query<{ client_id: string }>(
-        `UPDATE oauth_clients SET deleted_at = now()
-          WHERE client_id = $1 AND deleted_at IS NULL RETURNING client_id`,
-        [body.client_id],
-      );
-      const tokens = await engine.query<{ n: number }>(
-        "DELETE FROM oauth_tokens WHERE client_id = $1 RETURNING 1 AS n",
-        [body.client_id],
+      return serverError("revoke-client", e);
+    }
+  }
+
+  // POST /admin/api/set-redirect-uris — replace a client's redirect URIs without
+  // rotating its secret (= `auth set-redirect-uris`). Revision-checked
+  // (`expected_revision`) and audited; codes minted before the change stop
+  // redeeming.
+  if (p === "/admin/api/set-redirect-uris" && req.method === "POST") {
+    let body: { client_id?: unknown; redirect_uris?: unknown; expected_revision?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.client_id !== "string" || body.client_id.length === 0) return badRequest("client_id required");
+    if (
+      !Array.isArray(body.redirect_uris) ||
+      body.redirect_uris.length === 0 ||
+      !body.redirect_uris.every((u) => typeof u === "string" && u.length > 0)
+    ) {
+      return badRequest("redirect_uris must be a non-empty array of URIs");
+    }
+    let expectedRevision: number | undefined;
+    if (body.expected_revision !== undefined) {
+      if (typeof body.expected_revision !== "number" || !Number.isInteger(body.expected_revision) || body.expected_revision < 0) {
+        return badRequest("expected_revision must be a non-negative integer");
+      }
+      expectedRevision = body.expected_revision;
+    }
+    const uris = body.redirect_uris as string[];
+    const invalid = uris.filter((u) => !isAllowedRedirectUri(u));
+    if (invalid.length > 0) {
+      return badRequest(`redirect URIs must use https:// (or http on a loopback host): ${invalid.join(", ")}`);
+    }
+    try {
+      const r = await new OAuthProvider({ engine }).setRedirectUris(body.client_id, uris, {
+        actor: "admin",
+        via: "admin_api",
+        expectedRevision,
+      });
+      return Response.json({
+        ok: true,
+        client_id: r.clientId,
+        revision: r.revision,
+        before: r.before,
+        after: r.after,
+        removed: r.removed,
+      });
+    } catch (e) {
+      if (e instanceof GrantNotFoundError) {
+        return Response.json({ error: "not_found", detail: `no active client "${body.client_id}"` }, { status: 404 });
+      }
+      if (e instanceof GrantConflictError) {
+        return Response.json({ error: "grant_conflict", expected: e.expected, actual: e.actual }, { status: 409 });
+      }
+      return serverError("set-redirect-uris", e);
+    }
+  }
+
+  // GET /admin/api/enrollments?client_id= — enrollment codes and the people
+  // who redeemed them (= `auth enrollments`), never the code itself.
+  if (p === "/admin/api/enrollments" && req.method === "GET") {
+    const clientId = url.searchParams.get("client_id") ?? undefined;
+    try {
+      const rows = await new OAuthProvider({ engine }).listEnrollments(clientId);
+      return Response.json({ count: rows.length, enrollments: rows });
+    } catch (e) {
+      return serverError("enrollments-list", e);
+    }
+  }
+
+  // POST /admin/api/enrollments — issue a one-time enrollment code
+  // (= `auth enroll`). The code is returned ONCE; only its hash persists.
+  // `replaces` issues it for the same person as an earlier enrollment.
+  if (p === "/admin/api/enrollments" && req.method === "POST") {
+    let body: {
+      source?: unknown;
+      read?: unknown;
+      label?: unknown;
+      client_id?: unknown;
+      ttl_seconds?: unknown;
+      replaces?: unknown;
+    };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    const optString = (v: unknown): v is string | undefined =>
+      v === undefined || (typeof v === "string" && v.length > 0);
+    if (!optString(body.source) || !optString(body.label) || !optString(body.client_id) || !optString(body.replaces)) {
+      return badRequest("source, label, client_id and replaces must be non-empty strings when given");
+    }
+    if (body.source === undefined && body.replaces === undefined) return badRequest("source or replaces required");
+    if (
+      body.read !== undefined &&
+      (!Array.isArray(body.read) || !body.read.every((x) => typeof x === "string" && x.length > 0))
+    ) {
+      return badRequest("read must be an array of source ids");
+    }
+    if (
+      body.ttl_seconds !== undefined &&
+      (typeof body.ttl_seconds !== "number" || !Number.isInteger(body.ttl_seconds) || body.ttl_seconds <= 0)
+    ) {
+      return badRequest("ttl_seconds must be a positive integer");
+    }
+    try {
+      const r = await new OAuthProvider({ engine }).issueEnrollment(
+        {
+          ...(body.source !== undefined ? { sourceId: body.source } : {}),
+          ...(Array.isArray(body.read) && body.read.length > 0 ? { federatedRead: body.read as string[] } : {}),
+          ...(body.label !== undefined ? { label: body.label } : {}),
+          ...(body.client_id !== undefined ? { clientId: body.client_id } : {}),
+          ...(typeof body.ttl_seconds === "number" ? { ttlSeconds: body.ttl_seconds } : {}),
+          ...(body.replaces !== undefined ? { replaces: body.replaces } : {}),
+        },
+        { actor: "admin", via: "admin_api" },
       );
       return Response.json({
         ok: true,
-        revoked: soft.rows.length > 0,
-        client_id: body.client_id,
-        tokens_deleted: tokens.rows.length,
+        enrollment_id: r.id,
+        code: r.code,
+        source_id: r.sourceId,
+        federated_read: r.federatedRead,
+        label: r.label,
+        client_id: r.clientId,
+        spend_id: r.spendId,
+        replaces: r.replaces,
+        expires_at: r.expiresAt,
+        note: "Give this code to the person. It works once — store nothing else.",
       });
     } catch (e) {
-      return serverError("revoke-client", e);
+      // Every refusal here is an operator input problem (unknown source,
+      // client or enrollment, a client not in enrollment mode, a ttl out of
+      // range); the messages name ids the operator typed, nothing internal.
+      const msg = e instanceof Error ? e.message : "";
+      if (/^(?:Unknown |Client '|ttl must|an enrollment needs)/.test(msg)) return badRequest(msg);
+      return serverError("enrollments-issue", e);
+    }
+  }
+
+  // POST /admin/api/revoke-enrollment — kill a code nobody redeemed yet
+  // (= `auth revoke-enrollment`). Audited.
+  if (p === "/admin/api/revoke-enrollment" && req.method === "POST") {
+    let body: { id?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.id !== "string" || body.id.length === 0) return badRequest("id required");
+    try {
+      const ok = await new OAuthProvider({ engine }).revokeEnrollment(body.id, { actor: "admin", via: "admin_api" });
+      if (!ok) {
+        return Response.json({ error: `no live enrollment "${body.id}" (used, revoked or unknown)` }, { status: 404 });
+      }
+      return Response.json({ ok: true, enrollment_id: body.id, revoked: true });
+    } catch (e) {
+      return serverError("revoke-enrollment", e);
+    }
+  }
+
+  // POST /admin/api/revoke-grant — cut off one person who redeemed her code:
+  // revoke the enrollment and delete every token minted under it
+  // (= `auth revoke-grant`). Others on the same connector are untouched.
+  if (p === "/admin/api/revoke-grant" && req.method === "POST") {
+    let body: { id?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return badRequest("invalid JSON body");
+    }
+    if (typeof body.id !== "string" || body.id.length === 0) return badRequest("id required");
+    try {
+      const r = await new OAuthProvider({ engine }).revokeGrant(body.id, { actor: "admin", via: "admin_api" });
+      if (!r.revoked) return Response.json({ error: `no enrollment "${body.id}"` }, { status: 404 });
+      return Response.json({ ok: true, enrollment_id: body.id, revoked: true, tokens_deleted: r.tokens });
+    } catch (e) {
+      return serverError("revoke-grant", e);
     }
   }
 

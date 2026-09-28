@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../api";
+import { ClientMembers } from "./ClientMembers";
 
 // Credentials section of the Agents page: the unified view over OAuth
 // clients + legacy API keys (personal access tokens), with per-credential
@@ -21,6 +22,8 @@ interface CredentialRow {
   token_ttl: number | null;
   source_id: string | null;
   federated_read: string[] | null;
+  redirect_uris: string[] | null;
+  tenant_mode: string | null;
   status: string;
   created_at: string;
   usage: CredentialUsage;
@@ -29,6 +32,7 @@ interface CredentialRow {
 export function CredentialsSection({ setError }: { setError: (s: string) => void }) {
   const [rows, setRows] = useState<CredentialRow[]>([]);
   const [modal, setModal] = useState<null | "api-key" | "client">(null);
+  const [members, setMembers] = useState<CredentialRow | null>(null);
 
   const load = () =>
     api.agents()
@@ -84,6 +88,22 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
     }
   };
 
+  const setRedirects = async (row: CredentialRow) => {
+    const raw = prompt(
+      `Redirect URIs for "${row.name}" (comma-separated; https, or http on localhost). The secret is kept.`,
+      (row.redirect_uris ?? []).join(", "),
+    );
+    if (raw === null) return;
+    const uris = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (uris.length === 0) return;
+    try {
+      await api.setRedirectUris(row.id, uris);
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+
   return (
     <>
       <h2 className="page-title" style={{ fontSize: 18, marginTop: 28 }}>Credentials</h2>
@@ -125,6 +145,21 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
                         Scope
                       </button>
                       <button className="btn btn-secondary" style={{ fontSize: 12, marginRight: 6 }} onClick={() => setTtl(r)}>TTL</button>
+                      {(r.grant_types ?? []).includes("authorization_code") && (
+                        <>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ fontSize: 12, marginRight: 6 }}
+                            title={(r.redirect_uris ?? []).join("\n") || "no redirect URIs"}
+                            onClick={() => setRedirects(r)}
+                          >
+                            Redirects
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: 12, marginRight: 6 }} onClick={() => setMembers(r)}>
+                            Members
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                   {r.status === "active" && (
@@ -139,6 +174,15 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
 
       {modal === "api-key" && <MintApiKeyModal onClose={() => setModal(null)} onDone={load} setError={setError} />}
       {modal === "client" && <RegisterClientModal onClose={() => setModal(null)} onDone={load} setError={setError} />}
+      {members && (
+        <ClientMembers
+          clientId={members.id}
+          clientName={members.name}
+          tenantMode={members.tenant_mode}
+          onClose={() => setMembers(null)}
+          setError={setError}
+        />
+      )}
     </>
   );
 }

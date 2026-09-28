@@ -154,6 +154,54 @@ function validateRedirectUri(uri: string): void {
   );
 }
 
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "[::1]", "localhost"]);
+
+/**
+ * Whether `requested` is one of the client's `registered` redirect URIs. Exact
+ * string match, except for an http loopback URI (RFC 8252 §7.3): a native
+ * client such as a CLI binds a free port at run time, so for those any port is
+ * accepted while the scheme, host, path and query must still match. A loopback
+ * callback is only reachable from the machine the browser runs on, so the port
+ * carries no trust.
+ */
+export function redirectUriRegistered(registered: readonly string[], requested: string): boolean {
+  if (registered.includes(requested)) return true;
+  let req: URL;
+  try {
+    req = new URL(requested);
+  } catch {
+    return false;
+  }
+  if (req.protocol !== "http:" || !LOOPBACK_HOSTS.has(req.hostname)) return false;
+  if (req.username || req.password || req.hash) return false;
+  return registered.some((uri) => {
+    let reg: URL;
+    try {
+      reg = new URL(uri);
+    } catch {
+      return false;
+    }
+    return (
+      reg.protocol === "http:" &&
+      reg.hostname === req.hostname &&
+      !reg.username &&
+      !reg.password &&
+      reg.pathname === req.pathname &&
+      reg.search === req.search
+    );
+  });
+}
+
+/** True when `uri` would pass registration: https, or http on a loopback host. */
+export function isAllowedRedirectUri(uri: string): boolean {
+  try {
+    validateRedirectUri(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public data shapes (transport-neutral)
 // ---------------------------------------------------------------------------
@@ -218,7 +266,21 @@ export interface EnrollmentInfo {
   used_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  /** The key the person spends under: a predecessor's when this code replaced one. */
+  spend_id: string;
+  replaces_id: string | null;
+  budget_usd_per_day: number | null;
+  /** When a token was last minted under this grant (each refresh mints one). */
+  last_token_at: string | null;
 }
+
+/** Who performed an enrollment change, recorded as data only. */
+export interface EnrollmentAuditActor {
+  actor: string;
+  via: GrantVia | "enrollment";
+}
+
+const UNATTRIBUTED: EnrollmentAuditActor = { actor: "unattributed", via: "cli" };
 
 /** Token-endpoint success payload (RFC 6749 §5.1). */
 export interface OAuthTokens {
@@ -685,7 +747,7 @@ function positiveOrUndefined(raw: unknown): number | undefined {
  * it FOR UPDATE, so an exchange either finishes (its new unbound tokens are then
  * there for the rescope to revoke) or starts after the rescope committed and
  * judges `unboundAllowed` against the new row. Returns what issuance needs from
- * that same row, or undefined when the client is gone.
+ * that same row, or undefined when the client is gone or revoked.
  */
 async function lockClientForIssue(tx: Engine, clientId: string): Promise<IssuePolicy | undefined> {
   const r = await tx.query<{
@@ -695,7 +757,7 @@ async function lockClientForIssue(tx: Engine, clientId: string): Promise<IssuePo
     refresh_ttl_seconds: number | string | null;
   }>(
     `SELECT grant_revision, grant_types, access_ttl_seconds, refresh_ttl_seconds
-       FROM oauth_clients WHERE client_id = $1 FOR SHARE`,
+       FROM oauth_clients WHERE client_id = $1 AND deleted_at IS NULL FOR SHARE`,
     [clientId],
   );
   const row = r.rows[0];
@@ -746,6 +808,65 @@ async function deleteUnbound(tx: Engine, clientId: string): Promise<UnboundRevoc
     [clientId],
   );
   return tallyUnbound(t.rows, c.rows.length);
+}
+
+/** One row of the enrollment trail; `before` is null for an issue. */
+async function writeEnrollmentAudit(
+  tx: Engine,
+  enrollmentId: string,
+  clientId: string | null,
+  action: string,
+  who: EnrollmentAuditActor,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO oauth_enrollment_audit (enrollment_id, client_id, action, actor, via, before, after)
+     VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7::text::jsonb)`,
+    [enrollmentId, clientId, action, who.actor, who.via, before === null ? null : JSON.stringify(before), JSON.stringify(after)],
+  );
+}
+
+/**
+ * Mark enrollment `id` revoked and delete every code and token minted under
+ * it. Returns undefined when no enrollment has that id.
+ */
+async function revokeGrantIn(
+  tx: Engine,
+  id: string,
+): Promise<{ clientId: string | null; wasRevoked: boolean; used: boolean; tokens: number } | undefined> {
+  const e = await tx.query<{ client_id: string | null; source_id: string; used_at: unknown; revoked_at: unknown }>(
+    `SELECT client_id, source_id, used_at, revoked_at FROM oauth_enrollments WHERE id = $1 FOR UPDATE`,
+    [id],
+  );
+  const enr = e.rows[0];
+  if (!enr) return undefined;
+  await tx.query(`UPDATE oauth_enrollments SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = $1`, [id]);
+  // Tokens redeemed before migration 108 are grant-bound but carry no
+  // grant_id, and refresh carries the NULL forward, so matching on the id
+  // alone would leave them working. Such a token is recognised by the tenant
+  // and client the enrollment pinned; a legacy token of another enrollment
+  // into the same source on the same client goes too, and that person
+  // re-enrolls.
+  const legacy = `grant_bound AND grant_id IS NULL AND $2::boolean
+      AND source_id = $3 AND ($4::text IS NULL OR client_id = $4::text)`;
+  const params = [id, enr.used_at != null, enr.source_id, enr.client_id];
+  const t = await tx.query<{ n: number }>(
+    `DELETE FROM oauth_tokens
+      WHERE (grant_bound AND grant_id = $1) OR (${legacy})
+      RETURNING 1 AS n`,
+    params,
+  );
+  await tx.query(
+    `DELETE FROM oauth_codes WHERE (grant_bound AND grant_id = $1) OR (${legacy})`,
+    params,
+  );
+  return {
+    clientId: enr.client_id,
+    wasRevoked: enr.revoked_at != null,
+    used: enr.used_at != null,
+    tokens: t.rows.length,
+  };
 }
 
 export class OAuthProvider {
@@ -1260,6 +1381,152 @@ export class OAuthProvider {
     });
   }
 
+  /**
+   * Replace a client's redirect URIs in place. The secret, the grant and every
+   * issued token are untouched, so a connector whose callback moved keeps
+   * working without being re-registered.
+   *
+   * Audited like a rescope: the revision is bumped and one audit row written
+   * under the same row lock. The bump is what retires authorization codes
+   * already minted for a URI that is no longer registered — /token refuses a
+   * code approved under an older revision — and, as with every bump, it stops
+   * agent jobs the client submitted.
+   *
+   * Every URI must be https, or http on a loopback host, as at registration.
+   */
+  async setRedirectUris(
+    clientId: string,
+    uris: string[],
+    opts: { actor: string; via: GrantVia; expectedRevision?: number },
+  ): Promise<{ clientId: string; revision: number; before: string[]; after: string[]; removed: string[] }> {
+    const after = Array.from(new Set(uris.map((u) => u.trim()).filter(Boolean)));
+    if (after.length === 0) throw new Error("at least one redirect URI is required");
+    for (const uri of after) validateRedirectUri(uri);
+    return this.engine.transaction(async (tx) => {
+      const locked = await tx.query<{
+        source_id: string | null;
+        federated_read: string[] | null;
+        bound_slug_prefixes: string[] | null;
+        tenant_mode: string | null;
+        grant_revision: number | string;
+        redirect_uris: string[] | null;
+      }>(
+        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision, redirect_uris
+           FROM oauth_clients
+          WHERE client_id = $1 AND deleted_at IS NULL
+          FOR UPDATE`,
+        [clientId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new GrantNotFoundError(clientId);
+      const current = Number(row.grant_revision);
+      if (opts.expectedRevision !== undefined && opts.expectedRevision !== current) {
+        throw new GrantConflictError(opts.expectedRevision, current);
+      }
+      const before = row.redirect_uris ?? [];
+      const snapshot = grantSnapshot(row);
+      const applied = await tx.query<{ revision: number }>(
+        `WITH u AS (
+           UPDATE oauth_clients SET redirect_uris = $2::text[], grant_revision = grant_revision + 1
+            WHERE client_id = $1 AND deleted_at IS NULL
+            RETURNING grant_revision
+         )
+         INSERT INTO oauth_grant_audit (client_id, revision, actor, via, before, after)
+         SELECT $1, u.grant_revision, $3, $4, $5::text::jsonb, $6::text::jsonb FROM u
+         RETURNING revision`,
+        [
+          clientId,
+          after,
+          opts.actor,
+          opts.via,
+          JSON.stringify({ ...snapshot, redirect_uris: before }),
+          JSON.stringify({ ...snapshot, action: "set_redirect_uris", redirect_uris: after }),
+        ],
+      );
+      const revision = applied.rows[0]?.revision;
+      if (revision === undefined) throw new Error(`redirect URI write for "${clientId}" affected no row`);
+      return {
+        clientId,
+        revision: Number(revision),
+        before,
+        after,
+        removed: before.filter((u) => !after.includes(u)),
+      };
+    });
+  }
+
+  /**
+   * Revoke a client: mark it deleted and delete every token and authorization
+   * code it holds, in one transaction under the row lock. The row stays, so its
+   * grant history, request log and spend keep pointing at something; nothing
+   * can authenticate as it again. Audited like a rescope (revision bump + one
+   * audit row). Revoking an already revoked client deletes any token left over
+   * and reports `revoked: false`.
+   */
+  async revokeClient(
+    clientId: string,
+    opts: { actor: string; via: GrantVia },
+  ): Promise<{ clientId: string; revoked: boolean; revision: number; deleted: UnboundRevocation }> {
+    return this.engine.transaction(async (tx) => {
+      const locked = await tx.query<{
+        source_id: string | null;
+        federated_read: string[] | null;
+        bound_slug_prefixes: string[] | null;
+        tenant_mode: string | null;
+        grant_revision: number | string;
+        deleted_at: unknown;
+      }>(
+        `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision, deleted_at
+           FROM oauth_clients WHERE client_id = $1 FOR UPDATE`,
+        [clientId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new GrantNotFoundError(clientId);
+      // oauth_tokens / oauth_codes cascade only on a hard delete.
+      const t = await tx.query<{ token_type: string }>(
+        "DELETE FROM oauth_tokens WHERE client_id = $1 RETURNING token_type",
+        [clientId],
+      );
+      const c = await tx.query<{ n: number }>(
+        "DELETE FROM oauth_codes WHERE client_id = $1 RETURNING 1 AS n",
+        [clientId],
+      );
+      const deleted = tallyUnbound(t.rows, c.rows.length);
+      if (row.deleted_at != null) {
+        return { clientId, revoked: false, revision: Number(row.grant_revision), deleted };
+      }
+      const snapshot = grantSnapshot(row);
+      const applied = await tx.query<{ revision: number }>(
+        `WITH u AS (
+           UPDATE oauth_clients SET deleted_at = now(), grant_revision = grant_revision + 1
+            WHERE client_id = $1 AND deleted_at IS NULL
+            RETURNING grant_revision
+         )
+         INSERT INTO oauth_grant_audit (client_id, revision, actor, via, before, after)
+         SELECT $1, u.grant_revision, $2, $3, $4::text::jsonb, $5::text::jsonb FROM u
+         RETURNING revision`,
+        [
+          clientId,
+          opts.actor,
+          opts.via,
+          JSON.stringify(snapshot),
+          JSON.stringify({
+            ...snapshot,
+            action: "revoke_client",
+            deleted: {
+              access_tokens: deleted.accessTokens,
+              refresh_tokens: deleted.refreshTokens,
+              codes: deleted.codes,
+            },
+          }),
+        ],
+      );
+      const revision = applied.rows[0]?.revision;
+      if (revision === undefined) throw new Error(`revoke of "${clientId}" affected no row`);
+      return { clientId, revoked: true, revision: Number(revision), deleted };
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Enrollment codes — the identity half of per-grant tenancy
   // -------------------------------------------------------------------------
@@ -1270,22 +1537,66 @@ export class OAuthProvider {
    * pins the code to one client; otherwise any enrollment-mode client may
    * redeem it. The source must exist now — a code for a source that does not
    * exist would mint a grant nobody can read.
+   *
+   * `replaces` names an earlier enrollment of the same person. The new code
+   * inherits what it does not set (source, read set, label, client) plus the
+   * predecessor's spend key and daily cap, so her spend keeps counting in one
+   * place; redeeming it revokes the predecessor and every token under it.
    */
-  async issueEnrollment(input: {
+  async issueEnrollment(
+    input: {
+      sourceId?: string;
+      federatedRead?: string[];
+      label?: string;
+      clientId?: string;
+      ttlSeconds?: number;
+      replaces?: string;
+    },
+    audit: EnrollmentAuditActor = UNATTRIBUTED,
+  ): Promise<{
+    id: string;
+    code: string;
+    expiresAt: string;
+    spendId: string;
+    replaces: string | null;
     sourceId: string;
-    federatedRead?: string[];
-    label?: string;
-    clientId?: string;
-    ttlSeconds?: number;
-  }): Promise<{ id: string; code: string; expiresAt: string }> {
+    federatedRead: string[];
+    label: string | null;
+    clientId: string | null;
+  }> {
+    let prior:
+      | {
+          id: string;
+          client_id: string | null;
+          source_id: string;
+          federated_read: string[] | null;
+          label: string | null;
+          spend_id: string | null;
+          budget_usd_per_day: string | number | null;
+        }
+      | undefined;
+    if (input.replaces !== undefined) {
+      prior = (
+        await this.rows<NonNullable<typeof prior>>(
+          `SELECT id, client_id, source_id, federated_read, label, spend_id, budget_usd_per_day
+             FROM oauth_enrollments WHERE id = $1`,
+          [input.replaces],
+        )
+      )[0];
+      if (!prior) throw new Error(`Unknown enrollment '${input.replaces}'`);
+    }
+    const sourceId = input.sourceId ?? prior?.source_id;
+    if (sourceId === undefined) throw new Error("an enrollment needs a source (or --replaces)");
     const federatedIn =
       input.federatedRead && input.federatedRead.length > 0
         ? input.federatedRead
-        : [input.sourceId];
+        : input.sourceId === undefined && prior?.federated_read && prior.federated_read.length > 0
+          ? prior.federated_read
+          : [sourceId];
     // Validate EVERY source the grant would read, not just the one it writes:
     // a typo in the read set would mint a grant that silently reads less than
     // the operator meant it to.
-    const wanted = Array.from(new Set([input.sourceId, ...federatedIn]));
+    const wanted = Array.from(new Set([sourceId, ...federatedIn]));
     const src = await this.engine.query<{ id: string }>(
       "SELECT id FROM sources WHERE id = ANY($1)",
       [wanted],
@@ -1305,6 +1616,10 @@ export class OAuthProvider {
         );
       }
     }
+    // A predecessor's client is kept as it was recorded: an any-client code
+    // records the connector that redeemed it, whatever that connector's mode.
+    const clientId = input.clientId ?? prior?.client_id ?? null;
+    const label = input.label ?? prior?.label ?? null;
     const ttl = input.ttlSeconds ?? 7 * 24 * 3600;
     // Upper bound as well as lower: `new Date(now + ttl*1000)` throws a bare
     // RangeError once the result leaves the representable range, and a code
@@ -1317,21 +1632,46 @@ export class OAuthProvider {
     const code = generateToken("memex_en_");
     const federated = federatedIn;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
-    await this.engine.query(
-      `INSERT INTO oauth_enrollments
-         (id, code_hash, client_id, source_id, federated_read, label, expires_at)
-       VALUES ($1, $2, $3, $4, $5::text[], $6, $7::timestamptz)`,
-      [
-        id,
-        hashToken(code),
-        input.clientId ?? null,
-        input.sourceId,
-        federated,
-        input.label ?? null,
-        expiresAt,
-      ],
-    );
-    return { id, code, expiresAt };
+    const spendId = prior ? (prior.spend_id ?? prior.id) : null;
+    await this.engine.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO oauth_enrollments
+           (id, code_hash, client_id, source_id, federated_read, label, expires_at,
+            spend_id, replaces_id, budget_usd_per_day)
+         VALUES ($1, $2, $3, $4, $5::text[], $6, $7::timestamptz, $8, $9, $10)`,
+        [
+          id,
+          hashToken(code),
+          clientId,
+          sourceId,
+          federated,
+          label,
+          expiresAt,
+          spendId,
+          prior?.id ?? null,
+          prior?.budget_usd_per_day ?? null,
+        ],
+      );
+      await writeEnrollmentAudit(tx, id, clientId, "issue", audit, null, {
+        source_id: sourceId,
+        federated_read: federated,
+        label,
+        expires_at: expiresAt,
+        spend_id: spendId ?? id,
+        replaces_id: prior?.id ?? null,
+      });
+    });
+    return {
+      id,
+      code,
+      expiresAt,
+      spendId: spendId ?? id,
+      replaces: prior?.id ?? null,
+      sourceId,
+      federatedRead: federated,
+      label,
+      clientId,
+    };
   }
 
   /**
@@ -1348,26 +1688,47 @@ export class OAuthProvider {
     if (typeof code !== "string" || code.length < 16 || code.length > 256) {
       return undefined;
     }
-    const r = await this.engine.query<{
-      id: string;
-      source_id: string;
-      federated_read: string[] | null;
-    }>(
-      // The redeeming connector is recorded on an any-client enrollment: its
-      // daily cap is the fallback for the person's own.
-      `UPDATE oauth_enrollments
-          SET used_at = NOW(), client_id = COALESCE(client_id, $2)
-        WHERE code_hash = $1
-          AND used_at IS NULL
-          AND revoked_at IS NULL
-          AND expires_at > NOW()
-          AND (client_id IS NULL OR client_id = $2)
-        RETURNING id, source_id, federated_read`,
-      [hashToken(code), clientId],
-    );
-    const row = r.rows[0];
-    if (!row) return undefined;
-    return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id], grantId: row.id };
+    return this.engine.transaction(async (tx) => {
+      const r = await tx.query<{
+        id: string;
+        source_id: string;
+        federated_read: string[] | null;
+        replaces_id: string | null;
+      }>(
+        // The redeeming connector is recorded on an any-client enrollment: its
+        // daily cap is the fallback for the person's own.
+        `UPDATE oauth_enrollments
+            SET used_at = NOW(), client_id = COALESCE(client_id, $2)
+          WHERE code_hash = $1
+            AND used_at IS NULL
+            AND revoked_at IS NULL
+            AND expires_at > NOW()
+            AND (client_id IS NULL OR client_id = $2)
+          RETURNING id, source_id, federated_read, replaces_id`,
+        [hashToken(code), clientId],
+      );
+      const row = r.rows[0];
+      if (!row) return undefined;
+      // A replacement retires the enrollment it replaces the moment it is
+      // redeemed, so the person never holds two live grants. A claim handed
+      // back by releaseEnrollment leaves the predecessor revoked; the person
+      // redeems the same code again.
+      if (row.replaces_id) {
+        const prior = await revokeGrantIn(tx, row.replaces_id);
+        if (prior && !prior.wasRevoked) {
+          await writeEnrollmentAudit(
+            tx,
+            row.replaces_id,
+            prior.clientId,
+            "replaced",
+            { actor: `enrollment:${row.id}`, via: "enrollment" },
+            { revoked: false },
+            { revoked: true, replaced_by: row.id, tokens_deleted: prior.tokens },
+          );
+        }
+      }
+      return { sourceId: row.source_id, federatedRead: row.federated_read ?? [row.source_id], grantId: row.id };
+    });
   }
 
   /**
@@ -1393,12 +1754,22 @@ export class OAuthProvider {
     );
   }
 
-  async listEnrollments(): Promise<EnrollmentInfo[]> {
+  /**
+   * Every enrollment, newest first. With `clientId`, only those that client
+   * redeemed or may redeem: codes pinned to it, and unredeemed any-client codes.
+   */
+  async listEnrollments(clientId?: string): Promise<EnrollmentInfo[]> {
     const rows = await this.rows(
-      `SELECT id, label, source_id, federated_read, client_id,
-              expires_at::text AS expires_at, used_at::text AS used_at,
-              revoked_at::text AS revoked_at, created_at::text AS created_at
-         FROM oauth_enrollments ORDER BY created_at DESC`,
+      `SELECT e.id, e.label, e.source_id, e.federated_read, e.client_id,
+              e.expires_at::text AS expires_at, e.used_at::text AS used_at,
+              e.revoked_at::text AS revoked_at, e.created_at::text AS created_at,
+              COALESCE(e.spend_id, e.id) AS spend_id, e.replaces_id, e.budget_usd_per_day,
+              (SELECT max(t.created_at) FROM oauth_tokens t
+                WHERE t.grant_bound AND t.grant_id = e.id)::text AS last_token_at
+         FROM oauth_enrollments e
+        WHERE $1::text IS NULL OR e.client_id = $1::text OR e.client_id IS NULL
+        ORDER BY e.created_at DESC`,
+      [clientId ?? null],
     );
     return rows.map((r) => {
       const x = r as Record<string, unknown>;
@@ -1412,18 +1783,28 @@ export class OAuthProvider {
         used_at: (x.used_at as string | null) ?? null,
         revoked_at: (x.revoked_at as string | null) ?? null,
         created_at: x.created_at as string,
+        spend_id: x.spend_id as string,
+        replaces_id: (x.replaces_id as string | null) ?? null,
+        budget_usd_per_day: x.budget_usd_per_day == null ? null : Number(x.budget_usd_per_day),
+        last_token_at: (x.last_token_at as string | null) ?? null,
       };
     });
   }
 
-  async revokeEnrollment(id: string): Promise<boolean> {
-    const r = await this.engine.query<{ id: string }>(
-      `UPDATE oauth_enrollments SET revoked_at = NOW()
-        WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL
-        RETURNING id`,
-      [id],
-    );
-    return r.rows.length > 0;
+  /** Kill a code nobody redeemed yet. False when it is used, revoked or unknown. */
+  async revokeEnrollment(id: string, audit: EnrollmentAuditActor = UNATTRIBUTED): Promise<boolean> {
+    return this.engine.transaction(async (tx) => {
+      const r = await tx.query<{ id: string; client_id: string | null }>(
+        `UPDATE oauth_enrollments SET revoked_at = NOW()
+          WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL
+          RETURNING id, client_id`,
+        [id],
+      );
+      const row = r.rows[0];
+      if (!row) return false;
+      await writeEnrollmentAudit(tx, id, row.client_id, "revoke_code", audit, { revoked: false }, { revoked: true });
+      return true;
+    });
   }
 
   /**
@@ -1434,35 +1815,23 @@ export class OAuthProvider {
    * outlives it. The other people on the same client are untouched. Returns
    * false when no enrollment has that id.
    */
-  async revokeGrant(id: string): Promise<{ revoked: boolean; tokens: number }> {
+  async revokeGrant(
+    id: string,
+    audit: EnrollmentAuditActor = UNATTRIBUTED,
+  ): Promise<{ revoked: boolean; tokens: number }> {
     return this.engine.transaction(async (tx) => {
-      const e = await tx.query<{ id: string; client_id: string | null; source_id: string; used_at: unknown }>(
-        `UPDATE oauth_enrollments SET revoked_at = COALESCE(revoked_at, NOW())
-          WHERE id = $1 RETURNING id, client_id, source_id, used_at`,
-        [id],
+      const r = await revokeGrantIn(tx, id);
+      if (!r) return { revoked: false, tokens: 0 };
+      await writeEnrollmentAudit(
+        tx,
+        id,
+        r.clientId,
+        "revoke_grant",
+        audit,
+        { revoked: r.wasRevoked, used: r.used },
+        { revoked: true, used: r.used, tokens_deleted: r.tokens },
       );
-      const enr = e.rows[0];
-      if (!enr) return { revoked: false, tokens: 0 };
-      // Tokens redeemed before migration 108 are grant-bound but carry no
-      // grant_id, and refresh carries the NULL forward, so matching on the id
-      // alone would leave them working. Such a token is recognised by the tenant
-      // and client the enrollment pinned; a legacy token of another enrollment
-      // into the same source on the same client goes too, and that person
-      // re-enrolls.
-      const legacy = `grant_bound AND grant_id IS NULL AND $2::boolean
-          AND source_id = $3 AND ($4::text IS NULL OR client_id = $4::text)`;
-      const params = [id, enr.used_at != null, enr.source_id, enr.client_id];
-      const t = await tx.query<{ n: number }>(
-        `DELETE FROM oauth_tokens
-          WHERE (grant_bound AND grant_id = $1) OR (${legacy})
-          RETURNING 1 AS n`,
-        params,
-      );
-      await tx.query(
-        `DELETE FROM oauth_codes WHERE (grant_bound AND grant_id = $1) OR (${legacy})`,
-        params,
-      );
-      return { revoked: true, tokens: t.rows.length };
+      return { revoked: true, tokens: r.tokens };
     });
   }
 
@@ -1515,7 +1884,9 @@ export class OAuthProvider {
     if (t.rows.length > 0) return true;
     // Or an enrollment: the person redeemed from it spends under its id.
     const e = await this.engine.query<{ id: string }>(
-      `UPDATE oauth_enrollments SET budget_usd_per_day = $2 WHERE id = $1 AND revoked_at IS NULL RETURNING id`,
+      // Addressed by its own id or by the spend key a replacement inherited.
+      `UPDATE oauth_enrollments SET budget_usd_per_day = $2
+        WHERE (id = $1 OR spend_id = $1) AND revoked_at IS NULL RETURNING id`,
       [clientId, usdPerDay],
     );
     return e.rows.length > 0;
@@ -1705,6 +2076,7 @@ export class OAuthProvider {
     const outcome = await this.engine.transaction(
       async (tx): Promise<{ tokens: OAuthTokens } | { error: string }> => {
         const policy = await lockClientForIssue(tx, client.client_id);
+        if (policy === undefined) return { error: "Client has been revoked" };
         const rows = (
           redirectUri !== undefined
             ? await tx.query<{ scopes: string[] }>(
@@ -1799,7 +2171,8 @@ export class OAuthProvider {
     const outcome = await this.engine.transaction(
       async (tx): Promise<{ tokens: OAuthTokens } | { error: string; replayedFamily?: string }> => {
         const policy = await lockClientForIssue(tx, client.client_id);
-        if (!clientAllowsGrant(policy?.grantTypes, "refresh_token")) {
+        if (policy === undefined) return { error: "Client has been revoked" };
+        if (!clientAllowsGrant(policy.grantTypes, "refresh_token")) {
           return { error: "Refresh token grant not authorized for this client" };
         }
         const rows = (
@@ -1948,6 +2321,7 @@ export class OAuthProvider {
               c.bound_slug_prefixes,
               c.budget_usd_per_day,
               CASE WHEN t.grant_bound THEN t.grant_id END AS grant_id,
+              COALESCE(e.spend_id, e.id) AS grant_spend_id,
               e.budget_usd_per_day AS grant_budget_usd_per_day,
               e.revoked_at AS grant_revoked_at,
               ${legacyGrantRevoked("t")} AS legacy_grant_revoked,
@@ -2007,7 +2381,10 @@ export class OAuthProvider {
         ...(boundSlugPrefixes ? { boundSlugPrefixes } : {}),
         // A person enrolled on a shared connector spends under their own
         // enrollment, capped by it, else by the connector's cap on their own.
-        ...(typeof row.grant_id === "string" ? { spendId: row.grant_id } : {}),
+        // A replacement enrollment spends under its predecessor's key.
+        ...(typeof row.grant_id === "string"
+          ? { spendId: typeof row.grant_spend_id === "string" ? row.grant_spend_id : row.grant_id }
+          : {}),
         budgetUsdPerDay:
           typeof row.grant_id === "string" && row.grant_budget_usd_per_day != null
             ? toCapUsd(row.grant_budget_usd_per_day)

@@ -50,6 +50,7 @@ describe("doctor categorize", () => {
       "junk-entity-hubs",
       "links-extraction-lag",
       "oauth-client-health",
+      "oauth-client-hygiene",
       "pat-scopes-recorded",
       "per-source-embed-coverage",
       "pglite",

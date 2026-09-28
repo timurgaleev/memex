@@ -120,6 +120,7 @@ describe("doctor", () => {
       "junk-entity-hubs",
       "links-extraction-lag",
       "oauth-client-health",
+      "oauth-client-hygiene",
       "pat-scopes-recorded",
       "pglite",
       "quarantined-pages",

@@ -217,7 +217,11 @@ function printUsage(): void {
   console.log("                               register a client_credentials OAuth client (prints secret once;");
   console.log("                               'none' = public PKCE client, no secret)");
   console.log("  auth list-clients            JSON list of registered OAuth clients");
-  console.log("  auth revoke-client <id>      hard-delete a client (cascades to its tokens)");
+  console.log("  auth revoke-client <id> [--purge]");
+  console.log("                               revoke a client and delete its tokens; the row, grant history");
+  console.log("                               and spend stay (--purge hard-deletes the row)");
+  console.log("  auth set-redirect-uris <id> <uri> [uri...] [--expected-revision N]");
+  console.log("                               replace a client's redirect URIs; secret and tokens untouched");
   console.log("  auth rescope-client <id> --source SRC [--federated-read a,b]");
   console.log("                               [--bound-slug-prefixes p1,p2] [--tenant-mode client|enrollment]");
   console.log("                               [--access-ttl 1h|default] [--refresh-ttl 30d|default]");
@@ -226,10 +230,12 @@ function printUsage(): void {
   console.log("                               revision-checked, previewable, audited");
   console.log("  auth grant-history <id> [--limit N]");
   console.log("                               JSON audit of a client's grant changes, newest first");
-  console.log("  auth enroll <source> [--label N] [--client ID] [--ttl 7d]");
+  console.log("  auth enroll <source> [--label N] [--client ID] [--ttl 7d] [--replaces ENROLLMENT_ID]");
   console.log("                               one-time enrollment code: a person presents it at /authorize");
-  console.log("                               on an enrollment-mode client and lands in <source> (printed once)");
-  console.log("  auth enrollments             list issued enrollment codes (never the code itself)");
+  console.log("                               on an enrollment-mode client and lands in <source> (printed once);");
+  console.log("                               --replaces keeps the old grant's spend key and revokes it on redemption");
+  console.log("  auth enrollments [--client ID]");
+  console.log("                               list issued enrollment codes (never the code itself)");
   console.log("  auth revoke-enrollment <id>  kill an unused enrollment code");
   console.log("  auth revoke-grant <id>       cut off a redeemed enrollment and delete its tokens");
   console.log("  auth invalidate-tokens <id> [--grant ENROLLMENT_ID]");

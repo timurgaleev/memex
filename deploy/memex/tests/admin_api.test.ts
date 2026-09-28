@@ -62,6 +62,17 @@ describe("admin-api auth gating", () => {
   it("401s an unknown /admin/api path when unauthenticated (no path disclosure)", async () => {
     expect((await call("/admin/api/nope"))?.status).toBe(401);
   });
+  it("refuses an authed mutating request from another origin", async () => {
+    for (const path of ["/admin/api/api-keys", "/admin/api/revoke-grant", "/admin/api/set-redirect-uris"]) {
+      const cross = await call(path, authed({ method: "POST", body: "{}", headers: { origin: "https://evil.localhost:8080" } }));
+      expect(cross?.status).toBe(403);
+      const sibling = await call(path, authed({ method: "POST", body: "{}", headers: { "sec-fetch-site": "same-site" } }));
+      expect(sibling?.status).toBe(403);
+    }
+    const same = await call("/admin/api/api-keys", authed({ method: "POST", body: "{}", headers: { origin: "http://localhost:8080" } }));
+    expect(same?.status).not.toBe(403);
+    expect((await call("/admin/api/full-stats", authed({ headers: { origin: "https://evil.localhost:8080" } })))?.status).toBe(200);
+  });
   it("returns null for an authed unknown /admin/api path (falls through to 404)", async () => {
     expect(await call("/admin/api/nope", authed())).toBeNull();
   });

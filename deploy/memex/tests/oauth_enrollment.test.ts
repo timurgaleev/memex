@@ -143,6 +143,20 @@ describe("enrollment-mode /authorize", () => {
     expect(csp).toContain("default-src 'none'");
   });
 
+  it("names the host the code will be sent back to", async () => {
+    const html = await (await get(teamClient)).text();
+    expect(html).toContain(`You will be sent back to <strong>${new URL(REDIRECT).host}</strong>.`);
+  });
+
+  it("the redirect after a claimed code carries iss (RFC 9207)", async () => {
+    const issued = await provider.issueEnrollment({ sourceId: "tina" });
+    const res = await post(teamClient, issued.code);
+    expect(res.status).toBe(303);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("iss")).toBe("http://brain.example.test");
+    expect(loc.searchParams.get("code")).toBeTruthy();
+  });
+
   it("the form ignores the operator-login gate — the code is the login", async () => {
     const res = await get(teamClient, () => false);
     expect(res.status).toBe(200);

@@ -118,6 +118,7 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   "pglite",
   "vault",
   "oauth-client-health",
+  "oauth-client-hygiene",
   "pat-scopes-recorded",
   "stale-locks",
   "queue-health",

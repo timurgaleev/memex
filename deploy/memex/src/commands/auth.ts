@@ -15,15 +15,26 @@
  *              client_secret (memex_cs_…) ONCE — only the SHA-256 hash persists.
  *   list-clients
  *              JSON list of registered clients (no secrets).
- *   revoke-client <client_id>
- *              Hard-delete a client (cascades to its tokens/codes via FK).
+ *   revoke-client <client_id> [--purge]
+ *              Revoke a client: mark it deleted and delete its tokens and
+ *              codes. The row, its grant history and its spend stay. --purge
+ *              hard-deletes the row instead (a source it names can then be
+ *              removed); the grant history still stays.
+ *   set-redirect-uris <client_id> <uri> [uri...] [--expected-revision N]
+ *              Replace a client's redirect URIs without touching its secret or
+ *              tokens (https, or http on a loopback host). Audited; codes
+ *              minted before the change stop redeeming.
  *   enroll <source> [--label NAME] [--client CLIENT_ID] [--ttl 7d] [--federated-read a,b]
+ *          [--replaces ENROLLMENT_ID]
  *              Issue a one-time enrollment code bound to <source>. A person
  *              presents it at /authorize on an enrollment-mode client and her
- *              grant is pinned to that source. Printed ONCE.
- *   enrollments
- *              List issued codes (id, label, source, expiry, used/revoked) —
- *              never the code itself.
+ *              grant is pinned to that source. Printed ONCE. --replaces issues
+ *              a new code for the same person: it inherits the old grant's
+ *              spend key and daily cap (and its source, read set, label and
+ *              client unless given), and redeeming it revokes the old grant.
+ *   enrollments [--client CLIENT_ID]
+ *              List issued codes (id, label, source, expiry, used/revoked,
+ *              spend key, last token) — never the code itself.
  *   revoke-enrollment <enrollment_id>
  *              Kill an unused code.
  *   revoke-grant <enrollment_id>
@@ -100,6 +111,7 @@ export type AuthSub =
   | "register-client"
   | "list-clients"
   | "revoke-client"
+  | "set-redirect-uris"
   | "rescope-client"
   | "grant-history"
   | "set-budget"
@@ -133,7 +145,7 @@ interface ClientRow {
  * the literal given with `=`), so a bare `--dry-run` is never mistaken for a
  * flag missing its value.
  */
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["dry-run", "expect-operator", "json"]);
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["dry-run", "expect-operator", "json", "purge"]);
 
 /**
  * Split on the first '=' for `--key=value` (redirect URIs and scope strings
@@ -297,19 +309,60 @@ async function listClients(): Promise<void> {
   console.log(JSON.stringify(rows, null, 2));
 }
 
-async function revokeClient(clientId: string): Promise<void> {
-  if (!clientId) throw new Error("Usage: auth revoke-client <client_id>");
-  const deleted = await withProvider((_p, storage) =>
-    storage
-      .raw()
-      .query<{ client_id: string }>(
-        "DELETE FROM oauth_clients WHERE client_id = $1 RETURNING client_id",
-        [clientId],
-      )
-      .then((r) => r.rows.length),
+async function revokeClient(clientId: string, args: string[]): Promise<void> {
+  if (!clientId) throw new Error("Usage: auth revoke-client <client_id> [--purge]");
+  const { flags } = parseFlags(args);
+  if (parseBoolFlag("purge", flags["purge"])) {
+    // The row goes, and its tokens and codes with it (FK cascade). The grant
+    // history has no FK and outlives it.
+    const deleted = await withProvider((_p, storage) =>
+      storage
+        .raw()
+        .query<{ client_id: string }>(
+          "DELETE FROM oauth_clients WHERE client_id = $1 RETURNING client_id",
+          [clientId],
+        )
+        .then((r) => r.rows.length),
+    );
+    console.log(JSON.stringify({ revoked: deleted > 0, purged: deleted > 0, client_id: clientId }, null, 2));
+    return;
+  }
+  const r = await withProvider((p) => p.revokeClient(clientId, { actor: cliActor(), via: "cli" }));
+  console.log(
+    JSON.stringify(
+      {
+        revoked: r.revoked,
+        client_id: r.clientId,
+        revision: r.revision,
+        deleted: {
+          access_tokens: r.deleted.accessTokens,
+          refresh_tokens: r.deleted.refreshTokens,
+          codes: r.deleted.codes,
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function setRedirectUris(clientId: string, args: string[]): Promise<void> {
+  const usage = "Usage: auth set-redirect-uris <client_id> <uri> [uri...] [--expected-revision N]";
+  if (!clientId) throw new Error(usage);
+  const { positional, flags } = parseFlags(args);
+  // A comma list works too, as for register-client --redirect-uris.
+  const uris = positional.flatMap((u) => u.split(",")).map((u) => u.trim()).filter(Boolean);
+  if (uris.length === 0) throw new Error(usage);
+  const expectedRevision = parseExpectedRevision(flags["expected-revision"]);
+  const r = await withProvider((p) =>
+    p.setRedirectUris(clientId, uris, { actor: cliActor(), via: "cli", expectedRevision }),
   );
   console.log(
-    JSON.stringify({ revoked: deleted > 0, client_id: clientId }, null, 2),
+    JSON.stringify(
+      { client_id: r.clientId, revision: r.revision, before: r.before, after: r.after, removed: r.removed },
+      null,
+      2,
+    ),
   );
 }
 
@@ -493,34 +546,44 @@ export function parseTtl(raw: string | undefined, fallbackSeconds: number): numb
  * secret: only its hash is stored. Hand it to the person over a channel you
  * would trust with a password; it dies on first use.
  */
-async function enroll(source: string, rest: string[]): Promise<void> {
+async function enroll(rest: string[]): Promise<void> {
   const usage =
-    "Usage: auth enroll <source> [--label NAME] [--client CLIENT_ID] [--ttl 7d] [--federated-read a,b]";
-  if (!source) throw new Error(usage);
-  const { flags } = parseFlags(rest);
+    "Usage: auth enroll <source> [--label NAME] [--client CLIENT_ID] [--ttl 7d] [--federated-read a,b] [--replaces ENROLLMENT_ID]";
+  const { positional, flags } = parseFlags(rest);
+  const source = positional[0];
+  const replaces = flags["replaces"];
+  if (!source && !replaces) throw new Error(usage);
   const federatedRead = flags["federated-read"]
     ? flags["federated-read"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
   const issued = await withProvider((p) =>
-    p.issueEnrollment({
-      sourceId: source,
-      ...(federatedRead ? { federatedRead } : {}),
-      ...(flags["label"] ? { label: flags["label"] } : {}),
-      ...(flags["client"] ? { clientId: flags["client"] } : {}),
-      ttlSeconds: parseTtl(flags["ttl"], 7 * 24 * 3600),
-    }),
+    p.issueEnrollment(
+      {
+        ...(source ? { sourceId: source } : {}),
+        ...(federatedRead ? { federatedRead } : {}),
+        ...(flags["label"] ? { label: flags["label"] } : {}),
+        ...(flags["client"] ? { clientId: flags["client"] } : {}),
+        ...(replaces ? { replaces } : {}),
+        ttlSeconds: parseTtl(flags["ttl"], 7 * 24 * 3600),
+      },
+      { actor: cliActor(), via: "cli" },
+    ),
   );
   console.log(
     JSON.stringify(
       {
         enrollment_id: issued.id,
         code: issued.code,
-        source_id: source,
-        federated_read: federatedRead ?? [source],
-        ...(flags["label"] ? { label: flags["label"] } : {}),
-        ...(flags["client"] ? { client_id: flags["client"] } : {}),
+        source_id: issued.sourceId,
+        federated_read: issued.federatedRead,
+        ...(issued.label ? { label: issued.label } : {}),
+        ...(issued.clientId ? { client_id: issued.clientId } : {}),
+        spend_id: issued.spendId,
+        ...(issued.replaces ? { replaces: issued.replaces } : {}),
         expires_at: issued.expiresAt,
-        note: "Give this code to the person. It works once, then never again.",
+        note: issued.replaces
+          ? "Give this code to the person. It works once; redeeming it revokes the grant it replaces."
+          : "Give this code to the person. It works once, then never again.",
       },
       null,
       2,
@@ -528,21 +591,22 @@ async function enroll(source: string, rest: string[]): Promise<void> {
   );
 }
 
-async function listEnrollments(): Promise<void> {
-  const rows = await withProvider((p) => p.listEnrollments());
+async function listEnrollments(rest: string[]): Promise<void> {
+  const { flags } = parseFlags(rest);
+  const rows = await withProvider((p) => p.listEnrollments(flags["client"]));
   console.log(JSON.stringify(rows, null, 2));
 }
 
 async function revokeEnrollment(id: string): Promise<void> {
   if (!id) throw new Error("Usage: auth revoke-enrollment <enrollment_id>");
-  const ok = await withProvider((p) => p.revokeEnrollment(id));
+  const ok = await withProvider((p) => p.revokeEnrollment(id, { actor: cliActor(), via: "cli" }));
   if (!ok) throw new Error(`No live enrollment "${id}" (already used, revoked, or unknown).`);
   console.log(JSON.stringify({ enrollment_id: id, revoked: true }, null, 2));
 }
 
 async function revokeGrant(id: string): Promise<void> {
   if (!id) throw new Error("Usage: auth revoke-grant <enrollment_id>");
-  const r = await withProvider((p) => p.revokeGrant(id));
+  const r = await withProvider((p) => p.revokeGrant(id, { actor: cliActor(), via: "cli" }));
   if (!r.revoked) throw new Error(`No enrollment "${id}".`);
   console.log(JSON.stringify({ enrollment_id: id, revoked: true, tokens_deleted: r.tokens }, null, 2));
 }
@@ -985,7 +1049,9 @@ export async function runAuth(args: string[]): Promise<void> {
     case "list-clients":
       return listClients();
     case "revoke-client":
-      return revokeClient(rest[0]!);
+      return revokeClient(rest[0]!, rest.slice(1));
+    case "set-redirect-uris":
+      return setRedirectUris(rest[0]!, rest.slice(1));
     case "rescope-client":
       return rescopeClient(rest[0]!, rest.slice(1));
     case "grant-history":
@@ -993,9 +1059,9 @@ export async function runAuth(args: string[]): Promise<void> {
     case "set-budget":
       return setBudget(rest[0]!, rest[1]!);
     case "enroll":
-      return enroll(rest[0]!, rest.slice(1));
+      return enroll(rest);
     case "enrollments":
-      return listEnrollments();
+      return listEnrollments(rest);
     case "revoke-enrollment":
       return revokeEnrollment(rest[0]!);
     case "revoke-grant":
@@ -1018,7 +1084,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return doctorCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|rescope-client|grant-history|invalidate-tokens|grant-token|create|list|revoke|permissions|test|doctor>",
+        "Usage: memex auth <register-client|list-clients|revoke-client|set-redirect-uris|rescope-client|grant-history|set-budget|enroll|enrollments|revoke-enrollment|revoke-grant|invalidate-tokens|grant-token|create|list|revoke|permissions|test|doctor>",
       );
       process.exitCode = 1;
   }
