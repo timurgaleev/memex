@@ -50,21 +50,35 @@ export type InferredLinkType = "founded" | "invested_in" | "advises" | "works_at
 
 /**
  * Infer a wikilink edge's type from page context. Deterministic, no LLM.
+ *   - meeting pages: `attended` only for a person target listed under an
+ *     Attendees / Participants heading or on an `Attendees:` line; a person
+ *     merely mentioned in the notes stays `mentions`;
  *   - per-edge window verbs: founded > invested_in > advises > works_at;
- *   - then a person→company page-role prior: investor > advisor > employee;
+ *   - then a person→company page-role prior: investor > advisor > employee,
+ *     skipped when every mention of the target sits in a Timeline / See also /
+ *     Related-style list section (those lists name companies without saying
+ *     anything about the page subject's role there);
  *   - else `mentions`.
  * `pageType` is the SOURCE page's type, `context` the per-edge window,
  * `globalContext` the full body (for the prior), `targetSlug` the resolved edge
- * target (the prior only fires for `companies/*` targets).
+ * target (the prior only fires for `companies/*` targets), `surface` the
+ * wikilink text as written — it locates the mentions in `globalContext`.
+ * Without `surface` (or the body) a meeting page has no attendance evidence
+ * and yields `mentions`.
  */
 export function inferLinkType(
   pageType: string,
   context: string,
   globalContext?: string,
   targetSlug?: string,
+  surface?: string,
 ): InferredLinkType {
   if (pageType === "media") return "mentions";
-  if (pageType === "meeting") return "attended";
+  if (pageType === "meeting") {
+    if (globalContext === undefined || surface === undefined || !personLikeTarget(targetSlug)) return "mentions";
+    const { attendance } = sectionRanges(globalContext);
+    return wikilinkOffsets(globalContext, surface).some((i) => inRanges(attendance, i)) ? "attended" : "mentions";
+  }
 
   // Per-edge verb rules.
   if (FOUNDED_RE.test(context)) return "founded";
@@ -74,12 +88,131 @@ export function inferLinkType(
 
   // Page-role prior — only person → companies/* links. Precedence within
   // priors: investor > advisor > employee (investors also sit on boards).
-  if (pageType === "person" && globalContext && targetSlug?.startsWith("companies/")) {
+  if (
+    pageType === "person" && globalContext && targetSlug?.startsWith("companies/")
+    && !onlyInSuppressedSections(globalContext, surface)
+  ) {
     if (PARTNER_ROLE_RE.test(globalContext)) return "invested_in";
     if (ADVISOR_ROLE_RE.test(globalContext)) return "advises";
     if (EMPLOYEE_ROLE_RE.test(globalContext)) return "works_at";
   }
   return "mentions";
+}
+
+type Range = readonly [number, number];
+
+/** Meeting sections whose wikilinks name the people who were there. */
+const ATTENDANCE_HEADING_RE = /^(#{1,6})[ \t]+(?:attendees|participants)\b/i;
+/** `Attendees: [[A]], [[B]]` (optionally bulleted / bold) outside such a section. */
+const ATTENDANCE_LINE_RE = /^[ \t]*(?:[-*+][ \t]+)?(?:\*\*|__)?(?:attendees|participants)(?:\*\*|__)?[ \t]*:(?:\*\*|__)?/i;
+/** Machine-written list sections where the page-role prior must not fire. */
+const PRIOR_SUPPRESSED_HEADING_RE =
+  /^(#{1,6})[ \t]+(?:timeline|see[ -]also|related|facts|sources|links|email mention links|backlinks|significant moments)\b/i;
+const HEADING_RE = /^(#{1,6})[ \t]/;
+const FENCE_RE = /^[ \t]*(?:```|~~~)/;
+const LEADING_WIKILINK_RE = /\[\[[^\]\n]{1,768}\]\]/y;
+
+/**
+ * The span of the attendee list starting at `from`: consecutive wikilinks joined
+ * only by separators. `- [[Alice]] (CEO), [[Bob]]` admits Alice and stops at the
+ * annotation, so a name in an aside is not read as an attendee.
+ */
+function leadingLinkRun(text: string, from: number, lineEnd: number): Range | null {
+  let pos = from;
+  let end = -1;
+  for (;;) {
+    while (pos < lineEnd && /[\s,;&]/.test(text[pos]!)) pos++;
+    LEADING_WIKILINK_RE.lastIndex = pos;
+    const m = LEADING_WIKILINK_RE.exec(text);
+    if (!m || pos + m[0].length > lineEnd) break;
+    pos += m[0].length;
+    end = pos;
+  }
+  return end < 0 ? null : [from, end];
+}
+
+interface SectionRanges { attendance: Range[]; suppressed: Range[] }
+let rangeCache: { body: string; ranges: SectionRanges } | null = null;
+
+/** Attendance and prior-suppressed spans of a body, fenced code excluded.
+ *  Cached for the last body: the sync pass asks once per wikilink target. */
+function sectionRanges(body: string): SectionRanges {
+  if (rangeCache?.body === body) return rangeCache.ranges;
+  const attendance: Range[] = [];
+  const suppressed: Range[] = [];
+  let open: { kind: "attendance" | "suppressed"; level: number; start: number } | null = null;
+  let inFence = false;
+  let lineStart = 0;
+  const close = (at: number) => {
+    if (open?.kind === "suppressed") suppressed.push([open.start, at]);
+    open = null;
+  };
+  while (lineStart <= body.length) {
+    const nl = body.indexOf("\n", lineStart);
+    const lineEnd = nl < 0 ? body.length : nl;
+    const line = body.slice(lineStart, lineEnd);
+    if (FENCE_RE.test(line)) {
+      inFence = !inFence;
+    } else if (!inFence) {
+      const heading = HEADING_RE.exec(line);
+      if (heading && open !== null && heading[1]!.length <= open.level) close(lineStart);
+      if (heading && open === null) {
+        const att = ATTENDANCE_HEADING_RE.exec(line);
+        const sup = att ? null : PRIOR_SUPPRESSED_HEADING_RE.exec(line);
+        if (att) open = { kind: "attendance", level: att[1]!.length, start: lineEnd };
+        else if (sup) open = { kind: "suppressed", level: sup[1]!.length, start: lineEnd };
+      } else if (!heading) {
+        if (open?.kind === "attendance") {
+          const bullet = /^[ \t]*(?:[-*+][ \t]+)?/.exec(line)![0].length;
+          const run = leadingLinkRun(body, lineStart + bullet, lineEnd);
+          if (run) attendance.push(run);
+        } else if (open === null) {
+          const label = ATTENDANCE_LINE_RE.exec(line);
+          const run = label ? leadingLinkRun(body, lineStart + label[0].length, lineEnd) : null;
+          if (run) attendance.push(run);
+        }
+      }
+    }
+    if (nl < 0) break;
+    lineStart = nl + 1;
+  }
+  close(body.length);
+  const ranges = { attendance, suppressed };
+  rangeCache = { body, ranges };
+  return ranges;
+}
+
+function inRanges(ranges: readonly Range[], index: number): boolean {
+  return ranges.some(([start, end]) => index >= start && index < end);
+}
+
+/** Offsets of every `[[surface]]` / `[[surface|alias]]` / `[[surface#anchor]]` in the body. */
+function wikilinkOffsets(body: string, surface: string): number[] {
+  const escaped = surface.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`\\[\\[[ \\t]*${escaped}[ \\t]*(?:#[^\\]\\n|]*)?(?:\\|[^\\]\\n]*)?\\]\\]`, "g");
+  const out: number[] = [];
+  for (let m = re.exec(body); m !== null; m = re.exec(body)) out.push(m.index);
+  return out;
+}
+
+/** True when the body mentions the target and every mention sits in a
+ *  prior-suppressed list section. Unknown surface → false (prior applies). */
+function onlyInSuppressedSections(body: string, surface: string | undefined): boolean {
+  if (surface === undefined) return false;
+  const offsets = wikilinkOffsets(body, surface);
+  if (offsets.length === 0) return false;
+  const { suppressed } = sectionRanges(body);
+  return offsets.every((i) => inRanges(suppressed, i));
+}
+
+/**
+ * Whether a meeting-page target can be an attendee: a `people/` page, or a flat
+ * slug with no directory. `companies/…`, `projects/…` and the like never attend.
+ */
+function personLikeTarget(targetSlug: string | undefined): boolean {
+  if (targetSlug === undefined) return true;
+  const dirs = targetSlug.split("/").slice(0, -1);
+  return dirs.length === 0 || dirs.includes("people");
 }
 
 /**

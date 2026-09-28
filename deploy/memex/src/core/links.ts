@@ -120,6 +120,10 @@ export function slugifyTarget(name: string): string {
   const unicode = name
     .toLowerCase()
     .normalize("NFKC")
+    // Variation selectors (emoji VS15/VS16, ideographic IVS) are \p{M} and
+    // would survive the keep-class below, so `東京` with and without U+FE0F forked into two
+    // slugs. The ASCII pass above already drops them.
+    .replace(/\p{Variation_Selector}/gu, "")
     .replace(/\s+/g, "-")
     .replace(/[^\p{Ll}\p{Lm}\p{Lo}\p{M}\p{N}/-]/gu, "")
     .replace(/-+/g, "-")
@@ -926,7 +930,7 @@ export async function syncVerbLinksForPage(
     const r = await resolver.resolve(surface);
     if (r.slug === "unknown" || r.slug === sourceSlug) continue;
     if (byTarget.has(r.slug)) continue;
-    const t = inferLinkType(pageType, edgeContextWindow(body, surface), body, r.slug);
+    const t = inferLinkType(pageType, edgeContextWindow(body, surface), body, r.slug, surface);
     if (t === "mentions") continue; // no typed upgrade — the wikilink edge already covers it
     byTarget.set(r.slug, t);
   }

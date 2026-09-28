@@ -29,8 +29,8 @@ describe("inferLinkType — per-edge verbs", () => {
     expect(inferLinkType("person", "had lunch near the office downtown")).toBe("mentions");
   });
 
-  it("special-cases meeting → attended and media → mentions", () => {
-    expect(inferLinkType("meeting", "anything")).toBe("attended");
+  it("meeting without attendance evidence → mentions; media → mentions", () => {
+    expect(inferLinkType("meeting", "anything")).toBe("mentions");
     expect(inferLinkType("media", "co-founded and invested in")).toBe("mentions");
   });
 });
@@ -80,5 +80,70 @@ describe("linkVerbInferEnabled", () => {
       if (prev === undefined) delete process.env["MEMEX_LINK_VERB_INFER"];
       else process.env["MEMEX_LINK_VERB_INFER"] = prev;
     }
+  });
+});
+
+describe("inferLinkType — meeting attendance", () => {
+  const meeting = (body: string, surface: string, target: string) =>
+    inferLinkType("meeting", edgeContextWindow(body, surface), body, target, surface);
+
+  it("an Attendees section yields attended; a person mentioned in the notes does not", () => {
+    const body = [
+      "# Sync",
+      "## Attendees",
+      "- [[people/alice]]",
+      "- [[people/bob|Bob]] (CEO), [[people/zed]]",
+      "## Notes",
+      "We talked about [[people/carol]]'s proposal.",
+    ].join("\n");
+    expect(meeting(body, "people/alice", "people/alice")).toBe("attended");
+    expect(meeting(body, "people/bob", "people/bob")).toBe("attended");
+    // after the (CEO) aside the run stops — an aside is not an attendee list
+    expect(meeting(body, "people/zed", "people/zed")).toBe("mentions");
+    expect(meeting(body, "people/carol", "people/carol")).toBe("mentions");
+  });
+
+  it("a Participants heading and an inline Attendees: line count", () => {
+    const body = "### Participants\n[[dana]], [[eve]]\n## Notes\n**Attendees:** [[frank]] & [[gina]]\nLater [[hank]] joined the thread.";
+    for (const s of ["dana", "eve", "frank", "gina"]) expect(meeting(body, s, s)).toBe("attended");
+    expect(meeting(body, "hank", "hank")).toBe("mentions");
+  });
+
+  it("a later attendee listing counts even when the first mention is prose", () => {
+    const body = "Recap of [[people/alice]]'s talk.\n\n## Attendees\n- [[people/alice]]";
+    expect(meeting(body, "people/alice", "people/alice")).toBe("attended");
+  });
+
+  it("a non-person target in the attendee list stays mentions", () => {
+    const body = "## Attendees\n- [[companies/acme]]\n- [[people/alice]]";
+    expect(meeting(body, "companies/acme", "companies/acme")).toBe("mentions");
+  });
+
+  it("the attendee section ends at the next same-level heading and ignores fenced code", () => {
+    const body = "## Attendees\n- [[people/alice]]\n## Action items\n- [[people/bob]]\n```\n## Attendees\n- [[people/carol]]\n```";
+    expect(meeting(body, "people/bob", "people/bob")).toBe("mentions");
+    expect(meeting(body, "people/carol", "people/carol")).toBe("mentions");
+  });
+});
+
+describe("inferLinkType — role prior skips list sections", () => {
+  const target = "companies/acme";
+  const bio = "She is a venture partner at the fund.\n";
+
+  it("a company named only in a Timeline / See also list gets no prior", () => {
+    const body = `${bio}\n## Timeline\n- 2024: visited [[companies/acme]]\n`;
+    expect(inferLinkType("person", "visited [[companies/acme]]", body, target, target)).toBe("mentions");
+    const seeAlso = `${bio}\n## See also\n- [[companies/acme]]\n`;
+    expect(inferLinkType("person", "[[companies/acme]]", seeAlso, target, target)).toBe("mentions");
+  });
+
+  it("a company also named in the prose keeps the prior", () => {
+    const body = `${bio}Portfolio includes [[companies/acme]] among others.\n\n## Timeline\n- [[companies/acme]]\n`;
+    expect(inferLinkType("person", "among [[companies/acme]]", body, target, target)).toBe("invested_in");
+  });
+
+  it("an explicit verb inside a list section still wins", () => {
+    const body = `${bio}\n## Timeline\n- 2019: co-founded [[companies/acme]]\n`;
+    expect(inferLinkType("person", "co-founded [[companies/acme]]", body, target, target)).toBe("founded");
   });
 });

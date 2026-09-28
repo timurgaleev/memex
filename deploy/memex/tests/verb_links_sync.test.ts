@@ -78,4 +78,27 @@ describe("syncVerbLinksForPage", () => {
     expect(second.added).toBe(1);
     expect((await edges()).filter((e) => e.link_kind === "verb_ner")).toHaveLength(1);
   });
+
+  it("types a meeting attendee as attended only from the attendance section", async () => {
+    await putPage(storage, { slug: "meetings/kickoff", type: "meeting" });
+    await putPage(storage, { slug: "people/bob", type: "person" });
+    await putPage(storage, { slug: "people/zed", type: "person" });
+    const body = "## Attendees\n- [[people/bob]] (CEO), [[people/zed]]\n\n## Notes\nWe discussed [[people/alice]].";
+    await syncVerbLinksForPage(storage, "meetings/kickoff", "meeting", body);
+    const r = await storage.engine().query<{ target_slug: string; type: string }>(
+      "SELECT target_slug, type FROM links WHERE source_slug = 'meetings/kickoff' AND link_kind = 'verb_ner' ORDER BY target_slug",
+    );
+    expect(r.rows).toEqual([{ target_slug: "people/bob", type: "attended" }]);
+  });
+
+  it("does not fire the person role prior for a company named only under Timeline", async () => {
+    const role = "Alice spends her days as a seed investor.\n\n";
+    const listed = await syncVerbLinksForPage(storage, "people/alice", "person", `${role}## Timeline\n- 2024-01-02 | [[companies/acme]] raised a round`);
+    expect(listed.added).toBe(0);
+    expect(await edges()).toEqual([]);
+    // The same mention in prose still takes the prior.
+    const prose = await syncVerbLinksForPage(storage, "people/alice", "person", `${role}## Notes\nShe met [[companies/acme]] last week.`);
+    expect(prose.added).toBe(1);
+    expect(await edges()).toEqual([{ type: "invested_in", link_kind: "verb_ner" }]);
+  });
 });
