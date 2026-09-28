@@ -87,14 +87,32 @@ function clientAuthFromRequest(
       );
       const idx = decoded.indexOf(":");
       if (idx > -1) {
-        clientId = clientId ?? decodeURIComponent(decoded.slice(0, idx));
-        clientSecret = decodeURIComponent(decoded.slice(idx + 1));
+        // RFC 6749 §2.3.1: both halves are form-urlencoded, so '+' is a space.
+        clientId = clientId ?? decodeURIComponent(decoded.slice(0, idx).replace(/\+/g, " "));
+        clientSecret = decodeURIComponent(decoded.slice(idx + 1).replace(/\+/g, " "));
       }
     } catch {
       // Malformed Basic header — treated as no credentials (public path).
     }
   }
   return { clientId, clientSecret };
+}
+
+/**
+ * The audience a request names with `resource` (RFC 8707): undefined when it
+ * names none, null when any value is not this server. Every value is judged, so
+ * a foreign one cannot ride behind a valid first one. An empty value still
+ * reads as absent.
+ */
+function requestedResource(values: string[], issuer: string): URL | undefined | null {
+  let resource: URL | undefined;
+  for (const value of values) {
+    if (!value) continue;
+    const canonical = canonicalResource(value, issuer);
+    if (canonical === null) return null;
+    resource = new URL(canonical);
+  }
+  return resource;
 }
 
 /**
@@ -176,6 +194,11 @@ export async function handleTokenRoute(
         401,
       );
     }
+    // RFC 8707 applies to every grant. The token stays unbound either way, so
+    // a caller that names no resource is unchanged.
+    if (requestedResource(params.getAll("resource"), issuer) === null) {
+      return oauthError("invalid_target", "resource is not served by this server", 400);
+    }
     try {
       const tokens = await provider.exchangeClientCredentials(
         clientId,
@@ -211,20 +234,22 @@ export async function handleTokenRoute(
 
     // RFC 8707: a resource this server does not serve is refused before any
     // code or refresh token is looked at, let alone consumed.
-    const resourceParam = params.get("resource");
-    let resource: URL | undefined;
-    if (resourceParam) {
-      const canonical = canonicalResource(resourceParam, issuer);
-      if (canonical === null) {
-        return oauthError("invalid_target", "resource is not served by this server", 400);
-      }
-      resource = new URL(canonical);
+    const requested = requestedResource(params.getAll("resource"), issuer);
+    if (requested === null) {
+      return oauthError("invalid_target", "resource is not served by this server", 400);
     }
+    const resource = requested;
     /** A stored resource that is not the one this request names. */
     const conflicts = (stored: string | null): boolean =>
       resource !== undefined &&
       stored !== null &&
       canonicalResource(stored, issuer) !== resource.toString();
+    /**
+     * A stored resource this server does not serve. The row would only mint
+     * tokens /mcp refuses, so it is refused here, before it is consumed.
+     */
+    const foreign = (stored: string | null): boolean =>
+      stored !== null && canonicalResource(stored, issuer) === null;
 
     try {
       if (grantType === "authorization_code") {
@@ -250,8 +275,12 @@ export async function handleTokenRoute(
         if (!verifyPkceS256(codeVerifier, challenge)) {
           return oauthError("invalid_grant", "PKCE verification failed", 400);
         }
-        if (conflicts(await provider.resourceForAuthorizationCode(client, code))) {
+        const codeResource = await provider.resourceForAuthorizationCode(client, code);
+        if (conflicts(codeResource)) {
           return oauthError("invalid_target", "resource does not match the authorization", 400);
+        }
+        if (foreign(codeResource)) {
+          return oauthError("invalid_grant", "the authorization is bound to a resource this server does not serve", 400);
         }
         const tokens = await provider.exchangeAuthorizationCode(
           client,
@@ -275,8 +304,12 @@ export async function handleTokenRoute(
           400,
         );
       }
-      if (conflicts(await provider.resourceForRefreshToken(client, refreshToken))) {
+      const refreshResource = await provider.resourceForRefreshToken(client, refreshToken);
+      if (conflicts(refreshResource)) {
         return oauthError("invalid_target", "resource does not match the refresh token", 400);
+      }
+      if (foreign(refreshResource)) {
+        return oauthError("invalid_grant", "the refresh token is bound to a resource this server does not serve", 400);
       }
       const scopeParam = params.get("scope");
       const scopes = scopeParam ? parseScopeString(scopeParam) : undefined;
@@ -431,20 +464,15 @@ export async function handleAuthorizeRoute(
   const scopeParam = q.get("scope");
   // RFC 8707 §2: a resource this server does not serve is `invalid_target`.
   // Either spelling of this server is stored as the one canonical audience.
-  const resourceParam = q.get("resource");
-  let resource: URL | undefined;
-  if (resourceParam) {
-    const canonical = canonicalResource(resourceParam, issuer);
-    if (canonical === null) {
-      return errorRedirect(
-        redirectUri,
-        issuer,
-        "invalid_target",
-        state,
-        "resource is not served by this server",
-      );
-    }
-    resource = new URL(canonical);
+  const resource = requestedResource(q.getAll("resource"), issuer);
+  if (resource === null) {
+    return errorRedirect(
+      redirectUri,
+      issuer,
+      "invalid_target",
+      state,
+      "resource is not served by this server",
+    );
   }
 
   const authorizeParams = {

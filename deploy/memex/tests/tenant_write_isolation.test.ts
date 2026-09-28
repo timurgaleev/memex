@@ -19,7 +19,7 @@
  * cross-tenant call is the attack); tags/links/facts prove the scope filter on
  * a row that DOES exist under the other source.
  */
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,6 +38,7 @@ import { recallFact, forgetFact } from "../src/core/facts-recall.ts";
 import { purgeDeletedPages } from "../src/core/pages-purge.ts";
 import { registerSource } from "../src/core/sources.ts";
 import { indexDocument } from "../src/core/indexer.ts";
+import * as embedding from "../src/core/embedding.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
@@ -486,5 +487,36 @@ describe("index `path` form is operator-only", () => {
     const text = JSON.stringify(res.content);
     expect(text).not.toMatch(/internal-only/);
     expect(text).toMatch(/outside the configured/);
+  });
+});
+
+describe("inline index strips gate-owned markers from every token holder", () => {
+  it("a token with no write source cannot plant embed_skip", async () => {
+    const embed = spyOn(embedding, "embedText").mockImplementation(async () => new Array(1024).fill(0.1));
+    try {
+      const unscoped: AuthInfo = {
+        token: "tok-unscoped",
+        clientId: "client-unscoped",
+        scopes: ["read", "write"],
+        isPublic: false,
+      };
+      const res = await dispatchTool(
+        storage,
+        {
+          name: "index",
+          arguments: { sourcePath: "notes/planted.md", text: "---\nembed_skip: true\n---\n\nkept out of the vector arm\n" },
+        },
+        { authInfo: unscoped },
+      );
+      expect(res.isError).toBeFalsy();
+      const row = await storage.engine().query<{ frontmatter: Record<string, unknown> }>(
+        "SELECT frontmatter FROM documents WHERE source_path = $1",
+        ["notes/planted.md"],
+      );
+      expect(row.rows[0]!.frontmatter).not.toHaveProperty("embed_skip");
+      expect(embed).toHaveBeenCalled();
+    } finally {
+      embed.mockRestore();
+    }
   });
 });

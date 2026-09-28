@@ -21,6 +21,7 @@ import {
   phaseCheckpoint,
   phaseFenceCheck,
   PhaseStoppedError,
+  runInPhaseContext,
 } from "../src/core/cycle/phase-context.ts";
 import { NOOP_PROGRESS } from "../src/core/output/progress.ts";
 
@@ -175,9 +176,9 @@ describe("cycle phases stop when their run no longer owns them", () => {
 
   it("isHeld tracks the tenure, not just the pid", async () => {
     const lock = (await tryAcquireDbLock(engine, CYCLE_LOCK_ID, 5))!;
-    expect(await lock.isHeld!()).toBe(true);
+    expect(await lock.isHeld()).toBe(true);
     await stealLock(engine);
-    expect(await lock.isHeld!()).toBe(false);
+    expect(await lock.isHeld()).toBe(false);
   });
 });
 
@@ -186,6 +187,20 @@ describe("phase checkpoints outside a phase", () => {
     phaseCheckpoint();
     await phaseFenceCheck();
     expect(new PhaseStoppedError("x").message).toBe("phase stopped: x");
+  });
+});
+
+describe("a fence query that throws", () => {
+  it("stops the phase as fence_error instead of surfacing the raw error", async () => {
+    const ctx = {
+      signal: new AbortController().signal,
+      fence: () => Promise.reject(new Error("connection reset")),
+    };
+    const err = await quiet(() =>
+      runInPhaseContext(ctx, () => phaseFenceCheck().then(() => null, (e: unknown) => e)),
+    );
+    expect(err).toBeInstanceOf(PhaseStoppedError);
+    expect((err as PhaseStoppedError).reason).toBe("fence_error");
   });
 });
 

@@ -43,6 +43,8 @@ export async function resolveSymbolEdgesPhase(
   );
 
   for (const { document_id } of docs.rows) {
+    // Fenced once per document, not per edge: a steal mid-document lets that
+    // document's remaining edge writes land, and those writes are idempotent.
     await phaseFenceCheck();
     result.documents++;
     try {

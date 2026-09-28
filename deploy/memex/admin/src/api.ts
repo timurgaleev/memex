@@ -44,8 +44,11 @@ export const api = {
     apiFetch("/admin/api/rescope-client", { method: "POST", body: JSON.stringify({ client_id, source, ...(read ? { read } : {}) }) }),
   revokeClient: (client_id: string) =>
     apiFetch("/admin/api/revoke-client", { method: "POST", body: JSON.stringify({ client_id }) }),
-  setRedirectUris: (client_id: string, redirect_uris: string[]) =>
-    apiFetch("/admin/api/set-redirect-uris", { method: "POST", body: JSON.stringify({ client_id, redirect_uris }) }),
+  setRedirectUris: (client_id: string, redirect_uris: string[], expected_revision?: number) =>
+    apiFetch("/admin/api/set-redirect-uris", {
+      method: "POST",
+      body: JSON.stringify({ client_id, redirect_uris, ...(expected_revision !== undefined ? { expected_revision } : {}) }),
+    }),
   enrollments: (client_id: string) =>
     apiFetch(`/admin/api/enrollments?client_id=${encodeURIComponent(client_id)}`),
   issueEnrollment: (payload: Record<string, unknown>) =>

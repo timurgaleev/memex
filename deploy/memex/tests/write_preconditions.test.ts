@@ -339,6 +339,32 @@ describe("request_id", () => {
     expect((await getPage(storage, "notes/log"))!.markdown_body).toBe("start\nx");
   });
 
+  it("a stale holder that fails later leaves the claim that took it over alone", async () => {
+    const { claimWriteRequest, recordWriteRequest, releaseWriteRequest } = await import("../src/core/write-requests.ts");
+    const base = { principal: "operator", tool: "page_append", requestId: "slow" };
+    const first = await claimWriteRequest(storage.engine(), base, "h");
+    if (first.kind !== "claimed") throw new Error("expected a claim");
+    await storage.engine().query("UPDATE write_requests SET created_at = NOW() - INTERVAL '1 hour' WHERE request_id = 'slow'");
+    const staleKey = { ...base, claimedAt: (await storage.engine().query<{ t: string }>(
+      "SELECT created_at::text AS t FROM write_requests WHERE request_id = 'slow'",
+    )).rows[0]!.t };
+    const second = await claimWriteRequest(storage.engine(), base, "h");
+    if (second.kind !== "claimed") throw new Error("expected a takeover");
+    const liveKey = { ...base, claimedAt: second.claimedAt };
+
+    // The first call finally fails: its release must not drop the live claim,
+    // and it can no longer stamp a receipt either.
+    await releaseWriteRequest(storage.engine(), staleKey);
+    await expect(
+      storage.engine().transaction(async (tx) => recordWriteRequest(tx, staleKey, { ok: true })),
+    ).rejects.toThrow(/lost its claim/);
+    await storage.engine().transaction(async (tx) => recordWriteRequest(tx, liveKey, { ok: true, n: 2 }));
+    const row = await storage.engine().query<{ result: Record<string, unknown> }>(
+      "SELECT result FROM write_requests WHERE request_id = 'slow'",
+    );
+    expect(row.rows[0]!.result).toEqual({ ok: true, n: 2 });
+  });
+
   it("rejects an over-long id", async () => {
     await putPage(storage, { slug: "notes/log", markdown_body: "start" });
     const r = payload(await call("page_append", { slug: "notes/log", content: "x", request_id: "r".repeat(129) }));

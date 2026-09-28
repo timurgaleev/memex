@@ -205,13 +205,14 @@ export async function runChronicleExtract(
   const modelId = resolveFactsModel(opts.modelId);
   const cap = opts.maxBudgetUsd ?? perRunBudgetUsd();
   const budget = new BudgetTracker(cap, "chronicle-extract");
-  if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+  const hold = budget.reserve(modelId, WORST_CASE_USAGE);
+  if (hold === null) {
     return { slug: opts.slug, status: "skipped", events_written: 0, reason: "budget_exhausted" };
   }
 
   const judge =
     opts.judge ??
-    defaultJudge(opts.sonnetFn, modelId, (projected) => !budget.wouldExceed(modelId, projected));
+    defaultJudge(opts.sonnetFn, modelId, (projected) => budget.widen(hold, modelId, projected));
   let result: ChronicleJudgeResult;
   try {
     result = await judge({
@@ -223,6 +224,7 @@ export async function runChronicleExtract(
       attendees,
     });
   } catch (err) {
+    budget.release(hold);
     // Transient gateway errors propagate so the queue retries with backoff; a
     // permanent judge failure lands the job DONE with zero events.
     if (isTransientJudgeError(err)) throw err;
@@ -232,11 +234,13 @@ export async function runChronicleExtract(
   // Price the (already-paid) call. A stub judge omits usage → nothing to record.
   if (result.usage) {
     try {
-      budget.record(result.modelId ?? modelId, result.usage);
+      budget.settle(hold, result.modelId ?? modelId, result.usage);
     } catch (e) {
       if (!(e instanceof BudgetExhausted)) throw e;
       // Over budget after the call — still persist what we got.
     }
+  } else {
+    budget.release(hold);
   }
 
   // A judge whose array was still cut off after the larger-cap retry (or whose

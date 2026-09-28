@@ -172,11 +172,13 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
         federated_read: string[] | null;
         redirect_uris: string[] | null;
         tenant_mode: string | null;
+        grant_revision: number;
         status: string;
         created_at: string;
       }>(
         `SELECT client_id AS id, client_name AS name, grant_types, scope,
                 token_ttl, source_id, federated_read, redirect_uris, tenant_mode,
+                grant_revision::int AS grant_revision,
                 CASE WHEN deleted_at IS NOT NULL THEN 'revoked' ELSE 'active' END AS status,
                 created_at::text AS created_at
            FROM oauth_clients
@@ -210,6 +212,7 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
             federated_read: null,
             redirect_uris: null,
             tenant_mode: null,
+            grant_revision: null,
             status: k.status,
             created_at: k.created_at,
             usage: { ...u, last_used_at: u.last_used_at ?? k.last_used_at },
@@ -605,7 +608,11 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       });
     } catch (e) {
       if (e instanceof GrantNotFoundError) {
-        return Response.json({ error: "not_found", detail: `no active client "${body.client_id}"` }, { status: 404 });
+        const detail =
+          e.grantId === undefined
+            ? `no active client "${body.client_id}"`
+            : `no enrollment "${e.grantId}" on client "${body.client_id}"`;
+        return Response.json({ error: "not_found", detail }, { status: 404 });
       }
       return serverError("invalidate-tokens", e);
     }

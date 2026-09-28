@@ -24,6 +24,7 @@ interface CredentialRow {
   federated_read: string[] | null;
   redirect_uris: string[] | null;
   tenant_mode: string | null;
+  grant_revision: number | null;
   status: string;
   created_at: string;
   usage: CredentialUsage;
@@ -97,10 +98,11 @@ export function CredentialsSection({ setError }: { setError: (s: string) => void
     const uris = raw.split(",").map((s) => s.trim()).filter(Boolean);
     if (uris.length === 0) return;
     try {
-      await api.setRedirectUris(row.id, uris);
+      await api.setRedirectUris(row.id, uris, row.grant_revision ?? undefined);
       await load();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      const msg = String((e as Error).message ?? e);
+      setError(msg === "grant_conflict" ? `"${row.name}" changed since this page loaded; reload and try again.` : msg);
     }
   };
 

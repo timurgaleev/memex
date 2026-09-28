@@ -50,14 +50,14 @@ const PATTERNS: Array<{ kind: string; regex: RegExp }> = [
   // The lookbehind keeps a start from landing mid-run, so a long `-`/`_` run
   // is scanned once, not once per `eyJ` in it.
   { kind: "jwt", regex: /(?<![\w-])eyJ[\w-]{8,4096}\.[\w-]{2,4096}\.[\w-]{8,4096}/g },
-  { kind: "database-url", regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s:/@"']{0,128}:[^\s@"']{1,256}@/g },
+  { kind: "database-url", regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s:/@"']{0,128}:[^\s"']{1,256}@/g },
   // Last, so a vendor token or JWT after `Bearer` keeps its own kind. Only the
   // token is replaced; the scheme word stays. Anchored on the header name:
   // "Bearer authentication/authorization" is prose, and redacting it would
   // rewrite stored text for good.
   {
     kind: "bearer-token",
-    regex: /(?<=\bAuthorization["']?[ \t]{0,4}[:=][ \t]{0,4}["']?Bearer[ \t]{1,8})[\w.~+/=-]{20,4096}/gi,
+    regex: /(?<=\bAuthorization["']?[ \t]{0,4}[:=][ \t]{0,4}["']?Bearer[ \t]{1,8})[\w.~+/=-]{20,}/gi,
   },
 ];
 

@@ -125,6 +125,7 @@ interface AgentRow {
   name: string;
   scope: string | null;
   token_ttl: number | null;
+  grant_revision: number | null;
   status: string;
   usage: { requests_today: number; total_requests: number; last_used_at: string | null };
 }
@@ -468,6 +469,8 @@ describe("admin-api credential management (authed)", () => {
     const key = body.agents.find((a) => a.auth_type === "api_key" && a.name === "key-d")!;
     expect(oauth.status).toBe("active");
     expect(oauth.token_ttl).toBe(60);
+    expect(oauth.grant_revision).toBe(0);
+    expect(key.grant_revision).toBeNull();
     expect(oauth.usage.total_requests).toBe(2);
     expect(oauth.usage.requests_today).toBe(1);
     expect(key.usage.total_requests).toBe(1);

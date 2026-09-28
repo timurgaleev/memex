@@ -552,7 +552,7 @@ async function dispatchToolInner(
           opts.embedQuery,
         );
       case "index":
-        return await callIndex(storage, args, opts.isPublic ?? false, writeSource, isOperator);
+        return await callIndex(storage, args, writeSource, isOperator);
       case "backlinks":
         return await callBacklinks(storage, args, redact, readSources, remote);
       case "stats":
@@ -863,9 +863,9 @@ async function withWriteRequest(
     );
   }
   const engine = storage.engine();
-  const key: WriteRequestKey = { principal, tool, requestId };
-  const claim = await claimWriteRequest(engine, key, writeRequestArgsHash(args));
+  const claim = await claimWriteRequest(engine, { principal, tool, requestId }, writeRequestArgsHash(args));
   if (claim.kind === "replay") return jsonResult({ ...claim.result, replayed: true });
+  const key: WriteRequestKey = { principal, tool, requestId, claimedAt: claim.claimedAt };
   let result: ToolCallResult;
   try {
     result = await run(key);
@@ -1143,7 +1143,6 @@ async function inlineLabelSquat(
 async function callIndex(
   storage: Storage,
   args: Record<string, unknown>,
-  isPublic = false,
   writeSource?: string,
   isOperator = false,
 ): Promise<ToolCallResult> {
@@ -1198,9 +1197,10 @@ async function callIndex(
     // would mint a local path that no file ever occupied.
     //
     // Trust boundary: the inline `sourcePath`+`text` form is the remote-reachable
-    // ingest. Fail-closed — anything on the public path or carrying a scoped
-    // write source is untrusted, so gate-owned frontmatter markers get stripped.
-    const remote = isPublic || writeSource !== undefined;
+    // ingest. Fail-closed — any caller but the operator is untrusted, token
+    // holders without a write source included, so gate-owned frontmatter
+    // markers get stripped.
+    const remote = !isOperator;
     const r = await indexDocument(
       storage,
       { sourcePath, text, ...(writeSource ? { sourceId: writeSource } : {}) },

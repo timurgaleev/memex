@@ -39,7 +39,7 @@ export interface DbLockHandle {
    * acquired_at). Work under the lock calls it before a write to shared state,
    * so a holder whose lock was taken stops before overlapping the new one.
    */
-  isHeld?: () => Promise<boolean>;
+  isHeld: () => Promise<boolean>;
 }
 
 /** Lock id for the broad cycle lock — serializes a single cycle invocation. */

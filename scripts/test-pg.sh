@@ -42,7 +42,10 @@ cleanup() {
   fi
   exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# A signal only sets the status; the EXIT trap cleans up once, with it.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 log() { echo "[test-pg] $*"; }
 die() { echo "[test-pg] $*" >&2; exit 1; }

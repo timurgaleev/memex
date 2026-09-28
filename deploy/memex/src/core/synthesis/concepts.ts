@@ -156,7 +156,7 @@ export async function synthesizeConceptsPhase(
   const budget = opts.budget ?? new BudgetTracker(conceptsBudgetUsd(), "synthesize-concepts");
   const budgetModel = resolveModel("utility", opts.modelId, "concepts");
   // One BudgetExhausted stops every later paid call. Without this an unpriced
-  // model throws on record without adding to spend, so wouldExceed stays false
+  // model throws on settle without adding to spend, so reserve keeps passing
   // and the phase repeats the same unpriced call up to maxConcepts.
   let paidCallsStopped = false;
   // The call runs on the same model the budget prices.
@@ -216,7 +216,8 @@ export async function synthesizeConceptsPhase(
         `Atom titles:\n${group.titles.slice(0, 10).map((t) => `- ${t}`).join("\n")}\n\n` +
         `Atom bodies:\n${group.bodies.slice(0, 5).map((b, i) => `${i + 1}. ${b.slice(0, 500)}`).join("\n\n")}`;
       const est = estimateUsage(user);
-      if (budget.wouldExceed(budgetModel, est)) {
+      const hold = budget.reserve(budgetModel, est);
+      if (hold === null) {
         // No room for this call — and no room for any later one either, since
         // spend only grows. Stop paying; the rest keep their deterministic text.
         result.budgetHit = true;
@@ -239,7 +240,7 @@ export async function synthesizeConceptsPhase(
           // A gateway that reports no usage still cost money: charge the
           // estimate rather than nothing.
           try {
-            budget.record(resp.modelId, resp.usage ?? est);
+            budget.settle(hold, resp.modelId, resp.usage ?? est);
           } catch (be) {
             // Cap reached, or the model has no pricing. Either way this run must
             // stop paying — an unpriced model adds nothing to `spent`, so
@@ -251,6 +252,7 @@ export async function synthesizeConceptsPhase(
             );
           }
         } catch (e) {
+          budget.release(hold);
           // Fail-open: keep the deterministic narrative.
           result.errors.push(`${group.slug}: ${e instanceof Error ? e.message : String(e)}`);
         }

@@ -174,6 +174,7 @@ describe("startLockHeartbeat — transient refresh errors", () => {
         calls++;
         throw new Error("connection reset");
       },
+      isHeld: async () => true,
     };
     const origError = console.error;
     console.error = () => {};

@@ -218,7 +218,7 @@ export const MAX_REQUEST_ID_LEN = 128;
 const expectedVersionParam = int({
   minimum: 0,
   description:
-    "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write.",
+    "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. A deleted page keeps its version counter, so to write over one pass the current_version a 0 attempt reports. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write.",
 });
 const forceParam = bool({
   description:

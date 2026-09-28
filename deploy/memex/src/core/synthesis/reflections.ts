@@ -265,8 +265,9 @@ export async function reflectionsPhase(
   const maxTokens = REFLECTIONS_MAX_TOKENS;
 
   const prompt = buildPrompt(transcripts);
-  // Budget preflight — skip the call entirely when the cap leaves no room.
-  if (budget.wouldExceed(model, estimateUsage(prompt.length, maxTokens))) {
+  // Budget preflight — hold the estimate, or skip the call when the cap leaves no room.
+  const hold = budget.reserve(model, estimateUsage(prompt.length, maxTokens));
+  if (hold === null) {
     return { ...base, reason: "budget exhausted before reflecting", budgetExhausted: true };
   }
 
@@ -282,11 +283,11 @@ export async function reflectionsPhase(
           maxTokens: cap,
           temperature: 0,
         }),
-      (projected) => !budget.wouldExceed(model, projected),
+      (projected) => budget.widen(hold, model, projected),
     );
     const resp = call.resp;
     try {
-      budget.record(resp.modelId, call.usage);
+      budget.settle(hold, resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) base.budgetExhausted = true;
       else throw e;
@@ -295,6 +296,7 @@ export async function reflectionsPhase(
     const validSlugs = new Set(transcripts.map((t) => t.slug));
     drafts = parseReflections(resp.text, validSlugs);
   } catch (e) {
+    budget.release(hold);
     return { ...base, ran: true, spentUsd: budget.totalSpent(), errors: [String(e instanceof Error ? e.message : e)] };
   }
 

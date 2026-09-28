@@ -744,6 +744,25 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     ).rejects.toThrow();
   });
 
+  it("client_secret_basic credentials are form-urlencoded: '+' is a space", async () => {
+    const secret = "a secret+with%20spaces";
+    await storage.raw().query("UPDATE oauth_clients SET client_secret_hash = $1 WHERE client_id = $2", [
+      createHash("sha256").update(secret, "utf8").digest("hex"),
+      confClientId,
+    ]);
+    const basic = (encodedSecret: string) =>
+      fetch(`${url}/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${Buffer.from(`${confClientId}:${encodedSecret}`).toString("base64")}`,
+        },
+        body: new URLSearchParams({ grant_type: "client_credentials" }),
+      });
+    expect((await basic("a+secret%2Bwith%2520spaces")).status).toBe(200);
+    expect((await basic("a%20secret%2Bwith%2520spaces")).status).toBe(200);
+  });
+
   it("revoke requires client authentication", async () => {
     const tok = (await (
       await tokenForm({
@@ -924,10 +943,65 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       const bad = await exchange(code, verifier, `${url}/mcp`);
       expect(bad.status).toBe(400);
       expect(((await bad.json()) as { error: string }).error).toBe("invalid_target");
-      const ok = await exchange(code, verifier);
+      // Naming no resource does not redeem it either: /mcp would refuse every
+      // token bound to another server's audience.
+      const unnamed = await exchange(code, verifier);
+      expect(unnamed.status).toBe(400);
+      expect(((await unnamed.json()) as { error: string }).error).toBe("invalid_grant");
+      const left = await storage.raw().query("SELECT 1 FROM oauth_codes WHERE code_hash = $1", [sha(code)]);
+      expect(left.rows.length).toBe(1);
+    });
+
+    it("judges every resource value, not just the first", async () => {
+      const { challenge } = pkce();
+      const q = new URLSearchParams({
+        response_type: "code",
+        client_id: webClientId,
+        redirect_uri: REDIRECT,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      });
+      q.append("resource", `${url}/mcp`);
+      q.append("resource", "https://evil.example/mcp");
+      const res = await fetch(`${url}/authorize?${q}`, { redirect: "manual" });
+      expect(new URL(res.headers.get("location")!).searchParams.get("error")).toBe("invalid_target");
+
+      const { code, verifier } = await codeFor(`${url}/mcp`);
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: webClientId,
+        client_secret: webClientSecret,
+        code,
+        redirect_uri: REDIRECT,
+        code_verifier: verifier,
+      });
+      body.append("resource", `${url}/mcp`);
+      body.append("resource", "https://evil.example/mcp");
+      const bad = await fetch(`${url}/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      expect(((await bad.json()) as { error: string }).error).toBe("invalid_target");
+      expect((await exchange(code, verifier, `${url}/mcp`)).status).toBe(200);
+    });
+
+    it("client_credentials refuses a foreign resource and stays unbound without one", async () => {
+      const cc = (resource?: string) =>
+        tokenForm({
+          grant_type: "client_credentials",
+          client_id: confClientId,
+          client_secret: confClientSecret,
+          ...(resource !== undefined ? { resource } : {}),
+        });
+      const bad = await cc("https://evil.example/mcp");
+      expect(bad.status).toBe(400);
+      expect(((await bad.json()) as { error: string }).error).toBe("invalid_target");
+      const ok = await cc();
       expect(ok.status).toBe(200);
-      const pair = (await ok.json()) as { access_token: string };
-      expect(await storedResource(pair.access_token)).toBe("https://old.example/mcp");
+      const tok = (await ok.json()) as { access_token: string };
+      expect(await storedResource(tok.access_token)).toBeNull();
+      expect((await cc(`${url}/mcp`)).status).toBe(200);
     });
 
     it("refresh refuses a mismatched resource without burning the refresh token", async () => {
@@ -943,6 +1017,13 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       const mismatched = await refresh(pair.refresh_token, url);
       expect(mismatched.status).toBe(400);
       expect(((await mismatched.json()) as { error: string }).error).toBe("invalid_target");
+      const unnamed = await refresh(pair.refresh_token);
+      expect(unnamed.status).toBe(400);
+      expect(((await unnamed.json()) as { error: string }).error).toBe("invalid_grant");
+      await storage.raw().query("UPDATE oauth_tokens SET resource = $1 WHERE token_hash = $2", [
+        `${url}/mcp`,
+        sha(pair.refresh_token),
+      ]);
       expect((await refresh(pair.refresh_token)).status).toBe(200);
     });
   });

@@ -11,6 +11,10 @@
  * whose lock was taken stops before its next write instead of overlapping the
  * new holder's run.
  *
+ * The fence is best-effort per unit of work (a document, a row), not per
+ * statement: a steal between the check and the unit's last write lets that
+ * unit finish, which the phases keep safe by writing idempotently.
+ *
  * Outside a phase (a direct call from a command or a test) both are no-ops.
  * Both throw PhaseStoppedError; a loop that catches per-item errors must call
  * them OUTSIDE its try block, or the stop is recorded as an item error and the
@@ -55,12 +59,21 @@ export function phaseCheckpoint(): void {
 /**
  * phaseCheckpoint, then a check that the cycle lock still carries the tenure
  * this run acquired. Call it before each write to shared state. A lost lock
- * throws `lock_stolen`; the fence itself stops the rest of the run.
+ * throws `lock_stolen`; the fence itself stops the rest of the run. A fence
+ * query that fails throws `fence_error`: ownership is unknown, so the phase
+ * stops rather than record the failure as one item's error and write on.
  */
 export async function phaseFenceCheck(): Promise<void> {
   phaseCheckpoint();
   const ctx = _phase.getStore();
   if (!ctx?.fence) return;
-  if (!(await ctx.fence())) throw new PhaseStoppedError("lock_stolen");
+  let held: boolean;
+  try {
+    held = await ctx.fence();
+  } catch (e) {
+    console.error(`[cycle] fence check failed: ${e instanceof Error ? e.message : String(e)}`);
+    throw new PhaseStoppedError("fence_error");
+  }
+  if (!held) throw new PhaseStoppedError("lock_stolen");
   phaseCheckpoint();
 }

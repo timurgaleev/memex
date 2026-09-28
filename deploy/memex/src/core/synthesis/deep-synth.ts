@@ -22,7 +22,7 @@ import type { Storage } from "../storage.ts";
 import type { SearchHit } from "../search/hybrid.ts";
 import { resolveSonnetFn, type SonnetFn, type SonnetUsage } from "../llm/sonnet.ts";
 import { resolveModel } from "../llm/resolve-model.ts";
-import { BudgetTracker, BudgetExhausted } from "../budget.ts";
+import { BudgetTracker, BudgetExhausted, type BudgetHold } from "../budget.ts";
 import { runThink, type ThinkSynthesis } from "./think.ts";
 import { listConcepts } from "./reads.ts";
 
@@ -127,10 +127,11 @@ async function deriveStandingQuestions(
  * Run one deep-synthesis cadence pass. Default-OFF: a live (paid) run needs
  * MEMEX_DEEP_SYNTH=1; tests inject a sonnetFn, which both bypasses the gate and
  * avoids spend. The phase owns ONE BudgetTracker shared across every question:
- * a `wouldExceed` pre-flight skips a question that can't be afforded, and a
- * recording wrapper around the model seam charges each real call to that shared
- * cap (so runThink stays untouched). Fail-open: a question whose synthesis is
- * empty or whose model call errors is skipped, not thrown.
+ * a `reserve` pre-flight holds each question's estimate (or skips a question
+ * that can't be afforded), and a recording wrapper around the model seam settles
+ * that hold with each real call's usage (so runThink stays untouched).
+ * Fail-open: a question whose synthesis is empty or whose model call errors is
+ * skipped, not thrown.
  */
 export async function runDeepSynthPhase(
   storage: Storage,
@@ -157,14 +158,17 @@ export async function runDeepSynthPhase(
 
   // Recording wrapper: charge each real (paid) call to the SHARED phase budget
   // AFTER it returns, so the cap holds across questions without editing runThink.
+  // The question's first call settles its hold; any further call is recorded.
   // A ceiling hit is captured (not rethrown) so the current synthesis is still
   // returned and the loop stops cleanly on the next iteration.
   let budgetHit = false;
+  let questionHold: BudgetHold | null = null;
   const baseSonnet = resolveSonnetFn(opts.sonnetFn);
   const recordingSonnet: SonnetFn = async (input) => {
     const resp = await baseSonnet(input);
     try {
-      budget.record(resp.modelId, resp.usage);
+      if (questionHold && !questionHold.done) budget.settle(questionHold, resp.modelId, resp.usage);
+      else budget.record(resp.modelId, resp.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) budgetHit = true;
       else throw e;
@@ -179,19 +183,27 @@ export async function runDeepSynthPhase(
   for (const question of questions) {
     if (opts.signal?.aborted) break;
     // Pre-flight: don't dispatch a paid think when the worst-case cost would
-    // breach the shared cap (also stops unpriced models — wouldExceed → true).
-    if (budget.wouldExceed(modelId, estimateUsage(question))) {
+    // breach the shared cap (also stops unpriced models — reserve → null).
+    const hold = budget.reserve(modelId, estimateUsage(question));
+    if (hold === null) {
       budgetExhausted = true;
       break;
     }
+    questionHold = hold;
     questionsAsked += 1;
-    const res = await runThink(storage, {
-      question,
-      sonnetFn: recordingSonnet,
-      modelId,
-      ...(opts.k !== undefined ? { k: opts.k } : {}),
-      ...(opts.pagesFn ? { pagesFn: opts.pagesFn } : {}),
-    });
+    let res: Awaited<ReturnType<typeof runThink>>;
+    try {
+      res = await runThink(storage, {
+        question,
+        sonnetFn: recordingSonnet,
+        modelId,
+        ...(opts.k !== undefined ? { k: opts.k } : {}),
+        ...(opts.pagesFn ? { pagesFn: opts.pagesFn } : {}),
+      });
+    } finally {
+      // A question whose call failed before costing gives its hold back.
+      budget.release(hold);
+    }
     if (res.synthesis) {
       syntheses.push({
         question,

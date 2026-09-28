@@ -188,6 +188,13 @@ describe("what each caller sees", () => {
   });
 });
 
+describe("refusal before the param contract", () => {
+  it("a slug-bound client calling a slug-less write tool with bad params is refused, not told its params are wrong", async () => {
+    expect(await refusalOf(CALLERS["slug-bound client"]!, "index")).toBe("permission_denied");
+    expect(await refusalOf(CALLERS["read-only token"]!, "index")).toBe("insufficient_scope");
+  });
+});
+
 describe("dispatchRefusal", () => {
   it("passes the operator on every tool", () => {
     for (const t of TOOL_DEFS) expect(dispatchRefusal(t.name, undefined)).toBeNull();

@@ -27,10 +27,16 @@ export interface WriteRequestKey {
   principal: string;
   tool: string;
   requestId: string;
+  /**
+   * The claim's `created_at`, as `claimWriteRequest` took it. Recording or
+   * releasing with it touches only that claim, not one a later call took over
+   * after this one went stale.
+   */
+  claimedAt?: string;
 }
 
 export type WriteRequestClaim =
-  | { kind: "claimed" }
+  | { kind: "claimed"; claimedAt: string }
   | { kind: "replay"; result: Record<string, unknown> };
 
 /** JSON with every object's keys sorted, so argument order never matters. */
@@ -66,10 +72,11 @@ export async function claimWriteRequest(
       `INSERT INTO write_requests (principal, tool, request_id, args_hash)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (principal, tool, request_id) DO NOTHING
-       RETURNING 1`,
+       RETURNING created_at::text AS claimed_at`,
       [...params, argsHash],
     );
-    if (ins.rows.length > 0) return { kind: "claimed" };
+    const inserted = ins.rows[0] as { claimed_at: string } | undefined;
+    if (inserted) return { kind: "claimed", claimedAt: inserted.claimed_at };
     const cur = await engine.query<{ args_hash: string; result: Record<string, unknown> | null; stale: boolean }>(
       `SELECT args_hash, result,
               (created_at < NOW() - make_interval(mins => ${STALE_CLAIM_MINUTES})) AS stale
@@ -93,10 +100,11 @@ export async function claimWriteRequest(
           WHERE principal = $1 AND tool = $2 AND request_id = $3
             AND result IS NULL
             AND created_at < NOW() - make_interval(mins => ${STALE_CLAIM_MINUTES})
-          RETURNING 1`,
+          RETURNING created_at::text AS claimed_at`,
         params,
       );
-      if (took.rows.length > 0) return { kind: "claimed" };
+      const taken = took.rows[0] as { claimed_at: string } | undefined;
+      if (taken) return { kind: "claimed", claimedAt: taken.claimed_at };
     }
     break;
   }
@@ -121,8 +129,9 @@ export async function recordWriteRequest(
   const r = await tx.query(
     `UPDATE write_requests SET result = $4::text::jsonb
       WHERE principal = $1 AND tool = $2 AND request_id = $3 AND result IS NULL
+        AND ($5::text IS NULL OR created_at = $5::timestamptz)
       RETURNING 1`,
-    [key.principal, key.tool, key.requestId, JSON.stringify(wellFormJsonbValue(result))],
+    [key.principal, key.tool, key.requestId, JSON.stringify(wellFormJsonbValue(result)), key.claimedAt ?? null],
   );
   if (r.rows.length === 0) {
     throw new OperationError(
@@ -146,12 +155,16 @@ export async function completeWriteRequest(
   );
 }
 
-/** Drop a claim whose write never committed, so a retry runs it again. */
+/**
+ * Drop a claim whose write never committed, so a retry runs it again. Only
+ * this call's claim: one a later call took over is left to that call.
+ */
 export async function releaseWriteRequest(engine: Engine, key: WriteRequestKey): Promise<void> {
   await engine.query(
     `DELETE FROM write_requests
-      WHERE principal = $1 AND tool = $2 AND request_id = $3 AND result IS NULL`,
-    [key.principal, key.tool, key.requestId],
+      WHERE principal = $1 AND tool = $2 AND request_id = $3 AND result IS NULL
+        AND ($4::text IS NULL OR created_at = $4::timestamptz)`,
+    [key.principal, key.tool, key.requestId, key.claimedAt ?? null],
   );
 }
 

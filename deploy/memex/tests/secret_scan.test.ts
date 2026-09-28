@@ -97,6 +97,20 @@ describe("scanSecrets", () => {
     expect(r.text).toContain("db.internal:5432/app");
   });
 
+  it("redacts a database password that holds a raw @ in full", () => {
+    const r = scanSecrets(`${"postgres"}://app:p@ss@db.internal:5432/app`);
+    expect(r.findings.map((f) => f.kind)).toEqual(["database-url"]);
+    expect(r.text).not.toContain("ss@db");
+    expect(r.text).toContain("db.internal:5432/app");
+  });
+
+  it("redacts a bearer token past 4096 characters to its end", () => {
+    const long = "Zq8".repeat(2000);
+    const r = scanSecrets(`Authorization: Bearer ${long} next`);
+    expect(r.findings.map((f) => f.kind)).toEqual(["bearer-token"]);
+    expect(r.text).toBe(`Authorization: Bearer [REDACTED:bearer-token:${fingerprintSecret(long)}] next`);
+  });
+
   it("catches a JWT whose claims segment is an empty object", () => {
     const jwt = [`ey${"J"}hbGciOiJIUzI1NiJ9`, "e30", "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"].join(".");
     const r = scanSecrets(`token ${jwt}`);

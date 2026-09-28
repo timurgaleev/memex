@@ -63,6 +63,12 @@ export interface SweepResult {
   skipped: number;
   errors: { path: string; message: string }[];
   /**
+   * Canonical paths the re-read guard would not read into their stored row
+   * (outside the roots, or a row another source or a remote `index` owns).
+   * The walk leaves them unindexed; reclaiming one is an operator decision.
+   */
+  refused: string[];
+  /**
    * `forceStaleChunker` only: ids of chunker-stale documents that the walk never
    * reached (file deleted/moved from the vault, under an ignored dir, or indexed
    * from a path outside this vault root). They stay stale until their file
@@ -113,6 +119,7 @@ export async function sweepVault(
     reindexed: 0,
     skipped: 0,
     errors: [],
+    refused: [],
   };
 
   // Pull all known last_indexed_mtime in one shot — vault is small enough
@@ -164,6 +171,7 @@ export async function sweepVault(
     const verdict = mayReread(canonical, stored);
     if (!verdict.ok) {
       console.warn(`[sweep] not indexing ${canonical}: ${verdict.reason}`);
+      result.refused.push(verdict.canonical);
       continue;
     }
     const lastIndexed = stored?.lastIndexedMtime ?? null;

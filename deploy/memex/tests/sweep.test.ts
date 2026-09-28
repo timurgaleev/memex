@@ -21,7 +21,7 @@ import { registerSource } from "../src/core/sources.ts";
 // Pull the internal walkMarkdown by re-implementing the same readdirSync
 // + suffix filter logic. We can't import a non-exported helper, but the
 // behaviour is small and the cost of duplicating it for the test is low.
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 
 function* walk(root: string, ignore: ReadonlySet<string>): Generator<string> {
   for (const ent of readdirSync(root, { withFileTypes: true })) {
@@ -117,6 +117,41 @@ describe("vault sweep source classification", () => {
         { title: "confirmed", source_id: "vault" },
         { title: "planted", source_id: null },
       ]);
+    } finally {
+      await storage.close();
+      rmSync(dbDir, { recursive: true, force: true });
+      rmSync(vault, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("vault sweep refused paths", () => {
+  it("reports a file the re-read guard refuses instead of only warning", async () => {
+    const dbDir = mkdtempSync(join(tmpdir(), "memex-sweep-refused-db-"));
+    const vault = mkdtempSync(join(tmpdir(), "memex-sweep-refused-vault-"));
+    const storage = new Storage({ dbPath: dbDir });
+    await storage.init();
+    try {
+      await registerSource(storage.raw(), {
+        id: "vault",
+        kind: "vault",
+        pathPrefix: `${vault}/`,
+      });
+      const planted = join(vault, "planted.md");
+      writeFileSync(planted, "# planted\n\nbody\n");
+      const sourcePath = normalizeSourcePath(planted);
+      const id = `doc_${createHash("sha256").update(sourcePath).digest("hex").slice(0, 16)}`;
+      // An unowned row with no mtime: the shape a remote inline `index` leaves.
+      await storage.raw().query(
+        `INSERT INTO documents (id, source_path, title, last_indexed_mtime)
+         VALUES ($1, $2, 'planted', NULL)`,
+        [id, sourcePath],
+      );
+
+      const r = await sweepVault(storage, { vault });
+      expect(r.reindexed).toBe(0);
+      expect(r.skipped).toBe(0);
+      expect(r.refused).toEqual([realpathSync(planted)]);
     } finally {
       await storage.close();
       rmSync(dbDir, { recursive: true, force: true });

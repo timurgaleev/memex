@@ -167,7 +167,9 @@ export interface PageInput {
    * Optimistic concurrency: the version the caller last read (`page_get`'s
    * `version`, the top `page_versions` row). Checked under the slug lock; a
    * different current version refuses the write with `VersionConflictError`.
-   * 0 means "the page must not exist yet". Omitted = no check.
+   * 0 means "the page must not exist yet". A soft-deleted slug keeps its
+   * version counter, so it is not at 0: a write that resurrects it passes the
+   * current version the conflict reports. Omitted = no check.
    */
   expectedVersion?: number;
   /** A claimed `request_id` (write-requests.ts): its receipt commits with this write. */

@@ -295,6 +295,46 @@ describe("rescopeClient — validation", () => {
   });
 });
 
+describe("rescopeClient — public clients", () => {
+  it("refuses to move a public client into client mode while /authorize auto-approves", async () => {
+    const saved = process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    try {
+      const reg = await provider.registerClientManual(
+        "public-enroll",
+        ["authorization_code", "refresh_token"],
+        "read",
+        ["https://client.example/cb"],
+        "acme",
+        undefined,
+        "none",
+        undefined,
+        "enrollment",
+      );
+      const before = await auditCount(reg.clientId);
+      await expect(
+        provider.rescopeClient(reg.clientId, { sourceId: "acme", tenantMode: "client" }, CLI),
+      ).rejects.toMatchObject({ reasons: [{ code: "public_client_mode" }] });
+      expect((await clientRow(reg.clientId)).tenant_mode).toBe("enrollment");
+      expect(await auditCount(reg.clientId)).toBe(before);
+
+      process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+      await provider.rescopeClient(reg.clientId, { sourceId: "acme", tenantMode: "client" }, CLI);
+      expect((await clientRow(reg.clientId)).tenant_mode).toBe("client");
+    } finally {
+      if (saved === undefined) delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      else process.env.MEMEX_OAUTH_REQUIRE_LOGIN = saved;
+    }
+  });
+
+  it("still moves a confidential client into client mode", async () => {
+    const { clientId } = await register();
+    await provider.rescopeClient(clientId, { sourceId: "acme", tenantMode: "enrollment" }, CLI);
+    await provider.rescopeClient(clientId, { sourceId: "acme", tenantMode: "client" }, CLI);
+    expect((await clientRow(clientId)).tenant_mode).toBe("client");
+  });
+});
+
 describe("rescopeClient — missing clients", () => {
   it("unknown and revoked clients are not_found, with no audit row", async () => {
     await expect(provider.rescopeClient("memex_cl_missing", { sourceId: "acme" }, CLI)).rejects.toBeInstanceOf(

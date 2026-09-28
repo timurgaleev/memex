@@ -73,7 +73,10 @@ export interface VectorScanPlan {
  * The transaction-local settings one vector query runs under ({} = none).
  * Postgres only: PGLite is single-connection, where the wrapping transaction
  * would alias concurrent in-process queries. Only an index-served ordering
- * gains anything — the boosted and max-pool variants are exact scans.
+ * gains anything — the boosted and max-pool variants are exact scans. Hybrid
+ * search asks for the source boost on every non-temporal query, and the boost
+ * CASE is never empty, so from hybrid only temporal queries get here; direct
+ * `vectorSearch` callers without a boost do too.
  *
  *   - `hnsw.ef_search`: the scan gathers at most this many rows (default 40)
  *     before the LIMIT, so a larger fanout is raised to match.
@@ -104,7 +107,12 @@ function pgvectorVersion(engine: Engine): Promise<string | null> {
     v = engine
       .query<{ extversion: string }>("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
       .then((r) => r.rows[0]?.extversion ?? null)
-      .catch(() => null);
+      .catch(() => {
+        // A failed read is not an answer: the next search asks again, or one
+        // connection blip would leave iterative scan off until a restart.
+        pgvectorVersions.delete(engine);
+        return null;
+      });
     pgvectorVersions.set(engine, v);
   }
   return v;
@@ -231,9 +239,17 @@ export async function vectorSearch(
           return r.rows.map((row) => row.chunk_id);
         })
       : (await engine.query<{ chunk_id: string }>(sql, params)).rows.map((row) => row.chunk_id);
-  if (opts.onCandidatesIncomplete && filtered && indexServed && ids.length < limit) {
+  if (
+    opts.onCandidatesIncomplete &&
+    engine.kind === "postgres" &&
+    filtered &&
+    indexServed &&
+    ids.length < limit
+  ) {
     // Short under a filter: the corpus may simply hold fewer matches, or the
     // index scan ran out of candidates first. A bounded count tells them apart.
+    // Postgres only: PGLite runs without the raised ef_search, so a large
+    // fanout there always comes back short and would never be cached.
     const probeParams: unknown[] = [];
     const probeWhere = whereFor(probeParams).sql;
     probeParams.push(limit);

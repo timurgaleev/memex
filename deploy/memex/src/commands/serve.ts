@@ -195,6 +195,15 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       allowClientCredentialsDcr: dcrInsecure,
     });
     serverOpts.oauthProvider = provider;
+    if (serverOpts.publicUrl === undefined) {
+      console.error(
+        "[memex] caution: OAuth is on but MEMEX_PUBLIC_URL is unset, so the " +
+          "issuer is taken from each request. Behind a TLS-terminating proxy " +
+          "that origin is http://, and a client naming its https:// connector " +
+          "URL as `resource` is refused with invalid_target. Set " +
+          "MEMEX_PUBLIC_URL to the external https:// origin.",
+      );
+    }
     // Sweep expired access/refresh tokens + auth codes at startup — the tables
     // otherwise grow until a verify happens to hit the expired row.
     // Best-effort: a sweep failure must never block serve.

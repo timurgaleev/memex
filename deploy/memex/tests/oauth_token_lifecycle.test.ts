@@ -245,9 +245,19 @@ describe("refresh token families", () => {
 describe("grant_types enforcement", () => {
   test("an empty list keeps the historical browser grants, never client_credentials", () => {
     expect(clientAllowsGrant([], "authorization_code")).toBe(true);
-    expect(clientAllowsGrant(null, "refresh_token")).toBe(true);
+    expect(clientAllowsGrant([], "refresh_token")).toBe(true);
     expect(clientAllowsGrant([], "client_credentials")).toBe(false);
     expect(clientAllowsGrant(["client_credentials"], "authorization_code")).toBe(false);
+  });
+
+  it("a NULL row reads as client_credentials here exactly as getClient reads it", async () => {
+    const client = await webClient();
+    await storage.raw().query("UPDATE oauth_clients SET grant_types = NULL WHERE client_id = $1", [client.client_id]);
+    const read = (await provider.getClient(client.client_id))!;
+    for (const grant of ["authorization_code", "refresh_token", "client_credentials"]) {
+      expect(clientAllowsGrant(null, grant)).toBe(clientAllowsGrant(read.grant_types, grant));
+    }
+    expect(clientAllowsGrant(null, "refresh_token")).toBe(false);
   });
 
   it("/authorize answers unauthorized_client for a client without authorization_code", async () => {
@@ -435,6 +445,14 @@ describe("per-client token lifetimes", () => {
 });
 
 describe("invalidateClientTokens", () => {
+  async function enrollment(id: string, clientId: string): Promise<void> {
+    await storage.raw().query(
+      `INSERT INTO oauth_enrollments (id, code_hash, client_id, source_id, federated_read, expires_at)
+       VALUES ($1, $2, $3, 'beta', ARRAY['beta'], NOW() + INTERVAL '1 day')`,
+      [id, `hash-${id}`, clientId],
+    );
+  }
+
   async function counts(clientId: string): Promise<{ tokens: number; codes: number }> {
     const t = await storage.raw().query("SELECT 1 FROM oauth_tokens WHERE client_id = $1", [clientId]);
     const c = await storage.raw().query("SELECT 1 FROM oauth_codes WHERE client_id = $1", [clientId]);
@@ -460,6 +478,7 @@ describe("invalidateClientTokens", () => {
 
   it("with a grant id, only that grant's tokens go", async () => {
     const client = await webClient();
+    await enrollment("memex_enr_x", client.client_id);
     const mine = await signIn(client, { sourceId: "beta", federatedRead: ["beta"], grantId: "memex_enr_x" });
     const theirs = await signIn(client);
     const r = await provider.invalidateClientTokens(client.client_id, {
@@ -477,6 +496,20 @@ describe("invalidateClientTokens", () => {
     await expect(provider.invalidateClientTokens("nope", { actor: "ops", via: "cli" })).rejects.toBeInstanceOf(
       GrantNotFoundError,
     );
+  });
+
+  it("refuses a grant id that is not an enrollment of this client, and bumps nothing", async () => {
+    const client = await webClient();
+    const other = await webClient();
+    await enrollment("memex_enr_other", other.client_id);
+    await code(client);
+    for (const grantId of ["memex_enr_typo", "memex_enr_other"]) {
+      await expect(
+        provider.invalidateClientTokens(client.client_id, { actor: "ops", via: "cli", grantId }),
+      ).rejects.toMatchObject({ code: "not_found", grantId });
+    }
+    expect(await provider.listGrantAudit(client.client_id)).toEqual([]);
+    expect(await counts(client.client_id)).toEqual({ tokens: 0, codes: 1 });
   });
 
   it("is reachable from the admin API", async () => {
@@ -548,9 +581,9 @@ describe("personal access tokens with a source and scopes", () => {
     await expect(resolvePatGrant(storage.raw(), { sourceId: "acme", federatedRead: ["ghost"] })).rejects.toThrow(
       "ghost",
     );
-    await expect(resolvePatGrant(storage.raw(), { scopes: ["read", "admin"] })).rejects.toThrow("admin");
+    await expect(resolvePatGrant(storage.raw(), { scopes: ["read", "admin"] })).rejects.toThrow("admin is granted afterwards");
     await expect(resolvePatGrant(storage.raw(), { scopes: [] })).rejects.toThrow("empty");
-    await expect(resolvePatGrant(storage.raw(), { federatedRead: ["acme"] })).rejects.toThrow("--source");
+    await expect(resolvePatGrant(storage.raw(), { federatedRead: ["acme"] })).rejects.toThrow("a read set needs a write source");
   });
 
   it("an admin-minted token reports its source and scopes on verification", async () => {

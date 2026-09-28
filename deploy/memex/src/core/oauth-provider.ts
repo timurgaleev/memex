@@ -479,12 +479,12 @@ export async function resolvePatGrant(
   if (bad.length > 0) {
     throw new Error(
       `a personal access token is minted with read and/or write, got: ${bad.join(", ")} ` +
-        "(grant admin later with `auth permissions <name> set-scopes`)",
+        "(admin is granted afterwards, by changing the token's permissions)",
     );
   }
   const federated = input.federatedRead ?? [];
   if (input.sourceId === undefined) {
-    if (federated.length > 0) throw new Error("--federated-read needs --source");
+    if (federated.length > 0) throw new Error("a read set needs a write source");
     return { scopes: Array.from(new Set(scopes)) };
   }
   const wanted = Array.from(new Set([input.sourceId, ...federated]));
@@ -590,7 +590,12 @@ export interface UnboundRevocation {
   codes: number;
 }
 
-export type GrantReasonCode = "unknown_source" | "empty_read_set" | "invalid_prefix" | "invalid_ttl";
+export type GrantReasonCode =
+  | "unknown_source"
+  | "empty_read_set"
+  | "invalid_prefix"
+  | "invalid_ttl"
+  | "public_client_mode";
 
 export interface GrantReason {
   code: GrantReasonCode;
@@ -599,8 +604,15 @@ export interface GrantReason {
 
 export class GrantNotFoundError extends Error {
   readonly code = "not_found";
-  constructor(readonly clientId: string) {
-    super(`not_found: no active client "${clientId}"`);
+  constructor(
+    readonly clientId: string,
+    readonly grantId?: string,
+  ) {
+    super(
+      grantId === undefined
+        ? `not_found: no active client "${clientId}"`
+        : `not_found: no enrollment "${grantId}" on client "${clientId}"`,
+    );
     this.name = "GrantNotFoundError";
   }
 }
@@ -720,9 +732,11 @@ export function assertClientTtl(
  * Whether a client registered with `grantTypes` may use `grant`. An empty list
  * predates enforcement of the browser grants, so it keeps the historical
  * default of authorization_code + refresh_token (and never client_credentials).
+ * NULL is the column default, client_credentials, as `getClient` reads it.
  */
 export function clientAllowsGrant(grantTypes: readonly string[] | null | undefined, grant: string): boolean {
-  if (!grantTypes || grantTypes.length === 0) {
+  if (grantTypes == null) return grant === "client_credentials";
+  if (grantTypes.length === 0) {
     return grant === "authorization_code" || grant === "refresh_token";
   }
   return grantTypes.includes(grant);
@@ -1147,9 +1161,10 @@ export class OAuthProvider {
         grant_types: string[] | null;
         access_ttl_seconds: number | null;
         refresh_ttl_seconds: number | null;
+        client_secret_hash: string | null;
       }>(
         `SELECT source_id, federated_read, bound_slug_prefixes, tenant_mode, grant_revision, grant_types,
-                access_ttl_seconds, refresh_ttl_seconds
+                access_ttl_seconds, refresh_ttl_seconds, client_secret_hash
            FROM oauth_clients
           WHERE client_id = $1 AND deleted_at IS NULL
           FOR UPDATE`,
@@ -1164,6 +1179,27 @@ export class OAuthProvider {
 
       const federated = change.federatedRead ?? [change.sourceId];
       await this.validateGrantChange(tx, change, federated);
+      // The same refusal register-client makes: with /authorize auto-approving,
+      // a public client moved into client mode would mint tokens on its
+      // client_id alone, and every sign-in would be refused from then on.
+      if (
+        change.tenantMode === "client" &&
+        parseTenantMode(row.tenant_mode) !== "client" &&
+        needsOperatorConsent({
+          ...(row.client_secret_hash === null ? {} : { client_secret: row.client_secret_hash }),
+          tenant_mode: "client",
+        }) &&
+        !oauthRequireLoginFromEnv()
+      ) {
+        throw new GrantValidationError([
+          {
+            code: "public_client_mode",
+            detail:
+              "a public client cannot be moved to client tenant mode while /authorize auto-approves; " +
+              "keep enrollment mode or run with MEMEX_OAUTH_REQUIRE_LOGIN=1",
+          },
+        ]);
+      }
 
       const before = grantSnapshot(row);
       const fence =
@@ -1335,6 +1371,15 @@ export class OAuthProvider {
       const row = locked.rows[0];
       if (!row) throw new GrantNotFoundError(clientId);
       const grantId = opts.grantId ?? null;
+      // A mistyped grant id would otherwise delete nothing yet still bump the
+      // client-wide revision and write an audit row.
+      if (grantId !== null) {
+        const enr = await tx.query(
+          "SELECT 1 FROM oauth_enrollments WHERE id = $1 AND client_id IS NOT DISTINCT FROM $2",
+          [grantId, clientId],
+        );
+        if (enr.rows.length === 0) throw new GrantNotFoundError(clientId, grantId);
+      }
       const t = await tx.query<{ token_type: string }>(
         `DELETE FROM oauth_tokens
           WHERE client_id = $1 AND ($2::text IS NULL OR (grant_bound AND grant_id = $2::text))
@@ -1619,6 +1664,11 @@ export class OAuthProvider {
     // A predecessor's client is kept as it was recorded: an any-client code
     // records the connector that redeemed it, whatever that connector's mode.
     const clientId = input.clientId ?? prior?.client_id ?? null;
+    // A soft-deleted connector would pin the replacement to a client that can
+    // never redeem it.
+    if (input.clientId === undefined && clientId !== null && !(await this.getClient(clientId))) {
+      throw new Error(`Unknown client '${clientId}' (name another client for the replacement)`);
+    }
     const label = input.label ?? prior?.label ?? null;
     const ttl = input.ttlSeconds ?? 7 * 24 * 3600;
     // Upper bound as well as lower: `new Date(now + ttl*1000)` throws a bare
@@ -1634,6 +1684,22 @@ export class OAuthProvider {
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const spendId = prior ? (prior.spend_id ?? prior.id) : null;
     await this.engine.transaction(async (tx) => {
+      // One live replacement per predecessor: an older unredeemed one would
+      // otherwise stay usable and redeem into a second grant on the same key.
+      if (prior) {
+        const superseded = await tx.query<{ id: string; client_id: string | null }>(
+          `UPDATE oauth_enrollments SET revoked_at = NOW()
+            WHERE replaces_id = $1 AND used_at IS NULL AND revoked_at IS NULL
+            RETURNING id, client_id`,
+          [prior.id],
+        );
+        for (const old of superseded.rows) {
+          await writeEnrollmentAudit(tx, old.id, old.client_id, "revoke_code", audit, { revoked: false }, {
+            revoked: true,
+            superseded_by: id,
+          });
+        }
+      }
       await tx.query(
         `INSERT INTO oauth_enrollments
            (id, code_hash, client_id, source_id, federated_read, label, expires_at,
@@ -1953,14 +2019,21 @@ export class OAuthProvider {
     // approval is refused here instead of minting a code for the new tenant.
     await this.engine.transaction(async (tx) => {
       const current = (
-        await tx.query<ClientGrantState>(
-          `SELECT grant_revision, tenant_mode, source_id FROM oauth_clients
+        await tx.query<ClientGrantState & { redirect_uris: string[] | null }>(
+          `SELECT grant_revision, tenant_mode, source_id, redirect_uris FROM oauth_clients
             WHERE client_id = $1 AND deleted_at IS NULL
             FOR SHARE`,
           [client.client_id],
         )
       ).rows[0];
       if (!current) throw new Error(`Unknown client '${client.client_id}'`);
+      // The endpoint checked the redirect URI against an earlier read of the
+      // row; a set-redirect-uris that committed since must not get a code for
+      // the URI it removed. Grant-bound codes skip the revision compare below,
+      // so this is their only check.
+      if (!redirectUriRegistered(current.redirect_uris ?? [], params.redirectUri)) {
+        throw new GrantConflictError(Number(approved.grant_revision), Number(current.grant_revision));
+      }
       if (grant === undefined) {
         const expected = Number(approved.grant_revision);
         const actual = Number(current.grant_revision);

@@ -255,7 +255,7 @@
         "expected_version": {
           "type": "integer",
           "minimum": 0,
-          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
+          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. A deleted page keeps its version counter, so to write over one pass the current_version a 0 attempt reports. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
         },
         "force": {
           "type": "boolean",
@@ -329,7 +329,7 @@
         "expected_version": {
           "type": "integer",
           "minimum": 0,
-          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
+          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. A deleted page keeps its version counter, so to write over one pass the current_version a 0 attempt reports. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
         },
         "force": {
           "type": "boolean",
@@ -392,7 +392,7 @@
         "expected_version": {
           "type": "integer",
           "minimum": 0,
-          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
+          "description": "Write only if the page is still at this version (`version` from page_get, or the top version_n from page_versions); 0 = the page must not exist yet. A deleted page keeps its version counter, so to write over one pass the current_version a 0 attempt reports. On a mismatch nothing is written and the error names the current version. Omit for an unconditional write."
         },
         "force": {
           "type": "boolean",

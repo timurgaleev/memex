@@ -102,6 +102,26 @@ describe("vectorSearch on Postgres", () => {
     expect(engine.log.some((s) => s.includes("AS MATERIALIZED"))).toBe(true);
   });
 
+  it("reads the version again after a failed read instead of caching the failure", async () => {
+    let reads = 0;
+    const engine = stubEngine("postgres", (sql) => {
+      if (sql.includes("pg_extension")) {
+        reads++;
+        if (reads === 1) throw new Error("connection reset");
+        return [{ extversion: "0.8.1" }];
+      }
+      if (sql.includes("set_config")) return [];
+      if (sql.includes("count(*)")) return [{ n: 2 }];
+      return [{ chunk_id: "c1" }, { chunk_id: "c2" }];
+    });
+    await vectorSearch(engine, VEC, 10, { sourceIds: ["a"] });
+    expect(engine.log.some((s) => s.includes("set_config"))).toBe(false);
+    await vectorSearch(engine, VEC, 10, { sourceIds: ["a"] });
+    await vectorSearch(engine, VEC, 10, { sourceIds: ["a"] });
+    expect(reads).toBe(2);
+    expect(engine.log.filter((s) => s.includes("set_config"))).toHaveLength(2);
+  });
+
   it("does not wrap an unfiltered default-fanout scan", async () => {
     const engine = stubEngine("postgres", () => [{ chunk_id: "c1" }]);
     await vectorSearch(engine, VEC, 10);
@@ -111,7 +131,7 @@ describe("vectorSearch on Postgres", () => {
 
 describe("candidates incomplete", () => {
   it("flags a short filtered scan when more matching rows exist", async () => {
-    const engine = stubEngine("pglite", (sql) =>
+    const engine = stubEngine("postgres", (sql) =>
       sql.includes("count(*)") ? [{ n: 5 }] : [{ chunk_id: "c1" }],
     );
     let flagged = 0;
@@ -120,12 +140,22 @@ describe("candidates incomplete", () => {
   });
 
   it("stays quiet when the filter simply matches fewer rows", async () => {
-    const engine = stubEngine("pglite", (sql) =>
+    const engine = stubEngine("postgres", (sql) =>
       sql.includes("count(*)") ? [{ n: 1 }] : [{ chunk_id: "c1" }],
     );
     let flagged = 0;
     await vectorSearch(engine, VEC, 5, { sourceIds: ["a"], onCandidatesIncomplete: () => flagged++ });
     expect(flagged).toBe(0);
+  });
+
+  it("never probes on PGLite, which runs without the raised ef_search", async () => {
+    const engine = stubEngine("pglite", (sql) =>
+      sql.includes("count(*)") ? [{ n: 5 }] : [{ chunk_id: "c1" }],
+    );
+    let flagged = 0;
+    await vectorSearch(engine, VEC, 5, { sourceIds: ["a"], onCandidatesIncomplete: () => flagged++ });
+    expect(flagged).toBe(0);
+    expect(engine.log.some((s) => s.includes("count(*)"))).toBe(false);
   });
 
   it("never probes an unfiltered or exact (boosted) scan", async () => {

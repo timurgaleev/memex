@@ -312,8 +312,9 @@ export async function enrichThinPhase(
     }
 
     const prompt = buildPrompt(page, evidence);
-    // Budget preflight — stop the loop before dispatching a call we can't afford.
-    if (budget.wouldExceed(model, estimateUsage(prompt.length, maxTokens))) {
+    // Budget preflight — hold the estimate, or stop the loop before dispatching a call we can't afford.
+    const hold = budget.reserve(model, estimateUsage(prompt.length, maxTokens));
+    if (hold === null) {
       base.budgetExhausted = true;
       break;
     }
@@ -331,11 +332,11 @@ export async function enrichThinPhase(
             maxTokens: cap,
             temperature: 0,
           }),
-        (projected) => !budget.wouldExceed(model, projected),
+        (projected) => budget.widen(hold, model, projected),
       );
       const resp = call.resp;
       try {
-        budget.record(resp.modelId, call.usage);
+        budget.settle(hold, resp.modelId, call.usage);
       } catch (e) {
         if (e instanceof BudgetExhausted) base.budgetExhausted = true;
         else throw e;
@@ -343,6 +344,7 @@ export async function enrichThinPhase(
       base.spentUsd = budget.totalSpent();
       draft = parseEnrichment(resp.text);
     } catch (e) {
+      budget.release(hold);
       base.errors.push(`${page.slug}: ${String(e instanceof Error ? e.message : e)}`);
       if (base.budgetExhausted) break;
       continue;

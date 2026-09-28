@@ -214,11 +214,11 @@ export async function graphRerank(
   // Pre-flight BEFORE the degree query so a budget-gated call wastes no DB work.
   // The graph-degree annotations add only a few chars/line, so estimate on the
   // degree-free message (an immaterial under-count). Fail-open — a budget skip
-  // returns the input order, never an error.
+  // returns the input order, never an error. The estimate is held until the
+  // call settles, so concurrent searches on one tracker cannot overrun it.
   const estUser = buildRerankUserMessage(query, head, new Map());
-  if (budget.wouldExceed(modelId, estimateUsage(SYSTEM_PROMPT, estUser, maxTokens))) {
-    return hits;
-  }
+  const hold = budget.reserve(modelId, estimateUsage(SYSTEM_PROMPT, estUser, maxTokens));
+  if (!hold) return hits;
 
   // Graph-degree hint — a cheap, bounded tally over the head slugs. Fail-soft to
   // an empty map (deg=0 hints; the model reranks on text alone).
@@ -231,7 +231,12 @@ export async function graphRerank(
       degrees = new Map();
     }
   } else if (opts.storage) {
-    degrees = await computeGraphDegrees(opts.storage, slugs, opts.sourceIds);
+    try {
+      degrees = await computeGraphDegrees(opts.storage, slugs, opts.sourceIds);
+    } catch (e) {
+      budget.release(hold);
+      throw e;
+    }
   }
 
   const user = buildRerankUserMessage(query, head, degrees);
@@ -242,11 +247,11 @@ export async function graphRerank(
       "graph-rerank",
       maxTokens,
       (cap) => sonnetFn({ system: SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
-      (projected) => !budget.wouldExceed(modelId, projected),
+      (projected) => budget.widen(hold, modelId, projected),
     );
     const resp = call.resp;
     try {
-      budget.record(resp.modelId, call.usage);
+      budget.settle(hold, resp.modelId, call.usage);
     } catch (e) {
       // The call already happened (and is priced); a ceiling hit doesn't undo
       // the response. Only a non-budget error rethrows into the fail-open catch.
@@ -254,6 +259,7 @@ export async function graphRerank(
     }
     order = parseRerankOrder(resp.text, head.length);
   } catch {
+    budget.release(hold);
     return hits; // fail-open on any model/network error
   }
 

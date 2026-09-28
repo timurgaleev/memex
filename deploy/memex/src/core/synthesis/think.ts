@@ -29,7 +29,7 @@ import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { callWithTruncationRetry, isTruncated } from "../llm/truncation.ts";
 import { parseModelJson } from "../llm/json-output.ts";
 import { clampOutputTokens, outputTokensFromEnv } from "../llm/output-limits.ts";
-import { BudgetTracker, BudgetExhausted, isBudgetRefusal, priceFor } from "../budget.ts";
+import { BudgetTracker, BudgetExhausted, isBudgetRefusal, priceFor, type BudgetHold } from "../budget.ts";
 import { BedrockHalted, classifyBedrockError } from "../llm/bedrock-errors.ts";
 import { embedText } from "../embedding.ts";
 import { classifyIntent, type Intent } from "./intent.ts";
@@ -1281,7 +1281,10 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     });
 
     // Pre-flight: a paid call must fit the budget (also stops unpriced models).
-    if (budget.wouldExceed(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens))) {
+    // The estimate is held until the call settles, so concurrent askers sharing
+    // one tracker cannot all pass against the same headroom.
+    const hold = budget.reserve(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens));
+    if (hold === null) {
       if (round === 1) {
         // An unpriced model is refused by the same check, but more budget
         // would not help it.
@@ -1305,22 +1308,23 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
       break;
     }
 
+    let retryHold: BudgetHold | null = null;
     try {
       // A cut-off response is a different failure from a mis-formatted one and
       // needs a different remedy: more room, not another roll of the dice. The
-      // budget check runs against the COMBINED projection because the first
-      // call has not been recorded yet at that point.
+      // hold is widened to the COMBINED projection because the first call has
+      // not been settled yet at that point.
       const call = await callWithTruncationRetry(
         "think",
         maxTokens,
         (cap) =>
           sonnetFn({ system: THINK_SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
-        (projected) => !budget.wouldExceed(modelId, projected),
+        (projected) => budget.widen(hold, modelId, projected),
       );
       const resp = call.resp;
       usedModel = resp.modelId;
       try {
-        budget.record(resp.modelId, call.usage);
+        budget.settle(hold, resp.modelId, call.usage);
       } catch (e) {
         if (e instanceof BudgetExhausted) exhausted = true;
         else throw e;
@@ -1333,12 +1337,11 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
         // the same prompt at the same cap would truncate identically.
         !call.truncated &&
         round === 1 &&
-        !exhausted &&
-        !budget.wouldExceed(
-          modelId,
-          estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens),
-        )
+        !exhausted
       ) {
+        retryHold = budget.reserve(modelId, estimateUsage(THINK_SYSTEM_PROMPT, user, maxTokens));
+      }
+      if (retryHold) {
         // Single budget-gated retry: temperature-0 output still drifts out
         // of the expected format occasionally, and a parse miss on round 1
         // otherwise throws away the whole gather+prompt cycle ("no
@@ -1351,7 +1354,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
         });
         usedModel = retry.modelId;
         try {
-          budget.record(retry.modelId, retry.usage);
+          budget.settle(retryHold, retry.modelId, retry.usage);
         } catch (e) {
           if (e instanceof BudgetExhausted) exhausted = true;
           else throw e;
@@ -1365,6 +1368,8 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
         status = outcome.synthesis ? "ok" : cut ? "output_truncated" : outcome.status;
       }
     } catch (e) {
+      budget.release(hold);
+      if (retryHold) budget.release(retryHold);
       if (round > 1) break; // keep the earlier round's synthesis
       return withFallback({
         ran: true,

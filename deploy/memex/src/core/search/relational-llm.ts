@@ -15,7 +15,7 @@
  *   - Default-OFF. A live (paid) call happens ONLY when MEMEX_RELATIONAL_LLM=1.
  *     An injected `sonnetFn` bypasses the env gate AND avoids any spend.
  *   - USD budget-capped. Estimate usage from the ACTUAL prompt size (~4
- *     chars/token), `wouldExceed` BEFORE the call, `record` after.
+ *     chars/token), `reserve` BEFORE the call, `settle` after (`release` on failure).
  *     MEMEX_RELATIONAL_LLM_BUDGET_USD overrides the default (1.0).
  *   - The untrusted query is sanitized before it enters the prompt.
  *   - Tolerant JSON parse + strict validation: bad output → null → empty arm,
@@ -276,8 +276,9 @@ export async function relationalRecallLlm(
   const user = buildRelationalLlmUserMessage(q);
 
   // Pre-flight: skip the paid call when it can't fit the budget (also stops
-  // unpriced models — wouldExceed returns true for those).
-  if (budget.wouldExceed(modelId, estimateUsage(EXTRACT_SYSTEM_PROMPT, user, maxTokens))) {
+  // unpriced models — reserve returns null for those).
+  const hold = budget.reserve(modelId, estimateUsage(EXTRACT_SYSTEM_PROMPT, user, maxTokens));
+  if (hold === null) {
     meta.budgetExhausted = true;
     return finish([], "budget exhausted before extraction");
   }
@@ -288,12 +289,12 @@ export async function relationalRecallLlm(
       "relational-llm",
       maxTokens,
       (cap) => sonnetFn({ system: EXTRACT_SYSTEM_PROMPT, user, maxTokens: cap, temperature: 0 }),
-      (projected) => !budget.wouldExceed(modelId, projected),
+      (projected) => budget.widen(hold, modelId, projected),
     );
     const resp = call.resp;
     meta.ran = true;
     try {
-      budget.record(resp.modelId, call.usage);
+      budget.settle(hold, resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) meta.budgetExhausted = true;
       else throw e;
@@ -301,6 +302,7 @@ export async function relationalRecallLlm(
     meta.spentUsd = Number(budget.totalSpent().toFixed(6));
     parsed = parseRelationalLlmResponse(resp.text);
   } catch (e) {
+    budget.release(hold);
     return finish([], `extraction call failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 

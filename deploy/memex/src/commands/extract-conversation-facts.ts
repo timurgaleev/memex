@@ -114,8 +114,9 @@ export async function runExtractConversationFacts(
       ...(validFrom ? { validFrom } : {}),
     };
     // Pre-flight: don't dispatch a paid call when the worst-case cost would
-    // breach the cap (also stops unpriced models — wouldExceed returns true).
-    if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+    // breach the cap (also stops unpriced models — reserve returns null).
+    const hold = budget.reserve(modelId, WORST_CASE_USAGE);
+    if (hold === null) {
       exhausted = true;
       break;
     }
@@ -124,17 +125,18 @@ export async function runExtractConversationFacts(
       result = await extractFactsFromTurn(turn, {
         ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
         modelId,
-        // The pre-flight above sized ONE call against the cap; a truncation
-        // retry is a second paid call, so it clears the same cap or is dropped.
-        // `budget` has not recorded this turn yet — hence the projected TOTAL.
-        canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
+        // The hold above sized ONE call against the cap; a truncation retry is
+        // a second paid call, so the hold widens to the projected TOTAL or the
+        // retry is dropped.
+        canAffordRetry: (projected) => budget.widen(hold, modelId, projected),
       });
     } catch {
       // A model/network error skips this turn; never abort the batch.
+      budget.release(hold);
       continue;
     }
     try {
-      budget.record(result.modelId, result.usage);
+      budget.settle(hold, result.modelId, result.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) {
         exhausted = true;

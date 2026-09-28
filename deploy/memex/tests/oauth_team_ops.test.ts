@@ -170,6 +170,29 @@ describe("enroll --replaces", () => {
     expect((await provider.verifyAccessToken(tokens.access_token)).spendId).toBe(a.id);
   });
 
+  it("a new replacement revokes the unredeemed one it supersedes", async () => {
+    const { client } = await connector();
+    const first = await provider.issueEnrollment({ sourceId: "alice", clientId: client.client_id }, OPS);
+    await redeem(client, first.code);
+    const stale = await provider.issueEnrollment({ replaces: first.id }, OPS);
+    const fresh = await provider.issueEnrollment({ replaces: first.id }, OPS);
+    expect(await provider.claimEnrollment(stale.code, client.client_id)).toBeUndefined();
+    expect(await auditActions(stale.id)).toEqual(["issue", "revoke_code"]);
+    await redeem(client, fresh.code);
+  });
+
+  it("refuses to inherit a predecessor's client that was deleted", async () => {
+    const { client } = await connector();
+    const first = await provider.issueEnrollment({ sourceId: "alice", clientId: client.client_id }, OPS);
+    await storage.raw().query("UPDATE oauth_clients SET deleted_at = NOW() WHERE client_id = $1", [client.client_id]);
+    await expect(provider.issueEnrollment({ replaces: first.id }, OPS)).rejects.toThrow(
+      `Unknown client '${client.client_id}'`,
+    );
+    const other = (await connector()).client;
+    const r = await provider.issueEnrollment({ replaces: first.id, clientId: other.client_id }, OPS);
+    expect(r.clientId).toBe(other.client_id);
+  });
+
   it("refuses an unknown predecessor and a code with no source at all", async () => {
     await expect(provider.issueEnrollment({ replaces: "memex_enr_nope" }, OPS)).rejects.toThrow("Unknown enrollment");
     await expect(provider.issueEnrollment({}, OPS)).rejects.toThrow("needs a source");
@@ -219,6 +242,25 @@ describe("setRedirectUris", () => {
     expect(history[0]!.revision).toBe(r.revision);
     expect(history[0]!.after).toMatchObject({ action: "set_redirect_uris", redirect_uris: r.after });
     expect(history[0]!.before).toMatchObject({ redirect_uris: [CB] });
+  });
+
+  it("an approval made before the change mints no code for the removed URI", async () => {
+    const { client } = await connector("client");
+    // `client` is the endpoint's earlier read; the change commits before authorize runs.
+    await provider.setRedirectUris(client.client_id, [CB2], OPS);
+    await expect(
+      provider.authorize(client, { redirectUri: CB, codeChallenge: CHALLENGE }),
+    ).rejects.toMatchObject({ code: "grant_conflict" });
+
+    const enrolled = (await connector()).client;
+    const enr = await provider.issueEnrollment({ sourceId: "alice", clientId: enrolled.client_id }, OPS);
+    const grant = await provider.claimEnrollment(enr.code, enrolled.client_id);
+    await provider.setRedirectUris(enrolled.client_id, [CB2], OPS);
+    await expect(
+      provider.authorize(enrolled, { redirectUri: CB, codeChallenge: CHALLENGE }, grant),
+    ).rejects.toMatchObject({ code: "grant_conflict" });
+    const codes = await storage.raw().query<{ n: number }>("SELECT count(*)::int AS n FROM oauth_codes");
+    expect(Number(codes.rows[0]!.n)).toBe(0);
   });
 
   it("refuses plain http off loopback, an empty list and a stale revision", async () => {
