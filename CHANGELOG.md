@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.156.0] — 2026-09-28
+
 ### Security
 - **OAuth tokens are bound to the resource they were approved for (RFC 8707).**
   `/authorize` stored the `resource` a connector named, but the code and refresh
