@@ -663,6 +663,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           isPublic: guard.isPublic,
           internalAuthOk: ia.allow,
           ...(oauthAuth !== undefined ? { authInfo: oauthAuth } : {}),
+          issuer: resolveIssuer(url, opts.publicUrl),
         });
       }
       if (adminAuth && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {

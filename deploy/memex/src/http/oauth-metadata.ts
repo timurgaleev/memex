@@ -67,6 +67,8 @@ export interface OAuthMetadata {
   grant_types_supported: string[];
   token_endpoint_auth_methods_supported: string[];
   code_challenge_methods_supported: string[];
+  /** RFC 9207: every /authorize redirect carries `iss`. */
+  authorization_response_iss_parameter_supported: boolean;
 }
 
 /**
@@ -115,6 +117,7 @@ export function buildOAuthMetadata(
       "none",
     ],
     code_challenge_methods_supported: ["S256"],
+    authorization_response_iss_parameter_supported: true,
   };
 }
 
@@ -205,6 +208,16 @@ export function wwwAuthenticateChallenge(
   return tokenPresented
     ? `Bearer error="invalid_token", ${metadata}`
     : `Bearer ${metadata}, scope="${DISCOVERY_SCOPES.join(" ")}"`;
+}
+
+/**
+ * The RFC 6750 §3.1 challenge for a valid token that lacks the scope a call
+ * needs. `scopes` is what the client should ask for on step-up: its current
+ * grant plus the missing scope, so re-authorizing does not drop what it had.
+ */
+export function insufficientScopeChallenge(scopes: readonly string[], issuer?: string): string {
+  const metadata = issuer ? `, resource_metadata="${issuer}${OAUTH_PROTECTED_RESOURCE_MCP_PATH}"` : "";
+  return `Bearer error="insufficient_scope", scope="${scopes.join(" ")}"${metadata}`;
 }
 
 function withoutTrailingSlashes(v: string): string {

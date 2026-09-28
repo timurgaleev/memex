@@ -365,6 +365,134 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     );
   });
 
+  it("every /authorize redirect carries iss (RFC 9207), success and error", async () => {
+    const { challenge } = pkce();
+    const ok = await authorize({
+      response_type: "code",
+      client_id: webClientId,
+      redirect_uri: REDIRECT,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    expect(ok.status).toBe(302);
+    expect(new URL(ok.headers.get("location")!).searchParams.get("iss")).toBe(url);
+
+    const bad = await authorize({
+      response_type: "token",
+      client_id: webClientId,
+      redirect_uri: REDIRECT,
+      state: "s",
+    });
+    expect(bad.status).toBe(302);
+    const loc = new URL(bad.headers.get("location")!);
+    expect(loc.searchParams.get("error")).toBe("unsupported_response_type");
+    expect(loc.searchParams.get("iss")).toBe(url);
+  });
+
+  describe("loopback redirect URIs (RFC 8252 §7.3)", () => {
+    const LOOPBACKS = [
+      "http://127.0.0.1/callback",
+      "http://localhost/callback",
+      "http://[::1]/callback",
+    ];
+    let cliId: string;
+    let cliSecret: string;
+
+    beforeEach(async () => {
+      const cli = await provider.registerClientManual(
+        "cli-client",
+        ["authorization_code", "refresh_token"],
+        "read",
+        LOOPBACKS,
+        "default",
+      );
+      cliId = cli.clientId;
+      cliSecret = cli.clientSecret!;
+    });
+
+    it("accepts any port on a registered loopback URI and redeems at /token with it", async () => {
+      for (const reg of LOOPBACKS) {
+        const withPort = reg.replace("/callback", ":53682/callback");
+        const { verifier, challenge } = pkce();
+        const res = await authorize({
+          response_type: "code",
+          client_id: cliId,
+          redirect_uri: withPort,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        });
+        expect(res.status).toBe(302);
+        const loc = new URL(res.headers.get("location")!);
+        expect(loc.port).toBe("53682");
+        const code = loc.searchParams.get("code")!;
+        const tok = await tokenForm({
+          grant_type: "authorization_code",
+          client_id: cliId,
+          client_secret: cliSecret,
+          code,
+          redirect_uri: withPort,
+          code_verifier: verifier,
+        });
+        expect(tok.status).toBe(200);
+      }
+    });
+
+    it("/token still requires the exact redirect_uri used at /authorize", async () => {
+      const { verifier, challenge } = pkce();
+      const res = await authorize({
+        response_type: "code",
+        client_id: cliId,
+        redirect_uri: "http://127.0.0.1:40001/callback",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      });
+      const code = new URL(res.headers.get("location")!).searchParams.get("code")!;
+      const tok = await tokenForm({
+        grant_type: "authorization_code",
+        client_id: cliId,
+        client_secret: cliSecret,
+        code,
+        redirect_uri: "http://127.0.0.1:40002/callback",
+        code_verifier: verifier,
+      });
+      expect(tok.status).toBe(400);
+    });
+
+    it("path, host and scheme still match exactly; non-loopback keeps exact port", async () => {
+      const refused = [
+        "http://127.0.0.1:5000/other",
+        "http://127.0.0.1:5000/callback/x",
+        "http://127.0.0.1:5000/callback?x=1",
+        "https://127.0.0.1:5000/callback",
+        "http://127.0.0.2:5000/callback",
+        "http://evil.example:5000/callback",
+        "http://user@127.0.0.1:5000/callback",
+      ];
+      for (const redirect_uri of refused) {
+        const { challenge } = pkce();
+        const res = await authorize({
+          response_type: "code",
+          client_id: cliId,
+          redirect_uri,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        });
+        expect(res.status).toBe(400);
+        expect(res.headers.get("location")).toBeNull();
+      }
+      // An https URI is never port-relaxed.
+      const { challenge } = pkce();
+      const res = await authorize({
+        response_type: "code",
+        client_id: webClientId,
+        redirect_uri: "https://client.example:8443/cb",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
   it("redirect_uri allowlist is enforced (unregistered → 400, no redirect)", async () => {
     const { challenge } = pkce();
     const res = await authorize({

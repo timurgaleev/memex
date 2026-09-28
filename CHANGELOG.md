@@ -6,6 +6,82 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Every mutating admin API route refuses a cross-origin request.** The panel's
+  session cookie is `SameSite=Strict`, but a sibling subdomain counts as the same
+  site, so a page there could drive the credential routes with the operator's
+  session. The whole `/admin/api/` surface now applies the same-origin check the
+  consent approve/dismiss routes already had.
+
+### Added
+- **Enrollment codes and member grants in the admin API and panel.**
+  `GET/POST /admin/api/enrollments`, `POST /admin/api/revoke-enrollment` and
+  `POST /admin/api/revoke-grant` issue, list and revoke codes and cut off a
+  person who redeemed one, through the same provider methods as `auth enroll`,
+  `auth revoke-enrollment` and `auth revoke-grant`. Each change is written to a
+  new `oauth_enrollment_audit` trail with who did it and from where (migration
+  118). The Credentials page gets a Members view per browser connector: label,
+  source, redeemed or not, revoked or not, when a token was last minted, with
+  revoke and new-code buttons. `auth enrollments --client ID` narrows the CLI
+  listing the same way, which now also shows each grant's spend key and last
+  token time.
+- **`memex auth enroll --replaces <enrollment_id>`** (and `replaces` on the
+  admin endpoint) issues a new code for the same person. It keeps the old
+  grant's source, read set, label and client unless given, and its spend key
+  and daily cap, so the day's spend and the cap keep counting in one place.
+  Redeeming it revokes the old grant and deletes its tokens; until then the old
+  grant keeps working. `auth set-budget` accepts the original enrollment id for
+  the live replacement.
+- **`memex auth set-redirect-uris <client_id> <uri...>`** (and
+  `POST /admin/api/set-redirect-uris`) replaces a client's redirect URIs without
+  touching its secret or issued tokens. URIs must be https, or http on a
+  loopback host. The change bumps the grant revision and writes a grant audit
+  row, so a code minted before it no longer redeems; like any revision bump it
+  also stops agent jobs the client submitted.
+- **Doctor check `oauth-client-hygiene`** (warn-only, also in `run_doctor`):
+  clients with no MCP call in 90 days, public clients in client tenant mode,
+  redirect URIs that are neither https nor loopback, and browser connectors
+  scoped beyond read/write.
+- **MCP tool annotations.** Every tool in `tools/list` now carries
+  `annotations` derived from its scope: `readOnlyHint`, and on the mutating
+  tools `destructiveHint` (true for the ones that delete or overwrite, such as
+  `page_put`, `page_delete`, `page_revert`, `unlink`, `remove_tag`,
+  `forget_fact`, `purge_deleted_pages`, `jobs_cancel`) and `idempotentHint`
+  where the tool promises it; `openWorldHint` is false throughout. `jobs_submit`
+  and `jobs_cancel` sit under the read scope but are not advertised as
+  read-only.
+- **MCP protocol negotiation.** `initialize` answers with the client's
+  `protocolVersion` when it is 2025-03-26, 2025-06-18 or 2025-11-25, and with
+  2025-11-25 otherwise. A 2025-03-26 client gets the same handshake as before.
+  A request after `initialize` whose `MCP-Protocol-Version` header names a
+  revision the server does not speak is refused with 400; no header is
+  accepted as before.
+- **Step-up hint on a scope refusal.** A tool call refused with
+  `insufficient_scope` carries `_meta["mcp/www_authenticate"]`, the Bearer
+  challenge with `error="insufficient_scope"`, the scope to ask for (the
+  token's current scopes plus the missing one) and the protected-resource
+  metadata URL.
+- **The enrollment form names the host** the authorization code will be sent
+  back to.
+- **RFC 9207 `iss` on authorization responses.** Every `/authorize` redirect,
+  success or error, carries `iss=<issuer>`, and the authorization-server
+  metadata advertises `authorization_response_iss_parameter_supported: true`.
+
+### Changed
+- **Loopback redirect URIs accept any port (RFC 8252 §7.3).** For a registered
+  `http://127.0.0.1`, `http://[::1]` or `http://localhost` redirect URI,
+  `/authorize` accepts the same URI on any port, which CLI clients that bind a
+  free port at run time need. Scheme, host, path and query still match exactly,
+  https URIs are still matched exactly, and `/token` still requires the exact
+  redirect URI used at `/authorize`.
+- **`memex auth revoke-client` revokes instead of deleting.** The client is
+  marked deleted, its tokens and codes are deleted in the same transaction, and
+  the row, grant history and spend rows stay; the revoke is audited like a
+  rescope. The admin endpoint uses the same method and now deletes pending
+  authorization codes too. `--purge` hard-deletes the row as before, which is
+  what releases a source the client still names. Code and refresh exchanges
+  also refuse a revoked client at the client-row lock.
+
 ## [1.157.0] — 2026-09-28
 
 ### Security

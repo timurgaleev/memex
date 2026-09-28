@@ -71,6 +71,41 @@ describe("MCP HTTP transport", () => {
     expect(r.result._meta.memexResponseVersion).toBeDefined();
   });
 
+  it("initialize echoes a supported protocolVersion and answers anything else with the latest", async () => {
+    for (const v of ["2025-03-26", "2025-06-18", "2025-11-25"]) {
+      const r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: v } });
+      expect(r.result.protocolVersion).toBe(v);
+    }
+    for (const params of [{ protocolVersion: "2024-11-05" }, { protocolVersion: 7 }, {}]) {
+      const r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params });
+      expect(r.result.protocolVersion).toBe("2025-11-25");
+    }
+    // Nothing else in the 2025-03-26 handshake changes.
+    const r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } });
+    expect(Object.keys(r.result).sort()).toEqual(
+      ["_meta", "capabilities", "instructions", "protocolVersion", "serverInfo"],
+    );
+    expect(r.result.capabilities).toEqual({ tools: {} });
+  });
+
+  it("refuses an unsupported MCP-Protocol-Version header after initialize, accepts a supported or absent one", async () => {
+    const call = (version: string | null, method = "ping") =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(version ? { "MCP-Protocol-Version": version } : {}),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: { protocolVersion: "2025-06-18" } }),
+      });
+    expect((await call("1999-01-01")).status).toBe(400);
+    expect((await call("2025-06-18")).status).toBe(200);
+    expect((await call("2025-03-26")).status).toBe(200);
+    expect((await call(null)).status).toBe(200);
+    // initialize itself is where the version is negotiated, so it is not judged by the header.
+    expect((await call("1999-01-01", "initialize")).status).toBe(200);
+  });
+
   it("tools/list returns the registered tools", async () => {
     const r = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     expect(r.result.tools.length).toBe(TOOL_DEFS.length);

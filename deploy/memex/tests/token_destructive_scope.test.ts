@@ -157,6 +157,11 @@ describe("write-scoped token on destructive tools", () => {
     const reader = await mint("read");
     const del = await call("page_delete", { slug: "notes/whatever" }, reader);
     expect(toolError(del)).toBe("insufficient_scope");
+    // The refusal carries the step-up challenge: current grant plus `write`.
+    expect(del.result._meta["mcp/www_authenticate"]).toBe(
+      `Bearer error="insufficient_scope", scope="read write", ` +
+        `resource_metadata="${url}/.well-known/oauth-protected-resource/mcp"`,
+    );
   });
 
   it("page_delete is source-scoped: a token cannot delete another source's page", async () => {

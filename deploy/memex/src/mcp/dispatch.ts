@@ -193,6 +193,7 @@ import {
 import {
   checkFederationHealth,
   checkOauthClientHealth,
+  checkOauthClientHygiene,
   checkSourceRoutingHealth,
   type TenancyCheck,
 } from "../core/doctor-tenancy.ts";
@@ -237,6 +238,7 @@ import { OperationError, isOperationError } from "../core/operation-error.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
 import { OPERATIONS, WRITE_SCOPED_TOOLS, validateParams } from "./operations.ts";
 import { hasScope } from "../core/scope.ts";
+import { insufficientScopeChallenge } from "../http/oauth-metadata.ts";
 
 // Operation lookup by tool name, built once (the contract is static).
 const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
@@ -422,6 +424,9 @@ export interface DispatchOptions {
    * passes this — no transport reads it.
    */
   embedQuery?: SearchOptions["embedQuery"];
+  /** This server's OAuth issuer, named in the step-up challenge a scope
+   *  refusal carries so the client can find the authorization server. */
+  issuer?: string;
 }
 
 /**
@@ -567,11 +572,19 @@ async function dispatchToolInner(
       const op = OPERATIONS.find((o) => o.name === req.name);
       const requiredScope = op?.scope ?? "read";
       if (!hasScope(opts.authInfo.scopes ?? [], requiredScope)) {
-        throw new OperationError(
+        const refusal = new OperationError(
           "insufficient_scope",
           `tool '${req.name}' requires the '${requiredScope}' scope`,
           "Request a token granted the required scope.",
         );
+        // The Bearer challenge a client would get on an HTTP 403, carried in
+        // the result because a tool call's HTTP status is always 200. A client
+        // that understands it re-authorizes for the wider scope (step-up).
+        const stepUp = [...new Set([...(opts.authInfo.scopes ?? []), requiredScope])];
+        return {
+          ...errResult(JSON.stringify(refusal.toEnvelope(opts.isPublic ?? false))),
+          _meta: { "mcp/www_authenticate": insufficientScopeChallenge(stepUp, opts.issuer) },
+        };
       }
     }
     // Enforce the declared param contract (type / enum / min-max of present
@@ -3875,6 +3888,7 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
   for (const check of [
     checkFederationHealth,
     checkOauthClientHealth,
+    checkOauthClientHygiene,
     checkSourceRoutingHealth,
   ]) {
     try {

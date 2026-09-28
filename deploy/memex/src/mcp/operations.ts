@@ -1377,3 +1377,69 @@ export const WRITE_SCOPED_TOOLS: ReadonlySet<string> = new Set(
     (op) => op.name,
   ),
 );
+
+/**
+ * Tools that change state although the per-op scope gate files them under
+ * `read` or `agent`. The jobs_* mutators are operator-only (dispatch's
+ * OPERATOR_ONLY_TOOLS), and submit_agent queues paid work; none of them may be
+ * advertised as read-only, or a client would auto-approve them.
+ */
+const MUTATING_OUTSIDE_WRITE_SCOPE: ReadonlySet<string> = new Set([
+  "jobs_submit",
+  "jobs_cancel",
+  "submit_agent",
+]);
+
+/** Mutating tools that delete or overwrite, as opposed to purely adding. */
+const DESTRUCTIVE_TOOLS: ReadonlySet<string> = new Set([
+  "index",
+  "page_put",
+  "page_delete",
+  "page_revert",
+  "unlink",
+  "remove_tag",
+  "forget_fact",
+  "purge_deleted_pages",
+  "jobs_cancel",
+  "put_raw_data",
+]);
+
+/** Mutating tools whose description promises a repeat call changes nothing. */
+const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set([
+  "page_put",
+  "page_delete",
+  "page_restore",
+  "link",
+  "unlink",
+  "add_tag",
+  "remove_tag",
+  "forget_fact",
+  "set_take_status",
+  "put_raw_data",
+]);
+
+export interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint: boolean;
+}
+
+/**
+ * MCP tool annotations, derived from the op's scope so a client's
+ * confirm-before-write behaviour follows the same classification the dispatch
+ * gates enforce. Every tool works on this brain only, hence `openWorldHint`
+ * false. The destructive/idempotent hints are only meaningful on a mutating
+ * tool, so a read-only one carries neither.
+ */
+export function operationAnnotations(op: Operation): ToolAnnotations {
+  const mutating =
+    op.scope === "write" || op.scope === "admin" || MUTATING_OUTSIDE_WRITE_SCOPE.has(op.name);
+  if (!mutating) return { readOnlyHint: true, openWorldHint: false };
+  return {
+    readOnlyHint: false,
+    destructiveHint: DESTRUCTIVE_TOOLS.has(op.name),
+    ...(IDEMPOTENT_TOOLS.has(op.name) ? { idempotentHint: true } : {}),
+    openWorldHint: false,
+  };
+}

@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TOOL_DEFS, type ToolDef } from "../src/mcp/tool_defs.ts";
 import { OPERATIONS } from "../src/mcp/operations.ts";
+import { OPERATOR_ONLY_TOOLS } from "../src/mcp/dispatch.ts";
 
 const snapshot = JSON.parse(
   readFileSync(join(import.meta.dir, "fixtures/tool_defs.snapshot.json"), "utf8"),
@@ -37,6 +38,59 @@ describe("TOOL_DEFS generated from OPERATIONS", () => {
       expect(s.type).toBe("object");
       expect(s.additionalProperties).toBe(false);
       expect(typeof s.properties).toBe("object");
+    }
+  });
+});
+
+describe("tool annotations", () => {
+  const scopeOf = (name: string) => OPERATIONS.find((o) => o.name === name)?.scope ?? "read";
+
+  it("every tool carries annotations and none claims an open world", () => {
+    for (const t of TOOL_DEFS) {
+      expect(typeof t.annotations.readOnlyHint).toBe("boolean");
+      expect(t.annotations.openWorldHint).toBe(false);
+    }
+  });
+
+  it("no write- or admin-scoped tool is advertised as read-only", () => {
+    for (const t of TOOL_DEFS) {
+      const scope = scopeOf(t.name);
+      if (scope === "write" || scope === "admin") {
+        expect({ name: t.name, readOnly: t.annotations.readOnlyHint }).toEqual({
+          name: t.name,
+          readOnly: false,
+        });
+        expect(typeof t.annotations.destructiveHint).toBe("boolean");
+      }
+    }
+  });
+
+  it("every read-scoped tool is read-only, except the operator-only job mutators", () => {
+    // jobs_submit / jobs_cancel sit under the read scope but change state; they
+    // stay reachable only by the operator, never by a tenant token.
+    const mutatingReads = TOOL_DEFS.filter(
+      (t) => scopeOf(t.name) === "read" && !t.annotations.readOnlyHint,
+    ).map((t) => t.name);
+    expect(mutatingReads.sort()).toEqual(["jobs_cancel", "jobs_submit"]);
+    for (const name of mutatingReads) expect(OPERATOR_ONLY_TOOLS.has(name)).toBe(true);
+  });
+
+  it("marks the tools that delete or overwrite as destructive", () => {
+    const destructive = TOOL_DEFS.filter((t) => t.annotations.destructiveHint).map((t) => t.name);
+    for (const name of [
+      "page_put",
+      "page_delete",
+      "page_revert",
+      "unlink",
+      "remove_tag",
+      "forget_fact",
+      "purge_deleted_pages",
+      "jobs_cancel",
+    ]) {
+      expect(destructive).toContain(name);
+    }
+    for (const name of ["add_fact", "add_tag", "link", "page_append", "page_restore"]) {
+      expect(destructive).not.toContain(name);
     }
   });
 });

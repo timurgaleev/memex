@@ -75,6 +75,10 @@ describe("buildOAuthMetadata — full standard surface", () => {
     ]);
     expect(m.code_challenge_methods_supported).toEqual(["S256"]);
   });
+
+  it("advertises the RFC 9207 iss parameter on authorization responses", () => {
+    expect(buildOAuthMetadata("https://brain.example").authorization_response_iss_parameter_supported).toBe(true);
+  });
 });
 
 describe("resolveIssuer — base URL resolution", () => {

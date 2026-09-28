@@ -28,7 +28,29 @@ import type { AuthInfo } from "../core/auth-info.ts";
 import { resolveClientKey } from "../http/client-key.ts";
 import { resolveServerInfo, SERVER_INSTRUCTIONS } from "./server-instructions.ts";
 
-const PROTOCOL_VERSION = "2025-03-26";
+/**
+ * The MCP revisions this server speaks, oldest first. Each one's required
+ * server behaviour is met: 2025-06-18 adds only optional result fields
+ * (structured output, resource links, `title`) plus the protocol-version
+ * header checked below, and 2025-11-25's additions for a tools-only HTTP server
+ * are optional too (icons, tasks, incremental consent). The JSON Schema dialect
+ * change to 2020-12 is harmless: the generated inputSchemas use only keywords
+ * both drafts read the same way.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
+  "2025-03-26",
+  "2025-06-18",
+  "2025-11-25",
+];
+const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.length - 1]!;
+
+/** The version `initialize` answers with: the client's own when supported,
+ *  else the latest (lifecycle spec: the client then decides whether to stay). */
+export function negotiateProtocolVersion(requested: unknown): string {
+  return typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : LATEST_PROTOCOL_VERSION;
+}
 const SERVER_INFO = resolveServerInfo();
 
 export interface McpHandlerOptions {
@@ -84,6 +106,8 @@ export interface McpRequestContext {
    * caller's granted sources and stamp writes with the caller's sourceId.
    */
   authInfo?: AuthInfo;
+  /** This server's OAuth issuer, forwarded to dispatch for step-up challenges. */
+  issuer?: string;
 }
 
 interface JsonRpcRequest {
@@ -194,6 +218,21 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
     }
     const raw: unknown = parsedBody.body;
 
+    // Since 2025-06-18 a client names the negotiated revision on every request
+    // after `initialize`, and a server MUST refuse one it does not speak. An
+    // absent header means 2025-03-26 and is accepted as before.
+    const headerVersion = req.headers.get("mcp-protocol-version");
+    if (
+      headerVersion !== null &&
+      !SUPPORTED_PROTOCOL_VERSIONS.includes(headerVersion) &&
+      (Array.isArray(raw) || (raw as { method?: string })?.method !== "initialize")
+    ) {
+      return Response.json(
+        rpcError(null, ERR_INVALID_REQUEST, `unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}`),
+        { status: 400 },
+      );
+    }
+
     // A JSON-RPC notification carries no `id` and expects no response body.
     // The standard MCP post-initialize `notifications/initialized` is
     // acknowledged with an empty 204; without this it would
@@ -269,7 +308,7 @@ async function handleSingle(
   switch (req.method) {
     case "initialize":
       return rpcOk(id, {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: negotiateProtocolVersion(req.params?.protocolVersion),
         serverInfo: SERVER_INFO,
         capabilities: { tools: {} },
         instructions: SERVER_INSTRUCTIONS,
@@ -360,7 +399,11 @@ async function handleSingle(
         const result = await dispatchTool(
           storage,
           { name: params.name, arguments: params.arguments },
-          { isPublic: ctx.isPublic, authInfo: ctx.authInfo },
+          {
+            isPublic: ctx.isPublic,
+            authInfo: ctx.authInfo,
+            ...(ctx.issuer !== undefined ? { issuer: ctx.issuer } : {}),
+          },
         );
         // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
         // Names + counts + coarse size only — never raw param values.

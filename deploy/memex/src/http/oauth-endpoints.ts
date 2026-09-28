@@ -24,7 +24,12 @@ import type {
   OAuthProvider,
   OAuthClientInfo,
 } from "../core/oauth-provider.ts";
-import { GrantConflictError, clientAllowsGrant, needsOperatorConsent } from "../core/oauth-provider.ts";
+import {
+  GrantConflictError,
+  clientAllowsGrant,
+  needsOperatorConsent,
+  redirectUriRegistered,
+} from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
 import { canonicalResource } from "./oauth-metadata.ts";
 import { isSameOriginPost } from "./same-origin.ts";
@@ -296,10 +301,20 @@ export async function handleTokenRoute(
 // GET /authorize — authorization-code + PKCE (S256)
 // ---------------------------------------------------------------------------
 
+/** `url` with the RFC 9207 `iss` parameter set, so a client talking to more
+ *  than one authorization server can tell which one answered (mix-up defence).
+ *  Every /authorize redirect carries it, success and error alike. */
+function withIssuer(url: string, issuer: string): string {
+  const u = new URL(url);
+  u.searchParams.set("iss", issuer);
+  return u.toString();
+}
+
 /** Redirect back to the client with an OAuth error (RFC 6749 §4.1.2.1). Only
  *  used once the redirect_uri is confirmed registered — never before. */
 function errorRedirect(
   redirectUri: string,
+  issuer: string,
   error: string,
   state: string | undefined,
   description?: string,
@@ -308,12 +323,13 @@ function errorRedirect(
   u.searchParams.set("error", error);
   if (description) u.searchParams.set("error_description", description);
   if (state) u.searchParams.set("state", state);
-  return new Response(null, { status: 302, headers: { Location: u.toString() } });
+  return new Response(null, { status: 302, headers: { Location: withIssuer(u.toString(), issuer) } });
 }
 
 /**
- * The authorization endpoint. Validates client_id + an EXACT-match redirect_uri
- * against the client's registered allowlist BEFORE trusting either — an unknown
+ * The authorization endpoint. Validates client_id + an exact-match redirect_uri
+ * (any port for an http loopback one, RFC 8252 §7.3) against the client's
+ * registered allowlist BEFORE trusting either — an unknown
  * client or unregistered redirect_uri gets a direct 400 (never a redirect to an
  * attacker-controlled URI). Once the redirect_uri is trusted, response_type /
  * PKCE parameter errors are reported as an error redirect carrying `state`. On
@@ -368,7 +384,7 @@ export async function handleAuthorizeRoute(
   }
   const client = await provider.getClient(clientId);
   if (!client) return oauthError("invalid_client", "unknown client", 400);
-  if (!redirectUri || !client.redirect_uris.includes(redirectUri)) {
+  if (!redirectUri || !redirectUriRegistered(client.redirect_uris, redirectUri)) {
     return oauthError(
       "invalid_request",
       "redirect_uri is not registered for this client",
@@ -381,19 +397,21 @@ export async function handleAuthorizeRoute(
   if (!clientAllowsGrant(client.grant_types, "authorization_code")) {
     return errorRedirect(
       redirectUri,
+      issuer,
       "unauthorized_client",
       state,
       "this client is not registered for the authorization_code grant",
     );
   }
   if (q.get("response_type") !== "code") {
-    return errorRedirect(redirectUri, "unsupported_response_type", state);
+    return errorRedirect(redirectUri, issuer, "unsupported_response_type", state);
   }
   const codeChallenge = q.get("code_challenge");
   const method = q.get("code_challenge_method");
   if (!codeChallenge) {
     return errorRedirect(
       redirectUri,
+      issuer,
       "invalid_request",
       state,
       "code_challenge is required (PKCE)",
@@ -403,6 +421,7 @@ export async function handleAuthorizeRoute(
   if (method && method !== "S256") {
     return errorRedirect(
       redirectUri,
+      issuer,
       "invalid_request",
       state,
       "only the S256 code_challenge_method is supported",
@@ -419,6 +438,7 @@ export async function handleAuthorizeRoute(
     if (canonical === null) {
       return errorRedirect(
         redirectUri,
+        issuer,
         "invalid_target",
         state,
         "resource is not served by this server",
@@ -493,14 +513,17 @@ export async function handleAuthorizeRoute(
       // 303, not 302: the browser arrives here by POST, and 303 is the status
       // that guarantees it follows with a GET rather than re-posting the form
       // to the client's callback.
-      return new Response(null, { status: 303, headers: { Location: redirectUrl, ...NO_STORE } });
+      return new Response(null, {
+        status: 303,
+        headers: { Location: withIssuer(redirectUrl, issuer), ...NO_STORE },
+      });
     } catch {
       // The claim already marked the code used. Minting failed, so nothing was
       // issued for it — hand it back rather than burning a single-use code on
       // a transient error and leaving the person with no way in and the
       // operator with a row `revoke-enrollment` will not touch.
       if (submitted) await provider.releaseEnrollment(submitted).catch(() => {});
-      return errorRedirect(redirectUri, "server_error", state);
+      return errorRedirect(redirectUri, issuer, "server_error", state);
     }
   }
 
@@ -515,6 +538,7 @@ export async function handleAuthorizeRoute(
     );
     return errorRedirect(
       redirectUri,
+      issuer,
       "unauthorized_client",
       state,
       "a public client needs operator approval; this server auto-approves /authorize",
@@ -543,18 +567,19 @@ export async function handleAuthorizeRoute(
     const { redirectUrl } = await provider.authorize(client, authorizeParams);
     return new Response(null, {
       status: 302,
-      headers: { Location: redirectUrl },
+      headers: { Location: withIssuer(redirectUrl, issuer) },
     });
   } catch (e) {
     if (e instanceof GrantConflictError) {
       return errorRedirect(
         redirectUri,
+        issuer,
         "access_denied",
         state,
         "the client's grant changed during authorization; start again",
       );
     }
-    return errorRedirect(redirectUri, "server_error", state);
+    return errorRedirect(redirectUri, issuer, "server_error", state);
   }
 }
 
@@ -602,6 +627,7 @@ function enrollmentForm(
   // The redirect target is already checked against the client's registered
   // URIs before this renders, so naming its origin here widens nothing.
   let formAction = "'self'";
+  let returnHost = "";
   if (redirectUri) {
     try {
       // The exact callback path, not just its origin: naming the origin alone
@@ -610,6 +636,7 @@ function enrollmentForm(
       // still passes.
       const u = new URL(redirectUri);
       formAction += " " + u.origin + u.pathname;
+      returnHost = u.host;
     } catch {
       /* an unparseable URI never passed registration; keep 'self' */
     }
@@ -618,6 +645,9 @@ function enrollmentForm(
   // has no way to notice a crafted /authorize link. The name is operator-set
   // and carries nothing secret.
   const who = clientName ? `<p>Connecting <strong>${escapeHtml(clientName)}</strong>.</p>` : "";
+  // Where the code goes once accepted. A registered callback on a host she
+  // does not recognise is her last chance to stop before handing it over.
+  const dest = returnHost ? `<p>You will be sent back to <strong>${escapeHtml(returnHost)}</strong>.</p>` : "";
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -632,7 +662,7 @@ function enrollmentForm(
   .err{color:#a40000;margin:0 0 .8rem}
 </style></head><body><main>
 <h1>Connect to memex</h1>
-${who}<p>Enter the one-time code you were given.</p>
+${who}${dest}<p>Enter the one-time code you were given.</p>
 ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
 <form method="post" action="${action}" autocomplete="off">
 <input name="enrollment_code" type="password" autocomplete="one-time-code" autofocus required>
