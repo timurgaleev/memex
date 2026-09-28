@@ -2976,6 +2976,30 @@ Closed operator decisions this roadmap does not re-raise:
 ---
 
 
+## Auth and re-read hardening follow-ups (2026-09-28, v1.155.0)
+
+- **Four `timur`-owned `/memory` rows carry no `last_indexed_mtime`.** The
+  re-read guard refuses them (no source covers `/memory`, and a row without the
+  local-read marker cannot be told from a remote label), so they never refresh.
+  Clear their owner to NULL, let one sweep re-read them, then reassign — or
+  register a source for `/memory` and classify.
+- **Maintenance cursors restart at the first path every tick.** `embed-stale`
+  and `rechunk-sweep` page past refused rows within a tick (scan budget = 10×
+  work cap), but more than that many permanently refused or missing rows ahead
+  of the valid ones would still starve the cap. Persist the cursor between
+  ticks or mark permanently refused rows. Tenants can no longer create such rows
+  under a root, so only operator-side rows count.
+- **A source prefix registered in its symlink-resolved spelling while the root
+  is configured through the symlink** makes the sweep skip every new file
+  (`(none) ≠ S`). Compare labels against canonicalised prefixes too, or warn at
+  boot on a prefix/root spelling mismatch.
+- **Sweep refusals surface only as a log line.** Report refused paths in the
+  sweep result so doctor can show them.
+- **`exchangeRefreshToken`/`exchangeAuthorizationCode` are now transactional**;
+  the rest of token lifecycle (family ids, reuse detection, PAT `--source`,
+  grant_types enforcement) is Batch C of the 2026-09-28 gap report.
+
+
 ## Docs overhaul — README, repository About and images (2026-09-19)
 
 **Why.** The README is the project's front page and it undersells it: long,

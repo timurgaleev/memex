@@ -6,6 +6,59 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.155.0] — 2026-09-28
+
+### Added
+- **`memex auth revoke-grant <id>` revokes one enrolled person on a shared
+  connector.** Before, a redeemed enrollment could not be revoked on its own:
+  `revokeEnrollment` matched unused codes only and token checks never read the
+  enrollment's `revoked_at`, so the only containment was revoking the whole
+  connector. The revoke marks the enrollment and deletes that grant's tokens and
+  codes in one transaction; tokens issued before migration 108 (no `grant_id`)
+  are refused on every use once a matching enrollment is revoked.
+
+### Security
+- **The ingest secret scanner catches memex's own client secrets and
+  authorization codes** (`memex_cs_`, `memex_code_`), plus JWTs, the token in an
+  `Authorization: Bearer …` header (also inside structured metadata) and
+  database URLs with an embedded password. Every new pattern is prefix-anchored
+  and length-capped, so a scan stays linear.
+- **A public OAuth client in `client` tenant mode can no longer get a token
+  while `/authorize` auto-approves.** Without a secret or an operator login its
+  `client_id` was a bearer credential. `/authorize` answers `unauthorized_client`,
+  `/token` refuses its code and refresh grants, `/register` and
+  `auth register-client` refuse the combination, and boot logs any such client.
+  Enrollment-mode public clients and confidential clients are unchanged.
+- **The daemon never reads a file into a document someone else labelled.** A
+  remote inline `index` call may name any `sourcePath`; the vault and code
+  sweeps, `embed-stale`, `rechunk-sweep` and the operator `index {path}` form
+  used to read that path from disk and keep the caller as owner. They now go
+  through one guard — canonical path under a configured root, owner equal to the
+  source the path belongs to — and the documents upsert re-checks the expected
+  owner atomically. `indexFile` and `indexCodeFile` run the guard themselves, so
+  `memex index <path>` and any future caller get it by default. A ratchet test
+  fails on a new unguarded read in the cycle or job code.
+- **The path form of `index` is operator-only**, not just refused for the
+  public bearer, and a non-operator inline `sourcePath` must already be
+  normalized (no `.`/`..` segments, no `//`).
+- **A non-operator inline `index` can no longer label a document with a
+  daemon path.** A `sourcePath` equal to or under a configured vault/code root,
+  or under another source's path prefix, is refused before the write. A row the
+  operator reassigned to a source that covers no path still refreshes from disk
+  when a local read wrote it (it carries a file mtime).
+- **Moving a client to another source or to enrollment mode drops its unbound
+  tokens.** `rescopeClient` deletes them in the same transaction (the dry run
+  counts them), and the refresh and code exchanges now consume and issue under
+  one transaction holding a share lock on the client row, so a rescope cannot
+  slip between the two.
+
+### Fixed
+- **A candidate the re-read guard refuses no longer stalls `embed-stale` or
+  `rechunk-sweep`.** The SQL cap was applied before the guard, so a row refused
+  every tick (a stale `.env.example`, say) could fill the whole batch forever.
+  Both phases now page past refused rows, up to ten scanned rows per unit of
+  work, and report them as `rejected`.
+
 ## [1.154.0] — 2026-09-20
 
 ### Fixed
