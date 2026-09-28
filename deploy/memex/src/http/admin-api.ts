@@ -508,6 +508,11 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
         before: result.before,
         after: result.after,
         changed: result.changed,
+        revoked_unbound: {
+          access_tokens: result.revokedUnbound.accessTokens,
+          refresh_tokens: result.revokedUnbound.refreshTokens,
+          codes: result.revokedUnbound.codes,
+        },
       });
     } catch (e) {
       if (e instanceof GrantNotFoundError) {

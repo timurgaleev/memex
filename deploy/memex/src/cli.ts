@@ -229,6 +229,7 @@ function printUsage(): void {
   console.log("                               on an enrollment-mode client and lands in <source> (printed once)");
   console.log("  auth enrollments             list issued enrollment codes (never the code itself)");
   console.log("  auth revoke-enrollment <id>  kill an unused enrollment code");
+  console.log("  auth revoke-grant <id>       cut off a redeemed enrollment and delete its tokens");
   console.log("  auth set-budget <id> <usd|none>");
   console.log("                               daily USD ceiling across every paid op ('none' = uncapped)");
   console.log("  auth grant-token <id> <secret> [--scopes S]");

@@ -34,6 +34,10 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   let url: string;
   // Public PKCE client (token_endpoint_auth_method='none').
   let pubClientId: string;
+  // Confidential browser (authorization-code) client: an auto-approving
+  // /authorize refuses the public one, so the PKCE flow runs on this.
+  let webClientId: string;
+  let webClientSecret: string;
   // Confidential client_credentials client.
   let confClientId: string;
   let confClientSecret: string;
@@ -54,6 +58,16 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       "none",
     );
     pubClientId = pub.clientId;
+
+    const web = await provider.registerClientManual(
+      "web-client",
+      ["authorization_code", "refresh_token"],
+      "read",
+      [REDIRECT],
+      "default",
+    );
+    webClientId = web.clientId;
+    webClientSecret = web.clientSecret!;
 
     const conf = await provider.registerClientManual(
       "cc-client",
@@ -138,7 +152,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const { verifier, challenge } = pkce();
     const authRes = await authorize({
       response_type: "code",
-      client_id: pubClientId,
+      client_id: webClientId,
       redirect_uri: REDIRECT,
       scope: "read",
       state: "xyz",
@@ -153,7 +167,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
 
     const tokRes = await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code,
       redirect_uri: REDIRECT,
       code_verifier: verifier,
@@ -168,9 +183,9 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(body.access_token).toMatch(/^memex_at_/);
     expect(body.refresh_token).toMatch(/^memex_rt_/);
 
-    // The minted token resolves to the public client + its source scope.
+    // The minted token resolves to the client + its source scope.
     const info = await provider.verifyAccessToken(body.access_token);
-    expect(info.clientId).toBe(pubClientId);
+    expect(info.clientId).toBe(webClientId);
     expect(info.scopes).toContain("read");
   });
 
@@ -259,7 +274,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const { challenge } = pkce();
     const authRes = await authorize({
       response_type: "code",
-      client_id: pubClientId,
+      client_id: webClientId,
       redirect_uri: REDIRECT,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -271,7 +286,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     // Wrong verifier → invalid_grant, code NOT burned.
     const bad = await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code,
       redirect_uri: REDIRECT,
       code_verifier: "not-the-real-verifier",
@@ -287,7 +303,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const p = pkce();
     const a2 = await authorize({
       response_type: "code",
-      client_id: pubClientId,
+      client_id: webClientId,
       redirect_uri: REDIRECT,
       code_challenge: p.challenge,
       code_challenge_method: "S256",
@@ -297,14 +313,16 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     )!;
     await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code: code2,
       redirect_uri: REDIRECT,
       code_verifier: "wrong-again",
     });
     const good = await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code: code2,
       redirect_uri: REDIRECT,
       code_verifier: p.verifier,
@@ -316,7 +334,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const { verifier, challenge } = pkce();
     const authRes = await authorize({
       response_type: "code",
-      client_id: pubClientId,
+      client_id: webClientId,
       redirect_uri: REDIRECT,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -326,7 +344,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     )!;
     const first = await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code,
       redirect_uri: REDIRECT,
       code_verifier: verifier,
@@ -334,7 +353,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(first.status).toBe(200);
     const second = await tokenForm({
       grant_type: "authorization_code",
-      client_id: pubClientId,
+      client_id: webClientId,
+      client_secret: webClientSecret,
       code,
       redirect_uri: REDIRECT,
       code_verifier: verifier,
@@ -623,7 +643,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const { challenge } = pkce();
     const q = new URLSearchParams({
       response_type: "code",
-      client_id: pubClientId,
+      client_id: webClientId,
       redirect_uri: REDIRECT,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -639,6 +659,27 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const loc = new URL(res.headers.get("location")!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
     expect(loc.searchParams.get("code")).toMatch(/^memex_code_/);
+  });
+
+  it("SECURITY: auto-approve refuses a public client-mode client (its client_id alone would mint tokens)", async () => {
+    const { challenge } = pkce();
+    const q = new URLSearchParams({
+      response_type: "code",
+      client_id: pubClientId,
+      redirect_uri: REDIRECT,
+      state: "st",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    const res = await fetch(`${url}/authorize?${q}`, {
+      redirect: "manual",
+      headers: { "Cf-Connecting-Ip": "9.9.9.9" },
+    });
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT);
+    expect(loc.searchParams.get("error")).toBe("unauthorized_client");
+    expect(loc.searchParams.get("code")).toBeNull();
   });
 });
 

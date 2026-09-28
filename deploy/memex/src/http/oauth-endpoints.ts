@@ -24,6 +24,7 @@ import type {
   OAuthProvider,
   OAuthClientInfo,
 } from "../core/oauth-provider.ts";
+import { GrantConflictError, needsOperatorConsent } from "../core/oauth-provider.ts";
 import { parseScopeString } from "../core/scope.ts";
 import { isSameOriginPost } from "./same-origin.ts";
 
@@ -142,6 +143,13 @@ async function resolveClient(
 export async function handleTokenRoute(
   req: Request,
   provider: OAuthProvider,
+  /**
+   * /authorize auto-approves (see handleAuthorizeRoute). A public client-mode
+   * client is then refused here too: its codes and refresh tokens were minted
+   * on nothing but its client_id, and refresh would keep that access alive
+   * past the /authorize refusal for good. Defaults to true, failing closed.
+   */
+  autoApproves = true,
 ): Promise<Response> {
   const params = await readParams(req);
   if (!params) return oauthError("invalid_request", "malformed body", 400);
@@ -181,6 +189,17 @@ export async function handleTokenRoute(
       client = await resolveClient(provider, clientId, clientSecret);
     } catch {
       return oauthError("invalid_client", "client authentication failed", 401);
+    }
+    if (autoApproves && needsOperatorConsent(client)) {
+      console.warn(
+        `[oauth] ${grantType} refused for public client ${client.client_name}: ` +
+          "no secret and no operator approval behind it",
+      );
+      return oauthError(
+        "unauthorized_client",
+        "a public client needs operator approval; this server auto-approves /authorize",
+        400,
+      );
     }
 
     try {
@@ -296,6 +315,13 @@ export async function handleAuthorizeRoute(
    * auto-approve cannot yield an elevated token.
    */
   isResourceOwnerAuthenticated: (req: Request) => boolean = () => true,
+  /**
+   * Whether the gate above lets every request through. A public client-mode
+   * client is refused while it does: PKCE alone redeems its codes, so its
+   * client_id would be a bearer credential for its tenant. Defaults to true
+   * so a caller that forgets to say fails closed.
+   */
+  autoApproves = true,
 ): Promise<Response> {
   const q = new URL(req.url).searchParams;
   const clientId = q.get("client_id");
@@ -431,6 +457,19 @@ export async function handleAuthorizeRoute(
     return oauthError("invalid_request", "method not allowed", 405);
   }
 
+  if (autoApproves && needsOperatorConsent(client)) {
+    console.warn(
+      `[oauth] /authorize refused for public client ${client.client_name}: ` +
+        "no secret and no operator approval behind it",
+    );
+    return errorRedirect(
+      redirectUri,
+      "unauthorized_client",
+      state,
+      "a public client needs operator approval; this server auto-approves /authorize",
+    );
+  }
+
   // Resource-owner gate: never issue a code without a logged-in operator. Bounce
   // an unauthenticated browser to the admin login, carrying the full authorize
   // URL so it can resume after sign-in. Placed AFTER param validation so a
@@ -455,7 +494,15 @@ export async function handleAuthorizeRoute(
       status: 302,
       headers: { Location: redirectUrl },
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof GrantConflictError) {
+      return errorRedirect(
+        redirectUri,
+        "access_denied",
+        state,
+        "the client's grant changed during authorization; start again",
+      );
+    }
     return errorRedirect(redirectUri, "server_error", state);
   }
 }
@@ -574,6 +621,8 @@ ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
 export async function handleRegisterRoute(
   req: Request,
   provider: OAuthProvider,
+  /** /authorize auto-approves: a public client could never be authorized. */
+  refusePublicClients = false,
 ): Promise<Response> {
   let body: Record<string, unknown>;
   try {
@@ -599,6 +648,17 @@ export async function handleRegisterRoute(
     return oauthError(
       "invalid_client_metadata",
       "grant_types must be an array",
+      400,
+    );
+  }
+
+  // A self-registered client is always client-mode, so a public one is exactly
+  // what an auto-approving /authorize refuses. Say so here rather than hand out
+  // a client_id that can never complete the flow.
+  if (refusePublicClients && body.token_endpoint_auth_method === "none") {
+    return oauthError(
+      "invalid_client_metadata",
+      "public clients (token_endpoint_auth_method 'none') need operator approval at /authorize, which this server does not require; register a confidential client",
       400,
     );
   }

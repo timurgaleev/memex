@@ -95,6 +95,7 @@ export const CLI_COMMANDS: Readonly<Record<string, CliCommandSpec>> = {
     "enroll",
     "enrollments",
     "revoke-enrollment",
+    "revoke-grant",
     "grant-token",
     "create",
     "list",

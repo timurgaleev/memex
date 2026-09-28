@@ -25,6 +25,10 @@
  *              never the code itself.
  *   revoke-enrollment <enrollment_id>
  *              Kill an unused code.
+ *   revoke-grant <enrollment_id>
+ *              Cut off one person after she redeemed her code: revokes the
+ *              enrollment and deletes every token minted under it. Others on
+ *              the same connector keep working.
  *   set-budget <client_id|token_name> <usd-per-day|none>
  *              Set or clear the client's daily USD ceiling, enforced across
  *              every paid op. `none` removes the cap (the default).
@@ -57,7 +61,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
-import { OAuthProvider, parseTenantMode } from "../core/oauth-provider.ts";
+import {
+  OAuthProvider,
+  needsOperatorConsent,
+  oauthRequireLoginFromEnv,
+  parseTenantMode,
+} from "../core/oauth-provider.ts";
 import {
   DoctorUsageError,
   formatDoctorReport,
@@ -87,6 +96,7 @@ export type AuthSub =
   | "enroll"
   | "enrollments"
   | "revoke-enrollment"
+  | "revoke-grant"
   | "grant-token"
   | "create"
   | "list"
@@ -203,6 +213,19 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
     ? flags["bound-slug-prefixes"].split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
   const tenantMode = parseTenantMode(flags["tenant-mode"]);
+  if (
+    tokenEndpointAuthMethod === "none" &&
+    needsOperatorConsent({ tenant_mode: tenantMode }) &&
+    !oauthRequireLoginFromEnv()
+  ) {
+    throw new Error(
+      "Refusing a public client in client tenant mode: with /authorize " +
+        "auto-approving, its client_id alone would mint tokens for source " +
+        `'${sourceId}'. Register a confidential client (drop ` +
+        "--token-endpoint-auth-method none), use --tenant-mode enrollment, or " +
+        "run with MEMEX_OAUTH_REQUIRE_LOGIN=1 as the server does.",
+    );
+  }
 
   const { clientId, clientSecret } = await withProvider((p) =>
     p.registerClientManual(
@@ -335,6 +358,11 @@ async function rescopeClient(clientId: string, args: string[]): Promise<void> {
         changed: result.changed,
         before: result.before,
         after: result.after,
+        revoked_unbound: {
+          access_tokens: result.revokedUnbound.accessTokens,
+          refresh_tokens: result.revokedUnbound.refreshTokens,
+          codes: result.revokedUnbound.codes,
+        },
       },
       null,
       2,
@@ -446,6 +474,13 @@ async function revokeEnrollment(id: string): Promise<void> {
   const ok = await withProvider((p) => p.revokeEnrollment(id));
   if (!ok) throw new Error(`No live enrollment "${id}" (already used, revoked, or unknown).`);
   console.log(JSON.stringify({ enrollment_id: id, revoked: true }, null, 2));
+}
+
+async function revokeGrant(id: string): Promise<void> {
+  if (!id) throw new Error("Usage: auth revoke-grant <enrollment_id>");
+  const r = await withProvider((p) => p.revokeGrant(id));
+  if (!r.revoked) throw new Error(`No enrollment "${id}".`);
+  console.log(JSON.stringify({ enrollment_id: id, revoked: true, tokens_deleted: r.tokens }, null, 2));
 }
 
 async function grantToken(
@@ -873,6 +908,8 @@ export async function runAuth(args: string[]): Promise<void> {
       return listEnrollments();
     case "revoke-enrollment":
       return revokeEnrollment(rest[0]!);
+    case "revoke-grant":
+      return revokeGrant(rest[0]!);
     case "grant-token":
       return grantToken(rest[0]!, rest[1]!, rest.slice(2));
     case "create":

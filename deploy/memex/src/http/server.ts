@@ -43,6 +43,7 @@ import {
 import {
   type OAuthProvider,
   InvalidTokenError,
+  oauthRequireLoginFromEnv,
 } from "../core/oauth-provider.ts";
 import {
   handleTokenRoute,
@@ -265,9 +266,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
 
   // Opt-in strict OAuth: require a logged-in operator on /authorize. Default OFF
   // (auto-approve) — see the /authorize handler below.
-  const oauthRequireLogin =
-    ((process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "1" ||
-      (process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase() === "true");
+  const oauthRequireLogin = oauthRequireLoginFromEnv();
   // Dynamic Client Registration is OFF by default. With it off, /register is
   // unavailable and the
   // discovery doc omits registration_endpoint, so the ONLY way a client exists is
@@ -301,6 +300,30 @@ export function startServer(opts: ServerOptions): ServerHandle {
         "/authorize on a logged-in operator, or set MEMEX_ENABLE_DCR_INSECURE=1 " +
         "to accept unauthenticated self-registration.",
     );
+  }
+  // A public client-mode client registered before /authorize started refusing
+  // them (or rescoped into that shape) cannot connect any more. Name them so
+  // the operator is not left guessing why; never block boot on it.
+  const bootProvider = opts.oauthProvider;
+  if (authorizeAutoApproves && bootProvider) {
+    Promise.resolve()
+      .then(() => bootProvider.listClientsNeedingConsent())
+      .then((clients) => {
+        if (clients.length === 0) return;
+        console.error(
+          "[memex] WARNING: /authorize auto-approves, so it refuses these public " +
+            "client-mode clients (no secret, PKCE alone): " +
+            clients.map((c) => `${c.client_id} (${c.client_name})`).join(", ") +
+            ". Re-register them as confidential clients, move them to " +
+            "--tenant-mode enrollment, or set MEMEX_OAUTH_REQUIRE_LOGIN=1.",
+        );
+      })
+      .catch((e: unknown) => {
+        console.warn(
+          "[memex] public-client check skipped: " +
+            (e instanceof Error ? e.message : String(e)),
+        );
+      });
   }
   if (oauthRequireLogin && !adminAuth) {
     console.error(
@@ -486,7 +509,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
             console.warn(`[oauth] POST /token rate-limited for bucket ${ip}`);
             return rateLimited();
           }
-          return handleTokenRoute(req, oauthProvider);
+          return handleTokenRoute(req, oauthProvider, !oauthRequireLogin);
         }
         // POST is the enrollment-code submission for an enrollment-mode
         // client; the handler rejects it for every other client.
@@ -513,7 +536,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
               // refuse every request rather than silently auto-approving the
               // posture the flag exists to prevent.
               : () => false;
-          return handleAuthorizeRoute(req, oauthProvider, requireLogin);
+          return handleAuthorizeRoute(req, oauthProvider, requireLogin, !oauthRequireLogin);
         }
         if (url.pathname === "/register" && req.method === "POST") {
           // DCR off (default) → no self-registration surface at all.
@@ -530,7 +553,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           if (registerRateLimiter && !registerRateLimiter.allow(ip)) {
             return rateLimited();
           }
-          return handleRegisterRoute(req, oauthProvider);
+          return handleRegisterRoute(req, oauthProvider, authorizeAutoApproves);
         }
         if (url.pathname === "/revoke" && req.method === "POST") {
           if (tokenRateLimiter && !tokenRateLimiter.allow(ip)) {
