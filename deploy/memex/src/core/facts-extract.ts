@@ -695,7 +695,8 @@ export async function extractFactsForPage(
   const modelId = resolveFactsModel(opts.modelId);
   const cap = opts.maxBudgetUsd ?? perWriteBudgetUsd();
   const budget = new BudgetTracker(cap, "facts-extract:on-write");
-  if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+  const hold = budget.reserve(modelId, WORST_CASE_USAGE);
+  if (hold === null) {
     await writeFactsAbsorbLog(
       storage.engine(),
       opts.slug,
@@ -716,11 +717,12 @@ export async function extractFactsForPage(
     result = await extractFactsFromTurn(opts.body, {
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
       modelId,
-      // The truncation retry spends from the SAME per-write cap the pre-flight
-      // guard above checked — nothing here bills past `cap`.
-      canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
+      // The truncation retry widens the SAME per-write hold taken above —
+      // nothing here bills past `cap`.
+      canAffordRetry: (projected) => budget.widen(hold, modelId, projected),
     });
   } catch (e) {
+    budget.release(hold);
     const reason = classifyFactsAbsorbError(e);
     await writeFactsAbsorbLog(
       storage.engine(),
@@ -732,7 +734,7 @@ export async function extractFactsForPage(
     return { factsWritten: 0, factsSkipped: 0, factsFailed: 0, spentUsd: 0, absorbed: reason };
   }
   try {
-    budget.record(result.modelId, result.usage);
+    budget.settle(hold, result.modelId, result.usage);
   } catch (e) {
     if (!(e instanceof BudgetExhausted)) throw e;
     // Over budget after the (already-paid) call — still persist what we got.
@@ -841,7 +843,8 @@ export async function extractFactsOnDemand(
   const modelId = resolveFactsModel(opts.modelId);
   const cap = opts.maxBudgetUsd ?? perWriteBudgetUsd();
   const budget = new BudgetTracker(cap, "facts-extract:on-demand");
-  if (budget.wouldExceed(modelId, WORST_CASE_USAGE)) {
+  const hold = budget.reserve(modelId, WORST_CASE_USAGE);
+  if (hold === null) {
     return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "budget_exhausted" };
   }
   let result: ExtractTurnResult;
@@ -850,13 +853,14 @@ export async function extractFactsOnDemand(
       ...(opts.sonnetFn ? { sonnetFn: opts.sonnetFn } : {}),
       ...(opts.entityHints ? { entityHints: opts.entityHints } : {}),
       modelId,
-      canAffordRetry: (projected) => !budget.wouldExceed(modelId, projected),
+      canAffordRetry: (projected) => budget.widen(hold, modelId, projected),
     });
   } catch {
+    budget.release(hold);
     return { enabled: true, facts: [], modelId: null, spentUsd: 0, skipped: "model_error" };
   }
   try {
-    budget.record(result.modelId, result.usage);
+    budget.settle(hold, result.modelId, result.usage);
   } catch (e) {
     if (!(e instanceof BudgetExhausted)) throw e;
     // Over budget after the (already-paid) call — still return what we got.

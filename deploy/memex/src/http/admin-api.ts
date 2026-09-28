@@ -12,6 +12,7 @@
  * `/admin*`, so there is no ambient protection here.
  */
 import { spendReport } from "../core/spend-report.ts";
+import { patNameSpendConflict } from "../core/budget.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Storage } from "../core/storage.ts";
 import type { Engine } from "../core/engine/interface.ts";
@@ -252,6 +253,8 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
     }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) return badRequest("name required");
+    const nameConflict = patNameSpendConflict(name);
+    if (nameConflict !== null) return badRequest(nameConflict);
     const isIdList = (v: unknown): v is string[] =>
       Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0);
     if (body.source !== undefined && (typeof body.source !== "string" || body.source.length === 0)) {

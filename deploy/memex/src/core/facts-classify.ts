@@ -207,26 +207,29 @@ export async function classifyFact(
   }
 
   // The paid LLM step is opt-in: no seam, or no budget room, means the
-  // deterministic fallback decides.
+  // deterministic fallback decides. The worst case is held before the call so
+  // concurrent classifications sharing one budget cannot all pass the check.
   const modelId = opts.modelId ?? DEFAULT_HAIKU_MODEL;
-  const canSpend =
-    opts.llmFn !== undefined &&
-    (opts.budget === undefined || !opts.budget.wouldExceed(modelId, WORST_CASE_USAGE));
-  if (!canSpend) {
+  if (opts.llmFn === undefined) {
+    return cosineFallback(top, fallback);
+  }
+  const budget = opts.budget;
+  const hold = budget ? budget.reserve(modelId, WORST_CASE_USAGE) : null;
+  if (budget && hold === null) {
     return cosineFallback(top, fallback);
   }
 
   try {
-    const resp = await opts.llmFn!({
+    const resp = await opts.llmFn({
       system: CLASSIFIER_SYSTEM,
       user: buildClassifierUser(newFact, candidates),
       maxTokens: WORST_CASE_USAGE.outputTokens,
     });
     // Price the call we just made; an exhausted budget still keeps THIS verdict
     // (already paid for) — the caller's next fact will find no room and fall back.
-    if (opts.budget) {
+    if (budget && hold) {
       try {
-        opts.budget.record(modelId, resp.usage ?? WORST_CASE_USAGE);
+        budget.settle(hold, modelId, resp.usage ?? WORST_CASE_USAGE);
       } catch {
         /* budget exhausted after this call — verdict below still stands */
       }
@@ -246,6 +249,7 @@ export async function classifyFact(
     return cosineFallback(top, fallback);
   } catch {
     // Model / network error — deterministic fallback.
+    if (budget && hold) budget.release(hold);
     return cosineFallback(top, fallback);
   }
 }

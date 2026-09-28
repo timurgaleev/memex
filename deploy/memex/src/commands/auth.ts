@@ -81,6 +81,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
+import { patNameSpendConflict } from "../core/budget.ts";
 import {
   OAuthProvider,
   needsOperatorConsent,
@@ -638,6 +639,8 @@ async function createToken(name: string, rest: string[]): Promise<void> {
       "Usage: auth create <name> [--takes-holders a,b] [--source SRC] [--federated-read a,b] [--scopes read,write]",
     );
   }
+  const nameConflict = patNameSpendConflict(name);
+  if (nameConflict !== null) throw new Error(nameConflict);
   const { flags } = parseFlags(rest);
   // Default ['world'] keeps private takes hidden from MCP-bound tokens
   // until the operator explicitly widens the allow-list.

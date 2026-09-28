@@ -120,7 +120,7 @@ export interface BudgetSnapshot {
 
 /** Budget set aside for one call in flight; settle or release it exactly once. */
 export interface BudgetHold {
-  readonly usd: number;
+  usd: number;
   done: boolean;
 }
 
@@ -162,6 +162,22 @@ export class BudgetTracker {
     const usd = costUsd(modelId, estUsage);
     this.held += usd;
     return { usd, done: false };
+  }
+
+  /**
+   * Grow a live hold to cover `estUsage` in total — a truncation retry replays
+   * the call, so the hold must cover both. The hold's own amount is not counted
+   * against itself. Returns false, leaving the hold unchanged, when the larger
+   * amount would not fit (or the model is unpriced).
+   */
+  widen(hold: BudgetHold, modelId: string, estUsage: SonnetUsage): boolean {
+    if (hold.done || priceFor(modelId) === null) return false;
+    const usd = costUsd(modelId, estUsage);
+    if (usd <= hold.usd) return true;
+    if (this.spent + this.held - hold.usd + usd > this.maxCostUsd) return false;
+    this.held += usd - hold.usd;
+    hold.usd = usd;
+    return true;
   }
 
   /** Give a hold back without spending (the call failed before it cost). */
@@ -259,6 +275,21 @@ function usdToCents(usd: number | null): number | null {
  *  timezone-independent — computed here, never via date_trunc in SQL). */
 export function utcDayStart(now: Date = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/** Prefixes of generated OAuth client ids and enrollment ids. Spend is booked
+ *  under a PAT's name, so a PAT named in either namespace would share another
+ *  principal's ledger key and cap. */
+export const RESERVED_SPEND_ID_PREFIXES = ["memex_cl_", "memex_enr_"] as const;
+
+/** Why `name` cannot be minted as a PAT name, or null when it is free to use. */
+export function patNameSpendConflict(name: string): string | null {
+  const prefix = RESERVED_SPEND_ID_PREFIXES.find((p) => name.startsWith(p));
+  if (prefix === undefined) return null;
+  return (
+    `token names starting with "${prefix}" are reserved for generated ids — ` +
+    `spend is booked under the name and would share that id's ledger and cap`
+  );
 }
 
 export interface SpendLogInput {

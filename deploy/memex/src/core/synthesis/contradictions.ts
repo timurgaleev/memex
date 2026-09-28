@@ -11,7 +11,7 @@
  *
  * Safety: opt-in (`MEMEX_PROBE_CONTRADICTIONS=1`); paired candidates are
  * date-pre-filtered (a lookback window) and hard-capped (`maxPairs`) BEFORE any
- * LLM call; budget-capped (BudgetTracker with a pre-call wouldExceed gate);
+ * LLM call; budget-capped (BudgetTracker with a pre-call reservation);
  * cached BOTH ways (positives via synth_contradictions.pair_key, every verdict
  * — negative included — via the TTL'd synth_contradiction_verdicts cache, so a
  * negative pair is not re-spent until its verdict expires); fail-open (a
@@ -478,7 +478,10 @@ export async function probeContradictionsPhase(
     }
 
     // Budget pre-flight — stop the whole phase once a pair can't be afforded.
-    if (budget.wouldExceed(probeModel, estimatePairUsage(pair.a_text, pair.b_text))) {
+    // The estimate is held until settle, so a tracker shared with other
+    // callers cannot be spent twice against the same headroom.
+    const hold = budget.reserve(probeModel, estimatePairUsage(pair.a_text, pair.b_text));
+    if (hold === null) {
       result.budgetExhausted = true;
       break;
     }
@@ -497,12 +500,12 @@ export async function probeContradictionsPhase(
             maxTokens: cap,
             temperature: 0,
           }),
-        (projected) => !budget.wouldExceed(probeModel, projected),
+        (projected) => budget.widen(hold, probeModel, projected),
       );
       const resp = call.resp;
       usedModel = resp.modelId;
       try {
-        budget.record(resp.modelId, call.usage);
+        budget.settle(hold, resp.modelId, call.usage);
       } catch (e) {
         if (e instanceof BudgetExhausted) {
           result.budgetExhausted = true;
@@ -513,6 +516,7 @@ export async function probeContradictionsPhase(
       }
       judgment = parseJudgment(resp.text);
     } catch (e) {
+      budget.release(hold);
       result.errors.push(`pair ${pair.a_ref}/${pair.b_ref} judge: ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }

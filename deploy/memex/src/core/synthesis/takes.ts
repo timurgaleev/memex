@@ -29,7 +29,7 @@ import {
   type SonnetCallResult,
   type SonnetUsage,
 } from "../llm/sonnet.ts";
-import { callWithTruncationRetry } from "../llm/truncation.ts";
+import { callWithTruncationRetry, type TruncationRetryResult } from "../llm/truncation.ts";
 import { parseModelJson } from "../llm/json-output.ts";
 import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { BudgetTracker, BudgetExhausted } from "../budget.ts";
@@ -656,7 +656,7 @@ export interface EnsembleResult {
    * must not memoize that as a verdict.
    */
   truncatedJudges: number;
-  /** A wouldExceed skip or a record() ceiling hit occurred this take. */
+  /** A reserve() refusal or a settle() ceiling hit occurred this take. */
   budgetHit: boolean;
   /** The Sonnet model the judges ran on (for the model_id provenance column). */
   graderModel: string;
@@ -701,9 +701,9 @@ export function aggregateVerdicts(votes: readonly ParsedVerdict[]): ParsedVerdic
 /**
  * Grade one take with an N-judge Sonnet ensemble. Each judge is a fresh Sonnet
  * call (first at temperature 0 for a stable anchor, the rest diversified) over
- * the SAME sanitized claim + evidence. Budget-gated: a pre-call `wouldExceed`
- * check skips a judge that can't be afforded, a judge cut off by the output cap
- * retries once with more room when the budget covers it, and `record` enforces
+ * the SAME sanitized claim + evidence. Budget-gated: a pre-call `reserve`
+ * skips a judge that can't be afforded, a judge cut off by the output cap
+ * retries once with more room when the budget covers it, and `settle` enforces
  * the hard ceiling. Returns null when the budget leaves no room for even one judge, or
  * when no judge produced a parseable verdict. Propagates BudgetExhausted so the
  * phase loop stops (partial progress) exactly like the facts extractor.
@@ -727,7 +727,8 @@ export async function gradeTakeEnsemble(
   let truncatedJudges = 0;
   let budgetHit = false;
   for (let i = 0; i < opts.judges; i++) {
-    if (opts.budget.wouldExceed(probeModel, estUsage)) {
+    const hold = opts.budget.reserve(probeModel, estUsage);
+    if (hold === null) {
       budgetHit = true;
       break;
     }
@@ -735,18 +736,24 @@ export async function gradeTakeEnsemble(
     // buys silence. Retry it once with more room — but only if the SHARED
     // ensemble budget covers both calls; when it doesn't, the truncation is
     // reported (truncatedJudges) instead of paying twice for the same cut.
-    const call = await callWithTruncationRetry(
-      "grade_takes_ensemble",
-      GRADE_MAX_TOKENS,
-      (cap) =>
-        opts.sonnetFn({
-          system: GRADE_SYSTEM_PROMPT,
-          user,
-          maxTokens: cap,
-          temperature: i === 0 ? 0 : 0.6,
-        }),
-      (projected) => !opts.budget.wouldExceed(probeModel, projected),
-    );
+    let call: TruncationRetryResult;
+    try {
+      call = await callWithTruncationRetry(
+        "grade_takes_ensemble",
+        GRADE_MAX_TOKENS,
+        (cap) =>
+          opts.sonnetFn({
+            system: GRADE_SYSTEM_PROMPT,
+            user,
+            maxTokens: cap,
+            temperature: i === 0 ? 0 : 0.6,
+          }),
+        (projected) => opts.budget.widen(hold, probeModel, projected),
+      );
+    } catch (e) {
+      opts.budget.release(hold);
+      throw e;
+    }
     const resp = call.resp;
     callsMade += 1;
     if (call.truncated) truncatedJudges += 1;
@@ -754,7 +761,7 @@ export async function gradeTakeEnsemble(
     let overCap = false;
     try {
       // Both calls were paid for when a retry ran — price the sum.
-      opts.budget.record(resp.modelId, call.usage);
+      opts.budget.settle(hold, resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) {
         budgetHit = true;

@@ -288,7 +288,8 @@ export async function driftPhase(
   const maxTokens = 1200;
 
   const prompt = buildPrompt(candidates);
-  if (budget.wouldExceed(model, estimateUsage(prompt.length, maxTokens))) {
+  const hold = budget.reserve(model, estimateUsage(prompt.length, maxTokens));
+  if (hold === null) {
     return { ...base, reason: "budget exhausted before judging", budgetExhausted: true };
   }
 
@@ -304,11 +305,11 @@ export async function driftPhase(
           maxTokens: cap,
           temperature: 0,
         }),
-      (projected) => !budget.wouldExceed(model, projected),
+      (projected) => budget.widen(hold, model, projected),
     );
     const resp = call.resp;
     try {
-      budget.record(resp.modelId, call.usage);
+      budget.settle(hold, resp.modelId, call.usage);
     } catch (e) {
       if (e instanceof BudgetExhausted) base.budgetExhausted = true;
       else throw e;
@@ -316,6 +317,7 @@ export async function driftPhase(
     base.spentUsd = budget.totalSpent();
     verdicts = parseVerdicts(resp.text, new Set(candidates.map((c) => c.takeId)));
   } catch (e) {
+    budget.release(hold);
     return { ...base, ran: true, spentUsd: budget.totalSpent(), errors: [String(e instanceof Error ? e.message : e)] };
   }
 
