@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { startServer } from "../http/server.ts";
-import { loadConfig } from "../core/config.ts";
+import { loadConfig, selfIssuedMismatch } from "../core/config.ts";
 import { startCycleLoop, type CycleHandle } from "../recipes/cycle.ts";
 import { Worker } from "../core/jobs/worker.ts";
 import { Queue } from "../core/jobs/queue.ts";
@@ -98,6 +98,21 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // shape forced PGLite even when config said postgres.
   const storage = new Storage(config);
   await storage.init();
+
+  // A Postgres brain with OAuth clients but the provider off almost always
+  // means init wrote a fresh config.json (moved or missing data dir). Loud,
+  // never fatal: the operator may have turned OAuth off on purpose.
+  if (storage.engine().kind === "postgres") {
+    try {
+      const mismatch = selfIssuedMismatch(config, await storage.liveOauthClientCount());
+      if (mismatch) console.error(`[memex] ERROR: ${mismatch}`);
+    } catch (e) {
+      console.error(
+        "[memex] OAuth config check failed (non-blocking):",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
   // Startup zombie-index sweep. memex gates it default-OFF per its no-surprise-
   // mutation posture — an aborted CONCURRENTLY leaving an invalid index is rare,

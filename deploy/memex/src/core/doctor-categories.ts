@@ -130,6 +130,8 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   "legacy-env-names",
   "legacy-config-dir",
   "runtime-config-legacy-rows",
+  "config-yml",
+  "oauth-self-issued-config",
   // Only ever pushed when teardown FAILED, so it is absent from a healthy run
   // and the drift test cannot see it — it still has to be named here or it
   // falls through to `meta` with an "uncategorized" warning.

@@ -4,9 +4,11 @@
  * (highest precedence, for container-time overrides).
  *
  * Discovery order:
- *   1. ~/.memex/config.json   — required, written by `init`
- *   2. ~/.memex/memex.yml  — optional overlay
+ *   1. <config dir>/config.json   — required, written by `init`
+ *   2. <config dir>/memrain.yml, else memex.yml — optional overlay
  *   3. process.env.MEMEX_*    — applied at the call site (serve.ts)
+ *
+ * The config dir is resolved by `resolveConfigDir`.
  *
  * Why split JSON + YAML: the JSON is small + machine-written + bash-easy
  * (jq friendly), the YAML is the human-edited declarative knob panel.
@@ -121,18 +123,63 @@ export interface Config {
   auth?: AuthConfig;
 }
 
-export function defaultConfigPath(): string {
-  // Operators (and tests) override via MEMEX_CONFIG_PATH. Useful when
-  // ~/.memex points at a production install and the current process
-  // wants a different one without a shell-level HOME swap (which Bun's
-  // homedir() ignores anyway — it goes through getpwuid).
-  const override = process.env.MEMEX_CONFIG_PATH;
-  if (override && override.length > 0) return override;
-  return join(homedir(), ".memex", "config.json");
+/** Config directory names under the home directory. */
+export const CONFIG_DIR_NAME = ".memrain";
+export const LEGACY_CONFIG_DIR_NAME = ".memex";
+/** Where `init` puts a brand-new install when neither directory holds a config. */
+const FRESH_CONFIG_DIR_NAME: string = LEGACY_CONFIG_DIR_NAME;
+
+/** Overlay file names; the new one wins when both exist (no merge). */
+export const YAML_NAME = "memrain.yml";
+export const LEGACY_YAML_NAME = "memex.yml";
+
+type Env = Record<string, string | undefined>;
+
+/**
+ * The explicit config-file override, or null. Operators (and tests) use it
+ * when ~/.memex points at a production install and the current process wants
+ * a different one without a shell-level HOME swap (which Bun's homedir()
+ * ignores anyway — it goes through getpwuid).
+ */
+export function configPathOverride(env: Env = process.env): string | null {
+  const override = env.MEMEX_CONFIG_PATH;
+  return override && override.length > 0 ? override : null;
+}
+
+let legacyDirNoted = false;
+
+/**
+ * The config directory, in this order:
+ *   1. the directory of the config-path override;
+ *   2. ~/.memrain when it holds config.json;
+ *   3. ~/.memex when it holds config.json;
+ *   4. the fresh-install default.
+ * A config found in the legacy directory is used as is; nothing is moved.
+ */
+export function resolveConfigDir(env: Env = process.env, home: string = homedir()): string {
+  const override = configPathOverride(env);
+  if (override) return dirname(override);
+  const current = join(home, CONFIG_DIR_NAME);
+  if (existsSync(join(current, "config.json"))) return current;
+  const legacy = join(home, LEGACY_CONFIG_DIR_NAME);
+  if (existsSync(join(legacy, "config.json"))) {
+    if (FRESH_CONFIG_DIR_NAME !== LEGACY_CONFIG_DIR_NAME && !legacyDirNoted) {
+      legacyDirNoted = true;
+      console.error(`[memex] using the legacy config directory ${legacy}; move it to ${current}`);
+    }
+    return legacy;
+  }
+  return join(home, FRESH_CONFIG_DIR_NAME);
+}
+
+export function defaultConfigPath(env: Env = process.env, home: string = homedir()): string {
+  return configPathOverride(env) ?? join(resolveConfigDir(env, home), "config.json");
 }
 
 export function defaultYamlPath(configJsonPath: string): string {
-  return join(dirname(configJsonPath), "memex.yml");
+  const dir = dirname(configJsonPath);
+  const current = join(dir, YAML_NAME);
+  return existsSync(current) ? current : join(dir, LEGACY_YAML_NAME);
 }
 
 export function loadConfig(path: string = defaultConfigPath()): Config {
@@ -178,7 +225,7 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
 
   const merged = cfg as Config;
 
-  // Overlay memex.yml if present. The YAML is purely additive — it never
+  // Overlay the YAML if present. The YAML is purely additive — it never
   // overrides database / embedding — those are JSON-only to keep boot
   // surface small.
   const yamlPath = defaultYamlPath(path);
@@ -203,4 +250,18 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
   }
 
   return merged;
+}
+
+/**
+ * OAuth clients exist but the self-issued provider is off. Every OAuth client
+ * is then refused, and the usual cause is a config.json written fresh by
+ * `init` next to a database that already has clients (a moved or missing data
+ * directory). Returns the operator-facing sentence, or null when consistent.
+ */
+export function selfIssuedMismatch(config: Config, liveOauthClients: number): string | null {
+  if (liveOauthClients === 0 || config.auth?.selfIssued?.enabled === true) return null;
+  return (
+    `${liveOauthClients} OAuth client(s) registered but auth.selfIssued.enabled is not true, ` +
+    `so every OAuth client is refused: config.json looks recreated; data dir moved?`
+  );
 }

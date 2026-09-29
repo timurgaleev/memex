@@ -6,6 +6,11 @@
  * staleness lag, job queue), and the query-cache state. Read-only — unlike
  * `doctor` it makes no pass/fail judgement and sets no exit code; it just
  * reports the numbers. Reuses the same primitives `doctor` and `cache` use.
+ *
+ * `stats.pages` (every pages row), `oauth_self_issued` and `oauth_clients_live`
+ * are what a deploy checks before it opens ingress: an empty corpus, or the
+ * OAuth provider off while live clients exist, after an upgrade means the
+ * wrong data dir or a recreated config.
  */
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
@@ -35,7 +40,8 @@ export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
     // Sequential: the engine may be a single PGLite connection that serializes
     // queries anyway, these are cheap reads, and cacheStats needs the clock
     // first (data dependency).
-    const stats = await storage.stats();
+    const stats = { ...(await storage.stats()), pages: await storage.pageCount() };
+    const oauthClientsLive = await storage.liveOauthClientCount();
     const health = await brainHealthMetrics(engine);
     const clock = await currentDocumentClock(engine);
     const cache = await cacheStats(engine, clock);
@@ -52,6 +58,8 @@ export async function runStatus(opts: StatusCmdOptions = {}): Promise<void> {
         {
           ok: true,
           version: VERSION,
+          oauth_self_issued: config.auth?.selfIssued?.enabled === true,
+          oauth_clients_live: oauthClientsLive,
           stats,
           health,
           ...(perSource ? { perSource } : {}),

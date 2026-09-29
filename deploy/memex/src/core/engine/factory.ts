@@ -15,6 +15,10 @@
  * the short interactive `statement_timeout` (default 30s):
  *   - `MEMEX_PG_POOL_MAX` (default 10)
  *   - `MEMEX_PG_STATEMENT_TIMEOUT_MS` (default 30000)
+ *
+ * `MEMRAIN_REQUIRE_POSTGRES=1` makes a pglite config fatal, so a host meant to
+ * run on Postgres can never quietly open a local database instead (a missing
+ * URL is already fatal). It also covers commands run with `docker exec`.
  */
 import type { Config } from "../config.ts";
 import type { Engine } from "./interface.ts";
@@ -27,9 +31,29 @@ function positiveIntEnv(name: string): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-export function makeEngine(config: Config): Engine {
+/** True when the host must run on Postgres (`MEMRAIN_REQUIRE_POSTGRES=1`). */
+export function requirePostgres(env: Record<string, string | undefined> = process.env): boolean {
+  return env.MEMRAIN_REQUIRE_POSTGRES === "1";
+}
+
+export interface MakeEngineOptions {
+  /**
+   * The caller picked a throwaway PGLite path itself (tests, bench scratch
+   * dirs). That database is never the brain, so the Postgres requirement does
+   * not apply to it.
+   */
+  scratch?: boolean;
+}
+
+export function makeEngine(config: Config, opts: MakeEngineOptions = {}): Engine {
   const db = config.database;
   if (db.type === "pglite") {
+    if (!opts.scratch && requirePostgres()) {
+      throw new Error(
+        `memex: MEMRAIN_REQUIRE_POSTGRES=1 but config.json says database.type=pglite (${db.path}); ` +
+          "refusing to open a local database on a Postgres host",
+      );
+    }
     return new PGliteEngine({ dbPath: db.path });
   }
   if (db.type === "postgres") {

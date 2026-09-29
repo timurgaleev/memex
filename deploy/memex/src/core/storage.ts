@@ -35,7 +35,8 @@ export class Storage {
       this._config = engineOrConfig;
     } else {
       // Legacy `{ dbPath }` shape — kept so existing tests / callers don't
-      // need to know about the engine factory. PGLite-only.
+      // need to know about the engine factory. PGLite-only, at a path the
+      // caller chose, so it is a scratch database and never the brain.
       const cfg: Config = {
         database: { type: "pglite", path: engineOrConfig.dbPath },
         embedding: {
@@ -45,7 +46,7 @@ export class Storage {
         },
         storage: {},
       };
-      this._engine = makeEngine(cfg);
+      this._engine = makeEngine(cfg, { scratch: true });
       this._config = cfg;
     }
   }
@@ -88,6 +89,22 @@ export class Storage {
    */
   raw(): Engine {
     return this._engine;
+  }
+
+  /** Every row of `pages`, soft-deleted ones included. */
+  async pageCount(): Promise<number> {
+    const r = await this._engine.query<{ c: number }>(
+      "SELECT COUNT(*)::int AS c FROM pages",
+    );
+    return r.rows[0]?.c ?? 0;
+  }
+
+  /** OAuth clients that are not soft-deleted. */
+  async liveOauthClientCount(): Promise<number> {
+    const r = await this._engine.query<{ c: number }>(
+      "SELECT COUNT(*)::int AS c FROM oauth_clients WHERE deleted_at IS NULL",
+    );
+    return r.rows[0]?.c ?? 0;
   }
 
   async stats(): Promise<StorageStats> {

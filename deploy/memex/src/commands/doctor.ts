@@ -13,12 +13,18 @@
  */
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.ts";
 import { Storage } from "../core/storage.ts";
 import { closeQuietly } from "./with-storage.ts";
-import { loadConfig, defaultConfigPath } from "../core/config.ts";
-import type { DatabaseConfig } from "../core/config.ts";
+import {
+  loadConfig,
+  defaultConfigPath,
+  selfIssuedMismatch,
+  LEGACY_YAML_NAME,
+  YAML_NAME,
+} from "../core/config.ts";
+import type { Config, DatabaseConfig } from "../core/config.ts";
 import {
   categorize,
   couldNotCheck,
@@ -171,6 +177,33 @@ export function legacyConfigDirCheck(home: string): Check {
         detail: `${legacy} exists beside ${current}; keep one config directory`,
       }
     : { name: "legacy-config-dir", ok: true, status: "ok", detail: "no legacy config directory beside the new one" };
+}
+
+/** Both overlay files beside config.json: the new one is read, the legacy one is ignored. */
+export function configYamlCheck(configPath: string): Check {
+  const dir = dirname(configPath);
+  const current = join(dir, YAML_NAME);
+  const legacy = join(dir, LEGACY_YAML_NAME);
+  return existsSync(current) && existsSync(legacy)
+    ? {
+        name: "config-yml",
+        ok: true,
+        status: "warn",
+        detail: `${current} and ${legacy} both exist; only ${YAML_NAME} is read, fold ${LEGACY_YAML_NAME} into it`,
+      }
+    : { name: "config-yml", ok: true, status: "ok", detail: "one overlay file at most" };
+}
+
+/** OAuth clients registered while the self-issued provider is off: a recreated config.json. */
+export function oauthSelfIssuedCheck(config: Config, liveOauthClients: number): Check {
+  const mismatch = selfIssuedMismatch(config, liveOauthClients);
+  return mismatch
+    ? verdict("oauth-self-issued-config", false, mismatch)
+    : verdict(
+        "oauth-self-issued-config",
+        true,
+        `self-issued OAuth ${config.auth?.selfIssued?.enabled === true ? "on" : "off"}; ${liveOauthClients} live client(s)`,
+      );
 }
 
 /** A check as rendered: the raw check plus its category. */
@@ -400,6 +433,13 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     checks.push(await checkFederationHealth(storage.raw()));
     checks.push(await checkOauthClientHealth(storage.raw()));
     checks.push(await checkOauthClientHygiene(storage.raw()));
+    if (config) {
+      try {
+        checks.push(oauthSelfIssuedCheck(config, await storage.liveOauthClientCount()));
+      } catch (e) {
+        checks.push(couldNotCheck("oauth-self-issued-config", e));
+      }
+    }
     checks.push(await checkPatScopesRecorded(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
     checks.push(await checkDocumentIdDrift(storage.raw()));
@@ -505,6 +545,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   } catch (e) {
     checks.push(couldNotCheck("legacy-config-dir", e));
   }
+  checks.push(configYamlCheck(cfgPath));
 
   // 4. vault path (only when configured)
   const vault =

@@ -1,9 +1,10 @@
 /**
  * `memex init [--pglite]` — bootstraps a fresh memex instance.
  *
- * Creates ~/.memex/ (mode 0700), writes config.json, opens the PGLite
- * database, and applies initial migrations. Idempotent: if config.json
- * already exists, prints a notice and exits 0 without touching anything.
+ * Creates the config dir (mode 0700; see `resolveConfigDir`), writes
+ * config.json, opens the PGLite database, and applies initial migrations.
+ * Idempotent: if config.json already exists, prints a notice and exits 0
+ * without touching anything.
  */
 import {
   mkdirSync,
@@ -12,6 +13,7 @@ import {
   chmodSync,
   readFileSync,
   readdirSync,
+  statSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +21,13 @@ import { fileURLToPath } from "node:url";
 import { Storage } from "../core/storage.ts";
 import type { MigrationResult } from "../core/migrate.ts";
 import { closeQuietly } from "./with-storage.ts";
-import type { Config } from "../core/config.ts";
+import {
+  configPathOverride,
+  defaultConfigPath,
+  LEGACY_CONFIG_DIR_NAME,
+  type Config,
+} from "../core/config.ts";
+import { requirePostgres } from "../core/engine/factory.ts";
 import { awsRegion } from "../core/llm/gateway.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -62,16 +70,61 @@ export interface InitOptions {
   postgres?: boolean;
   /** Optional override of the config dir (testing). */
   configDir?: string;
+  /** Home directory the config dir is resolved under (testing). */
+  home?: string;
+}
+
+/** Two paths that name one directory (same device and inode). */
+function sameDirectory(a: string, b: string): boolean {
+  const sa = statSync(a, { throwIfNoEntry: false });
+  const sb = statSync(b, { throwIfNoEntry: false });
+  return sa !== undefined && sb !== undefined && sa.dev === sb.dev && sa.ino === sb.ino;
+}
+
+/**
+ * Refusal text when init would start a new brain in `configDir` while the
+ * legacy config directory still holds an install, else null. One directory
+ * reached through both names (the container's compat bind) is not a split.
+ */
+export function legacyDirSplit(configDir: string, home: string): string | null {
+  if (existsSync(join(configDir, "config.json"))) return null;
+  const legacy = join(home, LEGACY_CONFIG_DIR_NAME);
+  let entries: string[];
+  try {
+    entries = readdirSync(legacy);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    throw e;
+  }
+  if (entries.length === 0 || sameDirectory(configDir, legacy)) return null;
+  return (
+    `memex init: ${legacy} holds an existing install and ${configDir} has no config.json; ` +
+    `refusing to start a second brain beside it. Move it instead: mv ${legacy} ${configDir}`
+  );
 }
 
 export async function runInit(opts: InitOptions): Promise<void> {
   if (opts.pglite === Boolean(opts.postgres)) {
     throw new Error("memex init: pass exactly one of --pglite or --postgres");
   }
+  if (opts.pglite && requirePostgres()) {
+    throw new Error("memex init: MEMRAIN_REQUIRE_POSTGRES=1 refuses --pglite; set the Postgres URL and use --postgres");
+  }
 
-  const configDir = opts.configDir ?? join(homedir(), ".memex");
-  const configPath = join(configDir, "config.json");
+  const home = opts.home ?? homedir();
+  const configPath = opts.configDir
+    ? join(opts.configDir, "config.json")
+    : defaultConfigPath(process.env, home);
+  const configDir = dirname(configPath);
   const dbPath = join(configDir, "brain.pglite");
+
+  // Only a directory init picked by itself can split an install; an explicit
+  // directory or config-path override is the operator's choice.
+  if (!opts.configDir && !configPathOverride()) {
+    const split = legacyDirSplit(configDir, home);
+    if (split) throw new Error(split);
+  }
 
   if (existsSync(configPath)) {
     // Postgres mode heals a pglite config left by an earlier init: the
