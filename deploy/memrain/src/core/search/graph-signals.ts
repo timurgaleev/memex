@@ -9,10 +9,10 @@
  *      top-K pages is a hub for this query — a small bump.
  *
  *   2. Cross-source adjacency (×1.10): a top-K page linked-to from >=2
- *      distinct OTHER sources is a federated-team hub. DORMANT on memex:
+ *      distinct OTHER sources is a federated-team hub. DORMANT on memrain:
  *      the brain is single-source and `pages` carries no per-page source,
  *      so `cross_source_hits` is always 0. The arm is wired ahead of time and
- *      activates only if memex ever becomes multi-source.
+ *      activates only if memrain ever becomes multi-source.
  *
  *   3. Session diversification (×0.95): when several top-K results share a
  *      session prefix (a `chat/` marker or a YYYY-MM-DD segment), keep the
@@ -26,10 +26,10 @@
  * immutable unless explicitly enabled). Fail-open: any SQL error leaves the
  * caller's results untouched.
  *
- * Implementation note: memex links are keyed by page SLUG
+ * Implementation note: memrain links are keyed by page SLUG
  * (`links.source_slug`/`target_slug`), not by page id, so the adjacency query
  * runs on slugs and the engine interface stays untouched (inline SQL via the
- * generic `engine.query`). On memex's mostly file-indexed corpus the adjacency
+ * generic `engine.query`). On memrain's mostly file-indexed corpus the adjacency
  * arm only fires for page-derived hits (`page://<slug>`) whose slug is in the
  * link graph — coverage grows as the brain becomes page-centric. A
  * score-distribution probe + JSONL failure audit (telemetry for a future
@@ -41,7 +41,7 @@ import { andSourceScope } from "../source-scope.ts";
 /** Multiplier when in-set inbound links >= ADJACENCY_MIN_HITS. */
 export const ADJACENCY_BOOST = 1.05;
 /** Multiplier when distinct OTHER sources >= CROSS_SOURCE_MIN_HITS. Stacks
- *  on top of ADJACENCY_BOOST. Dormant on single-source memex. */
+ *  on top of ADJACENCY_BOOST. Dormant on single-source memrain. */
 export const CROSS_SOURCE_BOOST = 1.1;
 /** Sub-1.0 multiplier applied to non-top members of a session group. */
 export const SESSION_DEMOTE = 0.95;
@@ -213,7 +213,7 @@ export function sessionPrefix(slug: string): string | null {
  * Inline adjacency tally over the `links` table, restricted to the input
  * slug set's induced subgraph. `hits` = distinct in-set source_slugs linking
  * to each target (self-links excluded). Both endpoints must be live pages.
- * cross_source_hits is always 0 (single-source memex; `pages` has no per-page
+ * cross_source_hits is always 0 (single-source memrain; `pages` has no per-page
  * source).
  *
  * The `HAVING >= 1` keeps every target with at least one in-set inbound link,

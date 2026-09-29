@@ -54,7 +54,7 @@ describe("classifyRemediation", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]?.status).toBe("human_only");
     expect(actions[0]?.action).toBeUndefined();
-    expect(actions[0]?.human_hint).toContain("memex init");
+    expect(actions[0]?.human_hint).toContain("memrain init");
   });
 
   it("BLOCKS source/cycle fixes when a root check (pglite) is failing", () => {

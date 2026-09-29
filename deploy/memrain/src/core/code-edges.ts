@@ -4,7 +4,7 @@
  * `resolve-symbol-edges` cycle phase later writes the defining chunk id into
  * `edge_metadata.resolved_chunk_id`.
  *
- * memex already extracts callees as `code-caller` entities; this module turns
+ * memrain already extracts callees as `code-caller` entities; this module turns
  * those into typed, chunk-anchored edges so the call graph can resolve to a
  * specific defining chunk rather than aliasing same-named symbols together.
  */

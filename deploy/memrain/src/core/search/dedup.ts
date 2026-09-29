@@ -48,7 +48,7 @@ export function dedupByDocument<T>(
  *
  * A text-similarity dedup stage. Other dedup layers are not folded in here:
  * type-diversity needs a page-type taxonomy this stage doesn't carry, and the
- * compiled-truth guarantee is an LLM-cycle artifact memex doesn't produce.
+ * compiled-truth guarantee is an LLM-cycle artifact memrain doesn't produce.
  */
 const DEFAULT_NEARDUP_JACCARD = 0.85;
 

@@ -1,5 +1,5 @@
 /**
- * `memex bench` — the agent-facing behaviour bench.
+ * `memrain bench` — the agent-facing behaviour bench.
  *
  * Three families, one command, one scoreboard:
  *
@@ -124,7 +124,7 @@ function clearPaidEnvKnobs(): void {
  * says so BEFORE anything bills.
  */
 export const LIVE_REFUSAL =
-  "memex bench: --live is not available in v1.\n" +
+  "memrain bench: --live is not available in v1.\n" +
   "  A live-model arm cannot be pinned (model output is not deterministic), " +
   "cannot run in CI,\n" +
   "  and costs real money per run. The stub arm is the whole bench for now — " +
@@ -135,7 +135,7 @@ function corpusDirFor(root: string, family: BenchFamily): string {
   const dir = join(root, FAMILY_CORPUS_SUBDIR[family]);
   if (!existsSync(dir)) {
     throw new Error(
-      `memex bench: no ${family} corpus at ${dir} ` +
+      `memrain bench: no ${family} corpus at ${dir} ` +
         `(--corpus takes the ROOT holding ${Object.values(FAMILY_CORPUS_SUBDIR).join("/")})`,
     );
   }
@@ -265,7 +265,7 @@ export async function runBenchCli(opts: BenchOptions = {}): Promise<number> {
     return 1;
   }
 
-  const tmp = mkdtempSync(join(tmpdir(), "memex-bench-"));
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-bench-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
   try {
     return await withStorage(storage, async () => {

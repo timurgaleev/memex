@@ -1,5 +1,5 @@
 /**
- * `memex eval-export` — dump captured eval rows as JSONL to stdout
+ * `memrain eval-export` — dump captured eval rows as JSONL to stdout
  * (or `--out PATH`) for offline analysis. Reads from `eval_candidates`
  * (auto-capture firehose) by default; pass `--source curated` to dump
  * `eval_queries` (the curated regression set) instead.

@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * used by the wikilink slug canonicalizer's `similarity()` scoring).
  *
  * Storage lives at a filesystem path (a directory). PGLite is single-process,
- * single-connection — concurrent memex processes against the same path
+ * single-connection — concurrent memrain processes against the same path
  * are not supported. Per the spec, single-user / single-container is the
  * design point until swaps in real Postgres.
  */

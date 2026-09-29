@@ -1,5 +1,5 @@
 /**
- * `memex eval-probe` — nightly retrieval-quality snapshot.
+ * `memrain eval-probe` — nightly retrieval-quality snapshot.
  *
  * Replays the captured eval set (eval_queries, via `replayAll`) against the
  * live brain and appends ONE row to `eval_snapshots` (migration 068) so the

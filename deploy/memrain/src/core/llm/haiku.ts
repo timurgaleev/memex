@@ -1,7 +1,7 @@
 /**
  * Thin shared Bedrock Claude Haiku call helper.
  *
- * memex already calls the utility LLM in two places (search/intent.ts,
+ * memrain already calls the utility LLM in two places (search/intent.ts,
  * search/expansion.ts), but each instantiates its own BedrockRuntimeClient +
  * hand-rolls the ConverseCommand. The synthesis subsystem (Wave 5) adds five
  * more LLM call sites, so this consolidates the single "send a system+user

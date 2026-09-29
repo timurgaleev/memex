@@ -63,7 +63,7 @@ export interface VolunteerOpts {
   minConfidence?: number;
   /**
    * Slugs to skip BEFORE the confidence gate and the cap (O(1) membership).
-   * `memex watch` passes its session-dedupe set here — a post-call filter
+   * `memrain watch` passes its session-dedupe set here — a post-call filter
    * would let a recurring already-pushed entity consume cap slots every turn
    * and starve new pages behind it.
    */
@@ -77,7 +77,7 @@ export interface VolunteerOpts {
   priorContext?: string;
   /**
    * Tenant read scope, threaded into the pointer resolver. Omitted ->
-   * unscoped (local CLI / `memex watch`, which run as the operator).
+   * unscoped (local CLI / `memrain watch`, which run as the operator).
    */
   sourceIds?: string[];
 }
@@ -206,7 +206,7 @@ export async function volunteerContext(
 }
 
 /**
- * Canonical human rendering of one volunteered page — shared by `memex watch`
+ * Canonical human rendering of one volunteered page — shared by `memrain watch`
  * and the volunteer_context op so the surfaces can't drift.
  */
 export function formatVolunteeredPage(p: VolunteeredPage): string {

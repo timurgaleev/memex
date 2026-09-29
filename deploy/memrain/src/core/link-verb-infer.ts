@@ -2,7 +2,7 @@
  * link-verb-infer.ts — deterministic (LLM-free) verb-context inference of a
  * wikilink edge's TYPE from the prose around the mention.
  *
- * memex resolves a `[[target]]` wikilink to a slug and writes
+ * memrain resolves a `[[target]]` wikilink to a slug and writes
  * `type='wikilink'`; with verb
  * inference ON (opt-in, `MEMRAIN_LINK_VERB_INFER=1`), the ~240-char window around
  * the mention is scanned for employment / investment / founder / advisor verbs

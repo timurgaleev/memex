@@ -1,5 +1,5 @@
 /**
- * `memex migrate-engine --from pglite|postgres --to pglite|postgres`
+ * `memrain migrate-engine --from pglite|postgres --to pglite|postgres`
  *
  * Copies a whole brain between engines and proves the copy:
  *   1. Open both engines; apply migrations on the destination.
@@ -90,7 +90,7 @@ export function resolveEndpoints(
 
 /** Throw when the source has not applied every migration this binary ships. */
 export async function assertSourceSchemaCurrent(src: Engine): Promise<void> {
-  const fix = "run `memex apply-migrations` against the source first, then retry";
+  const fix = "run `memrain apply-migrations` against the source first, then retry";
   let applied: Set<number>;
   try {
     const r = await src.query<{ id: number }>("SELECT id::int AS id FROM migrations");

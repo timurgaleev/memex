@@ -1,5 +1,5 @@
 /**
- * `memex reindex [--source vault|code|all] [--all] [--vault PATH] [--paths CSV]`
+ * `memrain reindex [--source vault|code|all] [--all] [--vault PATH] [--paths CSV]`
  *
  * Manual sweep trigger.
  *
@@ -141,7 +141,7 @@ export async function runReindex(
       const vault = resolveVaultPath(config, opts.vault);
       if (!vault && source === "vault") {
         throw new Error(
-          "memex reindex: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
+          "memrain reindex: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
         );
       }
       if (vault) {
@@ -160,7 +160,7 @@ export async function runReindex(
       if (paths.length === 0) {
         if (source === "code") {
           throw new Error(
-            "memex reindex --source code: no paths configured (set --paths CSV or MEMRAIN_CODE_PATHS)",
+            "memrain reindex --source code: no paths configured (set --paths CSV or MEMRAIN_CODE_PATHS)",
           );
         }
       } else {

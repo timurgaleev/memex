@@ -1,5 +1,5 @@
 /**
- * `_meta.brain_hot_memory` MCP injection helper (over memex's `hot_memory`
+ * `_meta.brain_hot_memory` MCP injection helper (over memrain's `hot_memory`
  * table, migration 020).
  *
  * The `hot_memory` inbox (recent, unvetted observations the brain just heard)

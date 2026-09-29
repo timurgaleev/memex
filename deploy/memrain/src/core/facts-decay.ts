@@ -17,7 +17,7 @@
  *     confidence) -- so a legacy row with NULL metadata behaves exactly as it
  *     does today.
  *
- * The half-life table is keyed by memex's own `FactKind` enum (the same five
+ * The half-life table is keyed by memrain's own `FactKind` enum (the same five
  * categories the `## Facts` fence parses), so it cannot drift from the schema.
  *
  * Application is default ON internally (`MEMRAIN_FACT_DECAY=0` disables) —

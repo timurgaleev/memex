@@ -20,8 +20,8 @@ async function apiFetch(path: string, options?: RequestInit) {
   return res.json();
 }
 
-// memex A2 endpoints (http/admin-api.ts). Separate stats/health/oauth-client
-// endpoints collapse onto memex's full-stats + credentials surface; the
+// memrain A2 endpoints (http/admin-api.ts). Separate stats/health/oauth-client
+// endpoints collapse onto memrain's full-stats + credentials surface; the
 // feed/calibration endpoints (B3) are added with their pages.
 export const api = {
   login: (token: string) => apiFetch("/admin/login", { method: "POST", body: JSON.stringify({ token }) }),

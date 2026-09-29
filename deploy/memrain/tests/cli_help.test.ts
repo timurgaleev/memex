@@ -36,14 +36,14 @@ describe("per-command --help", () => {
     const r = memex("watch", "--help");
     expect(r.code).toBe(0);
     expect(r.out).toBe(WATCH_HELP);
-    expect(r.out).not.toContain("Usage: memex <command>");
+    expect(r.out).not.toContain("Usage: memrain <command>");
   });
 
   it("prints the chronicle eval's own manual", () => {
     const r = memex("eval", "chronicle", "--help");
     expect(r.code).toBe(0);
-    expect(r.out).toContain("Usage: memex eval chronicle");
-    expect(r.out).not.toContain("Usage: memex <command>");
+    expect(r.out).toContain("Usage: memrain eval chronicle");
+    expect(r.out).not.toContain("Usage: memrain <command>");
   });
 
   it("answers BEFORE the rest of the line is validated", () => {
@@ -57,12 +57,12 @@ describe("per-command --help", () => {
   it("still validates when help was not asked for", () => {
     const r = memex("watch", "--window-turns");
     expect(r.code).toBe(1);
-    expect(r.err).toContain("memex watch: --window-turns requires a value");
+    expect(r.err).toContain("memrain watch: --window-turns requires a value");
   });
 
   it("falls back to the command table for commands with no manual", () => {
     const r = memex("reindex", "--help");
     expect(r.code).toBe(0);
-    expect(r.out).toContain("Usage: memex <command>");
+    expect(r.out).toContain("Usage: memrain <command>");
   });
 });

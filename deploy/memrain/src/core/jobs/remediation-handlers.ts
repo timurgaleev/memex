@@ -8,7 +8,7 @@
  *   - "reembed-source" → re-embed a source stuck at 0% coverage.
  *   - "cycle-phase"    → re-run a wedged maintenance-cycle phase.
  *
- * memex has NO server-side subagent runtime, so each action is a plain durable
+ * memrain has NO server-side subagent runtime, so each action is a plain durable
  * job the ordinary worker executes. The runners are injectable
  * (`RemediationDeps`) so the dispatch logic stays trivially testable.
  *

@@ -1,5 +1,5 @@
 /**
- * `memex transcripts ingest <path> [--format auto|chatgpt|claude-ai|codex|claude-code]
+ * `memrain transcripts ingest <path> [--format auto|chatgpt|claude-ai|codex|claude-code]
  *                           [--source ID] [--dry-run] [--json]`
  *
  * Imports a ChatGPT or Claude.ai data export, a Codex CLI rollout
@@ -82,7 +82,7 @@ function preview(sessions: Parameters<typeof prepareSession>[0][]): DryRunPrevie
 
 function fail(msg: string, json: boolean | undefined): number {
   if (json) console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
-  else console.error(`memex transcripts: ${msg}`);
+  else console.error(`memrain transcripts: ${msg}`);
   return 1;
 }
 
@@ -180,7 +180,7 @@ function readTranscriptDir(dir: string, override: TranscriptFormat | undefined):
 
 export async function runTranscripts(opts: TranscriptsCmdOptions): Promise<number> {
   if (opts.sub !== "ingest") {
-    console.error("memex transcripts: subcommand required (ingest <path>)");
+    console.error("memrain transcripts: subcommand required (ingest <path>)");
     return 1;
   }
   if (!opts.file) return fail("ingest: <path> is required", opts.json);
@@ -208,7 +208,7 @@ export async function runTranscripts(opts: TranscriptsCmdOptions): Promise<numbe
         ? `${file}: no known export format recognised (${diagnostics.items} items); nothing was imported`
         : `${file}: read as ${diagnostics.format} but produced zero sessions from ${diagnostics.items} items; the export format may have changed`;
     if (opts.json) console.log(JSON.stringify({ ok: false, error: msg, diagnostics }, null, 2));
-    else console.error(`memex transcripts: ${msg}`);
+    else console.error(`memrain transcripts: ${msg}`);
     return 1;
   }
 

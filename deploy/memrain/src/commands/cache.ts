@@ -1,5 +1,5 @@
 /**
- * `memex cache <subcommand>` — operator surface for the exact-match query
+ * `memrain cache <subcommand>` — operator surface for the exact-match query
  * cache (migration 026). The cache is a pure optimization gated on the
  * document-generation clock; these commands let an operator see its health
  * and reclaim space without restarting the daemon.

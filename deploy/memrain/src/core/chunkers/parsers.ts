@@ -11,9 +11,9 @@
  *   - One Parser per language is reused across files; constructing per-call
  *     would leak Emscripten heap (Parser holds onto its language module).
  *
- * WASM file location: vendored into `deploy/memex/wasm/` and resolved
+ * WASM file location: vendored into `deploy/memrain/wasm/` and resolved
  * relative to this source file via `import.meta.url`. That layout is
- * identical in dev (`/.../deploy/memex/wasm/...`) and in the container
+ * identical in dev (`/.../deploy/memrain/wasm/...`) and in the container
  * (`/app/wasm/...`) — the Dockerfile `COPY wasm/ ./wasm/` mirrors it.
  *
  * Override: `MEMRAIN_WASM_DIR` env var. Used by tests to point at a
@@ -215,7 +215,7 @@ export async function loadLanguage(lang: CodeLanguage): Promise<Language> {
     if (!existsSync(path)) {
       throw new Error(
         `core/chunkers/parsers: wasm grammar not found at ${path}. ` +
-          `Run \`bun install\` and verify \`deploy/memex/wasm/${filename}\` ` +
+          `Run \`bun install\` and verify \`deploy/memrain/wasm/${filename}\` ` +
           `is vendored. Set MEMRAIN_WASM_DIR to override.`,
       );
     }

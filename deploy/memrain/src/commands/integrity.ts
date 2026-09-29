@@ -1,5 +1,5 @@
 /**
- * `memex integrity [--vault P]` — vault-vs-index drift report.
+ * `memrain integrity [--vault P]` — vault-vs-index drift report.
  *
  * Walks the vault, queries the DB, and prints:
  *   - on_disk:    files present in vault but not in documents (missing index)
@@ -72,11 +72,11 @@ export async function runIntegrity(opts: IntegrityOptions): Promise<void> {
     null;
   if (!vault) {
     throw new Error(
-      "memex integrity: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
+      "memrain integrity: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
     );
   }
   if (!existsSync(vault)) {
-    throw new Error(`memex integrity: vault path ${vault} does not exist`);
+    throw new Error(`memrain integrity: vault path ${vault} does not exist`);
   }
 
   const tolerance = opts.staleToleranceMs ?? 60_000;

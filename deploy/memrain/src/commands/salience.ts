@@ -1,14 +1,14 @@
 /**
- * `memex salience [--type <page-type>] [--days N] [--limit N]`
+ * `memrain salience [--type <page-type>] [--days N] [--limit N]`
  *
  * The "what matters" surface: live pages ranked by the deterministic
  * `salience` score (migration 036, recomputed by the `recompute-salience`
  * cycle phase) — high-emotion tags + graph connectivity. Read-only.
  *
- *   memex salience                     # top 20 pages by salience, all-time
- *   memex salience --days 14           # only pages touched in the last 14 days
- *   memex salience --type person       # filter to one page type
- *   memex salience --limit 50          # widen the result set
+ *   memrain salience                     # top 20 pages by salience, all-time
+ *   memrain salience --days 14           # only pages touched in the last 14 days
+ *   memrain salience --type person       # filter to one page type
+ *   memrain salience --limit 50          # widen the result set
  *
  * Output is JSON ({ ok, pages: [...] }) to match the other read-only commands
  * (`status`, `backlinks`). Salience ranks PAGES (graph entities); it is

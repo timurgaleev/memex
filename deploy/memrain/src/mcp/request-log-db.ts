@@ -1,7 +1,7 @@
 /**
  * mcp/request-log-db.ts — DB sink for the MCP request log
  * (`mcp_request_log`, migration 046), the table the admin Request Log page
- * reads. memex's default request observability is the JSONL audit trail +
+ * reads. memrain's default request observability is the JSONL audit trail +
  * console line (param-redaction.ts `logToolCall`); this adds a THIRD sink — a
  * redacted row per tool call — for the in-dashboard feed.
  *

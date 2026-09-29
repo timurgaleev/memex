@@ -1,7 +1,7 @@
 /**
  * Cause-ranked doctor issues.
  *
- * `memex doctor` is the single health truth. When several checks fail at once
+ * `memrain doctor` is the single health truth. When several checks fail at once
  * the operator wants to read the ROOT first, not scroll a flat list where the
  * one true cause is buried among its downstream symptoms.
  *
@@ -12,7 +12,7 @@
  * ONLY when the named root is itself failing — so the annotation never invents
  * a cause that isn't actually broken.
  *
- * memex's checks mostly cascade by SKIPPING (a failed `config` means `pglite`
+ * memrain's checks mostly cascade by SKIPPING (a failed `config` means `pglite`
  * never runs), so co-failures are rarer than in a fan-out system — but the
  * ranking still surfaces config/DB roots ahead of independent ops checks, and
  * the cause graph is future-proof as more independent checks are added.

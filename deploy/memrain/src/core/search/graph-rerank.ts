@@ -14,7 +14,7 @@
  * abstraction (applyReranker: slice head/tail, reorder head by model output,
  * preserve the tail, and on ANY failure return the input unchanged): search
  * reliability beats reranker quality. Where a cross-encoder gateway would
- * reorder by relevance scores, memex has no such gateway, so the "model" here is
+ * reorder by relevance scores, memrain has no such gateway, so the "model" here is
  * a Sonnet Converse call returning a ranked index list, augmented with the
  * graph-degree hint. Any error, budget skip, or parse miss returns the ORIGINAL
  * order. Sonnet injected via `sonnetFn`; NO live Bedrock in tests.

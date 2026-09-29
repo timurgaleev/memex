@@ -54,7 +54,7 @@ export function sanitizeQueryForPrompt(query: string): string {
   q = q.replace(/\s+/g, " ").trim();
   if (q !== query.replace(/\s+/g, " ").trim()) {
     console.warn(
-      "[memex] sanitizeQueryForPrompt: stripped content from user query before LLM expansion",
+      "[memrain] sanitizeQueryForPrompt: stripped content from user query before LLM expansion",
     );
   }
   return q;
@@ -63,7 +63,7 @@ export function sanitizeQueryForPrompt(query: string): string {
 /**
  * Validate the LLM's alternative queries — model output is untrusted. Strip
  * control characters, drop empties, cap length, dedupe case-insensitively, and
- * cap the count. Anything non-string is skipped. `max` is memex's variant
+ * cap the count. Anything non-string is skipped. `max` is memrain's variant
  * budget.
  */
 export function sanitizeExpansionOutput(alternatives: readonly unknown[], max: number): string[] {
@@ -119,7 +119,7 @@ export async function expandQuery(
     // injection-keyword preamble). Skip expansion — the upstream vector +
     // keyword passes still run on the original query — but log so this degraded
     // case is distinguishable from the empty-input early return above.
-    console.warn("[memex] expandQuery: query empty after sanitization, skipping expansion");
+    console.warn("[memrain] expandQuery: query empty after sanitization, skipping expansion");
     return [];
   }
   const max = opts.max ?? 3;

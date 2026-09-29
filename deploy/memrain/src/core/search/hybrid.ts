@@ -182,7 +182,7 @@ export interface ResolvedSearchKnobs {
 /**
  * Resolve the ranking knobs for one search call — per-call opts win, then an
  * explicit per-knob env ("1"/"0"), then the active mode bundle
- * (MEMRAIN_SEARCH_MODE; the default `conservative` bundle equals memex's
+ * (MEMRAIN_SEARCH_MODE; the default `conservative` bundle equals memrain's
  * historical all-OFF defaults). Exported so tests and cache-key callers can
  * reproduce exactly what hybridSearch resolves.
  *

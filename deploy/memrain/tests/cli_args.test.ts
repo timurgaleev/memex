@@ -282,13 +282,13 @@ describe("a value-taking flag given no value is an error (CLI-5)", () => {
     expect(loose.values.has("--vault")).toBe(false);
 
     expect(() => parseArgs(["reindex", "--vault", "--all"])).toThrow(
-      /memex reindex: --vault requires a value/,
+      /memrain reindex: --vault requires a value/,
     );
   });
 
   it("fires at the end of the line too", () => {
     expect(() => parseArgs(["search", "hello", "--k"])).toThrow(
-      /memex search: --k requires a value/,
+      /memrain search: --k requires a value/,
     );
   });
 
@@ -306,13 +306,13 @@ describe("a value-taking flag given no value is an error (CLI-5)", () => {
     // salience/cycle/embed each hand-rolled this guard for their own flags;
     // every other command had none. It belongs to the parser, once.
     expect(() => parseArgs(["salience", "--type"])).toThrow(
-      /memex salience: --type requires a value/,
+      /memrain salience: --type requires a value/,
     );
     expect(() => parseArgs(["cycle", "--phases"])).toThrow(
-      /memex cycle: --phases requires a value/,
+      /memrain cycle: --phases requires a value/,
     );
     expect(() => parseArgs(["embed", "--limit"])).toThrow(
-      /memex embed: --limit requires a value/,
+      /memrain embed: --limit requires a value/,
     );
   });
 });

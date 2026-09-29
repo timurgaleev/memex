@@ -3,7 +3,7 @@
  *
  * The reranker is fail-open (any error returns the input order), which makes
  * silent degradation invisible: a wedged model or an expired credential can
- * disable reranking for weeks with zero signal. So memex persists every
+ * disable reranking for weeks with zero signal. So memrain persists every
  * rerank failure to an audit JSONL that doctor can grep, using the same
  * opt-in surface as the MCP audit trail (`MEMRAIN_AUDIT_DIR`) and
  * an ISO-week-rotated `rerank-failures-<week>.jsonl`.

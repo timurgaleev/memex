@@ -23,7 +23,7 @@
  * the hybridSearch hot path, so a fault here can never break search.
  *
  * Scope (v1, deliberate). Single-source, single-seed for the typed archetypes;
- * `connects` resolves two seeds and intersects their reachable sets. memex has
+ * `connects` resolves two seeds and intersects their reachable sets. memrain has
  * no `introduced`/`knows`-style edge for "who introduced me to X", so that
  * archetype walks type-agnostically (any edge touching the seed is the signal).
  *
@@ -105,7 +105,7 @@ interface CompiledPattern {
 }
 
 // "who <verb> <seed>" — traverse INBOUND to the seed (the people who did the
-// verb point AT the seed). Every emitted link type is in memex's
+// verb point AT the seed). Every emitted link type is in memrain's
 // KNOWN_LINK_TYPES so a relation phrase can never name an edge ingest can't
 // produce; `assertKnown` enforces that at module load.
 const WHO_REL_VERBS: Array<{
@@ -374,7 +374,7 @@ export async function fanoutRelational(
   if (!seedSlug) return [];
   opts.onSeedsResolved?.(1);
 
-  // intro — no `introduced` edge in memex; walk every edge touching the seed.
+  // intro — no `introduced` edge in memrain; walk every edge touching the seed.
   if (parsed.linkTypes === null) {
     const hits = await traverseGraph(storage, seedSlug, {
       direction: parsed.direction,

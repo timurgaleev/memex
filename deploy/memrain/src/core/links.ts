@@ -592,7 +592,7 @@ export async function traverseGraph(
   // path-based pruning materializes every simple path up to maxDepth, so a
   // DENSE graph at high maxDepth (esp. `both`) can fan out super-linearly
   // before the final GROUP BY. maxDepth (cap 10) is the real cost guard; fine
-  // for memex's small, sparse wiki-link graph. If the graph ever grows dense,
+  // for memrain's small, sparse wiki-link graph. If the graph ever grows dense,
   // switch to a per-iteration visited-set cap or lower the `both` ceiling.
   const r = await storage.engine().query<{ slug: string; depth: number }>(
     `WITH RECURSIVE walk(slug, depth, path) AS (
@@ -739,7 +739,7 @@ export function extractWikilinks(body: string): string[] {
  * `[A](../people/alice.md)` and `[A](people/alice)` yield `people/alice`. A
  * heading anchor is dropped. Code spans are masked as in extractWikilinks.
  * Unlike a bare wikilink, a markdown link only becomes an edge when it resolves
- * to a real page (see syncWikilinksForPage) — memex has no dir whitelist to
+ * to a real page (see syncWikilinksForPage) — memrain has no dir whitelist to
  * pre-filter these.
  */
 export function extractMarkdownLinks(body: string): string[] {
@@ -820,7 +820,7 @@ export async function syncWikilinksForPage(
   }
   // Markdown-style [Name](dir/slug.md) links. A bare wikilink may stay
   // unqualified (a dangling `[[name]]` is an intentional placeholder), but a
-  // markdown path is only an edge when it lands on a real page — memex has no
+  // markdown path is only an edge when it lands on a real page — memrain has no
   // dir whitelist to pre-filter it, so the resolver's existence check is the
   // gate. An unresolved path is treated as prose and dropped.
   for (const path of extractMarkdownLinks(body)) {
@@ -905,7 +905,7 @@ const VERB_INFER_CONFIDENCE = 0.6;
  * 0.6 with the `verb_ner` provenance so a consumer can treat them as soft
  * signals, and the person→company role prior backstops verb-less mentions. This
  * is a regex-NER precision class; an LLM pass would be the accuracy ceiling, out
- * of memex's brain-only scope.
+ * of memrain's brain-only scope.
  */
 export async function syncVerbLinksForPage(
   storage: Storage,
@@ -1243,7 +1243,7 @@ export interface ExtractedPageRef {
  * PK.
  *
  * `floorTs`: the base staleness predicate has only the NULL + `updated_at >`
- * arms, so it would stamp the raw read `updated_at`. memex added a THIRD arm —
+ * arms, so it would stamp the raw read `updated_at`. memrain added a THIRD arm —
  * `links_extracted_at < versionTs` (the version-bump trigger, v1.26.0) — so
  * stamping a raw `updated_at` that predates the version would leave the version
  * arm true and the page stale forever. `floorTs` (=

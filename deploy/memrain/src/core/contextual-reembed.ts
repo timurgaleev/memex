@@ -1,7 +1,7 @@
 /**
  * Contextual re-embed — a whole-corpus, from-DB re-embed that applies the
  * contextual-retrieval wrapper (`core/search/contextual-embed.ts`) to every
- * embeddable chunk's EMBEDDING INPUT. Driven by `memex reindex --contextual`.
+ * embeddable chunk's EMBEDDING INPUT. Driven by `memrain reindex --contextual`.
  *
  * WHY from the DB, not disk: the wrapper must reach `page_put`-sourced docs
  * (gmail/gcal/etc.) whose body lives only in `pages.markdown_body` — those

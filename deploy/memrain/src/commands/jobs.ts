@@ -1,5 +1,5 @@
 /**
- * `memex jobs <subcommand>` — inspect / retry / cancel / manage queued jobs.
+ * `memrain jobs <subcommand>` — inspect / retry / cancel / manage queued jobs.
  *
  * Subcommands:
  *   list       — print rows (filterable by --status / --kind, capped by --limit)
@@ -64,7 +64,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
     const queue = new Queue(storage.engine());
     switch (opts.sub) {
       case "submit": {
-        if (!opts.kind) throw new Error("memex jobs submit: <kind> is required");
+        if (!opts.kind) throw new Error("memrain jobs submit: <kind> is required");
         const job = await submitJob(queue, {
           kind: opts.kind,
           ...(opts.id ? { id: opts.id } : {}),
@@ -76,7 +76,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         return;
       }
       case "progress": {
-        if (!opts.id) throw new Error("memex jobs progress: <id> is required");
+        if (!opts.id) throw new Error("memrain jobs progress: <id> is required");
         const progress = await getJobProgress(queue, opts.id);
         if (!progress) {
           console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
@@ -87,7 +87,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         return;
       }
       case "remove": {
-        if (!opts.id) throw new Error("memex jobs remove: <id> is required");
+        if (!opts.id) throw new Error("memrain jobs remove: <id> is required");
         const removed = await queue.remove(opts.id);
         if (!removed) {
           console.log(
@@ -148,7 +148,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         return;
       }
       case "show": {
-        if (!opts.id) throw new Error("memex jobs show: <id> is required");
+        if (!opts.id) throw new Error("memrain jobs show: <id> is required");
         const row = await queue.get(opts.id);
         if (!row) {
           console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
@@ -159,7 +159,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         return;
       }
       case "retry": {
-        if (!opts.id) throw new Error("memex jobs retry: <id> is required");
+        if (!opts.id) throw new Error("memrain jobs retry: <id> is required");
         const row = await queue.retry(opts.id);
         if (!row) {
           console.log(
@@ -176,7 +176,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
         return;
       }
       case "cancel": {
-        if (!opts.id) throw new Error("memex jobs cancel: <id> is required");
+        if (!opts.id) throw new Error("memrain jobs cancel: <id> is required");
         const row = await queue.cancel(opts.id);
         if (!row) {
           console.log(
@@ -194,7 +194,7 @@ export async function runJobs(opts: JobsCmdOptions): Promise<void> {
       }
       default: {
         const _exhaustive: never = opts.sub;
-        throw new Error(`memex jobs: unknown subcommand '${_exhaustive}'`);
+        throw new Error(`memrain jobs: unknown subcommand '${_exhaustive}'`);
       }
     }
   });

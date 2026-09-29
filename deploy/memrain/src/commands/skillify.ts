@@ -1,7 +1,7 @@
 /**
- * `memex skillify <prompt>` — generate a skill `*.md` from a one-line
+ * `memrain skillify <prompt>` — generate a skill `*.md` from a one-line
  * prompt. Default behaviour writes to `deploy/skills/<slug>.md` relative
- * to the memex repo root; use `--out PATH` to override or `--dry-run`
+ * to the memrain repo root; use `--out PATH` to override or `--dry-run`
  * to emit on stdout only.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -32,7 +32,7 @@ const DEFAULT_SKILLS_DIR =
 
 export async function runSkillify(opts: SkillifyCmdOptions): Promise<void> {
   if (!opts.prompt || !opts.prompt.trim()) {
-    throw new Error("memex skillify: <prompt> is required");
+    throw new Error("memrain skillify: <prompt> is required");
   }
   const skillifyOpts: Parameters<typeof skillify>[1] = {};
   if (opts.slug) skillifyOpts.slug = opts.slug;
@@ -53,7 +53,7 @@ export async function runSkillify(opts: SkillifyCmdOptions): Promise<void> {
   );
   if (existsSync(target)) {
     throw new Error(
-      `memex skillify: refusing to overwrite ${target} (delete it first or pass --out for a different path)`,
+      `memrain skillify: refusing to overwrite ${target} (delete it first or pass --out for a different path)`,
     );
   }
   mkdirSync(dirname(target), { recursive: true });
@@ -76,10 +76,10 @@ export async function runSkillifyCheck(
   opts: SkillifyCheckOptions,
 ): Promise<void> {
   if (!opts.slug) {
-    throw new Error("memex skillify check: <slug> is required");
+    throw new Error("memrain skillify check: <slug> is required");
   }
   // The pack ships `<slug>/SKILL.md`; the flat `<slug>.md` layout is what
-  // `memex skillify` drafts. Either is a skill.
+  // `memrain skillify` drafts. Either is a skill.
   const dir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
   const flat = resolve(join(dir, `${opts.slug}.md`));
   const nested = resolve(join(dir, opts.slug, "SKILL.md"));

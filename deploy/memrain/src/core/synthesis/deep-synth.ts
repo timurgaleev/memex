@@ -6,14 +6,14 @@
  * questions and REPORTS across the corpus with citations.
  *
  * Standing questions: supplied explicitly, else the top `synth_concepts` titles
- * (memex's own primitive — listConcepts) treated as questions. The auto-think
+ * (memrain's own primitive — listConcepts) treated as questions. The auto-think
  * phase runs `think` over each question, budget-capped, default-OFF, and (by
  * default) returns/stages the syntheses rather than committing them. Questions
- * come from memex's synth_concepts read, and a BudgetTracker driven through a
+ * come from memrain's synth_concepts read, and a BudgetTracker driven through a
  * recording wrapper holds the SHARED cap across every question without touching
  * runThink.
  *
- * memex stance: synthesis READS the corpus + synth_* store; it writes NOTHING
+ * memrain stance: synthesis READS the corpus + synth_* store; it writes NOTHING
  * back here — the syntheses are RETURNED. No new schema, no migration. A caller
  * (the cycle) decides what, if anything, to persist. Opt-in (MEMRAIN_DEEP_SYNTH),
  * USD-budget-capped, Sonnet injected via `sonnetFn`; NO live Bedrock in tests.

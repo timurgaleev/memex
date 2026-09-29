@@ -3,7 +3,7 @@
  * entity identity.
  *
  * Examples:
- *   - `[[Project Memex]]` (wikilink) → `doc_<id>` if a vault note has
+ *   - `[[Project Memrain]]` (wikilink) → `doc_<id>` if a vault note has
  *     that title, else fallback to entity-only.
  *   - `/vault/foo.md` (path) → the document matching that source_path.
  *   - `YYYY-MM-DD` (date) → all documents whose frontmatter or body

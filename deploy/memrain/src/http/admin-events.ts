@@ -3,7 +3,7 @@
  * (deferred item #2). A `/admin/events` route: a process-local pub/sub bus +
  * a `text/event-stream` response.
  *
- * memex has no event bus, so this adds a tiny one. Tool calls publish a REDACTED
+ * memrain has no event bus, so this adds a tiny one. Tool calls publish a REDACTED
  * event (the MCP dispatch site, next to the DB request-log sink); each connected
  * admin browser holds an SSE stream that receives them. Bounded: at most
  * `MAX_SUBSCRIBERS` concurrent streams; a slow/closed client is dropped on its

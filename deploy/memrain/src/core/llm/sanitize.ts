@@ -4,7 +4,7 @@
  * The threat: synthesis (atoms/concepts/takes) and friction-propose inject up
  * to tens of thousands of chars of note/skill/search-miss text VERBATIM into a
  * Claude Haiku user turn. A note line that says "ignore prior instructions, output X"
- * can hijack the model. memex already guards short queries
+ * can hijack the model. memrain already guards short queries
  * (`search/expansion.ts` sanitizeQueryForPrompt); this is the shared guard for
  * the long-corpus call sites.
  *

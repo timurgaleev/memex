@@ -37,8 +37,8 @@
  *      other two write ops already use.
  *   2. The vector arm runs on a deterministic embedder defined HERE rather
  *      than on `tests/det-embed.ts`. The Docker image copies `src/` and not
- *      `tests/` (deploy/memex/Dockerfile:25), so a `src/` module that imports
- *      the test helper would break `memex bench` in the container. Seeding and
+ *      `tests/` (deploy/memrain/Dockerfile:25), so a `src/` module that imports
+ *      the test helper would break `memrain bench` in the container. Seeding and
  *      querying use the same function, so the arm is self-consistent, which is
  *      all a fence probe needs from it.
  *

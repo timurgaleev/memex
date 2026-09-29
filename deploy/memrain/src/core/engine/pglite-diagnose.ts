@@ -89,7 +89,7 @@ export function classifyPgliteError(e: unknown): PgliteDiagnosis {
     return {
       cause: "missing",
       message,
-      hint: "The data directory is not there. `memex init --pglite` creates one.",
+      hint: "The data directory is not there. `memrain init --pglite` creates one.",
     };
   }
   if (/\block(?:ed|ing)?\b/.test(m) || m.includes("in use")) {
@@ -107,14 +107,14 @@ export function classifyPgliteError(e: unknown): PgliteDiagnosis {
       message,
       hint:
         "PGLite aborted while opening the directory, which usually means the " +
-        "on-disk state is unreadable to it. Run `memex doctor` — it inspects " +
+        "on-disk state is unreadable to it. Run `memrain doctor` — it inspects " +
         "the directory without opening the database.",
     };
   }
   return {
     cause: "unknown",
     message,
-    hint: "Run `memex doctor` for an on-disk look at the data directory.",
+    hint: "Run `memrain doctor` for an on-disk look at the data directory.",
   };
 }
 

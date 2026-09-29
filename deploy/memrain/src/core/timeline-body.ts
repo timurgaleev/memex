@@ -274,7 +274,7 @@ export async function syncBodyTimelineForPage(
       return reconcile(new Storage(tx), slug, row.type ?? undefined, row.markdown_body ?? "", sourceId);
     });
   } catch (e) {
-    console.error(`[memex] body-timeline sync for '${slug}' failed (non-fatal):`, e);
+    console.error(`[memrain] body-timeline sync for '${slug}' failed (non-fatal):`, e);
     return empty;
   }
 }
@@ -338,7 +338,7 @@ async function reconcile(
       });
       if (r.inserted) result.added += 1;
     } catch (e) {
-      console.error(`[memex] body-timeline event on '${slug}' skipped (non-fatal):`, e);
+      console.error(`[memrain] body-timeline event on '${slug}' skipped (non-fatal):`, e);
     }
   }
   return result;

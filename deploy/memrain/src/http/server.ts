@@ -170,7 +170,7 @@ export interface ServerOptions {
    */
   internalToken?: string;
   /**
-   * memex's own OAuth 2.1 provider (client_credentials), wired from
+   * memrain's own OAuth 2.1 provider (client_credentials), wired from
    * `config.auth.selfIssued.enabled`. When set, the server mounts POST `/token`
    * and verifies self-issued `memex_at_…` bearer tokens on the `/mcp` ingress,
    * scoping each request to its registered `oauth_clients` row. This is the
@@ -285,7 +285,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
   // Dynamic Client Registration is OFF by default. With it off, /register is
   // unavailable and the
   // discovery doc omits registration_endpoint, so the ONLY way a client exists is
-  // an operator creating it via `memex auth register-client` — nobody can
+  // an operator creating it via `memrain auth register-client` — nobody can
   // self-register a client over the network. Enable with MEMRAIN_ENABLE_DCR=1.
   // MEMRAIN_ENABLE_DCR_INSECURE additionally lets a self-registered client request
   // the client_credentials grant, which mints a token WITHOUT the /authorize
@@ -326,7 +326,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
       .then((clients) => {
         if (clients.length === 0) return;
         console.error(
-          "[memex] WARNING: /authorize auto-approves, so it refuses these public " +
+          "[memrain] WARNING: /authorize auto-approves, so it refuses these public " +
             "client-mode clients (no secret, PKCE alone): " +
             clients.map((c) => `${c.client_id} (${c.client_name})`).join(", ") +
             ". Re-register them as confidential clients, move them to " +
@@ -335,14 +335,14 @@ export function startServer(opts: ServerOptions): ServerHandle {
       })
       .catch((e: unknown) => {
         console.warn(
-          "[memex] public-client check skipped: " +
+          "[memrain] public-client check skipped: " +
             (e instanceof Error ? e.message : String(e)),
         );
       });
   }
   if (oauthRequireLogin && !adminAuth) {
     console.error(
-      "[memex] WARNING: MEMRAIN_OAUTH_REQUIRE_LOGIN=1 but no admin surface is " +
+      "[memrain] WARNING: MEMRAIN_OAUTH_REQUIRE_LOGIN=1 but no admin surface is " +
         "configured (MEMRAIN_ADMIN_BOOTSTRAP is unset), so no operator can ever " +
         "approve an authorization. /authorize refuses every request until a " +
         "bootstrap token is set.",
@@ -350,7 +350,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
   }
   if (dcrEnabled) {
     console.error(
-      "[memex] WARNING: Dynamic Client Registration is ON — any network " +
+      "[memrain] WARNING: Dynamic Client Registration is ON — any network " +
         "caller can self-register an OAuth client via POST /register. " +
         "Self-registered clients get the authorization_code grant; that grant " +
         "carries operator consent only while MEMRAIN_OAUTH_REQUIRE_LOGIN=1 gates " +
@@ -359,7 +359,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
   }
   if (dcrInsecure) {
     console.error(
-      "[memex] WARNING: MEMRAIN_ENABLE_DCR_INSECURE is ON — self-registered " +
+      "[memrain] WARNING: MEMRAIN_ENABLE_DCR_INSECURE is ON — self-registered " +
         "clients may request the client_credentials grant, and /authorize " +
         "consent is not required, so an unauthenticated caller can obtain a " +
         "default-tenant token with no operator in the loop.",
@@ -370,10 +370,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
     internalAuthOpts.internalToken = opts.internalToken;
   } else {
     console.warn(
-      "[memex] WARNING: MEMRAIN_INTERNAL_TOKEN not configured — MCP write " +
+      "[memrain] WARNING: MEMRAIN_INTERNAL_TOKEN not configured — MCP write " +
         "tools (index, log_friction, page_*, link, add_*, jobs_*) are open " +
         "to any peer on the docker bridge. Configure the token via " +
-        "<secrets_prefix>/memex-internal-token + fetch-secrets.sh.",
+        "<secrets_prefix>/memrain-internal-token (legacy: memex-internal-token) + fetch-secrets.sh.",
     );
   }
 
@@ -463,7 +463,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
               // incident is indistinguishable from a routine bad token.
               if (!(e instanceof InvalidTokenError)) {
                 console.error(
-                  "[memex] self-issued token verification error:",
+                  "[memrain] self-issued token verification error:",
                   e,
                 );
               }
@@ -492,7 +492,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         return handleHealth(opts.storage, opts.maintenance === true);
       }
       // OAuth 2.1 discovery (RFC 8414) — public, lets a standard MCP OAuth
-      // client auto-configure from memex's own public base URL. The guard
+      // client auto-configure from memrain's own public base URL. The guard
       // above already exempts this path from the bearer requirement.
       if (url.pathname === OAUTH_METADATA_PATH && req.method === "GET") {
         return handleOAuthMetadataRoute(url, opts.publicUrl, dcrEnabled);
@@ -506,7 +506,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         return handleProtectedResourceRoute(url, opts.publicUrl);
       }
       // Any other discovery probe (openid-configuration, a path-inserted AS
-      // document, …) is a document memex does not publish — say so, rather
+      // document, …) is a document memrain does not publish — say so, rather
       // than a 401 that tells a client to go and authenticate for it.
       if (url.pathname.startsWith("/.well-known/") && req.method === "GET") {
         return Response.json(
@@ -636,7 +636,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
               };
             } catch (e) {
               if (!(e instanceof InvalidTokenError)) {
-                console.error("[memex] /ingest token verification error:", e);
+                console.error("[memrain] /ingest token verification error:", e);
               }
             }
           }
@@ -699,7 +699,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
         : res;
     },
     error(err) {
-      console.error("[memex] server error:", err);
+      console.error("[memrain] server error:", err);
       return new Response("Internal Server Error", { status: 500 });
     },
   });
@@ -710,7 +710,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
     .filter(Boolean)
     .join(", ");
   console.log(
-    `[memex] listening on http://${opts.host}:${opts.port}${flags ? ` (${flags})` : ""}`,
+    `[memrain] listening on http://${opts.host}:${opts.port}${flags ? ` (${flags})` : ""}`,
   );
   return {
     port: server.port ?? opts.port,

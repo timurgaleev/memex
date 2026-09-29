@@ -5,10 +5,10 @@
  * A standard MCP OAuth client fetches this document first to auto-configure: it
  * learns the issuer, the endpoints, the scopes it may request, and the
  * supported grant + PKCE methods. Without it, an operator has to hand-configure
- * every client. memex now serves the full standard surface — `/authorize`
+ * every client. memrain now serves the full standard surface — `/authorize`
  * (authorization-code + PKCE), `/token` (authorization_code / refresh_token /
  * client_credentials), `/register` (RFC 7591 DCR), and `/revoke` (RFC 7009) —
- * so all four are advertised. The endpoints point at memex's OWN public base
+ * so all four are advertised. The endpoints point at memrain's OWN public base
  * URL so the issuer claim matches the URL clients actually hit (RFC 8414 §3.3)
  * — a mismatch makes strict clients reject the minted tokens.
  *
@@ -42,7 +42,7 @@ export const OAUTH_PROTECTED_RESOURCE_MCP_PATH =
 export const DISCOVERY_SCOPES: ReadonlyArray<string> = Object.freeze(["read", "write"]);
 
 /**
- * RFC 8414 authorization-server metadata. Only the fields memex actually
+ * RFC 8414 authorization-server metadata. Only the fields memrain actually
  * honors are advertised:
  *  - grants: `authorization_code` + `refresh_token` (PKCE flow) and
  *    `client_credentials` (machine-to-machine) — all live on POST /token.
@@ -145,7 +145,7 @@ export function handleOAuthMetadataRoute(
 }
 
 /**
- * RFC 9728 OAuth protected-resource metadata. memex is both the resource
+ * RFC 9728 OAuth protected-resource metadata. memrain is both the resource
  * server and its own authorization server: `resource` is the `/mcp` endpoint
  * a connector is pointed at, and the single `authorization_servers` entry is
  * the issuer. Standard MCP
@@ -172,7 +172,7 @@ export function buildProtectedResourceMetadata(
     // Bearer tokens are accepted in the Authorization header only (RFC 6750
     // §2.1) — never as query param or form field.
     bearer_methods_supported: ["header"],
-    resource_name: "memex",
+    resource_name: "memrain",
   };
 }
 
@@ -227,7 +227,7 @@ function withoutTrailingSlashes(v: string): string {
 }
 
 /**
- * RFC 8707 resource indicator → the audience memex binds a token to, or null
+ * RFC 8707 resource indicator → the audience memrain binds a token to, or null
  * when the value names some other resource. Two spellings are this server:
  * the `/mcp` endpoint (what discovery advertises now) and the bare issuer
  * (what it advertised before, and what connectors authorized against it may

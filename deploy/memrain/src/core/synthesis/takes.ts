@@ -69,7 +69,7 @@ export const EMPTY_EXTRACTION_TOMBSTONE_TEXT = "(no gradeable claims)";
  * `takes_search`, the scorecard's `total_takes`, the `grade_completion`
  * denominator. Those surface or count the memo unless it is excluded by claim
  * text, which is what this does. A brain that parks the zero-yield memo in a
- * table of its own gets that for free; memex keeps one `synth_takes` table for
+ * table of its own gets that for free; memrain keeps one `synth_takes` table for
  * proposals, operator fence rows and memos alike, so the exclusion has to be
  * explicit. Every such read imports this rather than restating the predicate.
  */

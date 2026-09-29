@@ -5,7 +5,7 @@
  * of deterministic collectors and returns a ranked list of findings for THIS
  * brain right now, each with a severity, a one-line why-it-matters, and the
  * exact fix command. It NEVER mutates and NEVER calls an LLM — it only reshapes
- * signals memex already computes (doctor / status / migrate / jobs) into ranked,
+ * signals memrain already computes (doctor / status / migrate / jobs) into ranked,
  * actionable findings. Print-never-execute: the MCP client shows the user and
  * asks before running any fix command.
  */
@@ -13,7 +13,7 @@ import type { Engine } from "../engine/interface.ts";
 
 /**
  * Severity ladder. `high` is the only "act before relying on the brain" tier;
- * `medium`/`low` are quality gaps; `info` is FYI. (memex uses high/medium/low/
+ * `medium`/`low` are quality gaps; `info` is FYI. (memrain uses high/medium/low/
  * info — it matches the doctor's own categorization vocabulary and the
  * eval-gate severity language already in the codebase.)
  */
@@ -29,7 +29,7 @@ export interface AdvisorFinding {
   detail?: string;
   /**
    * The exact command the user can run to fix it, as a single string (e.g.
-   * "memex embed"). Omitted when there is no single mechanical fix. The advisor
+   * "memrain embed"). Omitted when there is no single mechanical fix. The advisor
    * never runs this itself — it is surfaced for the client to show the user.
    */
   fix_command?: string;
@@ -39,7 +39,7 @@ export interface AdvisorFinding {
 
 export interface AdvisorContext {
   engine: Engine;
-  /** Serving memex version (package.json). */
+  /** Serving memrain version (package.json). */
   version: string;
   now: Date;
   /**

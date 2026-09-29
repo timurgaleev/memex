@@ -1,8 +1,8 @@
 /**
- * `memex agent run <task> [--max-usd X] [--wait]` — queue a `subagent` job for
+ * `memrain agent run <task> [--max-usd X] [--wait]` — queue a `subagent` job for
  * the worker and print its id (with --wait, poll until it ends and print the
  * result).
- * `memex agent logs <job-id>` — render a job's transcript from the ledger.
+ * `memrain agent logs <job-id>` — render a job's transcript from the ledger.
  *
  * `run` enqueues through the Queue directly rather than `jobs submit`: the
  * submit check accepts only kinds this process has a handler for, and a CLI
@@ -128,7 +128,7 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
 
   if (opts.sub === "run") {
     if (!agentEnabled(enabled)) {
-      err("memex agent run: the agent loop is off; set MEMRAIN_AGENT_ENABLED=1 on the server first");
+      err("memrain agent run: the agent loop is off; set MEMRAIN_AGENT_ENABLED=1 on the server first");
       return 1;
     }
     // Validate here too, so a bad task fails at the prompt, not in the worker.
@@ -137,7 +137,7 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
     try {
       parseSubagentPayload(payload, agentMaxUsd());
     } catch (e) {
-      err(`memex agent run: ${e instanceof Error ? e.message : String(e)}`);
+      err(`memrain agent run: ${e instanceof Error ? e.message : String(e)}`);
       return 1;
     }
     const storage = opts.storage ?? new Storage(loadConfig());
@@ -155,7 +155,7 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
         if (!opts.wait) return 0;
         const end = await waitForEnd(queue, job.id, opts.pollMs ?? 2000, AGENT_JOB_TIMEOUT_MS * 2);
         if (!end) {
-          err(`memex agent run: job ${job.id} disappeared`);
+          err(`memrain agent run: job ${job.id} disappeared`);
           return 1;
         }
         out(JSON.stringify({ status: end.status, result: end.result, error: end.lastError }, null, 2));
@@ -167,7 +167,7 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
 
   if (opts.sub === "logs") {
     if (!opts.jobId) {
-      err("memex agent logs: <job-id> is required");
+      err("memrain agent logs: <job-id> is required");
       return 1;
     }
     const jobId = opts.jobId;
@@ -177,11 +177,11 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
       async () => {
         const job = await new Queue(storage.engine()).get(jobId);
         if (!job) {
-          err(`memex agent logs: no job ${jobId}`);
+          err(`memrain agent logs: no job ${jobId}`);
           return 1;
         }
         if (job.kind !== SUBAGENT_JOB_KIND) {
-          err(`memex agent logs: job ${jobId} is a '${job.kind}' job, not an agent run`);
+          err(`memrain agent logs: job ${jobId} is a '${job.kind}' job, not an agent run`);
           return 1;
         }
         const [messages, execs] = await Promise.all([
@@ -195,6 +195,6 @@ export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
     );
   }
 
-  err("memex agent: subcommand required (run|logs)");
+  err("memrain agent: subcommand required (run|logs)");
   return 1;
 }

@@ -1,5 +1,5 @@
 /**
- * `memex status` — one-shot operational snapshot of the brain.
+ * `memrain status` — one-shot operational snapshot of the brain.
  *
  * Bundles the three signals an operator usually wants at a glance into a single
  * JSON object: index counts (`stats`), data/ingest health (embed coverage,

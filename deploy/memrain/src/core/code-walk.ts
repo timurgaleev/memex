@@ -10,7 +10,7 @@
  * rather than aliasing same-named methods. BFS bounded by depth + max_nodes
  * caps with cycle detection via a visited-set.
  *
- * ponytail: no language gate — memex `chunks` carry no `language` column, so
+ * ponytail: no language gate — memrain `chunks` carry no `language` column, so
  * the sink classifier matches on the bare callee name with a combined
  * TS+Python pattern set. Add a per-language gate if a language column lands.
  */
@@ -79,7 +79,7 @@ export interface WalkOpts {
 
 // --- sink classification (combined TS + Python; glob `*` → `.*`) ---
 
-// Patterns match the bare last segment of a qualified name. Memex code symbols
+// Patterns match the bare last segment of a qualified name. Memrain code symbols
 // are qualified with `::` (and occasionally `.`); the classifier looks at the
 // final segment, so a plain verb covers `db.query`, `Repo::save`, `cursor.exec`.
 const SINK_PATTERNS: Record<Exclude<SinkKind, "unknown">, string[]> = {

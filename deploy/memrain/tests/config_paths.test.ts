@@ -71,7 +71,7 @@ describe("resolveConfigDir", () => {
   });
 
   it("uses the fresh-install default when neither holds config.json", () => {
-    expect(resolveConfigDir({}, home)).toBe(join(home, ".memex"));
+    expect(resolveConfigDir({}, home)).toBe(join(home, ".memrain"));
   });
 });
 
@@ -89,6 +89,20 @@ describe("init on a legacy install", () => {
     expect(lines.join("\n")).toContain(`already initialized at ${cfg}`);
     expect(existsSync(join(home, ".memrain"))).toBe(false);
   });
+});
+
+describe("init on a fresh home", () => {
+  it("creates the install under ~/.memrain and nothing under ~/.memex", async () => {
+    const orig = console.log;
+    console.log = () => {};
+    try {
+      await runInit({ pglite: true, home });
+    } finally {
+      console.log = orig;
+    }
+    expect(existsSync(join(home, ".memrain", "config.json"))).toBe(true);
+    expect(existsSync(join(home, ".memex"))).toBe(false);
+  }, 30_000);
 });
 
 describe("legacyDirSplit", () => {

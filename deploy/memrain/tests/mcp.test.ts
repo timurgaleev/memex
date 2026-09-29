@@ -60,7 +60,7 @@ describe("MCP HTTP transport", () => {
 
   it("initialize returns server info + protocol version", async () => {
     const r = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize" });
-    expect(r.result.serverInfo.name).toBe("memex");
+    expect(r.result.serverInfo.name).toBe("memrain");
     expect(r.result.protocolVersion).toBeTruthy();
     expect(r.result.capabilities.tools).toBeDefined();
     expect(r.result.serverInfo.version).toBe(VERSION);

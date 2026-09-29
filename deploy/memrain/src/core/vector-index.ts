@@ -1,15 +1,15 @@
 /**
  * pgvector HNSW index lifecycle manager.
  *
- * The HNSW index lifecycle surface for memex's stack:
+ * The HNSW index lifecycle surface for memrain's stack:
  *   - `Engine` (query/exec/transaction). CONCURRENTLY routes through
  *     `engine.exec` — its simple-query protocol runs a single statement outside
  *     any transaction, which is exactly what `CREATE INDEX CONCURRENTLY` needs
  *     (`engine.query` uses the extended protocol, which CONCURRENTLY rejects).
- *   - memex's real HNSW index: `embeddings_vector_idx` on `embeddings(vector)`
+ *   - memrain's real HNSW index: `embeddings_vector_idx` on `embeddings(vector)`
  *     (migration 001).
  *   - RDS — the external-maintenance detector matches the managed app names
- *     memex could see (rdsadmin / autovacuum / pg_cron).
+ *     memrain could see (rdsadmin / autovacuum / pg_cron).
  *
  * The functions:
  *   - checkActiveBuild:   pre-op probe of pg_stat_activity.
@@ -36,7 +36,7 @@ export function hnswEfSearchFor(limit: number): number {
   return Math.min(1000, Math.max(40, limit));
 }
 
-/** memex's production HNSW index (migration 001). */
+/** memrain's production HNSW index (migration 001). */
 export const EMBEDDINGS_HNSW_SPEC: IndexSpec = {
   name: "embeddings_vector_idx",
   table: "embeddings",
@@ -65,7 +65,7 @@ export interface ActiveBuildInfo {
 /**
  * Probe pg_stat_activity for an active CREATE INDEX / REINDEX on this index.
  * A pre-op guard so dropAndRebuild doesn't compete with a build already in
- * flight (RDS auto-maintenance or a parallel memex process).
+ * flight (RDS auto-maintenance or a parallel memrain process).
  */
 export async function checkActiveBuild(
   engine: Engine,
@@ -258,8 +258,8 @@ export async function monitorBuild(
 
 /**
  * Detect whether an active build is managed-Postgres auto-maintenance (RDS)
- * rather than a memex process — so dropAndRebuild can back off and let the
- * platform finish the rebuild. (memex runs on RDS.)
+ * rather than a memrain process — so dropAndRebuild can back off and let the
+ * platform finish the rebuild. (memrain runs on RDS.)
  */
 export function isExternalMaintenanceBuild(active: ActiveBuildInfo): boolean {
   if (!active.active) return false;

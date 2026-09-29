@@ -1,10 +1,10 @@
 /**
  * http/admin-static.ts — serve the built admin SPA at /admin (increment C).
  *
- * memex runs from source (`bun run`), so it serves the built admin SPA from the
+ * memrain runs from source (`bun run`), so it serves the built admin SPA from the
  * Vite `dist/` straight from disk. The dist is
  * produced by `cd admin && bun run build` (the Dockerfile builder stage) and
- * lives at `<repo>/deploy/memex/admin/dist`, resolved here relative to this
+ * lives at `<repo>/deploy/memrain/admin/dist`, resolved here relative to this
  * module so it works both in the container (`/app/admin/dist`) and locally.
  *
  * Dispatched AFTER the auth routes (A1) and the data API (A2), so those win; any

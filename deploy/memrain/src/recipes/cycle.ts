@@ -187,7 +187,7 @@ export function startCycleLoop(
   // Opt-in (default-OFF) auto-think: appends the Haiku synthesis chain
   // (atoms→concepts→takes→grade→calibration, all writing the ISOLATED synth_*
   // store, never documents/pages) to QUIET-HOURS ticks only — synthesis is the
-  // costly Haiku work, so it runs when interactive recall traffic is low. memex's
+  // costly Haiku work, so it runs when interactive recall traffic is low. memrain's
   // idiomatic auto-think: opt the existing default-OFF SYNTHESIS_PHASES into the
   // schedule, count-capped (no USD budget, no deep-tier model — Claude Haiku only).
   const synthEnabled = process.env.MEMRAIN_DREAM_SYNTHESIS === "1";
@@ -264,7 +264,7 @@ export function startCycleLoop(
         // Opt-in (default-OFF) PAID deep-synthesis cadence: a Sonnet `think` pass
         // over the top synth_concepts as standing questions, USD-budget-capped.
         // Quiet hours only (heaviest + paid) and inside the held lock so it never
-        // overlaps another cycle. Results are RETURNED (memex writes nothing back);
+        // overlaps another cycle. Results are RETURNED (memrain writes nothing back);
         // logged for the operator. Fail-soft — never let it abort the tick.
         // A run that lost its lock must not start more paid work.
         if (inQuiet && r.outcome === "complete" && process.env.MEMRAIN_DEEP_SYNTH === "1") {

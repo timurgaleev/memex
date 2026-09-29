@@ -508,7 +508,7 @@ export async function chunkCode(
   }
   // Sort by start line so document order is stable regardless of stack push order.
   symbols.sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
-  // Title = basename (no path) — lets `memex search` show a friendly source.
+  // Title = basename (no path) — lets `memrain search` show a friendly source.
   const slash = filename.lastIndexOf("/");
   const title = slash >= 0 ? filename.slice(slash + 1) : filename;
   return {

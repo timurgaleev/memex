@@ -139,7 +139,7 @@ export type FactsAbsorbReason = (typeof FACTS_ABSORB_REASONS)[number];
 
 /**
  * Classify an arbitrary absorbed error into a stable reason code. Heuristic
- * name/message match, falling back to 'pipeline_error'. Covers memex's
+ * name/message match, falling back to 'pipeline_error'. Covers memrain's
  * Bedrock error shapes.
  */
 export function classifyFactsAbsorbError(err: unknown): FactsAbsorbReason {

@@ -1,5 +1,5 @@
 /**
- * `memex search <query> [--k N] [--explain]` — hybrid retrieve from the CLI.
+ * `memrain search <query> [--k N] [--explain]` — hybrid retrieve from the CLI.
  *
  * Outputs JSON to stdout so it pipes cleanly into jq. The shell helper
  * at deploy/helpers/memex wraps this for ad-hoc use inside the bridge
@@ -27,7 +27,7 @@ export async function runSearch(
   opts: SearchCommandOptions,
 ): Promise<void> {
   if (!opts.query || !opts.query.trim()) {
-    throw new Error("memex search: <query> is required");
+    throw new Error("memrain search: <query> is required");
   }
   const config = loadConfig(opts.configPath);
   const storage = new Storage(config);

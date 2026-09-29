@@ -12,7 +12,7 @@
  *   POST /register   — Dynamic Client Registration (RFC 7591)
  *   POST /revoke     — token revocation (RFC 7009)
  *
- * PKCE note: memex does NOT use the MCP SDK's Express auth router, so the S256
+ * PKCE note: memrain does NOT use the MCP SDK's Express auth router, so the S256
  * verification the SDK normally performs at the token endpoint is done HERE
  * (`verifyPkceS256`) BEFORE the provider consumes the code. The provider's
  * `exchangeAuthorizationCode` still binds client_id + redirect_uri + single-use
@@ -180,7 +180,7 @@ export async function handleTokenRoute(
   const params = await readParams(req);
   if (!params) return oauthError("invalid_request", "malformed body", 400);
   const grantType = params.get("grant_type");
-  // The one fact that separates "memex refused the exchange" from "the client
+  // The one fact that separates "memrain refused the exchange" from "the client
   // never asked": silence here means the redirect never reached the client.
   // A grant type is not a secret; no code, token or verifier is logged.
   console.info(`[oauth] POST /token grant_type=${grantType ?? "<absent>"}`);
@@ -526,13 +526,13 @@ export async function handleAuthorizeRoute(
           .linkEnrollmentToCode(submitted, createHash("sha256").update(minted, "utf8").digest("hex"))
           .catch((e: unknown) => {
             console.warn(
-              "[memex] enrollment audit link failed: " +
+              "[memrain] enrollment audit link failed: " +
                 (e instanceof Error ? e.message : String(e)),
             );
           });
       }
       // A claimed code with no `/token` exchange behind it means the handoff to
-      // the client failed, not memex — and the two look identical from the
+      // the client failed, not memrain — and the two look identical from the
       // outside, because the person just ends up back on this form.
       console.info(
         `[oauth] enrollment claimed: client=${client.client_name} source=${grant.sourceId} ` +
@@ -632,7 +632,7 @@ function escapeHtml(v: string): string {
 }
 
 /**
- * The one page a teammate ever sees from memex: a single field for the code
+ * The one page a teammate ever sees from memrain: a single field for the code
  * the operator gave her. Self-contained (no external assets, strict CSP), and
  * it says nothing about the brain — not the source, not the label, nothing an
  * onlooker could use. The form posts back to this same URL so every OAuth
@@ -649,7 +649,7 @@ function enrollmentForm(
   const action = escapeHtml(url.pathname + url.search);
   // `form-action` is enforced across the submission's REDIRECTS, not just
   // its first hop. With `'self'` alone the browser silently blocked the 303
-  // back to the client's callback: memex had claimed the code and minted an
+  // back to the client's callback: memrain had claimed the code and minted an
   // authorization code, the person never left this page, and the client never
   // called /token — indistinguishable, from her seat, from a rejected code.
   // The redirect target is already checked against the client's registered
@@ -679,7 +679,7 @@ function enrollmentForm(
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Connect to memex</title>
+<title>Connect to memrain</title>
 <style>
   body{font:16px/1.5 system-ui,sans-serif;background:#f6f6f4;color:#1a1a1a;margin:0;display:grid;place-items:center;min-height:100vh}
   main{background:#fff;border:1px solid #ddd;border-radius:10px;padding:2rem;max-width:22rem;width:calc(100% - 2rem)}
@@ -689,7 +689,7 @@ function enrollmentForm(
   button{margin-top:.9rem;width:100%;font:inherit;padding:.65rem;border:0;border-radius:6px;background:#1a1a1a;color:#fff;cursor:pointer}
   .err{color:#a40000;margin:0 0 .8rem}
 </style></head><body><main>
-<h1>Connect to memex</h1>
+<h1>Connect to memrain</h1>
 ${who}${dest}<p>Enter the one-time code you were given.</p>
 ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
 <form method="post" action="${action}" autocomplete="off">

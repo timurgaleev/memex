@@ -6,13 +6,13 @@
  * leaves a page fully searchable but tells the agent "this looks odd
  * (markup-heavy / oversize) — examine it before trusting it".
  *
- * Post-fusion + best-effort, mirroring memex's `stampEvidence` precedent: one
+ * Post-fusion + best-effort, mirroring memrain's `stampEvidence` precedent: one
  * batched query over the FINAL sliced hits' document ids (bounded by `k`, not
  * the candidate pool), and a fetch failure never breaks retrieval.
  *
- * Stack design: memex search is chunk→`documents`-keyed, the marker
+ * Stack design: memrain search is chunk→`documents`-keyed, the marker
  * lives on `documents.frontmatter.content_flag`, document ids are TEXT, and
- * memex's unified `engine.query` takes the SQL directly. `reason`/`detail` are
+ * memrain's unified `engine.query` takes the SQL directly. `reason`/`detail` are
  * extracted in SQL with `->>`.
  */
 import type { Engine } from "../engine/interface.ts";

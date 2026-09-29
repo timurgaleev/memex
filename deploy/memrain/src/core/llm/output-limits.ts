@@ -8,7 +8,7 @@
  * The ceiling here is deliberately a single conservative number rather than a
  * per-model table: Bedrock rejects a `maxTokens` above the model's own maximum
  * with a validation error, so a table that guesses high turns a truncated
- * answer into a failed call. Every Claude model memex can be pointed at accepts
+ * answer into a failed call. Every Claude model memrain can be pointed at accepts
  * at least this much output.
  *
  * ponytail: one shared ceiling, not a per-model table. If a model with a

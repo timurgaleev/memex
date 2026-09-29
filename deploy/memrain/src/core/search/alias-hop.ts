@@ -5,7 +5,7 @@
  * that bridges true synonyms with zero surface overlap ("Bobby" → `people/bob`)
  * — neither keyword nor title-boost can.
  *
- * Built on memex's stack: chunk-level SearchHit + the `page://<slug>`
+ * Built on memrain's stack: chunk-level SearchHit + the `page://<slug>`
  * page→document bridge (not a page-level SearchResult). Precision guards:
  *   - FULL normalized-query exact match only (not substring / not n-grams);
  *   - skip queries longer than MAX_ALIAS_QUERY_TOKENS (prose, not a name);
@@ -104,7 +104,7 @@ export async function applyAliasHop(
       slugCandidatesForPath(r.sourcePath, ref.source_id).includes(ref.slug),
     );
     if (idx >= 0) {
-      // Present → ×1.10 + alias_hit evidence. Immutable replace (memex style
+      // Present → ×1.10 + alias_hit evidence. Immutable replace (memrain style
       // rule) rather than an in-place mutation.
       const h = out[idx]!;
       out[idx] = {

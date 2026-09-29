@@ -1,5 +1,5 @@
 /**
- * `memex eval chronicle [--json]` — deterministic Life Chronicle feature eval.
+ * `memrain eval chronicle [--json]` — deterministic Life Chronicle feature eval.
  *
  * Brings its own in-memory PGLite (a throwaway temp dir), so it needs no config
  * and no gateway and runs anywhere as a CI fixture gate. Exit 0 iff every task
@@ -12,7 +12,7 @@ import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { runChronicleEval } from "../eval/chronicle-harness.ts";
 
-const HELP = `Usage: memex eval chronicle [--json]
+const HELP = `Usage: memrain eval chronicle [--json]
 
 Deterministic Life Chronicle feature eval. Builds a synthetic month corpus with
 a known gold chronology, a planted ontology supersession, and a planted standing
@@ -29,7 +29,7 @@ export async function runEvalChronicle(args: string[]): Promise<number> {
     return 0;
   }
   const json = args.includes("--json");
-  const tmp = mkdtempSync(join(tmpdir(), "memex-eval-chronicle-"));
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-eval-chronicle-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
   try {
     return await withStorage(storage, async () => {

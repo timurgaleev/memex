@@ -3,7 +3,7 @@
  *
  * Supported methods:
  *   - `initialize`               handshake: capabilities, the stamped build
- *                                version and the memex operating contract
+ *                                version and the memrain operating contract
  *   - `tools/list`               the tools this caller can call (mcp/visibility.ts)
  *   - `tools/call`               { name, arguments } → tool result
  *   - `ping`                     health probe (returns {})
@@ -312,8 +312,8 @@ async function handleSingle(
         serverInfo: SERVER_INFO,
         capabilities: { tools: {} },
         instructions: SERVER_INSTRUCTIONS,
-        // memex's own response-shape version, distinct from the MCP protocol
-        // version above: that pins the transport, this pins what memex puts
+        // memrain's own response-shape version, distinct from the MCP protocol
+        // version above: that pins the transport, this pins what memrain puts
         // inside a tool result. A client can refuse to run against a shape it
         // does not know instead of discovering the change in production.
         _meta: { memexResponseVersion: MEMRAIN_RESPONSE_VERSION },

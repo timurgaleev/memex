@@ -7,13 +7,13 @@
  * `minKeep` failsafe guarantees a caller never gets a silent blank when
  * candidates exist.
  *
- * WHY a cap and NOT a score-cliff cut: memex's hybrid score is RRF-fused
+ * WHY a cap and NOT a score-cliff cut: memrain's hybrid score is RRF-fused
  * (rank-based, mechanical decay), so there is no trustworthy score separatrix to
  * cut on — the same reason the score-cliff autocut was rejected. The win is
  * simply "return a tight set"; intent is the (coarse) prior on how many answers
  * the query wants. The mechanism is a cap.
  *
- * memex's `Intent` is factual|topic|howto|personal|exact, so:
+ * memrain's `Intent` is factual|topic|howto|personal|exact, so:
  * the single-answer-ish intents (`factual`, `exact`) get the tight cap;
  * everything else gets the recall-preserving cap.
  *

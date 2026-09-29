@@ -1,5 +1,5 @@
 /**
- * `memex lint [<dir|file.md>] [--fix] [--dry-run]` — page quality lint.
+ * `memrain lint [<dir|file.md>] [--fix] [--dry-run]` — page quality lint.
  *
  * Two modes:
  *   - no target: the original DB-corpus frontmatter conformance report
@@ -62,7 +62,7 @@ export function lintFiles(
   opts: { fix?: boolean; dryRun?: boolean } = {},
 ): FileLintResult {
   if (!existsSync(target)) {
-    throw new Error(`memex lint: not found: ${target}`);
+    throw new Error(`memrain lint: not found: ${target}`);
   }
   const isSingleFile = statSync(target).isFile();
   const pages = isSingleFile ? [target] : collectPages(target);

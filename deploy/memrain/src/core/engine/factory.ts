@@ -50,7 +50,7 @@ export function makeEngine(config: Config, opts: MakeEngineOptions = {}): Engine
   if (db.type === "pglite") {
     if (!opts.scratch && requirePostgres()) {
       throw new Error(
-        `memex: MEMRAIN_REQUIRE_POSTGRES=1 but config.json says database.type=pglite (${db.path}); ` +
+        `memrain: MEMRAIN_REQUIRE_POSTGRES=1 but config.json says database.type=pglite (${db.path}); ` +
           "refusing to open a local database on a Postgres host",
       );
     }
@@ -60,7 +60,7 @@ export function makeEngine(config: Config, opts: MakeEngineOptions = {}): Engine
     const url = process.env.MEMRAIN_POSTGRES_URL ?? db.url;
     if (!url) {
       throw new Error(
-        "memex: database.type=postgres but no URL — set MEMRAIN_POSTGRES_URL env or database.url in config.json",
+        "memrain: database.type=postgres but no URL — set MEMRAIN_POSTGRES_URL env or database.url in config.json",
       );
     }
     const opts: PostgresEngineOptions = { url };
@@ -71,6 +71,6 @@ export function makeEngine(config: Config, opts: MakeEngineOptions = {}): Engine
     return new PostgresEngine(opts);
   }
   throw new Error(
-    `memex: unknown database.type ${(db as { type: string }).type}`,
+    `memrain: unknown database.type ${(db as { type: string }).type}`,
   );
 }

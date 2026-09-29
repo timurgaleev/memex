@@ -1,6 +1,6 @@
 /**
  * Destructive-guard — soft-delete / archive / restore / purge for documents,
- * with an impact preview and a confirmation gate, over memex's `documents`
+ * with an impact preview and a confirmation gate, over memrain's `documents`
  * store.
  *
  * Soft-delete and archive flip columns (migration 040); nothing is hard-deleted

@@ -13,7 +13,7 @@
  * maintain, and the one that drifts is the one nobody reads.
  *
  * `MEMRAIN_RESPONSE_VERSION` is separate from the MCP `protocolVersion` reported
- * at initialize: that one pins the transport, this one pins what memex puts
+ * at initialize: that one pins the transport, this one pins what memrain puts
  * inside the result. Bump it when a registered shape changes in a way a client
  * cannot ignore — a removed or renamed key, not an added optional one.
  *

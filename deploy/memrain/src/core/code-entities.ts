@@ -11,10 +11,10 @@
  *   code-callee  — keyed by enclosing symbol; mention recorded per call site
  *
  * Why this asymmetric design:
- *   `memex code-callers Foo` should answer "who calls Foo?" — that's
+ *   `memrain code-callers Foo` should answer "who calls Foo?" — that's
  *     a SQL filter `WHERE entity_id = ent_code-caller_foo`, with the
  *     surface_form telling you which file:line:enclosing symbol does it.
- *   `memex code-callees src/foo.ts:42` resolves the chunk covering
+ *   `memrain code-callees src/foo.ts:42` resolves the chunk covering
  *     line 42 (its symbol = enclosing), then SELECT entity_id matching
  *     code-callee_<enclosing> — surface_form lists each call target.
  *

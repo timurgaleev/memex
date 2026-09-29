@@ -3,7 +3,7 @@
  * described by: WHICH LAYER it speaks for (category) and HOW BAD the answer is
  * (status).
  *
- * Every `memex doctor` check belongs to exactly one category so the report
+ * Every `memrain doctor` check belongs to exactly one category so the report
  * answers the question the operator is actually asking:
  *
  *   - brain : data-integrity signals — "is the brain's actual data healthy?"
@@ -12,7 +12,7 @@
  *             (config present + parses, DB engine opens, vault path readable)
  *   - meta  : the doctor / runtime itself; the fallthrough bucket.
  *
- * memex is brain-only, so there is no fourth `skill` category (agent skill
+ * memrain is brain-only, so there is no fourth `skill` category (agent skill
  * dispatcher) — there is no skill layer to diagnose.
  *
  * Drift contract: every check name that ships in `commands/doctor.ts` MUST
@@ -162,7 +162,7 @@ export function categorize(name: string): CheckCategory {
   if (!warned.has(name)) {
     warned.add(name);
     console.error(
-      `[memex doctor] check '${name}' is uncategorized — add it to ` +
+      `[memrain doctor] check '${name}' is uncategorized — add it to ` +
         `core/doctor-categories.ts (defaulting to 'meta')`,
     );
   }

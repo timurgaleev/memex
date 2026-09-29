@@ -1,5 +1,5 @@
 /**
- * Job queue — durable CRUD + atomic claim for memex jobs.
+ * Job queue — durable CRUD + atomic claim for memrain jobs.
  *
  * The claim path uses `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP
  * LOCKED LIMIT 1) RETURNING *` so two concurrent workers can't pick

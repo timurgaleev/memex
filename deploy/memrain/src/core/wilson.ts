@@ -4,7 +4,7 @@
  * A single point estimate (hit-rate = 7/10) hides how little it says at small
  * n. The Wilson interval gives defensible bounds without the normal-approx
  * pathologies at the extremes (it never escapes [0,1], and stays sane at p=0
- * or p=1). Used by `memex eval` to turn a bare recall/hit number into a bounded
+ * or p=1). Used by `memrain eval` to turn a bare recall/hit number into a bounded
  * measurement. Pure, deterministic.
  */
 

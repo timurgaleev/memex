@@ -95,7 +95,7 @@ describe("checkSchemaVersion", () => {
     expect(r.ok).toBe(false);
     expect(r.status).toBe("fail");
 
-    const verb = /run `memex ([a-z-]+)`/.exec(r.detail)?.[1];
+    const verb = /run `memrain ([a-z-]+)`/.exec(r.detail)?.[1];
     expect(verb).toBeDefined();
     const cli = readFileSync(join(import.meta.dir, "../src/cli.ts"), "utf8");
     expect(cli).toContain(`case "${verb}":`);

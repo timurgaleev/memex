@@ -1,5 +1,5 @@
 /**
- * `memex extract --stale` — incremental link re-extraction sweep.
+ * `memrain extract --stale` — incremental link re-extraction sweep.
  *
  * Bumping {@link LINK_EXTRACTOR_VERSION_TS} (or any page edit) marks pages
  * stale; this
@@ -9,8 +9,8 @@
  * it a version bump is detect-only — the `links-extraction-lag` doctor count
  * rises and only falls as each page is next written.
  *
- * memex stack notes:
- *  - re-uses memex's per-page `sync*ForPage` functions (the dispatch put path)
+ * memrain stack notes:
+ *  - re-uses memrain's per-page `sync*ForPage` functions (the dispatch put path)
  *    — same edges, one code path. No timeline arm yet: body timeline rows
  *    are derived on write (timeline-body.ts); backfilling pages written
  *    before that is still open.
@@ -202,7 +202,7 @@ export async function extractStaleLinks(
     );
     if (budgetHit) {
       console.log(
-        `Time budget reached — ${staleRemaining} page(s) still stale. Re-run 'memex extract --stale' (or pass --catch-up) to continue.`,
+        `Time budget reached — ${staleRemaining} page(s) still stale. Re-run 'memrain extract --stale' (or pass --catch-up) to continue.`,
       );
     } else if (staleRemaining > 0) {
       console.log(

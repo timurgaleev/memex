@@ -398,7 +398,7 @@ export async function handleIngestRoute(
     );
   } catch (e) {
     console.error(
-      "[memex] POST /ingest queue submission error:",
+      "[memrain] POST /ingest queue submission error:",
       e instanceof Error ? e.message : e,
     );
     return err(500, "queue_submission_failed", "could not queue the event");

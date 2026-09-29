@@ -28,7 +28,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="login-page">
       <div className="login-box">
-        <div className="login-logo">memex</div>
+        <div className="login-logo">memrain</div>
 
         <div style={{
           background: "rgba(136, 170, 255, 0.08)",
@@ -54,7 +54,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
             color: "#88aaff",
             wordBreak: "break-all",
           }}>
-            "Give me the memex admin login link"
+            "Give me the memrain admin login link"
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
             Each link is single-use. Your agent generates a fresh one each time.

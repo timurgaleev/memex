@@ -1,5 +1,5 @@
 /**
- * `memex apply-migrations` — manual runner for pending migrations.
+ * `memrain apply-migrations` — manual runner for pending migrations.
  *
  * Storage init already runs migrations on every boot, so this command
  * is mostly an ops/diagnostic tool: confirm the schema matches the

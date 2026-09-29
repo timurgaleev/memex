@@ -3,11 +3,11 @@
  *
  * Turns an exported chat log (iMessage, Slack, Telegram, WhatsApp, Discord,
  * IRC, or a plain "Speaker: text" transcript) into structured messages
- * `{ speaker, timestamp, text }`. memex already ingests transcript docs as
+ * `{ speaker, timestamp, text }`. memrain already ingests transcript docs as
  * flat markdown chunks; this is the brain-only primitive that gives a
  * per-(speaker, timestamp, text) structure for timeline + per-person facts.
  *
- * The pure pattern core only — no optional LLM polish / LLM fallback: memex
+ * The pure pattern core only — no optional LLM polish / LLM fallback: memrain
  * routes utility work through Claude Haiku (Bedrock) and a deterministic parser
  * is the retrieval brain's job. Patterns are a curated subset covering the
  * common export formats; add entries to BUILTIN_PATTERNS as new formats appear.

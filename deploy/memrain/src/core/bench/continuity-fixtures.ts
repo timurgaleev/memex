@@ -78,7 +78,7 @@ export interface BenchIdentity {
    * `isPublic: true` and NO authInfo, which is the shape that ingress actually
    * presents. An identity that sets this may declare nothing else — an
    * authenticated public OAuth client is a different principal with different
-   * gates, and half-modelling it here would grade a caller memex does not have.
+   * gates, and half-modelling it here would grade a caller memrain does not have.
    */
   isPublic?: boolean;
 }

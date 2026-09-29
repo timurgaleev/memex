@@ -109,7 +109,7 @@ describe("federation-health", () => {
     expect(c.ok).toBe(false);
     expect(c.status).toBe("fail");
     expect(c.detail).toContain("mail");
-    expect(c.detail).toContain("memex reindex --source mail");
+    expect(c.detail).toContain("memrain reindex --source mail");
   });
 });
 

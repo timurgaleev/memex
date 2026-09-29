@@ -212,7 +212,7 @@ export async function ingestSessions(
     throw new OperationError(
       "invalid_params",
       `unknown source '${sourceId}'`,
-      "Register it with `memex sources register`, or omit --source.",
+      "Register it with `memrain sources register`, or omit --source.",
     );
   }
   const result: IngestTranscriptsResult = {

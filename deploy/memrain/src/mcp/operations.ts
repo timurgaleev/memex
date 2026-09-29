@@ -364,7 +364,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "log_friction",
     description:
-      "Record a friction event — used by the agent to flag when retrieval missed, an answer felt wrong, a tool errored out, OR when a recall produced an unexpectedly good hit (`delight`). When invoked from a skill, include extra.skill = '<skill-slug>' so `memex friction propose-fix` can group the event with the skill that fired it. Set `severity` to confused/error/blocker/nit on negative kinds for triage.",
+      "Record a friction event — used by the agent to flag when retrieval missed, an answer felt wrong, a tool errored out, OR when a recall produced an unexpectedly good hit (`delight`). When invoked from a skill, include extra.skill = '<skill-slug>' so `memrain friction propose-fix` can group the event with the skill that fired it. Set `severity` to confused/error/blocker/nit on negative kinds for triage.",
     // Appends a friction_events row that has no source axis, so a read-scoped
     // token must not reach it — the op is a mutation and is tagged as one.
     scope: "write",
@@ -921,7 +921,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "find_anomalies",
     description:
-      "Deterministic structural OUTLIERS over the live page graph. memex has no retrieval/access counters, so this keys on the signals it does have: `degree_outlier` (a connectivity hub — link-degree at/above mean + sigma·stddev across live pages) and `stale_salient` (a high-salience page whose updated_at is older than staleDays — important memory gone cold). No LLM. Surfaces page slugs/titles — hidden from public ingress.",
+      "Deterministic structural OUTLIERS over the live page graph. memrain has no retrieval/access counters, so this keys on the signals it does have: `degree_outlier` (a connectivity hub — link-degree at/above mean + sigma·stddev across live pages) and `stale_salient` (a high-salience page whose updated_at is older than staleDays — important memory gone cold). No LLM. Surfaces page slugs/titles — hidden from public ingress.",
     params: {
       sigma: num({ minimum: 0, description: "Std-devs above the mean degree to flag a hub (default 2)." }),
       staleDays: int({ minimum: 1, description: "Days an updated_at must lag to count a salient page stale (default 90)." }),
@@ -1116,7 +1116,7 @@ export const OPERATIONS: readonly Operation[] = [
   {
     name: "list_brain_skillpack",
     description:
-      "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. The skills are served, not installed: read one with get_skill (list_skills is the flat listing). On the host, `memex skillpack` builds a tarball with a sha256 manifest for verification and `memex skillpack lint` checks the pack against the real tools and commands.",
+      "List the brain-resident skillpack this brain ships (the local deploy/skills pack): each skill's slug and one-line description. Read-only. The skills are served, not installed: read one with get_skill (list_skills is the flat listing). On the host, `memrain skillpack` builds a tarball with a sha256 manifest for verification and `memrain skillpack lint` checks the pack against the real tools and commands.",
     params: {},
   },
   {

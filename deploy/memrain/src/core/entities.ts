@@ -1,6 +1,6 @@
 /**
  * Entity extractor — deterministic regex-based recogniser for the three
- * entity types memex tracks today:
+ * entity types memrain tracks today:
  *
  *   1. wikilink — `[[Name]]` or `[[Name|alias]]` references in markdown
  *      bodies. The canonical key is the target ("Name"), not the alias.

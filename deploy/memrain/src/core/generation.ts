@@ -1,7 +1,7 @@
 /**
  * Generation clock — cache-invalidation substrate (migration 022).
  *
- * memex uses no DB triggers; callers bump the counters inside their own
+ * memrain uses no DB triggers; callers bump the counters inside their own
  * write transaction. `bumpPageGeneration` is called whenever a page's
  * content changes; `bumpClock` covers writes with no single owning slug
  * (none today — kept for symmetry). `currentClock` is the cheap read the

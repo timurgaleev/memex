@@ -1,5 +1,5 @@
 /**
- * Ops-facing brain-health probes for `memex doctor`: stale cycle locks, job
+ * Ops-facing brain-health probes for `memrain doctor`: stale cycle locks, job
  * queue depth/wedge, applied-vs-available schema version, embedding-width
  * consistency, and content-hash duplicate pages. Each returns
  * {ok, status, detail}; the caller turns a probe error into a `warn` verdict.
@@ -127,7 +127,7 @@ export async function checkQueueHealth(engine: Engine): Promise<OpsCheckResult> 
 /**
  * Applied vs available schema version: the highest migration id recorded in the
  * `migrations` table against the highest migration file on disk. Unapplied
- * migrations flip ok:false — a real, actionable drift (run `memex
+ * migrations flip ok:false — a real, actionable drift (run `memrain
  * apply-migrations`).
  */
 export async function checkSchemaVersion(
@@ -150,7 +150,7 @@ export async function checkSchemaVersion(
     ok: !pending,
     status: pending ? "fail" : "ok",
     detail: pending
-      ? `schema at migration ${applied} (${appliedCount} applied) — ${available - applied} unapplied through ${available}; run \`memex apply-migrations\``
+      ? `schema at migration ${applied} (${appliedCount} applied) — ${available - applied} unapplied through ${available}; run \`memrain apply-migrations\``
       : `schema at migration ${applied} (${appliedCount} applied), up to date`,
   };
 }
@@ -158,7 +158,7 @@ export async function checkSchemaVersion(
 /**
  * Invalid indexes: any index left `indisvalid = false` — the fingerprint of a
  * failed or interrupted build (a killed `CREATE INDEX CONCURRENTLY`, or an OOM
- * mid-build, which memex has a live history of). Postgres keeps such an index
+ * mid-build, which memrain has a live history of). Postgres keeps such an index
  * present but NEVER uses it for query planning, so the HNSW vector arm (or any
  * indexed lookup) silently falls back to a sequential scan with no error — a
  * quiet retrieval-quality regression. Flips ok:false so it surfaces in `doctor`
@@ -279,7 +279,7 @@ export async function checkJunkEntityHubs(
  * Quarantined pages: how many the content-sanity gate is hiding and which
  * patterns hid them. A false positive vanishes from search silently, so the
  * count alone is not enough — the top patterns say which one to switch off
- * (`MEMRAIN_CONTENT_SANITY_DISABLE`) before `memex quarantine clear`. Warn, never
+ * (`MEMRAIN_CONTENT_SANITY_DISABLE`) before `memrain quarantine clear`. Warn, never
  * fail: a held page is the gate working, not a broken brain.
  */
 export async function checkQuarantinedPages(
@@ -309,7 +309,7 @@ export async function checkQuarantinedPages(
     detail:
       `${n} quarantined page(s) hidden from search` +
       (patterns ? `; top patterns: ${patterns}` : "") +
-      " — review with `memex quarantine list`",
+      " — review with `memrain quarantine list`",
   };
 }
 

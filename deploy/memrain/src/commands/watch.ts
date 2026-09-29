@@ -1,5 +1,5 @@
 /**
- * `memex watch [--json] [--window-turns N] [--max-pages N] [--min-confidence X]`
+ * `memrain watch [--json] [--window-turns N] [--max-pages N] [--min-confidence X]`
  *
  * Push-based context transport. Reads conversation turns from
  * stdin AS THEY ARRIVE (plain text = a user turn; `user:` / `assistant:`
@@ -158,7 +158,7 @@ export async function runWatch(
   }, { owned: ownStorage });
 }
 
-export const WATCH_HELP = `memex watch - push-based context: volunteer brain pages per conversation turn
+export const WATCH_HELP = `memrain watch - push-based context: volunteer brain pages per conversation turn
 
 Reads turns from stdin (one per line; 'user:' / 'assistant:' prefixes set the
 role, unprefixed lines are user turns) and prints confidence-gated page
@@ -166,8 +166,8 @@ pointers with rationales after each turn. A slug is volunteered at most once
 per session. Piped input exits at EOF; interactive sessions exit on Ctrl-C.
 
 Usage:
-  some-transcript-feed | memex watch [--json]
-  memex watch                          # interactive: type turns, Ctrl-C to end
+  some-transcript-feed | memrain watch [--json]
+  memrain watch                          # interactive: type turns, Ctrl-C to end
 
 Flags:
   --json                 JSONL output (one volunteered page per line)

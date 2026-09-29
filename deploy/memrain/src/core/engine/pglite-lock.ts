@@ -270,7 +270,7 @@ function acquireOne(lockPath: string, dbPath: string): HeldLock {
     throw new PgliteLockedError(
       `pglite: ${dbPath} has a lock at ${lockPath} that names no readable ` +
         `owner — another process may be starting right now, or the file is ` +
-        `unreadable. Refusing to take it over. Check for a running memex, ` +
+        `unreadable. Refusing to take it over. Check for a running memrain, ` +
         `then delete the file by hand if you are certain none is writing.`,
     );
   }

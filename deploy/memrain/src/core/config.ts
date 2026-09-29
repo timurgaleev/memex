@@ -91,7 +91,7 @@ export interface EvalCaptureConfig {
 // --- Combined --------------------------------------------------------------
 
 /**
- * memex's own OAuth 2.1 provider (client_credentials). When
+ * memrain's own OAuth 2.1 provider (client_credentials). When
  * `selfIssued.enabled === true` the server mounts `/token` and verifies
  * self-issued `memex_at_…` bearer tokens on the MCP ingress, scoping each to its
  * registered `oauth_clients` row. Default-OFF — the static public bearer stays
@@ -103,7 +103,7 @@ export interface SelfIssuedConfig {
 
 /**
  * Optional auth overlay. Default-OFF → the static public bearer is the only auth
- * path (unchanged). `selfIssued` is memex's own client_credentials provider.
+ * path (unchanged). `selfIssued` is memrain's own client_credentials provider.
  */
 export interface AuthConfig {
   selfIssued?: SelfIssuedConfig;
@@ -114,7 +114,7 @@ export interface Config {
   embedding: BedrockEmbeddingConfig;
   storage: StorageConfig;
 
-  // Overlay sections — populated from memex.yml when present.
+  // Overlay sections — populated from memrain.yml (or the legacy memex.yml) when present.
   vault_paths?: VaultPathsConfig;
   sweep?: SweepConfig;
   dream?: DreamConfig;
@@ -126,8 +126,6 @@ export interface Config {
 /** Config directory names under the home directory. */
 export const CONFIG_DIR_NAME = ".memrain";
 export const LEGACY_CONFIG_DIR_NAME = ".memex";
-/** Where `init` puts a brand-new install when neither directory holds a config. */
-const FRESH_CONFIG_DIR_NAME: string = LEGACY_CONFIG_DIR_NAME;
 
 /** Overlay file names; the new one wins when both exist (no merge). */
 export const YAML_NAME = "memrain.yml";
@@ -137,7 +135,7 @@ type Env = Record<string, string | undefined>;
 
 /**
  * The explicit config-file override, or null. Operators (and tests) use it
- * when ~/.memex points at a production install and the current process wants
+ * when ~/.memrain points at a production install and the current process wants
  * a different one without a shell-level HOME swap (which Bun's homedir()
  * ignores anyway — it goes through getpwuid).
  */
@@ -153,7 +151,7 @@ let legacyDirNoted = false;
  *   1. the directory of the config-path override;
  *   2. ~/.memrain when it holds config.json;
  *   3. ~/.memex when it holds config.json;
- *   4. the fresh-install default.
+ *   4. ~/.memrain (a fresh install).
  * A config found in the legacy directory is used as is; nothing is moved.
  */
 export function resolveConfigDir(env: Env = process.env, home: string = homedir()): string {
@@ -163,13 +161,13 @@ export function resolveConfigDir(env: Env = process.env, home: string = homedir(
   if (existsSync(join(current, "config.json"))) return current;
   const legacy = join(home, LEGACY_CONFIG_DIR_NAME);
   if (existsSync(join(legacy, "config.json"))) {
-    if (FRESH_CONFIG_DIR_NAME !== LEGACY_CONFIG_DIR_NAME && !legacyDirNoted) {
+    if (!legacyDirNoted) {
       legacyDirNoted = true;
-      console.error(`[memex] using the legacy config directory ${legacy}; move it to ${current}`);
+      console.error(`[memrain] using the legacy config directory ${legacy}; move it to ${current}`);
     }
     return legacy;
   }
-  return join(home, FRESH_CONFIG_DIR_NAME);
+  return current;
 }
 
 export function defaultConfigPath(env: Env = process.env, home: string = homedir()): string {
@@ -185,7 +183,7 @@ export function defaultYamlPath(configJsonPath: string): string {
 export function loadConfig(path: string = defaultConfigPath()): Config {
   if (!existsSync(path)) {
     throw new Error(
-      `memex: config not found at ${path}. Run 'memex init --pglite' first.`,
+      `memrain: config not found at ${path}. Run 'memrain init --pglite' first.`,
     );
   }
   const raw = readFileSync(path, "utf8");
@@ -194,13 +192,13 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
     parsed = JSON.parse(raw);
   } catch (e) {
     throw new Error(
-      `memex: invalid JSON at ${path}: ${e instanceof Error ? e.message : String(e)}`,
+      `memrain: invalid JSON at ${path}: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 
   const cfg = parsed as Partial<Config>;
   if (!cfg.database) {
-    throw new Error(`memex: config.database is required`);
+    throw new Error(`memrain: config.database is required`);
   }
   if (cfg.database.type === "pglite") {
     if (
@@ -208,7 +206,7 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
       cfg.database.path.length === 0
     ) {
       throw new Error(
-        `memex: config.database.path must be a non-empty string for type=pglite`,
+        `memrain: config.database.path must be a non-empty string for type=pglite`,
       );
     }
   } else if (cfg.database.type === "postgres") {
@@ -216,11 +214,11 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
     // expected source on the EC2 host (populated by fetch-secrets.sh).
   } else {
     throw new Error(
-      `memex: config.database.type must be "pglite" or "postgres" (got ${(cfg.database as { type?: string })?.type ?? "undefined"})`,
+      `memrain: config.database.type must be "pglite" or "postgres" (got ${(cfg.database as { type?: string })?.type ?? "undefined"})`,
     );
   }
   if (!cfg.embedding || cfg.embedding.provider !== "bedrock-titan") {
-    throw new Error(`memex: config.embedding.provider must be "bedrock-titan"`);
+    throw new Error(`memrain: config.embedding.provider must be "bedrock-titan"`);
   }
 
   const merged = cfg as Config;
@@ -235,7 +233,7 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
       overlay = (parseYaml(readFileSync(yamlPath, "utf8")) ?? {}) as Partial<Config>;
     } catch (e) {
       throw new Error(
-        `memex: invalid YAML at ${yamlPath}: ${e instanceof Error ? e.message : String(e)}`,
+        `memrain: invalid YAML at ${yamlPath}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     if (overlay.vault_paths) merged.vault_paths = overlay.vault_paths;

@@ -1,7 +1,7 @@
 /**
  * Job handler registry.
  *
- * Process-local — each memex process registers the handlers it knows
+ * Process-local — each memrain process registers the handlers it knows
  * how to run. The worker dispatches by `kind`. Unknown kinds fail with
  * a clear error so a forgotten registration surfaces immediately rather
  * than silently piling up in the table.
@@ -35,8 +35,8 @@ export function getHandler(kind: string): JobHandler | undefined {
 }
 
 /**
- * Kinds memex ships a handler for. Submit-side validation needs this static
- * list because `memex call` runs in a process that never registers serve's
+ * Kinds memrain ships a handler for. Submit-side validation needs this static
+ * list because `memrain call` runs in a process that never registers serve's
  * handlers; the lifecycle smoke kind stays out on purpose, since only the
  * self-test that registers it should ever enqueue it.
  */

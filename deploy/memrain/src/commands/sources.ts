@@ -1,5 +1,5 @@
 /**
- * `memex sources <subcommand>` — operator CRUD over the sources
+ * `memrain sources <subcommand>` — operator CRUD over the sources
  * table. Pre-req for the deferred Gmail / GCal / code recipes
  * (TODO.md "External-dependency roadmap").
  *
@@ -69,7 +69,7 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
         return;
       }
       case "show": {
-        if (!opts.id) throw new Error("memex sources show: <id> is required");
+        if (!opts.id) throw new Error("memrain sources show: <id> is required");
         const row = await getSource(engine, opts.id);
         if (!row) {
           console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
@@ -80,9 +80,9 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
         return;
       }
       case "register": {
-        if (!opts.id) throw new Error("memex sources register: <id> is required");
-        if (!opts.kind) throw new Error("memex sources register: --kind is required");
-        if (!opts.pathPrefix) throw new Error("memex sources register: --path-prefix is required");
+        if (!opts.id) throw new Error("memrain sources register: <id> is required");
+        if (!opts.kind) throw new Error("memrain sources register: --kind is required");
+        if (!opts.pathPrefix) throw new Error("memrain sources register: --path-prefix is required");
         const rOpts: Parameters<typeof registerSource>[1] = {
           id: opts.id,
           kind: opts.kind,
@@ -101,7 +101,7 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
         return;
       }
       case "update": {
-        if (!opts.id) throw new Error("memex sources update: <id> is required");
+        if (!opts.id) throw new Error("memrain sources update: <id> is required");
         const uOpts: Parameters<typeof updateSource>[1] = { id: opts.id };
         if (opts.kind) uOpts.kind = opts.kind;
         if (opts.pathPrefix) uOpts.pathPrefix = opts.pathPrefix;
@@ -123,7 +123,7 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
         return;
       }
       case "delete": {
-        if (!opts.id) throw new Error("memex sources delete: <id> is required");
+        if (!opts.id) throw new Error("memrain sources delete: <id> is required");
         if (!(await getSource(engine, opts.id))) {
           console.log(JSON.stringify({ ok: false, error: "not-found", id: opts.id }, null, 2));
           process.exitCode = 1;
@@ -151,7 +151,7 @@ export async function runSources(opts: SourcesCmdOptions): Promise<void> {
       }
       default: {
         const _exhaustive: never = opts.sub;
-        throw new Error(`memex sources: unknown subcommand '${_exhaustive}'`);
+        throw new Error(`memrain sources: unknown subcommand '${_exhaustive}'`);
       }
     }
   });

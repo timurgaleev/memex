@@ -3,7 +3,7 @@
  * page's high-emotion tags, graph connectivity (link-degree), and the density
  * of synthesised opinion "takes" attached to it. Pure function, no DB, no LLM.
  * Recomputed by the `recompute-salience` cycle phase and surfaced by the
- * "what matters" salience query (`memex salience`).
+ * "what matters" salience query (`memrain salience`).
  *
  * Link-degree is the base attention signal — the strongest LLM-free "this
  * entity gets a lot of attention" signal — and a small take-density term from

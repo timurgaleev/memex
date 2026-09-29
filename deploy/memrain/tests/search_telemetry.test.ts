@@ -21,7 +21,7 @@ import {
   applyTuneRecommendation,
   buildRevertCommand,
 } from "../src/commands/search-stats.ts";
-import { getRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config.ts";
+import { getRuntimeConfig, setRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config.ts";
 import type { StatsWindow } from "../src/core/search/telemetry.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-telemetry-"));
@@ -147,7 +147,7 @@ function statsWith(over: Partial<StatsWindow>): StatsWindow {
 describe("search tune", () => {
   it("recommends leaving tokenmax (paid expansion) for balanced", () => {
     const recs = buildTuneRecommendations(statsWith({}), "tokenmax", {});
-    expect(recs.some((r) => r.apply_command === "memex config set MEMEX_SEARCH_MODE balanced")).toBe(true);
+    expect(recs.some((r) => r.apply_command === "memrain config set MEMRAIN_SEARCH_MODE balanced")).toBe(true);
   });
 
   it("flags budget pressure on a capped mode", () => {
@@ -156,14 +156,14 @@ describe("search tune", () => {
       "balanced",
       {},
     );
-    expect(recs.some((r) => r.knob === "MEMEX_SEARCH_MODE" && r.suggested === "tokenmax")).toBe(true);
+    expect(recs.some((r) => r.knob === "MEMRAIN_SEARCH_MODE" && r.suggested === "tokenmax")).toBe(true);
   });
 
   it("suggests re-enabling a killed query cache; conservative default stays quiet", () => {
     const on = buildTuneRecommendations(statsWith({}), "conservative", {
       MEMRAIN_QUERY_CACHE: "0",
     });
-    expect(on.some((r) => r.apply_command === "memex config unset MEMEX_QUERY_CACHE")).toBe(true);
+    expect(on.some((r) => r.apply_command === "memrain config unset MEMRAIN_QUERY_CACHE")).toBe(true);
     const quiet = buildTuneRecommendations(statsWith({}), "conservative", {});
     expect(quiet).toEqual([]);
   });
@@ -177,9 +177,9 @@ describe("search tune", () => {
     const on = buildTuneRecommendations(hot, "conservative", {
       MEMRAIN_QUERY_CACHE_SEMANTIC: "1",
     });
-    expect(on.some((r) => r.knob === "MEMEX_QUERY_CACHE_SIM")).toBe(true);
+    expect(on.some((r) => r.knob === "MEMRAIN_QUERY_CACHE_SIM")).toBe(true);
     const off = buildTuneRecommendations(hot, "conservative", {});
-    expect(off.some((r) => r.knob === "MEMEX_QUERY_CACHE_SIM")).toBe(false);
+    expect(off.some((r) => r.knob === "MEMRAIN_QUERY_CACHE_SIM")).toBe(false);
   });
 
   it("--apply writes through runtime_config and the revert restores", async () => {
@@ -193,7 +193,7 @@ describe("search tune", () => {
     };
     await applyTuneRecommendation(e, rec);
     expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
-    expect(buildRevertCommand(rec)).toBe("memex config set MEMEX_SEARCH_MODE tokenmax");
+    expect(buildRevertCommand(rec)).toBe("memrain config set MEMEX_SEARCH_MODE tokenmax");
     // unset-shaped apply commands delete the row
     await applyTuneRecommendation(e, {
       ...rec,
@@ -202,15 +202,18 @@ describe("search tune", () => {
     expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
   });
 
-  it("--apply of a generated recommendation keeps writing the legacy row key", async () => {
+  it("--apply of a generated recommendation writes the MEMRAIN_ row and leaves a legacy row alone", async () => {
     const e = storage.engine();
+    await setRuntimeConfig(e, "MEMEX_SEARCH_MODE", "tokenmax");
     const rec = buildTuneRecommendations(statsWith({}), "tokenmax", {}).find(
       (r) => r.suggested === "balanced",
     )!;
     await applyTuneRecommendation(e, rec);
-    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
-    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBeNull();
-    await unsetRuntimeConfig(e, "MEMEX_SEARCH_MODE");
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBe("balanced");
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("tokenmax");
+    expect(buildRevertCommand(rec)).toBe("memrain config set MEMRAIN_SEARCH_MODE tokenmax");
+    await unsetRuntimeConfig(e, "MEMRAIN_SEARCH_MODE");
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
   });
 
   it("--apply accepts the command under the current and the pre-rename CLI name", async () => {

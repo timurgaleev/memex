@@ -1,7 +1,7 @@
 /**
  * Storage lifecycle for command handlers.
  *
- * Every `memex <cmd>` opens a Storage, does its work, and closes it. The shape
+ * Every `memrain <cmd>` opens a Storage, does its work, and closes it. The shape
  * lives here once rather than in forty handlers, because two details of it are
  * easy to get wrong and were:
  *
@@ -60,7 +60,7 @@ export async function closeQuietly(storage: Storage): Promise<void> {
     await storage.close();
   } catch (e) {
     console.error(
-      `memex: storage teardown failed: ${e instanceof Error ? e.message : String(e)}`,
+      `memrain: storage teardown failed: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }

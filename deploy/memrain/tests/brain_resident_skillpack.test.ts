@@ -33,7 +33,7 @@ afterAll(() => {
 describe("listBrainSkillpacks", () => {
   it("lists .md skills in byte-order with their descriptions", () => {
     const r = listBrainSkillpacks({ skillsDir: dir });
-    expect(r.pack).toBe("memex-skillpack");
+    expect(r.pack).toBe("memrain-skillpack");
     expect(r.count).toBe(3);
     expect(r.skills.map((s) => s.slug)).toEqual([
       "archive-crawler",

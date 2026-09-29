@@ -1,5 +1,5 @@
 /**
- * `memex call <tool> [--args '<json>']` — invoke any MCP tool from the shell.
+ * `memrain call <tool> [--args '<json>']` — invoke any MCP tool from the shell.
  *
  * A convenience for operators + smoke tests: exercise a tool exactly as the
  * MCP transport would, without standing up an MCP client. Dispatch runs on the
@@ -33,11 +33,11 @@ export async function runCall(opts: CallCmdOptions): Promise<number> {
       parsed = JSON.parse(opts.argsJson);
     } catch (e) {
       throw new Error(
-        `memex call: --args must be valid JSON (${e instanceof Error ? e.message : String(e)})`,
+        `memrain call: --args must be valid JSON (${e instanceof Error ? e.message : String(e)})`,
       );
     }
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("memex call: --args must be a JSON object");
+      throw new Error("memrain call: --args must be a JSON object");
     }
     args = parsed as Record<string, unknown>;
   }

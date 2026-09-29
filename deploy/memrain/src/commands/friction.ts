@@ -1,5 +1,5 @@
 /**
- * `memex friction <subcommand>` — friction logbook tooling.
+ * `memrain friction <subcommand>` — friction logbook tooling.
  *
  * Subcommands:
  *   analyze [--since H] [--limit N]      counts + recent + top-repeats
@@ -93,7 +93,7 @@ export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
         return;
       }
       case "log": {
-        if (!opts.kind) throw new Error("memex friction log: --kind is required");
+        if (!opts.kind) throw new Error("memrain friction log: --kind is required");
         const input: Parameters<typeof logFriction>[1] = { kind: opts.kind };
         if (opts.query) input.query = opts.query;
         if (opts.reason) input.reason = opts.reason;
@@ -107,7 +107,7 @@ export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
       case "propose-fix": {
         if (!opts.skill && opts.topSkills === undefined) {
           throw new Error(
-            "memex friction propose-fix: --skill or --top-skills is required",
+            "memrain friction propose-fix: --skill or --top-skills is required",
           );
         }
         const pOpts: Parameters<typeof proposeFixes>[2] = {};
@@ -128,7 +128,7 @@ export async function runFriction(opts: FrictionCmdOptions): Promise<void> {
       }
       default: {
         const _exhaustive: never = opts.sub;
-        throw new Error(`memex friction: unknown subcommand '${_exhaustive}'`);
+        throw new Error(`memrain friction: unknown subcommand '${_exhaustive}'`);
       }
     }
   });

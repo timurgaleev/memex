@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * memex CLI entrypoint.
+ * memrain CLI entrypoint.
  */
 import "./core/env-compat.ts";
 import { VERSION } from "./version.ts";
@@ -83,13 +83,14 @@ import { runWatch } from "./commands/watch.ts";
 import { runCycle, parsePhasesArg } from "./commands/cycle.ts";
 import { resolveExitCode } from "./cli-exit.ts";
 import { parseArgs, validateFlags } from "./cli-args.ts";
+import { aliasDeprecationLine } from "./cli-alias.ts";
 import type { EntityType } from "./core/entities.ts";
 
 function printUsage(): void {
-  console.log("Usage: memex <command> [options]");
+  console.log("Usage: memrain <command> [options]");
   console.log("");
   console.log("Commands:");
-  console.log("  init --pglite                initialize ~/.memex/ + PGLite db");
+  console.log("  init --pglite                initialize ~/.memrain/ + PGLite db");
   console.log("  serve --http --host H --port N");
   console.log("                               start HTTP server (loopback only)");
   console.log("  index <path>                 read a markdown file and index it");
@@ -211,7 +212,7 @@ function printUsage(): void {
   console.log("                               score skill routing on the pack benchmark (needs MEMRAIN_SKILLOPT_ENABLED=1); exit 3 = candidate rejected");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  skillpack lint [--json] [--dir PATH]");
-  console.log("                               check every tool and memex command the skill pack names exists");
+  console.log("                               check every tool and memrain command the skill pack names exists");
   console.log("  migrate-engine --from X --to Y [--dry-run|--verify-only] [--allow-dropped-columns] [--tables a,b] [--pglite-path P] [--to-pglite-path P2] [--postgres-url U]");
   console.log("                               copy data between Engine adapters");
   console.log("  auth register-client <name> [--scopes S] [--source SRC] [--federated-read a,b]");
@@ -308,7 +309,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseArgs(argv, { strict: false });
   const { cmd, flags, values, positional } = parsed;
 
-  // `memex <cmd> --help` used to fall into the command case and die on a
+  // `memrain <cmd> --help` used to fall into the command case and die on a
   // missing required argument — asking for help is not a malformed invocation.
   // For the same reason it answers BEFORE validation: the moment you reach for
   // the manual is the moment the rest of the line is likely half-typed, and a
@@ -332,7 +333,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const portStr = values.get("--port") ?? process.env.BRAIN_PORT ?? "18790";
       const port = Number(portStr);
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        throw new Error(`memex serve: invalid port ${portStr}`);
+        throw new Error(`memrain serve: invalid port ${portStr}`);
       }
       await runServe({ http, host, port });
       return 0;
@@ -340,7 +341,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "index": {
       const path = positional[0];
       if (!path) {
-        console.error("memex index: <path> is required");
+        console.error("memrain index: <path> is required");
         return 1;
       }
       await runIndex({ path });
@@ -357,7 +358,7 @@ async function main(argv: readonly string[]): Promise<number> {
         sourceStr !== "all"
       ) {
         throw new Error(
-          `memex reindex: invalid --source '${sourceStr}' (expected vault|code|all)`,
+          `memrain reindex: invalid --source '${sourceStr}' (expected vault|code|all)`,
         );
       }
       const paths = values.get("--paths");
@@ -374,7 +375,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (ctxLimitStr !== undefined) {
         const n = Number(ctxLimitStr);
         if (!Number.isInteger(n) || n <= 0) {
-          throw new Error(`memex reindex: invalid --limit ${ctxLimitStr}`);
+          throw new Error(`memrain reindex: invalid --limit ${ctxLimitStr}`);
         }
         opts.limit = n;
       }
@@ -391,13 +392,13 @@ async function main(argv: readonly string[]): Promise<number> {
       if (sub === "code-callees") {
         opts.target = positional[0];
         if (!opts.target) {
-          console.error(`memex ${sub}: <path>:<line> is required`);
+          console.error(`memrain ${sub}: <path>:<line> is required`);
           return 1;
         }
       } else {
         opts.name = positional.join(" ").trim();
         if (!opts.name) {
-          console.error(`memex ${sub}: <name> is required`);
+          console.error(`memrain ${sub}: <name> is required`);
           return 1;
         }
       }
@@ -445,7 +446,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (kAll !== undefined) {
           const n = Number(kAll);
           if (!Number.isInteger(n) || n < 1 || n > 100) {
-            throw new Error(`memex eval run-all: invalid --k ${kAll}`);
+            throw new Error(`memrain eval run-all: invalid --k ${kAll}`);
           }
           runAllOpts.k = n;
         }
@@ -466,7 +467,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (maxDrop !== undefined) {
           const n = Number(maxDrop);
           if (!Number.isFinite(n) || n < 0 || n > 1) {
-            throw new Error(`memex eval gate: invalid --max-drop ${maxDrop}`);
+            throw new Error(`memrain eval gate: invalid --max-drop ${maxDrop}`);
           }
           gateOpts.maxDrop = n;
         }
@@ -474,7 +475,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (minRecall !== undefined) {
           const n = Number(minRecall);
           if (!Number.isFinite(n) || n < 0 || n > 1) {
-            throw new Error(`memex eval gate: invalid --min-recall ${minRecall}`);
+            throw new Error(`memrain eval gate: invalid --min-recall ${minRecall}`);
           }
           gateOpts.minRecall = n;
         }
@@ -485,7 +486,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (kg !== undefined) {
           const n = Number(kg);
           if (!Number.isInteger(n) || n < 1 || n > 100) {
-            throw new Error(`memex eval gate: invalid --k ${kg}`);
+            throw new Error(`memrain eval gate: invalid --k ${kg}`);
           }
           gateOpts.k = n;
         }
@@ -495,7 +496,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const kStr = values.get("--k");
       const k = kStr ? Number(kStr) : undefined;
       if (k !== undefined && (!Number.isInteger(k) || k < 1 || k > 100)) {
-        throw new Error(`memex eval: invalid --k ${kStr}`);
+        throw new Error(`memrain eval: invalid --k ${kStr}`);
       }
       // Knob flags → the A-side config (CLI overrides file).
       const cfg: EvalKnobConfig = values.has("--config-a")
@@ -505,7 +506,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (rrfKStr !== undefined) {
         const n = Number(rrfKStr);
         if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex eval: invalid --rrf-k ${rrfKStr}`);
+          throw new Error(`memrain eval: invalid --rrf-k ${rrfKStr}`);
         }
         cfg.rrfK = n;
       }
@@ -520,7 +521,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (ratioStr !== undefined) {
         const n = Number(ratioStr);
         if (!Number.isFinite(n) || n <= 0) {
-          throw new Error(`memex eval: invalid --dedup-type-ratio ${ratioStr}`);
+          throw new Error(`memrain eval: invalid --dedup-type-ratio ${ratioStr}`);
         }
         cfg.dedupTypeRatio = n;
       }
@@ -539,12 +540,12 @@ async function main(argv: readonly string[]): Promise<number> {
       const limitStr = values.get("--limit");
       const limit = limitStr ? Number(limitStr) : undefined;
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
-        throw new Error(`memex eval-probe: invalid --limit ${limitStr}`);
+        throw new Error(`memrain eval-probe: invalid --limit ${limitStr}`);
       }
       const maxUsdStr = values.get("--max-usd");
       const maxUsd = maxUsdStr ? Number(maxUsdStr) : undefined;
       if (maxUsd !== undefined && (!Number.isFinite(maxUsd) || maxUsd <= 0)) {
-        throw new Error(`memex eval-probe: invalid --max-usd ${maxUsdStr}`);
+        throw new Error(`memrain eval-probe: invalid --max-usd ${maxUsdStr}`);
       }
       const probeOpts: Parameters<typeof runEvalProbe>[0] = {};
       if (limit !== undefined) probeOpts.limit = limit;
@@ -558,7 +559,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (family !== undefined) {
         if (!isBenchFamilySelector(family)) {
           throw new Error(
-            `memex bench: invalid --family ${family} ` +
+            `memrain bench: invalid --family ${family} ` +
               `(push|continuity|fidelity|all)`,
           );
         }
@@ -575,7 +576,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "backlinks": {
       const name = positional.join(" ");
       if (!name) {
-        console.error("memex backlinks: <name> is required");
+        console.error("memrain backlinks: <name> is required");
         return 1;
       }
       const typeStr = values.get("--type");
@@ -583,14 +584,14 @@ async function main(argv: readonly string[]): Promise<number> {
       const opts: Parameters<typeof runBacklinks>[0] = { name };
       if (typeStr) {
         if (typeStr !== "wikilink" && typeStr !== "tag" && typeStr !== "date") {
-          throw new Error(`memex backlinks: invalid --type ${typeStr}`);
+          throw new Error(`memrain backlinks: invalid --type ${typeStr}`);
         }
         opts.type = typeStr as EntityType;
       }
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex backlinks: invalid --limit ${limitStr}`);
+          throw new Error(`memrain backlinks: invalid --limit ${limitStr}`);
         }
         opts.limit = n;
       }
@@ -601,7 +602,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const from = positional[0];
       const to = positional[1];
       if (!from || !to) {
-        console.error("memex merge: <from-slug> and <to-slug> are required");
+        console.error("memrain merge: <from-slug> and <to-slug> are required");
         return 1;
       }
       const opts: Parameters<typeof runMerge>[0] = { from, to };
@@ -621,14 +622,14 @@ async function main(argv: readonly string[]): Promise<number> {
       if (daysStr !== undefined) {
         const n = Number(daysStr);
         if (!Number.isInteger(n) || n < 0 || n > 36500) {
-          throw new Error(`memex salience: invalid --days ${daysStr}`);
+          throw new Error(`memrain salience: invalid --days ${daysStr}`);
         }
         opts.days = n;
       }
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 200) {
-          throw new Error(`memex salience: invalid --limit ${limitStr}`);
+          throw new Error(`memrain salience: invalid --limit ${limitStr}`);
         }
         opts.limit = n;
       }
@@ -644,17 +645,17 @@ async function main(argv: readonly string[]): Promise<number> {
       const mc = values.get("--min-confidence");
       if (wt !== undefined) {
         const n = Number(wt);
-        if (!Number.isInteger(n) || n < 1) throw new Error(`memex watch: invalid --window-turns ${wt}`);
+        if (!Number.isInteger(n) || n < 1) throw new Error(`memrain watch: invalid --window-turns ${wt}`);
         opts.windowTurns = n;
       }
       if (mp !== undefined) {
         const n = Number(mp);
-        if (!Number.isInteger(n) || n < 1) throw new Error(`memex watch: invalid --max-pages ${mp}`);
+        if (!Number.isInteger(n) || n < 1) throw new Error(`memrain watch: invalid --max-pages ${mp}`);
         opts.maxPages = n;
       }
       if (mc !== undefined) {
         const n = Number(mc);
-        if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error(`memex watch: invalid --min-confidence ${mc}`);
+        if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error(`memrain watch: invalid --min-confidence ${mc}`);
         opts.minConfidence = n;
       }
       await runWatch(opts);
@@ -670,7 +671,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (staleStr !== undefined) {
         const n = Number(staleStr);
         if (!Number.isInteger(n) || n < 0) {
-          throw new Error(`memex cycle: invalid --stale-days ${staleStr}`);
+          throw new Error(`memrain cycle: invalid --stale-days ${staleStr}`);
         }
         opts.staleDays = n;
       }
@@ -698,7 +699,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const file = positional[0] ?? values.get("--file");
       if (!file) {
         console.error(
-          "memex extract-conversation-facts: <transcript-file> is required",
+          "memrain extract-conversation-facts: <transcript-file> is required",
         );
         return 1;
       }
@@ -715,7 +716,7 @@ async function main(argv: readonly string[]): Promise<number> {
         const n = Number(budgetStr);
         if (!Number.isFinite(n) || n <= 0) {
           throw new Error(
-            `memex extract-conversation-facts: invalid --budget ${budgetStr}`,
+            `memrain extract-conversation-facts: invalid --budget ${budgetStr}`,
           );
         }
         args.maxBudgetUsd = n;
@@ -726,7 +727,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "think": {
       const question = positional.join(" ").trim() || values.get("--question");
       if (!question) {
-        console.error("memex think: a <question> is required");
+        console.error("memrain think: a <question> is required");
         return 1;
       }
       const args: Parameters<typeof runThinkCli>[0] = {
@@ -737,7 +738,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (kStr !== undefined) {
         const n = Number(kStr);
         if (!Number.isInteger(n) || n < 1 || n > 100) {
-          throw new Error(`memex think: invalid --k ${kStr}`);
+          throw new Error(`memrain think: invalid --k ${kStr}`);
         }
         args.k = n;
       }
@@ -745,7 +746,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (budgetStr !== undefined) {
         const n = Number(budgetStr);
         if (!Number.isFinite(n) || n <= 0) {
-          throw new Error(`memex think: invalid --budget ${budgetStr}`);
+          throw new Error(`memrain think: invalid --budget ${budgetStr}`);
         }
         args.maxBudgetUsd = n;
       }
@@ -765,7 +766,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (roundsStr !== undefined) {
         const n = Number(roundsStr);
         if (!Number.isInteger(n) || n < 1 || n > 3) {
-          throw new Error(`memex think: invalid --rounds ${roundsStr} (1..3)`);
+          throw new Error(`memrain think: invalid --rounds ${roundsStr} (1..3)`);
         }
         args.rounds = n;
       }
@@ -781,7 +782,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex reconcile-links: invalid --limit ${limitStr}`);
+          throw new Error(`memrain reconcile-links: invalid --limit ${limitStr}`);
         }
         opts.reportLimit = n;
       }
@@ -798,7 +799,7 @@ async function main(argv: readonly string[]): Promise<number> {
         sub !== "log"
       ) {
         console.error(
-          "memex friction: subcommand required (analyze|propose-fix|list|render|log)",
+          "memrain friction: subcommand required (analyze|propose-fix|list|render|log)",
         );
         return 1;
       }
@@ -807,7 +808,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (sinceStr !== undefined) {
         const n = Number(sinceStr);
         if (!Number.isFinite(n) || n < 1 || n > 24 * 365) {
-          throw new Error(`memex friction: invalid --since ${sinceStr}`);
+          throw new Error(`memrain friction: invalid --since ${sinceStr}`);
         }
         opts.sinceHours = n;
       }
@@ -815,7 +816,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex friction: invalid --limit ${limitStr}`);
+          throw new Error(`memrain friction: invalid --limit ${limitStr}`);
         }
         opts.limit = n;
       }
@@ -826,7 +827,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (topStr !== undefined) {
           const n = Number(topStr);
           if (!Number.isInteger(n) || n < 1 || n > 50) {
-            throw new Error(`memex friction: invalid --top-skills ${topStr}`);
+            throw new Error(`memrain friction: invalid --top-skills ${topStr}`);
           }
           opts.topSkills = n;
         }
@@ -834,7 +835,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (exStr !== undefined) {
           const n = Number(exStr);
           if (!Number.isInteger(n) || n < 1 || n > 50) {
-            throw new Error(`memex friction: invalid --example-limit ${exStr}`);
+            throw new Error(`memrain friction: invalid --example-limit ${exStr}`);
           }
           opts.exampleLimit = n;
         }
@@ -853,7 +854,7 @@ async function main(argv: readonly string[]): Promise<number> {
         ) {
           opts.kind = k;
         } else if (k !== undefined) {
-          throw new Error(`memex friction: invalid --kind ${k}`);
+          throw new Error(`memrain friction: invalid --kind ${k}`);
         }
         const skill = values.get("--skill");
         if (skill) opts.skill = skill;
@@ -875,7 +876,7 @@ async function main(argv: readonly string[]): Promise<number> {
         ) {
           opts.severity = sev;
         } else if (sev !== undefined) {
-          throw new Error(`memex friction log: invalid --severity ${sev}`);
+          throw new Error(`memrain friction log: invalid --severity ${sev}`);
         }
       }
       await runFriction(opts);
@@ -886,13 +887,13 @@ async function main(argv: readonly string[]): Promise<number> {
       const src = values.get("--source");
       if (src === "firehose" || src === "curated") opts.source = src;
       else if (src !== undefined) {
-        throw new Error(`memex eval-export: invalid --source ${src}`);
+        throw new Error(`memrain eval-export: invalid --source ${src}`);
       }
       const since = values.get("--since");
       if (since !== undefined) {
         const n = Number(since);
         if (!Number.isFinite(n) || n < 1 || n > 24 * 365) {
-          throw new Error(`memex eval-export: invalid --since ${since}`);
+          throw new Error(`memrain eval-export: invalid --since ${since}`);
         }
         opts.sinceHours = n;
       }
@@ -900,7 +901,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limit !== undefined) {
         const n = Number(limit);
         if (!Number.isInteger(n) || n < 1 || n > 1_000_000) {
-          throw new Error(`memex eval-export: invalid --limit ${limit}`);
+          throw new Error(`memrain eval-export: invalid --limit ${limit}`);
         }
         opts.limit = n;
       }
@@ -925,7 +926,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (keep !== undefined) {
         const n = Number(keep);
         if (!Number.isFinite(n) || n < 1 || n > 365 * 10) {
-          throw new Error(`memex eval-prune: invalid --keep-days ${keep}`);
+          throw new Error(`memrain eval-prune: invalid --keep-days ${keep}`);
         }
         opts.keepDays = n;
       }
@@ -953,7 +954,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "cache": {
       const sub = positional[0];
       if (sub !== "stats" && sub !== "prune" && sub !== "clear") {
-        console.error("memex cache: subcommand required (stats|prune|clear)");
+        console.error("memrain cache: subcommand required (stats|prune|clear)");
         return 1;
       }
       await runCache({ sub });
@@ -965,7 +966,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n <= 0) {
-          console.error("memex embed: --limit must be a positive integer");
+          console.error("memrain embed: --limit must be a positive integer");
           return 1;
         }
         opts.limit = n;
@@ -991,7 +992,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const tool = positional[0];
       if (!tool) {
         console.error(
-          `memex call: <tool> is required (e.g. memex call search --args '{"q":"..."}')`,
+          `memrain call: <tool> is required (e.g. memrain call search --args '{"q":"..."}')`,
         );
         return 1;
       }
@@ -1010,7 +1011,7 @@ async function main(argv: readonly string[]): Promise<number> {
         sub !== "delete"
       ) {
         console.error(
-          "memex sources: subcommand required (list|show|register|update|delete)",
+          "memrain sources: subcommand required (list|show|register|update|delete)",
         );
         return 1;
       }
@@ -1021,7 +1022,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const kind = values.get("--kind");
       if (kind) {
         if (!isSourceKind(kind)) {
-          throw new Error(`memex sources: invalid --kind '${kind}'`);
+          throw new Error(`memrain sources: invalid --kind '${kind}'`);
         }
         opts.kind = kind;
       }
@@ -1030,14 +1031,14 @@ async function main(argv: readonly string[]): Promise<number> {
       const sp = values.get("--sync-policy");
       if (sp) {
         if (!isSyncPolicy(sp)) {
-          throw new Error(`memex sources: invalid --sync-policy '${sp}'`);
+          throw new Error(`memrain sources: invalid --sync-policy '${sp}'`);
         }
         opts.syncPolicy = sp;
       }
       const ip = values.get("--indexed-policy");
       if (ip) {
         if (!isIndexedPolicy(ip)) {
-          throw new Error(`memex sources: invalid --indexed-policy '${ip}'`);
+          throw new Error(`memrain sources: invalid --indexed-policy '${ip}'`);
         }
         opts.indexedPolicy = ip;
       }
@@ -1045,7 +1046,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (rl !== undefined) {
         const n = Number(rl);
         if (!Number.isInteger(n) || n < 0 || n > 1_000_000) {
-          throw new Error(`memex sources: invalid --rate-limit-per-minute ${rl}`);
+          throw new Error(`memrain sources: invalid --rate-limit-per-minute ${rl}`);
         }
         opts.rateLimitPerMinute = n;
       }
@@ -1055,7 +1056,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (bw !== undefined) {
         const n = Number(bw);
         if (!Number.isFinite(n) || n < 0 || n > 100) {
-          throw new Error(`memex sources: invalid --boost-weight ${bw}`);
+          throw new Error(`memrain sources: invalid --boost-weight ${bw}`);
         }
         opts.boostWeight = n;
       }
@@ -1067,7 +1068,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "eval-replay": {
       const sub = positional[0];
       if (sub !== "capture" && sub !== "list" && sub !== "delete" && sub !== "run") {
-        console.error("memex eval-replay: subcommand required (capture|list|delete|run)");
+        console.error("memrain eval-replay: subcommand required (capture|list|delete|run)");
         return 1;
       }
       const opts: Parameters<typeof runEvalReplay>[0] = { sub };
@@ -1083,7 +1084,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (kStr !== undefined) {
           const n = Number(kStr);
           if (!Number.isInteger(n) || n < 1 || n > 100) {
-            throw new Error(`memex eval-replay capture: invalid --k ${kStr}`);
+            throw new Error(`memrain eval-replay capture: invalid --k ${kStr}`);
           }
           opts.k = n;
         }
@@ -1094,7 +1095,7 @@ async function main(argv: readonly string[]): Promise<number> {
         const mode = values.get("--search-mode");
         if (mode === "hybrid" || mode === "keyword") opts.searchMode = mode;
         else if (mode !== undefined) {
-          throw new Error(`memex eval-replay capture: invalid --search-mode ${mode}`);
+          throw new Error(`memrain eval-replay capture: invalid --search-mode ${mode}`);
         }
       } else if (sub === "delete") {
         opts.id = positional[1];
@@ -1105,7 +1106,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (lStr !== undefined) {
           const n = Number(lStr);
           if (!Number.isInteger(n) || n < 1 || n > 1000) {
-            throw new Error(`memex eval-replay: invalid --limit ${lStr}`);
+            throw new Error(`memrain eval-replay: invalid --limit ${lStr}`);
           }
           opts.limit = n;
         }
@@ -1129,7 +1130,7 @@ async function main(argv: readonly string[]): Promise<number> {
         sub !== "smoke"
       ) {
         console.error(
-          `memex jobs: subcommand required (list|stats|show|retry|cancel|submit|progress|remove|prune|smoke)`,
+          `memrain jobs: subcommand required (list|stats|show|retry|cancel|submit|progress|remove|prune|smoke)`,
         );
         return 1;
       }
@@ -1140,7 +1141,7 @@ async function main(argv: readonly string[]): Promise<number> {
           const parts = statusStr.split(",").map((s) => s.trim());
           for (const p of parts) {
             if (!VALID_JOB_STATUSES.has(p as JobStatus)) {
-              throw new Error(`memex jobs: invalid --status '${p}'`);
+              throw new Error(`memrain jobs: invalid --status '${p}'`);
             }
           }
           opts.status = parts as JobStatus[];
@@ -1151,7 +1152,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (limitStr !== undefined) {
           const n = Number(limitStr);
           if (!Number.isInteger(n) || n < 1 || n > 500) {
-            throw new Error(`memex jobs: invalid --limit ${limitStr}`);
+            throw new Error(`memrain jobs: invalid --limit ${limitStr}`);
           }
           opts.limit = n;
         }
@@ -1164,14 +1165,14 @@ async function main(argv: readonly string[]): Promise<number> {
       ) {
         const id = positional[1];
         if (!id) {
-          console.error(`memex jobs ${sub}: <id> is required`);
+          console.error(`memrain jobs ${sub}: <id> is required`);
           return 1;
         }
         opts.id = id;
       } else if (sub === "submit") {
         const kind = positional[1];
         if (!kind) {
-          console.error("memex jobs submit: <kind> is required");
+          console.error("memrain jobs submit: <kind> is required");
           return 1;
         }
         opts.kind = kind;
@@ -1181,7 +1182,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (prio !== undefined) {
           const n = Number(prio);
           if (!Number.isInteger(n) || n < 1 || n > 10) {
-            throw new Error(`memex jobs submit: invalid --priority ${prio}`);
+            throw new Error(`memrain jobs submit: invalid --priority ${prio}`);
           }
           opts.priority = n;
         }
@@ -1189,7 +1190,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (retries !== undefined) {
           const n = Number(retries);
           if (!Number.isInteger(n) || n < 0 || n > 100) {
-            throw new Error(`memex jobs submit: invalid --max-retries ${retries}`);
+            throw new Error(`memrain jobs submit: invalid --max-retries ${retries}`);
           }
           opts.maxRetries = n;
         }
@@ -1199,10 +1200,10 @@ async function main(argv: readonly string[]): Promise<number> {
           try {
             parsed = JSON.parse(payloadJson);
           } catch {
-            throw new Error("memex jobs submit: --payload must be valid JSON");
+            throw new Error("memrain jobs submit: --payload must be valid JSON");
           }
           if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            throw new Error("memex jobs submit: --payload must be a JSON object");
+            throw new Error("memrain jobs submit: --payload must be a JSON object");
           }
           opts.payload = parsed as Record<string, unknown>;
         }
@@ -1211,7 +1212,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (days !== undefined) {
           const n = Number(days);
           if (!Number.isFinite(n) || n < 0 || n > 3650) {
-            throw new Error(`memex jobs prune: invalid --older-than-days ${days}`);
+            throw new Error(`memrain jobs prune: invalid --older-than-days ${days}`);
           }
           opts.olderThanDays = n;
         }
@@ -1220,7 +1221,7 @@ async function main(argv: readonly string[]): Promise<number> {
           const parts = statusStr.split(",").map((s) => s.trim());
           for (const p of parts) {
             if (!VALID_JOB_STATUSES.has(p as JobStatus)) {
-              throw new Error(`memex jobs prune: invalid --status '${p}'`);
+              throw new Error(`memrain jobs prune: invalid --status '${p}'`);
             }
           }
           opts.status = parts as JobStatus[];
@@ -1236,7 +1237,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (positional[0] === "check") {
         const slug = positional[1];
         if (!slug) {
-          console.error("memex skillify check: <slug> is required");
+          console.error("memrain skillify check: <slug> is required");
           return 1;
         }
         const opts: Parameters<typeof runSkillifyCheck>[0] = { slug };
@@ -1249,7 +1250,7 @@ async function main(argv: readonly string[]): Promise<number> {
         positional[0] === "scaffold" ? positional.slice(1) : positional;
       const prompt = promptParts.join(" ").trim();
       if (!prompt) {
-        console.error("memex skillify: <prompt> is required");
+        console.error("memrain skillify: <prompt> is required");
         return 1;
       }
       const opts: Parameters<typeof runSkillify>[0] = { prompt };
@@ -1268,7 +1269,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 1000) {
-          throw new Error(`memex check-resolvable: invalid --limit ${limitStr}`);
+          throw new Error(`memrain check-resolvable: invalid --limit ${limitStr}`);
         }
         opts.reportLimit = n;
       }
@@ -1276,7 +1277,7 @@ async function main(argv: readonly string[]): Promise<number> {
         const n = Number(thresholdStr);
         if (!Number.isFinite(n) || n < 0 || n > 100) {
           throw new Error(
-            `memex check-resolvable: invalid --threshold ${thresholdStr} (expected 0-100)`,
+            `memrain check-resolvable: invalid --threshold ${thresholdStr} (expected 0-100)`,
           );
         }
         opts.threshold = n;
@@ -1291,7 +1292,7 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "page-retype": {
       const to = values.get("--to");
-      if (!to) throw new Error("memex page-retype: --to <type> is required");
+      if (!to) throw new Error("memrain page-retype: --to <type> is required");
       const slugsRaw = values.get("--slugs");
       const opts: Parameters<typeof runPageRetype>[0] = { to };
       const from = values.get("--from");
@@ -1314,7 +1315,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (limitStr !== undefined) {
         const n = Number(limitStr);
         if (!Number.isInteger(n) || n < 1 || n > 5000) {
-          throw new Error(`memex pages: invalid --limit ${limitStr}`);
+          throw new Error(`memrain pages: invalid --limit ${limitStr}`);
         }
         opts.limit = n;
       }
@@ -1337,7 +1338,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (sinceStr !== undefined) {
         const n = Number(sinceStr);
         if (!Number.isFinite(n) || n < 1 || n > 24 * 30) {
-          throw new Error(`memex reports: invalid --since ${sinceStr}`);
+          throw new Error(`memrain reports: invalid --since ${sinceStr}`);
         }
         opts.sinceHours = n;
       }
@@ -1348,7 +1349,7 @@ async function main(argv: readonly string[]): Promise<number> {
       const daysStr = values.get("--days");
       const days = daysStr === undefined ? undefined : Number(daysStr);
       if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > 366)) {
-        throw new Error(`memex spend: invalid --days ${daysStr}`);
+        throw new Error(`memrain spend: invalid --days ${daysStr}`);
       }
       await runSpend(days === undefined ? {} : { days });
       return 0;
@@ -1362,7 +1363,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (maxUsdStr !== undefined) {
           const n = Number(maxUsdStr);
           if (!Number.isFinite(n) || n <= 0) {
-            throw new Error(`memex agent run: invalid --max-usd ${maxUsdStr}`);
+            throw new Error(`memrain agent run: invalid --max-usd ${maxUsdStr}`);
           }
           opts.maxUsd = n;
         }
@@ -1397,7 +1398,7 @@ async function main(argv: readonly string[]): Promise<number> {
         return runSkillpackLint(lintOpts);
       }
       if (positional[0] !== undefined) {
-        console.error(`memex skillpack: unknown subcommand '${positional[0]}' (expected: lint)`);
+        console.error(`memrain skillpack: unknown subcommand '${positional[0]}' (expected: lint)`);
         return 1;
       }
       const out = values.get("--out");
@@ -1414,7 +1415,7 @@ async function main(argv: readonly string[]): Promise<number> {
         (to !== "pglite" && to !== "postgres")
       ) {
         throw new Error(
-          "memex migrate-engine: --from and --to are required (pglite|postgres)",
+          "memrain migrate-engine: --from and --to are required (pglite|postgres)",
         );
       }
       const opts: Parameters<typeof runMigrateEngine>[0] = {
@@ -1459,7 +1460,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (daysStr !== undefined) {
           const n = Number(daysStr);
           if (!Number.isInteger(n) || n < 1 || n > 365) {
-            throw new Error(`memex search stats: invalid --days ${daysStr}`);
+            throw new Error(`memrain search stats: invalid --days ${daysStr}`);
           }
           opts.days = n;
         }
@@ -1476,7 +1477,7 @@ async function main(argv: readonly string[]): Promise<number> {
         const target = values.get("--target");
         if (!target) {
           console.error(
-            'memex search diagnose: --target <slug> is required (usage: search diagnose "<query>" --target <slug>)',
+            'memrain search diagnose: --target <slug> is required (usage: search diagnose "<query>" --target <slug>)',
           );
           return 2;
         }
@@ -1491,13 +1492,13 @@ async function main(argv: readonly string[]): Promise<number> {
       }
       const query = positional.join(" ");
       if (!query) {
-        console.error("memex search: <query> is required");
+        console.error("memrain search: <query> is required");
         return 1;
       }
       const kStr = values.get("--k");
       const k = kStr ? Number(kStr) : undefined;
       if (k !== undefined && (!Number.isInteger(k) || k < 1 || k > 100)) {
-        throw new Error(`memex search: invalid --k ${kStr}`);
+        throw new Error(`memrain search: invalid --k ${kStr}`);
       }
       await runSearch({
         query,
@@ -1509,7 +1510,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "config": {
       const sub = positional[0];
       if (sub !== "show" && sub !== "get" && sub !== "set" && sub !== "unset") {
-        console.error("memex config: subcommand required (show|get|set|unset)");
+        console.error("memrain config: subcommand required (show|get|set|unset)");
         return 1;
       }
       const opts: Parameters<typeof runConfig>[0] = { sub: sub as ConfigSub };
@@ -1590,7 +1591,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "quarantine": {
       const sub = positional[0];
       if (sub !== "list" && sub !== "clear" && sub !== "scan") {
-        console.error("memex quarantine: subcommand required (list|clear|scan)");
+        console.error("memrain quarantine: subcommand required (list|clear|scan)");
         return 1;
       }
       const opts: Parameters<typeof runQuarantine>[0] = {
@@ -1599,7 +1600,7 @@ async function main(argv: readonly string[]): Promise<number> {
       if (sub === "clear") {
         const target = positional[1];
         if (!target) {
-          console.error("memex quarantine clear: <slug|source_path> is required");
+          console.error("memrain quarantine clear: <slug|source_path> is required");
           return 1;
         }
         opts.target = target;
@@ -1612,7 +1613,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (limitStr !== undefined) {
           const n = Number(limitStr);
           if (!Number.isInteger(n) || n < 1) {
-            throw new Error(`memex quarantine scan: invalid --limit ${limitStr}`);
+            throw new Error(`memrain quarantine scan: invalid --limit ${limitStr}`);
           }
           opts.limit = n;
         }
@@ -1622,7 +1623,7 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "version":
     case "--version":
-      console.log(`memex ${VERSION}`);
+      console.log(`memrain ${VERSION}`);
       return 0;
     case undefined:
     case "--help":
@@ -1631,16 +1632,19 @@ async function main(argv: readonly string[]): Promise<number> {
       printUsage();
       return 0;
     default:
-      console.error(`memex: unknown command '${cmd}'`);
+      console.error(`memrain: unknown command '${cmd}'`);
       printUsage();
       return 1;
   }
 }
 
+const aliasNote = aliasDeprecationLine(process.argv, process.env);
+if (aliasNote) console.error(aliasNote);
+
 main(process.argv.slice(2)).then(
   (code) => process.exit(resolveExitCode(code, process.exitCode ?? undefined)),
   (err) => {
-    console.error(`[memex] error:`, err instanceof Error ? err.message : err);
+    console.error(`[memrain] error:`, err instanceof Error ? err.message : err);
     process.exit(1);
   },
 );

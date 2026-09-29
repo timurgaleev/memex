@@ -161,7 +161,7 @@ export const ALL_PHASES: readonly PhaseName[] = [
 
 /**
  * Opt-in LLM-synthesis phases (Wave 5). Deliberately NOT in ALL_PHASES — they
- * spend Bedrock and only run when explicitly requested (`memex cycle --phases
+ * spend Bedrock and only run when explicitly requested (`memrain cycle --phases
  * extract-atoms,...`). Listed here so the CLI accepts them as valid phase names
  * while the default cycle stays free + deterministic.
  */
@@ -197,7 +197,7 @@ export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
 /**
  * Chunker-maintenance sweep phase. Like the other opt-in lists, deliberately
  * NOT in ALL_PHASES — it re-embeds via Bedrock and only runs when explicitly
- * requested (`memex cycle --phases rechunk-sweep`) AND enabled via its own env
+ * requested (`memrain cycle --phases rechunk-sweep`) AND enabled via its own env
  * flag (MEMRAIN_RECHUNK_SWEEP). Requesting it without the flag is a safe no-op
  * (the phase returns `ran:false`). Listed here so the CLI accepts the name.
  */

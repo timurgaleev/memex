@@ -1027,7 +1027,7 @@ export interface RevertResult {
 }
 
 /**
- * Roll a page's body back to a prior `page_versions` snapshot. memex keeps a
+ * Roll a page's body back to a prior `page_versions` snapshot. memrain keeps a
  * full body snapshot per version but offered no rollback until now. Reverting
  * creates a NEW version with the old content (history is append-only, never
  * rewritten); reuses `putPage` so type/title are preserved and the change flows

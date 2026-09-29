@@ -1,10 +1,11 @@
 {
-  "name": "memex",
+  "name": "memrain",
   "version": "0.1.0",
-  "description": "memex personal-knowledge brain \u2014 vector + keyword search over your markdown notes and ingested data, with Bedrock Titan embeddings.",
+  "description": "Memrain personal-knowledge brain \u2014 vector + keyword search over your markdown notes and ingested data, with Bedrock Titan embeddings.",
   "type": "module",
   "private": true,
   "bin": {
+    "memrain": "./src/cli.ts",
     "memex": "./src/cli.ts"
   },
   "scripts": {

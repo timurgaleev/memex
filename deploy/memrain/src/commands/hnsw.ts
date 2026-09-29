@@ -1,5 +1,5 @@
 /**
- * `memex hnsw <status|sweep|rebuild>` — manual HNSW index lifecycle ops over the
+ * `memrain hnsw <status|sweep|rebuild>` — manual HNSW index lifecycle ops over the
  * ported `core/vector-index.ts` manager. Postgres-only in effect (every op
  * no-ops on PGLite); the recovery path for an index left invalid by an aborted
  * `CREATE INDEX CONCURRENTLY` or an OOM mid-build.
@@ -67,7 +67,7 @@ export async function runHnsw(
       }
       default:
         throw new Error(
-          `memex hnsw: unknown subcommand '${sub}' (expected status|sweep|rebuild)`,
+          `memrain hnsw: unknown subcommand '${sub}' (expected status|sweep|rebuild)`,
         );
     }
   });

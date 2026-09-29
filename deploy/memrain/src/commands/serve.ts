@@ -1,5 +1,5 @@
 /**
- * `memex serve --http --host H --port N` — starts the HTTP daemon.
+ * `memrain serve --http --host H --port N` — starts the HTTP daemon.
  *
  * Loads config (created by `init`), opens PGLite, starts the server,
  * registers SIGINT/SIGTERM for graceful shutdown.
@@ -93,10 +93,10 @@ export async function bootTokenSweep(
   if (quiescence.maintenance) return;
   try {
     const swept = await provider.sweepExpiredTokens();
-    if (swept > 0) console.error(`[memex] swept ${swept} expired OAuth tokens/codes`);
+    if (swept > 0) console.error(`[memrain] swept ${swept} expired OAuth tokens/codes`);
   } catch (e) {
     console.error(
-      "[memex] token sweep failed (non-blocking):",
+      "[memrain] token sweep failed (non-blocking):",
       e instanceof Error ? e.message : e,
     );
   }
@@ -105,7 +105,7 @@ export async function bootTokenSweep(
 export async function runServe(opts: ServeOptions): Promise<void> {
   if (!opts.http) {
     throw new Error(
-      "memex serve: --http is required. (stdio MCP not yet supported.)",
+      "memrain serve: --http is required. (stdio MCP not yet supported.)",
     );
   }
 
@@ -135,16 +135,16 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (storage.engine().kind === "postgres") {
     try {
       const mismatch = selfIssuedMismatch(config, await storage.liveOauthClientCount());
-      if (mismatch) console.error(`[memex] ERROR: ${mismatch}`);
+      if (mismatch) console.error(`[memrain] ERROR: ${mismatch}`);
     } catch (e) {
       console.error(
-        "[memex] OAuth config check failed (non-blocking):",
+        "[memrain] OAuth config check failed (non-blocking):",
         e instanceof Error ? e.message : e,
       );
     }
   }
 
-  // Startup zombie-index sweep. memex gates it default-OFF per its no-surprise-
+  // Startup zombie-index sweep. memrain gates it default-OFF per its no-surprise-
   // mutation posture — an aborted CONCURRENTLY leaving an invalid index is rare,
   // and `doctor`'s invalid-indexes check already surfaces it. Flip
   // MEMRAIN_HNSW_ZOMBIE_SWEEP=1 to auto-drop invalid indexes at boot (postgres
@@ -212,7 +212,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       .toLowerCase();
     if (assumePublic !== "1" && assumePublic !== "true") {
       console.error(
-        "[memex] caution: public bearer is configured, but public-request " +
+        "[memrain] caution: public bearer is configured, but public-request " +
           "detection relies on the Cf-Connecting-Ip header. If your ingress " +
           "is NOT a Cloudflare Tunnel, either inject that header at the " +
           "proxy or set MEMRAIN_ASSUME_PUBLIC=1 — otherwise /mcp is served " +
@@ -229,7 +229,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (internalToken && internalToken.length > 0) {
     serverOpts.internalToken = internalToken;
   }
-  // memex's own OAuth 2.1 provider (client_credentials). When enabled, mounts
+  // memrain's own OAuth 2.1 provider (client_credentials). When enabled, mounts
   // POST /token and verifies self-issued `memex_at_…` tokens on /mcp. Shares the
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
   // 046) already exist.
@@ -247,7 +247,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     serverOpts.oauthProvider = provider;
     if (serverOpts.publicUrl === undefined) {
       console.error(
-        "[memex] caution: OAuth is on but MEMRAIN_PUBLIC_URL is unset, so the " +
+        "[memrain] caution: OAuth is on but MEMRAIN_PUBLIC_URL is unset, so the " +
           "issuer is taken from each request. Behind a TLS-terminating proxy " +
           "that origin is http://, and a client naming its https:// connector " +
           "URL as `resource` is refused with invalid_target. Set " +
@@ -274,10 +274,10 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   serverOpts.adminBootstrapToken = adminToken;
   const fromEnv = Boolean(adminBootstrap && adminBootstrap.length > 0);
   if (shouldPrintAdminToken({ fromEnv, isTty: process.stderr.isTTY === true })) {
-    console.error(`[memex] admin bootstrap token (ephemeral, this run only): ${adminToken}`);
+    console.error(`[memrain] admin bootstrap token (ephemeral, this run only): ${adminToken}`);
   } else if (!fromEnv) {
     console.error(
-      "[memex] admin bootstrap token generated but withheld: stderr is not a TTY, so the " +
+      "[memrain] admin bootstrap token generated but withheld: stderr is not a TTY, so the " +
         "value would persist in the log sink. The admin surface is unreachable this run. " +
         "To use it headlessly, generate a token yourself and pass it in: " +
         "MEMRAIN_ADMIN_BOOTSTRAP=$(openssl rand -base64 32 | tr '+/' '-_') — never have the " +
@@ -292,7 +292,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[memex] received ${signal}, shutting down`);
+    console.log(`[memrain] received ${signal}, shutting down`);
     await worker.stop();
     if (cycle) await cycle.stop();
     await server.stop();
@@ -336,7 +336,7 @@ export function startBackgroundWork(
   deps: BackgroundDeps = defaultBackgroundDeps,
 ): { worker: Worker; cycle: CycleHandle | null } {
   // Markdown ingest is on-demand only: there is no boot-time file watcher.
-  // Content enters the brain via the MCP `index` tool / the `memex reindex`
+  // Content enters the brain via the MCP `index` tool / the `memrain reindex`
   // CLI (both go through core/sweep.ts → indexer), or via MCP `page_put`.
   // No filesystem vault is watched at startup.
 
@@ -349,7 +349,7 @@ export function startBackgroundWork(
     // Off by switch or maintenance; the boot line already says so.
   } else if (codeRoots.length === 0) {
     console.log(
-      "[memex] no code roots configured (set MEMRAIN_CODE_PATHS=/path/to/repo[,...] to enable code chunkers)",
+      "[memrain] no code roots configured (set MEMRAIN_CODE_PATHS=/path/to/repo[,...] to enable code chunkers)",
     );
   } else {
     for (const root of codeRoots) {
@@ -446,19 +446,19 @@ export function startBackgroundWork(
   // The operator's agent loop runs only when opted in: without the handler a
   // `subagent` submit is refused as an unknown kind.
   if (registerSubagentHandlerIfEnabled(storage)) {
-    console.log("[memex] agent loop enabled (subagent jobs, read-only tools)");
+    console.log("[memrain] agent loop enabled (subagent jobs, read-only tools)");
   }
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
   if (quiescence.jobsWorker) {
     deps.startWorker(worker);
     console.log(
-      `[memex] jobs worker started (intervalMs=${deps.workerIntervalMs}${
+      `[memrain] jobs worker started (intervalMs=${deps.workerIntervalMs}${
         workerOpts.jobTimeoutMs ? `, jobTimeoutMs=${workerOpts.jobTimeoutMs}` : ""
       })`,
     );
   }
 
-  // Cycle loop. Off by default; opt in via env or memex.yml. The
+  // Cycle loop. Off by default; opt in via env or memrain.yml. The
   // `dream.*` config keys drive the cycle's embed-stale phase.
   // Threshold for enabling stays at >=60 s to avoid
   // accidental tight loops.
@@ -471,7 +471,7 @@ export function startBackgroundWork(
   let cycle: CycleHandle | null = null;
   if (quiescence.cycle && Number.isFinite(cycleIntervalS) && cycleIntervalS >= 60) {
     console.log(
-      `[memex] starting cycle loop: every ${cycleIntervalS}s, embed-stale at >${cycleStaleDays}d`,
+      `[memrain] starting cycle loop: every ${cycleIntervalS}s, embed-stale at >${cycleStaleDays}d`,
     );
     cycle = deps.startCycleLoop(storage, {
       intervalMs: cycleIntervalS * 1000,

@@ -24,7 +24,7 @@
  *   - the gazetteer replaces ONLY its own `link_kind='plain'` mention edges
  *     and never clobbers an explicit `mentions` edge (INSERT … DO NOTHING).
  *
- * memex defaults auto-linking OFF because its single
+ * memrain defaults auto-linking OFF because its single
  * flat vault has no page-type/source scoping to contain a bad match.
  */
 import type { Storage } from "./storage.ts";

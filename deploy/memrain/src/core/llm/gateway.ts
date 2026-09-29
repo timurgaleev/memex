@@ -1,5 +1,5 @@
 /**
- * LLM gateway helpers. memex is Bedrock-only, so multi-provider recipes,
+ * LLM gateway helpers. memrain is Bedrock-only, so multi-provider recipes,
  * capability classification, and stop-reason machinery don't apply here;
  * retry/backoff/timeout are delegated to the AWS SDK (tuned in the haiku.ts /
  * sonnet.ts client factories). What this adds: a per-process inflight
@@ -160,7 +160,7 @@ export function embedTimeoutMs(): number {
 }
 
 /**
- * Transport settings every Bedrock client in memex shares. The SDK retries
+ * Transport settings every Bedrock client in memrain shares. The SDK retries
  * throttles, 5xx and timeouts itself (adaptive mode also slows the send rate
  * when throttled), so nothing above it retries again. `throwOnRequestTimeout`
  * is what makes the timeout real: without it the handler only logs a warning

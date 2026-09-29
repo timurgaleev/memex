@@ -3,7 +3,7 @@
  * `## Facts` fence (the system of record). LLM-FREE: the fence is canonical
  * structured markdown; this deterministically parses it and re-projects it
  * into the DB. (The extract_facts cycle phase, minus optional fact-text
- * embedding — memex can add that later via its existing Bedrock path; the
+ * embedding — memrain can add that later via its existing Bedrock path; the
  * reconcile itself never needs a model.)
  *
  * Per page write, `reconcileFactsForPage`:
@@ -112,7 +112,7 @@ export async function reconcileFactsForPage(
   const bounds = fenceBounds(body, "facts");
   if (bounds?.brand === "both") {
     console.warn(
-      `[memex] facts-reconcile skipped for '${pageSlug}' (both memrain: and memex: facts fences present)`,
+      `[memrain] facts-reconcile skipped for '${pageSlug}' (both memrain: and memex: facts fences present)`,
     );
     return { removed: 0, added: 0, skipped: "mixed_fence_brands" };
   }
@@ -132,7 +132,7 @@ export async function reconcileFactsForPage(
     // Callers discard this result on the put path — log here so a frozen
     // projection is diagnosable instead of silent.
     console.warn(
-      `[memex] facts-reconcile skipped for '${pageSlug}' (malformed fence rows): ${parseWarnings.join("; ")}`,
+      `[memrain] facts-reconcile skipped for '${pageSlug}' (malformed fence rows): ${parseWarnings.join("; ")}`,
     );
     return { removed: 0, added: 0, skipped: "malformed_rows" };
   }

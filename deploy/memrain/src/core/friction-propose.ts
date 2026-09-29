@@ -154,7 +154,7 @@ export async function findTopFrictionSkills(
   return out;
 }
 
-const SYSTEM_PROMPT = `You review memex skill files against the agent's friction log.
+const SYSTEM_PROMPT = `You review memrain skill files against the agent's friction log.
 
 You receive:
   1. The full markdown of one skill.

@@ -1557,7 +1557,7 @@ async function callPagePut(
       await syncTakesFromFence(storage.engine(), r.slug, fenceBody);
     }
   } catch (e) {
-    console.error("[memex] takes-fence sync failed (non-fatal):", e);
+    console.error("[memrain] takes-fence sync failed (non-fatal):", e);
   }
   return jsonResult({
     ok: true,
@@ -1981,7 +1981,7 @@ async function callPageGet(
   }
   // Retrieval write-back (mig 024): a user just surfaced this page — bump the
   // last_retrieved_at signal the context-volunteer "used" stat reads. Throttled
-  // + best-effort; awaited because memex is single-holder (no fire-and-forget
+  // + best-effort; awaited because memrain is single-holder (no fire-and-forget
   // drain needed). page_get is the unambiguous page-surface op; search hits are
   // chunk/document-level and don't carry a page slug, so they don't feed it.
   await bumpLastRetrievedAt(storage.engine(), [page.slug], page.source_id);
@@ -3929,7 +3929,7 @@ async function callStatusSnapshot(storage: Storage): Promise<ToolCallResult> {
 
 /**
  * Thin-client doctor: the engine-only check set (no config-file / filesystem
- * checks — those are host concerns the full `memex doctor` CLI covers).
+ * checks — those are host concerns the full `memrain doctor` CLI covers).
  */
 async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
   const engine = storage.engine();

@@ -1,5 +1,5 @@
 /**
- * `memex backlinks <name> [--type wikilink|tag|date] [--limit N]`
+ * `memrain backlinks <name> [--type wikilink|tag|date] [--limit N]`
  *
  * Prints documents that mention the named entity. Default type is
  * `wikilink` — answers "what links here" against the entity graph.

@@ -12,13 +12,13 @@
  *   3. slug-suffix   — slug equals the slugified candidate OR ends with `/<slug>`
  *      (real slugs are namespaced people/alice; a bare slugify misses).
  *
- * memex specifics:
+ * memrain specifics:
  *   - SINGLE-source flat vault: NO source_id federation. One engine, one scope.
  *   - DB access via `engine.query` (-> {rows}).
- *   - Alias arm uses memex's `resolveAliasUnique` (page-aliases.ts), which
+ *   - Alias arm uses memrain's `resolveAliasUnique` (page-aliases.ts), which
  *     already enforces the unambiguous-single-slug rule and degrades on a
  *     pre-034 brain.
- *   - Synopsis source is `markdown_body` (memex's prose column) or a curated
+ *   - Synopsis source is `markdown_body` (memrain's prose column) or a curated
  *     `compiled_truth.summary`; both the facts-fence and the takes-fence are
  *     stripped so no fenced metadata (including holder-scoped takes) leaks into
  *     the ambient synopsis.
@@ -52,7 +52,7 @@ export const ARM_CONFIDENCE: Record<ResolveArm, number> = {
 export interface ReflexPointer {
   slug: string;
   title: string;
-  /** Optional provenance source identifier — always null in memex (flat vault). */
+  /** Optional provenance source identifier — always null in memrain (flat vault). */
   source_id?: string | null;
   /** Resolution provenance. */
   arm: ResolveArm;

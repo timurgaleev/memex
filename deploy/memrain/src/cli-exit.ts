@@ -7,7 +7,7 @@
  * a report and flag failure out-of-band). The entrypoint must honour BOTH.
  *
  * The bug this fixes: calling `process.exit(0)` with an explicit `0` argument
- * OVERRIDES any `process.exitCode` a command set, so `memex doctor` exited 0
+ * OVERRIDES any `process.exitCode` a command set, so `memrain doctor` exited 0
  * even when a check failed — silently breaking its documented "exits 1 on any
  * failure" cron/CI contract (and the same for every other exitCode-setting
  * command). Resolving the final code here, with an explicit non-zero return

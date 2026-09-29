@@ -63,7 +63,7 @@ export class Storage {
   async init(): Promise<MigrationResult> {
     await this._engine.ready();
     const result = await runMigrations(this._engine);
-    // DB-plane knob overlay (`memex config set`, migration 088): stored
+    // DB-plane knob overlay (`memrain config set`, migration 088): stored
     // MEMRAIN_* keys fill env gaps the container did not set. Fail-open, env
     // wins, MEMRAIN_NO_DB_CONFIG=1 skips. See core/runtime-config.ts.
     await applyRuntimeEnvOverlay(this._engine);

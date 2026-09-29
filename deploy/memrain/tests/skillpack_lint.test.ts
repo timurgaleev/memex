@@ -61,8 +61,8 @@ describe("lintSkillpack", () => {
     });
     const rules = lintSkillpack(dir).issues.map((i) => `${i.rule} ${i.detail} @${i.line}`);
     expect(rules).toEqual([
-      "unknown-cli-subcommand memex skillpack check @11",
-      "unknown-cli-command memex frobnicate @14",
+      "unknown-cli-subcommand memrain skillpack check @11",
+      "unknown-cli-command memrain frobnicate @14",
     ]);
   });
 
@@ -149,7 +149,7 @@ describe("lintSkillpack", () => {
       "unknown-tool-arg page_put content @13",
       "unknown-tool-arg search query @15",
       "unknown-tool-arg search limt @17",
-      "unknown-call-tool memex call not_a_tool @18",
+      "unknown-call-tool memrain call not_a_tool @18",
     ]);
   });
 

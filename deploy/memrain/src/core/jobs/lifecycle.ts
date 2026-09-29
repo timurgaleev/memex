@@ -1,5 +1,5 @@
 /**
- * Job lifecycle surface — the core APIs behind `memex jobs submit / delete /
+ * Job lifecycle surface — the core APIs behind `memrain jobs submit / delete /
  * prune / smoke` and the MCP `retry_job` / `get_job_progress` operations.
  * CLI and MCP layers call these; nothing here prints or parses flags.
  *

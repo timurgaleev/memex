@@ -98,7 +98,7 @@ export function githubClient(token: string, opts: { fetch?: FetchFn; now?: () =>
     headers: {
       "Accept": "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "memex-connector",
+      "User-Agent": "memrain-connector",
     },
     ...opts,
   });
@@ -263,7 +263,7 @@ export async function assertGithubSource(storage: Storage, sourceId: string): Pr
     throw new OperationError(
       "invalid_params",
       `unknown source '${sourceId}'`,
-      "Register it first: memex sources register <id> --kind github --path-prefix github/<owner>/<repo>/",
+      "Register it first: memrain sources register <id> --kind github --path-prefix github/<owner>/<repo>/",
     );
   }
   if (source.kind !== "github") {

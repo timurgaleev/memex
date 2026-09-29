@@ -44,7 +44,7 @@ afterEach(async () => {
 function timingLines(spy: { mock: { calls: unknown[][] } }): string[] {
   return spy.mock.calls
     .map((args: unknown[]) => String(args[0]))
-    .filter((line: string) => line.startsWith("[memex] index-timing"));
+    .filter((line: string) => line.startsWith("[memrain] index-timing"));
 }
 
 describe("index timing line", () => {

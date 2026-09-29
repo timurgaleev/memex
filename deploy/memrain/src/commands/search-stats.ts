@@ -1,11 +1,11 @@
 /**
- * `memex search stats [--days N] [--json]` — windowed search observability
+ * `memrain search stats [--days N] [--json]` — windowed search observability
  * from the search_telemetry rollup (migration 089): call volume, cache hit
  * rate, intent/mode mix, budget pressure, rank-1 drift.
  *
- * `memex search tune [--apply] [--json]` — the observe→recommend→apply loop:
+ * `memrain search tune [--apply] [--json]` — the observe→recommend→apply loop:
  * reads the same stats plus the active mode and prints structured
- * recommendations; `--apply` writes them through `memex config`
+ * recommendations; `--apply` writes them through `memrain config`
  * (runtime_config, migration 088) with paste-ready reverts.
  */
 import { Storage } from "../core/storage.ts";
@@ -114,7 +114,7 @@ export interface TuneRecommendation {
 
 /**
  * Pure recommendation engine (exported for tests). Maps a fixed rule set onto
- * memex knobs; every apply command routes through the DB-plane `memex config`,
+ * memrain knobs; every apply command routes through the DB-plane `memrain config`,
  * so `--apply` needs no redeploy.
  */
 export function buildTuneRecommendations(
@@ -130,14 +130,14 @@ export function buildTuneRecommendations(
     const dropPerCall = stats.total_budget_dropped / stats.total_calls;
     if (dropPerCall > 2) {
       recs.push({
-        knob: "MEMEX_SEARCH_MODE",
+        knob: "MEMRAIN_SEARCH_MODE",
         current: mode,
         suggested: "tokenmax",
         reason:
           `Avg ${dropPerCall.toFixed(1)} results dropped per search by the ` +
           `${bundleBudget}-token budget. tokenmax removes the cap (note: it also ` +
           `turns on paid query expansion).`,
-        apply_command: "memex config set MEMEX_SEARCH_MODE tokenmax",
+        apply_command: "memrain config set MEMRAIN_SEARCH_MODE tokenmax",
       });
     }
   }
@@ -151,13 +151,13 @@ export function buildTuneRecommendations(
     sem.similarity < 0.94
   ) {
     recs.push({
-      knob: "MEMEX_QUERY_CACHE_SIM",
+      knob: "MEMRAIN_QUERY_CACHE_SIM",
       current: sem.similarity,
       suggested: 0.94,
       reason:
         `Cache hit rate is ${(stats.cache_hit_rate * 100).toFixed(1)}%. Raising the ` +
         `semantic similarity floor to 0.94 buys tighter freshness at small recall cost.`,
-      apply_command: "memex config set MEMEX_QUERY_CACHE_SIM 0.94",
+      apply_command: "memrain config set MEMRAIN_QUERY_CACHE_SIM 0.94",
     });
   }
 
@@ -165,27 +165,27 @@ export function buildTuneRecommendations(
   //    deterministic + rerank stages without that per-query spend.
   if (mode === "tokenmax") {
     recs.push({
-      knob: "MEMEX_SEARCH_MODE",
+      knob: "MEMRAIN_SEARCH_MODE",
       current: "tokenmax",
       suggested: "balanced",
       reason:
         "tokenmax runs paid LLM query expansion on every search. balanced keeps " +
         "rerank/graph/cosine/relational with a 12000-token cap and no per-query expansion spend.",
-      apply_command: "memex config set MEMEX_SEARCH_MODE balanced",
+      apply_command: "memrain config set MEMRAIN_SEARCH_MODE balanced",
     });
   }
 
   // 4. Query cache killed but there is real traffic — a free win to restore.
   if (env["MEMRAIN_QUERY_CACHE"] === "0" && stats.total_calls > 5) {
     recs.push({
-      knob: "MEMEX_QUERY_CACHE",
+      knob: "MEMRAIN_QUERY_CACHE",
       current: "0",
       suggested: "(unset)",
       reason:
-        "The exact-match query cache is disabled (MEMEX_QUERY_CACHE=0) but searches are " +
+        "The exact-match query cache is disabled (MEMRAIN_QUERY_CACHE=0) but searches are " +
         "flowing. The cache is a free win (zero LLM cost, big latency drop on repeats). " +
         "If the container env sets it, the env override still wins until removed there.",
-      apply_command: "memex config unset MEMEX_QUERY_CACHE",
+      apply_command: "memrain config unset MEMRAIN_QUERY_CACHE",
     });
   }
 
@@ -210,7 +210,7 @@ export async function applyTuneRecommendation(
 export function buildRevertCommand(rec: TuneRecommendation): string {
   const parts = rec.apply_command.split(/\s+/);
   if (parts[2] === "set" || parts[2] === "unset") {
-    return `memex config set ${parts[3]} ${String(rec.current)}`;
+    return `memrain config set ${parts[3]} ${String(rec.current)}`;
   }
   return rec.apply_command;
 }
@@ -300,7 +300,7 @@ export async function runSearchTune(opts: SearchTuneOptions = {}): Promise<numbe
       console.log("To revert these changes:");
       for (const cmd of reverts) console.log(`  ${cmd}`);
     } else {
-      console.log("Run `memex search tune --apply` to apply these changes.");
+      console.log("Run `memrain search tune --apply` to apply these changes.");
     }
     return 0;
   });

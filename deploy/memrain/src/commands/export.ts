@@ -1,6 +1,6 @@
 /**
- * `memex export [--dir DIR] [--source ID...]` — dump every live page to markdown
- * files (frontmatter + body), mirroring the slug directory structure. memex's
+ * `memrain export [--dir DIR] [--source ID...]` — dump every live page to markdown
+ * files (frontmatter + body), mirroring the slug directory structure. memrain's
  * substrate is DB-only, so this is the portability / backup escape hatch: an RDS
  * snapshot is not user-readable, a markdown tree is. `--source` scopes the dump
  * to one or more tenants, which doubles as a per-tenant data export.

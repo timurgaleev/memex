@@ -1,5 +1,5 @@
 /**
- * `memex search diagnose "<query>" --target <slug> [--source <id>] [--json]`
+ * `memrain search diagnose "<query>" --target <slug> [--source <id>] [--json]`
  * — arm-by-arm retrieval debugger.
  *
  * Traces WHERE a target page surfaces (or fails to) across the pipeline so an
@@ -11,7 +11,7 @@
  *   hybrid  — final rank + fused score + evidence + which boosts fired
  *             (explain-mode search, so the attribution is always stamped)
  *
- * memex adaptation: the raw arms return chunk ids without scores, so the
+ * memrain adaptation: the raw arms return chunk ids without scores, so the
  * layer probes report ranks only; the hybrid layer carries the scores.
  */
 import { Storage } from "../core/storage.ts";
@@ -98,7 +98,7 @@ export async function runSearchDiagnose(
 ): Promise<number> {
   if (!opts.query || !opts.target) {
     console.error(
-      'Usage: memex search diagnose "<query>" --target <slug> [--source <id>] [--json]',
+      'Usage: memrain search diagnose "<query>" --target <slug> [--source <id>] [--json]',
     );
     return 2;
   }

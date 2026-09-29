@@ -1,6 +1,6 @@
 /**
- * `memex eval run-all|compare|gate` — the aggregate instrument that proves a
- * ranking change over memex's qrels harness:
+ * `memrain eval run-all|compare|gate` — the aggregate instrument that proves a
+ * ranking change over memrain's qrels harness:
  *
  *   eval run-all [--modes a,b,c] [--qrels PATH] [--k N] [--out PATH]
  *       Run the qrels suite once per search mode (knobs from MODE_BUNDLES,
@@ -94,7 +94,7 @@ export async function runEvalRunAll(opts: EvalRunAllOptions = {}): Promise<numbe
   const modes: SearchMode[] = [];
   for (const m of opts.modes ?? [...SEARCH_MODES]) {
     if (!isSearchMode(m)) {
-      console.error(`memex eval run-all: invalid mode '${m}' (${SEARCH_MODES.join("|")})`);
+      console.error(`memrain eval run-all: invalid mode '${m}' (${SEARCH_MODES.join("|")})`);
       return 1;
     }
     modes.push(m);
@@ -200,7 +200,7 @@ export async function runEvalCompareCmd(opts: EvalCompareOptions = {}): Promise<
   const records = readResults(path);
   if (records.length === 0) {
     console.log(`No eval results found at ${path}.`);
-    console.log(`Run: memex eval run-all --modes ${SEARCH_MODES.join(",")}`);
+    console.log(`Run: memrain eval run-all --modes ${SEARCH_MODES.join(",")}`);
     return 0;
   }
   const grouped = groupLatest(records);
@@ -362,7 +362,7 @@ export async function runEvalGate(opts: EvalGateOptions = {}): Promise<number> {
       baseline = JSON.parse(readFileSync(baselinePath, "utf-8")) as EvalBaseline;
     } catch (e) {
       console.error(
-        `memex eval gate: baseline at ${baselinePath} is unreadable: ${e instanceof Error ? e.message : e}`,
+        `memrain eval gate: baseline at ${baselinePath} is unreadable: ${e instanceof Error ? e.message : e}`,
       );
       return 1;
     }

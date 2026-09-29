@@ -1,5 +1,5 @@
 /**
- * `memex eval` — retrieval quality harness.
+ * `memrain eval` — retrieval quality harness.
  *
  * Reads tests/eval/qrels.json (curated ground-truth: query → expected
  * source_paths), runs each query through hybridSearch, computes
@@ -7,10 +7,10 @@
  * a report fingerprinted by a run-config hash and the qrels checksum.
  *
  * Config-vs-config instrumentation:
- *   memex eval [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]
+ *   memrain eval [--rrf-k N] [--expand|--no-expand] [--rerank] [--max-pool]
  *              [--graph-signals] [--cosine-rescore] [--relational-arm]
  *              [--dedup-type-ratio X] [--qrels PATH] [--k N]
- *   memex eval --config-a '<json|path>' --config-b '<json|path>'
+ *   memrain eval --config-a '<json|path>' --config-b '<json|path>'
  *              A/B: run both knob sets over the same qrels, print the delta.
  *
  * Eval queries always bypass the query cache — the metric must measure
@@ -153,12 +153,12 @@ export function defaultQrelsPath(): string {
 
 export function loadQrels(qrelsPath: string): Qrels {
   if (!existsSync(qrelsPath)) {
-    throw new Error(`memex eval: qrels file not found at ${qrelsPath}`);
+    throw new Error(`memrain eval: qrels file not found at ${qrelsPath}`);
   }
   const bytes = readFileSync(qrelsPath);
   const qrels = JSON.parse(bytes.toString("utf8")) as Qrels;
   if (!qrels.queries || qrels.queries.length === 0) {
-    throw new Error(`memex eval: no queries in ${qrelsPath}`);
+    throw new Error(`memrain eval: no queries in ${qrelsPath}`);
   }
   return { ...qrels, sha256: sha256Hex(bytes) };
 }

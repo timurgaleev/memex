@@ -3,7 +3,7 @@
  * task that runs under its own grant, and reads back only its own jobs.
  *
  * Submission fails closed at every gate: both agent flags on, a token caller
- * (the operator uses `memex agent run`), the `agent` scope (only the operator
+ * (the operator uses `memrain agent run`), the `agent` scope (only the operator
  * CLI can grant it; dynamic registration drops it), a token that speaks for
  * the client's own grant (an enrollment-bound session is refused), a non-empty
  * read grant, a finite daily budget, and at least one tool left after
@@ -39,7 +39,7 @@ function assertTenantCaller(auth: AuthInfo | undefined, tool: string): AuthInfo 
     refuse(
       "unsupported",
       `${tool} runs an agent under a tenant's grant; the operator has no grant to run under`,
-      "Use `memex agent run` for an operator agent job.",
+      "Use `memrain agent run` for an operator agent job.",
     );
   }
   if (!agentEnabled() || !agentTenantEnabled()) {
@@ -87,7 +87,7 @@ export async function submitTenantAgent(
     refuse(
       "unsupported",
       "submit_agent is not available to an enrollment-bound session yet",
-      "Use a client registered for you with `memex auth register-client`.",
+      "Use a client registered for you with `memrain auth register-client`.",
     );
   }
   const readSourceIds = effectiveReadSourceIds(auth);
@@ -122,7 +122,7 @@ export async function submitTenantAgent(
       refuse(
         "permission_denied",
         "submit_agent needs a daily budget on the client",
-        "The operator sets one with `memex auth set-budget`.",
+        "The operator sets one with `memrain auth set-budget`.",
       );
     }
     // The token must speak for the client's own grant: a token bound to some
@@ -187,13 +187,13 @@ export interface AgentJobView {
 
 const NOT_FOUND = "no agent job with that id belongs to this client";
 
-/** Errors the tenant may read back verbatim: the ones memex itself raises about the run. */
+/** Errors the tenant may read back verbatim: the ones memrain itself raises about the run. */
 function tenantSafeError(lastError: string | null, status: string): string | null {
   if (status !== "failed" && status !== "cancelled") return null;
   if (lastError && (lastError.startsWith("agent: ") || lastError.startsWith("subagent: "))) {
     return lastError.slice(0, 500);
   }
-  return status === "failed" ? "the agent run failed; the operator can see why with `memex agent logs`" : null;
+  return status === "failed" ? "the agent run failed; the operator can see why with `memrain agent logs`" : null;
 }
 
 /** The job's snapshot, when the caller holds exactly the grant it ran under; else null. */

@@ -1,5 +1,5 @@
 /**
- * `memex think` — answer a question by paid Sonnet synthesis across the brain,
+ * `memrain think` — answer a question by paid Sonnet synthesis across the brain,
  * bounded by a USD budget. Opt-in, default-OFF (set MEMRAIN_THINK=1 to run live),
  * the deep-synthesis slice of the agent layer.
  *
@@ -80,7 +80,7 @@ export async function runThinkCli(args: ThinkCliArgs): Promise<void> {
       const anchorSlug = savedSlug ?? args.anchors?.[0];
       if (!anchorSlug) {
         console.error(
-          "memex think: --take needs an anchor page — pass --save (pins to the saved synthesis) or --anchor <slug>",
+          "memrain think: --take needs an anchor page — pass --save (pins to the saved synthesis) or --anchor <slug>",
         );
         process.exitCode = 1;
       } else {

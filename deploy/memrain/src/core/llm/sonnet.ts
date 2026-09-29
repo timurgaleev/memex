@@ -4,7 +4,7 @@
  * ConverseCommand shape but returns token usage so the BudgetTracker can price
  * each call.
  *
- * memex runs the Claude Haiku utility tier everywhere EXCEPT this
+ * memrain runs the Claude Haiku utility tier everywhere EXCEPT this
  * higher-reasoning path (conversation→facts + the opt-in slices), where the
  * operator chose Sonnet for the notability/salience judgment Haiku is weaker at.
  * Sonnet runs through the SAME Bedrock account as Titan/Haiku — notes never leave

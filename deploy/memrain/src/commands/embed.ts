@@ -1,10 +1,10 @@
 /**
- * `memex embed [<slug>] [--slugs a,b] [--all] [--stale] [--source <id>]
+ * `memrain embed [<slug>] [--slugs a,b] [--all] [--stale] [--source <id>]
  *              [--limit N] [--dry-run]`
  * — embedding backfill + surgical re-embed (see `core/embed-backfill.ts`).
  *
  * Default (no targeting flags): backfill non-code chunks that are MISSING a
- * vector — the operator remedy when `memex status` / `doctor` report
+ * vector — the operator remedy when `memrain status` / `doctor` report
  * embed_coverage below 100%.
  *
  * Targeting:
@@ -47,7 +47,7 @@ export interface EmbedCmdOptions {
 
 export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
   if (opts.all && opts.slugs && opts.slugs.length > 0) {
-    console.error("memex embed: --all and <slug>/--slugs are mutually exclusive");
+    console.error("memrain embed: --all and <slug>/--slugs are mutually exclusive");
     return 1;
   }
   // --all force-deletes every vector up front, then re-embeds; a --limit would
@@ -55,7 +55,7 @@ export async function runEmbed(opts: EmbedCmdOptions = {}): Promise<number> {
   // Reject the combination (a dry-run plans nothing destructive, so it's fine).
   if (opts.all && opts.limit !== undefined && !opts.dryRun) {
     console.error(
-      "memex embed: --all wipes and rebuilds the whole corpus — --limit would " +
+      "memrain embed: --all wipes and rebuilds the whole corpus — --limit would " +
         "leave the remainder unembedded. Drop --limit, or use --slugs/--source to scope.",
     );
     return 1;

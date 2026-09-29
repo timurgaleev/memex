@@ -9,7 +9,7 @@
  * direction} — that the regex would have produced, validates it strictly, then
  * REUSES the exact same deterministic edge fanout ({@link fanoutRelational}).
  * The LLM only classifies the query; it never touches the graph, invents a slug,
- * or names a relation memex can't traverse.
+ * or names a relation memrain can't traverse.
  *
  * Slice contract (matches core/synthesis/think.ts):
  *   - Default-OFF. A live (paid) call happens ONLY when MEMRAIN_RELATIONAL_LLM=1.
@@ -23,7 +23,7 @@
  *     throws upstream; the Sonnet seam is injectable (NO live Bedrock in tests).
  *
  * The deterministic relational arm is regex-only, so this LLM arm is composed
- * from memex's own proven primitives (the think slice's budget/parse shape +
+ * from memrain's own proven primitives (the think slice's budget/parse shape +
  * fanoutRelational).
  */
 import type { Storage } from "../storage.ts";

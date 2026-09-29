@@ -1,6 +1,6 @@
 /**
  * Search telemetry — per-day (date, mode, intent) rollup writer + reader
- * (migration 089), the observability substrate behind `memex search
+ * (migration 089), the observability substrate behind `memrain search
  * stats|tune`.
  *
  * Architecture: a per-process in-memory bucket map,
@@ -13,7 +13,7 @@
  * Rows store SUMS + COUNTS only; the reader derives averages, so concurrent
  * ON CONFLICT adds from several processes accumulate correctly.
  *
- * rank-1 drift: memex's fused score is RRF-based (rank math, not a
+ * rank-1 drift: memrain's fused score is RRF-based (rank math, not a
  * similarity), so the three bands key off the top hit's EVIDENCE class —
  * high = exact_title_match / high_vector_match / alias_hit,
  * solid = keyword_exact, lt_solid = weak_semantic (or unclassified) — while

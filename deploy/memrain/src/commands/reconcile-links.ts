@@ -1,5 +1,5 @@
 /**
- * `memex reconcile-links` — find broken `[[wikilinks]]`.
+ * `memrain reconcile-links` — find broken `[[wikilinks]]`.
  *
  * Read-only. Prints a JSON report. doesn't auto-rewrite the
  * source files; that's a one-line follow-up command (`reconcile-links

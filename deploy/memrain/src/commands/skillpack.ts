@@ -1,10 +1,10 @@
 /**
- * `memex skillpack [--out PATH]` — bundle a `deploy/skills/`
+ * `memrain skillpack [--out PATH]` — bundle a `deploy/skills/`
  * directory as a tar.gz so it can be shared / installed by a
  * downstream agent that consumes skill packs.
  *
  * Looks at deploy/skills/ in the repo (resolved relative to the
- * memex package). Writes a tarball with an embedded manifest.json
+ * memrain package). Writes a tarball with an embedded manifest.json
  * naming each skill + a sha256 of its contents (so the receiver can
  * verify). Today the stack ships no skills under deploy/skills/;
  * this command stays available for future re-introduction.
@@ -81,7 +81,7 @@ export async function runSkillpack(opts: SkillpackOptions = {}): Promise<void> {
     });
   }
   const manifest = {
-    name: "memex-skillpack",
+    name: "memrain-skillpack",
     version: "0.1.0",
     generated_at: new Date().toISOString(),
     skills: entries,
@@ -128,8 +128,8 @@ export interface SkillpackLintOptions {
 }
 
 /**
- * `memex skillpack lint [--json] [--dir PATH]` — check that every MCP tool and
- * `memex` command the pack names exists. Returns the exit code: 1 on any issue.
+ * `memrain skillpack lint [--json] [--dir PATH]` — check that every MCP tool and
+ * `memrain` command the pack names exists. Returns the exit code: 1 on any issue.
  */
 export function runSkillpackLint(opts: SkillpackLintOptions = {}): number {
   const envDir = process.env.MEMRAIN_SKILLS_DIR?.trim();

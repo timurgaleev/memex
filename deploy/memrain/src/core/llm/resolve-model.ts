@@ -1,7 +1,7 @@
 /**
  * Unified model-tier resolver — the single seam for choosing a Bedrock model id
  * by tier, replacing the per-helper env lookups duplicated across haiku.ts and
- * sonnet.ts. memex is Anthropic-only via Bedrock, so this is env + code only —
+ * sonnet.ts. memrain is Anthropic-only via Bedrock, so this is env + code only —
  * no multi-provider config-table / alias-map / subagent machinery.
  *
  * Tiers:

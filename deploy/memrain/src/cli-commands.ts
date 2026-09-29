@@ -1,7 +1,7 @@
 /**
  * The CLI's command surface as data, for the skill pack lint.
  *
- * Skills are followed word for word, so a `memex <cmd> <sub>` a skill names
+ * Skills are followed word for word, so a `memrain <cmd> <sub>` a skill names
  * must exist. cli.ts stays the dispatcher; this table is what the lint reads,
  * and tests/skillpack_cli_commands.test.ts fails when the two drift apart.
  */

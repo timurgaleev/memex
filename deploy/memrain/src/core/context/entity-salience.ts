@@ -16,7 +16,7 @@
  *     resolve); true pronoun coreference remains out of scope.
  *
  * Resolution lives in reflex.ts; this module only decides WHAT to look up.
- * memex note: dedupe key is memex's `normalizeAlias` (page-aliases.ts) so the
+ * memrain note: dedupe key is memrain's `normalizeAlias` (page-aliases.ts) so the
  * candidate norm matches the resolver's lookup key exactly.
  */
 

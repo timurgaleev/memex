@@ -1,5 +1,5 @@
 /**
- * `memex eval-replay <subcommand>` — capture / list / replay.
+ * `memrain eval-replay <subcommand>` — capture / list / replay.
  *
  * Subcommands:
  *   capture <id> --query "..." --tag good|bad

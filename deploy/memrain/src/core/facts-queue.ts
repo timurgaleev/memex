@@ -12,7 +12,7 @@
  *     extraction must never surface to, or fail, the triggering write.
  *
  * Process-singleton (`getFactsQueue`); tests reset it with the test helper.
- * Deliberately simple: no shutdown/drain choreography — memex is single-holder
+ * Deliberately simple: no shutdown/drain choreography — memrain is single-holder
  * and extraction is strictly best-effort, so a job still in flight at exit is an
  * acceptable loss (the backfill cycle phase re-covers missed pages).
  */

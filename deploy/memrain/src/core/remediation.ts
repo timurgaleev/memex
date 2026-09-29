@@ -1,22 +1,22 @@
 /**
  * Doctor self-heal / remediation layer.
  *
- * `memex doctor` is a fast read-only probe by default. This module adds an
+ * `memrain doctor` is a fast read-only probe by default. This module adds an
  * OPT-IN remediation layer on top of it:
  *
  *   - `classifyRemediation()` maps the doctor's ranked failures + structured
  *     health signals to concrete fix actions, each triaged as
  *     `remediable | human_only | blocked`.
  *   - `buildRemediationPlan()` is the read-only surface behind
- *     `memex doctor --remediation-plan` — it never enqueues.
+ *     `memrain doctor --remediation-plan` — it never enqueues.
  *   - `autoFixDryViolations()` submits the safe, deterministic subset
  *     (re-embed a source with 0 embeddings, re-run a wedged cycle phase)
- *     as jobs on memex's durable queue, honouring a per-run USD budget cap
+ *     as jobs on memrain's durable queue, honouring a per-run USD budget cap
  *     and a dry-run default.
  *   - `submitRemediation()` is the `--remediate` entry point: it plans, then
  *     hands the remediable actions to `autoFixDryViolations`.
  *
- * memex has NO server-side subagent runtime — every fix is expressed as a row
+ * memrain has NO server-side subagent runtime — every fix is expressed as a row
  * on the durable jobs queue (`src/core/jobs`), picked up by the same worker
  * that runs the rest of the brain's background work. A `remediation` job's
  * handler (see `core/jobs/remediation-handlers.ts`) dispatches on
@@ -178,7 +178,7 @@ export function resolveMaxUsd(override?: number): number {
  *   - A source stuck at 0% embed coverage → REMEDIABLE + safe (re-embed it).
  *   - A wedged / stale maintenance cycle → REMEDIABLE + safe (re-run the phase).
  *   - A failed job in the last 24h (source-health !ok) with no more specific
- *     signal → HUMAN_ONLY (needs `memex jobs list --status failed` triage).
+ *     signal → HUMAN_ONLY (needs `memrain jobs list --status failed` triage).
  */
 export function classifyRemediation(input: RemediationInput): RemediationAction[] {
   const byName = new Map(input.signals.map((s) => [s.check, s]));
@@ -198,7 +198,7 @@ export function classifyRemediation(input: RemediationInput): RemediationAction[
       est_seconds: 0,
       est_usd_cost: 0,
       rationale: "config missing or invalid",
-      human_hint: "run 'memex init --pglite' (or fix the config file), then re-run doctor",
+      human_hint: "run 'memrain init --pglite' (or fix the config file), then re-run doctor",
     });
   }
   if (failing("pglite")) {
@@ -245,7 +245,7 @@ export function classifyRemediation(input: RemediationInput): RemediationAction[
       rationale: "a background job failed in the last 24h",
       ...(rootFailing
         ? { blocked_reason: "storage engine / config is failing — fix that first" }
-        : { human_hint: "triage with 'memex jobs list --status failed'" }),
+        : { human_hint: "triage with 'memrain jobs list --status failed'" }),
     });
   }
 

@@ -1,5 +1,5 @@
 /**
- * `memex reports [--since N]` — render trend report from cycle_snapshots.
+ * `memrain reports [--since N]` — render trend report from cycle_snapshots.
  *
  * Reads the table populated by the snapshot phase of the cycle. Returns:
  *   - latest counts
@@ -18,7 +18,7 @@ export interface ReportsOptions {
 export async function runReports(opts: ReportsOptions = {}): Promise<void> {
   const sinceHours = opts.sinceHours ?? 24;
   if (!Number.isFinite(sinceHours) || sinceHours < 1 || sinceHours > 24 * 30) {
-    throw new Error(`memex reports: invalid --since ${sinceHours}`);
+    throw new Error(`memrain reports: invalid --since ${sinceHours}`);
   }
   const config = loadConfig();
   const storage = new Storage(config);

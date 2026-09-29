@@ -302,7 +302,7 @@ export async function getTakesScorecard(
     params.push(opts.holder);
     clauses.push(`AND t.holder = $${params.length}`);
   }
-  // since/until window the take's synthesis date (memex has no per-take
+  // since/until window the take's synthesis date (memrain has no per-take
   // belief-as-of date column).
   if (typeof opts.since === "string" && opts.since.length > 0) {
     params.push(opts.since);

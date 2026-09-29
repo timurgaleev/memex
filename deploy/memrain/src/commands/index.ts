@@ -1,8 +1,8 @@
 /**
- * `memex index <path>` — read one file from disk and index it. Markdown is
+ * `memrain index <path>` — read one file from disk and index it. Markdown is
  * chunked as prose; a recognised code file (.ts/.tsx/.py/…) is routed through
  * the tree-sitter code chunker so it lands in the same store with symbol +
- * call-graph metadata. For a whole tree use `memex reindex`; there is no
+ * call-graph metadata. For a whole tree use `memrain reindex`; there is no
  * boot-time watcher.
  */
 import { Storage } from "../core/storage.ts";
@@ -19,7 +19,7 @@ export interface IndexCommandOptions {
 
 export async function runIndex(opts: IndexCommandOptions): Promise<void> {
   if (!opts.path) {
-    throw new Error("memex index: <path> is required");
+    throw new Error("memrain index: <path> is required");
   }
   const config = loadConfig();
   const storage = new Storage(config);

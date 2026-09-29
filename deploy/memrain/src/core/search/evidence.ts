@@ -1,9 +1,9 @@
 /**
  * evidence.ts — tell the caller WHY a hit matched, not just a number.
  *
- * memex has no calibrated 0..1 cosine score — its hybrid `score` is RRF-fused
+ * memrain has no calibrated 0..1 cosine score — its hybrid `score` is RRF-fused
  * (rank-based, not a similarity), so similarity floors are meaningless here.
- * Instead we classify on a signal memex DOES have: which retrieval ARM(s)
+ * Instead we classify on a signal memrain DOES have: which retrieval ARM(s)
  * surfaced the chunk.
  *
  *   - in BOTH the vector AND the keyword arm → both methods independently
@@ -19,7 +19,7 @@
  * `exact_title_match` fires when the query is a contiguous phrase in the page
  * title (the title boost). It is arm-independent and the strongest signal here
  * (an author's own phrasing), so it wins regardless of which arm surfaced the
- * chunk. `alias_hit` stays reserved until memex grows alias resolution; until
+ * chunk. `alias_hit` stays reserved until memrain grows alias resolution; until
  * then it never surfaces and the contract degrades cleanly to the title +
  * arm-membership signals.
  */

@@ -1,5 +1,5 @@
 /**
- * `memex pages` — full catalog of known wikilink targets.
+ * `memrain pages` — full catalog of known wikilink targets.
  *
  * For every entity of type='wikilink' returns name + total mention count.
  * Helps answer "what does this vault think exists" — useful for
@@ -19,7 +19,7 @@ export interface PagesOptions {
 export async function runPages(opts: PagesOptions = {}): Promise<void> {
   const limit = opts.limit ?? 500;
   if (!Number.isInteger(limit) || limit < 1 || limit > 5000) {
-    throw new Error(`memex pages: invalid --limit ${limit}`);
+    throw new Error(`memrain pages: invalid --limit ${limit}`);
   }
   const config = loadConfig();
   const storage = new Storage(config);

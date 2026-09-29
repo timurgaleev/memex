@@ -1,7 +1,7 @@
 /**
  * context_volunteer_events — the feedback-loop log behind push-based context
  * (migration 044). One row per page the brain VOLUNTEERED, written
- * fire-and-forget by the volunteer_context op and `memex watch` (channel
+ * fire-and-forget by the volunteer_context op and `memrain watch` (channel
  * 'op' / 'watch').
  *
  * "Used" is DERIVED, never written: a volunteered page counts as used when
@@ -131,7 +131,7 @@ export async function awaitPendingVolunteerEventWrites(
   if (timer) clearTimeout(timer);
   if (outcome === "timeout") {
     const unfinished = pendingVolunteerEventWrites.size;
-    // Drop the snapshot so a long-lived process (`memex watch`) doesn't
+    // Drop the snapshot so a long-lived process (`memrain watch`) doesn't
     // accumulate references to forever-pending work.
     for (const p of snapshot) pendingVolunteerEventWrites.delete(p);
     return { unfinished };

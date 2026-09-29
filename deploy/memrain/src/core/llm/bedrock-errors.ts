@@ -100,7 +100,7 @@ export function noteBedrockFailure(model: string, err: unknown, now = Date.now()
   if (open && open.until > now) return;
   const message = err instanceof Error ? err.message : String(err);
   console.warn(
-    `[memex] bedrock: ${cls} failure on ${key === "*" ? "every model" : model} — ` +
+    `[memrain] bedrock: ${cls} failure on ${key === "*" ? "every model" : model} — ` +
       `batch work pauses these calls for ${COOLDOWN_MS / 60_000} min: ${message.slice(0, 200)}`,
   );
   _open.set(key, { until: now + COOLDOWN_MS, cause: cls, message });

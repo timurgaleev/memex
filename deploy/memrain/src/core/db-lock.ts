@@ -1,7 +1,7 @@
 /**
  * Generic DB-backed lock primitive.
  *
- * memex has ONE `engine.query` path across postgres and PGLite — no separate
+ * memrain has ONE `engine.query` path across postgres and PGLite — no separate
  * DIRECT session pool for the refresh — so every DB branch collapses to it.
  *
  * Reuses the `cycle_locks` table (id PK + holder_pid + holder_host +
@@ -235,7 +235,7 @@ export async function tryAcquireDbLock(
     return {
       id: lockId,
       refresh: async () => {
-        // Bump BOTH ttl_expires_at AND last_refreshed_at. memex has a single
+        // Bump BOTH ttl_expires_at AND last_refreshed_at. memrain has a single
         // pool, so engine.query is the path here.
         const r = await engine.query<{ id: string }>(
           `UPDATE cycle_locks

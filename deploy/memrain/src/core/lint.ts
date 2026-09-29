@@ -13,10 +13,10 @@
  * counting them would only bury the notes that can be fixed.
  *
  * Read-only: it reports violations and nothing repairs them automatically —
- * `memex lint --fix` only strips LLM preambles and page-wide fences, and ingest
+ * `memrain lint --fix` only strips LLM preambles and page-wide fences, and ingest
  * inference only fills a file with no frontmatter at all. The fields have to be
  * added to the source file's frontmatter; the next re-read indexes them. Shared
- * by the `memex lint` CLI and the `lint` cycle phase so both apply the
+ * by the `memrain lint` CLI and the `lint` cycle phase so both apply the
  * identical ruleset.
  */
 import type { Engine } from "./engine/interface.ts";
@@ -103,7 +103,7 @@ export function summariseLint(issues: LintIssue[]): Record<string, number> {
 // Deterministic page-quality rules over RAW markdown text — LLM artifacts,
 // placeholder dates, missing frontmatter, broken citations, empty sections —
 // plus an auto-repair for the fixable subset. Zero LLM calls. Used by
-// `memex lint <dir|file> [--fix]`; the DB-corpus `lintCorpus` above stays the
+// `memrain lint <dir|file> [--fix]`; the DB-corpus `lintCorpus` above stays the
 // cycle phase's ruleset.
 
 export interface ContentLintIssue {

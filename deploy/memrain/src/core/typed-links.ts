@@ -10,7 +10,7 @@
  * Names are resolved to canonical slugs via the slug resolver (#1), so a field
  * value may be a slug or a display name.
  *
- * Two deliberate choices for safety on memex's flat vault:
+ * Two deliberate choices for safety on memrain's flat vault:
  *   - DEFAULT OFF (`MEMRAIN_TYPED_LINKS=1` to enable) -- a wrong inferred relation
  *     silently pollutes the graph, same posture as the gazetteer.
  *   - RESOLVED-ONLY -- an edge is written only when the value resolves to a real

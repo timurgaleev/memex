@@ -1,7 +1,7 @@
 /**
- * `memex connectors github sync <owner/repo> --source ID [--token-file F]
+ * `memrain connectors github sync <owner/repo> --source ID [--token-file F]
  *                               [--full] [--dry-run] [--json]`
- * `memex connectors status [--json]`
+ * `memrain connectors status [--json]`
  *
  * A one-shot, operator-run mirror of a GitHub repository's issues and pull
  * requests into a `github` source (see src/core/connectors/). The token comes
@@ -65,7 +65,7 @@ export function exitCodeFor(status: ConnectorRunStatus): number {
 
 function fail(msg: string, json: boolean | undefined): number {
   if (json) console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
-  else console.error(`memex connectors: ${msg}`);
+  else console.error(`memrain connectors: ${msg}`);
   return 1;
 }
 
@@ -213,6 +213,6 @@ async function runStatus(opts: ConnectorsCmdOptions): Promise<number> {
 export async function runConnectors(opts: ConnectorsCmdOptions): Promise<number> {
   if (opts.sub === "status") return runStatus(opts);
   if (opts.sub === "github") return runGithubSync(opts);
-  console.error("memex connectors: subcommand required (github sync <owner/repo> | status)");
+  console.error("memrain connectors: subcommand required (github sync <owner/repo> | status)");
   return 1;
 }

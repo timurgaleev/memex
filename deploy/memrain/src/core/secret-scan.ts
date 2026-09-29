@@ -2,7 +2,7 @@
  * Credentials pasted into the brain — an env dump, a config file, a transcript
  * that echoed a token — would otherwise be stored, chunked, embedded and served
  * to every grant that reads the source. This finds them by the prefixes their
- * issuers publish (plus memex's own token shapes and PEM private-key blocks)
+ * issuers publish (plus memrain's own token shapes and PEM private-key blocks)
  * before anything is written.
  *
  * Only named prefixes: a generic "high entropy" rule would also catch hashes,

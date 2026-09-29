@@ -21,7 +21,7 @@
  *
  * This tier's wrapper helpers — `buildContextualPrefix`,
  * `wrapChunkForEmbedding`, title+synopsis sanitization, and
- * `extractFirstTwoSentences`. memex has no shared CJK module, so the CJK
+ * `extractFirstTwoSentences`. memrain has no shared CJK module, so the CJK
  * sentence delimiters (BMP set) are inlined here; the mode-gating guards for
  * the deferred paid tier are intentionally omitted.
  *
@@ -60,7 +60,7 @@ export const TITLE_HARD_CAP_CHARS = 300;
 export const SUMMARY_HARD_CAP_CHARS = 300;
 
 /**
- * CJK sentence delimiters (BMP set: 。！？). Inlined because memex has no
+ * CJK sentence delimiters (BMP set: 。！？). Inlined because memrain has no
  * shared CJK module.
  */
 const CJK_SENTENCE_DELIMITERS = ["。", "！", "？"];

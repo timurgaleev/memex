@@ -1,5 +1,5 @@
 /**
- * `memex search modes` — read-only view of the ACTIVE retrieval ranking
+ * `memrain search modes` — read-only view of the ACTIVE retrieval ranking
  * configuration: the resolved post-fusion ranking knobs (with their env
  * overrides + defaults) plus the intent taxonomy and the cheap-heuristic rules.
  *

@@ -65,7 +65,7 @@ describe("resolveServerInstructions", () => {
 describe("resolveServerInfo", () => {
   it("reports the stamped build version", () => {
     expect(resolveServerInfo({ MEMRAIN_VERSION: "v9.9.9" })).toEqual({
-      name: "memex",
+      name: "memrain",
       version: "v9.9.9",
     });
   });

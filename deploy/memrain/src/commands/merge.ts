@@ -1,5 +1,5 @@
 /**
- * `memex merge <from-slug> <to-slug>` — fold a duplicate/phantom stub page onto
+ * `memrain merge <from-slug> <to-slug>` — fold a duplicate/phantom stub page onto
  * an existing canonical page.
  *
  * Thin CLI wrapper over `mergePage` (core/entity-merge.ts): re-points the stub's
@@ -24,7 +24,7 @@ export interface MergeCommandOptions {
 
 export async function runMerge(opts: MergeCommandOptions): Promise<void> {
   if (!opts.from || !opts.to) {
-    throw new Error("memex merge: <from-slug> and <to-slug> are required");
+    throw new Error("memrain merge: <from-slug> and <to-slug> are required");
   }
   const config = loadConfig();
   const storage = new Storage(config);

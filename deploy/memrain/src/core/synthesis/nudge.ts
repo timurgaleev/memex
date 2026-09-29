@@ -10,7 +10,7 @@
  * Rules:
  *   - conviction weight must exceed 0.7,
  *   - the take's domain must match an active bias tag on the SAME tenant's
- *     latest profile (memex takes carry a real `domain` column, so no slug
+ *     latest profile (memrain takes carry a real `domain` column, so no slug
  *     heuristic is needed),
  *   - 14-day cooldown per (take_id, nudge_pattern) via take_nudge_log so the
  *     same pattern never re-fires on every cycle.

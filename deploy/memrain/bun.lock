@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "memex",
+      "name": "memrain",
       "dependencies": {
         "@aws-sdk/client-bedrock-runtime": "^3.658.0",
         "@aws-sdk/client-secrets-manager": "^3.658.0",

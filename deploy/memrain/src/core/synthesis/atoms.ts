@@ -23,7 +23,7 @@
  * The LLM is injected via `opts.llmFn` (see core/llm/haiku.ts). Tests pass a
  * fake; production resolves `callHaiku`. NO live Bedrock in tests.
  *
- * Written for memex's flat single-source vault (no source_id) and
+ * Written for memrain's flat single-source vault (no source_id) and
  * own-namespace tables.
  */
 import { createHash } from "node:crypto";
@@ -269,7 +269,7 @@ export function isWellFormedEmptyExtraction(raw: string): boolean {
  * scan stamp yet. One SQL round-trip; the EXISTS pair is the idempotency
  * filter.
  *
- * memex stores body text in `chunks`, not on `documents`, so the per-document
+ * memrain stores body text in `chunks`, not on `documents`, so the per-document
  * text is the concatenation of its chunks (ordered). Soft-deleted documents
  * (migration 040 added `deleted_at`) are excluded.
  */

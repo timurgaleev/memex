@@ -1,5 +1,5 @@
 /**
- * The one reporting surface for `memex bench`.
+ * The one reporting surface for `memrain bench`.
  *
  * Three families, one block, one line each — so the diff between two runs is a
  * diff between two blocks and not an exercise in reading three different

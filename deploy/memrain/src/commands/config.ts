@@ -1,8 +1,8 @@
 /**
- * `memex config <show|get|set|unset>` — DB-plane runtime config (migration
+ * `memrain config <show|get|set|unset>` — DB-plane runtime config (migration
  * 088). Mutates MEMRAIN_* knobs without a redeploy: rows overlay onto
  * process.env at every Storage.init for vars the container did not set (env
- * always wins). The write substrate behind `memex search tune --apply`.
+ * always wins). The write substrate behind `memrain search tune --apply`.
  *
  *   show                       list all stored keys (values redacted)
  *   get <key>                  print the effective value (exit 1 when missing);
@@ -73,13 +73,13 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
       }
       case "get": {
         if (!opts.key) {
-          console.error("memex config get: <key> is required");
+          console.error("memrain config get: <key> is required");
           return 1;
         }
         if (!isRuntimeConfigKey(opts.key)) {
           const v = await getRuntimeConfig(engine, opts.key);
           if (v === null) {
-            console.error(`memex config: key not found: ${opts.key}`);
+            console.error(`memrain config: key not found: ${opts.key}`);
             return 1;
           }
           console.log(v);
@@ -87,29 +87,29 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
         }
         const resolved = await resolveRuntimeConfig(engine, opts.key, realEnv(opts.key));
         if (resolved === null) {
-          console.error(`memex config: key not found: ${opts.key}`);
+          console.error(`memrain config: key not found: ${opts.key}`);
           return 1;
         }
         console.log(resolved.value);
-        console.error(`memex config: ${canonicalKey(opts.key)} from ${resolved.source} ${resolved.key}`);
+        console.error(`memrain config: ${canonicalKey(opts.key)} from ${resolved.source} ${resolved.key}`);
         return 0;
       }
       case "set": {
         if (!opts.key || opts.value === undefined) {
-          console.error("memex config set: <key> <value> are required");
+          console.error("memrain config set: <key> <value> are required");
           return 1;
         }
         if (!isRuntimeConfigKey(opts.key)) {
           if (!opts.force) {
             console.error(
-              `memex config: key '${opts.key}' is outside the (MEMRAIN|MEMEX)_[A-Z0-9_]+ knob alphabet.\n` +
-                `Nothing in memex reads a non-MEMRAIN_*/MEMEX_* key from the DB plane. ` +
+              `memrain config: key '${opts.key}' is outside the (MEMRAIN|MEMEX)_[A-Z0-9_]+ knob alphabet.\n` +
+                `Nothing in memrain reads a non-MEMRAIN_*/MEMEX_* key from the DB plane. ` +
                 `Re-run with --force if this is deliberate (downstream tooling).`,
             );
             return 1;
           }
           console.error(
-            `memex config: WARN — writing non-standard key '${opts.key}' with --force; ` +
+            `memrain config: WARN — writing non-standard key '${opts.key}' with --force; ` +
               `it will NOT be overlaid onto the environment.`,
           );
         }
@@ -120,7 +120,7 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
       case "unset": {
         if (opts.pattern !== undefined) {
           if (opts.pattern.length === 0) {
-            console.error("memex config unset: --pattern needs a non-empty prefix");
+            console.error("memrain config unset: --pattern needs a non-empty prefix");
             return 1;
           }
           const keys = await unsetRuntimeConfigForPattern(engine, opts.pattern);
@@ -134,12 +134,12 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
           return 0;
         }
         if (!opts.key) {
-          console.error("memex config unset: <key> or --pattern <prefix> is required");
+          console.error("memrain config unset: <key> or --pattern <prefix> is required");
           return 1;
         }
         const removed = await unsetRuntimeConfigKeys(engine, opts.key);
         if (removed.length === 0) {
-          console.error(`memex config: key not found: ${opts.key}`);
+          console.error(`memrain config: key not found: ${opts.key}`);
           return 1;
         }
         console.log(`Unset ${removed.join(", ")}`);
@@ -147,7 +147,7 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
       }
       default: {
         const _exhaustive: never = opts.sub;
-        throw new Error(`memex config: unknown subcommand '${_exhaustive}'`);
+        throw new Error(`memrain config: unknown subcommand '${_exhaustive}'`);
       }
     }
   });

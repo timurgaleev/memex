@@ -323,7 +323,7 @@ export async function indexCodeFile(
     );
   }
   // Same canonicalization as indexFile, and the reason is sharper here: the
-  // reported repro is `memex index foo.ts`, and commands/index.ts routes any
+  // reported repro is `memrain index foo.ts`, and commands/index.ts routes any
   // recognised code extension to THIS function, so fixing only the markdown
   // path would have left the case that was actually filed.
   const sourcePath = normalizeSourcePath(filePath);

@@ -2,7 +2,7 @@
  * title-match.ts — title-phrase matching for the title boost.
  *
  * Title-superstring matching. The disease it cures: a query that is literally
- * a phrase from a page's title ("memex master plan" → page titled "Memex —
+ * a phrase from a page's title ("memrain master plan" → page titled "Memrain —
  * master plan") matching a weak body chunk instead of being recognized as a
  * title hit. Names of things deserve weight.
  *
@@ -99,7 +99,7 @@ export function isTitlePhraseMatch(query: string, title: string | null | undefin
 
 /**
  * Resolve the title-boost factor from `MEMRAIN_TITLE_BOOST` (default 1.25, ON).
- * A multiplier is scale-invariant, so it applies cleanly onto memex's RRF
+ * A multiplier is scale-invariant, so it applies cleanly onto memrain's RRF
  * score. A value <= 1.0 disables the boost
  * (the multiplier becomes a no-op). Malformed env → throw (fail-loud), matching
  * the recency-decay parse contract.

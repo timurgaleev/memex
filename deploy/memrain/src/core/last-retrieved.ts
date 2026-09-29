@@ -8,7 +8,7 @@
  * Two stack notes:
  *  - keyed on the `slug` PK; the volunteer consumer joins on slug, so this
  *    matches it.
- *  - memex is single-holder / low QPS, so the op-handler simply AWAITS this
+ *  - memrain is single-holder / low QPS, so the op-handler simply AWAITS this
  *    throttled best-effort UPDATE — negligible added latency, and it sidesteps
  *    any dangling-promise hang entirely instead of a background-work-sink
  *    apparatus.
@@ -16,7 +16,7 @@
  * Best-effort: any error (column missing on a pre-mig-024 brain, statement
  * timeout, blip) is swallowed with a warn — the op result is never affected.
  * Default-on; `MEMRAIN_TRACK_RETRIEVAL=0` opts out (the track-retrieval escape
- * hatch, as a memex env flag).
+ * hatch, as a memrain env flag).
  */
 import type { Engine } from "./engine/interface.ts";
 

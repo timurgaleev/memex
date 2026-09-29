@@ -1,5 +1,5 @@
 /**
- * `memex quarantine <list|clear|scan>` — operator surface for the
+ * `memrain quarantine <list|clear|scan>` — operator surface for the
  * content-sanity gate (frontmatter markers stamped at ingest, see
  * core/content-sanity.ts). Until now releasing held content required SQL.
  *
@@ -10,7 +10,7 @@
  *         drop the markers so the document is searchable again. The gate
  *         re-runs first: content still assessed as junk refuses to clear
  *         unless --force. Cleared docs re-enter the vector arm via
- *         `memex embed` (their chunks were never embedded).
+ *         `memrain embed` (their chunks were never embedded).
  *   scan  [--limit N] [--apply] [--json]
  *         re-assess already-indexed documents through the CURRENT gate
  *         thresholds — catches junk that predates the gate. Dry-run by
@@ -151,7 +151,7 @@ async function runList(engine: Engine, opts: QuarantineCmdOptions): Promise<numb
 
 async function runClear(engine: Engine, opts: QuarantineCmdOptions): Promise<number> {
   if (!opts.target) {
-    console.error("Usage: memex quarantine clear <slug|source_path> [--force]");
+    console.error("Usage: memrain quarantine clear <slug|source_path> [--force]");
     return 2;
   }
   // Accept the raw source_path or a page slug (its mirror forms).
@@ -205,7 +205,7 @@ async function runClear(engine: Engine, opts: QuarantineCmdOptions): Promise<num
     ok: true,
     cleared: doc.source_path,
     forced: opts.force ?? false,
-    note: "Run `memex embed` to give the released chunks vectors (they were embed-skipped).",
+    note: "Run `memrain embed` to give the released chunks vectors (they were embed-skipped).",
   };
   if (opts.json) console.log(JSON.stringify(out, null, 2));
   else console.log(`Cleared "${doc.source_path}". ${out.note}`);
@@ -295,7 +295,7 @@ export async function runQuarantine(opts: QuarantineCmdOptions): Promise<number>
         return await runScan(engine, opts);
       default: {
         const _exhaustive: never = opts.sub;
-        throw new Error(`memex quarantine: unknown subcommand '${_exhaustive}'`);
+        throw new Error(`memrain quarantine: unknown subcommand '${_exhaustive}'`);
       }
     }
   });

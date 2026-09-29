@@ -1,5 +1,5 @@
 /**
- * `memex extract-conversation-facts` — parse a chat transcript into turns and
+ * `memrain extract-conversation-facts` — parse a chat transcript into turns and
  * extract structured facts from each via paid Bedrock Sonnet, bounded by a USD
  * budget. Opt-in, default-OFF (set MEMRAIN_FACTS_EXTRACTION=1 to run live), an
  * agent-layer slice the operator chose to enable.

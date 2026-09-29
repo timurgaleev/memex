@@ -8,7 +8,7 @@
  * LLM, no I/O — so it can run in the chunker strip path and in a CI invariant
  * check without pulling a DB-shaped dependency graph.
  *
- * memex carries the column subset its `entity_facts` models: the
+ * memrain carries the column subset its `entity_facts` models: the
  * always-present `claim / confidence / source` plus the optional v1.3.45
  * metadata `kind / notability / valid_from / valid_until`. Columns are matched
  * by HEADER NAME (not fixed position), so a narrow legacy fence

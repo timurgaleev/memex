@@ -2,7 +2,7 @@
  * Read-side accessor for recently-ingested conversation transcript pages —
  * backs the `get_recent_transcripts` MCP tool.
  *
- * memex has no on-disk transcript corpus: transcripts are ingested as pages in
+ * memrain has no on-disk transcript corpus: transcripts are ingested as pages in
  * RDS Postgres. So this op returns "recent transcript-typed pages",
  * newest-first, scoped to the caller's tenant, with a summary/full-body toggle
  * and a day window — over the DB instead of the filesystem.
@@ -12,7 +12,7 @@ import type { Engine } from "./engine/interface.ts";
 import { normalizeScope } from "./source-scope.ts";
 
 /**
- * Page types memex treats as conversation/transcript prose — a subset of the
+ * Page types memrain treats as conversation/transcript prose — a subset of the
  * fact-extraction-eligible types, narrowed to the kinds that actually carry a
  * back-and-forth transcript (a meeting log, an email thread, a journal entry, a
  * captured note, an imported chat export) rather than a synthesized artifact.

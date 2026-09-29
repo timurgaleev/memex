@@ -7,10 +7,10 @@
  * via putPage).
  *
  * DELIBERATE design choices:
- *   - Single Sonnet call returning structured JSON, then memex writes the pages
+ *   - Single Sonnet call returning structured JSON, then memrain writes the pages
  *     directly — no minion/subagent tool loop, no reverse-write to a filesystem
- *     mirror (memex is DB-canonical).
- *   - Reflection source is a configurable slug prefix (memex has no fixed
+ *     mirror (memrain is DB-canonical).
+ *   - Reflection source is a configurable slug prefix (memrain has no fixed
  *     `wiki/personal/reflections/` convention).
  *
  * ARCHITECTURE NOTE: this is the ONE synthesis phase that writes real `pages`

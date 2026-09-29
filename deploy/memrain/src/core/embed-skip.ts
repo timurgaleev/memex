@@ -18,7 +18,7 @@
  *     object (the inline indexer embed path).
  *   - `embedSkipFilterFragment(docAlias)` for callers splicing into ranking /
  *     backfill SQL (the missing-chunk embed path). The fragment targets the
- *     `documents` row — memex embeds CHUNKS joined to their document, and the
+ *     `documents` row — memrain embeds CHUNKS joined to their document, and the
  *     markdown frontmatter lands on `documents.frontmatter` at index time.
  *
  * The embed-coverage METRIC (source-health, and everything downstream of it:
@@ -58,7 +58,7 @@ export function isEmbedSkipped(
  * documents WITHOUT the embed-skip marker — i.e. the ones that SHOULD be
  * embedded. `docAlias` is the `documents` row alias in scope. COALESCE guards a
  * NULL frontmatter (treated as not-skipped). The JSONB `?` key-existence
- * operator is unambiguous under memex's `$N` placeholders (no `?` clash).
+ * operator is unambiguous under memrain's `$N` placeholders (no `?` clash).
  */
 export function embedSkipFilterFragment(docAlias = "d"): string {
   assertSqlAlias(docAlias);

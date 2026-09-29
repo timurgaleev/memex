@@ -101,7 +101,7 @@ function docId(sourcePath: string): string {
 
 // Sweeps running in THIS process. The boot sweep runs inside the server that
 // answers MCP calls, so a process-local count is enough for the code tools to
-// tell "still indexing" from "not there"; an out-of-process `memex reindex` is
+// tell "still indexing" from "not there"; an out-of-process `memrain reindex` is
 // not visible here. The roots are kept too, so a tenant whose sources the
 // sweep never touches is not told its index is still building.
 let sweepsInFlight = 0;

@@ -8,7 +8,7 @@
  *   per-call SearchOptions → per-knob env (explicit "1"/"0") → mode bundle
  *
  * DELIBERATE: the default mode is `conservative`, which equals today's
- * defaults — every paid/experimental stage OFF and NO token cap. memex's
+ * defaults — every paid/experimental stage OFF and NO token cap. memrain's
  * cost posture is default-OFF; `balanced` (graph + rerank + relational ON,
  * 12000-token cap) and `tokenmax` are one env away.
  *
@@ -43,7 +43,7 @@ export interface ModeBundle {
 
 export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> =
   Object.freeze({
-    // memex's live defaults, unchanged: all optional stages off, no cap.
+    // memrain's live defaults, unchanged: all optional stages off, no cap.
     conservative: Object.freeze({
       expansion: false,
       rerank: false,
@@ -52,7 +52,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> =
       relationalArm: false,
       tokenBudget: undefined,
     }),
-    // Balanced posture mapped onto memex knobs: deterministic + paid-rerank
+    // Balanced posture mapped onto memrain knobs: deterministic + paid-rerank
     // stages on, expansion still off (negligible measured lift), Sonnet-sized
     // token cap.
     balanced: Object.freeze({

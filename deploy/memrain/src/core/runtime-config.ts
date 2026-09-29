@@ -1,8 +1,8 @@
 /**
- * Runtime config — the DB-plane knob store behind `memex config` (migration
- * 088), an engine-config surface over memex's env-shaped knobs.
+ * Runtime config — the DB-plane knob store behind `memrain config` (migration
+ * 088), an engine-config surface over memrain's env-shaped knobs.
  *
- * memex knobs are MEMRAIN_* env vars read all over the codebase, so instead of
+ * memrain knobs are MEMRAIN_* env vars read all over the codebase, so instead of
  * threading a config object through every resolver, the DB plane stores
  * env-shaped keys and {@link applyRuntimeEnvOverlay} projects them onto
  * `process.env` at engine-connect time (Storage.init) — ONLY for keys the real

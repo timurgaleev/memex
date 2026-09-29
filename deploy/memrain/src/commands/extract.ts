@@ -1,5 +1,5 @@
 /**
- * `memex extract [--all] [--vault P]`
+ * `memrain extract [--all] [--vault P]`
  *
  * Re-runs the regex entity extractor over every chunk in the index.
  * No Bedrock calls. Useful when the extractor itself changes.
@@ -41,7 +41,7 @@ export async function runExtract(opts: ExtractCmdOptions = {}): Promise<void> {
     }
     if (opts.vault) {
       console.log(
-        `[memex extract] note: --vault filter not yet implemented; processing all documents.`,
+        `[memrain extract] note: --vault filter not yet implemented; processing all documents.`,
       );
     }
     const r = await extractAll(storage, { all: opts.all ?? false });

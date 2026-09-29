@@ -1,5 +1,5 @@
 /**
- * `memex init [--pglite]` — bootstraps a fresh memex instance.
+ * `memrain init [--pglite]` — bootstraps a fresh memrain instance.
  *
  * Creates the config dir (mode 0700; see `resolveConfigDir`), writes
  * config.json, opens the PGLite database, and applies initial migrations.
@@ -99,17 +99,17 @@ export function legacyDirSplit(configDir: string, home: string): string | null {
   }
   if (entries.length === 0 || sameDirectory(configDir, legacy)) return null;
   return (
-    `memex init: ${legacy} holds an existing install and ${configDir} has no config.json; ` +
+    `memrain init: ${legacy} holds an existing install and ${configDir} has no config.json; ` +
     `refusing to start a second brain beside it. Move it instead: mv ${legacy} ${configDir}`
   );
 }
 
 export async function runInit(opts: InitOptions): Promise<void> {
   if (opts.pglite === Boolean(opts.postgres)) {
-    throw new Error("memex init: pass exactly one of --pglite or --postgres");
+    throw new Error("memrain init: pass exactly one of --pglite or --postgres");
   }
   if (opts.pglite && requirePostgres()) {
-    throw new Error("memex init: MEMRAIN_REQUIRE_POSTGRES=1 refuses --pglite; set the Postgres URL and use --postgres");
+    throw new Error("memrain init: MEMRAIN_REQUIRE_POSTGRES=1 refuses --pglite; set the Postgres URL and use --postgres");
   }
 
   const home = opts.home ?? homedir();
@@ -140,7 +140,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
         existing.database = { type: "postgres" };
         writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
         console.log(
-          `[memex] switched database.type to postgres at ${configPath} ` +
+          `[memrain] switched database.type to postgres at ${configPath} ` +
             `(was ${priorType} — --postgres/MEMRAIN_POSTGRES_URL wins)`,
         );
       }
@@ -149,7 +149,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
     // (so adding a new template ships its instance on next container
     // start without needing a full re-init).
     const seeded = seedTemplates(configDir);
-    console.log(`[memex] already initialized at ${configPath}`);
+    console.log(`[memrain] already initialized at ${configPath}`);
     if (seeded.length > 0) {
       console.log(`  templates seeded: ${seeded.length}`);
       for (const t of seeded) console.log(`              + ${t}`);
@@ -205,7 +205,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   const seeded = seedTemplates(configDir);
 
-  console.log(`[memex] initialized:`);
+  console.log(`[memrain] initialized:`);
   console.log(`  config:     ${configPath}`);
   console.log(`  db:         ${opts.postgres ? "postgres (URL from MEMRAIN_POSTGRES_URL env)" : dbPath}`);
   console.log(`  migrations: ${migrationsLine}`);

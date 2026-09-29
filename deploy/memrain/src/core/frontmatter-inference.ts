@@ -3,7 +3,7 @@
  * that has none, at INGEST time (per file).
  *
  * This runs ONCE per file in the import pipeline (a pure function over a single
- * `(path, content)`), NOT as a recurring cycle phase. memex previously had a
+ * `(path, content)`), NOT as a recurring cycle phase. memrain previously had a
  * recurring DB cycle phase that scanned every document each tick — a design
  * that caused repeated OOM-SIGKILLs. `applyInference(path, content)` prepends
  * an inferred `---…---` block to the in-memory content before chunking; a file

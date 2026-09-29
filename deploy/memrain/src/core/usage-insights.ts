@@ -5,14 +5,14 @@
  *   1. {@link getRecentSalience} — pages ranked by the migration-036 `salience`
  *      score (high-emotion tags + graph link-degree, recomputed by the
  *      `recompute-salience` cycle phase). The MCP read behind `get_recent_salience`;
- *      mirrors the `memex salience` CLI query but as a reusable, storage-only fn.
+ *      mirrors the `memrain salience` CLI query but as a reusable, storage-only fn.
  *
- *   2. {@link findAnomalies} — deterministic usage OUTLIERS. memex has no
+ *   2. {@link findAnomalies} — deterministic usage OUTLIERS. memrain has no
  *      retrieval/access counters (no `last_retrieved` / `retrieval_count`
  *      column on `pages` — verified against migrations 015/024/036), so this
  *      CANNOT key on retrieval-pattern deviation the way a usage-logged brain
  *      would. Instead it surfaces two structural anomaly classes derived from
- *      the signals memex DOES have — `salience` (036) and graph link-degree
+ *      the signals memrain DOES have — `salience` (036) and graph link-degree
  *      (the `links` table):
  *        - `degree_outlier`  — a connectivity hub: link-degree at/above
  *          mean + k·stddev across live pages (k = MEMRAIN_ANOMALY_SIGMA, default 2).
@@ -37,7 +37,7 @@ export interface RecentSalienceOptions {
   slugPrefix?: string;
   /**
    * Recency weighting of the ranking:
-   *   'flat' (DEFAULT) — pure `salience` order, memex's historical behavior.
+   *   'flat' (DEFAULT) — pure `salience` order, memrain's historical behavior.
    *   'on'             — rank by salience x 1/(1+days_old), so equally-salient
    *                      pages surface freshest-first ("salient lately").
    */

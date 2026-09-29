@@ -9,7 +9,7 @@
  *
  * Design:
  *  - Signal scope: SIGHUP, SIGPIPE, uncaughtException, unhandledRejection, and
- *    an EPIPE-on-stdout/stderr handler. NOT SIGINT/SIGTERM — memex's `serve`
+ *    an EPIPE-on-stdout/stderr handler. NOT SIGINT/SIGTERM — memrain's `serve`
  *    daemon already installs a graceful SIGINT/SIGTERM `shutdown()` that
  *    releases the held cycle lock (via `cycle.stop()`) before closing the
  *    engine. Registering a competing SIGTERM handler here would race that

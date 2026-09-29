@@ -1,6 +1,6 @@
 /**
  * Conversation turn → structured facts, via a paid Bedrock Claude (Sonnet)
- * call. The opt-in, default-OFF agent-layer slice. The model binding is memex's
+ * call. The opt-in, default-OFF agent-layer slice. The model binding is memrain's
  * Bedrock Sonnet helper, and the write path reuses the existing `addFact` ledger
  * (entity_facts, not the RLS-without-source_id hot_memory table).
  *
@@ -497,9 +497,9 @@ export async function writeExtractedFacts(
     dedup?: NonNullable<Parameters<typeof addFact>[1]["dedup"]>;
     /**
      * Notability write policy. `'all'` (default) writes every extracted fact;
-     * `'high-only'` writes HIGH now and drops the rest. memex is DB-canonical
+     * `'high-only'` writes HIGH now and drops the rest. memrain is DB-canonical
      * with no file-vault sync path, so the default `'all'` is what every surface
-     * memex actually runs uses. Exposed for a future bulk surface that wants the
+     * memrain actually runs uses. Exposed for a future bulk surface that wants the
      * filter.
      */
     notabilityFilter?: "all" | "high-only";
@@ -585,8 +585,8 @@ export const FACTS_EXTRACT_VERSION = "1";
 /**
  * Page types whose body is prose worth extracting conversation-shaped facts
  * from. Entity pages (person/company/concept) and structured stubs (task/event)
- * are excluded — they carry attributes, not narrated claims. Drawn from memex's
- * KNOWN_PAGE_TYPES, plus `conversation`, the type `memex transcripts ingest`
+ * are excluded — they carry attributes, not narrated claims. Drawn from memrain's
+ * KNOWN_PAGE_TYPES, plus `conversation`, the type `memrain transcripts ingest`
  * writes imported chat sessions under.
  */
 export const EXTRACTION_ELIGIBLE_TYPES: readonly string[] = [

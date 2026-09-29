@@ -1,5 +1,5 @@
 /**
- * `memex orphans` — DB hygiene report + safe deletions.
+ * `memrain orphans` — DB hygiene report + safe deletions.
  *
  * Wraps cycle/orphans-purge.ts. Always-safe deletes happen by default
  * (orphan embeddings / entity_mentions / entities); flagged classes

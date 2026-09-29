@@ -68,7 +68,7 @@ export function publicSafeErrorMessage(e: unknown, isPublic: boolean): string {
   const detail = e instanceof Error ? e.message : String(e);
   if (isPublic) {
     console.error(
-      "[memex] suppressed error on public ingress:",
+      "[memrain] suppressed error on public ingress:",
       logSafeDetail(detail),
     );
     return PUBLIC_ERROR_MESSAGE;

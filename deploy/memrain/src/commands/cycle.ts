@@ -1,5 +1,5 @@
 /**
- * `memex cycle [--phases a,b,c] [--stale-days N]` -- run ONE maintenance cycle
+ * `memrain cycle [--phases a,b,c] [--stale-days N]` -- run ONE maintenance cycle
  * on demand, then exit. The same `runCycleOnce` the periodic loop runs, but
  * one-shot: useful right after a deploy/import to realize the cycle-driven
  * backfills (page salience, fact embeddings, link reconcile, ...) immediately
@@ -81,13 +81,13 @@ export function parsePhasesArg(raw: string): PhaseName[] {
   );
   if (names.length === 0) {
     throw new Error(
-      `memex cycle: --phases is empty -- give a comma-separated subset of: ${VALID_PHASES.join(", ")}`,
+      `memrain cycle: --phases is empty -- give a comma-separated subset of: ${VALID_PHASES.join(", ")}`,
     );
   }
   const bad = names.filter((n) => !PHASE_SET.has(n));
   if (bad.length > 0) {
     throw new Error(
-      `memex cycle: unknown phase(s) ${bad.join(", ")} -- valid: ${VALID_PHASES.join(", ")}`,
+      `memrain cycle: unknown phase(s) ${bad.join(", ")} -- valid: ${VALID_PHASES.join(", ")}`,
     );
   }
   return names as PhaseName[];

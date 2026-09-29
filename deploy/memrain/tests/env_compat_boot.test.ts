@@ -62,7 +62,7 @@ describe("env shim at process start", () => {
   it("MEMEX_VERSION reaches the version stamp, the one import-time env read", () => {
     const r = run(["src/cli.ts", "--version"], { MEMEX_VERSION: "x" });
     expect(r.code).toBe(0);
-    expect(r.out.trim()).toBe("memex x");
+    expect(r.out.trim()).toBe("memrain x");
   });
 
   it("legacy-only and new-only env resolve to the same values", () => {

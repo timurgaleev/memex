@@ -210,7 +210,7 @@ function migrationBackoffs(): number[] {
  * reset. The whole transaction rolls back on failure, so a retry re-runs it
  * atomically — nothing is half-recorded. A lock_timeout (55P03) stays
  * fail-fast (not retryable): a held lock won't clear by re-waiting. Wraps
- * memex's bundled-transaction runner so the SQL + bookkeeping INSERT retry
+ * memrain's bundled-transaction runner so the SQL + bookkeeping INSERT retry
  * atomically.
  */
 async function applyOneWithRetry(
@@ -239,7 +239,7 @@ async function applyOneWithRetry(
     }
     try {
       const applied = await engine.transaction(async (tx) => {
-        // `serve` and a `docker exec memex …` CLI both run migrations. Each read
+        // `serve` and a `docker exec memrain …` CLI both run migrations. Each read
         // the applied set up front, so two of them racing both applied the same
         // file and the loser died on the duplicate `migrations` row — at boot.
         // One migration at a time across processes, and the second finds it

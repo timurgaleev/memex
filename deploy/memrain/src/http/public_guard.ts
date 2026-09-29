@@ -63,7 +63,7 @@ export interface GuardRejection {
 }
 
 // Defense-in-depth relic. These REST write routes were removed in A.7 —
-// memex's only HTTP surface today is `GET /health` + `POST /mcp` (see
+// memrain's only HTTP surface today is `GET /health` + `POST /mcp` (see
 // http/server.ts), so none of these paths route to a handler anymore and
 // this set can never match a real request. It is kept (not deleted) as a
 // fail-closed backstop: the north-star forbids re-adding non-`/mcp` HTTP

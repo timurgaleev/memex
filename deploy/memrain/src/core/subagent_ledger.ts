@@ -7,7 +7,7 @@
  * decide which calls have already happened and don't need re-running.
  *
  * There is no MCP surface: the runner is reached through the `subagent` job
- * kind and `memex agent run|logs`.
+ * kind and `memrain agent run|logs`.
  *
  * SECURITY (read before adding any MCP read of these tables):
  *   * `subagent_messages.content` is the raw Bedrock Converse

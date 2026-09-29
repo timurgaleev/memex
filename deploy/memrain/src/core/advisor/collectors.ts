@@ -1,7 +1,7 @@
 /**
  * advisor/collectors.ts — the deterministic advisor collectors.
  *
- * Each collector is read-only, LLM-free, and reshapes a signal memex already
+ * Each collector is read-only, LLM-free, and reshapes a signal memrain already
  * computes into ranked findings. None of them open Bedrock or write a row. Every
  * collector runs in its OWN try/catch in run.ts, so a missing table or an engine
  * quirk on one never aborts the report.
@@ -88,8 +88,8 @@ export const collectMigration: AdvisorCollector = {
         id: "pending_migration",
         severity: "high",
         title: `${pending.length} schema migration${pending.length === 1 ? " is" : "s are"} pending — apply before relying on newer features.`,
-        detail: `Newer memex code assumes the latest schema; an un-migrated brain can fail or under-perform. Pending: ${names}.`,
-        fix_command: "memex apply-migrations",
+        detail: `Newer memrain code assumes the latest schema; an un-migrated brain can fail or under-perform. Pending: ${names}.`,
+        fix_command: "memrain apply-migrations",
         collector: "migration",
       },
     ];
@@ -98,11 +98,11 @@ export const collectMigration: AdvisorCollector = {
 
 /**
  * Version drift — the running binary reports a different version than the
- * package.json it was built from. Deterministic + local (NO network: memex has
+ * package.json it was built from. Deterministic + local (NO network: memrain has
  * no update cache; versioning is git tags). A mismatch means the live process is
  * stale relative to the checked-out source — restart to pick up the new build.
  *
- * ponytail: inert under memex's single baked-image container deploy — `built`
+ * ponytail: inert under memrain's single baked-image container deploy — `built`
  * (this import) and the running version are the same package.json, so they never
  * differ in production. The comparison is correct + unit-tested, and fires the
  * moment a caller feeds a distinct runtime version (e.g. a future
@@ -127,7 +127,7 @@ export const collectVersion: AdvisorCollector = {
 };
 
 /**
- * Stalled / dead jobs + a failed-job signal. memex's queue uses status
+ * Stalled / dead jobs + a failed-job signal. memrain's queue uses status
  * 'running' + `lock_until`. A running row whose lock lapsed, or whose
  * stall_count has climbed, is wedged and stops
  * backfill/sync from progressing. Failed jobs in the last 24h are the one
@@ -156,7 +156,7 @@ export const collectStalledJobs: AdvisorCollector = {
           severity: "medium",
           title: `${n} "${row.kind}" job${n === 1 ? "" : "s"} look stalled (lock lapsed / retrying).`,
           detail: "A wedged worker stops backfill / re-index from progressing.",
-          fix_command: "memex jobs list",
+          fix_command: "memrain jobs list",
           collector: "stalled-jobs",
         });
       }
@@ -172,7 +172,7 @@ export const collectStalledJobs: AdvisorCollector = {
           severity: "medium",
           title: `${h.failed_jobs_24h} job${h.failed_jobs_24h === 1 ? "" : "s"} failed in the last 24h.`,
           detail: "Inspect the failures and re-run or cancel them — a failing handler can block dependent work.",
-          fix_command: "memex jobs list",
+          fix_command: "memrain jobs list",
           collector: "stalled-jobs",
         });
       }
@@ -210,7 +210,7 @@ export const collectEmbedCoverage: AdvisorCollector = {
         severity: "medium",
         title: `Only ${pct}% of embeddable content is embedded — semantic search is degraded.`,
         detail: `${missing} chunk${missing === 1 ? " is" : "s are"} missing an embedding. Backfill to restore the vector arm of hybrid search.`,
-        fix_command: "memex embed",
+        fix_command: "memrain embed",
         collector: "embed-coverage",
       },
     ];
@@ -230,7 +230,7 @@ export const collectEmbedCoverage: AdvisorCollector = {
  * the metric collectors, so it belongs to the explicit `advisor` run, not a hot
  * sync-cadence path.
  *
- * Soft-delete semantics: memex SOFT-deletes pages (sets `deleted_at`, the link
+ * Soft-delete semantics: memrain SOFT-deletes pages (sets `deleted_at`, the link
  * rows survive), so a link to/from a soft-deleted page must count as a NON-edge.
  * Both counts therefore gate every edge on a live page at both ends:
  * orphan = no inbound edge FROM a live page and no outbound edge TO a live page;
@@ -294,7 +294,7 @@ ${orphanExcl.sql}
           "review them. Counted as: a live page with no live inbound AND no " +
           "live outbound link. No surface reports exactly that set today — " +
           "`find_orphans` looks only at inbound links and ignores whether the " +
-          "linking page still exists, and `memex orphans` purges orphaned " +
+          "linking page still exists, and `memrain orphans` purges orphaned " +
           "database rows rather than pages.",
         collector: "usage-shape",
       });
@@ -308,7 +308,7 @@ ${orphanExcl.sql}
           "A link whose target was deleted or never created clutters the graph " +
           "and misleads traversal. Counted as: a `links` row from a live page " +
           "to a slug with no live page. No surface reports exactly that set " +
-          "today — `memex reconcile-links` checks wikilink entities against " +
+          "today — `memrain reconcile-links` checks wikilink entities against " +
           "documents, which is an adjacent but different condition.",
         collector: "usage-shape",
       });
@@ -475,7 +475,7 @@ export const collectEvalBlind: AdvisorCollector = {
         detail:
           "The probe replays eval_queries; with none registered it scores 0/0 and still reports ok, so a run that measured nothing is filed as a run that passed. Register a handful of real questions with the document each one should surface, and the trend in doctor starts meaning something.",
         fix_command:
-          'memex eval-replay capture <id> --query "<a real question>" --tag good --expected-doc <document-id>',
+          'memrain eval-replay capture <id> --query "<a real question>" --tag good --expected-doc <document-id>',
         collector: "eval-blind",
       },
     ];
@@ -558,7 +558,7 @@ export const collectTakesUngradeable: AdvisorCollector = {
         detail:
           "propose-takes writes on every synthesis tick, but grade-takes only looks at takes past MEMRAIN_GRADE_MIN_AGE_DAYS, so the paid producer keeps running while the grader selects nothing and calibration keeps reading whatever stale grades already exist. Either lower the bar to match this brain's age, or stop proposing until grading can fire.",
         fix_command:
-          "memex (set MEMRAIN_GRADE_MIN_AGE_DAYS below the age of the oldest take, or drop propose-takes from the synthesis phases)",
+          "memrain (set MEMRAIN_GRADE_MIN_AGE_DAYS below the age of the oldest take, or drop propose-takes from the synthesis phases)",
         collector: "takes-ungradeable",
       },
     ];
@@ -567,7 +567,7 @@ export const collectTakesUngradeable: AdvisorCollector = {
 
 /**
  * Setup smells — config/env misconfigurations the owner usually wants to know
- * about. memex has no DB config-key plane, so the one deterministic, security-
+ * about. memrain has no DB config-key plane, so the one deterministic, security-
  * relevant smell is the internal-auth token being unset: with no
  * MEMRAIN_INTERNAL_TOKEN, any peer on the docker bridge can call write tools
  * unauthenticated (the public_guard's documented legacy fall-through).
@@ -583,7 +583,7 @@ export const collectSetupSmells: AdvisorCollector = {
         severity: "medium",
         title: "MEMRAIN_INTERNAL_TOKEN is unset — internal write tools are open on the bridge.",
         detail: "Without the shared token any peer on the docker bridge can call write tools with no auth. Set the secret and restart so the internal endpoint fails closed.",
-        fix_command: "memex (set MEMRAIN_INTERNAL_TOKEN from <secrets_prefix>/memex-internal-token, then restart)",
+        fix_command: "memrain (set MEMRAIN_INTERNAL_TOKEN from <secrets_prefix>/memrain-internal-token (legacy: memex-internal-token), then restart)",
         collector: "setup-smells",
       });
     }

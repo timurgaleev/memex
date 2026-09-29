@@ -6,7 +6,7 @@
  * evidence (each expansion cites the neighbours as [[slug]] wikilinks), and
  * rewrites the page in place via putPage (idempotent, source_id-pinned).
  *
- * DELIBERATE: memex has no server-side subagent / minion runtime, so a
+ * DELIBERATE: memrain has no server-side subagent / minion runtime, so a
  * per-source minion fan-out becomes a single Sonnet call per thin page here
  * (no tool loop). Grounding evidence is gathered
  * deterministically from the `links` graph rather than a live retrieval agent.

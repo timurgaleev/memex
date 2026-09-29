@@ -1,7 +1,7 @@
 /**
  * Fenced-code extraction. Pulls ```lang code fences out of a markdown page so
  * each example can be chunked by the tree-sitter code chunker and ranked as
- * code, not prose. Only fences whose info-string tag maps to a grammar memex
+ * code, not prose. Only fences whose info-string tag maps to a grammar memrain
  * actually parses are returned; everything else stays as ordinary prose in the
  * markdown chunker. Bounded by `MEMRAIN_MAX_FENCES_PER_PAGE` (default 100) so a
  * pathological page can't fan out into an unbounded embedding bill.

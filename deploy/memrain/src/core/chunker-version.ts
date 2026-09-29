@@ -5,9 +5,9 @@
  * A document is STALE for re-chunking when its stamped chunker version is below
  * the CURRENT version of the chunker that produced it. The two chunkers carry
  * independent version namespaces (markdown vs code), so the staleness check
- * branches on document kind. memex treats markdown as the NEGATION of code
+ * branches on document kind. memrain treats markdown as the NEGATION of code
  * (`frontmatter->>'kind' <> 'code'`) because markdown frontmatter is user-shaped
- * and usually carries no `kind`. This holds for memex's two-kind (markdown +
+ * and usually carries no `kind`. This holds for memrain's two-kind (markdown +
  * code) corpus — if a third doc kind is ever indexed it would fall into the
  * markdown comparison; split the predicate then.
  *
@@ -54,7 +54,7 @@ const KIND_WHERE = {
  * The document ids of live chunker-stale documents. Used by `reindex
  * --rechunk-stale` to force-reindex ONLY these (re-chunk + re-embed just the
  * stale set, not the whole corpus). The id matches `docId(source_path)`, so the
- * vault sweep can test membership per walked file. memex can't re-chunk from the
+ * vault sweep can test membership per walked file. memrain can't re-chunk from the
  * DB (documents store no full body — only `chunks.content`), so remediation
  * re-reads the source file; this targets the subset worth re-reading.
  *

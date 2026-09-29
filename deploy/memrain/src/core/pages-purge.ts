@@ -1,7 +1,7 @@
 /**
  * pages-purge — the manual escape hatch for hard-deleting soft-deleted pages.
  *
- * memex soft-deletes pages by flipping `pages.deleted_at` (core/pages.ts
+ * memrain soft-deletes pages by flipping `pages.deleted_at` (core/pages.ts
  * deletePage); the row + its append-only `page_versions` chain are kept so a
  * delete is reversible (page_restore). This module is the reaper that finally
  * frees a row once it has aged past `older_than_hours`, cascading to

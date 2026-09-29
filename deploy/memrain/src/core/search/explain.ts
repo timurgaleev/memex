@@ -7,7 +7,7 @@
  * reranker's rank delta. This module owns the shape of that record and its
  * human-readable renderer.
  *
- * The `search --explain` formatter, mapped onto memex's
+ * The `search --explain` formatter, mapped onto memrain's
  * boost stack (source-boost + recency + salience + curation + title-phrase +
  * backlink + graph-signals + two-pass rerank). A boost is only stamped when it
  * moved the score (factor != 1); a stage that stayed neutral leaves no line, so
@@ -127,7 +127,7 @@ function fmt(n: number): string {
 
 /**
  * Render one hit's attribution as a multi-line block (no trailing newline).
- * `slug` is a display label (memex passes the source_path). Mirrors the
+ * `slug` is a display label (memrain passes the source_path). Mirrors the
  * layout: a header, the base line, one `+ stage ×factor` line per
  * fired boost, and a closing `= final` line (or `no boosts applied`).
  */

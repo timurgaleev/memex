@@ -1,5 +1,5 @@
 /**
- * `memex code-{def,refs,callers,callees}` — call-graph queries against
+ * `memrain code-{def,refs,callers,callees}` — call-graph queries against
  * the entity_mentions table. All four subcommands translate to a SQL
  * filter on `entity_id` (which is `ent_<type>_<lower-name>` per
  * `core/entities.ts entityId()`).
@@ -79,13 +79,13 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
     if (opts.sub === "code-callees") {
       if (!opts.target) {
         throw new Error(
-          "memex code-callees: <path>:<line> target is required",
+          "memrain code-callees: <path>:<line> target is required",
         );
       }
       const parsed = parsePathLine(opts.target);
       if (!parsed) {
         throw new Error(
-          `memex code-callees: invalid target '${opts.target}' — expected '<path>:<line>'`,
+          `memrain code-callees: invalid target '${opts.target}' — expected '<path>:<line>'`,
         );
       }
       // Resolve the innermost-enclosing symbol for the file:line. We
@@ -122,7 +122,7 @@ export async function runCode(opts: CodeCommandOptions): Promise<void> {
     }
 
     if (!lookupName) {
-      throw new Error(`memex ${opts.sub}: <name> is required`);
+      throw new Error(`memrain ${opts.sub}: <name> is required`);
     }
 
     const eid = entityId(entityType, lookupName);

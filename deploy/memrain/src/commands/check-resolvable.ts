@@ -1,5 +1,5 @@
 /**
- * `memex check-resolvable` — wikilink coverage report.
+ * `memrain check-resolvable` — wikilink coverage report.
  *
  * Walks every `wikilink` entity in the corpus, asks the resolver
  * registry whether it points at a real document, prints a counts

@@ -1,5 +1,5 @@
 /**
- * Kind names for the job handlers memex ships. They live apart from the
+ * Kind names for the job handlers memrain ships. They live apart from the
  * handler modules so the submit-side check in handlers.ts can name them
  * without importing each handler's dependencies.
  */

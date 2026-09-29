@@ -5,21 +5,21 @@
  * silent, wrong — sometimes expensive — run:
  *
  *   1. A boolean flag consumed the next token whenever that token was not
- *      `--`-prefixed. `memex embed --dry-run <slug>` therefore lost BOTH the
+ *      `--`-prefixed. `memrain embed --dry-run <slug>` therefore lost BOTH the
  *      slug and the dry-run and started a real, paid whole-corpus backfill.
  *      `VALUELESS_FLAGS` settles it by name, not by position: a boolean is a
  *      boolean wherever it sits on the line.
  *   2. `--key=value` arrives as ONE token and was never split, so
- *      `memex search --k=5 hello` searched with the default k and
- *      `memex apply-migrations --dry-run=true` really applied.
+ *      `memrain search --k=5 hello` searched with the default k and
+ *      `memrain apply-migrations --dry-run=true` really applied.
  *
  * Adding a new boolean flag to a command means adding it to VALUELESS_FLAGS
  * too — otherwise it eats the next positional. The test asserts that.
  *
  * Validation is then keyed PER COMMAND (`COMMAND_FLAGS`), not against one
  * global vocabulary. A global set is wrong in both directions: it rejected
- * `memex doctor --remediate` — a flag doctor really reads, which made the whole
- * self-heal surface unreachable — while accepting `memex reindex --stale`,
+ * `memrain doctor --remediate` — a flag doctor really reads, which made the whole
+ * self-heal surface unreachable — while accepting `memrain reindex --stale`,
  * which reindex never reads and therefore silently dropped. "Does THIS command
  * read THIS flag" is the only question whose answer is useful to the caller.
  */
@@ -85,7 +85,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
  * `--flag=<literal>` forms a boolean accepts.
  *
  * A bare `--flag=` is an ERROR, not ON. Shells expand an unset variable to
- * nothing, so `memex reindex --force=$MODE` arrives as `--force=` — and the
+ * nothing, so `memrain reindex --force=$MODE` arrives as `--force=` — and the
  * destructive booleans (`--apply`, `--force`, `--fix`) are exactly the ones
  * where guessing ON turns a typo into data loss. Refusing is the only reading
  * that cannot silently destroy something.
@@ -369,7 +369,7 @@ export function validateFlags(parsed: ParsedArgs): void {
     for (const [flag, commands] of SAFETY_FLAG_COMMANDS) {
       if ((parsed.flags.has(flag) || parsed.values.has(flag)) && !commands.has(cmd)) {
         throw new UnknownFlagError(
-          `memex: ${flag} is not supported by '${cmd}' — refusing to run, ` +
+          `memrain: ${flag} is not supported by '${cmd}' — refusing to run, ` +
             `because ignoring it would do the opposite of what it asks for`,
         );
       }
@@ -390,17 +390,17 @@ export function validateFlags(parsed: ParsedArgs): void {
         : accepted.size === 0
           ? ` ('${cmd}' takes no flags)`
           : ` ('${cmd}' accepts: ${[...accepted].sort().join(", ")})`;
-    throw new UnknownFlagError(`memex: unknown flag '${flag}'${guess}${takes}`);
+    throw new UnknownFlagError(`memrain: unknown flag '${flag}'${guess}${takes}`);
   }
 
   // A value-taking flag given nothing to take lands in `flags` (the parser
   // refuses to eat the next positional). Reading that as a bare boolean is how
-  // `memex reindex --vault --all` silently reindexed the default vault, so it
+  // `memrain reindex --vault --all` silently reindexed the default vault, so it
   // is an error here rather than a default three layers down.
   for (const flag of parsed.flags) {
     if (VALUE_FLAGS.has(flag)) {
       throw new UnknownFlagError(
-        `memex${cmd !== undefined ? ` ${cmd}` : ""}: ${flag} requires a value`,
+        `memrain${cmd !== undefined ? ` ${cmd}` : ""}: ${flag} requires a value`,
       );
     }
   }
@@ -430,7 +430,7 @@ export function parseArgs(raw: readonly string[], opts: ParseArgsOptions = {}): 
           flags.add(key);
         } else if (!FALSE_LITERALS.has(literal)) {
           throw new Error(
-            `memex: ${key} is a boolean flag — got '${token}' (use ${key}, ${key}=true or ${key}=false)`,
+            `memrain: ${key} is a boolean flag — got '${token}' (use ${key}, ${key}=true or ${key}=false)`,
           );
         }
       } else {

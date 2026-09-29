@@ -149,7 +149,7 @@ describe("list_skills / get_skill dispatch", () => {
   it("list_skills returns a well-formed pack", async () => {
     const p = payload(await call("list_skills", {}));
     expect(p.ok).toBe(true);
-    expect(p.pack).toBe("memex-skillpack");
+    expect(p.pack).toBe("memrain-skillpack");
     expect(Array.isArray(p.skills)).toBe(true);
   });
 

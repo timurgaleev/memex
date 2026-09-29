@@ -1,5 +1,5 @@
 /**
- * `memex auth doctor <base-url>` — a client-side end-to-end check of a deployed
+ * `memrain auth doctor <base-url>` — a client-side end-to-end check of a deployed
  * brain, as one report: /health stamp, OAuth discovery, client_credentials
  * mint, MCP initialize/tools-list/whoami, and the caller's tenancy scope.
  *
@@ -459,7 +459,7 @@ export async function runRemoteDoctor(
   const init = await rpc("initialize", {
     protocolVersion: "2025-03-26",
     capabilities: {},
-    clientInfo: { name: "memex-remote-doctor", version: "1.0" },
+    clientInfo: { name: "memrain-remote-doctor", version: "1.0" },
   });
   if (!init.ok) {
     record("initialize", "fail", init.detail);

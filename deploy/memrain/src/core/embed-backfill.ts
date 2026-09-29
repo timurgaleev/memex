@@ -128,19 +128,19 @@ export interface EmbedBackfillOptions {
    */
   startAfterId?: string;
   /**
-   * Restrict candidates to documents owned by this source (`memex embed
+   * Restrict candidates to documents owned by this source (`memrain embed
    * --source <id>`). Combines with `slugs`.
    */
   sourceId?: string;
   /**
    * Restrict candidates to documents denoted by these slugs/paths — the raw
    * source_path, the page:// / page-truth:// mirror forms (any tenant), or the
-   * `<slug>.md` file twin (`memex embed <slug>` / `--slugs a,b`).
+   * `<slug>.md` file twin (`memrain embed <slug>` / `--slugs a,b`).
    */
   slugs?: string[];
   /**
    * Delete the existing embeddings inside the scope FIRST so every scoped
-   * chunk re-embeds this run — the surgical `memex embed <slug>` / the
+   * chunk re-embeds this run — the surgical `memrain embed <slug>` / the
    * whole-corpus `--all`. Off by default: a routine backfill only fills gaps.
    */
   forceReembed?: boolean;
@@ -579,7 +579,7 @@ async function runEmbedBackfillBody(
       : await invalidateStaleSignatures(engine, currentSig);
   }
 
-  // Targeted re-embed (`memex embed <slug>` / `--all`): drop the scoped
+  // Targeted re-embed (`memrain embed <slug>` / `--all`): drop the scoped
   // embeddings first so their chunks become candidates for this same run.
   let forceCleared = 0;
   if (opts.forceReembed) {

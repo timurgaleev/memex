@@ -7,7 +7,7 @@
  *                        bypass the source-prefix boost — see curation.ts)
  *   - suggestedSalience: 'off' | 'on'      — mattering (pages.salience) boost
  *   - suggestedRecency:  'off' | 'on' | 'strong' — hyperbolic recency boost
- *   - suggestedModality: 'text' | 'image'  — computed but memex has no image
+ *   - suggestedModality: 'text' | 'image'  — computed but memrain has no image
  *                        arm today, so it is advisory only
  *
  * Canonical/definitional phrasings force salience + recency to 'off' UNLESS an

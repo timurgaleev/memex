@@ -2,8 +2,8 @@
  * skillpack/brain-resident.ts — server-side discovery of the brain-resident
  * skillpack for the `list_brain_skillpack` MCP tool.
  *
- * memex is single-holder / single-source: it ships ONE local skillpack (the
- * `deploy/skills/` directory `memex skillpack` bundles), not per-federated-source
+ * memrain is single-holder / single-source: it ships ONE local skillpack (the
+ * `deploy/skills/` directory `memrain skillpack` bundles), not per-federated-source
  * packs. So discovery collapses to "read the local skills
  * dir and surface its offerings as a read" — there is no in-DB source tenancy
  * to scope by, and no git-remote scaffold spec to hand a thin client.
@@ -20,9 +20,9 @@ import { parseSkillFrontmatter } from "./frontmatter.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
- * Same default the `memex skillpack` command bundles from (deploy/skills/).
+ * Same default the `memrain skillpack` command bundles from (deploy/skills/).
  * In the container the repo-relative path does not exist (the image copies
- * only deploy/memex), so the compose file mounts the pack read-only and
+ * only deploy/memrain), so the compose file mounts the pack read-only and
  * points MEMRAIN_SKILLS_DIR at it.
  */
 export const DEFAULT_SKILLS_DIR =
@@ -36,7 +36,7 @@ export interface BrainSkill {
 }
 
 export interface BrainSkillpackResult {
-  /** The pack name (stable; memex ships a single pack). */
+  /** The pack name (stable; memrain ships a single pack). */
   pack: string;
   /** Number of skills discovered. */
   count: number;
@@ -65,18 +65,18 @@ function readSkillDescription(skillFile: string): string {
 
 /**
  * Enumerate the brain-resident skillpack offerings. Fail-open: a missing skills
- * dir (memex ships none by default) returns an empty pack rather than throwing,
+ * dir (memrain ships none by default) returns an empty pack rather than throwing,
  * so the MCP tool always returns a well-formed result.
  */
 export function listBrainSkillpacks(
   opts: ListBrainSkillpacksOptions = {},
 ): BrainSkillpackResult {
   const skillsDir = opts.skillsDir ?? DEFAULT_SKILLS_DIR;
-  const empty: BrainSkillpackResult = { pack: "memex-skillpack", count: 0, skills: [] };
+  const empty: BrainSkillpackResult = { pack: "memrain-skillpack", count: 0, skills: [] };
   if (!existsSync(skillsDir)) return empty;
 
   // Two layouts, both supported:
-  //   flat:      <skillsDir>/<slug>.md          (the original memex shape)
+  //   flat:      <skillsDir>/<slug>.md          (the original memrain shape)
   //   directory: <skillsDir>/<slug>/SKILL.md    (the shipped pack's shape)
   // Underscore-prefixed files (shared cross-cutting rules, not routable
   // skills) and non-skill artifacts (manifest.json, conventions/) are
@@ -107,7 +107,7 @@ export function listBrainSkillpacks(
     description: readSkillDescription(e.file),
   }));
 
-  return { pack: "memex-skillpack", count: skills.length, skills };
+  return { pack: "memrain-skillpack", count: skills.length, skills };
 }
 
 export interface BrainSkillDetail {

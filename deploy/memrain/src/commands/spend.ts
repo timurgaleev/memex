@@ -1,5 +1,5 @@
 /**
- * `memex spend [--days N]` — where the LLM money went over the last N days
+ * `memrain spend [--days N]` — where the LLM money went over the last N days
  * (default 7): by model, by feature, by spender, plus the calls the totals
  * cannot price.
  */

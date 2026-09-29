@@ -62,7 +62,7 @@ describe("collectEmbedCoverage", () => {
     const finding = out[0];
     expect(finding?.id).toBe("low_embed_coverage");
     expect(finding?.severity).toBe("medium");
-    expect(finding?.fix_command).toBe("memex embed");
+    expect(finding?.fix_command).toBe("memrain embed");
   });
 });
 

@@ -557,7 +557,7 @@ export async function expireStaleReservations(
 // before sending, and refuses the call when that would not fit (holdForCall).
 // ---------------------------------------------------------------------------
 
-/** memex's only paid provider. */
+/** memrain's only paid provider. */
 const DEFAULT_SPEND_PROVIDER = "bedrock";
 
 export interface TrackedCall {
@@ -824,7 +824,7 @@ async function bookSpend(
   if (!priced && !_unpricedWarned.has(call.model)) {
     _unpricedWarned.add(call.model);
     console.warn(
-      `[memex] spend ledger: no pricing for model '${call.model}' — its calls ` +
+      `[memrain] spend ledger: no pricing for model '${call.model}' — its calls ` +
         `book an unknown (NULL) cost until MODEL_PRICING/EMBEDDING_PRICING learns it`,
     );
   }
@@ -857,7 +857,7 @@ async function bookSpend(
     });
   } catch (err) {
     console.warn(
-      `[memex] spend ledger write failed for '${call.operation}': ` +
+      `[memrain] spend ledger write failed for '${call.operation}': ` +
         (err instanceof Error ? err.message : String(err)),
     );
   }

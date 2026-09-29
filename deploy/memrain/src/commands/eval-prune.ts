@@ -1,5 +1,5 @@
 /**
- * `memex eval-prune` — delete old rows from eval_candidates so the
+ * `memrain eval-prune` — delete old rows from eval_candidates so the
  * firehose table doesn't bloat. Default keep window is 90 days.
  *
  * Read-only by default (`--dry-run` is the default). Pass `--apply`

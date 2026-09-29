@@ -1,5 +1,5 @@
 /**
- * `memex auth <subcommand>` — manage the self-issued OAuth 2.1 provider
+ * `memrain auth <subcommand>` — manage the self-issued OAuth 2.1 provider
  * (client_credentials). The auth surface: register a client, mint a token,
  * present it as `Authorization: Bearer memex_at_…` on `/mcp`.
  *
@@ -702,7 +702,7 @@ async function createToken(name: string, rest: string[]): Promise<void> {
         scopes: minted.scopes,
         ...(minted.sourceGrant !== undefined ? { source_id: minted.sourceGrant } : {}),
         takes_holders: takesHolders,
-        note: "Store the token now — only its hash persists. Revoke with: memex auth revoke <name>.",
+        note: "Store the token now — only its hash persists. Revoke with: memrain auth revoke <name>.",
       },
       null,
       2,
@@ -902,7 +902,7 @@ export async function runAuthTest(
       params: {
         protocolVersion: "2025-03-26",
         capabilities: {},
-        clientInfo: { name: "memex-smoke-test", version: "1.0" },
+        clientInfo: { name: "memrain-smoke-test", version: "1.0" },
       },
       id: 1,
     });
@@ -1087,7 +1087,7 @@ export async function runAuth(args: string[]): Promise<void> {
       return doctorCommand(rest);
     default:
       console.error(
-        "Usage: memex auth <register-client|list-clients|revoke-client|set-redirect-uris|rescope-client|grant-history|set-budget|enroll|enrollments|revoke-enrollment|revoke-grant|invalidate-tokens|grant-token|create|list|revoke|permissions|test|doctor>",
+        "Usage: memrain auth <register-client|list-clients|revoke-client|set-redirect-uris|rescope-client|grant-history|set-budget|enroll|enrollments|revoke-enrollment|revoke-grant|invalidate-tokens|grant-token|create|list|revoke|permissions|test|doctor>",
       );
       process.exitCode = 1;
   }

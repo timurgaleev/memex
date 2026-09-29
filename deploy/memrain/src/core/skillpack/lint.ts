@@ -5,11 +5,11 @@
  * and every `memrain <cmd> [<sub>]` it tells an agent to run must exist (the
  * pre-rename `memex <cmd>` spelling in stored skill pages counts too). The
  * lint checks both against the real surfaces (OPERATIONS and CLI_COMMANDS).
- * Tool-call examples (`tool_name {json}`, `memex call tool '{json}'`) are
+ * Tool-call examples (`tool_name {json}`, `memrain call tool '{json}'`) are
  * checked too: dispatch refuses undeclared argument keys, so an example that
  * uses one teaches the agent a call that always fails.
  * References are only taken from inline code spans and fenced blocks: prose
- * that merely mentions memex is not an instruction to run something.
+ * that merely mentions memrain is not an instruction to run something.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -61,7 +61,7 @@ export interface ToolCallExample {
   tool: string;
   /** Top-level keys of the example's argument object, in order. */
   keys: string[];
-  /** True for `memex call <tool>`, where the tool name itself must exist. */
+  /** True for `memrain call <tool>`, where the tool name itself must exist. */
   viaCli: boolean;
   line: number;
 }
@@ -135,7 +135,7 @@ function scanCode(text: string, line: number, out: CliReference[]): void {
     const [first = "", second = ""] = readTokens(text, end + 1, 2);
     const command = stripTrailingPunctuation(first);
     if (!isCommandWord(command)) continue;
-    // `memex doctor, then ...` or `memex doctor` inside a quoted example: the
+    // `memrain doctor, then ...` or `memrain doctor` inside a quoted example: the
     // punctuation closed the reference, so the next word is prose.
     const closed = command.length !== first.length;
     const sub = closed ? "" : stripTrailingPunctuation(second);
@@ -145,7 +145,7 @@ function scanCode(text: string, line: number, out: CliReference[]): void {
 
 /**
  * Where a shell/markdown comment starts on a fenced line (`# ...` at the start
- * or after whitespace); a comment that talks about memex is not a command.
+ * or after whitespace); a comment that talks about memrain is not a command.
  */
 function commentStart(line: string): number {
   let idx = line.indexOf("#");
@@ -184,7 +184,7 @@ function forEachCodeSegment(markdown: string, firstLine: number, visit: SegmentV
   }
 }
 
-/** Collect `memex <cmd> [<sub>]` references from fenced blocks and inline code spans. */
+/** Collect `memrain <cmd> [<sub>]` references from fenced blocks and inline code spans. */
 export function extractCliReferences(markdown: string, firstLine = 1): CliReference[] {
   const out: CliReference[] = [];
   forEachCodeSegment(markdown, firstLine, (code, line) => scanCode(code, line, out));
@@ -283,7 +283,7 @@ function scanToolCalls(text: string, line: number, opNames: ReadonlySet<string>,
     if (tool.length !== first.length || !second.startsWith("'{")) continue;
     cliObjects.set(text.indexOf("'{", end + 1 + first.length) + 1, out.length - 1);
   }
-  // `tool_name {json}`, plus the objects of the `memex call` lines above. An
+  // `tool_name {json}`, plus the objects of the `memrain call` lines above. An
   // object nested inside one already read is an argument value, not a call.
   let scannedUntil = 0;
   for (let b = text.indexOf("{"); b !== -1; b = text.indexOf("{", b + 1)) {
@@ -311,7 +311,7 @@ function scanToolCalls(text: string, line: number, opNames: ReadonlySet<string>,
 
 /**
  * Collect tool-call examples from fenced blocks and inline code spans: every
- * `memex call <tool>`, and every `<tool> {json}` whose tool is in `opNames`.
+ * `memrain call <tool>`, and every `<tool> {json}` whose tool is in `opNames`.
  * Linear: each `{` is looked back from once over the gap since the previous
  * one, and an argument object is read once.
  */
@@ -335,7 +335,7 @@ function checkToolCalls(
   for (const call of calls) {
     if (!opNames.has(call.tool)) {
       if (call.viaCli) {
-        issues.push({ slug, rule: "unknown-call-tool", detail: `memex call ${call.tool}`, line: call.line });
+        issues.push({ slug, rule: "unknown-call-tool", detail: `memrain call ${call.tool}`, line: call.line });
       }
       continue;
     }
@@ -360,7 +360,7 @@ function checkReferences(
       issues.push({
         slug,
         rule: "unknown-cli-command",
-        detail: `memex ${ref.command}`,
+        detail: `memrain ${ref.command}`,
         line: ref.line,
       });
       continue;
@@ -370,7 +370,7 @@ function checkReferences(
     issues.push({
       slug,
       rule: "unknown-cli-subcommand",
-      detail: `memex ${ref.command} ${ref.subcommand}`,
+      detail: `memrain ${ref.command} ${ref.subcommand}`,
       line: ref.line,
     });
   }

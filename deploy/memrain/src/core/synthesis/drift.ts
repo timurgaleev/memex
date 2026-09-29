@@ -16,7 +16,7 @@
  * longer supported) are written into one `drift-reports/<date>` page for operator
  * review — this phase never mutates a take's weight itself.
  *
- * DELIBERATE: memex has no minion runtime, so the
+ * DELIBERATE: memrain has no minion runtime, so the
  * per-take judge fan-out becomes one batched Sonnet call.
  *
  * Anti-loop: the report is written with the ad-hoc page type "drift-report" (not

@@ -1,5 +1,5 @@
 /**
- * `memex doctor` — self-diagnostics. Prints a structured report and
+ * `memrain doctor` — self-diagnostics. Prints a structured report and
  * exits 0 on healthy / 1 on any failure. Intended to run in seconds —
  * no embedding calls or full sweeps. Suitable for cron probes and CI
  * smoke tests.
@@ -120,7 +120,7 @@ export function evalTrendDetail(
   // eval_set_empty finding carries the fix.
   if (snap.total_queries === 0) {
     return `last probe ${snap.ran_at}: eval set EMPTY — nothing measured ` +
-      `(register queries: memex eval-replay capture)`;
+      `(register queries: memrain eval-replay capture)`;
   }
   const detail = snap.detail ?? {};
   return `last probe ${snap.ran_at}: mean_rr=${snap.mean_rr.toFixed(3)}` +
@@ -214,7 +214,7 @@ interface CategorizedCheck extends Check {
 export interface DoctorOptions {
   /** Override the config path. Tests use this to point at a temp dir
    *  (Bun's `os.homedir()` caches at process start, so HOME env tricks
-   *  don't work). Defaults to `~/.memex/config.json`. */
+   *  don't work). Defaults to `~/.memrain/config.json`. */
   configPath?: string;
   /** Override argv (defaults to process.argv.slice(2)). Tests drive the
    *  remediation flags through this without touching the global argv. */
@@ -229,7 +229,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
   const cfgPath = opts.configPath ?? defaultConfigPath();
   if (!existsSync(cfgPath)) {
     checks.push(
-      verdict("config", false, `missing at ${cfgPath} — run 'memex init --pglite'`),
+      verdict("config", false, `missing at ${cfgPath} — run 'memrain init --pglite'`),
     );
   } else {
     try {
@@ -461,7 +461,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
               status: "warn",
               detail:
                 `${legacyOnly.length} legacy-only runtime_config row(s); re-set each as MEMRAIN_* ` +
-                `(memex config set MEMRAIN_<name> <value>) before 1.1.0: ${legacyOnly.join(", ")}${shadowNote}`,
+                `(memrain config set MEMRAIN_<name> <value>) before 1.1.0: ${legacyOnly.join(", ")}${shadowNote}`,
             }
           : verdict(
               "runtime-config-legacy-rows",
@@ -581,7 +581,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
           "eval-trend",
           true,
           !snap
-            ? "retrieval-quality probe has not run yet (memex eval-probe / systemd timer)"
+            ? "retrieval-quality probe has not run yet (memrain eval-probe / systemd timer)"
             : evalTrendDetail(snap),
         ),
       );
@@ -605,7 +605,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
             ? `last run ${run.ran_at}: rate=${run.found}/${run.judged} ` +
               `(95% CI ${run.wilson_ci_lower.toFixed(3)}–${run.wilson_ci_upper.toFixed(3)}), ` +
               `$${run.cost_usd.toFixed(4)}`
-            : "contradiction probe has not run yet (memex cycle --phases probe-contradictions)",
+            : "contradiction probe has not run yet (memrain cycle --phases probe-contradictions)",
         ),
       );
     } catch (e) {

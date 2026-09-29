@@ -10,7 +10,7 @@
  * score changed (an epsilon guard avoids churn from float noise). Idempotent:
  * a brain whose tags, links, and takes are unchanged re-runs to a no-op.
  *
- * Salience drives the standalone "what matters" surface (`memex salience`),
+ * Salience drives the standalone "what matters" surface (`memrain salience`),
  * NOT the document hybrid-search cache — pages are graph entities, separate
  * from the `documents`/`chunks` the query cache is keyed on — so this phase
  * deliberately does NOT bump the document generation/clock.

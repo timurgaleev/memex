@@ -1,5 +1,5 @@
 /**
- * `memex page-retype` — correct the type of many pages at once.
+ * `memrain page-retype` — correct the type of many pages at once.
  *
  * Preview is the default: without `--apply` this prints what would move and
  * changes nothing. The refusals live in core/page-retype.ts and are evaluated

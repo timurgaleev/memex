@@ -7,7 +7,7 @@
  *   - federation-health   : per-source embed coverage on a multi-source brain.
  *     One tenant's embedding can break to 0% invisibly inside the whole-brain
  *     average. Fails on the severe fingerprint (coverage < 50% with a large
- *     corpus); warns below 95%. memex has no federated sync puller (sources
+ *     corpus); warns below 95%. memrain has no federated sync puller (sources
  *     are ingest channels), so document age is not a failure signal and lag is
  *     deliberately omitted.
  *   - oauth-client-health : a confidential OAuth client (auth method other
@@ -81,7 +81,7 @@ export async function checkFederationHealth(
       if (pct < 50 && m.embeddable_chunks > 1000) {
         fails.push(
           `${m.source_id}: ${pct.toFixed(1)}% embed coverage ` +
-            `(${m.embedded_chunks}/${m.embeddable_chunks}) — run 'memex reindex --source ${m.source_id}'`,
+            `(${m.embedded_chunks}/${m.embeddable_chunks}) — run 'memrain reindex --source ${m.source_id}'`,
         );
         continue;
       }
@@ -100,7 +100,7 @@ export async function checkFederationHealth(
     );
     const failed24h = toInt(failedR.rows[0]?.n);
     if (failed24h >= 3) {
-      warns.push(`${failed24h} job failure(s) in 24h — check 'memex jobs list --status failed'`);
+      warns.push(`${failed24h} job failure(s) in 24h — check 'memrain jobs list --status failed'`);
     }
     if (fails.length > 0) {
       return {
@@ -160,7 +160,7 @@ export async function checkOauthClientHealth(
         detail:
           `${broken.length} confidential OAuth client(s) have a NULL/empty secret hash: ${ids}` +
           (broken.length > 5 ? ` (+${broken.length - 5} more)` : "") +
-          " — revoke and re-register each with 'memex auth register-client'",
+          " — revoke and re-register each with 'memrain auth register-client'",
       };
     }
     return {
@@ -241,7 +241,7 @@ export async function checkOauthClientHygiene(
     if (idle.length > 0) {
       warns.push(
         `${idle.length} client(s) with no call in 90 days: ${sample(idle)} — ` +
-          "revoke any nobody uses with 'memex auth revoke-client <id>'",
+          "revoke any nobody uses with 'memrain auth revoke-client <id>'",
       );
     }
     if (publicClient.length > 0) {
@@ -254,7 +254,7 @@ export async function checkOauthClientHygiene(
     if (badRedirect.length > 0) {
       warns.push(
         `${badRedirect.length} redirect URI(s) neither https nor loopback: ${sample(badRedirect)} — ` +
-          "fix with 'memex auth set-redirect-uris <id> <uri...>'",
+          "fix with 'memrain auth set-redirect-uris <id> <uri...>'",
       );
     }
     if (wideConnector.length > 0) {
@@ -308,7 +308,7 @@ export async function checkPatScopesRecorded(
         `${r.rows.length} live personal access token(s) record no scopes: ${names}` +
         (r.rows.length > 5 ? ` (+${r.rows.length - 5} more)` : "") +
         " — each now resolves to read+write. If one needs the admin tool, record it: " +
-        "memex auth permissions <name> set-scopes read,write,admin",
+        "memrain auth permissions <name> set-scopes read,write,admin",
     };
   } catch (e) {
     return couldNotCheck(name, e);

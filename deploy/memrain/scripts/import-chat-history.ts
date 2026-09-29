@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * import-chat-history — convert a vendor chat-export JSON into one markdown
- * page per conversation, ready for `memex index <dir>`. Deterministic: no LLM,
+ * page per conversation, ready for `memrain index <dir>`. Deterministic: no LLM,
  * no DB, no network. Output pages carry `type: conversation` frontmatter and
  * `[HH:MM] Speaker: text` body lines — the bracket-time shape the
  * conversation parser reads.
@@ -326,6 +326,6 @@ if (import.meta.main) {
   );
   for (const s of skipped) console.log(`  skipped [${s.index}]: ${s.reason}`);
   if (!dryRun && converted.length > 0) {
-    console.log(`wrote ${converted.length} page(s) to ${outDir} — ingest with: memex index ${outDir}`);
+    console.log(`wrote ${converted.length} page(s) to ${outDir} — ingest with: memrain index ${outDir}`);
   }
 }

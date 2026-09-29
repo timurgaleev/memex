@@ -996,7 +996,7 @@ export class OAuthProvider {
           "client_credentials grant is not available through dynamic " +
           "registration. Set MEMRAIN_ENABLE_DCR_INSECURE=1 to allow " +
           "machine-to-machine self-registration, or register a trusted client " +
-          "with `memex auth register-client`.",
+          "with `memrain auth register-client`.",
       );
     }
 

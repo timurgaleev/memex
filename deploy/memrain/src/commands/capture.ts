@@ -1,5 +1,5 @@
 /**
- * `memex capture [<text...>] [--stdin] [--file P] [--slug S] [--type T]
+ * `memrain capture [<text...>] [--stdin] [--file P] [--slug S] [--type T]
  *                [--source ID] [--title T]`
  * — one-command thought capture: turn a note into a page
  * and mirror it into search in a single shot.
@@ -118,7 +118,7 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
   );
   if (sources.length !== 1) {
     console.error(
-      "memex capture: provide the note exactly one way — inline text, --stdin, or --file <path>",
+      "memrain capture: provide the note exactly one way — inline text, --stdin, or --file <path>",
     );
     return 1;
   }
@@ -127,7 +127,7 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
   if (opts.file) {
     const raw = readFileSync(opts.file);
     if (looksBinary(raw)) {
-      console.error(`memex capture: ${opts.file} is a binary file, not text — nothing captured`);
+      console.error(`memrain capture: ${opts.file} is a binary file, not text — nothing captured`);
       return 1;
     }
     body = raw.toString("utf-8");
@@ -138,7 +138,7 @@ export async function runCapture(opts: CaptureCmdOptions): Promise<number> {
   }
   body = body.replace(/\r\n/g, "\n").trim();
   if (body.length === 0) {
-    console.error("memex capture: the note body is empty");
+    console.error("memrain capture: the note body is empty");
     return 1;
   }
 

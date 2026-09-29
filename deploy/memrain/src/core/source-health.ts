@@ -1,7 +1,7 @@
 /**
  * source-health.ts — brain-level operational health metrics.
  *
- * memex is single-holder / effectively single-source, so these are reported at
+ * memrain is single-holder / effectively single-source, so these are reported at
  * the brain level rather than per-source (a per-source breakdown collapses to
  * one row here). They answer "is the brain ingesting + embedding
  * its data, and is the job queue healthy?":

@@ -40,8 +40,8 @@ describe("advisor fix_command targets exist", () => {
 
   for (const cmd of fixCommands) {
     it(`"${cmd}" names something real`, () => {
-      if (cmd.startsWith("memex (")) return; // prose instruction, not a command
-      if (cmd.startsWith("memex ")) {
+      if (cmd.startsWith("memrain (")) return; // prose instruction, not a command
+      if (cmd.startsWith("memrain ")) {
         expect(cliCommands.has(cmd.split(" ")[1]!)).toBe(true);
       } else {
         expect(mcpTools.has(cmd)).toBe(true);

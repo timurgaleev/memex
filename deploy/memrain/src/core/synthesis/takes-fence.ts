@@ -122,7 +122,7 @@ function locateTakesFence(body: string): TakesFenceSpan | "mixed" {
   return { brand: "memex", ...fenceMarkers("takes", "memex"), beginIdx: -1, endIdx: -1 };
 }
 
-/** Slug character class for holder segments (matches memex page-slug grammar:
+/** Slug character class for holder segments (matches memrain page-slug grammar:
  *  lowercase alphanumerics plus `._-`). */
 const SLUG_SEGMENT = "[a-z0-9][a-z0-9._-]*";
 

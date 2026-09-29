@@ -10,7 +10,7 @@
  *      the pack contract (`name`, `description`, `triggers`, `tools`) holds
  *      even if the model drifts. It rewrites missing/malformed fields, drops
  *      tools that are not MCP operations, anchors the file to a stable slug,
- *      and emits a list of repairs. Its output passes `memex skillpack lint`.
+ *      and emits a list of repairs. Its output passes `memrain skillpack lint`.
  *
  * The deterministic linter is what makes the command safe to use unattended.
  * If it had to retry-LLM-on-failure the loop could hide model regressions.
@@ -24,7 +24,7 @@ import { trackedInvoke } from "./budget.ts";
 import { OPERATIONS } from "../mcp/operations.ts";
 import { parseSkillFrontmatter } from "./skillpack/frontmatter.ts";
 
-/** Ledger label — the one-shot skill drafter behind `memex skillify`. */
+/** Ledger label — the one-shot skill drafter behind `memrain skillify`. */
 const SPEND_OP = "skillify";
 
 const DEFAULT_MODEL_ID =
@@ -83,7 +83,7 @@ export function slugify(input: string): string {
 }
 
 /** System prompt — the contract the model must satisfy. */
-const SYSTEM_PROMPT = `You write memex skill files.
+const SYSTEM_PROMPT = `You write memrain skill files.
 
 OUTPUT FORMAT — strictly markdown, NO surrounding code fences, NO commentary:
 
@@ -110,7 +110,7 @@ tools:
 ## How
 
 \`\`\`bash
-<concrete shell example using /opt/memex/bin/memex or similar>
+<concrete shell example using /opt/memrain/bin/memrain or similar>
 \`\`\`
 
 <short paragraph explaining the call.>
@@ -124,7 +124,7 @@ RULES:
 - description must be a single line, ≤ 160 chars.
 - 2–4 triggers, each a short quoted phrase.
 - Omit tools entirely when the skill calls no MCP tool.
-- Use \`/opt/memex/bin/memex\` as the canonical CLI path.
+- Use \`/opt/memrain/bin/memrain\` as the canonical CLI path.
 - Do not invent flags or commands the user didn't mention.`;
 
 /**
@@ -199,7 +199,7 @@ function cleanTrigger(raw: string): string {
 /**
  * Take a (possibly drifted) draft and return a skill markdown that holds the
  * pack contract, so a drafted skill committed to `deploy/skills` passes the
- * same `memex skillpack lint` the shipped pack does. Always succeeds; reports
+ * same `memrain skillpack lint` the shipped pack does. Always succeeds; reports
  * what it had to repair via `issues`.
  */
 export function lintAndShape(
@@ -416,7 +416,7 @@ TODO: ${prompt}
 ## How
 
 \`\`\`bash
-/opt/memex/bin/memex --help
+/opt/memrain/bin/memrain --help
 \`\`\`
 
 TODO: replace with the real call.

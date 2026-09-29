@@ -251,7 +251,7 @@ export async function findExperts(
 /**
  * Topic-ranked experts — "who in my brain knows about <topic>?". Person/company
  * pages ranked by expertise depth, not raw graph connectivity. Deterministic:
- * the topic signal is memex's own hybrid search over the page → search mirror
+ * the topic signal is memrain's own hybrid search over the page → search mirror
  * (`page://<slug>` documents, see page-index.ts), so a page whose body relates
  * to the topic scores high with NO LLM call.
  *
@@ -739,7 +739,7 @@ export async function findTrajectory(
 // --- metric-trajectory derived stats (mig070) ------------------------------
 //
 // Pure functions over `TrajectoryPoint[]` — regression detection + embedding
-// drift_score over memex's point shape (ISO-string `at`, `number[]`
+// drift_score over memrain's point shape (ISO-string `at`, `number[]`
 // embeddings). The plain chronological `findTrajectory` stays the default;
 // these are additive.
 

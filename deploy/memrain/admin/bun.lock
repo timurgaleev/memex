@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "memex-admin",
+      "name": "memrain-admin",
       "dependencies": {
         "react": "^19.1.0",
         "react-dom": "^19.1.0",

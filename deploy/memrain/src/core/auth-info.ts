@@ -1,7 +1,7 @@
 /**
  * Per-request auth identity + source-scope resolution for the MCP/REST ingress.
  *
- * memex composes this with the existing public-redaction model in
+ * memrain composes this with the existing public-redaction model in
  * `mcp/dispatch.ts`: that layer already carries a single trust bit
  * (`DispatchOptions.isPublic`) which decides whether note bodies are redacted.
  * `AuthInfo` is the richer identity that the transport resolves at
@@ -14,7 +14,7 @@
  * tenancy primitives: a single resolver every read-op routes through so a remote
  * caller can never opt out of its grant by passing `all_sources` or an
  * out-of-grant `source_id`. They are adapted to take `AuthInfo` directly rather
- * than a heavyweight operation context — memex's dispatch layer is lean and has
+ * than a heavyweight operation context — memrain's dispatch layer is lean and has
  * no per-op `OperationContext`, so the trust input is the explicit `isPublic`
  * flag the transport already owns.
  */

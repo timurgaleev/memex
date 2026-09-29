@@ -1,5 +1,5 @@
 /**
- * `memex skillopt eval [--skill <slug>] [--split heldout|train|all]
+ * `memrain skillopt eval [--skill <slug>] [--split heldout|train|all]
  *   [--repeats N] [--candidate <SKILL.md>] [--epsilon X] [--max-usd X]`
  *
  * Measures how well the Haiku tier routes the pack's benchmark intents to the
@@ -150,12 +150,12 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
   const enabled = "enabled" in opts ? opts.enabled : process.env.MEMRAIN_SKILLOPT_ENABLED;
   const envCap = skilloptMaxUsd("maxUsdEnv" in opts ? opts.maxUsdEnv : process.env.MEMRAIN_SKILLOPT_MAX_USD);
   const fail = (msg: string): number => {
-    err(`memex skillopt eval: ${msg}`);
+    err(`memrain skillopt eval: ${msg}`);
     return 1;
   };
 
   if (opts.sub !== "eval") {
-    err(`memex skillopt: unknown subcommand '${opts.sub ?? ""}' (expected: eval)`);
+    err(`memrain skillopt: unknown subcommand '${opts.sub ?? ""}' (expected: eval)`);
     return 1;
   }
   if (!skilloptEnabled(enabled)) {

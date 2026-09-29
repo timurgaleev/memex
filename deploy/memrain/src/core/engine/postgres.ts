@@ -17,7 +17,7 @@ import type { Engine, QueryResult } from "./interface.ts";
 export interface PostgresEngineOptions {
   /** Postgres connection URL. Should include `?sslmode=require` for RDS. */
   url: string;
-  /** Pool size. Default 10 — fits a single memex container. */
+  /** Pool size. Default 10 — fits a single memrain container. */
   max?: number;
   /** Per-statement timeout, ms. Default 30s. */
   statementTimeoutMs?: number;

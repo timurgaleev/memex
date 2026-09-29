@@ -23,7 +23,7 @@
  * hit to be eligible, so a weak tail hit can't be lifted past a strong primary
  * one. Fail-open: any links-query error leaves scores untouched.
  *
- * memex links are keyed by page SLUG (`links.target_slug`), so a hit's slug is
+ * memrain links are keyed by page SLUG (`links.target_slug`), so a hit's slug is
  * derived via `slugForSourcePath` (shared with graph-signals). File-indexed
  * chunks whose path is not a `page://` slug simply never match a link row —
  * neutral, never a penalty.

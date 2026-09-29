@@ -2,7 +2,7 @@
  * rechunk-sweep — the automatic, cost-gated re-chunk + re-embed sweep that
  * drains chunker-version-stale documents a bounded batch at a time.
  *
- * memex already TRACKS chunker staleness (`documents.chunker_version` vs
+ * memrain already TRACKS chunker staleness (`documents.chunker_version` vs
  * MARKDOWN_CHUNKER_VERSION — see chunker-version.ts) and exposes a MANUAL
  * `reindex --rechunk-stale` that walks the whole vault. What it lacked is the
  * AUTOMATIC drain: when the markdown chunker constant bumps, every markdown doc is stale

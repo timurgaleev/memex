@@ -1,12 +1,12 @@
 /**
  * cycle-freshness.ts — doctor liveness probe for the maintenance cycle.
  *
- * The cycle is memex's core differentiator (it re-embeds, reconciles links,
+ * The cycle is memrain's core differentiator (it re-embeds, reconciles links,
  * recomputes salience, snapshots). It appends a `cycle_snapshots` row every
  * tick (core/cycle/snapshot.ts), but nothing watched its liveness: a wedged
  * loop (stuck db-lock, exception loop) surfaced only via downstream proxies
  * (links-extraction-lag). This probes `MAX(captured_at)` against a warn/fail
- * age. memex is single-source, so it checks the one snapshot stream, not a
+ * age. memrain is single-source, so it checks the one snapshot stream, not a
  * per-federated-source `last_full_cycle_at`.
  *
  * Zero snapshots = WARN, never a failure: a fresh brain or a deploy that never

@@ -5,7 +5,7 @@
  * ON DELETE CASCADE).
  *
  * Only ingests in-process strings + filesystem paths. Driven on demand by
- * the `memex reindex` CLI and the MCP `index` tool (no boot-time watcher).
+ * the `memrain reindex` CLI and the MCP `index` tool (no boot-time watcher).
  *
  * The atomic doc+chunks+entities writer lives in `core/indexer-tx.ts` so
  * the markdown indexer (this file, embeds via Titan) and the code
@@ -170,7 +170,7 @@ const VIRTUAL_SCHEME = /^[a-z][a-z0-9+.-]+:/i;
  * source_path is the document's natural key (docId hashes it) and the only
  * thing the orphans disk-probe can stat; that probe deliberately looks at
  * absolute paths only, so a doc ingested under a caller-relative path
- * (`memex index foo.ts`) can never be flagged when its file disappears. The
+ * (`memrain index foo.ts`) can never be flagged when its file disappears. The
  * probe is right to narrow — virtual rows have no file — so the canonicalization
  * belongs here, at ingest, where the cwd the path was relative TO is still the
  * cwd we read the file from. Purely lexical (no realpath): a symlinked file is
@@ -240,7 +240,7 @@ export async function indexDocument(
     // screened for control characters, so it must not be able to split the line.
     const ms = (n: number) => Math.round(n);
     console.log(
-      `[memex] index-timing op=${opts.timingLabel} status=${status} path=${JSON.stringify(input.sourcePath)}` +
+      `[memrain] index-timing op=${opts.timingLabel} status=${status} path=${JSON.stringify(input.sourcePath)}` +
         ` chunks=${stats.chunks} reused=${stats.reused} llm_ok=${stats.llmOk}` +
         ` llm_fallback=${stats.llmFallback} embeds=${stats.embeds} fence_embeds=${stats.fenceEmbeds}` +
         ` ms_total=${ms(performance.now() - started)} ms_bedrock=${ms(timing.sendMs - timing.queueMs)}` +
@@ -482,11 +482,11 @@ async function indexDocumentBody(
       // failure still aborts before the DB is touched (the half-write guard
       // above) — but a cap is policy, not an outage, and losing the caller's
       // text to enforce it is the wrong trade. The chunk lands with a null
-      // vector: written, keyword-searchable, and picked up by `memex embed`
+      // vector: written, keyword-searchable, and picked up by `memrain embed`
       // once the budget rolls over.
       if (!(isOperationError(e) && e.code === "budget_exhausted")) throw e;
       budgetRefusedChunks++;
-      // No vector yet: `memex embed` fills it later with the deterministic
+      // No vector yet: `memrain embed` fills it later with the deterministic
       // prefix at most, so that is the tier this chunk will end up with.
       tiers[i] = baseTier;
     }
@@ -534,9 +534,9 @@ async function indexDocumentBody(
 
   if (budgetRefusedChunks > 0) {
     console.warn(
-      `[memex] daily budget exhausted mid-index: ${budgetRefusedChunks} chunk(s) of ` +
+      `[memrain] daily budget exhausted mid-index: ${budgetRefusedChunks} chunk(s) of ` +
         `'${input.sourcePath}' stored WITHOUT embeddings — keyword-searchable now, ` +
-        `run \`memex embed\` after the budget rolls over to vectorise them`,
+        `run \`memrain embed\` after the budget rolls over to vectorise them`,
     );
   }
 

@@ -26,7 +26,7 @@
  *
  * SAFE-BY-DEFAULT (security-engineer / ai-engineer review). A source-scoped
  * resolver would earn its safety from source-scoping + dir/page-type hints,
- * which memex's single flat vault does not have. To compensate for the
+ * which memrain's single flat vault does not have. To compensate for the
  * lost scoping this resolver:
  *   - runs the fuzzy stage LAST (a structurally-exact tail/prefix never
  *     loses to an approximate title match);

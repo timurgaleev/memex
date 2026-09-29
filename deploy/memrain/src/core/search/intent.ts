@@ -14,7 +14,7 @@
  *
  * Classification is a pure regex taxonomy that never spends an LLM call on the
  * search hot path. The cheap heuristics run first, then the query-intent
- * taxonomy maps onto memex's intent set (entity→factual, temporal→personal,
+ * taxonomy maps onto memrain's intent set (entity→factual, temporal→personal,
  * event/general→topic). The old Claude Haiku fallback survives behind
  * MEMRAIN_INTENT_LLM=1 for operators who want the paid tie-break on unmatched
  * queries.
@@ -58,7 +58,7 @@ const SPEND_OP = "intent-classify";
 const SYSTEM_PROMPT = `You are a search-intent classifier. Given a user query, output exactly one word from this set: factual, topic, howto, personal, exact. Output nothing else.`;
 
 /**
- * Map the query taxonomy onto memex's intent set. `temporal` leans
+ * Map the query taxonomy onto memrain's intent set. `temporal` leans
  * `personal` (diary/journal recall — a vector-leaning RRF profile with a
  * recency tilt); `event`/`general` stay `topic` (broad recall).
  */
