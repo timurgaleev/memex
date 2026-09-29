@@ -25,6 +25,13 @@
  *     directory unguarded exactly when something is already unusual, so it
  *     fails closed and names the escape hatch instead.
  *
+ * Two lock files guard each directory: the pre-rename `.memex-lock` and the
+ * current `.memrain-lock`. A pre-rename process that is still running (a local
+ * `serve` left up across a `git pull`) knows only the old one, so taking just
+ * the new one would let both open the directory. The legacy one is taken
+ * first and released last; if the second cannot be taken, the first is given
+ * back before the refusal.
+ *
  * `MEMEX_PGLITE_NO_LOCK=1` skips the whole mechanism, for setups this rule
  * would wrongly refuse (a read-only mount, a filesystem without exclusive
  * create).
@@ -32,6 +39,7 @@
 import { openSync, closeSync, writeSync, readFileSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve, dirname, basename, join } from "node:path";
+import { LEGACY_PGLITE_LOCK_SUFFIX } from "../brand.ts";
 
 export class PgliteLockedError extends Error {}
 
@@ -73,8 +81,8 @@ function lockDisabled(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Where the lock for a data directory lives, or null when there is nothing to
- * guard.
+ * Where the locks for a data directory live, legacy first, or null when there
+ * is nothing to guard.
  *
  * BESIDE the directory, not inside it: PGLite initialises a fresh database only
  * into an empty directory, so a lock file placed within one turns every first
@@ -85,14 +93,15 @@ function lockDisabled(env: NodeJS.ProcessEnv): boolean {
  * otherwise produce a sibling name that lands inside the directory or in the
  * working directory, guarding something other than the database.
  */
-function lockPathFor(dbPath: string): string | null {
+function lockPathsFor(dbPath: string): [string, string] | null {
   if (dbPath.length === 0) return null;
   if (dbPath.startsWith("memory://") || dbPath.startsWith("idb://")) return null;
   const abs = resolve(dbPath);
   const name = basename(abs);
   // A filesystem root has no basename to hang a sibling off.
   if (name.length === 0) return null;
-  return join(dirname(abs), `${name}.memex-lock`);
+  const base = join(dirname(abs), name);
+  return [`${base}${LEGACY_PGLITE_LOCK_SUFFIX}`, `${base}.memrain-lock`];
 }
 
 export interface HeldLock {
@@ -196,9 +205,27 @@ export function acquireDataDirLock(
 ): HeldLock {
   const noop: HeldLock = { release: () => {} };
   if (lockDisabled(env)) return noop;
-  const lockPath = lockPathFor(dbPath);
-  if (lockPath === null) return noop;
+  const lockPaths = lockPathsFor(dbPath);
+  if (lockPaths === null) return noop;
+  const [legacyPath, currentPath] = lockPaths;
 
+  const legacy = acquireOne(legacyPath, dbPath);
+  let current: HeldLock;
+  try {
+    current = acquireOne(currentPath, dbPath);
+  } catch (e) {
+    legacy.release();
+    throw e;
+  }
+  return {
+    release: () => {
+      current.release();
+      legacy.release();
+    },
+  };
+}
+
+function acquireOne(lockPath: string, dbPath: string): HeldLock {
   if (heldInProcess.has(lockPath)) {
     throw new PgliteLockedError(
       `pglite: ${dbPath} is already open in this process. Two PGLite instances ` +

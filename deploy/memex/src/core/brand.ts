@@ -37,3 +37,8 @@ export const FACT_WITHDRAW_LOCK_NS = "memex:fact-withdraw:";
  *  live one shows that such a process may still be running. */
 export const LEGACY_CYCLE_LOCK_ID = "memex-cycle";
 export const LEGACY_WORKER_LOCK_ID = "memex-jobs-worker";
+
+/** Suffix of the lock file a pre-rename process places beside a PGLite data
+ *  directory. It is taken next to the current one, so neither build can open
+ *  a directory the other holds. */
+export const LEGACY_PGLITE_LOCK_SUFFIX = ".memex-lock";
