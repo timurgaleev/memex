@@ -1,4 +1,4 @@
-resource "aws_key_pair" "memex" {
+resource "aws_key_pair" "memrain" {
   count = var.ssh_public_key != "" ? 1 : 0
 
   key_name   = "${var.project_name}-key"
@@ -9,7 +9,7 @@ resource "aws_key_pair" "memex" {
   }
 }
 
-resource "aws_security_group" "memex" {
+resource "aws_security_group" "memrain" {
   name = "${var.project_name}-sg"
   # ASCII only: the EC2 API rejects non-ASCII GroupDescription characters,
   # so an em-dash here fails every fresh apply.

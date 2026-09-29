@@ -8,24 +8,24 @@ data "aws_iam_policy_document" "ec2_assume_role" {
   }
 }
 
-resource "aws_iam_role" "memex" {
+resource "aws_iam_role" "memrain" {
   name               = "${var.project_name}-role"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 }
 
 # SSM Session Manager — no SSH port needed
 resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.memex.name
+  role       = aws_iam_role.memrain.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 # CloudWatch agent
 resource "aws_iam_role_policy_attachment" "cloudwatch" {
-  role       = aws_iam_role.memex.name
+  role       = aws_iam_role.memrain.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-data "aws_iam_policy_document" "memex_custom" {
+data "aws_iam_policy_document" "memrain_custom" {
   # Bedrock invoke — limited to the models the stack actually calls
   # (Titan embed + Nova family + Claude Haiku 4.5 + Claude Sonnet 4.6).
   # Region-scoped where
@@ -162,18 +162,18 @@ data "aws_iam_policy_document" "memex_custom" {
       "logs:DescribeLogStreams",
     ]
     resources = [
-      "${aws_cloudwatch_log_group.memex.arn}:*",
+      "${aws_cloudwatch_log_group.memrain.arn}:*",
     ]
   }
 }
 
-resource "aws_iam_role_policy" "memex_custom" {
+resource "aws_iam_role_policy" "memrain_custom" {
   name   = "${var.project_name}-custom-policy"
-  role   = aws_iam_role.memex.id
-  policy = data.aws_iam_policy_document.memex_custom.json
+  role   = aws_iam_role.memrain.id
+  policy = data.aws_iam_policy_document.memrain_custom.json
 }
 
-resource "aws_iam_instance_profile" "memex" {
+resource "aws_iam_instance_profile" "memrain" {
   name = "${var.project_name}-instance-profile"
-  role = aws_iam_role.memex.name
+  role = aws_iam_role.memrain.name
 }

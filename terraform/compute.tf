@@ -1,12 +1,12 @@
 # Single on-demand EC2 host that runs the Docker Compose stack.
 
-resource "aws_instance" "memex" {
+resource "aws_instance" "memrain" {
   ami                    = data.aws_ami.amazon_linux_2023.id
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.memex.id]
-  iam_instance_profile   = aws_iam_instance_profile.memex.name
-  key_name               = length(aws_key_pair.memex) > 0 ? aws_key_pair.memex[0].key_name : null
+  vpc_security_group_ids = [aws_security_group.memrain.id]
+  iam_instance_profile   = aws_iam_instance_profile.memrain.name
+  key_name               = length(aws_key_pair.memrain) > 0 ? aws_key_pair.memrain[0].key_name : null
 
   # The filesystem ID alone is not enough to mount: `mount -t efs` resolves
   # <fs-id>.efs.<region>.amazonaws.com, and that name only answers once a
@@ -22,16 +22,16 @@ resource "aws_instance" "memex" {
     aws_efs_mount_target.main_az,
     aws_efs_mount_target.multi_az,
     aws_s3_object.bootstrap_script,
-    aws_iam_role_policy.memex_custom,
+    aws_iam_role_policy.memrain_custom,
     aws_iam_role_policy.efs_client,
-    aws_secretsmanager_secret_version.memex_postgres_url,
-    aws_secretsmanager_secret_version.memex_public_bearer,
-    aws_secretsmanager_secret_version.memex_internal_token,
+    aws_secretsmanager_secret_version.memrain_postgres_url,
+    aws_secretsmanager_secret_version.memrain_public_bearer,
+    aws_secretsmanager_secret_version.memrain_internal_token,
   ]
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     bootstrap_script_url = "s3://${aws_s3_bucket.scripts.id}/scripts/bootstrap.sh"
-    efs_id               = aws_efs_file_system.memex.id
+    efs_id               = aws_efs_file_system.memrain.id
     repo_url             = var.repo_url
     project_name         = var.project_name
     use_ssh_deploy_key   = var.use_ssh_deploy_key
@@ -76,8 +76,8 @@ resource "aws_instance" "memex" {
   }
 }
 
-resource "aws_eip" "memex" {
-  instance = aws_instance.memex.id
+resource "aws_eip" "memrain" {
+  instance = aws_instance.memrain.id
   domain   = "vpc"
 
   tags = {
@@ -93,13 +93,13 @@ resource "aws_s3_object" "bootstrap_script" {
 }
 
 output "public_ip" {
-  value = aws_eip.memex.public_ip
+  value = aws_eip.memrain.public_ip
 }
 
 output "instance_arn" {
-  value = aws_instance.memex.arn
+  value = aws_instance.memrain.arn
 }
 
 output "ssm_command" {
-  value = "aws ssm start-session --target ${aws_instance.memex.id} --profile ${var.aws_profile} --region ${var.aws_region}"
+  value = "aws ssm start-session --target ${aws_instance.memrain.id} --profile ${var.aws_profile} --region ${var.aws_region}"
 }

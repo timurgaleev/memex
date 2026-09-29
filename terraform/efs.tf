@@ -11,7 +11,7 @@ resource "aws_security_group" "efs" {
     from_port       = 2049
     to_port         = 2049
     protocol        = "tcp"
-    security_groups = [aws_security_group.memex.id]
+    security_groups = [aws_security_group.memrain.id]
   }
 
   # No egress rules — EFS targets do not initiate outbound traffic; the
@@ -33,15 +33,15 @@ resource "aws_security_group" "efs" {
 # (SOUL/USER/ACCESS_POLICY), the skillpack, the operator credentials dir and —
 # on a caddy install — Caddy's ACME account key. RDS has 7-day automated
 # backups; this file system had no recovery point of any kind.
-resource "aws_efs_backup_policy" "memex" {
-  file_system_id = aws_efs_file_system.memex.id
+resource "aws_efs_backup_policy" "memrain" {
+  file_system_id = aws_efs_file_system.memrain.id
 
   backup_policy {
     status = var.efs_backup ? "ENABLED" : "DISABLED"
   }
 }
 
-resource "aws_efs_file_system" "memex" {
+resource "aws_efs_file_system" "memrain" {
   creation_token   = "${var.project_name}-data"
   encrypted        = true
   performance_mode = "generalPurpose"
@@ -65,7 +65,7 @@ resource "aws_efs_file_system" "memex" {
 
 # Mount target in the primary public subnet.
 resource "aws_efs_mount_target" "main_az" {
-  file_system_id  = aws_efs_file_system.memex.id
+  file_system_id  = aws_efs_file_system.memrain.id
   subnet_id       = aws_subnet.public.id
   security_groups = [aws_security_group.efs.id]
 }
@@ -74,7 +74,7 @@ resource "aws_efs_mount_target" "main_az" {
 resource "aws_efs_mount_target" "multi_az" {
   for_each = aws_subnet.multi_az
 
-  file_system_id  = aws_efs_file_system.memex.id
+  file_system_id  = aws_efs_file_system.memrain.id
   subnet_id       = each.value.id
   security_groups = [aws_security_group.efs.id]
 }
@@ -90,12 +90,12 @@ data "aws_iam_policy_document" "efs_client" {
       "elasticfilesystem:ClientRootAccess",
       "elasticfilesystem:DescribeMountTargets",
     ]
-    resources = [aws_efs_file_system.memex.arn]
+    resources = [aws_efs_file_system.memrain.arn]
   }
 }
 
 resource "aws_iam_role_policy" "efs_client" {
   name   = "${var.project_name}-efs-client"
-  role   = aws_iam_role.memex.id
+  role   = aws_iam_role.memrain.id
   policy = data.aws_iam_policy_document.efs_client.json
 }

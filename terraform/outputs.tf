@@ -1,21 +1,21 @@
 output "instance_id" {
   description = "EC2 instance ID running the Docker Compose stack"
-  value       = aws_instance.memex.id
+  value       = aws_instance.memrain.id
 }
 
 output "instance_type" {
   description = "EC2 instance type"
-  value       = aws_instance.memex.instance_type
+  value       = aws_instance.memrain.instance_type
 }
 
 output "efs_id" {
   description = "EFS filesystem ID backing persistent stack data"
-  value       = aws_efs_file_system.memex.id
+  value       = aws_efs_file_system.memrain.id
 }
 
 output "ssm_connect_hint" {
   description = "Connect to the instance via SSM Session Manager"
-  value       = "aws ssm start-session --target ${aws_instance.memex.id} --profile ${var.aws_profile} --region ${var.aws_region}"
+  value       = "aws ssm start-session --target ${aws_instance.memrain.id} --profile ${var.aws_profile} --region ${var.aws_region}"
 }
 
 output "ssh_access" {
@@ -48,12 +48,12 @@ output "secret_arns" {
   value = {
     cloudflared         = one(aws_secretsmanager_secret.cloudflared_tunnel_token[*].arn)
     github_deploy_key   = var.use_ssh_deploy_key ? aws_secretsmanager_secret.github_deploy_key[0].arn : null
-    memex_postgres_url  = aws_secretsmanager_secret.memex_postgres_url.arn
-    memex_public_bearer = aws_secretsmanager_secret.memex_public_bearer.arn
+    memex_postgres_url  = aws_secretsmanager_secret.memrain_postgres_url.arn
+    memex_public_bearer = aws_secretsmanager_secret.memrain_public_bearer.arn
   }
 }
 
 output "cloudwatch_log_group" {
   description = "CloudWatch log group for stack logs"
-  value       = aws_cloudwatch_log_group.memex.name
+  value       = aws_cloudwatch_log_group.memrain.name
 }

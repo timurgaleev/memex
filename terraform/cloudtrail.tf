@@ -100,7 +100,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 }
 
 # CloudTrail — records all management API calls in the configured region.
-resource "aws_cloudtrail" "memex" {
+resource "aws_cloudtrail" "memrain" {
   count                         = var.enable_cloudtrail ? 1 : 0
   name                          = "${var.project_name}-trail"
   s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id

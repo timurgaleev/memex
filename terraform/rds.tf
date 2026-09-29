@@ -24,7 +24,7 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.memex.id]
+    security_groups = [aws_security_group.memrain.id]
   }
 
   # No egress rules required — RDS doesn't initiate outbound.
@@ -34,7 +34,7 @@ resource "aws_security_group" "rds" {
   }
 }
 
-resource "aws_db_subnet_group" "memex" {
+resource "aws_db_subnet_group" "memrain" {
   name = "${var.project_name}-memex"
   subnet_ids = concat(
     [aws_subnet.public.id],
@@ -49,7 +49,7 @@ resource "aws_db_subnet_group" "memex" {
 # pgvector + pg_trgm enabled at parameter-group level so they're available
 # without superuser. shared_preload_libraries doesn't include pgvector
 # (it's a CREATE EXTENSION-time module); we list it for clarity.
-resource "aws_db_parameter_group" "memex_pg16" {
+resource "aws_db_parameter_group" "memrain_pg16" {
   name        = "${var.project_name}-memex-pg16"
   family      = "postgres16"
   description = "Postgres 16 params for memex - pgvector + pg_trgm preloaded as needed"
@@ -72,7 +72,7 @@ resource "aws_db_parameter_group" "memex_pg16" {
   }
 }
 
-resource "random_password" "memex_db" {
+resource "random_password" "memrain_db" {
   length  = 32
   special = false # avoid characters that need URL-encoding in connection strings
 
@@ -83,7 +83,7 @@ resource "random_password" "memex_db" {
   }
 }
 
-resource "aws_db_instance" "memex" {
+resource "aws_db_instance" "memrain" {
   identifier                 = "${var.project_name}-memex"
   engine                     = "postgres"
   engine_version             = "16.13"
@@ -93,9 +93,9 @@ resource "aws_db_instance" "memex" {
   storage_encrypted          = true
   db_name                    = "memex"
   username                   = "memex"
-  password                   = random_password.memex_db.result
-  parameter_group_name       = aws_db_parameter_group.memex_pg16.name
-  db_subnet_group_name       = aws_db_subnet_group.memex.name
+  password                   = random_password.memrain_db.result
+  parameter_group_name       = aws_db_parameter_group.memrain_pg16.name
+  db_subnet_group_name       = aws_db_subnet_group.memrain.name
   vpc_security_group_ids     = [aws_security_group.rds.id]
   publicly_accessible        = false
   backup_retention_period    = 7
@@ -121,30 +121,30 @@ resource "aws_db_instance" "memex" {
   }
 }
 
-resource "aws_secretsmanager_secret" "memex_postgres_url" {
+resource "aws_secretsmanager_secret" "memrain_postgres_url" {
   name                    = "${var.secrets_prefix}/memex-postgres-url"
   description             = "Postgres connection URL for the memex RDS — fetched at container start by fetch-secrets.sh into MEMEX_POSTGRES_URL env"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "memex_postgres_url" {
-  secret_id = aws_secretsmanager_secret.memex_postgres_url.id
+resource "aws_secretsmanager_secret_version" "memrain_postgres_url" {
+  secret_id = aws_secretsmanager_secret.memrain_postgres_url.id
   secret_string = format(
     "postgres://%s:%s@%s:%s/%s?sslmode=require",
-    aws_db_instance.memex.username,
-    random_password.memex_db.result,
-    aws_db_instance.memex.address,
-    aws_db_instance.memex.port,
-    aws_db_instance.memex.db_name,
+    aws_db_instance.memrain.username,
+    random_password.memrain_db.result,
+    aws_db_instance.memrain.address,
+    aws_db_instance.memrain.port,
+    aws_db_instance.memrain.db_name,
   )
 }
 
 output "memex_rds_endpoint" {
   description = "RDS Postgres endpoint for memex (DNS name + port)."
-  value       = "${aws_db_instance.memex.address}:${aws_db_instance.memex.port}"
+  value       = "${aws_db_instance.memrain.address}:${aws_db_instance.memrain.port}"
 }
 
 output "memex_rds_secret_arn" {
   description = "ARN of the secret holding the memex Postgres URL."
-  value       = aws_secretsmanager_secret.memex_postgres_url.arn
+  value       = aws_secretsmanager_secret.memrain_postgres_url.arn
 }

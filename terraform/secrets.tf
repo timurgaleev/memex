@@ -42,7 +42,7 @@ resource "aws_secretsmanager_secret" "github_deploy_key" {
 # from public regardless of bearer; mutating MCP tools are filtered
 # server-side. Generated as a random 48-char string at apply time and
 # stored as the secret value in one shot.
-resource "random_password" "memex_public_bearer" {
+resource "random_password" "memrain_public_bearer" {
   length  = 48
   special = false # URL-safe; carried in Authorization header
 
@@ -54,15 +54,15 @@ resource "random_password" "memex_public_bearer" {
   }
 }
 
-resource "aws_secretsmanager_secret" "memex_public_bearer" {
+resource "aws_secretsmanager_secret" "memrain_public_bearer" {
   name                    = "${var.secrets_prefix}/memex-public-bearer"
   description             = "Bearer token for the public Cloudflare Tunnel ingress to memex (read-only routes)"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
-  secret_id     = aws_secretsmanager_secret.memex_public_bearer.id
-  secret_string = random_password.memex_public_bearer.result
+resource "aws_secretsmanager_secret_version" "memrain_public_bearer" {
+  secret_id     = aws_secretsmanager_secret.memrain_public_bearer.id
+  secret_string = random_password.memrain_public_bearer.result
 
   lifecycle {
     # Daily rotation owns secret_string after first apply; never let
@@ -77,7 +77,7 @@ resource "aws_secretsmanager_secret_version" "memex_public_bearer" {
 # with no auth — the gate keys on `Cf-Connecting-Ip` presence only,
 # which is exactly the header those peers never send. See
 # `deploy/memex/src/http/public_guard.ts:evaluateInternalAuth`.
-resource "random_password" "memex_internal_token" {
+resource "random_password" "memrain_internal_token" {
   length  = 48
   special = false
 
@@ -86,15 +86,15 @@ resource "random_password" "memex_internal_token" {
   }
 }
 
-resource "aws_secretsmanager_secret" "memex_internal_token" {
+resource "aws_secretsmanager_secret" "memrain_internal_token" {
   name                    = "${var.secrets_prefix}/memex-internal-token"
   description             = "Shared bearer authenticating peer containers to memex's internal mutating routes"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "memex_internal_token" {
-  secret_id     = aws_secretsmanager_secret.memex_internal_token.id
-  secret_string = random_password.memex_internal_token.result
+resource "aws_secretsmanager_secret_version" "memrain_internal_token" {
+  secret_id     = aws_secretsmanager_secret.memrain_internal_token.id
+  secret_string = random_password.memrain_internal_token.result
 
   lifecycle {
     ignore_changes = [secret_string]

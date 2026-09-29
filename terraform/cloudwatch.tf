@@ -1,4 +1,4 @@
-resource "aws_cloudwatch_log_group" "memex" {
+resource "aws_cloudwatch_log_group" "memrain" {
   name              = "/${var.project_name}/app"
   retention_in_days = 14
 

@@ -16,9 +16,6 @@ terraform.tfstate.d/
 terraform/backend.hcl
 !terraform/backend.hcl.example
 
-# Local-only terraform state-migration blocks (never committed).
-terraform/moved.tf
-
 # Optional local overlay for audit / scrub-audit pattern sets — the
 # operator's exact maintainer/client identifiers stay out of git.
 scripts/lib/pii-patterns.local.txt
