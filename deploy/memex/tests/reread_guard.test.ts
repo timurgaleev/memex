@@ -129,14 +129,15 @@ function plantAfterSnapshot(plant: () => Promise<void>): () => void {
   return plantAfter("SELECT id, source_id, last_indexed_mtime FROM documents", plant);
 }
 
-/** Runs `plant` once, right after the first query whose text is `after` (and first param `param`, when given). */
-function plantAfter(after: string, plant: () => Promise<void>, param?: unknown): () => void {
+/** Runs `plant` once, right after the first query whose text is (or matches) `after` (and first param `param`, when given). */
+function plantAfter(after: string | RegExp, plant: () => Promise<void>, param?: unknown): () => void {
   const engine = storage.engine();
   const original = engine.query;
   let fired = false;
   engine.query = (async (sql: string, params?: unknown[]) => {
     const r = await original.call(engine, sql, params);
-    if (!fired && sql === after && (param === undefined || params?.[0] === param)) {
+    const hit = typeof after === "string" ? sql === after : after.test(sql);
+    if (!fired && hit && (param === undefined || params?.[0] === param)) {
       fired = true;
       await plant();
     }
@@ -191,7 +192,7 @@ describe("vault sweep", () => {
     const secret = join(vault, "new.md");
     writeFileSync(secret, offline("# operator secret"));
     const restore = plantAfter(
-      "SELECT source_id, last_indexed_mtime FROM documents WHERE source_path = $1",
+      /^SELECT source_id, last_indexed_mtime FROM documents WHERE source_path = \$1\b/,
       () => plantedDoc(secret, "tenant-a"),
       secret,
     );

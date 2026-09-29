@@ -15,6 +15,7 @@ import { Storage } from "../storage.ts";
 import { indexDocument } from "../indexer.ts";
 import { loadAllowedRootSpellings } from "../path_guard.ts";
 import { loadRereadGuard, readGuardedFile, REREAD_SCAN_FACTOR, rereadCandidateWhere } from "../sources.ts";
+import { OperationError } from "../operation-error.ts";
 import { phaseCheckpoint, phaseFenceCheck } from "./phase-context.ts";
 
 export interface EmbedStaleOptions {
@@ -93,6 +94,7 @@ export async function embedStalePhase(
   // spend the scan budget, so a row refused every tick cannot hold the cap.
   const scanBudget = maxPerCycle * REREAD_SCAN_FACTOR;
   let attempted = 0;
+  const conflicts: string[] = [];
   let after: string | null = null;
   while (attempted < maxPerCycle && result.scanned < scanBudget) {
     const limit = Math.min(maxPerCycle - attempted, scanBudget - result.scanned);
@@ -123,6 +125,14 @@ export async function embedStalePhase(
         });
         result.reembedded++;
       } catch (e) {
+        // Another source owns the row the write lands on: nothing this phase
+        // can do, so it must not spend the cap the next valid row needs.
+        if (e instanceof OperationError && e.code === "permission_denied") {
+          attempted--;
+          result.rejected++;
+          conflicts.push(row.source_path);
+          continue;
+        }
         result.errors.push({
           sourcePath: row.source_path,
           message: e instanceof Error ? e.message : String(e),
@@ -130,5 +140,14 @@ export async function embedStalePhase(
       }
     }
   }
+  logOwnerConflicts("embed-stale", conflicts);
   return result;
+}
+
+/** One line per tick naming the rows an owner conflict kept from a re-read. */
+export function logOwnerConflicts(phase: string, paths: readonly string[]): void {
+  if (paths.length === 0) return;
+  const shown = paths.slice(0, 5).map((p) => JSON.stringify(p)).join(", ");
+  const more = paths.length > 5 ? ` and ${paths.length - 5} more` : "";
+  console.error(`[cycle] ${phase}: ${paths.length} row(s) skipped, owned by another source: ${shown}${more}`);
 }

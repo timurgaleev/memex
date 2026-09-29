@@ -19,6 +19,9 @@
  *   - source-routing-health : registered sources with zero documents (writes
  *     silently collapsed elsewhere) and documents with NULL source_id
  *     (invisible to every scoped reader — the migration-071 class). Warns.
+ *   - document-id-drift : filesystem documents whose id is not the hash of
+ *     their source_path (a path rewritten in place, migration 099) and paths
+ *     stored under more than one id. Warns; the next local re-read heals both.
  *
  * All of them are read-only, cheap, and turn their own errors into a `warn`
  * verdict so a probe failure never crashes the doctor — and never passes for a
@@ -366,6 +369,48 @@ export async function checkSourceRoutingHealth(
       ok: true,
       status: "ok",
       detail: `${perSource.rows.length} non-default source(s); all populated, no NULL-source documents`,
+    };
+  } catch (e) {
+    return couldNotCheck(name, e);
+  }
+}
+
+/**
+ * Documents a local re-read would write under a different id than the one
+ * they carry. The id is `doc_` + the first 16 hex of sha256(source_path);
+ * scheme paths (`page://`, `gmail:`) name rows, not files, and are skipped.
+ * The index write folds these into the path's own id on the next re-read, so
+ * this only reports how much is left.
+ */
+export async function checkDocumentIdDrift(
+  engine: Engine,
+): Promise<TenancyCheck> {
+  const name = "document-id-drift";
+  try {
+    const r = await engine.query<{ drifted: number | string; duplicated: number | string }>(
+      `SELECT
+         (SELECT COUNT(*)::int FROM documents
+           WHERE left(source_path, 1) = '/'
+             AND id <> 'doc_' || left(encode(sha256(convert_to(source_path, 'UTF8')), 'hex'), 16)
+         ) AS drifted,
+         (SELECT COUNT(*)::int FROM (
+            SELECT source_path FROM documents GROUP BY source_path HAVING COUNT(*) > 1
+          ) dup
+         ) AS duplicated`,
+    );
+    const drifted = toInt(r.rows[0]?.drifted);
+    const duplicated = toInt(r.rows[0]?.duplicated);
+    if (drifted === 0 && duplicated === 0) {
+      return { name, ok: true, status: "ok", detail: "every file document carries its path's id" };
+    }
+    return {
+      name,
+      ok: true,
+      status: "warn",
+      detail:
+        `${drifted} document(s) carry an id their source_path does not hash to; ` +
+        `${duplicated} source_path(s) are stored under more than one id — ` +
+        "each heals into one document on its next re-read (vault sweep, embed-stale, rechunk-sweep, reindex)",
     };
   } catch (e) {
     return couldNotCheck(name, e);

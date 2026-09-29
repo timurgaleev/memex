@@ -43,6 +43,8 @@ import { indexDocument } from "../indexer.ts";
 import { MARKDOWN_CHUNKER_VERSION } from "../chunkers/recursive.ts";
 import { loadAllowedRootSpellings } from "../path_guard.ts";
 import { loadRereadGuard, readGuardedFile, REREAD_SCAN_FACTOR, rereadCandidateWhere } from "../sources.ts";
+import { OperationError } from "../operation-error.ts";
+import { logOwnerConflicts } from "./embed-stale.ts";
 import { phaseCheckpoint, phaseFenceCheck } from "./phase-context.ts";
 
 const DEFAULT_MAX_DOCS = 25;
@@ -164,6 +166,7 @@ export async function rechunkSweepPhase(
   // the scan budget, so a row refused every tick cannot hold the cap.
   const scanBudget = maxDocs * REREAD_SCAN_FACTOR;
   let attempted = 0;
+  const conflicts: string[] = [];
   let after: string | null = null;
   while (!result.budgetExhausted && attempted < maxDocs && result.scanned < scanBudget) {
     const limit = Math.min(maxDocs - attempted, scanBudget - result.scanned);
@@ -208,6 +211,12 @@ export async function rechunkSweepPhase(
           break;
         }
       } catch (e) {
+        if (e instanceof OperationError && e.code === "permission_denied") {
+          attempted--;
+          result.rejected++;
+          conflicts.push(row.source_path);
+          continue;
+        }
         result.errors.push({
           sourcePath: row.source_path,
           message: e instanceof Error ? e.message : String(e),
@@ -215,5 +224,6 @@ export async function rechunkSweepPhase(
       }
     }
   }
+  logOwnerConflicts("rechunk-sweep", conflicts);
   return result;
 }

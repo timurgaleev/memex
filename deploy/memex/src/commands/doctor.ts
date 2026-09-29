@@ -52,6 +52,7 @@ import {
   checkOauthClientHygiene,
   checkPatScopesRecorded,
   checkSourceRoutingHealth,
+  checkDocumentIdDrift,
 } from "../core/doctor-tenancy.ts";
 import { latestEvalSnapshot, type EvalSnapshotRow } from "../core/eval-snapshot.ts";
 import { latestContradictionRun } from "../core/synthesis/contradictions.ts";
@@ -357,6 +358,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     checks.push(await checkOauthClientHygiene(storage.raw()));
     checks.push(await checkPatScopesRecorded(storage.raw()));
     checks.push(await checkSourceRoutingHealth(storage.raw()));
+    checks.push(await checkDocumentIdDrift(storage.raw()));
 
     // Chronicle projection health — timeline_events rows projected from an event
     // page that has since been soft-deleted. The read path hides these (it joins

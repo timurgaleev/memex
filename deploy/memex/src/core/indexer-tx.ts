@@ -162,6 +162,10 @@ export async function writeDocumentTransaction(
     embeddingsWritten = 0;
     entitiesWritten = 0;
 
+    const healed = await adoptLegacyDocuments(tx, doc);
+    const healedOwner = healed?.owner;
+    const expectOwner = healed === undefined ? doc.expectOwner : healed.owner;
+
     // No cross-tenant document overwrite. `documents.id` hashes ONLY the
     // caller-supplied source_path (see `docId` in indexer.ts), so a scoped
     // caller who names another tenant's path — they are predictable,
@@ -203,7 +207,7 @@ export async function writeDocumentTransaction(
 
     const upserted = await tx.query<{ id: string }>(
       `INSERT INTO documents (id, source_id, source_path, title, frontmatter, last_indexed_mtime, chunker_version, effective_date, effective_date_source, import_filename, updated_at)
-       VALUES ($1, $6, $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
+       VALUES ($1, COALESCE($6, $14::text), $2, $3, $4::text::jsonb, $5, COALESCE($7, 1), $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          -- Keep the existing source on reindex unless the caller passes one
          -- explicitly. A null write leaves classification to the path-prefix
@@ -257,8 +261,9 @@ export async function writeDocumentTransaction(
         effectiveDate.source,
         importFilename(doc.sourcePath),
         doc.claimUnowned === true,
-        doc.expectOwner !== undefined,
-        doc.expectOwner ?? null,
+        expectOwner !== undefined,
+        expectOwner ?? null,
+        healedOwner ?? null,
       ],
     );
 
@@ -271,6 +276,29 @@ export async function writeDocumentTransaction(
         "permission_denied",
         `document '${doc.sourcePath}' is owned by another source`,
         "Index under a source_path inside your own source.",
+      );
+    }
+
+    // The folded rows took their soft-delete and archive state with them; the
+    // write must not revive a document either copy had retired.
+    if (healed && hasLifecycle(healed.lifecycle)) {
+      const l = healed.lifecycle;
+      await tx.query(
+        `UPDATE documents
+            SET deleted_at         = COALESCE(deleted_at, $2::timestamptz),
+                archived           = archived OR $3::boolean,
+                archived_at        = COALESCE(archived_at, $4::timestamptz),
+                archive_expires_at = COALESCE(archive_expires_at, $5::timestamptz)
+          WHERE id = $1`,
+        [doc.documentId, l.deleted_at, l.archived === true, l.archived_at, l.archive_expires_at],
+      );
+    }
+    // A fresh INSERT stamps ingested_at = now(); keep the earliest copy's, which
+    // synthesis reads as the note's date when it has no effective_date.
+    if (healed?.lifecycle.ingested_at) {
+      await tx.query(
+        `UPDATE documents SET ingested_at = LEAST(ingested_at, $2::timestamptz) WHERE id = $1`,
+        [doc.documentId, healed.lifecycle.ingested_at],
       );
     }
 
@@ -363,6 +391,179 @@ export async function writeDocumentTransaction(
     embeddings: embeddingsWritten,
     entities: entitiesWritten,
   };
+}
+
+interface FoldedLifecycle {
+  deleted_at: string | null;
+  archived: boolean | null;
+  archived_at: string | null;
+  archive_expires_at: string | null;
+  ingested_at: string | null;
+}
+
+function hasLifecycle(l: FoldedLifecycle): boolean {
+  return l.deleted_at !== null || l.archived === true || l.archived_at !== null || l.archive_expires_at !== null;
+}
+
+function ownerConflict(sourcePath: string): OperationError {
+  return new OperationError(
+    "permission_denied",
+    `document '${sourcePath}' is owned by another source`,
+    "Index under a source_path inside your own source.",
+  );
+}
+
+/**
+ * The one owner the rows under a drifted source_path share, which the fold
+ * keeps. Refused when two sources own them, when none carries the owner the
+ * caller verified, or when the row the path hashes to is owned by anyone else:
+ * that is the row a remote `index` labels, and a legacy row never hands a
+ * local file to it.
+ */
+function foldedOwner(
+  legacy: readonly { source_id: string | null }[],
+  current: readonly { source_id: string | null }[],
+  doc: Pick<DocumentWrite, "sourcePath" | "sourceId" | "expectOwner">,
+): string | null {
+  const seen = [...legacy, ...current].map((r) => r.source_id);
+  const owners = [...new Set(seen.filter((o): o is string => o !== null))];
+  const kept = owners[0] ?? null;
+  const currentOwner = current[0]?.source_id ?? null;
+  const refused =
+    owners.length > 1 ||
+    !seen.includes(doc.expectOwner ?? null) ||
+    (currentOwner !== null && currentOwner !== doc.expectOwner) ||
+    (doc.sourceId != null && kept !== null && doc.sourceId !== kept);
+  if (refused) throw ownerConflict(doc.sourcePath);
+  return kept;
+}
+
+/**
+ * The owner checks `writeDocumentTransaction` makes for a local re-read, run
+ * read-only before the caller pays for embeddings. The in-transaction fence
+ * stays the authority; this only turns a refusal it would make into one made
+ * before any spend.
+ */
+export async function checkLocalWriteOwner(
+  engine: Engine,
+  doc: Pick<DocumentWrite, "documentId" | "sourcePath" | "sourceId" | "claimUnowned" | "expectOwner">,
+): Promise<void> {
+  if (doc.expectOwner === undefined) return;
+  const legacy = await engine.query<{ source_id: string | null }>(
+    "SELECT source_id FROM documents WHERE source_path = $1 AND id <> $2",
+    [doc.sourcePath, doc.documentId],
+  );
+  const current = await engine.query<{ source_id: string | null }>(
+    "SELECT source_id FROM documents WHERE id = $1",
+    [doc.documentId],
+  );
+  const expect =
+    legacy.rows.length > 0 ? foldedOwner(legacy.rows, current.rows, doc) : doc.expectOwner;
+  if (current.rows.length === 0) return;
+  const owner = legacy.rows.length > 0 ? expect : current.rows[0]!.source_id;
+  const claimable = doc.claimUnowned === true && owner == null;
+  if (owner !== expect || (doc.sourceId != null && owner !== doc.sourceId && !claimable)) {
+    throw ownerConflict(doc.sourcePath);
+  }
+}
+
+/**
+ * Fold rows stored under this source_path with an id other than the one the
+ * path hashes to into the write's own id. They exist where a path was
+ * rewritten in place (migration 099 moved `/vault/…` to `/memory/…` and kept
+ * the ids), and every local re-read otherwise upserts a second document beside
+ * them, then fails its owner fence against that twin on the next tick.
+ *
+ * Only a local re-read heals (`expectOwner` set): a remote inline `index`
+ * writes the id its own label hashes to and never reaches another row. The
+ * kept owner is the one `foldedOwner` accepts; anything else is refused, not
+ * merged. Chunks, embeddings, entity mentions and code edges cascade with the
+ * legacy row, since this write regenerates them; provenance pointers (links,
+ * timeline events, facts, hot memory, synthesis atoms and takes) and eval
+ * expectations move to the new ids, and the rows' soft-delete and archive
+ * state comes back for the write to keep.
+ *
+ * Returns the owner the write must keep and find, or undefined when there was
+ * nothing to fold.
+ */
+async function adoptLegacyDocuments(
+  tx: Engine,
+  doc: DocumentWrite,
+): Promise<{ owner: string | null; lifecycle: FoldedLifecycle } | undefined> {
+  if (doc.expectOwner === undefined) return undefined;
+  const legacy = await tx.query<{ id: string; source_id: string | null }>(
+    `SELECT id, source_id FROM documents
+      WHERE source_path = $1 AND id <> $2
+      ORDER BY id
+      FOR UPDATE`,
+    [doc.sourcePath, doc.documentId],
+  );
+  if (legacy.rows.length === 0) return undefined;
+  const current = await tx.query<{ source_id: string | null }>(
+    "SELECT source_id FROM documents WHERE id = $1 FOR UPDATE",
+    [doc.documentId],
+  );
+  const kept = foldedOwner(legacy.rows, current.rows, doc);
+  const lifecycle = (
+    await tx.query<FoldedLifecycle>(
+      `SELECT min(deleted_at)::text AS deleted_at, bool_or(archived) AS archived,
+              min(archived_at)::text AS archived_at, min(archive_expires_at)::text AS archive_expires_at,
+              min(ingested_at)::text AS ingested_at
+         FROM documents
+        WHERE source_path = $1 AND id <> $2`,
+      [doc.sourcePath, doc.documentId],
+    )
+  ).rows[0]!;
+
+  for (const { id } of legacy.rows) {
+    const from = `${id}_c`;
+    const to = `${doc.documentId}_c`;
+    const repoint = (table: string, clash: string) =>
+      tx.query(
+        `UPDATE ${table} t
+            SET source_chunk_id = $2::text || substr(t.source_chunk_id, length($1::text) + 1)
+          WHERE starts_with(t.source_chunk_id, $1::text)${clash}`,
+        [from, to],
+      );
+    await repoint("links", "");
+    await repoint("hot_memory", "");
+    // Both carry a unique key over the chunk id; a row the current document
+    // already derived keeps its pointer, and the duplicate keeps the old one.
+    await repoint(
+      "timeline_events",
+      ` AND NOT EXISTS (SELECT 1 FROM timeline_events o
+                         WHERE o.slug = t.slug AND o.occurred_at = t.occurred_at
+                           AND o.source_chunk_id = $2::text || substr(t.source_chunk_id, length($1::text) + 1))`,
+    );
+    await repoint(
+      "entity_facts",
+      ` AND NOT EXISTS (SELECT 1 FROM entity_facts o
+                         WHERE o.entity_slug = t.entity_slug AND o.fact = t.fact
+                           AND o.source_chunk_id = $2::text || substr(t.source_chunk_id, length($1::text) + 1))`,
+    );
+    await tx.query(
+      "UPDATE eval_queries SET expected_doc_id = $2 WHERE expected_doc_id = $1",
+      [id, doc.documentId],
+    );
+    // Synthesis keys its idempotency and its tenant join on the document id;
+    // a stale one re-extracts the document and counts its takes elsewhere.
+    await tx.query(
+      "UPDATE synth_atoms SET source_ref = $2 WHERE source_ref = $1 AND source_kind = 'document'",
+      [id, doc.documentId],
+    );
+    await tx.query(
+      `UPDATE synth_takes t SET source_ref = $2
+        WHERE t.source_ref = $1
+          AND (t.row_num IS NULL
+               OR NOT EXISTS (SELECT 1 FROM synth_takes o WHERE o.source_ref = $2 AND o.row_num = t.row_num))`,
+      [id, doc.documentId],
+    );
+    await tx.query("DELETE FROM documents WHERE id = $1", [id]);
+  }
+  if (kept !== null && current.rows.length > 0) {
+    await tx.query("UPDATE documents SET source_id = $2 WHERE id = $1", [doc.documentId, kept]);
+  }
+  return { owner: kept, lifecycle };
 }
 
 async function persistEntitiesViaTx(

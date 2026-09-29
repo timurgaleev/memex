@@ -437,7 +437,10 @@ export async function guardLocalIndex(
 ): Promise<string | null> {
   const row = (
     await engine.query<{ source_id: string | null; last_indexed_mtime: number | null }>(
-      "SELECT source_id, last_indexed_mtime FROM documents WHERE source_path = $1",
+      // Rows whose id the path no longer hashes to can share it until the
+      // write folds them; judge the one the write lands on.
+      `SELECT source_id, last_indexed_mtime FROM documents WHERE source_path = $1
+        ORDER BY id = 'doc_' || left(encode(sha256(convert_to($1::text, 'UTF8')), 'hex'), 16) DESC, id`,
       [sourcePath],
     )
   ).rows[0];

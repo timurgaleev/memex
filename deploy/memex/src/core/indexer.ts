@@ -63,6 +63,7 @@ import { newWriteTiming, noteWriteTiming, runWithWriteTiming } from "./write-tim
 import { acquireWriteEmbedSlot, writeEmbedWidth } from "./concurrency.ts";
 import type { Storage } from "./storage.ts";
 import {
+  checkLocalWriteOwner,
   writeDocumentTransaction,
   type ChunkWrite,
   type IndexTxResult,
@@ -266,6 +267,14 @@ async function indexDocumentBody(
         `assets (e.g. an inline transcript stored in the frontmatter header).`,
     );
   }
+  // A local re-read the owner fence will refuse is refused before it embeds.
+  await checkLocalWriteOwner(storage.raw(), {
+    documentId: docId(input.sourcePath),
+    sourcePath: input.sourcePath,
+    sourceId: input.sourceId ?? null,
+    ...(input.claimUnowned === true ? { claimUnowned: true } : {}),
+    ...(input.expectOwner !== undefined ? { expectOwner: input.expectOwner } : {}),
+  });
 
   // Infer a frontmatter header at ingest for content that has none (import-time
   // inference — a per-file pure step, NOT a recurring cycle phase). A doc that

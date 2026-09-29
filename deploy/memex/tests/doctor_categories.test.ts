@@ -41,6 +41,7 @@ describe("doctor categorize", () => {
       "connector-health",
       "contradiction-trend",
       "cycle-freshness",
+      "document-id-drift",
       "duplicate-pages",
       "embedding-width",
       "eval-trend",

@@ -105,6 +105,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   "contradiction-trend",
   "federation-health",
   "source-routing-health",
+  "document-id-drift",
   "embedding-width",
   "chronicle-projection-health",
   "duplicate-pages",
