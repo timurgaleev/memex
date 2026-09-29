@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.162.0] — 2026-09-29
+
 ### Changed
 - **A page miss says which page you probably meant.** `page_get`, `page_append`,
   `add_timeline_event`, `add_tag`, `put_raw_data` and `extract_facts` answer a
