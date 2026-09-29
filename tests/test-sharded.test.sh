@@ -146,7 +146,7 @@ rc=$?
 shards=$(wc -l < "$T6/calls" | tr -d ' ')
 handed=$(cut -d' ' -f2- "$T6/calls" | tr ' ' '\n' | sort | uniq | wc -l | tr -d ' ')
 dups=$(cut -d' ' -f2- "$T6/calls" | tr ' ' '\n' | sort | uniq -d | wc -l | tr -d ' ')
-headers=$(printf '%s\n' "$out" | grep -c '^==> bun test shard')
+headers=$(printf '%s\n' "$out" | grep -cE '^(==> |::group::)bun test shard')
 if [ "$rc" -eq 0 ] && [ "$shards" = "4" ] && [ "$handed" = "7" ] && [ "$dups" = "0" ] && [ "$headers" = "4" ]; then
   pass "T6 JOBS=3 → 4 shards, 7 files once each, one header per shard"
 else
