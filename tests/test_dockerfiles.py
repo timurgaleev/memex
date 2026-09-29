@@ -105,13 +105,19 @@ class TestSecrets:
         assert p.stat().st_mode & 0o111, "fetch-secrets.sh must be executable"
 
     def test_fetch_secrets_sh_writes_required_secrets(self):
-        p = DEPLOY / "secrets" / "fetch-secrets.sh"
-        text = p.read_text()
-        # Required: cloudflared-tunnel-token, memex-public-bearer (public
-        # MCP auth). telegram-bot-token / home-assistant-token /
-        # google-calendar were removed with the integrations.
+        # The names live in lib.sh (new-then-old pairs); fetch-secrets.sh
+        # asks for them by kind.
+        text = (DEPLOY / "secrets" / "fetch-secrets.sh").read_text()
+        text += (DEPLOY / "secrets" / "lib.sh").read_text()
+        # Required: cloudflared-tunnel-token, the public bearer (public
+        # MCP auth) under either name. telegram-bot-token /
+        # home-assistant-token / google-calendar were removed with the
+        # integrations.
+        assert "fetch_kind public-bearer" in text
+        assert "fetch_kind tunnel-token" in text
         for secret_name in [
             "cloudflared-tunnel-token",
+            "memrain-public-bearer",
             "memex-public-bearer",
         ]:
             assert secret_name in text, (

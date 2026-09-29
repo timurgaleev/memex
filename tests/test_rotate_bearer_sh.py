@@ -52,3 +52,14 @@ def test_no_telegram_delivery() -> None:
     assert "api.telegram.org" not in text, (
         "rotate script must not deliver via Telegram (integration removed)"
     )
+
+
+def test_bearer_id_comes_from_lib() -> None:
+    """The PUT must land in the secret fetch-secrets.sh reads: both resolve
+    it through deploy/secrets/lib.sh (PUBLIC_BEARER_SECRET_NAME when set,
+    else new-then-old). A hard-coded id would split them."""
+    text = _read()
+    assert re.search(r'^\. ".*/deploy/secrets/lib\.sh"$', text, re.M)
+    assert re.search(r'BEARER_SECRET_ID="\$\(secret_id_for public-bearer\)"', text)
+    assert "/memex-public-bearer\"" not in text
+    assert 'SECRETS_PREFIX="${SECRETS_PREFIX:-' not in text

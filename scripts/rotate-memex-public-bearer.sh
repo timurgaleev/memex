@@ -3,7 +3,9 @@
 #
 # Steps:
 #   1. Generate a new 32-byte hex token.
-#   2. PUT it into Secrets Manager (<SECRETS_PREFIX>/memex-public-bearer).
+#   2. PUT it into the bearer secret that fetch-secrets.sh reads:
+#      PUBLIC_BEARER_SECRET_NAME when set, else <SECRETS_PREFIX>/memrain-public-bearer,
+#      else <SECRETS_PREFIX>/memex-public-bearer (deploy/secrets/lib.sh).
 #   3. Re-run fetch-secrets.sh so the on-disk env file picks up the new
 #      value, then force-recreate the memex container via compose so it
 #      re-reads the changed env_file. (`docker restart` does NOT reload a
@@ -27,9 +29,15 @@ if [ -f "${REPO_DIR}/.env" ]; then
 fi
 
 : "${AWS_REGION:?AWS_REGION must be set (sourced from \${REPO_DIR}/.env)}"
-SECRETS_PREFIX="${SECRETS_PREFIX:-memex}"
 
-BEARER_SECRET_ID="${SECRETS_PREFIX}/memex-public-bearer"
+# Same resolution as fetch-secrets.sh, so the PUT lands in the secret the
+# env file is re-staged from, never in a different one.
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "$0")/.." && pwd)/deploy/secrets/lib.sh"
+BEARER_SECRET_ID="$(secret_id_for public-bearer)" || {
+  echo "[rotate] ERROR: cannot resolve the public bearer secret id; nothing rotated" >&2
+  exit 1
+}
 COMPOSE_DIR="${MEMEX_ROTATE_COMPOSE_DIR:-${REPO_DIR}/deploy}"
 MEMEX_CONTAINER="${MEMEX_ROTATE_CONTAINER:-deploy-memex-1}"
 MEMEX_SERVICE="${MEMEX_ROTATE_SERVICE:-memex}"

@@ -12,32 +12,36 @@
 # host. The token is never printed, never written to shell history, and is
 # fetched fresh from Secrets Manager on every run.
 #
-# Env contract:
-#   MEMEX_MCP_URL        required — the brain MCP endpoint (e.g. https://<host>/mcp)
-#   AWS_REGION           required — region the stack's secrets live in
+# Env contract (each MEMRAIN_* name falls back to its legacy MEMEX_* name):
+#   MEMRAIN_MCP_URL        required — the brain MCP endpoint (e.g. https://<host>/mcp)
+#   AWS_REGION             required — region the stack's secrets live in
 # Optional knobs:
-#   MEMEX_SECRETS_PREFIX secret prefix (default: memex) → <prefix>/memex-public-bearer
-#   MEMEX_MCP_NAME       MCP server name to register (default: memex)
-#   MEMEX_MCP_SCOPE      registration scope (default: user — all projects)
-#   AWS_PROFILE          passed to aws if set
+#   MEMRAIN_SECRETS_PREFIX secret prefix (default: memex) → <prefix>/memrain-public-bearer,
+#                          then <prefix>/memex-public-bearer
+#   PUBLIC_BEARER_SECRET_NAME  full secret id of the bearer; replaces the lookup above
+#   MEMRAIN_MCP_NAME       MCP server name to register (default: memex)
+#   MEMRAIN_MCP_SCOPE      registration scope (default: user — all projects)
+#   AWS_PROFILE            passed to aws if set
 #
 # Suggested alias (add to ~/.zshrc, set URL/region/profile to your deploy):
 #   alias mcpr='MEMEX_MCP_URL="https://<your-brain-host>/mcp" AWS_REGION=<region> AWS_PROFILE=<profile> ~/path/to/memex/scripts/mcp-refresh.sh'
 
 set -euo pipefail
 
-NAME="${MEMEX_MCP_NAME:-memex}"
-PREFIX="${MEMEX_SECRETS_PREFIX:-memex}"
-SECRET_ID="${PREFIX}/memex-public-bearer"
+MCP_URL="${MEMRAIN_MCP_URL:-${MEMEX_MCP_URL:-}}"
+NAME="${MEMRAIN_MCP_NAME:-${MEMEX_MCP_NAME:-memex}}"
+# Read by secret_id_for (deploy/secrets/lib.sh, sourced below).
+# shellcheck disable=SC2034
+SECRETS_PREFIX="${MEMRAIN_SECRETS_PREFIX:-${MEMEX_SECRETS_PREFIX:-memex}}"
 # Register at USER scope so the server is available across all projects, not
 # just the cwd (`claude mcp add` defaults to local/project scope). Override
-# with MEMEX_MCP_SCOPE if you really want a project-local registration.
-SCOPE="${MEMEX_MCP_SCOPE:-user}"
+# with MEMRAIN_MCP_SCOPE if you really want a project-local registration.
+SCOPE="${MEMRAIN_MCP_SCOPE:-${MEMEX_MCP_SCOPE:-user}}"
 
 log() { printf '[mcp-refresh] %s\n' "$*" >&2; }
 
-if [ -z "${MEMEX_MCP_URL:-}" ]; then
-  log "ERROR: MEMEX_MCP_URL is not set (the brain MCP endpoint, e.g. https://<host>/mcp)."
+if [ -z "$MCP_URL" ]; then
+  log "ERROR: MEMRAIN_MCP_URL is not set (the brain MCP endpoint, e.g. https://<host>/mcp)."
   exit 2
 fi
 for bin in aws claude; do
@@ -56,6 +60,15 @@ fi
 # Build optional aws flags without leaking empties.
 AWS_FLAGS=(--region "$AWS_REGION")
 [ -n "${AWS_PROFILE:-}" ] && AWS_FLAGS+=(--profile "$AWS_PROFILE")
+
+# The same resolution fetch-secrets.sh and the rotation script use, so this
+# reads the secret the server actually serves.
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "$0")/.." && pwd)/deploy/secrets/lib.sh"
+if ! SECRET_ID="$(secret_id_for public-bearer)"; then
+  log "ERROR: cannot resolve the public bearer secret (check AWS auth / secret name)."
+  exit 1
+fi
 
 log "fetching current bearer from Secrets Manager (${SECRET_ID})…"
 # Capture into a variable so the token never hits disk or the process table
@@ -78,7 +91,7 @@ fi
 # that is the standard MCP-registration model, not introduced here. On a
 # single-user workstation argv is visible only to the same user + root.)
 claude mcp remove "$NAME" --scope "$SCOPE" >/dev/null 2>&1 || true
-if ! claude mcp add --scope "$SCOPE" --transport http "$NAME" "$MEMEX_MCP_URL" \
+if ! claude mcp add --scope "$SCOPE" --transport http "$NAME" "$MCP_URL" \
   --header "Authorization: Bearer ${TOKEN}" >/dev/null 2>&1; then
   unset TOKEN
   log "ERROR: 'claude mcp add' failed (check: claude logged in? URL reachable?)."
@@ -86,4 +99,4 @@ if ! claude mcp add --scope "$SCOPE" --transport http "$NAME" "$MEMEX_MCP_URL" \
 fi
 
 unset TOKEN
-log "ok: '${NAME}' re-registered at ${SCOPE} scope with the current bearer (${MEMEX_MCP_URL})."
+log "ok: '${NAME}' re-registered at ${SCOPE} scope with the current bearer (${MCP_URL})."
