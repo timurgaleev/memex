@@ -7,7 +7,7 @@
 # trigger / event-trigger function memex defines must therefore carry an explicit
 # `SET search_path` in its definition.
 #
-# This scans deploy/memex/src/core/migrations/*.sql and the down files in
+# This scans deploy/memrain/src/core/migrations/*.sql and the down files in
 # migrations-down/ for any
 # `CREATE [OR REPLACE] FUNCTION ... RETURNS trigger|event_trigger` whose header
 # (up to the body-opening `AS $...$`) lacks `SET search_path`, and fails with the
@@ -27,8 +27,8 @@ if [ -z "$REPO_ROOT" ]; then
 fi
 cd "$REPO_ROOT"
 
-MIG_DIR="deploy/memex/src/core/migrations"
-DOWN_DIR="deploy/memex/src/core/migrations-down"
+MIG_DIR="deploy/memrain/src/core/migrations"
+DOWN_DIR="deploy/memrain/src/core/migrations-down"
 for d in "$MIG_DIR" "$DOWN_DIR"; do
   if [ ! -d "$d" ]; then
     echo "[search-path] ERROR: migrations dir not found: $d" >&2

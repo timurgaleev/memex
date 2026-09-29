@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# tests/entrypoint.test.sh — deploy/memex/entrypoint.sh with a stub `bun`:
+# tests/entrypoint.test.sh — deploy/memrain/entrypoint.sh with a stub `bun`:
 # the Postgres URL and the REQUIRE switch are read under both names, and a
 # required-but-missing URL refuses to start (exit 78) without running init.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENTRYPOINT="$REPO_ROOT/deploy/memex/entrypoint.sh"
+ENTRYPOINT="$REPO_ROOT/deploy/memrain/entrypoint.sh"
 
 PASS=0
 FAIL=0

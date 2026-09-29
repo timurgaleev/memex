@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SRC_DIR = REPO_ROOT / "deploy" / "memex" / "src"
+SRC_DIR = REPO_ROOT / "deploy" / "memrain" / "src"
 DOC_PATH = REPO_ROOT / "docs" / "CONFIGURATION.md"
 
 VAR_RE = re.compile(r"\bMEMEX_[A-Z0-9_]*[A-Z0-9]\b")
@@ -55,7 +55,7 @@ def test_source_scan_finds_variables():
 def test_every_source_variable_has_a_row():
     missing = sorted(source_vars() - documented_vars())
     assert not missing, (
-        "MEMEX_* variables read in deploy/memex/src with no row in "
+        "MEMEX_* variables read in deploy/memrain/src with no row in "
         f"docs/CONFIGURATION.md: {missing}"
     )
 

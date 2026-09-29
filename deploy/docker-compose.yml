@@ -13,7 +13,7 @@ services:
 
   memex:
     build:
-      context: ./memex
+      context: ./memrain
       dockerfile: Dockerfile
       args:
         MEMEX_VERSION: "${MEMEX_VERSION:-dev}"
@@ -39,7 +39,7 @@ services:
       # sweep (markdown notes, archived conversations, etc.).
       - ${EFS_MOUNT}/workspace/memory:/memory:ro
       # Brain-resident skillpack (list_skills / get_skill). The image copies
-      # only deploy/memex, so the pack rides a read-only mount instead.
+      # only deploy/memrain, so the pack rides a read-only mount instead.
       - ./skills:/skills:ro
       # Read-only access to the repo checkout for the code chunkers.
       # bootstrap.sh clones ${EFS_REPO} alongside the EFS mount; if

@@ -12,7 +12,7 @@ DEPLOY = REPO_ROOT / "deploy"
 
 # cloudflared has no Dockerfile — it uses upstream image directly.
 DOCKERFILES = {
-    "memex": DEPLOY / "memex" / "Dockerfile",
+    "memex": DEPLOY / "memrain" / "Dockerfile",
 }
 
 

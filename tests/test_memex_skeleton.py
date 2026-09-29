@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-TB = REPO / "deploy" / "memex"
+TB = REPO / "deploy" / "memrain"
 
 
 def test_package_json_exists() -> None:
@@ -61,7 +61,7 @@ def test_gitignore_excludes_node_modules() -> None:
     if not gi.is_file():
         pytest.skip(".gitignore missing — see test_gitignore_exists")
     text = gi.read_text()
-    assert "node_modules" in text, "deploy/memex/.gitignore must exclude node_modules"
+    assert "node_modules" in text, "deploy/memrain/.gitignore must exclude node_modules"
 
 
 def test_src_layout() -> None:

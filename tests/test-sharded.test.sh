@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # tests/test-sharded.test.sh — unit tests for
-# deploy/memex/scripts/test-sharded.sh.
+# deploy/memrain/scripts/test-sharded.sh.
 #
 # `bun` is stubbed on PATH so no real test suite runs: the stub records the
 # files it was handed, which is what the shard maths has to get right.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SHARD_SH="$REPO_ROOT/deploy/memex/scripts/test-sharded.sh"
+SHARD_SH="$REPO_ROOT/deploy/memrain/scripts/test-sharded.sh"
 
 PASS=0
 FAIL=0

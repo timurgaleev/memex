@@ -121,7 +121,7 @@ def test_cloudflared_uses_pinned_image(compose):
 def test_memex_build_context(compose):
     svc = compose["services"]["memex"]
     assert "build" in svc, "memex must declare a build: block"
-    assert svc["build"]["context"] == "./memex"
+    assert svc["build"]["context"] == "./memrain"
 
 
 def test_serve_time_env_vars_reach_the_container(compose):
@@ -131,7 +131,7 @@ def test_serve_time_env_vars_reach_the_container(compose):
     in .env but missing here never reaches the process, and the failure is
     silent: the flag simply appears to do nothing.
     """
-    src = REPO_ROOT / "deploy" / "memex" / "src"
+    src = REPO_ROOT / "deploy" / "memrain" / "src"
     required = {
         "MEMEX_PUBLIC_URL",
         "MEMEX_ASSUME_PUBLIC",

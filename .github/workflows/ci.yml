@@ -64,7 +64,7 @@ jobs:
       - name: install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: lint scripts
-        run: shellcheck scripts/*.sh tests/*.test.sh tests/lib/*.sh deploy/*.sh deploy/secrets/*.sh deploy/memex/scripts/*.sh
+        run: shellcheck scripts/*.sh tests/*.test.sh tests/lib/*.sh deploy/*.sh deploy/secrets/*.sh deploy/memrain/scripts/*.sh
 
   pytest:
     name: Python tests
@@ -100,7 +100,7 @@ jobs:
         group: [0, 1, 2]
     defaults:
       run:
-        working-directory: deploy/memex
+        working-directory: deploy/memrain
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -159,7 +159,7 @@ jobs:
         with:
           bun-version: latest
       - name: bun install (frozen lockfile)
-        working-directory: deploy/memex
+        working-directory: deploy/memrain
         run: bun install --frozen-lockfile
       - name: make test-pg
         # With the URL set, the script uses the service container and starts

@@ -96,8 +96,8 @@ def test_downloaded_binaries_are_checksum_verified(name):
 def test_deps_audit_triggers_on_lockfile():
     on = _triggers(_load("deps-audit.yml"))
     for event in ("push", "pull_request"):
-        assert "deploy/memex/bun.lock" in on[event]["paths"]
-        assert "deploy/memex/package.json" in on[event]["paths"]
+        assert "deploy/memrain/bun.lock" in on[event]["paths"]
+        assert "deploy/memrain/package.json" in on[event]["paths"]
     assert on.get("schedule"), "deps-audit.yml needs a scheduled run"
     assert "workflow_dispatch" in on
 

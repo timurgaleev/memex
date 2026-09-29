@@ -1,5 +1,5 @@
 """
-Static checks on the generic data-manifest script (deploy/memex/scripts/sql/data-manifest.sql).
+Static checks on the generic data-manifest script (deploy/memrain/scripts/sql/data-manifest.sql).
 
 It is run by operators with psql against a live database, so it must stay
 generic, read-only, and free of any psql feature beyond `\\gexec`.
@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SCRIPT = REPO_ROOT / "deploy" / "memex" / "scripts" / "sql" / "data-manifest.sql"
+SCRIPT = REPO_ROOT / "deploy" / "memrain" / "scripts" / "sql" / "data-manifest.sql"
 
 PINNED_SETTINGS = [
     "SET LOCAL TimeZone = 'UTC';",

@@ -7,7 +7,7 @@
 # What it runs, in order:
 #   1. every migration, applied to an empty database;
 #   2. the migration set applied a second time — it must apply nothing;
-#   3. every test file under deploy/memex/tests that reads
+#   3. every test file under deploy/memrain/tests that reads
 #      MEMEX_TEST_POSTGRES_URL (found by grep, so a new *_pg test is picked
 #      up without touching this script).
 #
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PKG="$REPO/deploy/memex"
+PKG="$REPO/deploy/memrain"
 IMAGE="${TEST_PG_IMAGE:-pgvector/pgvector:pg16}"
 READY_TIMEOUT="${TEST_PG_TIMEOUT:-60}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-30000}"

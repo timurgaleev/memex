@@ -33,10 +33,10 @@ scrub-audit: ## Broader pre-publication audit — categorised report, fails on H
 	@bash scripts/scrub-audit.sh
 
 typecheck: ## Typecheck the whole package — src/ and tests/ alike
-	@cd deploy/memex && bun run typecheck
+	@cd deploy/memrain && bun run typecheck
 
 lint-ts: ## Lint the daemon TypeScript (correctness rules only; eslint.config.js says what is off and why)
-	@cd deploy/memex && bun run lint
+	@cd deploy/memrain && bun run lint
 
 test: ## Run bash unit tests under tests/*.test.sh + the search_path guard
 	@bash scripts/check-search-path.sh
@@ -53,7 +53,7 @@ test-pg: ## Postgres-only tests + migrations (twice) against a throwaway pgvecto
 
 lint: ## Static check of bash scripts (shellcheck if available)
 	@if command -v shellcheck >/dev/null 2>&1; then \
-	  shellcheck scripts/*.sh tests/*.test.sh deploy/memex/scripts/*.sh 2>/dev/null || true; \
+	  shellcheck scripts/*.sh tests/*.test.sh deploy/memrain/scripts/*.sh 2>/dev/null || true; \
 	else \
 	  echo "shellcheck not installed — skipping"; \
 	fi

@@ -8,14 +8,14 @@ on:
   push:
     branches: [main]
     paths:
-      - deploy/memex/bun.lock
-      - deploy/memex/package.json
+      - deploy/memrain/bun.lock
+      - deploy/memrain/package.json
       - .github/workflows/deps-audit.yml
   pull_request:
     branches: [main]
     paths:
-      - deploy/memex/bun.lock
-      - deploy/memex/package.json
+      - deploy/memrain/bun.lock
+      - deploy/memrain/package.json
       - .github/workflows/deps-audit.yml
   schedule:
     - cron: "17 6 * * 1"
@@ -41,7 +41,7 @@ jobs:
           bun-version: latest
       - name: bun audit
         # Reads bun.lock directly; no install needed.
-        working-directory: deploy/memex
+        working-directory: deploy/memrain
         run: bun audit
 
   osv:
@@ -63,4 +63,4 @@ jobs:
           chmod +x osv-scanner
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: osv-scanner
-        run: osv-scanner scan --lockfile deploy/memex/bun.lock
+        run: osv-scanner scan --lockfile deploy/memrain/bun.lock
