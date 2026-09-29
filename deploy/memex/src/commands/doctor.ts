@@ -12,6 +12,8 @@
  *   - reports last_indexed_mtime spread (oldest / newest / count)
  */
 import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { inspectDataDir, describeDataDir } from "../core/engine/pglite-diagnose.ts";
 import { Storage } from "../core/storage.ts";
 import { closeQuietly } from "./with-storage.ts";
@@ -65,6 +67,8 @@ import {
   type RemediationPlan,
 } from "../core/remediation.ts";
 import { VERSION } from "../version.ts";
+import { legacyEnv, type LegacyEnvReport } from "../core/env-compat.ts";
+import { classifyLegacyRows, listRuntimeConfig } from "../core/runtime-config.ts";
 
 /**
  * Detail line for the engine check.
@@ -127,6 +131,46 @@ export function evalTrendDetail(
  */
 function verdict(name: string, ok: boolean, detail: string): Check {
   return { name, ok, status: ok ? "ok" : "fail", detail };
+}
+
+/**
+ * Legacy `MEMEX_*` env names the startup shim mapped onto `MEMRAIN_*`. A name
+ * set identically under both spellings is not counted. Names only, never values.
+ */
+export function legacyEnvCheck(report: LegacyEnvReport): Check {
+  if (report.mapped.length === 0) {
+    return { name: "legacy-env-names", ok: true, status: "ok", detail: "no legacy MEMEX_* env names in use" };
+  }
+  const names = report.mapped.map((n) => n.replace(/^MEMRAIN_/, "MEMEX_"));
+  return {
+    name: "legacy-env-names",
+    ok: true,
+    status: "warn",
+    detail: `${names.length} legacy env name(s) in use; rename to MEMRAIN_* before 1.1.0: ${names.join(", ")}`,
+  };
+}
+
+/**
+ * `~/.memex` next to a separate `~/.memrain`. One directory reached through
+ * both paths (same device and inode) is not a split.
+ */
+export function legacyConfigDirCheck(home: string): Check {
+  const legacy = join(home, ".memex");
+  const current = join(home, ".memrain");
+  let split = false;
+  if (existsSync(legacy) && existsSync(current)) {
+    const a = statSync(legacy);
+    const b = statSync(current);
+    split = a.dev !== b.dev || a.ino !== b.ino;
+  }
+  return split
+    ? {
+        name: "legacy-config-dir",
+        ok: true,
+        status: "warn",
+        detail: `${legacy} exists beside ${current}; keep one config directory`,
+      }
+    : { name: "legacy-config-dir", ok: true, status: "ok", detail: "no legacy config directory beside the new one" };
 }
 
 /** A check as rendered: the raw check plus its category. */
@@ -360,6 +404,35 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
     checks.push(await checkSourceRoutingHealth(storage.raw()));
     checks.push(await checkDocumentIdDrift(storage.raw()));
 
+    // Legacy runtime_config rows. A MEMEX_X row with no MEMRAIN_X row is still
+    // in effect through the fallback and must be re-set under the new name
+    // before 1.1.0; one a MEMRAIN_X row overrides is inert stored data. Names
+    // only, never values.
+    try {
+      const rows = await listRuntimeConfig(storage.raw());
+      const { legacyOnly, shadowed } = classifyLegacyRows(rows.map((r) => r.key));
+      const shadowNote =
+        shadowed.length > 0 ? `; ${shadowed.length} shadowed legacy row(s), inert: ${shadowed.join(", ")}` : "";
+      checks.push(
+        legacyOnly.length > 0
+          ? {
+              name: "runtime-config-legacy-rows",
+              ok: true,
+              status: "warn",
+              detail:
+                `${legacyOnly.length} legacy-only runtime_config row(s); re-set each as MEMRAIN_* ` +
+                `(memex config set MEMRAIN_<name> <value>) before 1.1.0: ${legacyOnly.join(", ")}${shadowNote}`,
+            }
+          : verdict(
+              "runtime-config-legacy-rows",
+              true,
+              `no legacy-only runtime_config rows${shadowNote}`,
+            ),
+      );
+    } catch (e) {
+      checks.push(couldNotCheck("runtime-config-legacy-rows", e));
+    }
+
     // Chronicle projection health — timeline_events rows projected from an event
     // page that has since been soft-deleted. The read path hides these (it joins
     // on the event page's deleted_at IS NULL), so they are dangling projections
@@ -424,6 +497,13 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
         checks.push(couldNotCheck("per-source-embed-coverage", e));
       }
     }
+  }
+
+  checks.push(legacyEnvCheck(legacyEnv));
+  try {
+    checks.push(legacyConfigDirCheck(homedir()));
+  } catch (e) {
+    checks.push(couldNotCheck("legacy-config-dir", e));
   }
 
   // 4. vault path (only when configured)

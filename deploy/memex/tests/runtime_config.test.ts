@@ -30,8 +30,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await storage.close();
   rmSync(dir, { recursive: true, force: true });
-  for (const k of ["MEMEX_RC_TEST_A", "MEMEX_RC_TEST_B", "MEMEX_RC_TEST_ENVWINS"]) {
-    delete process.env[k];
+  for (const k of ["RC_TEST_A", "RC_TEST_B", "RC_TEST_ENVWINS"]) {
+    delete process.env[`MEMEX_${k}`];
+    delete process.env[`MEMRAIN_${k}`];
   }
 });
 
@@ -95,6 +96,7 @@ describe("applyRuntimeEnvOverlay", () => {
     await unsetRuntimeConfig(e, "MEMEX_RC_TEST_A");
     await unsetRuntimeConfig(e, "MEMEX_RC_TEST_ENVWINS");
     delete process.env["MEMEX_RC_TEST_A"];
+    delete process.env["MEMRAIN_RC_TEST_A"];
   });
 
   it("MEMEX_NO_DB_CONFIG=1 skips the overlay entirely", async () => {

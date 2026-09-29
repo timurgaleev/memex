@@ -14,16 +14,46 @@
  * against a running server takes effect on the next restart, while every fresh
  * CLI invocation sees it immediately.
  *
- * Key alphabet is locked to ^MEMEX_[A-Z0-9_]{1,64}$ — the overlay must never
- * become an injection surface for PATH / LD_PRELOAD / NODE_OPTIONS.
+ * Key alphabet is locked to ^(MEMRAIN|MEMEX)_[A-Z0-9_]{1,64}$ — the overlay
+ * must never become an injection surface for PATH / LD_PRELOAD / NODE_OPTIONS.
+ *
+ * Both brand prefixes name the same knob. For knob X the effective value is,
+ * highest first: env MEMRAIN_X, env MEMEX_X, row MEMRAIN_X, row MEMEX_X (only
+ * when no MEMRAIN_X row exists), then the code default. No migration touches
+ * the stored rows; the legacy ones are read as they are.
  */
 import type { Engine } from "./engine/interface.ts";
 
-export const RUNTIME_CONFIG_KEY_RE = /^MEMEX_[A-Z0-9_]{1,64}$/;
+export const RUNTIME_CONFIG_KEY_RE = /^(?:MEMRAIN|MEMEX)_[A-Z0-9_]{1,64}$/;
+
+const BRAND_PREFIX_RE = /^(?:MEMRAIN|MEMEX)_/;
 
 export function isRuntimeConfigKey(key: string): boolean {
   return RUNTIME_CONFIG_KEY_RE.test(key);
 }
+
+/** `MEMEX_X` or `MEMRAIN_X` → `MEMRAIN_X`; any other key is returned as-is. */
+export function canonicalKey(key: string): string {
+  return BRAND_PREFIX_RE.test(key) ? key.replace(BRAND_PREFIX_RE, "MEMRAIN_") : key;
+}
+
+/** `MEMEX_X` or `MEMRAIN_X` → `MEMEX_X`; any other key is returned as-is. */
+export function legacyKey(key: string): string {
+  return BRAND_PREFIX_RE.test(key) ? key.replace(BRAND_PREFIX_RE, "MEMEX_") : key;
+}
+
+/**
+ * Knobs that only the real environment may set. A leftover DB row must never
+ * stop background work or switch off the Postgres guard, so the overlay skips
+ * these under either prefix.
+ */
+export const ENV_ONLY_KEYS: ReadonlySet<string> = new Set([
+  "MEMRAIN_MAINTENANCE",
+  "MEMRAIN_BOOT_CODE_SWEEP",
+  "MEMRAIN_JOBS_WORKER",
+  "MEMRAIN_CYCLE",
+  "MEMRAIN_REQUIRE_POSTGRES",
+]);
 
 /**
  * Sensitive-key detector shared by every display surface so `show` and the
@@ -75,16 +105,30 @@ export async function setRuntimeConfig(
   );
 }
 
-/** Delete one key. Returns the number of rows removed (0 or 1). */
+/**
+ * Delete one knob and return the keys removed. A knob key removes both
+ * spellings in one statement, so a legacy row cannot come back through the
+ * fallback after its new twin is gone. A key outside the knob alphabet (one
+ * written with `--force`) is removed alone.
+ */
+export async function unsetRuntimeConfigKeys(
+  engine: Engine,
+  key: string,
+): Promise<string[]> {
+  const pair = isRuntimeConfigKey(key) ? [canonicalKey(key), legacyKey(key)] : [key, key];
+  const r = await engine.query<{ key: string }>(
+    `DELETE FROM runtime_config WHERE key IN ($1, $2) RETURNING key`,
+    pair,
+  );
+  return r.rows.map((row) => row.key).sort();
+}
+
+/** Delete one knob (both spellings). Returns the number of rows removed. */
 export async function unsetRuntimeConfig(
   engine: Engine,
   key: string,
 ): Promise<number> {
-  const r = await engine.query<{ key: string }>(
-    `DELETE FROM runtime_config WHERE key = $1 RETURNING key`,
-    [key],
-  );
-  return r.rows.length;
+  return (await unsetRuntimeConfigKeys(engine, key)).length;
 }
 
 /** List rows, optionally filtered to a key prefix, key-ordered. */
@@ -110,21 +154,146 @@ export async function listRuntimeConfig(
 }
 
 /**
- * Project stored MEMEX_* keys onto `process.env` — only where the real
- * environment left the var unset, so a container-level env always wins.
- * Returns the keys applied. Fail-open (missing table mid-migration, transient
- * DB error → no overlay): DB config is an overlay, never a boot dependency.
- * Kill switch: MEMEX_NO_DB_CONFIG=1 skips entirely.
+ * The rows an `unset --pattern` removes. A pattern that starts with either
+ * brand prefix matches the same suffix under both, so deleting the new rows
+ * never re-activates shadowed legacy ones; any other pattern is a literal
+ * key prefix.
+ */
+export async function listRuntimeConfigForPattern(
+  engine: Engine,
+  pattern: string,
+): Promise<RuntimeConfigRow[]> {
+  if (!BRAND_PREFIX_RE.test(pattern)) return listRuntimeConfig(engine, pattern);
+  const rows = [
+    ...(await listRuntimeConfig(engine, canonicalKey(pattern))),
+    ...(await listRuntimeConfig(engine, legacyKey(pattern))),
+  ];
+  return rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+/**
+ * Delete exactly the rows `listRuntimeConfigForPattern` lists and return their
+ * keys. A brand pattern already lists both spellings; a literal pattern must
+ * not take a twin it did not match.
+ */
+export async function unsetRuntimeConfigForPattern(
+  engine: Engine,
+  pattern: string,
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const row of await listRuntimeConfigForPattern(engine, pattern)) {
+    const r = await engine.query<{ key: string }>(
+      `DELETE FROM runtime_config WHERE key = $1 RETURNING key`,
+      [row.key],
+    );
+    removed.push(...r.rows.map((x) => x.key));
+  }
+  return removed.sort();
+}
+
+/**
+ * Split stored keys into legacy-only rows (a `MEMEX_X` with no `MEMRAIN_X`,
+ * still in effect through the fallback) and shadowed rows (a `MEMEX_X` that a
+ * `MEMRAIN_X` row overrides).
+ */
+export function classifyLegacyRows(keys: readonly string[]): {
+  legacyOnly: string[];
+  shadowed: string[];
+} {
+  const present = new Set(keys);
+  const legacyOnly: string[] = [];
+  const shadowed: string[] = [];
+  for (const key of [...keys].sort()) {
+    if (!key.startsWith("MEMEX_") || !isRuntimeConfigKey(key)) continue;
+    if (present.has(canonicalKey(key))) shadowed.push(key);
+    else legacyOnly.push(key);
+  }
+  return { legacyOnly, shadowed };
+}
+
+export type RuntimeConfigSource = "env" | "runtime_config";
+
+export interface ResolvedRuntimeConfig {
+  value: string;
+  source: RuntimeConfigSource;
+  /** The env var or row key that supplied the value. */
+  key: string;
+}
+
+/**
+ * Resolve a brand-prefixed knob through the precedence above. `env` must be the
+ * real environment; values the overlay itself projected are not env.
+ */
+export async function resolveRuntimeConfig(
+  engine: Engine,
+  key: string,
+  env: Record<string, string | undefined>,
+): Promise<ResolvedRuntimeConfig | null> {
+  const canon = canonicalKey(key);
+  const legacy = legacyKey(key);
+  for (const name of [canon, legacy]) {
+    const v = env[name];
+    if (v !== undefined) return { value: v, source: "env", key: name };
+  }
+  for (const name of [canon, legacy]) {
+    const v = await getRuntimeConfig(engine, name);
+    if (v !== null) return { value: v, source: "runtime_config", key: name };
+  }
+  return null;
+}
+
+// Env values the overlay wrote, so a later reader can tell them from real env.
+const projected = new Map<string, string>();
+
+/** Whether `process.env[name]` currently holds a value the overlay projected. */
+export function isOverlayProjected(name: string): boolean {
+  return projected.has(name) && process.env[name] === projected.get(name);
+}
+
+/**
+ * Project stored knobs onto `process.env` — only where the real environment
+ * left the knob unset under both names, so a container-level env always wins.
+ * A `MEMRAIN_X` row beats a `MEMEX_X` row. The value is written under
+ * `MEMRAIN_X` and also under `MEMEX_X`, because readers still use the legacy
+ * name. Returns the row keys applied. Fail-open (missing table mid-migration,
+ * transient DB error → no overlay): DB config is an overlay, never a boot
+ * dependency. Kill switch: MEMRAIN_NO_DB_CONFIG=1 or MEMEX_NO_DB_CONFIG=1
+ * skips entirely.
  */
 export async function applyRuntimeEnvOverlay(engine: Engine): Promise<string[]> {
+  if (process.env["MEMRAIN_NO_DB_CONFIG"] === "1") return [];
   if (process.env["MEMEX_NO_DB_CONFIG"] === "1") return [];
   try {
-    const rows = await listRuntimeConfig(engine, "MEMEX_");
-    const applied: string[] = [];
+    const rows = [
+      ...(await listRuntimeConfig(engine, "MEMRAIN_")),
+      ...(await listRuntimeConfig(engine, "MEMEX_")),
+    ];
+    // Rows arrive MEMRAIN_ first, so the first row per knob is the winner.
+    const winners = new Map<string, RuntimeConfigRow>();
     for (const row of rows) {
       if (!isRuntimeConfigKey(row.key)) continue;
-      if (process.env[row.key] !== undefined) continue;
-      process.env[row.key] = row.value;
+      const canon = canonicalKey(row.key);
+      if (!winners.has(canon)) winners.set(canon, row);
+    }
+    const applied: string[] = [];
+    for (const [canon, row] of [...winners].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      const legacy = legacyKey(canon);
+      const cur = process.env[canon];
+      const old = process.env[legacy];
+      // A real env value under either name wins.
+      if (cur !== undefined && !isOverlayProjected(canon)) continue;
+      if (old !== undefined && !isOverlayProjected(legacy)) continue;
+      // Already projected by an earlier overlay in this process and left intact.
+      // When a caller removed one name of the pair, both are projected again.
+      if (cur !== undefined && old !== undefined) continue;
+      if (ENV_ONLY_KEYS.has(canon)) {
+        console.error(`[memrain] runtime_config ${row.key} ignored: env-only knob`);
+        continue;
+      }
+      process.env[canon] = row.value;
+      process.env[legacy] = row.value;
+      projected.set(canon, row.value);
+      projected.set(legacy, row.value);
       applied.push(row.key);
     }
     return applied;

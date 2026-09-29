@@ -20,6 +20,7 @@ import { registerSource } from "../core/sources.ts";
 import { OAuthProvider } from "../core/oauth-provider.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
 import { installSignalHandlers } from "../core/process-cleanup.ts";
+import { legacyEnv, legacyEnvBootLine } from "../core/env-compat.ts";
 import { basename } from "node:path";
 
 export interface ServeOptions {
@@ -87,6 +88,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // before `storage.close()`. (A competing SIGTERM handler here would race that
   // drain and exit early.)
   installSignalHandlers();
+
+  const legacyEnvLine = legacyEnvBootLine(legacyEnv);
+  if (legacyEnvLine) console.error(legacyEnvLine);
 
   const config = loadConfig();
   // Pass the full Config so the factory picks the right engine

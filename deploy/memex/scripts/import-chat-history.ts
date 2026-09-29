@@ -14,6 +14,7 @@
  * Usage: bun scripts/import-chat-history.ts <input.json> <outdir> [--dry-run]
  */
 
+import "../src/core/env-compat.ts";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

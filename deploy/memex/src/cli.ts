@@ -2,6 +2,7 @@
 /**
  * memex CLI entrypoint.
  */
+import "./core/env-compat.ts";
 import { VERSION } from "./version.ts";
 import { normalizeSourceFilterParam } from "./core/source-scope.ts";
 import { runInit } from "./commands/init.ts";

@@ -10,6 +10,7 @@
  * runner that races this one never copies a half-migrated cluster.
  */
 
+import "../src/core/env-compat.ts";
 import { existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
