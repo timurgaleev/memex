@@ -7,9 +7,17 @@
  *   3. frontmatter.created exists
  *   4. frontmatter.updated exists
  *
- * Read-only: it reports violations; the frontmatter-inference cycle phase is
- * what fixes them in bulk. Shared by the `memex lint` CLI and the `lint` cycle
- * phase so both apply the identical ruleset.
+ * Scope: file-backed notes only. Virtual-scheme rows (`page://`,
+ * `page-truth://`, channel items) and code docs (`kind: code`) carry
+ * frontmatter the writer controls and can never satisfy these rules, so
+ * counting them would only bury the notes that can be fixed.
+ *
+ * Read-only: it reports violations and nothing repairs them automatically —
+ * `memex lint --fix` only strips LLM preambles and page-wide fences, and ingest
+ * inference only fills a file with no frontmatter at all. The fields have to be
+ * added to the source file's frontmatter; the next re-read indexes them. Shared
+ * by the `memex lint` CLI and the `lint` cycle phase so both apply the
+ * identical ruleset.
  */
 import type { Engine } from "./engine/interface.ts";
 
@@ -63,7 +71,9 @@ export async function lintCorpus(engine: Engine): Promise<LintReport> {
               'created', frontmatter->'created',
               'updated', frontmatter->'updated'
             ) AS frontmatter
-       FROM documents`,
+       FROM documents
+      WHERE source_path !~* '^[a-z][a-z0-9+.-]+:'
+        AND COALESCE(frontmatter->>'kind', '') <> 'code'`,
   );
   const issues: LintIssue[] = [];
   for (const d of r.rows) {

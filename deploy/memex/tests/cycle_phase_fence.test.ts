@@ -224,6 +224,46 @@ describe("runPhase never reports absorbed failures as ok", () => {
     ).toBe("warn");
   });
 
+  it("lint conformance debt is informational, never warn", () => {
+    expect(deriveStatus("lint", { scanned: 10, flagged: 9, summary: { "tags-missing": 9 } })).toBe("ok");
+  });
+
+  it("a warn tick logs the capped failing rows, not just the status", async () => {
+    const errors = Array.from({ length: 8 }, (_, i) => ({
+      sourcePath: `/memory/n${i}.md`,
+      message: i === 0 ? `permission_denied ${"x".repeat(300)}` : `permission_denied ${i}`,
+    }));
+    const logged: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => void logged.push(a.map(String).join(" "));
+    let r;
+    try {
+      r = await runPhase({} as Engine, "embed-stale", async () => ({ scanned: 8, reembedded: 0, rejected: 0, errors }), NOOP_PROGRESS);
+    } finally {
+      console.error = orig;
+    }
+    expect(r.status).toBe("warn");
+    const warn = logged.filter((l) => l.startsWith("[cycle] phase embed-stale warn:"));
+    expect(warn[0]).toBe("[cycle] phase embed-stale warn: errors=8");
+    const rows = warn.filter((l) => l.includes(" warn: error \""));
+    expect(rows).toHaveLength(5);
+    expect(rows[1]).toBe(`[cycle] phase embed-stale warn: error "/memory/n1.md": "permission_denied 1"`);
+    expect(rows[0]!.length).toBeLessThan(260);
+    expect(warn.at(-1)).toBe("[cycle] phase embed-stale warn: error ... and 3 more");
+  });
+
+  it("an ok phase logs no warn lines", async () => {
+    const logged: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => void logged.push(a.map(String).join(" "));
+    try {
+      await runPhase({} as Engine, "embed-stale", async () => ({ scanned: 1, reembedded: 1, rejected: 0, errors: [] }), NOOP_PROGRESS);
+    } finally {
+      console.error = orig;
+    }
+    expect(logged.some((l) => l.includes(" warn:"))).toBe(false);
+  });
+
   it("a phase with no explicit rule that reports errors or failures is warn", () => {
     expect(deriveStatus("purge", { errors: ["x"] } as never)).toBe("warn");
     expect(deriveStatus("recompute-salience", { scanned: 1, updated: 0, failed: 1 } as never)).toBe("warn");

@@ -335,7 +335,8 @@ export function skippedCycleResult(reason: CycleReason, phasesNotRun?: PhaseName
  *     `ok`: a file deleted/renamed between syncs is routine churn the purge
  *     handles, not an anomaly (would be noisy as a warn).
  * reconcile-links `unresolved` is BY DESIGN informational (a wikilink to a
- * not-yet-created page is normal), so it stays `ok`.
+ * not-yet-created page is normal), so it stays `ok`; so does lint `flagged`,
+ * which no phase repairs.
  */
 export function deriveStatus(
   phase: PhaseName,
@@ -390,11 +391,10 @@ function derivePhaseRuleStatus(
       : "ok";
   }
   if (phase === "lint") {
-    // A non-empty flagged count is content-conformance debt → warn (the phase
-    // only measures). Zero violations → ok.
-    return ((detail as LintPhaseResult | undefined)?.flagged ?? 0) > 0
-      ? "warn"
-      : "ok";
+    // Conformance debt nothing in the cycle can repair: a standing warn would
+    // tell nobody what to do and mask a real regression, so the counts stay in
+    // the detail and the phase reads ok, like reconcile-links `unresolved`.
+    return "ok";
   }
   if (phase === "orphans-purge") {
     const zero = (detail as OrphansPurgeResult | undefined)?.flagged
@@ -622,6 +622,56 @@ export async function runInAbortableBatchScope<T>(
   }
 }
 
+const WARN_ERROR_LOG_CAP = 5;
+const WARN_MESSAGE_MAX = 160;
+
+function clip(text: string): string {
+  return text.length > WARN_MESSAGE_MAX ? `${text.slice(0, WARN_MESSAGE_MAX)}…` : text;
+}
+
+/** One `errors[]` entry as `"<where>": "<message>"`, whatever the phase's shape. */
+function describePhaseError(entry: unknown): string {
+  if (entry && typeof entry === "object") {
+    const e = entry as Record<string, unknown>;
+    const where = e["sourcePath"] ?? e["path"] ?? e["slug"] ?? e["id"] ?? e["source_id"];
+    const message = JSON.stringify(clip(String(e["message"] ?? JSON.stringify(entry))));
+    return where === undefined ? message : `${JSON.stringify(String(where))}: ${message}`;
+  }
+  return JSON.stringify(clip(String(entry)));
+}
+
+/**
+ * Why a phase ended in warn: a short summary plus log lines naming the first
+ * few failing rows (capped, so a phase failing on every row cannot flood the
+ * log).
+ */
+export function phaseWarnDetail(detail: PhaseResult["detail"]): { summary: string; lines: string[] } {
+  if (!detail || typeof detail !== "object") return { summary: "", lines: [] };
+  const d = detail as {
+    errors?: unknown;
+    failed?: unknown;
+    persisted?: unknown;
+    flagged?: { docs_with_zero_chunks?: unknown };
+  };
+  const parts: string[] = [];
+  const lines: string[] = [];
+  if (Array.isArray(d.errors) && d.errors.length > 0) {
+    parts.push(`errors=${d.errors.length}`);
+    for (const entry of d.errors.slice(0, WARN_ERROR_LOG_CAP)) {
+      lines.push(`error ${describePhaseError(entry)}`);
+    }
+    if (d.errors.length > WARN_ERROR_LOG_CAP) {
+      lines.push(`error ... and ${d.errors.length - WARN_ERROR_LOG_CAP} more`);
+    }
+  }
+  if (typeof d.failed === "number" && d.failed > 0) parts.push(`failed=${d.failed}`);
+  if (d.persisted === false) parts.push("persisted=false");
+  const zero = d.flagged?.docs_with_zero_chunks;
+  if (Array.isArray(zero) && zero.length > 0) parts.push(`docs_with_zero_chunks=${zero.length}`);
+  const summary = parts.join(" ");
+  return { summary, lines: summary ? [summary, ...lines] : lines };
+}
+
 export async function runPhase<T>(
   engine: Engine,
   phase: PhaseName,
@@ -670,11 +720,15 @@ export async function runPhase<T>(
     }
     reclaimBetweenPhases();
     if (status === "warn") {
+      const why = phaseWarnDetail(detail);
+      // The tick line only says `warn`; without the reason in the log a
+      // repeating warn cannot be traced back to the rows that cause it.
+      for (const line of why.lines) console.error(`[cycle] phase ${phase} warn: ${line}`);
       progress({
         kind: "log",
         op: "cycle",
         level: "warn",
-        message: `phase ${phase} completed with warnings`,
+        message: `phase ${phase} completed with warnings${why.summary ? ` (${why.summary})` : ""}`,
         ts: Date.now(),
       });
     }

@@ -60,3 +60,25 @@ describe("lintCorpus + lint phase", () => {
     expect(phase.summary["title-missing"]).toBe(1);
   });
 });
+
+describe("lintCorpus scope", () => {
+  it("skips virtual-scheme rows and code docs, which can never pass the ruleset", async () => {
+    const e = storage.engine();
+    const before = (await lintCorpus(e)).totalScanned;
+    await e.query(
+      `INSERT INTO documents (id, source_path, title, frontmatter) VALUES
+        ('d_page', 'page://people/alice', 'Alice', '{"page_title":"Alice","page_content_hash":"h"}'::jsonb),
+        ('d_truth', 'page-truth://people/alice', 'Alice', '{}'::jsonb),
+        ('d_code', '/repo-source/src/a.ts', 'a.ts', '{"kind":"code"}'::jsonb),
+        ('d_note', '/memory/note.md', 'Note', '{"title":"Note"}'::jsonb)`,
+    );
+    const report = await lintCorpus(e);
+    const ids = report.issues.map((i) => i.documentId);
+    expect(ids).toContain("d_note");
+    expect(ids).not.toContain("d_page");
+    expect(ids).not.toContain("d_truth");
+    expect(ids).not.toContain("d_code");
+    // Only the note joins the scanned set, whatever the earlier tests seeded.
+    expect(report.totalScanned).toBe(before + 1);
+  });
+});
