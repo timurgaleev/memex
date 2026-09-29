@@ -96,22 +96,63 @@ describe("validateParams — unit", () => {
     throw new Error("should have thrown");
   };
 
-  it("rejects an unknown param by default, naming it", () => {
+  it("rejects an unknown param by default, naming it in the suggestion only", () => {
     const e = caught(() => validateParams(search, { q: "x", made_up_field: 99 }));
     expect(e.code).toBe("invalid_params");
-    expect(e.message).toContain("`made_up_field`");
+    // `message` is what the request log persists: the count, never the key.
+    expect(e.message).toBe("search: 1 unknown argument(s)");
+    expect(e.suggestion).toContain("`made_up_field` is not an argument.");
   });
 
   it("suggests the declared key a misspelling is one edit from", () => {
     const e = caught(() => validateParams(opByName("page_put"), { slug: "s", markdown_bdy: "b" }));
-    expect(e.suggestion).toBe("Did you mean `markdown_body`?");
+    expect(e.suggestion).toStartWith("`markdown_bdy`: did you mean `markdown_body`?");
   });
 
-  it("lists the accepted arguments when no declared key is close", () => {
+  it("maps the names agents actually use through the op's alias table", () => {
+    const cases: [string, Record<string, unknown>, string, string][] = [
+      ["search", { query: "x", limit: 5 }, "query", "q"],
+      ["search", { query: "x", limit: 5 }, "limit", "k"],
+      ["page_append", { slug: "s", markdown: "m" }, "markdown", "content"],
+      ["add_timeline_event", { slug: "s", date: "2026-01-01", summary: "e" }, "date", "occurred_at"],
+      ["add_timeline_event", { slug: "s", date: "2026-01-01", summary: "e" }, "summary", "event"],
+      ["entity_recall", { entity: "people/a" }, "entity", "slug"],
+      ["resolve_slugs", { slugs: ["a"] }, "slugs", "query"],
+    ];
+    for (const [name, params, from, to] of cases) {
+      const e = caught(() => validateParams(opByName(name), params));
+      expect(e.suggestion).toContain(`\`${from}\`: did you mean \`${to}\`?`);
+      expect(e.message).toMatch(new RegExp(`^${name}: \\d+ unknown argument\\(s\\)$`));
+    }
+  });
+
+  it("does not steer a document id onto get_chunks `slug`", () => {
+    const e = caught(() => validateParams(opByName("get_chunks"), { documentId: "doc_0123456789abcdef" }));
+    expect(e.suggestion).not.toContain("did you mean `slug`");
+  });
+
+  it("every alias names a declared argument of its own op", () => {
+    for (const op of OPERATIONS) {
+      for (const target of Object.values(op.argAliases ?? {})) {
+        if (typeof target === "string") expect(Object.hasOwn(op.params, target)).toBe(true);
+      }
+    }
+  });
+
+  it("points page_list `prefix` at the filters that exist", () => {
+    const e = caught(() => validateParams(opByName("page_list"), { prefix: "people/" }));
+    expect(e.suggestion).toContain("`prefix`: page_list has no prefix filter");
+  });
+
+  it("lists the accepted arguments with the required ones marked", () => {
     const e = caught(() => validateParams(opByName("page_put"), { slug: "s", body: "b" }));
-    expect(e.message).toContain("`body`");
+    expect(e.message).not.toContain("body");
+    expect(e.suggestion).toContain("`body` is not an argument.");
     expect(e.suggestion).toContain("Accepted arguments:");
+    expect(e.suggestion).toContain("`slug` (required)");
     expect(e.suggestion).toContain("markdown_body");
+    const s = caught(() => validateParams(search, { query: "x" }));
+    expect(s.suggestion).toContain("Accepted arguments: `q` (required), `k`,");
   });
 
   it("reports at most 5 unknown keys, each truncated to 64 characters", () => {
@@ -119,10 +160,11 @@ describe("validateParams — unit", () => {
     const params: Record<string, unknown> = { q: "x", [long]: 1 };
     for (let i = 0; i < 8; i++) params[`extra_${i}`] = i;
     const e = caught(() => validateParams(search, params));
-    expect(e.message).toContain(`\`${"z".repeat(64)}…\``);
-    expect(e.message).not.toContain("z".repeat(65));
-    expect(e.message).toContain("(+4 more)");
-    expect(e.message.match(/`/g)?.length).toBe(10);
+    expect(e.message).toBe("search: 9 unknown argument(s)");
+    expect(e.suggestion).toContain(`\`${"z".repeat(64)}…\``);
+    expect(e.suggestion).not.toContain("z".repeat(65));
+    expect(e.suggestion).toContain("(+4 more)");
+    expect(e.suggestion).not.toContain("extra_4");
   });
 
   it("accepts unknown params again with MEMEX_MCP_LENIENT_ARGS=1", () => {

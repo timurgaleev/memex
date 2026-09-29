@@ -35,7 +35,10 @@ describe("unknown MCP arguments", () => {
     expect(res.isError).toBe(true);
     const env = envelope(res);
     expect(env.error).toBe("invalid_params");
-    expect(env.message).toContain("`body`");
+    // The key the caller sent is named in the suggestion only; `message` is
+    // what the request log keeps.
+    expect(env.message).not.toContain("body");
+    expect(env.suggestion).toContain("`body`");
     expect(env.suggestion).toContain("markdown_body");
 
     const get = await call("page_get", { slug: "notes/x" });

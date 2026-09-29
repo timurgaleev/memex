@@ -195,6 +195,7 @@ import {
   checkOauthClientHealth,
   checkOauthClientHygiene,
   checkSourceRoutingHealth,
+  checkDocumentIdDrift,
   type TenancyCheck,
 } from "../core/doctor-tenancy.ts";
 import { couldNotCheck, worstStatus } from "../core/doctor-categories.ts";
@@ -3931,6 +3932,7 @@ async function callRunDoctor(storage: Storage): Promise<ToolCallResult> {
     checkOauthClientHealth,
     checkOauthClientHygiene,
     checkSourceRoutingHealth,
+    checkDocumentIdDrift,
   ]) {
     try {
       checks.push(await check(engine));

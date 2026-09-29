@@ -51,6 +51,12 @@ export interface Operation {
   scope?: "read" | "write" | "admin" | "agent";
   /** Declaration order is preserved into `properties` + `required`. */
   params: Record<string, ParamDef>;
+  /**
+   * Names agents reach for that are not this op's arguments, each mapped to
+   * the declared one it meant (or `{ hint }` when nothing maps). Used only to
+   * word the unknown-argument error: the call is still refused, never remapped.
+   */
+  argAliases?: Readonly<Record<string, string | { hint: string }>>;
 }
 
 /** Build a single JSON-Schema property object from a ParamDef. */
@@ -184,22 +190,27 @@ function rejectUnknownParams(op: Operation, params: Record<string, unknown>): vo
   const declared = Object.keys(op.params);
   const unknown = Object.keys(params).filter((k) => !Object.hasOwn(op.params, k));
   if (unknown.length === 0) return;
-  const shown = unknown
-    .slice(0, MAX_UNKNOWN_REPORTED)
-    .map((k) => `\`${k.length > MAX_UNKNOWN_KEY_CHARS ? `${k.slice(0, MAX_UNKNOWN_KEY_CHARS)}…` : k}\``);
+  const named = unknown.slice(0, MAX_UNKNOWN_REPORTED).map((k) => {
+    const shown = `\`${k.length > MAX_UNKNOWN_KEY_CHARS ? `${k.slice(0, MAX_UNKNOWN_KEY_CHARS)}…` : k}\``;
+    const alias = op.argAliases && Object.hasOwn(op.argAliases, k) ? op.argAliases[k] : undefined;
+    if (typeof alias === "object") return `${shown}: ${alias.hint}`;
+    const hint = alias !== undefined && Object.hasOwn(op.params, alias) ? alias : nearest(k, declared);
+    return hint ? `${shown}: did you mean \`${hint}\`?` : `${shown} is not an argument.`;
+  });
   const more = unknown.length > MAX_UNKNOWN_REPORTED
     ? ` (+${unknown.length - MAX_UNKNOWN_REPORTED} more)`
     : "";
-  const hint = unknown.length === 1 ? nearest(unknown[0]!, declared) : null;
-  const suggestion = hint
-    ? `Did you mean \`${hint}\`?`
-    : declared.length > 0
-      ? `Accepted arguments: ${declared.join(", ")}.`
-      : `${op.name} takes no arguments.`;
+  const accepted = declared.length > 0
+    ? `Accepted arguments: ${declared
+      .map((k) => (op.params[k]!.required ? `\`${k}\` (required)` : `\`${k}\``))
+      .join(", ")}.`
+    : `${op.name} takes no arguments.`;
+  // The caller's key names go only into the suggestion: `message` is what the
+  // request log persists, and it records just the count.
   throw new OperationError(
     "invalid_params",
-    `${op.name}: unknown argument(s): ${shown.join(", ")}${more}`,
-    suggestion,
+    `${op.name}: ${unknown.length} unknown argument(s)`,
+    `${named.join(" ")}${more} ${accepted}`,
   );
 }
 
@@ -234,6 +245,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "search",
     description:
       "Hybrid (vector + keyword) search over the indexed corpus. Returns ranked chunks with their parent document path and title. Optional filters (lang / symbol_kind / since / until) are applied post-ranking and bypass the query cache. Has no `expand` knob, and LLM query expansion is off in the default mode bundles — for a concept or landscape question ('everything about X', 'who works on Y'), escalate to `query` with `expand:true`, which widens the keyword arm with generated variants. A nonzero hit count here is not proof that the corpus was exhausted. The response carries `meta`: `vectorEnabled` plus `degraded[]` reason codes (embed_timeout, vector_arm_failed, keyword_zero, budget_truncated, vector_candidates_incomplete) that tell an empty brain from a degraded run; non-public callers also get intent, mode, cache, retrieved and returned.",
+    argAliases: { query: "q", limit: "k" },
     params: {
       q: str({ ...req, description: "Natural-language query." }),
       k: int({ minimum: 1, maximum: 100, description: "Number of hits to return. Default 20." }),
@@ -391,6 +403,7 @@ export const OPERATIONS: readonly Operation[] = [
     scope: "write",
     description:
       "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    argAliases: { markdown: "content" },
     params: {
       slug: str(req),
       content: str(req),
@@ -451,6 +464,9 @@ export const OPERATIONS: readonly Operation[] = [
     name: "page_list",
     description:
       "List pages, newest-first by default. Optional filters: `type`, `tag` (normalized), `since` (ISO timestamp), `limit` (1..100, default 50). `sort` picks the order (updated_desc default | updated_asc | created_desc | slug); `include_deleted:true` adds soft-deleted pages with deleted_at populated.",
+    argAliases: {
+      prefix: { hint: "page_list has no prefix filter; filter by `tag`, or find pages with `search`." },
+    },
     params: {
       type: str(),
       since: str(),
@@ -579,6 +595,7 @@ export const OPERATIONS: readonly Operation[] = [
     scope: "write",
     description:
       "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    argAliases: { date: "occurred_at", summary: "event" },
     params: {
       slug: str({
         ...req,
@@ -636,6 +653,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "entity_recall",
     description:
       "One-shot 'what do I know about X?' aggregator. Returns the entity's page (compiled_truth + body) plus top-confidence facts plus most-recent timeline events in a single call. The page may be null when the entity exists only as a soft-stub (facts + timeline allowed, page not yet promoted).",
+    argAliases: { entity: "slug" },
     params: {
       slug: str(req),
       query: str({
@@ -738,6 +756,7 @@ export const OPERATIONS: readonly Operation[] = [
     name: "resolve_slugs",
     description:
       "Fuzzy-resolve a partial/informal string to canonical page slugs, ranked best-first (exact live-slug → score 1; else pg_trgm similarity over title + slug, soft-deleted excluded). Returns [{slug, title, score}].",
+    argAliases: { slugs: "query" },
     params: {
       query: str(req),
       limit: int({ minimum: 1, maximum: 100 }),
