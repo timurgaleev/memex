@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIR = resolve(__dirname, "migrations");
+const DEFAULT_DOWN_DIR = resolve(__dirname, "migrations-down");
 
 export interface MigrationFile {
   id: number;
@@ -36,6 +37,7 @@ export interface MigrationResult {
 }
 
 const FILENAME_RE = /^(\d+)_([\w-]+)\.sql$/;
+const DOWN_FILENAME_RE = /^(\d+)_([\w-]+)\.down\.sql$/;
 
 /**
  * Per-migration lock timeout. A DDL `ALTER`/`ADD COLUMN` takes a brief
@@ -248,7 +250,7 @@ async function applyOneWithRetry(
         // the very failure this lock exists to prevent — so the migration's
         // timeout is set first.
         await tx.exec(`SET LOCAL statement_timeout = '${stmtTimeout}';`);
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext('memex:migrations'))");
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext('memrain:migrations'))");
         const done = await tx.query("SELECT 1 FROM migrations WHERE id = $1", [f.id]);
         if (done.rows.length > 0) return false;
         await tx.exec(`SET LOCAL lock_timeout = '${lockTimeout}';`);
@@ -347,4 +349,53 @@ export async function runMigrations(
   }
 
   return { applied, skipped };
+}
+
+/**
+ * The down file of migration `id` (`migrations-down/NNN_<name>.down.sql`).
+ * Only a migration that ships one can be reverted.
+ */
+export function findDownMigration(id: number, dir: string = DEFAULT_DOWN_DIR): MigrationFile {
+  const hits: MigrationFile[] = [];
+  for (const filename of readdirSync(dir).filter((f) => f.endsWith(".sql"))) {
+    const m = DOWN_FILENAME_RE.exec(filename);
+    if (!m) {
+      throw new Error(`down migration filename does not match NNN_name.down.sql grammar: ${filename}`);
+    }
+    if (Number.parseInt(m[1]!, 10) !== id) continue;
+    hits.push({ id, name: m[2]!, filename, sql: readFileSync(resolve(dir, filename), "utf8") });
+  }
+  if (hits.length !== 1) {
+    throw new Error(
+      hits.length === 0
+        ? `migration ${id} has no down file in ${dir}`
+        : `migration ${id} has ${hits.length} down files: ${hits.map((h) => h.filename).join(", ")}`,
+    );
+  }
+  return hits[0]!;
+}
+
+/**
+ * Revert the latest applied migration with its down file, in one transaction.
+ * Refuses any other id: a down undoes exactly what its migration added, so it
+ * is only defined on top of it. The down file checks its own preconditions as
+ * well (psql runs it without this code) and raises before changing anything.
+ */
+export async function revertMigration(
+  engine: Engine,
+  id: number,
+  dir: string = DEFAULT_DOWN_DIR,
+): Promise<{ id: number; name: string }> {
+  const down = findDownMigration(id, dir);
+  const top = await engine.query<{ id: number | null }>("SELECT max(id) AS id FROM migrations");
+  const latest = top.rows[0]?.id ?? null;
+  if (latest === null || Number(latest) !== id) {
+    throw new Error(
+      `migration ${id} is not the latest applied migration (latest: ${latest ?? "none"}); only the latest can be reverted`,
+    );
+  }
+  await engine.transaction(async (tx) => {
+    await tx.exec(down.sql);
+  });
+  return { id, name: down.name };
 }

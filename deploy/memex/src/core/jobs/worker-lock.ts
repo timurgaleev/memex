@@ -10,7 +10,7 @@
 import type { Engine } from "../engine/interface.ts";
 
 /** Default singleton lock id for the maintenance/job worker. */
-export const DEFAULT_WORKER_LOCK_ID = "memex-jobs-worker";
+export const DEFAULT_WORKER_LOCK_ID = "memrain-jobs-worker";
 
 /**
  * Acquire (or re-acquire / steal-if-stale) the lock for `holder`. Returns true

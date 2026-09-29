@@ -245,7 +245,7 @@ export async function reconcileFactsForPage(
             SELECT 1 FROM fact_withdrawals w
              WHERE w.source_id = $2 AND w.visibility = 'private'
                AND w.entity_slug = $3
-               AND w.claim_key = memex_fact_claim_key(c.claim))`,
+               AND w.claim_key = memrain_fact_claim_key(c.claim))`,
         [facts.map((f) => f.claim), scope ?? "default", pageSlug],
       );
       for (const r of w.rows) withdrawnClaims.add(r.claim);

@@ -322,7 +322,7 @@ function normaliseType(
  */
 export async function lockPageSlugs(tx: Engine, ...slugs: string[]): Promise<void> {
   for (const slug of [...new Set(slugs)].sort()) {
-    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`memex:page:${slug}`]);
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`memrain:page:${slug}`]);
   }
 }
 

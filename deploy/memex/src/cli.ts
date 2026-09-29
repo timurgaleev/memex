@@ -176,7 +176,7 @@ function printUsage(): void {
   console.log("                               JSONL dump of eval_candidates (default) or eval_queries");
   console.log("  eval-prune [--keep-days N] [--apply] [--tool-name T]");
   console.log("                               trim old rows from eval_candidates; --apply to actually delete");
-  console.log("  apply-migrations [--dry-run]");
+  console.log("  apply-migrations [--dry-run] [--down <id> --yes]");
   console.log("                               manual migration runner (init runs them automatically)");
   console.log("  sources list [--kind K]      JSON list of registered sources");
   console.log("  sources show <id>            full row for one source");
@@ -938,6 +938,15 @@ async function main(argv: readonly string[]): Promise<number> {
     case "apply-migrations": {
       const opts: Parameters<typeof runApplyMigrations>[0] = {};
       if (flags.has("--dry-run")) opts.dryRun = true;
+      const down = values.get("--down");
+      if (down !== undefined) {
+        if (!/^\d+$/.test(down)) {
+          console.error(`apply-migrations: --down needs a migration id, got '${down}'`);
+          return 1;
+        }
+        opts.down = Number.parseInt(down, 10);
+      }
+      if (flags.has("--yes")) opts.yes = true;
       await runApplyMigrations(opts);
       return 0;
     }

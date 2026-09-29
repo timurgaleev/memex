@@ -24,3 +24,16 @@ export const LEGACY_VAULT_IGNORES = ["memex", ".memex"] as const;
 /** The local data dir alone. The code sweep cannot skip the bare name, which
  *  is also the name of this repository's package directory. */
 export const LEGACY_DATA_DIR = ".memex";
+
+/**
+ * Advisory-lock namespace of a source's claim withdrawals. It is a hash input
+ * shared with the entity_facts insert trigger and with every pre-rename binary,
+ * so it keeps the old name; renaming it needs a release of its own that takes
+ * both keys first.
+ */
+export const FACT_WITHDRAW_LOCK_NS = "memex:fact-withdraw:";
+
+/** Cycle-lock and job-worker rows a pre-rename process holds. Only read, so a
+ *  live one shows that such a process may still be running. */
+export const LEGACY_CYCLE_LOCK_ID = "memex-cycle";
+export const LEGACY_WORKER_LOCK_ID = "memex-jobs-worker";

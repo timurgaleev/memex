@@ -7,7 +7,8 @@
 # trigger / event-trigger function memex defines must therefore carry an explicit
 # `SET search_path` in its definition.
 #
-# This scans deploy/memex/src/core/migrations/*.sql for any
+# This scans deploy/memex/src/core/migrations/*.sql and the down files in
+# migrations-down/ for any
 # `CREATE [OR REPLACE] FUNCTION ... RETURNS trigger|event_trigger` whose header
 # (up to the body-opening `AS $...$`) lacks `SET search_path`, and fails with the
 # offending file + function named.
@@ -27,10 +28,13 @@ fi
 cd "$REPO_ROOT"
 
 MIG_DIR="deploy/memex/src/core/migrations"
-if [ ! -d "$MIG_DIR" ]; then
-  echo "[search-path] ERROR: migrations dir not found: $MIG_DIR" >&2
-  exit 2
-fi
+DOWN_DIR="deploy/memex/src/core/migrations-down"
+for d in "$MIG_DIR" "$DOWN_DIR"; do
+  if [ ! -d "$d" ]; then
+    echo "[search-path] ERROR: migrations dir not found: $d" >&2
+    exit 2
+  fi
+done
 
 # Files whose trigger functions predate the search_path rule; migration 095
 # pins them via ALTER FUNCTION (a shipped migration is never edited in place).
@@ -42,7 +46,7 @@ is_allowlisted() {
 }
 
 violations=0
-for f in "$MIG_DIR"/*.sql; do
+for f in "$MIG_DIR"/*.sql "$DOWN_DIR"/*.sql; do
   [ -e "$f" ] || continue
   is_allowlisted "$f" && continue
 

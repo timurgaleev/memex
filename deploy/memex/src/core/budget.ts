@@ -446,7 +446,7 @@ export async function reserveSpend(
   const ttl = input.ttlMs ?? SPEND_RESERVATION_TTL_MS;
   return engine.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `memex_spend:${input.clientId}`,
+      `memrain_spend:${input.clientId}`,
     ]);
     const check = await checkClientBudget(tx, input.clientId, now, input.capUsd);
     if (

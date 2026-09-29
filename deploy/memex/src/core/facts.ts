@@ -431,7 +431,7 @@ export async function isClaimWithdrawn(
   const r = await q.query<{ hit: number }>(
     `SELECT 1 AS hit FROM fact_withdrawals
       WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
-        AND claim_key = memex_fact_claim_key($4)`,
+        AND claim_key = memrain_fact_claim_key($4)`,
     [key.source_id, key.visibility, key.entity_slug, key.fact],
   );
   return r.rows.length > 0;

@@ -103,7 +103,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--bound-slug-prefixes", "--budget", "--client", "--client-file", "--config-a",
   "--config-b", "--corpus",
   "--date-context", "--days", "--dedup-type-ratio", "--depth", "--description", "--epsilon",
-  "--dir", "--example-limit", "--expect-source", "--expect-version",
+  "--dir", "--down", "--example-limit", "--expect-source", "--expect-version",
   "--expected-doc", "--expected-revision", "--family",
   "--federated-read", "--file", "--format",
   "--filter", "--from", "--grant", "--grant-types", "--host", "--id", "--indexed-policy",
@@ -222,7 +222,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["eval-export", new Set(["--limit", "--out", "--since", "--source"])],
   ["export", new Set(["--dir", "--source"])],
   ["eval-prune", new Set(["--apply", "--keep-days", "--tool-name"])],
-  ["apply-migrations", new Set(["--dry-run"])],
+  ["apply-migrations", new Set(["--down", "--dry-run", "--yes"])],
   ["cache", new Set<string>()],
   [
     "embed",

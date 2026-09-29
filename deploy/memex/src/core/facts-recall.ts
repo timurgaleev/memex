@@ -175,7 +175,7 @@ export async function forgetFact(
           SET forgotten_at = NOW(), forgotten_reason = $2, forgotten_cause = $3
         WHERE id = $1 AND forgotten_at IS NULL${updFilter}
         RETURNING source_id, visibility, entity_slug, dimension,
-                  memex_fact_claim_key(fact) AS claim_key`,
+                  memrain_fact_claim_key(fact) AS claim_key`,
       updParams,
     );
     const hit = upd.rows[0];
@@ -194,7 +194,7 @@ export async function forgetFact(
             SET forgotten_at = NOW(), forgotten_cause = 'forget',
                 forgotten_reason = $6
           WHERE source_id = $1 AND visibility = $2 AND entity_slug = $3
-            AND memex_fact_claim_key(fact) = $4
+            AND memrain_fact_claim_key(fact) = $4
             AND id <> $5
             AND forgotten_at IS NULL
             AND dimension IS NULL

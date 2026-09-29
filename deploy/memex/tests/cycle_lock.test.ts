@@ -225,10 +225,10 @@ describe("inspect / list / delete / reap", () => {
   });
 
   it("listStaleLocks returns only TTL-expired rows", async () => {
-    await insertHolder(engine, { id: "memex-cycle", pid: 1, host: "h", ttlMin: 30 }); // live
-    await insertHolder(engine, { id: "memex-cycle:x", pid: 2, host: "h", ttlMin: -5 }); // expired
+    await insertHolder(engine, { id: "memrain-cycle", pid: 1, host: "h", ttlMin: 30 }); // live
+    await insertHolder(engine, { id: "memrain-cycle:x", pid: 2, host: "h", ttlMin: -5 }); // expired
     const stale = await listStaleLocks(engine);
-    expect(stale.map((s) => s.id)).toEqual(["memex-cycle:x"]);
+    expect(stale.map((s) => s.id)).toEqual(["memrain-cycle:x"]);
   });
 
   it("deleteLockRow removes by id+pid; deleteLockRowIfStale gates on age", async () => {
@@ -249,14 +249,14 @@ describe("inspect / list / delete / reap", () => {
 
   it("reapDeadHolderLocks reaps a dead same-host cycle lock, keeps live / cross-host / out-of-namespace", async () => {
     const HOST = hostname();
-    await insertHolder(engine, { id: "memex-cycle", pid: 100, host: HOST, ageMin: 5 }); // dead same-host → reap
-    await insertHolder(engine, { id: "memex-cycle:live", pid: 101, host: HOST, ageMin: 5 }); // alive → keep
-    await insertHolder(engine, { id: "memex-cycle:remote", pid: 102, host: "elsewhere", ageMin: 5 }); // cross-host → keep
+    await insertHolder(engine, { id: "memrain-cycle", pid: 100, host: HOST, ageMin: 5 }); // dead same-host → reap
+    await insertHolder(engine, { id: "memrain-cycle:live", pid: 101, host: HOST, ageMin: 5 }); // alive → keep
+    await insertHolder(engine, { id: "memrain-cycle:remote", pid: 102, host: "elsewhere", ageMin: 5 }); // cross-host → keep
     await insertHolder(engine, { id: "other-lock", pid: 103, host: HOST, ageMin: 5 }); // out of namespace → keep
 
     const { reapedIds } = await reapDeadHolderLocks(engine, { processKill: killSeam(100) });
-    expect(reapedIds).toEqual(["memex-cycle"]);
+    expect(reapedIds).toEqual(["memrain-cycle"]);
     const left = await engine.query<{ id: string }>("SELECT id FROM cycle_locks ORDER BY id");
-    expect(left.rows.map((r) => r.id)).toEqual(["memex-cycle:live", "memex-cycle:remote", "other-lock"]);
+    expect(left.rows.map((r) => r.id)).toEqual(["memrain-cycle:live", "memrain-cycle:remote", "other-lock"]);
   });
 });

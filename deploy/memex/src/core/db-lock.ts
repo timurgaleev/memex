@@ -6,7 +6,7 @@
  *
  * Reuses the `cycle_locks` table (id PK + holder_pid + holder_host +
  * acquired_at + ttl_expires_at + last_refreshed_at) with a parameterized lock
- * id. The broad cycle lock (`memex-cycle`) lives here.
+ * id. The broad cycle lock (`memrain-cycle`) lives here.
  *
  * Why not pg_advisory_xact_lock: it is session-scoped, and a transaction pooler
  * drops session state between calls. This row-based lock survives a pooler
@@ -43,7 +43,7 @@ export interface DbLockHandle {
 }
 
 /** Lock id for the broad cycle lock — serializes a single cycle invocation. */
-export const CYCLE_LOCK_ID = "memex-cycle";
+export const CYCLE_LOCK_ID = "memrain-cycle";
 
 /** Default TTL: 30 minutes, same as cycle lock. */
 const DEFAULT_TTL_MINUTES = 30;
@@ -532,12 +532,13 @@ export async function deleteLockRowExact(
  * for it. `tryAcquireDbLock` only reclaims on contention; this is the background
  * sweep, intended to run at cycle start.
  *
- * Scoped to the `memex-cycle`/`memex-cycle:*` namespace ONLY — `cycle_locks` is
+ * Scoped to the `memrain-cycle`/`memrain-cycle:*` namespace ONLY — `cycle_locks` is
  * a shared table, so a blanket sweep would change another lock kind's TTL-
- * failover timing.
+ * failover timing. A pre-rename `memex-cycle*` row is never touched: expired it
+ * is inert, and live it belongs to an old process that must be stopped first.
  */
 function isReapableNamespace(lockId: string): boolean {
-  return lockId === "memex-cycle" || lockId.startsWith("memex-cycle:");
+  return lockId === CYCLE_LOCK_ID || lockId.startsWith(`${CYCLE_LOCK_ID}:`);
 }
 
 export async function reapDeadHolderLocks(

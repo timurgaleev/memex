@@ -30,13 +30,15 @@ import {
 import { VERSION } from "../version.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import { isQuiet, resolveQuiescence } from "../core/quiescence.ts";
+import { CYCLE_LOCK_ID } from "../core/db-lock.ts";
+import { LEGACY_CYCLE_LOCK_ID, LEGACY_WORKER_LOCK_ID } from "../core/brand.ts";
 
 /**
  * Cycle-lock namespaces and worker-lock ids of both brands. The legacy ones are
  * only read here, so a live pre-rename process blocks `--quiescent`.
  */
-const CYCLE_LOCK_NAMESPACES = ["memrain-cycle", "memex-cycle"];
-const WORKER_LOCK_IDS = ["memrain-jobs-worker", "memex-jobs-worker"];
+const CYCLE_LOCK_NAMESPACES = [CYCLE_LOCK_ID, LEGACY_CYCLE_LOCK_ID];
+const WORKER_LOCK_IDS = [DEFAULT_WORKER_LOCK_ID, LEGACY_WORKER_LOCK_ID];
 
 export interface QuiescenceStatus {
   maintenance: boolean;

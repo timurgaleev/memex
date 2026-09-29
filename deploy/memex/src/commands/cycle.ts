@@ -11,7 +11,7 @@
  * (embed-stale, embed-facts) call Bedrock, so scope with `--phases` to control
  * cost when you only need one backfill.
  *
- * Concurrency: this shares the daemon's `memex-cycle` DB lock, so a one-shot
+ * Concurrency: this shares the daemon's `memrain-cycle` DB lock, so a one-shot
  * run and a periodic tick can't overlap and double Bedrock spend. If the daemon
  * is mid-tick when this runs, the one-shot prints a `skipped` report
  * (reason `cycle_already_running`) and exits 0 (the phases are idempotent; the

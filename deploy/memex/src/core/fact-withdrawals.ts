@@ -18,11 +18,13 @@
  * through `deadlockSafeTransaction` and is re-run if Postgres aborts it.
  */
 import type { Engine } from "./engine/interface.ts";
+import { FACT_WITHDRAW_LOCK_NS } from "./brand.ts";
 
 /** Advisory-lock key serializing a source's withdrawals against its fact
- *  inserts (the insert trigger in migration 112 takes the same key shared). */
+ *  inserts (the insert trigger, migrations 112 and 120, takes the same key
+ *  shared). */
 export function withdrawLockKey(sourceId: string): string {
-  return `memex:fact-withdraw:${sourceId}`;
+  return `${FACT_WITHDRAW_LOCK_NS}${sourceId}`;
 }
 
 /** Take the exclusive withdraw lock for each source, in a stable order so two
@@ -85,7 +87,7 @@ export async function carryFactWithdrawals(
           AND w.source_id = ef.source_id
           AND w.visibility = ef.visibility
           AND w.entity_slug = ef.entity_slug
-          AND w.claim_key = memex_fact_claim_key(ef.fact)${sourceId !== null ? " AND ef.source_id = $3" : ""}
+          AND w.claim_key = memrain_fact_claim_key(ef.fact)${sourceId !== null ? " AND ef.source_id = $3" : ""}
         RETURNING ef.id`,
       params,
     );

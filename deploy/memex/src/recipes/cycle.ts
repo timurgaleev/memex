@@ -214,7 +214,7 @@ export function startCycleLoop(
       ...(synthCaps ? { synthesis: synthCaps } : {}),
     };
 
-    // Background sweep: reclaim a `memex-cycle` lock stranded by a holder that
+    // Background sweep: reclaim a `memrain-cycle` lock stranded by a holder that
     // crashed (OOM/SIGKILL) on THIS host, so a dead row never blocks a tick for
     // the full TTL. tryAcquireDbLock only reclaims on contention; this is the
     // proactive sweep. Best-effort — never let it abort the tick.

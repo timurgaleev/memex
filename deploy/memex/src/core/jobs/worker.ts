@@ -57,7 +57,7 @@ export interface WorkerOptions {
    * lapses. Omit (e.g. in unit tests) to disable the guard entirely.
    */
   engine?: Engine;
-  /** Lock id for the single-worker guard. Default `memex-jobs-worker`. */
+  /** Lock id for the single-worker guard. Default `memrain-jobs-worker`. */
   workerLockId?: string;
   /** Seconds before a missed heartbeat lets another worker steal. Default 60. */
   workerLockTtlSeconds?: number;
