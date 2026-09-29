@@ -41,7 +41,8 @@
 import type { Storage } from "./storage.ts";
 import type { Engine } from "./engine/interface.ts";
 import { validateSlug, getPage } from "./pages.ts";
-import { parseFactsFence, FACTS_FENCE_BEGIN } from "./facts-fence.ts";
+import { parseFactsFence } from "./facts-fence.ts";
+import { fenceBounds } from "./fence-shared.ts";
 import { deadlockSafeTransaction } from "./retry.ts";
 
 /** Marks a fence-derived fact row's author (parallels the gazetteer's link_kind). */
@@ -90,7 +91,7 @@ export async function reconcileFactsForPage(
   pageSlug: string,
   expectedContentHash: string,
   sourceId?: string,
-): Promise<{ removed: number; added: number; skipped?: "malformed_rows" }> {
+): Promise<{ removed: number; added: number; skipped?: "malformed_rows" | "mixed_fence_brands" }> {
   if (!factsFenceEnabled()) return { removed: 0, added: 0 };
   validateSlug(pageSlug);
   // Tenant scope (mig047): stamp source_id on fence-derived facts only when
@@ -106,9 +107,18 @@ export async function reconcileFactsForPage(
   }
   const body = page.markdown_body;
 
+  // Mixed-brand guard: a `memrain:` and a `memex:` facts fence on one page —
+  // neither is authoritative, so refuse rather than project (or wipe) either.
+  const bounds = fenceBounds(body, "facts");
+  if (bounds?.brand === "both") {
+    console.warn(
+      `[memex] facts-reconcile skipped for '${pageSlug}' (both memrain: and memex: facts fences present)`,
+    );
+    return { removed: 0, added: 0, skipped: "mixed_fence_brands" };
+  }
   // Malformed-fence guard: markers present but nothing parses → do NOT wipe.
   // Only a genuinely ABSENT fence (no markers) clears the prior projection.
-  const hasFenceMarkers = body.includes(FACTS_FENCE_BEGIN);
+  const hasFenceMarkers = bounds !== null;
   const parseWarnings: string[] = [];
   const parsed = parseFactsFence(body, parseWarnings);
   if (hasFenceMarkers && parsed.length === 0) {

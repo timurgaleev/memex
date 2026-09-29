@@ -121,6 +121,7 @@ import {
 import { listRecentTranscripts } from "../core/transcripts-read.ts";
 import { setTakeStatus } from "../core/synthesis/takes.ts";
 import { syncTakesFromFence } from "../core/synthesis/takes-canon.ts";
+import { hasFenceMarker } from "../core/fence-shared.ts";
 import { VERSION } from "../version.ts";
 import {
   reconcileFactsForPage,
@@ -1551,7 +1552,7 @@ async function callPagePut(
   // Best-effort: a malformed fence must never fail the page write.
   try {
     const fenceBody = (await getPage(storage, r.slug))?.markdown_body ?? "";
-    if (fenceBody.includes("memex:takes:begin")) {
+    if (hasFenceMarker(fenceBody, "takes")) {
       await syncTakesFromFence(storage.engine(), r.slug, fenceBody);
     }
   } catch (e) {

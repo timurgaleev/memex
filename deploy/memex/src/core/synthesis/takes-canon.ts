@@ -25,6 +25,7 @@ import {
   type TakeQuality,
 } from "./takes-fence.ts";
 import { contentHash16 } from "./atoms.ts";
+import { fenceBounds, hasFenceMarker } from "../fence-shared.ts";
 import { normalizeScope } from "../source-scope.ts";
 
 /** Prompt-version marker for fence-derived rows — they never came from an LLM
@@ -171,6 +172,9 @@ export interface SyncTakesFenceResult {
  *   deleted, so grades and references survive.
  * - A body with no fence is a no-op (returns zeros), so this is safe to call
  *   on every page write.
+ * - A body carrying both a `memrain:` and a `memex:` takes fence is a no-op
+ *   too (TAKES_FENCE_MIXED warning): the empty parse must not reach the
+ *   deactivation below, or every fence take of the page would go inactive.
  */
 export async function syncTakesFromFence(
   engine: Engine,
@@ -184,7 +188,8 @@ export async function syncTakesFromFence(
     weightsClamped: 0,
     warnings,
   };
-  if (takes.length === 0 && !body.includes("memex:takes:begin")) return result;
+  if (fenceBounds(body, "takes")?.brand === "both") return result;
+  if (takes.length === 0 && !hasFenceMarker(body, "takes")) return result;
 
   for (const t of takes) {
     const { weight, clamped } = normalizeWeightForStorage(t.weight);

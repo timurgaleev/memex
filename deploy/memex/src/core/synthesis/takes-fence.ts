@@ -39,7 +39,14 @@
  * columns; unresolved pages keep the narrow 7-column shape. Round-trip
  * preservation through upsert/supersede is the safety net against silently
  * dropping resolution data on unrelated edits.
+ *
+ * Markers are brand-namespaced: `memrain:` and the `memex:` markers of earlier
+ * releases both parse, and every edit keeps the marker the page already
+ * carries. A page carrying both brands is refused (parsed as empty with a
+ * TAKES_FENCE_MIXED warning, never rewritten).
  */
+
+import { fenceBounds, fenceMarkers, FENCE_BRANDS, type FenceBrand } from "../fence-shared.ts";
 
 export type FenceTakeKind = string;
 
@@ -78,8 +85,42 @@ export interface FenceParseResult {
   warnings: string[];
 }
 
-export const TAKES_FENCE_BEGIN = "<!--- memex:takes:begin -->";
-export const TAKES_FENCE_END = "<!--- memex:takes:end -->";
+export const TAKES_FENCE_BEGIN = "<!--- memrain:takes:begin -->";
+export const TAKES_FENCE_END = "<!--- memrain:takes:end -->";
+export const LEGACY_TAKES_FENCE_BEGIN = "<!--- memex:takes:begin -->";
+export const LEGACY_TAKES_FENCE_END = "<!--- memex:takes:end -->";
+
+const TAKES_FENCE_MIXED = "TAKES_FENCE_MIXED: both memrain: and memex: takes fences present";
+
+interface TakesFenceSpan {
+  brand: FenceBrand;
+  begin: string;
+  end: string;
+  beginIdx: number;
+  endIdx: number;
+}
+
+/**
+ * Locate the takes fence with the `indexOf` rule every takes site has always
+ * used, under the brand whose begin marker the body carries. With no begin
+ * marker, an orphan end marker of either brand is still reported (the parser
+ * warns TAKES_FENCE_UNBALANCED on it). `"mixed"` when both brands are present.
+ */
+function locateTakesFence(body: string): TakesFenceSpan | "mixed" {
+  const bounds = fenceBounds(body, "takes");
+  if (bounds?.brand === "both") return "mixed";
+  if (bounds !== null) {
+    const beginIdx = body.indexOf(bounds.begin);
+    const endIdx = body.indexOf(bounds.end, beginIdx + bounds.begin.length);
+    return { ...bounds, beginIdx, endIdx };
+  }
+  for (const brand of FENCE_BRANDS) {
+    const m = fenceMarkers("takes", brand);
+    const endIdx = body.indexOf(m.end, m.begin.length - 1);
+    if (endIdx !== -1) return { brand, ...m, beginIdx: -1, endIdx };
+  }
+  return { brand: "memex", ...fenceMarkers("takes", "memex"), beginIdx: -1, endIdx: -1 };
+}
 
 /** Slug character class for holder segments (matches memex page-slug grammar:
  *  lowercase alphanumerics plus `._-`). */
@@ -245,9 +286,13 @@ export function normalizeWeightForStorage(
  * takes + empty warnings when no fence is present.
  */
 export function parseTakesFence(body: string): FenceParseResult {
-  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
-  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
   const warnings: string[] = [];
+  const span = locateTakesFence(body);
+  if (span === "mixed") {
+    warnings.push(TAKES_FENCE_MIXED);
+    return { takes: [], warnings };
+  }
+  const { beginIdx, endIdx } = span;
 
   if (beginIdx === -1 && endIdx === -1) return { takes: [], warnings };
   if (beginIdx === -1 || endIdx === -1) {
@@ -255,7 +300,7 @@ export function parseTakesFence(body: string): FenceParseResult {
     return { takes: [], warnings };
   }
 
-  const inner = body.slice(beginIdx + TAKES_FENCE_BEGIN.length, endIdx);
+  const inner = body.slice(beginIdx + span.begin.length, endIdx);
   const lines = inner.split("\n");
   const takes: ParsedFenceTake[] = [];
   let sawHeader = false;
@@ -394,8 +439,9 @@ function formatWeight(w: number): string {
  * Render a takes array back to a fenced markdown table. Round-trip safe with
  * parseTakesFence. When ANY take has `resolvedQuality` set, the table widens
  * to the resolution shape; otherwise it keeps the narrow 7-column shape.
+ * `brand` picks the markers; edits of an existing fence pass that fence's brand.
  */
-export function renderTakesFence(takes: ParsedFenceTake[]): string {
+export function renderTakesFence(takes: ParsedFenceTake[], brand: FenceBrand = "memex"): string {
   const hasAnyResolution = takes.some((t) => t.resolvedQuality !== undefined);
   const header = hasAnyResolution
     ? `| # | claim | kind | who | weight | since | source | resolved | quality | evidence | value | unit | by |`
@@ -422,7 +468,8 @@ export function renderTakesFence(takes: ParsedFenceTake[]): string {
     return `${baseCells} ${resolved} | ${quality} | ${evidence} | ${value} | ${unit} | ${by} |`;
   });
   const inner = ["", header, separator, ...rows, ""].join("\n");
-  return `${TAKES_FENCE_BEGIN}${inner}${TAKES_FENCE_END}`;
+  const { begin, end } = fenceMarkers("takes", brand);
+  return `${begin}${inner}${end}`;
 }
 
 // --- body edits --------------------------------------------------------------
@@ -431,11 +478,17 @@ export function renderTakesFence(takes: ParsedFenceTake[]): string {
  * Append a new take row to the body. If a fenced takes table exists the row is
  * added at its end; otherwise a new `## Takes` section + fence is created at
  * the end of the body. Append-only: row_num = max existing + 1, stable forever.
+ * The page's existing marker brand is kept; the default brand applies only to
+ * a page with no fence. Throws (no write) on a page carrying both brands.
  */
 export function upsertTakeRow(
   body: string,
   newRow: Omit<ParsedFenceTake, "rowNum"> & { rowNum?: number },
 ): { body: string; rowNum: number } {
+  const span = locateTakesFence(body);
+  if (span === "mixed") {
+    throw new Error("upsertTakeRow: page carries both memrain: and memex: takes fences");
+  }
   const { takes } = parseTakesFence(body);
   const nextRowNum =
     newRow.rowNum ?? (takes.length > 0 ? Math.max(...takes.map((t) => t.rowNum)) + 1 : 1);
@@ -446,13 +499,15 @@ export function upsertTakeRow(
     weight: newRow.weight ?? 0.5,
     active: newRow.active ?? true,
   };
-  const newFence = renderTakesFence([...takes, appended]);
+  const newFence = renderTakesFence(
+    [...takes, appended],
+    span.beginIdx !== -1 ? span.brand : undefined,
+  );
 
-  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
-  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  const { beginIdx, endIdx } = span;
   let out: string;
   if (beginIdx !== -1 && endIdx !== -1) {
-    out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + TAKES_FENCE_END.length);
+    out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + span.end.length);
   } else {
     const sep = body.endsWith("\n") ? "\n" : "\n\n";
     out = `${body}${sep}## Takes\n\n${newFence}\n`;
@@ -463,13 +518,18 @@ export function upsertTakeRow(
 /**
  * Supersede an existing row: strike through the target row's claim AND append
  * a new row with the replacement. Both rows stay in the markdown for git-blame
- * archaeology. Throws when the target row is not in the fence.
+ * archaeology. Throws when the target row is not in the fence. Keeps the
+ * fence's marker brand; throws on a page carrying both brands.
  */
 export function supersedeRow(
   body: string,
   oldRowNum: number,
   replacement: Omit<ParsedFenceTake, "rowNum" | "active">,
 ): { body: string; oldRowNum: number; newRowNum: number } {
+  const span = locateTakesFence(body);
+  if (span === "mixed") {
+    throw new Error("supersedeRow: page carries both memrain: and memex: takes fences");
+  }
   const { takes } = parseTakesFence(body);
   const idx = takes.findIndex((t) => t.rowNum === oldRowNum);
   if (idx === -1) {
@@ -487,27 +547,32 @@ export function supersedeRow(
     active: true,
   });
 
-  const newFence = renderTakesFence(updatedTakes);
-  const beginIdx = body.indexOf(TAKES_FENCE_BEGIN);
-  const endIdx = body.indexOf(TAKES_FENCE_END, beginIdx + TAKES_FENCE_BEGIN.length);
+  const newFence = renderTakesFence(updatedTakes, span.brand);
+  const { beginIdx, endIdx } = span;
   if (beginIdx === -1 || endIdx === -1) {
     throw new Error("supersedeRow: fence markers missing in body");
   }
-  const out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + TAKES_FENCE_END.length);
+  const out = body.slice(0, beginIdx) + newFence + body.slice(endIdx + span.end.length);
   return { body: out, oldRowNum, newRowNum };
 }
 
 /**
  * Strip the fenced takes block from a body — used so takes content lives only
  * in the takes table, not duplicated into page chunks. No-op when no fence is
- * present or the input is not a string.
+ * present or the input is not a string. Every brand present is stripped.
  */
 export function stripTakesFence(body: string): string {
   if (typeof body !== "string") return body;
-  if (!body.includes(TAKES_FENCE_BEGIN)) return body;
+  let out = body;
+  for (const brand of FENCE_BRANDS) out = stripOneTakesFence(out, fenceMarkers("takes", brand));
+  return out;
+}
+
+function stripOneTakesFence(body: string, markers: { begin: string; end: string }): string {
+  if (!body.includes(markers.begin)) return body;
   const lines = body.split(/\r?\n/);
-  const begin = lines.findIndex((l) => l.trim() === TAKES_FENCE_BEGIN);
-  const end = lines.findIndex((l) => l.trim() === TAKES_FENCE_END);
+  const begin = lines.findIndex((l) => l.trim() === markers.begin);
+  const end = lines.findIndex((l) => l.trim() === markers.end);
   if (begin === -1 || end === -1 || end <= begin) return body;
 
   // Also drop a `## Takes` heading directly above the fence (and any blank lines

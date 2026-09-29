@@ -14,7 +14,8 @@
  * by HEADER NAME (not fixed position), so a narrow legacy fence
  * (`| # | claim | confidence | source |`) and a wide one parse with the same
  * code, and new columns can be added without breaking old pages. Markers are
- * memex-namespaced.
+ * brand-namespaced: `memrain:` and the `memex:` markers of earlier releases
+ * both parse, and a page keeps whichever marker it already carries.
  *
  *   ## Facts
  *
@@ -35,11 +36,17 @@ import {
   stripStrikethrough,
   parseStringCell,
   escapeFenceCell,
+  fenceBounds,
+  fenceMarkers,
+  FENCE_BRANDS,
+  type FenceBrand,
 } from "./fence-shared.ts";
 import { DEFAULT_FACT_KIND } from "./facts-decay.ts";
 
-export const FACTS_FENCE_BEGIN = "<!--- memex:facts:begin -->";
-export const FACTS_FENCE_END = "<!--- memex:facts:end -->";
+export const FACTS_FENCE_BEGIN = "<!--- memrain:facts:begin -->";
+export const FACTS_FENCE_END = "<!--- memrain:facts:end -->";
+export const LEGACY_FACTS_FENCE_BEGIN = "<!--- memex:facts:begin -->";
+export const LEGACY_FACTS_FENCE_END = "<!--- memex:facts:end -->";
 
 /** Fact category — what kind of claim this is. */
 export type FactKind = "event" | "preference" | "commitment" | "belief" | "fact";
@@ -279,13 +286,19 @@ function cellAt(cells: readonly string[], idx: number | undefined): string | und
  * parse" — a wipe+reinsert over a partial parse would destroy the skipped
  * rows' prior projections. Structural non-rows (prose lines, separators,
  * repeated headers) do not warn: they are tolerated table furniture, not lost
- * facts.
+ * facts. A body carrying both a `memrain:` and a `memex:` facts fence yields
+ * `[]` plus a warning: neither fence is authoritative over the other.
  */
 export function parseFactsFence(markdown: string, warnings?: string[]): ParsedFact[] {
-  if (!markdown.includes(FACTS_FENCE_BEGIN)) return [];
+  const bounds = fenceBounds(markdown, "facts");
+  if (bounds === null) return [];
+  if (bounds.brand === "both") {
+    warnings?.push("FACTS_FENCE_MIXED: both memrain: and memex: facts fences present");
+    return [];
+  }
   const lines = markdown.split(/\r?\n/);
-  const begin = lines.findIndex((l) => l.trim() === FACTS_FENCE_BEGIN);
-  const end = lines.findIndex((l) => l.trim() === FACTS_FENCE_END);
+  const begin = lines.findIndex((l) => l.trim() === bounds.begin);
+  const end = lines.findIndex((l) => l.trim() === bounds.end);
   if (begin === -1 || end === -1 || end <= begin) return [];
 
   // First pass: locate the header row (the first row carrying a `claim` column)
@@ -381,9 +394,10 @@ export function parseFactsFence(markdown: string, warnings?: string[]): ParsedFa
  * Render facts into the fenced markdown block (markers + table). The table
  * widens to carry the migration-070 typed-claim columns ONLY when at least one
  * row has a typed field set; otherwise it stays at the narrow 8-column shape so
- * an ordinary fence is never churned on an unrelated rewrite.
+ * an ordinary fence is never churned on an unrelated rewrite. `brand` picks
+ * the markers; a caller rewriting an existing fence passes that fence's brand.
  */
-export function renderFactsFence(facts: readonly ParsedFact[]): string {
+export function renderFactsFence(facts: readonly ParsedFact[], brand: FenceBrand = "memex"): string {
   const anyTyped = facts.some(
     (f) =>
       f.claimMetric !== undefined ||
@@ -415,7 +429,8 @@ export function renderFactsFence(facts: readonly ParsedFact[]): string {
       `${escapeFenceCell(f.eventType ?? "")} |`
     );
   });
-  return [FACTS_FENCE_BEGIN, header, sep, ...rows, FACTS_FENCE_END].join("\n");
+  const { begin, end } = fenceMarkers("facts", brand);
+  return [begin, header, sep, ...rows, end].join("\n");
 }
 
 /**
@@ -423,12 +438,19 @@ export function renderFactsFence(facts: readonly ParsedFact[]): string {
  * preceding `## Facts` heading if present) from a markdown body — so the
  * fenced table is not re-indexed as ordinary body text by the chunker. Leaves
  * the rest of the document untouched; a body with no fence is returned as-is.
+ * Every brand present is stripped.
  */
 export function stripFactsFence(markdown: string): string {
-  if (!markdown.includes(FACTS_FENCE_BEGIN)) return markdown;
+  let out = markdown;
+  for (const brand of FENCE_BRANDS) out = stripOneFactsFence(out, fenceMarkers("facts", brand));
+  return out;
+}
+
+function stripOneFactsFence(markdown: string, markers: { begin: string; end: string }): string {
+  if (!markdown.includes(markers.begin)) return markdown;
   const lines = markdown.split(/\r?\n/);
-  const begin = lines.findIndex((l) => l.trim() === FACTS_FENCE_BEGIN);
-  const end = lines.findIndex((l) => l.trim() === FACTS_FENCE_END);
+  const begin = lines.findIndex((l) => l.trim() === markers.begin);
+  const end = lines.findIndex((l) => l.trim() === markers.end);
   if (begin === -1 || end === -1 || end <= begin) return markdown;
 
   // Also drop a `## Facts` heading directly above the fence (and one blank

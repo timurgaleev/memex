@@ -99,3 +99,39 @@ export function escapeFenceCell(s: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|");
 }
+
+export type FenceKind = "facts" | "takes";
+export type FenceBrand = "memrain" | "memex";
+
+/** Every marker brand a fence may carry. `memex:` fences written by earlier
+ *  releases stay valid forever — a page's existing marker is never rewritten. */
+export const FENCE_BRANDS: readonly FenceBrand[] = ["memrain", "memex"];
+
+/** The begin/end HTML-comment markers of one fence kind under one brand. */
+export function fenceMarkers(kind: FenceKind, brand: FenceBrand): { begin: string; end: string } {
+  return { begin: `<!--- ${brand}:${kind}:begin -->`, end: `<!--- ${brand}:${kind}:end -->` };
+}
+
+/**
+ * Pick the brand of a body's `kind` fence by testing for each brand's begin
+ * marker. Returns that brand's markers, `{ brand: "both" }` when begin markers
+ * of both brands are present (callers refuse to project or rewrite such a
+ * page — an asymmetric match there could wipe derived rows), or `null` when no
+ * begin marker is present. Each call site keeps its own matching rule (line
+ * trim equality or `indexOf`) with the returned markers.
+ */
+export function fenceBounds(
+  body: string,
+  kind: FenceKind,
+): { brand: FenceBrand; begin: string; end: string } | { brand: "both" } | null {
+  const present = FENCE_BRANDS.filter((b) => body.includes(fenceMarkers(kind, b).begin));
+  const brand = present[0];
+  if (brand === undefined) return null;
+  if (present.length > 1) return { brand: "both" };
+  return { brand, ...fenceMarkers(kind, brand) };
+}
+
+/** True when the body carries a `kind` begin marker of any brand. */
+export function hasFenceMarker(body: string, kind: FenceKind): boolean {
+  return fenceBounds(body, kind) !== null;
+}
