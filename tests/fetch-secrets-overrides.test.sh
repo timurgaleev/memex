@@ -30,7 +30,7 @@ ws_new() {
   WS="$TMPROOT/ws$N"
   new_secrets_workspace "$WS"
   printf 'SECRETS_PREFIX=stack\n' >> "$WS/.env"
-  APP="$WS/deploy/.secrets/memex.env"
+  APP="$WS/deploy/.secrets/memrain.env"
   TUN="$WS/deploy/.secrets/cloudflared.env"
   export STUB_DIR="$WS/stub"
   # Default-resolution secrets exist too, so a fallback would be visible.
@@ -42,7 +42,7 @@ ws_new() {
 
 seed_previous() {
   mkdir -p "$WS/deploy/.secrets"
-  printf 'MEMEX_POSTGRES_URL=postgres://previous\n' > "$APP"
+  printf 'MEMRAIN_POSTGRES_URL=postgres://previous\n' > "$APP"
   printf 'TUNNEL_TOKEN=previous-tunnel\n' > "$TUN"
   chmod 0600 "$APP" "$TUN"
   cp "$APP" "$WS/app.before"
@@ -70,16 +70,16 @@ check_override() {
     die "T1 $key"; cat "$WS/stub/calls.log"; cat "$WS/out.log"
   fi
 }
-check_override POSTGRES_URL_SECRET_NAME legacy/memex-postgres-url "postgres://u:p@db/ovr" 'postgres-url' 'MEMEX_POSTGRES_URL=postgres://u:p@db/ovr' APP
-check_override PUBLIC_BEARER_SECRET_NAME legacy/memex-public-bearer "bearer-ovr" 'public-bearer' 'MEMEX_PUBLIC_BEARER=bearer-ovr' APP
-check_override INTERNAL_TOKEN_SECRET_NAME legacy/memex-internal-token "internal-ovr" 'internal-token' 'MEMEX_INTERNAL_TOKEN=internal-ovr' APP
+check_override POSTGRES_URL_SECRET_NAME legacy/memex-postgres-url "postgres://u:p@db/ovr" 'postgres-url' 'MEMRAIN_POSTGRES_URL=postgres://u:p@db/ovr' APP
+check_override PUBLIC_BEARER_SECRET_NAME legacy/memex-public-bearer "bearer-ovr" 'public-bearer' 'MEMRAIN_PUBLIC_BEARER=bearer-ovr' APP
+check_override INTERNAL_TOKEN_SECRET_NAME legacy/memex-internal-token "internal-ovr" 'internal-token' 'MEMRAIN_INTERNAL_TOKEN=internal-ovr' APP
 check_override TUNNEL_TOKEN_SECRET_NAME legacy/cloudflared-tunnel-token "tunnel-ovr" 'tunnel-token' 'TUNNEL_TOKEN=tunnel-ovr' TUN
 
 # T2. Unset or empty keys: the default new-then-old resolution.
 ws_new
 printf 'POSTGRES_URL_SECRET_NAME=\nPUBLIC_BEARER_SECRET_NAME=\n' >> "$WS/.env"
-if run_fetch "$WS" && grep -qx 'MEMEX_POSTGRES_URL=postgres://u:p@db/default' "$APP" \
-   && grep -qx 'MEMEX_PUBLIC_BEARER=bearer-default' "$APP" \
+if run_fetch "$WS" && grep -qx 'MEMRAIN_POSTGRES_URL=postgres://u:p@db/default' "$APP" \
+   && grep -qx 'MEMRAIN_PUBLIC_BEARER=bearer-default' "$APP" \
    && ! grep -q '(override' "$WS/out.log"; then
   pass "T2 empty override keys: default resolution"
 else
@@ -155,7 +155,7 @@ done
 # T6. The rotation script PUTs to the id fetch-secrets reads.
 run_rotate() {
   env -i PATH="$WS/stub/bin:/usr/bin:/bin" HOME="$WS" STUB_DIR="$WS/stub" \
-    REPO_DIR="$WS" "$@" bash "$WS/scripts/rotate-memex-public-bearer.sh" > "$WS/out.log" 2>&1
+    REPO_DIR="$WS" "$@" bash "$WS/scripts/rotate-memrain-public-bearer.sh" > "$WS/out.log" 2>&1
 }
 write_docker_stub() {
   printf '#!/bin/sh\nexit 0\n' > "$WS/stub/bin/docker"

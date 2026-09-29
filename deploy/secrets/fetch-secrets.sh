@@ -56,10 +56,12 @@ validate_secret_name_overrides || exit 1
 
 REQUIRE_POSTGRES="${MEMRAIN_REQUIRE_POSTGRES:-${MEMEX_REQUIRE_POSTGRES:-}}"
 
-# memex.env is the single env_file the memex container reads.
-APP_ENV="${SECRETS_DIR}/memex.env"
+# memrain.env is the single env_file the memrain container reads. A
+# .secrets/memex.env left by a pre-rename release is never read, written or
+# removed here.
+APP_ENV="${SECRETS_DIR}/memrain.env"
 TUNNEL_ENV="${SECRETS_DIR}/cloudflared.env"
-APP_TMP="${SECRETS_DIR}/.memex.env.tmp.$$"
+APP_TMP="${SECRETS_DIR}/.memrain.env.tmp.$$"
 TUNNEL_TMP="${SECRETS_DIR}/.cloudflared.env.tmp.$$"
 VALUE_TMP="${SECRETS_DIR}/.value.tmp.$$"
 cleanup() { rm -f "$APP_TMP" "$TUNNEL_TMP" "$VALUE_TMP"; }
@@ -95,44 +97,44 @@ append_env() {
 
 rc=0; fetch_kind postgres-url || rc=$?
 case "$rc" in
-  0) append_env MEMEX_POSTGRES_URL
-     echo "[secrets] memex Postgres URL fetched" ;;
+  0) append_env MEMRAIN_POSTGRES_URL
+     echo "[secrets] memrain Postgres URL fetched" ;;
   2) if [ "$REQUIRE_POSTGRES" = "1" ]; then
        echo "[secrets] ERROR: MEMRAIN_REQUIRE_POSTGRES=1 but no Postgres URL secret is provisioned; nothing written" >&2
        exit 1
      fi
-     echo "[secrets] WARN: memex Postgres URL not provisioned — daemon will start on local PGLite (dev fallback)" ;;
+     echo "[secrets] WARN: memrain Postgres URL not provisioned — daemon will start on local PGLite (dev fallback)" ;;
   *) echo "[secrets] ERROR: Postgres URL lookup failed; nothing written" >&2; exit 1 ;;
 esac
 
 rc=0; fetch_kind public-bearer || rc=$?
 case "$rc" in
-  0) append_env MEMEX_PUBLIC_BEARER
-     echo "[secrets] memex public bearer fetched" ;;
-  2) echo "[secrets] memex public bearer not yet provisioned (public ingress disabled)" ;;
+  0) append_env MEMRAIN_PUBLIC_BEARER
+     echo "[secrets] memrain public bearer fetched" ;;
+  2) echo "[secrets] memrain public bearer not yet provisioned (public ingress disabled)" ;;
   *) echo "[secrets] ERROR: public bearer lookup failed; nothing written" >&2; exit 1 ;;
 esac
 
 # Internal-route shared token. Defends POST /index and POST /friction
 # on the docker-internal bridge from a compromised sibling container.
-# Both memex and the bridge container read this from MEMEX_INTERNAL_TOKEN
+# The memrain container reads this from MEMRAIN_INTERNAL_TOKEN
 # at startup; absence falls through to legacy "open internal" behaviour
 # with a startup warning (so existing single-node installs upgrade
 # cleanly even before the operator creates the secret).
 rc=0; fetch_kind internal-token || rc=$?
 case "$rc" in
-  0) append_env MEMEX_INTERNAL_TOKEN
-     echo "[secrets] memex internal token fetched" ;;
-  2) echo "[secrets] memex internal token not yet provisioned — internal routes stay open (legacy fallthrough)" ;;
+  0) append_env MEMRAIN_INTERNAL_TOKEN
+     echo "[secrets] memrain internal token fetched" ;;
+  2) echo "[secrets] memrain internal token not yet provisioned — internal routes stay open (legacy fallthrough)" ;;
   *) echo "[secrets] ERROR: internal token lookup failed; nothing written" >&2; exit 1 ;;
 esac
 
 PUBLIC_WRITE="${MEMRAIN_PUBLIC_WRITE:-${MEMEX_PUBLIC_WRITE:-0}}"
-printf 'MEMEX_PUBLIC_WRITE=%s\n' "$PUBLIC_WRITE" >> "$APP_TMP"
+printf 'MEMRAIN_PUBLIC_WRITE=%s\n' "$PUBLIC_WRITE" >> "$APP_TMP"
 if [ "$PUBLIC_WRITE" = "1" ]; then
-  echo "[secrets] memex public write ENABLED (opted in via MEMRAIN_PUBLIC_WRITE=1)"
+  echo "[secrets] memrain public write ENABLED (opted in via MEMRAIN_PUBLIC_WRITE=1)"
 else
-  echo "[secrets] memex public write DISABLED (default — read-only MCP)"
+  echo "[secrets] memrain public write DISABLED (default — read-only MCP)"
 fi
 
 # Cloudflared tunnel token → .env format for compose env_file. terraform

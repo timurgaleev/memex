@@ -95,3 +95,19 @@ def test_two_phase_publish_without_truncation() -> None:
     assert app < tun
     # Nothing is published before the last fetch.
     assert text.rindex("fetch_kind ") < app
+
+
+def test_app_env_is_memrain_env_with_memrain_keys_only() -> None:
+    """The app file is .secrets/memrain.env; the pre-rename .secrets/memex.env
+    is never named as an output, so it can be neither written nor truncated.
+    The behaviour (byte-identical after every run) is pinned in
+    tests/fetch-secrets.test.sh."""
+    text = _read()
+    assert 'APP_ENV="${SECRETS_DIR}/memrain.env"' in text
+    code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+    assert "memex.env" not in code
+    written = re.findall(r"append_env (\w+)", code)
+    written += re.findall(r"printf '(\w+)=%s", code)
+    assert written, "no app env key found"
+    app_keys = [k for k in written if "TUNNEL" not in k]
+    assert app_keys and all(k.startswith("MEMRAIN_") for k in app_keys), app_keys

@@ -1,4 +1,4 @@
-# memex — Bun runtime, multi-stage build
+# memrain — Bun runtime, multi-stage build
 # Base image: oven/bun:1.3.13-alpine (preferred).
 # Fallback: oven/bun:1.3.13 (non-alpine) if the alpine tag is unavailable.
 
@@ -25,7 +25,7 @@ RUN bun install --frozen-lockfile --production
 COPY src/ ./src/
 COPY templates/ ./templates/
 # Tree-sitter grammar WASM blobs for the code chunkers. Vendored into
-# the repo (deploy/memex/wasm/) so the container build doesn't depend
+# the repo (deploy/memrain/wasm/) so the container build doesn't depend
 # on resolving them out of node_modules at runtime — keeps the boot
 # path deterministic and bun build (future) traversal-free.
 COPY wasm/ ./wasm/
@@ -38,7 +38,7 @@ RUN chmod +x /app/entrypoint.sh
 # Non-root: bun base image already provides uid 1000 (`bun`). Owning
 # /app to bun lets the entrypoint write logs / cache files. The
 # bind-mounted vault + workspace/memory paths are read-only and the
-# bootstrap script `chown -R 1000:1000` the EFS vault/* + memex dir,
+# bootstrap script `chown -R 1000:1000` the EFS vault/* + memrain dir,
 # so non-root reads work without per-file chmod gymnastics. Defence
 # in depth: an RCE in the Bun process no longer lands as root, so a
 # kernel bug or a host-mount oversight cannot escalate to the host
@@ -47,14 +47,14 @@ RUN chown -R bun:bun /app
 
 # Build-time version stamp — the deploy host passes `git describe` via compose;
 # a plain `docker build` falls back to 'dev'. Read at runtime by src/version.ts.
-ARG MEMEX_VERSION=dev
+ARG MEMRAIN_VERSION=dev
 
 ENV NODE_ENV=production \
     AWS_REGION=eu-west-1 \
     AWS_PROFILE=default \
-    MEMEX_HOST=0.0.0.0 \
+    MEMRAIN_HOST=0.0.0.0 \
     BRAIN_PORT=18790 \
-    MEMEX_VERSION=$MEMEX_VERSION \
+    MEMRAIN_VERSION=$MEMRAIN_VERSION \
     HOME=/home/bun
 
 EXPOSE 18790

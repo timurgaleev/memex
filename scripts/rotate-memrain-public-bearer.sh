@@ -1,5 +1,5 @@
 #!/bin/bash
-# Daily rotation of the public memex bearer token.
+# Daily rotation of the public memrain bearer token.
 #
 # Steps:
 #   1. Generate a new 32-byte hex token.
@@ -7,7 +7,7 @@
 #      PUBLIC_BEARER_SECRET_NAME when set, else <SECRETS_PREFIX>/memrain-public-bearer,
 #      else <SECRETS_PREFIX>/memex-public-bearer (deploy/secrets/lib.sh).
 #   3. Re-run fetch-secrets.sh so the on-disk env file picks up the new
-#      value, then force-recreate the memex container via compose so it
+#      value, then force-recreate the memrain container via compose so it
 #      re-reads the changed env_file. (`docker restart` does NOT reload a
 #      changed env_file — env is baked at container create — so a plain
 #      restart would keep the OLD bearer and silently break public auth
@@ -16,13 +16,14 @@
 #
 # Env contract (sourced from ${REPO_DIR}/.env):
 #   AWS_REGION, SECRETS_PREFIX
-# Optional knobs:
-#   MEMEX_ROTATE_COMPOSE_DIR   path to deploy/ (default: ${REPO_DIR}/deploy)
-#   MEMEX_ROTATE_CONTAINER     container name (default: deploy-memex-1)
+# Optional knobs (each also read under its legacy MEMEX_ROTATE_* name):
+#   MEMRAIN_ROTATE_COMPOSE_DIR   path to deploy/ (default: ${REPO_DIR}/deploy)
+#   MEMRAIN_ROTATE_CONTAINER     container name (default: deploy-memrain-1)
+#   MEMRAIN_ROTATE_SERVICE       compose service (default: memrain)
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/opt/memex}"
+REPO_DIR="${REPO_DIR:-/opt/memrain}"
 if [ -f "${REPO_DIR}/.env" ]; then
   # shellcheck source=/dev/null
   . "${REPO_DIR}/.env"
@@ -38,9 +39,9 @@ BEARER_SECRET_ID="$(secret_id_for public-bearer)" || {
   echo "[rotate] ERROR: cannot resolve the public bearer secret id; nothing rotated" >&2
   exit 1
 }
-COMPOSE_DIR="${MEMEX_ROTATE_COMPOSE_DIR:-${REPO_DIR}/deploy}"
-MEMEX_CONTAINER="${MEMEX_ROTATE_CONTAINER:-deploy-memex-1}"
-MEMEX_SERVICE="${MEMEX_ROTATE_SERVICE:-memex}"
+COMPOSE_DIR="${MEMRAIN_ROTATE_COMPOSE_DIR:-${MEMEX_ROTATE_COMPOSE_DIR:-${REPO_DIR}/deploy}}"
+APP_CONTAINER="${MEMRAIN_ROTATE_CONTAINER:-${MEMEX_ROTATE_CONTAINER:-deploy-memrain-1}}"
+APP_SERVICE="${MEMRAIN_ROTATE_SERVICE:-${MEMEX_ROTATE_SERVICE:-memrain}}"
 
 log() {
   printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -67,21 +68,21 @@ else
   log "WARN: fetch-secrets.sh not found at $COMPOSE_DIR/secrets — skipping restage"
 fi
 
-# 4. Force-recreate memex so it RE-READS the changed env_file. A plain
+# 4. Force-recreate memrain so it RE-READS the changed env_file. A plain
 # `docker restart` restarts the process with the env baked in at create
 # time and would keep the OLD bearer — public auth then breaks until the
 # next deploy. `compose up --force-recreate` rebuilds the container with
 # the freshly-staged env_file.
-if docker ps --format '{{.Names}}' | grep -q "^${MEMEX_CONTAINER}$"; then
+if docker ps --format '{{.Names}}' | grep -q "^${APP_CONTAINER}$"; then
   # No explicit -f: that would override the COMPOSE_FILE line bootstrap writes
   # into .env and drop a caddy install's ingress overlay from the resolved set.
   # COMPOSE_FILE is sourced from .env above; export it so compose sees it.
   export COMPOSE_FILE="${COMPOSE_FILE:-$COMPOSE_DIR/docker-compose.yml}"
   (cd "$REPO_DIR" && docker compose --env-file "${REPO_DIR}/.env" \
-     up -d --force-recreate "$MEMEX_SERVICE") >/dev/null
-  log "docker compose: force-recreated $MEMEX_SERVICE (reloads rotated env_file)"
+     up -d --force-recreate "$APP_SERVICE") >/dev/null
+  log "docker compose: force-recreated $APP_SERVICE (reloads rotated env_file)"
 else
-  log "WARN: container $MEMEX_CONTAINER not running — skipping recreate"
+  log "WARN: container $APP_CONTAINER not running — skipping recreate"
 fi
 
 # The rotated token lives in Secrets Manager; MCP clients pull it on

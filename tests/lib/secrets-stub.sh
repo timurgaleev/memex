@@ -74,7 +74,7 @@ new_secrets_workspace() {
   local ws="$1"
   mkdir -p "$ws/deploy/secrets" "$ws/scripts" "$ws/stub/bin"
   cp "$REPO_ROOT/deploy/secrets/fetch-secrets.sh" "$REPO_ROOT/deploy/secrets/lib.sh" "$ws/deploy/secrets/"
-  cp "$REPO_ROOT/scripts/rotate-memex-public-bearer.sh" "$REPO_ROOT/scripts/mcp-refresh.sh" "$ws/scripts/"
+  cp "$REPO_ROOT/scripts/rotate-memrain-public-bearer.sh" "$REPO_ROOT/scripts/mcp-refresh.sh" "$ws/scripts/"
   printf 'AWS_REGION=eu-west-1\n' > "$ws/.env"
   write_aws_stub "$ws/stub/bin"
 }

@@ -1,17 +1,17 @@
 [Unit]
-Description=Rotate the public memex bearer token (daily)
+Description=Rotate the public memrain bearer token (daily)
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/memex/scripts/rotate-memex-public-bearer.sh
+ExecStart=/opt/memrain/scripts/rotate-memrain-public-bearer.sh
 User=root
 # AWS region and the rest of the host env contract come from the file
 # bootstrap.sh renders. Hardcoding a region here shipped the maintainer's
 # own eu-west-1 to every install; the instance role supplies credentials.
-EnvironmentFile=-/opt/memex/.env
+EnvironmentFile=-/opt/memrain/.env
 # .env also carries AWS_PROFILE=default, but bootstrap writes the matching
 # ~/.aws/config only for ec2-user — these units run as root, where that
 # profile does not exist and every aws call would exit 253. Credentials
@@ -20,5 +20,5 @@ UnsetEnvironment=AWS_PROFILE
 # Honour Berlin local clock — the timer schedules in Europe/Berlin so
 # DST shifts don't drift the rotation off 06:00.
 Environment=TZ=Europe/Berlin
-StandardOutput=append:/var/log/memex/memex-rotate-bearer.log
-StandardError=append:/var/log/memex/memex-rotate-bearer.log
+StandardOutput=append:/var/log/memrain/memrain-rotate-bearer.log
+StandardError=append:/var/log/memrain/memrain-rotate-bearer.log

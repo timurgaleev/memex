@@ -1,5 +1,5 @@
 """
-Static checks for scripts/rotate-memex-public-bearer.sh.
+Static checks for scripts/rotate-memrain-public-bearer.sh.
 
 Two regressions we must never ship:
   1. The Telegram notify drops entirely (we lose visibility).
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-ROTATE = REPO / "scripts" / "rotate-memex-public-bearer.sh"
+ROTATE = REPO / "scripts" / "rotate-memrain-public-bearer.sh"
 
 
 def _read() -> str:
@@ -63,3 +63,18 @@ def test_bearer_id_comes_from_lib() -> None:
     assert re.search(r'BEARER_SECRET_ID="\$\(secret_id_for public-bearer\)"', text)
     assert "/memex-public-bearer\"" not in text
     assert 'SECRETS_PREFIX="${SECRETS_PREFIX:-' not in text
+
+
+def test_memrain_defaults_with_legacy_knobs() -> None:
+    """Defaults name the renamed checkout, container and service; each knob
+    still honours its pre-rename MEMEX_ROTATE_* spelling."""
+    text = _read()
+    assert 'REPO_DIR="${REPO_DIR:-/opt/memrain}"' in text
+    for knob, default in (
+        ("COMPOSE_DIR", "${REPO_DIR}/deploy"),
+        ("CONTAINER", "deploy-memrain-1"),
+        ("SERVICE", "memrain"),
+    ):
+        assert f"${{MEMRAIN_ROTATE_{knob}:-${{MEMEX_ROTATE_{knob}:-{default}}}}}" in text, knob
+    # Still no explicit -f: COMPOSE_FILE from .env keeps a caddy overlay in the set.
+    assert re.search(r"docker compose --env-file \S+ \\\n\s+up -d --force-recreate", text)

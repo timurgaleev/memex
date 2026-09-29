@@ -12,7 +12,7 @@ DEPLOY = REPO_ROOT / "deploy"
 
 # cloudflared has no Dockerfile — it uses upstream image directly.
 DOCKERFILES = {
-    "memex": DEPLOY / "memrain" / "Dockerfile",
+    "memrain": DEPLOY / "memrain" / "Dockerfile",
 }
 
 
@@ -25,8 +25,8 @@ def _read(path: Path) -> str:
 # Existence checks
 # ---------------------------------------------------------------------------
 
-def test_memex_dockerfile_exists():
-    assert DOCKERFILES["memex"].exists()
+def test_memrain_dockerfile_exists():
+    assert DOCKERFILES["memrain"].exists()
 
 
 def test_cloudflared_no_dockerfile():
@@ -37,32 +37,32 @@ def test_cloudflared_no_dockerfile():
 
 
 # ---------------------------------------------------------------------------
-# memex Dockerfile
+# memrain Dockerfile
 # ---------------------------------------------------------------------------
 
-class TestMemexDockerfile:
+class TestMemrainDockerfile:
     @pytest.fixture(autouse=True)
     def content(self):
-        self._text = _read(DOCKERFILES["memex"])
+        self._text = _read(DOCKERFILES["memrain"])
 
     def test_from_pinned_tag(self):
         from_lines = [l for l in self._text.splitlines() if l.strip().upper().startswith("FROM")]
-        assert from_lines, "memex Dockerfile must have a FROM line"
+        assert from_lines, "memrain Dockerfile must have a FROM line"
         assert ":latest" not in from_lines[0], (
-            "memex FROM must use a pinned tag, not :latest"
+            "memrain FROM must use a pinned tag, not :latest"
         )
         assert "bun" in from_lines[0].lower(), (
-            "memex must be based on a bun image"
+            "memrain must be based on a bun image"
         )
 
     def test_workdir_declared(self):
-        assert "WORKDIR" in self._text, "memex Dockerfile must declare WORKDIR"
+        assert "WORKDIR" in self._text, "memrain Dockerfile must declare WORKDIR"
 
     def test_expose_18790(self):
-        assert "EXPOSE 18790" in self._text, "memex must EXPOSE 18790"
+        assert "EXPOSE 18790" in self._text, "memrain must EXPOSE 18790"
 
     def test_healthcheck_present(self):
-        assert "HEALTHCHECK" in self._text, "memex must declare a HEALTHCHECK"
+        assert "HEALTHCHECK" in self._text, "memrain must declare a HEALTHCHECK"
 
     def test_healthcheck_hits_health_endpoint(self):
         hc_lines = [l for l in self._text.splitlines() if "HEALTHCHECK" in l]
@@ -70,24 +70,32 @@ class TestMemexDockerfile:
         hc_block_start = self._text.find("HEALTHCHECK")
         hc_block = self._text[hc_block_start:hc_block_start + 300]
         assert "/health" in hc_block, (
-            "memex HEALTHCHECK must target the /health endpoint"
+            "memrain HEALTHCHECK must target the /health endpoint"
         )
 
     def test_user_non_root(self):
         assert "USER" in self._text, (
-            "memex Dockerfile must declare a USER (non-root)"
+            "memrain Dockerfile must declare a USER (non-root)"
         )
         user_lines = [l.strip() for l in self._text.splitlines() if l.strip().startswith("USER")]
         # Must not run as root (uid 0)
         for ul in user_lines:
             assert "root" not in ul.lower(), (
-                f"memex must not run as root, found: {ul}"
+                f"memrain must not run as root, found: {ul}"
             )
 
+    def test_version_stamp_and_bind_host_use_memrain_names(self):
+        """compose passes MEMRAIN_VERSION as the build arg; version.ts and the
+        serve bind read the MEMRAIN_ names."""
+        assert "ARG MEMRAIN_VERSION=dev" in self._text
+        assert "MEMRAIN_VERSION=$MEMRAIN_VERSION" in self._text
+        assert "MEMRAIN_HOST=0.0.0.0" in self._text
+        assert "MEMEX_" not in self._text
+
     def test_cmd_uses_bun(self):
-        assert "CMD" in self._text, "memex Dockerfile must declare CMD"
+        assert "CMD" in self._text, "memrain Dockerfile must declare CMD"
         assert "bun" in self._text.lower(), (
-            "memex CMD must use bun to run the service"
+            "memrain CMD must use bun to run the service"
         )
 
 
