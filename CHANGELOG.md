@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.161.0] — 2026-09-29
+
 ### Fixed
 - **OAuth, secret redaction and write-request edges.** `/authorize` re-checks the
   redirect URI against the locked client row, so a `set-redirect-uris` that lands
