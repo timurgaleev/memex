@@ -6,10 +6,14 @@
  * row through the real `dispatchTool`:
  *
  *   isolated       the operator (no authInfo) must see a tenant-B token — else
- *                  the row is VACUOUS and fails — and none of these may:
- *                    scalar     tenant A via sourceId
- *                    federated  tenant A via allowedSources only
- *                    no grant   an authenticated caller with no source, fail-closed on
+ *                  the row is VACUOUS and fails — and each tenant must see
+ *                  its own data through the same read pointed at its side, so an
+ *                  over-filtering read cannot pass. None of these may cross:
+ *                    scalar       tenant A via sourceId, reading B's side
+ *                    federated    tenant A via allowedSources only
+ *                    scalar B     tenant B via sourceId, reading A's side
+ *                    no grant     an authenticated caller with no source, fail-closed on
+ *                    empty grant  allowedSources: [], fail-closed on
  *   brainwide      scoped callers get an answer, never a thrown error
  *   operator_only  every token caller is refused
  *
@@ -21,16 +25,19 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
+import { addFact } from "../src/core/facts.ts";
 import { dispatchTool, OPERATOR_ONLY_TOOLS, type ToolCallResult } from "../src/mcp/dispatch.ts";
 import { OPERATIONS, WRITE_SCOPED_TOOLS } from "../src/mcp/operations.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
-import { A, auth, B, ENTITY_SLUG, seedTenantContract } from "./helpers/tenant_seed.ts";
+import { deterministicEmbed } from "./det-embed.ts";
+import { A, auth, B, ENTITY_SLUG, KEYWORD, seedTenantContract } from "./helpers/tenant_seed.ts";
 import { MATRIX, type MatrixRow, TENANT_A_TOKENS, TENANT_B_TOKENS } from "./fixtures/tenant_isolation_matrix.ts";
 
 setDefaultTimeout(60000);
 
 let tmp: string;
 let storage: Storage;
+let factIdA = 0;
 let factIdB = 0;
 
 // Chronicle reads are windowed around "now"; derive the seed dates from it.
@@ -43,6 +50,10 @@ const PLACEHOLDERS: Record<string, unknown> = { $recentDate: recentDate, $nextYe
 
 const federatedA: AuthInfo = { ...auth(A), sourceId: undefined, allowedSources: [A] };
 const noGrant: AuthInfo = { token: "tok-none", clientId: "client-none", scopes: ["read"], isPublic: false };
+const emptyGrant: AuthInfo = {
+  token: "tok-empty-grant", clientId: "client-empty-grant", scopes: ["read"], allowedSources: [], isPublic: false,
+};
+const embedQuery = async (text: string) => deterministicEmbed(text);
 
 function argsFor(row: { args: Record<string, unknown> }): Record<string, unknown> {
   return Object.fromEntries(Object.entries(row.args).map(([k, v]) => {
@@ -51,8 +62,16 @@ function argsFor(row: { args: Record<string, unknown> }): Record<string, unknown
   }));
 }
 
+// The same read pointed at tenant A's side of the seed, for the positive control.
+function ownArgsFor(row: { args: Record<string, unknown> }): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(argsFor(row)).map(([k, v]) => {
+    if (row.args[k] === "$factIdB") return [k, factIdA];
+    return [k, typeof v === "string" ? v.replace("team-b/", "team-a/").replace(B, A) : v];
+  }));
+}
+
 async function call(name: string, args: Record<string, unknown>, authInfo?: AuthInfo): Promise<ToolCallResult> {
-  return dispatchTool(storage, { name, arguments: args }, authInfo ? { authInfo } : {});
+  return dispatchTool(storage, { name, arguments: args }, authInfo ? { authInfo, embedQuery } : { embedQuery });
 }
 
 function leakedToken(
@@ -83,6 +102,8 @@ async function seedMatrixExtras(): Promise<void> {
       `UPDATE entity_facts SET forgotten_at = NOW(), superseded_by = $2 WHERE id = $1`,
       [id(old), id(kept)],
     );
+    // Token callers read world facts only; give each tenant one on the shared entity.
+    await addFact(storage, { entity_slug: ENTITY_SLUG, fact: `${tag}_FACT_world`, source_id: who, visibility: "world" });
   }
   await call("chronicle_backfill", {});
 }
@@ -91,7 +112,7 @@ beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-isolation-matrix-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  ({ factIdB } = await seedTenantContract(storage));
+  ({ factIdA, factIdB } = await seedTenantContract(storage));
   await seedMatrixExtras();
 });
 
@@ -135,20 +156,26 @@ describe("isolated operations never cross the source boundary", () => {
   for (const row of byMode("isolated")) {
     it(row.name, async () => {
       const args = argsFor(row);
-      const control = await call(row.name, args);
-      if (!leakedToken(control, args)) {
+      const ownArgs = ownArgsFor(row);
+      const sees = async (rowArgs: Record<string, unknown>, tokens: readonly string[], authInfo?: AuthInfo) =>
+        leakedToken(await call(row.name, rowArgs, authInfo), rowArgs, tokens) !== undefined;
+      if (!(await sees(args, TENANT_B_TOKENS))) {
         throw new Error(`VACUOUS: the operator sees no tenant-B data through ${row.name}; fix the seed or the row`);
       }
-      const principals: Array<[string, AuthInfo, boolean]> = [
-        ["scalar", auth(A), false],
-        ["federated", federatedA, false],
-        ["no grant", noGrant, true],
+      if (!(await sees(ownArgs, row.own ? [row.own] : TENANT_A_TOKENS, auth(A))) || !(await sees(args, TENANT_B_TOKENS, auth(B)))) {
+        throw new Error(`OVER-FILTERED: a tenant sees none of its own data through ${row.name}`);
+      }
+      const principals: Array<[string, AuthInfo, Record<string, unknown>, readonly string[], boolean]> = [
+        ["scalar", auth(A), args, TENANT_B_TOKENS, false],
+        ["federated", federatedA, args, TENANT_B_TOKENS, false],
+        ["scalar B", auth(B), ownArgs, TENANT_A_TOKENS, false],
+        ["no grant", noGrant, args, [...TENANT_B_TOKENS, ...TENANT_A_TOKENS], true],
+        ["empty grant", emptyGrant, args, [...TENANT_B_TOKENS, ...TENANT_A_TOKENS], true],
       ];
-      for (const [label, authInfo, failClosed] of principals) {
+      for (const [label, authInfo, rowArgs, tokens, failClosed] of principals) {
         if (failClosed) process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
         else delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
-        const tokens = failClosed ? [...TENANT_B_TOKENS, ...TENANT_A_TOKENS] : TENANT_B_TOKENS;
-        const leaked = leakedToken(await call(row.name, args, authInfo), args, tokens);
+        const leaked = leakedToken(await call(row.name, rowArgs, authInfo), rowArgs, tokens);
         expect({ caller: label, leaked }).toEqual({ caller: label, leaked: undefined });
       }
     });
@@ -176,4 +203,21 @@ describe("operator-only operations refuse token callers", () => {
       }
     });
   }
+});
+
+// think is write-scoped, so the fail-closed gate refuses a grantless caller
+// before callThink runs; the in-handler no-grant short-circuit is the backstop.
+describe("write-scoped reads refuse a grantless caller", () => {
+  it("think: a grantless caller gets no synthesis and no tenant token", async () => {
+    const args = { question: `what about ${KEYWORD}?` };
+    const operator = JSON.parse((await call("think", args)).content[0]!.text);
+    expect(operator.reason).toContain("default-OFF");
+
+    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    const res = await call("think", args, emptyGrant);
+    expect(leakedToken(res, args, [...TENANT_B_TOKENS, ...TENANT_A_TOKENS])).toBeUndefined();
+    const out = JSON.parse(res.content[0]!.text);
+    expect(out.error).toBe("permission_denied");
+    expect(out.synthesis).toBeUndefined();
+  });
 });

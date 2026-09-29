@@ -43,20 +43,23 @@ const ACCESS = sdkError(
 
 let tmp: string;
 let storage: Storage;
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-circuit-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-  setSpendLedgerEngine(storage.engine());
-  resetBedrockCircuitForTests();
-});
-afterEach(async () => {
-  resetBedrockCircuitForTests();
-  _resetHandlersForTesting();
-  setSpendLedgerEngine(null);
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+/** Fresh store, ledger and circuit per test, for the describes that trip it. */
+function useStorage(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-circuit-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    setSpendLedgerEngine(storage.engine());
+    resetBedrockCircuitForTests();
+  });
+  afterEach(async () => {
+    resetBedrockCircuitForTests();
+    _resetHandlersForTesting();
+    setSpendLedgerEngine(null);
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 describe("classifying a failure", () => {
   it("reads SDK errors by name", () => {
@@ -99,6 +102,7 @@ function failingCall(model: string, err: Error, sends: { n: number }) {
 }
 
 describe("the circuit", () => {
+  useStorage();
   it("halts a batch run after the first access failure on a model", async () => {
     const sends = { n: 0 };
     const results = await runInBatchScope({ stopped: false, circuit: true }, async () =>
@@ -172,6 +176,7 @@ describe("the circuit", () => {
 });
 
 describe("a job that timed out", () => {
+  useStorage();
   it("cannot keep spending from its orphaned handler", async () => {
     let sentAfterTimeout = 0;
     let finished!: () => void;

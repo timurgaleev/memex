@@ -28,16 +28,19 @@ import {
 let tmp: string;
 let storage: Storage;
 
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-pages-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-});
+/** Fresh store per test, for the describes that touch the database. */
+function useStorage(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-pages-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+  });
 
-afterEach(async () => {
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+  afterEach(async () => {
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // validateSlug
@@ -93,6 +96,7 @@ describe("validateSlug", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — first write", () => {
+  useStorage();
   it("creates a page with version_n=1", async () => {
     const r = await putPage(storage, {
       slug: "alice",
@@ -139,6 +143,7 @@ describe("putPage — first write", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — idempotency", () => {
+  useStorage();
   it("identical re-put is a no-op", async () => {
     const a = await putPage(storage, {
       slug: "alice",
@@ -214,6 +219,7 @@ describe("putPage — idempotency", () => {
 // ---------------------------------------------------------------------------
 
 describe("getPage", () => {
+  useStorage();
   it("returns null for unknown slug", async () => {
     const r = await getPage(storage, "ghost");
     expect(r).toBeNull();
@@ -248,6 +254,7 @@ describe("getPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("listPages", () => {
+  useStorage();
   it("returns newest-first", async () => {
     await putPage(storage, { slug: "old", type: "note", markdown_body: "a" });
     // Force a measurable delta in updated_at.
@@ -291,6 +298,7 @@ describe("listPages", () => {
 // ---------------------------------------------------------------------------
 
 describe("pageVersions", () => {
+  useStorage();
   it("returns descending version_n", async () => {
     await putPage(storage, {
       slug: "alice",
@@ -331,6 +339,7 @@ describe("pageVersions", () => {
 // ---------------------------------------------------------------------------
 
 describe("appendPage", () => {
+  useStorage();
   it("appends to existing body and bumps version", async () => {
     await putPage(storage, {
       slug: "alice",
@@ -384,6 +393,7 @@ describe("appendPage", () => {
 // ---------------------------------------------------------------------------
 
 describe("deletePage", () => {
+  useStorage();
   it("soft-deletes (page row stays, versions stay)", async () => {
     await putPage(storage, { slug: "alice", type: "person" });
     const r = await deletePage(storage, "alice");
@@ -430,6 +440,7 @@ describe("deletePage", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — resurrect a soft-deleted page", () => {
+  useStorage();
   const pageRowCount = async (slug: string): Promise<number> => {
     const r = await storage
       .engine()
@@ -559,6 +570,7 @@ describe("putPage — resurrect a soft-deleted page", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — background re-put of a deleted page", () => {
+  useStorage();
   it("resurrects the page and continues its history", async () => {
     await putPage(storage, {
       slug: "takes/hot",
@@ -638,6 +650,7 @@ describe("putPage — background re-put of a deleted page", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — merged-away slug", () => {
+  useStorage();
   const seedMerged = async (): Promise<void> => {
     await putPage(storage, {
       slug: "people/bob",
@@ -727,6 +740,7 @@ describe("putPage — merged-away slug", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — renamed-away slug", () => {
+  useStorage();
   const countRows = async (slug: string): Promise<number> => {
     const r = await storage
       .engine()
@@ -792,6 +806,7 @@ describe("putPage — renamed-away slug", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — redirect whose canonical is in another source", () => {
+  useStorage();
   const seedSources = async (): Promise<void> => {
     for (const id of ["src-a", "src-b"]) {
       await storage
@@ -853,6 +868,7 @@ describe("putPage — redirect whose canonical is in another source", () => {
 // ---------------------------------------------------------------------------
 
 describe("putPage — transactional", () => {
+  useStorage();
   it("page + page_versions are written atomically", async () => {
     await putPage(storage, { slug: "alice", type: "person" });
     const page = await getPage(storage, "alice");

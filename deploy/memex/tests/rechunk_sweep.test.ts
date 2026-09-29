@@ -2,7 +2,7 @@
  * rechunk-sweep cycle phase — the automatic, cost-gated re-chunk + re-embed
  * drain for chunker-version-stale documents.
  *
- * Covers: default-OFF gating, picking + draining a bounded batch, the count cap,
+ * Covers: picking + draining a bounded batch, the count cap,
  * the char budget cap, idempotence (fresh docs untouched), resumability across
  * ticks, markdown-only scoping (code docs excluded), tenant preservation, and
  * the missing-file skip. All offline via an injected deterministic embedder.
@@ -80,18 +80,6 @@ async function chunkText(sourcePath: string): Promise<string[]> {
   );
   return r.rows.map((x) => x.content);
 }
-
-describe("rechunk-sweep gating", () => {
-  it("is a no-op when disabled (no env flag, no injected embedder)", async () => {
-    await makeStale("a.md", body(1));
-    const r = await rechunkSweepPhase(storage.engine(), {});
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("disabled");
-    expect(r.rechunked).toBe(0);
-    // The stale doc is untouched.
-    expect(await countStaleChunkerDocs(storage.engine())).toBe(1);
-  });
-});
 
 describe("rechunk-sweep drain", () => {
   it("picks stale docs and re-chunks + re-embeds a bounded batch", async () => {

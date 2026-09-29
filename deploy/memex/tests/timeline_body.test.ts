@@ -169,13 +169,13 @@ describe("parseBodyTimeline", () => {
   it("stays linear on adversarial input", () => {
     const time = (input: string): number => {
       const samples: number[] = [];
-      for (let k = 0; k < 5; k++) {
+      for (let k = 0; k < 7; k++) {
         const t0 = performance.now();
         parseBodyTimeline(input);
         samples.push(performance.now() - t0);
       }
-      samples.sort((a, b) => a - b);
-      return Math.max(samples[2]!, 0.05);
+      // The fastest run is the least disturbed by a loaded machine.
+      return Math.max(Math.min(...samples), 0.05);
     };
     const shapes: Array<(n: number) => string> = [
       (n) => `## Timeline\n- 2026-01-01 ${"a".repeat(n)}`,
@@ -184,11 +184,13 @@ describe("parseBodyTimeline", () => {
       (n) => `x ${"[Source: a, 2026-01-0".repeat(Math.ceil(n / 21))}`,
       (n) => "#".repeat(n),
     ];
+    // 4x the input: linear reads ~4, quadratic ~16. The bound sits between
+    // them with room for a loaded machine.
     for (const shape of shapes) {
-      const n = 200_000;
+      const n = 100_000;
       time(shape(n)); // warm-up
-      const ratio = time(shape(2 * n)) / time(shape(n));
-      expect(ratio).toBeLessThan(3);
+      const ratio = time(shape(4 * n)) / time(shape(n));
+      expect(ratio).toBeLessThan(10);
     }
   });
 });

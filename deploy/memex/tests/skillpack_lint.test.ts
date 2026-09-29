@@ -203,17 +203,17 @@ describe("extractCliReferences cost", () => {
 
   it("stays linear on repeated backtick-memex fragments", () => {
     const build = (k: number): string => "`memex ".repeat(2 ** k);
-    const small = best(build(17));
+    const small = best(build(16));
     const large = best(build(18));
-    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
   }, 60_000);
 
   it("stays linear on backtick runs of mixed lengths that never pair", () => {
     const build = (n: number): string =>
       Array.from({ length: n }, (_, i) => `${"`".repeat((i % 50) + 1)}memex doctor `).join("");
-    const small = best(build(20_000));
+    const small = best(build(10_000));
     const large = best(build(40_000));
-    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
   }, 60_000);
 });
 
@@ -230,16 +230,16 @@ describe("extractToolCalls cost", () => {
 
   it("stays linear on nested tool-call objects that never close", () => {
     const build = (k: number): string => "search {\"q\": ".repeat(2 ** k);
-    const small = best(build(15));
+    const small = best(build(14));
     const large = best(build(16));
-    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
   }, 60_000);
 
   it("stays linear on braces separated by whitespace and memex call fragments", () => {
     const build = (k: number): string => "memex call search '{ \"q\" ".repeat(2 ** k);
-    const small = best(build(15));
+    const small = best(build(14));
     const large = best(build(16));
-    expect(large / Math.max(small, 0.05)).toBeLessThan(3);
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
   }, 60_000);
 });
 

@@ -69,6 +69,16 @@ async function jobRows(): Promise<Array<{ id: string; kind: string }>> {
   return r.rows;
 }
 
+/** Wait for a detached insert into `table` to land, rather than sleeping a fixed guess. */
+async function landed(table: "mcp_request_log" | "ingest_log"): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const hit = await storage.engine().query(`SELECT 1 FROM ${table} LIMIT 1`);
+    if (hit.rows.length > 0) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("POST /ingest route", () => {
   it("rejects unauthenticated callers with 401", async () => {
     const res = await handleIngestRoute(ingestReq("# hi"), deps(undefined));
@@ -142,7 +152,7 @@ describe("POST /ingest route", () => {
 
   it("logs a webhook_ingest row to mcp_request_log", async () => {
     await handleIngestRoute(ingestReq("# captured"), deps(writeAuth));
-    await new Promise((r) => setTimeout(r, 50)); // detached insert
+    await landed("mcp_request_log");
     const r = await storage
       .engine()
       .query<{ operation: string; token_name: string }>(
@@ -187,7 +197,7 @@ describe("POST /ingest route", () => {
       const key = ["AK", "IA", "Q3EXAMPLE7WXYZ12"].join("");
       const res = await handleIngestRoute(ingestReq(`key ${key}`), deps({ ...writeAuth, sourceId: "tenant-a" }));
       expect(res.status).toBe(400);
-      await new Promise((r) => setTimeout(r, 50));
+      await landed("ingest_log");
       const audit = await storage.engine().query<{ source_id: string }>(
         `SELECT source_id FROM ingest_log WHERE source_type = 'secret-rejected'`,
       );

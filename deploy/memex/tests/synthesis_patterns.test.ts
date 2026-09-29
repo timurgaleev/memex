@@ -1,6 +1,6 @@
 /**
- * Patterns phase — hermetic (injected SonnetFn, no Bedrock). Covers the flag
- * gate, insufficient-evidence skip, structured-JSON → pattern-page write, and
+ * Patterns phase — hermetic (injected SonnetFn, no Bedrock). Covers the
+ * insufficient-evidence skip, structured-JSON → pattern-page write, and
  * evidence-slug validation.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -55,14 +55,6 @@ afterEach(async () => {
 });
 
 describe("patternsPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    delete process.env.MEMEX_PATTERNS;
-    await seedReflections(4);
-    const r = await patternsPhase(storage, {});
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_PATTERNS");
-  });
-
   it("skips when reflections are below min_evidence", async () => {
     await seedReflections(2); // default minEvidence = 3
     const r = await patternsPhase(storage, { sonnetFn: fakeSonnet("[]") });

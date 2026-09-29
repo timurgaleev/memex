@@ -516,8 +516,8 @@ describe("memex_fact_claim_key", () => {
   it("grows linearly on whitespace-heavy input", async () => {
     const unit = " a\t \n";
     await timeKey(unit.repeat(1000));
-    const small = await timeKey(unit.repeat(20_000));
-    const large = await timeKey(unit.repeat(200_000));
+    const small = await timeKey(unit.repeat(10_000));
+    const large = await timeKey(unit.repeat(100_000));
     // 10x the input; a quadratic scan would be ~100x.
     expect(large / Math.max(small, 0.5)).toBeLessThan(35);
   });

@@ -1,6 +1,6 @@
 /**
- * Reflections phase — hermetic (injected SonnetFn, no Bedrock). Covers the
- * flag gate, transcript → reflection-page write with evidence citation, the
+ * Reflections phase — hermetic (injected SonnetFn, no Bedrock). Covers
+ * transcript → reflection-page write with evidence citation, the
  * sanitizeForPrompt `.text` unwrap regression guard, and the anti-loop
  * exclusion that keeps synthesis-written pages out of the facts-backfill
  * selector (paid synthetic recursion).
@@ -67,14 +67,6 @@ afterEach(async () => {
 });
 
 describe("reflectionsPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    delete process.env.MEMEX_REFLECTIONS;
-    await seedTranscripts(3);
-    const r = await reflectionsPhase(storage, {});
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_REFLECTIONS");
-  });
-
   it("writes a reflection page from structured output, citing transcripts", async () => {
     const slugs = await seedTranscripts(3);
     const payload = JSON.stringify([

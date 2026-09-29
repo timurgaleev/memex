@@ -74,18 +74,6 @@ describe("syncTypedLinksForPage", () => {
     expect((await linksFor("meetings/sync")).map((l) => l.source_slug)).toEqual(["people/bob"]);
   });
 
-  it("is a no-op when disabled", async () => {
-    delete process.env.MEMEX_TYPED_LINKS;
-    await putPage(storage, { slug: "companies/acme", type: "company" });
-    await putPage(storage, {
-      slug: "people/alice",
-      type: "person",
-      compiled_truth: { company: ["Acme"] },
-    });
-    const res = await sync("people/alice");
-    expect(res).toEqual({ added: 0, removed: 0 });
-  });
-
   it("derives an OUTGOING works_at edge (person.company → company)", async () => {
     await putPage(storage, { slug: "companies/acme", type: "company", title: "Acme" });
     await putPage(storage, {

@@ -24,18 +24,21 @@ let tmp: string;
 let storage: Storage;
 let queue: Queue;
 
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-jobs-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-  queue = new Queue(storage.engine());
-  _resetHandlersForTesting();
-});
+/** Fresh store + queue per test, for the describes that touch the database. */
+function useQueue(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-jobs-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    queue = new Queue(storage.engine());
+    _resetHandlersForTesting();
+  });
 
-afterEach(async () => {
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+  afterEach(async () => {
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 describe("backoff", () => {
   it("doubles each retry, capped at maxMs", () => {
@@ -63,6 +66,7 @@ describe("inQuietHours (Europe/Berlin)", () => {
 });
 
 describe("Queue.enqueue + get", () => {
+  useQueue();
   it("creates a pending job with defaults", async () => {
     const j = await queue.enqueue({ kind: "embed.titan" });
     expect(j.kind).toBe("embed.titan");
@@ -98,6 +102,7 @@ describe("Queue.enqueue + get", () => {
 });
 
 describe("Queue.claim", () => {
+  useQueue();
   it("returns null when nothing is due", async () => {
     expect(await queue.claim()).toBeNull();
   });
@@ -146,6 +151,7 @@ describe("Queue.claim", () => {
 });
 
 describe("Queue.complete + fail", () => {
+  useQueue();
   it("complete persists the result and finished_at", async () => {
     const j = await queue.enqueue({ kind: "x" });
     await queue.claim();
@@ -208,6 +214,7 @@ describe("Queue.complete + fail", () => {
 });
 
 describe("Queue.cancel + retry + list + stats", () => {
+  useQueue();
   it("cancel only affects pending/running rows", async () => {
     const j = await queue.enqueue({ kind: "x" });
     const ok = await queue.cancel(j.id);
@@ -296,6 +303,7 @@ describe("Queue.cancel + retry + list + stats", () => {
 });
 
 describe("Queue.handleStalled", () => {
+  useQueue();
   // Anchor on a real-time-ish "now" so the enqueue's NOW() default for
   // next_attempt_at lies before t0. Adding a buffer of 60s keeps the
   // ordering stable even if the test machine is slow.
@@ -347,6 +355,7 @@ describe("Queue.handleStalled", () => {
 });
 
 describe("Worker", () => {
+  useQueue();
   it("dispatches by kind and records success", async () => {
     const seen: Record<string, unknown>[] = [];
     registerHandler("greet", async (payload) => {

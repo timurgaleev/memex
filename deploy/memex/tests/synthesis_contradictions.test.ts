@@ -78,18 +78,6 @@ describe("parseJudgment", () => {
 });
 
 describe("probeContradictionsPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    const prev = process.env.MEMEX_PROBE_CONTRADICTIONS;
-    delete process.env.MEMEX_PROBE_CONTRADICTIONS;
-    try {
-      const r = await probeContradictionsPhase(engine, { pairsFn: async () => [pair("1", "2")] });
-      expect(r.judged).toBe(0);
-      expect(r.skippedReason).toContain("MEMEX_PROBE_CONTRADICTIONS");
-    } finally {
-      if (prev !== undefined) process.env.MEMEX_PROBE_CONTRADICTIONS = prev;
-    }
-  });
-
   it("stores a suspected contradiction and reads it back scoped", async () => {
     const r = await probeContradictionsPhase(engine, {
       sonnetFn: fakeSonnet(CONTRADICTS),

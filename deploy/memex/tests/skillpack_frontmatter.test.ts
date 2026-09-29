@@ -145,23 +145,24 @@ describe("parseSkillFrontmatter cost", () => {
     return performance.now() - started;
   }
 
-  // Doubling the input must roughly double the time. Best of three per size
-  // keeps a GC pause from reading as a super-linear step.
+  // Quadrupling the input must roughly quadruple the time (quadratic would read
+  // ~16). Best of three per size keeps a GC pause from reading as a
+  // super-linear step.
   function ratio(build: (n: number) => string, n: number): number {
     const best = (s: string): number =>
       Math.min(...[0, 1, 2].map(() => timed(() => parseSkillFrontmatter(s))));
     const small = build(n);
-    const large = build(n * 2);
+    const large = build(n * 4);
     return best(large) / Math.max(best(small), 0.05);
   }
 
   it("stays linear on an opening fence that never closes", () => {
-    expect(ratio((n) => `---\n${"\n".repeat(n)}x`, 1_000_000)).toBeLessThan(3);
+    expect(ratio((n) => `---\n${"\n".repeat(n)}x`, 500_000)).toBeLessThan(10);
   }, 60_000);
 
   it("stays linear on a huge tools list", () => {
-    const r = ratio((n) => `---\nname: x\ntools:\n${"  - page_get\n".repeat(n / 13)}---\nbody`, 1_000_000);
-    expect(r).toBeLessThan(3);
+    const r = ratio((n) => `---\nname: x\ntools:\n${"  - page_get\n".repeat(n / 13)}---\nbody`, 500_000);
+    expect(r).toBeLessThan(10);
     const fm = parseSkillFrontmatter(`---\ntools:\n${"  - page_get\n".repeat(80_000)}---\n`)!;
     expect(fm.tools.length).toBe(80_000);
   }, 60_000);

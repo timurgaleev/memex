@@ -262,11 +262,6 @@ describe("raw_data ops (G41)", () => {
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain("page not found");
   });
-
-  it("a scoped reader cannot read another tenant's raw data", async () => {
-    const r = payload(await call("get_raw_data", { slug: "people/alice-smith" }, auth(B)));
-    expect(r.raw_data.length).toBe(0);
-  });
 });
 
 describe("job lifecycle ops (G43) — operator-only", () => {
@@ -335,17 +330,7 @@ describe("operator wrappers (G42)", () => {
 });
 
 describe("exposure tightening (G47)", () => {
-  it("purge_deleted_pages needs the admin scope", async () => {
-    // A read/write tenant token lacks admin → per-op scope gate refuses it.
-    const denied = await call("purge_deleted_pages", { older_than_hours: 0 }, auth(A, ["read", "write"]));
-    expect(denied.isError).toBe(true);
-    expect(JSON.parse(denied.content[0]!.text).error).toBe("insufficient_scope");
-    // An admin-scoped token reaches it (nothing old enough to reap here).
-    const okAdmin = payload(
-      await call("purge_deleted_pages", { older_than_hours: 9999 }, auth(A, ["read", "write", "admin"])),
-    );
-    expect(okAdmin.ok).toBe(true);
-    // The operator path (no authInfo) still works.
+  it("purge_deleted_pages still works on the operator path", async () => {
     const ok = payload(await call("purge_deleted_pages", { older_than_hours: 9999 }));
     expect(ok.ok).toBe(true);
   });

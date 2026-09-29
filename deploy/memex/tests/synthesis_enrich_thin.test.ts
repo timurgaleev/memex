@@ -1,6 +1,6 @@
 /**
- * Enrich-thin phase — hermetic (injected SonnetFn, no Bedrock). Covers the flag
- * gate, insufficient-evidence skip, grounded stub → fuller-page rewrite, and the
+ * Enrich-thin phase — hermetic (injected SonnetFn, no Bedrock). Covers the
+ * insufficient-evidence skip, grounded stub → fuller-page rewrite, and the
  * sanitizeForPrompt `.text` unwrap regression guard ([object Object]).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -46,14 +46,6 @@ afterEach(async () => {
 });
 
 describe("enrichThinPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    delete process.env.MEMEX_ENRICH_THIN;
-    await putPage(storage, { slug: "people/alice", type: "person", title: "Alice", markdown_body: "stub", source_id: "default" });
-    const r = await enrichThinPhase(storage, {});
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_ENRICH_THIN");
-  });
-
   it("skips a thin page with no neighbour evidence", async () => {
     await putPage(storage, { slug: "people/bob", type: "person", title: "Bob", markdown_body: "a short stub about Bob", source_id: "default" });
     const r = await enrichThinPhase(storage, { sonnetFn: fakeSonnet("{}") });

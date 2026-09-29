@@ -1,5 +1,5 @@
 /**
- * Drift phase — hermetic (injected SonnetFn, no Bedrock). Covers the flag gate,
+ * Drift phase — hermetic (injected SonnetFn, no Bedrock). Covers
  * the no-candidate skip, and the detect → single-LLM-judge → drift-report write
  * with the sanitizeForPrompt `.text` unwrap regression guard.
  */
@@ -63,13 +63,6 @@ afterEach(async () => {
 });
 
 describe("driftPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    delete process.env.MEMEX_DRIFT;
-    const r = await driftPhase(storage, {});
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_DRIFT");
-  });
-
   it("skips when no take has shifted evidence", async () => {
     const r = await driftPhase(storage, { sonnetFn: fakeSonnet("[]") });
     expect(r.ran).toBe(false);

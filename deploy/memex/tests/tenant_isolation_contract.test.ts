@@ -1,31 +1,13 @@
 /**
- * Multi-tenant isolation — the CONTRACT sweep.
+ * Multi-tenant isolation — the reads the isolation matrix cannot judge by
+ * token alone.
  *
- * The real cross-tenant failure mode is one forgotten read tool returning
- * "proof" (a chunk / page / fact / link / citation / tag / mention / take) from
- * the WRONG tenant's brain. `tenant_isolation.test.ts` locks the first wave of
- * read tools; THIS file extends the lock to every remaining read tool that
- * threads `readSources`, so a single un-scoped tool fails loudly + by name.
- *
- * Method: seed TWO sources ('tenantA' + 'tenantB') with deliberately COLLIDING
- * identifiers and per-tenant DISTINCTIVE private tokens, then drive each read
- * tool through the real `dispatchTool` path (or its underlying core fn) with a
- * caller scoped to one tenant and assert:
- *   - the result NEVER carries the other tenant's distinctive token / id;
- *   - the result DOES carry the caller's own content (positive control);
- *   - an UNSCOPED caller (no authInfo) still sees BOTH (behaviour-neutral).
- *
- * Colliding-identifier note: `pages.slug` is a GLOBAL primary key
- * (migrations/015_pages.sql:31) — two tenants cannot literally share a slug, so
- * the collision axis memex actually supports is exercised instead: a shared
- * ENTITY NAME (`Alice` wikilink), a shared CODE SYMBOL (`processPayment`), a
- * shared SOURCE PATH (`/shared/pay.ts`), a shared page TITLE, and a shared
- * graph START node (`shared/gateway`) whose per-source edges fan out to
- * distinct in-tenant targets. Each is a genuine cross-tenant collision that a
- * broken scope filter would leak through.
- *
- * Hermetic: no Bedrock. Search-store reads use the deterministic embedder seam
- * (tests/det-embed.ts); every other read is keyword / SQL only.
+ * `tenant_isolation_matrix.test.ts` drives every read tool through scalar,
+ * federated, cross-tenant and no-grant callers over the shared two-tenant seed
+ * (`helpers/tenant_seed.ts`). What stays here needs a sharper assertion than
+ * "no foreign token, some own token": per-type COUNTS (`list_link_sources`),
+ * BOTH halves of a merged ledger (`find_trajectory`), an operator-only refusal
+ * (`list_concepts`), and the grant echo (`whoami`).
  */
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -33,24 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
 import { dispatchTool, type ToolCallResult } from "../src/mcp/dispatch.ts";
-import { hybridSearch } from "../src/core/search/hybrid.ts";
-import { deterministicEmbed } from "./det-embed.ts";
 import type { AuthInfo } from "../src/core/auth-info.ts";
 import {
-  A, A_CALLEE, A_CALLER, A_EVENT, A_FACT, A_SEARCH, A_TAKE, auth, B, B_CALLEE, B_CALLER, B_EVENT, B_FACT,
-  B_SEARCH, B_TAKE, CODE_SYM, DOC_A_CODE, DOC_A_NOTES, DOC_B_CODE, DOC_B_NOTES, ENTITY_SLUG, GATEWAY, KEYWORD,
-  SHARED_PATH, SHARED_TITLE, seedTenantContract, WIKI_NAME,
+  A, A_EVENT, A_FACT, auth, B, B_EVENT, B_FACT, ENTITY_SLUG, seedTenantContract,
 } from "./helpers/tenant_seed.ts";
 
-// PGLite hybridSearch over the whole seeded store can edge past the 5s default.
 setDefaultTimeout(30000);
-
-const embedFn = async (text: string) => deterministicEmbed(text);
 
 let tmp: string;
 let storage: Storage;
-let factIdA = 0;
-let factIdB = 0;
 
 function payload(result: ToolCallResult): any {
   expect(result.content[0]?.type).toBe("text");
@@ -71,7 +44,7 @@ beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-tenant-contract-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  ({ factIdA, factIdB } = await seedTenantContract(storage));
+  await seedTenantContract(storage);
 });
 
 afterAll(async () => {
@@ -79,43 +52,7 @@ afterAll(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("contract: graph traversal reads honour source scope", () => {
-  it("graph_neighbors: shared start fans out only to the in-scope target", async () => {
-    const a = JSON.stringify(await call("graph_neighbors", { slug: GATEWAY }, auth(A)));
-    expect(a).toContain("vault-a/target");
-    expect(a).not.toContain("vault-b/target");
-    const b = JSON.stringify(await call("graph_neighbors", { slug: GATEWAY }, auth(B)));
-    expect(b).toContain("vault-b/target");
-    expect(b).not.toContain("vault-a/target");
-    const all = JSON.stringify(await call("graph_neighbors", { slug: GATEWAY }));
-    expect(all).toContain("vault-a/target");
-    expect(all).toContain("vault-b/target");
-  });
-
-  it("graph_query: typed edge query never crosses the source boundary", async () => {
-    const a = JSON.stringify(await call("graph_query", { type: "mentions", source_slug: GATEWAY }, auth(A)));
-    expect(a).toContain("vault-a/target");
-    expect(a).not.toContain("vault-b/target");
-    const b = JSON.stringify(await call("graph_query", { type: "mentions", source_slug: GATEWAY }, auth(B)));
-    expect(b).not.toContain("vault-a/target");
-  });
-
-  it("traverse_graph: the walk stays inside the caller's source", async () => {
-    const a = JSON.stringify(await call("traverse_graph", { start_slug: GATEWAY, direction: "outbound", max_depth: 3 }, auth(A)));
-    expect(a).toContain("vault-a/target");
-    expect(a).not.toContain("vault-b/target");
-    const b = JSON.stringify(await call("traverse_graph", { start_slug: GATEWAY, direction: "outbound", max_depth: 3 }, auth(B)));
-    expect(b).not.toContain("vault-a/target");
-  });
-
-  it("get_links: the shared start's edges split by source", async () => {
-    const a = JSON.stringify(await call("get_links", { slug: GATEWAY }, auth(A)));
-    expect(a).toContain("vault-a/target");
-    expect(a).not.toContain("vault-b/target");
-    const b = JSON.stringify(await call("get_links", { slug: GATEWAY }, auth(B)));
-    expect(b).not.toContain("vault-a/target");
-  });
-
+describe("contract: link counts honour source scope", () => {
   it("list_link_sources: per-type counts reflect only the caller's edges", async () => {
     const countFor = (rows: any[], type: string) => rows.find((r) => r.type === type)?.count ?? 0;
     const a = (await call("list_link_sources", {}, auth(A))).sources as any[];
@@ -128,23 +65,6 @@ describe("contract: graph traversal reads honour source scope", () => {
 });
 
 describe("contract: insight reads honour source scope", () => {
-  it("find_experts: the hub ranks only inside its own source", async () => {
-    const a = JSON.stringify(await call("find_experts", { limit: 5 }, auth(A)));
-    expect(a).toContain("hub-a");
-    expect(a).not.toContain("hub-b");
-    const b = JSON.stringify(await call("find_experts", { limit: 5 }, auth(B)));
-    expect(b).toContain("hub-b");
-    expect(b).not.toContain("hub-a");
-  });
-
-  it("find_contradictions: a scoped caller sees only its own conflict pair", async () => {
-    const a = JSON.stringify(await call("find_contradictions", {}, auth(A)));
-    expect(a).toContain("claim-a1");
-    expect(a).not.toContain("claim-b1");
-    const b = JSON.stringify(await call("find_contradictions", {}, auth(B)));
-    expect(b).not.toContain("claim-a1");
-  });
-
   it("find_trajectory: the merged ledger stays source-scoped", async () => {
     const a = JSON.stringify(await call("find_trajectory", { entity_slug: ENTITY_SLUG }, auth(A)));
     expect(a).toContain(A_FACT);
@@ -155,127 +75,9 @@ describe("contract: insight reads honour source scope", () => {
     expect(b).toContain(B_FACT);
     expect(b).not.toContain(A_FACT);
   });
-
-  it("get_recent_salience: only the caller's pages surface", async () => {
-    const a = JSON.stringify(await call("get_recent_salience", { limit: 100 }, auth(A)));
-    expect(a).toContain("hub-a");
-    expect(a).not.toContain("hub-b");
-    const b = JSON.stringify(await call("get_recent_salience", { limit: 100 }, auth(B)));
-    expect(b).not.toContain("hub-a");
-  });
-
-  it("find_anomalies: a degree hub is an outlier only within its own source", async () => {
-    // sigma:1 makes the degree-3 hub a reliable outlier against its many
-    // degree-0/1 in-scope peers; the cross-tenant hub must never appear.
-    const a = JSON.stringify(await call("find_anomalies", { sigma: 1, limit: 50 }, auth(A)));
-    expect(a).toContain("hub-a");
-    expect(a).not.toContain("hub-b");
-    const b = JSON.stringify(await call("find_anomalies", { sigma: 1, limit: 50 }, auth(B)));
-    expect(b).not.toContain("hub-a");
-  });
 });
 
-describe("contract: facts + resolution reads honour source scope", () => {
-  it("recall: a fact id resolves only for its owning source", async () => {
-    const aOwn = await call("recall", { id: factIdA }, auth(A));
-    expect(JSON.stringify(aOwn)).toContain(A_FACT);
-    // B recalling A's fact id → not_found envelope (isError), never A's text.
-    const bLeak = await dispatchTool(storage, { name: "recall", arguments: { id: factIdA } }, { authInfo: auth(B) });
-    expect(bLeak.isError).toBe(true);
-    expect(bLeak.content[0]?.text ?? "").not.toContain(A_FACT);
-    // Symmetric: A cannot recall B's fact id.
-    const aLeak = await dispatchTool(storage, { name: "recall", arguments: { id: factIdB } }, { authInfo: auth(A) });
-    expect(aLeak.isError).toBe(true);
-    expect(aLeak.content[0]?.text ?? "").not.toContain(B_FACT);
-  });
-
-  it("resolve_slugs: a shared title resolves only to the in-scope page", async () => {
-    const a = JSON.stringify(await call("resolve_slugs", { query: SHARED_TITLE }, auth(A)));
-    expect(a).toContain("team-a/alice");
-    expect(a).not.toContain("team-b/alice");
-    const b = JSON.stringify(await call("resolve_slugs", { query: SHARED_TITLE }, auth(B)));
-    expect(b).toContain("team-b/alice");
-    expect(b).not.toContain("team-a/alice");
-  });
-
-  it("backlinks: a shared wikilink resolves only to the caller's document", async () => {
-    const a = await call("backlinks", { name: WIKI_NAME }, auth(A));
-    const aHits = a.hits as any[];
-    expect(aHits.every((h) => h.documentId === DOC_A_NOTES)).toBe(true);
-    expect(aHits.some((h) => h.documentId === DOC_A_NOTES)).toBe(true);
-    expect(JSON.stringify(a)).not.toContain(DOC_B_NOTES);
-    const b = await call("backlinks", { name: WIKI_NAME }, auth(B));
-    expect((b.hits as any[]).every((h) => h.documentId === DOC_B_NOTES)).toBe(true);
-    const all = await call("backlinks", { name: WIKI_NAME });
-    const allDocs = (all.hits as any[]).map((h) => h.documentId);
-    expect(allDocs).toContain(DOC_A_NOTES);
-    expect(allDocs).toContain(DOC_B_NOTES);
-  });
-});
-
-describe("contract: code-graph reads honour source scope", () => {
-  it("code_def: the shared symbol resolves only to the caller's document", async () => {
-    const a = await call("code_def", { name: CODE_SYM }, auth(A));
-    expect((a.mentions as any[]).every((m) => m.document_id === DOC_A_CODE)).toBe(true);
-    expect(JSON.stringify(a)).not.toContain(DOC_B_CODE);
-    const b = await call("code_def", { name: CODE_SYM }, auth(B));
-    expect((b.mentions as any[]).every((m) => m.document_id === DOC_B_CODE)).toBe(true);
-  });
-
-  it("code_refs: references stay inside the caller's source", async () => {
-    const a = await call("code_refs", { name: CODE_SYM }, auth(A));
-    expect((a.mentions as any[]).every((m) => m.document_id === DOC_A_CODE)).toBe(true);
-    expect(JSON.stringify(a)).not.toContain(DOC_B_CODE);
-  });
-
-  it("code_callers: caller surfaces never cross the source boundary", async () => {
-    const a = JSON.stringify(await call("code_callers", { name: CODE_SYM }, auth(A)));
-    expect(a).toContain(A_CALLER);
-    expect(a).not.toContain(B_CALLER);
-    const b = JSON.stringify(await call("code_callers", { name: CODE_SYM }, auth(B)));
-    expect(b).toContain(B_CALLER);
-    expect(b).not.toContain(A_CALLER);
-  });
-
-  it("code_callees: the shared path:line resolves only the caller's callees", async () => {
-    const a = JSON.stringify(await call("code_callees", { target: `${SHARED_PATH}:2` }, auth(A)));
-    expect(a).toContain(A_CALLEE);
-    expect(a).not.toContain(B_CALLEE);
-    const b = JSON.stringify(await call("code_callees", { target: `${SHARED_PATH}:2` }, auth(B)));
-    expect(b).toContain(B_CALLEE);
-    expect(b).not.toContain(A_CALLEE);
-  });
-
-  it("code_flow: the callee walk stays inside the caller's source", async () => {
-    const a = JSON.stringify(await call("code_flow", { symbol: CODE_SYM, exact: true }, auth(A)));
-    expect(a).toContain(A_CALLEE);
-    expect(a).not.toContain(B_CALLEE);
-    const b = JSON.stringify(await call("code_flow", { symbol: CODE_SYM, exact: true }, auth(B)));
-    expect(b).not.toContain(A_CALLEE);
-  });
-
-  it("code_blast: the caller walk stays inside the caller's source", async () => {
-    const a = JSON.stringify(await call("code_blast", { symbol: CODE_SYM, exact: true }, auth(A)));
-    expect(a).toContain(A_CALLER);
-    expect(a).not.toContain(B_CALLER);
-    const b = JSON.stringify(await call("code_blast", { symbol: CODE_SYM, exact: true }, auth(B)));
-    expect(b).not.toContain(A_CALLER);
-  });
-});
-
-describe("contract: synthesis reads + search + identity", () => {
-  it("list_takes: takes scope to the caller via source_ref→document", async () => {
-    const a = JSON.stringify(await call("list_takes", {}, auth(A)));
-    expect(a).toContain(A_TAKE);
-    expect(a).not.toContain(B_TAKE);
-    const b = JSON.stringify(await call("list_takes", {}, auth(B)));
-    expect(b).toContain(B_TAKE);
-    expect(b).not.toContain(A_TAKE);
-    const all = JSON.stringify(await call("list_takes", {}));
-    expect(all).toContain(A_TAKE);
-    expect(all).toContain(B_TAKE);
-  });
-
+describe("contract: operator-only reads + identity", () => {
   it("list_concepts: operator-only — a tenant token is denied, operator sees the global set", async () => {
     // synth_concepts is a GLOBAL aggregate with no source_id axis
     // (migrations/045_synthesis.sql) — concepts cluster atoms across every source.
@@ -287,20 +89,6 @@ describe("contract: synthesis reads + search + identity", () => {
     const all = JSON.stringify(await call("list_concepts", {}));
     expect(all).toContain("AAA_CONCEPT_narrative");
     expect(all).toContain("BBB_CONCEPT_narrative");
-  });
-
-  it("search (hybridSearch core): the search store hydrates only in-scope chunks", async () => {
-    // Search-store scope via the deterministic embedder seam (no Bedrock),
-    // matching the established hermetic pattern for search isolation.
-    const a = JSON.stringify(await hybridSearch(storage, KEYWORD, { k: 10, sourceIds: [A], embedQuery: embedFn }));
-    expect(a).toContain(A_SEARCH);
-    expect(a).not.toContain(B_SEARCH);
-    const b = JSON.stringify(await hybridSearch(storage, KEYWORD, { k: 10, sourceIds: [B], embedQuery: embedFn }));
-    expect(b).toContain(B_SEARCH);
-    expect(b).not.toContain(A_SEARCH);
-    const all = JSON.stringify(await hybridSearch(storage, KEYWORD, { k: 10, embedQuery: embedFn }));
-    expect(all).toContain(A_SEARCH);
-    expect(all).toContain(B_SEARCH);
   });
 
   it("whoami: read scope reflects the caller's grant; unscoped is whole-brain", async () => {

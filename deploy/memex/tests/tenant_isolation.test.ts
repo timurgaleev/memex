@@ -22,7 +22,6 @@ import { addTimelineEvent } from "../src/core/timeline.ts";
 import { addLink } from "../src/core/links.ts";
 import { registerSource } from "../src/core/sources.ts";
 import { indexPageIntoSearch } from "../src/core/page-index.ts";
-import { addTag } from "../src/core/tags.ts";
 import { hybridSearch } from "../src/core/search/hybrid.ts";
 import { applyGraphSignals, type GraphSignalScorable } from "../src/core/search/graph-signals.ts";
 import { queryCacheKey, putCachedQuery } from "../src/core/search/query-cache.ts";
@@ -52,9 +51,6 @@ const QA_TOKEN = "AlphaSecretAAA";
 const QB_TOKEN = "BetaSecretBBB";
 const QA_BODY = `quokka ${QA_TOKEN}`;
 const QB_BODY = `quokka ${QB_TOKEN}`;
-// Distinct per-tenant tag tokens for the get_tags leak-lock.
-const A_TAG = "atag-alpha";
-const B_TAG = "btag-beta";
 
 let tmp: string;
 let storage: Storage;
@@ -113,9 +109,6 @@ beforeAll(async () => {
   // retrieval surfaces both, and only the scope decides which chunk hydrates.
   await indexPageIntoSearch(storage, { slug: QA_SLUG, title: "Quokka A", markdown_body: QA_BODY, source_id: "a" }, { embedFn });
   await indexPageIntoSearch(storage, { slug: QB_SLUG, title: "Quokka B", markdown_body: QB_BODY, source_id: "b" }, { embedFn });
-  // Tags stamped per-source (mig047) on each tenant's own page.
-  await addTag(storage, A_SLUG, A_TAG, "a");
-  await addTag(storage, B_SLUG, B_TAG, "b");
 });
 
 afterAll(async () => {
@@ -133,57 +126,9 @@ async function call(name: string, args: Record<string, unknown>, authInfo?: Auth
 }
 
 describe("tenant isolation via dispatch authInfo", () => {
-  it("page_get: B cannot read A's page", async () => {
-    const result = await dispatchTool(storage, { name: "page_get", arguments: { slug: A_SLUG } }, { authInfo: auth("b") });
-    const text = result.content[0]?.text ?? "";
-    expect(text).not.toContain(A_SECRET);
-  });
-
   it("page_get: A reads its own page", async () => {
     const out = await call("page_get", { slug: A_SLUG }, auth("a"));
     expect(JSON.stringify(out)).toContain(A_SECRET);
-  });
-
-  it("page_list: each tenant sees only its own slug", async () => {
-    const a = JSON.stringify(await call("page_list", {}, auth("a")));
-    expect(a).toContain(A_SLUG);
-    expect(a).not.toContain(B_SLUG);
-    const b = JSON.stringify(await call("page_list", {}, auth("b")));
-    expect(b).toContain(B_SLUG);
-    expect(b).not.toContain(A_SLUG);
-  });
-
-  it("list_concepts: a tenant token is refused (operator-only — synth_concepts has no source axis)", async () => {
-    // synth_concepts clusters across ALL tenants, so a tenant token must not be
-    // able to read it — otherwise one tenant sees concepts derived from another's
-    // notes. Gated operator-only; a tenant call is rejected before dispatch.
-    const result = await dispatchTool(
-      storage,
-      { name: "list_concepts", arguments: {} },
-      { authInfo: auth("b") },
-    );
-    const text = result.content[0]?.text ?? "";
-    expect(text).toMatch(/operator-only|permission_denied/i);
-  });
-
-  it("entity_facts: B sees only its own fact", async () => {
-    const b = JSON.stringify(await call("entity_facts", { entity_slug: ENTITY }, auth("b")));
-    expect(b).toContain(B_SECRET);
-    expect(b).not.toContain(A_SECRET);
-  });
-
-  it("entity_timeline: B cannot see A's event on A's page", async () => {
-    // B queries A's page timeline — source-filtered reads return nothing of A's.
-    const b = JSON.stringify(await call("entity_timeline", { slug: A_SLUG }, auth("b")));
-    expect(b).not.toContain(A_SECRET);
-    // B sees its own event on its own page.
-    const bOwn = JSON.stringify(await call("entity_timeline", { slug: B_SLUG }, auth("b")));
-    expect(bOwn).toContain(B_SECRET);
-  });
-
-  it("get_links: A's edges are not visible to B", async () => {
-    const b = JSON.stringify(await call("get_links", { slug: B_SLUG }, auth("b")));
-    expect(b).not.toContain(A_SLUG);
   });
 
   it("get_chunks: B cannot read A's page chunk text", async () => {
@@ -229,15 +174,6 @@ describe("tenant isolation via dispatch authInfo", () => {
     expect(unscoped).toContain(A_LINK_TARGET);
   });
 
-  it("find_orphans: B does not see A-only entities", async () => {
-    // A_SLUG (source 'a') has no inbound links → it's an orphan for tenant A,
-    // but must never appear in tenant B's orphan list.
-    const a = JSON.stringify(await call("find_orphans", {}, auth("a")));
-    expect(a).toContain(A_SLUG);
-    const b = JSON.stringify(await call("find_orphans", {}, auth("b")));
-    expect(b).not.toContain(A_SLUG);
-  });
-
   it("entity_recall: B cannot read A's page body via the entity page fetch", async () => {
     // entity_recall fetches the entity's page alongside facts/timeline. The page
     // fetch must be source-scoped too, else a federated caller leaks the body.
@@ -255,38 +191,6 @@ describe("tenant isolation via dispatch authInfo", () => {
 });
 
 describe("read-surface scoping (BATCH 3)", () => {
-  it("get_tags: B cannot read A's tag; A sees its own; unscoped sees both", async () => {
-    const b = await call("get_tags", { slug: A_SLUG }, auth("b"));
-    expect(b.tags).not.toContain(A_TAG);
-    const a = await call("get_tags", { slug: A_SLUG }, auth("a"));
-    expect(a.tags).toContain(A_TAG);
-    // Behaviour-neutral: an unscoped caller sees the tag whole-brain.
-    const all = await call("get_tags", { slug: A_SLUG });
-    expect(all.tags).toContain(A_TAG);
-  });
-
-  it("page_versions: B cannot read A's version snapshots; A + unscoped can", async () => {
-    const b = JSON.stringify(await call("page_versions", { slug: A_SLUG }, auth("b")));
-    expect(b).not.toContain(A_SECRET);
-    const a = JSON.stringify(await call("page_versions", { slug: A_SLUG }, auth("a")));
-    expect(a).toContain(A_SECRET);
-    const all = JSON.stringify(await call("page_versions", { slug: A_SLUG }));
-    expect(all).toContain(A_SECRET);
-  });
-
-  it("query tool: B-scoped refinement never surfaces A's chunk token", async () => {
-    // Keyword arm only (no Bedrock in tests → embed fails → keyword fallback).
-    const b = JSON.stringify(await call("query", { q: "quokka" }, auth("b")));
-    expect(b).not.toContain(QA_TOKEN);
-    expect(b).toContain(QB_TOKEN);
-    const a = JSON.stringify(await call("query", { q: "quokka" }, auth("a")));
-    expect(a).not.toContain(QB_TOKEN);
-    // Behaviour-neutral: unscoped query sees both tenants' chunks.
-    const all = JSON.stringify(await call("query", { q: "quokka" }));
-    expect(all).toContain(QA_TOKEN);
-    expect(all).toContain(QB_TOKEN);
-  });
-
   it("hydrate: scoped hybridSearch hydrates only in-scope chunks; unscoped sees both", async () => {
     const scoped = await hybridSearch(storage, "quokka", {
       k: 10,

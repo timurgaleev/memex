@@ -63,12 +63,6 @@ describe("backfillEnabled", () => {
 });
 
 describe("conversationFactsBackfillPhase", () => {
-  it("is a no-op when disabled and no model is injected", async () => {
-    const r = await conversationFactsBackfillPhase(storage);
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_FACTS_BACKFILL");
-  });
-
   it("backfills an eligible page then skips it on re-run", async () => {
     await putPage(storage, {
       slug: "notes/alice-sync",

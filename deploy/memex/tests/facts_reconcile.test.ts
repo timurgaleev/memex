@@ -226,16 +226,6 @@ describe("reconcileFactsForPage", () => {
     expect(r.added).toBe(1);
     expect((await factsFor("people/alice"))[0]!.row_num).toBe(2_147_483_647);
   });
-
-  it("is a no-op when disabled", async () => {
-    process.env.MEMEX_FACTS_FENCE = "0";
-    const r = await putAndReconcile(
-      "people/alice",
-      fenceBody([{ rowNum: 1, claim: "fact", confidence: 1, active: true }]),
-    );
-    expect(r).toEqual({ removed: 0, added: 0 });
-    expect(await factsFor("people/alice")).toEqual([]);
-  });
 });
 
 describe("reconcile honors forget vs supersede tombstones (mig062)", () => {

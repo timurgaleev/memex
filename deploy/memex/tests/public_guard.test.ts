@@ -22,24 +22,27 @@ let url: string;
 const TOKEN = "test-bearer-abc123";
 const INT_TOKEN = "internal-shared-token-abcdef";
 
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-pubguard-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-  server = startServer({
-    host: "127.0.0.1",
-    port: 0,
-    storage,
-    publicBearerToken: TOKEN,
+/** Fresh store + server per test, for the describes that go over HTTP. */
+function useServer(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-pubguard-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    server = startServer({
+      host: "127.0.0.1",
+      port: 0,
+      storage,
+      publicBearerToken: TOKEN,
+    });
+    url = `http://127.0.0.1:${server.port}`;
   });
-  url = `http://127.0.0.1:${server.port}`;
-});
 
-afterEach(async () => {
-  await server.stop();
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+  afterEach(async () => {
+    await server.stop();
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 describe("evaluatePublicGuard — pure logic", () => {
   function urlOf(path: string): URL {
@@ -306,6 +309,7 @@ describe("isPublicMcpToolForbidden", () => {
 });
 
 describe("HTTP server end-to-end with public guard", () => {
+  useServer();
   it("/health open without bearer for public requests", async () => {
     const r = await fetch(`${url}/health`, {
       headers: { "Cf-Connecting-Ip": "1.2.3.4" },
@@ -472,6 +476,7 @@ describe("HTTP server end-to-end with public guard", () => {
 });
 
 describe("MEMEX_PUBLIC_WRITE opt-in", () => {
+  useServer();
   const ORIGINAL = process.env["MEMEX_PUBLIC_WRITE"];
   beforeEach(() => {
     process.env["MEMEX_PUBLIC_WRITE"] = "1";

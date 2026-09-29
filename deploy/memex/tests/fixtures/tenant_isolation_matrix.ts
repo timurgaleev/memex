@@ -12,19 +12,23 @@
  *                  tenant_write_* suites
  *   skip           cannot be seeded hermetically here; `owner` names the suite
  *                  that covers its scoping
+ *
+ * An isolated row's `own` names the tenant-A token its positive control must
+ * return, for reads where other tenant-A tokens would satisfy it without it.
  */
 import {
   CODE_SYM, ENTITY_SLUG, GATEWAY, KEYWORD, SHARED_PATH, SHARED_TITLE, WIKI_NAME,
 } from "../helpers/tenant_seed.ts";
 
 export type MatrixRow =
-  | { name: string; mode: "isolated"; args: Record<string, unknown> }
+  | { name: string; mode: "isolated"; args: Record<string, unknown>; own?: string }
   | { name: string; mode: "brainwide"; args: Record<string, unknown>; rationale: string }
   | { name: string; mode: "operator_only" }
   | { name: string; mode: "write" }
   | { name: string; mode: "skip"; reason: string; owner: string };
 
-const iso = (name: string, args: Record<string, unknown> = {}): MatrixRow => ({ name, mode: "isolated", args });
+const iso = (name: string, args: Record<string, unknown> = {}, own?: string): MatrixRow =>
+  ({ name, mode: "isolated", args, ...(own ? { own } : {}) });
 const wide = (name: string, rationale: string, args: Record<string, unknown> = {}): MatrixRow => ({ name, mode: "brainwide", args, rationale });
 const op = (name: string): MatrixRow => ({ name, mode: "operator_only" });
 const write = (name: string): MatrixRow => ({ name, mode: "write" });
@@ -58,9 +62,9 @@ export const MATRIX: MatrixRow[] = [
   iso("page_versions", { slug: "team-b/alice" }),
   write("link"),
   write("unlink"),
-  iso("graph_neighbors", { slug: GATEWAY }),
-  iso("graph_query", { type: "mentions", source_slug: GATEWAY }),
-  iso("traverse_graph", { start_slug: GATEWAY, direction: "outbound", max_depth: 3 }),
+  iso("graph_neighbors", { slug: GATEWAY }, "vault-a/target"),
+  iso("graph_query", { type: "mentions", source_slug: GATEWAY }, "vault-a/target"),
+  iso("traverse_graph", { start_slug: GATEWAY, direction: "outbound", max_depth: 3 }, "vault-a/target"),
   write("add_fact"),
   write("add_timeline_event"),
   iso("entity_facts", { entity_slug: ENTITY_SLUG }),
@@ -75,31 +79,31 @@ export const MATRIX: MatrixRow[] = [
   skip("submit_agent", "runs an agent job under the caller's grant; needs a worker and a scripted model", "tests/agent_tenant.test.ts"),
   skip("get_agent_job", "reads only the caller's own agent jobs; needs a submitted job", "tests/agent_tenant.test.ts"),
   iso("get_chunks", { source_path: SHARED_PATH }),
-  iso("resolve_slugs", { query: SHARED_TITLE }),
+  iso("resolve_slugs", { query: SHARED_TITLE }, "team-a/alice"),
   write("add_tag"),
   write("remove_tag"),
   iso("get_tags", { slug: "team-b/alice" }),
   skip("relational_recall", "needs typed relation edges between named entities", "tests/tenant_isolation.test.ts"),
-  iso("get_links", { slug: GATEWAY }),
+  iso("get_links", { slug: GATEWAY }, "vault-a/target"),
   skip("list_link_sources", "returns per-type counts only, no token to observe", "tests/tenant_isolation_contract.test.ts"),
   iso("find_orphans"),
-  iso("find_experts", { limit: 5 }),
-  iso("find_contradictions"),
+  iso("find_experts", { limit: 5 }, "hub-a"),
+  iso("find_contradictions", {}, "claim-a1"),
   iso("find_trajectory", { entity_slug: ENTITY_SLUG }),
-  iso("get_recent_salience", { limit: 100 }),
-  iso("find_anomalies", { sigma: 1, limit: 50 }),
+  iso("get_recent_salience", { limit: 100 }, "hub-a"),
+  iso("find_anomalies", { sigma: 1, limit: 50 }, "hub-a"),
   iso("recall", { id: "$factIdB" }),
   write("forget_fact"),
   wide("get_brain_identity", "brain-level identity card, no tenant content"),
   wide("whoami", "echoes the caller's own grant"),
   write("purge_deleted_pages"),
   iso("query", { q: KEYWORD }),
-  iso("code_callers", { name: CODE_SYM }),
-  iso("code_callees", { target: `${SHARED_PATH}:2` }),
+  iso("code_callers", { name: CODE_SYM }, "callerAAA"),
+  iso("code_callees", { target: `${SHARED_PATH}:2` }, "chargeCardAAA"),
   iso("code_def", { name: CODE_SYM }),
   iso("code_refs", { name: CODE_SYM }),
-  iso("code_blast", { symbol: CODE_SYM, exact: true }),
-  iso("code_flow", { symbol: CODE_SYM, exact: true }),
+  iso("code_blast", { symbol: CODE_SYM, exact: true }, "callerAAA"),
+  iso("code_flow", { symbol: CODE_SYM, exact: true }, "chargeCardAAA"),
   iso("volunteer_context", { window: `talking about ${WIKI_NAME} and ${SHARED_TITLE}` }),
   iso("context_pack", { slugs: [ENTITY_SLUG, "team-b/alice"], window: `talking about ${WIKI_NAME} and ${SHARED_TITLE}` }),
   op("advisor"),

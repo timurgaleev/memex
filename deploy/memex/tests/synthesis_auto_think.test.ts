@@ -1,6 +1,6 @@
 /**
  * Auto-think phase — hermetic (injected SonnetFn + pagesFn, no Bedrock). Covers
- * the flag gate, the no-questions skip, a think-answer → draft-page write, and
+ * the no-questions skip, a think-answer → draft-page write, and
  * the [object Object] regression guard on the forwarded think prompt.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -55,13 +55,6 @@ afterEach(async () => {
 });
 
 describe("autoThinkPhase", () => {
-  it("is default-OFF without the flag and no injected sonnetFn", async () => {
-    delete process.env.MEMEX_AUTO_THINK;
-    const r = await autoThinkPhase(storage, { questions: ["What is unresolved?"] });
-    expect(r.ran).toBe(false);
-    expect(r.reason).toContain("MEMEX_AUTO_THINK");
-  });
-
   it("skips when no questions are configured", async () => {
     const r = await autoThinkPhase(storage, { sonnetFn: fakeSonnet("{}"), questions: [] });
     expect(r.ran).toBe(false);

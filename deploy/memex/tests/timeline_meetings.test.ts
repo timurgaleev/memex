@@ -79,18 +79,6 @@ describe("extractMeetingTimelinePhase", () => {
     expect(await timelineFor("people/alice")).toHaveLength(1);
   });
 
-  it("is a no-op when disabled", async () => {
-    delete process.env.MEMEX_MEETING_TIMELINE;
-    await putPage(storage, {
-      slug: "meetings/2026-05-18-standup",
-      type: "meeting",
-      title: "Standup",
-      compiled_truth: { attendees: ["Alice"] },
-    });
-    const res = await extractMeetingTimelinePhase(storage);
-    expect(res).toEqual({ meetings_scanned: 0, entries_written: 0, attendees_touched: 0 });
-  });
-
   it("writes a meeting event + an Attended event per resolved attendee", async () => {
     await putPage(storage, { slug: "people/alice", type: "person", title: "Alice" });
     await putPage(storage, { slug: "people/bob", type: "person", title: "Bob" });

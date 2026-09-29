@@ -33,17 +33,20 @@ let tmp: string;
 let storage: Storage;
 let engine: Engine;
 
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-think-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-  engine = storage.engine();
-});
+/** Fresh store per test, for the describes that touch the database. */
+function useStorage(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-think-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+    engine = storage.engine();
+  });
 
-afterEach(async () => {
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+  afterEach(async () => {
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 async function seedTake(key: string, claim: string): Promise<void> {
   await engine.query(
@@ -147,6 +150,7 @@ describe("render blocks", () => {
 });
 
 describe("query-relevant page excerpts", () => {
+  useStorage();
   // The answer sits well past the leading 600 chars, so a leading-slice excerpt
   // would hand the model a page of preamble and none of the evidence.
   const FACT = "The rollback budget is 12 engineer-days.";
@@ -290,6 +294,7 @@ const countGapsHeadings = (text: string): number =>
   text.match(/^(?:#{2,6}\s+gaps\s*|gaps:)$/gim)?.length ?? 0;
 
 describe("gaps render once on every surface", () => {
+  useStorage();
   it("strips a Gaps section at any heading level, case-insensitively", () => {
     expect(stripGapsSection("## Answer\n\nbody\n\n## Gaps\n\n- a gap\n")).toBe("## Answer\n\nbody");
     expect(stripGapsSection("## Answer\n\nbody\n\n#### gaps\n\n- a gap\n")).toBe("## Answer\n\nbody");
@@ -393,6 +398,7 @@ describe("gaps render once on every surface", () => {
 });
 
 describe("runThink", () => {
+  useStorage();
   it("is default-OFF without MEMEX_THINK and no injected sonnetFn", async () => {
     const prev = process.env.MEMEX_THINK;
     delete process.env.MEMEX_THINK;
@@ -527,6 +533,7 @@ describe("thinkFailureStatus", () => {
 });
 
 describe("think synthesis status and extractive fallback", () => {
+  useStorage();
   const planPages = [
     { sourcePath: "notes/plan.md", title: "Plan", content: "The plan is to migrate the database in Q3." },
     { sourcePath: "notes/risks.md", title: "Risks", content: "The main risk of the plan is downtime.\nSecond line." },

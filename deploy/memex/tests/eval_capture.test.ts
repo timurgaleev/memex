@@ -32,16 +32,19 @@ import {
 let tmp: string;
 let storage: Storage;
 
-beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-evalcap-"));
-  storage = new Storage({ dbPath: join(tmp, "db") });
-  await storage.init();
-});
+/** Fresh store per test, for the describes that touch the database. */
+function useStorage(): void {
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), "memex-evalcap-"));
+    storage = new Storage({ dbPath: join(tmp, "db") });
+    await storage.init();
+  });
 
-afterEach(async () => {
-  await storage.close();
-  rmSync(tmp, { recursive: true, force: true });
-});
+  afterEach(async () => {
+    await storage.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+}
 
 describe("scrubPii", () => {
   it("masks an email", () => {
@@ -146,6 +149,7 @@ describe("buildCandidateInput", () => {
 });
 
 describe("captureEvalCandidate", () => {
+  useStorage();
   it("inserts a row and returns ok=true", async () => {
     const r = await captureEvalCandidate(storage.engine(), {
       toolName: "cli.search",
@@ -227,6 +231,7 @@ describe("config helpers", () => {
 });
 
 describe("makeCaptureCallback", () => {
+  useStorage();
   it("returns undefined when capture is disabled", () => {
     const cb = makeCaptureCallback(storage.engine(), null, {
       toolName: "mcp.search",

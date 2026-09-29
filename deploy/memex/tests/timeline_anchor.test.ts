@@ -69,14 +69,6 @@ describe("timelineAnchorEnabled", () => {
 });
 
 describe("timelineAnchorPhase", () => {
-  it("is a no-op when disabled", async () => {
-    delete process.env.MEMEX_TIMELINE_ANCHOR;
-    await seedPage("notes/dated", "Dated note", "2026-03-14", "date");
-    const res = await timelineAnchorPhase(storage);
-    expect(res).toEqual({ pages_scanned: 0, events_written: 0 });
-    expect(await timelineFor("notes/dated")).toHaveLength(0);
-  });
-
   it("anchors a firmly-dated page exactly once (idempotent on re-run)", async () => {
     await seedPage("notes/dated", "Dated note", "2026-03-14", "date");
     const first = await timelineAnchorPhase(storage);

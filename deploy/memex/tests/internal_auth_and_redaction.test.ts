@@ -6,7 +6,7 @@
  * now flows through `POST /mcp`. The HTTP-level enforcement is therefore
  * exercised against the MCP surface in `mcp_internal_token.test.ts`
  * (write-tool token gate) and `mcp_redaction.test.ts` /
- * `mcp_search_redaction.test.ts` (public body redaction). What remains
+ * `mcp_public_redaction.test.ts` (public body redaction). What remains
  * here is the still-shared pure logic:
  *
  * 1. `evaluateInternalAuth` — the token gate the server applies to `/mcp`.

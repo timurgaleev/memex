@@ -156,13 +156,14 @@ describe("linearity", () => {
   }
 
   function ratio(build: (n: number) => () => void, n: number): number {
-    // Warm up, then take the best of three at each size.
+    // Warm up, then take the best of three at each size. 4x the input: linear
+    // reads ~4, quadratic ~16.
     build(n)();
     const best = (k: number) => {
       const run = build(k);
       return Math.min(time(run), time(run), time(run));
     };
-    return best(2 * n) / Math.max(best(n), 0.05);
+    return best(4 * n) / Math.max(best(n), 0.05);
   }
 
   it("the turn fence stays linear on header-shaped adversarial lines", () => {
@@ -170,16 +171,16 @@ describe("linearity", () => {
       const text = "[12:00] User: x\n".repeat(n) + "[".repeat(n) + " ".repeat(n);
       return () => void renderTurn(message(1, text));
     };
-    expect(ratio(build, 40_000)).toBeLessThan(3);
+    expect(ratio(build, 20_000)).toBeLessThan(10);
   });
 
   it("the splitter stays linear on one huge line and on many tiny messages", () => {
     const oneLine = (n: number) => () => void renderSession(session([message(0, "a".repeat(n * 20))]));
-    expect(ratio(oneLine, 20_000)).toBeLessThan(3);
+    expect(ratio(oneLine, 10_000)).toBeLessThan(10);
     const many = (n: number) => {
       const msgs = Array.from({ length: n }, (_, i) => message(i, "x"));
       return () => void renderSession(session(msgs));
     };
-    expect(ratio(many, 20_000)).toBeLessThan(3);
+    expect(ratio(many, 10_000)).toBeLessThan(10);
   });
 });

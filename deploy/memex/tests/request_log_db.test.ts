@@ -34,6 +34,14 @@ async function rowCount(): Promise<number> {
   return r.rows[0]?.n ?? 0;
 }
 
+/** Wait for the detached insert to land, rather than sleeping a fixed guess. */
+async function logged(): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while ((await rowCount()) === 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("logToolCallToDb", () => {
   it("is a no-op when the flag is off", async () => {
     expect(requestLogDbEnabled()).toBe(false);
@@ -45,7 +53,7 @@ describe("logToolCallToDb", () => {
   it("inserts a redacted row when enabled (known tool, summary params)", async () => {
     process.env["MEMEX_REQUEST_LOG_DB"] = "1";
     logToolCallToDb(storage.engine(), { tool: "search", agentName: "client-1", latencyMs: 12, ok: true, params: { q: "secret query" } });
-    await new Promise((r) => setTimeout(r, 50)); // let the detached insert land
+    await logged();
     const r = await storage.engine().query<{ operation: string; agent_name: string; status: string; latency_ms: number; params: unknown }>(
       "SELECT operation, agent_name, status, latency_ms, params FROM mcp_request_log LIMIT 1",
     );
@@ -61,7 +69,7 @@ describe("logToolCallToDb", () => {
   it("stores an unknown tool name as 'unknown' (no raw caller input)", async () => {
     process.env["MEMEX_REQUEST_LOG_DB"] = "1";
     logToolCallToDb(storage.engine(), { tool: "../etc/passwd", agentName: "x", latencyMs: 1, ok: false, params: {} });
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const r = await storage.engine().query<{ operation: string; status: string }>("SELECT operation, status FROM mcp_request_log LIMIT 1");
     expect(r.rows[0]?.operation).toBe("unknown");
     expect(r.rows[0]?.status).toBe("error");
@@ -79,7 +87,7 @@ describe("logToolCallToDb", () => {
       errorMessage: "insufficient_scope: requires 'write'",
       force: true,
     });
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const r = await storage.engine().query<{ token_name: string; error_message: string }>(
       "SELECT token_name, error_message FROM mcp_request_log LIMIT 1",
     );
@@ -119,7 +127,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
     const handler = makeMcpHandler({ storage });
     const res = await handler(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }), oauthCtx());
     expect(res.status).toBe(200);
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const all = await rows();
     expect(all.length).toBe(1);
     expect(all[0]?.operation).toBe("tools/list");
@@ -133,7 +141,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
       rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "page_put", arguments: { slug: "a" } } }),
       oauthCtx(), // read-only scopes → insufficient_scope
     );
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const all = await rows();
     const row = all.find((r) => r.operation === "page_put");
     expect(row?.status).toBe("error");
@@ -146,7 +154,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
       rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "index", arguments: {} } }),
       { ...oauthCtx({ isPublic: true }), isPublic: true },
     );
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const row = (await rows()).find((r) => r.operation === "index");
     expect(row?.status).toBe("error");
     expect(row?.error_message ?? "").toContain("forbidden_public");
@@ -163,7 +171,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
         rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "index", arguments: {} } }),
         { isPublic: false, internalAuthOk: false },
       );
-      await new Promise((r) => setTimeout(r, 50));
+      await logged();
       const row = (await rows()).find((r) => r.operation === "index");
       expect(row?.status).toBe("error");
       expect(row?.error_message ?? "").toContain("internal token");
@@ -178,7 +186,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
       rpc({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "index", arguments: {} } }),
       { ...oauthCtx(), internalAuthOk: false },
     );
-    await new Promise((r) => setTimeout(r, 50));
+    await logged();
     const row = (await rows()).find((r) => r.operation === "index");
     expect(row?.status).toBe("error");
     // `index` is scope:write and this token holds only `read`, so the refusal
@@ -213,7 +221,7 @@ describe("transport fail-visible logging (OAuth path, flag OFF)", () => {
       await handler(rpc({ jsonrpc: "2.0", id: 5, method: "ping" }), publicCtx);
       const res = await handler(rpc({ jsonrpc: "2.0", id: 6, method: "ping" }), publicCtx);
       expect(res.status).toBe(429);
-      await new Promise((r) => setTimeout(r, 50));
+      await logged();
       const row = (await rows()).find((r) => r.operation === "rate_limited");
       expect(row?.status).toBe("error");
       expect(row?.token_name).toBe("oauth-client");

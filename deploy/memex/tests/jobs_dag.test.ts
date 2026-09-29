@@ -313,29 +313,17 @@ describe("cancelJob", () => {
     // exercise the cap path without the depth-32 guard tripping
     // first.
     const root = await submitJob(storage.engine(), { kind: "wide" });
-    // Insert children via raw SQL for speed — submitJob is correct
-    // but does N round-trips. Need 10_001 rows to trip the cap.
-    const ids: string[] = [];
-    for (let i = 0; i < 10_001; i++) ids.push(`child-${i}`);
-    // Single multi-row INSERT for jobs + job_children.
-    const valuesJobs = ids
-      .map((_id, i) => `($${i + 1}, 'c', '{}'::jsonb, 'pending')`)
-      .join(",");
-    await storage
-      .engine()
-      .query(
-        `INSERT INTO jobs (id, kind, payload, status) VALUES ${valuesJobs}`,
-        ids,
-      );
-    const valuesChildren = ids
-      .map((_id, i) => `($${ids.length + 1}, $${i + 1})`)
-      .join(",");
-    await storage
-      .engine()
-      .query(
-        `INSERT INTO job_children (parent_id, child_id) VALUES ${valuesChildren}`,
-        [...ids, root.id],
-      );
+    // Insert children in SQL for speed — submitJob is correct but does N
+    // round-trips. Need 10_001 rows to trip the cap.
+    await storage.engine().query(
+      `INSERT INTO jobs (id, kind, payload, status)
+       SELECT 'child-' || g, 'c', '{}'::jsonb, 'pending' FROM generate_series(0, 10000) AS g`,
+    );
+    await storage.engine().query(
+      `INSERT INTO job_children (parent_id, child_id)
+       SELECT $1, 'child-' || g FROM generate_series(0, 10000) AS g`,
+      [root.id],
+    );
     await expect(cancelJob(storage.engine(), root.id)).rejects.toThrow(
       /cascade exceeds 10000/,
     );

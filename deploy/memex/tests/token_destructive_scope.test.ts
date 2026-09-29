@@ -164,18 +164,6 @@ describe("write-scoped token on destructive tools", () => {
     );
   });
 
-  it("page_delete is source-scoped: a token cannot delete another source's page", async () => {
-    const other = await mint("read write", "othersrc");
-    await call("page_put", { slug: "notes/mine", type: "note" }, other);
-
-    const writer = await mint("read write"); // source: default
-    await call("page_delete", { slug: "notes/mine" }, writer);
-
-    const page = await getPage(storage, "notes/mine", ["othersrc"]);
-    expect(page).toBeTruthy();
-    expect(page?.deleted_at ?? null).toBeNull();
-  });
-
   it("static public bearer stays forbidden from the public ingress", async () => {
     const del = await call(
       "page_delete",

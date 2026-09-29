@@ -1,11 +1,16 @@
 /**
  * Single-fact recall + forget (soft-delete) over entity_facts.
  *
- * Covers: read-by-id of a live fact, null for unknown id, forget tombstoning,
- * recall hiding a forgotten fact, idempotent double-forget, unknown-id forget,
- * the optional reason note, and rejection of bad ids.
+ * Covers: read-by-id of a live fact, null for unknown id, unknown-id forget,
+ * the optional reason note, rejection of bad ids, and the structured forget
+ * cause (migration 062): a by-id forget stamps `forgotten_cause = 'forget'`; a
+ * supersede/dedup path passes 'supersede'. The free-text `forgotten_reason`
+ * audit note is unaffected.
+ *
+ * One store for the file: a forget withdraws its claim for that entity, so
+ * every seed writes to an entity of its own.
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +21,7 @@ import { forgetFact, recallFact } from "../src/core/facts-recall.ts";
 let tmp: string;
 let storage: Storage;
 
-beforeEach(async () => {
+beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-facts-recall-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -35,20 +40,22 @@ beforeEach(async () => {
     );
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
 
-async function seedFact(fact = "ex-CFO at Acme"): Promise<number> {
-  const r = await addFact(storage, { entity_slug: "people/alice", fact });
+let seq = 0;
+
+async function seedFact(fact = "ex-CFO at Acme", entity_slug = `people/alice-${++seq}`): Promise<number> {
+  const r = await addFact(storage, { entity_slug, fact });
   expect(r.id).not.toBeNull();
   return r.id as number;
 }
 
 describe("recallFact", () => {
   it("reads a single live fact by id", async () => {
-    const id = await seedFact();
+    const id = await seedFact("ex-CFO at Acme", "people/alice");
     const row = await recallFact(storage, id);
     expect(row).not.toBeNull();
     expect(row!.id).toBe(id);
@@ -68,20 +75,6 @@ describe("recallFact", () => {
 });
 
 describe("forgetFact", () => {
-  it("tombstones a live fact and hides it from recall", async () => {
-    const id = await seedFact();
-    const r = await forgetFact(storage, id);
-    expect(r).toEqual({ id, found: true, forgotten: true, withdrawn_duplicates: 0 });
-    expect(await recallFact(storage, id)).toBeNull();
-  });
-
-  it("is idempotent: a second forget is a no-op", async () => {
-    const id = await seedFact();
-    await forgetFact(storage, id);
-    const second = await forgetFact(storage, id);
-    expect(second).toEqual({ id, found: true, forgotten: false, withdrawn_duplicates: 0 });
-  });
-
   it("reports found=false for an unknown id", async () => {
     const r = await forgetFact(storage, 999999);
     expect(r).toEqual({ id: 999999, found: false, forgotten: false, withdrawn_duplicates: 0 });
@@ -113,5 +106,57 @@ describe("forgetFact", () => {
         [id],
       );
     expect(r.rows.length).toBe(1);
+  });
+});
+
+async function seed(): Promise<number> {
+  return seedFact("x");
+}
+
+async function readCause(id: number): Promise<string | null> {
+  const r = await storage
+    .engine()
+    .query<{ forgotten_cause: string | null }>(
+      "SELECT forgotten_cause FROM entity_facts WHERE id = $1",
+      [id],
+    );
+  return r.rows[0]!.forgotten_cause;
+}
+
+describe("forgotten_cause", () => {
+  it("defaults to 'forget' on a plain forget", async () => {
+    const id = await seed();
+    await forgetFact(storage, id);
+    expect(await readCause(id)).toBe("forget");
+  });
+
+  it("stamps 'supersede' when the caller passes that cause", async () => {
+    const id = await seed();
+    await forgetFact(storage, id, { cause: "supersede", reason: "superseded by #7" });
+    expect(await readCause(id)).toBe("supersede");
+    const r = await storage
+      .engine()
+      .query<{ forgotten_reason: string | null }>(
+        "SELECT forgotten_reason FROM entity_facts WHERE id = $1",
+        [id],
+      );
+    expect(r.rows[0]!.forgotten_reason).toBe("superseded by #7");
+  });
+
+  it("the CHECK constraint rejects an out-of-range cause via a direct write", async () => {
+    const id = await seed();
+    await expect(
+      storage
+        .engine()
+        .query(
+          "UPDATE entity_facts SET forgotten_cause = 'bogus' WHERE id = $1",
+          [id],
+        ),
+    ).rejects.toThrow();
+  });
+
+  it("leaves forgotten_cause NULL on a live (un-forgotten) fact", async () => {
+    const id = await seed();
+    expect(await readCause(id)).toBeNull();
   });
 });
