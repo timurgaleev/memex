@@ -13,6 +13,11 @@
  *
  * Still reports the engine `kind` (`pglite` or `postgres`) so monitoring
  * can tell at a glance which backend is in use after a cutover.
+ *
+ * While maintenance mode is on the body also carries `maintenance: true`, so a
+ * deploy script or an operator's curl can see that ingress must stay shut
+ * without credentials. The key is absent otherwise, and no switch detail or
+ * count is ever exposed here.
  */
 import type { Storage } from "../core/storage.ts";
 import { VERSION } from "../version.ts";
@@ -34,6 +39,7 @@ export interface LivenessResult {
 export async function probeLiveness(
   storage: Storage,
   timeoutMs: number = HEALTH_TIMEOUT_MS,
+  maintenance = false,
 ): Promise<LivenessResult> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -53,6 +59,7 @@ export async function probeLiveness(
         // same string for every image ever built. A deploy check that reads
         // this field could not tell a fresh container from a stale one.
         version: VERSION,
+        ...(maintenance ? { maintenance: true } : {}),
       },
     };
   } catch (e) {
@@ -67,6 +74,7 @@ export async function probeLiveness(
         error: timedOut
           ? "health check timed out (database pool may be saturated)"
           : "database connection failed",
+        ...(maintenance ? { maintenance: true } : {}),
       },
     };
   } finally {
@@ -74,7 +82,10 @@ export async function probeLiveness(
   }
 }
 
-export async function handleHealth(storage: Storage): Promise<Response> {
-  const result = await probeLiveness(storage);
+export async function handleHealth(
+  storage: Storage,
+  maintenance = false,
+): Promise<Response> {
+  const result = await probeLiveness(storage, HEALTH_TIMEOUT_MS, maintenance);
   return Response.json(result.body, { status: result.status });
 }

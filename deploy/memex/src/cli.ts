@@ -157,6 +157,9 @@ function printUsage(): void {
   console.log("  call <tool> [--args '<json>']");
   console.log("                               invoke an MCP tool locally (internal ingress)");
   console.log("  status                       one-shot snapshot: counts + health + cache");
+  console.log("  status --quiescent           exit 3 unless no background work can write");
+  console.log("                               (switches are read from this env: run it with");
+  console.log("                               docker exec inside the serving container)");
   console.log("  salience [--type T] [--days N] [--limit N]");
   console.log("                               pages ranked by deterministic salience score");
   console.log("  cycle [--phases a,b,c] [--stale-days N]");
@@ -411,8 +414,10 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "status": {
-      await runStatus(flags.has("--per-source") ? { perSource: true } : {});
-      return 0;
+      return await runStatus({
+        ...(flags.has("--per-source") ? { perSource: true } : {}),
+        ...(flags.has("--quiescent") ? { quiescent: true } : {}),
+      });
     }
     case "integrity": {
       const vault = values.get("--vault");

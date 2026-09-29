@@ -21,6 +21,11 @@ import { OAuthProvider } from "../core/oauth-provider.ts";
 import { sweepCodeRoots } from "../core/sweep-code.ts";
 import { installSignalHandlers } from "../core/process-cleanup.ts";
 import { legacyEnv, legacyEnvBootLine } from "../core/env-compat.ts";
+import {
+  quiescenceBootLines,
+  resolveQuiescence,
+  type Quiescence,
+} from "../core/quiescence.ts";
 import { basename } from "node:path";
 
 export interface ServeOptions {
@@ -74,6 +79,29 @@ function envNum(name: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Sweep expired access/refresh tokens + auth codes at startup — the tables
+ * otherwise grow until a verify happens to hit the expired row. Skipped in
+ * maintenance mode: the sweep deletes rows, and a maintenance boot must write
+ * nothing. The first boot after maintenance sweeps as usual.
+ * Best-effort: a sweep failure must never block serve.
+ */
+export async function bootTokenSweep(
+  provider: Pick<OAuthProvider, "sweepExpiredTokens">,
+  quiescence: Quiescence,
+): Promise<void> {
+  if (quiescence.maintenance) return;
+  try {
+    const swept = await provider.sweepExpiredTokens();
+    if (swept > 0) console.error(`[memex] swept ${swept} expired OAuth tokens/codes`);
+  } catch (e) {
+    console.error(
+      "[memex] token sweep failed (non-blocking):",
+      e instanceof Error ? e.message : e,
+    );
+  }
+}
+
 export async function runServe(opts: ServeOptions): Promise<void> {
   if (!opts.http) {
     throw new Error(
@@ -91,6 +119,8 @@ export async function runServe(opts: ServeOptions): Promise<void> {
 
   const legacyEnvLine = legacyEnvBootLine(legacyEnv);
   if (legacyEnvLine) console.error(legacyEnvLine);
+  const quiescence = resolveQuiescence(process.env);
+  for (const line of quiescenceBootLines(quiescence)) console.error(line);
 
   const config = loadConfig();
   // Pass the full Config so the factory picks the right engine
@@ -138,6 +168,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     port: opts.port,
     storage,
   };
+  if (quiescence.maintenance) serverOpts.maintenance = true;
   if (config.mcp?.enabled === false) {
     serverOpts.mcpEnabled = false;
   }
@@ -223,18 +254,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
           "MEMEX_PUBLIC_URL to the external https:// origin.",
       );
     }
-    // Sweep expired access/refresh tokens + auth codes at startup — the tables
-    // otherwise grow until a verify happens to hit the expired row.
-    // Best-effort: a sweep failure must never block serve.
-    try {
-      const swept = await provider.sweepExpiredTokens();
-      if (swept > 0) console.error(`[memex] swept ${swept} expired OAuth tokens/codes`);
-    } catch (e) {
-      console.error(
-        "[memex] token sweep failed (non-blocking):",
-        e instanceof Error ? e.message : e,
-      );
-    }
+    await bootTokenSweep(provider, quiescence);
   }
   // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
   // set; otherwise an ephemeral per-run token echoed to an interactive stderr
@@ -265,7 +285,56 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     );
   }
   const server = startServer(serverOpts);
+  const { worker, cycle } = startBackgroundWork(storage, config, quiescence);
 
+  // Graceful shutdown on SIGINT / SIGTERM.
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[memex] received ${signal}, shutting down`);
+    await worker.stop();
+    if (cycle) await cycle.stop();
+    await server.stop();
+    await storage.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  // Keep the process alive — Bun.serve already does this, but make it explicit.
+  await new Promise(() => {});
+}
+
+/** What serve's background work calls at boot; tests swap in spies. */
+export interface BackgroundDeps {
+  registerSource: typeof registerSource;
+  sweepCodeRoots: typeof sweepCodeRoots;
+  startCycleLoop: typeof startCycleLoop;
+  startWorker: (worker: Worker) => void;
+  workerIntervalMs: number;
+}
+
+const defaultBackgroundDeps: BackgroundDeps = {
+  registerSource,
+  sweepCodeRoots,
+  startCycleLoop,
+  startWorker: (worker) => worker.start(),
+  workerIntervalMs: 5000,
+};
+
+/**
+ * Start the boot code sweep, the jobs worker and the cycle loop, each only
+ * when its quiescence switch allows it. Job handlers are registered either
+ * way, so submits keep enqueueing while the worker is off. The worker is
+ * always constructed so shutdown can stop it unconditionally.
+ */
+export function startBackgroundWork(
+  storage: Storage,
+  config: ReturnType<typeof loadConfig>,
+  quiescence: Quiescence,
+  deps: BackgroundDeps = defaultBackgroundDeps,
+): { worker: Worker; cycle: CycleHandle | null } {
   // Markdown ingest is on-demand only: there is no boot-time file watcher.
   // Content enters the brain via the MCP `index` tool / the `memex reindex`
   // CLI (both go through core/sweep.ts → indexer), or via MCP `page_put`.
@@ -276,14 +345,16 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // boot sweep. Both are best-effort: registration errors are warned,
   // sweep errors are logged but do NOT abort serve startup.
   const codeRoots = codePaths();
-  if (codeRoots.length === 0) {
+  if (!quiescence.bootCodeSweep) {
+    // Off by switch or maintenance; the boot line already says so.
+  } else if (codeRoots.length === 0) {
     console.log(
       "[memex] no code roots configured (set MEMEX_CODE_PATHS=/path/to/repo[,...] to enable code chunkers)",
     );
   } else {
     for (const root of codeRoots) {
       const sourceId = codeSourceId(root);
-      registerSource(storage.engine(), {
+      deps.registerSource(storage.engine(), {
         id: sourceId,
         kind: "code",
         pathPrefix: root.endsWith("/") ? root : root + "/",
@@ -305,7 +376,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       try {
         const sweepOpts: Parameters<typeof sweepCodeRoots>[1] = { paths: codeRoots };
         if (codeDelayMs > 0) sweepOpts.perFileDelayMs = codeDelayMs;
-        const r = await sweepCodeRoots(storage, sweepOpts);
+        const r = await deps.sweepCodeRoots(storage, sweepOpts);
         for (const pr of r.perRoot) {
           if (pr.missing) {
             console.warn(
@@ -347,7 +418,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // (a blanket cap could dead-letter a legitimately-slow Bedrock phase); a job
   // can still set its own timeoutMs at enqueue.
   const workerOpts: ConstructorParameters<typeof Worker>[1] = {
-    intervalMs: 5000,
+    intervalMs: deps.workerIntervalMs,
     // Single-active-worker guard: a double-start / second container / restart
     // overlap elects ONE active worker via the worker_lock row; the rest idle
     // until the holder's heartbeat lapses (migration 042).
@@ -378,12 +449,14 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     console.log("[memex] agent loop enabled (subagent jobs, read-only tools)");
   }
   const worker = new Worker(new Queue(storage.engine()), workerOpts);
-  worker.start();
-  console.log(
-    `[memex] jobs worker started (intervalMs=5000${
-      workerOpts.jobTimeoutMs ? `, jobTimeoutMs=${workerOpts.jobTimeoutMs}` : ""
-    })`,
-  );
+  if (quiescence.jobsWorker) {
+    deps.startWorker(worker);
+    console.log(
+      `[memex] jobs worker started (intervalMs=${deps.workerIntervalMs}${
+        workerOpts.jobTimeoutMs ? `, jobTimeoutMs=${workerOpts.jobTimeoutMs}` : ""
+      })`,
+    );
+  }
 
   // Cycle loop. Off by default; opt in via env or memex.yml. The
   // `dream.*` config keys drive the cycle's embed-stale phase.
@@ -396,31 +469,14 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     ?? config.dream?.stale_days
     ?? 30;
   let cycle: CycleHandle | null = null;
-  if (Number.isFinite(cycleIntervalS) && cycleIntervalS >= 60) {
+  if (quiescence.cycle && Number.isFinite(cycleIntervalS) && cycleIntervalS >= 60) {
     console.log(
       `[memex] starting cycle loop: every ${cycleIntervalS}s, embed-stale at >${cycleStaleDays}d`,
     );
-    cycle = startCycleLoop(storage, {
+    cycle = deps.startCycleLoop(storage, {
       intervalMs: cycleIntervalS * 1000,
       staleDays: cycleStaleDays,
     });
   }
-
-  // Graceful shutdown on SIGINT / SIGTERM.
-  let shuttingDown = false;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`[memex] received ${signal}, shutting down`);
-    await worker.stop();
-    if (cycle) await cycle.stop();
-    await server.stop();
-    await storage.close();
-    process.exit(0);
-  };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-  // Keep the process alive — Bun.serve already does this, but make it explicit.
-  await new Promise(() => {});
+  return { worker, cycle };
 }

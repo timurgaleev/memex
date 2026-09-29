@@ -185,6 +185,8 @@ export interface ServerOptions {
   adminBootstrapToken?: string;
   /** Public base URL for minted admin magic-links (falls back to the request host). */
   publicUrl?: string;
+  /** Maintenance mode is on: `/health` says so (see core/quiescence.ts). */
+  maintenance?: boolean;
 }
 
 export interface ServerHandle {
@@ -487,7 +489,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
       }
 
       if (url.pathname === "/health" && req.method === "GET") {
-        return handleHealth(opts.storage);
+        return handleHealth(opts.storage, opts.maintenance === true);
       }
       // OAuth 2.1 discovery (RFC 8414) — public, lets a standard MCP OAuth
       // client auto-configure from memex's own public base URL. The guard

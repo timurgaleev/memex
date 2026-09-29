@@ -23,6 +23,12 @@
  * the stored rows; the legacy ones are read as they are.
  */
 import type { Engine } from "./engine/interface.ts";
+import {
+  BOOT_CODE_SWEEP_ENV,
+  CYCLE_ENV,
+  JOBS_WORKER_ENV,
+  MAINTENANCE_ENV,
+} from "./quiescence.ts";
 
 export const RUNTIME_CONFIG_KEY_RE = /^(?:MEMRAIN|MEMEX)_[A-Z0-9_]{1,64}$/;
 
@@ -48,10 +54,10 @@ export function legacyKey(key: string): string {
  * these under either prefix.
  */
 export const ENV_ONLY_KEYS: ReadonlySet<string> = new Set([
-  "MEMRAIN_MAINTENANCE",
-  "MEMRAIN_BOOT_CODE_SWEEP",
-  "MEMRAIN_JOBS_WORKER",
-  "MEMRAIN_CYCLE",
+  MAINTENANCE_ENV,
+  BOOT_CODE_SWEEP_ENV,
+  JOBS_WORKER_ENV,
+  CYCLE_ENV,
   "MEMRAIN_REQUIRE_POSTGRES",
 ]);
 

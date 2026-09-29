@@ -62,6 +62,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   "--postgres",
   "--promote",
   "--purge",
+  "--quiescent",
   "--rechunk-stale",
   "--reconcile-deletes",
   "--relational-arm",
@@ -168,7 +169,7 @@ export const COMMAND_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     ]),
   ],
   ["hnsw", new Set(["--force"])],
-  ["status", new Set(["--per-source"])],
+  ["status", new Set(["--per-source", "--quiescent"])],
   ["integrity", new Set(["--vault"])],
   [
     "eval",
