@@ -12,7 +12,7 @@ function req(path: string, init?: RequestInit): Request {
 }
 function cookieFrom(res: Response): string {
   const sc = res.headers.get("Set-Cookie") ?? "";
-  return sc.split(";")[0] ?? ""; // "memex_admin=<id>"
+  return sc.split(";")[0] ?? ""; // "memrain_admin=<id>"
 }
 
 describe("admin auth — bootstrap login", () => {
@@ -26,7 +26,7 @@ describe("admin auth — bootstrap login", () => {
     const ok = await a.handleAuthRoute(req("/admin/login", { method: "POST", body: JSON.stringify({ token: BOOT }) }), u);
     expect(ok?.status).toBe(200);
     const cookie = cookieFrom(ok!);
-    expect(cookie).toContain("memex_admin=");
+    expect(cookie).toContain("memrain_admin=");
     expect(ok!.headers.get("Set-Cookie")).toContain("HttpOnly");
     expect(ok!.headers.get("Set-Cookie")).toContain("SameSite=Strict");
     // Path=/ — /authorize is outside /admin and asks requireAdmin whether an
@@ -147,9 +147,9 @@ describe("admin auth — the pre-Path=/ cookie cannot lock the operator out", ()
 
     // A browser that still holds the dead one sends it FIRST (longer path wins,
     // RFC 6265 §5.4). The live session behind it must still authorize.
-    const live = set.find((c) => c.startsWith("memex_admin=") && c.includes("Path=/;"))!.split(";")[0]!;
-    expect(a.requireAdmin(req("/admin/api/x", { headers: { cookie: `memex_admin=dead-session; ${live}` } }))).toBe(true);
-    expect(a.requireAdmin(req("/admin/api/x", { headers: { cookie: "memex_admin=dead-session" } }))).toBe(false);
+    const live = set.find((c) => c.startsWith("memrain_admin=") && c.includes("Path=/;"))!.split(";")[0]!;
+    expect(a.requireAdmin(req("/admin/api/x", { headers: { cookie: `memrain_admin=dead-session; ${live}` } }))).toBe(true);
+    expect(a.requireAdmin(req("/admin/api/x", { headers: { cookie: "memrain_admin=dead-session" } }))).toBe(false);
   });
 });
 
@@ -161,7 +161,7 @@ describe("admin auth — an OAuth connect parked for sign-in", () => {
     return a.handleAuthRoute(req(path), new URL(`http://localhost:8080${path}`));
   }
   function returnCookie(res: Response): string | undefined {
-    return res.headers.getSetCookie().find((c) => c.startsWith("memex_return_to="));
+    return res.headers.getSetCookie().find((c) => c.startsWith("memrain_return_to="));
   }
   function pendingResume(a: ReturnType<typeof createAdminAuth>, cookie?: string) {
     return a.handleAuthRoute(
@@ -174,7 +174,7 @@ describe("admin auth — an OAuth connect parked for sign-in", () => {
       req("/admin/login", { method: "POST", body: JSON.stringify({ token: BOOT }) }),
       new URL("http://localhost:8080/admin/login"),
     );
-    return login!.headers.getSetCookie().find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+    return login!.headers.getSetCookie().find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
   }
 
   it("parks the authorize URL without following it, and describes it for confirmation", async () => {
@@ -197,7 +197,7 @@ describe("admin auth — an OAuth connect parked for sign-in", () => {
       new URL("http://localhost:8080/admin/login"),
     );
     expect(await login!.json()).toEqual({ status: "authenticated" });
-    const sess = login!.headers.getSetCookie().find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+    const sess = login!.headers.getSetCookie().find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
 
     // The parked request survives the login and is described, not followed.
     const pending = await pendingResume(a, `${sess}; ${cookie}`);
@@ -239,13 +239,13 @@ describe("admin auth — an OAuth connect parked for sign-in", () => {
     // A host-relative //evil.example/authorize keeps only the path, so any later
     // navigation stays on this origin.
     const stripped = await loginGet(a, "//evil.example/authorize?client_id=cid");
-    expect(returnCookie(stripped!)).toContain("memex_return_to=%2Fauthorize%3Fclient_id%3Dcid");
+    expect(returnCookie(stripped!)).toContain("memrain_return_to=%2Fauthorize%3Fclient_id%3Dcid");
   });
 
   it("tells a session with nothing parked that there is nothing, and refuses without one", async () => {
     const a = createAdminAuth({ bootstrapToken: BOOT });
     expect((await pendingResume(a))?.status).toBe(401);
-    expect((await pendingResume(a, "memex_return_to=%2Fauthorize%3Fclient_id%3Dcid"))?.status).toBe(401);
+    expect((await pendingResume(a, "memrain_return_to=%2Fauthorize%3Fclient_id%3Dcid"))?.status).toBe(401);
     const sess = await session(a);
     expect(await (await pendingResume(a, sess))!.json()).toEqual({ redirect_to: null });
   });
@@ -269,13 +269,13 @@ describe("admin auth — the approval is the consent, not the session", () => {
     const path = `/admin/login?return_to=${encodeURIComponent(AUTHORIZE)}`;
     const parked = await a.handleAuthRoute(req(path), new URL(`http://localhost:8080${path}`));
     const parkCookie = parked!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const login = await a.handleAuthRoute(
       req("/admin/login", { method: "POST", body: JSON.stringify({ token: BOOT }) }),
       new URL("http://localhost:8080/admin/login"),
     );
     const session = login!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
     return { cookie: `${session}; ${parkCookie}`, session };
   }
   async function handleFor(a: ReturnType<typeof createAdminAuth>, cookie: string): Promise<string> {
@@ -310,8 +310,8 @@ describe("admin auth — the approval is the consent, not the session", () => {
 
     const res = await approve(a, cookie, await handleFor(a, cookie));
     const { redirect_to } = (await res!.json()) as { redirect_to: string };
-    expect(redirect_to).toContain("memex_approval=");
-    expect(res!.headers.getSetCookie().find((c) => c.startsWith("memex_return_to="))).toContain("Max-Age=0");
+    expect(redirect_to).toContain("memrain_approval=");
+    expect(res!.headers.getSetCookie().find((c) => c.startsWith("memrain_return_to="))).toContain("Max-Age=0");
 
     expect(authorizeAllowed(a, redirect_to, session)).toBe(true);
     // Single use.
@@ -322,10 +322,10 @@ describe("admin auth — the approval is the consent, not the session", () => {
     const a = createAdminAuth({ bootstrapToken: BOOT });
     const { cookie, session } = await parkedSession(a);
     const { redirect_to } = (await (await approve(a, cookie, await handleFor(a, cookie)))!.json()) as { redirect_to: string };
-    const nonce = new URL(redirect_to, "http://x").searchParams.get("memex_approval")!;
+    const nonce = new URL(redirect_to, "http://x").searchParams.get("memrain_approval")!;
 
     // Same nonce, attacker's client and callback.
-    const moved = `/authorize?client_id=evil&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&code_challenge=ch&state=st&memex_approval=${nonce}`;
+    const moved = `/authorize?client_id=evil&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&code_challenge=ch&state=st&memrain_approval=${nonce}`;
     expect(authorizeAllowed(a, moved, session)).toBe(false);
     // And it is burnt, so the original cannot be completed with it either.
     expect(authorizeAllowed(a, redirect_to, session)).toBe(false);
@@ -340,13 +340,13 @@ describe("admin auth — the approval is the consent, not the session", () => {
       new URL("http://localhost:8080/admin/api/dismiss-resume"),
     );
     expect(await dismissed!.json()).toEqual({ dismissed: true });
-    expect(dismissed!.headers.getSetCookie().find((c) => c.startsWith("memex_return_to="))).toContain("Max-Age=0");
+    expect(dismissed!.headers.getSetCookie().find((c) => c.startsWith("memrain_return_to="))).toContain("Max-Age=0");
 
     // With nothing parked there is nothing to approve.
     const nothing = await approve(a, session, "whatever");
     expect(nothing?.status).toBe(404);
     // And both endpoints refuse an anonymous caller outright.
-    expect((await approve(a, "memex_return_to=%2Fauthorize%3Fclient_id%3Dcid", "x"))?.status).toBe(401);
+    expect((await approve(a, "memrain_return_to=%2Fauthorize%3Fclient_id%3Dcid", "x"))?.status).toBe(401);
   });
 });
 
@@ -362,13 +362,13 @@ describe("admin auth — approving only what was on screen", () => {
     const a = createAdminAuth({ bootstrapToken: BOOT });
     const parked = await park(a, target);
     const parkCookie = parked!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const login = await a.handleAuthRoute(
       req("/admin/login", { method: "POST", body: JSON.stringify({ token: BOOT }) }),
       new URL("http://localhost:8080/admin/login"),
     );
     const session = login!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
     return { a, session, cookie: `${session}; ${parkCookie}` };
   }
   function pending(a: ReturnType<typeof createAdminAuth>, cookie: string) {
@@ -392,17 +392,17 @@ describe("admin auth — approving only what was on screen", () => {
     const { a, session } = await setup(A);
     // The panel rendered request A…
     const parkedA = (await park(a, A))!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const shownHandle = ((await (await pending(a, `${session}; ${parkedA}`))!.json()) as { handle: string }).handle;
 
     // …then something replaced the parked request with B before the click.
     const parkedB = (await park(a, B))!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const res = await approveWith(a, `${session}; ${parkedB}`, shownHandle);
     expect(res?.status).toBe(409);
     // The refusal must leave B pending: it asks the operator to review the
     // request that IS parked, so that request has to survive the refusal.
-    expect(res!.headers.getSetCookie().some((c) => c.startsWith("memex_return_to="))).toBe(false);
+    expect(res!.headers.getSetCookie().some((c) => c.startsWith("memrain_return_to="))).toBe(false);
     const still = (await (await pending(a, `${session}; ${parkedB}`))!.json()) as { client_id: string };
     expect(still.client_id).toBe("evil");
   });
@@ -414,13 +414,13 @@ describe("admin auth — approving only what was on screen", () => {
     });
     const parked = await park(a, A);
     const parkCookie = parked!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const login = await a.handleAuthRoute(
       req("/admin/login", { method: "POST", body: JSON.stringify({ token: BOOT }) }),
       new URL("http://localhost:8080/admin/login"),
     );
     const sess = login!.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
     const shown = (await (await pending(a, `${sess}; ${parkCookie}`))!.json()) as {
       client_id: string; client_name: string | null;
     };
@@ -435,10 +435,10 @@ describe("admin auth — approving only what was on screen", () => {
     const shown = (await (await pending(a, cookie))!.json()) as { handle: string; resource: string };
     expect(shown.resource).toBe("https://api.example/");
     const { redirect_to } = (await (await approveWith(a, cookie, shown.handle))!.json()) as { redirect_to: string };
-    const nonce = new URL(redirect_to, "http://x").searchParams.get("memex_approval")!;
+    const nonce = new URL(redirect_to, "http://x").searchParams.get("memrain_approval")!;
 
     // Same everything, different audience → refused.
-    const swapped = `${A}&resource=https%3A%2F%2Fevil.example%2F&memex_approval=${nonce}`;
+    const swapped = `${A}&resource=https%3A%2F%2Fevil.example%2F&memrain_approval=${nonce}`;
     const r = req(swapped, { headers: { cookie: session } });
     expect(a.requireAdmin(r) && a.consumeAuthorizeApproval(r)).toBe(false);
   });

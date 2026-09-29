@@ -18,6 +18,7 @@ import {
   setRuntimeConfig,
   unsetRuntimeConfig,
 } from "../src/core/runtime-config.ts";
+import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-rc-overlay-"));
 let storage: Storage;
@@ -75,7 +76,7 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
   it("env MEMRAIN_X beats env MEMEX_X, which beats both rows", async () => {
     const e = storage.engine();
     await setRuntimeConfig(e, "MEMRAIN_RCO_B", "row-new");
-    await setRuntimeConfig(e, "MEMEX_RCO_B", "row-old");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_B", "row-old");
     const both = await resolveRuntimeConfig(e, "MEMEX_RCO_B", { MEMRAIN_RCO_B: "c", MEMEX_RCO_B: "a" });
     expect(both).toEqual({ value: "c", source: "env", key: "MEMRAIN_RCO_B" });
     const legacyOnly = await resolveRuntimeConfig(e, "MEMRAIN_RCO_B", { MEMEX_RCO_B: "a" });
@@ -87,7 +88,7 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
   it("a MEMRAIN_X row beats a MEMEX_X row and is projected under both names", async () => {
     const e = storage.engine();
     await setRuntimeConfig(e, "MEMRAIN_RCO_C", "b");
-    await setRuntimeConfig(e, "MEMEX_RCO_C", "d");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_C", "d");
     const applied = await applyRuntimeEnvOverlay(e);
     expect(applied).toContain("MEMRAIN_RCO_C");
     expect(applied).not.toContain("MEMEX_RCO_C");
@@ -97,7 +98,7 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
 
   it("a MEMEX_X row alone is applied as MEMRAIN_X and stays visible as MEMEX_X", async () => {
     const e = storage.engine();
-    await setRuntimeConfig(e, "MEMEX_RCO_D", "d");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_D", "d");
     const applied = await applyRuntimeEnvOverlay(e);
     expect(applied).toContain("MEMEX_RCO_D");
     expect(process.env["MEMRAIN_RCO_D"]).toBe("d");
@@ -108,7 +109,7 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
     const e = storage.engine();
     process.env["MEMEX_RCO_E"] = "";
     await setRuntimeConfig(e, "MEMRAIN_RCO_E", "b");
-    await setRuntimeConfig(e, "MEMEX_RCO_E", "d");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_E", "d");
     const applied = await applyRuntimeEnvOverlay(e);
     expect(applied.filter((k) => k.endsWith("_RCO_E"))).toEqual([]);
     expect(process.env["MEMEX_RCO_E"]).toBe("");
@@ -117,10 +118,10 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
 
   it("re-projects a knob when a caller removed one of the projected names", async () => {
     const e = storage.engine();
-    await setRuntimeConfig(e, "MEMEX_RCO_F", "one");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_F", "one");
     await applyRuntimeEnvOverlay(e);
     delete process.env["MEMEX_RCO_F"];
-    await setRuntimeConfig(e, "MEMEX_RCO_F", "two");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_F", "two");
     const applied = await applyRuntimeEnvOverlay(e);
     expect(applied).toContain("MEMEX_RCO_F");
     expect(process.env["MEMEX_RCO_F"]).toBe("two");
@@ -129,9 +130,9 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
 
   it("keeps an intact earlier projection, as a set env var would be kept", async () => {
     const e = storage.engine();
-    await setRuntimeConfig(e, "MEMEX_RCO_G", "one");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_G", "one");
     await applyRuntimeEnvOverlay(e);
-    await setRuntimeConfig(e, "MEMEX_RCO_G", "two");
+    await putRuntimeConfigRow(e, "MEMEX_RCO_G", "two");
     const applied = await applyRuntimeEnvOverlay(e);
     expect(applied).not.toContain("MEMEX_RCO_G");
     expect(process.env["MEMEX_RCO_G"]).toBe("one");
@@ -169,7 +170,7 @@ describe("applyRuntimeEnvOverlay, both prefixes", () => {
     const orig = console.error;
     console.error = (...a: unknown[]) => errs.push(a.map(String).join(" "));
     try {
-      await setRuntimeConfig(e, "MEMEX_MAINTENANCE", "1");
+      await putRuntimeConfigRow(e, "MEMEX_MAINTENANCE", "1");
       const applied = await applyRuntimeEnvOverlay(e);
       expect(applied).not.toContain("MEMEX_MAINTENANCE");
       await unsetRuntimeConfig(e, "MEMEX_MAINTENANCE");

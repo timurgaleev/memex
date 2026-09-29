@@ -106,7 +106,7 @@ describe.skipIf(!URL_)("refresh family revocation on Postgres", () => {
       gate.release();
 
       const t2 = await rotating;
-      expect(t2.access_token).toMatch(/^memex_at_/);
+      expect(t2.access_token).toMatch(/^memrain_at_/);
       expect(((await replay) as Error).message).toContain("session was revoked");
       const left = await pg.query<{ n: number | string }>(
         "SELECT count(*) AS n FROM oauth_tokens WHERE family_id = $1",

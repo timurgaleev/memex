@@ -136,7 +136,7 @@ describe("admin-api credential management (authed)", () => {
     expect(mint?.status).toBe(200);
     const minted = (await mint!.json()) as { ok: boolean; name: string; token: string };
     expect(minted.ok).toBe(true);
-    expect(minted.token.startsWith("memex_")).toBe(true);
+    expect(minted.token.startsWith("memrain_")).toBe(true);
 
     // Only the hash persists — the plaintext never touches the table.
     const stored = await storage.engine().query<{ token_hash: string }>(
@@ -207,8 +207,8 @@ describe("admin-api credential management (authed)", () => {
       grant_types: string[];
       token_ttl: number | null;
     };
-    expect(body.client_id.startsWith("memex_cl_")).toBe(true);
-    expect(body.client_secret?.startsWith("memex_cs_")).toBe(true);
+    expect(body.client_id.startsWith("memrain_cl_")).toBe(true);
+    expect(body.client_secret?.startsWith("memrain_cs_")).toBe(true);
     expect(body.grant_types).toEqual(["client_credentials"]); // no redirect_uris → machine client
     expect(body.token_ttl).toBe(120);
 

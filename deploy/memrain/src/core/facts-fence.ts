@@ -19,12 +19,12 @@
  *
  *   ## Facts
  *
- *   <!--- memex:facts:begin -->
+ *   <!--- memrain:facts:begin -->
  *   | # | claim | kind | confidence | notability | valid_from | valid_until | source |
  *   |---|-------|------|------------|------------|------------|-------------|--------|
  *   | 1 | Founded Acme in 2017 | event | 1   | high | 2017-01-01 |            | linkedin   |
  *   | 2 | ~~Moved to Berlin~~  | fact  | 0.9 |      |            | 2024-06-01  | email/x9f2 |
- *   <!--- memex:facts:end -->
+ *   <!--- memrain:facts:end -->
  *
  * A `~~struck~~` claim marks the fact inactive (retracted / forgotten) — the
  * markdown stays the record, and the reconcile pass drops it from the DB.
@@ -397,7 +397,7 @@ export function parseFactsFence(markdown: string, warnings?: string[]): ParsedFa
  * an ordinary fence is never churned on an unrelated rewrite. `brand` picks
  * the markers; a caller rewriting an existing fence passes that fence's brand.
  */
-export function renderFactsFence(facts: readonly ParsedFact[], brand: FenceBrand = "memex"): string {
+export function renderFactsFence(facts: readonly ParsedFact[], brand: FenceBrand = "memrain"): string {
   const anyTyped = facts.some(
     (f) =>
       f.claimMetric !== undefined ||

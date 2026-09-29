@@ -98,17 +98,25 @@ export async function getRuntimeConfig(
   return r.rows[0]?.value ?? null;
 }
 
+/**
+ * Upsert one knob and return the key it was stored under. A knob key is stored
+ * under its `MEMRAIN_` spelling whichever prefix it came with; a `MEMEX_` row
+ * that already exists is left as it is and is shadowed from then on. A key
+ * outside the knob alphabet (one written with `--force`) is stored as given.
+ */
 export async function setRuntimeConfig(
   engine: Engine,
   key: string,
   value: string,
-): Promise<void> {
+): Promise<string> {
+  const stored = isRuntimeConfigKey(key) ? canonicalKey(key) : key;
   await engine.query(
     `INSERT INTO runtime_config (key, value, updated_at)
      VALUES ($1, $2, NOW())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [key, value],
+    [stored, value],
   );
+  return stored;
 }
 
 /**

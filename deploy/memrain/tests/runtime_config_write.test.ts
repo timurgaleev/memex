@@ -1,5 +1,6 @@
 /**
- * runtime_config writes and reports with both brand prefixes: `unset` removes
+ * runtime_config writes and reports with both brand prefixes: `set` stores
+ * every knob under its MEMRAIN_ name and leaves a legacy row alone, `unset` removes
  * a knob under both names (so a legacy row cannot come back through the
  * fallback), `unset --pattern` covers both spellings of a brand prefix, the
  * search-stats apply path goes through the same core writer, `get` names the
@@ -21,12 +22,16 @@ import {
   setRuntimeConfig,
   unsetRuntimeConfigKeys,
 } from "../src/core/runtime-config.ts";
+import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "memex-rc-write-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 const dbPath = join(cfgDir, "brain.pglite");
-const TOUCHED = ["RCW_A", "RCW_B", "S_A", "S_B", "QUERY_CACHE", "RCW_GET", "RCW_DOC_A", "RCW_DOC_B"];
+const TOUCHED = [
+  "RCW_A", "RCW_B", "S_A", "S_B", "QUERY_CACHE", "RCW_GET", "RCW_DOC_A", "RCW_DOC_B",
+  "RCW_SET_A", "RCW_SET_B", "RCW_SET_C", "SEARCH_RCW",
+];
 
 function capture(): { out: string[]; err: string[]; restore: () => void } {
   const out: string[] = [];
@@ -61,7 +66,7 @@ async function keys(): Promise<string[]> {
 
 async function seed(rows: Record<string, string>): Promise<void> {
   await withEngine(async (s) => {
-    for (const [k, v] of Object.entries(rows)) await setRuntimeConfig(s.engine(), k, v);
+    for (const [k, v] of Object.entries(rows)) await putRuntimeConfigRow(s.engine(), k, v);
   });
 }
 
@@ -98,6 +103,74 @@ afterAll(() => {
     delete process.env[`MEMRAIN_${s}`];
     delete process.env[`MEMEX_${s}`];
   }
+});
+
+async function rowsFor(suffix: string): Promise<{ key: string; value: string; updated_at: string }[]> {
+  return withEngine(async (s) =>
+    (await listRuntimeConfig(s.engine())).filter((r) => r.key === `MEMRAIN_${suffix}` || r.key === `MEMEX_${suffix}`),
+  );
+}
+
+describe("set stores the MEMRAIN_ name only", () => {
+  it("core writer: a new-spelled set upserts MEMRAIN_X and leaves the MEMEX_X row byte-identical", async () => {
+    await seed({ MEMEX_RCW_SET_A: "old" });
+    const [before] = await rowsFor("RCW_SET_A");
+    await withEngine(async (s) => {
+      expect(await setRuntimeConfig(s.engine(), "MEMRAIN_RCW_SET_A", "new")).toBe("MEMRAIN_RCW_SET_A");
+      expect(await setRuntimeConfig(s.engine(), "MEMRAIN_RCW_SET_A", "newer")).toBe("MEMRAIN_RCW_SET_A");
+    });
+    const after = await rowsFor("RCW_SET_A");
+    expect(after.find((r) => r.key === "MEMEX_RCW_SET_A")).toEqual(before!);
+    expect(after.find((r) => r.key === "MEMRAIN_RCW_SET_A")?.value).toBe("newer");
+    // The legacy row is shadowed: the new row wins the read.
+    const r = await config({ sub: "get", key: "MEMEX_RCW_SET_A" });
+    expect(r.out).toBe("newer");
+    expect(r.err).toContain("from runtime_config MEMRAIN_RCW_SET_A");
+  });
+
+  it("CLI: a legacy-spelled set is stored as MEMRAIN_X, with a note, and creates no MEMEX_ row", async () => {
+    const r = await config({ sub: "set", key: "MEMEX_RCW_SET_B", value: "v" });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("Set MEMRAIN_RCW_SET_B = v");
+    expect(r.err).toContain("MEMEX_RCW_SET_B is the pre-rename spelling; stored as MEMRAIN_RCW_SET_B");
+    expect((await rowsFor("RCW_SET_B")).map((x) => x.key)).toEqual(["MEMRAIN_RCW_SET_B"]);
+  });
+
+  it("CLI: a new-spelled set prints no note", async () => {
+    const r = await config({ sub: "set", key: "MEMRAIN_RCW_SET_C", value: "v" });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("Set MEMRAIN_RCW_SET_C = v");
+    expect(r.err).not.toContain("pre-rename spelling");
+    expect((await rowsFor("RCW_SET_C")).map((x) => x.key)).toEqual(["MEMRAIN_RCW_SET_C"]);
+  });
+
+  it("a --force key outside the knob alphabet is stored as given", async () => {
+    const r = await config({ sub: "set", key: "MEMEX_lower", value: "v", force: true });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("Set MEMEX_lower = v");
+    await withEngine(async (s) => {
+      expect(await getRuntimeConfig(s.engine(), "MEMEX_lower")).toBe("v");
+      expect(await getRuntimeConfig(s.engine(), "MEMRAIN_lower")).toBeNull();
+      await unsetRuntimeConfigKeys(s.engine(), "MEMEX_lower");
+    });
+  });
+
+  it("search-stats apply: a legacy-spelled set recommendation writes only the MEMRAIN_ row", async () => {
+    await seed({ MEMEX_SEARCH_RCW: "old" });
+    const [before] = await rowsFor("SEARCH_RCW");
+    await withEngine(async (s) => {
+      await applyTuneRecommendation(s.engine(), {
+        knob: "MEMEX_SEARCH_RCW",
+        current: "old",
+        suggested: "new",
+        reason: "test",
+        apply_command: "memex config set MEMEX_SEARCH_RCW new",
+      });
+    });
+    const after = await rowsFor("SEARCH_RCW");
+    expect(after.find((r) => r.key === "MEMRAIN_SEARCH_RCW")?.value).toBe("new");
+    expect(after.find((r) => r.key === "MEMEX_SEARCH_RCW")).toEqual(before!);
+  });
 });
 
 describe("unset removes a knob under both names", () => {

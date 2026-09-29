@@ -127,7 +127,7 @@ describe("refresh token families", () => {
     // The rotated session is untouched.
     expect((await provider.verifyAccessToken(second.access_token)).clientId).toBe(client.client_id);
     const third = await provider.exchangeRefreshToken(client, second.refresh_token!);
-    expect(third.access_token).toMatch(/^memex_at_/);
+    expect(third.access_token).toMatch(/^memrain_at_/);
   });
 
   it("a replay after the grace window is refused and only logged by default", async () => {
@@ -473,7 +473,7 @@ describe("invalidateClientTokens", () => {
     expect(audit.length).toBe(1);
     expect((audit[0]!.after as unknown as Record<string, unknown>)["action"]).toBe("invalidate_tokens");
     // The client signs in again.
-    expect((await signIn(client)).access_token).toMatch(/^memex_at_/);
+    expect((await signIn(client)).access_token).toMatch(/^memrain_at_/);
   });
 
   it("with a grant id, only that grant's tokens go", async () => {
@@ -557,7 +557,7 @@ describe("consent re-check at code exchange", () => {
     const c = await code(client);
     await storage.raw().query("UPDATE oauth_codes SET grant_revision = NULL");
     const t = await provider.exchangeAuthorizationCode(client, c, undefined, REDIRECT);
-    expect(t.access_token).toMatch(/^memex_at_/);
+    expect(t.access_token).toMatch(/^memrain_at_/);
   });
 });
 

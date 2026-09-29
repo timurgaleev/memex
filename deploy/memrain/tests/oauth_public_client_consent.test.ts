@@ -187,7 +187,7 @@ describe("/authorize while it auto-approves", () => {
       () => true,
       false,
     );
-    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memex_code_/);
+    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memrain_code_/);
   });
 
   it("still lets a public enrollment-mode client in with a code", async () => {
@@ -208,13 +208,13 @@ describe("/authorize while it auto-approves", () => {
       provider,
     );
     expect(res.status).toBe(303);
-    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memex_code_/);
+    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memrain_code_/);
   });
 
   it("leaves a confidential client-mode client unchanged", async () => {
     const res = await handleAuthorizeRoute(new Request(authorizeUrl(confidential)), provider);
     expect(res.status).toBe(302);
-    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memex_code_/);
+    expect(new URL(res.headers.get("location")!).searchParams.get("code")).toMatch(/^memrain_code_/);
   });
 
   it("names exactly the refused clients for the boot warning", async () => {

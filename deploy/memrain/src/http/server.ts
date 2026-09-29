@@ -172,7 +172,7 @@ export interface ServerOptions {
   /**
    * memrain's own OAuth 2.1 provider (client_credentials), wired from
    * `config.auth.selfIssued.enabled`. When set, the server mounts POST `/token`
-   * and verifies self-issued `memex_at_…` bearer tokens on the `/mcp` ingress,
+   * and verifies self-issued `memrain_at_…` bearer tokens on the `/mcp` ingress,
    * scoping each request to its registered `oauth_clients` row. This is the
    * auth path that replaces the external-IdP JWT overlay.
    */
@@ -395,15 +395,15 @@ export function startServer(opts: ServerOptions): ServerHandle {
       let guard = evaluatePublicGuard(req, url, guardOpts);
       let oauthAuth: AuthInfo | undefined;
       if (!guard.allow) {
-        // Self-issued provider (preferred path). A `memex_at_…` token is opaque
+        // Self-issued provider (preferred path). A `memrain_at_…` token is opaque
         // (not a JWS), so it must be verified here, not by the JWT verifier. On
         // success the request is a TRUSTED registered client scoped to its own
         // `oauth_clients` row — unredacted read within that source scope
         // (isPublic:false); writes stay gated by the internal-token path.
         // Every bearer is offered to the verifier (/mcp sits behind
         // requireBearerAuth with no prefix filter) — the provider's
-        // fallback resolves legacy access_tokens PATs (`memex_…`), whose tenant
-        // scope comes from `permissions.source_id`. A non-token string just
+        // fallback resolves legacy access_tokens PATs (`memrain_…`, `memex_…`),
+        // whose tenant scope comes from `permissions.source_id`. A non-token string just
         // misses both hash lookups and falls through to the 401 below.
         if (opts.oauthProvider && guard.status === 401) {
           const m = /^Bearer (.+)$/.exec(

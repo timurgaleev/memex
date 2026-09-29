@@ -23,6 +23,7 @@ import {
   ENV_ONLY_KEYS,
   setRuntimeConfig,
 } from "../src/core/runtime-config.ts";
+import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 
 const SWITCHES = [BOOT_CODE_SWEEP_ENV, JOBS_WORKER_ENV, CYCLE_ENV] as const;
 const FIELD = {
@@ -205,7 +206,7 @@ describe("runtime_config cannot set a switch", () => {
     const rows = keys.flatMap((k) => [k, k.replace(/^MEMRAIN_/, "MEMEX_")]);
     // A MEMRAIN_ row shadows its MEMEX_ twin, so seed the legacy ones on a
     // second pass to see both spellings refused.
-    for (const k of keys) await setRuntimeConfig(e, k.replace(/^MEMRAIN_/, "MEMEX_"), "0");
+    for (const k of keys) await putRuntimeConfigRow(e, k.replace(/^MEMRAIN_/, "MEMEX_"), "0");
     const errs: string[] = [];
     const orig = console.error;
     console.error = (...a: unknown[]) => errs.push(a.map(String).join(" "));

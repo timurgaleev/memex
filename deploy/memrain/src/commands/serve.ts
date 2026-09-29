@@ -230,7 +230,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     serverOpts.internalToken = internalToken;
   }
   // memrain's own OAuth 2.1 provider (client_credentials). When enabled, mounts
-  // POST /token and verifies self-issued `memex_at_…` tokens on /mcp. Shares the
+  // POST /token and verifies self-issued `memrain_at_…` tokens on /mcp. Shares the
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
   // 046) already exist.
   if (config.auth?.selfIssued?.enabled === true) {

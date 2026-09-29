@@ -38,6 +38,10 @@ export const FACT_WITHDRAW_LOCK_NS = "memex:fact-withdraw:";
 export const LEGACY_CYCLE_LOCK_ID = "memex-cycle";
 export const LEGACY_WORKER_LOCK_ID = "memex-jobs-worker";
 
+/** Author stamp (`entity_facts.written_by`) of fact rows projected from a
+ *  facts fence before the rename. */
+export const LEGACY_FENCE_WRITER = "memex:facts-fence";
+
 /** Suffix of the lock file a pre-rename process places beside a PGLite data
  *  directory. It is taken next to the current one, so neither build can open
  *  a directory the other holds. */

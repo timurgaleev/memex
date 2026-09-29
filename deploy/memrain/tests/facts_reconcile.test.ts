@@ -94,7 +94,7 @@ describe("reconcileFactsForPage", () => {
       source_slug: "meetings/m1",
       source_markdown_slug: "people/alice",
       row_num: 1,
-      written_by: "memex:facts-fence",
+      written_by: "memrain:facts-fence",
     });
     expect(facts[1]!.source_slug).toBeNull();
   });

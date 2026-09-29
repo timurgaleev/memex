@@ -35,7 +35,7 @@ const OP_BY_NAME = new Map(OPERATIONS.map((o) => [o.name, o]));
  * payload/result/logs: vault paths, note snippets) and the advisor/stats
  * dashboards (migrations, embed coverage, whole-brain counts, internal-auth
  * config). They are refused for any authenticated tenant principal
- * (`authInfo !== undefined`), i.e. an OAuth `memex_at_` caller. The static
+ * (`authInfo !== undefined`), i.e. an OAuth `memrain_at_` caller. The static
  * daily bearer and the trusted-local/internal path (both `authInfo === undefined`)
  * keep full access — they are the operator. `source_health` is deliberately NOT
  * here: it is the per-source (tenant-safe) health view.

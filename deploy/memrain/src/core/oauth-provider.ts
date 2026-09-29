@@ -1000,14 +1000,14 @@ export class OAuthProvider {
       );
     }
 
-    const clientId = generateToken("memex_cl_");
+    const clientId = generateToken("memrain_cl_");
     // Public clients (auth method 'none') authenticate via PKCE alone — the
     // server must NOT issue a secret for them (RFC 7591 §2). Confidential
     // clients mint a secret and store only its hash.
     const isPublicClient = authMethod === "none";
     const clientSecret = isPublicClient
       ? undefined
-      : generateToken("memex_cs_");
+      : generateToken("memrain_cs_");
     const secretHash = clientSecret ? hashToken(clientSecret) : null;
     const now = Math.floor(Date.now() / 1000);
 
@@ -1078,11 +1078,11 @@ export class OAuthProvider {
       for (const p of boundSlugPrefixes) validatePageSlug(p);
     }
 
-    const clientId = generateToken("memex_cl_");
+    const clientId = generateToken("memrain_cl_");
     const isPublicClient = authMethod === "none";
     const clientSecret = isPublicClient
       ? undefined
-      : generateToken("memex_cs_");
+      : generateToken("memrain_cs_");
     const secretHash = clientSecret ? hashToken(clientSecret) : null;
     const now = Math.floor(Date.now() / 1000);
     const federated =
@@ -1678,8 +1678,8 @@ export class OAuthProvider {
     if (!Number.isFinite(ttl) || ttl <= 0 || ttl > MAX_TTL) {
       throw new Error(`ttl must be between 1 second and ${MAX_TTL} seconds (365d)`);
     }
-    const id = generateToken("memex_enr_");
-    const code = generateToken("memex_en_");
+    const id = generateToken("memrain_enr_");
+    const code = generateToken("memrain_en_");
     const federated = federatedIn;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const spendId = prior ? (prior.spend_id ?? prior.id) : null;
@@ -1972,7 +1972,7 @@ export class OAuthProvider {
     params: AuthorizationParams,
     grant?: GrantScope,
   ): Promise<{ redirectUrl: string }> {
-    const code = generateToken("memex_code_");
+    const code = generateToken("memrain_code_");
     const codeHash = hashToken(code);
     const expiresAt = Math.floor(Date.now() / 1000) + 600; // 10 min TTL
 
@@ -2711,7 +2711,7 @@ export class OAuthProvider {
     // of a spent refresh token can revoke everything the chain issued. A
     // client_credentials token has no refresh, and no family.
     const familyId = includeRefresh ? (opts.familyId ?? randomUUID()) : null;
-    const accessToken = generateToken("memex_at_");
+    const accessToken = generateToken("memrain_at_");
     const accessHash = hashToken(accessToken);
     const now = Math.floor(Date.now() / 1000);
     const effectiveTtl = opts.accessTtl || this.tokenTtl;
@@ -2744,7 +2744,7 @@ export class OAuthProvider {
     };
 
     if (includeRefresh) {
-      const refreshToken = generateToken("memex_rt_");
+      const refreshToken = generateToken("memrain_rt_");
       const refreshHash = hashToken(refreshToken);
       const refreshExpiry = now + (opts.refreshTtl || this.refreshTtl);
 

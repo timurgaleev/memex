@@ -283,7 +283,7 @@ export async function handleAdminApi(req: Request, url: URL, deps: AdminApiDeps)
       if (dup.rows.length > 0) {
         return badRequest(`an active token named "${name}" already exists — revoke it first`);
       }
-      const token = "memex_" + randomBytes(32).toString("hex");
+      const token = "memrain_" + randomBytes(32).toString("hex");
       // JSONB params are JS objects, never pre-stringified (double-encode bug class).
       const inserted = await engine.query<{ id: number | string }>(
         // A re-minted name keeps its predecessor's daily cap (spend is booked

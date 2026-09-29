@@ -9,14 +9,14 @@
  *
  *   ## Takes
  *
- *   <!--- memex:takes:begin -->
+ *   <!--- memrain:takes:begin -->
  *   | # | claim | kind | who | weight | since | source |
  *   |---|-------|------|-----|--------|-------|--------|
  *   | 1 | CEO of Acme | fact | world | 1.0 | 2017-01 | Crustdata |
  *   | 2 | Strong technical founder | take | operator | 0.85 | 2026-04-29 | OH |
  *   | 3 | ~~Will reach $50B~~ | bet | operator | 0.7 | 2026-04 → 2026-06 | superseded by #4 |
  *   | 4 | Will reach $30B | bet | operator | 0.55 | 2026-06 | revised after Q2 |
- *   <!--- memex:takes:end -->
+ *   <!--- memrain:takes:end -->
  *
  * Parsing rules (strict on canonical shape, lenient on hand-edits):
  *
@@ -441,7 +441,7 @@ function formatWeight(w: number): string {
  * to the resolution shape; otherwise it keeps the narrow 7-column shape.
  * `brand` picks the markers; edits of an existing fence pass that fence's brand.
  */
-export function renderTakesFence(takes: ParsedFenceTake[], brand: FenceBrand = "memex"): string {
+export function renderTakesFence(takes: ParsedFenceTake[], brand: FenceBrand = "memrain"): string {
   const hasAnyResolution = takes.some((t) => t.resolvedQuality !== undefined);
   const header = hasAnyResolution
     ? `| # | claim | kind | who | weight | since | source | resolved | quality | evidence | value | unit | by |`

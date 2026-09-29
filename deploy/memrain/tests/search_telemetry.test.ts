@@ -21,7 +21,8 @@ import {
   applyTuneRecommendation,
   buildRevertCommand,
 } from "../src/commands/search-stats.ts";
-import { getRuntimeConfig, setRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config.ts";
+import { getRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config.ts";
+import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 import type { StatsWindow } from "../src/core/search/telemetry.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-telemetry-"));
@@ -192,19 +193,21 @@ describe("search tune", () => {
       apply_command: "memex config set MEMEX_SEARCH_MODE balanced",
     };
     await applyTuneRecommendation(e, rec);
-    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
+    // A legacy-spelled command is stored under the current name.
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBe("balanced");
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
     expect(buildRevertCommand(rec)).toBe("memrain config set MEMEX_SEARCH_MODE tokenmax");
     // unset-shaped apply commands delete the row
     await applyTuneRecommendation(e, {
       ...rec,
       apply_command: "memex config unset MEMEX_SEARCH_MODE",
     });
-    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBeNull();
   });
 
   it("--apply of a generated recommendation writes the MEMRAIN_ row and leaves a legacy row alone", async () => {
     const e = storage.engine();
-    await setRuntimeConfig(e, "MEMEX_SEARCH_MODE", "tokenmax");
+    await putRuntimeConfigRow(e, "MEMEX_SEARCH_MODE", "tokenmax");
     const rec = buildTuneRecommendations(statsWith({}), "tokenmax", {}).find(
       (r) => r.suggested === "balanced",
     )!;
@@ -220,11 +223,12 @@ describe("search tune", () => {
     const e = storage.engine();
     const rec = { knob: "MEMEX_SEARCH_MODE", current: "tokenmax", suggested: "balanced", reason: "test" };
     await applyTuneRecommendation(e, { ...rec, apply_command: "memrain config set MEMEX_SEARCH_MODE balanced" });
-    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBe("balanced");
     await applyTuneRecommendation(e, { ...rec, apply_command: "memrain config unset MEMEX_SEARCH_MODE" });
-    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBeNull();
     // Any other command word is not an apply command.
     await applyTuneRecommendation(e, { ...rec, apply_command: "other config set MEMEX_SEARCH_MODE balanced" });
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBeNull();
     expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
   });
 });

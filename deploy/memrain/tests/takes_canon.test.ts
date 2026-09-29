@@ -271,7 +271,7 @@ describe("gated auto-resolve in gradeTakesPhase", () => {
     );
     expect(rows[0]).toMatchObject({
       resolved_quality: "incorrect",
-      resolved_by: "memex:grade_takes",
+      resolved_by: "memrain:grade_takes",
       resolved_source: "grade_takes:auto-v1",
     });
   });

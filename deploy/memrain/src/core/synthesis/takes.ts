@@ -194,7 +194,7 @@ export function gradeMinAgeDays(
 }
 
 /** Auto-resolve gate: when ON, a high-confidence judge verdict is APPLIED to
- *  the take's resolution tuple (resolved_by='memex:grade_takes') instead of
+ *  the take's resolution tuple (resolved_by='memrain:grade_takes') instead of
  *  staying advisory. Default OFF — calibration measures the human unless the
  *  operator explicitly delegates resolution to the judge. */
 export function takeAutoResolveEnabled(): boolean {
@@ -935,7 +935,7 @@ export async function gradeTakesPhase(
   const autoResolve = opts.autoResolve ?? takeAutoResolveEnabled();
   const autoResolveThreshold = opts.autoResolveThreshold ?? DEFAULT_AUTO_RESOLVE_THRESHOLD;
   const ensembleApplyThreshold = opts.ensembleApplyThreshold ?? DEFAULT_ENSEMBLE_APPLY_THRESHOLD;
-  const autoResolveLabel = opts.autoResolveLabel ?? "memex:grade_takes";
+  const autoResolveLabel = opts.autoResolveLabel ?? "memrain:grade_takes";
   const result: GradeTakesResult = {
     takesScanned: 0,
     gradesWritten: 0,

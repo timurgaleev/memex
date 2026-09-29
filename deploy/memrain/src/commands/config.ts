@@ -9,7 +9,8 @@
  *                              stderr names the env var or row it came from
  *   set <key> <value> [--force]
  *                              upsert; keys must match ^(MEMRAIN|MEMEX)_[A-Z0-9_]+$
- *                              unless --force (forward-compat escape hatch)
+ *                              unless --force (forward-compat escape hatch);
+ *                              a MEMEX_ key is stored as MEMRAIN_
  *   unset <key>                delete one knob (MEMRAIN_X and MEMEX_X alike)
  *   unset --pattern <prefix>   delete every key with this prefix; a
  *                              MEMRAIN_/MEMEX_ prefix covers both spellings
@@ -113,8 +114,11 @@ export async function runConfig(opts: ConfigCmdOptions): Promise<number> {
               `it will NOT be overlaid onto the environment.`,
           );
         }
-        await setRuntimeConfig(engine, opts.key, opts.value);
-        console.log(`Set ${opts.key} = ${redactConfigValue(opts.key, opts.value)}`);
+        const stored = await setRuntimeConfig(engine, opts.key, opts.value);
+        if (stored !== opts.key) {
+          console.error(`memrain config: ${opts.key} is the pre-rename spelling; stored as ${stored}`);
+        }
+        console.log(`Set ${stored} = ${redactConfigValue(stored, opts.value)}`);
         return 0;
       }
       case "unset": {

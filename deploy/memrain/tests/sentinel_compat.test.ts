@@ -1,19 +1,28 @@
 /**
  * The reserved "no source" id has two spellings: `__memex_no_source__` from
  * before the rename and `__memrain_no_source__`. Every reader treats both as
- * the fail-closed floor, and neither can be registered as a real source.
+ * the fail-closed floor, neither can be registered as a real source, and only
+ * the current spelling is emitted.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Storage } from "../src/core/storage.ts";
-import { isNoSourceSentinel, NO_SOURCE_SENTINEL } from "../src/core/auth-info.ts";
+import { effectiveWriteSourceIdForIngress, isNoSourceSentinel, NO_SOURCE_SENTINEL } from "../src/core/auth-info.ts";
 import { andSourceScope, isNoGrant } from "../src/core/source-scope.ts";
 import { registerSource } from "../src/core/sources.ts";
 import { evaluateOperatorScope, type DoctorWhoami } from "../src/commands/remote-doctor.ts";
 
 const SPELLINGS = ["__memex_no_source__", "__memrain_no_source__"];
+
+describe("the emitted sentinel", () => {
+  it("is the current spelling", () => {
+    expect(NO_SOURCE_SENTINEL).toBe("__memrain_no_source__");
+    const noGrant = { token: "t", clientId: "c", scopes: ["write"], isPublic: false };
+    expect(effectiveWriteSourceIdForIngress(noGrant, { failClosed: true })).toBe("__memrain_no_source__");
+  });
+});
 
 describe("isNoSourceSentinel", () => {
   it("accepts both spellings and nothing else", () => {

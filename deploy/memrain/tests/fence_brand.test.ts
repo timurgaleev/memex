@@ -181,10 +181,10 @@ describe("facts fence", () => {
     expect(parseFactsFence(factsBody("memex"))).toHaveLength(3);
   });
 
-  it("renders legacy markers by default and the requested brand otherwise", () => {
-    expect(renderFactsFence(FACTS).startsWith("<!--- memex:facts:begin -->\n")).toBe(true);
-    expect(renderFactsFence(FACTS).endsWith("\n<!--- memex:facts:end -->")).toBe(true);
-    expect(renderFactsFence(FACTS, "memrain").startsWith("<!--- memrain:facts:begin -->\n")).toBe(true);
+  it("renders new markers by default and the requested brand otherwise", () => {
+    expect(renderFactsFence(FACTS).startsWith("<!--- memrain:facts:begin -->\n")).toBe(true);
+    expect(renderFactsFence(FACTS).endsWith("\n<!--- memrain:facts:end -->")).toBe(true);
+    expect(renderFactsFence(FACTS, "memex").startsWith("<!--- memex:facts:begin -->\n")).toBe(true);
   });
 
   it("refuses a body with both brands: no rows plus a warning", () => {
@@ -264,10 +264,12 @@ describe("facts reconcile across brands", () => {
 describe("takes fence edits keep the page's marker", () => {
   const row = { claim: "New take", kind: "take", holder: "world", weight: 0.7, active: true };
 
-  it("renders legacy markers by default", () => {
-    const out = renderTakesFence(parseTakesFence(takesBody("memex")).takes);
-    expect(out.startsWith("<!--- memex:takes:begin -->")).toBe(true);
-    expect(out.endsWith("<!--- memex:takes:end -->")).toBe(true);
+  it("renders new markers by default and the requested brand otherwise", () => {
+    const takes = parseTakesFence(takesBody("memex")).takes;
+    const out = renderTakesFence(takes);
+    expect(out.startsWith("<!--- memrain:takes:begin -->")).toBe(true);
+    expect(out.endsWith("<!--- memrain:takes:end -->")).toBe(true);
+    expect(renderTakesFence(takes, "memex").startsWith("<!--- memex:takes:begin -->")).toBe(true);
   });
 
   it("appends to a legacy fence: exactly one fence, still memex", () => {
@@ -285,9 +287,11 @@ describe("takes fence edits keep the page's marker", () => {
     expect(body).not.toContain("memex:takes");
   });
 
-  it("creates a fence with the default brand on a page without one", () => {
+  it("creates a memrain: fence on a page without one", () => {
     const { body } = upsertTakeRow("# Page\n\nprose\n", row);
-    expect(markerCount(body, "<!--- memex:takes:begin -->")).toBe(1);
+    expect(markerCount(body, "<!--- memrain:takes:begin -->")).toBe(1);
+    expect(markerCount(body, "<!--- memrain:takes:end -->")).toBe(1);
+    expect(body).not.toContain("memex:takes");
     expect(parseTakesFence(body).takes).toHaveLength(1);
   });
 

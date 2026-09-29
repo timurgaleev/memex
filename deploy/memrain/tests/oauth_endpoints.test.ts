@@ -163,7 +163,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     const loc = new URL(authRes.headers.get("location")!);
     expect(loc.searchParams.get("state")).toBe("xyz");
     const code = loc.searchParams.get("code")!;
-    expect(code).toMatch(/^memex_code_/);
+    expect(code).toMatch(/^memrain_code_/);
 
     const tokRes = await tokenForm({
       grant_type: "authorization_code",
@@ -180,8 +180,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       token_type: string;
     };
     expect(body.token_type).toBe("bearer");
-    expect(body.access_token).toMatch(/^memex_at_/);
-    expect(body.refresh_token).toMatch(/^memex_rt_/);
+    expect(body.access_token).toMatch(/^memrain_at_/);
+    expect(body.refresh_token).toMatch(/^memrain_rt_/);
 
     // The minted token resolves to the client + its source scope.
     const info = await provider.verifyAccessToken(body.access_token);
@@ -526,7 +526,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
         client_id: string;
         client_secret?: string;
       };
-      expect(pubBody.client_id).toMatch(/^memex_cl_/);
+      expect(pubBody.client_id).toMatch(/^memrain_cl_/);
       expect(pubBody.client_secret).toBeUndefined();
 
       // Confidential client — secret returned exactly once. A self-registered
@@ -543,7 +543,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       });
       expect(confRes.status).toBe(201);
       const confBody = (await confRes.json()) as { client_secret?: string };
-      expect(confBody.client_secret).toMatch(/^memex_cs_/);
+      expect(confBody.client_secret).toMatch(/^memrain_cs_/);
     });
   });
 
@@ -621,7 +621,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
         grant_types: string[];
       };
       expect(body.grant_types).toEqual(["client_credentials"]);
-      expect(body.client_secret).toMatch(/^memex_cs_/);
+      expect(body.client_secret).toMatch(/^memrain_cs_/);
     } finally {
       await s.stop();
       delete process.env.MEMRAIN_ENABLE_DCR_INSECURE;
@@ -639,7 +639,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       scope: "read",
     });
     expect(client.grant_types).toEqual(["client_credentials"]);
-    expect(client.client_secret).toMatch(/^memex_cs_/);
+    expect(client.client_secret).toMatch(/^memrain_cs_/);
   });
 
   it("SECURITY: refuses to boot with DCR on while /authorize auto-approves", async () => {
@@ -805,7 +805,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.get("location")!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
-    expect(loc.searchParams.get("code")).toMatch(/^memex_code_/);
+    expect(loc.searchParams.get("code")).toMatch(/^memrain_code_/);
   });
 
   it("SECURITY: auto-approve refuses a public client-mode client (its client_id alone would mint tokens)", async () => {
@@ -844,7 +844,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       });
       expect(res.status).toBe(302);
       const code = new URL(res.headers.get("location")!).searchParams.get("code");
-      expect(code).toMatch(/^memex_code_/);
+      expect(code).toMatch(/^memrain_code_/);
       return { code: code!, verifier };
     }
 
@@ -1134,7 +1134,7 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
     expect(parked.status).toBe(302);
     expect(parked.headers.get("location")).toBe("/admin/");
     const resumeCookie = parked.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!
+      .find((c) => c.startsWith("memrain_return_to="))!
       .split(";")[0]!;
 
     // 3. The magic link signs the operator in — and lands on the dashboard, not
@@ -1149,7 +1149,7 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
     expect(redeemed.status).toBe(302);
     expect(redeemed.headers.get("location")).toBe("/admin/");
     const sessionCookie = redeemed.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_admin="))!;
+      .find((c) => c.startsWith("memrain_admin="))!;
     // Path=/ — scoped to /admin this cookie would never reach /authorize, and
     // the operator could never be recognized there.
     expect(sessionCookie).toContain("Path=/;");
@@ -1183,9 +1183,9 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
       body: JSON.stringify({ handle: shown.handle }),
     });
     const { redirect_to: approvedTarget } = (await approved.json()) as { redirect_to: string };
-    expect(approvedTarget).toContain("memex_approval=");
+    expect(approvedTarget).toContain("memrain_approval=");
     // The parked request is retired by the decision.
-    expect(approved.headers.getSetCookie().find((c) => c.startsWith("memex_return_to="))).toContain("Max-Age=0");
+    expect(approved.headers.getSetCookie().find((c) => c.startsWith("memrain_return_to="))).toContain("Max-Age=0");
 
     const issued = await fetch(`${url}${approvedTarget}`, {
       redirect: "manual",
@@ -1195,7 +1195,7 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
     const back = new URL(issued.headers.get("location")!);
     expect(back.origin + back.pathname).toBe(REDIRECT);
     expect(back.searchParams.get("state")).toBe("st-1");
-    expect(back.searchParams.get("code")).toMatch(/^memex_code_/);
+    expect(back.searchParams.get("code")).toMatch(/^memrain_code_/);
 
     // 6. The approval is single-use: replaying the very same URL bounces.
     const replay = await fetch(`${url}${approvedTarget}`, {
@@ -1214,14 +1214,14 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
     const bounced = await fetch(`${url}${noScope}`, { redirect: "manual" });
     const parked = await fetch(`${url}${bounced.headers.get("location")!}`, { redirect: "manual" });
     const resumeCookie = parked.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_return_to="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_return_to="))!.split(";")[0]!;
     const login = await fetch(`${url}/admin/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: ADMIN_TOKEN }),
     });
     const session = login.headers.getSetCookie()
-      .find((c) => c.startsWith("memex_admin="))!.split(";")[0]!;
+      .find((c) => c.startsWith("memrain_admin="))!.split(";")[0]!;
 
     const pending = await fetch(`${url}/admin/api/pending-resume`, {
       headers: { Cookie: `${session}; ${resumeCookie}` },
@@ -1235,13 +1235,13 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
     const foreign = `/admin/login?return_to=${encodeURIComponent("https://evil.example/authorize?client_id=x")}`;
     const res = await fetch(`${url}${foreign}`, { redirect: "manual" });
     expect(res.headers.get("location")).toBe("/admin/");
-    expect(res.headers.getSetCookie().find((c) => c.startsWith("memex_return_to=")))
-      .toContain("memex_return_to=%2Fauthorize%3Fclient_id%3Dx");
+    expect(res.headers.getSetCookie().find((c) => c.startsWith("memrain_return_to=")))
+      .toContain("memrain_return_to=%2Fauthorize%3Fclient_id%3Dx");
 
     // Any other route is not a resumable target at all.
     const other = `/admin/login?return_to=${encodeURIComponent("/admin/api/full-stats")}`;
     const res2 = await fetch(`${url}${other}`, { redirect: "manual" });
     expect(res2.status).not.toBe(302);
-    expect(res2.headers.getSetCookie().some((c) => c.startsWith("memex_return_to="))).toBe(false);
+    expect(res2.headers.getSetCookie().some((c) => c.startsWith("memrain_return_to="))).toBe(false);
   });
 });

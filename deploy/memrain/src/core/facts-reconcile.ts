@@ -44,9 +44,14 @@ import { validateSlug, getPage } from "./pages.ts";
 import { parseFactsFence } from "./facts-fence.ts";
 import { fenceBounds } from "./fence-shared.ts";
 import { deadlockSafeTransaction } from "./retry.ts";
+import { LEGACY_FENCE_WRITER } from "./brand.ts";
 
 /** Marks a fence-derived fact row's author (parallels the gazetteer's link_kind). */
-const FENCE_WRITER = "memex:facts-fence";
+const FENCE_WRITER = "memrain:facts-fence";
+/** Every author stamp a fence-derived row may carry. Rows projected before the
+ *  rename keep theirs; nothing filters on the stamp, and the wipe goes by
+ *  `source_markdown_slug`. */
+export const FENCE_WRITERS = [FENCE_WRITER, LEGACY_FENCE_WRITER] as const;
 /** PostgreSQL INTEGER upper bound — a hand-edited row_num above this would
  *  overflow the column and abort every reconcile, so it is clamped. */
 const MAX_ROW_NUM = 2_147_483_647;

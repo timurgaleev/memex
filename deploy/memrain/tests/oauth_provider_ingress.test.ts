@@ -2,7 +2,7 @@
  * Self-issued OAuth 2.1 (client_credentials) on the live MCP ingress.
  *
  * Proves the wiring added in server.ts/serve.ts: when `oauthProvider` is set,
- * POST /token mints a token for a registered client, and a `memex_at_…` bearer
+ * POST /token mints a token for a registered client, and a `memrain_at_…` bearer
  * authenticates the /mcp path (scoped to the client's oauth_clients row) while
  * the static public bearer is also enforced. A bad/garbage token still 401s.
  */
@@ -85,12 +85,12 @@ describe("self-issued client_credentials on the MCP ingress", () => {
     });
   }
 
-  it("POST /token mints a memex_at_ access token", async () => {
+  it("POST /token mints a memrain_at_ access token", async () => {
     const r = await token(clientSecret);
     expect(r.status).toBe(200);
     const body = (await r.json()) as { access_token: string; token_type: string };
     expect(body.token_type).toBe("bearer");
-    expect(body.access_token).toMatch(/^memex_at_/);
+    expect(body.access_token).toMatch(/^memrain_at_/);
   });
 
   it("POST /token with a wrong secret → 401 invalid_client", async () => {

@@ -52,16 +52,16 @@ mcp:
 # ---------------------------------------------------------------------------
 # Leave this block out (or `enabled: false`) and nothing changes — the single
 # static public bearer stays the only auth path. When enabled, memrain mounts a
-# POST /token endpoint and verifies its own `memex_at_…` tokens on the /mcp
+# POST /token endpoint and verifies its own `memrain_at_…` tokens on the /mcp
 # ingress, scoping each request to the registered client's source set. No
 # external IdP — memrain IS the authorization server.
 #
 #   1. memrain auth register-client <name> --scopes "read write" --source <id>
-#        → prints client_id (memex_cl_…) + client_secret (memex_cs_…) ONCE.
+#        → prints client_id (memrain_cl_…) + client_secret (memrain_cs_…) ONCE.
 #   2. curl -X POST https://brain.<domain>/token \
 #        -d grant_type=client_credentials -d client_id=… -d client_secret=…
-#        → { access_token: "memex_at_…", token_type: "bearer", expires_in: 3600 }
-#   3. present it as `Authorization: Bearer memex_at_…` on /mcp.
+#        → { access_token: "memrain_at_…", token_type: "bearer", expires_in: 3600 }
+#   3. present it as `Authorization: Bearer memrain_at_…` on /mcp.
 #
 # auth:
 #   selfIssued:

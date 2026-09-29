@@ -1,7 +1,7 @@
 /**
  * `memrain auth <subcommand>` — manage the self-issued OAuth 2.1 provider
  * (client_credentials). The auth surface: register a client, mint a token,
- * present it as `Authorization: Bearer memex_at_…` on `/mcp`.
+ * present it as `Authorization: Bearer memrain_at_…` on `/mcp`.
  *
  * Subcommands:
  *   register-client <name> [--grant-types G] [--scopes S] [--source SRC]
@@ -11,8 +11,8 @@
  *              — e.g. a hosted MCP connector's callback. Grants then default to
  *              authorization_code,refresh_token unless --grant-types is given.
  *                          [--federated-read a,b,c]
- *              Register a confidential client. Prints client_id (memex_cl_…) +
- *              client_secret (memex_cs_…) ONCE — only the SHA-256 hash persists.
+ *              Register a confidential client. Prints client_id (memrain_cl_…) +
+ *              client_secret (memrain_cs_…) ONCE — only the SHA-256 hash persists.
  *   list-clients
  *              JSON list of registered clients (no secrets).
  *   revoke-client <client_id> [--purge]
@@ -651,7 +651,7 @@ async function createToken(name: string, rest: string[]): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   const takesHolders = parsedHolders.length > 0 ? parsedHolders : ["world"];
-  const token = "memex_" + randomBytes(32).toString("hex");
+  const token = "memrain_" + randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
 
   const minted = await withProvider(async (_p, storage) => {

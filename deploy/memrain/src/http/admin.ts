@@ -32,14 +32,14 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h for password login
 const MAGIC_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7d for magic-link
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const NONCE_LRU_CAP = 1000;
-// Written under the pre-rename names, and read under both, current name first.
-const COOKIE_NAME = LEGACY_ADMIN_COOKIE;
-const COOKIE_NAMES = ["memrain_admin", LEGACY_ADMIN_COOKIE] as const;
-const RETURN_COOKIE_NAME = LEGACY_RETURN_TO_COOKIE;
-const RETURN_COOKIE_NAMES = ["memrain_return_to", LEGACY_RETURN_TO_COOKIE] as const;
+// Written under the current names, and read under both, current name first.
+const COOKIE_NAME = "memrain_admin";
+const COOKIE_NAMES = [COOKIE_NAME, LEGACY_ADMIN_COOKIE] as const;
+const RETURN_COOKIE_NAME = "memrain_return_to";
+const RETURN_COOKIE_NAMES = [RETURN_COOKIE_NAME, LEGACY_RETURN_TO_COOKIE] as const;
 const RETURN_TTL_MS = 10 * 60 * 1000; // 10 minutes to finish signing in
-const APPROVAL_PARAM = LEGACY_APPROVAL_PARAM;
-const APPROVAL_PARAMS = ["memrain_approval", LEGACY_APPROVAL_PARAM] as const;
+const APPROVAL_PARAM = "memrain_approval";
+const APPROVAL_PARAMS = [APPROVAL_PARAM, LEGACY_APPROVAL_PARAM] as const;
 const APPROVAL_TTL_MS = 5 * 60 * 1000; // the click and the redirect that follows it
 
 /**
@@ -128,13 +128,16 @@ function buildSetCookie(req: Request, value: string, maxAgeMs: number): string {
   return attrs.join("; ");
 }
 
-/** Expire the pre-v1.123 session cookie, which was scoped `Path=/admin`. A
- *  browser sends the more specific path first, so the dead value would shadow
- *  the live `Path=/` one and lock the operator out of the dashboard. */
-function buildLegacyCookieClear(req: Request): string {
-  const attrs = [`${COOKIE_NAME}=`, "Path=/admin", "HttpOnly", "SameSite=Strict", "Max-Age=0"];
-  if (isHttps(req)) attrs.push("Secure");
-  return attrs.join("; ");
+/** Expire the session cookie under its pre-rename name, at `Path=/` and at
+ *  the `Path=/admin` of pre-v1.123 releases. A browser sends the more specific
+ *  path first, so a dead value there would shadow the live one and lock the
+ *  operator out of the dashboard. */
+function buildLegacyCookieClears(req: Request): string[] {
+  return ["/", "/admin"].map((path) => {
+    const attrs = [`${LEGACY_ADMIN_COOKIE}=`, `Path=${path}`, "HttpOnly", "SameSite=Strict", "Max-Age=0"];
+    if (isHttps(req)) attrs.push("Secure");
+    return attrs.join("; ");
+  });
 }
 
 /**
@@ -341,7 +344,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       const id = newSession(SESSION_TTL_MS);
       const headers = new Headers();
       headers.append("Set-Cookie", buildSetCookie(req, id, SESSION_TTL_MS));
-      headers.append("Set-Cookie", buildLegacyCookieClear(req));
+      for (const clear of buildLegacyCookieClears(req)) headers.append("Set-Cookie", clear);
       // A parked /authorize target is deliberately NOT consumed here: the SPA
       // shows it as a confirmation the operator has to accept.
       return Response.json({ status: "authenticated" }, { headers });
@@ -382,7 +385,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       const id = newSession(MAGIC_SESSION_TTL_MS);
       const headers = new Headers({ Location: "/admin/" });
       headers.append("Set-Cookie", buildSetCookie(req, id, MAGIC_SESSION_TTL_MS));
-      headers.append("Set-Cookie", buildLegacyCookieClear(req));
+      for (const clear of buildLegacyCookieClears(req)) headers.append("Set-Cookie", clear);
       return new Response(null, { status: 302, headers });
     }
 
