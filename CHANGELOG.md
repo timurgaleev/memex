@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.163.0] — 2026-09-29
+
+### Changed
+- **The full test suite runs in under 3 minutes instead of 30-40.** Tests copy
+  a pre-migrated PGLite template (test-only `MEMEX_TEST_PGLITE_TEMPLATE`,
+  never set in production) instead of replaying 119 migrations per file,
+  `test:sharded` runs shards in parallel and fails if any shard fails, and CI
+  deals files to its groups by measured time. The arm64 canary runs nightly.
+  45 test cases that the strengthened tenant isolation matrix now covers were
+  removed and several duplicate files merged, with no assertion lost.
+
 ## [1.162.0] — 2026-09-29
 
 ### Changed
