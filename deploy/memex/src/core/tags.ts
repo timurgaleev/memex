@@ -17,6 +17,7 @@
  */
 import type { Storage } from "./storage.ts";
 import { andSourceScope } from "./source-scope.ts";
+import { PageNotFoundError } from "./operation-error.ts";
 
 /** Upper bound on a single normalized tag (defence vs unbounded writes).
  *  An over-limit tag is REJECTED, not truncated — truncating would collapse
@@ -80,7 +81,7 @@ export async function addTag(
     ownerParams,
   )).rows[0]?.source_id;
   if (owner === undefined) {
-    throw new Error(`addTag failed: page "${slug}" not found`);
+    throw new PageNotFoundError(slug);
   }
   const params: unknown[] = [slug, norm, owner];
   // The conflict target folds in source_id (migration 059), so each tenant owns

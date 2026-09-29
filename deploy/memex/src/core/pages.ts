@@ -20,7 +20,7 @@ import { bumpPageGeneration } from "./generation.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
 import { extractAliasNorms, setPageAliases } from "./page-aliases.ts";
 import { resolveSlugWithAlias, setSlugAlias } from "./slug-aliases.ts";
-import { OperationError, type PublicErrorEnvelope } from "./operation-error.ts";
+import { OperationError, PageNotFoundError, type PublicErrorEnvelope } from "./operation-error.ts";
 import { andSourceScope } from "./source-scope.ts";
 import { carryFactWithdrawals } from "./fact-withdrawals.ts";
 import { deadlockSafeTransaction } from "./retry.ts";
@@ -116,6 +116,9 @@ const SLUG_RE = new RegExp(
   "u",
 );
 const MAX_SLUG_LEN = 256;
+
+/** Static hint for an append whose target page is missing. */
+const CREATE_IT_FIRST = "Create the page with page_put first.";
 
 export function validateSlug(slug: string): void {
   if (typeof slug !== "string" || slug.length === 0) {
@@ -439,10 +442,7 @@ export async function putPage(
     const current = existing.rows[0];
     if (appendContent !== undefined) {
       if (current === undefined || current.deleted_at !== null) {
-        throw new OperationError(
-          "not_found",
-          `page ${JSON.stringify(input.slug)} does not exist; call putPage to create it first`,
-        );
+        throw new PageNotFoundError(input.slug, CREATE_IT_FIRST);
       }
       const sep =
         current.markdown_body.length > 0 && !current.markdown_body.endsWith("\n") ? "\n" : "";
@@ -651,7 +651,7 @@ export interface AppendInput {
   /**
    * Owning source (tenant). When set, the target page is resolved within this
    * source only — a caller cannot append to a page they do not own (it reads
-   * as "does not exist").
+   * as not found).
    */
   source_id?: string;
   /** A claimed `request_id` (write-requests.ts): its receipt commits with this write. */
@@ -668,14 +668,11 @@ export async function appendPage(
   }
   const scope = input.source_id ? [input.source_id] : undefined;
   // Exact read (NOT redirect-aware): a write must target the literal slug. If
-  // this slug was renamed away, appending must fail ("does not exist"), never
+  // this slug was renamed away, appending must fail (not found), never
   // silently resurrect the old slug that now only holds a redirect.
   const current = await getPageExact(storage, input.slug, scope);
   if (!current) {
-    throw new Error(
-      `appendPage: page ${JSON.stringify(input.slug)} does not exist; ` +
-        `call putPage to create it first`,
-    );
+    throw new PageNotFoundError(input.slug, CREATE_IT_FIRST);
   }
   // Tenant write scope (mig047): a scoped caller must NEVER adopt the found
   // row's source_id — that is how an unresolved/mis-scoped principal could
@@ -684,10 +681,7 @@ export async function appendPage(
   // a source-blind row leaked through; fail closed rather than write across it.
   // Unscoped (local/CLI) keeps the found row's source_id, unchanged.
   if (input.source_id && current.source_id !== input.source_id) {
-    throw new Error(
-      `appendPage: page ${JSON.stringify(input.slug)} does not exist; ` +
-        `call putPage to create it first`,
-    );
+    throw new PageNotFoundError(input.slug, CREATE_IT_FIRST);
   }
   const writeSourceId = input.source_id ?? current.source_id;
   // The body itself is NOT built here: putPage appends to the body it reads

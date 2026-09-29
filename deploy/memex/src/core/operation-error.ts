@@ -72,6 +72,21 @@ export class OperationError extends Error {
   }
 }
 
+/**
+ * A slug lookup that found no page the caller may see. The message names only
+ * the slug; the MCP dispatcher adds slug suggestions scoped to the caller
+ * before rendering (see core/slug-suggest.ts). `suggestion` here stays static.
+ */
+export class PageNotFoundError extends OperationError {
+  constructor(
+    public readonly slug: string,
+    suggestion?: string,
+  ) {
+    super("not_found", `page not found: ${slug}`, suggestion);
+    this.name = "PageNotFoundError";
+  }
+}
+
 export function isOperationError(e: unknown): e is OperationError {
   return e instanceof OperationError;
 }

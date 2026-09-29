@@ -90,9 +90,10 @@ export function operationInputSchema(op: Operation): Record<string, unknown> {
  * structured envelope.
  *
  * Scope decisions:
- *   - Required-PRESENCE is left to the per-handler guards — they carry richer,
- *     tool-specific messages (e.g. `search: \`q\` is required`); duplicating it
- *     here would shadow those. This validates only what's present.
+ *   - A required param that is absent, null or "" is refused here, with the
+ *     op's argument list in the suggestion. The per-handler guards stay as the
+ *     fallback for callers that bypass the contract; whitespace-only values are
+ *     still theirs to judge, since several tools accept them.
  *   - Unknown params ARE rejected, with a did-you-mean hint: a misspelled key
  *     (`page_put {body}` for `markdown_body`) used to be dropped silently and
  *     the write went ahead without it. `MEMEX_MCP_LENIENT_ARGS=1` restores the
@@ -109,6 +110,7 @@ export function validateParams(
   params: Record<string, unknown>,
 ): void {
   rejectUnknownParams(op, params);
+  rejectMissingRequired(op, params);
   const fail = (key: string, reason: string, suggestion: string): never => {
     throw new OperationError(
       "invalid_params",
@@ -118,7 +120,7 @@ export function validateParams(
   };
   for (const [key, def] of Object.entries(op.params)) {
     const v = params[key];
-    // Skip ONLY absent params (presence is the handler's job). A present `null`
+    // Skip ONLY absent params (required presence is checked above). A present `null`
     // is NOT skipped: the contract's declared types are non-nullable
     // (paramDefToSchema emits a bare `type`, never `["t","null"]`), so an
     // explicit null is a malformed value and must fail the type check below
@@ -179,6 +181,34 @@ export function validateParams(
       }
     }
   }
+}
+
+/** One line per argument for a refusal's suggestion: first sentence of its description. */
+const MAX_ARG_HINT_CHARS = 120;
+
+function describeArg(key: string, def: ParamDef): string {
+  const first = (def.description ?? "").split(/(?<=\.)\s/)[0]!.trim().replace(/\.$/, "");
+  const hint = first.length > MAX_ARG_HINT_CHARS ? `${first.slice(0, MAX_ARG_HINT_CHARS)}…` : first;
+  return hint ? `\`${key}\` (${def.type}): ${hint}` : `\`${key}\` (${def.type})`;
+}
+
+function rejectMissingRequired(op: Operation, params: Record<string, unknown>): void {
+  const entries = Object.entries(op.params);
+  const missing = entries
+    .filter(([k, d]) => d.required && (params[k] === undefined || params[k] === null || params[k] === ""))
+    .map(([k]) => `\`${k}\``);
+  if (missing.length === 0) return;
+  const required = entries.filter(([, d]) => d.required).map(([k, d]) => describeArg(k, d));
+  const optional = entries.filter(([, d]) => !d.required).map(([k, d]) => describeArg(k, d));
+  const suggestion = [
+    `Required: ${required.join("; ")}.`,
+    ...(optional.length > 0 ? [`Optional: ${optional.join("; ")}.`] : []),
+  ].join(" ");
+  throw new OperationError(
+    "invalid_params",
+    `${op.name}: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required`,
+    suggestion,
+  );
 }
 
 /** Caps on what an unknown-argument error echoes back from the payload. */

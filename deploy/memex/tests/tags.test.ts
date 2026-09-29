@@ -87,7 +87,7 @@ describe("addTag + getTags", () => {
 
   it("rejects tagging a non-existent page", async () => {
     await expect(addTag(storage, "ghost", "friend")).rejects.toThrow(
-      /page "ghost" not found/,
+      /page not found: ghost/,
     );
   });
 

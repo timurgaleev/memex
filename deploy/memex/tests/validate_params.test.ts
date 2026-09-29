@@ -55,10 +55,20 @@ describe("validateParams — unit", () => {
     expect(() => validateParams(search, { q: "hello" })).not.toThrow();
   });
 
-  it("does NOT enforce required-presence (left to handlers)", () => {
-    // `q` is required, but validateParams only checks PRESENT params.
-    expect(() => validateParams(search, {})).not.toThrow();
-    expect(() => validateParams(search, { k: 5 })).not.toThrow();
+  it("refuses an absent, null or empty required param with the argument list", () => {
+    for (const params of [{}, { k: 5 }, { q: null }, { q: "" }]) {
+      try {
+        validateParams(search, params);
+        throw new Error("should have thrown");
+      } catch (e) {
+        expect(isOperationError(e)).toBe(true);
+        expect((e as { code: string }).code).toBe("invalid_params");
+        expect((e as Error).message).toBe("search: `q` is required");
+        expect((e as { suggestion: string }).suggestion).toMatch(/^Required: `q` \(string\): Natural-language query\. Optional: `k` \(integer\)/);
+      }
+    }
+    // Whitespace is left to the handler: several tools accept it.
+    expect(() => validateParams(search, { q: " " })).not.toThrow();
   });
 
   it("rejects an out-of-range integer with invalid_params", () => {

@@ -360,7 +360,7 @@ describe("appendPage", () => {
   it("rejects appending to a page that does not exist", async () => {
     await expect(
       appendPage(storage, { slug: "ghost", content: "x" }),
-    ).rejects.toThrow(/does not exist/);
+    ).rejects.toThrow(/page not found/);
   });
 
   it("preserves type and compiled_truth across appends", async () => {
@@ -626,7 +626,7 @@ describe("putPage — background re-put of a deleted page", () => {
     await deletePage(storage, "gone");
     await expect(
       appendPage(storage, { slug: "gone", content: "more" }),
-    ).rejects.toThrow(/does not exist/);
+    ).rejects.toThrow(/page not found/);
     expect(await getPage(storage, "gone")).toBeNull();
   });
 });

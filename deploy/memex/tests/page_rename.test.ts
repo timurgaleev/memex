@@ -100,7 +100,7 @@ describe("renamePage", () => {
     // Append to the OLD slug must fail — it only holds a redirect now, not a page.
     await expect(
       appendPage(storage, { slug: "people/bob", content: "more" }),
-    ).rejects.toThrow(/does not exist/);
+    ).rejects.toThrow(/page not found/);
     // And the old slug was NOT recreated as a live page row.
     const canonical = await getPage(storage, "people/robert");
     expect(canonical?.markdown_body).toBe("hi"); // unchanged, no stray append

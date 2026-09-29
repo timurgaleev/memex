@@ -172,7 +172,7 @@ describe("HOLE 3 — write fail-closed + appendPage never adopts a victim source
     await putPage(storage, { slug: "victim/page", type: "note", markdown_body: "a only", source_id: A });
     await expect(
       appendPage(storage, { slug: "victim/page", content: "\nB was here", source_id: B }),
-    ).rejects.toThrow(/does not exist/);
+    ).rejects.toThrow(/page not found/);
     // A's page is untouched — never re-put under B.
     const page = await getPage(storage, "victim/page", [A]);
     expect(page?.markdown_body).toBe("a only");

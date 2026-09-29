@@ -72,10 +72,10 @@ describe("addTag existence probe", () => {
     );
     expect(foreign).not.toBeNull();
     // The oracle is closed only if the two failures are the same ERROR, not
-    // merely if the foreign call fails. Each message quotes its own slug, so
+    // merely if the foreign call fails. Each message names its own slug, so
     // compare the shape with the slug substituted out.
     const shape = (m: string | null) =>
-      m === null ? null : m.replace(/"[^"]*"/, '"<slug>"');
+      m === null ? null : m.replace(/: \S+$/, ": <slug>");
     expect(shape(foreign)).toBe(shape(absent));
   });
 

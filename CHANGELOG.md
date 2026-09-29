@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **A page miss says which page you probably meant.** `page_get`, `page_append`,
+  `add_timeline_event`, `add_tag`, `put_raw_data` and `extract_facts` answer a
+  missing slug with `not_found` and `page not found: <slug>`, and the
+  suggestion names the slug with the caller's own source prefix stripped or
+  added (`me/notes/x` for `notes/x`, including a doubled prefix) plus up to
+  three nearest slugs. Candidates come only from pages the caller can read,
+  never a diary page for a remote caller, and the static public bearer gets
+  none.
+- **A missing required argument is refused with the argument list.** Every
+  tool refuses an absent, `null` or empty required argument with
+  `invalid_params`, `<tool>: \`<arg>\` is required`, and a suggestion listing
+  the required and optional arguments with one line each. Whitespace-only
+  values are still judged by each tool. `unlink` with an empty `target_slug`
+  and `jobs_cancel` with an empty `id` used to succeed as no-ops and are now
+  refused.
+
+### Fixed
+- `docs/CONFIGURATION.md` gives the `MEMEX_CHUNK_OVERLAP` default as 300
+  characters, on; it said `0`.
+
 ## [1.161.0] — 2026-09-29
 
 ### Fixed

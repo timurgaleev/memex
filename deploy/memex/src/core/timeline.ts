@@ -18,6 +18,7 @@
 import type { Storage } from "./storage.ts";
 import { validateSlug } from "./pages.ts";
 import { guardFields } from "./secret-scan.ts";
+import { PageNotFoundError } from "./operation-error.ts";
 
 export interface AddTimelineEventInput {
   slug: string;
@@ -122,7 +123,7 @@ export async function addTimelineEvent(
         sourceId,
       ]);
     if (owns.rows.length === 0) {
-      throw new Error(`page not found: ${input.slug}`);
+      throw new PageNotFoundError(input.slug);
     }
   }
   const sourceCol = sourceId !== null ? ", source_id" : "";

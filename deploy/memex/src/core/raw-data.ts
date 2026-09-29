@@ -13,6 +13,7 @@ import { auditSecrets, guardSecretsDeep, guardWrite, type SecretFinding } from "
 import type { Storage } from "./storage.ts";
 import { validateSlug } from "./pages.ts";
 import { wellFormJsonbValue } from "./well-form.ts";
+import { PageNotFoundError } from "./operation-error.ts";
 
 /** Upper bound on one payload's serialized size (defence vs unbounded writes). */
 const MAX_RAW_DATA_BYTES = 1_000_000;
@@ -67,7 +68,7 @@ export async function putRawData(
         scope,
       ]);
     if (owns.rows.length === 0) {
-      throw new Error(`page not found: ${slug}`);
+      throw new PageNotFoundError(slug);
     }
   }
   const r = await storage.engine().query<{ inserted: boolean }>(

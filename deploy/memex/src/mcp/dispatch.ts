@@ -235,7 +235,8 @@ import {
   publicReadBodiesAllowed,
   publicSafeErrorMessage,
 } from "../core/public_redaction.ts";
-import { OperationError, isOperationError } from "../core/operation-error.ts";
+import { OperationError, PageNotFoundError, isOperationError } from "../core/operation-error.ts";
+import { suggestSlugs } from "../core/slug-suggest.ts";
 import { getBrainHotMemoryMeta } from "../core/hot-memory-meta.ts";
 import { MAX_REQUEST_ID_LEN, OPERATIONS, validateParams } from "./operations.ts";
 import {
@@ -808,6 +809,15 @@ async function dispatchToolInner(
     // ingress `toEnvelope` withholds the free-text `message` (see
     // operation-error.ts), so only the constrained code + static suggestion/
     // docs cross the boundary.
+    if (e instanceof PageNotFoundError) {
+      const withHint = await withSlugSuggestions(storage, e, {
+        isPublic: opts.isPublic ?? false,
+        readSources,
+        writeSource,
+        remote,
+      });
+      return errResult(JSON.stringify(withHint.toEnvelope(opts.isPublic ?? false)));
+    }
     if (isOperationError(e)) {
       return errResult(JSON.stringify(e.toEnvelope(opts.isPublic ?? false)));
     }
@@ -815,6 +825,35 @@ async function dispatchToolInner(
     // leak across the public boundary; fully redact it there, log server-side.
     return errResult(publicSafeErrorMessage(e, opts.isPublic ?? false));
   }
+}
+
+/**
+ * Name the pages a missed slug most likely meant, drawn only from what this
+ * caller can read. Any public-ingress caller gets none, OAuth tenants included:
+ * `suggestion` survives public redaction, so a dynamic slug list must never be
+ * rendered with isPublic=true. A remote caller never sees a diary slug. The lookup is a hint on an
+ * error path, so its own failure leaves the plain not_found.
+ */
+async function withSlugSuggestions(
+  storage: Storage,
+  e: PageNotFoundError,
+  ctx: { isPublic: boolean; readSources: string[] | undefined; writeSource: string | undefined; remote: boolean },
+): Promise<PageNotFoundError> {
+  if (ctx.isPublic) return e;
+  let slugs: string[];
+  try {
+    slugs = await suggestSlugs(storage, e.slug, {
+      sourceIds: ctx.readSources,
+      writeSource: ctx.writeSource,
+      ...(ctx.remote ? { exclude: (slug: string, type: string | null) => isDiaryPage(type ?? undefined, slug) } : {}),
+    });
+  } catch (err) {
+    console.error("[page-not-found] slug suggestions failed:", err instanceof Error ? err.message : err);
+    return e;
+  }
+  if (slugs.length === 0) return e;
+  const hint = `Did you mean ${slugs.map((s) => `\`${s}\``).join(", ")}?`;
+  return new PageNotFoundError(e.slug, e.suggestion ? `${hint} ${e.suggestion}` : hint);
 }
 
 /**
@@ -1932,11 +1971,11 @@ async function callPageGet(
       });
     }
   }
-  if (!page) return errResult(`page not found: ${args["slug"]}`);
+  if (!page) throw new PageNotFoundError(args["slug"]);
   // Diary fence: a non-operator caller must not even learn a diary page exists.
-  // Return the SAME not_found as a genuine miss (never permission_denied).
+  // Throw the SAME not_found as a genuine miss (never permission_denied).
   if (remote && isDiaryPage(page.type, page.slug)) {
-    return errResult(`page not found: ${args["slug"]}`);
+    throw new PageNotFoundError(args["slug"]);
   }
   // Retrieval write-back (mig 024): a user just surfaced this page — bump the
   // last_retrieved_at signal the context-volunteer "used" stat reads. Throttled
@@ -2231,6 +2270,7 @@ async function callAddTag(
     await addTag(storage, args["slug"], args["tag"], writeSource);
     return jsonResult({ ok: true, slug: args["slug"], tag: args["tag"] });
   } catch (e) {
+    if (e instanceof PageNotFoundError) throw e;
     return errResult(`add_tag: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
@@ -3398,9 +3438,8 @@ async function callExtractFacts(
       readSources,
     );
     if (!page) {
-      throw new OperationError(
-        "not_found",
-        `extract_facts: page not found: ${sourceRef}`,
+      throw new PageNotFoundError(
+        sourceRef,
         "Pass a valid page slug in `source_ref`, or pass `text` directly.",
       );
     }
@@ -3718,6 +3757,7 @@ async function callPutRawData(
     );
     return jsonResult({ ok: true, ...r });
   } catch (e) {
+    if (e instanceof PageNotFoundError) throw e;
     return errResult(`put_raw_data: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
