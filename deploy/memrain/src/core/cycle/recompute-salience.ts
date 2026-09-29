@@ -124,7 +124,7 @@ export async function recomputeSaliencePhase(
      WHERE p.deleted_at IS NULL`,
   );
 
-  const envTags = parseHighEmotionTagsEnv(process.env["MEMEX_SALIENCE_HIGH_TAGS"]);
+  const envTags = parseHighEmotionTagsEnv(process.env["MEMRAIN_SALIENCE_HIGH_TAGS"]);
   const opts: SalienceOpts = {};
   if (envTags) opts.highEmotionTags = envTags;
 

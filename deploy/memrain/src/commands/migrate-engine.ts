@@ -65,10 +65,10 @@ export function resolveEndpoints(
     return { kind: "pglite", path: resolve(p) };
   };
   const postgresEp = (): Endpoint => {
-    const url = opts.postgresUrl ?? env.MEMEX_POSTGRES_URL;
+    const url = opts.postgresUrl ?? env.MEMRAIN_POSTGRES_URL;
     if (!url) {
       throw new Error(
-        "migrate-engine: --postgres-url or MEMEX_POSTGRES_URL required for postgres endpoint",
+        "migrate-engine: --postgres-url or MEMRAIN_POSTGRES_URL required for postgres endpoint",
       );
     }
     return { kind: "postgres", url };

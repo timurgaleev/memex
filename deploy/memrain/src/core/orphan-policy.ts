@@ -22,9 +22,9 @@
  * at something nobody can reproduce.
  *
  * Two env keys, both optional:
- *   MEMEX_ORPHAN_EXCLUDE_WRITERS  replaces the built-in writer list entirely
- *   MEMEX_ORPHAN_EXCLUDE_EXTRA    adds to it
- * Both are comma-separated. PRESENCE decides: `MEMEX_ORPHAN_EXCLUDE_WRITERS=`
+ *   MEMRAIN_ORPHAN_EXCLUDE_WRITERS  replaces the built-in writer list entirely
+ *   MEMRAIN_ORPHAN_EXCLUDE_EXTRA    adds to it
+ * Both are comma-separated. PRESENCE decides: `MEMRAIN_ORPHAN_EXCLUDE_WRITERS=`
  * means count everything.
  */
 
@@ -66,16 +66,16 @@ function parseCsv(raw: string | undefined): string[] {
 export function orphanExcludedWriters(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const replace = env["MEMEX_ORPHAN_EXCLUDE_WRITERS"];
+  const replace = env["MEMRAIN_ORPHAN_EXCLUDE_WRITERS"];
   // PRESENCE decides, not content: a set value — including an empty one — is a
-  // deliberate override, and `MEMEX_ORPHAN_EXCLUDE_WRITERS=` is how a brain
+  // deliberate override, and `MEMRAIN_ORPHAN_EXCLUDE_WRITERS=` is how a brain
   // says "count everything". Testing the length instead would restore the
   // defaults for the plainest way to write that.
   const base =
     replace !== undefined
       ? parseCsv(replace)
       : [...DEFAULT_ORPHAN_EXCLUDED_WRITERS];
-  return [...new Set([...base, ...parseCsv(env["MEMEX_ORPHAN_EXCLUDE_EXTRA"])])];
+  return [...new Set([...base, ...parseCsv(env["MEMRAIN_ORPHAN_EXCLUDE_EXTRA"])])];
 }
 
 /** True when this writer's pages are excluded from orphan reporting. */

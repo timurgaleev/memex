@@ -323,20 +323,20 @@ describe("dispatchTool entity_recall facts/timeline redaction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// MEMEX_PUBLIC_READ_BODIES opt-in — operator can disable redaction
+// MEMRAIN_PUBLIC_READ_BODIES opt-in — operator can disable redaction
 // ---------------------------------------------------------------------------
 
-describe("dispatchTool MEMEX_PUBLIC_READ_BODIES opt-in", () => {
+describe("dispatchTool MEMRAIN_PUBLIC_READ_BODIES opt-in", () => {
   // Mutates a process-global env var; relies on Bun running tests within a
   // file serially (the default) so the toggle does not bleed into the
   // redaction cases above.
-  const ORIGINAL = process.env["MEMEX_PUBLIC_READ_BODIES"];
+  const ORIGINAL = process.env["MEMRAIN_PUBLIC_READ_BODIES"];
   beforeEach(() => {
-    process.env["MEMEX_PUBLIC_READ_BODIES"] = "1";
+    process.env["MEMRAIN_PUBLIC_READ_BODIES"] = "1";
   });
   afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
-    else process.env["MEMEX_PUBLIC_READ_BODIES"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+    else process.env["MEMRAIN_PUBLIC_READ_BODIES"] = ORIGINAL;
   });
 
   it("public ingress returns the body when opted in", async () => {

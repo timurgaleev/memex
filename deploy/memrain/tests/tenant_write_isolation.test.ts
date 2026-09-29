@@ -440,22 +440,22 @@ describe("index `path` form is operator-only", () => {
   // source — a tenant reaching it would index daemon files into unowned rows.
   let root: string;
   const saved = {
-    vault: process.env.MEMEX_VAULT_PATHS,
-    code: process.env.MEMEX_CODE_PATHS,
+    vault: process.env.MEMRAIN_VAULT_PATHS,
+    code: process.env.MEMRAIN_CODE_PATHS,
   };
 
   beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "memex-index-path-"));
     writeFileSync(join(root, "server.md"), "a file on the daemon's disk");
-    process.env.MEMEX_VAULT_PATHS = root;
-    delete process.env.MEMEX_CODE_PATHS;
+    process.env.MEMRAIN_VAULT_PATHS = root;
+    delete process.env.MEMRAIN_CODE_PATHS;
   });
 
   afterAll(() => {
-    if (saved.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-    else process.env.MEMEX_VAULT_PATHS = saved.vault;
-    if (saved.code === undefined) delete process.env.MEMEX_CODE_PATHS;
-    else process.env.MEMEX_CODE_PATHS = saved.code;
+    if (saved.vault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+    else process.env.MEMRAIN_VAULT_PATHS = saved.vault;
+    if (saved.code === undefined) delete process.env.MEMRAIN_CODE_PATHS;
+    else process.env.MEMRAIN_CODE_PATHS = saved.code;
     rmSync(root, { recursive: true, force: true });
   });
 

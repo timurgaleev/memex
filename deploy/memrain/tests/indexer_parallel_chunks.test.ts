@@ -1,6 +1,6 @@
 /**
  * Chunks are situated and embedded in parallel under one write-path ceiling
- * (`MEMEX_EMBED_MAX_INFLIGHT`) shared by every concurrent write. Serially, a
+ * (`MEMRAIN_EMBED_MAX_INFLIGHT`) shared by every concurrent write. Serially, a
  * page paid ~1.3 s of Bedrock per chunk, one after the other.
  *
  * Locks: the ceiling holds (per write and across writes), each chunk keeps its
@@ -42,7 +42,7 @@ function trackingEmbed(delayFor: (text: string) => number) {
 }
 
 function setWidth(n: number): void {
-  process.env.MEMEX_EMBED_MAX_INFLIGHT = String(n);
+  process.env.MEMRAIN_EMBED_MAX_INFLIGHT = String(n);
   _resetWriteEmbedSlotsForTests();
 }
 
@@ -50,15 +50,15 @@ let quiet: ReturnType<typeof spyOn>;
 
 beforeEach(async () => {
   quiet = spyOn(console, "log").mockImplementation(() => {});
-  prevWidth = process.env.MEMEX_EMBED_MAX_INFLIGHT;
+  prevWidth = process.env.MEMRAIN_EMBED_MAX_INFLIGHT;
   tmp = mkdtempSync(join(tmpdir(), "memex-parallel-chunks-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
   quiet.mockRestore();
-  if (prevWidth === undefined) delete process.env.MEMEX_EMBED_MAX_INFLIGHT;
-  else process.env.MEMEX_EMBED_MAX_INFLIGHT = prevWidth;
+  if (prevWidth === undefined) delete process.env.MEMRAIN_EMBED_MAX_INFLIGHT;
+  else process.env.MEMRAIN_EMBED_MAX_INFLIGHT = prevWidth;
   _resetWriteEmbedSlotsForTests();
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });

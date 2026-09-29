@@ -109,26 +109,26 @@ export function dedupByTextSimilarity<T extends NearDupPayload>(
 /**
  * Near-dup Jaccard threshold, memoized once per process (single source shared
  * by the ranking path AND the query-cache key, so they can't diverge). Env
- * `MEMEX_NEARDUP_JACCARD` overrides the 0.85 default; a value > 1.0 disables the
+ * `MEMRAIN_NEARDUP_JACCARD` overrides the 0.85 default; a value > 1.0 disables the
  * stage (no Jaccard can exceed it). Malformed → throw (fail-loud), matching the
  * other ranking-knob parsers.
  */
 export class NearDupThresholdParseError extends Error {}
 
 export function resolveNearDupThreshold(
-  envValue: string | undefined = process.env["MEMEX_NEARDUP_JACCARD"],
+  envValue: string | undefined = process.env["MEMRAIN_NEARDUP_JACCARD"],
 ): number {
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_NEARDUP_JACCARD;
   const raw = envValue.trim();
   if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new NearDupThresholdParseError(
-      `invalid MEMEX_NEARDUP_JACCARD: ${JSON.stringify(envValue)}`,
+      `invalid MEMRAIN_NEARDUP_JACCARD: ${JSON.stringify(envValue)}`,
     );
   }
   const v = Number.parseFloat(raw);
   if (!Number.isFinite(v) || v < 0) {
     throw new NearDupThresholdParseError(
-      `invalid MEMEX_NEARDUP_JACCARD: ${JSON.stringify(envValue)}`,
+      `invalid MEMRAIN_NEARDUP_JACCARD: ${JSON.stringify(envValue)}`,
     );
   }
   return v;
@@ -151,18 +151,18 @@ const DEFAULT_MAX_TYPE_RATIO = 0.6;
 
 export class TypeRatioParseError extends Error {}
 
-/** `MEMEX_MAX_TYPE_RATIO` override; >= 1 disables. Fail-loud on garbage. */
+/** `MEMRAIN_MAX_TYPE_RATIO` override; >= 1 disables. Fail-loud on garbage. */
 export function resolveMaxTypeRatio(
-  envValue: string | undefined = process.env["MEMEX_MAX_TYPE_RATIO"],
+  envValue: string | undefined = process.env["MEMRAIN_MAX_TYPE_RATIO"],
 ): number {
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_MAX_TYPE_RATIO;
   const raw = envValue.trim();
   if (!/^\d+(?:\.\d+)?$/.test(raw)) {
-    throw new TypeRatioParseError(`invalid MEMEX_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
+    throw new TypeRatioParseError(`invalid MEMRAIN_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
   }
   const v = Number.parseFloat(raw);
   if (!Number.isFinite(v) || v <= 0) {
-    throw new TypeRatioParseError(`invalid MEMEX_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
+    throw new TypeRatioParseError(`invalid MEMRAIN_MAX_TYPE_RATIO: ${JSON.stringify(envValue)}`);
   }
   return v;
 }

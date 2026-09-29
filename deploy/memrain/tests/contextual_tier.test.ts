@@ -33,19 +33,19 @@ const situating: LlmFn = async () => ({ text: "Situates the chunk.", modelId: "f
 const failing: LlmFn = async () => ({ text: "", modelId: "fake" });
 
 beforeEach(async () => {
-  prevLlm = process.env.MEMEX_CONTEXTUAL_LLM;
-  prevWrap = process.env.MEMEX_CONTEXTUAL_RETRIEVAL;
-  delete process.env.MEMEX_CONTEXTUAL_LLM;
-  delete process.env.MEMEX_CONTEXTUAL_RETRIEVAL;
+  prevLlm = process.env.MEMRAIN_CONTEXTUAL_LLM;
+  prevWrap = process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL;
+  delete process.env.MEMRAIN_CONTEXTUAL_LLM;
+  delete process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL;
   tmp = mkdtempSync(join(tmpdir(), "memex-tier-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  if (prevLlm === undefined) delete process.env.MEMEX_CONTEXTUAL_LLM;
-  else process.env.MEMEX_CONTEXTUAL_LLM = prevLlm;
-  if (prevWrap === undefined) delete process.env.MEMEX_CONTEXTUAL_RETRIEVAL;
-  else process.env.MEMEX_CONTEXTUAL_RETRIEVAL = prevWrap;
+  if (prevLlm === undefined) delete process.env.MEMRAIN_CONTEXTUAL_LLM;
+  else process.env.MEMRAIN_CONTEXTUAL_LLM = prevLlm;
+  if (prevWrap === undefined) delete process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL;
+  else process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL = prevWrap;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });

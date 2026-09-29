@@ -56,16 +56,16 @@ const fakePages =
     hits as SearchHit[];
 
 describe("runDeepSynthPhase", () => {
-  it("is default-OFF without MEMEX_DEEP_SYNTH and no injected sonnetFn", async () => {
-    const prev = process.env.MEMEX_DEEP_SYNTH;
-    delete process.env.MEMEX_DEEP_SYNTH;
+  it("is default-OFF without MEMRAIN_DEEP_SYNTH and no injected sonnetFn", async () => {
+    const prev = process.env.MEMRAIN_DEEP_SYNTH;
+    delete process.env.MEMRAIN_DEEP_SYNTH;
     try {
       const r = await runDeepSynthPhase(storage, { questions: ["what is the plan?"] });
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_DEEP_SYNTH");
+      expect(r.reason).toContain("MEMRAIN_DEEP_SYNTH");
       expect(r.syntheses).toEqual([]);
     } finally {
-      if (prev !== undefined) process.env.MEMEX_DEEP_SYNTH = prev;
+      if (prev !== undefined) process.env.MEMRAIN_DEEP_SYNTH = prev;
     }
   });
 

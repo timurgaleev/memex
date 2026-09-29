@@ -77,17 +77,17 @@ describe("markdown walks", () => {
         storage: {},
       }),
     });
-    const saved = process.env.MEMEX_CONFIG_PATH;
+    const saved = process.env.MEMRAIN_CONFIG_PATH;
     const origLog = console.log;
     const out: string[] = [];
-    process.env.MEMEX_CONFIG_PATH = cfgPath;
+    process.env.MEMRAIN_CONFIG_PATH = cfgPath;
     console.log = (...a: unknown[]) => out.push(a.map(String).join(" "));
     try {
       await runIntegrity({ vault: root });
     } finally {
       console.log = origLog;
-      if (saved === undefined) delete process.env.MEMEX_CONFIG_PATH;
-      else process.env.MEMEX_CONFIG_PATH = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_CONFIG_PATH;
+      else process.env.MEMRAIN_CONFIG_PATH = saved;
     }
     const summary = JSON.parse(out.join("\n")) as { files_on_disk: number; details: { on_disk_only: string[] } };
     expect(summary.files_on_disk).toBe(1);

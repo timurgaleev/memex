@@ -98,7 +98,7 @@ export function isTitlePhraseMatch(query: string, title: string | null | undefin
 }
 
 /**
- * Resolve the title-boost factor from `MEMEX_TITLE_BOOST` (default 1.25, ON).
+ * Resolve the title-boost factor from `MEMRAIN_TITLE_BOOST` (default 1.25, ON).
  * A multiplier is scale-invariant, so it applies cleanly onto memex's RRF
  * score. A value <= 1.0 disables the boost
  * (the multiplier becomes a no-op). Malformed env → throw (fail-loud), matching
@@ -107,17 +107,17 @@ export function isTitlePhraseMatch(query: string, title: string | null | undefin
 export class TitleBoostParseError extends Error {}
 
 export function resolveTitleBoost(
-  envValue: string | undefined = process.env["MEMEX_TITLE_BOOST"],
+  envValue: string | undefined = process.env["MEMRAIN_TITLE_BOOST"],
 ): number {
   if (envValue === undefined || envValue.trim() === "") return DEFAULT_TITLE_BOOST;
   const raw = envValue.trim();
   // Strict numeric: reject trailing junk (parseFloat("1.2x") would yield 1.2).
   if (!/^\d+(?:\.\d+)?$/.test(raw)) {
-    throw new TitleBoostParseError(`invalid MEMEX_TITLE_BOOST: ${JSON.stringify(envValue)}`);
+    throw new TitleBoostParseError(`invalid MEMRAIN_TITLE_BOOST: ${JSON.stringify(envValue)}`);
   }
   const factor = Number.parseFloat(raw);
   if (!Number.isFinite(factor) || factor < 0) {
-    throw new TitleBoostParseError(`invalid MEMEX_TITLE_BOOST: ${JSON.stringify(envValue)}`);
+    throw new TitleBoostParseError(`invalid MEMRAIN_TITLE_BOOST: ${JSON.stringify(envValue)}`);
   }
   // A factor in (0, 1) is a no-op, not a penalty: the boost only ever
   // multiplies UP (the apply site gates on `> 1.0`), so a fractional value is
@@ -126,7 +126,7 @@ export function resolveTitleBoost(
   // intentional and stay quiet.
   if (factor > 0 && factor < 1.0) {
     console.warn(
-      `MEMEX_TITLE_BOOST=${raw} is < 1.0 and has no effect (the title boost only ` +
+      `MEMRAIN_TITLE_BOOST=${raw} is < 1.0 and has no effect (the title boost only ` +
         `multiplies up; use >= 1.0 to boost, or 0 to disable).`,
     );
   }

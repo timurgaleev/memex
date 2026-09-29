@@ -75,22 +75,22 @@ export interface SemanticCacheConfig {
 /**
  * Resolve the semantic-arm config from env (fail-safe, never throws — the cache
  * is a pure optimization):
- *   - `MEMEX_QUERY_CACHE_SEMANTIC=1` turns the arm ON (default OFF);
- *   - `MEMEX_QUERY_CACHE_SIM` sets the cosine floor (default 0.92), clamped to
+ *   - `MEMRAIN_QUERY_CACHE_SEMANTIC=1` turns the arm ON (default OFF);
+ *   - `MEMRAIN_QUERY_CACHE_SIM` sets the cosine floor (default 0.92), clamped to
  *     (0, 1] — a non-positive / >1 / garbage value falls back to the default;
- *   - `MEMEX_QUERY_CACHE_TTL` sets the TTL seconds (default 3600), floored to a
+ *   - `MEMRAIN_QUERY_CACHE_TTL` sets the TTL seconds (default 3600), floored to a
  *     positive integer (garbage → default).
  */
 export function resolveSemanticCacheConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): SemanticCacheConfig {
-  const enabled = env["MEMEX_QUERY_CACHE_SEMANTIC"] === "1";
-  const simRaw = Number(env["MEMEX_QUERY_CACHE_SIM"]);
+  const enabled = env["MEMRAIN_QUERY_CACHE_SEMANTIC"] === "1";
+  const simRaw = Number(env["MEMRAIN_QUERY_CACHE_SIM"]);
   const similarity =
     Number.isFinite(simRaw) && simRaw > 0 && simRaw <= 1
       ? simRaw
       : DEFAULT_SEMANTIC_SIMILARITY;
-  const ttlRaw = Number(env["MEMEX_QUERY_CACHE_TTL"]);
+  const ttlRaw = Number(env["MEMRAIN_QUERY_CACHE_TTL"]);
   const ttlSeconds =
     Number.isFinite(ttlRaw) && ttlRaw > 0
       ? Math.floor(ttlRaw)
@@ -106,8 +106,8 @@ export function resolveSemanticCacheConfig(
  * instead of serving a pre-change order until the document clock happens to
  * advance. `2` = the title-phrase boost (v1.3.20); `3` = the near-dup dedup
  * stage (v1.3.25); `4` = the graph-signals score-floor ratio
- * (MEMEX_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts;
- * `5` = the alias-hop stage (MEMEX_ALIAS_HOP), which can boost or inject the
+ * (MEMRAIN_GRAPH_SIGNALS_FLOOR), which changes which hits receive graph boosts;
+ * `5` = the alias-hop stage (MEMRAIN_ALIAS_HOP), which can boost or inject the
  * canonical page for an exact-alias query; `6` = the ranking
  * batch (k/weight RRF math, zero-LLM intent taxonomy, arm-SQL curation boost +
  * default hard-excludes, compiled-truth ×2, exact-match / alias-resolved /
@@ -123,23 +123,23 @@ const RANKING_VERSION = "8";
  * Signature of the ranking inputs that are NOT function arguments, so a change
  * to any of them re-keys the cache instead of serving a pre-change ordering:
  *   - `RANKING_VERSION` — code-level ranking changes (bump on a new boost);
- *   - the live title-boost factor (`MEMEX_TITLE_BOOST`), read through the SAME
+ *   - the live title-boost factor (`MEMRAIN_TITLE_BOOST`), read through the SAME
  *     memoized getter the ranking uses, so the key and the order never diverge;
- *   - the raw `MEMEX_RECENCY_DECAY` env, which also reorders results;
- *   - the near-dup Jaccard threshold (`MEMEX_NEARDUP_JACCARD`), which changes
+ *   - the raw `MEMRAIN_RECENCY_DECAY` env, which also reorders results;
+ *   - the near-dup Jaccard threshold (`MEMRAIN_NEARDUP_JACCARD`), which changes
  *     which hits survive dedup;
- *   - the graph-signals score-floor ratio (`MEMEX_GRAPH_SIGNALS_FLOOR`), which
+ *   - the graph-signals score-floor ratio (`MEMRAIN_GRAPH_SIGNALS_FLOOR`), which
  *     changes which hits are eligible for a graph boost;
- *   - the alias-hop on/off flag (`MEMEX_ALIAS_HOP`), which can boost or inject
+ *   - the alias-hop on/off flag (`MEMRAIN_ALIAS_HOP`), which can boost or inject
  *     the canonical page for an exact-alias query;
  *   - the full ranking-knob set (the knobs-hash): the resolved
- *     search MODE (`MEMEX_SEARCH_MODE`) plus every stage-toggling env —
- *     graph-signals (`MEMEX_GRAPH_SIGNALS`), cosine re-score
- *     (`MEMEX_COSINE_RESCORE`), backlink boost (`MEMEX_BACKLINK_BOOST`),
- *     expansion (`MEMEX_QUERY_EXPANSION`), recency boost
- *     (`MEMEX_RECENCY_BOOST`), curation boost/excludes (`MEMEX_CURATION_BOOST`
- *     / `MEMEX_SEARCH_EXCLUDE`), and the type-diversity ratio
- *     (`MEMEX_MAX_TYPE_RATIO`). A flag flip re-keys the cache instead of
+ *     search MODE (`MEMRAIN_SEARCH_MODE`) plus every stage-toggling env —
+ *     graph-signals (`MEMRAIN_GRAPH_SIGNALS`), cosine re-score
+ *     (`MEMRAIN_COSINE_RESCORE`), backlink boost (`MEMRAIN_BACKLINK_BOOST`),
+ *     expansion (`MEMRAIN_QUERY_EXPANSION`), recency boost
+ *     (`MEMRAIN_RECENCY_BOOST`), curation boost/excludes (`MEMRAIN_CURATION_BOOST`
+ *     / `MEMRAIN_SEARCH_EXCLUDE`), and the type-diversity ratio
+ *     (`MEMRAIN_MAX_TYPE_RATIO`). A flag flip re-keys the cache instead of
  *     serving the pre-flip ranking until the TTL/clock catches up. Per-call
  *     overrides of the same knobs are appended by hybrid.ts on top of this
  *     env-level signature.
@@ -150,18 +150,18 @@ const RANKING_VERSION = "8";
  */
 export function rankingSignature(): string {
   const env = process.env;
-  const recency = env["MEMEX_RECENCY_DECAY"] ?? "";
+  const recency = env["MEMRAIN_RECENCY_DECAY"] ?? "";
   const knobs = [
     `mode=${resolveSearchMode()}`,
-    `gs=${env["MEMEX_GRAPH_SIGNALS"] ?? ""}`,
-    `cr=${env["MEMEX_COSINE_RESCORE"] ?? ""}`,
-    `bb=${env["MEMEX_BACKLINK_BOOST"] ?? ""}`,
-    `xp=${env["MEMEX_QUERY_EXPANSION"] ?? ""}`,
-    `rb=${env["MEMEX_RECENCY_BOOST"] ?? ""}`,
-    `cb=${env["MEMEX_CURATION_BOOST"] ?? ""}`,
-    `sx=${env["MEMEX_SEARCH_EXCLUDE"] ?? ""}`,
+    `gs=${env["MEMRAIN_GRAPH_SIGNALS"] ?? ""}`,
+    `cr=${env["MEMRAIN_COSINE_RESCORE"] ?? ""}`,
+    `bb=${env["MEMRAIN_BACKLINK_BOOST"] ?? ""}`,
+    `xp=${env["MEMRAIN_QUERY_EXPANSION"] ?? ""}`,
+    `rb=${env["MEMRAIN_RECENCY_BOOST"] ?? ""}`,
+    `cb=${env["MEMRAIN_CURATION_BOOST"] ?? ""}`,
+    `sx=${env["MEMRAIN_SEARCH_EXCLUDE"] ?? ""}`,
     `mt=${getMaxTypeRatio()}`,
-    `rw=${env["MEMEX_RERANK_WINDOW"] ?? ""}`,
+    `rw=${env["MEMRAIN_RERANK_WINDOW"] ?? ""}`,
   ].join(":");
   return `${RANKING_VERSION}:tb=${getTitleBoost()}:rd=${recency}:nd=${getNearDupThreshold()}:gsf=${getGraphSignalsFloorRatio()}:ah=${aliasHopEnabled() ? 1 : 0}:${knobs}`;
 }

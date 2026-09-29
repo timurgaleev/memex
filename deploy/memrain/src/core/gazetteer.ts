@@ -12,7 +12,7 @@
  *
  * FALSE-POSITIVE SENSITIVE — DEFAULT OFF. Matching prose against page titles
  * risks wrong edges (a person named "Will", a company "Apple"). So this is
- * opt-in (`MEMEX_GAZETTEER=1`) and conservatively guarded:
+ * opt-in (`MEMRAIN_GAZETTEER=1`) and conservatively guarded:
  *   - only `person` / `company` pages (named entities, not generic notes);
  *   - a phrase must be within a length band and not numeric / a stop-word;
  *   - a PROPER-NOUN heuristic: a match whose surface form is lowercase in the
@@ -60,12 +60,12 @@ const STOP_PHRASES = new Set([
 ]);
 
 /**
- * Gazetteer auto-linking is OPT-IN: `MEMEX_GAZETTEER=1` enables it. Default
+ * Gazetteer auto-linking is OPT-IN: `MEMRAIN_GAZETTEER=1` enables it. Default
  * OFF — a wrong auto-link silently pollutes the graph, so the operator turns
  * it on only after confirming it behaves on their vault.
  */
 export function gazetteerEnabled(
-  env: string | undefined = process.env.MEMEX_GAZETTEER,
+  env: string | undefined = process.env.MEMRAIN_GAZETTEER,
 ): boolean {
   return env === "1";
 }
@@ -251,7 +251,7 @@ export function scanMentions(
 /**
  * Replace the gazetteer-derived (`link_kind='plain'`) `mentions` edge set for
  * `sourceSlug` with the entities named in `body`. No-op unless
- * `MEMEX_GAZETTEER=1`. Runs in one transaction. NEVER clobbers an explicit
+ * `MEMRAIN_GAZETTEER=1`. Runs in one transaction. NEVER clobbers an explicit
  * `mentions` edge: the delete is scoped to `link_kind='plain'` and the insert
  * is `ON CONFLICT DO NOTHING`, so an operator-asserted mention always wins.
  */

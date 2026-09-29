@@ -14,10 +14,10 @@ import {
 } from "../src/core/connectors/github-render.ts";
 import { LEAKED_TOKEN, recorded } from "./github-recorded.ts";
 
-const savedDisposition = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+const savedDisposition = process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
 afterEach(() => {
-  if (savedDisposition === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-  else process.env.MEMEX_SECRET_SCAN_DISPOSITION = savedDisposition;
+  if (savedDisposition === undefined) delete process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+  else process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = savedDisposition;
 });
 
 const page1 = recorded("issues-page-1").body as unknown[];
@@ -98,7 +98,7 @@ describe("secrets", () => {
   });
 
   it("refuses the item under the reject disposition", () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     expect(() => renderItem("acme", "widgets", item(3))).toThrow(SecretRejectedError);
   });
 
@@ -107,7 +107,7 @@ describe("secrets", () => {
     const r = renderItem("acme", "widgets", labelled);
     expect(JSON.stringify(r)).not.toContain(LEAKED_TOKEN);
     expect(r.findings).toHaveLength(1);
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     expect(() => renderItem("acme", "widgets", labelled)).toThrow(SecretRejectedError);
   });
 });

@@ -7,7 +7,7 @@
  * let worthwhile transcripts through to the Sonnet spend. The cache sits
  * BEFORE the spend: a re-run never re-pays the judge for unchanged content.
  *
- * Default-OFF (MEMEX_WORTH_GATE=1): with the gate off, callers behave exactly
+ * Default-OFF (MEMRAIN_WORTH_GATE=1): with the gate off, callers behave exactly
  * as before (everything passes). The gate itself is fail-open — a judge error
  * keeps the transcript (the gate exists to save money, and a broken gate must
  * never silently starve the pipeline).
@@ -19,7 +19,7 @@ import { sanitizeForPrompt } from "../llm/sanitize.ts";
 import { parseModelJson } from "../llm/json-output.ts";
 
 export function worthGateEnabled(
-  raw: string | undefined = process.env.MEMEX_WORTH_GATE,
+  raw: string | undefined = process.env.MEMRAIN_WORTH_GATE,
 ): boolean {
   const v = (raw ?? "").trim().toLowerCase();
   return v === "1" || v === "true";

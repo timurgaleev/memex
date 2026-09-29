@@ -14,17 +14,17 @@ const NOW = Date.parse("2026-09-19T12:00:00Z");
 const DAY = 86_400_000;
 let tmp: string;
 let storage: Storage;
-const savedStall = process.env.MEMEX_CONNECTOR_STALL_DAYS;
+const savedStall = process.env.MEMRAIN_CONNECTOR_STALL_DAYS;
 
 beforeEach(async () => {
-  delete process.env.MEMEX_CONNECTOR_STALL_DAYS;
+  delete process.env.MEMRAIN_CONNECTOR_STALL_DAYS;
   tmp = mkdtempSync(join(tmpdir(), "memex-doctor-connectors-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  if (savedStall === undefined) delete process.env.MEMEX_CONNECTOR_STALL_DAYS;
-  else process.env.MEMEX_CONNECTOR_STALL_DAYS = savedStall;
+  if (savedStall === undefined) delete process.env.MEMRAIN_CONNECTOR_STALL_DAYS;
+  else process.env.MEMRAIN_CONNECTOR_STALL_DAYS = savedStall;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -79,7 +79,7 @@ describe("checkConnectorHealth", () => {
     const r = await checkConnectorHealth(storage.engine(), NOW);
     expect(r.status).toBe("warn");
     expect(r.detail).toContain("stalled");
-    process.env.MEMEX_CONNECTOR_STALL_DAYS = "30";
+    process.env.MEMRAIN_CONNECTOR_STALL_DAYS = "30";
     expect((await checkConnectorHealth(storage.engine(), NOW)).status).toBe("ok");
   });
 

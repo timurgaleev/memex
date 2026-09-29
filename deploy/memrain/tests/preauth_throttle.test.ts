@@ -38,7 +38,7 @@ describe("pre-auth token-verification throttle", () => {
   let tmp = "";
   let storage: Storage | undefined;
   let server: ServerHandle | undefined;
-  const savedAssumePublic = process.env["MEMEX_ASSUME_PUBLIC"];
+  const savedAssumePublic = process.env["MEMRAIN_ASSUME_PUBLIC"];
 
   afterEach(async () => {
     await server?.stop();
@@ -47,8 +47,8 @@ describe("pre-auth token-verification throttle", () => {
     tmp = "";
     server = undefined;
     storage = undefined;
-    if (savedAssumePublic === undefined) delete process.env["MEMEX_ASSUME_PUBLIC"];
-    else process.env["MEMEX_ASSUME_PUBLIC"] = savedAssumePublic;
+    if (savedAssumePublic === undefined) delete process.env["MEMRAIN_ASSUME_PUBLIC"];
+    else process.env["MEMRAIN_ASSUME_PUBLIC"] = savedAssumePublic;
   });
 
   async function boot(
@@ -142,7 +142,7 @@ describe("pre-auth token-verification throttle", () => {
     // an unmetered channel, two DB round-trips per attempt, forever. A caller
     // without Cf-Connecting-Ip still has a socket address, which separates the
     // bridge peers from each other just as well, so meter on that.
-    process.env["MEMEX_ASSUME_PUBLIC"] = "1";
+    process.env["MEMRAIN_ASSUME_PUBLIC"] = "1";
     const { provider, calls } = stubProvider("good-token");
     const url = await boot(
       provider,

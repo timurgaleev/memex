@@ -6,7 +6,7 @@
  * Discovery order:
  *   1. <config dir>/config.json   — required, written by `init`
  *   2. <config dir>/memrain.yml, else memex.yml — optional overlay
- *   3. process.env.MEMEX_*    — applied at the call site (serve.ts)
+ *   3. process.env.MEMRAIN_*    — applied at the call site (serve.ts)
  *
  * The config dir is resolved by `resolveConfigDir`.
  *
@@ -27,7 +27,7 @@ export interface PGliteDatabaseConfig {
 
 export interface PostgresDatabaseConfig {
   type: "postgres";
-  /** Connection URL with sslmode=require. Override via MEMEX_POSTGRES_URL. */
+  /** Connection URL with sslmode=require. Override via MEMRAIN_POSTGRES_URL. */
   url?: string;
 }
 
@@ -142,7 +142,7 @@ type Env = Record<string, string | undefined>;
  * ignores anyway — it goes through getpwuid).
  */
 export function configPathOverride(env: Env = process.env): string | null {
-  const override = env.MEMEX_CONFIG_PATH;
+  const override = env.MEMRAIN_CONFIG_PATH;
   return override && override.length > 0 ? override : null;
 }
 
@@ -212,7 +212,7 @@ export function loadConfig(path: string = defaultConfigPath()): Config {
       );
     }
   } else if (cfg.database.type === "postgres") {
-    // URL is optional in the JSON; MEMEX_POSTGRES_URL env is the
+    // URL is optional in the JSON; MEMRAIN_POSTGRES_URL env is the
     // expected source on the EC2 host (populated by fetch-secrets.sh).
   } else {
     throw new Error(

@@ -132,26 +132,26 @@ describe("collectUsageShape", () => {
 });
 
 describe("collectSetupSmells", () => {
-  it("flags an unset MEMEX_INTERNAL_TOKEN", async () => {
-    const prev = process.env["MEMEX_INTERNAL_TOKEN"];
-    delete process.env["MEMEX_INTERNAL_TOKEN"];
+  it("flags an unset MEMRAIN_INTERNAL_TOKEN", async () => {
+    const prev = process.env["MEMRAIN_INTERNAL_TOKEN"];
+    delete process.env["MEMRAIN_INTERNAL_TOKEN"];
     try {
       const out = await collectSetupSmells.collect(ctx());
       expect(out.map((x) => x.id)).toContain("internal_token_unset");
     } finally {
-      if (prev !== undefined) process.env["MEMEX_INTERNAL_TOKEN"] = prev;
+      if (prev !== undefined) process.env["MEMRAIN_INTERNAL_TOKEN"] = prev;
     }
   });
 
   it("is silent when the token is set", async () => {
-    const prev = process.env["MEMEX_INTERNAL_TOKEN"];
-    process.env["MEMEX_INTERNAL_TOKEN"] = "secret-token";
+    const prev = process.env["MEMRAIN_INTERNAL_TOKEN"];
+    process.env["MEMRAIN_INTERNAL_TOKEN"] = "secret-token";
     try {
       const out = await collectSetupSmells.collect(ctx());
       expect(out.length).toBe(0);
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_INTERNAL_TOKEN"];
-      else process.env["MEMEX_INTERNAL_TOKEN"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_INTERNAL_TOKEN"];
+      else process.env["MEMRAIN_INTERNAL_TOKEN"] = prev;
     }
   });
 });

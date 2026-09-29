@@ -32,7 +32,7 @@
  * first and released last; if the second cannot be taken, the first is given
  * back before the refusal.
  *
- * `MEMEX_PGLITE_NO_LOCK=1` skips the whole mechanism, for setups this rule
+ * `MEMRAIN_PGLITE_NO_LOCK=1` skips the whole mechanism, for setups this rule
  * would wrongly refuse (a read-only mount, a filesystem without exclusive
  * create).
  */
@@ -76,7 +76,7 @@ export function pidAlive(pid: number, probe: PidProbe = defaultProbe): boolean {
 }
 
 function lockDisabled(env: NodeJS.ProcessEnv): boolean {
-  const v = (env["MEMEX_PGLITE_NO_LOCK"] ?? "").trim().toLowerCase();
+  const v = (env["MEMRAIN_PGLITE_NO_LOCK"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
@@ -156,7 +156,7 @@ function writeLock(lockPath: string, token: string, dbPath: string): boolean {
     throw new PgliteLockedError(
       `pglite: cannot create the lock for ${dbPath} at ${lockPath} ` +
         `(${(e as Error).message}). Refusing to open the directory unguarded — ` +
-        `set MEMEX_PGLITE_NO_LOCK=1 if this environment cannot hold a lock.`,
+        `set MEMRAIN_PGLITE_NO_LOCK=1 if this environment cannot hold a lock.`,
     );
   }
   try {
@@ -254,7 +254,7 @@ function acquireOne(lockPath: string, dbPath: string): HeldLock {
     throw new PgliteLockedError(
       `pglite: ${dbPath} is open in another process (PID ${holder.pid}). ` +
         `PGLite is single-process — two writers corrupt the directory. Stop ` +
-        `that process, or set MEMEX_PGLITE_NO_LOCK=1 if you are certain it is ` +
+        `that process, or set MEMRAIN_PGLITE_NO_LOCK=1 if you are certain it is ` +
         `not writing.`,
     );
   }

@@ -50,7 +50,7 @@ const DOWN_FILENAME_RE = /^(\d+)_([\w-]+)\.down\.sql$/;
  *
  * Default is forgiving enough to ride out a brief transient lock holder
  * without breaking the deploy, yet bounded so it can't hang forever.
- * Override with `MEMEX_MIGRATION_LOCK_TIMEOUT` (e.g. `60s`, `5min`) for a
+ * Override with `MEMRAIN_MIGRATION_LOCK_TIMEOUT` (e.g. `60s`, `5min`) for a
  * one-off migration that must wait behind a known long transaction.
  */
 const DEFAULT_LOCK_TIMEOUT = "10s";
@@ -66,13 +66,13 @@ const LOCK_TIMEOUT_RE = /^\d+\s*(?:ms|min|[shd])?$/;
  * intent (e.g. a misspelled `5min` quietly running at the default).
  */
 export function resolveLockTimeout(
-  env: string | undefined = process.env.MEMEX_MIGRATION_LOCK_TIMEOUT,
+  env: string | undefined = process.env.MEMRAIN_MIGRATION_LOCK_TIMEOUT,
 ): string {
   const v = env?.trim();
   if (v === undefined || v === "") return DEFAULT_LOCK_TIMEOUT;
   if (!LOCK_TIMEOUT_RE.test(v)) {
     throw new Error(
-      `MEMEX_MIGRATION_LOCK_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
+      `MEMRAIN_MIGRATION_LOCK_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
         `(expected e.g. "10s", "500ms", "5min")`,
     );
   }
@@ -82,7 +82,7 @@ export function resolveLockTimeout(
 // A migration runs under a generous statement_timeout so a large ADD COLUMN
 // backfill or CREATE INDEX isn't killed at the short interactive limit (30s).
 // Applied as a transaction-scoped `SET LOCAL`, so it never leaks to normal
-// queries. The engine session's own statement_timeout (MEMEX_PG_STATEMENT_TIMEOUT_MS)
+// queries. The engine session's own statement_timeout (MEMRAIN_PG_STATEMENT_TIMEOUT_MS)
 // still governs interactive traffic.
 const DEFAULT_MIGRATION_STMT_TIMEOUT = "30min";
 
@@ -91,13 +91,13 @@ const DEFAULT_MIGRATION_STMT_TIMEOUT = "30min";
  * Same fail-loud policy as {@link resolveLockTimeout}.
  */
 export function resolveMigrationStatementTimeout(
-  env: string | undefined = process.env.MEMEX_MIGRATION_STATEMENT_TIMEOUT,
+  env: string | undefined = process.env.MEMRAIN_MIGRATION_STATEMENT_TIMEOUT,
 ): string {
   const v = env?.trim();
   if (v === undefined || v === "") return DEFAULT_MIGRATION_STMT_TIMEOUT;
   if (!LOCK_TIMEOUT_RE.test(v)) {
     throw new Error(
-      `MEMEX_MIGRATION_STATEMENT_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
+      `MEMRAIN_MIGRATION_STATEMENT_TIMEOUT is malformed: ${JSON.stringify(v)} ` +
         `(expected e.g. "30min", "600s", "1800000")`,
     );
   }
@@ -192,11 +192,11 @@ export class MigrationRetryExhausted extends Error {
 }
 
 // Retry cadence for a migration that trips a transient statement_timeout or a
-// connection reset (5s / 15s / 45s). MEMEX_MIGRATE_BACKOFF_MS collapses it to a
+// connection reset (5s / 15s / 45s). MEMRAIN_MIGRATE_BACKOFF_MS collapses it to a
 // fixed delay so the retry path is unit-testable in milliseconds; unset in
 // production, where the real cadence applies.
 function migrationBackoffs(): number[] {
-  const override = process.env.MEMEX_MIGRATE_BACKOFF_MS;
+  const override = process.env.MEMRAIN_MIGRATE_BACKOFF_MS;
   if (override !== undefined) {
     const ms = Number.parseInt(override, 10) || 0;
     return [ms, ms, ms];

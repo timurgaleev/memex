@@ -20,7 +20,7 @@
  * The half-life table is keyed by memex's own `FactKind` enum (the same five
  * categories the `## Facts` fence parses), so it cannot drift from the schema.
  *
- * Application is default ON internally (`MEMEX_FACT_DECAY=0` disables) —
+ * Application is default ON internally (`MEMRAIN_FACT_DECAY=0` disables) —
  * decay is unconditional: without it a stale
  * event ranks as fresh in fact recall. Decay is applied on INTERNAL ingress
  * only: the dispatch layer forces it off on the public-bearer path, because
@@ -79,11 +79,11 @@ export interface DecayableFact {
   written_at: string;
 }
 
-/** True when fact decay is enabled (default ON; MEMEX_FACT_DECAY=0 opts out).
+/** True when fact decay is enabled (default ON; MEMRAIN_FACT_DECAY=0 opts out).
  *  The public-ingress force-off in dispatch is unaffected — it passes an
  *  explicit `decay: false` that overrides this default. */
 export function factDecayEnabled(): boolean {
-  return process.env.MEMEX_FACT_DECAY !== "0";
+  return process.env.MEMRAIN_FACT_DECAY !== "0";
 }
 
 /**

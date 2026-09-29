@@ -62,7 +62,7 @@ export interface InitOptions {
   pglite: boolean;
   /**
    * Postgres backend: writes `database.type=postgres` and lets the URL come
-   * from `MEMEX_POSTGRES_URL` env at serve time (migrations run at server
+   * from `MEMRAIN_POSTGRES_URL` env at serve time (migrations run at server
    * boot). Without this, a fresh volume gets a pglite config and the env URL
    * is silently ignored — the engine factory only consults it when the
    * config already says postgres.
@@ -128,7 +128,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   if (existsSync(configPath)) {
     // Postgres mode heals a pglite config left by an earlier init: the
-    // operator's intent (MEMEX_POSTGRES_URL / --postgres) must win, or the
+    // operator's intent (MEMRAIN_POSTGRES_URL / --postgres) must win, or the
     // brain keeps writing to the local dev database while RDS sits empty —
     // the silent-wrong-engine trap this flag exists to close.
     if (opts.postgres) {
@@ -141,7 +141,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
         writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n");
         console.log(
           `[memex] switched database.type to postgres at ${configPath} ` +
-            `(was ${priorType} — --postgres/MEMEX_POSTGRES_URL wins)`,
+            `(was ${priorType} — --postgres/MEMRAIN_POSTGRES_URL wins)`,
         );
       }
     }
@@ -163,7 +163,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   const config: Config = {
     database: opts.postgres
-      ? // URL deliberately omitted: MEMEX_POSTGRES_URL env is the canonical
+      ? // URL deliberately omitted: MEMRAIN_POSTGRES_URL env is the canonical
         // source on a server (populated by fetch-secrets.sh) and the engine
         // factory prefers it. Migrations run at serve boot.
         { type: "postgres" }
@@ -207,7 +207,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   console.log(`[memex] initialized:`);
   console.log(`  config:     ${configPath}`);
-  console.log(`  db:         ${opts.postgres ? "postgres (URL from MEMEX_POSTGRES_URL env)" : dbPath}`);
+  console.log(`  db:         ${opts.postgres ? "postgres (URL from MEMRAIN_POSTGRES_URL env)" : dbPath}`);
   console.log(`  migrations: ${migrationsLine}`);
   if (seeded.length > 0) {
     console.log(`  templates:  ${seeded.length} seeded`);

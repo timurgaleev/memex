@@ -66,27 +66,27 @@ describe("isExcludedPath", () => {
 
 describe("env resolution", () => {
   afterEach(() => {
-    delete process.env["MEMEX_CURATION_BOOST"];
-    delete process.env["MEMEX_SEARCH_EXCLUDE"];
+    delete process.env["MEMRAIN_CURATION_BOOST"];
+    delete process.env["MEMRAIN_SEARCH_EXCLUDE"];
     _resetCurationForTests();
   });
 
   it("env overrides the default curation map and fails loud on bad input", () => {
-    process.env["MEMEX_CURATION_BOOST"] = "vip/:2.0";
+    process.env["MEMRAIN_CURATION_BOOST"] = "vip/:2.0";
     _resetCurationForTests();
     expect(getCurationBoostMap()).toEqual({ "vip/": 2.0 });
 
-    process.env["MEMEX_CURATION_BOOST"] = "vip/:notanumber";
+    process.env["MEMRAIN_CURATION_BOOST"] = "vip/:notanumber";
     _resetCurationForTests();
     expect(() => getCurationBoostMap()).toThrow(/positive number/);
 
-    process.env["MEMEX_CURATION_BOOST"] = "vip/:0";
+    process.env["MEMRAIN_CURATION_BOOST"] = "vip/:0";
     _resetCurationForTests();
     expect(() => getCurationBoostMap()).toThrow(/positive number/);
   });
 
   it("parses the exclude prefix list from env", () => {
-    process.env["MEMEX_SEARCH_EXCLUDE"] = "tests/, attachments/ ,.raw/";
+    process.env["MEMRAIN_SEARCH_EXCLUDE"] = "tests/, attachments/ ,.raw/";
     _resetCurationForTests();
     expect(getSearchExcludePrefixes()).toEqual(["tests/", "attachments/", ".raw/"]);
   });

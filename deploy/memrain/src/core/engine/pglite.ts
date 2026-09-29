@@ -19,14 +19,14 @@ import { cpSync, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Test-only hook: MEMEX_TEST_PGLITE_TEMPLATE names an already-migrated data
+ * Test-only hook: MEMRAIN_TEST_PGLITE_TEMPLATE names an already-migrated data
  * directory, and a brand-new `dbPath` starts as a copy of it instead of
  * running every migration from an empty cluster. The sharded test runner sets
  * it; nothing in production does, and it must never go into `.env` or the
  * compose environment. Unset, this does nothing.
  */
 function seedFromTestTemplate(dbPath: string): void {
-  const template = process.env["MEMEX_TEST_PGLITE_TEMPLATE"];
+  const template = process.env["MEMRAIN_TEST_PGLITE_TEMPLATE"];
   if (!template || dbPath.length === 0) return;
   if (dbPath.startsWith("memory://") || dbPath.startsWith("idb://")) return;
   if (resolve(template) === resolve(dbPath) || existsSync(dbPath)) return;

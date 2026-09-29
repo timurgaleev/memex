@@ -9,7 +9,7 @@
  *      strips an attacker-supplied copy, so this is the only forwarding header
  *      trusted unconditionally.
  *   2. `X-Forwarded-For` (FIRST hop), then `X-Real-IP` — ONLY when
- *      `MEMEX_HTTP_TRUST_PROXY=1`. Both are attacker-controlled unless a
+ *      `MEMRAIN_HTTP_TRUST_PROXY=1`. Both are attacker-controlled unless a
  *      trusted reverse proxy overwrites them, and a spoofable rate-limit key is
  *      worse than no key at all: the caller rotates values and mints a fresh
  *      bucket per request. Set the flag only behind a proxy that terminates the
@@ -23,7 +23,7 @@
  */
 
 export function trustProxyHeaders(): boolean {
-  const v = (process.env["MEMEX_HTTP_TRUST_PROXY"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_HTTP_TRUST_PROXY"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 

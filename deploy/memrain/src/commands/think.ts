@@ -1,6 +1,6 @@
 /**
  * `memex think` — answer a question by paid Sonnet synthesis across the brain,
- * bounded by a USD budget. Opt-in, default-OFF (set MEMEX_THINK=1 to run live),
+ * bounded by a USD budget. Opt-in, default-OFF (set MEMRAIN_THINK=1 to run live),
  * the deep-synthesis slice of the agent layer.
  *
  * Thin CLI wrapper over runThink: open storage, synthesize, print the answer

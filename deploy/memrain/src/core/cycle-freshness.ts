@@ -19,7 +19,7 @@
  * the cycle then disabled it keeps old snapshots, and a hard `exit 1` there
  * would cry wolf on every `doctor` run (the check can't know, from a one-shot
  * CLI, whether the loop is *meant* to be running). Set
- * `MEMEX_CYCLE_FRESHNESS_ENFORCE=1` to make a past-fail-threshold stream a real
+ * `MEMRAIN_CYCLE_FRESHNESS_ENFORCE=1` to make a past-fail-threshold stream a real
  * failure (the deploy that DOES run the cycle and wants `doctor` to gate on it).
  */
 import type { CheckStatus } from "./doctor-categories.ts";
@@ -51,7 +51,7 @@ export interface CycleFreshnessResult {
  * Classify cycle liveness from the newest `cycle_snapshots.captured_at`.
  * `nowMs` is injectable for deterministic tests. Warn/fail ages default to
  * 6h/24h, overridable via
- * `MEMEX_CYCLE_FRESHNESS_WARN_HOURS` / `_FAIL_HOURS`.
+ * `MEMRAIN_CYCLE_FRESHNESS_WARN_HOURS` / `_FAIL_HOURS`.
  */
 export async function checkCycleFreshness(
   engine: Engine,
@@ -82,11 +82,11 @@ export async function checkCycleFreshness(
       detail: "latest cycle snapshot is in the future — clock skew",
     };
   }
-  const failH = resolveHours("MEMEX_CYCLE_FRESHNESS_FAIL_HOURS", 24);
+  const failH = resolveHours("MEMRAIN_CYCLE_FRESHNESS_FAIL_HOURS", 24);
   // Clamp the warn band below fail so a misconfigured WARN>=FAIL can't make the
   // warn message unreachable (LOW, review).
-  const warnH = Math.min(resolveHours("MEMEX_CYCLE_FRESHNESS_WARN_HOURS", 6), failH);
-  const enforce = process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE === "1";
+  const warnH = Math.min(resolveHours("MEMRAIN_CYCLE_FRESHNESS_WARN_HOURS", 6), failH);
+  const enforce = process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE === "1";
   const ageH = Math.floor(ageMs / HOUR_MS);
   if (ageMs > failH * HOUR_MS) {
     const detail = `last cycle ${ageH}h ago (>${failH}h) — the maintenance cycle may be wedged`;

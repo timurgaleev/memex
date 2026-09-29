@@ -33,7 +33,7 @@ import { REMEDIATION_JOB_KIND } from "./jobs/kinds.ts";
 /** Job kind for every remediation fix enqueued by this layer. */
 export { REMEDIATION_JOB_KIND };
 
-/** Default per-run USD budget cap. Override with MEMEX_REMEDIATION_MAX_USD. */
+/** Default per-run USD budget cap. Override with MEMRAIN_REMEDIATION_MAX_USD. */
 export const DEFAULT_REMEDIATION_MAX_USD = 1.0;
 
 /** Triage of a single fix. Only `remediable` actions are ever enqueued. */
@@ -151,14 +151,14 @@ function actionId(action: string, payload: Record<string, unknown>): string {
 
 /**
  * Read the per-run USD cap. Explicit `override` (CLI --max-usd) wins, then
- * MEMEX_REMEDIATION_MAX_USD, then the built-in default. Non-finite / negative
+ * MEMRAIN_REMEDIATION_MAX_USD, then the built-in default. Non-finite / negative
  * values fall through to the default (fail-safe, never uncapped).
  */
 export function resolveMaxUsd(override?: number): number {
   if (override !== undefined && Number.isFinite(override) && override >= 0) {
     return override;
   }
-  const raw = process.env.MEMEX_REMEDIATION_MAX_USD?.trim();
+  const raw = process.env.MEMRAIN_REMEDIATION_MAX_USD?.trim();
   if (raw !== undefined && raw !== "") {
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 0) return n;

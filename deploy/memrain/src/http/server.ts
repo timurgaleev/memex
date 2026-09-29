@@ -6,7 +6,7 @@
  *   POST /mcp          — MCP JSON-RPC 2.0; all read/write capability lives
  *                        here via `tools/call`. Public callers can't
  *                        discover or invoke the write tools; the internal
- *                        ingress requires `MEMEX_INTERNAL_TOKEN`.
+ *                        ingress requires `MEMRAIN_INTERNAL_TOKEN`.
  *
  * The legacy REST routes (`/index`, `/search`, `/backlinks`, `/friction`,
  * `/pages/*`, `/graph/*`, `/entities/*`, `/timeline/*`, `/jobs/*`) were
@@ -154,7 +154,7 @@ export interface ServerOptions {
   unattributedAuthAttemptRateLimiter?: RateLimiter;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
-   * the `MEMEX_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
+   * the `MEMRAIN_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
    * secret. When unset, internal requests still flow but every public
    * request returns 503 — fail-closed.
    */
@@ -163,7 +163,7 @@ export interface ServerOptions {
    * Shared secret required to call MCP write tools (`index`,
    * `log_friction`, `page_*`, `link`/`unlink`, `add_*`, `jobs_*`) on the
    * internal `/mcp` path. Defends the docker-bridge surface from a
-   * compromised sibling container. Wire from `MEMEX_INTERNAL_TOKEN` env /
+   * compromised sibling container. Wire from `MEMRAIN_INTERNAL_TOKEN` env /
    * `<secrets_prefix>/memex-internal-token`. When unset, internal write
    * tools stay open (legacy single-node behaviour) — a single startup
    * warning is logged; operators should configure the secret.
@@ -286,22 +286,22 @@ export function startServer(opts: ServerOptions): ServerHandle {
   // unavailable and the
   // discovery doc omits registration_endpoint, so the ONLY way a client exists is
   // an operator creating it via `memex auth register-client` — nobody can
-  // self-register a client over the network. Enable with MEMEX_ENABLE_DCR=1.
-  // MEMEX_ENABLE_DCR_INSECURE additionally lets a self-registered client request
+  // self-register a client over the network. Enable with MEMRAIN_ENABLE_DCR=1.
+  // MEMRAIN_ENABLE_DCR_INSECURE additionally lets a self-registered client request
   // the client_credentials grant, which mints a token WITHOUT the /authorize
   // consent step. It implies DCR (there is nothing to loosen otherwise).
   const dcrInsecure =
-    ((process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
-      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true");
+    ((process.env.MEMRAIN_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMRAIN_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true");
   const dcrEnabled =
     dcrInsecure ||
-    (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
-    (process.env.MEMEX_ENABLE_DCR ?? "").trim().toLowerCase() === "true";
+    (process.env.MEMRAIN_ENABLE_DCR ?? "").trim().toLowerCase() === "1" ||
+    (process.env.MEMRAIN_ENABLE_DCR ?? "").trim().toLowerCase() === "true";
 
   // A self-registered (DCR) client that completes the authorization_code flow
   // still receives a real, default-tenant token. That grant only carries
   // operator consent when /authorize is gated on a logged-in operator — i.e.
-  // MEMEX_OAUTH_REQUIRE_LOGIN=1 AND an admin mechanism is configured. When
+  // MEMRAIN_OAUTH_REQUIRE_LOGIN=1 AND an admin mechanism is configured. When
   // /authorize auto-approves, an unauthenticated caller can register + run PKCE
   // + walk away with read/write on the default tenant, no operator in the loop.
   // Fail closed: refuse to boot with DCR on and consent off unless the operator
@@ -309,10 +309,10 @@ export function startServer(opts: ServerOptions): ServerHandle {
   const authorizeAutoApproves = !(oauthRequireLogin && adminAuth);
   if (dcrEnabled && authorizeAutoApproves && !dcrInsecure) {
     throw new Error(
-      "MEMEX_ENABLE_DCR is set but /authorize auto-approves, so a self-" +
+      "MEMRAIN_ENABLE_DCR is set but /authorize auto-approves, so a self-" +
         "registered client would obtain a token with no operator consent. " +
-        "Set MEMEX_OAUTH_REQUIRE_LOGIN=1 (with MEMEX_ADMIN_BOOTSTRAP) to gate " +
-        "/authorize on a logged-in operator, or set MEMEX_ENABLE_DCR_INSECURE=1 " +
+        "Set MEMRAIN_OAUTH_REQUIRE_LOGIN=1 (with MEMRAIN_ADMIN_BOOTSTRAP) to gate " +
+        "/authorize on a logged-in operator, or set MEMRAIN_ENABLE_DCR_INSECURE=1 " +
         "to accept unauthenticated self-registration.",
     );
   }
@@ -330,7 +330,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
             "client-mode clients (no secret, PKCE alone): " +
             clients.map((c) => `${c.client_id} (${c.client_name})`).join(", ") +
             ". Re-register them as confidential clients, move them to " +
-            "--tenant-mode enrollment, or set MEMEX_OAUTH_REQUIRE_LOGIN=1.",
+            "--tenant-mode enrollment, or set MEMRAIN_OAUTH_REQUIRE_LOGIN=1.",
         );
       })
       .catch((e: unknown) => {
@@ -342,8 +342,8 @@ export function startServer(opts: ServerOptions): ServerHandle {
   }
   if (oauthRequireLogin && !adminAuth) {
     console.error(
-      "[memex] WARNING: MEMEX_OAUTH_REQUIRE_LOGIN=1 but no admin surface is " +
-        "configured (MEMEX_ADMIN_BOOTSTRAP is unset), so no operator can ever " +
+      "[memex] WARNING: MEMRAIN_OAUTH_REQUIRE_LOGIN=1 but no admin surface is " +
+        "configured (MEMRAIN_ADMIN_BOOTSTRAP is unset), so no operator can ever " +
         "approve an authorization. /authorize refuses every request until a " +
         "bootstrap token is set.",
     );
@@ -353,13 +353,13 @@ export function startServer(opts: ServerOptions): ServerHandle {
       "[memex] WARNING: Dynamic Client Registration is ON — any network " +
         "caller can self-register an OAuth client via POST /register. " +
         "Self-registered clients get the authorization_code grant; that grant " +
-        "carries operator consent only while MEMEX_OAUTH_REQUIRE_LOGIN=1 gates " +
+        "carries operator consent only while MEMRAIN_OAUTH_REQUIRE_LOGIN=1 gates " +
         "/authorize on a logged-in operator.",
     );
   }
   if (dcrInsecure) {
     console.error(
-      "[memex] WARNING: MEMEX_ENABLE_DCR_INSECURE is ON — self-registered " +
+      "[memex] WARNING: MEMRAIN_ENABLE_DCR_INSECURE is ON — self-registered " +
         "clients may request the client_credentials grant, and /authorize " +
         "consent is not required, so an unauthenticated caller can obtain a " +
         "default-tenant token with no operator in the loop.",
@@ -370,7 +370,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
     internalAuthOpts.internalToken = opts.internalToken;
   } else {
     console.warn(
-      "[memex] WARNING: MEMEX_INTERNAL_TOKEN not configured — MCP write " +
+      "[memex] WARNING: MEMRAIN_INTERNAL_TOKEN not configured — MCP write " +
         "tools (index, log_friction, page_*, link, add_*, jobs_*) are open " +
         "to any peer on the docker bridge. Configure the token via " +
         "<secrets_prefix>/memex-internal-token + fetch-secrets.sh.",
@@ -555,7 +555,7 @@ export function startServer(opts: ServerOptions): ServerHandle {
           }
           // Auto-approve by default, so a standard MCP client
           // completes the flow unattended. Opt into the stricter operator-login
-          // gate with MEMEX_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted
+          // gate with MEMRAIN_OAUTH_REQUIRE_LOGIN=1 — then a code is only minted
           // for a logged-in admin who ALSO approved this exact request from the
           // dashboard. The session alone is not consent: anything able to
           // navigate the operator's browser same-site (a sibling subdomain, a

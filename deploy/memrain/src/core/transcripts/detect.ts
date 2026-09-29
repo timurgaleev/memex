@@ -32,7 +32,7 @@ export const DEFAULT_TRANSCRIPT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 const DETECT_PROBE = 20;
 
 export function transcriptMaxFileBytes(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = (env.MEMEX_TRANSCRIPT_MAX_FILE_BYTES ?? "").trim();
+  const raw = (env.MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES ?? "").trim();
   const n = Number(raw);
   return raw !== "" && Number.isInteger(n) && n > 0 ? n : DEFAULT_TRANSCRIPT_MAX_FILE_BYTES;
 }
@@ -41,7 +41,7 @@ export function transcriptMaxFileBytes(env: NodeJS.ProcessEnv = process.env): nu
  *  and look complete. Returns the refusal message, or null when it fits. */
 export function checkTranscriptFileSize(bytes: number, max: number = transcriptMaxFileBytes()): string | null {
   return bytes > max
-    ? `export is ${bytes} bytes, over the ${max}-byte cap (MEMEX_TRANSCRIPT_MAX_FILE_BYTES); nothing was imported`
+    ? `export is ${bytes} bytes, over the ${max}-byte cap (MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES); nothing was imported`
     : null;
 }
 

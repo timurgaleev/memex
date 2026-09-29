@@ -168,9 +168,9 @@ describe("think fallback diary fence", () => {
     }
     // Live gate on, budget too small for any call: the pre-flight refuses, so
     // the run ends on the extractive fallback without touching a model.
-    for (const k of ["MEMEX_THINK", "MEMEX_THINK_BUDGET_USD"]) saved[k] = process.env[k];
-    process.env["MEMEX_THINK"] = "1";
-    process.env["MEMEX_THINK_BUDGET_USD"] = "0.0000001";
+    for (const k of ["MEMRAIN_THINK", "MEMRAIN_THINK_BUDGET_USD"]) saved[k] = process.env[k];
+    process.env["MEMRAIN_THINK"] = "1";
+    process.env["MEMRAIN_THINK_BUDGET_USD"] = "0.0000001";
   });
 
   afterAll(() => {

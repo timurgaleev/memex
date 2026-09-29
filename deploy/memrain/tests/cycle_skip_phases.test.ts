@@ -1,5 +1,5 @@
 /**
- * MEMEX_CYCLE_SKIP_PHASES parsing — the operator escape hatch to drop a
+ * MEMRAIN_CYCLE_SKIP_PHASES parsing — the operator escape hatch to drop a
  * defective phase from every tick without losing the rest of the cycle.
  */
 import { describe, expect, it } from "bun:test";

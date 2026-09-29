@@ -116,8 +116,8 @@ describe("cycle abort — with a PGLite brain", () => {
   async function runAbortingAfter(phaseDone: string, reason: string) {
     const c = new AbortController();
     const origError = console.error;
-    const origRss = process.env.MEMEX_CYCLE_RSS_LOG;
-    delete process.env.MEMEX_CYCLE_RSS_LOG;
+    const origRss = process.env.MEMRAIN_CYCLE_RSS_LOG;
+    delete process.env.MEMRAIN_CYCLE_RSS_LOG;
     console.error = (...args: unknown[]) => {
       if (String(args[0]).includes(`phase ${phaseDone} done`)) c.abort(reason);
     };
@@ -125,8 +125,8 @@ describe("cycle abort — with a PGLite brain", () => {
       return await runCycleOnce(engine, { phases: ["lint", "snapshot"], signal: c.signal });
     } finally {
       console.error = origError;
-      if (origRss === undefined) delete process.env.MEMEX_CYCLE_RSS_LOG;
-      else process.env.MEMEX_CYCLE_RSS_LOG = origRss;
+      if (origRss === undefined) delete process.env.MEMRAIN_CYCLE_RSS_LOG;
+      else process.env.MEMRAIN_CYCLE_RSS_LOG = origRss;
     }
   }
 
@@ -232,8 +232,8 @@ describe("runPhase — abort during a phase", () => {
   });
 
   it("marks a phase that blew its deadline and kept running as orphaned", async () => {
-    const prev = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
-    process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = "20";
+    const prev = process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS;
+    process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS = "20";
     const origError = console.error;
     console.error = () => {};
     try {
@@ -259,8 +259,8 @@ describe("runPhase — abort during a phase", () => {
       expect(ok.orphaned).toBeUndefined();
     } finally {
       console.error = origError;
-      if (prev === undefined) delete process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
-      else process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS;
+      else process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS = prev;
     }
   });
 

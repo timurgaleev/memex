@@ -4,7 +4,7 @@
  *
  * Posture: every cross-origin request to these endpoints is
  * rejected unless the operator explicitly allowlists the origin via
- * `MEMEX_HTTP_CORS_ORIGIN` (comma-separated origins). Without the env var
+ * `MEMRAIN_HTTP_CORS_ORIGIN` (comma-separated origins). Without the env var
  * no `Access-Control-Allow-Origin` header is ever emitted, so a browser
  * refuses the response — a web origin can't complete a token exchange from
  * a logged-in operator's browser. Same-origin and non-browser callers send
@@ -29,11 +29,11 @@ const ALLOWED_METHODS = "GET, POST, OPTIONS";
 const ALLOWED_HEADERS = "Content-Type, Authorization, Accept";
 
 /**
- * Parse `MEMEX_HTTP_CORS_ORIGIN` into an origin allowlist. Returns null when
+ * Parse `MEMRAIN_HTTP_CORS_ORIGIN` into an origin allowlist. Returns null when
  * unset/empty — callers MUST treat null as "deny all cross-origin".
  */
 export function parseCorsAllowlist(
-  env: string | undefined = process.env.MEMEX_HTTP_CORS_ORIGIN,
+  env: string | undefined = process.env.MEMRAIN_HTTP_CORS_ORIGIN,
 ): Set<string> | null {
   if (!env) return null;
   const origins = env

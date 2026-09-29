@@ -11,10 +11,10 @@
  * ticks under a hard per-tick cap.
  *
  * DELIBERATELY OPT-IN + BOUNDED (it spends Bedrock Titan on every re-embed):
- *   - default-OFF behind `MEMEX_RECHUNK_SWEEP=1` (an injected `embedFn` bypasses
+ *   - default-OFF behind `MEMRAIN_RECHUNK_SWEEP=1` (an injected `embedFn` bypasses
  *     the gate for hermetic tests, same seam as the other paid phases);
- *   - COUNT-capped per tick (`maxDocs`, env MEMEX_RECHUNK_SWEEP_MAX, default 25);
- *   - CHAR-BUDGET-capped per tick (`maxChars`, env MEMEX_RECHUNK_SWEEP_MAX_CHARS,
+ *   - COUNT-capped per tick (`maxDocs`, env MEMRAIN_RECHUNK_SWEEP_MAX, default 25);
+ *   - CHAR-BUDGET-capped per tick (`maxChars`, env MEMRAIN_RECHUNK_SWEEP_MAX_CHARS,
  *     default 1,000,000) as a spend proxy — always drains at least one doc, then
  *     stops before crossing the budget so a huge doc can never starve the tick.
  *
@@ -51,16 +51,16 @@ const DEFAULT_MAX_DOCS = 25;
 const DEFAULT_MAX_CHARS = 1_000_000;
 
 export interface RechunkSweepOptions {
-  /** Hard cap on docs re-chunked per tick. Default MEMEX_RECHUNK_SWEEP_MAX or 25. */
+  /** Hard cap on docs re-chunked per tick. Default MEMRAIN_RECHUNK_SWEEP_MAX or 25. */
   maxDocs?: number;
   /**
    * Cumulative source-char budget per tick (spend proxy). Default
-   * MEMEX_RECHUNK_SWEEP_MAX_CHARS or 1,000,000. At least one doc always runs.
+   * MEMRAIN_RECHUNK_SWEEP_MAX_CHARS or 1,000,000. At least one doc always runs.
    */
   maxChars?: number;
   /**
    * Embedder seam. Injected in tests to stay offline; when set it ALSO bypasses
-   * the MEMEX_RECHUNK_SWEEP env gate (same pattern as the paid synthesis phases'
+   * the MEMRAIN_RECHUNK_SWEEP env gate (same pattern as the paid synthesis phases'
    * injected LLM fns). Production leaves it unset → real Titan + the env gate.
    */
   embedFn?: EmbedFn;
@@ -144,14 +144,14 @@ export async function rechunkSweepPhase(
     errors: [],
   };
 
-  // Gate: OFF unless MEMEX_RECHUNK_SWEEP=1 — but an injected embedder (tests)
+  // Gate: OFF unless MEMRAIN_RECHUNK_SWEEP=1 — but an injected embedder (tests)
   // bypasses the gate so the drain can be exercised without live Bedrock.
-  if (!opts.embedFn && process.env.MEMEX_RECHUNK_SWEEP !== "1") {
-    return { ...base, reason: "disabled (MEMEX_RECHUNK_SWEEP not set)" };
+  if (!opts.embedFn && process.env.MEMRAIN_RECHUNK_SWEEP !== "1") {
+    return { ...base, reason: "disabled (MEMRAIN_RECHUNK_SWEEP not set)" };
   }
 
-  const maxDocs = resolveCap(opts.maxDocs, "MEMEX_RECHUNK_SWEEP_MAX", DEFAULT_MAX_DOCS);
-  const maxChars = resolveCap(opts.maxChars, "MEMEX_RECHUNK_SWEEP_MAX_CHARS", DEFAULT_MAX_CHARS);
+  const maxDocs = resolveCap(opts.maxDocs, "MEMRAIN_RECHUNK_SWEEP_MAX", DEFAULT_MAX_DOCS);
+  const maxChars = resolveCap(opts.maxChars, "MEMRAIN_RECHUNK_SWEEP_MAX_CHARS", DEFAULT_MAX_CHARS);
 
   const roots = loadAllowedRootSpellings();
   const mayReread = await loadRereadGuard(engine, roots);

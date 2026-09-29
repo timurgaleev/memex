@@ -16,7 +16,7 @@
  * search hot path. The cheap heuristics run first, then the query-intent
  * taxonomy maps onto memex's intent set (entity→factual, temporal→personal,
  * event/general→topic). The old Claude Haiku fallback survives behind
- * MEMEX_INTENT_LLM=1 for operators who want the paid tie-break on unmatched
+ * MEMRAIN_INTENT_LLM=1 for operators who want the paid tie-break on unmatched
  * queries.
  */
 import { resolveModel } from "../llm/resolve-model.ts";
@@ -52,7 +52,7 @@ export interface ClassifyIntentOptions {
   client?: BedrockRuntimeClient;
 }
 
-/** Ledger label — the opt-in paid tie-break behind MEMEX_INTENT_LLM=1. */
+/** Ledger label — the opt-in paid tie-break behind MEMRAIN_INTENT_LLM=1. */
 const SPEND_OP = "intent-classify";
 
 const SYSTEM_PROMPT = `You are a search-intent classifier. Given a user query, output exactly one word from this set: factual, topic, howto, personal, exact. Output nothing else.`;
@@ -86,8 +86,8 @@ export async function classifyIntent(
   if (/\b(?:when|what|who|where|which) (?:is|was|did)\b/i.test(trimmed)) return "factual";
 
   // Zero-LLM default: the regex taxonomy decides. The paid Haiku call fires
-  // ONLY when the operator opted back in via MEMEX_INTENT_LLM=1.
-  if (process.env.MEMEX_INTENT_LLM !== "1") {
+  // ONLY when the operator opted back in via MEMRAIN_INTENT_LLM=1.
+  if (process.env.MEMRAIN_INTENT_LLM !== "1") {
     return taxonomyToIntent(trimmed);
   }
 

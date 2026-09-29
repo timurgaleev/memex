@@ -13,7 +13,7 @@ import { noteWriteTiming } from "../write-timing.ts";
 const DEFAULT_MAX_INFLIGHT = 4;
 
 function maxInflight(): number {
-  const n = Number.parseInt(process.env.MEMEX_LLM_MAX_INFLIGHT ?? "", 10);
+  const n = Number.parseInt(process.env.MEMRAIN_LLM_MAX_INFLIGHT ?? "", 10);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_INFLIGHT;
 }
 
@@ -21,7 +21,7 @@ let active = 0;
 const waiters: Array<() => void> = [];
 
 /**
- * Run `fn` under the per-process inflight cap (`MEMEX_LLM_MAX_INFLIGHT`, default
+ * Run `fn` under the per-process inflight cap (`MEMRAIN_LLM_MAX_INFLIGHT`, default
  * 4). Excess callers queue FIFO until a slot frees. Per-process only (like
  * throttle.ts) — under multi-container scale-out it under-throttles, which is
  * acceptable on the single EC2.
@@ -67,30 +67,30 @@ export function awsRegion(raw: string | undefined = process.env.AWS_REGION): str
 const DEFAULT_LLM_TIMEOUT_MS = 30_000;
 
 /**
- * Resolve the Bedrock request timeout in ms (`MEMEX_LLM_TIMEOUT_MS`). Mirrors
+ * Resolve the Bedrock request timeout in ms (`MEMRAIN_LLM_TIMEOUT_MS`). Mirrors
  * `maxInflight`: an empty or non-numeric value falls back to 30s. Without this
  * guard `Number("")` is 0, which the SDK reads as "no timeout" and lets a hung
  * connection hang forever.
  */
 export function llmRequestTimeoutMs(
-  raw: string | undefined = process.env.MEMEX_LLM_TIMEOUT_MS,
+  raw: string | undefined = process.env.MEMRAIN_LLM_TIMEOUT_MS,
 ): number {
   const n = Number.parseInt(raw ?? "", 10);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_LLM_TIMEOUT_MS;
 }
 
-/** A per-call-kind timeout: its own knob, else `MEMEX_LLM_TIMEOUT_MS` if set,
+/** A per-call-kind timeout: its own knob, else `MEMRAIN_LLM_TIMEOUT_MS` if set,
  *  else the kind's own default. */
 function kindTimeoutMs(kindRaw: string | undefined, kindDefault: number): number {
   const own = Number.parseInt(kindRaw ?? "", 10);
   if (Number.isInteger(own) && own > 0) return own;
-  const shared = Number.parseInt(process.env.MEMEX_LLM_TIMEOUT_MS ?? "", 10);
+  const shared = Number.parseInt(process.env.MEMRAIN_LLM_TIMEOUT_MS ?? "", 10);
   return Number.isInteger(shared) && shared > 0 ? shared : kindDefault;
 }
 
 /** Utility-tier chat (Haiku): short prompts, short answers. */
 export function utilityTimeoutMs(): number {
-  return kindTimeoutMs(process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS, DEFAULT_LLM_TIMEOUT_MS);
+  return kindTimeoutMs(process.env.MEMRAIN_LLM_UTILITY_TIMEOUT_MS, DEFAULT_LLM_TIMEOUT_MS);
 }
 
 /**
@@ -99,7 +99,7 @@ export function utilityTimeoutMs(): number {
  * start failing just because the limit became real.
  */
 export function reasoningTimeoutMs(): number {
-  return kindTimeoutMs(process.env.MEMEX_LLM_REASONING_TIMEOUT_MS, 120_000);
+  return kindTimeoutMs(process.env.MEMRAIN_LLM_REASONING_TIMEOUT_MS, 120_000);
 }
 
 /**
@@ -119,7 +119,7 @@ export function chatTimeoutMs(baseMs: number, maxTokens: number): number {
  * Wall clock for an optional LLM step on the SEARCH path (intent, query
  * expansion). Both fail open, so a slow answer is worth less than none: the
  * search must not wait out a chat timeout. Rerank has its own knob,
- * `MEMEX_RERANK_TIMEOUT_MS`, with the same 5 s default.
+ * `MEMRAIN_RERANK_TIMEOUT_MS`, with the same 5 s default.
  */
 export const SEARCH_LLM_BUDGET_MS = 5_000;
 
@@ -156,7 +156,7 @@ export async function withDeadline<T>(ms: number, run: (signal: AbortSignal) => 
 
 /** Titan embeddings: one short input, a fixed-size vector back. */
 export function embedTimeoutMs(): number {
-  return kindTimeoutMs(process.env.MEMEX_EMBED_TIMEOUT_MS, 10_000);
+  return kindTimeoutMs(process.env.MEMRAIN_EMBED_TIMEOUT_MS, 10_000);
 }
 
 /**

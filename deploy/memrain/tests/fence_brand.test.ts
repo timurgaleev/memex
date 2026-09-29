@@ -46,7 +46,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  delete process.env.MEMEX_FACTS_FENCE;
+  delete process.env.MEMRAIN_FACTS_FENCE;
   tmp = mkdtempSync(join(tmpdir(), "memex-fence-brand-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();

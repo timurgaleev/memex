@@ -127,11 +127,11 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
 
   // DCR is OFF by default; spin a DCR-enabled server for the tests that exercise
   // /register, then tear it down + clear the env. DCR only boots when /authorize
-  // enforces operator consent, so pair MEMEX_ENABLE_DCR with
-  // MEMEX_OAUTH_REQUIRE_LOGIN + an admin token (the secure production posture).
+  // enforces operator consent, so pair MEMRAIN_ENABLE_DCR with
+  // MEMRAIN_OAUTH_REQUIRE_LOGIN + an admin token (the secure production posture).
   async function withDcr<T>(fn: (base: string) => Promise<T>): Promise<T> {
-    process.env.MEMEX_ENABLE_DCR = "1";
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    process.env.MEMRAIN_ENABLE_DCR = "1";
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     const s = startServer({
       host: "127.0.0.1",
       port: 0,
@@ -143,8 +143,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       return await fn(`http://127.0.0.1:${s.port}`);
     } finally {
       await s.stop();
-      delete process.env.MEMEX_ENABLE_DCR;
-      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      delete process.env.MEMRAIN_ENABLE_DCR;
+      delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     }
   }
 
@@ -189,8 +189,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
     expect(info.scopes).toContain("read");
   });
 
-  it("opt-in: with MEMEX_OAUTH_REQUIRE_LOGIN=1, /authorize without a session issues NO code (302 → login)", async () => {
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+  it("opt-in: with MEMRAIN_OAUTH_REQUIRE_LOGIN=1, /authorize without a session issues NO code (302 → login)", async () => {
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     const gsrv = startServer({
       host: "127.0.0.1",
       port: 0,
@@ -217,7 +217,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(loc).not.toContain("code=");
     } finally {
       await gsrv.stop();
-      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     }
   });
 
@@ -236,8 +236,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   });
 
   it("SECURITY: when DCR is enabled it clamps an elevated scope request to read/write", async () => {
-    process.env.MEMEX_ENABLE_DCR = "1";
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    process.env.MEMRAIN_ENABLE_DCR = "1";
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     const gsrv = startServer({
       host: "127.0.0.1",
       port: 0,
@@ -265,8 +265,8 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(body.scope ?? "").not.toContain("admin");
     } finally {
       await gsrv.stop();
-      delete process.env.MEMEX_ENABLE_DCR;
-      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      delete process.env.MEMRAIN_ENABLE_DCR;
+      delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     }
   });
 
@@ -590,14 +590,14 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   });
 
   it("SECURITY: insecure DCR mode permits a client_credentials registration", async () => {
-    // MEMEX_ENABLE_DCR_INSECURE=1 both opts the provider into the
+    // MEMRAIN_ENABLE_DCR_INSECURE=1 both opts the provider into the
     // machine-to-machine path and satisfies the DCR consent boot check without
-    // MEMEX_OAUTH_REQUIRE_LOGIN. Mirror that env with an insecure provider.
+    // MEMRAIN_OAUTH_REQUIRE_LOGIN. Mirror that env with an insecure provider.
     const insecureProvider = new OAuthProvider({
       engine: storage.raw(),
       allowClientCredentialsDcr: true,
     });
-    process.env.MEMEX_ENABLE_DCR_INSECURE = "1";
+    process.env.MEMRAIN_ENABLE_DCR_INSECURE = "1";
     const s = startServer({
       host: "127.0.0.1",
       port: 0,
@@ -624,7 +624,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(body.client_secret).toMatch(/^memex_cs_/);
     } finally {
       await s.stop();
-      delete process.env.MEMEX_ENABLE_DCR_INSECURE;
+      delete process.env.MEMRAIN_ENABLE_DCR_INSECURE;
     }
   });
 
@@ -643,7 +643,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   });
 
   it("SECURITY: refuses to boot with DCR on while /authorize auto-approves", async () => {
-    process.env.MEMEX_ENABLE_DCR = "1";
+    process.env.MEMRAIN_ENABLE_DCR = "1";
     try {
       expect(() =>
         startServer({
@@ -655,13 +655,13 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
         }),
       ).toThrow(/auto-approve/i);
     } finally {
-      delete process.env.MEMEX_ENABLE_DCR;
+      delete process.env.MEMRAIN_ENABLE_DCR;
     }
   });
 
-  it("boots with DCR on when MEMEX_OAUTH_REQUIRE_LOGIN gates /authorize", async () => {
-    process.env.MEMEX_ENABLE_DCR = "1";
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+  it("boots with DCR on when MEMRAIN_OAUTH_REQUIRE_LOGIN gates /authorize", async () => {
+    process.env.MEMRAIN_ENABLE_DCR = "1";
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     let s: ServerHandle | undefined;
     try {
       s = startServer({
@@ -674,13 +674,13 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(s.port).toBeGreaterThan(0);
     } finally {
       if (s) await s.stop();
-      delete process.env.MEMEX_ENABLE_DCR;
-      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      delete process.env.MEMRAIN_ENABLE_DCR;
+      delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     }
   });
 
-  it("boots with DCR on when MEMEX_ENABLE_DCR_INSECURE acknowledges the risk", async () => {
-    process.env.MEMEX_ENABLE_DCR_INSECURE = "1";
+  it("boots with DCR on when MEMRAIN_ENABLE_DCR_INSECURE acknowledges the risk", async () => {
+    process.env.MEMRAIN_ENABLE_DCR_INSECURE = "1";
     let s: ServerHandle | undefined;
     try {
       s = startServer({
@@ -692,7 +692,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       expect(s.port).toBeGreaterThan(0);
     } finally {
       if (s) await s.stop();
-      delete process.env.MEMEX_ENABLE_DCR_INSECURE;
+      delete process.env.MEMRAIN_ENABLE_DCR_INSECURE;
     }
   });
 
@@ -796,7 +796,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
       code_challenge_method: "S256",
     });
     // Public ingress, no bearer: the route is exempt from the public guard and,
-    // by default (no MEMEX_OAUTH_REQUIRE_LOGIN), auto-approves — issuing a code
+    // by default (no MEMRAIN_OAUTH_REQUIRE_LOGIN), auto-approves — issuing a code
     // back to the registered redirect_uri.
     const res = await fetch(`${url}/authorize?${q}`, {
       redirect: "manual",
@@ -1037,9 +1037,9 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
  * could not see the operator at all — the connector never finished, however
  * many times you signed in.
  */
-describe("MEMEX_OAUTH_REQUIRE_LOGIN with no admin surface fails closed", () => {
+describe("MEMRAIN_OAUTH_REQUIRE_LOGIN with no admin surface fails closed", () => {
   it("refuses to issue a code rather than auto-approving", async () => {
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     const tmp = mkdtempSync(join(tmpdir(), "memex-oauth-noadmin-"));
     const storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
@@ -1065,12 +1065,12 @@ describe("MEMEX_OAUTH_REQUIRE_LOGIN with no admin surface fails closed", () => {
       await s.stop();
       await storage.close();
       rmSync(tmp, { recursive: true, force: true });
-      delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+      delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     }
   });
 });
 
-describe("MEMEX_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable after sign-in", () => {
+describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable after sign-in", () => {
   let tmp: string;
   let storage: Storage;
   let server: ServerHandle;
@@ -1078,7 +1078,7 @@ describe("MEMEX_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable after
   let clientId: string;
 
   beforeEach(async () => {
-    process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+    process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
     tmp = mkdtempSync(join(tmpdir(), "memex-oauth-resume-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
@@ -1105,7 +1105,7 @@ describe("MEMEX_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable after
   });
 
   afterEach(async () => {
-    delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     await server.stop();
     await storage.close();
     rmSync(tmp, { recursive: true, force: true });

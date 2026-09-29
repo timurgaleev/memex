@@ -2,7 +2,7 @@
  * Contract-derived param validation — `validateParams` enforces the declared
  * type / enum / min-max of present params, throwing OperationError. Required-
  * presence is left to the per-handler guards. Unknown params are rejected with a
- * did-you-mean hint unless MEMEX_MCP_LENIENT_ARGS=1.
+ * did-you-mean hint unless MEMRAIN_MCP_LENIENT_ARGS=1.
  *
  * The PARITY test is the safety proof: for every operation, a param set built
  * from the contract's own valid boundary values must pass — so enabling
@@ -177,14 +177,14 @@ describe("validateParams — unit", () => {
     expect(e.suggestion).not.toContain("extra_4");
   });
 
-  it("accepts unknown params again with MEMEX_MCP_LENIENT_ARGS=1", () => {
-    const prev = process.env.MEMEX_MCP_LENIENT_ARGS;
-    process.env.MEMEX_MCP_LENIENT_ARGS = "1";
+  it("accepts unknown params again with MEMRAIN_MCP_LENIENT_ARGS=1", () => {
+    const prev = process.env.MEMRAIN_MCP_LENIENT_ARGS;
+    process.env.MEMRAIN_MCP_LENIENT_ARGS = "1";
     try {
       expect(() => validateParams(search, { q: "x", made_up_field: 99 })).not.toThrow();
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_MCP_LENIENT_ARGS;
-      else process.env.MEMEX_MCP_LENIENT_ARGS = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_MCP_LENIENT_ARGS;
+      else process.env.MEMRAIN_MCP_LENIENT_ARGS = prev;
     }
   });
 

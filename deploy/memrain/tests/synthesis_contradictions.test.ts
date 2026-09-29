@@ -152,15 +152,15 @@ describe("probeContradictionsPhase", () => {
     await addFact(storage, { entity_slug: SLUG, fact: "alice lives in Metropolis", source_id: "tenantA" });
     await addFact(storage, { entity_slug: SLUG, fact: `alice ${B_MARK} lives in Gotham`, source_id: "tenantB" });
 
-    const prev = process.env.MEMEX_PROBE_CONTRADICTIONS;
-    process.env.MEMEX_PROBE_CONTRADICTIONS = "1";
+    const prev = process.env.MEMRAIN_PROBE_CONTRADICTIONS;
+    process.env.MEMRAIN_PROBE_CONTRADICTIONS = "1";
     try {
       // No pairsFn → exercises the real SQL defaultPairs path. Judge always says
       // "contradicts" so every generated pair would be stored.
       await probeContradictionsPhase(engine, { sonnetFn: fakeSonnet(CONTRADICTS) });
     } finally {
-      if (prev !== undefined) process.env.MEMEX_PROBE_CONTRADICTIONS = prev;
-      else delete process.env.MEMEX_PROBE_CONTRADICTIONS;
+      if (prev !== undefined) process.env.MEMRAIN_PROBE_CONTRADICTIONS = prev;
+      else delete process.env.MEMRAIN_PROBE_CONTRADICTIONS;
     }
 
     // tenantB's single fact has no same-tenant partner → nothing stored for it.

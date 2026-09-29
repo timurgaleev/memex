@@ -131,8 +131,8 @@ describe("refresh token families", () => {
   });
 
   it("a replay after the grace window is refused and only logged by default", async () => {
-    const saved = process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-    delete process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
+    const saved = process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+    delete process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
     try {
       const client = await webClient();
       const first = await signIn(client);
@@ -144,14 +144,14 @@ describe("refresh token families", () => {
       expect((await provider.verifyAccessToken(second.access_token)).clientId).toBe(client.client_id);
       await provider.exchangeRefreshToken(client, second.refresh_token!);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-      else process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+      else process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = saved;
     }
   });
 
   it("a replay after the grace window revokes every live token of the family", async () => {
-    const saved = process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-    process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = "1";
+    const saved = process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+    process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = "1";
     try {
       const client = await webClient();
       const other = await signIn(client); // a second, unrelated session
@@ -166,14 +166,14 @@ describe("refresh token families", () => {
       expect((await provider.verifyAccessToken(other.access_token)).clientId).toBe(client.client_id);
       await provider.exchangeRefreshToken(client, other.refresh_token!);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-      else process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+      else process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = saved;
     }
   });
 
   it("a spent token past its own expiry cannot revoke its family, swept or not", async () => {
-    const saved = process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-    process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = "1";
+    const saved = process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+    process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = "1";
     try {
       const client = await webClient();
       const first = await signIn(client);
@@ -188,8 +188,8 @@ describe("refresh token families", () => {
       expect((await provider.verifyAccessToken(second.access_token)).clientId).toBe(client.client_id);
       await provider.exchangeRefreshToken(client, second.refresh_token!);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-      else process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+      else process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = saved;
     }
   });
 

@@ -3,7 +3,7 @@
  * (migration 112) returned before and after 120, and what the inline
  * expression returns, over a corpus of awkward claims, so every stored
  * fact_withdrawals.claim_key still matches. Runs on PGLite, and on Postgres
- * when MEMEX_TEST_POSTGRES_URL is set.
+ * when MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { runMigrations } from "../src/core/migrate.ts";

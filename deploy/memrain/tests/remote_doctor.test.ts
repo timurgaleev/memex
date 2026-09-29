@@ -591,8 +591,8 @@ describe("runRemoteDoctor — scope probe against the real whoami contract", () 
   });
 
   it("fails --expect-operator for a fail-closed client with no grant", async () => {
-    const prev = process.env["MEMEX_TENANT_FAIL_CLOSED"];
-    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    const prev = process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
+    process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
     try {
       const authInfo: AuthInfo = { token: "t", clientId: "memex_cl_nogrant", scopes: ["read"], isPublic: false };
       const r = await dispatchTool(storage, { name: "whoami", arguments: {} }, { authInfo, isPublic: false });
@@ -600,8 +600,8 @@ describe("runRemoteDoctor — scope probe against the real whoami contract", () 
       expect(who["read_sources"]).toEqual([]);
       expect(await probe(who, { expectOperator: true })).toBe("fail");
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
-      else process.env["MEMEX_TENANT_FAIL_CLOSED"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
+      else process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = prev;
     }
   });
 });

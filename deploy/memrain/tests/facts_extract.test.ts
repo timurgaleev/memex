@@ -386,7 +386,7 @@ describe("runExtractConversationFacts (stubbed model)", () => {
       maxBudgetUsd: 1.0,
     });
     expect(report.ran).toBe(false);
-    expect(report.reason).toMatch(/MEMEX_FACTS_EXTRACTION/);
+    expect(report.reason).toMatch(/MEMRAIN_FACTS_EXTRACTION/);
   });
 });
 

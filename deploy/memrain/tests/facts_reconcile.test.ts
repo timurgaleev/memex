@@ -23,7 +23,7 @@ let tmp: string;
 let storage: Storage;
 
 function clearEnv(): void {
-  delete process.env.MEMEX_FACTS_FENCE;
+  delete process.env.MEMRAIN_FACTS_FENCE;
 }
 
 beforeEach(async () => {

@@ -2,7 +2,7 @@
  * Latent multi-tenant read-scope holes closed (security review F1–F4):
  *  - F1/F2: operator-only operational tools (stats/advisor/jobs_*) are refused for
  *    an authenticated tenant token, allowed for the static/internal path.
- *  - F3: the MEMEX_TENANT_FAIL_CLOSED floor is reachable for ANY authenticated
+ *  - F3: the MEMRAIN_TENANT_FAIL_CLOSED floor is reachable for ANY authenticated
  *    principal with no grant (not only isPublic===true), and the static bearer
  *    (authInfo===undefined) is never scoped.
  *  - F4: resolveRequestedScope keys "trusted" on authInfo===undefined, and a scoped

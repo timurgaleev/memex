@@ -94,7 +94,7 @@ test("GET /health reports the build stamp, not the pinned package version", asyn
   // so /health answered "0.1.0" for every image ever built and a deploy check
   // reading it could not tell a fresh container from a stale one.
   //
-  // VERSION resolves at import time from MEMEX_VERSION, which the test process
+  // VERSION resolves at import time from MEMRAIN_VERSION, which the test process
   // does not set, so the honest answer here is the unstamped fallback "dev".
   // Under the old code this same assertion would read "0.1.0".
   const dir = mkdtempSync(join(tmpdir(), "tb-health-version-"));

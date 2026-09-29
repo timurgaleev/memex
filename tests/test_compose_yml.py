@@ -147,8 +147,11 @@ def test_serve_time_env_vars_reach_the_container(compose):
     sources = "\n".join(
         p.read_text() for p in src.rglob("*.ts") if ".test." not in p.name
     )
+    # The server reads the MEMRAIN_ spelling; compose still passes the legacy
+    # name, which the startup shim maps onto it.
     for name in sorted(required):
-        assert name in sources, f"{name} is asserted here but read nowhere in src/"
+        read_as = "MEMRAIN_" + name.removeprefix("MEMEX_")
+        assert read_as in sources, f"{read_as} is asserted here but read nowhere in src/"
 
     declared = set()
     for entry in compose["services"]["memex"].get("environment", []):

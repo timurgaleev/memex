@@ -158,7 +158,7 @@ export function computeNextDelay(
 }
 
 function resolveMaxRetries(fallback: number): number {
-  const raw = process.env.MEMEX_BULK_MAX_RETRIES;
+  const raw = process.env.MEMRAIN_BULK_MAX_RETRIES;
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   return Number.isInteger(n) && n >= 0 ? n : fallback;
@@ -166,7 +166,7 @@ function resolveMaxRetries(fallback: number): number {
 
 /**
  * Run `fn`, retrying on a transient connection error with decorrelated backoff.
- * A non-retryable error throws on the first failure. `MEMEX_BULK_MAX_RETRIES=0`
+ * A non-retryable error throws on the first failure. `MEMRAIN_BULK_MAX_RETRIES=0`
  * disables retries (debugging kill switch).
  */
 export async function withRetry<T>(

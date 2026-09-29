@@ -509,13 +509,13 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
       );
     }
 
-    // Per-source embed coverage (opt-in via MEMEX_DOCTOR_PER_SOURCE=1). In a
+    // Per-source embed coverage (opt-in via MEMRAIN_DOCTOR_PER_SOURCE=1). In a
     // multi-tenant deploy one tenant's embedding can break (0% coverage while
     // it has embeddable chunks) invisibly inside the whole-brain average. This
     // WARNS by listing those sources but never gates (ok:true) — a source can
     // legitimately sit at 0% mid-backfill. Off by default to keep single-tenant
     // reports quiet.
-    if (process.env.MEMEX_DOCTOR_PER_SOURCE === "1") {
+    if (process.env.MEMRAIN_DOCTOR_PER_SOURCE === "1") {
       try {
         const rows = await collectPerSourceHealth(storage.raw());
         const broken = rows.filter(
@@ -549,7 +549,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<void> {
 
   // 4. vault path (only when configured)
   const vault =
-    process.env.MEMEX_VAULT_PATH ?? config?.storage.vault ?? null;
+    process.env.MEMRAIN_VAULT_PATH ?? config?.storage.vault ?? null;
   if (vault) {
     try {
       const st = statSync(vault);

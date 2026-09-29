@@ -7,14 +7,14 @@
  *
  * Policy: on public ingress (Cloudflare `Cf-Connecting-Ip`) read tools
  * return only an allowlist of metadata fields — never note bodies —
- * unless the operator opts in with `MEMEX_PUBLIC_READ_BODIES=1`.
+ * unless the operator opts in with `MEMRAIN_PUBLIC_READ_BODIES=1`.
  * Allowlists are fail-safe: a new body-ish field is stripped by default.
  */
 import { redactConnectionInfo } from "./url-redact.ts";
 
 /** True when the operator opted into returning full bodies publicly. */
 export function publicReadBodiesAllowed(): boolean {
-  const v = (process.env["MEMEX_PUBLIC_READ_BODIES"] ?? "").trim();
+  const v = (process.env["MEMRAIN_PUBLIC_READ_BODIES"] ?? "").trim();
   return v === "1" || v.toLowerCase() === "true";
 }
 

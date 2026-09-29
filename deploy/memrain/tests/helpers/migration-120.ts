@@ -1,7 +1,7 @@
 /**
  * Shared fixture for the migration 120 tests: a database migrated through 119
  * and seeded with the data a pre-rename brain holds, on PGLite and, when
- * MEMEX_TEST_POSTGRES_URL is set, on a scratch Postgres database of its own
+ * MEMRAIN_TEST_POSTGRES_URL is set, on a scratch Postgres database of its own
  * (created and dropped here, so the shared test database is never reverted).
  * Manifests come from the shipped data-manifest.sql: psql on Postgres, the
  * test runner on PGLite.
@@ -15,7 +15,7 @@ import type { Engine } from "../../src/core/engine/interface.ts";
 import { runMigrations } from "../../src/core/migrate.ts";
 import { MANIFEST_SQL, runManifestScript } from "./manifest-script.ts";
 
-export const PG_URL = process.env.MEMEX_TEST_POSTGRES_URL;
+export const PG_URL = process.env.MEMRAIN_TEST_POSTGRES_URL;
 export const MIGRATIONS_DIR = join(import.meta.dir, "../../src/core/migrations");
 export const UP_120_FILE = join(MIGRATIONS_DIR, "120_memrain_rename.sql");
 export const DOWN_120_FILE = join(import.meta.dir, "../../src/core/migrations-down/120_memrain_rename.down.sql");
@@ -70,13 +70,13 @@ export async function openPglite119(): Promise<Db> {
   };
   // The sharded runner's template is migrated through the latest file; this
   // database must stop at 119.
-  const template = process.env.MEMEX_TEST_PGLITE_TEMPLATE;
-  delete process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+  const template = process.env.MEMRAIN_TEST_PGLITE_TEMPLATE;
+  delete process.env.MEMRAIN_TEST_PGLITE_TEMPLATE;
   let engine: PGliteEngine;
   try {
     engine = await open();
   } finally {
-    if (template !== undefined) process.env.MEMEX_TEST_PGLITE_TEMPLATE = template;
+    if (template !== undefined) process.env.MEMRAIN_TEST_PGLITE_TEMPLATE = template;
   }
   try {
     await runMigrations(engine, through.dir);

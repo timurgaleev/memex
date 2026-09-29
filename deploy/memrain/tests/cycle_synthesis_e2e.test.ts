@@ -1,7 +1,7 @@
 /**
  * Auto-think end-to-end: a SYNTHESIS phase driven through the real cycle
  * dispatcher (runCycleOnce), not the phase in isolation. Proves that when the
- * operator flips MEMEX_DREAM_SYNTHESIS on, the synthesis chain actually runs via
+ * operator flips MEMRAIN_DREAM_SYNTHESIS on, the synthesis chain actually runs via
  * the cycle and writes to the isolated synth_* store — and that the configured
  * llmFn flows through `options.synthesis`. Hermetic: mocked LLM, no Bedrock.
  */

@@ -15,7 +15,7 @@
  * an array (batched). We handle both.
  */
 import type { Storage } from "../core/storage.ts";
-import { MEMEX_RESPONSE_VERSION } from "./response-contract.ts";
+import { MEMRAIN_RESPONSE_VERSION } from "./response-contract.ts";
 import { dispatchTool } from "./dispatch.ts";
 import { ingressRefusal, visibleToolDefs } from "./visibility.ts";
 import { logToolCall } from "./param-redaction.ts";
@@ -90,7 +90,7 @@ export interface McpRequestContext {
   isPublic: boolean;
   /**
    * Whether the caller satisfied the internal-token gate (the server
-   * evaluates `MEMEX_INTERNAL_TOKEN` and passes the result). Only
+   * evaluates `MEMRAIN_INTERNAL_TOKEN` and passes the result). Only
    * consulted for write tools on the internal path — read tools and
    * public traffic are unaffected. Defaults to authorized when omitted
    * (e.g. older callers / tests) and when the token is unconfigured, so
@@ -163,7 +163,7 @@ export function makeMcpHandler(opts: McpHandlerOptions) {
       // Fail-visible but NOT force-written: a hammering client must not turn
       // every 429 into a guaranteed DB INSERT (the limiter would stop
       // shedding DB load). Rejections land in the log only when the sink is
-      // enabled via MEMEX_REQUEST_LOG_DB, best-effort.
+      // enabled via MEMRAIN_REQUEST_LOG_DB, best-effort.
       logToolCallToDb(opts.storage.engine(), {
         tool: "rate_limited",
         agentName:
@@ -296,7 +296,7 @@ async function handleSingle(
 
   // Shared identity for the DB request log. `force` makes the sink
   // default-ON for OAuth-authenticated callers (fail-visible), while the
-  // static-bearer / internal paths stay behind MEMEX_REQUEST_LOG_DB.
+  // static-bearer / internal paths stay behind MEMRAIN_REQUEST_LOG_DB.
   const agentName =
     ctx.authInfo?.clientId ?? (ctx.isPublic ? "public" : "internal");
   const logIdentity = {
@@ -316,7 +316,7 @@ async function handleSingle(
         // version above: that pins the transport, this pins what memex puts
         // inside a tool result. A client can refuse to run against a shape it
         // does not know instead of discovering the change in production.
-        _meta: { memexResponseVersion: MEMEX_RESPONSE_VERSION },
+        _meta: { memexResponseVersion: MEMRAIN_RESPONSE_VERSION },
       });
     case "tools/list":
       // Log tools/list too — a client that only ever lists tools should
@@ -394,7 +394,7 @@ async function handleSingle(
             ...(ctx.issuer !== undefined ? { issuer: ctx.issuer } : {}),
           },
         );
-        // Opt-in redacted request log (no-op unless MEMEX_LOG_REQUESTS set).
+        // Opt-in redacted request log (no-op unless MEMRAIN_LOG_REQUESTS set).
         // Names + counts + coarse size only — never raw param values.
         logToolCall(params.name, ctx.isPublic, params.arguments, !result.isError);
         // DB sink — feeds the admin Request Log page. Fire-and-forget +

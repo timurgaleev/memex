@@ -28,9 +28,9 @@ import { syncTypedLinksForPage } from "../src/core/typed-links.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
 const ENV_KEYS = [
-  "MEMEX_AUTO_THINK", "MEMEX_PROBE_CONTRADICTIONS", "MEMEX_DRIFT", "MEMEX_ENRICH_THIN", "MEMEX_PATTERNS",
-  "MEMEX_REFLECTIONS", "MEMEX_FACTS_BACKFILL", "MEMEX_FACTS_FENCE", "MEMEX_RECHUNK_SWEEP", "MEMEX_TIMELINE_ANCHOR",
-  "MEMEX_MEETING_TIMELINE", "MEMEX_TYPED_LINKS", "MEMEX_VAULT_PATHS", "MEMEX_CODE_PATHS",
+  "MEMRAIN_AUTO_THINK", "MEMRAIN_PROBE_CONTRADICTIONS", "MEMRAIN_DRIFT", "MEMRAIN_ENRICH_THIN", "MEMRAIN_PATTERNS",
+  "MEMRAIN_REFLECTIONS", "MEMRAIN_FACTS_BACKFILL", "MEMRAIN_FACTS_FENCE", "MEMRAIN_RECHUNK_SWEEP", "MEMRAIN_TIMELINE_ANCHOR",
+  "MEMRAIN_MEETING_TIMELINE", "MEMRAIN_TYPED_LINKS", "MEMRAIN_VAULT_PATHS", "MEMRAIN_CODE_PATHS",
 ] as const;
 
 let tmp: string;
@@ -122,74 +122,74 @@ interface Row {
 const ROWS: Row[] = [
   {
     phase: "autoThinkPhase",
-    flag: "MEMEX_AUTO_THINK",
+    flag: "MEMRAIN_AUTO_THINK",
     run: async () => {
       const r = await autoThinkPhase(storage, { questions: ["What is unresolved?"] });
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_AUTO_THINK");
+      expect(r.reason).toContain("MEMRAIN_AUTO_THINK");
     },
   },
   {
     phase: "probeContradictionsPhase",
-    flag: "MEMEX_PROBE_CONTRADICTIONS",
+    flag: "MEMRAIN_PROBE_CONTRADICTIONS",
     run: async () => {
       const r = await probeContradictionsPhase(storage.engine(), { pairsFn: async () => [pair("1", "2")] });
       expect(r.judged).toBe(0);
-      expect(r.skippedReason).toContain("MEMEX_PROBE_CONTRADICTIONS");
+      expect(r.skippedReason).toContain("MEMRAIN_PROBE_CONTRADICTIONS");
     },
   },
   {
     phase: "driftPhase",
-    flag: "MEMEX_DRIFT",
+    flag: "MEMRAIN_DRIFT",
     run: async () => {
       const r = await driftPhase(storage, {});
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_DRIFT");
+      expect(r.reason).toContain("MEMRAIN_DRIFT");
     },
   },
   {
     phase: "enrichThinPhase",
-    flag: "MEMEX_ENRICH_THIN",
+    flag: "MEMRAIN_ENRICH_THIN",
     run: async () => {
       await putPage(storage, { slug: "people/alice", type: "person", title: "Alice", markdown_body: "stub", source_id: "default" });
       const r = await enrichThinPhase(storage, {});
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_ENRICH_THIN");
+      expect(r.reason).toContain("MEMRAIN_ENRICH_THIN");
     },
   },
   {
     phase: "patternsPhase",
-    flag: "MEMEX_PATTERNS",
+    flag: "MEMRAIN_PATTERNS",
     run: async () => {
       await seedReflections(4);
       const r = await patternsPhase(storage, {});
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_PATTERNS");
+      expect(r.reason).toContain("MEMRAIN_PATTERNS");
     },
   },
   {
     phase: "reflectionsPhase",
-    flag: "MEMEX_REFLECTIONS",
+    flag: "MEMRAIN_REFLECTIONS",
     run: async () => {
       await seedTranscripts(3);
       const r = await reflectionsPhase(storage, {});
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_REFLECTIONS");
+      expect(r.reason).toContain("MEMRAIN_REFLECTIONS");
     },
   },
   {
     phase: "conversationFactsBackfillPhase",
-    flag: "MEMEX_FACTS_BACKFILL",
+    flag: "MEMRAIN_FACTS_BACKFILL",
     run: async () => {
       const r = await conversationFactsBackfillPhase(storage);
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_FACTS_BACKFILL");
+      expect(r.reason).toContain("MEMRAIN_FACTS_BACKFILL");
     },
   },
   {
     // The facts fence is ON by default; only an explicit 0 turns it off.
     phase: "reconcileFactsForPage",
-    flag: "MEMEX_FACTS_FENCE",
+    flag: "MEMRAIN_FACTS_FENCE",
     off: "0",
     run: async () => {
       const put = await putPage(storage, {
@@ -205,9 +205,9 @@ const ROWS: Row[] = [
   },
   {
     phase: "rechunkSweepPhase",
-    flag: "MEMEX_RECHUNK_SWEEP",
+    flag: "MEMRAIN_RECHUNK_SWEEP",
     run: async () => {
-      process.env.MEMEX_VAULT_PATHS = vault;
+      process.env.MEMRAIN_VAULT_PATHS = vault;
       const before = await countStaleChunkerDocs(storage.engine());
       await makeStale("a.md", "## Note 1\n\nThis is the body of note 1.");
       const r = await rechunkSweepPhase(storage.engine(), {});
@@ -220,7 +220,7 @@ const ROWS: Row[] = [
   },
   {
     phase: "timelineAnchorPhase",
-    flag: "MEMEX_TIMELINE_ANCHOR",
+    flag: "MEMRAIN_TIMELINE_ANCHOR",
     run: async () => {
       await putPage(storage, { slug: "notes/dated", title: "Dated note" });
       await storage.engine().query(
@@ -235,7 +235,7 @@ const ROWS: Row[] = [
   },
   {
     phase: "extractMeetingTimelinePhase",
-    flag: "MEMEX_MEETING_TIMELINE",
+    flag: "MEMRAIN_MEETING_TIMELINE",
     run: async () => {
       await putPage(storage, {
         slug: "meetings/2026-05-18-standup",
@@ -249,7 +249,7 @@ const ROWS: Row[] = [
   },
   {
     phase: "syncTypedLinksForPage",
-    flag: "MEMEX_TYPED_LINKS",
+    flag: "MEMRAIN_TYPED_LINKS",
     run: async () => {
       await putPage(storage, { slug: "companies/acme", type: "company" });
       await putPage(storage, { slug: "people/employee", type: "person", compiled_truth: { company: ["Acme"] } });

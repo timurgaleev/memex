@@ -118,12 +118,12 @@ export function isNoSourceSentinel(id: unknown): boolean {
 
 /**
  * Is the fail-closed multi-tenant read policy enabled? Default OFF — only an
- * explicit `MEMEX_TENANT_FAIL_CLOSED=1` (or `=true`) opts in. Off, the ingress
+ * explicit `MEMRAIN_TENANT_FAIL_CLOSED=1` (or `=true`) opts in. Off, the ingress
  * resolver is byte-for-byte {@link effectiveReadSourceIds}, so the daily
  * static-bearer path is untouched.
  */
 export function tenantFailClosedEnabled(): boolean {
-  const v = process.env["MEMEX_TENANT_FAIL_CLOSED"];
+  const v = process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
   return v === "1" || v === "true";
 }
 

@@ -25,7 +25,7 @@
  * Default high-emotion tag seed list. A page carrying any of these tags gets
  * the full tag boost. Anglocentric / personal-life-biased on purpose (the v1
  * default for a personal brain); override at install time via the
- * `MEMEX_SALIENCE_HIGH_TAGS` env var (comma-separated) for a work-first brain.
+ * `MEMRAIN_SALIENCE_HIGH_TAGS` env var (comma-separated) for a work-first brain.
  */
 export const DEFAULT_HIGH_EMOTION_TAGS: ReadonlySet<string> = new Set([
   "family",
@@ -88,7 +88,7 @@ export interface SalienceOpts {
 }
 
 /**
- * Parse a comma-separated `MEMEX_SALIENCE_HIGH_TAGS` override into a
+ * Parse a comma-separated `MEMRAIN_SALIENCE_HIGH_TAGS` override into a
  * lowercased set. Empty / unset → null (caller falls back to the default).
  * Tolerant: blank entries are dropped, never throws.
  */

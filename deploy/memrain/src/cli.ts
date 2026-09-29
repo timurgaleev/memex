@@ -205,10 +205,10 @@ function printUsage(): void {
   console.log("  reports [--since H]          trend report from cycle_snapshots");
   console.log("  spend [--days N]             LLM spend by model, feature and spender");
   console.log("  agent run <task> [--max-usd X] [--wait]");
-  console.log("                               queue a read-only agent job (needs MEMEX_AGENT_ENABLED=1); prints its id");
+  console.log("                               queue a read-only agent job (needs MEMRAIN_AGENT_ENABLED=1); prints its id");
   console.log("  agent logs <job-id>          render an agent job's transcript and tool calls");
   console.log("  skillopt eval [--skill S] [--split heldout|train|all] [--repeats N] [--candidate SKILL.md] [--epsilon X] [--max-usd X]");
-  console.log("                               score skill routing on the pack benchmark (needs MEMEX_SKILLOPT_ENABLED=1); exit 3 = candidate rejected");
+  console.log("                               score skill routing on the pack benchmark (needs MEMRAIN_SKILLOPT_ENABLED=1); exit 3 = candidate rejected");
   console.log("  skillpack [--out PATH]       bundle deploy/skills/ as a tar.gz with manifest");
   console.log("  skillpack lint [--json] [--dir PATH]");
   console.log("                               check every tool and memex command the skill pack names exists");
@@ -262,9 +262,9 @@ function printUsage(): void {
   console.log("                               remote doctor: /health stamp, OAuth discovery, mint, MCP, scope probe");
   console.log("  think <question> [--k N] [--budget USD] [--json] [--save] [--take '<claim>']");
   console.log("        [--since D] [--until D] [--anchor a,b] [--rounds N] [--model ID] [--with-calibration]");
-  console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMEX_THINK=1);");
+  console.log("                               paid Sonnet synthesis across the brain (opt-in, MEMRAIN_THINK=1);");
   console.log("                               --save persists a synthesis/ page, --take queues a take");
-  console.log("  config show|get|set|unset    DB-plane MEMEX_* knob overrides (no redeploy; env still wins)");
+  console.log("  config show|get|set|unset    DB-plane MEMRAIN_* knob overrides (no redeploy; env still wins)");
   console.log("  config unset --pattern <pfx> bulk-delete keys by prefix");
   console.log("  capture [<text>] [--stdin] [--file P] [--slug S] [--type T] [--source ID] [--title T]");
   console.log("                               one-command note capture → page + search mirror");
@@ -273,7 +273,7 @@ function printUsage(): void {
   console.log("                               (one file or a directory) as split, redacted conversation pages");
   console.log("  connectors github sync <owner/repo> --source ID [--token-file F] [--full] [--dry-run] [--json]");
   console.log("                               mirror a repository's issues and pull requests into a github source");
-  console.log("                               (token: MEMEX_GITHUB_TOKEN or --token-file; exit 1 partial, 2 re-auth)");
+  console.log("                               (token: MEMRAIN_GITHUB_TOKEN or --token-file; exit 1 partial, 2 re-auth)");
   console.log("  connectors status [--json]   watermark and last run of every connector");
   console.log("  quarantine list [--include-flagged] [--json]");
   console.log("  quarantine clear <slug|path> [--force]");
@@ -328,7 +328,7 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case "serve": {
       const http = flags.has("--http");
-      const host = values.get("--host") ?? process.env.MEMEX_HOST ?? "127.0.0.1";
+      const host = values.get("--host") ?? process.env.MEMRAIN_HOST ?? "127.0.0.1";
       const portStr = values.get("--port") ?? process.env.BRAIN_PORT ?? "18790";
       const port = Number(portStr);
       if (!Number.isInteger(port) || port < 1 || port > 65535) {

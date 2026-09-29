@@ -1,5 +1,5 @@
 /**
- * Timeline extraction from meetings -- opt-in MEMEX_MEETING_TIMELINE=1.
+ * Timeline extraction from meetings -- opt-in MEMRAIN_MEETING_TIMELINE=1.
  * Writes append-only timeline_events for a meeting + its resolved attendees.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -18,13 +18,13 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  process.env.MEMEX_MEETING_TIMELINE = "1";
+  process.env.MEMRAIN_MEETING_TIMELINE = "1";
   tmp = mkdtempSync(join(tmpdir(), "memex-mtgtl-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  delete process.env.MEMEX_MEETING_TIMELINE;
+  delete process.env.MEMRAIN_MEETING_TIMELINE;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });

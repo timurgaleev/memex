@@ -13,7 +13,7 @@
  *     (the exact primitive doctor.ts + status.ts read).
  *   - version drift       : the version the op passes (package.json) vs the
  *     version the running binary reports — purely local, no network.
- *   - setup smells        : process.env (MEMEX_INTERNAL_TOKEN), same warning
+ *   - setup smells        : process.env (MEMRAIN_INTERNAL_TOKEN), same warning
  *     surface as the public guard's legacy fall-through.
  */
 import { discoverMigrations } from "../migrate.ts";
@@ -330,7 +330,7 @@ ${orphanExcl.sql}
  *       not a resolved change. Medium: it degrades entity-context resolution.
  *   (b) coverage gap — a recent (30d) conversation-shape page with no projected
  *       timeline events. Info: sweepable with the chronicle_backfill op (or by
- *       enabling MEMEX_AUTO_CHRONICLE). The eligible type/prefix shape mirrors
+ *       enabling MEMRAIN_AUTO_CHRONICLE). The eligible type/prefix shape mirrors
  *       chronicle/eligibility.ts (diary + event pages excluded).
  *
  * Scope resolution: an explicit `ctx.sourceIds` (a future scoped caller) always
@@ -407,7 +407,7 @@ export const collectChronicle: AdvisorCollector = {
           severity: "info",
           title: `${gap} recent conversation page(s) have no timeline events yet.`,
           detail:
-            "Sweep them into the chronicle with the chronicle_backfill op, or enable MEMEX_AUTO_CHRONICLE so new pages project automatically.",
+            "Sweep them into the chronicle with the chronicle_backfill op, or enable MEMRAIN_AUTO_CHRONICLE so new pages project automatically.",
           fix_command: "chronicle_backfill",
           collector: "chronicle",
         });
@@ -486,7 +486,7 @@ export const collectEvalBlind: AdvisorCollector = {
  * A take pipeline whose second half cannot fire yet.
  *
  * `propose-takes` writes on every synthesis tick; `grade-takes` only considers
- * takes older than the maturity bar (`MEMEX_GRADE_MIN_AGE_DAYS`, default 182 —
+ * takes older than the maturity bar (`MEMRAIN_GRADE_MIN_AGE_DAYS`, default 182 —
  * a claim about the future needs time to come true before judging it is worth
  * anything). On a brain younger than that bar, the producer runs nightly and
  * the grader selects nothing, silently, for months. Nothing said so: the phase
@@ -556,9 +556,9 @@ export const collectTakesUngradeable: AdvisorCollector = {
           `${pending} unresolved take(s) and not one is old enough to grade — ` +
           `the oldest reaches the ${minAgeDays}-day bar in ${daysUntilFirst} day(s).`,
         detail:
-          "propose-takes writes on every synthesis tick, but grade-takes only looks at takes past MEMEX_GRADE_MIN_AGE_DAYS, so the paid producer keeps running while the grader selects nothing and calibration keeps reading whatever stale grades already exist. Either lower the bar to match this brain's age, or stop proposing until grading can fire.",
+          "propose-takes writes on every synthesis tick, but grade-takes only looks at takes past MEMRAIN_GRADE_MIN_AGE_DAYS, so the paid producer keeps running while the grader selects nothing and calibration keeps reading whatever stale grades already exist. Either lower the bar to match this brain's age, or stop proposing until grading can fire.",
         fix_command:
-          "memex (set MEMEX_GRADE_MIN_AGE_DAYS below the age of the oldest take, or drop propose-takes from the synthesis phases)",
+          "memex (set MEMRAIN_GRADE_MIN_AGE_DAYS below the age of the oldest take, or drop propose-takes from the synthesis phases)",
         collector: "takes-ungradeable",
       },
     ];
@@ -569,21 +569,21 @@ export const collectTakesUngradeable: AdvisorCollector = {
  * Setup smells — config/env misconfigurations the owner usually wants to know
  * about. memex has no DB config-key plane, so the one deterministic, security-
  * relevant smell is the internal-auth token being unset: with no
- * MEMEX_INTERNAL_TOKEN, any peer on the docker bridge can call write tools
+ * MEMRAIN_INTERNAL_TOKEN, any peer on the docker bridge can call write tools
  * unauthenticated (the public_guard's documented legacy fall-through).
  */
 export const collectSetupSmells: AdvisorCollector = {
   id: "setup-smells",
   collect: async () => {
     const findings: AdvisorFinding[] = [];
-    const internalToken = (process.env["MEMEX_INTERNAL_TOKEN"] ?? "").trim();
+    const internalToken = (process.env["MEMRAIN_INTERNAL_TOKEN"] ?? "").trim();
     if (internalToken.length === 0) {
       findings.push({
         id: "internal_token_unset",
         severity: "medium",
-        title: "MEMEX_INTERNAL_TOKEN is unset — internal write tools are open on the bridge.",
+        title: "MEMRAIN_INTERNAL_TOKEN is unset — internal write tools are open on the bridge.",
         detail: "Without the shared token any peer on the docker bridge can call write tools with no auth. Set the secret and restart so the internal endpoint fails closed.",
-        fix_command: "memex (set MEMEX_INTERNAL_TOKEN from <secrets_prefix>/memex-internal-token, then restart)",
+        fix_command: "memex (set MEMRAIN_INTERNAL_TOKEN from <secrets_prefix>/memex-internal-token, then restart)",
         collector: "setup-smells",
       });
     }

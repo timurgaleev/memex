@@ -16,15 +16,15 @@ import {
 import { rankingSignature, queryCacheKey } from "../src/core/search/query-cache.ts";
 
 const ENV_KEYS = [
-  "MEMEX_SEARCH_MODE",
-  "MEMEX_RERANK",
-  "MEMEX_QUERY_EXPANSION",
-  "MEMEX_GRAPH_SIGNALS",
-  "MEMEX_COSINE_RESCORE",
-  "MEMEX_RELATIONAL_ARM",
-  "MEMEX_BACKLINK_BOOST",
-  "MEMEX_GRAPH_RERANK",
-  "MEMEX_TITLE_ARM",
+  "MEMRAIN_SEARCH_MODE",
+  "MEMRAIN_RERANK",
+  "MEMRAIN_QUERY_EXPANSION",
+  "MEMRAIN_GRAPH_SIGNALS",
+  "MEMRAIN_COSINE_RESCORE",
+  "MEMRAIN_RELATIONAL_ARM",
+  "MEMRAIN_BACKLINK_BOOST",
+  "MEMRAIN_GRAPH_RERANK",
+  "MEMRAIN_TITLE_ARM",
 ];
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
@@ -69,9 +69,9 @@ describe("mode bundles", () => {
   });
 
   it("unknown mode env falls back to conservative", () => {
-    process.env.MEMEX_SEARCH_MODE = "warp-speed";
+    process.env.MEMRAIN_SEARCH_MODE = "warp-speed";
     expect(resolveSearchMode()).toBe("conservative");
-    process.env.MEMEX_SEARCH_MODE = "BALANCED";
+    process.env.MEMRAIN_SEARCH_MODE = "BALANCED";
     expect(resolveSearchMode()).toBe("balanced"); // case-insensitive
   });
 });
@@ -104,12 +104,12 @@ describe("resolveSearchKnobs (hybridSearch resolution)", () => {
     expect(kn.tokenBudget).toBeUndefined();
   });
 
-  it("MEMEX_QUERY_EXPANSION is the expansion kill-switch/enable", () => {
+  it("MEMRAIN_QUERY_EXPANSION is the expansion kill-switch/enable", () => {
     clearAll();
-    process.env.MEMEX_QUERY_EXPANSION = "1";
+    process.env.MEMRAIN_QUERY_EXPANSION = "1";
     expect(resolveSearchKnobs({}).expansionEnabled).toBe(true);
-    process.env.MEMEX_SEARCH_MODE = "tokenmax";
-    process.env.MEMEX_QUERY_EXPANSION = "0"; // kill-switch beats the bundle
+    process.env.MEMRAIN_SEARCH_MODE = "tokenmax";
+    process.env.MEMRAIN_QUERY_EXPANSION = "0"; // kill-switch beats the bundle
     expect(resolveSearchKnobs({}).expansionEnabled).toBe(false);
   });
 
@@ -124,43 +124,43 @@ describe("resolveSearchKnobs (hybridSearch resolution)", () => {
 
   it("mode bundle supplies defaults; per-knob env still overrides", () => {
     clearAll();
-    process.env.MEMEX_SEARCH_MODE = "balanced";
+    process.env.MEMRAIN_SEARCH_MODE = "balanced";
     const kn = resolveSearchKnobs({});
     expect(kn.rerankWanted).toBe(true);
     expect(kn.graphSignalsOn).toBe(true);
     expect(kn.tokenBudget).toBe(12_000);
-    process.env.MEMEX_GRAPH_SIGNALS = "0";
+    process.env.MEMRAIN_GRAPH_SIGNALS = "0";
     expect(resolveSearchKnobs({}).graphSignalsOn).toBe(false);
   });
 });
 
 describe("knobs-hash in the cache signature (G14/G25)", () => {
-  it("rankingSignature changes when MEMEX_GRAPH_SIGNALS / MEMEX_COSINE_RESCORE flip", () => {
+  it("rankingSignature changes when MEMRAIN_GRAPH_SIGNALS / MEMRAIN_COSINE_RESCORE flip", () => {
     clearAll();
     const base = rankingSignature();
-    process.env.MEMEX_GRAPH_SIGNALS = "1";
+    process.env.MEMRAIN_GRAPH_SIGNALS = "1";
     const gs = rankingSignature();
     expect(gs).not.toBe(base);
-    delete process.env.MEMEX_GRAPH_SIGNALS;
-    process.env.MEMEX_COSINE_RESCORE = "1";
+    delete process.env.MEMRAIN_GRAPH_SIGNALS;
+    process.env.MEMRAIN_COSINE_RESCORE = "1";
     expect(rankingSignature()).not.toBe(base);
-    delete process.env.MEMEX_COSINE_RESCORE;
+    delete process.env.MEMRAIN_COSINE_RESCORE;
     expect(rankingSignature()).toBe(base);
   });
 
-  it("rankingSignature changes when MEMEX_RERANK_WINDOW is set", () => {
+  it("rankingSignature changes when MEMRAIN_RERANK_WINDOW is set", () => {
     clearAll();
     const base = rankingSignature();
-    process.env.MEMEX_RERANK_WINDOW = "50";
+    process.env.MEMRAIN_RERANK_WINDOW = "50";
     expect(rankingSignature()).not.toBe(base);
-    delete process.env.MEMEX_RERANK_WINDOW;
+    delete process.env.MEMRAIN_RERANK_WINDOW;
     expect(rankingSignature()).toBe(base);
   });
 
   it("rankingSignature changes when the mode flips", () => {
     clearAll();
     const base = rankingSignature();
-    process.env.MEMEX_SEARCH_MODE = "balanced";
+    process.env.MEMRAIN_SEARCH_MODE = "balanced";
     expect(rankingSignature()).not.toBe(base);
   });
 
@@ -185,7 +185,7 @@ describe("knobs-hash in the cache signature (G14/G25)", () => {
       queryCacheKey("q", 5, undefined, false, rankingSignature() + on),
     ).not.toBe(queryCacheKey("q", 5, undefined, false, rankingSignature() + off));
     // The env gate re-keys the same way, and reads "true" like the reranker does.
-    process.env.MEMEX_GRAPH_RERANK = "true";
+    process.env.MEMRAIN_GRAPH_RERANK = "true";
     expect(resolveSearchKnobs({}).graphRerankOn).toBe(true);
     expect(knobsCacheSuffix(resolveSearchKnobs({}))).toBe(on);
     // An explicit per-call OFF still opts out of the reranked namespace.

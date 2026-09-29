@@ -3,7 +3,7 @@
  *
  * READ  — every non-operator principal (public ingress OR a tenant token) is
  *         floored to world-visible facts on BOTH fact-reading tools, and the
- *         floor does not depend on MEMEX_PUBLIC_READ_BODIES (that flag governs
+ *         floor does not depend on MEMRAIN_PUBLIC_READ_BODIES (that flag governs
  *         free-text bodies, never a visibility grant).
  * WRITE — `add_fact` can set the column, so a tenant agent can publish a fact it
  *         is then able to recall; public ingress cannot.
@@ -112,14 +112,14 @@ describe("fact visibility floor — tenant reads", () => {
   });
 });
 
-describe("fact visibility floor — public ingress with MEMEX_PUBLIC_READ_BODIES", () => {
-  const ORIGINAL = process.env["MEMEX_PUBLIC_READ_BODIES"];
+describe("fact visibility floor — public ingress with MEMRAIN_PUBLIC_READ_BODIES", () => {
+  const ORIGINAL = process.env["MEMRAIN_PUBLIC_READ_BODIES"];
   beforeEach(() => {
-    process.env["MEMEX_PUBLIC_READ_BODIES"] = "1";
+    process.env["MEMRAIN_PUBLIC_READ_BODIES"] = "1";
   });
   afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
-    else process.env["MEMEX_PUBLIC_READ_BODIES"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+    else process.env["MEMRAIN_PUBLIC_READ_BODIES"] = ORIGINAL;
   });
 
   it("entity_facts still hides a private fact when bodies are opted in", async () => {

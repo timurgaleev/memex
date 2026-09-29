@@ -89,14 +89,14 @@ describe("checkCycleFreshness", () => {
 
   it("hard-fails (ok:false) past the fail threshold only when ENFORCE=1", async () => {
     await snapshotAt("2026-06-26T12:00:00Z"); // 48h ago
-    process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE = "1";
+    process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE = "1";
     try {
       const r = await checkCycleFreshness(storage.engine(), NOW);
       expect(r.ok).toBe(false);
       expect(r.status).toBe("fail");
       expect(r.detail).toContain("wedged");
     } finally {
-      delete process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE;
+      delete process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE;
     }
   });
 
@@ -122,13 +122,13 @@ describe("checkCycleFreshness", () => {
       await storage.engine().exec("DELETE FROM cycle_snapshots");
       await seed();
       for (const enforce of [false, true]) {
-        if (enforce) process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE = "1";
-        else delete process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE;
+        if (enforce) process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE = "1";
+        else delete process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE;
         const r = await checkCycleFreshness(storage.engine(), NOW);
         expect(r.ok).toBe(r.status !== "fail");
       }
     }
-    delete process.env.MEMEX_CYCLE_FRESHNESS_ENFORCE;
+    delete process.env.MEMRAIN_CYCLE_FRESHNESS_ENFORCE;
   });
 
   it("is categorized as a brain check (drift guard)", () => {

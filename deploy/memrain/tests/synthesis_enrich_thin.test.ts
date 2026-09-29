@@ -41,8 +41,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_ENRICH_THIN;
-  delete process.env.MEMEX_ENRICH_THIN_BUDGET_USD;
+  delete process.env.MEMRAIN_ENRICH_THIN;
+  delete process.env.MEMRAIN_ENRICH_THIN_BUDGET_USD;
 });
 
 describe("enrichThinPhase", () => {
@@ -89,8 +89,8 @@ describe("enrichThinPhase", () => {
     expect(page!.markdown_body.length).toBeGreaterThan("stub".length);
   });
 
-  it("spends nothing when MEMEX_ENRICH_THIN_BUDGET_USD=0 (no Sonnet call)", async () => {
-    process.env.MEMEX_ENRICH_THIN_BUDGET_USD = "0";
+  it("spends nothing when MEMRAIN_ENRICH_THIN_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMRAIN_ENRICH_THIN_BUDGET_USD = "0";
     await putPage(storage, { slug: "people/erin", type: "person", title: "Erin", markdown_body: "stub", source_id: "default" });
     await putPage(storage, {
       slug: "notes/erin-context",

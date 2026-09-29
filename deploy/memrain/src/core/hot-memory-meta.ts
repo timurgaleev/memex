@@ -12,7 +12,7 @@
  *   - `hot_memory` carries NO source_id / visibility axis and holds raw
  *     free-text PII (see the security note in core/hot_memory.ts). It must never
  *     cross the public ingress, so the dispatcher gates this to
- *     non-public calls AND the payload is empty unless MEMEX_HOT_MEMORY_META=1.
+ *     non-public calls AND the payload is empty unless MEMRAIN_HOT_MEMORY_META=1.
  *   - Best-effort: the dispatcher wraps this in try/catch and NEVER fails a tool
  *     call on an error here. This module still aims to fail cleanly.
  *   - Short TTL cache so a burst of tool calls costs one query, not N.
@@ -37,10 +37,10 @@ const _cache = new Map<string, CacheEntry>();
 
 /**
  * Feature gate. Default OFF — the injection surfaces unvetted PII, so it stays
- * dark until an operator opts in with MEMEX_HOT_MEMORY_META=1.
+ * dark until an operator opts in with MEMRAIN_HOT_MEMORY_META=1.
  */
 export function hotMemoryMetaEnabled(
-  env: string | undefined = process.env["MEMEX_HOT_MEMORY_META"],
+  env: string | undefined = process.env["MEMRAIN_HOT_MEMORY_META"],
 ): boolean {
   return env === "1";
 }

@@ -30,14 +30,14 @@ beforeEach(() => {
   mkdirSync(outside, { recursive: true });
   writeFileSync(join(vault, "note.md"), "vault content");
   writeFileSync(join(outside, "secret.txt"), "secret content");
-  process.env.MEMEX_VAULT_PATHS = vault;
-  process.env.MEMEX_CODE_PATHS = "";
+  process.env.MEMRAIN_VAULT_PATHS = vault;
+  process.env.MEMRAIN_CODE_PATHS = "";
 });
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_VAULT_PATHS;
-  delete process.env.MEMEX_CODE_PATHS;
+  delete process.env.MEMRAIN_VAULT_PATHS;
+  delete process.env.MEMRAIN_CODE_PATHS;
 });
 
 describe("isWithinAllowedRoot — happy path", () => {
@@ -86,15 +86,15 @@ describe("isWithinAllowedRoot — rejection", () => {
 
 describe("isWithinAllowedRoot — fail-closed on misconfig", () => {
   test("throws PathGuardConfigError when no roots are configured", () => {
-    delete process.env.MEMEX_VAULT_PATHS;
-    delete process.env.MEMEX_CODE_PATHS;
+    delete process.env.MEMRAIN_VAULT_PATHS;
+    delete process.env.MEMRAIN_CODE_PATHS;
     expect(() => isWithinAllowedRoot(join(vault, "note.md"))).toThrow(
       PathGuardConfigError,
     );
   });
 
   test("throws when roots are configured but all are blank strings", () => {
-    process.env.MEMEX_VAULT_PATHS = " , , ";
+    process.env.MEMRAIN_VAULT_PATHS = " , , ";
     expect(() => isWithinAllowedRoot(join(vault, "note.md"))).toThrow(
       PathGuardConfigError,
     );

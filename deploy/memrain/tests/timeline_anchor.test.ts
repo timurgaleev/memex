@@ -1,5 +1,5 @@
 /**
- * Timeline date-anchors -- opt-in MEMEX_TIMELINE_ANCHOR=1. One synthetic
+ * Timeline date-anchors -- opt-in MEMRAIN_TIMELINE_ANCHOR=1. One synthetic
  * anchor event per firmly-dated (non-'fallback' effective_date) page that has
  * no timeline_events yet; idempotent via 'date-anchor:<slug>'.
  */
@@ -19,13 +19,13 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  process.env.MEMEX_TIMELINE_ANCHOR = "1";
+  process.env.MEMRAIN_TIMELINE_ANCHOR = "1";
   tmp = mkdtempSync(join(tmpdir(), "memex-tlanchor-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  delete process.env.MEMEX_TIMELINE_ANCHOR;
+  delete process.env.MEMRAIN_TIMELINE_ANCHOR;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });

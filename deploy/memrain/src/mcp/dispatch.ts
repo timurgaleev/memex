@@ -348,7 +348,7 @@ function enforceSlugPrefixFence(
 export interface DispatchOptions {
   /** True when the request arrived over the public ingress
    *  (`brain.<domain>/mcp` via Cloudflare). Read tools then redact note
-   *  bodies unless `MEMEX_PUBLIC_READ_BODIES` is opted-in — identical to
+   *  bodies unless `MEMRAIN_PUBLIC_READ_BODIES` is opted-in — identical to
    *  the REST routes so the two ingress paths cannot diverge. */
   isPublic?: boolean;
   /** Resolved caller identity. When present, its source grant scopes every
@@ -374,7 +374,7 @@ export interface DispatchOptions {
  *
  * The injection is gated hard: it runs ONLY for a successful, non-public,
  * UNSCOPED (operator / trusted-local, `authInfo === undefined`) call, and is a
- * no-op unless MEMEX_HOT_MEMORY_META=1. `hot_memory` has no tenant/visibility
+ * no-op unless MEMRAIN_HOT_MEMORY_META=1. `hot_memory` has no tenant/visibility
  * axis and holds unvetted PII, so it must never reach a public or tenant-scoped
  * caller. Any error here is swallowed — the meta hook can NEVER fail a tool call.
  */
@@ -443,12 +443,12 @@ async function dispatchToolInner(
 ): Promise<ToolCallResult> {
   const args = coerceFactIdArg(req.name, req.arguments ?? {});
   // Mirror the REST layer's public-read policy exactly: redact bodies on
-  // public ingress unless the operator opted into MEMEX_PUBLIC_READ_BODIES.
+  // public ingress unless the operator opted into MEMRAIN_PUBLIC_READ_BODIES.
   const redact =
     (opts.isPublic ?? false) && !publicReadBodiesAllowed();
   // Graph-edge provenance (source_chunk_id, written_at, confidence, row id)
   // is structural metadata — NOT a note body — so it is stripped on ANY
-  // public ingress, independent of MEMEX_PUBLIC_READ_BODIES (that flag only
+  // public ingress, independent of MEMRAIN_PUBLIC_READ_BODIES (that flag only
   // governs free-text bodies). The public graph projection keeps slugs + the
   // edge type regardless; provenance is never returned publicly.
   const redactGraph = opts.isPublic ?? false;
@@ -482,7 +482,7 @@ async function dispatchToolInner(
   try {
     // Tool-level gates, in order: the fail-closed write gate (a scopeless
     // authenticated principal on a write op, default-OFF unless
-    // MEMEX_TENANT_FAIL_CLOSED=1), operator-only tools for any authenticated
+    // MEMRAIN_TENANT_FAIL_CLOSED=1), operator-only tools for any authenticated
     // tenant principal, the per-op OAuth scope, and a slug-bound client's
     // deny-by-default on write ops that name no slug. The static daily bearer
     // and trusted-local path (`authInfo === undefined`) are the operator and
@@ -1210,8 +1210,8 @@ async function callIndex(
     }
     if (!allowed) {
       return errResult(
-        "index: path is outside the configured MEMEX_VAULT_PATHS / " +
-          "MEMEX_CODE_PATHS roots — refusing to index",
+        "index: path is outside the configured MEMRAIN_VAULT_PATHS / " +
+          "MEMRAIN_CODE_PATHS roots — refusing to index",
       );
     }
     // indexFile refuses a row a tenant's inline `index` labelled with this path
@@ -1407,7 +1407,7 @@ async function callLogFriction(
 // ---------------------------------------------------------------------------
 // Page tools — DB-canonical page store. page_put / page_append are
 // PUBLIC_WRITE_TOOLS: the public bearer CAN reach them when
-// MEMEX_PUBLIC_WRITE=1, so their content is untrusted — `isPublic` is threaded
+// MEMRAIN_PUBLIC_WRITE=1, so their content is untrusted — `isPublic` is threaded
 // into the search mirror to strip gate-owned frontmatter markers (see
 // indexer.ts trust boundary). page_delete / page_restore / page_revert are in
 // FORBIDDEN_MCP_TOOLS_FROM_PUBLIC and never reachable from the public bearer.
@@ -1498,15 +1498,15 @@ async function callPagePut(
     // so for it the two are the same value.
     const derivedSource = page?.source_id ?? writeSource;
     await syncWikilinksForPage(storage, r.slug, body, derivedSource);
-    // Gazetteer auto-link (opt-in, MEMEX_GAZETTEER=1) — derives `mentions`
+    // Gazetteer auto-link (opt-in, MEMRAIN_GAZETTEER=1) — derives `mentions`
     // edges from plain-text references to known entity pages.
     await syncMentionsForPage(storage, r.slug, body, derivedSource);
-    // Typed-link inference (opt-in, MEMEX_TYPED_LINKS=1) — derive works_at /
+    // Typed-link inference (opt-in, MEMRAIN_TYPED_LINKS=1) — derive works_at /
     // founded / attended / … edges from frontmatter fields.
     if (typedLinksEnabled() && page) {
       await syncTypedLinksForPage(storage, r.slug, page.type, page.compiled_truth, derivedSource);
     }
-    // Verb-context typed edges from prose (opt-in MEMEX_LINK_VERB_INFER) —
+    // Verb-context typed edges from prose (opt-in MEMRAIN_LINK_VERB_INFER) —
     // owns link_kind='verb_ner', never touches the edges above.
     if (linkVerbInferEnabled() && page) {
       await syncVerbLinksForPage(storage, r.slug, page.type, body, derivedSource);
@@ -1572,7 +1572,7 @@ async function callPagePut(
 
 /**
  * Best-effort, default-OFF on-write fact extraction. When
- * MEMEX_FACTS_EXTRACTION is enabled AND the page is prose-eligible, enqueue a
+ * MEMRAIN_FACTS_EXTRACTION is enabled AND the page is prose-eligible, enqueue a
  * bounded, fire-and-forget extraction job (paid Sonnet, budget-guarded inside
  * `extractFactsForPage`). NEVER blocks or fails the triggering write — the
  * queue absorbs errors, and a dropped/failed job is re-covered by the
@@ -1645,7 +1645,7 @@ async function isRemoteDiaryFenced(
 }
 
 /**
- * Best-effort, default-OFF on-write chronicle backstop. When MEMEX_AUTO_CHRONICLE
+ * Best-effort, default-OFF on-write chronicle backstop. When MEMRAIN_AUTO_CHRONICLE
  * is enabled AND the page is chronicle-eligible (conversation-shape, not diary/
  * event/dream), enqueue one durable `chronicle_extract` job so the timeline gets
  * projected. Operator-trusted writes ONLY: a public or tenant-scoped write must
@@ -1705,12 +1705,12 @@ async function maybeEnqueueChronicleExtract(
  */
 /**
  * Whether the write path mirrors pages synchronously (the default) or hands the
- * mirror to a `page_mirror` job (`MEMEX_PAGE_MIRROR_SYNC=0`). Anything but an
+ * mirror to a `page_mirror` job (`MEMRAIN_PAGE_MIRROR_SYNC=0`). Anything but an
  * explicit 0/false keeps the synchronous path — including the empty string a
  * compose passthrough injects when the knob is unset.
  */
 function pageMirrorSync(): boolean {
-  const raw = (process.env.MEMEX_PAGE_MIRROR_SYNC ?? "").trim().toLowerCase();
+  const raw = (process.env.MEMRAIN_PAGE_MIRROR_SYNC ?? "").trim().toLowerCase();
   return raw !== "0" && raw !== "false";
 }
 
@@ -2321,8 +2321,8 @@ async function callRelationalRecall(
   const hits = await relationalRecall(storage, query, opts);
   // Opt-in paid fallback (default OFF): when the deterministic regex arm found
   // nothing, ask Sonnet to classify the edge-question and re-run the SAME
-  // fanout. Reachable only when MEMEX_RELATIONAL_LLM=1 — live MCP stays free.
-  if (hits.length === 0 && process.env["MEMEX_RELATIONAL_LLM"] === "1") {
+  // fanout. Reachable only when MEMRAIN_RELATIONAL_LLM=1 — live MCP stays free.
+  if (hits.length === 0 && process.env["MEMRAIN_RELATIONAL_LLM"] === "1") {
     // Forward only the shared scope/paging fields — the two arms carry distinct
     // onMeta shapes, so pass an explicit subset rather than the regex arm's opts.
     const llmOpts: Parameters<typeof relationalRecallLlm>[2] = {};
@@ -2491,7 +2491,7 @@ async function callEntityFacts(
   // rows. Same floor gates the tombstone audit surface.
   //
   // Keyed on the INGRESS SHAPE (`remote`), never on `redact`: `redact` is false
-  // whenever the operator sets MEMEX_PUBLIC_READ_BODIES, which used to hand a
+  // whenever the operator sets MEMRAIN_PUBLIC_READ_BODIES, which used to hand a
   // public caller the private rows in full text. That flag governs free-text
   // BODIES; it must never widen a visibility grant. `remote` is a strict
   // superset of the old predicate — a non-empty read set implies an authInfo
@@ -2511,7 +2511,7 @@ async function callEntityFacts(
   // on the public path the text is redacted but stable ids/confidence remain,
   // so a caller could diff the decayed order against `order:"recency"` (which
   // disables decay) to infer which hidden fact expired/demoted. Force it OFF on
-  // public; internal callers get it via the `MEMEX_FACT_DECAY` env default.
+  // public; internal callers get it via the `MEMRAIN_FACT_DECAY` env default.
   if (redact) opts.decay = false;
   if (readSources !== undefined) opts.sourceIds = readSources;
   const facts = await listFacts(storage, entitySlug, opts);
@@ -2572,7 +2572,7 @@ async function callEntityRecall(
   // public path the fact text is stripped but stable ids/confidence remain, so
   // a caller could diff decayed vs `order:"recency"` output to infer which
   // hidden fact expired/demoted. Force decay OFF on public; internal recall
-  // honors `MEMEX_FACT_DECAY` via the recall layer's env default.
+  // honors `MEMRAIN_FACT_DECAY` via the recall layer's env default.
   if (redact) opts.decay = false;
   if (typeof args["fact_limit"] === "number")
     opts.fact_limit = args["fact_limit"];
@@ -3270,7 +3270,7 @@ async function callContextPack(
   if (readSources !== undefined) opts.sourceIds = readSources;
   // Same floors as entity_facts / entity_recall: any non-operator caller reads
   // world-visible facts only, and decay (which reorders on hidden metadata) is
-  // off wherever bodies are redacted; everyone else gets the MEMEX_FACT_DECAY
+  // off wherever bodies are redacted; everyone else gets the MEMRAIN_FACT_DECAY
   // default through the recall layer.
   if (remote) {
     opts.visibility = ["world"];
@@ -3414,7 +3414,7 @@ async function callTakesCalibration(
  * On-demand fact extraction preview. Accepts raw `text` OR a `source_ref` page
  * slug (read tenant-scoped). Returns the extracted facts WITHOUT persisting;
  * PAID + default-OFF, so the {enabled:false} envelope comes back until the
- * MEMEX_FACTS_EXTRACTION gate is set. Cross-tenant `source_ref` is a no-op: the
+ * MEMRAIN_FACTS_EXTRACTION gate is set. Cross-tenant `source_ref` is a no-op: the
  * scoped getPage returns null and the tool errors not_found.
  */
 async function callExtractFacts(
@@ -4338,7 +4338,7 @@ async function callChronicleBackfill(
   // Worst-case spend the operator can multiply out before a real run.
   const budget = {
     per_page_budget_usd: perPageBudgetUsd,
-    per_page_budget_env: "MEMEX_CHRONICLE_WRITE_BUDGET_USD",
+    per_page_budget_env: "MEMRAIN_CHRONICLE_WRITE_BUDGET_USD",
   };
   if (dryRun) {
     return jsonResult({
@@ -4381,7 +4381,7 @@ async function callChronicleBackfill(
 /** Per-page USD ceiling one chronicle extraction can spend (report-only here;
  *  the extractor enforces it). Mirrors the extractor's default. */
 function chronicleWriteBudgetUsd(): number {
-  const raw = (process.env["MEMEX_CHRONICLE_WRITE_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_CHRONICLE_WRITE_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 0.05;
 }

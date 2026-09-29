@@ -40,16 +40,16 @@ beforeEach(async () => {
   writeFileSync(join(vault, "b", "private.md"), offline("# b private"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  saved = { vault: process.env.MEMEX_VAULT_PATHS, code: process.env.MEMEX_CODE_PATHS };
-  process.env.MEMEX_VAULT_PATHS = vault;
-  delete process.env.MEMEX_CODE_PATHS;
+  saved = { vault: process.env.MEMRAIN_VAULT_PATHS, code: process.env.MEMRAIN_CODE_PATHS };
+  process.env.MEMRAIN_VAULT_PATHS = vault;
+  delete process.env.MEMRAIN_CODE_PATHS;
 });
 
 afterEach(async () => {
-  if (saved.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-  else process.env.MEMEX_VAULT_PATHS = saved.vault;
-  if (saved.code === undefined) delete process.env.MEMEX_CODE_PATHS;
-  else process.env.MEMEX_CODE_PATHS = saved.code;
+  if (saved.vault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+  else process.env.MEMRAIN_VAULT_PATHS = saved.vault;
+  if (saved.code === undefined) delete process.env.MEMRAIN_CODE_PATHS;
+  else process.env.MEMRAIN_CODE_PATHS = saved.code;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -266,7 +266,7 @@ describe("embed-stale phase", () => {
     const link = join(tmp, "link");
     mkdirSync(real);
     symlinkSync(real, link, "dir");
-    process.env.MEMEX_VAULT_PATHS = link;
+    process.env.MEMRAIN_VAULT_PATHS = link;
     const e = storage.engine();
     await registerSource(e, { id: "op", kind: "vault", pathPrefix: link });
     writeFileSync(join(real, "note.md"), offline("# refreshed note"));
@@ -322,14 +322,14 @@ describe("memex index <path>", () => {
         storage: {},
       }),
     );
-    const savedCfg = process.env.MEMEX_CONFIG_PATH;
-    process.env.MEMEX_CONFIG_PATH = cfg;
+    const savedCfg = process.env.MEMRAIN_CONFIG_PATH;
+    process.env.MEMRAIN_CONFIG_PATH = cfg;
     await storage.close();
     try {
       await runIndex({ path });
     } finally {
-      if (savedCfg === undefined) delete process.env.MEMEX_CONFIG_PATH;
-      else process.env.MEMEX_CONFIG_PATH = savedCfg;
+      if (savedCfg === undefined) delete process.env.MEMRAIN_CONFIG_PATH;
+      else process.env.MEMRAIN_CONFIG_PATH = savedCfg;
       storage = new Storage({ dbPath: join(tmp, "db") });
       await storage.init();
     }

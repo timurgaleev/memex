@@ -2,7 +2,7 @@
  * Hybrid search orchestrator — coordinates the pieces in core/search/*.
  *
  * Pipeline:
- *   1. classify intent (zero-LLM regex taxonomy; Haiku only via MEMEX_INTENT_LLM=1)
+ *   1. classify intent (zero-LLM regex taxonomy; Haiku only via MEMRAIN_INTENT_LLM=1)
  *   2. (parallel) embed query → vector retrieval; keyword retrieval
  *      (both arms carry the curation prefix boost + default hard-excludes)
  *   3. (opt-in) query expansion → extra keyword passes
@@ -13,7 +13,7 @@
  *      salience (+ mattering join), curation, title, graph/backlink,
  *      exact-match, alias-resolved
  *   7. dedup per documentId (cap 2; skipped for `exact` intent) + type diversity
- *   8. (opt-in) two-pass Haiku rerank over the return window if MEMEX_RERANK=1
+ *   8. (opt-in) two-pass Haiku rerank over the return window if MEMRAIN_RERANK=1
  *   9. trim to k
  *
  * The exported `hybridSearch(storage, query, k)` API stays compatible
@@ -118,11 +118,11 @@ import type { DegradedReason, SearchCacheState, SearchMeta } from "./search-meta
 /**
  * RRF weight for the deterministic relational arm (opt-in 4th arm). A gentle
  * multiplier on par with the keyword arm — a typed-edge answer should compete,
- * not dominate. Env-overridable (MEMEX_RELATIONAL_ARM_WEIGHT); an invalid value
+ * not dominate. Env-overridable (MEMRAIN_RELATIONAL_ARM_WEIGHT); an invalid value
  * falls back to the default.
  */
 function relationalArmWeight(): number {
-  const n = Number(process.env.MEMEX_RELATIONAL_ARM_WEIGHT);
+  const n = Number(process.env.MEMRAIN_RELATIONAL_ARM_WEIGHT);
   return Number.isFinite(n) && n > 0 ? n : 1.0;
 }
 
@@ -132,11 +132,11 @@ function relationalArmWeight(): number {
 // available candidate count at the call site.
 const DEFAULT_RERANK_WINDOW = 30;
 function resolveRerankWindow(): number {
-  const n = Number.parseInt(process.env.MEMEX_RERANK_WINDOW ?? "", 10);
+  const n = Number.parseInt(process.env.MEMRAIN_RERANK_WINDOW ?? "", 10);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_RERANK_WINDOW;
 }
 
-// Recency decay map resolved once per process (defaults ∪ MEMEX_RECENCY_DECAY).
+// Recency decay map resolved once per process (defaults ∪ MEMRAIN_RECENCY_DECAY).
 // Memoized so the env parse + its fail-loud validation runs on the first
 // search, not on every query.
 let _recencyDecayMap: ReturnType<typeof resolveRecencyDecayMap> | null = null;
@@ -144,7 +144,7 @@ function getRecencyDecayMap(): ReturnType<typeof resolveRecencyDecayMap> {
   return (_recencyDecayMap ??= resolveRecencyDecayMap());
 }
 
-// Recency BOOST map (defaults ∪ MEMEX_RECENCY_BOOST) — same memoization
+// Recency BOOST map (defaults ∪ MEMRAIN_RECENCY_BOOST) — same memoization
 // contract as the decay map. Only consulted when the zero-LLM classifier
 // suggests a temporal tilt (recency 'on'/'strong').
 let _recencyBoostMap: ReturnType<typeof resolveRecencyBoostMap> | null = null;
@@ -182,7 +182,7 @@ export interface ResolvedSearchKnobs {
 /**
  * Resolve the ranking knobs for one search call — per-call opts win, then an
  * explicit per-knob env ("1"/"0"), then the active mode bundle
- * (MEMEX_SEARCH_MODE; the default `conservative` bundle equals memex's
+ * (MEMRAIN_SEARCH_MODE; the default `conservative` bundle equals memex's
  * historical all-OFF defaults). Exported so tests and cache-key callers can
  * reproduce exactly what hybridSearch resolves.
  *
@@ -195,7 +195,7 @@ export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnob
   const bundle = activeModeBundle();
   const env = process.env;
   return {
-    rerankWanted: resolveKnob(opts.rerank, env.MEMEX_RERANK, bundle.rerank),
+    rerankWanted: resolveKnob(opts.rerank, env.MEMRAIN_RERANK, bundle.rerank),
     // No mode bundle carries the graph rerank: it is paid Sonnet, so it stays
     // per-call/env opt-in.
     graphRerankOn: opts.graphRerank ?? graphRerankLiveEnabled(),
@@ -203,12 +203,12 @@ export function resolveSearchKnobs(opts: SearchOptions = {}): ResolvedSearchKnob
       !opts.noExpansion &&
       (opts.expansion ??
         (opts.expandQueryFn !== undefined ||
-          resolveKnob(undefined, env.MEMEX_QUERY_EXPANSION, bundle.expansion))),
-    graphSignalsOn: resolveKnob(opts.graphSignals, env.MEMEX_GRAPH_SIGNALS, bundle.graphSignals),
-    cosineRescoreOn: resolveKnob(opts.cosineRescore, env.MEMEX_COSINE_RESCORE, bundle.cosineRescore),
-    relationalArmOn: resolveKnob(opts.relationalArm, env.MEMEX_RELATIONAL_ARM, bundle.relationalArm),
+          resolveKnob(undefined, env.MEMRAIN_QUERY_EXPANSION, bundle.expansion))),
+    graphSignalsOn: resolveKnob(opts.graphSignals, env.MEMRAIN_GRAPH_SIGNALS, bundle.graphSignals),
+    cosineRescoreOn: resolveKnob(opts.cosineRescore, env.MEMRAIN_COSINE_RESCORE, bundle.cosineRescore),
+    relationalArmOn: resolveKnob(opts.relationalArm, env.MEMRAIN_RELATIONAL_ARM, bundle.relationalArm),
     // Backlink boost keeps its default-ON contract in every mode.
-    backlinkBoostOn: opts.backlinkBoost ?? env.MEMEX_BACKLINK_BOOST !== "0",
+    backlinkBoostOn: opts.backlinkBoost ?? env.MEMRAIN_BACKLINK_BOOST !== "0",
     // Identifier arm is default-ON in every mode, like the backlink boost: it
     // adds recall the other arms structurally cannot reach, never a re-weight.
     titleArmOn: opts.titleArm ?? titleArmEnabled(),
@@ -249,11 +249,11 @@ export interface SearchOptions {
   rrfK?: number;
   /** Restrict to specific sources by id. */
   sourceIds?: readonly string[];
-  /** Override MEMEX_RERANK. */
+  /** Override MEMRAIN_RERANK. */
   rerank?: boolean;
   /**
    * Opt-in graph-aware Sonnet rerank (default OFF; falls back to
-   * MEMEX_GRAPH_RERANK). POST-FUSION: reorders the top hits with one paid
+   * MEMRAIN_GRAPH_RERANK). POST-FUSION: reorders the top hits with one paid
    * Sonnet call, given each hit's excerpt + a link-graph connectivity hint.
    * Fail-open — any error/budget-skip returns the pre-rerank order. Distinct
    * from `rerank` (the Haiku two-pass text reranker). See graph-rerank.ts.
@@ -266,7 +266,7 @@ export interface SearchOptions {
   /**
    * Force LLM query expansion on/off for this call. Default OFF (the measured
    * lift is negligible and each expansion is a paid Haiku call): resolution is
-   * `expansion` → MEMEX_QUERY_EXPANSION ("1"/"0")
+   * `expansion` → MEMRAIN_QUERY_EXPANSION ("1"/"0")
    * → the active mode bundle (only `tokenmax` turns it on). Passing
    * `expandQueryFn` (the hermetic test seam) implies ON unless `noExpansion`.
    */
@@ -311,7 +311,7 @@ export interface SearchOptions {
   onMeta?: (meta: SearchMeta) => void;
   /**
    * Opt-in graph-signals stage (default OFF): adjacency hub boost + session
-   * diversification over the link graph. Falls back to MEMEX_GRAPH_SIGNALS=1.
+   * diversification over the link graph. Falls back to MEMRAIN_GRAPH_SIGNALS=1.
    * The live ranking model is immutable unless this is set. See graph-signals.ts.
    */
   graphSignals?: boolean;
@@ -319,8 +319,8 @@ export interface SearchOptions {
    * Backlink-count boost (default ON): multiply each hit by
    * 1 + 0.05*ln(1+inbound_link_count) using the page's GLOBAL in-degree from the
    * `links` table, floor-ratio-gated like graph-signals. Deterministic + cheap
-   * (one links tally). Falls back to MEMEX_BACKLINK_BOOST !== "0". Set false /
-   * MEMEX_BACKLINK_BOOST=0 to disable. See backlink-boost.ts.
+   * (one links tally). Falls back to MEMRAIN_BACKLINK_BOOST !== "0". Set false /
+   * MEMRAIN_BACKLINK_BOOST=0 to disable. See backlink-boost.ts.
    */
   backlinkBoost?: boolean;
   /**
@@ -329,14 +329,14 @@ export interface SearchOptions {
    * Closes the recall gap where a page's name lives only in its title/path —
    * neither retrieval arm indexes those columns, so the post-fusion title and
    * exact-slug boosts had no candidate to act on. Falls back to
-   * MEMEX_TITLE_ARM !== "0". See title-arm.ts.
+   * MEMRAIN_TITLE_ARM !== "0". See title-arm.ts.
    */
   titleArm?: boolean;
   /**
    * Cosine re-score blend (default OFF): before dedup, re-score each candidate
    * as 0.7*normalizedRRF + 0.3*(query·chunk cosine) so semantically-closer
    * chunks survive the per-doc collapse. Adds one embeddings fetch per query.
-   * Falls back to MEMEX_COSINE_RESCORE === "1". Inert on the keyword-only
+   * Falls back to MEMRAIN_COSINE_RESCORE === "1". Inert on the keyword-only
    * fallback (no query vector). See cosine-rescore.ts.
    */
   cosineRescore?: boolean;
@@ -366,7 +366,7 @@ export interface SearchOptions {
    * for a typed-edge intent ("who founded X", "where does Y work") and fuse the
    * deterministic edge fan-out's page head-chunks alongside keyword + vector, so
    * a relationship answer competes for ranking instead of relying on lexical /
-   * vector overlap to surface it. Falls back to MEMEX_RELATIONAL_ARM=1. Bypasses
+   * vector overlap to surface it. Falls back to MEMRAIN_RELATIONAL_ARM=1. Bypasses
    * the query cache (the arm widens the candidate set). No-op for non-relational
    * queries. See relational-recall.ts.
    */
@@ -375,7 +375,7 @@ export interface SearchOptions {
    * Per-page max-pool (opt-in, default OFF): make each retrieval arm return its
    * best chunk per (source, document) so the fanout budget covers N distinct
    * pages, not N chunks that collapse to fewer pages downstream. Falls back to
-   * MEMEX_MAXPOOL=1. Auto-disabled for `exact` intent and structural walks
+   * MEMRAIN_MAXPOOL=1. Auto-disabled for `exact` intent and structural walks
    * (both deliberately want multiple chunks per page). See keyword/vector.ts.
    */
   maxPool?: boolean;
@@ -457,7 +457,7 @@ const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 // hold the whole search hostage: the embed runs against a wall-clock budget, and
 // on timeout we fall back to keyword-only (embedding failure is non-fatal).
 const QUERY_EMBED_TIMEOUT_MS = (() => {
-  const n = Number(process.env.MEMEX_QUERY_EMBED_TIMEOUT_MS);
+  const n = Number(process.env.MEMRAIN_QUERY_EMBED_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : 6_000;
 })();
 const MIN_QUERY_EMBED_BUDGET_MS = 2_000;
@@ -666,7 +666,7 @@ export async function hybridSearch(
   // final view on BOTH return paths, after the cache has stored the full set.
   const adaptiveCfg = resolveAdaptiveReturn(opts.adaptiveReturn);
   // Resolve the graph-signals floor ratio up-front (memoized, fail-loud) so a
-  // malformed MEMEX_GRAPH_SIGNALS_FLOOR surfaces here rather than being
+  // malformed MEMRAIN_GRAPH_SIGNALS_FLOOR surfaces here rather than being
   // swallowed by the cache try-block below — which catches bare and would
   // silently disable caching on every query. rankingSignature() reads the same
   // memoized value inside that block.
@@ -732,7 +732,7 @@ export async function hybridSearch(
   // the query-cache key, so a max-pool call must bypass the cache rather than
   // read/write a ranking that a non-pooled call could share. Resolved from the
   // raw flag here (the intent/structural refinement below only ever narrows it).
-  const maxPoolRequested = opts.maxPool ?? process.env.MEMEX_MAXPOOL === "1";
+  const maxPoolRequested = opts.maxPool ?? process.env.MEMRAIN_MAXPOOL === "1";
   // Per-call ranking overrides (detail / salience / recency) change the
   // returned set or its order but are NOT part of the cache key — bypass the
   // cache rather than share a ranking a default call could re-serve.
@@ -745,7 +745,7 @@ export async function hybridSearch(
     !explainOn &&
     !maxPoolRequested &&
     !rankingOverrides &&
-    process.env.MEMEX_QUERY_CACHE !== "0";
+    process.env.MEMRAIN_QUERY_CACHE !== "0";
   let cacheKey = "";
   let cacheClock = 0;
   let cacheReady = false;
@@ -1148,7 +1148,7 @@ export async function hybridSearch(
   }
 
   // 6-. Hard-exclude — drop fixtures / attachments / raw sidecars by slug
-  //     prefix (default test/, attachments/, .raw/; MEMEX_SEARCH_EXCLUDE overrides). Cheap precision
+  //     prefix (default test/, attachments/, .raw/; MEMRAIN_SEARCH_EXCLUDE overrides). Cheap precision
   //     filter, applied before scoring so excluded hits never compete.
   const excludePrefixes = getSearchExcludePrefixes();
   if (excludePrefixes.length > 0) {
@@ -1206,7 +1206,7 @@ export async function hybridSearch(
   // title, nudge the score up by a scale-invariant factor. A name-of-thing
   // query should surface the page over a weak body chunk. Neutral (×1) for
   // every hit whose title doesn't match, so it can never bury a non-matching
-  // hit; inert entirely when MEMEX_TITLE_BOOST <= 1.0.
+  // hit; inert entirely when MEMRAIN_TITLE_BOOST <= 1.0.
   const titleBoost = getTitleBoost();
   const titleBoostActive = Number.isFinite(titleBoost) && titleBoost > 1.0;
   // Recency BOOST activation: the zero-LLM classifier's
@@ -1301,7 +1301,7 @@ export async function hybridSearch(
   //     scored set so a hub's chunk can rise before per-doc collapse. Mutates
   //     score in place; fail-open (a links query error leaves scores intact).
   if (graphSignalsOn) {
-    // Relative score floor (MEMEX_GRAPH_SIGNALS_FLOOR): a hit must score within
+    // Relative score floor (MEMRAIN_GRAPH_SIGNALS_FLOOR): a hit must score within
     // `ratio` of the top hit to be eligible for a graph signal. Unset → the
     // ratio is undefined → computeFloorThreshold returns -Infinity; collapse
     // that back to `undefined` so the disabled path is byte-identical to the
@@ -1322,7 +1322,7 @@ export async function hybridSearch(
   //     in-degree from the `links` table. Distinct from graph-signals (which
   //     counts only in-set links, opt-in): this reads whole-corpus in-degree so
   //     a hub earns a small boost on every query. Floor-ratio-gated by the SAME
-  //     MEMEX_GRAPH_SIGNALS_FLOOR ratio (undefined → no gate, every hit
+  //     MEMRAIN_GRAPH_SIGNALS_FLOOR ratio (undefined → no gate, every hit
   //     eligible). Pre-dedup so the boost decides which chunk survives per-doc
   //     collapse; fail-open on a links query error.
   if (backlinkBoostOn) {
@@ -1389,7 +1389,7 @@ export async function hybridSearch(
       : dedupByDocument(scored, { enabled: true, maxPerDoc });
 
   // 7b. Type-diversity layer: no page type may exceed
-  //     MEMEX_MAX_TYPE_RATIO (default 0.6) of the candidate set, so one noisy
+  //     MEMRAIN_MAX_TYPE_RATIO (default 0.6) of the candidate set, so one noisy
   //     shape (chat exports, dailies) can't monopolise every slot. Skipped for
   //     `exact` intent and structural walks (both deliberately homogeneous).
   const diversified =
@@ -1401,7 +1401,7 @@ export async function hybridSearch(
   //    both near-identical twins and decides their order; near-dup then drops
   //    the now-lower-ranked one (the reranker can't undo a drop, so it must
   //    come first). Contract: rerank a CANDIDATE window WIDER than the
-  //    return size (top_n_in, default 30 via MEMEX_RERANK_WINDOW) so a hit fused
+  //    return size (top_n_in, default 30 via MEMRAIN_RERANK_WINDOW) so a hit fused
   //    below the return cutoff can still be promoted into the top-k — the trim
   //    to k happens after. The un-reranked tail keeps its fused order behind the
   //    window instead of being truncated away (it still feeds near-dup /
@@ -1433,7 +1433,7 @@ export async function hybridSearch(
   // 8b. Near-dup dedup across documents (Jaccard on text) — two DIFFERENT docs
   //     can still carry near-identical text (a note + its `.bak`); drop the
   //     lower-ranked twin. Applied AFTER rerank, skipped for `exact` intent or
-  //     when MEMEX_NEARDUP_JACCARD > 1.0.
+  //     when MEMRAIN_NEARDUP_JACCARD > 1.0.
   let final = reranked;
   if (intent !== "exact") {
     const ndThreshold = getNearDupThreshold();

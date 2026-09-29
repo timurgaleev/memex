@@ -227,7 +227,7 @@ describe("/authorize while it auto-approves", () => {
 
 describe("registration", () => {
   it("DCR on an auto-approving server refuses a public client, not a confidential one", async () => {
-    process.env.MEMEX_ENABLE_DCR_INSECURE = "1";
+    process.env.MEMRAIN_ENABLE_DCR_INSECURE = "1";
     const s = startServer({ host: "127.0.0.1", port: 0, storage, oauthProvider: provider });
     try {
       const reg = (body: Record<string, unknown>) =>
@@ -243,13 +243,13 @@ describe("registration", () => {
       expect(conf.status).toBe(201);
     } finally {
       await s.stop();
-      delete process.env.MEMEX_ENABLE_DCR_INSECURE;
+      delete process.env.MEMRAIN_ENABLE_DCR_INSECURE;
     }
   });
 
   it("the CLI refuses a public client-mode client unless login is required", async () => {
-    const prior = process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
-    delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    const prior = process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
+    delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     try {
       await expect(
         runAuth([
@@ -262,7 +262,7 @@ describe("registration", () => {
         ]),
       ).rejects.toThrow(/public client in client tenant mode/);
     } finally {
-      if (prior !== undefined) process.env.MEMEX_OAUTH_REQUIRE_LOGIN = prior;
+      if (prior !== undefined) process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = prior;
     }
   });
 });

@@ -3,7 +3,7 @@
  * seeded): the manifest diff before/after is exactly the documented 120 set,
  * and nothing else — runtime_config, lock rows and every data table included —
  * changes. Runs on PGLite, and on Postgres with psql when
- * MEMEX_TEST_POSTGRES_URL is set.
+ * MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { runMigrations } from "../src/core/migrate.ts";

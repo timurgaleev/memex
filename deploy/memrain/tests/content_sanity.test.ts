@@ -144,9 +144,9 @@ describe("indexDocument content-sanity wiring", () => {
   afterEach(async () => {
     await storage.close();
     rmSync(tmp, { recursive: true, force: true });
-    delete process.env.MEMEX_SANITY_DISPOSITION;
-    delete process.env.MEMEX_NO_SANITY;
-    delete process.env.MEMEX_CONTENT_SANITY_DISABLE;
+    delete process.env.MEMRAIN_SANITY_DISPOSITION;
+    delete process.env.MEMRAIN_NO_SANITY;
+    delete process.env.MEMRAIN_CONTENT_SANITY_DISABLE;
   });
 
   async function quarantineAudit(): Promise<Array<{ source_ref: string; summary: string }>> {
@@ -211,7 +211,7 @@ describe("indexDocument content-sanity wiring", () => {
   });
 
   it("audits a reject-disposition trip before throwing", async () => {
-    process.env.MEMEX_SANITY_DISPOSITION = "reject";
+    process.env.MEMRAIN_SANITY_DISPOSITION = "reject";
     await expect(
       indexDocument(
         storage,
@@ -222,9 +222,9 @@ describe("indexDocument content-sanity wiring", () => {
     expect((await quarantineAudit()).map((r) => r.source_ref)).toEqual(["/junk-r.md"]);
   });
 
-  it("MEMEX_CONTENT_SANITY_DISABLE switches off the named patterns only", async () => {
+  it("MEMRAIN_CONTENT_SANITY_DISABLE switches off the named patterns only", async () => {
     const tripped = assessContentSanity({ body: JUNK, title: "" }).junk_pattern_matches;
-    process.env.MEMEX_CONTENT_SANITY_DISABLE = tripped.join(",");
+    process.env.MEMRAIN_CONTENT_SANITY_DISABLE = tripped.join(",");
     await indexDocument(
       storage,
       { sourcePath: "/junk-off.md", text: JUNK },
@@ -233,7 +233,7 @@ describe("indexDocument content-sanity wiring", () => {
     expect(isQuarantined(await frontmatterOf("/junk-off.md"))).toBe(false);
     expect(await quarantineAudit()).toHaveLength(0);
 
-    process.env.MEMEX_CONTENT_SANITY_DISABLE = tripped.slice(1).join(",");
+    process.env.MEMRAIN_CONTENT_SANITY_DISABLE = tripped.slice(1).join(",");
     await indexDocument(
       storage,
       { sourcePath: "/junk-on.md", text: JUNK },
@@ -243,7 +243,7 @@ describe("indexDocument content-sanity wiring", () => {
   });
 
   it("throws on junk when disposition=reject", async () => {
-    process.env.MEMEX_SANITY_DISPOSITION = "reject";
+    process.env.MEMRAIN_SANITY_DISPOSITION = "reject";
     await expect(
       indexDocument(
         storage,
@@ -265,8 +265,8 @@ describe("indexDocument content-sanity wiring", () => {
     expect(isContentFlagged(fm)).toBe(false);
   });
 
-  it("kill switch MEMEX_NO_SANITY=1 skips the gate", async () => {
-    process.env.MEMEX_NO_SANITY = "1";
+  it("kill switch MEMRAIN_NO_SANITY=1 skips the gate", async () => {
+    process.env.MEMRAIN_NO_SANITY = "1";
     await indexDocument(
       storage,
       { sourcePath: "/junk3.md", text: JUNK },
@@ -276,10 +276,10 @@ describe("indexDocument content-sanity wiring", () => {
     expect(isQuarantined(fm)).toBe(false);
   });
 
-  it("quarantines a page matching an operator-literal from MEMEX_SANITY_LITERALS_FILE", async () => {
+  it("quarantines a page matching an operator-literal from MEMRAIN_SANITY_LITERALS_FILE", async () => {
     const litFile = join(tmp, "junk-substrings.txt");
     writeFileSync(litFile, "# operator junk list\n\nSPONSORED PARTNER CONTENT\n");
-    process.env.MEMEX_SANITY_LITERALS_FILE = litFile;
+    process.env.MEMRAIN_SANITY_LITERALS_FILE = litFile;
     try {
       const body =
         "# Note\n\nThis page carries the SPONSORED PARTNER CONTENT banner the operator flagged as junk. " +
@@ -293,7 +293,7 @@ describe("indexDocument content-sanity wiring", () => {
       expect(isQuarantined(fm)).toBe(true);
       expect(isEmbedSkipped(fm)).toBe(true);
     } finally {
-      delete process.env.MEMEX_SANITY_LITERALS_FILE;
+      delete process.env.MEMRAIN_SANITY_LITERALS_FILE;
     }
   });
 });

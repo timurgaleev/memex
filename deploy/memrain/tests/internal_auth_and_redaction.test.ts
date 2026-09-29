@@ -253,14 +253,14 @@ describe("redactTimeline — allowlist-based public timeline filtering", () => {
   });
 });
 
-describe("MEMEX_PUBLIC_READ_BODIES opt-in", () => {
-  const ORIGINAL = process.env["MEMEX_PUBLIC_READ_BODIES"];
+describe("MEMRAIN_PUBLIC_READ_BODIES opt-in", () => {
+  const ORIGINAL = process.env["MEMRAIN_PUBLIC_READ_BODIES"];
   beforeEach(() => {
-    process.env["MEMEX_PUBLIC_READ_BODIES"] = "1";
+    process.env["MEMRAIN_PUBLIC_READ_BODIES"] = "1";
   });
   afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
-    else process.env["MEMEX_PUBLIC_READ_BODIES"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+    else process.env["MEMRAIN_PUBLIC_READ_BODIES"] = ORIGINAL;
   });
 
   it("publicReadBodiesAllowed() flips true when env=1", () => {

@@ -1,7 +1,7 @@
 /**
  * Credential / connection-info redaction for internal log + audit sinks.
  *
- * memex connects via MEMEX_POSTGRES_URL — a password-bearing DSN. A raw
+ * memex connects via MEMRAIN_POSTGRES_URL — a password-bearing DSN. A raw
  * postgres-js connection error can carry that DSN (or a bare host/IP /
  * `password=…`) into a log line or the audit JSONL. `publicSafeErrorMessage`
  * only suppresses on the PUBLIC boundary; these helpers scrub error text that

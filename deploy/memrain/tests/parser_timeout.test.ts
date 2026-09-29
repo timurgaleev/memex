@@ -17,7 +17,7 @@ import {
 import { chunkCode } from "../src/core/chunkers/code.ts";
 
 afterAll(() => {
-  delete process.env.MEMEX_PARSE_TIMEOUT_MS;
+  delete process.env.MEMRAIN_PARSE_TIMEOUT_MS;
   _resetParsersForTests();
 });
 
@@ -37,8 +37,8 @@ describe("resolveParseTimeoutMs", () => {
   });
 
   it("throws (fails loud) on a malformed value", () => {
-    expect(() => resolveParseTimeoutMs("nope")).toThrow(/MEMEX_PARSE_TIMEOUT_MS/);
-    expect(() => resolveParseTimeoutMs("-5")).toThrow(/MEMEX_PARSE_TIMEOUT_MS/);
+    expect(() => resolveParseTimeoutMs("nope")).toThrow(/MEMRAIN_PARSE_TIMEOUT_MS/);
+    expect(() => resolveParseTimeoutMs("-5")).toThrow(/MEMRAIN_PARSE_TIMEOUT_MS/);
   });
 });
 
@@ -68,12 +68,12 @@ describe("parseWithBudget", () => {
     const parser = await getParser("typescript");
     // 1ms budget vs a 6000-function source: the periodic progress check trips
     // the deadline and cancels the parse.
-    process.env.MEMEX_PARSE_TIMEOUT_MS = "1";
+    process.env.MEMRAIN_PARSE_TIMEOUT_MS = "1";
     expect(() => parseWithBudget(parser, BIG_TS)).toThrow(ParseTimeoutError);
 
     // The cancelled parser MUST be usable again (parseWithBudget reset it):
     // a clean parse must not inherit a spurious hasError from the abort.
-    delete process.env.MEMEX_PARSE_TIMEOUT_MS;
+    delete process.env.MEMRAIN_PARSE_TIMEOUT_MS;
     const tree = parseWithBudget(parser, `export function ok(): number { return 1; }\n`);
     expect(tree.rootNode.hasError).toBe(false);
   });

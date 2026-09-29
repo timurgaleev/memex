@@ -9,7 +9,7 @@
  * Architecture guard: reads entity_facts, writes ONLY to synth_contradictions.
  * A finding is advisory — it never mutates a fact, take, or edge.
  *
- * Safety: opt-in (`MEMEX_PROBE_CONTRADICTIONS=1`); paired candidates are
+ * Safety: opt-in (`MEMRAIN_PROBE_CONTRADICTIONS=1`); paired candidates are
  * date-pre-filtered (a lookback window) and hard-capped (`maxPairs`) BEFORE any
  * LLM call; budget-capped (BudgetTracker with a pre-call reservation);
  * cached BOTH ways (positives via synth_contradictions.pair_key, every verdict
@@ -331,19 +331,19 @@ async function defaultPairs(
 }
 
 function probeEnabled(): boolean {
-  const v = (process.env.MEMEX_PROBE_CONTRADICTIONS ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_PROBE_CONTRADICTIONS ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_PROBE_CONTRADICTIONS_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_PROBE_CONTRADICTIONS_BUDGET_USD ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
 }
 
-/** Verdict-cache TTL in days (default 30; MEMEX_PROBE_VERDICT_TTL_DAYS). */
+/** Verdict-cache TTL in days (default 30; MEMRAIN_PROBE_VERDICT_TTL_DAYS). */
 function verdictTtlDays(): number {
-  const n = Number((process.env.MEMEX_PROBE_VERDICT_TTL_DAYS ?? "").trim());
+  const n = Number((process.env.MEMRAIN_PROBE_VERDICT_TTL_DAYS ?? "").trim());
   return Number.isFinite(n) && n > 0 ? n : 30;
 }
 
@@ -418,7 +418,7 @@ export async function latestContradictionRun(
 }
 
 /**
- * Run the probe. Default-OFF: a live (paid) run needs MEMEX_PROBE_CONTRADICTIONS=1;
+ * Run the probe. Default-OFF: a live (paid) run needs MEMRAIN_PROBE_CONTRADICTIONS=1;
  * tests inject a sonnetFn (bypasses the gate, no spend).
  */
 export async function probeContradictionsPhase(
@@ -434,7 +434,7 @@ export async function probeContradictionsPhase(
     errors: [],
   };
   if (!opts.sonnetFn && !probeEnabled()) {
-    result.skippedReason = "default-OFF: set MEMEX_PROBE_CONTRADICTIONS=1 to run the paid probe";
+    result.skippedReason = "default-OFF: set MEMRAIN_PROBE_CONTRADICTIONS=1 to run the paid probe";
     return result;
   }
 

@@ -72,17 +72,17 @@ let daySpendAfter: number;
 /** Knobs that would turn a free path into a paid one, or move the fences the
  *  corpus grades. Cleared so the run measures the shipped defaults. */
 const NEUTRALISED = [
-  "MEMEX_SEARCH_MODE",
-  "MEMEX_QUERY_EXPANSION",
-  "MEMEX_RERANK",
-  "MEMEX_GRAPH_RERANK",
-  "MEMEX_CONTEXTUAL_LLM",
-  "MEMEX_FACTS_DEDUP",
-  "MEMEX_FACTS_DEDUP_LLM",
-  "MEMEX_FACT_DECAY",
-  "MEMEX_TENANT_FAIL_CLOSED",
-  "MEMEX_PUBLIC_WRITE",
-  "MEMEX_PUBLIC_READ_BODIES",
+  "MEMRAIN_SEARCH_MODE",
+  "MEMRAIN_QUERY_EXPANSION",
+  "MEMRAIN_RERANK",
+  "MEMRAIN_GRAPH_RERANK",
+  "MEMRAIN_CONTEXTUAL_LLM",
+  "MEMRAIN_FACTS_DEDUP",
+  "MEMRAIN_FACTS_DEDUP_LLM",
+  "MEMRAIN_FACT_DECAY",
+  "MEMRAIN_TENANT_FAIL_CLOSED",
+  "MEMRAIN_PUBLIC_WRITE",
+  "MEMRAIN_PUBLIC_READ_BODIES",
 ];
 
 async function countSpendRows(): Promise<number> {

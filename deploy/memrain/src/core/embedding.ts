@@ -29,28 +29,28 @@ export const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
  *  `DEFAULT_MODEL_ID`, and the `vector(...)` column migrations together. */
 const STORED_VECTOR_DIM = 1024;
 
-/** The width used when `MEMEX_EMBED_DIM` is unset — the stored column width. */
+/** The width used when `MEMRAIN_EMBED_DIM` is unset — the stored column width. */
 const FALLBACK_DIMENSIONS = STORED_VECTOR_DIM;
 
-/** Resolve the embedding width from `MEMEX_EMBED_DIM` (fail-loud) or the
+/** Resolve the embedding width from `MEMRAIN_EMBED_DIM` (fail-loud) or the
  *  stored-column default. Validated once at module load so a bad env fails the
  *  process, not a silent wrong-width vector deep in the index path. For the
  *  default model the width MUST match the fixed `vector(N)` column; a future
  *  embedder passed explicitly is left to its own coordinated schema swap. */
 export function resolveEmbedDimensions(
-  raw: string | undefined = process.env.MEMEX_EMBED_DIM,
+  raw: string | undefined = process.env.MEMRAIN_EMBED_DIM,
   modelId: string = DEFAULT_MODEL_ID,
 ): number {
   if (raw === undefined || raw.trim() === "") return FALLBACK_DIMENSIONS;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
     throw new Error(
-      `MEMEX_EMBED_DIM must be a positive integer, got: ${JSON.stringify(raw)}`,
+      `MEMRAIN_EMBED_DIM must be a positive integer, got: ${JSON.stringify(raw)}`,
     );
   }
   if (modelId === DEFAULT_MODEL_ID && n !== STORED_VECTOR_DIM) {
     throw new Error(
-      `MEMEX_EMBED_DIM=${n} does not match the stored vector(${STORED_VECTOR_DIM}) ` +
+      `MEMRAIN_EMBED_DIM=${n} does not match the stored vector(${STORED_VECTOR_DIM}) ` +
         `column (migrations/001_initial.sql) — a different width needs a schema ` +
         `migration widening the embeddings vector columns first, else every insert fails.`,
     );

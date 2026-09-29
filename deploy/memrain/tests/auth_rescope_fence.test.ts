@@ -105,9 +105,9 @@ describe("--bound-slug-prefixes flag parsing", () => {
 });
 
 describe("rescope-client CLI helpers", () => {
-  test("actor prefers MEMEX_OPERATOR, then USER, then 'cli'", () => {
-    expect(cliActor({ MEMEX_OPERATOR: "ops", USER: "u" })).toBe("ops");
-    expect(cliActor({ MEMEX_OPERATOR: " ", USER: "u" })).toBe("u");
+  test("actor prefers MEMRAIN_OPERATOR, then USER, then 'cli'", () => {
+    expect(cliActor({ MEMRAIN_OPERATOR: "ops", USER: "u" })).toBe("ops");
+    expect(cliActor({ MEMRAIN_OPERATOR: " ", USER: "u" })).toBe("u");
     expect(cliActor({})).toBe("cli");
   });
 

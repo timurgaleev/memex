@@ -1,6 +1,6 @@
 /**
  * Typed-link inference — frontmatter schema-pack deriving works_at / founded /
- * attended edges (link_kind='typed_ner'), opt-in MEMEX_TYPED_LINKS=1.
+ * attended edges (link_kind='typed_ner'), opt-in MEMRAIN_TYPED_LINKS=1.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -15,13 +15,13 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  process.env.MEMEX_TYPED_LINKS = "1";
+  process.env.MEMRAIN_TYPED_LINKS = "1";
   tmp = mkdtempSync(join(tmpdir(), "memex-typedlinks-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  delete process.env.MEMEX_TYPED_LINKS;
+  delete process.env.MEMRAIN_TYPED_LINKS;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });

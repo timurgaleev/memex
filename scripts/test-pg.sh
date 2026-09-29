@@ -8,13 +8,13 @@
 #   1. every migration, applied to an empty database;
 #   2. the migration set applied a second time — it must apply nothing;
 #   3. every test file under deploy/memrain/tests that reads
-#      MEMEX_TEST_POSTGRES_URL (found by grep, so a new *_pg test is picked
+#      MEMRAIN_TEST_POSTGRES_URL (found by grep, so a new *_pg test is picked
 #      up without touching this script).
 #
 # Database:
 #   - default: a throwaway pgvector/pgvector:pg16 container on a free
 #     loopback port, removed on exit whether the run passed or failed.
-#   - MEMEX_TEST_POSTGRES_URL already set: use that database instead and
+#   - MEMRAIN_TEST_POSTGRES_URL already set: use that database instead and
 #     start no container (CI passes a service container this way). It MUST
 #     be a scratch database — migrations and tests write to it.
 #
@@ -51,7 +51,7 @@ log() { echo "[test-pg] $*"; }
 die() { echo "[test-pg] $*" >&2; exit 1; }
 
 start_container() {
-  command -v docker >/dev/null 2>&1 || die "docker not found (or set MEMEX_TEST_POSTGRES_URL to a scratch database)"
+  command -v docker >/dev/null 2>&1 || die "docker not found (or set MEMRAIN_TEST_POSTGRES_URL to a scratch database)"
   local password
   password="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
   CONTAINER="memex-test-pg-$$-$RANDOM"
@@ -78,7 +78,7 @@ start_container() {
     waited=$((waited + 1))
   done
   log "ready after ${waited}s"
-  export MEMEX_TEST_POSTGRES_URL="postgres://memex:${password}@127.0.0.1:${port}/memex_test?sslmode=disable"
+  export MEMRAIN_TEST_POSTGRES_URL="postgres://memex:${password}@127.0.0.1:${port}/memex_test?sslmode=disable"
 }
 
 apply_migrations_twice() {
@@ -88,7 +88,7 @@ apply_migrations_twice() {
   (cd "$PKG" && bun -e '
     import { PostgresEngine } from "./src/core/engine/postgres.ts";
     import { runMigrations, discoverMigrations } from "./src/core/migrate.ts";
-    const engine = new PostgresEngine({ url: process.env.MEMEX_TEST_POSTGRES_URL!, max: 2 });
+    const engine = new PostgresEngine({ url: process.env.MEMRAIN_TEST_POSTGRES_URL!, max: 2 });
     try {
       await engine.ready();
       const total = discoverMigrations().length;
@@ -111,16 +111,16 @@ run_pg_tests() {
   local f
   while IFS= read -r f; do
     files+=("tests/$(basename "$f")")
-  done < <(grep -l MEMEX_TEST_POSTGRES_URL "$PKG"/tests/*.test.ts | sort)
-  [ "${#files[@]}" -gt 0 ] || die "no test file reads MEMEX_TEST_POSTGRES_URL"
+  done < <(grep -l MEMRAIN_TEST_POSTGRES_URL "$PKG"/tests/*.test.ts | sort)
+  [ "${#files[@]}" -gt 0 ] || die "no test file reads MEMRAIN_TEST_POSTGRES_URL"
   log "running ${#files[@]} test file(s): ${files[*]}"
   (cd "$PKG" && bun test --timeout "$TEST_TIMEOUT" "${files[@]}")
 }
 
 command -v bun >/dev/null 2>&1 || die "bun not found"
 
-if [ -n "${MEMEX_TEST_POSTGRES_URL:-}" ]; then
-  log "using MEMEX_TEST_POSTGRES_URL from the environment (no container)"
+if [ -n "${MEMRAIN_TEST_POSTGRES_URL:-}" ]; then
+  log "using MEMRAIN_TEST_POSTGRES_URL from the environment (no container)"
 else
   start_container
 fi

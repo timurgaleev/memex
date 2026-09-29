@@ -1,7 +1,7 @@
 /**
  * last_retrieved_at write-back — the producer the context-volunteer "used" stat
  * needs. Bumps on a page surface, throttles repeat surfaces (5 min), opts out
- * via MEMEX_TRACK_RETRIEVAL=0, and is best-effort (never throws).
+ * via MEMRAIN_TRACK_RETRIEVAL=0, and is best-effort (never throws).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,12 +19,12 @@ beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-lastret-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  delete process.env.MEMEX_TRACK_RETRIEVAL;
+  delete process.env.MEMRAIN_TRACK_RETRIEVAL;
 });
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_TRACK_RETRIEVAL;
+  delete process.env.MEMRAIN_TRACK_RETRIEVAL;
 });
 
 async function lastRetrieved(slug: string): Promise<string | null> {
@@ -53,8 +53,8 @@ describe("bumpLastRetrievedAt", () => {
     expect(await lastRetrieved("people/a")).toBe(first); // throttle skipped the write
   });
 
-  it("opts out when MEMEX_TRACK_RETRIEVAL=0", async () => {
-    process.env.MEMEX_TRACK_RETRIEVAL = "0";
+  it("opts out when MEMRAIN_TRACK_RETRIEVAL=0", async () => {
+    process.env.MEMRAIN_TRACK_RETRIEVAL = "0";
     await putPage(storage, { slug: "people/a", type: "person" });
     await bumpLastRetrievedAt(storage.engine(), ["people/a"]);
     expect(await lastRetrieved("people/a")).toBeNull();

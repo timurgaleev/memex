@@ -107,9 +107,9 @@ export interface BenchOptions {
  * otherwise" is not a property anyone can rely on.
  */
 const PAID_ENV_KNOBS = [
-  "MEMEX_FACTS_DEDUP",
-  "MEMEX_FACTS_DEDUP_LLM",
-  "MEMEX_WORTH_GATE",
+  "MEMRAIN_FACTS_DEDUP",
+  "MEMRAIN_FACTS_DEDUP_LLM",
+  "MEMRAIN_WORTH_GATE",
 ] as const;
 
 function clearPaidEnvKnobs(): void {

@@ -19,9 +19,7 @@ if [ -f "${HOME:-}/.memrain/config.json" ] && grep -q '/home/bun/\.memex/' "${HO
 fi
 
 if [ -n "$PG_URL" ]; then
-  # The app reads MEMEX_POSTGRES_URL until the code moves to the new names;
-  # export both so either reader sees the same URL.
-  export MEMRAIN_POSTGRES_URL="$PG_URL" MEMEX_POSTGRES_URL="$PG_URL"
+  export MEMRAIN_POSTGRES_URL="$PG_URL"
   bun run src/cli.ts init --postgres
 elif [ "$REQUIRE" = "1" ]; then
   echo "[memrain] FATAL: MEMRAIN_REQUIRE_POSTGRES=1 but no Postgres URL; refusing to start on PGLite" >&2

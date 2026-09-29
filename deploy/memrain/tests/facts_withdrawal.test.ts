@@ -20,8 +20,8 @@ let dbPath: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  delete process.env.MEMEX_FACTS_FENCE;
-  delete process.env.MEMEX_FACTS_DEDUP;
+  delete process.env.MEMRAIN_FACTS_FENCE;
+  delete process.env.MEMRAIN_FACTS_DEDUP;
   tmp = mkdtempSync(join(tmpdir(), "memex-withdrawal-"));
   dbPath = join(tmp, "db");
   storage = new Storage({ dbPath });

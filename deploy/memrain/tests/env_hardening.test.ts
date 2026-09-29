@@ -54,13 +54,13 @@ describe("awsRegion", () => {
 
 describe("env default-parameter path", () => {
   const savedRegion = process.env.AWS_REGION;
-  const savedTimeout = process.env.MEMEX_LLM_TIMEOUT_MS;
+  const savedTimeout = process.env.MEMRAIN_LLM_TIMEOUT_MS;
 
   afterEach(() => {
     if (savedRegion === undefined) delete process.env.AWS_REGION;
     else process.env.AWS_REGION = savedRegion;
-    if (savedTimeout === undefined) delete process.env.MEMEX_LLM_TIMEOUT_MS;
-    else process.env.MEMEX_LLM_TIMEOUT_MS = savedTimeout;
+    if (savedTimeout === undefined) delete process.env.MEMRAIN_LLM_TIMEOUT_MS;
+    else process.env.MEMRAIN_LLM_TIMEOUT_MS = savedTimeout;
   });
 
   test("AWS_REGION='' reads through the default arg to eu-west-1", () => {
@@ -68,18 +68,18 @@ describe("env default-parameter path", () => {
     expect(awsRegion()).toBe("eu-west-1");
   });
 
-  test("MEMEX_LLM_TIMEOUT_MS='' reads through the default arg to 30000", () => {
-    process.env.MEMEX_LLM_TIMEOUT_MS = "";
+  test("MEMRAIN_LLM_TIMEOUT_MS='' reads through the default arg to 30000", () => {
+    process.env.MEMRAIN_LLM_TIMEOUT_MS = "";
     expect(llmRequestTimeoutMs()).toBe(30000);
   });
 });
 
 describe("per-call-kind Bedrock timeouts", () => {
   const KEYS = [
-    "MEMEX_LLM_TIMEOUT_MS",
-    "MEMEX_LLM_UTILITY_TIMEOUT_MS",
-    "MEMEX_LLM_REASONING_TIMEOUT_MS",
-    "MEMEX_EMBED_TIMEOUT_MS",
+    "MEMRAIN_LLM_TIMEOUT_MS",
+    "MEMRAIN_LLM_UTILITY_TIMEOUT_MS",
+    "MEMRAIN_LLM_REASONING_TIMEOUT_MS",
+    "MEMRAIN_EMBED_TIMEOUT_MS",
   ] as const;
   const saved: Record<string, string | undefined> = {};
   const clear = () => {
@@ -104,7 +104,7 @@ describe("per-call-kind Bedrock timeouts", () => {
 
   test("the shared knob covers every kind that has no knob of its own", () => {
     clear();
-    process.env.MEMEX_LLM_TIMEOUT_MS = "45000";
+    process.env.MEMRAIN_LLM_TIMEOUT_MS = "45000";
     expect(utilityTimeoutMs()).toBe(45_000);
     expect(reasoningTimeoutMs()).toBe(45_000);
     expect(embedTimeoutMs()).toBe(45_000);
@@ -118,9 +118,9 @@ describe("per-call-kind Bedrock timeouts", () => {
 
   test("a kind's own knob wins, and an empty one is unset", () => {
     clear();
-    process.env.MEMEX_LLM_TIMEOUT_MS = "45000";
-    process.env.MEMEX_EMBED_TIMEOUT_MS = "5000";
-    process.env.MEMEX_LLM_REASONING_TIMEOUT_MS = "";
+    process.env.MEMRAIN_LLM_TIMEOUT_MS = "45000";
+    process.env.MEMRAIN_EMBED_TIMEOUT_MS = "5000";
+    process.env.MEMRAIN_LLM_REASONING_TIMEOUT_MS = "";
     expect(embedTimeoutMs()).toBe(5_000);
     expect(reasoningTimeoutMs()).toBe(45_000);
   });

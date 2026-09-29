@@ -59,11 +59,11 @@ describe("cycle phases stop when their run no longer owns them", () => {
     engine = new PGliteEngine({ dbPath: join(tmp, "db") });
     await engine.ready();
     await runMigrations(engine, MIGRATIONS_DIR);
-    prevTimeout = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
+    prevTimeout = process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS;
   });
   afterEach(async () => {
-    if (prevTimeout === undefined) delete process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
-    else process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = prevTimeout;
+    if (prevTimeout === undefined) delete process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS;
+    else process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS = prevTimeout;
     await engine.close();
     rmSync(tmp, { recursive: true, force: true });
   });
@@ -85,7 +85,7 @@ describe("cycle phases stop when their run no longer owns them", () => {
 
   it("a timed-out phase stops writing at its next checkpoint", async () => {
     await seedFacts(30);
-    process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS = "60";
+    process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS = "60";
     const embed = async () => {
       await sleep(15);
       return VEC;

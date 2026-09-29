@@ -5,7 +5,7 @@
  * `tools/call name=index` (or any write tool) with no token and poison the
  * corpus. The gate closed that for writes — and left every READ tool open,
  * because the guard treated "arrived without Cf-Connecting-Ip" as sufficient
- * on its own. It is not: `MEMEX_INTERNAL_TOKEN` is the credential for that
+ * on its own. It is not: `MEMRAIN_INTERNAL_TOKEN` is the credential for that
  * ingress, so when it is configured the whole surface asks for it, at the
  * ingress, before a tool name is even parsed. Unset, the legacy fall-through
  * still waves the bridge through (serve.ts warns loudly at boot).

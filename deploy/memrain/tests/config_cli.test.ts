@@ -56,13 +56,13 @@ afterAll(() => {
 });
 
 describe("memex config CLI", () => {
-  it("set + get round-trips a MEMEX_* key", async () => {
+  it("set + get round-trips a MEMRAIN_* key", async () => {
     const c1 = capture();
     let code: number;
     try {
       code = await runConfig({
         sub: "set",
-        key: "MEMEX_SEARCH_MODE",
+        key: "MEMRAIN_SEARCH_MODE",
         value: "balanced",
         configPath: cfgPath,
       });
@@ -72,7 +72,7 @@ describe("memex config CLI", () => {
     expect(code).toBe(0);
     const c2 = capture();
     try {
-      code = await runConfig({ sub: "get", key: "MEMEX_SEARCH_MODE", configPath: cfgPath });
+      code = await runConfig({ sub: "get", key: "MEMRAIN_SEARCH_MODE", configPath: cfgPath });
     } finally {
       c2.restore();
     }
@@ -102,7 +102,7 @@ describe("memex config CLI", () => {
     try {
       await runConfig({
         sub: "set",
-        key: "MEMEX_ADMIN_TOKEN",
+        key: "MEMRAIN_ADMIN_TOKEN",
         value: "supersecret",
         configPath: cfgPath,
       });
@@ -118,7 +118,7 @@ describe("memex config CLI", () => {
       c2.restore();
     }
     const shown = JSON.parse(c2.out.join("\n"));
-    const row = shown.entries.find((e: { key: string }) => e.key === "MEMEX_ADMIN_TOKEN");
+    const row = shown.entries.find((e: { key: string }) => e.key === "MEMRAIN_ADMIN_TOKEN");
     expect(row.value).toBe("***");
   });
 
@@ -135,7 +135,7 @@ describe("memex config CLI", () => {
     expect(deleted.deleted).toBeGreaterThanOrEqual(2);
     const c2 = capture();
     try {
-      code = await runConfig({ sub: "get", key: "MEMEX_SEARCH_MODE", configPath: cfgPath });
+      code = await runConfig({ sub: "get", key: "MEMRAIN_SEARCH_MODE", configPath: cfgPath });
     } finally {
       c2.restore();
     }

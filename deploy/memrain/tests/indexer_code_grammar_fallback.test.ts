@@ -26,14 +26,14 @@ function brokenGrammarDir(): string {
 }
 
 afterEach(() => {
-  delete process.env.MEMEX_WASM_DIR;
+  delete process.env.MEMRAIN_WASM_DIR;
   _resetParsersForTests();
   _resetGrammarFallbackWarningsForTests();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
 test("a file whose grammar cannot link is still indexed, as text", async () => {
-  process.env.MEMEX_WASM_DIR = brokenGrammarDir();
+  process.env.MEMRAIN_WASM_DIR = brokenGrammarDir();
   _resetParsersForTests();
 
   const dbDir = mkdtempSync(join(tmpdir(), "memex-fallback-db-"));

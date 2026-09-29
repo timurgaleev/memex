@@ -20,7 +20,7 @@ import type { AdvisorContext } from "../src/core/advisor/types.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-takes-ungradeable-"));
 let storage: Storage;
-const ORIGINAL_BAR = process.env.MEMEX_GRADE_MIN_AGE_DAYS;
+const ORIGINAL_BAR = process.env.MEMRAIN_GRADE_MIN_AGE_DAYS;
 
 function ctx(): AdvisorContext {
   return { engine: storage.raw(), version: "1.2.3", now: new Date() };
@@ -49,20 +49,20 @@ async function take(
 }
 
 beforeAll(async () => {
-  process.env.MEMEX_GRADE_MIN_AGE_DAYS = "182";
+  process.env.MEMRAIN_GRADE_MIN_AGE_DAYS = "182";
   storage = new Storage({ dbPath: join(dir, "db") });
   await storage.init();
 });
 
 afterEach(async () => {
   await storage.raw().query(`DELETE FROM synth_takes`);
-  process.env.MEMEX_GRADE_MIN_AGE_DAYS = "182";
+  process.env.MEMRAIN_GRADE_MIN_AGE_DAYS = "182";
 });
 
 afterAll(async () => {
   await storage.close();
-  if (ORIGINAL_BAR === undefined) delete process.env.MEMEX_GRADE_MIN_AGE_DAYS;
-  else process.env.MEMEX_GRADE_MIN_AGE_DAYS = ORIGINAL_BAR;
+  if (ORIGINAL_BAR === undefined) delete process.env.MEMRAIN_GRADE_MIN_AGE_DAYS;
+  else process.env.MEMRAIN_GRADE_MIN_AGE_DAYS = ORIGINAL_BAR;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -114,7 +114,7 @@ describe("collectTakesUngradeable", () => {
     // The pool must be future-dated ONLY: one past-dated take makes `mature`
     // non-zero, and the collector then falls silent for the wrong reason —
     // leaving the guard unobservable.
-    process.env.MEMEX_GRADE_MIN_AGE_DAYS = "0";
+    process.env.MEMRAIN_GRADE_MIN_AGE_DAYS = "0";
     await take("future", -3);
     expect(await collectTakesUngradeable.collect(ctx())).toEqual([]);
   });

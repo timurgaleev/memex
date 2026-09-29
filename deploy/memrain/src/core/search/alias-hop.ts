@@ -17,7 +17,7 @@
  *
  * Fail-open: a pre-migration-034 brain (no `page_aliases` table) or any lookup
  * error degrades to the input unchanged. Returns a NEW array; the caller
- * re-slices. Default ON; MEMEX_ALIAS_HOP=0 disables (folded into the
+ * re-slices. Default ON; MEMRAIN_ALIAS_HOP=0 disables (folded into the
  * query-cache ranking signature).
  */
 import type { Engine } from "../engine/interface.ts";
@@ -37,9 +37,9 @@ export const MAX_ALIAS_QUERY_TOKENS = 6;
 /** Cap on canonical pages boosted/injected per query (collision safety). */
 export const MAX_ALIAS_INJECT = 3;
 
-/** Default ON; MEMEX_ALIAS_HOP=0 disables the stage. */
+/** Default ON; MEMRAIN_ALIAS_HOP=0 disables the stage. */
 export function aliasHopEnabled(): boolean {
-  return process.env["MEMEX_ALIAS_HOP"] !== "0";
+  return process.env["MEMRAIN_ALIAS_HOP"] !== "0";
 }
 
 /** Test seams: replace the alias-candidate lookup / page-head fetch (no DB). */

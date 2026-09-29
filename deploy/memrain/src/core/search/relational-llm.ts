@@ -12,11 +12,11 @@
  * or names a relation memex can't traverse.
  *
  * Slice contract (matches core/synthesis/think.ts):
- *   - Default-OFF. A live (paid) call happens ONLY when MEMEX_RELATIONAL_LLM=1.
+ *   - Default-OFF. A live (paid) call happens ONLY when MEMRAIN_RELATIONAL_LLM=1.
  *     An injected `sonnetFn` bypasses the env gate AND avoids any spend.
  *   - USD budget-capped. Estimate usage from the ACTUAL prompt size (~4
  *     chars/token), `reserve` BEFORE the call, `settle` after (`release` on failure).
- *     MEMEX_RELATIONAL_LLM_BUDGET_USD overrides the default (1.0).
+ *     MEMRAIN_RELATIONAL_LLM_BUDGET_USD overrides the default (1.0).
  *   - The untrusted query is sanitized before it enters the prompt.
  *   - Tolerant JSON parse + strict validation: bad output → null → empty arm,
  *     so the caller falls back exactly as if the regex arm had missed. Never
@@ -73,7 +73,7 @@ export interface RelationalLlmOptions {
   depth?: number;
   /** Tenant scope: restrict edge fanout to these source_ids. */
   sourceIds?: string[];
-  /** USD ceiling for the run (default 1.0; MEMEX_RELATIONAL_LLM_BUDGET_USD overrides). */
+  /** USD ceiling for the run (default 1.0; MEMRAIN_RELATIONAL_LLM_BUDGET_USD overrides). */
   maxBudgetUsd?: number;
   /** Sonnet output-token cap (default 300 — the JSON intent is tiny). */
   maxTokens?: number;
@@ -217,19 +217,19 @@ export function parseRelationalLlmResponse(raw: string): RelationalQuery | null 
 }
 
 function liveEnabled(): boolean {
-  const v = (process.env["MEMEX_RELATIONAL_LLM"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_RELATIONAL_LLM"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env["MEMEX_RELATIONAL_LLM_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_RELATIONAL_LLM_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
 }
 
 /**
  * The paid Sonnet fallback for the relational arm. Default-OFF: a live run needs
- * MEMEX_RELATIONAL_LLM=1; tests inject a sonnetFn, which both bypasses the gate
+ * MEMRAIN_RELATIONAL_LLM=1; tests inject a sonnetFn, which both bypasses the gate
  * and avoids spend. Returns candidate slugs from the deterministic fanout, or an
  * empty list on any shortfall (gated, budget-out, unparseable output, no seed
  * resolves, fanout fault) — the caller treats an empty arm exactly like a regex
@@ -262,7 +262,7 @@ export async function relationalRecallLlm(
   // Default-OFF: a live (paid) run requires the env gate. An injected sonnetFn
   // both bypasses the gate and avoids any spend.
   if (!opts.sonnetFn && !liveEnabled()) {
-    return finish([], "default-OFF: set MEMEX_RELATIONAL_LLM=1 to run paid Sonnet fallback");
+    return finish([], "default-OFF: set MEMRAIN_RELATIONAL_LLM=1 to run paid Sonnet fallback");
   }
 
   const maxTokens = opts.maxTokens ?? DEFAULT_OUTPUT_TOKENS;

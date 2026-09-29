@@ -3,7 +3,7 @@
  * running 120 twice is harmless, and the down refuses — changing nothing — when
  * its preconditions fail, both through `apply-migrations --down` and through
  * the down file alone (`psql -1 -f`). Runs on PGLite, and on Postgres with
- * psql when MEMEX_TEST_POSTGRES_URL is set (the open-session case is
+ * psql when MEMRAIN_TEST_POSTGRES_URL is set (the open-session case is
  * Postgres-only; PGLite has no second session).
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";

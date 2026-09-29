@@ -1,5 +1,5 @@
 /**
- * Fail-closed multi-tenant read policy (MEMEX_TENANT_FAIL_CLOSED).
+ * Fail-closed multi-tenant read policy (MEMRAIN_TENANT_FAIL_CLOSED).
  *
  * The guard closes one hole: an AUTHENTICATED principal that holds no source
  * grant used to resolve to `undefined` scope = the redacted whole brain. With
@@ -40,7 +40,7 @@ const B_SECRET = "FailClosed-Tenant-B: token-beta-2244";
 // A-only chunk token so a get_chunks leak is unambiguous.
 const A_CHUNK_SECRET = "FailClosedChunkSecret-lynx-basalt-6620";
 
-const ENV_KEY = "MEMEX_TENANT_FAIL_CLOSED";
+const ENV_KEY = "MEMRAIN_TENANT_FAIL_CLOSED";
 
 let tmp: string;
 let storage: Storage;
@@ -156,7 +156,7 @@ describe("default (flag unset) — behavior identical to today", () => {
   });
 });
 
-describe("MEMEX_TENANT_FAIL_CLOSED=1 — the guard bites every authenticated no-grant caller", () => {
+describe("MEMRAIN_TENANT_FAIL_CLOSED=1 — the guard bites every authenticated no-grant caller", () => {
   it("authenticated PUBLIC principal with no grant reads NOTHING", async () => {
     process.env[ENV_KEY] = "1";
     const out = await call("page_list", {}, via(publicNoGrant()));

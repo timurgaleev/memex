@@ -3,7 +3,7 @@
  * blocker alone flips it to exit 3: a running job, a leased job, a live cycle
  * lock row of either brand, a live worker heartbeat of either brand, and
  * maintenance off with a background switch on. Expired rows never block.
- * The DB checks run on PGLite and, when MEMEX_TEST_POSTGRES_URL points at a
+ * The DB checks run on PGLite and, when MEMRAIN_TEST_POSTGRES_URL points at a
  * scratch database, on Postgres too.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -21,7 +21,7 @@ import {
   runStatus,
 } from "../src/commands/status.ts";
 
-const PG_URL = process.env.MEMEX_TEST_POSTGRES_URL;
+const PG_URL = process.env.MEMRAIN_TEST_POSTGRES_URL;
 const MAINT = { [MAINTENANCE_ENV]: "1" };
 
 type Seed = { label: string; seed: (e: Engine) => Promise<void>; clean: (e: Engine) => Promise<void> };

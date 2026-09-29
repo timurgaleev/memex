@@ -38,7 +38,7 @@ const FULL_REPO = () => [recorded("issues-page-1"), recorded("issues-page-2")];
 
 let tmp: string;
 let storage: Storage;
-const savedGap = process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES;
+const savedGap = process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES;
 
 async function count(sql: string, params: unknown[] = []): Promise<number> {
   const r = await storage.engine().query<{ n: number }>(sql, params);
@@ -61,13 +61,13 @@ async function sync(responses: Array<Recorded | Error>, opts: { full?: boolean; 
 }
 
 async function withDisposition<T>(value: string, fn: () => Promise<T>): Promise<T> {
-  const saved = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-  process.env.MEMEX_SECRET_SCAN_DISPOSITION = value;
+  const saved = process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+  process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = value;
   try {
     return await fn();
   } finally {
-    if (saved === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-    else process.env.MEMEX_SECRET_SCAN_DISPOSITION = saved;
+    if (saved === undefined) delete process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+    else process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = saved;
   }
 }
 
@@ -80,7 +80,7 @@ const listPage = (items: Array<{ number: number; updated_at: string }>, nextPage
 });
 
 beforeEach(async () => {
-  process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES = "30";
+  process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES = "30";
   tmp = mkdtempSync(join(tmpdir(), "memex-connectors-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -88,8 +88,8 @@ beforeEach(async () => {
   await registerSource(storage.engine(), { id: "notes", kind: "other", pathPrefix: "/srv/notes" });
 });
 afterEach(async () => {
-  if (savedGap === undefined) delete process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES;
-  else process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES = savedGap;
+  if (savedGap === undefined) delete process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES;
+  else process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES = savedGap;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -320,7 +320,7 @@ describe("memex connectors", () => {
   const tokenFile = join(cliTmp, "token");
   let log: ReturnType<typeof spyOn>;
   let err: ReturnType<typeof spyOn>;
-  const savedToken = process.env.MEMEX_GITHUB_TOKEN;
+  const savedToken = process.env.MEMRAIN_GITHUB_TOKEN;
 
   beforeAll(async () => {
     mkdirSync(join(cliTmp, ".memex"), { recursive: true });
@@ -342,15 +342,15 @@ describe("memex connectors", () => {
     }
   });
   beforeEach(() => {
-    delete process.env.MEMEX_GITHUB_TOKEN;
+    delete process.env.MEMRAIN_GITHUB_TOKEN;
     log = spyOn(console, "log").mockImplementation(() => {});
     err = spyOn(console, "error").mockImplementation(() => {});
   });
   afterEach(() => {
     log.mockRestore();
     err.mockRestore();
-    if (savedToken === undefined) delete process.env.MEMEX_GITHUB_TOKEN;
-    else process.env.MEMEX_GITHUB_TOKEN = savedToken;
+    if (savedToken === undefined) delete process.env.MEMRAIN_GITHUB_TOKEN;
+    else process.env.MEMRAIN_GITHUB_TOKEN = savedToken;
   });
   afterAll(() => rmSync(cliTmp, { recursive: true, force: true }));
 
@@ -360,7 +360,7 @@ describe("memex connectors", () => {
 
   it("refuses to run without a token", async () => {
     expect(await runConnectors({ ...base })).toBe(1);
-    expect(lastJson().error).toContain("MEMEX_GITHUB_TOKEN");
+    expect(lastJson().error).toContain("MEMRAIN_GITHUB_TOKEN");
   });
 
   it("refuses a token file that is a directory", async () => {
@@ -394,7 +394,7 @@ describe("memex connectors", () => {
       preview: { items: 3, issues: 2, pull_requests: 1, redactions: 1 },
     });
 
-    process.env.MEMEX_GITHUB_TOKEN = API_TOKEN;
+    process.env.MEMRAIN_GITHUB_TOKEN = API_TOKEN;
     const first = replay(FULL_REPO());
     expect(await runConnectors({ ...base, fetch: first.fetch, full: true, ...seams })).toBe(0);
     expect(lastJson()).toMatchObject({ ok: true, status: "success", counts: { pages_written: 3 } });

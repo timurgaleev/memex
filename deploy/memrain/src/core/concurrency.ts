@@ -59,14 +59,14 @@ const DEFAULT_WRITE_EMBED_WIDTH = 4;
 
 /**
  * How many chunks the write path situates and embeds at once, across every
- * concurrent write in the process (`MEMEX_EMBED_MAX_INFLIGHT`, default 4).
- * Deliberately NOT `MEMEX_EMBED_CONCURRENCY`, which is the backfill's own pool
+ * concurrent write in the process (`MEMRAIN_EMBED_MAX_INFLIGHT`, default 4).
+ * Deliberately NOT `MEMRAIN_EMBED_CONCURRENCY`, which is the backfill's own pool
  * width, and deliberately not taken inside `embedText`: the search path races a
  * query embed against a wall clock that starts before any wait, so sharing this
  * ceiling with it would turn a busy write into keyword-only search.
  */
 export function writeEmbedWidth(): number {
-  const n = Number.parseInt(process.env.MEMEX_EMBED_MAX_INFLIGHT ?? "", 10);
+  const n = Number.parseInt(process.env.MEMRAIN_EMBED_MAX_INFLIGHT ?? "", 10);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_WRITE_EMBED_WIDTH;
 }
 

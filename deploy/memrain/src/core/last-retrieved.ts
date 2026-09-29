@@ -15,7 +15,7 @@
  *
  * Best-effort: any error (column missing on a pre-mig-024 brain, statement
  * timeout, blip) is swallowed with a warn — the op result is never affected.
- * Default-on; `MEMEX_TRACK_RETRIEVAL=0` opts out (the track-retrieval escape
+ * Default-on; `MEMRAIN_TRACK_RETRIEVAL=0` opts out (the track-retrieval escape
  * hatch, as a memex env flag).
  */
 import type { Engine } from "./engine/interface.ts";
@@ -46,7 +46,7 @@ export async function bumpLastRetrievedAt(
   sourceId?: string,
 ): Promise<void> {
   if (slugs.length === 0) return;
-  if (process.env.MEMEX_TRACK_RETRIEVAL === "0") return;
+  if (process.env.MEMRAIN_TRACK_RETRIEVAL === "0") return;
   const params: unknown[] = [slugs];
   let scopeFilter = "";
   if (typeof sourceId === "string" && sourceId.length > 0) {

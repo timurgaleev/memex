@@ -7,10 +7,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { buildSearchModes } from "../src/commands/search-modes.ts";
 
 const ENV_KEYS = [
-  "MEMEX_TITLE_BOOST",
-  "MEMEX_NEARDUP_JACCARD",
-  "MEMEX_RERANK",
-  "MEMEX_QUERY_CACHE",
+  "MEMRAIN_TITLE_BOOST",
+  "MEMRAIN_NEARDUP_JACCARD",
+  "MEMRAIN_RERANK",
+  "MEMRAIN_QUERY_CACHE",
 ];
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
@@ -35,25 +35,25 @@ describe("search modes", () => {
 
   it("surfaces every ranking knob with its env var", () => {
     const m = buildSearchModes();
-    expect((m.knobs.title_boost as { env: string }).env).toBe("MEMEX_TITLE_BOOST");
-    expect((m.knobs.recency_decay as { env: string }).env).toBe("MEMEX_RECENCY_DECAY");
-    expect((m.knobs.neardup_jaccard as { env: string }).env).toBe("MEMEX_NEARDUP_JACCARD");
-    expect((m.knobs.rerank as { env: string }).env).toBe("MEMEX_RERANK");
-    expect((m.knobs.query_cache as { env: string }).env).toBe("MEMEX_QUERY_CACHE");
+    expect((m.knobs.title_boost as { env: string }).env).toBe("MEMRAIN_TITLE_BOOST");
+    expect((m.knobs.recency_decay as { env: string }).env).toBe("MEMRAIN_RECENCY_DECAY");
+    expect((m.knobs.neardup_jaccard as { env: string }).env).toBe("MEMRAIN_NEARDUP_JACCARD");
+    expect((m.knobs.rerank as { env: string }).env).toBe("MEMRAIN_RERANK");
+    expect((m.knobs.query_cache as { env: string }).env).toBe("MEMRAIN_QUERY_CACHE");
     expect(typeof m.ranking_signature).toBe("string");
   });
 
   it("reflects env overrides in the resolved knob values", () => {
-    process.env["MEMEX_RERANK"] = "1";
-    process.env["MEMEX_QUERY_CACHE"] = "0";
+    process.env["MEMRAIN_RERANK"] = "1";
+    process.env["MEMRAIN_QUERY_CACHE"] = "0";
     const m = buildSearchModes();
     expect((m.knobs.rerank as { enabled: boolean }).enabled).toBe(true);
     expect((m.knobs.query_cache as { enabled: boolean }).enabled).toBe(false);
   });
 
   it("defaults rerank off and query_cache on with no env set", () => {
-    delete process.env["MEMEX_RERANK"];
-    delete process.env["MEMEX_QUERY_CACHE"];
+    delete process.env["MEMRAIN_RERANK"];
+    delete process.env["MEMRAIN_QUERY_CACHE"];
     const m = buildSearchModes();
     expect((m.knobs.rerank as { enabled: boolean }).enabled).toBe(false);
     expect((m.knobs.query_cache as { enabled: boolean }).enabled).toBe(true);

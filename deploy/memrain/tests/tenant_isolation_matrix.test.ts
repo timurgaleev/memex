@@ -122,7 +122,7 @@ afterAll(async () => {
 });
 
 afterEach(() => {
-  delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
+  delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
 });
 
 describe("isolation matrix covers the registry", () => {
@@ -173,8 +173,8 @@ describe("isolated operations never cross the source boundary", () => {
         ["empty grant", emptyGrant, args, [...TENANT_B_TOKENS, ...TENANT_A_TOKENS], true],
       ];
       for (const [label, authInfo, rowArgs, tokens, failClosed] of principals) {
-        if (failClosed) process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
-        else delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
+        if (failClosed) process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
+        else delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
         const leaked = leakedToken(await call(row.name, rowArgs, authInfo), rowArgs, tokens);
         expect({ caller: label, leaked }).toEqual({ caller: label, leaked: undefined });
       }
@@ -213,7 +213,7 @@ describe("write-scoped reads refuse a grantless caller", () => {
     const operator = JSON.parse((await call("think", args)).content[0]!.text);
     expect(operator.reason).toContain("default-OFF");
 
-    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
     const res = await call("think", args, emptyGrant);
     expect(leakedToken(res, args, [...TENANT_B_TOKENS, ...TENANT_A_TOKENS])).toBeUndefined();
     const out = JSON.parse(res.content[0]!.text);

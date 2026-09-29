@@ -1,5 +1,5 @@
 /**
- * `memex skillopt eval`: refused unless MEMEX_SKILLOPT_ENABLED=1 (before any
+ * `memex skillopt eval`: refused unless MEMRAIN_SKILLOPT_ENABLED=1 (before any
  * storage opens), arguments validated, --max-usd clamped to the env ceiling,
  * an unknown --skill answered with the skills that have a benchmark, a
  * worst case over the cap refused before storage, and the gate verdict
@@ -77,11 +77,11 @@ function harness(overrides: Record<string, unknown> = {}) {
 }
 
 describe("memex skillopt eval", () => {
-  it("refuses unless MEMEX_SKILLOPT_ENABLED=1, before storage opens or a call is made", async () => {
+  it("refuses unless MEMRAIN_SKILLOPT_ENABLED=1, before storage opens or a call is made", async () => {
     for (const enabled of [undefined, "", "0", "true"]) {
       const { h, opts } = harness({ enabled });
       expect(await runSkilloptCli(opts)).toBe(1);
-      expect(h.err.join("\n")).toContain("MEMEX_SKILLOPT_ENABLED=1");
+      expect(h.err.join("\n")).toContain("MEMRAIN_SKILLOPT_ENABLED=1");
       expect(h.opened).toBe(0);
       expect(h.calls).toBe(0);
     }
@@ -130,7 +130,7 @@ describe("memex skillopt eval", () => {
     expect(h.opened).toBe(1);
   });
 
-  it("clamps --max-usd to MEMEX_SKILLOPT_MAX_USD", async () => {
+  it("clamps --max-usd to MEMRAIN_SKILLOPT_MAX_USD", async () => {
     const { h, opts } = harness({ maxUsd: "5", maxUsdEnv: "0.1" });
     expect(await runSkilloptCli(opts)).toBe(0);
     expect(h.out.join("\n")).toContain("of cap $0.1000");

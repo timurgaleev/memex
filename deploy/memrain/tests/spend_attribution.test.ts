@@ -3,7 +3,7 @@
  * passes through, and the operation label each of the eight invoke sites books
  * under. Before this the live mcp_spend_log held ONE row for all time: the
  * search sites bypassed accounting entirely and BudgetTracker's cost went to an
- * audit file that is off unless MEMEX_AUDIT_DIR is set.
+ * audit file that is off unless MEMRAIN_AUDIT_DIR is set.
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -334,8 +334,8 @@ describe("every invoke site carries a label", () => {
   });
 
   it("intent classification", async () => {
-    const prev = process.env.MEMEX_INTENT_LLM;
-    process.env.MEMEX_INTENT_LLM = "1";
+    const prev = process.env.MEMRAIN_INTENT_LLM;
+    process.env.MEMRAIN_INTENT_LLM = "1";
     try {
       // A query no cheap heuristic answers, so the paid arm actually runs.
       const intent = await classifyIntent("memex master plan", {
@@ -343,8 +343,8 @@ describe("every invoke site carries a label", () => {
       });
       expect(intent).toBe("topic");
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_INTENT_LLM;
-      else process.env.MEMEX_INTENT_LLM = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_INTENT_LLM;
+      else process.env.MEMRAIN_INTENT_LLM = prev;
     }
     const rows = await ledger();
     expect(rows).toHaveLength(1);
@@ -352,12 +352,12 @@ describe("every invoke site carries a label", () => {
   });
 
   it("intent classification books nothing on the zero-LLM default path", async () => {
-    const prev = process.env.MEMEX_INTENT_LLM;
-    delete process.env.MEMEX_INTENT_LLM;
+    const prev = process.env.MEMRAIN_INTENT_LLM;
+    delete process.env.MEMRAIN_INTENT_LLM;
     try {
       expect(await classifyIntent("memex master plan")).toBe("topic");
     } finally {
-      if (prev !== undefined) process.env.MEMEX_INTENT_LLM = prev;
+      if (prev !== undefined) process.env.MEMRAIN_INTENT_LLM = prev;
     }
     expect(await ledger()).toHaveLength(0);
   });

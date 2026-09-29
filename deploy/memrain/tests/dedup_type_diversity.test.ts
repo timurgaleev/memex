@@ -64,11 +64,11 @@ describe("enforceTypeDiversity", () => {
   });
 });
 
-describe("MEMEX_MAX_TYPE_RATIO", () => {
-  const savedEnv = process.env.MEMEX_MAX_TYPE_RATIO;
+describe("MEMRAIN_MAX_TYPE_RATIO", () => {
+  const savedEnv = process.env.MEMRAIN_MAX_TYPE_RATIO;
   afterEach(() => {
-    if (savedEnv === undefined) delete process.env.MEMEX_MAX_TYPE_RATIO;
-    else process.env.MEMEX_MAX_TYPE_RATIO = savedEnv;
+    if (savedEnv === undefined) delete process.env.MEMRAIN_MAX_TYPE_RATIO;
+    else process.env.MEMRAIN_MAX_TYPE_RATIO = savedEnv;
   });
 
   it("defaults to 0.6", () => {

@@ -37,15 +37,15 @@ beforeEach(async () => {
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // The sweep re-reads only files under the configured roots.
-  savedRoots = { vault: process.env.MEMEX_VAULT_PATHS, code: process.env.MEMEX_CODE_PATHS };
-  process.env.MEMEX_VAULT_PATHS = vault;
-  delete process.env.MEMEX_CODE_PATHS;
+  savedRoots = { vault: process.env.MEMRAIN_VAULT_PATHS, code: process.env.MEMRAIN_CODE_PATHS };
+  process.env.MEMRAIN_VAULT_PATHS = vault;
+  delete process.env.MEMRAIN_CODE_PATHS;
 });
 afterEach(async () => {
-  if (savedRoots.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-  else process.env.MEMEX_VAULT_PATHS = savedRoots.vault;
-  if (savedRoots.code === undefined) delete process.env.MEMEX_CODE_PATHS;
-  else process.env.MEMEX_CODE_PATHS = savedRoots.code;
+  if (savedRoots.vault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+  else process.env.MEMRAIN_VAULT_PATHS = savedRoots.vault;
+  if (savedRoots.code === undefined) delete process.env.MEMRAIN_CODE_PATHS;
+  else process.env.MEMRAIN_CODE_PATHS = savedRoots.code;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
   rmSync(vault, { recursive: true, force: true });

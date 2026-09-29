@@ -2,12 +2,12 @@
  * Graph-aware Sonnet rerank — a POST-FUSION reranker that reorders the top-N
  * SearchHits with one paid Sonnet call, giving the model each hit's excerpt
  * PLUS a compact graph signal (how connected the hit's page is in the typed-link
- * graph). Distinct from the Haiku two-pass rerank (MEMEX_RERANK, two-pass.ts):
+ * graph). Distinct from the Haiku two-pass rerank (MEMRAIN_RERANK, two-pass.ts):
  * that scores text relevance only; this adds link-graph centrality as an extra
  * cue and runs on the higher-reasoning Sonnet tier.
  *
- * Opt-in, default-OFF (MEMEX_GRAPH_RERANK=1) because Sonnet is paid; a fresh
- * USD BudgetTracker caps the run (MEMEX_GRAPH_RERANK_BUDGET_USD, default 1.0).
+ * Opt-in, default-OFF (MEMRAIN_GRAPH_RERANK=1) because Sonnet is paid; a fresh
+ * USD BudgetTracker caps the run (MEMRAIN_GRAPH_RERANK_BUDGET_USD, default 1.0).
  * An injected `sonnetFn` (tests) bypasses the env gate AND avoids any spend.
  *
  * Fail-OPEN posture at the reranker's call-site
@@ -44,7 +44,7 @@ Output ONE LINE: a JSON array of the candidate indices, most-to-least relevant t
 export interface GraphRerankOptions {
   /** Test seam — inject a fake model; bypasses the live-run env gate + spend. */
   sonnetFn?: SonnetFn;
-  /** Shared USD budget. Default: a fresh cap from MEMEX_GRAPH_RERANK_BUDGET_USD. */
+  /** Shared USD budget. Default: a fresh cap from MEMRAIN_GRAPH_RERANK_BUDGET_USD. */
   budget?: BudgetTracker;
   /** How many of the top hits to rerank (default 20). The tail is preserved. */
   topNIn?: number;
@@ -64,12 +64,12 @@ export interface GraphRerankOptions {
  * a result under a key that says it didn't.
  */
 export function graphRerankLiveEnabled(): boolean {
-  const v = (process.env["MEMEX_GRAPH_RERANK"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_GRAPH_RERANK"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env["MEMEX_GRAPH_RERANK_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_GRAPH_RERANK_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
 }
@@ -184,7 +184,7 @@ export function parseRerankOrder(raw: string, headLen: number): number[] {
 
 /**
  * Reorder the top `topNIn` hits by a graph-aware Sonnet pass. Default-OFF: a
- * live (paid) run needs MEMEX_GRAPH_RERANK=1; tests inject a sonnetFn, which
+ * live (paid) run needs MEMRAIN_GRAPH_RERANK=1; tests inject a sonnetFn, which
  * bypasses the gate and avoids spend. Any short-circuit (disabled, ≤1 hit,
  * budget skip, call error, empty/malformed model output) returns the INPUT
  * order unchanged — fail-open. The un-reranked tail (past topNIn) keeps its

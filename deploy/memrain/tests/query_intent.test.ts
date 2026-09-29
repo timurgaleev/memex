@@ -12,10 +12,10 @@ import {
 } from "../src/core/search/query-intent.ts";
 import { classifyIntent } from "../src/core/search/intent.ts";
 
-const saved = process.env.MEMEX_INTENT_LLM;
+const saved = process.env.MEMRAIN_INTENT_LLM;
 afterEach(() => {
-  if (saved === undefined) delete process.env.MEMEX_INTENT_LLM;
-  else process.env.MEMEX_INTENT_LLM = saved;
+  if (saved === undefined) delete process.env.MEMRAIN_INTENT_LLM;
+  else process.env.MEMRAIN_INTENT_LLM = saved;
 });
 
 describe("classifyQueryTaxonomy", () => {
@@ -93,7 +93,7 @@ describe("classifyQuerySuggestions — recency/salience axes", () => {
 
 describe("classifyIntent — zero-LLM default", () => {
   it("resolves without Bedrock and maps the taxonomy onto memex intents", async () => {
-    delete process.env.MEMEX_INTENT_LLM; // default: no LLM call
+    delete process.env.MEMRAIN_INTENT_LLM; // default: no LLM call
     // Heuristics first.
     expect(await classifyIntent('"exact phrase"')).toBe("exact");
     expect(await classifyIntent("how do I configure this")).toBe("howto");

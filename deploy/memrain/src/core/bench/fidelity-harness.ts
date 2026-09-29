@@ -317,7 +317,7 @@ export interface FidelityCorpusRun {
 /**
  * Refuse to run when a paid side path is armed.
  *
- * `writeExtractedFacts` passes no `dedup`, so `MEMEX_FACTS_DEDUP` alone turns
+ * `writeExtractedFacts` passes no `dedup`, so `MEMRAIN_FACTS_DEDUP` alone turns
  * on `resolveDedup`'s default embedder (`facts.ts:236`) — a real Titan call per
  * fact, billed. Unsetting it here would be worse than refusing: `process.env`
  * is process-global, and a bench that quietly rewrites it changes behaviour for
@@ -325,8 +325,8 @@ export interface FidelityCorpusRun {
  */
 function refuseIfPaidPathsArmed(): void {
   const armed: string[] = [];
-  if (factsDedupEnabled()) armed.push("MEMEX_FACTS_DEDUP");
-  if (factsDedupLlmEnabled()) armed.push("MEMEX_FACTS_DEDUP_LLM");
+  if (factsDedupEnabled()) armed.push("MEMRAIN_FACTS_DEDUP");
+  if (factsDedupLlmEnabled()) armed.push("MEMRAIN_FACTS_DEDUP_LLM");
   if (armed.length > 0) {
     throw new Error(
       `fidelity bench refuses to run with ${armed.join(", ")} set: insert-time dedup ` +

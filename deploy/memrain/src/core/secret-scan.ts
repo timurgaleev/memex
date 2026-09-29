@@ -135,13 +135,13 @@ export function scanSecrets(text: string, allow: ReadonlySet<string> = new Set()
 export type SecretDisposition = "redact" | "flag" | "reject";
 
 export function secretDisposition(): SecretDisposition {
-  const v = (process.env.MEMEX_SECRET_SCAN_DISPOSITION ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_SECRET_SCAN_DISPOSITION ?? "").trim().toLowerCase();
   return v === "flag" || v === "reject" ? v : "redact";
 }
 
 function allowedFingerprints(): Set<string> {
   return new Set(
-    (process.env.MEMEX_SECRET_SCAN_ALLOW ?? "")
+    (process.env.MEMRAIN_SECRET_SCAN_ALLOW ?? "")
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter((s) => /^[0-9a-f]{12}$/.test(s)),
@@ -172,7 +172,7 @@ export class SecretRejectedError extends OperationError {
     super(
       "invalid_params",
       `${where} contains what looks like a credential (${describeFindings(findings)}); the write was refused`,
-      "Remove the credential, or allow its fingerprint in MEMEX_SECRET_SCAN_ALLOW if it is not one.",
+      "Remove the credential, or allow its fingerprint in MEMRAIN_SECRET_SCAN_ALLOW if it is not one.",
     );
   }
 }

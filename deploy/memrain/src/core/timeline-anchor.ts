@@ -20,7 +20,7 @@
  *     candidate query (they now HAVE an event), so successive runs drain the
  *     backlog resumably.
  *
- * OPT-IN (`MEMEX_TIMELINE_ANCHOR=1`, default OFF): a one-line anchor per dated
+ * OPT-IN (`MEMRAIN_TIMELINE_ANCHOR=1`, default OFF): a one-line anchor per dated
  * page is a taste call the operator confirms on their corpus first.
  */
 import type { Storage } from "./storage.ts";
@@ -40,7 +40,7 @@ export interface TimelineAnchorResult {
 }
 
 export function timelineAnchorEnabled(
-  env: string | undefined = process.env.MEMEX_TIMELINE_ANCHOR,
+  env: string | undefined = process.env.MEMRAIN_TIMELINE_ANCHOR,
 ): boolean {
   return env === "1";
 }

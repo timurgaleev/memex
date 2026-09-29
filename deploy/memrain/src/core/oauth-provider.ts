@@ -249,9 +249,9 @@ export function needsOperatorConsent(client: {
   return client.client_secret === undefined && client.tenant_mode === "client";
 }
 
-/** `MEMEX_OAUTH_REQUIRE_LOGIN` as the server reads it: `1` or `true`. */
+/** `MEMRAIN_OAUTH_REQUIRE_LOGIN` as the server reads it: `1` or `true`. */
 export function oauthRequireLoginFromEnv(): boolean {
-  const v = (process.env.MEMEX_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
@@ -516,7 +516,7 @@ export interface OAuthProviderOptions {
    * grant. Off by default: a self-registered client gets the consent-bearing
    * `authorization_code` grant, so an unauthenticated /register caller can
    * never mint a token that skips the /authorize step. Operators open the
-   * machine-to-machine path with `MEMEX_ENABLE_DCR_INSECURE=1`. The trusted
+   * machine-to-machine path with `MEMRAIN_ENABLE_DCR_INSECURE=1`. The trusted
    * CLI path (registerClientManual) is unaffected.
    */
   allowClientCredentialsDcr?: boolean;
@@ -699,12 +699,12 @@ function tallyUnbound(tokens: { token_type: string }[], codes: number): UnboundR
 export const REFRESH_REUSE_GRACE_SECONDS = 60;
 
 /**
- * `MEMEX_OAUTH_REFRESH_REUSE_REVOKE` as the server reads it: `1` or `true`
+ * `MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE` as the server reads it: `1` or `true`
  * deletes the family of a replayed refresh token. Off, the replay is refused and
  * logged, and the family keeps working.
  */
 export function refreshReuseRevokeFromEnv(): boolean {
-  const v = (process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
@@ -994,7 +994,7 @@ export class OAuthProvider {
       throw new Error(
         "self-registered clients receive the authorization_code grant; the " +
           "client_credentials grant is not available through dynamic " +
-          "registration. Set MEMEX_ENABLE_DCR_INSECURE=1 to allow " +
+          "registration. Set MEMRAIN_ENABLE_DCR_INSECURE=1 to allow " +
           "machine-to-machine self-registration, or register a trusted client " +
           "with `memex auth register-client`.",
       );
@@ -1196,7 +1196,7 @@ export class OAuthProvider {
             code: "public_client_mode",
             detail:
               "a public client cannot be moved to client tenant mode while /authorize auto-approves; " +
-              "keep enrollment mode or run with MEMEX_OAUTH_REQUIRE_LOGIN=1",
+              "keep enrollment mode or run with MEMRAIN_OAUTH_REQUIRE_LOGIN=1",
           },
         ]);
       }
@@ -2240,7 +2240,7 @@ export class OAuthProvider {
     // hash that comes back is either a retry (inside the grace window: refused,
     // nothing revoked) or a second holder of the chain (after it: the whole
     // family is revoked, since there is no telling which holder is legitimate,
-    // once MEMEX_OAUTH_REFRESH_REUSE_REVOKE is on; until then it is only logged).
+    // once MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE is on; until then it is only logged).
     const outcome = await this.engine.transaction(
       async (tx): Promise<{ tokens: OAuthTokens } | { error: string; replayedFamily?: string }> => {
         const policy = await lockClientForIssue(tx, client.client_id);
@@ -2312,7 +2312,7 @@ export class OAuthProvider {
       if (outcome.replayedFamily === undefined) throw new Error(outcome.error);
       if (!refreshReuseRevokeFromEnv()) {
         console.warn(
-          `[oauth] refresh token reuse for client ${client.client_id}: family ${outcome.replayedFamily} left live (MEMEX_OAUTH_REFRESH_REUSE_REVOKE off)`,
+          `[oauth] refresh token reuse for client ${client.client_id}: family ${outcome.replayedFamily} left live (MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE off)`,
         );
         throw new Error("Refresh token reuse detected");
       }

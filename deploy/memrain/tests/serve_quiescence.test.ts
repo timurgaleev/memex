@@ -29,7 +29,7 @@ import type { Worker } from "../src/core/jobs/worker.ts";
 
 type Config = ReturnType<typeof loadConfig>;
 
-const ENV_KEYS = ["MEMEX_CODE_PATHS", "MEMEX_DREAM_INTERVAL_S"] as const;
+const ENV_KEYS = ["MEMRAIN_CODE_PATHS", "MEMRAIN_DREAM_INTERVAL_S"] as const;
 const saved = new Map<string, string | undefined>();
 let dir: string;
 let storage: Storage;
@@ -77,8 +77,8 @@ async function boot(env: Record<string, string>, deps: ReturnType<typeof spies>)
 beforeAll(async () => {
   for (const k of ENV_KEYS) saved.set(k, process.env[k]);
   dir = mkdtempSync(join(tmpdir(), "memex-serve-quiescence-"));
-  process.env.MEMEX_CODE_PATHS = dir;
-  process.env.MEMEX_DREAM_INTERVAL_S = "60";
+  process.env.MEMRAIN_CODE_PATHS = dir;
+  process.env.MEMRAIN_DREAM_INTERVAL_S = "60";
   storage = new Storage({ dbPath: join(dir, "db") });
   await storage.init();
 });

@@ -5,7 +5,7 @@
  * up except the migrations row's applied_at. A boot in maintenance mode between
  * up and down writes nothing either (the fixture carries an expired token, code
  * and consumed refresh row, which a boot token sweep would delete). Runs on
- * PGLite, and on Postgres with psql when MEMEX_TEST_POSTGRES_URL is set.
+ * PGLite, and on Postgres with psql when MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { runMigrations, revertMigration } from "../src/core/migrate.ts";

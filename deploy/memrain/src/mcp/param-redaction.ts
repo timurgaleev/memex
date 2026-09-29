@@ -12,7 +12,7 @@
  * the length of secret content via repeated probes; 1 KB resolution destroys
  * that side channel while keeping a useful "roughly how big" signal.
  *
- * Logging is OFF by default and emits nothing unless `MEMEX_LOG_REQUESTS` is
+ * Logging is OFF by default and emits nothing unless `MEMRAIN_LOG_REQUESTS` is
  * `1`/`true`. Even then it writes only the redacted summary.
  */
 import { TOOL_DEFS } from "./tool_defs.ts";
@@ -91,9 +91,9 @@ export function summarizeMcpParams(
   return { redacted: true, kind: typeof params, ...bytes };
 }
 
-/** Whether per-request logging is enabled (`MEMEX_LOG_REQUESTS=1|true`). */
+/** Whether per-request logging is enabled (`MEMRAIN_LOG_REQUESTS=1|true`). */
 export function requestLoggingEnabled(): boolean {
-  const v = process.env["MEMEX_LOG_REQUESTS"];
+  const v = process.env["MEMRAIN_LOG_REQUESTS"];
   return v === "1" || v === "true";
 }
 
@@ -104,8 +104,8 @@ export function isKnownTool(toolName: string): boolean {
 
 /**
  * Record one redacted entry for a tool call. Two independent, both opt-in
- * sinks: a console line when `MEMEX_LOG_REQUESTS` is set, and an appended line
- * in the ISO-week audit file when `MEMEX_AUDIT_DIR` is set. No-op when neither
+ * sinks: a console line when `MEMRAIN_LOG_REQUESTS` is set, and an appended line
+ * in the ISO-week audit file when `MEMRAIN_AUDIT_DIR` is set. No-op when neither
  * is configured. The entry carries the tool name, ingress class, ok flag, and
  * the param SUMMARY (never raw params).
  *

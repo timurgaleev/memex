@@ -2,7 +2,7 @@
  * `memex agent run|logs` and the env gate: run refuses unless the loop is
  * enabled and otherwise queues a `subagent` job with its timeout and no
  * retries; logs renders a transcript from the ledger; serve registers the
- * handler only when MEMEX_AGENT_ENABLED=1.
+ * handler only when MEMRAIN_AGENT_ENABLED=1.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -54,12 +54,12 @@ async function jobCount(): Promise<number> {
 }
 
 describe("agent run", () => {
-  it("refuses unless MEMEX_AGENT_ENABLED=1, queuing nothing", async () => {
+  it("refuses unless MEMRAIN_AGENT_ENABLED=1, queuing nothing", async () => {
     for (const enabled of [undefined, "", "0", "true"]) {
       const code = await runAgentCli({ sub: "run", task: "summarize", enabled, ...io() });
       expect(code).toBe(1);
     }
-    expect(err.join("\n")).toContain("MEMEX_AGENT_ENABLED=1");
+    expect(err.join("\n")).toContain("MEMRAIN_AGENT_ENABLED=1");
     expect(await jobCount()).toBe(0);
   });
 
@@ -138,7 +138,7 @@ describe("agent logs", () => {
 });
 
 describe("the env gate on the handler", () => {
-  it("registers the subagent handler only when MEMEX_AGENT_ENABLED=1", () => {
+  it("registers the subagent handler only when MEMRAIN_AGENT_ENABLED=1", () => {
     for (const raw of [undefined, "", "0", "yes"]) {
       _resetHandlersForTesting();
       expect(registerSubagentHandlerIfEnabled(storage, raw)).toBe(false);

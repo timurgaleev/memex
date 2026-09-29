@@ -165,5 +165,5 @@ jobs:
         # With the URL set, the script uses the service container and starts
         # none of its own.
         env:
-          MEMEX_TEST_POSTGRES_URL: postgres://memex:memex@127.0.0.1:5432/memex_test?sslmode=disable
+          MEMRAIN_TEST_POSTGRES_URL: postgres://memex:memex@127.0.0.1:5432/memex_test?sslmode=disable
         run: make test-pg

@@ -27,7 +27,7 @@ let tmp: string;
 let pgPath: string;
 let storage: Storage;
 let provider: OAuthProvider;
-const origConfigPath = process.env.MEMEX_CONFIG_PATH;
+const origConfigPath = process.env.MEMRAIN_CONFIG_PATH;
 
 async function open(): Promise<void> {
   storage = new Storage({ dbPath: pgPath });
@@ -55,7 +55,7 @@ beforeEach(async () => {
       storage: {},
     }),
   );
-  process.env.MEMEX_CONFIG_PATH = cfgPath;
+  process.env.MEMRAIN_CONFIG_PATH = cfgPath;
   await open();
   const e = storage.engine();
   await registerSource(e, { id: "alice", kind: "other", pathPrefix: "tenant:alice" });
@@ -68,8 +68,8 @@ afterEach(async () => {
 });
 
 afterAll(() => {
-  if (origConfigPath === undefined) delete process.env.MEMEX_CONFIG_PATH;
-  else process.env.MEMEX_CONFIG_PATH = origConfigPath;
+  if (origConfigPath === undefined) delete process.env.MEMRAIN_CONFIG_PATH;
+  else process.env.MEMRAIN_CONFIG_PATH = origConfigPath;
 });
 
 /** A confidential browser connector shaped like claude-web. */

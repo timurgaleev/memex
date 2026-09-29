@@ -64,8 +64,8 @@ export class Storage {
     await this._engine.ready();
     const result = await runMigrations(this._engine);
     // DB-plane knob overlay (`memex config set`, migration 088): stored
-    // MEMEX_* keys fill env gaps the container did not set. Fail-open, env
-    // wins, MEMEX_NO_DB_CONFIG=1 skips. See core/runtime-config.ts.
+    // MEMRAIN_* keys fill env gaps the container did not set. Fail-open, env
+    // wins, MEMRAIN_NO_DB_CONFIG=1 skips. See core/runtime-config.ts.
     await applyRuntimeEnvOverlay(this._engine);
     // Give the spend chokepoint somewhere to write. Without this every paid
     // Bedrock call still routes through `trackedInvoke`, computes its cost, and

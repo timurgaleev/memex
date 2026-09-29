@@ -7,7 +7,7 @@
  *     resolves the token to an AuthInfo; static-bearer and anonymous
  *     callers are refused — the OAuth gate IS the trust boundary)
  *   - rate limit: 100 events / 10 s per client key
- *   - byte cap: `MEMEX_INGEST_MAX_BYTES` (default 1 MiB), stream-counted
+ *   - byte cap: `MEMRAIN_INGEST_MAX_BYTES` (default 1 MiB), stream-counted
  *   - content types: text-shaped only (markdown / plain / html / json);
  *     unknown `text/*` degrades to text/plain, binary is 415 in v1
  *   - idempotency: same content from the same client is the SAME durable
@@ -48,7 +48,7 @@ const DEFAULT_INGEST_MAX_BYTES = 1_048_576; // 1 MiB
 
 /** Max payload bytes for POST /ingest (env-overridable). */
 export function ingestMaxBytes(): number {
-  const raw = process.env.MEMEX_INGEST_MAX_BYTES;
+  const raw = process.env.MEMRAIN_INGEST_MAX_BYTES;
   if (!raw) return DEFAULT_INGEST_MAX_BYTES;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_INGEST_MAX_BYTES;
@@ -269,7 +269,7 @@ export async function handleIngestRoute(
 
   // Tenancy: the event is stamped with the CALLER's write source — a webhook
   // client can never direct a capture into another tenant's source. Same
-  // fail-closed floor as the MCP write path: under MEMEX_TENANT_FAIL_CLOSED a
+  // fail-closed floor as the MCP write path: under MEMRAIN_TENANT_FAIL_CLOSED a
   // scopeless authenticated client is rejected instead of falling through to
   // the shared 'default' tenant.
   const writeSourceRaw = effectiveWriteSourceIdForIngress(auth, {

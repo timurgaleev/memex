@@ -56,29 +56,29 @@ export const SESSION_MIN_SHARE = 2;
 
 const PAGE_SCHEME = "page://";
 
-/** Thrown on a malformed MEMEX_GRAPH_SIGNALS_FLOOR value. */
+/** Thrown on a malformed MEMRAIN_GRAPH_SIGNALS_FLOOR value. */
 export class GraphSignalsFloorParseError extends Error {}
 
 /**
- * Parse MEMEX_GRAPH_SIGNALS_FLOOR into a floor RATIO in [0, 1], or `undefined`
+ * Parse MEMRAIN_GRAPH_SIGNALS_FLOOR into a floor RATIO in [0, 1], or `undefined`
  * when unset/blank — undefined disables the gate (every hit stays eligible for
  * a boost, the pre-floor behaviour). Fail-loud on a malformed or out-of-range
  * value so a typo can't silently disable the gate it was meant to tighten.
  */
 export function resolveGraphSignalsFloorRatio(
-  envValue: string | undefined = process.env["MEMEX_GRAPH_SIGNALS_FLOOR"],
+  envValue: string | undefined = process.env["MEMRAIN_GRAPH_SIGNALS_FLOOR"],
 ): number | undefined {
   if (envValue === undefined || envValue.trim() === "") return undefined;
   const raw = envValue.trim();
   if (!/^\d+(?:\.\d+)?$/.test(raw)) {
     throw new GraphSignalsFloorParseError(
-      `invalid MEMEX_GRAPH_SIGNALS_FLOOR: ${JSON.stringify(envValue)}`,
+      `invalid MEMRAIN_GRAPH_SIGNALS_FLOOR: ${JSON.stringify(envValue)}`,
     );
   }
   const v = Number.parseFloat(raw);
   if (!Number.isFinite(v) || v < 0 || v > 1) {
     throw new GraphSignalsFloorParseError(
-      `invalid MEMEX_GRAPH_SIGNALS_FLOOR (must be 0..1): ${JSON.stringify(envValue)}`,
+      `invalid MEMRAIN_GRAPH_SIGNALS_FLOOR (must be 0..1): ${JSON.stringify(envValue)}`,
     );
   }
   return v;
@@ -88,7 +88,7 @@ export function resolveGraphSignalsFloorRatio(
 // the sentinel is `null` rather than the `??=` pattern used by the other env
 // getters — `??=` would re-parse on every call when the env is unset.
 let _graphSignalsFloorRatio: number | undefined | null = null;
-/** Memoized MEMEX_GRAPH_SIGNALS_FLOOR ratio (parsed once, fail-loud). */
+/** Memoized MEMRAIN_GRAPH_SIGNALS_FLOOR ratio (parsed once, fail-loud). */
 export function getGraphSignalsFloorRatio(): number | undefined {
   if (_graphSignalsFloorRatio === null) {
     _graphSignalsFloorRatio = resolveGraphSignalsFloorRatio();
@@ -149,7 +149,7 @@ export interface GraphSignalsOpts {
   /**
    * Absolute score floor: hits below it skip ALL graph boosts. hybrid.ts
    * derives it via {@link computeFloorThreshold} from the candidate set and
-   * the MEMEX_GRAPH_SIGNALS_FLOOR ratio. Pass undefined (or NEGATIVE_INFINITY)
+   * the MEMRAIN_GRAPH_SIGNALS_FLOOR ratio. Pass undefined (or NEGATIVE_INFINITY)
    * to disable the gate — every hit stays eligible.
    */
   floorThreshold?: number;

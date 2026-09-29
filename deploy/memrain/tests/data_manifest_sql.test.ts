@@ -2,7 +2,7 @@
  * `scripts/sql/data-manifest.sql`, the one data-manifest tool: two outputs are
  * compared with a plain `diff`, so a line must change exactly when its object
  * does. Runs the shipped file on PGLite through the test runner and, when
- * MEMEX_TEST_POSTGRES_URL points at a scratch database, on Postgres with psql
+ * MEMRAIN_TEST_POSTGRES_URL points at a scratch database, on Postgres with psql
  * (a missing psql fails that run; it never skips).
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -15,7 +15,7 @@ import type { Engine } from "../src/core/engine/interface.ts";
 import { discoverMigrations, runMigrations } from "../src/core/migrate.ts";
 import { MANIFEST_SQL, runManifestScript } from "./helpers/manifest-script.ts";
 
-const PG_URL = process.env.MEMEX_TEST_POSTGRES_URL;
+const PG_URL = process.env.MEMRAIN_TEST_POSTGRES_URL;
 const PROBE = "manifest_probe";
 const PROBE_NOPK = "manifest_probe_nopk";
 const PROBE_FN = "manifest_probe_fn";

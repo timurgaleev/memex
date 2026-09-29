@@ -29,7 +29,7 @@ const NO_ENGINE = undefined as unknown as Engine;
 const dirs: string[] = [];
 
 afterEach(() => {
-  delete process.env.MEMEX_WASM_DIR;
+  delete process.env.MEMRAIN_WASM_DIR;
   _resetParsersForTests();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -66,7 +66,7 @@ describe("checkGrammars", () => {
   });
 
   it("fails on a grammar that cannot be used even when its bytes match the manifest", async () => {
-    process.env.MEMEX_WASM_DIR = selfConsistentBrokenDir();
+    process.env.MEMRAIN_WASM_DIR = selfConsistentBrokenDir();
     _resetParsersForTests();
 
     // The old signal: bytes agree with the manifest, so the check was green.

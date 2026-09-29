@@ -142,8 +142,8 @@ describe("patterns array recovery cost", () => {
   afterEach(async () => {
     await storage.close();
     rmSync(tmp, { recursive: true, force: true });
-    delete process.env.MEMEX_PATTERNS;
-    delete process.env.MEMEX_PATTERNS_BUDGET_USD;
+    delete process.env.MEMRAIN_PATTERNS;
+    delete process.env.MEMRAIN_PATTERNS_BUDGET_USD;
   });
 
   it("stays linear on a 400 K reply of unterminated brackets", async () => {

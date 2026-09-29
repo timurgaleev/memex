@@ -45,7 +45,7 @@ let provider: OAuthProvider;
 let queue: Queue;
 let seq = 0;
 const savedEnv: Record<string, string | undefined> = {};
-const FLAGS = ["MEMEX_AGENT_ENABLED", "MEMEX_AGENT_TENANT_ENABLED", "MEMEX_TENANT_FAIL_CLOSED"];
+const FLAGS = ["MEMRAIN_AGENT_ENABLED", "MEMRAIN_AGENT_TENANT_ENABLED", "MEMRAIN_TENANT_FAIL_CLOSED"];
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-agent-tenant-"));
@@ -65,8 +65,8 @@ afterAll(async () => {
 
 beforeEach(() => {
   for (const f of FLAGS) savedEnv[f] = process.env[f];
-  process.env.MEMEX_AGENT_ENABLED = "1";
-  process.env.MEMEX_AGENT_TENANT_ENABLED = "1";
+  process.env.MEMRAIN_AGENT_ENABLED = "1";
+  process.env.MEMRAIN_AGENT_TENANT_ENABLED = "1";
 });
 
 afterEach(() => {
@@ -338,13 +338,13 @@ describe("submit_agent fails closed", () => {
 
   it("when the tenant flag is off", async () => {
     const a = await tenant(A);
-    delete process.env.MEMEX_AGENT_TENANT_ENABLED;
+    delete process.env.MEMRAIN_AGENT_TENANT_ENABLED;
     expect(await refusedCode({ task: "t" }, a.auth)).toBe("unsupported");
   });
 
   it("when the agent loop itself is off", async () => {
     const a = await tenant(A);
-    delete process.env.MEMEX_AGENT_ENABLED;
+    delete process.env.MEMRAIN_AGENT_ENABLED;
     expect(await refusedCode({ task: "t" }, a.auth)).toBe("unsupported");
   });
 
@@ -495,7 +495,7 @@ describe("a tampered tenant job", () => {
   it("is refused when the tenant flag is turned off after submit", async () => {
     const a = await tenant(A);
     const id = await submit(a);
-    delete process.env.MEMEX_AGENT_TENANT_ENABLED;
+    delete process.env.MEMRAIN_AGENT_TENANT_ENABLED;
     const model = scriptedModel(CROSS_TENANT_SCRIPT);
     const run = await runJob(id, model.fn, countingDispatch().fn);
     expect(run.job.status).toBe("failed");

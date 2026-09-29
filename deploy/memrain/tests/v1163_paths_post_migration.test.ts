@@ -4,7 +4,7 @@
  * sweeps, the merge carry, the fence reconcile probe, config set/unset — copied
  * verbatim, gives the same results on a 119 database, after migration 120 and
  * after 120's down. Each run is rolled back, so the three states see the same
- * data. Runs on PGLite, and on Postgres when MEMEX_TEST_POSTGRES_URL is set.
+ * data. Runs on PGLite, and on Postgres when MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { Engine } from "../src/core/engine/interface.ts";

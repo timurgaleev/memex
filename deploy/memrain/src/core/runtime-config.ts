@@ -2,7 +2,7 @@
  * Runtime config — the DB-plane knob store behind `memex config` (migration
  * 088), an engine-config surface over memex's env-shaped knobs.
  *
- * memex knobs are MEMEX_* env vars read all over the codebase, so instead of
+ * memex knobs are MEMRAIN_* env vars read all over the codebase, so instead of
  * threading a config object through every resolver, the DB plane stores
  * env-shaped keys and {@link applyRuntimeEnvOverlay} projects them onto
  * `process.env` at engine-connect time (Storage.init) — ONLY for keys the real
@@ -64,7 +64,7 @@ export const ENV_ONLY_KEYS: ReadonlySet<string> = new Set([
 /**
  * Sensitive-key detector shared by every display surface so `show` and the
  * `set` confirmation can't drift. Word-segment
- * match: `MEMEX_PUBLIC_BEARER` and `FOO_TOKEN` hit, `MEMEX_MAX_TOKENS`-style
+ * match: `MEMRAIN_PUBLIC_BEARER` and `FOO_TOKEN` hit, `MEMRAIN_MAX_TOKENS`-style
  * budget knobs deliberately do NOT (TOKENS ≠ TOKEN).
  */
 export function isSensitiveConfigKey(key: string): boolean {
@@ -260,8 +260,8 @@ export function isOverlayProjected(name: string): boolean {
  * Project stored knobs onto `process.env` — only where the real environment
  * left the knob unset under both names, so a container-level env always wins.
  * A `MEMRAIN_X` row beats a `MEMEX_X` row. The value is written under
- * `MEMRAIN_X` and also under `MEMEX_X`, because readers still use the legacy
- * name. Returns the row keys applied. Fail-open (missing table mid-migration,
+ * `MEMRAIN_X` and also under `MEMEX_X`, for any reader that still uses the
+ * legacy name. Returns the row keys applied. Fail-open (missing table mid-migration,
  * transient DB error → no overlay): DB config is an overlay, never a boot
  * dependency. Kill switch: MEMRAIN_NO_DB_CONFIG=1 or MEMEX_NO_DB_CONFIG=1
  * skips entirely.

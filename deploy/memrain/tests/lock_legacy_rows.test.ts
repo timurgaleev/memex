@@ -3,7 +3,7 @@
  * (the manifest's cycle_locks and worker_lock lines never change), a stale
  * `memex-cycle` row survives a new cycle lock and the reaper, and a live one
  * makes `status --quiescent` fail. Runs on PGLite, and on Postgres when
- * MEMEX_TEST_POSTGRES_URL is set.
+ * MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hostname } from "node:os";

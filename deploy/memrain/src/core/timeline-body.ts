@@ -16,7 +16,7 @@
  * row id, an edited bullet replaces only that row, and manual, recipe, meeting
  * and chronicle rows (other or NULL source_chunk_id) are never touched.
  *
- * On by default; `MEMEX_BODY_TIMELINE=0` turns derivation off (and leaves
+ * On by default; `MEMRAIN_BODY_TIMELINE=0` turns derivation off (and leaves
  * existing derived rows alone).
  */
 import { createHash } from "node:crypto";
@@ -67,7 +67,7 @@ const HEADER_RE = /^###\s{1,4}(\d{4}-\d{2}-\d{2})\s{0,4}(?:[—–:-]\s{0,4})?(.
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function bodyTimelineEnabled(
-  env: string | undefined = process.env.MEMEX_BODY_TIMELINE,
+  env: string | undefined = process.env.MEMRAIN_BODY_TIMELINE,
 ): boolean {
   return env !== "0";
 }

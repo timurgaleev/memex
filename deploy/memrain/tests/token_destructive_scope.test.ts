@@ -95,7 +95,7 @@ function toolError(rpc: any): string | undefined {
 }
 
 beforeEach(async () => {
-  process.env.MEMEX_PUBLIC_WRITE = "1"; // prod posture: constructive writes on
+  process.env.MEMRAIN_PUBLIC_WRITE = "1"; // prod posture: constructive writes on
   tmp = mkdtempSync(join(tmpdir(), "memex-tok-destr-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -123,7 +123,7 @@ afterEach(async () => {
   await server.stop();
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_PUBLIC_WRITE;
+  delete process.env.MEMRAIN_PUBLIC_WRITE;
 });
 
 describe("write-scoped token on destructive tools", () => {
@@ -248,8 +248,8 @@ describe("token principal reaches the rest of the walled surface", () => {
       .engine()
       .query(`UPDATE oauth_clients SET budget_usd_per_day = 0`);
 
-    const prev = process.env["MEMEX_RELATIONAL_LLM"];
-    process.env["MEMEX_RELATIONAL_LLM"] = "1";
+    const prev = process.env["MEMRAIN_RELATIONAL_LLM"];
+    process.env["MEMRAIN_RELATIONAL_LLM"] = "1";
     try {
       // Nothing in this brain can seed the deterministic arm, so it returns
       // zero hits and the paid fallback is entered — where the zero cap makes
@@ -262,8 +262,8 @@ describe("token principal reaches the rest of the walled surface", () => {
       expect(r.error?.code).not.toBe(ERR_UNAUTHORIZED);
       expect(toolError(r)).toBe("budget_exhausted");
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_RELATIONAL_LLM"];
-      else process.env["MEMEX_RELATIONAL_LLM"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_RELATIONAL_LLM"];
+      else process.env["MEMRAIN_RELATIONAL_LLM"] = prev;
     }
   });
 

@@ -7,25 +7,25 @@
  * traffic (recipe / worker callers) hits the bridge network
  * directly and never goes through Cloudflare, so it lacks this header.
  * The class picks the credential — public bearer vs the shared
- * `MEMEX_INTERNAL_TOKEN` (`evaluateInternalAuth`) — and drives body
+ * `MEMRAIN_INTERNAL_TOKEN` (`evaluateInternalAuth`) — and drives body
  * redaction plus rate-limit keying downstream. It does NOT decide whether
  * auth happens: a misclassified request meets a different token, not an
  * open door. The only unauthenticated surface is `isPreCredentialRoute`.
  * NON-CLOUDFLARE INGRESS: behind a proxy that does not inject the header,
  * every request classifies internal and is judged against the internal
- * token — set `MEMEX_ASSUME_PUBLIC=1` (or inject `Cf-Connecting-Ip` at the
+ * token — set `MEMRAIN_ASSUME_PUBLIC=1` (or inject `Cf-Connecting-Ip` at the
  * proxy) so remote callers are redacted like the public callers they are.
  * See `assumePublicIngress` below and docs/DEPLOYMENT.md.
  *
  * Public-request rules:
  *   1. `/health` GET — open (used by uptime probes).
  *   2. Anything else — requires `Authorization: Bearer <token>`.
- *      Token comes from `MEMEX_PUBLIC_BEARER` env (populated by
+ *      Token comes from `MEMRAIN_PUBLIC_BEARER` env (populated by
  *      fetch-secrets.sh from the `<secrets_prefix>/memex-public-bearer`
  *      Secrets Manager entry).
  *   3. **Mutating routes are rejected by default** even with a valid
  *      bearer (POST /index, POST /friction, MCP tools/call
- *      name=index|log_friction). Set env `MEMEX_PUBLIC_WRITE=1`
+ *      name=index|log_friction). Set env `MEMRAIN_PUBLIC_WRITE=1`
  *      to opt the public route into write access — pair this with
  *      daily bearer rotation (`scripts/rotate-memex-public-bearer.sh`)
  *      so a leaked token gets invalidated within 24h.
@@ -86,7 +86,7 @@ const FORBIDDEN_PATHS_FROM_PUBLIC = new Set([
 ]);
 
 // Constructive knowledge-writes the public/authenticated ingress MAY perform
-// when MEMEX_PUBLIC_WRITE=1. Remote callers can ADD knowledge (pages, facts,
+// when MEMRAIN_PUBLIC_WRITE=1. Remote callers can ADD knowledge (pages, facts,
 // links, tags). The destructive ops (page_delete/restore/revert, unlink,
 // remove_tag, purge_deleted_pages, forget_fact) are never reachable from the
 // static public bearer, but ARE callable by an authenticated token whose
@@ -239,25 +239,25 @@ const FORBIDDEN_MCP_TOOLS_FROM_PUBLIC: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * When `MEMEX_PUBLIC_WRITE=1` is set in the runtime env, the
+ * When `MEMRAIN_PUBLIC_WRITE=1` is set in the runtime env, the
  * public route accepts write traffic too. Read-once at module init
  * — flip the env + restart the container to change.
  */
 function publicWriteAllowed(): boolean {
-  const v = (process.env["MEMEX_PUBLIC_WRITE"] ?? "").trim();
+  const v = (process.env["MEMRAIN_PUBLIC_WRITE"] ?? "").trim();
   return v === "1" || v.toLowerCase() === "true";
 }
 
 
 /**
- * MEMEX_ASSUME_PUBLIC=1 — classify EVERY HTTP request as public, regardless
+ * MEMRAIN_ASSUME_PUBLIC=1 — classify EVERY HTTP request as public, regardless
  * of the `Cf-Connecting-Ip` header.
  *
  * The header heuristic below is correct only when the ingress is a
  * Cloudflare Tunnel (the edge always injects the header, and internal
  * docker-bridge peers never carry it). Behind any OTHER reverse proxy
  * (Caddy, nginx, an ALB) that does not inject the header, every request
- * looks internal: it is still judged against `MEMEX_INTERNAL_TOKEN`, but
+ * looks internal: it is still judged against `MEMRAIN_INTERNAL_TOKEN`, but
  * a remote caller holding that token would read UNREDACTED bodies and the
  * internal-only tool set — a privacy degradation, not an auth bypass.
  *
@@ -268,7 +268,7 @@ function publicWriteAllowed(): boolean {
  * the public-write opt-in — single-container deployments are unaffected.
  */
 function assumePublicIngress(): boolean {
-  const v = (process.env["MEMEX_ASSUME_PUBLIC"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_ASSUME_PUBLIC"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
@@ -286,7 +286,7 @@ function isPublicRequest(req: Request): boolean {
  * matching shared token. Without this check, any peer on the docker
  * bridge (compromised sibling container or future host bind on :18790)
  * reaches the whole read surface — and every write tool — with no auth
- * at all. The shared secret is loaded from `MEMEX_INTERNAL_TOKEN` env
+ * at all. The shared secret is loaded from `MEMRAIN_INTERNAL_TOKEN` env
  * (populated by fetch-secrets.sh from
  * `<secrets_prefix>/memex-internal-token`).
  *
@@ -388,7 +388,7 @@ export function evaluatePublicGuard(
     return {
       allow: false,
       status: 403,
-      reason: `route ${url.pathname} is internal-only (set MEMEX_PUBLIC_WRITE=1 to opt in)`,
+      reason: `route ${url.pathname} is internal-only (set MEMRAIN_PUBLIC_WRITE=1 to opt in)`,
     };
   }
 
@@ -440,7 +440,7 @@ function timingSafeEqualStrings(a: string, b: string): boolean {
 
 /**
  * MCP tools/call extra check — even with a valid bearer, mutating tools are
- * rejected from public requests by default. `MEMEX_PUBLIC_WRITE=1` opens ONLY
+ * rejected from public requests by default. `MEMRAIN_PUBLIC_WRITE=1` opens ONLY
  * the constructive PUBLIC_WRITE_TOOLS (index / page_put / page_append /
  * add_fact / add_timeline_event / add_tag / link). The always-internal set
  * (destructive writes + privacy-sensitive content/identifier reads) stays

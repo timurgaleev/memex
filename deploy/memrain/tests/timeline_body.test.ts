@@ -43,21 +43,21 @@ let prevToggle: string | undefined;
 let prevSync: string | undefined;
 
 beforeEach(async () => {
-  prevToggle = process.env.MEMEX_BODY_TIMELINE;
-  prevSync = process.env.MEMEX_PAGE_MIRROR_SYNC;
-  delete process.env.MEMEX_BODY_TIMELINE;
+  prevToggle = process.env.MEMRAIN_BODY_TIMELINE;
+  prevSync = process.env.MEMRAIN_PAGE_MIRROR_SYNC;
+  delete process.env.MEMRAIN_BODY_TIMELINE;
   // Queue the search mirror instead of embedding inline: these tests never
   // look at search, and it keeps page_put hermetic.
-  process.env.MEMEX_PAGE_MIRROR_SYNC = "0";
+  process.env.MEMRAIN_PAGE_MIRROR_SYNC = "0";
   tmp = mkdtempSync(join(tmpdir(), "memex-bodytl-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  if (prevToggle === undefined) delete process.env.MEMEX_BODY_TIMELINE;
-  else process.env.MEMEX_BODY_TIMELINE = prevToggle;
-  if (prevSync === undefined) delete process.env.MEMEX_PAGE_MIRROR_SYNC;
-  else process.env.MEMEX_PAGE_MIRROR_SYNC = prevSync;
+  if (prevToggle === undefined) delete process.env.MEMRAIN_BODY_TIMELINE;
+  else process.env.MEMRAIN_BODY_TIMELINE = prevToggle;
+  if (prevSync === undefined) delete process.env.MEMRAIN_PAGE_MIRROR_SYNC;
+  else process.env.MEMRAIN_PAGE_MIRROR_SYNC = prevSync;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -280,10 +280,10 @@ describe("syncBodyTimelineForPage", () => {
     expect((await rows()).map((r) => r.detail)).not.toContain("Source: Board memo");
   });
 
-  it("MEMEX_BODY_TIMELINE=0 derives nothing and removes nothing", async () => {
+  it("MEMRAIN_BODY_TIMELINE=0 derives nothing and removes nothing", async () => {
     await putPage(storage, { slug: SLUG, type: "note", markdown_body: BODY });
     await syncBodyTimelineForPage(storage, SLUG);
-    process.env.MEMEX_BODY_TIMELINE = "0";
+    process.env.MEMRAIN_BODY_TIMELINE = "0";
     await putPage(storage, { slug: SLUG, type: "note", markdown_body: "# empty\n" });
     expect(await syncBodyTimelineForPage(storage, SLUG)).toEqual({
       derived: 0,

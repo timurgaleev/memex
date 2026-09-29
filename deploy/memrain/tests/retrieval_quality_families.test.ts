@@ -77,7 +77,7 @@ const QRELS: { id: string; family: Family; query: string; relevant: string[] }[]
 
 // Env-overridable per-family Hit@3 floor (default: every family fully hits).
 const FLOOR = (() => {
-  const raw = process.env["MEMEX_GATE_FAMILY_HIT3"];
+  const raw = process.env["MEMRAIN_GATE_FAMILY_HIT3"];
   if (raw === undefined || raw.trim() === "") return 1.0;
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) ? n : 1.0;

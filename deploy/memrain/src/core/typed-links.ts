@@ -11,7 +11,7 @@
  * value may be a slug or a display name.
  *
  * Two deliberate choices for safety on memex's flat vault:
- *   - DEFAULT OFF (`MEMEX_TYPED_LINKS=1` to enable) -- a wrong inferred relation
+ *   - DEFAULT OFF (`MEMRAIN_TYPED_LINKS=1` to enable) -- a wrong inferred relation
  *     silently pollutes the graph, same posture as the gazetteer.
  *   - RESOLVED-ONLY -- an edge is written only when the value resolves to a real
  *     existing page (high precision); an unresolved value is skipped rather
@@ -123,12 +123,12 @@ const MAX_RESOLVE_ATTEMPTS = 1000;
 const FENCE_WRITER_KIND = "typed_ner";
 
 /**
- * Typed-link inference is OPT-IN: `MEMEX_TYPED_LINKS=1` enables it. Default OFF
+ * Typed-link inference is OPT-IN: `MEMRAIN_TYPED_LINKS=1` enables it. Default OFF
  * -- a wrong inferred relation pollutes the graph, so the operator turns it on
  * only after confirming it behaves on their vault.
  */
 export function typedLinksEnabled(
-  env: string | undefined = process.env.MEMEX_TYPED_LINKS,
+  env: string | undefined = process.env.MEMRAIN_TYPED_LINKS,
 ): boolean {
   return env === "1";
 }
@@ -154,7 +154,7 @@ interface InferredEdge {
 
 /**
  * Replace the typed_ner edge set this page's frontmatter declares. No-op unless
- * `MEMEX_TYPED_LINKS=1`. Runs the delete + re-insert in one transaction.
+ * `MEMRAIN_TYPED_LINKS=1`. Runs the delete + re-insert in one transaction.
  */
 export async function syncTypedLinksForPage(
   storage: Storage,

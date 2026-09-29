@@ -18,7 +18,7 @@
 # Most of a test's cost used to be `Storage.init()` running every migration
 # on an empty cluster. The run builds one migrated directory up front
 # (scripts/build-test-template.ts, keyed on a hash of the migrations) and
-# exports MEMEX_TEST_PGLITE_TEMPLATE, so a test's fresh database starts as a
+# exports MEMRAIN_TEST_PGLITE_TEMPLATE, so a test's fresh database starts as a
 # copy of it. Tests that must watch migrations run opt out in the file.
 #
 # Env:
@@ -183,10 +183,10 @@ if [ "${TEST_TEMPLATE}" != "0" ]; then
     echo "could not build the PGLite test template at ${template}" >&2
     exit 2
   fi
-  export MEMEX_TEST_PGLITE_TEMPLATE="${template}"
+  export MEMRAIN_TEST_PGLITE_TEMPLATE="${template}"
   echo "PGLite template ${template}"
 else
-  unset MEMEX_TEST_PGLITE_TEMPLATE
+  unset MEMRAIN_TEST_PGLITE_TEMPLATE
 fi
 
 for ((i = 0; i < ${#files[@]}; i += SHARD_SIZE)); do

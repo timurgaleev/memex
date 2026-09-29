@@ -57,7 +57,7 @@ export interface OAuthMetadata {
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
-  /** Advertised only when Dynamic Client Registration is enabled (MEMEX_ENABLE_DCR).
+  /** Advertised only when Dynamic Client Registration is enabled (MEMRAIN_ENABLE_DCR).
    *  Omitted by default so a client doesn't attempt (and a scanner doesn't find) a
    *  self-registration endpoint that isn't there. */
   registration_endpoint?: string;
@@ -73,17 +73,17 @@ export interface OAuthMetadata {
 
 /**
  * Resolve the public base URL the discovery document advertises. Prefers an
- * explicitly-declared issuer (`publicUrl` opt / `MEMEX_PUBLIC_URL` env) so a
+ * explicitly-declared issuer (`publicUrl` opt / `MEMRAIN_PUBLIC_URL` env) so a
  * Cloudflare-tunnel deploy advertises its external `https://…` origin rather
  * than the internal request host. Falls back to the request's own origin for
  * local/dev where no public URL is set. The trailing slash is stripped so the
  * emitted endpoints never contain a `//`.
  */
 export function resolveIssuer(url: URL, publicUrl?: string): string {
-  const declared = (publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  const declared = (publicUrl ?? process.env.MEMRAIN_PUBLIC_URL ?? "").trim();
   const base = declared.length > 0 ? declared : `${url.protocol}//${url.host}`;
   // `(?<!\/)` keeps the strip linear. `base` is an operator-supplied issuer
-  // (`publicUrl` / MEMEX_PUBLIC_URL) with no length bound; unguarded, `\/+$`
+  // (`publicUrl` / MEMRAIN_PUBLIC_URL) with no length bound; unguarded, `\/+$`
   // restarts at every slash of a run and walks to the end each time — measured
   // through resolveIssuer on `/`*n + `x` at 225 ms for 25 K, 15 s for 200 K,
   // ratio 4.0 on a doubling. Guarded, only a run's first slash is a candidate:
@@ -131,9 +131,9 @@ export function handleOAuthMetadataRoute(
   publicUrl?: string,
   dcrEnabled = false,
 ): Response {
-  const declared = ((publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim()).length > 0;
+  const declared = ((publicUrl ?? process.env.MEMRAIN_PUBLIC_URL ?? "").trim()).length > 0;
   const issuer = resolveIssuer(url, publicUrl);
-  // Only a DECLARED issuer (publicUrl / MEMEX_PUBLIC_URL) is safe to cache
+  // Only a DECLARED issuer (publicUrl / MEMRAIN_PUBLIC_URL) is safe to cache
   // publicly. When we fall back to the request Host, a shared cache could be
   // poisoned by a spoofed Host so the advertised token_endpoint points at an
   // attacker — so a host-derived doc is `no-store`. Prod always declares the URL.
@@ -182,7 +182,7 @@ export function handleProtectedResourceRoute(
   url: URL,
   publicUrl?: string,
 ): Response {
-  const declared = ((publicUrl ?? process.env.MEMEX_PUBLIC_URL ?? "").trim()).length > 0;
+  const declared = ((publicUrl ?? process.env.MEMRAIN_PUBLIC_URL ?? "").trim()).length > 0;
   const issuer = resolveIssuer(url, publicUrl);
   const cache = declared ? "public, max-age=3600" : "no-store";
   return Response.json(buildProtectedResourceMetadata(issuer), {

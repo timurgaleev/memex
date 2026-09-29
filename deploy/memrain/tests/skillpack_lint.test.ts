@@ -10,8 +10,8 @@ import { join, resolve } from "node:path";
 import { lintAndShape, validateSkill } from "../src/core/skillify.ts";
 import { extractCliReferences, extractToolCalls, lintSkillpack } from "../src/core/skillpack/lint.ts";
 
-const MEMEX_DIR = resolve(import.meta.dir, "..");
-const PACK_DIR = resolve(MEMEX_DIR, "..", "skills");
+const MEMRAIN_DIR = resolve(import.meta.dir, "..");
+const PACK_DIR = resolve(MEMRAIN_DIR, "..", "skills");
 const FENCE = "```";
 
 function skill(name: string, tools: string, body: string): string {
@@ -290,7 +290,7 @@ describe("memex skillpack lint (CLI)", () => {
   function run(dir: string, json: boolean): { status: number | null; stdout: string } {
     const args = ["run", "src/cli.ts", "skillpack", "lint", "--dir", dir];
     if (json) args.push("--json");
-    const r = spawnSync("bun", args, { cwd: MEMEX_DIR, encoding: "utf8" });
+    const r = spawnSync("bun", args, { cwd: MEMRAIN_DIR, encoding: "utf8" });
     return { status: r.status, stdout: r.stdout };
   }
 

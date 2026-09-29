@@ -7,11 +7,11 @@
  * Tiers:
  *   - `utility`   → Haiku (fast/cheap classification, extraction).
  *   - `reasoning` → Sonnet (synthesis, facts, grading).
- *   - `deep`      → opt-in Opus (`MEMEX_DEEP_MODEL`); OFF by default, in which
+ *   - `deep`      → opt-in Opus (`MEMRAIN_DEEP_MODEL`); OFF by default, in which
  *                   case it falls back to the reasoning model so nothing regresses.
  *
  * Precedence: explicit `override` > the feature's own env var
- * (`MEMEX_<FEATURE>_MODEL`, when the caller names a feature) > tier env var >
+ * (`MEMRAIN_<FEATURE>_MODEL`, when the caller names a feature) > tier env var >
  * built-in default. A feature key lets one call site move to another model —
  * query expansion to a newer Haiku, say — without moving its whole tier.
  * Uses `||` (not `??`) so an empty-string env (a `${VAR:-}` compose default)
@@ -23,9 +23,9 @@ import { DEFAULT_SONNET_MODEL } from "./sonnet.ts";
 export type ModelTier = "utility" | "reasoning" | "deep";
 
 const TIER_ENV: Record<ModelTier, string> = {
-  utility: "MEMEX_UTILITY_MODEL",
-  reasoning: "MEMEX_FACTS_MODEL",
-  deep: "MEMEX_DEEP_MODEL",
+  utility: "MEMRAIN_UTILITY_MODEL",
+  reasoning: "MEMRAIN_FACTS_MODEL",
+  deep: "MEMRAIN_DEEP_MODEL",
 };
 
 // Read the built-in defaults at CALL time (function-local), never at module
@@ -37,14 +37,14 @@ function tierDefault(tier: ModelTier): string {
   return ""; // deep has no built-in default — it is opt-in
 }
 
-/** Call sites with a model key of their own (`MEMEX_<FEATURE>_MODEL`). */
+/** Call sites with a model key of their own (`MEMRAIN_<FEATURE>_MODEL`). */
 export type ModelFeature = "think" | "drift" | "concepts" | "expansion" | "intent" | "rerank";
 
 /** Resolve the Bedrock model id for a tier. `deep` with no override/env falls
  *  back to the reasoning model (Sonnet), so enabling the tier is a deliberate,
  *  cost-guarded opt-in and disabling it never regresses. */
 export function resolveModel(tier: ModelTier, override?: string, feature?: ModelFeature): string {
-  const featureEnv = feature ? process.env[`MEMEX_${feature.toUpperCase()}_MODEL`] : undefined;
+  const featureEnv = feature ? process.env[`MEMRAIN_${feature.toUpperCase()}_MODEL`] : undefined;
   const v = override || featureEnv || process.env[TIER_ENV[tier]] || tierDefault(tier);
   return tier === "deep" && !v ? tierDefault("reasoning") : v;
 }

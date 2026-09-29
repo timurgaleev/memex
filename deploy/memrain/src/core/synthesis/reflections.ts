@@ -14,7 +14,7 @@
  * (a `links` row from a reflections/ page to it) is excluded from the next run,
  * so the same transcript is not reflected on twice.
  *
- * Paid Sonnet slice, default-OFF (MEMEX_REFLECTIONS). Injected `sonnetFn`
+ * Paid Sonnet slice, default-OFF (MEMRAIN_REFLECTIONS). Injected `sonnetFn`
  * bypasses the flag for hermetic tests (no live Bedrock).
  */
 
@@ -54,7 +54,7 @@ export interface ReflectionsPhaseOptions {
   budget?: BudgetTracker;
   /**
    * Pre-screen transcripts with the cached Haiku worth gate before they join
-   * the paid Sonnet prompt. Default from MEMEX_WORTH_GATE (OFF); fail-open.
+   * the paid Sonnet prompt. Default from MEMRAIN_WORTH_GATE (OFF); fail-open.
    */
   worthGate?: boolean;
   /** Haiku seam for the worth gate (tests). */
@@ -91,12 +91,12 @@ const REFLECTIONS_MAX_TOKENS = 1500;
 const REFLECTIONS_ARRAY = new RegExp(`\\[[\\s\\S]{0,${REFLECTIONS_MAX_TOKENS * 4}}\\]`);
 
 function reflectionsEnabled(): boolean {
-  const v = (process.env.MEMEX_REFLECTIONS ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_REFLECTIONS ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_REFLECTIONS_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_REFLECTIONS_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
   // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
   return Number.isFinite(n) && n >= 0 ? n : 1.0;
@@ -105,7 +105,7 @@ function defaultBudget(): number {
 // Keep the write prefix in lockstep with what the patterns phase mines, so a
 // reflection written here is a valid patterns source next tick.
 function resolvePrefix(opt: string | undefined): string {
-  const p = (opt ?? process.env.MEMEX_PATTERNS_REFLECTION_PREFIX ?? "reflections/").trim();
+  const p = (opt ?? process.env.MEMRAIN_PATTERNS_REFLECTION_PREFIX ?? "reflections/").trim();
   return p.length > 0 ? p : "reflections/";
 }
 
@@ -222,14 +222,14 @@ export async function reflectionsPhase(
   };
 
   if (!opts.sonnetFn && !reflectionsEnabled()) {
-    return { ...base, reason: "MEMEX_REFLECTIONS disabled" };
+    return { ...base, reason: "MEMRAIN_REFLECTIONS disabled" };
   }
 
   const engine = storage.engine();
   const sourceId = opts.sourceId ?? "default";
   const prefix = resolvePrefix(opts.reflectionPrefix);
-  const lookbackDays = resolveIntConfig(opts.lookbackDays, "MEMEX_REFLECTIONS_LOOKBACK_DAYS", 14);
-  const maxTranscripts = resolveIntConfig(opts.maxTranscripts, "MEMEX_REFLECTIONS_MAX_TRANSCRIPTS", 20);
+  const lookbackDays = resolveIntConfig(opts.lookbackDays, "MEMRAIN_REFLECTIONS_LOOKBACK_DAYS", 14);
+  const maxTranscripts = resolveIntConfig(opts.maxTranscripts, "MEMRAIN_REFLECTIONS_MAX_TRANSCRIPTS", 20);
 
   let transcripts: TranscriptRef[];
   try {

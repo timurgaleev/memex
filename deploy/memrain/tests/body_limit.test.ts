@@ -5,7 +5,7 @@
  *   - body that overflows when streamed (no Content-Length header)
  *     → 413 after read but before JSON parse
  *   - invalid JSON → 400
- *   - cap honors MEMEX_MAX_BODY_BYTES env override
+ *   - cap honors MEMRAIN_MAX_BODY_BYTES env override
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { parseJsonBody, readBodyWithCap } from "../src/http/body_limit.ts";
@@ -23,7 +23,7 @@ function reqWithBody(
 
 describe("parseJsonBody", () => {
   afterEach(() => {
-    delete process.env.MEMEX_MAX_BODY_BYTES;
+    delete process.env.MEMRAIN_MAX_BODY_BYTES;
   });
 
   test("parses small JSON cleanly", async () => {
@@ -51,8 +51,8 @@ describe("parseJsonBody", () => {
     if (!r.ok) expect(r.response.status).toBe(413);
   });
 
-  test("honors MEMEX_MAX_BODY_BYTES override", async () => {
-    process.env.MEMEX_MAX_BODY_BYTES = "10";
+  test("honors MEMRAIN_MAX_BODY_BYTES override", async () => {
+    process.env.MEMRAIN_MAX_BODY_BYTES = "10";
     const r = await parseJsonBody(
       reqWithBody('{"q":"big enough to exceed 10 bytes"}', {
         "Content-Length": "37",
@@ -64,7 +64,7 @@ describe("parseJsonBody", () => {
 
   test("falls back to stream read when Content-Length is missing", async () => {
     // No Content-Length header — parseJsonBody must still cap on stream.
-    process.env.MEMEX_MAX_BODY_BYTES = "10";
+    process.env.MEMRAIN_MAX_BODY_BYTES = "10";
     const r = await parseJsonBody(
       reqWithBody('{"q":"some text that exceeds ten bytes"}'),
     );

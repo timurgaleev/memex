@@ -176,18 +176,18 @@ describe("resolveSemanticCacheConfig", () => {
   });
 
   it("reads the env flags and clamps garbage to defaults", () => {
-    expect(resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_SEMANTIC: "1" }).enabled).toBe(true);
+    expect(resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_SEMANTIC: "1" }).enabled).toBe(true);
     expect(
-      resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_SIM: "0.8" }).similarity,
+      resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_SIM: "0.8" }).similarity,
     ).toBe(0.8);
     expect(
-      resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_SIM: "1.5" }).similarity,
+      resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_SIM: "1.5" }).similarity,
     ).toBe(DEFAULT_SEMANTIC_SIMILARITY); // out of (0,1] → default
     expect(
-      resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_SIM: "nope" }).similarity,
+      resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_SIM: "nope" }).similarity,
     ).toBe(DEFAULT_SEMANTIC_SIMILARITY);
-    expect(resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_TTL: "60" }).ttlSeconds).toBe(60);
-    expect(resolveSemanticCacheConfig({ MEMEX_QUERY_CACHE_TTL: "-5" }).ttlSeconds).toBe(
+    expect(resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_TTL: "60" }).ttlSeconds).toBe(60);
+    expect(resolveSemanticCacheConfig({ MEMRAIN_QUERY_CACHE_TTL: "-5" }).ttlSeconds).toBe(
       DEFAULT_SEMANTIC_TTL_SECONDS,
     );
   });

@@ -34,18 +34,18 @@ import { linkVerbInferEnabled } from "./link-verb-infer.ts";
 
 // Keyset batch size. SMALL by design — each row carries full page content
 // (markdown_body + compiled_truth), unbounded in size. The LIMIT is the only
-// memory bound. Raise via MEMEX_EXTRACT_STALE_BATCH for throughput on a brain
+// memory bound. Raise via MEMRAIN_EXTRACT_STALE_BATCH for throughput on a brain
 // of small pages.
 const STALE_BATCH_SIZE = Math.max(
   1,
-  Number(process.env.MEMEX_EXTRACT_STALE_BATCH) || 50,
+  Number(process.env.MEMRAIN_EXTRACT_STALE_BATCH) || 50,
 );
 
 // Wall-clock budget for one invocation (default 30 min). `--catch-up` removes
 // the cap (loops until 0 stale).
 const STALE_TIME_BUDGET_MS = Math.max(
   1000,
-  Number(process.env.MEMEX_EXTRACT_TIME_BUDGET_MS) || 30 * 60 * 1000,
+  Number(process.env.MEMRAIN_EXTRACT_TIME_BUDGET_MS) || 30 * 60 * 1000,
 );
 
 export interface ExtractStaleOpts {

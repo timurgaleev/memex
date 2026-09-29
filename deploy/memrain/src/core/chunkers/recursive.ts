@@ -43,7 +43,7 @@ export interface ChunkerOptions {
    * heading section -- never across a heading boundary (a heading is a semantic
    * break, not an arbitrary cut). Snapped to a sentence/word boundary and capped
    * at half the previous chunk so it never duplicates a majority of a chunk.
-   * Default comes from `MEMEX_CHUNK_OVERLAP`, else `DEFAULT_OVERLAP_CHARS`
+   * Default comes from `MEMRAIN_CHUNK_OVERLAP`, else `DEFAULT_OVERLAP_CHARS`
    * (~50 words, ON). The default applies to NEWLY indexed pages only; chunks
    * already stored keep their current overlap until the document is re-indexed,
    * so flipping the default never forces a corpus-wide reindex. Set `0` (opt or
@@ -72,7 +72,7 @@ const MIN_OVERLAP_CHARS = 16;
  * changes only what a fresh index/reindex produces: chunks already stored keep
  * their current (overlap-off) content until the document is re-indexed, so no
  * corpus-wide reindex is forced. Turn off per-index with `overlapChars: 0` or
- * corpus-wide with `MEMEX_CHUNK_OVERLAP=0`.
+ * corpus-wide with `MEMRAIN_CHUNK_OVERLAP=0`.
  */
 export const DEFAULT_OVERLAP_CHARS = 300;
 
@@ -80,7 +80,7 @@ export const DEFAULT_OVERLAP_CHARS = 300;
  * Resolve the overlap window (ON by default). Precedence:
  *   - explicit `opt` wins (a caller passing `0` disables; a negative/NaN opt
  *     fails SAFE to 0 — chunking must never break indexing);
- *   - else `MEMEX_CHUNK_OVERLAP`: `0` disables, a positive value sets it, and an
+ *   - else `MEMRAIN_CHUNK_OVERLAP`: `0` disables, a positive value sets it, and an
  *     unset OR unparseable value falls back to `DEFAULT_OVERLAP_CHARS` (ON).
  * Capped at half of `maxChars` so overlap can never dominate a chunk.
  */
@@ -90,7 +90,7 @@ export function resolveOverlapChars(
 ): number {
   let v = opt;
   if (v === undefined) {
-    const raw = process.env.MEMEX_CHUNK_OVERLAP;
+    const raw = process.env.MEMRAIN_CHUNK_OVERLAP;
     if (raw === undefined || raw.trim() === "") {
       v = DEFAULT_OVERLAP_CHARS; // unset → ON by default
     } else {

@@ -16,7 +16,7 @@
  * deterministic `buildContextualPrefix`. Contextual context is a retrieval
  * nicety; it must NEVER break indexing or the backfill.
  *
- * Default-OFF: a live (paid) run needs `MEMEX_CONTEXTUAL_LLM=1`. Tests inject an
+ * Default-OFF: a live (paid) run needs `MEMRAIN_CONTEXTUAL_LLM=1`. Tests inject an
  * `llmFn`, which bypasses the env gate AND avoids any spend — NO live Bedrock in
  * tests, mirroring `graph-rerank.ts`'s `sonnetFn` seam.
  *
@@ -37,10 +37,10 @@ import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 
 /** Env flag — the paid per-chunk LLM context tier fires only when this is set.
  *  Stable contract name; the index-time + backfill call sites read it. */
-export const CONTEXTUAL_LLM_FLAG = "MEMEX_CONTEXTUAL_LLM";
+export const CONTEXTUAL_LLM_FLAG = "MEMRAIN_CONTEXTUAL_LLM";
 
 /** Env var for the USD budget cap of the LLM tier. */
-export const CONTEXTUAL_LLM_BUDGET_FLAG = "MEMEX_CONTEXTUAL_LLM_BUDGET_USD";
+export const CONTEXTUAL_LLM_BUDGET_FLAG = "MEMRAIN_CONTEXTUAL_LLM_BUDGET_USD";
 
 /** BudgetTracker label — shows up in the audit line for this tier's spend. */
 export const CONTEXTUAL_LLM_LABEL = "contextual-llm";
@@ -83,7 +83,7 @@ export function defaultContextualLlmBudget(
 /** Resolve the utility-tier model id (Haiku). Same precedence as `callHaiku`,
  *  surfaced here because the BudgetTracker needs the id to price a call. */
 function resolveContextualModel(override?: string): string {
-  return override || process.env["MEMEX_UTILITY_MODEL"] || DEFAULT_HAIKU_MODEL;
+  return override || process.env["MEMRAIN_UTILITY_MODEL"] || DEFAULT_HAIKU_MODEL;
 }
 
 /** Estimate a call's token usage from the ACTUAL prompt size (~4 chars/token)
@@ -148,7 +148,7 @@ export function buildContextualUserMessage(
 export interface GenerateChunkContextOptions {
   /** Test seam — inject a fake LLM; bypasses the env gate + all spend. */
   llmFn?: LlmFn;
-  /** Shared USD budget. Default: a fresh cap from MEMEX_CONTEXTUAL_LLM_BUDGET_USD.
+  /** Shared USD budget. Default: a fresh cap from MEMRAIN_CONTEXTUAL_LLM_BUDGET_USD.
    *  A backfill passes ONE tracker so the cap bounds the whole run's spend. */
   budget?: BudgetTracker;
   modelId?: string;

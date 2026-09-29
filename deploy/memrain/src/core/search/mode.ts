@@ -1,7 +1,7 @@
 /**
  * Search mode bundles — conservative / balanced / tokenmax.
  *
- * One env (`MEMEX_SEARCH_MODE`) picks a complete knob set so an operator
+ * One env (`MEMRAIN_SEARCH_MODE`) picks a complete knob set so an operator
  * stops flipping per-knob envs. Resolution chain per knob, later never wins
  * over earlier:
  *
@@ -80,9 +80,9 @@ export function isSearchMode(x: unknown): x is SearchMode {
   return typeof x === "string" && (SEARCH_MODES as readonly string[]).includes(x);
 }
 
-/** Active mode from MEMEX_SEARCH_MODE; unknown/unset → conservative. */
+/** Active mode from MEMRAIN_SEARCH_MODE; unknown/unset → conservative. */
 export function resolveSearchMode(
-  envValue: string | undefined = process.env["MEMEX_SEARCH_MODE"],
+  envValue: string | undefined = process.env["MEMRAIN_SEARCH_MODE"],
 ): SearchMode {
   const requested = (envValue ?? "").trim().toLowerCase();
   return isSearchMode(requested) ? requested : DEFAULT_SEARCH_MODE;
@@ -119,5 +119,5 @@ export function resolveKnob(
  * actually the case right now, rather than assuming the default.
  */
 export function expansionActive(env: NodeJS.ProcessEnv = process.env): boolean {
-  return resolveKnob(undefined, env["MEMEX_QUERY_EXPANSION"], activeModeBundle().expansion);
+  return resolveKnob(undefined, env["MEMRAIN_QUERY_EXPANSION"], activeModeBundle().expansion);
 }

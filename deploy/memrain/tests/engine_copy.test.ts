@@ -488,9 +488,9 @@ describe("runMigrateEngine", () => {
       .toThrow(/same database/);
     expect(() => resolveEndpoints({ from: "pglite", to: "pglite", pgliteDbPath: "/tmp/x" }))
       .toThrow(/--to-pglite-path required/);
-    expect(() => resolveEndpoints({ from: "postgres", to: "postgres" }, { MEMEX_POSTGRES_URL: "postgres://h/db" }))
+    expect(() => resolveEndpoints({ from: "postgres", to: "postgres" }, { MEMRAIN_POSTGRES_URL: "postgres://h/db" }))
       .toThrow(/must differ/);
-    const ep = resolveEndpoints({ from: "postgres", to: "pglite", pgliteDbPath: "/tmp/y" }, { MEMEX_POSTGRES_URL: "postgres://h/db" });
+    const ep = resolveEndpoints({ from: "postgres", to: "pglite", pgliteDbPath: "/tmp/y" }, { MEMRAIN_POSTGRES_URL: "postgres://h/db" });
     expect(ep.dst).toEqual({ kind: "pglite", path: "/tmp/y" });
   });
 });

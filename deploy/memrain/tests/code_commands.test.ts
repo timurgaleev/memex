@@ -15,10 +15,10 @@ import { _resetParsersForTests } from "../src/core/chunkers/parsers.ts";
 const dbDir = mkdtempSync(join(tmpdir(), "tb-code-cmd-db-"));
 const repoDir = mkdtempSync(join(tmpdir(), "tb-code-cmd-repo-"));
 let storage: Storage;
-const origConfigPath = process.env.MEMEX_CONFIG_PATH;
+const origConfigPath = process.env.MEMRAIN_CONFIG_PATH;
 
 beforeAll(async () => {
-  // Point loadConfig() at our temp config via MEMEX_CONFIG_PATH —
+  // Point loadConfig() at our temp config via MEMRAIN_CONFIG_PATH —
   // Bun's homedir() doesn't honor HOME overrides.
   const cfgDir = join(dbDir, ".memex");
   mkdirSync(cfgDir, { recursive: true });
@@ -36,7 +36,7 @@ beforeAll(async () => {
       storage: {},
     }),
   );
-  process.env.MEMEX_CONFIG_PATH = cfgPath;
+  process.env.MEMRAIN_CONFIG_PATH = cfgPath;
 
   storage = new Storage({ dbPath: pgPath });
   await storage.init();
@@ -58,8 +58,8 @@ export function beta() { return alpha(); }
 });
 
 afterAll(() => {
-  if (origConfigPath) process.env.MEMEX_CONFIG_PATH = origConfigPath;
-  else delete process.env.MEMEX_CONFIG_PATH;
+  if (origConfigPath) process.env.MEMRAIN_CONFIG_PATH = origConfigPath;
+  else delete process.env.MEMRAIN_CONFIG_PATH;
   rmSync(dbDir, { recursive: true, force: true });
   rmSync(repoDir, { recursive: true, force: true });
   _resetParsersForTests();

@@ -29,8 +29,8 @@ let storage: Storage;
 // Canonicalization reads env at resolver-build time — keep each test
 // hermetic by clearing the knobs around every case.
 function clearEnv(): void {
-  delete process.env.MEMEX_WIKILINK_CANONICALIZE;
-  delete process.env.MEMEX_WIKILINK_TRGM;
+  delete process.env.MEMRAIN_WIKILINK_CANONICALIZE;
+  delete process.env.MEMRAIN_WIKILINK_TRGM;
 }
 
 beforeEach(async () => {
@@ -61,9 +61,9 @@ describe("canonicalization knobs", () => {
   it("defaults the trgm threshold and validates overrides", () => {
     expect(resolveTrgmThreshold(undefined)).toBe(0.7);
     expect(resolveTrgmThreshold("0.8")).toBe(0.8);
-    expect(() => resolveTrgmThreshold("2")).toThrow(/MEMEX_WIKILINK_TRGM/);
-    expect(() => resolveTrgmThreshold("nope")).toThrow(/MEMEX_WIKILINK_TRGM/);
-    expect(() => resolveTrgmThreshold("-0.1")).toThrow(/MEMEX_WIKILINK_TRGM/);
+    expect(() => resolveTrgmThreshold("2")).toThrow(/MEMRAIN_WIKILINK_TRGM/);
+    expect(() => resolveTrgmThreshold("nope")).toThrow(/MEMRAIN_WIKILINK_TRGM/);
+    expect(() => resolveTrgmThreshold("-0.1")).toThrow(/MEMRAIN_WIKILINK_TRGM/);
   });
 });
 
@@ -226,7 +226,7 @@ describe("makeSlugResolver", () => {
   });
 
   it("kill switch falls straight through to slugify", async () => {
-    process.env.MEMEX_WIKILINK_CANONICALIZE = "0";
+    process.env.MEMRAIN_WIKILINK_CANONICALIZE = "0";
     await putPage(storage, {
       slug: "people/alice-smith",
       type: "person",
@@ -241,7 +241,7 @@ describe("makeSlugResolver", () => {
   });
 
   it("a high threshold suppresses a borderline fuzzy match", async () => {
-    process.env.MEMEX_WIKILINK_TRGM = "0.99";
+    process.env.MEMRAIN_WIKILINK_TRGM = "0.99";
     await putPage(storage, {
       slug: "people/alice-smith",
       type: "person",

@@ -3,7 +3,7 @@
  *
  * Activated when `database.type === "postgres"` in config. Connection
  * URL is read from the secret `<secrets_prefix>/memex-postgres-url`
- * (mounted at runtime via fetch-secrets.sh) and exposed as MEMEX_POSTGRES_URL
+ * (mounted at runtime via fetch-secrets.sh) and exposed as MEMRAIN_POSTGRES_URL
  * env. RDS-managed Postgres assumed; pgvector + pg_trgm extensions must
  * be enabled at instance level (see terraform/rds.tf).
  *

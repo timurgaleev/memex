@@ -64,7 +64,7 @@ async function chunkCount(storage: Storage, slug: string, sourceId: string): Pro
 
 let tmp: string;
 let storage: Storage;
-const savedDisposition = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
+const savedDisposition = process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-transcripts-"));
@@ -75,8 +75,8 @@ beforeEach(async () => {
   }
 });
 afterEach(async () => {
-  if (savedDisposition === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-  else process.env.MEMEX_SECRET_SCAN_DISPOSITION = savedDisposition;
+  if (savedDisposition === undefined) delete process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+  else process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = savedDisposition;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -148,7 +148,7 @@ describe("ingestSessions", () => {
   });
 
   it("refuses the whole session under the reject disposition", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     // The credential sits in the last message, so a per-part scan would have
     // written the earlier parts first.
     const s = session("refused", 60, 1500, (i) => (i === 59 ? `late ${PAT}` : `turn ${i} ${"filler ".repeat(300)}`));
@@ -160,7 +160,7 @@ describe("ingestSessions", () => {
   });
 
   it("does not re-audit a refused session on an unchanged re-run", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     const s = session("again", 4, 1500, (i) => (i === 3 ? `late ${PAT}` : `turn ${i}`));
     for (let run = 0; run < 3; run++) {
       const r = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
@@ -170,7 +170,7 @@ describe("ingestSessions", () => {
   });
 
   it("audits flagged credentials once per written part, and not again on a re-run", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "flag";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "flag";
     const s = session("flagged", 40, 1500, (i) => `turn ${i} token ${PAT} ${"padding text ".repeat(120)}`);
     const first = await ingestSessions(storage, [s], { sourceId: "default", embedFn });
     expect(first.parts_written).toBeGreaterThan(1);

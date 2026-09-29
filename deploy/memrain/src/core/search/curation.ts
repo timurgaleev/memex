@@ -52,7 +52,7 @@ export const DEFAULT_CURATION_BOOST: CurationBoostMap = {
 };
 
 /** Genuine noise, excluded by default: test fixtures, binary attachments,
- *  raw sidecars. MEMEX_SEARCH_EXCLUDE overrides. */
+ *  raw sidecars. MEMRAIN_SEARCH_EXCLUDE overrides. */
 export const DEFAULT_SEARCH_EXCLUDE: readonly string[] = [
   "test/",
   "attachments/",
@@ -61,7 +61,7 @@ export const DEFAULT_SEARCH_EXCLUDE: readonly string[] = [
 
 export class CurationParseError extends Error {
   constructor(message: string) {
-    super(`MEMEX_CURATION_BOOST: ${message}`);
+    super(`MEMRAIN_CURATION_BOOST: ${message}`);
     this.name = "CurationParseError";
   }
 }
@@ -81,7 +81,7 @@ function parseBoostEnv(raw: string): CurationBoostMap {
     const weight = Number(entry.slice(colon + 1));
     if (!Number.isFinite(weight) || weight <= 0) {
       // weight 0 would zero the score — a hard-exclude masquerading as a
-      // weight, bypassing the explicit MEMEX_SEARCH_EXCLUDE opt-in. Reject it.
+      // weight, bypassing the explicit MEMRAIN_SEARCH_EXCLUDE opt-in. Reject it.
       throw new CurationParseError(`weight must be a positive number in '${entry}'`);
     }
     map[prefix] = weight;
@@ -92,7 +92,7 @@ function parseBoostEnv(raw: string): CurationBoostMap {
 /** Resolved once per process: env overrides the default map entirely when set. */
 export function getCurationBoostMap(): CurationBoostMap {
   if (_boostMap) return _boostMap;
-  const raw = (process.env["MEMEX_CURATION_BOOST"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_CURATION_BOOST"] ?? "").trim();
   _boostMap = raw ? parseBoostEnv(raw) : { ...DEFAULT_CURATION_BOOST };
   return _boostMap;
 }
@@ -100,7 +100,7 @@ export function getCurationBoostMap(): CurationBoostMap {
 /** Resolved once per process: comma-separated prefixes; empty when unset. */
 export function getSearchExcludePrefixes(): readonly string[] {
   if (_excludePrefixes) return _excludePrefixes;
-  const raw = (process.env["MEMEX_SEARCH_EXCLUDE"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_SEARCH_EXCLUDE"] ?? "").trim();
   _excludePrefixes = raw
     ? raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
     : [...DEFAULT_SEARCH_EXCLUDE];

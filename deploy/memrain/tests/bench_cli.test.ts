@@ -138,7 +138,7 @@ describe("the default run is free, and the zero is measured", () => {
     // `dedup.embed` is injected, and the worth gate calls a judge. Neither is
     // covered by the sonnetFn stub, so "free" would depend on the operator's
     // shell — the run clears them in its own process instead.
-    for (const k of ["MEMEX_FACTS_DEDUP", "MEMEX_FACTS_DEDUP_LLM", "MEMEX_WORTH_GATE"]) {
+    for (const k of ["MEMRAIN_FACTS_DEDUP", "MEMRAIN_FACTS_DEDUP_LLM", "MEMRAIN_WORTH_GATE"]) {
       expect(`${k}=${process.env[k]}`).toBe(`${k}=undefined`);
     }
   });

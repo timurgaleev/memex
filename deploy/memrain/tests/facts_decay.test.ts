@@ -163,16 +163,16 @@ describe("parseFactDate", () => {
 });
 
 describe("factDecayEnabled", () => {
-  it("defaults ON; MEMEX_FACT_DECAY=0 opts out", () => {
-    const prev = process.env.MEMEX_FACT_DECAY;
-    process.env.MEMEX_FACT_DECAY = "1";
+  it("defaults ON; MEMRAIN_FACT_DECAY=0 opts out", () => {
+    const prev = process.env.MEMRAIN_FACT_DECAY;
+    process.env.MEMRAIN_FACT_DECAY = "1";
     expect(factDecayEnabled()).toBe(true);
-    delete process.env.MEMEX_FACT_DECAY;
+    delete process.env.MEMRAIN_FACT_DECAY;
     expect(factDecayEnabled()).toBe(true);
-    process.env.MEMEX_FACT_DECAY = "0";
+    process.env.MEMRAIN_FACT_DECAY = "0";
     expect(factDecayEnabled()).toBe(false);
-    if (prev !== undefined) process.env.MEMEX_FACT_DECAY = prev;
-    else delete process.env.MEMEX_FACT_DECAY;
+    if (prev !== undefined) process.env.MEMRAIN_FACT_DECAY = prev;
+    else delete process.env.MEMRAIN_FACT_DECAY;
   });
 });
 
@@ -244,9 +244,9 @@ describe("listFacts decay integration", () => {
     expect(rows.map((r) => r.fact)).toEqual(["fresh-fact", "old-fact"]);
   });
 
-  it("orders by raw confidence with MEMEX_FACT_DECAY=0 (opt-out)", async () => {
-    const prev = process.env.MEMEX_FACT_DECAY;
-    process.env.MEMEX_FACT_DECAY = "0";
+  it("orders by raw confidence with MEMRAIN_FACT_DECAY=0 (opt-out)", async () => {
+    const prev = process.env.MEMRAIN_FACT_DECAY;
+    process.env.MEMRAIN_FACT_DECAY = "0";
     try {
       const rows = await listFacts(storage, "people/alice");
       expect(rows.map((r) => r.fact)).toEqual([
@@ -255,8 +255,8 @@ describe("listFacts decay integration", () => {
         "fresh-fact",
       ]);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_FACT_DECAY;
-      else process.env.MEMEX_FACT_DECAY = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_FACT_DECAY;
+      else process.env.MEMRAIN_FACT_DECAY = prev;
     }
   });
 
@@ -294,15 +294,15 @@ describe("listFacts decay integration", () => {
     expect(on.facts.map((f) => f.fact)).toEqual(["fresh-fact", "old-fact"]);
   });
 
-  it("entityRecall defaults decay from MEMEX_FACT_DECAY", async () => {
-    const prev = process.env.MEMEX_FACT_DECAY;
-    process.env.MEMEX_FACT_DECAY = "1";
+  it("entityRecall defaults decay from MEMRAIN_FACT_DECAY", async () => {
+    const prev = process.env.MEMRAIN_FACT_DECAY;
+    process.env.MEMRAIN_FACT_DECAY = "1";
     try {
       const r = await entityRecall(storage, "people/alice");
       expect(r.facts.map((f) => f.fact)).toEqual(["fresh-fact", "old-fact"]);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_FACT_DECAY;
-      else process.env.MEMEX_FACT_DECAY = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_FACT_DECAY;
+      else process.env.MEMRAIN_FACT_DECAY = prev;
     }
   });
 
@@ -311,8 +311,8 @@ describe("listFacts decay integration", () => {
   // `order:"recency"` to infer which hidden fact expired/demoted by metadata
   // they cannot see. Internal ingress still decays.
   it("forces decay OFF on the public bearer path, ON internally", async () => {
-    const prev = process.env.MEMEX_FACT_DECAY;
-    process.env.MEMEX_FACT_DECAY = "1";
+    const prev = process.env.MEMRAIN_FACT_DECAY;
+    process.env.MEMRAIN_FACT_DECAY = "1";
     try {
       const pub = await dispatchTool(
         storage,
@@ -341,8 +341,8 @@ describe("listFacts decay integration", () => {
       // Decay applied internally: expired dropped, fresh outranks decayed-old.
       expect(intFacts.map((f) => f.fact)).toEqual(["fresh-fact", "old-fact"]);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_FACT_DECAY;
-      else process.env.MEMEX_FACT_DECAY = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_FACT_DECAY;
+      else process.env.MEMRAIN_FACT_DECAY = prev;
     }
   });
 });

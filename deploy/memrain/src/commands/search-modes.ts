@@ -5,11 +5,11 @@
  *
  * Runs no search and touches no storage — it only resolves the same getters
  * the live search path uses, so an operator can confirm which knobs took effect
- * on the deployed brain and which `MEMEX_*` env var tunes each one. Output is
+ * on the deployed brain and which `MEMRAIN_*` env var tunes each one. Output is
  * JSON for piping into jq.
  *
  * It also doubles as a CONFIG VALIDATOR: the knob resolvers fail LOUD on a
- * malformed `MEMEX_*` value, and `search modes` deliberately does NOT catch —
+ * malformed `MEMRAIN_*` value, and `search modes` deliberately does NOT catch —
  * a bad value that would break the next real search surfaces here as a
  * non-zero exit, so an operator can validate the env before relying on it.
  */
@@ -51,29 +51,29 @@ export function buildSearchModes(): SearchModesView {
       title_boost: {
         value: getTitleBoost(),
         default: DEFAULT_TITLE_BOOST,
-        env: "MEMEX_TITLE_BOOST",
+        env: "MEMRAIN_TITLE_BOOST",
         note: "post-fusion multiplier when the query is a contiguous title phrase; < 1.0 disables",
       },
       recency_decay: {
         map: resolveRecencyDecayMap(),
         fallback: DEFAULT_RECENCY_FALLBACK,
-        env: "MEMEX_RECENCY_DECAY",
+        env: "MEMRAIN_RECENCY_DECAY",
         note: "per-prefix half-life/floor (longest-prefix-match); paths matching no prefix use the fallback",
       },
       neardup_jaccard: {
         value: getNearDupThreshold(),
-        env: "MEMEX_NEARDUP_JACCARD",
+        env: "MEMRAIN_NEARDUP_JACCARD",
         note: "word-set Jaccard above which a lower-ranked near-duplicate hit is dropped; > 1.0 disables",
       },
       rerank: {
-        enabled: process.env["MEMEX_RERANK"] === "1",
-        env: "MEMEX_RERANK",
+        enabled: process.env["MEMRAIN_RERANK"] === "1",
+        env: "MEMRAIN_RERANK",
         default: false,
         note: "opt-in two-pass Haiku rerank",
       },
       query_cache: {
-        enabled: process.env["MEMEX_QUERY_CACHE"] !== "0",
-        env: "MEMEX_QUERY_CACHE",
+        enabled: process.env["MEMRAIN_QUERY_CACHE"] !== "0",
+        env: "MEMRAIN_QUERY_CACHE",
         default: true,
         note: "exact-match cache, invalidated by the document-generation clock",
       },

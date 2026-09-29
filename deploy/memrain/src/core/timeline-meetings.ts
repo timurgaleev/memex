@@ -15,7 +15,7 @@
  *     referenced/follow-up date, not the meeting's own, and a wrong date fans
  *     out to every attendee on an otherwise-immutable store.
  *
- * OPT-IN (`MEMEX_MEETING_TIMELINE=1`, default OFF). The phase is a
+ * OPT-IN (`MEMRAIN_MEETING_TIMELINE=1`, default OFF). The phase is a
  * REPLACE-OWN-PROJECTION: each run first DELETES this meeting's own derived
  * events (those carrying `source_chunk_id='meeting-timeline:<slug>'`) and then
  * re-derives them from the CURRENT frontmatter -- so a corrected date or a
@@ -26,7 +26,7 @@
  * operator confirms resolution on their vault first.
  *
  * Notes: attendee resolution goes through the slug canonicalizer, so with
- * `MEMEX_WIKILINK_CANONICALIZE=0` even exact-slug attendees stop resolving and
+ * `MEMRAIN_WIKILINK_CANONICALIZE=0` even exact-slug attendees stop resolving and
  * only the meeting-self event is written. The scan is bounded to the most
  * recently-updated `MAX_MEETINGS` meetings; on a vault larger than that, raise
  * the cap to re-project older meetings.
@@ -61,7 +61,7 @@ export interface MeetingTimelineResult {
 }
 
 export function meetingTimelineEnabled(
-  env: string | undefined = process.env.MEMEX_MEETING_TIMELINE,
+  env: string | undefined = process.env.MEMRAIN_MEETING_TIMELINE,
 ): boolean {
   return env === "1";
 }

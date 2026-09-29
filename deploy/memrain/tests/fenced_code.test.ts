@@ -38,15 +38,15 @@ describe("extractFencedCode", () => {
     expect(blocks[0]?.source).toContain("alpha");
   });
 
-  it("respects MEMEX_MAX_FENCES_PER_PAGE", () => {
-    const prev = process.env.MEMEX_MAX_FENCES_PER_PAGE;
-    process.env.MEMEX_MAX_FENCES_PER_PAGE = "1";
+  it("respects MEMRAIN_MAX_FENCES_PER_PAGE", () => {
+    const prev = process.env.MEMRAIN_MAX_FENCES_PER_PAGE;
+    process.env.MEMRAIN_MAX_FENCES_PER_PAGE = "1";
     try {
       const md = "```ts\nconst a=1;\n```\n\n```ts\nconst b=2;\n```";
       expect(extractFencedCode(md)).toHaveLength(1);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_MAX_FENCES_PER_PAGE;
-      else process.env.MEMEX_MAX_FENCES_PER_PAGE = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_MAX_FENCES_PER_PAGE;
+      else process.env.MEMRAIN_MAX_FENCES_PER_PAGE = prev;
     }
   });
 });

@@ -249,7 +249,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
         "auto-approving, its client_id alone would mint tokens for source " +
         `'${sourceId}'. Register a confidential client (drop ` +
         "--token-endpoint-auth-method none), use --tenant-mode enrollment, or " +
-        "run with MEMEX_OAUTH_REQUIRE_LOGIN=1 as the server does.",
+        "run with MEMRAIN_OAUTH_REQUIRE_LOGIN=1 as the server does.",
     );
   }
 
@@ -384,7 +384,7 @@ export function parseFenceFlag(raw: string | undefined): string[] | undefined {
  */
 export function cliActor(env: Record<string, string | undefined> = process.env): string {
   const pick = (v: string | undefined) => (v && v.trim().length > 0 ? v.trim() : undefined);
-  return pick(env.MEMEX_OPERATOR) ?? pick(env.USER) ?? "cli";
+  return pick(env.MEMRAIN_OPERATOR) ?? pick(env.USER) ?? "cli";
 }
 
 /** Parse `--expected-revision`; undefined when absent. */

@@ -247,7 +247,7 @@ export async function checkOauthClientHygiene(
     if (publicClient.length > 0) {
       warns.push(
         `${publicClient.length} public client(s) in client tenant mode: ${sample(publicClient)} — ` +
-          "anyone with the client id gets that tenant unless MEMEX_OAUTH_REQUIRE_LOGIN is set; " +
+          "anyone with the client id gets that tenant unless MEMRAIN_OAUTH_REQUIRE_LOGIN is set; " +
           "use --tenant-mode enrollment or a confidential client",
       );
     }

@@ -7,8 +7,8 @@
  * PAID (Bedrock Sonnet) and default-OFF on TWO independent guards:
  *   1. it is NOT in ALL_PHASES — a normal cycle never runs it; it runs only via
  *      `--phases conversation-facts-backfill`, and
- *   2. even when requested it no-ops unless MEMEX_FACTS_BACKFILL is truthy.
- * A brain-wide USD budget (MEMEX_FACTS_BACKFILL_BUDGET_USD, default $1) and a
+ *   2. even when requested it no-ops unless MEMRAIN_FACTS_BACKFILL is truthy.
+ * A brain-wide USD budget (MEMRAIN_FACTS_BACKFILL_BUDGET_USD, default $1) and a
  * per-run page cap bound the spend; the phase stops cleanly when either is hit.
  *
  * Idempotency: a page is "already backfilled" once it has ANY fact authored by
@@ -41,12 +41,12 @@ export interface ConversationFactsBackfillOptions {
   maxPages?: number;
   /** Brain-wide USD ceiling for the run. Default from env / $1. */
   maxBudgetUsd?: number;
-  /** Test seam — inject a fake model; also bypasses the MEMEX_FACTS_BACKFILL gate. */
+  /** Test seam — inject a fake model; also bypasses the MEMRAIN_FACTS_BACKFILL gate. */
   sonnetFn?: SonnetFn;
   modelId?: string;
   /**
    * Pre-screen each page with the cached Haiku worth gate before paying Sonnet
-   * on it. Default from MEMEX_WORTH_GATE (OFF). The gate is fail-open — a judge
+   * on it. Default from MEMRAIN_WORTH_GATE (OFF). The gate is fail-open — a judge
    * error keeps the page.
    */
   worthGate?: boolean;
@@ -72,14 +72,14 @@ export interface ConversationFactsBackfillResult {
 const DEFAULT_MAX_PAGES = 50;
 
 export function backfillEnabled(
-  env: string | undefined = process.env["MEMEX_FACTS_BACKFILL"],
+  env: string | undefined = process.env["MEMRAIN_FACTS_BACKFILL"],
 ): boolean {
   const v = (env ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudgetUsd(): number {
-  const raw = (process.env["MEMEX_FACTS_BACKFILL_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_FACTS_BACKFILL_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 1.0;
 }
@@ -113,7 +113,7 @@ export async function conversationFactsBackfillPhase(
   if (!opts.sonnetFn && !backfillEnabled()) {
     return {
       ...empty,
-      reason: "default-OFF: set MEMEX_FACTS_BACKFILL=1 to run paid backfill",
+      reason: "default-OFF: set MEMRAIN_FACTS_BACKFILL=1 to run paid backfill",
     };
   }
 

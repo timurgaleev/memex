@@ -62,9 +62,9 @@ const MAX_IDENTIFIER_TOKENS = 8;
  */
 const MIN_SINGLE_TOKEN_CHARS = 3;
 
-/** Default ON; `MEMEX_TITLE_ARM=0` disables (mirrors the backlink-boost knob). */
+/** Default ON; `MEMRAIN_TITLE_ARM=0` disables (mirrors the backlink-boost knob). */
 export function titleArmEnabled(
-  raw: string | undefined = process.env["MEMEX_TITLE_ARM"],
+  raw: string | undefined = process.env["MEMRAIN_TITLE_ARM"],
 ): boolean {
   return raw !== "0";
 }

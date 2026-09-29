@@ -32,15 +32,15 @@ let savedUrl: string | undefined;
 
 beforeEach(() => {
   savedFlag = process.env.MEMRAIN_REQUIRE_POSTGRES;
-  savedUrl = process.env.MEMEX_POSTGRES_URL;
-  delete process.env.MEMEX_POSTGRES_URL;
+  savedUrl = process.env.MEMRAIN_POSTGRES_URL;
+  delete process.env.MEMRAIN_POSTGRES_URL;
 });
 
 afterEach(() => {
   if (savedFlag === undefined) delete process.env.MEMRAIN_REQUIRE_POSTGRES;
   else process.env.MEMRAIN_REQUIRE_POSTGRES = savedFlag;
-  if (savedUrl === undefined) delete process.env.MEMEX_POSTGRES_URL;
-  else process.env.MEMEX_POSTGRES_URL = savedUrl;
+  if (savedUrl === undefined) delete process.env.MEMRAIN_POSTGRES_URL;
+  else process.env.MEMRAIN_POSTGRES_URL = savedUrl;
 });
 
 afterAll(() => {

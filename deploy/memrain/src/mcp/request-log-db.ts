@@ -6,7 +6,7 @@
  * redacted row per tool call — for the in-dashboard feed.
  *
  * Two enablement paths:
- *   - `MEMEX_REQUEST_LOG_DB=1` turns the sink on for ALL ingress classes
+ *   - `MEMRAIN_REQUEST_LOG_DB=1` turns the sink on for ALL ingress classes
  *     (opt-in, default OFF — the hot path takes no extra write).
  *   - `force: true` on an entry logs it regardless of the flag. The OAuth
  *     ingress passes this so authenticated-client traffic — including
@@ -24,7 +24,7 @@ import { summarizeMcpParams, isKnownTool } from "./param-redaction.ts";
 
 /** Whether the DB request-log sink is enabled for every ingress class. */
 export function requestLogDbEnabled(): boolean {
-  return process.env["MEMEX_REQUEST_LOG_DB"] === "1";
+  return process.env["MEMRAIN_REQUEST_LOG_DB"] === "1";
 }
 
 /**
@@ -52,7 +52,7 @@ export interface RequestLogEntry {
   params: unknown;
   /** Short failure description for the `error_message` column. */
   errorMessage?: string;
-  /** Log even when MEMEX_REQUEST_LOG_DB is off (OAuth ingress fail-visibility). */
+  /** Log even when MEMRAIN_REQUEST_LOG_DB is off (OAuth ingress fail-visibility). */
   force?: boolean;
 }
 

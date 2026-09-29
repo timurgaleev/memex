@@ -34,7 +34,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_INGEST_MAX_BYTES;
+  delete process.env.MEMRAIN_INGEST_MAX_BYTES;
   _resetHandlersForTesting();
 });
 
@@ -109,7 +109,7 @@ describe("POST /ingest route", () => {
   });
 
   it("rejects bodies over the byte cap with 413", async () => {
-    process.env.MEMEX_INGEST_MAX_BYTES = "10";
+    process.env.MEMRAIN_INGEST_MAX_BYTES = "10";
     const res = await handleIngestRoute(
       ingestReq("this body is longer than ten bytes"),
       deps(writeAuth),
@@ -164,11 +164,11 @@ describe("POST /ingest route", () => {
 
   it("refuses a client with no write grant before scanning, and audits nothing", async () => {
     const saved = {
-      f: process.env.MEMEX_TENANT_FAIL_CLOSED,
-      d: process.env.MEMEX_SECRET_SCAN_DISPOSITION,
+      f: process.env.MEMRAIN_TENANT_FAIL_CLOSED,
+      d: process.env.MEMRAIN_SECRET_SCAN_DISPOSITION,
     };
-    process.env.MEMEX_TENANT_FAIL_CLOSED = "1";
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_TENANT_FAIL_CLOSED = "1";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     try {
       const { sourceId: _granted, ...noGrant } = writeAuth;
       const key = ["AK", "IA", "Q3EXAMPLE7WXYZ12"].join("");
@@ -179,7 +179,7 @@ describe("POST /ingest route", () => {
       const audit = await storage.engine().query(`SELECT 1 FROM ingest_log`);
       expect(audit.rows).toHaveLength(0);
     } finally {
-      for (const [k, v] of [["MEMEX_TENANT_FAIL_CLOSED", saved.f], ["MEMEX_SECRET_SCAN_DISPOSITION", saved.d]] as const) {
+      for (const [k, v] of [["MEMRAIN_TENANT_FAIL_CLOSED", saved.f], ["MEMRAIN_SECRET_SCAN_DISPOSITION", saved.d]] as const) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }
@@ -187,8 +187,8 @@ describe("POST /ingest route", () => {
   });
 
   it("audits a granted client's rejected body under its own source", async () => {
-    const saved = process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    const saved = process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     try {
       await storage.engine().query(
         `INSERT INTO sources (id, kind, path_prefix) VALUES ('tenant-a', 'other', 'tenant:tenant-a')
@@ -203,8 +203,8 @@ describe("POST /ingest route", () => {
       );
       expect(audit.rows.map((r) => r.source_id)).toEqual(["tenant-a"]);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_SECRET_SCAN_DISPOSITION;
-      else process.env.MEMEX_SECRET_SCAN_DISPOSITION = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
+      else process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = saved;
     }
   });
 

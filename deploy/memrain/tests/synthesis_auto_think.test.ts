@@ -49,9 +49,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_AUTO_THINK;
-  delete process.env.MEMEX_AUTO_THINK_QUESTIONS;
-  delete process.env.MEMEX_AUTO_THINK_BUDGET_USD;
+  delete process.env.MEMRAIN_AUTO_THINK;
+  delete process.env.MEMRAIN_AUTO_THINK_QUESTIONS;
+  delete process.env.MEMRAIN_AUTO_THINK_BUDGET_USD;
 });
 
 describe("autoThinkPhase", () => {
@@ -140,8 +140,8 @@ describe("autoThinkPhase", () => {
     expect(r.budgetExhausted).toBe(true);
   });
 
-  it("treats MEMEX_AUTO_THINK_BUDGET_USD=0 as spend-nothing, invalid as the default", async () => {
-    process.env.MEMEX_AUTO_THINK_BUDGET_USD = "0";
+  it("treats MEMRAIN_AUTO_THINK_BUDGET_USD=0 as spend-nothing, invalid as the default", async () => {
+    process.env.MEMRAIN_AUTO_THINK_BUDGET_USD = "0";
     let calls = 0;
     const answer = JSON.stringify({ answer: "Paid answer.", citations: [], gaps: [] });
     const counting: SonnetFn = async (input) => {
@@ -160,7 +160,7 @@ describe("autoThinkPhase", () => {
     expect(zero.budgetExhausted).toBe(true);
 
     // A non-numeric value still falls back to the paid default.
-    process.env.MEMEX_AUTO_THINK_BUDGET_USD = "not-a-number";
+    process.env.MEMRAIN_AUTO_THINK_BUDGET_USD = "not-a-number";
     const fallback = await autoThinkPhase(storage, opts);
     expect(calls).toBe(1);
     expect(fallback.draftsWritten).toBe(1);

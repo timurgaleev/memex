@@ -38,12 +38,12 @@ export const DEFAULT_SKILLOPT_EPSILON = 0.05;
 /** Per-message framing Bedrock adds on top of the serialized text. */
 const ESTIMATE_OVERHEAD_TOKENS = 64;
 
-export function skilloptEnabled(raw: string | undefined = process.env.MEMEX_SKILLOPT_ENABLED): boolean {
+export function skilloptEnabled(raw: string | undefined = process.env.MEMRAIN_SKILLOPT_ENABLED): boolean {
   return raw === "1";
 }
 
-/** Per-run ceiling from MEMEX_SKILLOPT_MAX_USD; anything but a positive number is the default. */
-export function skilloptMaxUsd(raw: string | undefined = process.env.MEMEX_SKILLOPT_MAX_USD): number {
+/** Per-run ceiling from MEMRAIN_SKILLOPT_MAX_USD; anything but a positive number is the default. */
+export function skilloptMaxUsd(raw: string | undefined = process.env.MEMRAIN_SKILLOPT_MAX_USD): number {
   const trimmed = raw?.trim() ?? "";
   const n = trimmed === "" ? Number.NaN : Number(trimmed);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_SKILLOPT_MAX_USD;

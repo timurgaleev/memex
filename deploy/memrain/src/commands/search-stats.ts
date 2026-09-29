@@ -176,7 +176,7 @@ export function buildTuneRecommendations(
   }
 
   // 4. Query cache killed but there is real traffic — a free win to restore.
-  if (env["MEMEX_QUERY_CACHE"] === "0" && stats.total_calls > 5) {
+  if (env["MEMRAIN_QUERY_CACHE"] === "0" && stats.total_calls > 5) {
     recs.push({
       knob: "MEMEX_QUERY_CACHE",
       current: "0",

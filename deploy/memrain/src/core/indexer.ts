@@ -93,7 +93,7 @@ export interface IndexFileOptions {
   /**
    * Paid per-chunk LLM-context tier seam (`contextual-llm.ts`). Injected in
    * tests to exercise the LLM path with a fake — bypasses the env gate and any
-   * Bedrock spend. Production leaves this unset; the `MEMEX_CONTEXTUAL_LLM` flag
+   * Bedrock spend. Production leaves this unset; the `MEMRAIN_CONTEXTUAL_LLM` flag
    * drives whether the live utility model runs.
    */
   contextualLlmFn?: LlmFn;
@@ -326,9 +326,9 @@ async function indexDocumentBody(
   // Content-sanity gate (deterministic, free): stamp quarantine / content_flag
   // / embed_skip markers BEFORE embedding so scraper junk, oversize dumps, and
   // markup-heavy boilerplate can't enter the vector index. Junk is HIDDEN
-  // (quarantine + embed_skip) by default; `MEMEX_SANITY_DISPOSITION=reject`
+  // (quarantine + embed_skip) by default; `MEMRAIN_SANITY_DISPOSITION=reject`
   // turns it into an explicit hard-block error. Oversize soft-blocks (embed_skip
-  // + content_flag); markup-heavy flags. Kill switch: `MEMEX_NO_SANITY=1`.
+  // + content_flag); markup-heavy flags. Kill switch: `MEMRAIN_NO_SANITY=1`.
   let frontmatter = baseFrontmatter;
   let sanityTrip: ContentSanityResult | null = null;
   if (sanityGateEnabled()) {
@@ -360,7 +360,7 @@ async function indexDocumentBody(
   // <context>{title}\n{synopsis}</context> header to each chunk's EMBEDDING INPUT
   // only — the canonical chunk text written below is untouched. Code docs bypass
   // wrapping. The deterministic synopsis = the first two sentences of the page's
-  // opening chunk. The PAID per-chunk LLM tier (MEMEX_CONTEXTUAL_LLM) instead
+  // opening chunk. The PAID per-chunk LLM tier (MEMRAIN_CONTEXTUAL_LLM) instead
   // asks a utility model to situate EACH chunk within the whole document; a null
   // result (budget/err) falls back to the deterministic prefix (fail-open).
   const isCode = frontmatter["kind"] === "code";
@@ -394,7 +394,7 @@ async function indexDocumentBody(
   // chunk through its contextual wrapper, so the same text can carry two
   // different vectors. The lookup is scoped to THIS document, which is also what
   // keeps it inside one tenant; a global contextual-mode flip still needs a full
-  // `reindex --contextual`. Width is checked alongside model: MEMEX_EMBED_DIM can
+  // `reindex --contextual`. Width is checked alongside model: MEMRAIN_EMBED_DIM can
   // change the dimension without changing the Titan model id, and mixing widths
   // inside one document breaks the `<=>` scan. Under contextual retrieval a
   // reused chunk keeps its prior document-level context (title/synopsis) even if
@@ -437,7 +437,7 @@ async function indexDocumentBody(
   }
 
   // Chunks are situated and embedded in parallel, bounded by the write-path
-  // ceiling every concurrent write shares (`MEMEX_EMBED_MAX_INFLIGHT`). Serially,
+  // ceiling every concurrent write shares (`MEMRAIN_EMBED_MAX_INFLIGHT`). Serially,
   // a page paid ~1.3 s of Bedrock per chunk, one chunk after another.
   // `vectors` is indexed, never pushed: completion order is not chunk order.
   const vectors: (number[] | null)[] = Array.from<number[] | null>({ length: parsed.chunks.length }).fill(null);
@@ -557,7 +557,7 @@ async function indexDocumentBody(
   // whose tag maps to a supported grammar, tree-sitter-chunk it, and append the
   // symbols as extra searchable chunks so a code example ranks as code, not
   // prose. Skipped when the whole doc is already code (symbol-chunked elsewhere)
-  // or embeddings are off. Bounded by MEMEX_MAX_FENCES_PER_PAGE; a parse failure
+  // or embeddings are off. Bounded by MEMRAIN_MAX_FENCES_PER_PAGE; a parse failure
   // on one fence is swallowed so it can never fail the page ingest.
   if (!skipEmbed && !isCode) {
     for (const fence of extractFencedCode(text)) {

@@ -1,7 +1,7 @@
 /**
  * Refresh-family revocation against a real Postgres, where two transactions do
  * run at once (PGLite serializes them, so it cannot show this race). Skipped
- * unless MEMEX_TEST_POSTGRES_URL points at a scratch database with pgvector.
+ * unless MEMRAIN_TEST_POSTGRES_URL points at a scratch database with pgvector.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
@@ -11,7 +11,7 @@ import { Storage } from "../src/core/storage.ts";
 import { OAuthProvider, REFRESH_REUSE_GRACE_SECONDS, type OAuthClientInfo } from "../src/core/oauth-provider.ts";
 import { registerSource } from "../src/core/sources.ts";
 
-const URL_ = process.env.MEMEX_TEST_POSTGRES_URL;
+const URL_ = process.env.MEMRAIN_TEST_POSTGRES_URL;
 const REDIRECT = "https://client.example/cb";
 const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
 
@@ -78,8 +78,8 @@ describe.skipIf(!URL_)("refresh family revocation on Postgres", () => {
   }
 
   it("a replay during an in-flight rotation revokes the tokens that rotation mints", async () => {
-    const saved = process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-    process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = "1";
+    const saved = process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+    process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = "1";
     try {
       const client = await webClient();
       const verifier = randomBytes(32).toString("base64url");
@@ -114,8 +114,8 @@ describe.skipIf(!URL_)("refresh family revocation on Postgres", () => {
       );
       expect(Number(left.rows[0]!.n)).toBe(0);
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE;
-      else process.env.MEMEX_OAUTH_REFRESH_REUSE_REVOKE = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE;
+      else process.env.MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE = saved;
     }
   });
 });

@@ -80,20 +80,20 @@ describe("embed-stale: which documents it may re-read from disk", () => {
   let vault: string;
 
   beforeEach(() => {
-    saved = { vault: process.env.MEMEX_VAULT_PATHS, code: process.env.MEMEX_CODE_PATHS };
+    saved = { vault: process.env.MEMRAIN_VAULT_PATHS, code: process.env.MEMRAIN_CODE_PATHS };
     vault = join(tmp, "vault");
     mkdirSync(vault);
     // realpath: macOS tmpdir is a symlink, and indexed source_paths are canonical.
     vault = realpathSync(vault);
-    process.env.MEMEX_VAULT_PATHS = vault;
-    delete process.env.MEMEX_CODE_PATHS;
+    process.env.MEMRAIN_VAULT_PATHS = vault;
+    delete process.env.MEMRAIN_CODE_PATHS;
   });
 
   afterEach(() => {
-    if (saved.vault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-    else process.env.MEMEX_VAULT_PATHS = saved.vault;
-    if (saved.code === undefined) delete process.env.MEMEX_CODE_PATHS;
-    else process.env.MEMEX_CODE_PATHS = saved.code;
+    if (saved.vault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+    else process.env.MEMRAIN_VAULT_PATHS = saved.vault;
+    if (saved.code === undefined) delete process.env.MEMRAIN_CODE_PATHS;
+    else process.env.MEMRAIN_CODE_PATHS = saved.code;
   });
 
   async function staleDoc(id: string, sourcePath: string, sourceId: string | null) {

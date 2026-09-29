@@ -63,13 +63,13 @@ async function initPostgres(): Promise<string> {
 
 beforeEach(() => {
   home = fs.mkdtempSync(join(tmpdir(), "memex-init-norewrite-"));
-  savedOverride = process.env.MEMEX_CONFIG_PATH;
-  delete process.env.MEMEX_CONFIG_PATH;
+  savedOverride = process.env.MEMRAIN_CONFIG_PATH;
+  delete process.env.MEMRAIN_CONFIG_PATH;
 });
 
 afterEach(() => {
-  if (savedOverride === undefined) delete process.env.MEMEX_CONFIG_PATH;
-  else process.env.MEMEX_CONFIG_PATH = savedOverride;
+  if (savedOverride === undefined) delete process.env.MEMRAIN_CONFIG_PATH;
+  else process.env.MEMRAIN_CONFIG_PATH = savedOverride;
   fs.rmSync(home, { recursive: true, force: true });
 });
 

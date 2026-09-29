@@ -1,7 +1,7 @@
 /**
  * `memex extract-conversation-facts` — parse a chat transcript into turns and
  * extract structured facts from each via paid Bedrock Sonnet, bounded by a USD
- * budget. Opt-in, default-OFF (set MEMEX_FACTS_EXTRACTION=1 to run live), an
+ * budget. Opt-in, default-OFF (set MEMRAIN_FACTS_EXTRACTION=1 to run live), an
  * agent-layer slice the operator chose to enable.
  *
  * Pipeline: parseConversation (deterministic) → per-turn Sonnet extraction
@@ -32,7 +32,7 @@ export interface ExtractConvFactsOptions {
   sourceSlug?: string;
   /** Fallback YYYY-MM-DD for time-only transcript formats. */
   dateContext?: string;
-  /** USD ceiling for the run. Default 1.0 (MEMEX_FACTS_BUDGET_USD overrides). */
+  /** USD ceiling for the run. Default 1.0 (MEMRAIN_FACTS_BUDGET_USD overrides). */
   maxBudgetUsd?: number;
   /** Test seam — inject a fake model; bypasses the live-run env gate. */
   sonnetFn?: SonnetFn;
@@ -50,7 +50,7 @@ export interface ExtractConvFactsReport {
 }
 
 function liveEnabled(): boolean {
-  const v = (process.env["MEMEX_FACTS_EXTRACTION"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_FACTS_EXTRACTION"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
@@ -68,7 +68,7 @@ function turnValidFrom(timestamp: string): string | null {
 }
 
 function defaultBudget(): number {
-  const raw = (process.env["MEMEX_FACTS_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_FACTS_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 1.0;
 }
@@ -83,7 +83,7 @@ export async function runExtractConversationFacts(
     return {
       ran: false,
       reason:
-        "default-OFF: set MEMEX_FACTS_EXTRACTION=1 to run paid Sonnet extraction",
+        "default-OFF: set MEMRAIN_FACTS_EXTRACTION=1 to run paid Sonnet extraction",
       turns: 0,
       factsWritten: 0,
       factsSkipped: 0,

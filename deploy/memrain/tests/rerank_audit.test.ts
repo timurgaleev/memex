@@ -10,16 +10,16 @@ import {
   hashQueryForAudit,
 } from "../src/core/search/rerank-audit.ts";
 
-const savedDir = process.env.MEMEX_AUDIT_DIR;
+const savedDir = process.env.MEMRAIN_AUDIT_DIR;
 afterEach(() => {
-  if (savedDir === undefined) delete process.env.MEMEX_AUDIT_DIR;
-  else process.env.MEMEX_AUDIT_DIR = savedDir;
+  if (savedDir === undefined) delete process.env.MEMRAIN_AUDIT_DIR;
+  else process.env.MEMRAIN_AUDIT_DIR = savedDir;
 });
 
 describe("logRerankFailure", () => {
-  it("appends an ISO-week-rotated JSONL record when MEMEX_AUDIT_DIR is set", () => {
+  it("appends an ISO-week-rotated JSONL record when MEMRAIN_AUDIT_DIR is set", () => {
     const dir = mkdtempSync(join(tmpdir(), "memex-rerank-audit-"));
-    process.env.MEMEX_AUDIT_DIR = dir;
+    process.env.MEMRAIN_AUDIT_DIR = dir;
     const now = new Date("2026-07-01T12:00:00Z");
     logRerankFailure(
       {
@@ -44,8 +44,8 @@ describe("logRerankFailure", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("is a no-op without MEMEX_AUDIT_DIR (and never throws)", () => {
-    delete process.env.MEMEX_AUDIT_DIR;
+  it("is a no-op without MEMRAIN_AUDIT_DIR (and never throws)", () => {
+    delete process.env.MEMRAIN_AUDIT_DIR;
     expect(() =>
       logRerankFailure({
         model: "m",

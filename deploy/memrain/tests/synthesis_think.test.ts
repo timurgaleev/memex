@@ -399,16 +399,16 @@ describe("gaps render once on every surface", () => {
 
 describe("runThink", () => {
   useStorage();
-  it("is default-OFF without MEMEX_THINK and no injected sonnetFn", async () => {
-    const prev = process.env.MEMEX_THINK;
-    delete process.env.MEMEX_THINK;
+  it("is default-OFF without MEMRAIN_THINK and no injected sonnetFn", async () => {
+    const prev = process.env.MEMRAIN_THINK;
+    delete process.env.MEMRAIN_THINK;
     try {
       const r = await runThink(storage, { question: "what is the plan?" });
       expect(r.ran).toBe(false);
-      expect(r.reason).toContain("MEMEX_THINK");
+      expect(r.reason).toContain("MEMRAIN_THINK");
       expect(r.synthesis).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.MEMEX_THINK = prev;
+      if (prev !== undefined) process.env.MEMRAIN_THINK = prev;
     }
   });
 
@@ -652,14 +652,14 @@ describe("think synthesis status and extractive fallback", () => {
   });
 
   it("default-OFF reports no_llm with no fallback", async () => {
-    const prev = process.env.MEMEX_THINK;
-    delete process.env.MEMEX_THINK;
+    const prev = process.env.MEMRAIN_THINK;
+    delete process.env.MEMRAIN_THINK;
     try {
       const r = await runThink(storage, { question: "what is the plan?", pagesFn: fakePages(planPages) });
       expect(r.synthesisStatus).toBe("no_llm");
       expect(r.fallback).toBeUndefined();
     } finally {
-      if (prev !== undefined) process.env.MEMEX_THINK = prev;
+      if (prev !== undefined) process.env.MEMRAIN_THINK = prev;
     }
   });
 

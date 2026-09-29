@@ -56,10 +56,10 @@ function fakeEngine(outcomes: string[]) {
 
 describe("migration runner retry", () => {
   beforeAll(() => {
-    process.env.MEMEX_MIGRATE_BACKOFF_MS = "0";
+    process.env.MEMRAIN_MIGRATE_BACKOFF_MS = "0";
   });
   afterAll(() => {
-    delete process.env.MEMEX_MIGRATE_BACKOFF_MS;
+    delete process.env.MEMRAIN_MIGRATE_BACKOFF_MS;
   });
 
   test("retries a transient statement_timeout and then succeeds", async () => {

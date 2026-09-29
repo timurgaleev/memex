@@ -3,7 +3,7 @@
  * each example can be chunked by the tree-sitter code chunker and ranked as
  * code, not prose. Only fences whose info-string tag maps to a grammar memex
  * actually parses are returned; everything else stays as ordinary prose in the
- * markdown chunker. Bounded by `MEMEX_MAX_FENCES_PER_PAGE` (default 100) so a
+ * markdown chunker. Bounded by `MEMRAIN_MAX_FENCES_PER_PAGE` (default 100) so a
  * pathological page can't fan out into an unbounded embedding bill.
  */
 import type { CodeLanguage } from "./parsers.ts";
@@ -26,7 +26,7 @@ const FENCE_TAG_TO_LANG: Record<string, CodeLanguage> = {
 const DEFAULT_MAX_FENCES = 100;
 
 function resolveMaxFences(env: NodeJS.ProcessEnv = process.env): number {
-  const n = Number.parseInt(env.MEMEX_MAX_FENCES_PER_PAGE ?? "", 10);
+  const n = Number.parseInt(env.MEMRAIN_MAX_FENCES_PER_PAGE ?? "", 10);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_FENCES;
 }
 
@@ -110,7 +110,7 @@ function matcherFor(cache: Map<string, RegExp>, run: string): RegExp {
 
 /**
  * Extract supported-language fenced code blocks from markdown, in document
- * order, capped at `MEMEX_MAX_FENCES_PER_PAGE`. Handles ``` and ~~~ fences with
+ * order, capped at `MEMRAIN_MAX_FENCES_PER_PAGE`. Handles ``` and ~~~ fences with
  * an info string; the closing fence must match the opener's run and sit at line
  * start (standard CommonMark).
  */

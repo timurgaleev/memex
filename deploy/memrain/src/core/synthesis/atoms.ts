@@ -6,7 +6,7 @@
  * authored vault) and WRITES to `synth_atoms`, plus an
  * `atoms/<source-date>/<slug>` page mirror per atom (via putPage) so atoms are
  * retrievable through normal search. The page write needs a Storage handle and
- * can be disabled with MEMEX_SYNTH_PAGES=0. Source notes remain sacrosanct:
+ * can be disabled with MEMRAIN_SYNTH_PAGES=0. Source notes remain sacrosanct:
  * the only thing this phase writes back to `documents` is the zero-yield
  * `atoms_scan_hash` frontmatter stamp; chunk text is never touched.
  *
@@ -60,7 +60,7 @@ export interface ExtractAtomsOptions {
   /**
    * Storage handle for the atom page mirror (`atoms/<date>/<slug>` via
    * putPage). Absent → rows only, no pages (pre-076 behaviour). Page writes
-   * can also be disabled globally with MEMEX_SYNTH_PAGES=0.
+   * can also be disabled globally with MEMRAIN_SYNTH_PAGES=0.
    */
   storage?: Storage;
 }
@@ -109,9 +109,9 @@ Output a JSON array of 1-3 atoms (never more than 3). Each atom is an object:
 
 Output ONLY the JSON array. No prose, no markdown fences.`;
 
-/** Page mirror gate — default ON; MEMEX_SYNTH_PAGES=0 turns synth page writes off. */
+/** Page mirror gate — default ON; MEMRAIN_SYNTH_PAGES=0 turns synth page writes off. */
 export function synthPagesEnabled(
-  raw: string | undefined = process.env.MEMEX_SYNTH_PAGES,
+  raw: string | undefined = process.env.MEMRAIN_SYNTH_PAGES,
 ): boolean {
   return (raw ?? "").trim() !== "0";
 }

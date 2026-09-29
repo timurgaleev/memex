@@ -10,7 +10,7 @@
  * read the unchanged chunk text. Only the vector the embedder returns reflects
  * the prefix.
  *
- * Default-OFF: callers wrap only when `MEMEX_CONTEXTUAL_RETRIEVAL` is set. A
+ * Default-OFF: callers wrap only when `MEMRAIN_CONTEXTUAL_RETRIEVAL` is set. A
  * chunk from a code document ALWAYS bypasses wrapping — a markdown title in
  * front of a code block does not help cross-modal retrieval and only wastes
  * embedding tokens.
@@ -35,7 +35,7 @@
 
 /** Env flag — a chunk is wrapped for embedding only when this is set. Stable
  *  contract name; the caller (indexer / reindex --contextual) reads it. */
-export const CONTEXTUAL_RETRIEVAL_FLAG = "MEMEX_CONTEXTUAL_RETRIEVAL";
+export const CONTEXTUAL_RETRIEVAL_FLAG = "MEMRAIN_CONTEXTUAL_RETRIEVAL";
 
 /** True when the operator opted the embed path into contextual wrapping. */
 export function contextualRetrievalEnabled(

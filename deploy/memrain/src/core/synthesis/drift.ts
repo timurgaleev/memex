@@ -23,7 +23,7 @@
  * in EXTRACTION_ELIGIBLE_TYPES) under the `drift-reports/` prefix, so the paid
  * facts backfill and the reflections/patterns miners never re-ingest it.
  *
- * Paid Sonnet slice, default-OFF (MEMEX_DRIFT). Injected `sonnetFn` bypasses the
+ * Paid Sonnet slice, default-OFF (MEMRAIN_DRIFT). Injected `sonnetFn` bypasses the
  * flag for hermetic tests (no live Bedrock).
  */
 
@@ -57,7 +57,7 @@ export interface DriftPhaseOptions {
   maxCandidates?: number;
   budget?: BudgetTracker;
   /** Hours to wait between paid runs per tenant (default 12; env
-   *  MEMEX_DRIFT_COOLDOWN_HOURS). Stops re-judging + re-paying the same shifted
+   *  MEMRAIN_DRIFT_COOLDOWN_HOURS). Stops re-judging + re-paying the same shifted
    *  takes every cycle tick until their evidence resolves. */
   cooldownHours?: number;
 }
@@ -66,7 +66,7 @@ export interface DriftPhaseOptions {
 const DEFAULT_DRIFT_COOLDOWN_HOURS = 12;
 function resolveDriftCooldownHours(v: number | undefined): number {
   if (typeof v === "number" && v >= 0) return v;
-  const raw = (process.env.MEMEX_DRIFT_COOLDOWN_HOURS ?? "").trim();
+  const raw = (process.env.MEMRAIN_DRIFT_COOLDOWN_HOURS ?? "").trim();
   if (raw === "") return DEFAULT_DRIFT_COOLDOWN_HOURS;
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_DRIFT_COOLDOWN_HOURS;
@@ -92,12 +92,12 @@ async function lastDriftReportAt(
 const SLUG_SEG = /^[a-z0-9][a-z0-9-]*$/;
 
 function driftEnabled(): boolean {
-  const v = (process.env.MEMEX_DRIFT ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_DRIFT ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_DRIFT_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_DRIFT_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
   // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
   return Number.isFinite(n) && n >= 0 ? n : 1.0;
@@ -253,12 +253,12 @@ export async function driftPhase(
   };
 
   if (!opts.sonnetFn && !driftEnabled()) {
-    return { ...base, reason: "MEMEX_DRIFT disabled" };
+    return { ...base, reason: "MEMRAIN_DRIFT disabled" };
   }
 
   const engine = storage.engine();
   const sourceId = opts.sourceId ?? "default";
-  const maxCandidates = resolveIntConfig(opts.maxCandidates, "MEMEX_DRIFT_MAX_CANDIDATES", 12);
+  const maxCandidates = resolveIntConfig(opts.maxCandidates, "MEMRAIN_DRIFT_MAX_CANDIDATES", 12);
 
   // Cooldown gate: don't re-judge (and re-pay for) the same shifted takes every
   // tick. Bypassed when a sonnetFn is injected (hermetic tests).

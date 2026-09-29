@@ -111,25 +111,25 @@ function estimateJudgeUsage(claim: string, evidence: string): SonnetUsage {
 
 /** Ensemble opt-in — a paid Sonnet path, OFF unless the operator sets the flag. */
 export function takeEnsembleEnabled(): boolean {
-  return process.env.MEMEX_TAKE_ENSEMBLE === "1";
+  return process.env.MEMRAIN_TAKE_ENSEMBLE === "1";
 }
 
 function ensembleJudgeCount(): number {
-  const raw = process.env.MEMEX_TAKE_ENSEMBLE_JUDGES;
+  const raw = process.env.MEMRAIN_TAKE_ENSEMBLE_JUDGES;
   if (raw === undefined || raw.trim() === "") return DEFAULT_ENSEMBLE_JUDGES;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > 9) {
-    throw new Error(`MEMEX_TAKE_ENSEMBLE_JUDGES must be an integer 1..9, got: ${JSON.stringify(raw)}`);
+    throw new Error(`MEMRAIN_TAKE_ENSEMBLE_JUDGES must be an integer 1..9, got: ${JSON.stringify(raw)}`);
   }
   return n;
 }
 
 function ensembleBudgetUsd(): number {
-  const raw = process.env.MEMEX_TAKE_ENSEMBLE_BUDGET_USD;
+  const raw = process.env.MEMRAIN_TAKE_ENSEMBLE_BUDGET_USD;
   if (raw === undefined || raw.trim() === "") return DEFAULT_ENSEMBLE_BUDGET_USD;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`MEMEX_TAKE_ENSEMBLE_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
+    throw new Error(`MEMRAIN_TAKE_ENSEMBLE_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
   }
   return n;
 }
@@ -178,16 +178,16 @@ function utilityTierCanRetry(): boolean {
  *  judge on a verdict that is almost always 'unresolvable'. */
 const DEFAULT_GRADE_MIN_AGE_DAYS = 182;
 
-/** Resolve the grade age gate (days) from `MEMEX_GRADE_MIN_AGE_DAYS`. A blank
+/** Resolve the grade age gate (days) from `MEMRAIN_GRADE_MIN_AGE_DAYS`. A blank
  *  env keeps the 6-month default; `0` disables the gate (grade immediately). */
 export function gradeMinAgeDays(
-  raw: string | undefined = process.env.MEMEX_GRADE_MIN_AGE_DAYS,
+  raw: string | undefined = process.env.MEMRAIN_GRADE_MIN_AGE_DAYS,
 ): number {
   if (raw === undefined || raw.trim() === "") return DEFAULT_GRADE_MIN_AGE_DAYS;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) {
     throw new Error(
-      `MEMEX_GRADE_MIN_AGE_DAYS must be a non-negative number, got: ${JSON.stringify(raw)}`,
+      `MEMRAIN_GRADE_MIN_AGE_DAYS must be a non-negative number, got: ${JSON.stringify(raw)}`,
     );
   }
   return n;
@@ -198,7 +198,7 @@ export function gradeMinAgeDays(
  *  staying advisory. Default OFF — calibration measures the human unless the
  *  operator explicitly delegates resolution to the judge. */
 export function takeAutoResolveEnabled(): boolean {
-  return process.env.MEMEX_TAKE_AUTO_RESOLVE === "1";
+  return process.env.MEMRAIN_TAKE_AUTO_RESOLVE === "1";
 }
 
 /** Single-model verdicts auto-apply only at/above this confidence
@@ -212,7 +212,7 @@ const DEFAULT_ENSEMBLE_APPLY_THRESHOLD = 0.85;
  *  Default-OFF: an un-embedded take still recalls via the keyword stream, so the
  *  vector index is a pure enhancement the operator turns on when they want it. */
 export function takeEmbedEnabled(): boolean {
-  return process.env.MEMEX_TAKE_EMBED === "1";
+  return process.env.MEMRAIN_TAKE_EMBED === "1";
 }
 
 export const TAKE_KINDS = ["prediction", "judgment", "bet"] as const;
@@ -230,7 +230,7 @@ export interface ProposeTakesOptions {
   promptVersion?: string;
   /**
    * Inject a claim embedder (tests). Default: the Bedrock Titan path when
-   * `MEMEX_TAKE_EMBED=1`, else null (no embedding — the column stays NULL and
+   * `MEMRAIN_TAKE_EMBED=1`, else null (no embedding — the column stays NULL and
    * the take recalls via the keyword stream only). Fail-soft per take.
    */
   embed?: ((text: string) => Promise<number[]>) | null;
@@ -591,7 +591,7 @@ export interface GradeTakesOptions {
   promptVersion?: string;
   /**
    * Minimum take age (days) before it is eligible for grading. Default: 6
-   * months (`MEMEX_GRADE_MIN_AGE_DAYS`, then 182). `0` disables the gate.
+   * months (`MEMRAIN_GRADE_MIN_AGE_DAYS`, then 182). `0` disables the gate.
    */
   minAgeDays?: number;
   /**
@@ -604,7 +604,7 @@ export interface GradeTakesOptions {
    *  embedder (keeps tests off Bedrock). Production leaves unset. */
   evidenceEmbedQuery?: (text: string) => Promise<number[]>;
   /**
-   * Opt-in multi-judge Sonnet ensemble (default from MEMEX_TAKE_ENSEMBLE). When
+   * Opt-in multi-judge Sonnet ensemble (default from MEMRAIN_TAKE_ENSEMBLE). When
    * on, each take is graded by N Sonnet judges (temperature-diversified) and the
    * verdict is the majority vote with the median confidence — replacing the
    * single-pass utility-tier call. Paid; budget-capped; falls back to single-pass off.
@@ -614,10 +614,10 @@ export interface GradeTakesOptions {
   sonnetFn?: SonnetFn;
   /** Shared USD budget for the ensemble run. Default: a fresh cap from env. */
   budget?: BudgetTracker;
-  /** Judges per take (default from MEMEX_TAKE_ENSEMBLE_JUDGES, then 3). */
+  /** Judges per take (default from MEMRAIN_TAKE_ENSEMBLE_JUDGES, then 3). */
   judges?: number;
   /**
-   * Gated auto-resolve (default from MEMEX_TAKE_AUTO_RESOLVE, OFF): apply a
+   * Gated auto-resolve (default from MEMRAIN_TAKE_AUTO_RESOLVE, OFF): apply a
    * high-confidence verdict to the take's resolution tuple. Never overwrites
    * an existing (human) resolution; 'unresolvable' never applies.
    */

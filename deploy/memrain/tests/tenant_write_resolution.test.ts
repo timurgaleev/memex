@@ -10,7 +10,7 @@
  *   HOLE 2 — link/tag inserts fold source_id into the conflict key (mig 059),
  *            so a per-tenant write mints its OWN row instead of overwriting /
  *            no-op'ing another tenant's identical (triple)/(slug,tag).
- *   HOLE 3 — under MEMEX_TENANT_FAIL_CLOSED=1 a scopeless authenticated public
+ *   HOLE 3 — under MEMRAIN_TENANT_FAIL_CLOSED=1 a scopeless authenticated public
  *            principal is rejected on writes (never defaults to 'default'), and
  *            appendPage never adopts a victim page's source.
  *   HOLE 4 — the gazetteer entry table is built from the writer's source only.
@@ -187,9 +187,9 @@ describe("HOLE 3 — write fail-closed + appendPage never adopts a victim source
     expect(page?.source_id).toBe("default");
   });
 
-  it("MEMEX_TENANT_FAIL_CLOSED=1 rejects a scopeless public principal on a write", async () => {
-    const prev = process.env["MEMEX_TENANT_FAIL_CLOSED"];
-    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+  it("MEMRAIN_TENANT_FAIL_CLOSED=1 rejects a scopeless public principal on a write", async () => {
+    const prev = process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
+    process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
     try {
       // Scopeless public principal → write op rejected before any handler runs.
       const res = await dispatchTool(
@@ -218,8 +218,8 @@ describe("HOLE 3 — write fail-closed + appendPage never adopts a victim source
       );
       expect(read.isError).toBeUndefined();
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
-      else process.env["MEMEX_TENANT_FAIL_CLOSED"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
+      else process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = prev;
     }
   });
 

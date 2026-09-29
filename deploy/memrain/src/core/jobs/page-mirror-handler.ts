@@ -1,6 +1,6 @@
 /**
  * `page_mirror` job handler — mirrors a page into the search store OFF the
- * request path, when `MEMEX_PAGE_MIRROR_SYNC=0` moves the mirror onto the job
+ * request path, when `MEMRAIN_PAGE_MIRROR_SYNC=0` moves the mirror onto the job
  * queue. The synchronous path (the default) calls the same `mirrorPage`.
  *
  * The handler trusts the page row, not the caller: it re-reads the page, skips

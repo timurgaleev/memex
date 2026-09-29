@@ -21,7 +21,7 @@ import {
   applyTuneRecommendation,
   buildRevertCommand,
 } from "../src/commands/search-stats.ts";
-import { getRuntimeConfig } from "../src/core/runtime-config.ts";
+import { getRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config.ts";
 import type { StatsWindow } from "../src/core/search/telemetry.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "memex-telemetry-"));
@@ -161,7 +161,7 @@ describe("search tune", () => {
 
   it("suggests re-enabling a killed query cache; conservative default stays quiet", () => {
     const on = buildTuneRecommendations(statsWith({}), "conservative", {
-      MEMEX_QUERY_CACHE: "0",
+      MEMRAIN_QUERY_CACHE: "0",
     });
     expect(on.some((r) => r.apply_command === "memex config unset MEMEX_QUERY_CACHE")).toBe(true);
     const quiet = buildTuneRecommendations(statsWith({}), "conservative", {});
@@ -175,7 +175,7 @@ describe("search tune", () => {
       cache_misses: 10,
     });
     const on = buildTuneRecommendations(hot, "conservative", {
-      MEMEX_QUERY_CACHE_SEMANTIC: "1",
+      MEMRAIN_QUERY_CACHE_SEMANTIC: "1",
     });
     expect(on.some((r) => r.knob === "MEMEX_QUERY_CACHE_SIM")).toBe(true);
     const off = buildTuneRecommendations(hot, "conservative", {});
@@ -200,6 +200,17 @@ describe("search tune", () => {
       apply_command: "memex config unset MEMEX_SEARCH_MODE",
     });
     expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
+  });
+
+  it("--apply of a generated recommendation keeps writing the legacy row key", async () => {
+    const e = storage.engine();
+    const rec = buildTuneRecommendations(statsWith({}), "tokenmax", {}).find(
+      (r) => r.suggested === "balanced",
+    )!;
+    await applyTuneRecommendation(e, rec);
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
+    expect(await getRuntimeConfig(e, "MEMRAIN_SEARCH_MODE")).toBeNull();
+    await unsetRuntimeConfig(e, "MEMEX_SEARCH_MODE");
   });
 
   it("--apply accepts the command under the current and the pre-rename CLI name", async () => {

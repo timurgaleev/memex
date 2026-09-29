@@ -1,6 +1,6 @@
 /**
  * `memex config <show|get|set|unset>` — DB-plane runtime config (migration
- * 088). Mutates MEMEX_* knobs without a redeploy: rows overlay onto
+ * 088). Mutates MEMRAIN_* knobs without a redeploy: rows overlay onto
  * process.env at every Storage.init for vars the container did not set (env
  * always wins). The write substrate behind `memex search tune --apply`.
  *
@@ -40,7 +40,7 @@ export interface ConfigCmdOptions {
   value?: string;
   /** `unset --pattern <prefix>` bulk delete. */
   pattern?: string;
-  /** Allow a key outside the MEMEX_* alphabet on `set`. */
+  /** Allow a key outside the MEMRAIN_* alphabet on `set`. */
   force?: boolean;
   /** Test seam — config file path (same idiom as runCall). */
   configPath?: string;

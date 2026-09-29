@@ -58,12 +58,12 @@ const LOCK_TTL_MINUTES = 5;
 // completed a tick and its maintenance cycle starved (caught by the
 // cycle-freshness doctor check: snapshots 53h stale despite a 6h interval).
 // 60s gives boot headroom without coupling first-cycle latency to the interval.
-// Tunable via MEMEX_CYCLE_FIRST_TICK_DELAY_MS for a tiny instance where 60s of
+// Tunable via MEMRAIN_CYCLE_FIRST_TICK_DELAY_MS for a tiny instance where 60s of
 // boot contention (serve + jobs worker init) is still too eager.
 const DEFAULT_INITIAL_TICK_DELAY_MS = 60_000;
 
 function initialTickDelayMs(): number {
-  const raw = process.env.MEMEX_CYCLE_FIRST_TICK_DELAY_MS;
+  const raw = process.env.MEMRAIN_CYCLE_FIRST_TICK_DELAY_MS;
   if (raw === undefined || raw === "") return DEFAULT_INITIAL_TICK_DELAY_MS;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_INITIAL_TICK_DELAY_MS;
@@ -80,7 +80,7 @@ export function firstTickDelayMs(intervalMs: number): number {
 
 // Phases skipped during quiet hours. embed-stale calls Bedrock; mirror-pages
 // re-embeds stale/missing page mirrors (also Bedrock); extract-timeline (when
-// MEMEX_MEETING_TIMELINE=1) is a replace-own-projection that re-derives every
+// MEMRAIN_MEETING_TIMELINE=1) is a replace-own-projection that re-derives every
 // meeting's events, so it is write-heavy on a meeting-rich vault.
 const COSTLY_PHASES: ReadonlySet<PhaseName> = new Set([
   "embed-stale",
@@ -116,7 +116,7 @@ export function nextTickDelayMs(intervalMs: number, skipped: boolean): number {
     : intervalMs;
 }
 
-/** Parse the `MEMEX_CYCLE_SKIP_PHASES` CSV into a phase-name set. */
+/** Parse the `MEMRAIN_CYCLE_SKIP_PHASES` CSV into a phase-name set. */
 export function parseSkipPhases(raw: string | undefined): Set<string> {
   return new Set(
     (raw ?? "")
@@ -181,8 +181,8 @@ export function startCycleLoop(
   // with a live defect (e.g. a memory spike that SIGKILLs the tick before it can
   // snapshot) can be isolated WITHOUT losing the rest of the maintenance cycle,
   // while the defect is root-caused. CSV of PhaseName, e.g.
-  // MEMEX_CYCLE_SKIP_PHASES=extract-timeline.
-  const skipPhases = parseSkipPhases(process.env.MEMEX_CYCLE_SKIP_PHASES);
+  // MEMRAIN_CYCLE_SKIP_PHASES=extract-timeline.
+  const skipPhases = parseSkipPhases(process.env.MEMRAIN_CYCLE_SKIP_PHASES);
 
   // Opt-in (default-OFF) auto-think: appends the Haiku synthesis chain
   // (atoms→concepts→takes→grade→calibration, all writing the ISOLATED synth_*
@@ -190,13 +190,13 @@ export function startCycleLoop(
   // costly Haiku work, so it runs when interactive recall traffic is low. memex's
   // idiomatic auto-think: opt the existing default-OFF SYNTHESIS_PHASES into the
   // schedule, count-capped (no USD budget, no deep-tier model — Claude Haiku only).
-  const synthEnabled = process.env.MEMEX_DREAM_SYNTHESIS === "1";
+  const synthEnabled = process.env.MEMRAIN_DREAM_SYNTHESIS === "1";
   const synthCaps = synthEnabled
     ? {
-        maxDocs: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_DOCS, 25),
-        maxConcepts: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_CONCEPTS, 30),
-        maxTakes: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MAX_TAKES, 25),
-        minGraded: capEnv(process.env.MEMEX_DREAM_SYNTHESIS_MIN_GRADED, 5),
+        maxDocs: capEnv(process.env.MEMRAIN_DREAM_SYNTHESIS_MAX_DOCS, 25),
+        maxConcepts: capEnv(process.env.MEMRAIN_DREAM_SYNTHESIS_MAX_CONCEPTS, 30),
+        maxTakes: capEnv(process.env.MEMRAIN_DREAM_SYNTHESIS_MAX_TAKES, 25),
+        minGraded: capEnv(process.env.MEMRAIN_DREAM_SYNTHESIS_MIN_GRADED, 5),
       }
     : undefined;
 
@@ -267,7 +267,7 @@ export function startCycleLoop(
         // overlaps another cycle. Results are RETURNED (memex writes nothing back);
         // logged for the operator. Fail-soft — never let it abort the tick.
         // A run that lost its lock must not start more paid work.
-        if (inQuiet && r.outcome === "complete" && process.env.MEMEX_DEEP_SYNTH === "1") {
+        if (inQuiet && r.outcome === "complete" && process.env.MEMRAIN_DEEP_SYNTH === "1") {
           try {
             const ds = await runDeepSynthUnderLock(storage, heartbeat.signal);
             if (ds.ran) {

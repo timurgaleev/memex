@@ -11,8 +11,8 @@
  *
  * Operator-only and read-only: it writes no rows, no skill files and no pages.
  * Its only side effect is the paid calls, each booked in mcp_spend_log under
- * the `skillopt` label. Off unless MEMEX_SKILLOPT_ENABLED=1; the run is capped
- * at MEMEX_SKILLOPT_MAX_USD (default $0.25), which --max-usd can lower but not
+ * the `skillopt` label. Off unless MEMRAIN_SKILLOPT_ENABLED=1; the run is capped
+ * at MEMRAIN_SKILLOPT_MAX_USD (default $0.25), which --max-usd can lower but not
  * raise, and a run whose worst case exceeds the cap is refused before any
  * storage is opened or call is made.
  */
@@ -147,8 +147,8 @@ function report(
 export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> {
   const out = opts.out ?? ((l: string) => console.log(l));
   const err = opts.err ?? ((l: string) => console.error(l));
-  const enabled = "enabled" in opts ? opts.enabled : process.env.MEMEX_SKILLOPT_ENABLED;
-  const envCap = skilloptMaxUsd("maxUsdEnv" in opts ? opts.maxUsdEnv : process.env.MEMEX_SKILLOPT_MAX_USD);
+  const enabled = "enabled" in opts ? opts.enabled : process.env.MEMRAIN_SKILLOPT_ENABLED;
+  const envCap = skilloptMaxUsd("maxUsdEnv" in opts ? opts.maxUsdEnv : process.env.MEMRAIN_SKILLOPT_MAX_USD);
   const fail = (msg: string): number => {
     err(`memex skillopt eval: ${msg}`);
     return 1;
@@ -159,7 +159,7 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
     return 1;
   }
   if (!skilloptEnabled(enabled)) {
-    return fail("skill optimization is off; set MEMEX_SKILLOPT_ENABLED=1 first");
+    return fail("skill optimization is off; set MEMRAIN_SKILLOPT_ENABLED=1 first");
   }
   const parsed = parseArgs(opts, envCap);
   if (typeof parsed === "string") return fail(parsed);
@@ -214,8 +214,8 @@ export async function runSkilloptCli(opts: SkilloptCliOptions): Promise<number> 
       `worst case ${usd(worst)} for ${cases.length} case(s) x ${parsed.repeats} repeat(s) x ` +
         `${variants.length} variant(s) exceeds the cap ${usd(parsed.maxUsd)}; ` +
         (candidateText !== undefined
-          ? "a candidate is scored on every skill's held-out cases; lower --repeats or raise MEMEX_SKILLOPT_MAX_USD"
-          : "narrow it with --skill, --split or --repeats, or raise MEMEX_SKILLOPT_MAX_USD"),
+          ? "a candidate is scored on every skill's held-out cases; lower --repeats or raise MEMRAIN_SKILLOPT_MAX_USD"
+          : "narrow it with --skill, --split or --repeats, or raise MEMRAIN_SKILLOPT_MAX_USD"),
     );
   }
 

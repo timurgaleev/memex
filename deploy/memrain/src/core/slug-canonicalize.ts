@@ -96,30 +96,30 @@ const MIN_TAIL_LEN = 2;
 
 /**
  * Canonicalization is on by default. Set
- * `MEMEX_WIKILINK_CANONICALIZE=0` to fall straight through to the legacy
+ * `MEMRAIN_WIKILINK_CANONICALIZE=0` to fall straight through to the legacy
  * slugify behavior — a kill switch for a corpus where fuzzy resolution
  * would mis-link.
  */
 export function canonicalizeEnabled(
-  env: string | undefined = process.env.MEMEX_WIKILINK_CANONICALIZE,
+  env: string | undefined = process.env.MEMRAIN_WIKILINK_CANONICALIZE,
 ): boolean {
   return env !== "0";
 }
 
 /**
  * Stage-4 trigram acceptance threshold. Override with
- * `MEMEX_WIKILINK_TRGM` (a float in [0, 1]); a malformed value throws so a
+ * `MEMRAIN_WIKILINK_TRGM` (a float in [0, 1]); a malformed value throws so a
  * typo fails loud rather than silently reverting to the default.
  */
 export function resolveTrgmThreshold(
-  env: string | undefined = process.env.MEMEX_WIKILINK_TRGM,
+  env: string | undefined = process.env.MEMRAIN_WIKILINK_TRGM,
 ): number {
   const v = env?.trim();
   if (v === undefined || v === "") return DEFAULT_TRGM_THRESHOLD;
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0 || n > 1) {
     throw new Error(
-      `MEMEX_WIKILINK_TRGM must be a float in [0, 1] (got ${JSON.stringify(v)})`,
+      `MEMRAIN_WIKILINK_TRGM must be a float in [0, 1] (got ${JSON.stringify(v)})`,
     );
   }
   return n;

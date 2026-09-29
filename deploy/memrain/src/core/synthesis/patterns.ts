@@ -19,7 +19,7 @@
  * writes are pinned to a single source_id so one tenant's reflections can never
  * be mined into another tenant's pattern page.
  *
- * Paid Sonnet slice, default-OFF (MEMEX_PATTERNS). Injected `sonnetFn` bypasses
+ * Paid Sonnet slice, default-OFF (MEMRAIN_PATTERNS). Injected `sonnetFn` bypasses
  * the flag for hermetic tests (no live Bedrock).
  */
 
@@ -72,19 +72,19 @@ interface PatternDraft {
 const SLUG_SEG = /^[a-z0-9][a-z0-9-]*$/;
 
 function patternsEnabled(): boolean {
-  const v = (process.env.MEMEX_PATTERNS ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_PATTERNS ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_PATTERNS_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_PATTERNS_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
   // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
   return Number.isFinite(n) && n >= 0 ? n : 1.0;
 }
 
 function resolvePrefix(opt: string | undefined): string {
-  const p = (opt ?? process.env.MEMEX_PATTERNS_REFLECTION_PREFIX ?? "reflections/").trim();
+  const p = (opt ?? process.env.MEMRAIN_PATTERNS_REFLECTION_PREFIX ?? "reflections/").trim();
   return p.length > 0 ? p : "reflections/";
 }
 
@@ -188,15 +188,15 @@ export async function patternsPhase(
   };
 
   if (!opts.sonnetFn && !patternsEnabled()) {
-    return { ...base, reason: "MEMEX_PATTERNS disabled" };
+    return { ...base, reason: "MEMRAIN_PATTERNS disabled" };
   }
 
   const engine = storage.engine();
   const sourceId = opts.sourceId ?? "default";
   const prefix = resolvePrefix(opts.reflectionPrefix);
-  const lookbackDays = resolveIntConfig(opts.lookbackDays, "MEMEX_PATTERNS_LOOKBACK_DAYS", 30);
-  const minEvidence = resolveIntConfig(opts.minEvidence, "MEMEX_PATTERNS_MIN_EVIDENCE", 3);
-  const maxReflections = resolveIntConfig(opts.maxReflections, "MEMEX_PATTERNS_MAX_REFLECTIONS", 100);
+  const lookbackDays = resolveIntConfig(opts.lookbackDays, "MEMRAIN_PATTERNS_LOOKBACK_DAYS", 30);
+  const minEvidence = resolveIntConfig(opts.minEvidence, "MEMRAIN_PATTERNS_MIN_EVIDENCE", 3);
+  const maxReflections = resolveIntConfig(opts.maxReflections, "MEMRAIN_PATTERNS_MAX_REFLECTIONS", 100);
 
   let reflections: ReflectionRef[];
   try {

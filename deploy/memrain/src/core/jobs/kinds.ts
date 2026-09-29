@@ -10,6 +10,6 @@ export const PAGE_MIRROR_JOB_KIND = "page_mirror";
 /**
  * The operator's agent loop. Deliberately NOT in BUILTIN_JOB_KINDS: it is
  * accepted only by a process that registered its handler, which serve does
- * only when MEMEX_AGENT_ENABLED=1, so a disabled install refuses the submit.
+ * only when MEMRAIN_AGENT_ENABLED=1, so a disabled install refuses the submit.
  */
 export const SUBAGENT_JOB_KIND = "subagent";

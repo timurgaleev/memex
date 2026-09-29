@@ -1,6 +1,6 @@
 /**
  * deep-synth — a slower, opt-in Sonnet synthesis CADENCE distinct from the Haiku
- * dream-synthesis tick (atoms→concepts→takes, MEMEX_DREAM_SYNTHESIS). Where that
+ * dream-synthesis tick (atoms→concepts→takes, MEMRAIN_DREAM_SYNTHESIS). Where that
  * chain DERIVES structure with cheap Claude Haiku, deep-synth runs the paid S2
  * `runThink` pipeline (GATHER → SYNTHESIZE) over a small set of standing
  * questions and REPORTS across the corpus with citations.
@@ -15,7 +15,7 @@
  *
  * memex stance: synthesis READS the corpus + synth_* store; it writes NOTHING
  * back here — the syntheses are RETURNED. No new schema, no migration. A caller
- * (the cycle) decides what, if anything, to persist. Opt-in (MEMEX_DEEP_SYNTH),
+ * (the cycle) decides what, if anything, to persist. Opt-in (MEMRAIN_DEEP_SYNTH),
  * USD-budget-capped, Sonnet injected via `sonnetFn`; NO live Bedrock in tests.
  */
 import type { Storage } from "../storage.ts";
@@ -49,9 +49,9 @@ export interface DeepSynthItem {
 export interface DeepSynthOptions {
   /** Standing questions to synthesize. Default: top synth_concepts titles. */
   questions?: string[];
-  /** Max questions per run (default 5; MEMEX_DEEP_SYNTH_MAX_QUESTIONS overrides). */
+  /** Max questions per run (default 5; MEMRAIN_DEEP_SYNTH_MAX_QUESTIONS overrides). */
   maxQuestions?: number;
-  /** USD ceiling for the whole run (default 1.0; MEMEX_DEEP_SYNTH_BUDGET_USD). */
+  /** USD ceiling for the whole run (default 1.0; MEMRAIN_DEEP_SYNTH_BUDGET_USD). */
   maxBudgetUsd?: number;
   /** Shared budget across questions. Default: a fresh cap from maxBudgetUsd/env. */
   budget?: BudgetTracker;
@@ -82,18 +82,18 @@ export interface DeepSynthResult {
 }
 
 function liveEnabled(): boolean {
-  const v = (process.env["MEMEX_DEEP_SYNTH"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_DEEP_SYNTH"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env["MEMEX_DEEP_SYNTH_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_DEEP_SYNTH_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
 }
 
 function defaultMaxQuestions(): number {
-  const raw = (process.env["MEMEX_DEEP_SYNTH_MAX_QUESTIONS"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_DEEP_SYNTH_MAX_QUESTIONS"] ?? "").trim();
   const n = Number(raw);
   return Number.isInteger(n) && n >= 1 && n <= 50 ? n : DEFAULT_MAX_QUESTIONS;
 }
@@ -125,7 +125,7 @@ async function deriveStandingQuestions(
 
 /**
  * Run one deep-synthesis cadence pass. Default-OFF: a live (paid) run needs
- * MEMEX_DEEP_SYNTH=1; tests inject a sonnetFn, which both bypasses the gate and
+ * MEMRAIN_DEEP_SYNTH=1; tests inject a sonnetFn, which both bypasses the gate and
  * avoids spend. The phase owns ONE BudgetTracker shared across every question:
  * a `reserve` pre-flight holds each question's estimate (or skips a question
  * that can't be afforded), and a recording wrapper around the model seam settles
@@ -138,7 +138,7 @@ export async function runDeepSynthPhase(
   opts: DeepSynthOptions = {},
 ): Promise<DeepSynthResult> {
   if (!opts.sonnetFn && !liveEnabled()) {
-    return blank("default-OFF: set MEMEX_DEEP_SYNTH=1 to run paid Sonnet deep synthesis");
+    return blank("default-OFF: set MEMRAIN_DEEP_SYNTH=1 to run paid Sonnet deep synthesis");
   }
 
   const maxQuestions = opts.maxQuestions ?? defaultMaxQuestions();

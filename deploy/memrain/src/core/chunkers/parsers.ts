@@ -16,7 +16,7 @@
  * identical in dev (`/.../deploy/memex/wasm/...`) and in the container
  * (`/app/wasm/...`) — the Dockerfile `COPY wasm/ ./wasm/` mirrors it.
  *
- * Override: `MEMEX_WASM_DIR` env var. Used by tests to point at a
+ * Override: `MEMRAIN_WASM_DIR` env var. Used by tests to point at a
  * fixture wasm dir without mutating the production layout.
  */
 import { Parser, Language, type Tree } from "web-tree-sitter";
@@ -69,11 +69,11 @@ export function languageForFile(filename: string): CodeLanguage | null {
 
 /**
  * Resolve the directory containing the vendored grammar WASM blobs.
- * Honors `MEMEX_WASM_DIR` for tests; otherwise resolves relative to
+ * Honors `MEMRAIN_WASM_DIR` for tests; otherwise resolves relative to
  * this file's location.
  */
 function wasmDir(): string {
-  const override = process.env.MEMEX_WASM_DIR;
+  const override = process.env.MEMRAIN_WASM_DIR;
   if (override && override.length > 0) return resolve(override);
   // parsers.ts lives at <root>/src/core/chunkers/parsers.ts
   // grammar wasm files at <root>/wasm/
@@ -99,7 +99,7 @@ function wasmDir(): string {
  * realistic case — a parser quadratic-blowup on a mid-size file — not a
  * hostile worst case; hard preemption would need a worker/child process.
  *
- * Default 5s; override with `MEMEX_PARSE_TIMEOUT_MS`; 0 disables the cap.
+ * Default 5s; override with `MEMRAIN_PARSE_TIMEOUT_MS`; 0 disables the cap.
  */
 const DEFAULT_PARSE_TIMEOUT_MS = 5_000;
 
@@ -118,14 +118,14 @@ export class ParseTimeoutError extends Error {
  *  positive sub-1ms value clamps to 1 (not floored to 0, which would silently
  *  disable the cap). */
 export function resolveParseTimeoutMs(
-  env: string | undefined = process.env.MEMEX_PARSE_TIMEOUT_MS,
+  env: string | undefined = process.env.MEMRAIN_PARSE_TIMEOUT_MS,
 ): number {
   const v = env?.trim();
   if (v === undefined || v === "") return DEFAULT_PARSE_TIMEOUT_MS;
   const ms = Number(v);
   if (!Number.isFinite(ms) || ms < 0) {
     throw new Error(
-      `MEMEX_PARSE_TIMEOUT_MS must be a non-negative number of ms ` +
+      `MEMRAIN_PARSE_TIMEOUT_MS must be a non-negative number of ms ` +
         `(got ${JSON.stringify(v)}); 0 disables the cap`,
     );
   }
@@ -216,7 +216,7 @@ export async function loadLanguage(lang: CodeLanguage): Promise<Language> {
       throw new Error(
         `core/chunkers/parsers: wasm grammar not found at ${path}. ` +
           `Run \`bun install\` and verify \`deploy/memex/wasm/${filename}\` ` +
-          `is vendored. Set MEMEX_WASM_DIR to override.`,
+          `is vendored. Set MEMRAIN_WASM_DIR to override.`,
       );
     }
     // Pass the bytes directly so Emscripten doesn't need to know how to

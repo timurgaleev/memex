@@ -72,8 +72,8 @@ for (const [lang, probe] of Object.entries(GRAMMAR_PROBES)) {
 test("an unlinkable blob raises GrammarLoadError, and the failure is cached", async () => {
   const dir = mkdtempSync(join(tmpdir(), "memex-bad-grammar-"));
   writeFileSync(join(dir, WASM_FILES.bash), Buffer.from("\0asm   not-a-grammar"));
-  const prev = process.env.MEMEX_WASM_DIR;
-  process.env.MEMEX_WASM_DIR = dir;
+  const prev = process.env.MEMRAIN_WASM_DIR;
+  process.env.MEMRAIN_WASM_DIR = dir;
   _resetParsersForTests();
   try {
     let first: unknown;
@@ -95,8 +95,8 @@ test("an unlinkable blob raises GrammarLoadError, and the failure is cached", as
     expect(bash.stage).toBe("load");
     expect(bash.error).toContain("failed to load");
   } finally {
-    if (prev === undefined) delete process.env.MEMEX_WASM_DIR;
-    else process.env.MEMEX_WASM_DIR = prev;
+    if (prev === undefined) delete process.env.MEMRAIN_WASM_DIR;
+    else process.env.MEMRAIN_WASM_DIR = prev;
     _resetParsersForTests();
     rmSync(dir, { recursive: true, force: true });
   }
@@ -112,8 +112,8 @@ test("a blob that links but cannot parse the language fails at the PARSE stage",
     join(import.meta.dir, "..", "wasm", WASM_FILES.python),
     join(dir, WASM_FILES.bash),
   );
-  const prev = process.env.MEMEX_WASM_DIR;
-  process.env.MEMEX_WASM_DIR = dir;
+  const prev = process.env.MEMRAIN_WASM_DIR;
+  process.env.MEMRAIN_WASM_DIR = dir;
   _resetParsersForTests();
   try {
     // It links: the load stage is happy, which is exactly the problem.
@@ -127,8 +127,8 @@ test("a blob that links but cannot parse the language fails at the PARSE stage",
     expect(bash.error).toContain("wrong grammar for this language");
     expect(typeof bash.abi).toBe("number"); // it linked, so the ABI is known
   } finally {
-    if (prev === undefined) delete process.env.MEMEX_WASM_DIR;
-    else process.env.MEMEX_WASM_DIR = prev;
+    if (prev === undefined) delete process.env.MEMRAIN_WASM_DIR;
+    else process.env.MEMRAIN_WASM_DIR = prev;
     _resetParsersForTests();
     rmSync(dir, { recursive: true, force: true });
   }

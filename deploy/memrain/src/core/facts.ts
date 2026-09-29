@@ -45,13 +45,13 @@ import { deadlockSafeTransaction } from "./retry.ts";
  * Insert-time dedup / supersede knobs (migration 038 fact embedding + the
  * facts-classify cascade). Providing this object OPTS IN to the classify path
  * for this call regardless of env (the test seam); production callers leave it
- * undefined and let `MEMEX_FACTS_DEDUP` govern. All fields default sensibly.
+ * undefined and let `MEMRAIN_FACTS_DEDUP` govern. All fields default sensibly.
  */
 export interface FactDedupOptions {
   /** Embedder for the new fact (tests). Defaults to the Bedrock Titan path. */
   embed?: (text: string) => Promise<number[]>;
   /** Haiku seam for the classifier step (tests). Defaults to the shared helper
-   *  ONLY when `MEMEX_FACTS_DEDUP_LLM` is on; otherwise the LLM step is skipped. */
+   *  ONLY when `MEMRAIN_FACTS_DEDUP_LLM` is on; otherwise the LLM step is skipped. */
   llmFn?: LlmFn;
   /** Budget guard for the paid classifier call. */
   budget?: BudgetTracker;
@@ -122,7 +122,7 @@ export interface AddFactInput {
   source_session?: string;
   /**
    * Insert-time dedup / supersede. Present -> opt in for this call; absent ->
-   * governed by `MEMEX_FACTS_DEDUP` (default OFF, exact-tuple dedup only).
+   * governed by `MEMRAIN_FACTS_DEDUP` (default OFF, exact-tuple dedup only).
    */
   dedup?: FactDedupOptions;
 }
@@ -205,19 +205,19 @@ function normaliseText(v: string | undefined): string | null {
 
 /**
  * Insert-time dedup is opt-in. An explicit `input.dedup` enables it for the
- * call (tests / callers); otherwise `MEMEX_FACTS_DEDUP` governs. The paid Haiku
- * classifier step is separately gated by `MEMEX_FACTS_DEDUP_LLM` — with it off
+ * call (tests / callers); otherwise `MEMRAIN_FACTS_DEDUP` governs. The paid Haiku
+ * classifier step is separately gated by `MEMRAIN_FACTS_DEDUP_LLM` — with it off
  * only the free cosine fast-path runs.
  */
 export function factsDedupEnabled(
-  env: string | undefined = process.env.MEMEX_FACTS_DEDUP,
+  env: string | undefined = process.env.MEMRAIN_FACTS_DEDUP,
 ): boolean {
   const v = (env ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 export function factsDedupLlmEnabled(
-  env: string | undefined = process.env.MEMEX_FACTS_DEDUP_LLM,
+  env: string | undefined = process.env.MEMRAIN_FACTS_DEDUP_LLM,
 ): boolean {
   const v = (env ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
@@ -793,7 +793,7 @@ export interface ListFactsOptions {
    * `effectiveConfidence` (older facts of a short-lived kind sink). Deterministic
    * and LLM-free. Ignored when `queryVector` is set (semantic order wins) and
    * for `order: "recency"`. Default OFF; `entityRecall` defaults it from
-   * `MEMEX_FACT_DECAY`.
+   * `MEMRAIN_FACT_DECAY`.
    */
   decay?: boolean;
   /**
@@ -897,7 +897,7 @@ export async function listFacts(
   const hasQueryVector = !!(opts.queryVector && opts.queryVector.length > 0);
   // Decay re-ranks in TS, so it only applies to the plain confidence path:
   // a semantic query (cosine) or an explicit recency sort take precedence.
-  // When `decay` is unset the global `MEMEX_FACT_DECAY` flag governs, so every
+  // When `decay` is unset the global `MEMRAIN_FACT_DECAY` flag governs, so every
   // fact-reading surface (entity_facts + entity_recall) honors it uniformly.
   const decay = opts.decay ?? factDecayEnabled();
   const wantDecay = decay && !hasQueryVector && opts.order !== "recency";
@@ -1096,7 +1096,7 @@ export interface EntityRecallOptions {
   embed?: (text: string) => Promise<number[]>;
   /**
    * Apply confidence decay to the recalled facts (mig037 consumer). When
-   * undefined, defaults to the `MEMEX_FACT_DECAY` env flag. Ignored when
+   * undefined, defaults to the `MEMRAIN_FACT_DECAY` env flag. Ignored when
    * `query` (semantic focus) is supplied.
    */
   decay?: boolean;

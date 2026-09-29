@@ -464,7 +464,7 @@ describe("identifier arm — precision guards", () => {
     expect(await titleArmChunkIds(broken, "quandalore", {})).toEqual([]);
   });
 
-  it("is ON by default and disabled by MEMEX_TITLE_ARM=0", () => {
+  it("is ON by default and disabled by MEMRAIN_TITLE_ARM=0", () => {
     expect(titleArmEnabled(undefined)).toBe(true);
     expect(titleArmEnabled("")).toBe(true);
     expect(titleArmEnabled("0")).toBe(false);

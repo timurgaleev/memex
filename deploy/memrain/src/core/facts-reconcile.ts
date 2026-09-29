@@ -56,11 +56,11 @@ const MAX_FACTS_FENCE_ROWS = 1000;
 
 /**
  * Fence reconciliation is on by default — it only ever touches rows a page's
- * OWN fence produced, so it is safe. `MEMEX_FACTS_FENCE=0` disables it (a kill
+ * OWN fence produced, so it is safe. `MEMRAIN_FACTS_FENCE=0` disables it (a kill
  * switch; the fence then stays inert as it was before this feature).
  */
 export function factsFenceEnabled(
-  env: string | undefined = process.env.MEMEX_FACTS_FENCE,
+  env: string | undefined = process.env.MEMRAIN_FACTS_FENCE,
 ): boolean {
   return env !== "0";
 }
@@ -208,7 +208,7 @@ export async function reconcileFactsForPage(
     //
     // The skip-set honors GENUINE forgets only — `forgotten_cause` (mig062)
     // discriminates. A `forget_fact` stamps 'forget'; the insert-time dedup
-    // supersede path (facts.ts, MEMEX_FACTS_DEDUP) stamps 'supersede'. We exclude
+    // supersede path (facts.ts, MEMRAIN_FACTS_DEDUP) stamps 'supersede'. We exclude
     // 'supersede' rows so a superseded fence claim can legitimately re-enter from
     // its canonical fence, while 'forget' (and legacy NULL rows retired before
     // mig062, all of which were forget_fact tombstones) stay suppressed.

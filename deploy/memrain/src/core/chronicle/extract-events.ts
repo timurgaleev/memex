@@ -80,10 +80,10 @@ const JUDGE_MAX_TOKENS = 1500;
  *  truncation retry is gated separately against the same budget. */
 const WORST_CASE_USAGE: SonnetUsage = { inputTokens: 4000, outputTokens: JUDGE_MAX_TOKENS };
 
-/** Per-run USD ceiling for one page's extraction. MEMEX_CHRONICLE_WRITE_BUDGET_USD
+/** Per-run USD ceiling for one page's extraction. MEMRAIN_CHRONICLE_WRITE_BUDGET_USD
  *  overrides; small because it prices a single page-body judge call. */
 function perRunBudgetUsd(): number {
-  const raw = (process.env["MEMEX_CHRONICLE_WRITE_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_CHRONICLE_WRITE_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 0.05;
 }

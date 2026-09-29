@@ -122,7 +122,7 @@ export async function runSkillpack(opts: SkillpackOptions = {}): Promise<void> {
 }
 
 export interface SkillpackLintOptions {
-  /** Pack to lint. Default MEMEX_SKILLS_DIR (the pack the server serves), then deploy/skills. */
+  /** Pack to lint. Default MEMRAIN_SKILLS_DIR (the pack the server serves), then deploy/skills. */
   dir?: string;
   json?: boolean;
 }
@@ -132,7 +132,7 @@ export interface SkillpackLintOptions {
  * `memex` command the pack names exists. Returns the exit code: 1 on any issue.
  */
 export function runSkillpackLint(opts: SkillpackLintOptions = {}): number {
-  const envDir = process.env.MEMEX_SKILLS_DIR?.trim();
+  const envDir = process.env.MEMRAIN_SKILLS_DIR?.trim();
   const dir = opts.dir ?? (envDir || DEFAULT_SKILLS_DIR);
   const result = lintSkillpack(dir);
   if (opts.json) {

@@ -12,7 +12,7 @@
  * quietly breaks; validating every nested field would be a second contract to
  * maintain, and the one that drifts is the one nobody reads.
  *
- * `MEMEX_RESPONSE_VERSION` is separate from the MCP `protocolVersion` reported
+ * `MEMRAIN_RESPONSE_VERSION` is separate from the MCP `protocolVersion` reported
  * at initialize: that one pins the transport, this one pins what memex puts
  * inside the result. Bump it when a registered shape changes in a way a client
  * cannot ignore — a removed or renamed key, not an added optional one.
@@ -26,7 +26,7 @@
  */
 
 /** Bump on a breaking change to any registered response shape. */
-export const MEMEX_RESPONSE_VERSION = 1;
+export const MEMRAIN_RESPONSE_VERSION = 1;
 
 /**
  * Tool name → keys its successful response always carries.

@@ -1,6 +1,6 @@
 /**
  * `memex think --save/--take` CLI wiring — the persistence hooks around
- * runThink. With MEMEX_THINK unset the run is skipped, so these pin the
+ * runThink. With MEMRAIN_THINK unset the run is skipped, so these pin the
  * wiring semantics without any paid call: --save on an empty synthesis
  * refuses to persist (warning surfaced), --take without an anchor errors.
  */
@@ -47,7 +47,7 @@ beforeAll(() => {
       storage: {},
     }),
   );
-  delete process.env["MEMEX_THINK"]; // ensure the paid gate stays closed
+  delete process.env["MEMRAIN_THINK"]; // ensure the paid gate stays closed
 });
 
 afterAll(() => {

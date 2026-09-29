@@ -46,7 +46,7 @@ function assertTenantCaller(auth: AuthInfo | undefined, tool: string): AuthInfo 
     refuse(
       "unsupported",
       "tenant agent jobs are not enabled on this brain",
-      "The operator enables them with MEMEX_AGENT_ENABLED=1 and MEMEX_AGENT_TENANT_ENABLED=1.",
+      "The operator enables them with MEMRAIN_AGENT_ENABLED=1 and MEMRAIN_AGENT_TENANT_ENABLED=1.",
     );
   }
   if (!hasScope(auth.scopes ?? [], "agent")) {

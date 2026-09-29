@@ -18,7 +18,7 @@
 const DEFAULT_MAX_BODY_BYTES = 1 * 1024 * 1024; // 1 MiB
 
 function getCap(): number {
-  const raw = process.env.MEMEX_MAX_BODY_BYTES;
+  const raw = process.env.MEMRAIN_MAX_BODY_BYTES;
   if (!raw) return DEFAULT_MAX_BODY_BYTES;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_MAX_BODY_BYTES;
@@ -100,7 +100,7 @@ export async function readBodyWithCap(
 
 /**
  * Read and JSON-parse a request body with a hard size cap. The cap
- * default is 1 MiB; override via `MEMEX_MAX_BODY_BYTES` env when the
+ * default is 1 MiB; override via `MEMRAIN_MAX_BODY_BYTES` env when the
  * route genuinely needs more (none today).
  *
  * Returns the parsed body on success, or a ready-to-return Response

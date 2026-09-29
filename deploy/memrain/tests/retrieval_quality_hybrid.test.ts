@@ -74,9 +74,9 @@ const num = (name: string, dflt: number): number => {
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) ? n : dflt;
 };
-const FLOOR_HIT_RATE = num("MEMEX_GATE_HYBRID_HIT", 1.0);
-const FLOOR_MEAN_RR = num("MEMEX_GATE_HYBRID_MRR", 0.8);
-const FLOOR_MEAN_NDCG = num("MEMEX_GATE_HYBRID_NDCG", 0.8);
+const FLOOR_HIT_RATE = num("MEMRAIN_GATE_HYBRID_HIT", 1.0);
+const FLOOR_MEAN_RR = num("MEMRAIN_GATE_HYBRID_MRR", 0.8);
+const FLOOR_MEAN_NDCG = num("MEMRAIN_GATE_HYBRID_NDCG", 0.8);
 
 const toDocId = (chunkId: string): string => chunkId.replace(/_c\d+$/, "");
 

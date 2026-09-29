@@ -42,12 +42,12 @@ describe("doctor chronicle-projection-health", () => {
         storage: {},
       }),
     );
-    vaultPrev = process.env.MEMEX_VAULT_PATH;
-    delete process.env.MEMEX_VAULT_PATH;
+    vaultPrev = process.env.MEMRAIN_VAULT_PATH;
+    delete process.env.MEMRAIN_VAULT_PATH;
   });
 
   afterAll(() => {
-    if (vaultPrev !== undefined) process.env.MEMEX_VAULT_PATH = vaultPrev;
+    if (vaultPrev !== undefined) process.env.MEMRAIN_VAULT_PATH = vaultPrev;
     rmSync(tmp, { recursive: true, force: true });
   });
 

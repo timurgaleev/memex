@@ -20,7 +20,7 @@ import { addLink } from "../src/core/links.ts";
 import { dispatchTool } from "../src/mcp/dispatch.ts";
 import {
   RESPONSE_SHAPES,
-  MEMEX_RESPONSE_VERSION,
+  MEMRAIN_RESPONSE_VERSION,
   missingResponseKeys,
 } from "../src/mcp/response-contract.ts";
 import { OPERATIONS } from "../src/mcp/operations.ts";
@@ -78,8 +78,8 @@ describe("response contract", () => {
   });
 
   it("has a version to pin", () => {
-    expect(Number.isInteger(MEMEX_RESPONSE_VERSION)).toBe(true);
-    expect(MEMEX_RESPONSE_VERSION).toBeGreaterThan(0);
+    expect(Number.isInteger(MEMRAIN_RESPONSE_VERSION)).toBe(true);
+    expect(MEMRAIN_RESPONSE_VERSION).toBeGreaterThan(0);
   });
 
   for (const [tool, args] of Object.entries(DRIVERS)) {

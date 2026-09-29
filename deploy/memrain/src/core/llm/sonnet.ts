@@ -9,7 +9,7 @@
  * operator chose Sonnet for the notability/salience judgment Haiku is weaker at.
  * Sonnet runs through the SAME Bedrock account as Titan/Haiku — notes never leave
  * AWS — via an EU cross-region inference profile (`eu.anthropic.*`). The exact
- * profile id is config (`MEMEX_FACTS_MODEL`); confirm the version suffix in the
+ * profile id is config (`MEMRAIN_FACTS_MODEL`); confirm the version suffix in the
  * Bedrock console and widen `terraform/iam.tf` bedrock:InvokeModel to that ARN.
  */
 import {
@@ -27,7 +27,7 @@ import {
 import { trackedInvoke } from "../budget.ts";
 
 /** EU cross-region inference profile for Claude Sonnet 4.6 — verified ACTIVE +
- *  invokable in eu-west-1 (no version suffix). Override via MEMEX_FACTS_MODEL
+ *  invokable in eu-west-1 (no version suffix). Override via MEMRAIN_FACTS_MODEL
  *  (e.g. `eu.anthropic.claude-haiku-4-5-20251001-v1:0` for the cheaper tier). */
 export const DEFAULT_SONNET_MODEL = "eu.anthropic.claude-sonnet-4-6";
 
@@ -91,8 +91,8 @@ export const DEFAULT_REASONING_SPEND_OP = "reasoning-llm";
 
 /**
  * Resolve the paid-tier model id. Precedence: an explicit override → the
- * `MEMEX_FACTS_MODEL` env → the built-in default. Uses `||` (not `??`) so an
- * EMPTY-STRING env value — what a `${MEMEX_FACTS_MODEL:-}` docker-compose
+ * `MEMRAIN_FACTS_MODEL` env → the built-in default. Uses `||` (not `??`) so an
+ * EMPTY-STRING env value — what a `${MEMRAIN_FACTS_MODEL:-}` docker-compose
  * passthrough injects when the operator hasn't set it — is treated as "unset"
  * and falls through to the real default. An empty model id would otherwise be
  * unpriced, and the budget guard would refuse to spend (silent "budget

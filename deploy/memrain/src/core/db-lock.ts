@@ -64,12 +64,12 @@ export const HOLDER_TAKEOVER_GRACE_MS = 60_000;
  * and a competing launch steals the live lock). A genuinely dead holder stops
  * refreshing, ages past the grace, and becomes stealable again (TTL stays the
  * ultimate backstop). Derived from the TTL so it scales with the refresh
- * cadence; override with MEMEX_LOCK_STEAL_GRACE_SECONDS.
+ * cadence; override with MEMRAIN_LOCK_STEAL_GRACE_SECONDS.
  */
 export const DEFAULT_STEAL_GRACE_SECONDS = 600;
 
 export function resolveStealGraceSeconds(ttlMinutes: number): number {
-  const raw = process.env.MEMEX_LOCK_STEAL_GRACE_SECONDS;
+  const raw = process.env.MEMRAIN_LOCK_STEAL_GRACE_SECONDS;
   if (raw) {
     const n = Number(raw);
     if (Number.isInteger(n) && n > 0) return n;

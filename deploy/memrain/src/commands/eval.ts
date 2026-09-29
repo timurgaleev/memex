@@ -91,7 +91,7 @@ export interface EvalReport {
 
 /**
  * One ranking-knob set for an eval run. Maps 1:1 onto hybridSearch per-call
- * options; `dedupTypeRatio` is env-plane (MEMEX_MAX_TYPE_RATIO) and is
+ * options; `dedupTypeRatio` is env-plane (MEMRAIN_MAX_TYPE_RATIO) and is
  * wrapped around the run.
  */
 export interface EvalKnobConfig {
@@ -185,27 +185,27 @@ function canonicalJson(value: unknown): string {
  * bound cost or latency, and eval runs with the cache off.
  */
 const RANKING_ENV_KNOBS = [
-  "MEMEX_ALIAS_HOP",
-  "MEMEX_CURATION_BOOST",
-  "MEMEX_EMBED_DIM",
-  "MEMEX_GRAPH_RERANK",
-  "MEMEX_GRAPH_SIGNALS_FLOOR",
-  "MEMEX_INTENT_LLM",
-  "MEMEX_MAX_TYPE_RATIO",
-  "MEMEX_NEARDUP_JACCARD",
-  "MEMEX_RECENCY_BOOST",
-  "MEMEX_RECENCY_DECAY",
-  "MEMEX_RELATIONAL_ARM_WEIGHT",
-  "MEMEX_RELATIONAL_LLM",
-  "MEMEX_RERANK_WINDOW",
-  "MEMEX_SEARCH_EXCLUDE",
-  "MEMEX_TITLE_BOOST",
-  "MEMEX_UTILITY_MODEL",
+  "MEMRAIN_ALIAS_HOP",
+  "MEMRAIN_CURATION_BOOST",
+  "MEMRAIN_EMBED_DIM",
+  "MEMRAIN_GRAPH_RERANK",
+  "MEMRAIN_GRAPH_SIGNALS_FLOOR",
+  "MEMRAIN_INTENT_LLM",
+  "MEMRAIN_MAX_TYPE_RATIO",
+  "MEMRAIN_NEARDUP_JACCARD",
+  "MEMRAIN_RECENCY_BOOST",
+  "MEMRAIN_RECENCY_DECAY",
+  "MEMRAIN_RELATIONAL_ARM_WEIGHT",
+  "MEMRAIN_RELATIONAL_LLM",
+  "MEMRAIN_RERANK_WINDOW",
+  "MEMRAIN_SEARCH_EXCLUDE",
+  "MEMRAIN_TITLE_BOOST",
+  "MEMRAIN_UTILITY_MODEL",
 ] as const;
 
 /**
  * Run fingerprint over what the search actually runs with: the knobs as
- * hybridSearch resolves them (explicit config, then MEMEX_* env, then the
+ * hybridSearch resolves them (explicit config, then MEMRAIN_* env, then the
  * search-mode bundle), so the same effective setup hashes the same whether it
  * was spelled out or defaulted; plus the raw ranking env knobs, the embedding
  * signature, k and the qrels checksum. The display name is excluded, and so
@@ -230,14 +230,14 @@ export function runConfigHash(
   for (const key of RANKING_ENV_KNOBS) envKnobs[key] = env[key];
   // evalRun applies dedupTypeRatio through the env for the run's duration.
   if (cfg.dedupTypeRatio !== undefined) {
-    envKnobs["MEMEX_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
+    envKnobs["MEMRAIN_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
   }
   return sha256Hex(
     canonicalJson({
       knobs: {
         ...resolved,
         rrfK: cfg.rrfK ?? DEFAULT_RRF_K,
-        maxPool: cfg.maxPool ?? env.MEMEX_MAXPOOL === "1",
+        maxPool: cfg.maxPool ?? env.MEMRAIN_MAXPOOL === "1",
       },
       env: envKnobs,
       embedding: embeddingSignature(),
@@ -295,7 +295,7 @@ async function defaultSearchFn(
 /**
  * Run one knob config over the qrels set. Per-query isolation: one query
  * throwing must not abort the run. `dedupTypeRatio` is applied by wrapping
- * MEMEX_MAX_TYPE_RATIO for the duration (the knob is env-resolved per call).
+ * MEMRAIN_MAX_TYPE_RATIO for the duration (the knob is env-resolved per call).
  */
 export async function evalRun(
   storage: Storage,
@@ -306,9 +306,9 @@ export async function evalRun(
   const k = opts.k ?? cfg.k ?? 5;
   const searchFn = opts.searchFn ?? defaultSearchFn;
 
-  const prevRatio = process.env["MEMEX_MAX_TYPE_RATIO"];
+  const prevRatio = process.env["MEMRAIN_MAX_TYPE_RATIO"];
   if (cfg.dedupTypeRatio !== undefined) {
-    process.env["MEMEX_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
+    process.env["MEMRAIN_MAX_TYPE_RATIO"] = String(cfg.dedupTypeRatio);
   }
   const perQuery: QueryReport[] = [];
   const errors: { id: string; error: string }[] = [];
@@ -346,8 +346,8 @@ export async function evalRun(
     }
   } finally {
     if (cfg.dedupTypeRatio !== undefined) {
-      if (prevRatio === undefined) delete process.env["MEMEX_MAX_TYPE_RATIO"];
-      else process.env["MEMEX_MAX_TYPE_RATIO"] = prevRatio;
+      if (prevRatio === undefined) delete process.env["MEMRAIN_MAX_TYPE_RATIO"];
+      else process.env["MEMRAIN_MAX_TYPE_RATIO"] = prevRatio;
     }
   }
 

@@ -2,12 +2,12 @@
  * The `subagent` job handler: validates the payload, caps the spend and runs
  * the agent loop for one job.
  *
- * Registered by serve only when MEMEX_AGENT_ENABLED=1. The kind is not a
+ * Registered by serve only when MEMRAIN_AGENT_ENABLED=1. The kind is not a
  * built-in, so with the flag off a submit is refused outright rather than
  * queued for a worker that will never run it.
  *
  * A row that carries a submitter and an authority snapshot is a tenant job
- * (`submit_agent`). It runs only while MEMEX_AGENT_TENANT_ENABLED=1, only if
+ * (`submit_agent`). It runs only while MEMRAIN_AGENT_TENANT_ENABLED=1, only if
  * its payload still hashes to what was submitted, and only as long as the
  * live grant backs the snapshot: every Converse call is booked to the
  * tenant's spender against its live daily cap, and every tool is dispatched
@@ -29,19 +29,19 @@ export const MAX_AGENT_TASK_BYTES = 8 * 1024;
 /** Wall clock a `subagent` job is enqueued with; the claim lock is extended to cover it. */
 export const AGENT_JOB_TIMEOUT_MS = 600_000;
 
-export function agentEnabled(raw: string | undefined = process.env.MEMEX_AGENT_ENABLED): boolean {
+export function agentEnabled(raw: string | undefined = process.env.MEMRAIN_AGENT_ENABLED): boolean {
   return raw === "1";
 }
 
-/** Tenant-submitted agent jobs are a second opt-in on top of MEMEX_AGENT_ENABLED. */
+/** Tenant-submitted agent jobs are a second opt-in on top of MEMRAIN_AGENT_ENABLED. */
 export function agentTenantEnabled(
-  raw: string | undefined = process.env.MEMEX_AGENT_TENANT_ENABLED,
+  raw: string | undefined = process.env.MEMRAIN_AGENT_TENANT_ENABLED,
 ): boolean {
   return raw === "1";
 }
 
-/** Per-job ceiling from MEMEX_AGENT_MAX_USD; anything but a positive number is the default. */
-export function agentMaxUsd(raw: string | undefined = process.env.MEMEX_AGENT_MAX_USD): number {
+/** Per-job ceiling from MEMRAIN_AGENT_MAX_USD; anything but a positive number is the default. */
+export function agentMaxUsd(raw: string | undefined = process.env.MEMRAIN_AGENT_MAX_USD): number {
   const trimmed = raw?.trim() ?? "";
   const n = trimmed === "" ? Number.NaN : Number(trimmed);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_AGENT_MAX_USD;
@@ -54,7 +54,7 @@ export interface SubagentPayload {
 
 /**
  * Validate a `subagent` payload. A job may ask for less than the operator's
- * ceiling, never more: `max_usd` is clamped to MEMEX_AGENT_MAX_USD.
+ * ceiling, never more: `max_usd` is clamped to MEMRAIN_AGENT_MAX_USD.
  */
 export function parseSubagentPayload(
   payload: Record<string, unknown>,
@@ -117,7 +117,7 @@ async function runTenantJob(
   ctx: Parameters<JobHandler>[1],
 ): Promise<Record<string, unknown>> {
   if (!agentTenantEnabled()) {
-    throw new Error("subagent: tenant agent jobs are off; set MEMEX_AGENT_TENANT_ENABLED=1 to run them");
+    throw new Error("subagent: tenant agent jobs are off; set MEMRAIN_AGENT_TENANT_ENABLED=1 to run them");
   }
   const snap = parseAuthority(ctx.job.authority);
   if (ctx.job.submittedBy !== snap.clientId) {
@@ -153,10 +153,10 @@ export function registerSubagentHandler(storage: Storage, deps: SubagentDeps = {
   registerHandler(SUBAGENT_JOB_KIND, makeSubagentHandler(storage, deps));
 }
 
-/** Register the handler when MEMEX_AGENT_ENABLED=1; true when it did. */
+/** Register the handler when MEMRAIN_AGENT_ENABLED=1; true when it did. */
 export function registerSubagentHandlerIfEnabled(
   storage: Storage,
-  raw: string | undefined = process.env.MEMEX_AGENT_ENABLED,
+  raw: string | undefined = process.env.MEMRAIN_AGENT_ENABLED,
 ): boolean {
   if (!agentEnabled(raw)) return false;
   registerSubagentHandler(storage);

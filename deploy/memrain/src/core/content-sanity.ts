@@ -38,15 +38,15 @@ import { readFileSync } from "node:fs";
 export const SCAN_HEAD_BYTES = 2048;
 
 /** Above this the page still lands, but crosses into the markup prose-check
- *  window. Override via `MEMEX_PAGE_WARN_BYTES`. */
+ *  window. Override via `MEMRAIN_PAGE_WARN_BYTES`. */
 export const DEFAULT_BYTES_WARN = 50_000;
 
 /** Above this the page lands but is never embedded (soft-block). Override via
- *  `MEMEX_PAGE_BLOCK_BYTES`. */
+ *  `MEMRAIN_PAGE_BLOCK_BYTES`. */
 export const DEFAULT_BYTES_BLOCK = 500_000;
 
 /** Above this markup ratio the page is flagged (not hidden). Override via
- *  `MEMEX_MAX_MARKUP_RATIO`. */
+ *  `MEMRAIN_MAX_MARKUP_RATIO`. */
 export const DEFAULT_MAX_MARKUP_RATIO = 0.85;
 
 /** Stable token embedded in junk-reason messages so error/audit surfaces can
@@ -415,22 +415,22 @@ export function assessContentSanity(opts: {
 
 // --- Env resolvers + frontmatter stamper -----------------------------------
 
-/** Kill switch. The gate runs unless `MEMEX_NO_SANITY` is set truthy. */
+/** Kill switch. The gate runs unless `MEMRAIN_NO_SANITY` is set truthy. */
 export function sanityGateEnabled(
-  raw: string | undefined = process.env["MEMEX_NO_SANITY"],
+  raw: string | undefined = process.env["MEMRAIN_NO_SANITY"],
 ): boolean {
   const v = (raw ?? "").trim().toLowerCase();
   return !(v === "1" || v === "true");
 }
 
 /**
- * Pattern names the operator switched off via `MEMEX_CONTENT_SANITY_DISABLE`
+ * Pattern names the operator switched off via `MEMRAIN_CONTENT_SANITY_DISABLE`
  * (comma-separated, e.g. `access_denied,operator_literal_2`). One pattern that
  * keeps hiding legitimate pages can be silenced without dropping the whole gate
- * through `MEMEX_NO_SANITY`. Unknown names are ignored.
+ * through `MEMRAIN_NO_SANITY`. Unknown names are ignored.
  */
 export function resolveDisabledPatterns(
-  raw: string | undefined = process.env["MEMEX_CONTENT_SANITY_DISABLE"],
+  raw: string | undefined = process.env["MEMRAIN_CONTENT_SANITY_DISABLE"],
 ): ReadonlySet<string> {
   return new Set(
     (raw ?? "")
@@ -459,7 +459,7 @@ export function describeQuarantineTrip(result: ContentSanityResult): string {
  * — the explicit hard-block error path.
  */
 export function sanityDisposition(
-  raw: string | undefined = process.env["MEMEX_SANITY_DISPOSITION"],
+  raw: string | undefined = process.env["MEMRAIN_SANITY_DISPOSITION"],
 ): "quarantine" | "reject" {
   return (raw ?? "").trim().toLowerCase() === "reject" ? "reject" : "quarantine";
 }
@@ -472,7 +472,7 @@ function resolveBytes(raw: string | undefined, fallback: number): number {
 
 /**
  * Load the operator's junk-substring list from the file named by
- * `MEMEX_SANITY_LITERALS_FILE` (one case-insensitive literal per line; blank
+ * `MEMRAIN_SANITY_LITERALS_FILE` (one case-insensitive literal per line; blank
  * lines and `#` comments skipped). Each becomes an OperatorLiteral scanned in
  * BOTH title and body, so a site-specific boilerplate string the built-in
  * patterns miss still quarantines. Fail-open: an unset var or an unreadable file
@@ -481,7 +481,7 @@ function resolveBytes(raw: string | undefined, fallback: number): number {
  */
 let _literalsCache: { path: string; literals: OperatorLiteral[] } | null = null;
 export function resolveOperatorLiterals(
-  path: string | undefined = process.env["MEMEX_SANITY_LITERALS_FILE"],
+  path: string | undefined = process.env["MEMRAIN_SANITY_LITERALS_FILE"],
 ): OperatorLiteral[] {
   const p = (path ?? "").trim();
   if (!p) return [];
@@ -511,10 +511,10 @@ export function resolveSanityThresholds(env: NodeJS.ProcessEnv = process.env): {
   bytes_block: number;
   max_markup_ratio: number;
 } {
-  const ratio = Number((env["MEMEX_MAX_MARKUP_RATIO"] ?? "").trim());
+  const ratio = Number((env["MEMRAIN_MAX_MARKUP_RATIO"] ?? "").trim());
   return {
-    bytes_warn: resolveBytes(env["MEMEX_PAGE_WARN_BYTES"], DEFAULT_BYTES_WARN),
-    bytes_block: resolveBytes(env["MEMEX_PAGE_BLOCK_BYTES"], DEFAULT_BYTES_BLOCK),
+    bytes_warn: resolveBytes(env["MEMRAIN_PAGE_WARN_BYTES"], DEFAULT_BYTES_WARN),
+    bytes_block: resolveBytes(env["MEMRAIN_PAGE_BLOCK_BYTES"], DEFAULT_BYTES_BLOCK),
     max_markup_ratio:
       Number.isFinite(ratio) && ratio > 0 && ratio <= 1 ? ratio : DEFAULT_MAX_MARKUP_RATIO,
   };

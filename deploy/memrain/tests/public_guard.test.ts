@@ -475,15 +475,15 @@ describe("HTTP server end-to-end with public guard", () => {
   });
 });
 
-describe("MEMEX_PUBLIC_WRITE opt-in", () => {
+describe("MEMRAIN_PUBLIC_WRITE opt-in", () => {
   useServer();
-  const ORIGINAL = process.env["MEMEX_PUBLIC_WRITE"];
+  const ORIGINAL = process.env["MEMRAIN_PUBLIC_WRITE"];
   beforeEach(() => {
-    process.env["MEMEX_PUBLIC_WRITE"] = "1";
+    process.env["MEMRAIN_PUBLIC_WRITE"] = "1";
   });
   afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_WRITE"];
-    else process.env["MEMEX_PUBLIC_WRITE"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_PUBLIC_WRITE"];
+    else process.env["MEMRAIN_PUBLIC_WRITE"] = ORIGINAL;
   });
 
   it("opens only constructive writes when env=1; destructive + reads stay internal", () => {
@@ -560,16 +560,16 @@ describe("MEMEX_PUBLIC_WRITE opt-in", () => {
   });
 });
 
-describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
+describe("MEMRAIN_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
   // Without the flag, a request lacking Cf-Connecting-Ip classifies as
   // internal, so it meets the INTERNAL token instead of the public bearer.
   // The flag makes such a proxy's traffic public, which is what buys the
   // redaction and the public-forbidden tool set.
-  const ORIGINAL = process.env["MEMEX_ASSUME_PUBLIC"];
+  const ORIGINAL = process.env["MEMRAIN_ASSUME_PUBLIC"];
 
   afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_ASSUME_PUBLIC"];
-    else process.env["MEMEX_ASSUME_PUBLIC"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_ASSUME_PUBLIC"];
+    else process.env["MEMRAIN_ASSUME_PUBLIC"] = ORIGINAL;
   });
 
   function headerlessReq(path: string, auth?: string): Request {
@@ -583,7 +583,7 @@ describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
     // with no credential at all, which is precisely the hole. The
     // classification still says internal — but the internal token is now the
     // price of entry, so a non-Cloudflare proxy leaks redaction, not access.
-    delete process.env["MEMEX_ASSUME_PUBLIC"];
+    delete process.env["MEMRAIN_ASSUME_PUBLIC"];
     const rejected = evaluatePublicGuard(
       headerlessReq("/mcp"),
       new URL("http://x/mcp"),
@@ -602,7 +602,7 @@ describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
   });
 
   it("flag set: headerless request without bearer is rejected", () => {
-    process.env["MEMEX_ASSUME_PUBLIC"] = "1";
+    process.env["MEMRAIN_ASSUME_PUBLIC"] = "1";
     const r = evaluatePublicGuard(
       headerlessReq("/mcp"),
       new URL("http://x/mcp"),
@@ -613,7 +613,7 @@ describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
   });
 
   it("flag set: headerless request with the bearer is public-allowed", () => {
-    process.env["MEMEX_ASSUME_PUBLIC"] = "1";
+    process.env["MEMRAIN_ASSUME_PUBLIC"] = "1";
     const r = evaluatePublicGuard(
       headerlessReq("/mcp", `Bearer ${TOKEN}`),
       new URL("http://x/mcp"),
@@ -624,7 +624,7 @@ describe("MEMEX_ASSUME_PUBLIC — non-Cloudflare ingress", () => {
   });
 
   it("flag set: GET /health stays open", () => {
-    process.env["MEMEX_ASSUME_PUBLIC"] = "true";
+    process.env["MEMRAIN_ASSUME_PUBLIC"] = "true";
     const r = evaluatePublicGuard(
       new Request("http://x/health", { method: "GET" }),
       new URL("http://x/health"),

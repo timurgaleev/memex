@@ -370,14 +370,14 @@ function errorRedirect(
  */
 /**
  * The origin this server is reached at from outside: the declared
- * `MEMEX_PUBLIC_URL` when set, else whatever the request carried.
+ * `MEMRAIN_PUBLIC_URL` when set, else whatever the request carried.
  */
 function publicOrigin(url: URL): string {
   // Trailing slashes trimmed by index, not by `/\/+$/`: that pattern is
   // quadratic on a run of slashes followed by a non-match (the linter's
   // regexp/no-super-linear-move), and this repo keeps that rule at error.
   // One backward scan, one slice.
-  const raw = (process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  const raw = (process.env.MEMRAIN_PUBLIC_URL ?? "").trim();
   let end = raw.length;
   while (end > 0 && raw.charCodeAt(end - 1) === 0x2f) end--;
   const declared = raw.slice(0, end);
@@ -391,7 +391,7 @@ export async function handleAuthorizeRoute(
    * Resource-owner authentication gate. By DEFAULT this auto-approves (returns
    * true), so a standard MCP client (Claude.ai etc.) completes the
    * authorization-code flow with no extra step.
-   * An operator who wants the stricter posture sets `MEMEX_OAUTH_REQUIRE_LOGIN=1`
+   * An operator who wants the stricter posture sets `MEMRAIN_OAUTH_REQUIRE_LOGIN=1`
    * (wired in server.ts), which passes `adminAuth.requireAdmin` here: then a code
    * is only ever minted for a logged-in operator and an unauthenticated browser
    * is bounced to `/admin/login`. DCR clients are read/write-only regardless, so

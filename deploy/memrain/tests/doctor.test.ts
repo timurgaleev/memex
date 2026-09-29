@@ -74,17 +74,17 @@ beforeAll(() => {
       storage: {},
     }),
   );
-  // Unset any MEMEX_VAULT_PATH from the parent env so the vault check
+  // Unset any MEMRAIN_VAULT_PATH from the parent env so the vault check
   // stays in its "not configured" branch (we pass configPath explicitly
   // because os.homedir() caches at process start in Bun).
-  originalEnv.MEMEX_VAULT_PATH = process.env.MEMEX_VAULT_PATH;
-  delete process.env.MEMEX_VAULT_PATH;
+  originalEnv.MEMRAIN_VAULT_PATH = process.env.MEMRAIN_VAULT_PATH;
+  delete process.env.MEMRAIN_VAULT_PATH;
 });
 
 afterAll(() => {
   // Restore env we mutated.
-  if (originalEnv.MEMEX_VAULT_PATH !== undefined) {
-    process.env.MEMEX_VAULT_PATH = originalEnv.MEMEX_VAULT_PATH;
+  if (originalEnv.MEMRAIN_VAULT_PATH !== undefined) {
+    process.env.MEMRAIN_VAULT_PATH = originalEnv.MEMRAIN_VAULT_PATH;
   }
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -249,14 +249,14 @@ describe("doctor checks that could not run", () => {
   }, 30_000);
 
   it("warns on the document-backed probes while the genuinely broken ones fail", async () => {
-    process.env.MEMEX_DOCTOR_PER_SOURCE = "1";
+    process.env.MEMRAIN_DOCTOR_PER_SOURCE = "1";
     let out: { parsed: Report; exitCode: number | undefined };
     try {
       out = await brokenBrainReport(join(tmp, "hidden-docs"), [
         hideTable("documents"),
       ]);
     } finally {
-      delete process.env.MEMEX_DOCTOR_PER_SOURCE;
+      delete process.env.MEMRAIN_DOCTOR_PER_SOURCE;
     }
     const { parsed, exitCode } = out;
     for (const name of ["chunker-version-lag", "per-source-embed-coverage"]) {
@@ -277,7 +277,7 @@ describe("doctor checks that could not run", () => {
 
 describe("doctor per-source embed coverage", () => {
   it("warns (never fails) on a source stuck at 0% coverage", async () => {
-    process.env.MEMEX_DOCTOR_PER_SOURCE = "1";
+    process.env.MEMRAIN_DOCTOR_PER_SOURCE = "1";
     let out: { parsed: Report; exitCode: number | undefined };
     try {
       // A source whose chunks exist but were never embedded — the tenant that
@@ -290,7 +290,7 @@ describe("doctor per-source embed coverage", () => {
            VALUES ('d1-c0', 'd1', 0, 'body')`,
       ]);
     } finally {
-      delete process.env.MEMEX_DOCTOR_PER_SOURCE;
+      delete process.env.MEMRAIN_DOCTOR_PER_SOURCE;
     }
     const c = out.parsed.checks.find((x) => x.name === "per-source-embed-coverage")!;
     expect(c.status).toBe("warn");

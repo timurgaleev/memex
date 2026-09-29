@@ -12,7 +12,7 @@
  * NULL-vector chunks it re-embeds under the contextual prefix.
  *
  * GATING: this command ALWAYS applies the wrapper — running it IS the operator's
- * intent, so it does NOT read `MEMEX_CONTEXTUAL_RETRIEVAL`. The env flag governs
+ * intent, so it does NOT read `MEMRAIN_CONTEXTUAL_RETRIEVAL`. The env flag governs
  * FUTURE index-time embedding (`core/indexer.ts`), so new docs stay consistent
  * with the backfilled corpus. Turn the flag on, then run this once.
  *
@@ -79,7 +79,7 @@ export interface ContextualReembedOptions {
   embed?: (text: string) => Promise<number[]>;
   /**
    * Paid per-chunk LLM-context tier (`contextual-llm.ts`). When set — or when
-   * `MEMEX_CONTEXTUAL_LLM` is on — each chunk's prefix uses a model-generated
+   * `MEMRAIN_CONTEXTUAL_LLM` is on — each chunk's prefix uses a model-generated
    * situating blurb instead of the deterministic document synopsis; a null
    * result (budget/err) falls back to deterministic. Tests inject `llmFn` to
    * bypass the env gate and avoid any Bedrock spend.
@@ -87,7 +87,7 @@ export interface ContextualReembedOptions {
   llmFn?: LlmFn;
   /**
    * Shared USD budget for the LLM tier across the WHOLE run — so
-   * `MEMEX_CONTEXTUAL_LLM_BUDGET_USD` caps TOTAL spend, not per-chunk. When it is
+   * `MEMRAIN_CONTEXTUAL_LLM_BUDGET_USD` caps TOTAL spend, not per-chunk. When it is
    * exhausted mid-run, remaining chunks silently fall back to deterministic
    * (still wrapped) and the run completes. Default: a fresh cap from the env.
    */

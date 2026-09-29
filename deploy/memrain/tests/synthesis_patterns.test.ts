@@ -50,8 +50,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_PATTERNS;
-  delete process.env.MEMEX_PATTERNS_BUDGET_USD;
+  delete process.env.MEMRAIN_PATTERNS;
+  delete process.env.MEMRAIN_PATTERNS_BUDGET_USD;
 });
 
 describe("patternsPhase", () => {
@@ -104,8 +104,8 @@ describe("patternsPhase", () => {
     expect(await getPage(storage, "patterns/thin")).toBeNull();
   });
 
-  it("spends nothing when MEMEX_PATTERNS_BUDGET_USD=0 (no Sonnet call)", async () => {
-    process.env.MEMEX_PATTERNS_BUDGET_USD = "0";
+  it("spends nothing when MEMRAIN_PATTERNS_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMRAIN_PATTERNS_BUDGET_USD = "0";
     await seedReflections(3);
     let calls = 0;
     const counting: SonnetFn = async (input) => {

@@ -3,7 +3,7 @@
  * that lands at `indexFile()` — the HTTP `/index` route and the MCP
  * `index` tool both go through this.
  *
- * Threat model: a public bearer holder with `MEMEX_PUBLIC_WRITE=1`
+ * Threat model: a public bearer holder with `MEMRAIN_PUBLIC_WRITE=1`
  * must NOT be able to coerce the daemon into reading
  * `/etc/passwd`, `/run/secrets/*`, `/home/bun/.aws/*`, etc.
  *
@@ -15,7 +15,7 @@
  *      the root iff the relative form starts with neither `..` nor an
  *      absolute path separator. This avoids the `startsWith(root + "/")`
  *      pitfall on alternative path separators.
- *   3. Fail closed: if `MEMEX_VAULT_PATHS` and `MEMEX_CODE_PATHS` are
+ *   3. Fail closed: if `MEMRAIN_VAULT_PATHS` and `MEMRAIN_CODE_PATHS` are
  *      both unset, every request is rejected with a distinct error so
  *      misconfiguration surfaces obviously.
  */
@@ -25,7 +25,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 export class PathGuardConfigError extends Error {
   constructor() {
     super(
-      "MEMEX_VAULT_PATHS / MEMEX_CODE_PATHS not configured — " +
+      "MEMRAIN_VAULT_PATHS / MEMRAIN_CODE_PATHS not configured — " +
         "refusing all index requests until at least one root is set",
     );
     this.name = "PathGuardConfigError";
@@ -34,7 +34,7 @@ export class PathGuardConfigError extends Error {
 
 // Even within an allowed root, certain filenames must never be indexed
 // because they're either operator-private (.env, .git/*) or pointless
-// to ingest as documents (.DS_Store). Once MEMEX_PUBLIC_WRITE=1 is on,
+// to ingest as documents (.DS_Store). Once MEMRAIN_PUBLIC_WRITE=1 is on,
 // a bearer-holder could otherwise pull `/vault/.env`, `/vault/.git/
 // config`, etc. via /search after /index.
 const DENIED_BASENAMES = new Set([
@@ -71,8 +71,8 @@ function isDeniedPath(canonical: string): boolean {
 
 function configuredRoots(): string[] {
   return [
-    ...(process.env.MEMEX_VAULT_PATHS ?? "").split(","),
-    ...(process.env.MEMEX_CODE_PATHS ?? "").split(","),
+    ...(process.env.MEMRAIN_VAULT_PATHS ?? "").split(","),
+    ...(process.env.MEMRAIN_CODE_PATHS ?? "").split(","),
   ]
     .map((p) => p.trim())
     .filter((p) => p.length > 0);

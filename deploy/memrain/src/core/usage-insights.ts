@@ -15,7 +15,7 @@
  *      the signals memex DOES have — `salience` (036) and graph link-degree
  *      (the `links` table):
  *        - `degree_outlier`  — a connectivity hub: link-degree at/above
- *          mean + k·stddev across live pages (k = MEMEX_ANOMALY_SIGMA, default 2).
+ *          mean + k·stddev across live pages (k = MEMRAIN_ANOMALY_SIGMA, default 2).
  *        - `stale_salient`   — a high-salience page (top `salience` band) whose
  *          `updated_at` is older than `staleDays` — important memory going cold.
  *      Both are deterministic: same graph in → same outliers out. No LLM.
@@ -211,7 +211,7 @@ export async function findAnomalies(
   const sigma =
     opts.sigma !== undefined && Number.isFinite(opts.sigma) && opts.sigma >= 0
       ? opts.sigma
-      : parseFloatEnv(process.env["MEMEX_ANOMALY_SIGMA"]) ?? DEFAULT_SIGMA;
+      : parseFloatEnv(process.env["MEMRAIN_ANOMALY_SIGMA"]) ?? DEFAULT_SIGMA;
   const staleDays =
     opts.staleDays !== undefined && opts.staleDays > 0
       ? Math.floor(opts.staleDays)

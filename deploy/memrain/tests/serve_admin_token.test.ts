@@ -4,7 +4,7 @@
  * Under docker/systemd stderr IS the log collector, so echoing the ephemeral
  * admin credential there persists a live server secret in plaintext log
  * storage. The only headless path is the operator supplying their own token
- * via MEMEX_ADMIN_BOOTSTRAP — an "print it anyway" override would be reached
+ * via MEMRAIN_ADMIN_BOOTSTRAP — an "print it anyway" override would be reached
  * for by exactly the deployments the TTY gate exists to protect.
  */
 import { describe, expect, it } from "bun:test";
@@ -38,6 +38,6 @@ describe("shouldPrintAdminToken", () => {
 
   it("reads no env override for the token print", () => {
     const src = readFileSync(SERVE_SRC, "utf8");
-    expect(src).not.toMatch(/MEMEX_PRINT_ADMIN_TOKEN/);
+    expect(src).not.toMatch(/MEMRAIN_PRINT_ADMIN_TOKEN/);
   });
 });

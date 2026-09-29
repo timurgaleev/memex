@@ -61,7 +61,7 @@ describe("recencyBoostMultiplierForPath", () => {
   });
 });
 
-describe("MEMEX_RECENCY_BOOST env parsing", () => {
+describe("MEMRAIN_RECENCY_BOOST env parsing", () => {
   it("parses prefix:halfLife:coefficient triples", () => {
     const m = parseRecencyBoostEnv("daily/:7:2.0,custom/:30:1");
     expect(m["daily/"]).toEqual({ halfLifeDays: 7, coefficient: 2.0 });

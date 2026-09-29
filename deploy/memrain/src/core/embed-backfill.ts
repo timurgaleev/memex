@@ -15,7 +15,7 @@
  * (`embeddableChunkFragment`).
  *
  * Provenance auto-invalidation (migration 066, OPT-IN): when
- * `reembedOnSignatureChange` (env `MEMEX_REEMBED_ON_SIGNATURE_CHANGE=1`) is set,
+ * `reembedOnSignatureChange` (env `MEMRAIN_REEMBED_ON_SIGNATURE_CHANGE=1`) is set,
  * any embedding whose stored `embedding_signature` differs from the CURRENT one
  * (a model or dimension swap) is deleted before candidate selection so it
  * re-embeds this same run. A NULL signature (legacy, pre-066 rows) is treated
@@ -26,7 +26,7 @@
  * deliberately for a model swap.
  *
  * Concurrency: embeds run through a bounded worker pool (default 8, config
- * `MEMEX_EMBED_CONCURRENCY`) so a full backfill is ~pool-size faster than the
+ * `MEMRAIN_EMBED_CONCURRENCY`) so a full backfill is ~pool-size faster than the
  * old strictly-sequential loop. Titan has no batch API, so each call is still
  * one InvokeModel — the pool just keeps N in flight at once, with 429 /
  * throttle backoff so a burst never aborts the run. Behaviour-neutral: same
@@ -71,7 +71,7 @@ import { bumpDocumentClock } from "./generation.ts";
 import { clearCache } from "./search/query-cache.ts";
 import { withRetry, BULK_RETRY_OPTS } from "./retry.ts";
 
-/** Default in-flight embed calls when `MEMEX_EMBED_CONCURRENCY` is unset. */
+/** Default in-flight embed calls when `MEMRAIN_EMBED_CONCURRENCY` is unset. */
 const DEFAULT_CONCURRENCY = 8;
 /** Default keyset page size — chunks pulled from the DB per round-trip. */
 const DEFAULT_PAGE_SIZE = 500;
@@ -103,14 +103,14 @@ export interface EmbedBackfillOptions {
   /** Progress cadence. Default 50. */
   batch?: number;
   /**
-   * Max concurrent embed calls. Default `MEMEX_EMBED_CONCURRENCY` or 8. Clamped
+   * Max concurrent embed calls. Default `MEMRAIN_EMBED_CONCURRENCY` or 8. Clamped
    * to at least 1 (0/negative/garbage → 1, i.e. sequential).
    */
   concurrency?: number;
   /**
    * When set, delete embeddings whose stored signature differs from the current
    * one before selecting candidates, so a model/dim swap re-embeds this run.
-   * Default `MEMEX_REEMBED_ON_SIGNATURE_CHANGE=1`, else off. Opt-in by design
+   * Default `MEMRAIN_REEMBED_ON_SIGNATURE_CHANGE=1`, else off. Opt-in by design
    * (see module docs) — never fires on a routine backfill.
    */
   reembedOnSignatureChange?: boolean;
@@ -427,7 +427,7 @@ async function embedWithRetry(
 
 /** Resolve the worker-pool width: option wins, else env, else default; min 1. */
 function resolveConcurrency(opt?: number): number {
-  const raw = opt ?? Number(process.env.MEMEX_EMBED_CONCURRENCY);
+  const raw = opt ?? Number(process.env.MEMRAIN_EMBED_CONCURRENCY);
   const n = Number.isFinite(raw) ? Math.floor(raw as number) : DEFAULT_CONCURRENCY;
   return n >= 1 ? n : 1;
 }
@@ -560,7 +560,7 @@ async function runEmbedBackfillBody(
   const pageSize = resolvePageSize(opts.pageSize);
   const reembedOnSig =
     opts.reembedOnSignatureChange ??
-    process.env.MEMEX_REEMBED_ON_SIGNATURE_CHANGE === "1";
+    process.env.MEMRAIN_REEMBED_ON_SIGNATURE_CHANGE === "1";
   const scope: EmbedScope | undefined =
     opts.sourceId || (opts.slugs && opts.slugs.length > 0)
       ? {

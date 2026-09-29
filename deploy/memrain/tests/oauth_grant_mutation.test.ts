@@ -297,8 +297,8 @@ describe("rescopeClient — validation", () => {
 
 describe("rescopeClient — public clients", () => {
   it("refuses to move a public client into client mode while /authorize auto-approves", async () => {
-    const saved = process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
-    delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
+    const saved = process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
+    delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
     try {
       const reg = await provider.registerClientManual(
         "public-enroll",
@@ -318,12 +318,12 @@ describe("rescopeClient — public clients", () => {
       expect((await clientRow(reg.clientId)).tenant_mode).toBe("enrollment");
       expect(await auditCount(reg.clientId)).toBe(before);
 
-      process.env.MEMEX_OAUTH_REQUIRE_LOGIN = "1";
+      process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
       await provider.rescopeClient(reg.clientId, { sourceId: "acme", tenantMode: "client" }, CLI);
       expect((await clientRow(reg.clientId)).tenant_mode).toBe("client");
     } finally {
-      if (saved === undefined) delete process.env.MEMEX_OAUTH_REQUIRE_LOGIN;
-      else process.env.MEMEX_OAUTH_REQUIRE_LOGIN = saved;
+      if (saved === undefined) delete process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN;
+      else process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = saved;
     }
   });
 

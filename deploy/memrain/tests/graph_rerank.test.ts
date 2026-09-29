@@ -121,15 +121,15 @@ describe("graphRerank", () => {
     hit("page://c", "gamma content", 1),
   ];
 
-  it("is default-OFF without MEMEX_GRAPH_RERANK and no injected sonnetFn", async () => {
-    const prev = process.env.MEMEX_GRAPH_RERANK;
-    delete process.env.MEMEX_GRAPH_RERANK;
+  it("is default-OFF without MEMRAIN_GRAPH_RERANK and no injected sonnetFn", async () => {
+    const prev = process.env.MEMRAIN_GRAPH_RERANK;
+    delete process.env.MEMRAIN_GRAPH_RERANK;
     try {
       const hits = three();
       const out = await graphRerank("q", hits);
       expect(out).toBe(hits); // same reference, untouched
     } finally {
-      if (prev !== undefined) process.env.MEMEX_GRAPH_RERANK = prev;
+      if (prev !== undefined) process.env.MEMRAIN_GRAPH_RERANK = prev;
     }
   });
 

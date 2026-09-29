@@ -3,7 +3,7 @@
  * size-driven split inside one heading section so a boundary-straddling fact
  * stays retrievable from both chunks; it never crosses a heading boundary, and
  * is ON by default (~50 words) for newly indexed pages, disablable via env
- * `MEMEX_CHUNK_OVERLAP=0` or the `overlapChars: 0` opt.
+ * `MEMRAIN_CHUNK_OVERLAP=0` or the `overlapChars: 0` opt.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { chunkMarkdown } from "../src/core/chunkers/index.ts";
@@ -19,7 +19,7 @@ const p2 = "Bravo sentence two. ".repeat(15);
 const oneSection = `# H\n\n${p1}\n\n${p2}`;
 
 afterEach(() => {
-  delete process.env.MEMEX_CHUNK_OVERLAP;
+  delete process.env.MEMRAIN_CHUNK_OVERLAP;
 });
 
 describe("chunk overlap", () => {
@@ -102,20 +102,20 @@ describe("chunk overlap", () => {
     expect(overlapPart.length).toBeLessThanOrEqual(Math.floor(p1.length / 2) + 5);
   });
 
-  it("reads the default from MEMEX_CHUNK_OVERLAP", () => {
-    process.env.MEMEX_CHUNK_OVERLAP = "80";
+  it("reads the default from MEMRAIN_CHUNK_OVERLAP", () => {
+    process.env.MEMRAIN_CHUNK_OVERLAP = "80";
     const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
     expect(r.chunks[1]).toContain("Alpha sentence one");
   });
 
   it("falls back to the default (ON) on a non-numeric env value", () => {
-    process.env.MEMEX_CHUNK_OVERLAP = "not-a-number";
+    process.env.MEMRAIN_CHUNK_OVERLAP = "not-a-number";
     const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
     expect(r.chunks[1]).toContain("Alpha sentence one"); // garbage → default overlap
   });
 
-  it("is disabled by an explicit MEMEX_CHUNK_OVERLAP=0", () => {
-    process.env.MEMEX_CHUNK_OVERLAP = "0";
+  it("is disabled by an explicit MEMRAIN_CHUNK_OVERLAP=0", () => {
+    process.env.MEMRAIN_CHUNK_OVERLAP = "0";
     const r = chunkMarkdown(oneSection, { maxChars: 350, minChars: 0 });
     expect(r.chunks[1]).not.toContain("Alpha");
   });
@@ -158,7 +158,7 @@ describe("overlapTail", () => {
 
 describe("resolveOverlapChars", () => {
   afterEach(() => {
-    delete process.env.MEMEX_CHUNK_OVERLAP;
+    delete process.env.MEMRAIN_CHUNK_OVERLAP;
   });
 
   it("defaults to DEFAULT_OVERLAP_CHARS when opt + env are unset (ON)", () => {
@@ -172,13 +172,13 @@ describe("resolveOverlapChars", () => {
     expect(resolveOverlapChars(2.9, 4000)).toBe(2);
   });
 
-  it("treats MEMEX_CHUNK_OVERLAP=0 as an explicit disable", () => {
-    process.env.MEMEX_CHUNK_OVERLAP = "0";
+  it("treats MEMRAIN_CHUNK_OVERLAP=0 as an explicit disable", () => {
+    process.env.MEMRAIN_CHUNK_OVERLAP = "0";
     expect(resolveOverlapChars(undefined, 4000)).toBe(0);
   });
 
-  it("uses a positive MEMEX_CHUNK_OVERLAP verbatim (capped)", () => {
-    process.env.MEMEX_CHUNK_OVERLAP = "120";
+  it("uses a positive MEMRAIN_CHUNK_OVERLAP verbatim (capped)", () => {
+    process.env.MEMRAIN_CHUNK_OVERLAP = "120";
     expect(resolveOverlapChars(undefined, 4000)).toBe(120);
   });
 });

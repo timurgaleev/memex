@@ -884,7 +884,7 @@ const VERB_INFER_CONFIDENCE = 0.6;
  * Derive typed edges (works_at / invested_in / founded / advises) from the prose
  * around a page's `[[wikilinks]]` and persist them with `link_kind='verb_ner'`.
  * Verb-context extraction wired as a SEPARATE edge source (like gazetteer /
- * typed-links) behind `MEMEX_LINK_VERB_INFER`. Opt-in, default OFF.
+ * typed-links) behind `MEMRAIN_LINK_VERB_INFER`. Opt-in, default OFF.
  *
  * Ownership: DELETE-replaces ONLY this source's `verb_ner` edges, so it never
  * touches `plain` (wikilink + gazetteer) or `typed_ner` (frontmatter) edges. An

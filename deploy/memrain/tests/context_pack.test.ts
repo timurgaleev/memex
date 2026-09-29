@@ -78,7 +78,7 @@ describe("context_pack over the two-tenant brain", () => {
   });
 
   afterEach(() => {
-    delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
+    delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
   });
 
   it("puts explicit slugs before window-resolved entities, and cards before facts", async () => {
@@ -139,7 +139,7 @@ describe("context_pack over the two-tenant brain", () => {
   });
 
   it("holds no tenant bytes for a caller with no grant", async () => {
-    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
     const p = await call(
       { slugs: [ENTITY_SLUG, "team-a/alice", "team-b/alice"], window: "Quokka Rollout", token_budget: 8000 },
       noGrant,
@@ -209,7 +209,7 @@ describe("context_pack over the two-tenant brain", () => {
     expect(p.budget.used_tokens).toBeLessThanOrEqual(1500);
   });
 
-  it("honors the operator MEMEX_FACT_DECAY default instead of forcing decay on", async () => {
+  it("honors the operator MEMRAIN_FACT_DECAY default instead of forcing decay on", async () => {
     await putPage(storage, { slug: "projects/numbat", type: "note", title: "Numbat", markdown_body: "n" });
     await addFact(storage, { entity_slug: "projects/numbat", fact: "NUMBAT_EXPIRED claim", confidence: 0.9 });
     await storage.engine().query(
@@ -219,11 +219,11 @@ describe("context_pack over the two-tenant brain", () => {
     const facts = async () =>
       (await call({ slugs: ["projects/numbat"], token_budget: 8000 })).cards[0]!.facts.map(f => f.fact);
     expect(await facts()).toEqual([]);
-    process.env["MEMEX_FACT_DECAY"] = "0";
+    process.env["MEMRAIN_FACT_DECAY"] = "0";
     try {
       expect(await facts()).toEqual(["NUMBAT_EXPIRED claim"]);
     } finally {
-      delete process.env["MEMEX_FACT_DECAY"];
+      delete process.env["MEMRAIN_FACT_DECAY"];
     }
   });
 

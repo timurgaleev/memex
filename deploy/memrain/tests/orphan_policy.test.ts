@@ -31,11 +31,11 @@ describe("orphanExcludedWriters", () => {
   });
 
   it("EXTRA adds, WRITERS replaces", () => {
-    expect(orphanExcludedWriters({ MEMEX_ORPHAN_EXCLUDE_EXTRA: "importer" })).toEqual([
+    expect(orphanExcludedWriters({ MEMRAIN_ORPHAN_EXCLUDE_EXTRA: "importer" })).toEqual([
       ...DEFAULT_ORPHAN_EXCLUDED_WRITERS,
       "importer",
     ]);
-    expect(orphanExcludedWriters({ MEMEX_ORPHAN_EXCLUDE_WRITERS: "only-me" })).toEqual([
+    expect(orphanExcludedWriters({ MEMRAIN_ORPHAN_EXCLUDE_WRITERS: "only-me" })).toEqual([
       "only-me",
     ]);
   });
@@ -43,8 +43,8 @@ describe("orphanExcludedWriters", () => {
   it("lets a brain turn exclusions off entirely", () => {
     // Presence is what counts: the plain `=` form has to work, not just a
     // whitespace string that happens to survive a length check.
-    expect(orphanExcludedWriters({ MEMEX_ORPHAN_EXCLUDE_WRITERS: "" })).toEqual([]);
-    expect(orphanExcludedWriters({ MEMEX_ORPHAN_EXCLUDE_WRITERS: " " })).toEqual([]);
+    expect(orphanExcludedWriters({ MEMRAIN_ORPHAN_EXCLUDE_WRITERS: "" })).toEqual([]);
+    expect(orphanExcludedWriters({ MEMRAIN_ORPHAN_EXCLUDE_WRITERS: " " })).toEqual([]);
     expect(orphanExcludedWriters({})).toEqual([...DEFAULT_ORPHAN_EXCLUDED_WRITERS]);
   });
 

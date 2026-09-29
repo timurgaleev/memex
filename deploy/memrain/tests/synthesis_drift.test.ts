@@ -58,8 +58,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
-  delete process.env.MEMEX_DRIFT;
-  delete process.env.MEMEX_DRIFT_BUDGET_USD;
+  delete process.env.MEMRAIN_DRIFT;
+  delete process.env.MEMRAIN_DRIFT_BUDGET_USD;
 });
 
 describe("driftPhase", () => {
@@ -94,8 +94,8 @@ describe("driftPhase", () => {
     expect(page!.markdown_body).toContain("ship in Q1");
   });
 
-  it("spends nothing when MEMEX_DRIFT_BUDGET_USD=0 (no Sonnet call)", async () => {
-    process.env.MEMEX_DRIFT_BUDGET_USD = "0";
+  it("spends nothing when MEMRAIN_DRIFT_BUDGET_USD=0 (no Sonnet call)", async () => {
+    process.env.MEMRAIN_DRIFT_BUDGET_USD = "0";
     await seedDriftedTake("A claim under review.", "Evidence that has since changed.");
     let calls = 0;
     const counting: SonnetFn = async (input) => {

@@ -14,10 +14,10 @@ import {
   _resetCurationForTests,
 } from "../src/core/search/curation.ts";
 
-const savedExclude = process.env.MEMEX_SEARCH_EXCLUDE;
+const savedExclude = process.env.MEMRAIN_SEARCH_EXCLUDE;
 afterEach(() => {
-  if (savedExclude === undefined) delete process.env.MEMEX_SEARCH_EXCLUDE;
-  else process.env.MEMEX_SEARCH_EXCLUDE = savedExclude;
+  if (savedExclude === undefined) delete process.env.MEMRAIN_SEARCH_EXCLUDE;
+  else process.env.MEMRAIN_SEARCH_EXCLUDE = savedExclude;
   _resetCurationForTests();
 });
 
@@ -43,7 +43,7 @@ describe("full tier map", () => {
   it("ships the default hard-excludes", () => {
     expect([...DEFAULT_SEARCH_EXCLUDE]).toEqual(["test/", "attachments/", ".raw/"]);
     _resetCurationForTests();
-    delete process.env.MEMEX_SEARCH_EXCLUDE;
+    delete process.env.MEMRAIN_SEARCH_EXCLUDE;
     expect([...getSearchExcludePrefixes()]).toEqual(["test/", "attachments/", ".raw/"]);
   });
 });
@@ -82,7 +82,7 @@ describe("buildCurationBoostCaseSql", () => {
 describe("buildHardExcludeClauseSql", () => {
   it("emits an AND NOT (…) chain for the default excludes", () => {
     _resetCurationForTests();
-    delete process.env.MEMEX_SEARCH_EXCLUDE;
+    delete process.env.MEMRAIN_SEARCH_EXCLUDE;
     const clause = buildHardExcludeClauseSql("d.source_path");
     expect(clause).toContain("AND NOT (");
     expect(clause).toContain("'test/%'");

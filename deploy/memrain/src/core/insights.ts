@@ -800,7 +800,7 @@ function parseEmbedding(raw: string | null): number[] | null {
 
 /** Read the regression threshold from env with a safe fallback to the default. */
 export function resolveRegressionThreshold(
-  env: string | undefined = process.env.MEMEX_TRAJECTORY_REGRESSION_THRESHOLD,
+  env: string | undefined = process.env.MEMRAIN_TRAJECTORY_REGRESSION_THRESHOLD,
 ): number {
   if (!env) return DEFAULT_REGRESSION_THRESHOLD;
   const n = Number.parseFloat(env);

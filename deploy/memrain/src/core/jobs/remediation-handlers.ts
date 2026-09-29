@@ -121,7 +121,7 @@ function makeBackfillReembed(
     }
     const r = await runEmbedBackfill(engine, {
       sourceId,
-      // Explicit, so MEMEX_REEMBED_ON_SIGNATURE_CHANGE can never turn a
+      // Explicit, so MEMRAIN_REEMBED_ON_SIGNATURE_CHANGE can never turn a
       // gap-fill into a delete-and-re-embed.
       reembedOnSignatureChange: false,
       ...(embed ? { embed } : {}),

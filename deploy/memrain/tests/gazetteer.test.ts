@@ -21,7 +21,7 @@ let tmp: string;
 let storage: Storage;
 
 function clearEnv(): void {
-  delete process.env.MEMEX_GAZETTEER;
+  delete process.env.MEMRAIN_GAZETTEER;
 }
 
 beforeEach(async () => {
@@ -203,7 +203,7 @@ describe("syncMentionsForPage", () => {
   });
 
   it("creates mentions edges when enabled", async () => {
-    process.env.MEMEX_GAZETTEER = "1";
+    process.env.MEMRAIN_GAZETTEER = "1";
     await seed();
     const r = await syncMentionsForPage(
       storage,
@@ -218,7 +218,7 @@ describe("syncMentionsForPage", () => {
   });
 
   it("never clobbers an explicit mention edge", async () => {
-    process.env.MEMEX_GAZETTEER = "1";
+    process.env.MEMRAIN_GAZETTEER = "1";
     await seed();
     // an operator-asserted mention (link_kind NULL)
     await addLink(storage, {
@@ -237,7 +237,7 @@ describe("syncMentionsForPage", () => {
   });
 
   it("replaces its own plain mentions on re-sync and excludes self", async () => {
-    process.env.MEMEX_GAZETTEER = "1";
+    process.env.MEMRAIN_GAZETTEER = "1";
     await seed();
     await syncMentionsForPage(storage, "journal/today", "Alice Smith and Acme Corp");
     const r = await syncMentionsForPage(storage, "journal/today", "only Acme Corp now");

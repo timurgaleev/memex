@@ -54,7 +54,7 @@ export function recencyMultiplier(
 // (e.g. code chunks under `src/`).
 //
 // Override priority (later wins): DEFAULT_RECENCY_DECAY → env
-// (`MEMEX_RECENCY_DECAY=prefix:halfLifeDays:floor,...`). The env parser
+// (`MEMRAIN_RECENCY_DECAY=prefix:halfLifeDays:floor,...`). The env parser
 // fails LOUD on a malformed value (rather than silently degrading rankings)
 // — the throw surfaces the first time the map is resolved (hybrid resolves
 // it once, memoized, so a bad value fails the first search after a deploy).
@@ -93,7 +93,7 @@ export class RecencyDecayParseError extends Error {
 }
 
 /**
- * Parse `MEMEX_RECENCY_DECAY`: comma-separated `prefix:halfLifeDays:floor`
+ * Parse `MEMRAIN_RECENCY_DECAY`: comma-separated `prefix:halfLifeDays:floor`
  * triples, e.g. `daily/:7:0.4,concepts/:0:1`. Fails loud on a bad value.
  */
 export function parseRecencyDecayEnv(env: string | undefined): RecencyDecayMap {
@@ -104,7 +104,7 @@ export function parseRecencyDecayEnv(env: string | undefined): RecencyDecayMap {
     const mid = last > 0 ? raw.lastIndexOf(":", last - 1) : -1;
     if (last <= 0 || mid <= 0) {
       throw new RecencyDecayParseError(
-        `MEMEX_RECENCY_DECAY entry ${JSON.stringify(raw)} must be prefix:halfLifeDays:floor`,
+        `MEMRAIN_RECENCY_DECAY entry ${JSON.stringify(raw)} must be prefix:halfLifeDays:floor`,
       );
     }
     const prefix = raw.slice(0, mid).trim();
@@ -139,7 +139,7 @@ export function parseRecencyDecayEnv(env: string | undefined): RecencyDecayMap {
 
 /** Merge defaults + env into the effective decay map (later wins). */
 export function resolveRecencyDecayMap(
-  envValue: string | undefined = process.env["MEMEX_RECENCY_DECAY"],
+  envValue: string | undefined = process.env["MEMRAIN_RECENCY_DECAY"],
 ): RecencyDecayMap {
   return { ...DEFAULT_RECENCY_DECAY, ...parseRecencyDecayEnv(envValue) };
 }
@@ -199,7 +199,7 @@ export function recencyMultiplierForPath(
 // The boost map is keyed by slug prefix (longest match wins) like the decay
 // map. `coefficient: 0` or
 // `halfLifeDays: 0` marks a prefix evergreen (factor 1.0). Env override:
-// MEMEX_RECENCY_BOOST=prefix:halfLifeDays:coefficient,... — fail-loud like
+// MEMRAIN_RECENCY_BOOST=prefix:halfLifeDays:coefficient,... — fail-loud like
 // the decay parser.
 // ---------------------------------------------------------------------------
 
@@ -234,7 +234,7 @@ export const DEFAULT_RECENCY_BOOST_FALLBACK: RecencyBoostConfig = {
 };
 
 /**
- * Parse `MEMEX_RECENCY_BOOST`: comma-separated `prefix:halfLifeDays:coefficient`
+ * Parse `MEMRAIN_RECENCY_BOOST`: comma-separated `prefix:halfLifeDays:coefficient`
  * triples. Fails loud on a bad value (RecencyDecayParseError, same class as
  * the decay parser — one error surface for both recency knobs).
  */
@@ -246,7 +246,7 @@ export function parseRecencyBoostEnv(env: string | undefined): RecencyBoostMap {
     const mid = last > 0 ? raw.lastIndexOf(":", last - 1) : -1;
     if (last <= 0 || mid <= 0) {
       throw new RecencyDecayParseError(
-        `MEMEX_RECENCY_BOOST entry ${JSON.stringify(raw)} must be prefix:halfLifeDays:coefficient`,
+        `MEMRAIN_RECENCY_BOOST entry ${JSON.stringify(raw)} must be prefix:halfLifeDays:coefficient`,
       );
     }
     const prefix = raw.slice(0, mid).trim();
@@ -280,7 +280,7 @@ export function parseRecencyBoostEnv(env: string | undefined): RecencyBoostMap {
 
 /** Merge defaults + env into the effective boost map (later wins). */
 export function resolveRecencyBoostMap(
-  envValue: string | undefined = process.env["MEMEX_RECENCY_BOOST"],
+  envValue: string | undefined = process.env["MEMRAIN_RECENCY_BOOST"],
 ): RecencyBoostMap {
   return { ...DEFAULT_RECENCY_BOOST, ...parseRecencyBoostEnv(envValue) };
 }

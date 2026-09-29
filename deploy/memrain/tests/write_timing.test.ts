@@ -152,8 +152,8 @@ describe("write timing scope", () => {
   });
 
   it("is fed by the inflight-slot wait", async () => {
-    const prev = process.env.MEMEX_LLM_MAX_INFLIGHT;
-    process.env.MEMEX_LLM_MAX_INFLIGHT = "1";
+    const prev = process.env.MEMRAIN_LLM_MAX_INFLIGHT;
+    process.env.MEMRAIN_LLM_MAX_INFLIGHT = "1";
     try {
       let release!: () => void;
       const holder = withInflightCap(() => new Promise<void>((r) => (release = r)));
@@ -164,8 +164,8 @@ describe("write timing scope", () => {
       expect(await waiter).toBe("got a slot");
       expect(timing.queueMs).toBeGreaterThanOrEqual(20);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_LLM_MAX_INFLIGHT;
-      else process.env.MEMEX_LLM_MAX_INFLIGHT = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_LLM_MAX_INFLIGHT;
+      else process.env.MEMRAIN_LLM_MAX_INFLIGHT = prev;
     }
   });
 });

@@ -32,7 +32,7 @@ let server: ServerHandle;
 let url: string;
 
 beforeAll(async () => {
-  process.env.MEMEX_HTTP_CORS_ORIGIN = "https://allowed.example";
+  process.env.MEMRAIN_HTTP_CORS_ORIGIN = "https://allowed.example";
   tmp = mkdtempSync(join(tmpdir(), "memex-disc-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -46,14 +46,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  delete process.env.MEMEX_HTTP_CORS_ORIGIN;
+  delete process.env.MEMRAIN_HTTP_CORS_ORIGIN;
   await server.stop();
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });
 
 afterEach(() => {
-  delete process.env.MEMEX_PUBLIC_URL;
+  delete process.env.MEMRAIN_PUBLIC_URL;
 });
 
 describe("buildOAuthMetadata — full standard surface", () => {
@@ -101,8 +101,8 @@ describe("resolveIssuer — base URL resolution", () => {
     );
   });
 
-  it("falls back to MEMEX_PUBLIC_URL env when no opt is passed", () => {
-    process.env.MEMEX_PUBLIC_URL = "https://env.example";
+  it("falls back to MEMRAIN_PUBLIC_URL env when no opt is passed", () => {
+    process.env.MEMRAIN_PUBLIC_URL = "https://env.example";
     const u = new URL("http://internal-host:18790/.well-known/x");
     expect(resolveIssuer(u)).toBe("https://env.example");
   });
@@ -134,7 +134,7 @@ describe("GET /.well-known/oauth-authorization-server — live route", () => {
 
   it("advertises the configured public issuer over the request host", async () => {
     // A separate server instance carrying an explicit public URL.
-    process.env.MEMEX_PUBLIC_URL = "https://brain.public.example";
+    process.env.MEMRAIN_PUBLIC_URL = "https://brain.public.example";
     const res = await fetch(`${url}${OAUTH_METADATA_PATH}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -145,7 +145,7 @@ describe("GET /.well-known/oauth-authorization-server — live route", () => {
   });
 
   it("does NOT public-cache a host-derived issuer (cache-poisoning guard)", async () => {
-    // No MEMEX_PUBLIC_URL → issuer falls back to the request Host, which a shared
+    // No MEMRAIN_PUBLIC_URL → issuer falls back to the request Host, which a shared
     // cache could poison — so the response must be no-store.
     const res = await fetch(`${url}${OAUTH_METADATA_PATH}`);
     expect(res.status).toBe(200);

@@ -67,12 +67,12 @@ export async function runIntegrity(opts: IntegrityOptions): Promise<void> {
   const config = loadConfig();
   const vault =
     opts.vault ??
-    process.env.MEMEX_VAULT_PATH ??
+    process.env.MEMRAIN_VAULT_PATH ??
     config.storage.vault ??
     null;
   if (!vault) {
     throw new Error(
-      "memex integrity: vault path is required (--vault PATH, $MEMEX_VAULT_PATH, or storage.vault in config.json)",
+      "memex integrity: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
     );
   }
   if (!existsSync(vault)) {

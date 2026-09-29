@@ -337,11 +337,11 @@ describe("exposure tightening (G47)", () => {
 });
 
 describe("think exposure (G2/G32)", () => {
-  it("returns the default-OFF envelope without MEMEX_THINK", async () => {
+  it("returns the default-OFF envelope without MEMRAIN_THINK", async () => {
     const r = payload(await call("think", { question: "what do I know about alice?" }));
     expect(r.ok).toBe(true);
     expect(r.ran).toBe(false);
-    expect(String(r.reason)).toContain("MEMEX_THINK");
+    expect(String(r.reason)).toContain("MEMRAIN_THINK");
   });
 
   it("save/take are silently ignored for tenant callers", async () => {

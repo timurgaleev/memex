@@ -1,7 +1,7 @@
 /**
  * The login-resume URL behind a TLS terminator.
  *
- * With `MEMEX_OAUTH_REQUIRE_LOGIN=1` an unauthenticated browser hitting
+ * With `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` an unauthenticated browser hitting
  * `/authorize` is bounced to `/admin/login?return_to=…`. The resume target was
  * built from `req.url`, which behind Caddy is the PLAIN-HTTP internal request
  * this process actually received — so signing in sent the operator back to an
@@ -53,19 +53,19 @@ beforeAll(async () => {
     scope: "read write",
   });
   clientId = client.client_id;
-  priorPublicUrl = process.env.MEMEX_PUBLIC_URL;
+  priorPublicUrl = process.env.MEMRAIN_PUBLIC_URL;
 }, 30_000);
 
 afterAll(async () => {
-  if (priorPublicUrl === undefined) delete process.env.MEMEX_PUBLIC_URL;
-  else process.env.MEMEX_PUBLIC_URL = priorPublicUrl;
+  if (priorPublicUrl === undefined) delete process.env.MEMRAIN_PUBLIC_URL;
+  else process.env.MEMRAIN_PUBLIC_URL = priorPublicUrl;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 }, 30_000);
 
 describe("authorize → admin login resume", () => {
   it("resumes against the declared public origin, not the request's scheme", async () => {
-    process.env.MEMEX_PUBLIC_URL = PUBLIC;
+    process.env.MEMRAIN_PUBLIC_URL = PUBLIC;
     const res = await handleAuthorizeRoute(
       new Request(internalAuthorizeUrl()),
       provider,
@@ -84,7 +84,7 @@ describe("authorize → admin login resume", () => {
   });
 
   it("falls back to the request origin when no public URL is declared", async () => {
-    delete process.env.MEMEX_PUBLIC_URL;
+    delete process.env.MEMRAIN_PUBLIC_URL;
     const res = await handleAuthorizeRoute(
       new Request(internalAuthorizeUrl()),
       provider,
@@ -97,7 +97,7 @@ describe("authorize → admin login resume", () => {
   });
 
   it("still auto-approves when no login is required", async () => {
-    process.env.MEMEX_PUBLIC_URL = PUBLIC;
+    process.env.MEMRAIN_PUBLIC_URL = PUBLIC;
     const res = await handleAuthorizeRoute(
       new Request(internalAuthorizeUrl()),
       provider,

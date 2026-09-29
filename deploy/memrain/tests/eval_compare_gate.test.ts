@@ -272,36 +272,36 @@ describe("run fingerprint", () => {
   });
 
   it("moves with a ranking env knob set outside the config", () => {
-    const prev = process.env.MEMEX_MAX_TYPE_RATIO;
+    const prev = process.env.MEMRAIN_MAX_TYPE_RATIO;
     try {
-      delete process.env.MEMEX_MAX_TYPE_RATIO;
+      delete process.env.MEMRAIN_MAX_TYPE_RATIO;
       const unset = runConfigHash({}, 5, "q");
-      process.env.MEMEX_MAX_TYPE_RATIO = "0.4";
+      process.env.MEMRAIN_MAX_TYPE_RATIO = "0.4";
       const set = runConfigHash({}, 5, "q");
       expect(set).not.toBe(unset);
       // The config knob and the env knob it maps onto are the same run.
-      delete process.env.MEMEX_MAX_TYPE_RATIO;
+      delete process.env.MEMRAIN_MAX_TYPE_RATIO;
       expect(runConfigHash({ dedupTypeRatio: 0.4 }, 5, "q")).toBe(set);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_MAX_TYPE_RATIO;
-      else process.env.MEMEX_MAX_TYPE_RATIO = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_MAX_TYPE_RATIO;
+      else process.env.MEMRAIN_MAX_TYPE_RATIO = prev;
     }
   });
 
   it("hashes an explicit mode bundle and the defaults it equals the same", () => {
-    const prev = process.env.MEMEX_SEARCH_MODE;
+    const prev = process.env.MEMRAIN_SEARCH_MODE;
     try {
-      delete process.env.MEMEX_SEARCH_MODE;
+      delete process.env.MEMRAIN_SEARCH_MODE;
       expect(runConfigHash(configForMode("conservative"), 5, "q")).toBe(runConfigHash({}, 5, "q"));
       expect(runConfigHash({ rrfK: 60 }, 5, "q")).toBe(runConfigHash({}, 5, "q"));
-      process.env.MEMEX_SEARCH_MODE = "balanced";
+      process.env.MEMRAIN_SEARCH_MODE = "balanced";
       expect(runConfigHash(configForMode("balanced"), 5, "q")).toBe(runConfigHash({}, 5, "q"));
       expect(runConfigHash({}, 5, "q")).not.toBe(
         runConfigHash(configForMode("conservative"), 5, "q"),
       );
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_SEARCH_MODE;
-      else process.env.MEMEX_SEARCH_MODE = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_SEARCH_MODE;
+      else process.env.MEMRAIN_SEARCH_MODE = prev;
     }
   });
 

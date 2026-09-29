@@ -39,7 +39,7 @@ export interface ServeOptions {
  * its own `sources` row at boot (id = `<basename>-code`).
  */
 function codePaths(): string[] {
-  const raw = process.env.MEMEX_CODE_PATHS;
+  const raw = process.env.MEMRAIN_CODE_PATHS;
   if (!raw || raw.length === 0) return [];
   return raw
     .split(",")
@@ -62,7 +62,7 @@ function codeSourceId(path: string): string {
  * There is deliberately no override. A "print it anyway" switch reopens the
  * hole it closes, because the setups that would reach for one are exactly the
  * ones whose stderr is the log collector. The headless path is the operator
- * supplying their own token via MEMEX_ADMIN_BOOTSTRAP.
+ * supplying their own token via MEMRAIN_ADMIN_BOOTSTRAP.
  */
 export function shouldPrintAdminToken(opts: {
   fromEnv: boolean;
@@ -147,9 +147,9 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Startup zombie-index sweep. memex gates it default-OFF per its no-surprise-
   // mutation posture — an aborted CONCURRENTLY leaving an invalid index is rare,
   // and `doctor`'s invalid-indexes check already surfaces it. Flip
-  // MEMEX_HNSW_ZOMBIE_SWEEP=1 to auto-drop invalid indexes at boot (postgres
+  // MEMRAIN_HNSW_ZOMBIE_SWEEP=1 to auto-drop invalid indexes at boot (postgres
   // only; best-effort, never fails startup).
-  if (process.env.MEMEX_HNSW_ZOMBIE_SWEEP === "1") {
+  if (process.env.MEMRAIN_HNSW_ZOMBIE_SWEEP === "1") {
     try {
       const { dropZombieIndexes } = await import("../core/vector-index.ts");
       const { dropped } = await dropZombieIndexes(storage.engine());
@@ -177,29 +177,29 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   }
   // Per-token-id cap (post-auth) — defeats IP rotation by an authed client.
   const perToken = Number.parseInt(
-    process.env.MEMEX_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE ?? "",
+    process.env.MEMRAIN_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE ?? "",
     10,
   );
   if (Number.isInteger(perToken) && perToken > 0) {
     serverOpts.mcpRateLimitPerTokenPerMinute = perToken;
   }
   // follow-up: public Cloudflare Tunnel ingress. When the
-  // bearer token is present (via MEMEX_PUBLIC_BEARER env populated
+  // bearer token is present (via MEMRAIN_PUBLIC_BEARER env populated
   // by fetch-secrets.sh) we accept authenticated read requests; the
   // server.ts guard rejects internal-only routes regardless.
   // The external origin this brain answers on. The OAuth discovery document
-  // reads MEMEX_PUBLIC_URL from the env on its own, but every other absolute
+  // reads MEMRAIN_PUBLIC_URL from the env on its own, but every other absolute
   // URL the server builds (admin magic links above all) derives from
   // `serverOpts.publicUrl` — so leaving it unset behind a TLS-terminating
   // proxy emits `http://…` links that bounce off the HTTPS redirect.
   // Trailing slashes stripped with the same guarded pattern resolveIssuer uses,
   // so the issuer and every other absolute URL agree on the origin's spelling.
-  const publicUrl = (process.env.MEMEX_PUBLIC_URL ?? "").trim();
+  const publicUrl = (process.env.MEMRAIN_PUBLIC_URL ?? "").trim();
   if (publicUrl.length > 0) {
     serverOpts.publicUrl = publicUrl.replace(/(?<!\/)\/+$/, "");
   }
 
-  const publicBearer = process.env.MEMEX_PUBLIC_BEARER;
+  const publicBearer = process.env.MEMRAIN_PUBLIC_BEARER;
   if (publicBearer && publicBearer.length > 0) {
     serverOpts.publicBearerToken = publicBearer;
     // Public-request detection keys on the Cf-Connecting-Ip header (set by
@@ -207,7 +207,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     // it, every request classifies as internal and the bearer is never
     // checked — a silent full auth bypass. Warn once at startup so a
     // non-Cloudflare operator finds the flag before an attacker does.
-    const assumePublic = (process.env.MEMEX_ASSUME_PUBLIC ?? "")
+    const assumePublic = (process.env.MEMRAIN_ASSUME_PUBLIC ?? "")
       .trim()
       .toLowerCase();
     if (assumePublic !== "1" && assumePublic !== "true") {
@@ -215,7 +215,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
         "[memex] caution: public bearer is configured, but public-request " +
           "detection relies on the Cf-Connecting-Ip header. If your ingress " +
           "is NOT a Cloudflare Tunnel, either inject that header at the " +
-          "proxy or set MEMEX_ASSUME_PUBLIC=1 — otherwise /mcp is served " +
+          "proxy or set MEMRAIN_ASSUME_PUBLIC=1 — otherwise /mcp is served " +
           "without auth. Verify: an unauthenticated POST to /mcp must " +
           "return 401.",
       );
@@ -225,7 +225,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // to /index and /friction. When unset, the server emits a startup
   // warning and stays open (legacy single-node behaviour) — operators
   // are urged to set <secrets_prefix>/memex-internal-token.
-  const internalToken = process.env.MEMEX_INTERNAL_TOKEN;
+  const internalToken = process.env.MEMRAIN_INTERNAL_TOKEN;
   if (internalToken && internalToken.length > 0) {
     serverOpts.internalToken = internalToken;
   }
@@ -234,12 +234,12 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // engine with the brain — the oauth_clients/oauth_tokens tables (migration
   // 046) already exist.
   if (config.auth?.selfIssued?.enabled === true) {
-    // MEMEX_ENABLE_DCR_INSECURE lets self-registered (DCR) clients request the
+    // MEMRAIN_ENABLE_DCR_INSECURE lets self-registered (DCR) clients request the
     // consent-bypassing client_credentials grant; default off keeps them on the
     // authorization_code grant. The route-level DCR gate lives in server.ts.
     const dcrInsecure =
-      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
-      (process.env.MEMEX_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true";
+      (process.env.MEMRAIN_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "1" ||
+      (process.env.MEMRAIN_ENABLE_DCR_INSECURE ?? "").trim().toLowerCase() === "true";
     const provider = new OAuthProvider({
       engine: storage.raw(),
       allowClientCredentialsDcr: dcrInsecure,
@@ -247,26 +247,26 @@ export async function runServe(opts: ServeOptions): Promise<void> {
     serverOpts.oauthProvider = provider;
     if (serverOpts.publicUrl === undefined) {
       console.error(
-        "[memex] caution: OAuth is on but MEMEX_PUBLIC_URL is unset, so the " +
+        "[memex] caution: OAuth is on but MEMRAIN_PUBLIC_URL is unset, so the " +
           "issuer is taken from each request. Behind a TLS-terminating proxy " +
           "that origin is http://, and a client naming its https:// connector " +
           "URL as `resource` is refused with invalid_target. Set " +
-          "MEMEX_PUBLIC_URL to the external https:// origin.",
+          "MEMRAIN_PUBLIC_URL to the external https:// origin.",
       );
     }
     await bootTokenSweep(provider, quiescence);
   }
-  // Admin surface bootstrap token (A1). Stable when MEMEX_ADMIN_BOOTSTRAP is
+  // Admin surface bootstrap token (A1). Stable when MEMRAIN_ADMIN_BOOTSTRAP is
   // set; otherwise an ephemeral per-run token echoed to an interactive stderr
   // (lives only in the operator's terminal — never in a URL, never in a
   // container log). The `/admin` auth routes mount either way.
-  const adminBootstrap = process.env.MEMEX_ADMIN_BOOTSTRAP?.trim();
+  const adminBootstrap = process.env.MEMRAIN_ADMIN_BOOTSTRAP?.trim();
   // The admin surface provisions the whole brain (sources, tenant grants), so an
   // operator-set bootstrap token must meet a minimum entropy floor — reject a weak
   // value at boot rather than lean on the login rate limiter alone.
   if (adminBootstrap && adminBootstrap.length > 0 && !/^[\w-]{32,}$/.test(adminBootstrap)) {
     throw new Error(
-      "MEMEX_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +
+      "MEMRAIN_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +
         "(e.g. `openssl rand -base64 32 | tr '+/' '-_'`), or unset it for an ephemeral per-run token.",
     );
   }
@@ -280,7 +280,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       "[memex] admin bootstrap token generated but withheld: stderr is not a TTY, so the " +
         "value would persist in the log sink. The admin surface is unreachable this run. " +
         "To use it headlessly, generate a token yourself and pass it in: " +
-        "MEMEX_ADMIN_BOOTSTRAP=$(openssl rand -base64 32 | tr '+/' '-_') — never have the " +
+        "MEMRAIN_ADMIN_BOOTSTRAP=$(openssl rand -base64 32 | tr '+/' '-_') — never have the " +
         "server print a generated one into the logs.",
     );
   }
@@ -341,7 +341,7 @@ export function startBackgroundWork(
   // No filesystem vault is watched at startup.
 
   // code chunkers (graph-only, see TODO External-dep roadmap).
-  // Register one source row per MEMEX_CODE_PATHS entry, then run a
+  // Register one source row per MEMRAIN_CODE_PATHS entry, then run a
   // boot sweep. Both are best-effort: registration errors are warned,
   // sweep errors are logged but do NOT abort serve startup.
   const codeRoots = codePaths();
@@ -349,7 +349,7 @@ export function startBackgroundWork(
     // Off by switch or maintenance; the boot line already says so.
   } else if (codeRoots.length === 0) {
     console.log(
-      "[memex] no code roots configured (set MEMEX_CODE_PATHS=/path/to/repo[,...] to enable code chunkers)",
+      "[memex] no code roots configured (set MEMRAIN_CODE_PATHS=/path/to/repo[,...] to enable code chunkers)",
     );
   } else {
     for (const root of codeRoots) {
@@ -371,7 +371,7 @@ export function startBackgroundWork(
         ),
       );
     }
-    const codeDelayMs = envNum("MEMEX_CODE_SWEEP_DELAY_MS") ?? 0;
+    const codeDelayMs = envNum("MEMRAIN_CODE_SWEEP_DELAY_MS") ?? 0;
     void (async () => {
       try {
         const sweepOpts: Parameters<typeof sweepCodeRoots>[1] = { paths: codeRoots };
@@ -414,7 +414,7 @@ export function startBackgroundWork(
   // Start the durable jobs worker. Single-concurrency for v1. (The legacy
   // ingest recipes were removed — markdown enters via on-demand reindex /
   // MCP, code via the boot sweep; jobs remain for future handlers.)
-  // A default per-job wall-clock cap is OFF unless MEMEX_JOB_TIMEOUT_MS is set
+  // A default per-job wall-clock cap is OFF unless MEMRAIN_JOB_TIMEOUT_MS is set
   // (a blanket cap could dead-letter a legitimately-slow Bedrock phase); a job
   // can still set its own timeoutMs at enqueue.
   const workerOpts: ConstructorParameters<typeof Worker>[1] = {
@@ -424,7 +424,7 @@ export function startBackgroundWork(
     // until the holder's heartbeat lapses (migration 042).
     engine: storage.engine(),
   };
-  const jobTimeoutRaw = process.env.MEMEX_JOB_TIMEOUT_MS?.trim();
+  const jobTimeoutRaw = process.env.MEMRAIN_JOB_TIMEOUT_MS?.trim();
   // Strict: digits only (reject "100abc" -> 100, "1e9" -> 1, negatives, blanks),
   // matching enqueue's positive-integer validation.
   if (jobTimeoutRaw !== undefined && /^\d+$/.test(jobTimeoutRaw)) {
@@ -440,7 +440,7 @@ export function startBackgroundWork(
   // Register the `chronicle_extract` handler so timeline extraction runs off
   // the write path instead of dead-lettering with "no handler registered".
   registerChronicleHandler(storage);
-  // Register the `page_mirror` handler: with MEMEX_PAGE_MIRROR_SYNC=0 the write
+  // Register the `page_mirror` handler: with MEMRAIN_PAGE_MIRROR_SYNC=0 the write
   // path queues the search mirror instead of running it inline.
   registerPageMirrorHandler(storage);
   // The operator's agent loop runs only when opted in: without the handler a
@@ -462,10 +462,10 @@ export function startBackgroundWork(
   // `dream.*` config keys drive the cycle's embed-stale phase.
   // Threshold for enabling stays at >=60 s to avoid
   // accidental tight loops.
-  const cycleIntervalS = envNum("MEMEX_DREAM_INTERVAL_S")
+  const cycleIntervalS = envNum("MEMRAIN_DREAM_INTERVAL_S")
     ?? config.dream?.interval_s
     ?? 0;
-  const cycleStaleDays = envNum("MEMEX_DREAM_STALE_DAYS")
+  const cycleStaleDays = envNum("MEMRAIN_DREAM_STALE_DAYS")
     ?? config.dream?.stale_days
     ?? 30;
   let cycle: CycleHandle | null = null;

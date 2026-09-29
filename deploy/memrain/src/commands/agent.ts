@@ -124,11 +124,11 @@ async function waitForEnd(
 export async function runAgentCli(opts: AgentCliOptions): Promise<number> {
   const out = opts.out ?? ((l: string) => console.log(l));
   const err = opts.err ?? ((l: string) => console.error(l));
-  const enabled = "enabled" in opts ? opts.enabled : process.env.MEMEX_AGENT_ENABLED;
+  const enabled = "enabled" in opts ? opts.enabled : process.env.MEMRAIN_AGENT_ENABLED;
 
   if (opts.sub === "run") {
     if (!agentEnabled(enabled)) {
-      err("memex agent run: the agent loop is off; set MEMEX_AGENT_ENABLED=1 on the server first");
+      err("memex agent run: the agent loop is off; set MEMRAIN_AGENT_ENABLED=1 on the server first");
       return 1;
     }
     // Validate here too, so a bad task fails at the prompt, not in the worker.

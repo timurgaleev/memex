@@ -1,6 +1,6 @@
 /**
  * The search mirror of a written page, built inline (the default) or by a
- * `page_mirror` job (`MEMEX_PAGE_MIRROR_SYNC=0`).
+ * `page_mirror` job (`MEMRAIN_PAGE_MIRROR_SYNC=0`).
  *
  * Locks: the default path is unchanged; a queued write says so and the job
  * builds the mirror; `wait_for_index` forces the inline path; the job trusts
@@ -32,7 +32,7 @@ const body = (word: string) =>
   `that search can find, and it mentions ${word} again so the keyword arm matches it clearly.`;
 
 beforeEach(async () => {
-  prevSync = process.env.MEMEX_PAGE_MIRROR_SYNC;
+  prevSync = process.env.MEMRAIN_PAGE_MIRROR_SYNC;
   tmp = mkdtempSync(join(tmpdir(), "memex-mirror-job-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
@@ -40,8 +40,8 @@ beforeEach(async () => {
   registerPageMirrorHandler(storage, { embedFn });
 });
 afterEach(async () => {
-  if (prevSync === undefined) delete process.env.MEMEX_PAGE_MIRROR_SYNC;
-  else process.env.MEMEX_PAGE_MIRROR_SYNC = prevSync;
+  if (prevSync === undefined) delete process.env.MEMRAIN_PAGE_MIRROR_SYNC;
+  else process.env.MEMRAIN_PAGE_MIRROR_SYNC = prevSync;
   _resetHandlersForTesting();
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
@@ -69,7 +69,7 @@ async function drain(): Promise<void> {
 
 describe("where the mirror is built", () => {
   it("builds it inline by default and queues nothing", async () => {
-    delete process.env.MEMEX_PAGE_MIRROR_SYNC;
+    delete process.env.MEMRAIN_PAGE_MIRROR_SYNC;
     const res = await put({ slug: "notes/inline", markdown_body: body("otters") });
     expect("search_indexed" in res).toBe(true);
     expect(res.search_pending).toBeUndefined();
@@ -78,7 +78,7 @@ describe("where the mirror is built", () => {
   });
 
   it("queues it when mirrors are asynchronous, and the job builds it", async () => {
-    process.env.MEMEX_PAGE_MIRROR_SYNC = "0";
+    process.env.MEMRAIN_PAGE_MIRROR_SYNC = "0";
     const res = await put({ slug: "notes/queued", markdown_body: body("badgers") });
     expect(res.search_pending).toBe(true);
     expect(typeof res.search_job_id).toBe("string");
@@ -92,7 +92,7 @@ describe("where the mirror is built", () => {
   });
 
   it("builds it inline when the caller asks to wait for the index", async () => {
-    process.env.MEMEX_PAGE_MIRROR_SYNC = "0";
+    process.env.MEMRAIN_PAGE_MIRROR_SYNC = "0";
     const res = await put({ slug: "notes/waited", markdown_body: body("herons"), wait_for_index: true });
     expect(res.search_pending).toBeUndefined();
     expect("search_indexed" in res).toBe(true);
@@ -101,7 +101,7 @@ describe("where the mirror is built", () => {
   it("ends an A -> B -> A sequence with A mirrored", async () => {
     // A content-addressed job id would collapse the second A onto the first,
     // long-finished job and never mirror it again.
-    process.env.MEMEX_PAGE_MIRROR_SYNC = "0";
+    process.env.MEMRAIN_PAGE_MIRROR_SYNC = "0";
     await put({ slug: "notes/abba", markdown_body: body("apples") });
     await drain();
     await put({ slug: "notes/abba", markdown_body: body("bananas") });

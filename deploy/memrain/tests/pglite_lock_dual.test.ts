@@ -133,7 +133,7 @@ describe("dual PGLite data-dir lock", () => {
   });
 
   it("takes neither file when the lock is turned off", () => {
-    const held = acquireDataDirLock(dir, { MEMEX_PGLITE_NO_LOCK: "1" });
+    const held = acquireDataDirLock(dir, { MEMRAIN_PGLITE_NO_LOCK: "1" });
     expect(existsSync(legacyLock())).toBe(false);
     expect(existsSync(currentLock())).toBe(false);
     held.release();

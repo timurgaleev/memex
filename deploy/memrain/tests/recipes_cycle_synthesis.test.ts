@@ -1,6 +1,6 @@
 /**
  * Opt-in auto-think: the dream loop appends the Nova SYNTHESIS_PHASES to a tick
- * ONLY when MEMEX_DREAM_SYNTHESIS is on AND the tick is in quiet hours. Pure
+ * ONLY when MEMRAIN_DREAM_SYNTHESIS is on AND the tick is in quiet hours. Pure
  * phase-array logic — no Bedrock call.
  */
 import { describe, expect, it } from "bun:test";

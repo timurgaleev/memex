@@ -131,7 +131,7 @@ afterAll(async () => {
 });
 
 afterEach(() => {
-  delete process.env["MEMEX_TENANT_FAIL_CLOSED"];
+  delete process.env["MEMRAIN_TENANT_FAIL_CLOSED"];
 });
 
 describe("tools/list equals the callable set", () => {
@@ -142,7 +142,7 @@ describe("tools/list equals the callable set", () => {
   }
 
   it("a no-grant token under the fail-closed policy", async () => {
-    process.env["MEMEX_TENANT_FAIL_CLOSED"] = "1";
+    process.env["MEMRAIN_TENANT_FAIL_CLOSED"] = "1";
     const ctx: McpRequestContext = {
       isPublic: false,
       authInfo: token({ scopes: ["read", "write"], sourceId: undefined }),

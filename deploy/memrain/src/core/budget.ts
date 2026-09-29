@@ -548,7 +548,7 @@ export async function expireStaleReservations(
 // Before this, spend was un-attributable: eight sites each built their own
 // command, the three search ones threaded no BudgetTracker at all, and the
 // tracker itself only ever wrote to an audit FILE that is disabled unless
-// MEMEX_AUDIT_DIR is set — so on the live deployment the cost was computed and
+// MEMRAIN_AUDIT_DIR is set — so on the live deployment the cost was computed and
 // thrown away. `trackedInvoke` books every call into mcp_spend_log under an
 // operation label naming the feature, which is what makes "where did the $42
 // go" answerable with a GROUP BY.

@@ -25,13 +25,13 @@ beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-hotmeta-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  priorEnv = process.env["MEMEX_HOT_MEMORY_META"];
+  priorEnv = process.env["MEMRAIN_HOT_MEMORY_META"];
   __resetHotMemoryMetaCacheForTests();
 });
 
 afterEach(async () => {
-  if (priorEnv === undefined) delete process.env["MEMEX_HOT_MEMORY_META"];
-  else process.env["MEMEX_HOT_MEMORY_META"] = priorEnv;
+  if (priorEnv === undefined) delete process.env["MEMRAIN_HOT_MEMORY_META"];
+  else process.env["MEMRAIN_HOT_MEMORY_META"] = priorEnv;
   __resetHotMemoryMetaCacheForTests();
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
@@ -39,7 +39,7 @@ afterEach(async () => {
 
 describe("getBrainHotMemoryMeta", () => {
   it("is disabled by default (returns undefined even with facts)", async () => {
-    delete process.env["MEMEX_HOT_MEMORY_META"];
+    delete process.env["MEMRAIN_HOT_MEMORY_META"];
     expect(hotMemoryMetaEnabled()).toBe(false);
     await recordHotFact(storage, { entity_slug: "people/bob", fact: "likes tea" });
     __resetHotMemoryMetaCacheForTests();
@@ -47,7 +47,7 @@ describe("getBrainHotMemoryMeta", () => {
   });
 
   it("returns a decay-weighted top-K payload when enabled", async () => {
-    process.env["MEMEX_HOT_MEMORY_META"] = "1";
+    process.env["MEMRAIN_HOT_MEMORY_META"] = "1";
     // Recent, medium confidence.
     await recordHotFact(storage, {
       entity_slug: "people/bob",
@@ -71,7 +71,7 @@ describe("getBrainHotMemoryMeta", () => {
   });
 
   it("returns undefined when there are no recent facts", async () => {
-    process.env["MEMEX_HOT_MEMORY_META"] = "1";
+    process.env["MEMRAIN_HOT_MEMORY_META"] = "1";
     __resetHotMemoryMetaCacheForTests();
     expect(await getBrainHotMemoryMeta(storage)).toBeUndefined();
   });
@@ -79,7 +79,7 @@ describe("getBrainHotMemoryMeta", () => {
 
 describe("dispatch injection gating", () => {
   beforeEach(async () => {
-    process.env["MEMEX_HOT_MEMORY_META"] = "1";
+    process.env["MEMRAIN_HOT_MEMORY_META"] = "1";
     await recordHotFact(storage, { entity_slug: "people/bob", fact: "held" });
     __resetHotMemoryMetaCacheForTests();
   });

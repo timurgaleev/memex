@@ -48,16 +48,16 @@ function estimateUsage(prompt: string): { inputTokens: number; outputTokens: num
 }
 
 /** Default USD ceiling for one concepts run. Override with
- *  MEMEX_CONCEPTS_BUDGET_USD; the phase is opt-in and cheap, so the default is
+ *  MEMRAIN_CONCEPTS_BUDGET_USD; the phase is opt-in and cheap, so the default is
  *  a ceiling that a healthy run never reaches rather than a tight leash. */
 const DEFAULT_CONCEPTS_BUDGET_USD = 0.5;
 
 function conceptsBudgetUsd(): number {
-  const raw = process.env.MEMEX_CONCEPTS_BUDGET_USD;
+  const raw = process.env.MEMRAIN_CONCEPTS_BUDGET_USD;
   if (raw === undefined || raw.trim() === "") return DEFAULT_CONCEPTS_BUDGET_USD;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`MEMEX_CONCEPTS_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
+    throw new Error(`MEMRAIN_CONCEPTS_BUDGET_USD must be a positive number, got: ${JSON.stringify(raw)}`);
   }
   return n;
 }
@@ -83,7 +83,7 @@ export interface SynthesizeConceptsOptions {
   /**
    * Storage handle for the concept page mirror (`concepts/<slug>` via putPage)
    * so concept narratives are retrievable through normal search. Absent →
-   * rows only. Gated globally by MEMEX_SYNTH_PAGES (default ON).
+   * rows only. Gated globally by MEMRAIN_SYNTH_PAGES (default ON).
    */
   storage?: Storage;
 }

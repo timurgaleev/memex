@@ -23,11 +23,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Same default the `memex skillpack` command bundles from (deploy/skills/).
  * In the container the repo-relative path does not exist (the image copies
  * only deploy/memex), so the compose file mounts the pack read-only and
- * points MEMEX_SKILLS_DIR at it.
+ * points MEMRAIN_SKILLS_DIR at it.
  */
 export const DEFAULT_SKILLS_DIR =
-  process.env.MEMEX_SKILLS_DIR && process.env.MEMEX_SKILLS_DIR.trim().length > 0
-    ? process.env.MEMEX_SKILLS_DIR
+  process.env.MEMRAIN_SKILLS_DIR && process.env.MEMRAIN_SKILLS_DIR.trim().length > 0
+    ? process.env.MEMRAIN_SKILLS_DIR
     : resolve(__dirname, "..", "..", "..", "..", "skills");
 
 export interface BrainSkill {

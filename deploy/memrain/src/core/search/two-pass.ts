@@ -2,13 +2,13 @@
  * Two-pass rerank — feed the top-K hybrid hits to Haiku 4.5 for a more
  * precise relevance score, return the new ordering.
  *
- * Opt-in via env `MEMEX_RERANK=1` because Haiku is paid (~$1-3/mo
+ * Opt-in via env `MEMRAIN_RERANK=1` because Haiku is paid (~$1-3/mo
  * for typical use). Cheap users keep the RRF + source-boost ordering.
  *
  * Designed to fail safe: any error returns the input order unchanged AND is
  * recorded to the rerank-failure audit JSONL (rerank-audit.ts, opt-in via
- * MEMEX_AUDIT_DIR) so silent degradation is greppable. The Bedrock call runs
- * under a per-call wall-clock timeout (MEMEX_RERANK_TIMEOUT_MS, default
+ * MEMRAIN_AUDIT_DIR) so silent degradation is greppable. The Bedrock call runs
+ * under a per-call wall-clock timeout (MEMRAIN_RERANK_TIMEOUT_MS, default
  * 5000ms) so a hung connection can't stall search.
  */
 import { resolveModel } from "../llm/resolve-model.ts";
@@ -26,7 +26,7 @@ import { awsRegion } from "../llm/gateway.ts";
 import { trackedInvoke } from "../budget.ts";
 
 
-/** Ledger label — the opt-in paid rerank behind MEMEX_RERANK=1. */
+/** Ledger label — the opt-in paid rerank behind MEMRAIN_RERANK=1. */
 const SPEND_OP = "rerank-two-pass";
 
 /** Per-call rerank timeout (ms). Default: 5000. */
@@ -46,7 +46,7 @@ const MAX_OUTPUT_TOKENS = 200;
 const INDEX_ARRAY = new RegExp(`\\[[^\\]]{0,${MAX_OUTPUT_TOKENS * 4}}\\]`);
 
 function rerankTimeoutMs(): number {
-  const n = Number(process.env.MEMEX_RERANK_TIMEOUT_MS);
+  const n = Number(process.env.MEMRAIN_RERANK_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
 }
 
@@ -65,7 +65,7 @@ export interface ChunkPayloadForRerank {
 export interface RerankOptions {
   modelId?: string;
   region?: string;
-  /** Per-call timeout override (ms). Defaults to MEMEX_RERANK_TIMEOUT_MS/5000. */
+  /** Per-call timeout override (ms). Defaults to MEMRAIN_RERANK_TIMEOUT_MS/5000. */
   timeoutMs?: number;
   /** Override the Bedrock client (tests pass a stub), as embedding.ts does. */
   client?: BedrockRuntimeClient;

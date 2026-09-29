@@ -134,7 +134,7 @@ describe("acquireDataDirLock", () => {
 
   it("can be turned off, because setups exist that it would wrongly refuse", () => {
     writeFileSync(lockFile(), "1\n");
-    const held = acquireDataDirLock(dir, { MEMEX_PGLITE_NO_LOCK: "1" });
+    const held = acquireDataDirLock(dir, { MEMRAIN_PGLITE_NO_LOCK: "1" });
     expect(() => held.release()).not.toThrow();
     // The other process's lock is left exactly as it was.
     expect(lockPid()).toBe("1");
@@ -184,7 +184,7 @@ describe("the cases a file lock gets wrong", () => {
       /Refusing to open the directory unguarded/,
     );
     expect(() =>
-      acquireDataDirLock(unwritable, { MEMEX_PGLITE_NO_LOCK: "1" }),
+      acquireDataDirLock(unwritable, { MEMRAIN_PGLITE_NO_LOCK: "1" }),
     ).not.toThrow();
   });
 

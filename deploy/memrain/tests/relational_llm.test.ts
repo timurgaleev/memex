@@ -74,7 +74,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   // Ensure the live env gate is OFF unless a test opts in.
-  delete process.env["MEMEX_RELATIONAL_LLM"];
+  delete process.env["MEMRAIN_RELATIONAL_LLM"];
 });
 
 describe("parseRelationalLlmResponse", () => {

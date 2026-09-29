@@ -67,18 +67,18 @@ describe("edgeContextWindow", () => {
 });
 
 describe("linkVerbInferEnabled", () => {
-  it("is OFF unless MEMEX_LINK_VERB_INFER=1", () => {
-    const prev = process.env["MEMEX_LINK_VERB_INFER"];
+  it("is OFF unless MEMRAIN_LINK_VERB_INFER=1", () => {
+    const prev = process.env["MEMRAIN_LINK_VERB_INFER"];
     try {
-      delete process.env["MEMEX_LINK_VERB_INFER"];
+      delete process.env["MEMRAIN_LINK_VERB_INFER"];
       expect(linkVerbInferEnabled()).toBe(false);
-      process.env["MEMEX_LINK_VERB_INFER"] = "1";
+      process.env["MEMRAIN_LINK_VERB_INFER"] = "1";
       expect(linkVerbInferEnabled()).toBe(true);
-      process.env["MEMEX_LINK_VERB_INFER"] = "0";
+      process.env["MEMRAIN_LINK_VERB_INFER"] = "0";
       expect(linkVerbInferEnabled()).toBe(false);
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_LINK_VERB_INFER"];
-      else process.env["MEMEX_LINK_VERB_INFER"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_LINK_VERB_INFER"];
+      else process.env["MEMRAIN_LINK_VERB_INFER"] = prev;
     }
   });
 });

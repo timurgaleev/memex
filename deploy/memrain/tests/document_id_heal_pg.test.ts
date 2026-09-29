@@ -1,7 +1,7 @@
 /**
  * The document-id fold and the drift check on a real Postgres: the row locks,
  * the COALESCE'd insert owner and sha256/convert_to all have to hold there too.
- * Skipped unless MEMEX_TEST_POSTGRES_URL points at a scratch database.
+ * Skipped unless MEMRAIN_TEST_POSTGRES_URL points at a scratch database.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
@@ -14,7 +14,7 @@ import { registerSource } from "../src/core/sources.ts";
 import { indexFile } from "../src/core/indexer.ts";
 import { checkDocumentIdDrift } from "../src/core/doctor-tenancy.ts";
 
-const URL_ = process.env.MEMEX_TEST_POSTGRES_URL;
+const URL_ = process.env.MEMRAIN_TEST_POSTGRES_URL;
 const idFor = (p: string) => `doc_${createHash("sha256").update(p).digest("hex").slice(0, 16)}`;
 
 describe.skipIf(!URL_)("document id fold on Postgres", () => {
@@ -30,13 +30,13 @@ describe.skipIf(!URL_)("document id fold on Postgres", () => {
     await registerSource(pg, { id: "timur", kind: "other", pathPrefix: "tenant:timur" }).catch(() => {});
     tmp = realpathSync(mkdtempSync(join(tmpdir(), "memex-id-heal-pg-")));
     mkdirSync(join(tmp, "memory"), { recursive: true });
-    savedVault = process.env.MEMEX_VAULT_PATHS;
-    process.env.MEMEX_VAULT_PATHS = join(tmp, "memory");
+    savedVault = process.env.MEMRAIN_VAULT_PATHS;
+    process.env.MEMRAIN_VAULT_PATHS = join(tmp, "memory");
   });
 
   afterAll(async () => {
-    if (savedVault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-    else process.env.MEMEX_VAULT_PATHS = savedVault;
+    if (savedVault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+    else process.env.MEMRAIN_VAULT_PATHS = savedVault;
     rmSync(tmp, { recursive: true, force: true });
     await pg.close();
   });

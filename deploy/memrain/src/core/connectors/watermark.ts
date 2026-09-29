@@ -38,9 +38,9 @@ export function connectorRecipeId(provider: string, target: string): string {
   return `${CONNECTOR_RECIPE_PREFIX}${provider}:${target}`;
 }
 
-/** MEMEX_CONNECTOR_GAP_HEAL_MINUTES, a non-negative integer (default 15). */
+/** MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES, a non-negative integer (default 15). */
 export function gapHealMinutes(): number {
-  const raw = (process.env.MEMEX_CONNECTOR_GAP_HEAL_MINUTES ?? "").trim();
+  const raw = (process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES ?? "").trim();
   if (raw === "") return DEFAULT_GAP_HEAL_MINUTES;
   const n = Number(raw);
   return Number.isInteger(n) && n >= 0 ? n : DEFAULT_GAP_HEAL_MINUTES;

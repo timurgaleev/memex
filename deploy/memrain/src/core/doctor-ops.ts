@@ -86,13 +86,13 @@ export async function checkGrammars(_engine: Engine): Promise<OpsCheckResult> {
 }
 
 function jobWedgeSeconds(): number {
-  const n = Number.parseInt(process.env.MEMEX_DOCTOR_JOB_WEDGE_SEC ?? "", 10);
+  const n = Number.parseInt(process.env.MEMRAIN_DOCTOR_JOB_WEDGE_SEC ?? "", 10);
   return Number.isFinite(n) && n > 0 ? n : 3600;
 }
 
 /**
  * Job queue depth + wedged-job count (a `running` job older than the wedge
- * threshold, default 1h via MEMEX_DOCTOR_JOB_WEDGE_SEC). A deep pending queue is
+ * threshold, default 1h via MEMRAIN_DOCTOR_JOB_WEDGE_SEC). A deep pending queue is
  * normal mid-backfill (informational); a wedged job is the signal to look. Only
  * a wedged job flips ok:false.
  */
@@ -279,7 +279,7 @@ export async function checkJunkEntityHubs(
  * Quarantined pages: how many the content-sanity gate is hiding and which
  * patterns hid them. A false positive vanishes from search silently, so the
  * count alone is not enough — the top patterns say which one to switch off
- * (`MEMEX_CONTENT_SANITY_DISABLE`) before `memex quarantine clear`. Warn, never
+ * (`MEMRAIN_CONTENT_SANITY_DISABLE`) before `memex quarantine clear`. Warn, never
  * fail: a held page is the gate working, not a broken brain.
  */
 export async function checkQuarantinedPages(
@@ -315,7 +315,7 @@ export async function checkQuarantinedPages(
 
 /**
  * Embedding-width consistency: the stored vector width vs the configured
- * EMBED_DIMENSIONS (MEMEX_EMBED_DIM). The `vector(N)` column is fixed-width, so
+ * EMBED_DIMENSIONS (MEMRAIN_EMBED_DIM). The `vector(N)` column is fixed-width, so
  * a mismatch means the config was changed without migrating the column — new
  * embeds would break. Flips ok:false so the drift is visible before it bites.
  */
@@ -348,6 +348,6 @@ export async function checkEmbeddingWidth(
     status: ok ? "ok" : "fail",
     detail: ok
       ? `embeddings are ${stored}-dim (matches configured ${EMBED_DIMENSIONS})`
-      : `stored embeddings are ${stored}-dim but config expects ${EMBED_DIMENSIONS} — reindex or align MEMEX_EMBED_DIM`,
+      : `stored embeddings are ${stored}-dim but config expects ${EMBED_DIMENSIONS} — reindex or align MEMRAIN_EMBED_DIM`,
   };
 }

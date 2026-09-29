@@ -34,19 +34,19 @@ function writeConfig(dir: string, body: object = CONFIG): string {
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "memex-cfgpaths-"));
-  savedOverride = process.env.MEMEX_CONFIG_PATH;
-  delete process.env.MEMEX_CONFIG_PATH;
+  savedOverride = process.env.MEMRAIN_CONFIG_PATH;
+  delete process.env.MEMRAIN_CONFIG_PATH;
 });
 
 afterEach(() => {
-  if (savedOverride === undefined) delete process.env.MEMEX_CONFIG_PATH;
-  else process.env.MEMEX_CONFIG_PATH = savedOverride;
+  if (savedOverride === undefined) delete process.env.MEMRAIN_CONFIG_PATH;
+  else process.env.MEMRAIN_CONFIG_PATH = savedOverride;
   rmSync(home, { recursive: true, force: true });
 });
 
 describe("resolveConfigDir", () => {
   it("prefers the config-path override, as a file path", () => {
-    const env = { MEMEX_CONFIG_PATH: "/srv/brain/custom.json" };
+    const env = { MEMRAIN_CONFIG_PATH: "/srv/brain/custom.json" };
     writeConfig(join(home, ".memrain"));
     expect(resolveConfigDir(env, home)).toBe("/srv/brain");
     expect(defaultConfigPath(env, home)).toBe("/srv/brain/custom.json");
@@ -54,7 +54,7 @@ describe("resolveConfigDir", () => {
 
   it("ignores an empty override", () => {
     writeConfig(join(home, ".memrain"));
-    expect(resolveConfigDir({ MEMEX_CONFIG_PATH: "" }, home)).toBe(join(home, ".memrain"));
+    expect(resolveConfigDir({ MEMRAIN_CONFIG_PATH: "" }, home)).toBe(join(home, ".memrain"));
   });
 
   it("takes ~/.memrain over ~/.memex when both hold config.json", () => {

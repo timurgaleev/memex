@@ -159,6 +159,6 @@ export const METRIC_GLOSSARY: Readonly<Record<string, string>> = {
   qrels_changed: "The baseline was scored against different qrels bytes, so the comparison is not like for like.",
   significantDrop: "True when the paired delta interval for MRR lies entirely below 0.",
   run_config_hash:
-    "sha256 of the resolved ranking knobs (explicit config over MEMEX_* env over the search-mode bundle), the ranking env knobs, the embedding signature, k and qrels_sha256. Equal hashes mean the same ranking configuration; the corpus is not covered, so runs against a changed brain can differ under one hash.",
+    "sha256 of the resolved ranking knobs (explicit config over MEMRAIN_* env over the search-mode bundle), the ranking env knobs, the embedding signature, k and qrels_sha256. Equal hashes mean the same ranking configuration; the corpus is not covered, so runs against a changed brain can differ under one hash.",
   qrels_sha256: "sha256 of the qrels file bytes the run scored against.",
 };

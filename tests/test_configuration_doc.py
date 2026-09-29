@@ -11,7 +11,9 @@ REPO_ROOT = Path(__file__).parent.parent
 SRC_DIR = REPO_ROOT / "deploy" / "memrain" / "src"
 DOC_PATH = REPO_ROOT / "docs" / "CONFIGURATION.md"
 
-VAR_RE = re.compile(r"\bMEMEX_[A-Z0-9_]*[A-Z0-9]\b")
+# The source reads MEMRAIN_* names; the doc still lists each under the legacy
+# MEMEX_* spelling the startup shim maps from, so compare by that spelling.
+VAR_RE = re.compile(r"\bMEMRAIN_([A-Z0-9_]*[A-Z0-9])\b")
 ROW_RE = re.compile(r"^\| `(MEMEX_[A-Z0-9_]+)`", re.MULTILINE)
 
 # Names in the source that are not environment variables.
@@ -20,6 +22,17 @@ NOT_ENV = {
     "MEMEX_RESPONSE_VERSION",  # exported constant (mcp/response-contract.ts)
     "MEMEX_MAX_TOKENS",  # an example name in a comment (core/runtime-config.ts)
     "MEMEX_X",  # the placeholder in the legacy-name comments (core/env-compat.ts, runtime-config.ts)
+}
+
+# Source names with no MEMEX_* spelling: switches added with the rename (their
+# rows come with the MEMRAIN_ docs) and one constant.
+NEW_ONLY = {
+    "MEMRAIN_REQUIRE_POSTGRES",
+    "MEMRAIN_MAINTENANCE",
+    "MEMRAIN_BOOT_CODE_SWEEP",
+    "MEMRAIN_JOBS_WORKER",
+    "MEMRAIN_CYCLE",
+    "MEMRAIN_NO_SOURCE_SENTINEL",  # a source-id constant (core/auth-info.ts)
 }
 
 # Documented rows the source reads without spelling the full name.
@@ -39,7 +52,9 @@ DOC_ONLY = {
 def source_vars() -> set[str]:
     found: set[str] = set()
     for path in SRC_DIR.rglob("*.ts"):
-        found.update(VAR_RE.findall(path.read_text(encoding="utf-8")))
+        for suffix in VAR_RE.findall(path.read_text(encoding="utf-8")):
+            if "MEMRAIN_" + suffix not in NEW_ONLY:
+                found.add("MEMEX_" + suffix)
     return found - NOT_ENV
 
 

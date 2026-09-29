@@ -23,12 +23,11 @@ trap finish EXIT
 die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 
-# The stub records each invocation with the two URL names it saw.
+# The stub records each invocation with the URL the app reads.
 mkdir -p "$TMPROOT/bin"
 cat > "$TMPROOT/bin/bun" <<'STUB'
 #!/bin/sh
-printf '%s | MEMRAIN_POSTGRES_URL=%s MEMEX_POSTGRES_URL=%s\n' "$*" \
-  "${MEMRAIN_POSTGRES_URL:-}" "${MEMEX_POSTGRES_URL:-}" >> "$CALLS"
+printf '%s | MEMRAIN_POSTGRES_URL=%s\n' "$*" "${MEMRAIN_POSTGRES_URL:-}" >> "$CALLS"
 exit 0
 STUB
 chmod +x "$TMPROOT/bin/bun"
@@ -46,7 +45,7 @@ run_entry() {
 }
 
 URL="postgres://u:p@db/brain"
-init_pg="run src/cli.ts init --postgres | MEMRAIN_POSTGRES_URL=$URL MEMEX_POSTGRES_URL=$URL"
+init_pg="run src/cli.ts init --postgres | MEMRAIN_POSTGRES_URL=$URL"
 serve="run src/cli.ts serve --http --host 0.0.0.0 --port 18790"
 
 echo "== entrypoint.sh =="
@@ -55,7 +54,7 @@ for env_set in "MEMRAIN_POSTGRES_URL=$URL" "MEMEX_POSTGRES_URL=$URL" "MEMRAIN_PO
   # shellcheck disable=SC2086  # word-split the VAR=value list on purpose
   if run_entry $env_set && [ "$(sed -n 1p "$CALLS")" = "$init_pg" ] \
      && sed -n 2p "$CALLS" | grep -q "^$serve |" && [ "$(wc -l < "$CALLS")" -eq 2 ]; then
-    pass "$env_set -> init --postgres with both names exported, then serve"
+    pass "$env_set -> init --postgres with MEMRAIN_POSTGRES_URL exported, then serve"
   else
     die "$env_set"; cat "$CALLS" "$OUT"
   fi

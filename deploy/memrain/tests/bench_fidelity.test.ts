@@ -428,15 +428,15 @@ describe("the default run is free", () => {
     // injected (facts.ts:236), and nothing on this path injects one. Refusing
     // beats unsetting the variable: process.env is global and a bench that
     // rewrites it changes behaviour for every later test in the shard.
-    const prior = process.env["MEMEX_FACTS_DEDUP"];
-    process.env["MEMEX_FACTS_DEDUP"] = "1";
+    const prior = process.env["MEMRAIN_FACTS_DEDUP"];
+    process.env["MEMRAIN_FACTS_DEDUP"] = "1";
     try {
       await expect(runFidelityFixture(storage, fixtures[0]!)).rejects.toThrow(
-        /refuses to run with MEMEX_FACTS_DEDUP/,
+        /refuses to run with MEMRAIN_FACTS_DEDUP/,
       );
     } finally {
-      if (prior === undefined) delete process.env["MEMEX_FACTS_DEDUP"];
-      else process.env["MEMEX_FACTS_DEDUP"] = prior;
+      if (prior === undefined) delete process.env["MEMRAIN_FACTS_DEDUP"];
+      else process.env["MEMRAIN_FACTS_DEDUP"] = prior;
     }
   });
 });

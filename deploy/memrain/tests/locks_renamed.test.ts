@@ -3,7 +3,7 @@
  * reservation take only their `memrain` advisory keys, and the cycle and the
  * job worker hold only `memrain-*` rows. The reaper removes a dead
  * `memrain-cycle*` holder and never touches a `memex-*` row. Runs on PGLite,
- * and on Postgres when MEMEX_TEST_POSTGRES_URL is set.
+ * and on Postgres when MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hostname } from "node:os";

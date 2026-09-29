@@ -76,7 +76,7 @@ describe("skill frontmatter scan cost", () => {
 
 /**
  * The issuer's trailing-slash strip. `base` is operator-supplied
- * (`publicUrl` / MEMEX_PUBLIC_URL) with no length bound, and an unguarded
+ * (`publicUrl` / MEMRAIN_PUBLIC_URL) with no length bound, and an unguarded
  * `\/+$` restarts at every slash of a run: 225 ms at 25 K, 15 s at 200 K, ratio
  * 4.0 on a doubling.
  */

@@ -3,7 +3,7 @@
  * migration 120 trigger (and a new writer and the old trigger) still meet on
  * one advisory lock. Two real Postgres connections, ordered by watching
  * pg_locks for the waiter rather than by sleeping. Postgres-only: needs
- * MEMEX_TEST_POSTGRES_URL (a scratch database is created per run). The key
+ * MEMRAIN_TEST_POSTGRES_URL (a scratch database is created per run). The key
  * text itself is checked on every run.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";

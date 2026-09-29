@@ -5,7 +5,7 @@
  * silent degradation invisible: a wedged model or an expired credential can
  * disable reranking for weeks with zero signal. So memex persists every
  * rerank failure to an audit JSONL that doctor can grep, using the same
- * opt-in surface as the MCP audit trail (`MEMEX_AUDIT_DIR`) and
+ * opt-in surface as the MCP audit trail (`MEMRAIN_AUDIT_DIR`) and
  * an ISO-week-rotated `rerank-failures-<week>.jsonl`.
  *
  * Best-effort by contract: any write failure is swallowed — the audit trail
@@ -32,7 +32,7 @@ export function hashQueryForAudit(query: string): string {
   return createHash("sha256").update(query, "utf8").digest("hex").slice(0, 8);
 }
 
-/** Append one failure record; no-op unless MEMEX_AUDIT_DIR is set. */
+/** Append one failure record; no-op unless MEMRAIN_AUDIT_DIR is set. */
 export function logRerankFailure(
   record: RerankFailureRecord,
   now: Date = new Date(),

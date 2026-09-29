@@ -1,7 +1,7 @@
 /**
  * audit-week-file.ts — an ISO-week-rotated, best-effort JSONL append writer.
  *
- * Opt-in: nothing is written unless `MEMEX_AUDIT_DIR` is set. Each record is
+ * Opt-in: nothing is written unless `MEMRAIN_AUDIT_DIR` is set. Each record is
  * one JSON line appended to `<dir>/audit-<ISO-week>.jsonl`, so the trail
  * rotates weekly and stays greppable. The writer is BEST-EFFORT: any failure
  * (unwritable dir, full disk) is swallowed — an audit trail must never break
@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 /** The configured audit directory, or null when auditing is off. */
 export function auditDir(): string | null {
-  const d = process.env["MEMEX_AUDIT_DIR"];
+  const d = process.env["MEMRAIN_AUDIT_DIR"];
   return d && d.length > 0 ? d : null;
 }
 

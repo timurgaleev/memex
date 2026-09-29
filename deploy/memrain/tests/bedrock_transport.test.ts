@@ -127,8 +127,8 @@ describe("shared Bedrock transport", () => {
   });
 
   it("gives a chat call time for the output it is allowed to generate", async () => {
-    const prev = process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS;
-    process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS = "200";
+    const prev = process.env.MEMRAIN_LLM_UTILITY_TIMEOUT_MS;
+    process.env.MEMRAIN_LLM_UTILITY_TIMEOUT_MS = "200";
     try {
       // Each answer takes 700 ms. 200 ms base + 40 tokens x 25 ms = 1.2 s: fits.
       script = ["slow-converse"];
@@ -148,8 +148,8 @@ describe("shared Bedrock transport", () => {
       ).rejects.toThrow();
       expect(hits).toBe(4);
     } finally {
-      if (prev === undefined) delete process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS;
-      else process.env.MEMEX_LLM_UTILITY_TIMEOUT_MS = prev;
+      if (prev === undefined) delete process.env.MEMRAIN_LLM_UTILITY_TIMEOUT_MS;
+      else process.env.MEMRAIN_LLM_UTILITY_TIMEOUT_MS = prev;
     }
   });
 

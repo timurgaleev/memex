@@ -62,10 +62,10 @@ describe("size cap", () => {
     expect(checkTranscriptFileSize(11, 10)).toContain("over the 10-byte cap");
   });
 
-  it("reads the cap from MEMEX_TRANSCRIPT_MAX_FILE_BYTES, ignoring junk", () => {
-    expect(transcriptMaxFileBytes({ MEMEX_TRANSCRIPT_MAX_FILE_BYTES: "4096" })).toBe(4096);
+  it("reads the cap from MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES, ignoring junk", () => {
+    expect(transcriptMaxFileBytes({ MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES: "4096" })).toBe(4096);
     const fallback = transcriptMaxFileBytes({});
-    expect(transcriptMaxFileBytes({ MEMEX_TRANSCRIPT_MAX_FILE_BYTES: "-3" })).toBe(fallback);
-    expect(transcriptMaxFileBytes({ MEMEX_TRANSCRIPT_MAX_FILE_BYTES: "lots" })).toBe(fallback);
+    expect(transcriptMaxFileBytes({ MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES: "-3" })).toBe(fallback);
+    expect(transcriptMaxFileBytes({ MEMRAIN_TRANSCRIPT_MAX_FILE_BYTES: "lots" })).toBe(fallback);
   });
 });

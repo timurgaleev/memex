@@ -16,7 +16,7 @@
  * enrichment never re-develops a synthesis page; and once a stub is expanded past
  * the thin threshold it is no longer a candidate on the next tick.
  *
- * Paid Sonnet slice, default-OFF (MEMEX_ENRICH_THIN). Injected `sonnetFn`
+ * Paid Sonnet slice, default-OFF (MEMRAIN_ENRICH_THIN). Injected `sonnetFn`
  * bypasses the flag for hermetic tests (no live Bedrock).
  */
 
@@ -53,7 +53,7 @@ export interface EnrichThinPhaseOptions {
   maxPages?: number;
   budget?: BudgetTracker;
   /** Hours to wait between paid runs per tenant (default 12; env
-   *  MEMEX_ENRICH_THIN_COOLDOWN_HOURS). Stops re-paying to expand the same stub
+   *  MEMRAIN_ENRICH_THIN_COOLDOWN_HOURS). Stops re-paying to expand the same stub
    *  every tick when its expansion keeps getting rejected (stays thin). */
   cooldownHours?: number;
 }
@@ -62,7 +62,7 @@ export interface EnrichThinPhaseOptions {
 const DEFAULT_ENRICH_COOLDOWN_HOURS = 12;
 function resolveEnrichCooldownHours(v: number | undefined): number {
   if (typeof v === "number" && v >= 0) return v;
-  const raw = (process.env.MEMEX_ENRICH_THIN_COOLDOWN_HOURS ?? "").trim();
+  const raw = (process.env.MEMRAIN_ENRICH_THIN_COOLDOWN_HOURS ?? "").trim();
   if (raw === "") return DEFAULT_ENRICH_COOLDOWN_HOURS;
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_ENRICH_COOLDOWN_HOURS;
@@ -91,12 +91,12 @@ async function lastEnrichAt(
 const DEFAULT_TYPES = ["person", "company", "concept", "note"];
 
 function enrichEnabled(): boolean {
-  const v = (process.env.MEMEX_ENRICH_THIN ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_ENRICH_THIN ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_ENRICH_THIN_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_ENRICH_THIN_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
   // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
   return Number.isFinite(n) && n >= 0 ? n : 1.0;
@@ -113,7 +113,7 @@ function resolveTypes(opt: string[] | undefined): string[] {
     const clean = opt.filter((t): t is string => typeof t === "string" && t.length > 0);
     if (clean.length > 0) return clean;
   }
-  const raw = (process.env.MEMEX_ENRICH_THIN_TYPES ?? "").trim();
+  const raw = (process.env.MEMRAIN_ENRICH_THIN_TYPES ?? "").trim();
   if (raw) {
     const parts = raw.split(",").map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0);
     if (parts.length > 0) return parts;
@@ -260,14 +260,14 @@ export async function enrichThinPhase(
   };
 
   if (!opts.sonnetFn && !enrichEnabled()) {
-    return { ...base, reason: "MEMEX_ENRICH_THIN disabled" };
+    return { ...base, reason: "MEMRAIN_ENRICH_THIN disabled" };
   }
 
   const engine = storage.engine();
   const sourceId = opts.sourceId ?? "default";
   const types = resolveTypes(opts.types);
-  const threshold = resolveIntConfig(opts.thinThreshold, "MEMEX_ENRICH_THIN_THRESHOLD", 400);
-  const maxPages = resolveIntConfig(opts.maxPages, "MEMEX_ENRICH_THIN_MAX_PAGES", 3);
+  const threshold = resolveIntConfig(opts.thinThreshold, "MEMRAIN_ENRICH_THIN_THRESHOLD", 400);
+  const maxPages = resolveIntConfig(opts.maxPages, "MEMRAIN_ENRICH_THIN_MAX_PAGES", 3);
 
   // Cooldown gate: a stub whose expansion keeps getting rejected stays thin and
   // would be re-picked (and re-paid) every tick — bound that to once per window.

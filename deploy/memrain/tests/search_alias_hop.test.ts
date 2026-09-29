@@ -33,12 +33,12 @@ const fetchHead =
   async (slug) => ({ ...hit(`page://${slug}`, 0) });
 
 describe("aliasHopEnabled", () => {
-  it("is ON by default, OFF when MEMEX_ALIAS_HOP=0", () => {
-    delete process.env["MEMEX_ALIAS_HOP"];
+  it("is ON by default, OFF when MEMRAIN_ALIAS_HOP=0", () => {
+    delete process.env["MEMRAIN_ALIAS_HOP"];
     expect(aliasHopEnabled()).toBe(true);
-    process.env["MEMEX_ALIAS_HOP"] = "0";
+    process.env["MEMRAIN_ALIAS_HOP"] = "0";
     expect(aliasHopEnabled()).toBe(false);
-    delete process.env["MEMEX_ALIAS_HOP"];
+    delete process.env["MEMRAIN_ALIAS_HOP"];
   });
 });
 

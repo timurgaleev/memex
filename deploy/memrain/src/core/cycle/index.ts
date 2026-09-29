@@ -128,19 +128,19 @@ export type PhaseName =
   | "reflections"
   | "patterns"
   // Autopilot synthesis phases — opt-in, paid, each default-OFF behind its own
-  // env flag (MEMEX_ENRICH_THIN / MEMEX_AUTO_THINK / MEMEX_DRIFT). NOT in
+  // env flag (MEMRAIN_ENRICH_THIN / MEMRAIN_AUTO_THINK / MEMRAIN_DRIFT). NOT in
   // ALL_PHASES.
   | "enrich-thin"
   | "auto-think"
   | "drift"
   // Facts-maintenance phases — opt-in, default-OFF (NOT in ALL_PHASES).
   // consolidate-facts is deterministic + free; conversation-facts-backfill is
-  // paid (Sonnet) and additionally gated by MEMEX_FACTS_BACKFILL.
+  // paid (Sonnet) and additionally gated by MEMRAIN_FACTS_BACKFILL.
   | "consolidate-facts"
   | "conversation-facts-backfill"
   // Chunker-maintenance sweep — opt-in, default-OFF (NOT in ALL_PHASES). Spends
   // Bedrock Titan re-embedding chunker-version-stale docs, so it is gated by its
-  // own env flag (MEMEX_RECHUNK_SWEEP) and count/char-capped per tick.
+  // own env flag (MEMRAIN_RECHUNK_SWEEP) and count/char-capped per tick.
   | "rechunk-sweep";
 
 export const ALL_PHASES: readonly PhaseName[] = [
@@ -187,7 +187,7 @@ export const SYNTHESIS_PHASES: readonly PhaseName[] = [
  * Opt-in facts-maintenance phases. Like SYNTHESIS_PHASES, deliberately NOT in
  * ALL_PHASES — they run only when explicitly requested. `consolidate-facts` is
  * deterministic + free; `conversation-facts-backfill` spends Bedrock and is
- * additionally gated by the MEMEX_FACTS_BACKFILL env flag.
+ * additionally gated by the MEMRAIN_FACTS_BACKFILL env flag.
  */
 export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
   "consolidate-facts",
@@ -198,7 +198,7 @@ export const FACTS_MAINT_PHASES: readonly PhaseName[] = [
  * Chunker-maintenance sweep phase. Like the other opt-in lists, deliberately
  * NOT in ALL_PHASES — it re-embeds via Bedrock and only runs when explicitly
  * requested (`memex cycle --phases rechunk-sweep`) AND enabled via its own env
- * flag (MEMEX_RECHUNK_SWEEP). Requesting it without the flag is a safe no-op
+ * flag (MEMRAIN_RECHUNK_SWEEP). Requesting it without the flag is a safe no-op
  * (the phase returns `ran:false`). Listed here so the CLI accepts the name.
  */
 export const CHUNKER_SWEEP_PHASES: readonly PhaseName[] = ["rechunk-sweep"];
@@ -488,12 +488,12 @@ export interface CycleOptions {
 // cycle loop's `finally` never releases the db-lock — so the maintenance cycle
 // stalls until the lock TTL lapses and stays stuck every subsequent tick.
 // Default 15 min (generous for a large embed-stale backlog under its per-cycle
-// cap); `MEMEX_CYCLE_PHASE_TIMEOUT_MS=0` disables. A timed-out phase is recorded
+// cap); `MEMRAIN_CYCLE_PHASE_TIMEOUT_MS=0` disables. A timed-out phase is recorded
 // as `fail` and the cycle proceeds to its remaining phases (incl. snapshot) and
 // releases the lock — liveness over the leaked in-flight work, which the run
 // waits ABORT_SETTLE_MS for and reports as `orphaned` if it is still going.
 function phaseTimeoutMs(): number {
-  const raw = process.env.MEMEX_CYCLE_PHASE_TIMEOUT_MS;
+  const raw = process.env.MEMRAIN_CYCLE_PHASE_TIMEOUT_MS;
   if (raw === undefined || raw === "") return 15 * 60 * 1000;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 15 * 60 * 1000;
@@ -534,9 +534,9 @@ export function withPhaseTimeout<T>(
 // SIGKILL mid-phase, no JS exception). Reclaiming each phase's
 // intermediate allocations before the next starts lowers the cumulative peak so
 // the cycle fits. Bun-only (`Bun.gc`); a no-op elsewhere. Disable with
-// MEMEX_CYCLE_GC=0.
+// MEMRAIN_CYCLE_GC=0.
 function reclaimBetweenPhases(): void {
-  if (process.env.MEMEX_CYCLE_GC === "0") return;
+  if (process.env.MEMRAIN_CYCLE_GC === "0") return;
   const g = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun;
   try {
     g?.gc?.(true);
@@ -713,8 +713,8 @@ export async function runPhase<T>(
     const status = deriveStatus(phase, detail);
     // Per-phase memory telemetry: a live OOM (a bun cycle process hit 3.48 GB
     // RSS → kernel kill mid-tick) needs the spiking phase named. Cheap; on by
-    // default, silence with MEMEX_CYCLE_RSS_LOG=0.
-    if (process.env.MEMEX_CYCLE_RSS_LOG !== "0") {
+    // default, silence with MEMRAIN_CYCLE_RSS_LOG=0.
+    if (process.env.MEMRAIN_CYCLE_RSS_LOG !== "0") {
       const rssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
       console.error(`[cycle] phase ${phase} done status=${status} rss=${rssMb}MB dur=${Date.now() - start}ms`);
     }
@@ -990,7 +990,7 @@ async function runPhases(
         r = await runFenced(
           engine,
           p,
-          // Paid Sonnet, default-OFF (gated on MEMEX_PROBE_CONTRADICTIONS). Reads
+          // Paid Sonnet, default-OFF (gated on MEMRAIN_PROBE_CONTRADICTIONS). Reads
           // its own model/budget from env; no Haiku synthesis seam applies here.
           () => probeContradictionsPhase(engine, {}),
           progress,
@@ -998,7 +998,7 @@ async function runPhases(
         );
         break;
       case "reflections": {
-        // Paid Sonnet, default-OFF (MEMEX_REFLECTIONS). Writes real
+        // Paid Sonnet, default-OFF (MEMRAIN_REFLECTIONS). Writes real
         // reflections/<slug> pages, so it needs the Storage handle (putPage).
         const storage = options.storage;
         r = await runFenced(
@@ -1023,7 +1023,7 @@ async function runPhases(
         break;
       }
       case "patterns": {
-        // Paid Sonnet, default-OFF (MEMEX_PATTERNS). Writes real patterns/<slug>
+        // Paid Sonnet, default-OFF (MEMRAIN_PATTERNS). Writes real patterns/<slug>
         // pages, so it needs the Storage handle (putPage), not just the engine.
         const storage = options.storage;
         r = await runFenced(
@@ -1047,7 +1047,7 @@ async function runPhases(
         break;
       }
       case "enrich-thin": {
-        // Paid Sonnet, default-OFF (MEMEX_ENRICH_THIN). Rewrites real pages in
+        // Paid Sonnet, default-OFF (MEMRAIN_ENRICH_THIN). Rewrites real pages in
         // place, so it needs the Storage handle (putPage).
         const storage = options.storage;
         r = await runFenced(
@@ -1072,7 +1072,7 @@ async function runPhases(
         break;
       }
       case "auto-think": {
-        // Paid Sonnet, default-OFF (MEMEX_AUTO_THINK). Writes drafts/think/ pages.
+        // Paid Sonnet, default-OFF (MEMRAIN_AUTO_THINK). Writes drafts/think/ pages.
         const storage = options.storage;
         r = await runFenced(
           engine,
@@ -1095,7 +1095,7 @@ async function runPhases(
         break;
       }
       case "drift": {
-        // Paid Sonnet, default-OFF (MEMEX_DRIFT). Writes a drift-reports/ page.
+        // Paid Sonnet, default-OFF (MEMRAIN_DRIFT). Writes a drift-reports/ page.
         const storage = options.storage;
         r = await runFenced(
           engine,
@@ -1146,7 +1146,7 @@ async function runPhases(
         );
         break;
       }
-      // Chunker-maintenance sweep — opt-in, default-OFF (MEMEX_RECHUNK_SWEEP).
+      // Chunker-maintenance sweep — opt-in, default-OFF (MEMRAIN_RECHUNK_SWEEP).
       // Reads its own caps from env; a safe no-op (ran:false) when the flag is
       // unset, so requesting it explicitly never surprises with Bedrock spend.
       case "rechunk-sweep":

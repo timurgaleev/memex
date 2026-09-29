@@ -32,16 +32,16 @@ beforeEach(async () => {
   mkdirSync(vault, { recursive: true });
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
-  savedVault = process.env.MEMEX_VAULT_PATHS;
-  process.env.MEMEX_VAULT_PATHS = vault;
+  savedVault = process.env.MEMRAIN_VAULT_PATHS;
+  process.env.MEMRAIN_VAULT_PATHS = vault;
   const e = storage.engine();
   await registerSource(e, { id: "timur", kind: "other", pathPrefix: "tenant:timur" });
   await registerSource(e, { id: "tenant-a", kind: "other", pathPrefix: "/tenants/a" });
 });
 
 afterEach(async () => {
-  if (savedVault === undefined) delete process.env.MEMEX_VAULT_PATHS;
-  else process.env.MEMEX_VAULT_PATHS = savedVault;
+  if (savedVault === undefined) delete process.env.MEMRAIN_VAULT_PATHS;
+  else process.env.MEMRAIN_VAULT_PATHS = savedVault;
   await storage.close();
   rmSync(tmp, { recursive: true, force: true });
 });

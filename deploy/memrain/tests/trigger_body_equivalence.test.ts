@@ -4,7 +4,7 @@
  * function renamed, and the two claim-key functions share volatility,
  * strictness, parallel safety and body; their settings differ exactly by the
  * new one's pinned search_path. Runs on PGLite, and on Postgres when
- * MEMEX_TEST_POSTGRES_URL is set.
+ * MEMRAIN_TEST_POSTGRES_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { runMigrations } from "../src/core/migrate.ts";

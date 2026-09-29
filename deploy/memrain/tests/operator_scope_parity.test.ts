@@ -5,7 +5,7 @@
  * a recorded fixture.
  *
  * Re-record deliberately (and review the diff) with:
- *   MEMEX_RECORD_OPERATOR_PARITY=1 bun test tests/operator_scope_parity.test.ts
+ *   MEMRAIN_RECORD_OPERATOR_PARITY=1 bun test tests/operator_scope_parity.test.ts
  */
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +21,7 @@ import {
 setDefaultTimeout(60000);
 
 const FIXTURE = join(import.meta.dir, "fixtures", "operator_scope_parity.json");
-const RECORD = process.env["MEMEX_RECORD_OPERATOR_PARITY"] === "1";
+const RECORD = process.env["MEMRAIN_RECORD_OPERATOR_PARITY"] === "1";
 
 const CALLS: Array<[string, Record<string, unknown>]> = [
   ["search", { q: KEYWORD }],

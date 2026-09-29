@@ -14,7 +14,7 @@
  * than their last_indexed_mtime.
  *
  * `--source` defaults to `vault` for backward compatibility. `--paths`
- * (CSV) overrides `MEMEX_CODE_PATHS` for the code sweep.
+ * (CSV) overrides `MEMRAIN_CODE_PATHS` for the code sweep.
  *
  * `--reconcile-deletes` (default OFF) additionally soft-deletes vault
  * documents whose file was removed from disk since the last index, so a
@@ -25,7 +25,7 @@
  * `--contextual` runs a DIFFERENT job: a whole-corpus, from-DB re-embed that
  * applies the contextual-retrieval wrapper to every embeddable chunk
  * (`core/contextual-reembed.ts`). It ignores `--source`/`--vault`/`--paths`
- * (there is no file sweep) and does NOT read `MEMEX_CONTEXTUAL_RETRIEVAL` —
+ * (there is no file sweep) and does NOT read `MEMRAIN_CONTEXTUAL_RETRIEVAL` —
  * running it IS the intent. `--force` re-embeds even already-wrapped chunks;
  * `--dry-run` counts the workload; `--limit N` caps chunks per run. Turn the
  * env flag on first so future index-time embeds stay consistent, then run this
@@ -45,7 +45,7 @@ export interface ReindexCommandOptions {
   all?: boolean;
   vault?: string;
   source?: "vault" | "code" | "all";
-  /** CSV of code roots; overrides MEMEX_CODE_PATHS env var. */
+  /** CSV of code roots; overrides MEMRAIN_CODE_PATHS env var. */
   codePaths?: string;
   /**
    * Also re-index documents whose chunker_version is below current (mig 052),
@@ -91,7 +91,7 @@ interface CodeReindexResult {
 }
 
 function parseCodePaths(opts: ReindexCommandOptions): string[] {
-  const explicit = opts.codePaths ?? process.env.MEMEX_CODE_PATHS;
+  const explicit = opts.codePaths ?? process.env.MEMRAIN_CODE_PATHS;
   if (!explicit || explicit.length === 0) return [];
   return explicit
     .split(",")
@@ -105,7 +105,7 @@ function resolveVaultPath(
 ): string | null {
   return (
     override ??
-    process.env.MEMEX_VAULT_PATH ??
+    process.env.MEMRAIN_VAULT_PATH ??
     config.storage.vault ??
     null
   );
@@ -141,7 +141,7 @@ export async function runReindex(
       const vault = resolveVaultPath(config, opts.vault);
       if (!vault && source === "vault") {
         throw new Error(
-          "memex reindex: vault path is required (--vault PATH, $MEMEX_VAULT_PATH, or storage.vault in config.json)",
+          "memex reindex: vault path is required (--vault PATH, $MEMRAIN_VAULT_PATH, or storage.vault in config.json)",
         );
       }
       if (vault) {
@@ -160,7 +160,7 @@ export async function runReindex(
       if (paths.length === 0) {
         if (source === "code") {
           throw new Error(
-            "memex reindex --source code: no paths configured (set --paths CSV or MEMEX_CODE_PATHS)",
+            "memex reindex --source code: no paths configured (set --paths CSV or MEMRAIN_CODE_PATHS)",
           );
         }
       } else {

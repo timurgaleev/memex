@@ -572,7 +572,7 @@ export async function writeExtractedFacts(
   }
   return { written, skipped, failed, fact_ids: factIds };
 }
-// MEMEX_FACTS_EXTRACTION gate + BudgetTracker as the CLI batch path.
+// MEMRAIN_FACTS_EXTRACTION gate + BudgetTracker as the CLI batch path.
 // ---------------------------------------------------------------------------
 
 /** Author stamped on facts extracted by the on-write hook (vs the CLI batch). */
@@ -631,19 +631,19 @@ export function isFactsExtractionEligible(
 
 /**
  * The on-write extraction gate. Default-OFF: a live (paid) run requires the
- * explicit MEMEX_FACTS_EXTRACTION env gate, exactly like the CLI batch path.
+ * explicit MEMRAIN_FACTS_EXTRACTION env gate, exactly like the CLI batch path.
  */
 export function factsExtractionEnabled(
-  env: string | undefined = process.env["MEMEX_FACTS_EXTRACTION"],
+  env: string | undefined = process.env["MEMRAIN_FACTS_EXTRACTION"],
 ): boolean {
   const v = (env ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 /** Per-write USD ceiling for one on-write extraction. Small — it prices a
- *  single page-body turn. MEMEX_FACTS_WRITE_BUDGET_USD overrides. */
+ *  single page-body turn. MEMRAIN_FACTS_WRITE_BUDGET_USD overrides. */
 function perWriteBudgetUsd(): number {
-  const raw = (process.env["MEMEX_FACTS_WRITE_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_FACTS_WRITE_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 0.05;
 }
@@ -823,7 +823,7 @@ export interface OnDemandExtractResult {
  * calling the tool expects the facts to be STORED. Reuses the same paid
  * Bedrock turn extractor as the on-write hook.
  *
- * PAID + default-OFF: a live run needs MEMEX_FACTS_EXTRACTION=1. An injected
+ * PAID + default-OFF: a live run needs MEMRAIN_FACTS_EXTRACTION=1. An injected
  * `sonnetFn` (tests) bypasses the gate and never spends real Bedrock. Budget-
  * guarded with the same per-call ceiling as the on-write path.
  */

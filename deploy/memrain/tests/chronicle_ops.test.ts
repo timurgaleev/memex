@@ -290,7 +290,7 @@ describe("scope + operator gates", () => {
     expect(p.pages_enqueued).toBe(0);
     // Cost guardrail: the per-page budget must be surfaced for worst-case math.
     expect(typeof p.per_page_budget_usd).toBe("number");
-    expect(p.per_page_budget_env).toBe("MEMEX_CHRONICLE_WRITE_BUDGET_USD");
+    expect(p.per_page_budget_env).toBe("MEMRAIN_CHRONICLE_WRITE_BUDGET_USD");
   });
 });
 
@@ -411,8 +411,8 @@ describe("tenancy isolation", () => {
 });
 
 describe("on-write chronicle backstop", () => {
-  it("enqueues nothing when MEMEX_AUTO_CHRONICLE is unset", async () => {
-    delete process.env["MEMEX_AUTO_CHRONICLE"];
+  it("enqueues nothing when MEMRAIN_AUTO_CHRONICLE is unset", async () => {
+    delete process.env["MEMRAIN_AUTO_CHRONICLE"];
     const p = payload(
       await call("page_put", {
         slug: "meetings/backstop-off",
@@ -428,8 +428,8 @@ describe("on-write chronicle backstop", () => {
     expect(jobs.rows[0]!.n).toBe(0);
   });
 
-  it("enqueues one chronicle_extract job when MEMEX_AUTO_CHRONICLE=1", async () => {
-    process.env["MEMEX_AUTO_CHRONICLE"] = "1";
+  it("enqueues one chronicle_extract job when MEMRAIN_AUTO_CHRONICLE=1", async () => {
+    process.env["MEMRAIN_AUTO_CHRONICLE"] = "1";
     try {
       const p = payload(
         await call("page_put", {
@@ -450,7 +450,7 @@ describe("on-write chronicle backstop", () => {
           : jobs.rows[0]!.payload;
       expect(jp.slug).toBe("meetings/backstop-on");
     } finally {
-      delete process.env["MEMEX_AUTO_CHRONICLE"];
+      delete process.env["MEMRAIN_AUTO_CHRONICLE"];
     }
   });
 });

@@ -215,7 +215,7 @@
   },
   {
     "name": "page_put",
-    "description": "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    "description": "Create or update a page in the DB-canonical store. Idempotent: re-putting identical content is a no-op. Each real change appends a row to page_versions. Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMRAIN_PUBLIC_WRITE=1.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -280,7 +280,7 @@
   },
   {
     "name": "page_append",
-    "description": "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    "description": "Append text to an existing page's markdown_body. Creates a new page_versions row. Requires the page to exist (use page_put for first write). Search sees the page once its search mirror is written: by default before this returns (`search_indexed`). When the operator has moved the mirror to a background job, the response carries `search_pending: true` and `search_job_id` instead, and search sees the page once that job runs, normally within seconds. Pass `wait_for_index: true` when you need to search for the page straight away. WRITE — refused on public ingress unless the operator sets MEMRAIN_PUBLIC_WRITE=1.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -508,7 +508,7 @@
   },
   {
     "name": "link",
-    "description": "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    "description": "Assert a typed link from source_slug to target_slug. Idempotent on (source, target, type) — re-asserting updates confidence + chunk_id. Default confidence 1.0. WRITE — refused on public ingress unless the operator sets MEMRAIN_PUBLIC_WRITE=1.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -693,7 +693,7 @@
   },
   {
     "name": "add_fact",
-    "description": "Append a fact about an entity to the entity_facts ledger. Corrections are new facts, never edits — but restating a claim you already wrote does NOT mint a duplicate: an identical claim about the same entity, from the same source and the same writer, refreshes the row on file and returns its id with `inserted: false`. A claim that differs in any of those is a new row. A claim forgotten with `forget_fact` stays forgotten: re-adding it for the same entity, source and visibility (whitespace and case do not matter) writes nothing and returns `withdrawn: true` with `id: null`. `visibility` decides who can read the fact back: it defaults to `private`, which only the operator can read, so a tenant-scoped caller that wants to recall its own write must pass `visibility: 'world'`. Provenance is recorded on every fact: name `source_slug`, `source_chunk_id` or `written_by` to say where the claim came from, and if you name none the fact is credited to your own caller identity — an unattributed fact cannot be audited or aged against its origin; a public caller cannot set `written_by` at all, since that is the audit field. WRITE — internal by default, and reachable from the public ingress only when `MEMEX_PUBLIC_WRITE=1` is set.",
+    "description": "Append a fact about an entity to the entity_facts ledger. Corrections are new facts, never edits — but restating a claim you already wrote does NOT mint a duplicate: an identical claim about the same entity, from the same source and the same writer, refreshes the row on file and returns its id with `inserted: false`. A claim that differs in any of those is a new row. A claim forgotten with `forget_fact` stays forgotten: re-adding it for the same entity, source and visibility (whitespace and case do not matter) writes nothing and returns `withdrawn: true` with `id: null`. `visibility` decides who can read the fact back: it defaults to `private`, which only the operator can read, so a tenant-scoped caller that wants to recall its own write must pass `visibility: 'world'`. Provenance is recorded on every fact: name `source_slug`, `source_chunk_id` or `written_by` to say where the claim came from, and if you name none the fact is credited to your own caller identity — an unattributed fact cannot be audited or aged against its origin; a public caller cannot set `written_by` at all, since that is the audit field. WRITE — internal by default, and reachable from the public ingress only when `MEMRAIN_PUBLIC_WRITE=1` is set.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -747,7 +747,7 @@
   },
   {
     "name": "add_timeline_event",
-    "description": "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    "description": "Append a timeline event to an existing page. Append-only. Idempotent on (slug, occurred_at, source_chunk_id) when source_chunk_id is provided. WRITE — refused on public ingress unless the operator sets MEMRAIN_PUBLIC_WRITE=1.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1183,7 +1183,7 @@
   },
   {
     "name": "add_tag",
-    "description": "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — refused on public ingress unless the operator sets MEMEX_PUBLIC_WRITE=1.",
+    "description": "Add a tag to a page (normalized: trim + lowercase). Idempotent. The page must exist. WRITE — refused on public ingress unless the operator sets MEMRAIN_PUBLIC_WRITE=1.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2259,7 +2259,7 @@
   },
   {
     "name": "extract_facts",
-    "description": "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand. Default is a PREVIEW (facts returned, nothing persisted); `persist:true` also writes them to the entity_facts ledger (requires a write grant; the caller's write source owns the rows). Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). `entity_hints` (comma/space-separated canonical slugs) steer the extractor; `session_id` + `visibility` stamp persisted facts (mig085). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMEX_FACTS_EXTRACTION=1. Budget-guarded. Internal-only.",
+    "description": "Extract personal-knowledge facts (events, preferences, commitments, beliefs) from conversation text on demand. Default is a PREVIEW (facts returned, nothing persisted); `persist:true` also writes them to the entity_facts ledger (requires a write grant; the caller's write source owns the rows). Pass `text` (raw turn/transcript) OR `source_ref` (an existing page slug whose body is read, tenant-scoped). `entity_hints` (comma/space-separated canonical slugs) steer the extractor; `session_id` + `visibility` stamp persisted facts (mig085). Sanitizes + DATA-fences the input, then calls the paid Bedrock extractor. PAID + default-OFF: returns {enabled:false} unless MEMRAIN_FACTS_EXTRACTION=1. Budget-guarded. Internal-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2365,7 +2365,7 @@
   },
   {
     "name": "think",
-    "description": "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMEX_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers. Every result carries `synthesis_status` (ok, empty_answer, not_json, output_truncated, no_llm, model_unusable, llm_error), and a failed compose over gathered pages adds `fallback`, a cited extractive digest of those pages (kind:\"extractive\", no model call, never saved) while `synthesis` stays null.",
+    "description": "Multi-hop synthesis across pages + takes + the entity graph: gathers evidence (hybrid search, take streams, anchor subgraph, trajectories) and produces a cited answer with conflict + gap analysis. PAID + default-OFF: returns {ran:false} unless MEMRAIN_THINK=1 (budget-guarded Sonnet). `save` persists a synthesis/<slug> page + evidence rows and `take` queues the headline claim as a synth_take pinned to `anchor` — both OPERATOR-ONLY (silently ignored for tenant/public callers). `rounds` (1..3) feeds each round's gaps back into retrieval. Tenant-scoped retrieval for scoped callers. Every result carries `synthesis_status` (ok, empty_answer, not_json, output_truncated, no_llm, model_unusable, llm_error), and a failed compose over gathered pages adds `fallback`, a cited extractive digest of those pages (kind:\"extractive\", no model call, never saved) while `synthesis` stays null.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2922,7 +2922,7 @@
   },
   {
     "name": "chronicle_backfill",
-    "description": "Sweep conversation-shape pages in scope and enqueue a chronicle-extract job per eligible page (diary/event pages are skipped). Each enqueued page costs one paid extraction — the response reports `pages_enqueued` and the per-page USD budget (MEMEX_CHRONICLE_WRITE_BUDGET_USD) so worst-case spend is computable before a real run. `dry_run:true` returns counts only. Operator-only. WRITE — refused on public ingress.",
+    "description": "Sweep conversation-shape pages in scope and enqueue a chronicle-extract job per eligible page (diary/event pages are skipped). Each enqueued page costs one paid extraction — the response reports `pages_enqueued` and the per-page USD budget (MEMRAIN_CHRONICLE_WRITE_BUDGET_USD) so worst-case spend is computable before a real run. `dry_run:true` returns counts only. Operator-only. WRITE — refused on public ingress.",
     "inputSchema": {
       "type": "object",
       "properties": {

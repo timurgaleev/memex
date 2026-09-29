@@ -15,9 +15,9 @@
  * output — the same guarantee the reflections/patterns prefix exclusion gives.
  *
  * Cooldown: a DB-native check on the most recent draft's write time (no config
- * table needed). Default 0h (disabled); operator sets MEMEX_AUTO_THINK_COOLDOWN_HOURS.
+ * table needed). Default 0h (disabled); operator sets MEMRAIN_AUTO_THINK_COOLDOWN_HOURS.
  *
- * Paid Sonnet slice, default-OFF (MEMEX_AUTO_THINK). Injected `sonnetFn` bypasses
+ * Paid Sonnet slice, default-OFF (MEMRAIN_AUTO_THINK). Injected `sonnetFn` bypasses
  * the flag for hermetic tests (no live Bedrock).
  */
 
@@ -44,7 +44,7 @@ export interface AutoThinkPhaseOptions {
   modelId?: string;
   /** Single tenant to think within + write drafts under. Default "default". */
   sourceId?: string;
-  /** Questions to run. Default parsed from MEMEX_AUTO_THINK_QUESTIONS (csv). */
+  /** Questions to run. Default parsed from MEMRAIN_AUTO_THINK_QUESTIONS (csv). */
   questions?: string[];
   /** Max questions per tick (bounds spend). Default 5. */
   maxQuestions?: number;
@@ -60,12 +60,12 @@ export interface AutoThinkPhaseOptions {
 const SLUG_SEG = /^[a-z0-9][a-z0-9-]*$/;
 
 function autoThinkEnabled(): boolean {
-  const v = (process.env.MEMEX_AUTO_THINK ?? "").trim().toLowerCase();
+  const v = (process.env.MEMRAIN_AUTO_THINK ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env.MEMEX_AUTO_THINK_BUDGET_USD ?? "").trim();
+  const raw = (process.env.MEMRAIN_AUTO_THINK_BUDGET_USD ?? "").trim();
   const n = Number.parseFloat(raw);
   // An explicit 0 is a real cap ("spend nothing"), not a fallback to the default.
   return Number.isFinite(n) && n >= 0 ? n : 2.0;
@@ -79,11 +79,11 @@ function resolveIntConfig(v: number | undefined, envKey: string, def: number): n
 
 /** Default cooldown between paid runs per tenant. Non-zero by default so a
  *  cycle ticking every few minutes can't re-pay the same questions every tick;
- *  the operator lowers it (or 0) via MEMEX_AUTO_THINK_COOLDOWN_HOURS. */
+ *  the operator lowers it (or 0) via MEMRAIN_AUTO_THINK_COOLDOWN_HOURS. */
 const DEFAULT_COOLDOWN_HOURS = 12;
 function resolveCooldownHours(v: number | undefined): number {
   if (typeof v === "number" && v >= 0) return v;
-  const raw = (process.env.MEMEX_AUTO_THINK_COOLDOWN_HOURS ?? "").trim();
+  const raw = (process.env.MEMRAIN_AUTO_THINK_COOLDOWN_HOURS ?? "").trim();
   if (raw === "") return DEFAULT_COOLDOWN_HOURS;
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_COOLDOWN_HOURS;
@@ -96,7 +96,7 @@ function resolveQuestions(opt: string[] | undefined): string[] {
     const c = clean(opt.filter((q): q is string => typeof q === "string"));
     if (c.length > 0) return c;
   }
-  const raw = (process.env.MEMEX_AUTO_THINK_QUESTIONS ?? "").trim();
+  const raw = (process.env.MEMRAIN_AUTO_THINK_QUESTIONS ?? "").trim();
   if (raw) return clean(raw.split(","));
   return [];
 }
@@ -171,18 +171,18 @@ export async function autoThinkPhase(
   };
 
   if (!opts.sonnetFn && !autoThinkEnabled()) {
-    return { ...base, reason: "MEMEX_AUTO_THINK disabled" };
+    return { ...base, reason: "MEMRAIN_AUTO_THINK disabled" };
   }
 
   const questions = resolveQuestions(opts.questions);
   if (questions.length === 0) {
-    return { ...base, reason: "no questions configured (MEMEX_AUTO_THINK_QUESTIONS)" };
+    return { ...base, reason: "no questions configured (MEMRAIN_AUTO_THINK_QUESTIONS)" };
   }
 
   const engine = storage.engine();
   const sourceId = opts.sourceId ?? "default";
   const cooldownHours = resolveCooldownHours(opts.cooldownHours);
-  const maxQuestions = resolveIntConfig(opts.maxQuestions, "MEMEX_AUTO_THINK_MAX", 5);
+  const maxQuestions = resolveIntConfig(opts.maxQuestions, "MEMRAIN_AUTO_THINK_MAX", 5);
 
   if (cooldownHours > 0) {
     const last = await lastDraftAt(engine, sourceId);
@@ -193,8 +193,8 @@ export async function autoThinkPhase(
 
   const cap = opts.budgetUsd !== undefined && opts.budgetUsd >= 0 ? opts.budgetUsd : defaultBudget();
   const model = resolveFactsModel(opts.modelId);
-  // Live mode hands runThink the real Sonnet fn so it is gated by MEMEX_AUTO_THINK,
-  // not MEMEX_THINK; tests inject their fake through the same seam.
+  // Live mode hands runThink the real Sonnet fn so it is gated by MEMRAIN_AUTO_THINK,
+  // not MEMRAIN_THINK; tests inject their fake through the same seam.
   const sonnetFn = resolveSonnetFn(opts.sonnetFn, { modelId: model });
 
   const limit = Math.min(questions.length, maxQuestions);

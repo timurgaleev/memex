@@ -16,9 +16,9 @@ const DAY_MS = 86_400_000;
 /** Refused items named per connector; the rest are counted. */
 const REFUSED_NAMED = 3;
 
-/** MEMEX_CONNECTOR_STALL_DAYS, a positive integer (default 7). */
+/** MEMRAIN_CONNECTOR_STALL_DAYS, a positive integer (default 7). */
 export function connectorStallDays(): number {
-  const n = Number((process.env.MEMEX_CONNECTOR_STALL_DAYS ?? "").trim());
+  const n = Number((process.env.MEMRAIN_CONNECTOR_STALL_DAYS ?? "").trim());
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_STALL_DAYS;
 }
 

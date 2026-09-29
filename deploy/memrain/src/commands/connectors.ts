@@ -5,7 +5,7 @@
  *
  * A one-shot, operator-run mirror of a GitHub repository's issues and pull
  * requests into a `github` source (see src/core/connectors/). The token comes
- * from `--token-file` or MEMEX_GITHUB_TOKEN; it is held in memory for the run,
+ * from `--token-file` or MEMRAIN_GITHUB_TOKEN; it is held in memory for the run,
  * sent only to api.github.com, and never written, logged or printed.
  *
  * `--dry-run` fetches the whole list and renders it without opening the brain,
@@ -87,11 +87,11 @@ export function readToken(tokenFile: string | undefined, env: NodeJS.ProcessEnv 
       return { error: `cannot read --token-file ${tokenFile}` };
     }
   } else {
-    raw = env.MEMEX_GITHUB_TOKEN ?? "";
+    raw = env.MEMRAIN_GITHUB_TOKEN ?? "";
   }
   const token = raw.trim();
   if (token === "") {
-    return { error: tokenFile !== undefined ? `--token-file ${tokenFile} is empty` : "no token: set MEMEX_GITHUB_TOKEN or pass --token-file" };
+    return { error: tokenFile !== undefined ? `--token-file ${tokenFile} is empty` : "no token: set MEMRAIN_GITHUB_TOKEN or pass --token-file" };
   }
   if (!TOKEN_RE.test(token)) return { error: "the token contains whitespace or non-ASCII characters" };
   return { token };

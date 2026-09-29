@@ -9,7 +9,7 @@
  *               structured {answer, citations, gaps}. Never fabricate citations.
  *
  * Unlike the utility-tier Haiku synthesis (atoms/concepts/takes), this is a paid Sonnet path:
- * opt-in, default-OFF (MEMEX_THINK=1), USD-budget-capped. memex is a retrieval
+ * opt-in, default-OFF (MEMRAIN_THINK=1), USD-budget-capped. memex is a retrieval
  * brain — think REPORTS across the corpus with citations; it does not instruct.
  *
  * The pipeline is GATHER → MERGE → SYNTHESIZE: page citations key on the
@@ -51,7 +51,7 @@ const DEFAULT_BUDGET_USD = 1.0;
  * over up to 12 pages plus 20 takes. Truncation there is total loss, not
  * degradation: the JSON never closes and `parseThinkResponse` discards the
  * whole paid response. 1500 tokens could not hold that shape, so the default
- * buys real room; `MEMEX_THINK_OUTPUT_TOKENS` overrides it and both paths are
+ * buys real room; `MEMRAIN_THINK_OUTPUT_TOKENS` overrides it and both paths are
  * clamped to the safe ceiling.
  */
 const DEFAULT_OUTPUT_TOKENS = 4000;
@@ -110,7 +110,7 @@ export interface ThinkOptions {
   k?: number;
   /** Take rows to gather (default 20). */
   maxTakes?: number;
-  /** USD ceiling for the run (default 1.0; MEMEX_THINK_BUDGET_USD overrides). */
+  /** USD ceiling for the run (default 1.0; MEMRAIN_THINK_BUDGET_USD overrides). */
   maxBudgetUsd?: number;
   /** Sonnet output-token cap (default 1500). */
   maxTokens?: number;
@@ -791,7 +791,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 
 /** Auto-anchor is default-ON; disable with =0. */
 function autoAnchorEnabled(): boolean {
-  return (process.env.MEMEX_THINK_AUTO_ANCHOR ?? "").trim() !== "0";
+  return (process.env.MEMRAIN_THINK_AUTO_ANCHOR ?? "").trim() !== "0";
 }
 
 /** Slug behind a `page://<slug>` / `page://<sourceId>/<slug>` mirror path, else null. */
@@ -1145,18 +1145,18 @@ export function stripGapsSection(answer: string): string {
 }
 
 function liveEnabled(): boolean {
-  const v = (process.env["MEMEX_THINK"] ?? "").trim().toLowerCase();
+  const v = (process.env["MEMRAIN_THINK"] ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
 }
 
 function defaultBudget(): number {
-  const raw = (process.env["MEMEX_THINK_BUDGET_USD"] ?? "").trim();
+  const raw = (process.env["MEMRAIN_THINK_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_BUDGET_USD;
 }
 
 /**
- * Run one think synthesis. Default-OFF: a live (paid) run needs MEMEX_THINK=1;
+ * Run one think synthesis. Default-OFF: a live (paid) run needs MEMRAIN_THINK=1;
  * tests inject a sonnetFn, which both bypasses the gate and avoids any spend.
  */
 export async function runThink(storage: Storage, opts: ThinkOptions): Promise<ThinkResult> {
@@ -1165,13 +1165,13 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
     return blankResult("empty question");
   }
   if (!opts.sonnetFn && !liveEnabled()) {
-    return blankResult("default-OFF: set MEMEX_THINK=1 to run paid Sonnet synthesis");
+    return blankResult("default-OFF: set MEMRAIN_THINK=1 to run paid Sonnet synthesis");
   }
 
   const k = opts.k ?? DEFAULT_PAGE_HITS;
   const maxTakes = opts.maxTakes ?? DEFAULT_MAX_TAKES;
   const maxTokens = clampOutputTokens(
-    opts.maxTokens ?? outputTokensFromEnv("MEMEX_THINK_OUTPUT_TOKENS", DEFAULT_OUTPUT_TOKENS),
+    opts.maxTokens ?? outputTokensFromEnv("MEMRAIN_THINK_OUTPUT_TOKENS", DEFAULT_OUTPUT_TOKENS),
   );
   const budget = new BudgetTracker(opts.maxBudgetUsd ?? defaultBudget(), "think");
   const modelId = resolveModel("reasoning", opts.modelId, "think");
@@ -1217,7 +1217,7 @@ export async function runThink(storage: Storage, opts: ThinkOptions): Promise<Th
 
   // Trajectory injection — only for temporal / knowledge_update questions.
   // Anchors come from the caller OR, when none are named, are auto-derived from
-  // the question + retrieved entity-page slugs (default-ON, MEMEX_THINK_AUTO_ANCHOR).
+  // the question + retrieved entity-page slugs (default-ON, MEMRAIN_THINK_AUTO_ANCHOR).
   // Best-effort + timeout-guarded; never blocks the run.
   let anchors: string[] = opts.anchors && opts.anchors.length > 0 ? opts.anchors : [];
   if (intent !== "other" && anchors.length === 0 && autoAnchorEnabled()) {

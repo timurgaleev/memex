@@ -106,8 +106,8 @@ describe("admin auth — non-auth path", () => {
 
 describe("admin auth — login throttle keying", () => {
   it("a rotated X-Forwarded-For cannot mint a fresh brute-force bucket", async () => {
-    const saved = process.env["MEMEX_HTTP_TRUST_PROXY"];
-    delete process.env["MEMEX_HTTP_TRUST_PROXY"];
+    const saved = process.env["MEMRAIN_HTTP_TRUST_PROXY"];
+    delete process.env["MEMRAIN_HTTP_TRUST_PROXY"];
     try {
       const a = createAdminAuth({ bootstrapToken: BOOT });
       const u = new URL("http://localhost:8080/admin/login");
@@ -127,8 +127,8 @@ describe("admin auth — login throttle keying", () => {
       }
       expect((await attempt("10.0.0.99"))?.status).toBe(429);
     } finally {
-      if (saved === undefined) delete process.env["MEMEX_HTTP_TRUST_PROXY"];
-      else process.env["MEMEX_HTTP_TRUST_PROXY"] = saved;
+      if (saved === undefined) delete process.env["MEMRAIN_HTTP_TRUST_PROXY"];
+      else process.env["MEMRAIN_HTTP_TRUST_PROXY"] = saved;
     }
   });
 });

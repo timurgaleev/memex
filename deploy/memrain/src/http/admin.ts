@@ -4,8 +4,8 @@
  * A cookie + magic-link auth surface for `/admin`, built on memex's Bun.serve.
  * Trust model:
  *   - A long-term BOOTSTRAP token is the server admin secret, from
- *     `MEMEX_ADMIN_BOOTSTRAP` (or a generated ephemeral one printed to stderr).
- *     PROD: set `MEMEX_ADMIN_BOOTSTRAP` explicitly — in a container the ephemeral
+ *     `MEMRAIN_ADMIN_BOOTSTRAP` (or a generated ephemeral one printed to stderr).
+ *     PROD: set `MEMRAIN_ADMIN_BOOTSTRAP` explicitly — in a container the ephemeral
  *     token's stderr line goes to the docker/aggregated logs, not just a
  *     terminal. It never appears in a URL.
  *   - Magic-link URLs use one-time NONCES, not the bootstrap token: an agent
@@ -249,7 +249,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
   // other ingress bucket uses. The old local rule trusted X-Forwarded-For
   // unconditionally, so a caller could rotate that header and hand itself a
   // fresh 10-attempt bucket per login try; XFF now only counts under
-  // MEMEX_HTTP_TRUST_PROXY, and unattributable callers share one bucket.
+  // MEMRAIN_HTTP_TRUST_PROXY, and unattributable callers share one bucket.
   const authLimiter = new RateLimiter({ capacity: 10, refillPerSecond: 10 / 60 });
 
   function pruneNonces(): void {

@@ -13,12 +13,12 @@ import { runMigrations } from "../src/core/migrate.ts";
 
 // These tests watch migrations run, so their databases start empty, not as a
 // copy of the sharded runner's pre-migrated template.
-const pgliteTemplate = process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+const pgliteTemplate = process.env.MEMRAIN_TEST_PGLITE_TEMPLATE;
 beforeAll(() => {
-  delete process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+  delete process.env.MEMRAIN_TEST_PGLITE_TEMPLATE;
 });
 afterAll(() => {
-  if (pgliteTemplate !== undefined) process.env.MEMEX_TEST_PGLITE_TEMPLATE = pgliteTemplate;
+  if (pgliteTemplate !== undefined) process.env.MEMRAIN_TEST_PGLITE_TEMPLATE = pgliteTemplate;
 });
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../src/core/migrations");

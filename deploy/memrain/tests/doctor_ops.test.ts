@@ -357,8 +357,8 @@ async function runRemediate(dir: string, breakVault: boolean): Promise<Remediate
 
   // os.homedir() caches at process start in Bun, so the config path is passed
   // explicitly; the vault env is cleared so the config's own value decides.
-  const prevVault = process.env.MEMEX_VAULT_PATH;
-  delete process.env.MEMEX_VAULT_PATH;
+  const prevVault = process.env.MEMRAIN_VAULT_PATH;
+  delete process.env.MEMRAIN_VAULT_PATH;
   const prevExit = process.exitCode;
   process.exitCode = 0;
   const captured: string[] = [];
@@ -373,7 +373,7 @@ async function runRemediate(dir: string, breakVault: boolean): Promise<Remediate
   } finally {
     console.log = origLog;
     process.exitCode = prevExit;
-    if (prevVault !== undefined) process.env.MEMEX_VAULT_PATH = prevVault;
+    if (prevVault !== undefined) process.env.MEMRAIN_VAULT_PATH = prevVault;
   }
   return { emitted: JSON.parse(captured.join("\n")), exitCode };
 }

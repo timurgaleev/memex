@@ -42,7 +42,7 @@ fi
 shift 3
 case "${1:-}" in --changed=*) echo "$1" >> "$CHANGED_SEEN"; shift ;; esac
 echo "$# $*" >> "$BUN_CALLS"
-echo "${MEMEX_TEST_PGLITE_TEMPLATE:-unset}" >> "$TEMPLATE_SEEN"
+echo "${MEMRAIN_TEST_PGLITE_TEMPLATE:-unset}" >> "$TEMPLATE_SEEN"
 if [ -n "${BUN_SLEEP:-}" ]; then sleep "$BUN_SLEEP"; fi
 case " $* " in
   *" ${BUN_FAIL_FILE:-/none/} "*) exit 1 ;;
@@ -226,7 +226,7 @@ T11="$TMPROOT/t11"
 make_stub_bun "$T11"
 make_test_dir "$T11/tests" 2
 : > "$T11/calls"; : > "$T11/template-calls"; : > "$T11/template-seen"
-run_shards "$T11" env JOBS=1 TEST_DIR="$T11/tests" TEST_TEMPLATE=0 MEMEX_TEST_PGLITE_TEMPLATE=/stale >/dev/null 2>&1
+run_shards "$T11" env JOBS=1 TEST_DIR="$T11/tests" TEST_TEMPLATE=0 MEMRAIN_TEST_PGLITE_TEMPLATE=/stale >/dev/null 2>&1
 rc=$?
 seen=$(sort -u "$T11/template-seen")
 if [ "$rc" -eq 0 ] && [ ! -s "$T11/template-calls" ] && [ "$seen" = "unset" ]; then

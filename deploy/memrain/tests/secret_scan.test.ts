@@ -21,14 +21,14 @@ const PEM = [`-----BEGIN ${"RSA "}PRIVATE KEY-----`, "MIIEpAIBAAKCAQEAtest", "ab
 
 let tmp: string;
 let storage: Storage;
-const saved = { d: process.env.MEMEX_SECRET_SCAN_DISPOSITION, a: process.env.MEMEX_SECRET_SCAN_ALLOW };
+const saved = { d: process.env.MEMRAIN_SECRET_SCAN_DISPOSITION, a: process.env.MEMRAIN_SECRET_SCAN_ALLOW };
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), "memex-secret-scan-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
 afterEach(async () => {
-  for (const [k, v] of [["MEMEX_SECRET_SCAN_DISPOSITION", saved.d], ["MEMEX_SECRET_SCAN_ALLOW", saved.a]] as const) {
+  for (const [k, v] of [["MEMRAIN_SECRET_SCAN_DISPOSITION", saved.d], ["MEMRAIN_SECRET_SCAN_ALLOW", saved.a]] as const) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
@@ -200,7 +200,7 @@ describe("a page write", () => {
   });
 
   it("refuses the write when the disposition is reject", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     await expect(putPage(storage, { slug: "notes/refused", markdown_body: `key ${AWS}` })).rejects.toMatchObject({
       code: "invalid_params",
     });
@@ -208,7 +208,7 @@ describe("a page write", () => {
   });
 
   it("audits a flagged credential once, not on every identical re-put", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "flag";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "flag";
     const flagged = async () =>
       Number((await storage.engine().query<{ n: number }>(
         `SELECT COUNT(*)::int AS n FROM ingest_log WHERE source_type = 'secret-flagged' AND source_ref = 'notes/flagged'`,
@@ -222,7 +222,7 @@ describe("a page write", () => {
   });
 
   it("keeps an allowed fingerprint", async () => {
-    process.env.MEMEX_SECRET_SCAN_ALLOW = fingerprintSecret(AWS);
+    process.env.MEMRAIN_SECRET_SCAN_ALLOW = fingerprintSecret(AWS);
     await putPage(storage, { slug: "notes/allowed", markdown_body: `example ${AWS}` });
     expect((await getPage(storage, "notes/allowed"))!.markdown_body).toContain(AWS);
   });
@@ -388,7 +388,7 @@ describe("the other writes", () => {
   });
 
   it("audits a rejected write before refusing it, on every path", async () => {
-    process.env.MEMEX_SECRET_SCAN_DISPOSITION = "reject";
+    process.env.MEMRAIN_SECRET_SCAN_DISPOSITION = "reject";
     const { addFact } = await import("../src/core/facts.ts");
     const { recordHotFact } = await import("../src/core/hot_memory.ts");
     const { putRawData } = await import("../src/core/raw-data.ts");

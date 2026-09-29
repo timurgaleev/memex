@@ -1,7 +1,7 @@
 /**
  * MCP param redaction — the summary keeps only shape (declared key names,
  * unknown count, coarse 1 KB-bucketed size), never a value, and the opt-in
- * request log emits nothing unless MEMEX_LOG_REQUESTS is set.
+ * request log emits nothing unless MEMRAIN_LOG_REQUESTS is set.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
@@ -14,13 +14,13 @@ import {
 } from "../src/mcp/param-redaction.ts";
 import { auditFilePath } from "../src/core/audit-week-file.ts";
 
-const savedLog = process.env["MEMEX_LOG_REQUESTS"];
-const savedAudit = process.env["MEMEX_AUDIT_DIR"];
+const savedLog = process.env["MEMRAIN_LOG_REQUESTS"];
+const savedAudit = process.env["MEMRAIN_AUDIT_DIR"];
 afterEach(() => {
-  if (savedLog === undefined) delete process.env["MEMEX_LOG_REQUESTS"];
-  else process.env["MEMEX_LOG_REQUESTS"] = savedLog;
-  if (savedAudit === undefined) delete process.env["MEMEX_AUDIT_DIR"];
-  else process.env["MEMEX_AUDIT_DIR"] = savedAudit;
+  if (savedLog === undefined) delete process.env["MEMRAIN_LOG_REQUESTS"];
+  else process.env["MEMRAIN_LOG_REQUESTS"] = savedLog;
+  if (savedAudit === undefined) delete process.env["MEMRAIN_AUDIT_DIR"];
+  else process.env["MEMRAIN_AUDIT_DIR"] = savedAudit;
 });
 
 describe("summarizeMcpParams", () => {
@@ -63,8 +63,8 @@ describe("summarizeMcpParams", () => {
 });
 
 describe("logToolCall", () => {
-  it("emits nothing when MEMEX_LOG_REQUESTS is unset", () => {
-    delete process.env["MEMEX_LOG_REQUESTS"];
+  it("emits nothing when MEMRAIN_LOG_REQUESTS is unset", () => {
+    delete process.env["MEMRAIN_LOG_REQUESTS"];
     expect(requestLoggingEnabled()).toBe(false);
     const lines: string[] = [];
     const orig = console.log;
@@ -78,7 +78,7 @@ describe("logToolCall", () => {
   });
 
   it("emits one redacted line when enabled — no param values", () => {
-    process.env["MEMEX_LOG_REQUESTS"] = "1";
+    process.env["MEMRAIN_LOG_REQUESTS"] = "1";
     const lines: string[] = [];
     const orig = console.log;
     console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
@@ -98,7 +98,7 @@ describe("logToolCall", () => {
   });
 
   it("never echoes an unknown (caller-controlled) tool name raw", () => {
-    process.env["MEMEX_LOG_REQUESTS"] = "1";
+    process.env["MEMRAIN_LOG_REQUESTS"] = "1";
     const lines: string[] = [];
     const orig = console.log;
     console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
@@ -117,11 +117,11 @@ describe("logToolCall", () => {
   });
 });
 
-describe("logToolCall — audit file (MEMEX_AUDIT_DIR)", () => {
+describe("logToolCall — audit file (MEMRAIN_AUDIT_DIR)", () => {
   it("appends a redacted record to the week file, independent of console logging", () => {
     const dir = mkdtempSync(join(tmpdir(), "memex-pr-audit-"));
-    delete process.env["MEMEX_LOG_REQUESTS"]; // console off
-    process.env["MEMEX_AUDIT_DIR"] = dir; // audit on
+    delete process.env["MEMRAIN_LOG_REQUESTS"]; // console off
+    process.env["MEMRAIN_AUDIT_DIR"] = dir; // audit on
     try {
       logToolCall("search", false, { q: "secret-q", k: 3 }, true);
       const file = auditFilePath(dir, new Date());
@@ -144,9 +144,9 @@ describe("logToolCall — audit file (MEMEX_AUDIT_DIR)", () => {
     }
   });
 
-  it("does nothing when neither MEMEX_LOG_REQUESTS nor MEMEX_AUDIT_DIR is set", () => {
-    delete process.env["MEMEX_LOG_REQUESTS"];
-    delete process.env["MEMEX_AUDIT_DIR"];
+  it("does nothing when neither MEMRAIN_LOG_REQUESTS nor MEMRAIN_AUDIT_DIR is set", () => {
+    delete process.env["MEMRAIN_LOG_REQUESTS"];
+    delete process.env["MEMRAIN_AUDIT_DIR"];
     const lines: string[] = [];
     const orig = console.log;
     console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));

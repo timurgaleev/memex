@@ -4,7 +4,7 @@
  *
  * memex resolves a `[[target]]` wikilink to a slug and writes
  * `type='wikilink'`; with verb
- * inference ON (opt-in, `MEMEX_LINK_VERB_INFER=1`), the ~240-char window around
+ * inference ON (opt-in, `MEMRAIN_LINK_VERB_INFER=1`), the ~240-char window around
  * the mention is scanned for employment / investment / founder / advisor verbs
  * and the edge is upgraded to the matching typed relationship
  * (`works_at` / `invested_in` / `founded` / `advises`). When no verb matches it
@@ -232,5 +232,5 @@ export function edgeContextWindow(body: string, surface: string, radius = 240): 
 
 /** Whether verb-context link-type inference is enabled (opt-in, default OFF). */
 export function linkVerbInferEnabled(): boolean {
-  return process.env["MEMEX_LINK_VERB_INFER"] === "1";
+  return process.env["MEMRAIN_LINK_VERB_INFER"] === "1";
 }

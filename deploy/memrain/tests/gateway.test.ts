@@ -4,11 +4,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { withInflightCap, isLlmAvailable } from "../src/core/llm/gateway.ts";
 
-afterEach(() => delete process.env.MEMEX_LLM_MAX_INFLIGHT);
+afterEach(() => delete process.env.MEMRAIN_LLM_MAX_INFLIGHT);
 
 describe("withInflightCap", () => {
-  it("caps peak concurrency at MEMEX_LLM_MAX_INFLIGHT", async () => {
-    process.env.MEMEX_LLM_MAX_INFLIGHT = "4";
+  it("caps peak concurrency at MEMRAIN_LLM_MAX_INFLIGHT", async () => {
+    process.env.MEMRAIN_LLM_MAX_INFLIGHT = "4";
     let peak = 0;
     let active = 0;
     const fake = async () => {
@@ -23,7 +23,7 @@ describe("withInflightCap", () => {
   });
 
   it("runs all queued work to completion", async () => {
-    process.env.MEMEX_LLM_MAX_INFLIGHT = "2";
+    process.env.MEMRAIN_LLM_MAX_INFLIGHT = "2";
     let done = 0;
     await Promise.all(
       Array.from({ length: 6 }, () =>

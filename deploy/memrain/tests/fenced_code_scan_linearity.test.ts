@@ -13,7 +13,7 @@
  *     1 MB, x4 per doubling. Filtering openers alone does not catch this one;
  *     the run has to be resolved before the match, not during it.
  *
- * `MEMEX_MAX_FENCES_PER_PAGE` does not help — it caps blocks that were found,
+ * `MEMRAIN_MAX_FENCES_PER_PAGE` does not help — it caps blocks that were found,
  * and neither page finds any.
  *
  * The ceiling below is deliberately loose. Linear runs both in tens of

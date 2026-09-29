@@ -247,12 +247,12 @@ describe("graph_neighbors redaction", () => {
   });
 });
 
-describe("graph provenance redaction is independent of MEMEX_PUBLIC_READ_BODIES", () => {
+describe("graph provenance redaction is independent of MEMRAIN_PUBLIC_READ_BODIES", () => {
   // Provenance is structural metadata, not a note body — opting into public
   // bodies must NOT re-expose source_chunk_id/written_at/confidence on graph.
   it("still strips provenance on public even when READ_BODIES=1", async () => {
-    const prev = process.env["MEMEX_PUBLIC_READ_BODIES"];
-    process.env["MEMEX_PUBLIC_READ_BODIES"] = "1";
+    const prev = process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+    process.env["MEMRAIN_PUBLIC_READ_BODIES"] = "1";
     try {
       const out = parse(await dispatchTool(
         storage,
@@ -267,8 +267,8 @@ describe("graph provenance redaction is independent of MEMEX_PUBLIC_READ_BODIES"
       expect(JSON.stringify(out)).not.toContain("chunk-secret-provenance");
       expect(JSON.stringify(out)).not.toContain("secret-context-window");
     } finally {
-      if (prev === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
-      else process.env["MEMEX_PUBLIC_READ_BODIES"] = prev;
+      if (prev === undefined) delete process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+      else process.env["MEMRAIN_PUBLIC_READ_BODIES"] = prev;
     }
   });
 });
@@ -553,16 +553,16 @@ describe("dispatchTool search/query meta", () => {
   });
 });
 
-describe("dispatchTool search MEMEX_PUBLIC_READ_BODIES opt-in", () => {
+describe("dispatchTool search MEMRAIN_PUBLIC_READ_BODIES opt-in", () => {
   // Mutates a process-global env var; relies on Bun running tests within a
   // file serially (the default) so the toggle does not bleed elsewhere.
-  const ORIGINAL = process.env["MEMEX_PUBLIC_READ_BODIES"];
+  const ORIGINAL = process.env["MEMRAIN_PUBLIC_READ_BODIES"];
   beforeAll(() => {
-    process.env["MEMEX_PUBLIC_READ_BODIES"] = "1";
+    process.env["MEMRAIN_PUBLIC_READ_BODIES"] = "1";
   });
   afterAll(() => {
-    if (ORIGINAL === undefined) delete process.env["MEMEX_PUBLIC_READ_BODIES"];
-    else process.env["MEMEX_PUBLIC_READ_BODIES"] = ORIGINAL;
+    if (ORIGINAL === undefined) delete process.env["MEMRAIN_PUBLIC_READ_BODIES"];
+    else process.env["MEMRAIN_PUBLIC_READ_BODIES"] = ORIGINAL;
   });
 
   it("public ingress returns content when opted in", async () => {
