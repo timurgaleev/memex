@@ -46,6 +46,57 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from actual usage, like the sites fixed in 1.160.0. Parallel calls sharing one
   tracker can no longer all pass the same headroom, a truncation retry grows
   the first call's hold, and a call that throws gives its hold back.
+- **A cycle phase that ends in warn now says why in the log.** The tick line
+  and the `completed with warnings` event only carried the status, so a warn
+  that repeated every tick could not be traced to its rows. A warn now prints
+  the error count and the first five failing rows (`"<path>": "<message>"`,
+  each message clipped to 160 characters), plus `failed=`, `persisted=false`
+  or `docs_with_zero_chunks=` when those caused it. This covers every phase
+  that returns `errors[]` (embed-stale, extract, embed-facts, mirror-pages,
+  resolve-symbol-edges, rechunk-sweep and the rest).
+- **Notes moved from `/vault` to `/memory` stop splitting into two documents
+  and refresh again.** Migration 099 rewrote `source_path` in place but kept
+  `documents.id`, which is the hash of the path, so every local re-read
+  (vault sweep, embed-stale, rechunk-sweep, reindex) wrote a second, unowned
+  document beside the original. Search returned both, and embed-stale then
+  hit the owner fence on the twin for every one of those rows, spent its
+  50-row cap on the failures and never refreshed the rest. A local re-read
+  now folds any row stored under the same path with another id into the
+  path's own id inside the index transaction: the one owner the rows share is
+  kept (so an unowned twin is adopted by the original's owner), chunks,
+  vectors, entity mentions and code edges are regenerated, and fact,
+  timeline, link, hot-memory and eval pointers move to the new ids. Rows two
+  different sources own are refused, not merged, and a remote inline `index`
+  never folds anything. An owner conflict in embed-stale or rechunk-sweep
+  now counts as rejected instead of spending the cap, and the tick logs one
+  line naming the paths. The live brain repairs itself over the next cycle
+  ticks; no manual SQL. A new `document-id-drift` doctor check counts file
+  documents whose id does not hash their path and paths stored under more
+  than one id, and warns until they are gone.
+
+### Changed
+- **The `lint` cycle phase is informational and scoped to real notes.** It
+  flagged 2322 of 2330 documents, and 1864 of those were `page://` and
+  `page-truth://` mirrors and `kind: code` documents whose frontmatter can
+  never carry title, tags, created and updated. Nothing in the cycle repairs
+  lint violations, so the phase warned on every tick and hid real
+  regressions. `lintCorpus` (the phase and `memex lint` without a path) now
+  skips virtual-scheme source paths and code documents, and the phase always
+  reports `ok` with the counts and per-rule summary kept in its detail. The
+  remaining note debt, mostly missing tags, is fixed by adding the fields to
+  the source files' frontmatter: `memex lint --fix` only strips LLM preambles
+  and page-wide fences.
+- **Unknown-argument errors name the argument the caller meant.** The
+  did-you-mean hint ran only when exactly one key was unknown and only within
+  two edits, so it never fired on the names agents actually send. Every
+  unknown key (up to five) is now checked, first against a per-tool alias
+  table (`query`/`limit` for `search`'s `q`/`k`, `markdown` for
+  `page_append`'s `content`, `date`/`summary` for `add_timeline_event`,
+  `entity` for `entity_recall`'s `slug`, `slugs` for `resolve_slugs`) and then by edit distance; `page_list` `prefix`
+  points at `tag` or `search`. The accepted-argument list is always included,
+  with required arguments marked. The call is still refused, never remapped.
+  The caller's key names moved out of the error `message`, which the request
+  log stores, into `suggestion`; the message now carries only the count.
 
 ## [1.160.0] — 2026-09-28
 
