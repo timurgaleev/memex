@@ -19,6 +19,7 @@ NOT_ENV = {
     "MEMEX_OPERATING_CONTRACT",  # exported constant (mcp/server-instructions.ts)
     "MEMEX_RESPONSE_VERSION",  # exported constant (mcp/response-contract.ts)
     "MEMEX_MAX_TOKENS",  # an example name in a comment (core/runtime-config.ts)
+    "MEMEX_X",  # the placeholder in the legacy-name comments (core/env-compat.ts, runtime-config.ts)
 }
 
 # Documented rows the source reads without spelling the full name.
