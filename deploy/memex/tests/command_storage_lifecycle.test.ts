@@ -17,6 +17,16 @@ import { PGliteEngine } from "../src/core/engine/pglite.ts";
 import { withStorage } from "../src/commands/with-storage.ts";
 import { runConfig } from "../src/commands/config.ts";
 
+// These tests watch migrations run, so their databases start empty, not as a
+// copy of the sharded runner's pre-migrated template.
+const pgliteTemplate = process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+beforeAll(() => {
+  delete process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+});
+afterAll(() => {
+  if (pgliteTemplate !== undefined) process.env.MEMEX_TEST_PGLITE_TEMPLATE = pgliteTemplate;
+});
+
 const tmp = mkdtempSync(join(tmpdir(), "memex-storage-lifecycle-"));
 
 /** Engine stub — the failure shapes a real driver cannot be asked for. */

@@ -39,7 +39,8 @@ one extra skill/agent run is cheaper than a production regression.
 ```bash
 cd deploy/memex
 bun install               # frozenLockfile=true; never commit lock drift
-bun run test:sharded      # the full suite — ~20 min, 324 files
+bun run test:sharded      # the full suite — a few minutes, JOBS shards at once
+bun run test:changed      # only files affected since origin/main
 bun test tests/foo.test.ts  # one file while iterating — seconds
 bun run src/cli.ts --help # CLI surface
 ```

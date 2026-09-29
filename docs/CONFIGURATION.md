@@ -635,6 +635,7 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMEX_BULK_MAX_RETRIES` | built-in | Retries for a transient database error in bulk work. `0` disables retries. | free |
 | `MEMEX_NO_DB_CONFIG` | off (`=1` on) | Skips the `memex config set` overlay: stored `MEMEX_*` values are normally applied at boot where the real environment leaves a key unset. | free |
 | `MEMEX_PGLITE_NO_LOCK` | off (`=1` on) | Skips the lock file that stops two processes opening one PGLite directory. Only for a filesystem that cannot hold it. | free |
+| `MEMEX_TEST_PGLITE_TEMPLATE` | unset | Test-only. A new PGLite directory starts as a copy of this already-migrated one; `scripts/test-sharded.sh` sets it. Never set it in `.env` or compose. | free |
 
 ---
 

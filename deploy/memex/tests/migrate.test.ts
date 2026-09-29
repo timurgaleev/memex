@@ -8,7 +8,7 @@
  * Postgres-engine equivalents run in tests/engine_postgres.test.ts under
  * , gated on a live RDS connection.
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   mkdtempSync,
   readFileSync,
@@ -25,6 +25,16 @@ import {
 } from "../src/core/migrate.ts";
 import { PGliteEngine } from "../src/core/engine/pglite.ts";
 import type { Engine } from "../src/core/engine/interface.ts";
+
+// These tests watch migrations run, so their databases start empty, not as a
+// copy of the sharded runner's pre-migrated template.
+const pgliteTemplate = process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+beforeAll(() => {
+  delete process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+});
+afterAll(() => {
+  if (pgliteTemplate !== undefined) process.env.MEMEX_TEST_PGLITE_TEMPLATE = pgliteTemplate;
+});
 
 /**
  * Wraps a real engine and records every `exec` SQL (including the SQL

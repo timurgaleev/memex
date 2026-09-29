@@ -15,6 +15,24 @@ import { acquireDataDirLock, type HeldLock } from "./pglite-lock.ts";
 import { vector } from "@electric-sql/pglite/vector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import type { Engine, QueryResult } from "./interface.ts";
+import { cpSync, existsSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+
+/**
+ * Test-only hook: MEMEX_TEST_PGLITE_TEMPLATE names an already-migrated data
+ * directory, and a brand-new `dbPath` starts as a copy of it instead of
+ * running every migration from an empty cluster. The sharded test runner sets
+ * it; nothing in production does, and it must never go into `.env` or the
+ * compose environment. Unset, this does nothing.
+ */
+function seedFromTestTemplate(dbPath: string): void {
+  const template = process.env["MEMEX_TEST_PGLITE_TEMPLATE"];
+  if (!template || dbPath.length === 0) return;
+  if (dbPath.startsWith("memory://") || dbPath.startsWith("idb://")) return;
+  if (resolve(template) === resolve(dbPath) || existsSync(dbPath)) return;
+  if (!existsSync(template) || !statSync(template).isDirectory()) return;
+  cpSync(template, dbPath, { recursive: true });
+}
 
 export interface PGliteEngineOptions {
   /** Filesystem path (directory) where PGLite persists. */
@@ -30,6 +48,7 @@ export class PGliteEngine implements Engine {
 
   constructor(opts: PGliteEngineOptions) {
     this.dbPath = opts.dbPath;
+    seedFromTestTemplate(opts.dbPath);
     // Claim the directory BEFORE handing it to the driver. Two processes on one
     // PGLite directory corrupt it, and refusing the second is cheaper than
     // repairing what they do to each other.

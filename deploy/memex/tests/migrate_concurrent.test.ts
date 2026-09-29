@@ -4,12 +4,22 @@
  * the loser died on the duplicate `migrations` row — at boot. Two concurrent
  * runs must both succeed and apply each migration exactly once.
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGliteEngine } from "../src/core/engine/pglite.ts";
 import { runMigrations } from "../src/core/migrate.ts";
+
+// These tests watch migrations run, so their databases start empty, not as a
+// copy of the sharded runner's pre-migrated template.
+const pgliteTemplate = process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+beforeAll(() => {
+  delete process.env.MEMEX_TEST_PGLITE_TEMPLATE;
+});
+afterAll(() => {
+  if (pgliteTemplate !== undefined) process.env.MEMEX_TEST_PGLITE_TEMPLATE = pgliteTemplate;
+});
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../src/core/migrations");
 let tmp: string;

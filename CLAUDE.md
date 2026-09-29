@@ -121,6 +121,8 @@ for this repo:
      local is faster and is what we trust; see below). It MUST go through
      `test:sharded`: a bare `bun test` over all 324 files exhausts the
      PGLite WASM heaps mid-run and reports hundreds of phantom failures.
+     `test:changed` (files affected since `origin/main`) is for the edit
+     loop only; it does not replace this run.
 2. **Push** to the `origin` remote on `main`. **Local tests are the
    gate — do NOT block deploy on GitHub CI.** Push so CI runs for the
    record, but proceed to deploy as soon as the local gates in step 1

@@ -83,94 +83,21 @@ jobs:
         run: pytest tests/test_*.py -v
 
   bun-tests:
-    # Production target is t4g.medium (arm64). Local devs are usually
-    # on amd64. Run the bun suite on both so an arm64-only Bun runtime
-    # regression — or a transitive native module that has no arm64
-    # wheel — fails CI before it can quietly break the EC2 deploy.
-    name: Memex Bun tests (${{ matrix.arch }}${{ matrix.groups > 1 && format(' {0}/{1}', matrix.group, matrix.groups) || '' }})
-    runs-on: ${{ matrix.runner }}
-    # arm64 is the production target (t4g.medium) but free arm64
-    # runners are 3-4x slower than amd64 for this PGLite-heavy
-    # suite (~45 min vs 11 min). To avoid blocking ship on a slow
-    # runner, arm64 is non-blocking (continue-on-error) -- it
-    # still runs as a canary signal and any failure is visible in
-    # CI history, but the gate is amd64. The deploy /health smoke
-    # on the live t4g.medium catches arm64-specific regressions
-    # within ~2 minutes of merge.
-    continue-on-error: ${{ matrix.arch == 'arm64' }}
-    # 90, not 60: the free arm64 canary runs the full sharded suite on a 3-4x
-    # slower runner and, as the suite grew, began grazing the old 60-min cap —
-    # a TIMEOUT shows as "cancelled" and drags the whole run's badge even though
-    # the amd64 GATE is green. The extra margin lets the canary finish with a
-    # real green/red verdict. amd64 finishes in ~11 min, so this never affects
-    # the gate. (arm64 stays continue-on-error — it is a signal, not a gate.)
-    timeout-minutes: 90
+    # The gate. Production is arm64 (t4g.medium); that leg runs nightly in
+    # bun-arm64.yml instead, because a free arm64 runner took 3-4x as long and
+    # set the wall clock of every push without gating anything.
+    name: Memex Bun tests (amd64 ${{ matrix.group }}/3)
+    runs-on: ubuntu-latest
+    # A group runs in ~5 min now that tests copy a pre-migrated database. A
+    # tight cap makes a regression that hangs fail fast; the runner has no
+    # wall-clock budget here, so every file dealt to the group runs.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-            # Default bun per-test timeout (5s) — amd64 is the gate, so
-            # keep it tight to catch genuine perf regressions.
-            test_timeout_ms: 5000
-            # 0 = no wall-clock budget: the GATE always runs every shard
-            # dealt to this worker.
-            max_seconds: 0
-            # The suite outgrew one sequential runner: at 444 files it ran
-            # 90 min and the job cap CANCELLED the gate. Three workers take
-            # every third shard, so wall clock is a third of that.
-            groups: 3
-            group: 0
-          - arch: amd64
-            runner: ubuntu-latest
-            # Default bun per-test timeout (5s) — amd64 is the gate, so
-            # keep it tight to catch genuine perf regressions.
-            test_timeout_ms: 5000
-            # 0 = no wall-clock budget: the GATE always runs every shard
-            # dealt to this worker.
-            max_seconds: 0
-            # The suite outgrew one sequential runner: at 444 files it ran
-            # 90 min and the job cap CANCELLED the gate. Three workers take
-            # every third shard, so wall clock is a third of that.
-            groups: 3
-            group: 1
-          - arch: amd64
-            runner: ubuntu-latest
-            # Default bun per-test timeout (5s) — amd64 is the gate, so
-            # keep it tight to catch genuine perf regressions.
-            test_timeout_ms: 5000
-            # 0 = no wall-clock budget: the GATE always runs every shard
-            # dealt to this worker.
-            max_seconds: 0
-            # The suite outgrew one sequential runner: at 444 files it ran
-            # 90 min and the job cap CANCELLED the gate. Three workers take
-            # every third shard, so wall clock is a third of that.
-            groups: 3
-            group: 2
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            # Free arm64 runners are 3-4x slower; PGLite cold-init +
-            # Bun.serve startup intermittently push individual tests past
-            # the 5s default. Raise the per-test budget for this canary
-            # leg so a slow runner is not misread as a logic failure.
-            # NOTE: 30s is a slow-runner allowance, NOT a latency target —
-            # arm64 is continue-on-error, so do not read its green as a
-            # perf signal.
-            test_timeout_ms: 30000
-            # Wall-clock budget for the WHOLE sharded loop. The grown suite now
-            # runs past the 90-min job cap on the slow arm64 runner, and a job
-            # that hits timeout-minutes is CANCELLED — which continue-on-error
-            # does NOT absorb, so it reddened the whole run's badge even though
-            # the amd64 gate was green. Stop the canary early (well under the
-            # cap) so it exits normally: a real shard failure is then a tolerated
-            # `failure`, and a pure time-overrun is a clean partial signal —
-            # neither cancels the run. 4200s = 70 min.
-            max_seconds: 4200
-            # The canary stays one worker: it is a signal, not a gate, and
-            # its own wall-clock budget already stops it before the cap.
-            groups: 1
-            group: 0
+        # Files are dealt longest-first by tests/.timings.tsv, so the three
+        # groups take about the same time.
+        group: [0, 1, 2]
     defaults:
       run:
         working-directory: deploy/memex
@@ -193,15 +120,14 @@ jobs:
         # The loop lives in scripts/test-sharded.sh so CI and the local ship
         # gate run the SAME sharding — the whole suite in one `bun test`
         # process exhausts memory (see the script header for why), which is
-        # not a CI-only constraint. Per-test timeout and the wall-clock budget
-        # are arch-specific (see matrix): tight on the amd64 gate, relaxed on
-        # the slow arm64 canary, which also stops early rather than being
-        # CANCELLED by the job cap.
+        # not a CI-only constraint.
         env:
-          TEST_TIMEOUT: ${{ matrix.test_timeout_ms }}
-          MAX_SECONDS: ${{ matrix.max_seconds }}
+          # Default bun per-test timeout (5s) — amd64 is the gate, so keep it
+          # tight to catch genuine perf regressions.
+          TEST_TIMEOUT: "5000"
+          MAX_SECONDS: "0"
           SHARD_SIZE: "20"
-          SHARD_GROUPS: ${{ matrix.groups }}
+          SHARD_GROUPS: "3"
           SHARD_GROUP: ${{ matrix.group }}
         run: bash scripts/test-sharded.sh
 

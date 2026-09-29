@@ -1,0 +1,48 @@
+name: Bun tests (arm64)
+
+# Production runs on arm64 (t4g.medium), so the Bun suite runs there too, to
+# catch an arm64-only Bun runtime regression or a native module with no arm64
+# build. It is a signal, not a gate: free arm64 runners are 3-4x slower than
+# amd64, so it runs nightly and on demand instead of on every push. Between
+# runs, the /health smoke after each deploy to the live t4g.medium covers the
+# same ground within minutes of a merge.
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bun-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bun-tests-arm64:
+    name: Memex Bun tests (arm64)
+    runs-on: ubuntu-24.04-arm
+    # Above MAX_SECONDS below, so the runner stops itself and reports instead
+    # of the job being CANCELLED at the cap.
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: deploy/memex
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - name: bun install (frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: bun test (sharded)
+        env:
+          # PGLite start-up and Bun.serve on a slow runner push single tests
+          # past the 5s default. 30s is a slow-runner allowance, not a latency
+          # target.
+          TEST_TIMEOUT: "30000"
+          # 50 min: shards not started by then are skipped with a warning.
+          MAX_SECONDS: "3000"
+          SHARD_SIZE: "20"
+        run: bash scripts/test-sharded.sh
