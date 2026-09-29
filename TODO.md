@@ -211,7 +211,7 @@ Ordered commits:
    - [x] Comments that still said "empty = unscoped" corrected.
 7. Dispatch (~50 sites)
    - [x] All 51 collapsing sites in `src/mcp/dispatch.ts`
-     (`tests/dispatch_empty_scope.test.ts`).
+     (`tests/tenant_isolation_matrix.test.ts`, empty-grant principal).
    - [x] `callSearch`, `callQuery`.
    - [x] `callThink` tests `!== undefined` and short-circuits on `isNoGrant`
      without an LLM call or a spend row (today the write gate refuses `think`
