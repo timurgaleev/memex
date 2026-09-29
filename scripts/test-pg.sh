@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the Postgres-only part of the memex suite against a real Postgres 16
+# Run the Postgres-only part of the memrain suite against a real Postgres 16
 # with pgvector. PGLite serializes transactions, so races and driver-specific
 # binding behaviour only show up here.
 #
@@ -16,7 +16,8 @@
 #     loopback port, removed on exit whether the run passed or failed.
 #   - MEMRAIN_TEST_POSTGRES_URL already set: use that database instead and
 #     start no container (CI passes a service container this way). It MUST
-#     be a scratch database — migrations and tests write to it.
+#     be a scratch database — migrations and tests write to it. The legacy
+#     MEMEX_TEST_POSTGRES_URL is accepted when the new name is unset.
 #
 # Env:
 #   TEST_PG_IMAGE    image for the throwaway container
@@ -54,13 +55,13 @@ start_container() {
   command -v docker >/dev/null 2>&1 || die "docker not found (or set MEMRAIN_TEST_POSTGRES_URL to a scratch database)"
   local password
   password="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-  CONTAINER="memex-test-pg-$$-$RANDOM"
+  CONTAINER="memrain-test-pg-$$-$RANDOM"
   # Port 0 on the host side: Docker picks a free port, so parallel runs and a
   # developer's own Postgres on 5432 never collide.
   docker run -d --name "$CONTAINER" \
-    -e POSTGRES_USER=memex \
+    -e POSTGRES_USER=memrain \
     -e POSTGRES_PASSWORD="$password" \
-    -e POSTGRES_DB=memex_test \
+    -e POSTGRES_DB=memrain_test \
     -p 127.0.0.1::5432 \
     "$IMAGE" >/dev/null
   local port
@@ -72,13 +73,13 @@ start_container() {
   # on the unix socket only, then restarts. Probing TCP inside the container
   # waits for the real server rather than the init one.
   local waited=0
-  until docker exec "$CONTAINER" pg_isready -q -h 127.0.0.1 -U memex -d memex_test >/dev/null 2>&1; do
+  until docker exec "$CONTAINER" pg_isready -q -h 127.0.0.1 -U memrain -d memrain_test >/dev/null 2>&1; do
     [ "$waited" -lt "$READY_TIMEOUT" ] || { docker logs "$CONTAINER" >&2 || true; die "Postgres not ready after ${READY_TIMEOUT}s"; }
     sleep 1
     waited=$((waited + 1))
   done
   log "ready after ${waited}s"
-  export MEMRAIN_TEST_POSTGRES_URL="postgres://memex:${password}@127.0.0.1:${port}/memex_test?sslmode=disable"
+  export MEMRAIN_TEST_POSTGRES_URL="postgres://memrain:${password}@127.0.0.1:${port}/memrain_test?sslmode=disable"
 }
 
 apply_migrations_twice() {
@@ -119,6 +120,9 @@ run_pg_tests() {
 
 command -v bun >/dev/null 2>&1 || die "bun not found"
 
+if [ -z "${MEMRAIN_TEST_POSTGRES_URL:-}" ] && [ -n "${MEMEX_TEST_POSTGRES_URL:-}" ]; then
+  export MEMRAIN_TEST_POSTGRES_URL="$MEMEX_TEST_POSTGRES_URL"
+fi
 if [ -n "${MEMRAIN_TEST_POSTGRES_URL:-}" ]; then
   log "using MEMRAIN_TEST_POSTGRES_URL from the environment (no container)"
 else

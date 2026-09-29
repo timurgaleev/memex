@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/init.sh — interactive bootstrap for memex.
+# scripts/init.sh — interactive bootstrap for memrain.
 #
 # Prompts for the values needed to deploy and writes:
 #   - .env                          (runtime config for compose + scripts)
@@ -7,11 +7,14 @@
 #   - terraform/backend.hcl         (S3 backend partial config; gitignored)
 #
 # All writes are atomic (tmpfile + mv). By default the script refuses to
-# overwrite existing files; pass --force to overwrite.
+# overwrite existing files; pass --force to overwrite. Even with --force it
+# refuses to change the state key of an existing backend.hcl, which would
+# point terraform at a different (empty) state.
 #
 # Usage:
 #   scripts/init.sh                 # interactive
 #   scripts/init.sh --force         # overwrite existing .env / tfvars / backend.hcl
+#   scripts/init.sh --force --allow-backend-key-change   # also change the state key
 #   INIT_NON_INTERACTIVE=1 scripts/init.sh < answers.txt   # for tests/CI
 #
 # Exit codes: 0 = success, 1 = aborted, 2 = misconfiguration (missing dirs).
@@ -21,11 +24,13 @@ REPO_ROOT="${INIT_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$REPO_ROOT"
 
 FORCE=0
+ALLOW_BACKEND_KEY_CHANGE=0
 for arg in "$@"; do
   case "$arg" in
     --force|-f) FORCE=1 ;;
+    --allow-backend-key-change) ALLOW_BACKEND_KEY_CHANGE=1 ;;
     --help|-h)
-      sed -n '2,15p' "$0" | sed 's/^# //; s/^#//'
+      sed -n '2,18p' "$0" | sed 's/^# //; s/^#//'
       exit 0
       ;;
     *) echo "[init] unknown argument: $arg" >&2; exit 2 ;;
@@ -107,6 +112,13 @@ valid_subdomain() {
   return 1
 }
 
+valid_project_name() {
+  local v="$1"
+  if [[ "$v" =~ ^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$ ]]; then return 0; fi
+  echo "  invalid: project name must be 1-32 lowercase letters, digits or hyphens"
+  return 1
+}
+
 valid_github_owner() {
   local v="$1"
   if [[ "$v" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,38})$ ]]; then return 0; fi
@@ -158,20 +170,24 @@ valid_tier() {
 # ---------------------------------------------------------------------------
 # Collect answers
 # ---------------------------------------------------------------------------
-echo "[init] memex bootstrap"
+echo "[init] memrain bootstrap"
 echo "[init] Press Enter to accept the default in [brackets]."
 echo
 
 prompt AWS_ACCOUNT_ID    "AWS account ID (12 digits)"             ""             valid_aws_account_id
 prompt AWS_REGION        "AWS region"                             "eu-west-1"    valid_nonempty
 prompt AWS_PROFILE       "AWS CLI profile"                        "default"      valid_nonempty
+# The project name drives AWS resource names and host paths; it is separate
+# from the repo name, so a fork may use any repo name.
+prompt PROJECT_NAME      "Project name (AWS names, /opt/<name>)"  "memrain"      valid_project_name
 prompt DOMAIN            "Public root domain (e.g. example.com)"  ""             valid_domain
-prompt MEMEX_SUBDOMAIN   "Subdomain for the memex public MCP"     "brain"        valid_subdomain
+prompt SUBDOMAIN         "Subdomain for the public MCP"           "brain"        valid_subdomain
 prompt GITHUB_OWNER      "GitHub username/org that owns the repo" ""             valid_github_owner
 prompt REPO_NAME         "Public repo name"                       "memex" valid_nonempty
-prompt SECRETS_PREFIX    "AWS Secrets Manager prefix"             "memex"        valid_nonempty
+prompt SECRETS_PREFIX    "AWS Secrets Manager prefix"             "memrain"      valid_nonempty
 prompt TFSTATE_BUCKET    "S3 bucket for terraform state"          ""             valid_nonempty
 prompt TFSTATE_REGION    "S3 region of the tfstate bucket"        "eu-central-1" valid_nonempty
+prompt TFSTATE_KEY       "S3 key of the terraform state"          "${PROJECT_NAME}/terraform.tfstate" valid_nonempty
 prompt ALARM_EMAIL       "CloudWatch alarm email (optional)"      ""             valid_email_or_empty
 prompt SSH_ALLOWED_CIDR  "SSH allowed CIDR (optional, e.g. 1.2.3.4/32)" ""       valid_cidr_or_empty
 prompt USE_SSH_DEPLOY_KEY  "Use SSH deploy key (true/false; false for public repo)" "false" valid_bool
@@ -184,10 +200,25 @@ echo "[init] Feature tier — the quality/cost level this install opts into:" >&
 echo "         max      full paid Sonnet brain, ~\$25-390/mo by search volume (recommended)" >&2
 echo "         balanced cheap Haiku rerank + synthesis, ~\$5-15/mo" >&2
 echo "         free     retrieval only, infra cost only" >&2
-prompt FEATURE_TIER      "Feature tier (max/balanced/free)"       "${MEMEX_INIT_TIER:-max}" valid_tier
+prompt FEATURE_TIER      "Feature tier (max/balanced/free)"       "${MEMRAIN_INIT_TIER:-${MEMEX_INIT_TIER:-max}}" valid_tier
 FEATURE_TIER="$(printf '%s' "$FEATURE_TIER" | tr '[:upper:]' '[:lower:]')"
 
 REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
+
+# ---------------------------------------------------------------------------
+# State-key guard. A different key in an existing backend.hcl points
+# terraform at another state: the next plan would create a second stack
+# beside the live one. Checked before anything is written.
+# ---------------------------------------------------------------------------
+if [ -e "$BACKEND_FILE" ] && [ "$ALLOW_BACKEND_KEY_CHANGE" -ne 1 ]; then
+  EXISTING_KEY="$(sed -n 's/^[[:space:]]*key[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$BACKEND_FILE" | head -n 1)"
+  if [ "$EXISTING_KEY" != "$TFSTATE_KEY" ]; then
+    echo "[init] ERROR: ${BACKEND_FILE} uses state key '${EXISTING_KEY}', not '${TFSTATE_KEY}'." >&2
+    echo "[init] Answer the state key prompt with the existing key, or pass --allow-backend-key-change" >&2
+    echo "[init] if you really mean to switch state. Nothing was written." >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Atomic write helpers
@@ -213,19 +244,19 @@ write_atomic() {
 # ---------------------------------------------------------------------------
 build_tier_block() {
   local tier="$1"
-  local balanced="MEMEX_RERANK=1
-MEMEX_DREAM_SYNTHESIS=1
-MEMEX_DOCTOR_PER_SOURCE=1
-MEMEX_TENANT_FAIL_CLOSED=1"
-  local max_extra="MEMEX_GRAPH_RERANK=1
-MEMEX_RELATIONAL_LLM=1
-MEMEX_THINK=1
-MEMEX_DEEP_SYNTH=1
-MEMEX_TAKE_ENSEMBLE=1
-MEMEX_FACTS_EXTRACTION=1
-MEMEX_CONTEXTUAL_RETRIEVAL=1
-MEMEX_CONTEXTUAL_LLM=1
-MEMEX_CONTEXTUAL_LLM_BUDGET_USD=5.0"
+  local balanced="MEMRAIN_RERANK=1
+MEMRAIN_DREAM_SYNTHESIS=1
+MEMRAIN_DOCTOR_PER_SOURCE=1
+MEMRAIN_TENANT_FAIL_CLOSED=1"
+  local max_extra="MEMRAIN_GRAPH_RERANK=1
+MEMRAIN_RELATIONAL_LLM=1
+MEMRAIN_THINK=1
+MEMRAIN_DEEP_SYNTH=1
+MEMRAIN_TAKE_ENSEMBLE=1
+MEMRAIN_FACTS_EXTRACTION=1
+MEMRAIN_CONTEXTUAL_RETRIEVAL=1
+MEMRAIN_CONTEXTUAL_LLM=1
+MEMRAIN_CONTEXTUAL_LLM_BUDGET_USD=5.0"
 
   case "$tier" in
     free)
@@ -246,7 +277,7 @@ MEMEX_CONTEXTUAL_LLM_BUDGET_USD=5.0"
 "# Feature tier: max (paid Sonnet, ~\$25-390/mo depending on search volume; the
 # recommended 'best results' tier). Paid Sonnet slices spend per call, each
 # capped by its *_BUDGET_USD companion. To go cheaper later, comment these out
-# + recompose. See docs/CONFIGURATION.md. NOTE: MEMEX_CONTEXTUAL_* only affects
+# + recompose. See docs/CONFIGURATION.md. NOTE: MEMRAIN_CONTEXTUAL_* only affects
 # future embeds — run 'reindex --contextual' after the first index." \
 "$balanced" "$max_extra"
       ;;
@@ -266,12 +297,13 @@ AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
 AWS_REGION=${AWS_REGION}
 AWS_PROFILE=${AWS_PROFILE}
 
+PROJECT=${PROJECT_NAME}
 DOMAIN=${DOMAIN}
-MEMEX_SUBDOMAIN=${MEMEX_SUBDOMAIN}
-MEMEX_HOST=${MEMEX_SUBDOMAIN}.${DOMAIN}
+SUBDOMAIN=${SUBDOMAIN}
+PUBLIC_HOST=${SUBDOMAIN}.${DOMAIN}
 # External origin, scheme included — the OAuth issuer and the admin magic link
 # are built from it. Unset it to fall back to the request host.
-MEMEX_PUBLIC_URL=https://${MEMEX_SUBDOMAIN}.${DOMAIN}
+MEMRAIN_PUBLIC_URL=https://${SUBDOMAIN}.${DOMAIN}
 
 GITHUB_OWNER=${GITHUB_OWNER}
 REPO_NAME=${REPO_NAME}
@@ -285,12 +317,12 @@ SSH_ALLOWED_CIDR=${SSH_ALLOWED_CIDR}
 
 USE_SSH_DEPLOY_KEY=${USE_SSH_DEPLOY_KEY}
 
-# Off by default. Set to 1 to allow the memex (public MCP) to accept
+# Off by default. Set to 1 to allow the public MCP to accept
 # index/log_friction calls. Pair with daily bearer rotation.
-MEMEX_PUBLIC_WRITE=0
+MEMRAIN_PUBLIC_WRITE=0
 
 # Default EFS mount path on the host (used by docker-compose volume binds).
-EFS_MOUNT=/mnt/${REPO_NAME}-efs/${REPO_NAME}
+EFS_MOUNT=/mnt/${PROJECT_NAME}-efs/${PROJECT_NAME}
 
 ${TIER_BLOCK}
 "
@@ -305,10 +337,10 @@ write_atomic "$ENV_FILE" "$ENV_CONTENT" 0600
 TFVARS_CONTENT="# Generated by scripts/init.sh — do not commit.
 aws_region          = \"${AWS_REGION}\"
 aws_profile         = \"${AWS_PROFILE}\"
-project_name        = \"${REPO_NAME}\"
+project_name        = \"${PROJECT_NAME}\"
 
 domain              = \"${DOMAIN}\"
-memex_subdomain     = \"${MEMEX_SUBDOMAIN}\"
+subdomain           = \"${SUBDOMAIN}\"
 
 github_owner        = \"${GITHUB_OWNER}\"
 repo_name           = \"${REPO_NAME}\"
@@ -331,7 +363,7 @@ write_atomic "$TFVARS_FILE" "$TFVARS_CONTENT" 0600
 BACKEND_CONTENT="# Generated by scripts/init.sh — do not commit.
 # Loaded via: terraform init -backend-config=backend.hcl
 bucket  = \"${TFSTATE_BUCKET}\"
-key     = \"${REPO_NAME}/terraform.tfstate\"
+key     = \"${TFSTATE_KEY}\"
 region  = \"${TFSTATE_REGION}\"
 encrypt = true
 profile = \"${AWS_PROFILE}\"

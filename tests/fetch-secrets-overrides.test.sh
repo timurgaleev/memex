@@ -234,6 +234,29 @@ if run_refresh MEMRAIN_MCP_URL=https://brain.example.test/mcp MEMEX_SECRETS_PREF
 else
   die "T7c mcp-refresh prefix fallback"; cat "$WS/stub/calls.log"; cat "$WS/out.log"
 fi
+# T7d. The default name is memrain; a legacy `memex` registration is only
+# reported, never removed. An explicitly named server gets no notice.
+ws_new; write_claude_stub
+stub_secret memex/memrain-public-bearer "bearer-new"
+if run_refresh MEMRAIN_MCP_URL=https://brain.example.test/mcp \
+   && grep -q '^mcp add .* memrain https://brain.example.test/mcp' "$WS/stub/claude.log" \
+   && grep -q '^mcp remove memrain ' "$WS/stub/claude.log" \
+   && ! grep -q '^mcp remove memex' "$WS/stub/claude.log" \
+   && grep -q "named 'memex' is still registered" "$WS/out.log"; then
+  pass "T7d mcp-refresh: default name memrain, legacy registration kept and reported"
+else
+  die "T7d mcp-refresh default name"; cat "$WS/stub/claude.log"; cat "$WS/out.log"
+fi
+ws_new; write_claude_stub
+stub_secret memex/memrain-public-bearer "bearer-new"
+if run_refresh MEMRAIN_MCP_URL=https://brain.example.test/mcp MEMEX_MCP_NAME=memex \
+   && grep -q '^mcp add .* memex https://brain.example.test/mcp' "$WS/stub/claude.log" \
+   && ! grep -q '^mcp get' "$WS/stub/claude.log" \
+   && ! grep -q 'still registered' "$WS/out.log"; then
+  pass "T7e mcp-refresh: legacy MEMEX_MCP_NAME honoured, no notice"
+else
+  die "T7e mcp-refresh explicit name"; cat "$WS/stub/claude.log"; cat "$WS/out.log"
+fi
 
 # T8. .env.example documents the four keys, commented out.
 for key in POSTGRES_URL_SECRET_NAME PUBLIC_BEARER_SECRET_NAME INTERNAL_TOKEN_SECRET_NAME TUNNEL_TOKEN_SECRET_NAME; do

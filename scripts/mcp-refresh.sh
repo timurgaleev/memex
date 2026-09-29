@@ -1,11 +1,11 @@
 #!/bin/bash
-# Refresh the local Claude Code registration of the memex MCP server with the
+# Refresh the local Claude Code registration of the memrain MCP server with the
 # current public bearer.
 #
-# The server-side bearer rotates daily (see rotate-memex-public-bearer.sh), so
+# The server-side bearer rotates daily (see rotate-memrain-public-bearer.sh), so
 # a client that registered yesterday's token gets 401s. This pulls the current
 # token from Secrets Manager and re-registers the MCP server in one shot — run
-# it when you start a work session, or whenever a memex MCP call returns 401.
+# it when you start a work session, or whenever a memrain MCP call returns 401.
 # Keeps the strong daily rotation; just removes the manual re-register step.
 #
 # Runs on the OPERATOR'S machine (where Claude Code is installed), NOT on the
@@ -19,17 +19,23 @@
 #   MEMRAIN_SECRETS_PREFIX secret prefix (default: memex) → <prefix>/memrain-public-bearer,
 #                          then <prefix>/memex-public-bearer
 #   PUBLIC_BEARER_SECRET_NAME  full secret id of the bearer; replaces the lookup above
-#   MEMRAIN_MCP_NAME       MCP server name to register (default: memex)
+#   MEMRAIN_MCP_NAME       MCP server name to register (default: memrain; an
+#                          existing `memex` registration is left in place)
 #   MEMRAIN_MCP_SCOPE      registration scope (default: user — all projects)
 #   AWS_PROFILE            passed to aws if set
 #
 # Suggested alias (add to ~/.zshrc, set URL/region/profile to your deploy):
-#   alias mcpr='MEMEX_MCP_URL="https://<your-brain-host>/mcp" AWS_REGION=<region> AWS_PROFILE=<profile> ~/path/to/memex/scripts/mcp-refresh.sh'
+#   alias mcpr='MEMRAIN_MCP_URL="https://<your-brain-host>/mcp" AWS_REGION=<region> AWS_PROFILE=<profile> ~/path/to/memrain/scripts/mcp-refresh.sh'
 
 set -euo pipefail
 
 MCP_URL="${MEMRAIN_MCP_URL:-${MEMEX_MCP_URL:-}}"
-NAME="${MEMRAIN_MCP_NAME:-${MEMEX_MCP_NAME:-memex}}"
+NAME="${MEMRAIN_MCP_NAME:-${MEMEX_MCP_NAME:-}}"
+NAME_DEFAULTED=0
+if [ -z "$NAME" ]; then
+  NAME=memrain
+  NAME_DEFAULTED=1
+fi
 # Read by secret_id_for (deploy/secrets/lib.sh, sourced below).
 # shellcheck disable=SC2034
 SECRETS_PREFIX="${MEMRAIN_SECRETS_PREFIX:-${MEMEX_SECRETS_PREFIX:-memex}}"
@@ -100,3 +106,11 @@ fi
 
 unset TOKEN
 log "ok: '${NAME}' re-registered at ${SCOPE} scope with the current bearer (${MCP_URL})."
+
+# The default name changed with the rename. A registration under the old name
+# is never removed here: it may carry a different credential the operator
+# still uses. Output is discarded, since `claude mcp get` prints headers.
+if [ "$NAME_DEFAULTED" -eq 1 ] && claude mcp get memex >/dev/null 2>&1; then
+  log "note: an MCP server named 'memex' is still registered and was left as is."
+  log "      Remove it yourself once '${NAME}' works: claude mcp remove memex --scope <its scope>"
+fi

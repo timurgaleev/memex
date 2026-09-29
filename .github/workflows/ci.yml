@@ -143,13 +143,13 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: memex
-          POSTGRES_PASSWORD: memex
-          POSTGRES_DB: memex_test
+          POSTGRES_USER: memrain
+          POSTGRES_PASSWORD: memrain
+          POSTGRES_DB: memrain_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U memex -d memex_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U memrain -d memrain_test"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
@@ -165,5 +165,5 @@ jobs:
         # With the URL set, the script uses the service container and starts
         # none of its own.
         env:
-          MEMRAIN_TEST_POSTGRES_URL: postgres://memex:memex@127.0.0.1:5432/memex_test?sslmode=disable
+          MEMRAIN_TEST_POSTGRES_URL: postgres://memrain:memrain@127.0.0.1:5432/memrain_test?sslmode=disable
         run: make test-pg

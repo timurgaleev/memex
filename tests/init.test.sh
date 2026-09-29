@@ -33,14 +33,17 @@ die() { echo "  ✗ $*"; FAIL=$((FAIL + 1)); }
 pass() { echo "  ✓ $*"; PASS=$((PASS + 1)); }
 
 # Standard valid answer set, one prompt per line, in the order init.sh asks:
-#   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, DOMAIN, MEMEX_SUBDOMAIN,
+#   AWS_ACCOUNT_ID, AWS_REGION, AWS_PROFILE, PROJECT_NAME, DOMAIN, SUBDOMAIN,
 #   GITHUB_OWNER, REPO_NAME, SECRETS_PREFIX, TFSTATE_BUCKET, TFSTATE_REGION,
-#   ALARM_EMAIL, SSH_ALLOWED_CIDR, USE_SSH_DEPLOY_KEY
+#   TFSTATE_KEY, ALARM_EMAIL, SSH_ALLOWED_CIDR, USE_SSH_DEPLOY_KEY
+# The feature tier prompt that follows reads EOF and takes its default.
+# valid_answers [TFSTATE_KEY] — empty takes the default <project>/terraform.tfstate.
 valid_answers() {
-  cat <<'EOF'
+  cat <<EOF
 123456789012
 eu-west-1
 default
+proj
 example.com
 brain
 testowner
@@ -48,6 +51,7 @@ test-stack
 stack
 my-tfstate-bucket
 eu-central-1
+${1:-}
 
 
 false
@@ -110,7 +114,7 @@ fi
 if [ -f "$t1/terraform/backend.hcl" ] \
    && grep -q 'bucket  = "my-tfstate-bucket"' "$t1/terraform/backend.hcl" \
    && grep -q 'region  = "eu-central-1"' "$t1/terraform/backend.hcl" \
-   && grep -q 'key     = "test-stack/terraform.tfstate"' "$t1/terraform/backend.hcl"; then
+   && grep -q 'key     = "proj/terraform.tfstate"' "$t1/terraform/backend.hcl"; then
   pass "T4 backend.hcl values correct"
 else
   die "T4 backend.hcl wrong: $(cat "$t1/terraform/backend.hcl" 2>/dev/null)"
@@ -145,9 +149,9 @@ fi
 t8=$(new_workspace t8)
 ec=0; output=$( { printf '%s\n' \
   "abc" \
-  "eu-west-1" "default" "example.com" "brain" \
-  "testowner" "test-stack" "stack" "my-tfstate" "eu-central-1" \
-  "" "" "" "false" \
+  "eu-west-1" "default" "proj" "example.com" "brain" \
+  "testowner" "test-stack" "stack" "my-tfstate" "eu-central-1" "" \
+  "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t8" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 1 ] && echo "$output" | grep -qi "12 digits"; then
   pass "T8 invalid AWS account ID → exit 1"
@@ -158,9 +162,9 @@ fi
 # T9. Validation rejects bad domain.
 t9=$(new_workspace t9)
 ec=0; output=$( { printf '%s\n' \
-  "123456789012" "eu-west-1" "default" "no-dot-domain" \
-  "brain" "owner" "name" "stack" "buck" "eu-central-1" \
-  "" "" "" "false" \
+  "123456789012" "eu-west-1" "default" "proj" "no-dot-domain" \
+  "brain" "owner" "name" "stack" "buck" "eu-central-1" "" \
+  "" "" "false" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t9" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 1 ] && echo "$output" | grep -q "domain"; then
   pass "T9 invalid domain → exit 1"
@@ -172,18 +176,22 @@ fi
 t10=$(new_workspace t10)
 ec=0; output=$( { printf '%s\n' \
   "123456789012" \
-  "" "" \
+  "" "" "" \
   "example.com" \
   "" \
   "owner" "" \
-  "" "buck" "" \
+  "" "buck" "" "" \
   "" "" "" "" \
   | INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t10" bash "$INIT_SH" 2>&1 ; } ) || ec=$?
 if [ "$ec" -eq 0 ] \
    && grep -q '^AWS_REGION=eu-west-1$' "$t10/.env" \
-   && grep -q '^MEMEX_SUBDOMAIN=brain$' "$t10/.env" \
+   && grep -q '^PROJECT=memrain$' "$t10/.env" \
+   && grep -q '^SUBDOMAIN=brain$' "$t10/.env" \
+   && grep -q '^SECRETS_PREFIX=memrain$' "$t10/.env" \
+   && grep -q '^EFS_MOUNT=/mnt/memrain-efs/memrain$' "$t10/.env" \
    && grep -q '^REPO_NAME=memex$' "$t10/.env" \
-   && grep -q '^USE_SSH_DEPLOY_KEY=false$' "$t10/.env"; then
+   && grep -q '^USE_SSH_DEPLOY_KEY=false$' "$t10/.env" \
+   && grep -q 'key     = "memrain/terraform.tfstate"' "$t10/terraform/backend.hcl"; then
   pass "T10 defaults applied for empty answers"
 else
   die "T10 defaults missing (exit=$ec): $(cat "$t10/.env" 2>/dev/null)"
@@ -206,4 +214,69 @@ if [ "$ec" -eq 2 ] && echo "$output" | grep -q "terraform/"; then
   pass "T12 missing terraform/ dir → exit 2"
 else
   die "T12 expected exit 2 (got exit=$ec): $output"
+fi
+
+# T13. Project name, repo name and state key are independent answers.
+t13=$(new_workspace t13)
+ec=0; output=$(valid_answers legacy/terraform.tfstate | run_init "$t13" 2>&1) || ec=$?
+if [ "$ec" -eq 0 ] \
+   && grep -q 'project_name        = "proj"' "$t13/terraform/terraform.tfvars" \
+   && grep -q 'repo_name           = "test-stack"' "$t13/terraform/terraform.tfvars" \
+   && grep -q 'key     = "legacy/terraform.tfstate"' "$t13/terraform/backend.hcl" \
+   && grep -q '^EFS_MOUNT=/mnt/proj-efs/proj$' "$t13/.env" \
+   && grep -q '^REPO_URL=https://github.com/testowner/test-stack.git$' "$t13/.env"; then
+  pass "T13 project name, repo name and state key are independent"
+else
+  die "T13 independence (exit=$ec): $output"
+fi
+
+# T14. --force refuses to change the key of an existing backend.hcl, and
+# writes nothing at all.
+t14=$(new_workspace t14)
+valid_answers legacy/terraform.tfstate | run_init "$t14" >/dev/null 2>&1
+for f in .env terraform/terraform.tfvars terraform/backend.hcl; do cp "$t14/$f" "$t14/$(basename "$f").before"; done
+ec=0; output=$(valid_answers | run_init "$t14" --force 2>&1) || ec=$?
+if [ "$ec" -eq 1 ] \
+   && echo "$output" | grep -q "legacy/terraform.tfstate" \
+   && echo "$output" | grep -q -- "--allow-backend-key-change" \
+   && cmp -s "$t14/.env" "$t14/.env.before" \
+   && cmp -s "$t14/terraform/terraform.tfvars" "$t14/terraform.tfvars.before" \
+   && cmp -s "$t14/terraform/backend.hcl" "$t14/backend.hcl.before"; then
+  pass "T14 --force with a different state key → exit 1, files unchanged"
+else
+  die "T14 key change under --force (exit=$ec): $output"
+fi
+
+# T15. --allow-backend-key-change lets the key change.
+ec=0; output=$(valid_answers | run_init "$t14" --force --allow-backend-key-change 2>&1) || ec=$?
+if [ "$ec" -eq 0 ] && grep -q 'key     = "proj/terraform.tfstate"' "$t14/terraform/backend.hcl"; then
+  pass "T15 --allow-backend-key-change → key switched"
+else
+  die "T15 allowed key change (exit=$ec): $output"
+fi
+
+# T16. New names only: subdomain in tfvars, no legacy keys in .env.
+if grep -q '^subdomain           = "brain"$' "$t1/terraform/terraform.tfvars" \
+   && ! grep -q 'memex_subdomain' "$t1/terraform/terraform.tfvars" \
+   && grep -q '^SUBDOMAIN=brain$' "$t1/.env" \
+   && grep -q '^PUBLIC_HOST=brain.example.com$' "$t1/.env" \
+   && grep -q '^MEMRAIN_PUBLIC_URL=https://brain.example.com$' "$t1/.env" \
+   && grep -q '^MEMRAIN_PUBLIC_WRITE=0$' "$t1/.env" \
+   && grep -q '^MEMRAIN_GRAPH_RERANK=1$' "$t1/.env" \
+   && ! grep -q 'MEMEX_' "$t1/.env"; then
+  pass "T16 subdomain + MEMRAIN_ keys, no memex_subdomain, no MEMEX_ key"
+else
+  die "T16 new names: $(cat "$t1/.env" "$t1/terraform/terraform.tfvars" 2>/dev/null)"
+fi
+
+# T17. MEMRAIN_INIT_TIER picks the tier; MEMEX_INIT_TIER is the fallback.
+t17=$(new_workspace t17)
+valid_answers | (cd "$t17" && MEMEX_INIT_TIER=free INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t17" bash "$INIT_SH") >/dev/null 2>&1
+t17b=$(new_workspace t17b)
+valid_answers | (cd "$t17b" && MEMRAIN_INIT_TIER=balanced MEMEX_INIT_TIER=free INIT_NON_INTERACTIVE=1 INIT_REPO_ROOT="$t17b" bash "$INIT_SH") >/dev/null 2>&1
+if grep -q 'Feature tier: free' "$t17/.env" \
+   && grep -q 'Feature tier: balanced' "$t17b/.env"; then
+  pass "T17 MEMRAIN_INIT_TIER wins, MEMEX_INIT_TIER falls back"
+else
+  die "T17 tier env: $(grep 'Feature tier' "$t17/.env" "$t17b/.env" 2>/dev/null)"
 fi
