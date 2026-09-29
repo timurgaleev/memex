@@ -20,7 +20,7 @@ import { readFileSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { Engine } from "./engine/interface.ts";
 import { bumpDocumentClock } from "./generation.ts";
-import { NO_SOURCE_SENTINEL } from "./auth-info.ts";
+import { isNoSourceSentinel } from "./auth-info.ts";
 import { canonicalPath, isUnderRoot, isWithinAllowedRoot, loadAllowedRootSpellings } from "./path_guard.ts";
 
 export type SourceKind =
@@ -104,8 +104,8 @@ export async function registerSource(
 ): Promise<SourceRow> {
   // The no-grant sentinel must never name a real source, or a caller denied
   // every source would read that one.
-  if (opts.id === NO_SOURCE_SENTINEL) {
-    throw new Error(`registerSource: "${NO_SOURCE_SENTINEL}" is reserved`);
+  if (isNoSourceSentinel(opts.id)) {
+    throw new Error(`registerSource: "${opts.id}" is reserved`);
   }
   assertPathPrefix(opts.pathPrefix);
   const r = await engine.query<RawSourceRow>(

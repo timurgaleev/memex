@@ -28,9 +28,10 @@ import type { Storage } from "../core/storage.ts";
 import type { AuthInfo } from "../core/auth-info.ts";
 import {
   effectiveWriteSourceIdForIngress,
-  NO_SOURCE_SENTINEL,
+  isNoSourceSentinel,
   tenantFailClosedEnabled,
 } from "../core/auth-info.ts";
+import { LEGACY_HEADER_PREFIX } from "../core/brand.ts";
 import { hasScope } from "../core/scope.ts";
 import { validateSlug } from "../core/pages.ts";
 import { Queue } from "../core/jobs/queue.ts";
@@ -163,6 +164,26 @@ function err(status: number, error: string, message: string): Response {
   return Response.json({ error, message }, { status });
 }
 
+const INGEST_HEADERS = ["content-type", "source-uri", "slug"] as const;
+type IngestHeader = (typeof INGEST_HEADERS)[number];
+
+/**
+ * The `x-memrain-<name>` headers, each falling back to its legacy
+ * `x-memex-<name>` spelling. A header sent under both names with different
+ * values is refused rather than resolved: picking one could land a capture at
+ * a slug the sender did not mean.
+ */
+function readIngestHeaders(req: Request): Record<IngestHeader, string | null> | { ambiguous: string } {
+  const out = {} as Record<IngestHeader, string | null>;
+  for (const name of INGEST_HEADERS) {
+    const current = req.headers.get(`x-memrain-${name}`);
+    const legacy = req.headers.get(`${LEGACY_HEADER_PREFIX}${name}`);
+    if (current !== null && legacy !== null && current !== legacy) return { ambiguous: `x-memrain-${name}` };
+    out[name] = current ?? legacy;
+  }
+  return out;
+}
+
 export async function handleIngestRoute(
   req: Request,
   deps: IngestRouteDeps,
@@ -201,10 +222,20 @@ export async function handleIngestRoute(
     return err(400, "empty_body", "POST /ingest requires a non-empty body");
   }
 
+  const headers = readIngestHeaders(req);
+  if ("ambiguous" in headers) {
+    return err(
+      400,
+      "ambiguous_header",
+      `${headers.ambiguous} and its legacy x-memex- spelling carry different values; send one`,
+    );
+  }
+
   // Callers whose transport pins Content-Type (e.g. a JSON-only webhook hop)
-  // can declare the intended type via X-Memex-Content-Type.
+  // can declare the intended type via X-Memrain-Content-Type (or the legacy
+  // X-Memex-Content-Type).
   const declared = (
-    req.headers.get("x-memex-content-type") ||
+    headers["content-type"] ||
     req.headers.get("content-type") ||
     ""
   ).toLowerCase();
@@ -224,10 +255,10 @@ export async function handleIngestRoute(
     return err(415, "binary_content", "POST /ingest takes text; the body is a binary file");
   }
   const sourceUri = (
-    req.headers.get("x-memex-source-uri") ||
+    headers["source-uri"] ||
     `mcp-webhook:${auth.clientId}:${Date.now()}`
   ).slice(0, 1024);
-  const callerSlug = req.headers.get("x-memex-slug") ?? undefined;
+  const callerSlug = headers.slug ?? undefined;
   if (callerSlug !== undefined) {
     try {
       validateSlug(callerSlug);
@@ -244,7 +275,7 @@ export async function handleIngestRoute(
   const writeSourceRaw = effectiveWriteSourceIdForIngress(auth, {
     failClosed: tenantFailClosedEnabled(),
   });
-  if (writeSourceRaw === NO_SOURCE_SENTINEL) {
+  if (isNoSourceSentinel(writeSourceRaw)) {
     return err(
       403,
       "permission_denied",

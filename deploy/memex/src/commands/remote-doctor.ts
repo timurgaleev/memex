@@ -8,7 +8,7 @@
  * load balancer), not what the host sees on loopback.
  */
 import { lstatSync, readFileSync } from "node:fs";
-import { NO_SOURCE_SENTINEL } from "../core/auth-info.ts";
+import { isNoSourceSentinel } from "../core/auth-info.ts";
 import { parseMcpBody } from "./auth.ts";
 
 export type DoctorCredentials =
@@ -195,7 +195,7 @@ export function evaluateOperatorScope(w: DoctorWhoami): string | null {
       : "whoami did not report is_public";
   }
   if (w.read_sources === null) return null;
-  if (w.read_sources.length === 0 || w.read_sources.every((s) => s === NO_SOURCE_SENTINEL)) {
+  if (w.read_sources.length === 0 || w.read_sources.every(isNoSourceSentinel)) {
     return "no read grant (fail-closed)";
   }
   if (!w.read_sources.includes(OPERATOR_SOURCE)) {

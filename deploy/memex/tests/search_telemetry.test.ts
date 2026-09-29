@@ -201,4 +201,16 @@ describe("search tune", () => {
     });
     expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
   });
+
+  it("--apply accepts the command under the current and the pre-rename CLI name", async () => {
+    const e = storage.engine();
+    const rec = { knob: "MEMEX_SEARCH_MODE", current: "tokenmax", suggested: "balanced", reason: "test" };
+    await applyTuneRecommendation(e, { ...rec, apply_command: "memrain config set MEMEX_SEARCH_MODE balanced" });
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBe("balanced");
+    await applyTuneRecommendation(e, { ...rec, apply_command: "memrain config unset MEMEX_SEARCH_MODE" });
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
+    // Any other command word is not an apply command.
+    await applyTuneRecommendation(e, { ...rec, apply_command: "other config set MEMEX_SEARCH_MODE balanced" });
+    expect(await getRuntimeConfig(e, "MEMEX_SEARCH_MODE")).toBeNull();
+  });
 });

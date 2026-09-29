@@ -16,6 +16,7 @@ import {
   effectiveTakesHolders,
   effectiveWriteSourceIdForIngress,
   tenantFailClosedEnabled,
+  isNoSourceSentinel,
   NO_SOURCE_SENTINEL,
 } from "../core/auth-info.ts";
 import { hybridSearch, type SearchOptions } from "../core/search/index.ts";
@@ -465,7 +466,7 @@ async function dispatchToolInner(
   const writeSourceRaw = effectiveWriteSourceIdForIngress(opts.authInfo, {
     failClosed: tenantFailClosedEnabled(),
   });
-  const writeDenied = writeSourceRaw === NO_SOURCE_SENTINEL;
+  const writeDenied = isNoSourceSentinel(writeSourceRaw);
   const writeSource = writeDenied ? undefined : writeSourceRaw;
   // The operator identity: trusted-local / static-bearer over internal ingress.
   // Per-call `mode` escalation and think save/take persistence key on this.

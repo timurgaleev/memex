@@ -42,11 +42,14 @@ const PATTERNS: Array<{ kind: string; regex: RegExp }> = [
   { kind: "openai-key", regex: /\bsk-(?:proj|svcacct|admin)-[\w-]{20,300}/g },
   { kind: "slack-webhook", regex: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,200}/g },
   { kind: "anthropic-key", regex: /\bsk-ant-[\w-]{20,300}/g },
-  // memex's own: OAuth access/refresh tokens, client secrets, authorization and
-  // enrollment codes, and PATs.
-  // Client ids (`memex_cl_`) and enrollment ids (`memex_enr_`) are not secrets.
+  // Our own: OAuth access/refresh tokens, client secrets, authorization and
+  // enrollment codes, and PATs, under the current and the pre-rename prefix
+  // (tokens minted before the rename keep working).
+  // Client ids (`*_cl_`) and enrollment ids (`*_enr_`) are not secrets.
   { kind: "memex-token", regex: /\bmemex_(?:at|rt|cs|code|en)_[\w-]{16,200}/g },
   { kind: "memex-pat", regex: /\bmemex_[0-9a-f]{64}\b/g },
+  { kind: "memrain-token", regex: /\bmemrain_(?:at|rt|cs|code|en)_[\w-]{16,200}/g },
+  { kind: "memrain-pat", regex: /\bmemrain_[0-9a-f]{64}\b/g },
   // The lookbehind keeps a start from landing mid-run, so a long `-`/`_` run
   // is scanned once, not once per `eyJ` in it.
   { kind: "jwt", regex: /(?<![\w-])eyJ[\w-]{8,4096}\.[\w-]{2,4096}\.[\w-]{8,4096}/g },

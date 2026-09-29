@@ -10,14 +10,14 @@
  * treats `[]` exactly like `undefined`, so a caller with no grant silently reads
  * the whole brain. Test `!== undefined`, or build the SQL here.
  */
-import { NO_SOURCE_SENTINEL } from "./auth-info.ts";
+import { isNoSourceSentinel } from "./auth-info.ts";
 import { assertSqlAlias } from "./quarantine.ts";
 
 export type SourceScope = readonly string[] | undefined;
 
 /** True for a caller that may read no source at all. */
 export function isNoGrant(scope: SourceScope): boolean {
-  return scope !== undefined && scope.every(s => s === NO_SOURCE_SENTINEL);
+  return scope !== undefined && scope.every(isNoSourceSentinel);
 }
 
 /**

@@ -26,15 +26,20 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { RateLimiter } from "../mcp/rate_limit.ts";
 import { resolveClientKey } from "./client-key.ts";
 import { isSameOriginPost } from "./same-origin.ts";
+import { LEGACY_ADMIN_COOKIE, LEGACY_APPROVAL_PARAM, LEGACY_RETURN_TO_COOKIE } from "../core/brand.ts";
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h for password login
 const MAGIC_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7d for magic-link
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const NONCE_LRU_CAP = 1000;
-const COOKIE_NAME = "memex_admin";
-const RETURN_COOKIE_NAME = "memex_return_to";
+// Written under the pre-rename names, and read under both, current name first.
+const COOKIE_NAME = LEGACY_ADMIN_COOKIE;
+const COOKIE_NAMES = ["memrain_admin", LEGACY_ADMIN_COOKIE] as const;
+const RETURN_COOKIE_NAME = LEGACY_RETURN_TO_COOKIE;
+const RETURN_COOKIE_NAMES = ["memrain_return_to", LEGACY_RETURN_TO_COOKIE] as const;
 const RETURN_TTL_MS = 10 * 60 * 1000; // 10 minutes to finish signing in
-const APPROVAL_PARAM = "memex_approval";
+const APPROVAL_PARAM = LEGACY_APPROVAL_PARAM;
+const APPROVAL_PARAMS = ["memrain_approval", LEGACY_APPROVAL_PARAM] as const;
 const APPROVAL_TTL_MS = 5 * 60 * 1000; // the click and the redirect that follows it
 
 /**
@@ -91,9 +96,13 @@ function readCookies(req: Request, name: string): string[] {
   return out;
 }
 
-/** Parse a single cookie value out of the request's Cookie header. */
-function readCookie(req: Request, name: string): string | null {
-  return readCookies(req, name)[0] ?? null;
+/** The first value carried under any of `names`, tried in order. */
+function readCookie(req: Request, names: readonly string[]): string | null {
+  for (const name of names) {
+    const value = readCookies(req, name)[0];
+    if (value !== undefined) return value;
+  }
+  return null;
 }
 
 /** True when the request arrived over https (behind a TLS-terminating proxy
@@ -152,7 +161,7 @@ function safeReturnTo(raw: string | null): string | null {
 
 /** Read the parked resume target, re-validating it on the way out. */
 function readReturnTo(req: Request): string | null {
-  const raw = readCookie(req, RETURN_COOKIE_NAME);
+  const raw = readCookie(req, RETURN_COOKIE_NAMES);
   if (!raw) return null;
   try {
     return safeReturnTo(decodeURIComponent(raw));
@@ -165,9 +174,9 @@ function readReturnTo(req: Request): string | null {
  *  than the session cookie's Strict: a magic link is typically opened from a
  *  terminal or another app, and Strict would not ride along with that
  *  navigation. It carries no credential — only this server's own authorize URL. */
-function buildReturnToCookie(req: Request, value: string | null): string {
+function buildReturnToCookie(req: Request, value: string | null, name: string = RETURN_COOKIE_NAME): string {
   const attrs = [
-    `${RETURN_COOKIE_NAME}=${value ? encodeURIComponent(value) : ""}`,
+    `${name}=${value ? encodeURIComponent(value) : ""}`,
     "Path=/admin",
     "HttpOnly",
     "SameSite=Lax",
@@ -175,6 +184,13 @@ function buildReturnToCookie(req: Request, value: string | null): string {
   ];
   if (isHttps(req)) attrs.push("Secure");
   return attrs.join("; ");
+}
+
+/** Clear the resume cookie under every name the request carries it by. */
+function appendReturnToClears(req: Request, headers: Headers): void {
+  for (const name of RETURN_COOKIE_NAMES) {
+    if (readCookies(req, name).length > 0) headers.append("Set-Cookie", buildReturnToCookie(req, null, name));
+  }
 }
 
 const EXPIRED_LINK_HTML = `<!DOCTYPE html>
@@ -212,8 +228,8 @@ export interface AdminAuth {
    * Single-use consent for THIS `/authorize` request. A live admin session is
    * not approval on its own — anything that can navigate the operator's browser
    * same-site would otherwise mint a code silently — so `/authorize` also
-   * demands the `memex_approval` nonce the operator's click issued, bound to
-   * this exact request's parameters.
+   * demands the approval nonce (`memrain_approval` or `memex_approval`) the
+   * operator's click issued, bound to this exact request's parameters.
    */
   consumeAuthorizeApproval(req: Request): boolean;
   /** Handle an `/admin` AUTH route. Returns a Response, or null when the path is
@@ -258,7 +274,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
   /** Single-use, request-bound consent. Consumes the nonce it accepts. */
   function consumeAuthorizeApproval(req: Request): boolean {
     const params = new URL(req.url).searchParams;
-    const nonce = params.get(APPROVAL_PARAM);
+    const nonce = APPROVAL_PARAMS.map((p) => params.get(p)).find((v) => v !== null);
     if (!nonce) return false;
     const rec = approvals.get(nonce);
     approvals.delete(nonce); // single use, valid or not
@@ -269,7 +285,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
   function requireAdmin(req: Request): boolean {
     // Any live one authorizes: a stale cookie from the old Path=/admin scope
     // is sent ahead of the live one and must not shadow it.
-    for (const id of readCookies(req, COOKIE_NAME)) {
+    for (const id of COOKIE_NAMES.flatMap((name) => readCookies(req, name))) {
       const exp = sessions.get(id);
       if (exp === undefined) continue;
       if (Date.now() > exp) {
@@ -415,9 +431,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       const claimed = await req.json().catch(() => null) as { handle?: unknown } | null;
       const resume = readReturnTo(req);
       const clear = new Headers();
-      if (readCookie(req, RETURN_COOKIE_NAME) !== null) {
-        clear.append("Set-Cookie", buildReturnToCookie(req, null));
-      }
+      appendReturnToClears(req, clear);
       // Nothing parked (or a value that failed re-validation): drop the remnant.
       if (!resume) return Response.json({ error: "Nothing to approve" }, { status: 404, headers: clear });
       const target = new URL(resume, "http://memex.invalid");
@@ -444,9 +458,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       if (!isSameOriginPost(req, url)) return Response.json({ error: "Cross-origin request refused" }, { status: 403 });
       if (!requireAdmin(req)) return Response.json({ error: "Admin authentication required" }, { status: 401 });
       const headers = new Headers();
-      if (readCookie(req, RETURN_COOKIE_NAME) !== null) {
-        headers.append("Set-Cookie", buildReturnToCookie(req, null));
-      }
+      appendReturnToClears(req, headers);
       return Response.json({ dismissed: true }, { headers });
     }
 

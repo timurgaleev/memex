@@ -14,6 +14,7 @@ import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { reconcileDeletedDocuments } from "./reconcile-deletes.ts";
 import { backfillDocumentSources, loadRereadGuard, type StoredDocument } from "./sources.ts";
+import { LEGACY_VAULT_IGNORES } from "./brand.ts";
 
 export interface SweepOptions {
   /** Filesystem root of the vault. */
@@ -89,8 +90,9 @@ const DEFAULT_IGNORES = [
   ".obsidian",
   ".trash",
   ".git",
-  "memex",
-  ".memex",
+  "memrain",
+  ".memrain",
+  ...LEGACY_VAULT_IGNORES,
   "node_modules",
 ];
 

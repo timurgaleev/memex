@@ -11,6 +11,7 @@
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
+import { LEGACY_CLI_WORD } from "../core/brand.ts";
 import type { Engine } from "../core/engine/interface.ts";
 import {
   readSearchStats,
@@ -191,13 +192,14 @@ export function buildTuneRecommendations(
   return recs;
 }
 
-/** Parse an apply command and write it through runtime_config (in-process). */
+/** Parse an apply command and write it through runtime_config (in-process).
+ *  The command word may be the current CLI name or the pre-rename one. */
 export async function applyTuneRecommendation(
   engine: Engine,
   rec: TuneRecommendation,
 ): Promise<void> {
   const parts = rec.apply_command.split(/\s+/);
-  if (parts[0] !== "memex" || parts[1] !== "config") return;
+  if ((parts[0] !== "memrain" && parts[0] !== LEGACY_CLI_WORD) || parts[1] !== "config") return;
   if (parts[2] === "set" && parts.length === 5) {
     await setRuntimeConfig(engine, parts[3]!, parts[4]!);
   } else if (parts[2] === "unset" && parts.length === 4) {

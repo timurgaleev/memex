@@ -172,6 +172,35 @@ describe("lintSkillpack", () => {
     expect(lintSkillpack(dir)).toEqual({ ok: true, skills: 1, issues: [] });
   });
 
+  it("reads commands under the current and the pre-rename CLI name", () => {
+    const dir = writePack("both-words", {
+      "nu/SKILL.md": skill(
+        "nu",
+        "[page_get]",
+        [
+          "Run `memrain doctor` or, on a stored page, `memex doctor`.",
+          `${FENCE}bash`,
+          "memrain nosuchcmd",
+          "memrain call not_a_tool '{}'",
+          "memrain call page_get '{\"slug\":\"a\",\"bogus\":1}'",
+          `${FENCE}`,
+        ].join("\n"),
+      ),
+    });
+    const issues = lintSkillpack(dir).issues.map((i) => `${i.rule} @${i.line}`);
+    expect(issues).toEqual([
+      "unknown-cli-command @13",
+      "unknown-call-tool @14",
+      "unknown-tool-arg @15",
+    ]);
+    expect(extractCliReferences("`memrain doctor` then `memex status` then `memrain jobs list`")).toEqual([
+      { command: "doctor", subcommand: null, line: 1 },
+      { command: "status", subcommand: null, line: 1 },
+      { command: "jobs", subcommand: "list", line: 1 },
+    ]);
+    expect(extractCliReferences("`xmemrain doctor` and `memraindoctor`")).toEqual([]);
+  });
+
   it("reports a SKILL.md it cannot read instead of skipping it", () => {
     const dir = writePack("unreadable", {
       "lambda/SKILL.md/placeholder": "x",
@@ -208,6 +237,13 @@ describe("extractCliReferences cost", () => {
     expect(large / Math.max(small, 0.05)).toBeLessThan(10);
   }, 60_000);
 
+  it("stays linear on interleaved current and pre-rename fragments", () => {
+    const build = (k: number): string => "`memrain `memex ".repeat(2 ** k);
+    const small = best(build(15));
+    const large = best(build(17));
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
+  }, 60_000);
+
   it("stays linear on backtick runs of mixed lengths that never pair", () => {
     const build = (n: number): string =>
       Array.from({ length: n }, (_, i) => `${"`".repeat((i % 50) + 1)}memex doctor `).join("");
@@ -230,6 +266,13 @@ describe("extractToolCalls cost", () => {
 
   it("stays linear on nested tool-call objects that never close", () => {
     const build = (k: number): string => "search {\"q\": ".repeat(2 ** k);
+    const small = best(build(14));
+    const large = best(build(16));
+    expect(large / Math.max(small, 0.05)).toBeLessThan(10);
+  }, 60_000);
+
+  it("stays linear on memrain call fragments far from any memex one", () => {
+    const build = (k: number): string => `${"memrain call search '{ \"q\" ".repeat(2 ** k)}memex call`;
     const small = best(build(14));
     const large = best(build(16));
     expect(large / Math.max(small, 0.05)).toBeLessThan(10);

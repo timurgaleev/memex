@@ -20,6 +20,7 @@
  */
 
 import { OperationError } from "./operation-error.ts";
+import { LEGACY_NO_SOURCE_SENTINEL } from "./brand.ts";
 
 export interface AuthInfo {
   /** The raw bearer/OAuth token presented by the caller. */
@@ -100,7 +101,20 @@ export function effectiveReadSourceIds(
  * write. Reads use `[]` for the same caller; read helpers still treat a
  * sentinel-only list as "no grant" (see core/source-scope.ts).
  */
-export const NO_SOURCE_SENTINEL = "__memex_no_source__";
+export const NO_SOURCE_SENTINEL = LEGACY_NO_SOURCE_SENTINEL;
+
+/** The same reserved id under the current name. */
+const MEMRAIN_NO_SOURCE_SENTINEL = "__memrain_no_source__";
+
+/**
+ * True for either spelling of the reserved id. Test with this, never with
+ * `=== NO_SOURCE_SENTINEL`: a server on the other side of the rename (a
+ * whoami read by remote-doctor, a stored grant) carries the other spelling,
+ * and missing it would treat "no grant" as a grant.
+ */
+export function isNoSourceSentinel(id: unknown): boolean {
+  return id === MEMRAIN_NO_SOURCE_SENTINEL || id === LEGACY_NO_SOURCE_SENTINEL;
+}
 
 /**
  * Is the fail-closed multi-tenant read policy enabled? Default OFF — only an

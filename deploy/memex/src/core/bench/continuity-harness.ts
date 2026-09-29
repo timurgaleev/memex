@@ -55,7 +55,7 @@ import type { AuthInfo } from "../auth-info.ts";
 import {
   effectiveWriteSourceIdForIngress,
   tenantFailClosedEnabled,
-  NO_SOURCE_SENTINEL,
+  isNoSourceSentinel,
 } from "../auth-info.ts";
 import { putPage, type PageInput } from "../pages.ts";
 import { registerSource } from "../sources.ts";
@@ -211,7 +211,7 @@ function resolvedWriteSource(opts: DispatchOptions): string | undefined {
   const raw = effectiveWriteSourceIdForIngress(opts.authInfo, {
     failClosed: tenantFailClosedEnabled(),
   });
-  if (raw === NO_SOURCE_SENTINEL) {
+  if (isNoSourceSentinel(raw)) {
     throw new Error(
       "continuity harness: identity resolves to no write source under the fail-closed " +
         "policy, so its session-A writes would be refused — give it a writeSource",

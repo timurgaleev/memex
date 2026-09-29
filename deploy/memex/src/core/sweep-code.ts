@@ -21,6 +21,7 @@ import { walkFiles } from "./walk.ts";
 import { listStaleChunkerDocIds } from "./chunker-version.ts";
 import { SUPPORTED_EXTENSIONS } from "./chunkers/parsers.ts";
 import { backfillDocumentSources, loadRereadGuard, type StoredDocument } from "./sources.ts";
+import { LEGACY_DATA_DIR } from "./brand.ts";
 
 export interface SweepCodeOptions {
   /** Filesystem roots to sweep (each becomes its own source). */
@@ -67,11 +68,11 @@ export interface SweepCodeResult {
 
 // Default ignore set for the CODE sweep. Intentionally narrower than
 // `sweep.ts`'s markdown ignores: a code repo can legitimately contain
-// a directory literally named `memex` (e.g. this repo's
-// `deploy/memex/`). Including `memex` here would basename-match
-// it and silently skip the entire source tree we wanted to index.
-// The local PGLite data dir is `.memex` (dotted) — that variant is
-// safe to keep because it never appears as a real source directory.
+// a directory named after the project (this repo's package directory
+// is one). The bare name here would basename-match it and silently skip
+// the entire source tree we wanted to index, so it is never listed, under
+// either name. The local data dirs are dotted (`.memrain`, and `.memex`
+// from before the rename); those never appear as a real source directory.
 const DEFAULT_IGNORES: readonly string[] = [
   ".git",
   "node_modules",
@@ -80,7 +81,8 @@ const DEFAULT_IGNORES: readonly string[] = [
   ".next",
   ".cache",
   ".turbo",
-  ".memex",
+  ".memrain",
+  LEGACY_DATA_DIR,
   "wasm",
   "vendor",
   "__pycache__",

@@ -19,7 +19,7 @@
  */
 import {
   effectiveWriteSourceIdForIngress,
-  NO_SOURCE_SENTINEL,
+  isNoSourceSentinel,
   tenantFailClosedEnabled,
   type AuthInfo,
 } from "../core/auth-info.ts";
@@ -151,7 +151,7 @@ export function dispatchRefusal(
 ): ToolRefusal | null {
   if (authInfo === undefined) return null;
   const writeDenied =
-    effectiveWriteSourceIdForIngress(authInfo, { failClosed }) === NO_SOURCE_SENTINEL;
+    isNoSourceSentinel(effectiveWriteSourceIdForIngress(authInfo, { failClosed }));
   if (writeDenied && WRITE_SCOPED_TOOLS.has(name)) return { kind: "no_write_source" };
   if (OPERATOR_ONLY_TOOLS.has(name)) return { kind: "operator_only" };
   const scope = OP_BY_NAME.get(name)?.scope;

@@ -17,13 +17,15 @@ import { join } from "node:path";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
 import { loadConfig } from "../core/config.ts";
+import { LEGACY_VAULT_IGNORES } from "../core/brand.ts";
 
 const DEFAULT_IGNORES = new Set([
   ".obsidian",
   ".trash",
   ".git",
-  "memex",
-  ".memex",
+  "memrain",
+  ".memrain",
+  ...LEGACY_VAULT_IGNORES,
   "node_modules",
 ]);
 

@@ -2,7 +2,8 @@
  * skillpack/lint.ts — the pack honesty lint.
  *
  * Agents follow served skills literally, so every MCP tool a skill declares
- * and every `memex <cmd> [<sub>]` it tells an agent to run must exist. The
+ * and every `memrain <cmd> [<sub>]` it tells an agent to run must exist (the
+ * pre-rename `memex <cmd>` spelling in stored skill pages counts too). The
  * lint checks both against the real surfaces (OPERATIONS and CLI_COMMANDS).
  * Tool-call examples (`tool_name {json}`, `memex call tool '{json}'`) are
  * checked too: dispatch refuses undeclared argument keys, so an example that
@@ -15,6 +16,7 @@ import { join } from "node:path";
 import { CLI_COMMANDS, type CliCommandSpec } from "../../cli-commands.ts";
 import { OPERATIONS } from "../../mcp/operations.ts";
 import { parseSkillFrontmatter } from "./frontmatter.ts";
+import { LEGACY_CLI_WORD } from "../brand.ts";
 
 export type SkillLintRule =
   | "frontmatter-missing"
@@ -67,6 +69,30 @@ export interface ToolCallExample {
 /** Longest token worth reading; a longer one is not a command word. */
 const MAX_TOKEN = 64;
 
+/** The names a skill may address the CLI by. */
+const CLI_WORDS = ["memrain", LEGACY_CLI_WORD] as const;
+
+/**
+ * Every occurrence of any needle, in text order. Each needle's next position
+ * is searched for only after the previous one is consumed, so the text is
+ * scanned once per needle, not once per hit.
+ */
+function* occurrences(text: string, needles: readonly string[]): Generator<{ at: number; end: number }> {
+  const next = needles.map((n) => text.indexOf(n));
+  for (;;) {
+    let best = -1;
+    for (let i = 0; i < needles.length; i++) {
+      const at = next[i]!;
+      if (at !== -1 && (best === -1 || at < next[best]!)) best = i;
+    }
+    if (best === -1) return;
+    const at = next[best]!;
+    const end = at + needles[best]!.length;
+    next[best] = text.indexOf(needles[best]!, end);
+    yield { at, end };
+  }
+}
+
 function isWordChar(ch: string | undefined): boolean {
   if (ch === undefined) return false;
   return /[\w.-]/.test(ch);
@@ -103,14 +129,10 @@ function readTokens(text: string, from: number, count: number): string[] {
 }
 
 function scanCode(text: string, line: number, out: CliReference[]): void {
-  let pos = 0;
-  for (;;) {
-    const k = text.indexOf("memex", pos);
-    if (k === -1) return;
-    pos = k + 5;
-    if (text[k + 5] !== " ") continue;
+  for (const { at: k, end } of occurrences(text, CLI_WORDS)) {
+    if (text[end] !== " ") continue;
     if (k > 0 && isWordChar(text[k - 1])) continue;
-    const [first = "", second = ""] = readTokens(text, k + 6, 2);
+    const [first = "", second = ""] = readTokens(text, end + 1, 2);
     const command = stripTrailingPunctuation(first);
     if (!isCommandWord(command)) continue;
     // `memex doctor, then ...` or `memex doctor` inside a quoted example: the
@@ -248,22 +270,18 @@ function objectKeys(text: string, open: number): { keys: string[]; end: number }
 }
 
 function scanToolCalls(text: string, line: number, opNames: ReadonlySet<string>, out: ToolCallExample[]): void {
-  // `memex call <tool> ['{json}']`: the tool name is an instruction on its own.
+  // `memrain call <tool> ['{json}']`: the tool name is an instruction on its own.
   const cliObjects = new Map<number, number>();
-  let pos = 0;
-  for (;;) {
-    const k = text.indexOf("memex call", pos);
-    if (k === -1) break;
-    pos = k + 10;
+  for (const { at: k, end } of occurrences(text, CLI_WORDS.map((w) => `${w} call`))) {
     if (k > 0 && isWordChar(text[k - 1])) continue;
-    if (text[k + 10] !== " ") continue;
-    const [first = "", second = ""] = readTokens(text, k + 11, 2);
+    if (text[end] !== " ") continue;
+    const [first = "", second = ""] = readTokens(text, end + 1, 2);
     const tool = stripTrailingPunctuation(first);
     if (!isToolName(tool)) continue;
     const example: ToolCallExample = { tool, keys: [], viaCli: true, line };
     out.push(example);
     if (tool.length !== first.length || !second.startsWith("'{")) continue;
-    cliObjects.set(text.indexOf("'{", k + 11 + first.length) + 1, out.length - 1);
+    cliObjects.set(text.indexOf("'{", end + 1 + first.length) + 1, out.length - 1);
   }
   // `tool_name {json}`, plus the objects of the `memex call` lines above. An
   // object nested inside one already read is an argument value, not a call.
