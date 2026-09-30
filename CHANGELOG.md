@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.3] — 2026-09-30
+
+### Fixed
+- A fresh install now accepts the tokens it issues. `memrain init` writes
+  `memrain.yml` with `auth.selfIssued.enabled: true` when it creates a new
+  config directory, so personal access tokens and registered OAuth clients
+  work without editing any file. An existing install, or one that already has
+  an overlay file, is left untouched.
+- `memrain auth create` and `auth register-client` warn when self-issued auth
+  is off, naming the overlay file to change, instead of minting a token the
+  server will ignore.
+- `scripts/init.sh` writes `EFS_REPO` into the generated `.env`, so
+  `docker compose config` resolves on a new install.
+
+### Changed
+- The README local quickstart lists every step a new user needs (`bun
+  install`, registering a source before creating a token, running the CLI
+  through `bun run src/cli.ts`), states plainly that local mode without
+  `MEMRAIN_INTERNAL_TOKEN` does not authenticate loopback requests, and that
+  search needs AWS Bedrock credentials. `docs/CLAUDE-CODE.md` now describes
+  when a PAT is accepted on the internal path.
+
 ## [1.0.2] — 2026-09-30
 
 ### Fixed
