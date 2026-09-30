@@ -128,10 +128,10 @@ resource "aws_security_group" "memrain" {
     }
   }
 
-  # Postgres outbound to the memex RDS instance. Restricted to the VPC CIDR;
+  # Postgres outbound to the RDS instance. Restricted to the VPC CIDR;
   # the RDS SG further restricts inbound to this SG.
   egress {
-    description = "Postgres to memex RDS"
+    description = "Postgres to the RDS instance"
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
