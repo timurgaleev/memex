@@ -107,6 +107,15 @@ restore_ingress() {
   echo "==> ingress restarted (${INGRESS[*]}); ${SERVICE} was not replaced" >&2
 }
 
+# Armed from the ingress stop until the app swap: any exit in between leaves
+# the old app serving, so its ingress comes back first.
+restore_on_exit() {
+  local rc=$?
+  trap - EXIT
+  restore_ingress || true
+  exit "$rc"
+}
+
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required (dnf install -y jq)" >&2; exit 1; }
 command -v timeout >/dev/null 2>&1 || { echo "FAIL: timeout is required (dnf install -y coreutils)" >&2; exit 1; }
 
@@ -185,6 +194,7 @@ for svc in $services; do
 done
 if [ "${#INGRESS[@]}" -gt 0 ]; then
   echo "==> stopping the ingress (${INGRESS[*]}) until the new app passes its gates"
+  trap restore_on_exit EXIT
   compose stop "${INGRESS[@]}" || { echo "FAIL: could not stop the ingress (${INGRESS[*]}); ${SERVICE} was not started" >&2; exit 1; }
   still="$(compose ps --status running --services)" || { echo "FAIL: cannot confirm the ingress stopped; ${SERVICE} was not started" >&2; exit 1; }
   for svc in "${INGRESS[@]}"; do
@@ -207,8 +217,6 @@ if [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null ||
      || ! [[ "$PRE_PAGES" =~ ^[0-9]+$ ]]; then
     echo "FAIL: ${CONTAINER} is running but its page count cannot be read (or the read took over ${STATUS_TIMEOUT}s)" >&2
     echo "      stop it and re-run with DEPLOY_MIN_PAGES=<last known page count>" >&2
-    # The old app was not touched, so its ingress comes back.
-    restore_ingress || true
     exit 1
   fi
 fi
@@ -217,6 +225,8 @@ if [ -n "$MIN_PAGES" ] && { [ -z "$FLOOR" ] || [ "$MIN_PAGES" -gt "$FLOOR" ]; };
   FLOOR="$MIN_PAGES"
 fi
 
+# From here a failure stops the new app and leaves the ingress down (gate_fail).
+trap - EXIT
 compose up -d --no-build --no-deps "$SERVICE"
 
 echo "==> waiting for ${CONTAINER} to report healthy (max ${HEALTH_TIMEOUT_S}s)"

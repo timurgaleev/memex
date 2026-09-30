@@ -32,6 +32,8 @@ command -v jq >/dev/null 2>&1 || { echo "deploy.test.sh: jq not installed — sk
 #   build_fails      `compose build` fails
 #   status_hangs     `status` on the old app never returns
 #   start_ignored    `compose start` leaves the ingress stopped
+#   stop_partial     `compose stop` stops only the first service it names, fails
+#   ps_fails         the next `compose ps` fails (once)
 #   health.json      /health body after the build (version is filled in)
 #   pre_build_status.json   `status` before the ingress is stopped
 #   status.json      `status` output (pre and post deploy alike unless
@@ -90,6 +92,7 @@ case "$1" in
       up) case "$*" in *--no-deps*) touch "$S/up_done" ;; *) touch "$S/ingress_up" ;; esac; exit 0 ;;
       stop)
         shift
+        if [ -e "$S/stop_partial" ]; then touch "$S/stopped_$1"; exit 1; fi
         if [ ! -e "$S/stop_ignored" ]; then for svc in "$@"; do touch "$S/stopped_$svc"; done; fi
         exit 0 ;;
       start)
@@ -97,6 +100,7 @@ case "$1" in
         if [ ! -e "$S/start_ignored" ]; then for svc in "$@"; do rm -f "$S/stopped_$svc"; done; fi
         exit 0 ;;
       ps)
+        if [ -e "$S/ps_fails" ]; then rm -f "$S/ps_fails"; echo "ps failed" >&2; exit 1; fi
         if [ -e "$S/ingress_up" ]; then cat "$S/running_after" 2>/dev/null; exit 0; fi
         while read -r svc; do
           case "$svc" in
@@ -505,4 +509,35 @@ if [ "$ec" -eq 1 ] && [ ! -s "$S/calls.log" ] && grep -q 'timeout is required' "
   pass "no timeout binary: exit 1 before any docker call"
 else
   die "missing timeout (exit $ec)"; cat "$WS/out.log"
+fi
+
+# 24. Any failure between the ingress stop and the app swap restores the
+# ingress: a stop that fails midway, and a failing running-services check.
+ws_new; touch "$S/pre_running" "$S/stop_partial"
+printf 'memrain\ncaddy\ncloudflared\n' > "$S/services"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && calls | grep -q 'compose.* start caddy cloudflared$' \
+   && [ ! -e "$S/stopped_caddy" ] && [ ! -e "$S/stopped_cloudflared" ] \
+   && ! calls | grep -q 'compose.* up ' && grep -q 'ingress restarted (caddy cloudflared)' "$WS/out.log"; then
+  pass "stop fails midway: exit 1, ingress restored and verified, app not started"
+else
+  die "partial stop (exit $ec)"; cat "$WS/out.log"; calls
+fi
+ws_new; touch "$S/pre_running" "$S/ps_fails"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && calls | grep -q 'compose.* start cloudflared$' \
+   && [ ! -e "$S/stopped_cloudflared" ] && ! calls | grep -q 'compose.* up ' \
+   && grep -q 'cannot confirm the ingress stopped' "$WS/out.log" \
+   && grep -q 'ingress restarted (cloudflared)' "$WS/out.log"; then
+  pass "running-services check fails: exit 1, ingress restored and verified, app not started"
+else
+  die "ps failure (exit $ec)"; cat "$WS/out.log"; calls
+fi
+# ... and after the swap a failed gate still leaves the ingress down.
+ws_new; touch "$S/pre_running"; status_json 0 true 0
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && stopped && ! calls | grep -q 'compose.* start ' && [ -e "$S/stopped_cloudflared" ]; then
+  pass "gate failure after the swap: no ingress restore"
+else
+  die "post-swap gate (exit $ec)"; cat "$WS/out.log"; calls
 fi
