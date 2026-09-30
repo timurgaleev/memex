@@ -6,11 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-09-30
+
+### Fixed
+- The changelog format test no longer assumes 1.0.0 is the newest release,
+  so CI passes on 1.0.x releases (1.0.1 shipped with that check red).
+
 ## [1.0.1] — 2026-09-30
 
 ### Fixed
-- `scripts/init.sh` offered `memex` as the default public repo name; a fresh
-  install now defaults to `memrain`, matching the repository.
+- `scripts/init.sh` offered the pre-rename name as the default public repo
+  name; a fresh install now defaults to `memrain`, matching the repository.
 
 ### Changed
 - The example secret names in `.env.example`, the gitleaks path rules and the

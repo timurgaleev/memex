@@ -57,7 +57,7 @@ def test_unreleased_is_first_and_empty():
     above, _ = split()
     headings = HEADING_RE.findall(above)
     assert headings[0] == "## [Unreleased]"
-    assert re.match(r"^## \[1\.0\.0\] — \d{4}-\d{2}-\d{2}$", headings[1]), headings[1]
+    assert re.match(r"^## \[\d+\.\d+\.\d+\] — \d{4}-\d{2}-\d{2}$", headings[1]), headings[1]
     assert section(above, "## [Unreleased]").strip() == "## [Unreleased]"
 
 
