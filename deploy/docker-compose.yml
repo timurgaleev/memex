@@ -104,8 +104,7 @@ services:
       - MEMRAIN_BOOT_CODE_SWEEP=${MEMRAIN_BOOT_CODE_SWEEP:-${MEMEX_BOOT_CODE_SWEEP:-}}
       - MEMRAIN_JOBS_WORKER=${MEMRAIN_JOBS_WORKER:-${MEMEX_JOBS_WORKER:-}}
       - MEMRAIN_CYCLE=${MEMRAIN_CYCLE:-${MEMEX_CYCLE:-}}
-      # Filesystem-watch recipes are paused for the DB-canonical
-      # redesign (see ~/.claude memory: memex-master-plan.md Phase 0).
+      # Filesystem-watch recipes are paused: pages are DB-canonical.
       # `/memory` is mounted read-only above so the search recipe can
       # still see archived content alongside DB-canonical pages.
       - MEMRAIN_VAULT_PATHS=/memory

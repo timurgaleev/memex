@@ -50,7 +50,7 @@ afterAll(() => {
   // The Storage.init overlay may have projected the stored keys onto this
   // process's env — scrub so later test files never see them.
   for (const k of ["SEARCH_MODE", "ADMIN_TOKEN"]) {
-    delete process.env[`MEMEX_${k}`];
+    delete process.env["MEMEX_" + k];
     delete process.env[`MEMRAIN_${k}`];
   }
 });

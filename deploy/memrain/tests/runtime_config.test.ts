@@ -31,7 +31,7 @@ afterAll(async () => {
   await storage.close();
   rmSync(dir, { recursive: true, force: true });
   for (const k of ["RC_TEST_A", "RC_TEST_B", "RC_TEST_ENVWINS"]) {
-    delete process.env[`MEMEX_${k}`];
+    delete process.env["MEMEX_" + k];
     delete process.env[`MEMRAIN_${k}`];
   }
 });

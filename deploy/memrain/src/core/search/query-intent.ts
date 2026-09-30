@@ -93,7 +93,7 @@ const CONCEPT_CUE_PATTERNS = [
 
 /**
  * Exact-identifier anti-signals. A quoted phrase or a kebab/snake slug means
- * the caller named the thing they want ("compare memex-search vs query") — a
+ * the caller named the thing they want ("compare memrain-search vs query") — a
  * lookup, not a survey — so the partial-set nudge is noise.
  */
 const EXACT_IDENTIFIER_PATTERNS = [

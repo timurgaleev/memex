@@ -224,7 +224,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   // Shared bearer authenticating peer containers on the docker bridge
   // to /index and /friction. When unset, the server emits a startup
   // warning and stays open (legacy single-node behaviour) — operators
-  // are urged to set <secrets_prefix>/memex-internal-token.
+  // are urged to set <secrets_prefix>/memrain-internal-token.
   const internalToken = process.env.MEMRAIN_INTERNAL_TOKEN;
   if (internalToken && internalToken.length > 0) {
     serverOpts.internalToken = internalToken;

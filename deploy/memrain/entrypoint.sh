@@ -1,5 +1,5 @@
 #!/bin/sh
-# memex container entrypoint.
+# memrain container entrypoint.
 # 1. Idempotently init the config. Backend follows the environment:
 #    MEMRAIN_POSTGRES_URL (or the legacy MEMEX_POSTGRES_URL) set -> postgres
 #    (heals a stale pglite config too — otherwise the env URL is silently

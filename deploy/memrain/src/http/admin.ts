@@ -154,7 +154,7 @@ function safeReturnTo(raw: string | null): string | null {
   if (!raw) return null;
   let u: URL;
   try {
-    u = new URL(raw, "http://memex.invalid");
+    u = new URL(raw, "http://memrain.invalid");
   } catch {
     return null;
   }
@@ -399,7 +399,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       if (!requireAdmin(req)) return Response.json({ error: "Admin authentication required" }, { status: 401 });
       const resume = readReturnTo(req);
       if (!resume) return Response.json({ redirect_to: null });
-      const q = new URL(resume, "http://memex.invalid").searchParams;
+      const q = new URL(resume, "http://memrain.invalid").searchParams;
       const clientId = q.get("client_id");
       const handle = authorizeFingerprint(q);
       // A lookup failure degrades to the client_id — the panel is what stands
@@ -437,7 +437,7 @@ export function createAdminAuth(opts: AdminAuthOptions): AdminAuth {
       appendReturnToClears(req, clear);
       // Nothing parked (or a value that failed re-validation): drop the remnant.
       if (!resume) return Response.json({ error: "Nothing to approve" }, { status: 404, headers: clear });
-      const target = new URL(resume, "http://memex.invalid");
+      const target = new URL(resume, "http://memrain.invalid");
       const fp = authorizeFingerprint(target.searchParams);
       if (typeof claimed?.handle !== "string" || claimed.handle !== fp) {
         // The parked request is KEPT here: the operator is being asked to look

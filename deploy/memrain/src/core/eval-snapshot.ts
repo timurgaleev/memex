@@ -4,7 +4,7 @@
  *
  * `replayAll` (core/eval-replay.ts) produces a ReplayReport when the captured
  * eval set is replayed against the live brain. The nightly probe
- * (deploy/systemd/memex-eval-probe.*) calls it once/24h and appends ONE row
+ * (deploy/systemd/memrain-eval-probe.*) calls it once/24h and appends ONE row
  * here via {@link recordEvalSnapshot}, so `doctor` can read the trend
  * ({@link latestEvalSnapshot}) without re-running retrieval.
  *

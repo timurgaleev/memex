@@ -1,10 +1,9 @@
 /**
  * `memrain search <query> [--k N] [--explain]` — hybrid retrieve from the CLI.
  *
- * Outputs JSON to stdout so it pipes cleanly into jq. The shell helper
- * at deploy/helpers/memex wraps this for ad-hoc use inside the bridge
- * container. `--explain` stamps per-signal ranking attribution on every hit
- * (JSON `explain` field) and prints the human-readable breakdown to stderr.
+ * Outputs JSON to stdout so it pipes cleanly into jq. `--explain` stamps
+ * per-signal ranking attribution on every hit (JSON `explain` field) and
+ * prints the human-readable breakdown to stderr.
  * The JSON carries the search `meta`; an empty result also gets a one-line
  * reason on stderr, so "nothing matched" and "the vector arm was down" read
  * differently.

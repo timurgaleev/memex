@@ -2,7 +2,7 @@
  * Code chunker tests — TS + Python symbol extraction.
  *
  * Exercises the real tree-sitter WASM grammar (vendored under
- * deploy/memex/wasm/). If WASM loading is broken these tests fail
+ * deploy/memrain/wasm/). If WASM loading is broken these tests fail
  * fast with a clear error message from parsers.ts.
  */
 import { afterAll, describe, expect, it } from "bun:test";

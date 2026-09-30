@@ -2,7 +2,7 @@
  * Code chunker tests for the extended language set — bash / SQL / Go.
  *
  * Exercises the real tree-sitter WASM grammars vendored under
- * deploy/memex/wasm/ (tree-sitter-{bash,go,sql}.wasm). These grammars load
+ * deploy/memrain/wasm/ (tree-sitter-{bash,go,sql}.wasm). These grammars load
  * AND parse under the pinned web-tree-sitter runtime; yaml/hcl are
  * deliberately absent (their blobs don't parse / aren't vendored).
  */

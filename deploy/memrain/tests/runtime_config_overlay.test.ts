@@ -27,7 +27,7 @@ const SUFFIXES = ["RCO_A", "RCO_B", "RCO_C", "RCO_D", "RCO_E", "RCO_F", "RCO_G",
 function clearEnv(): void {
   for (const s of SUFFIXES) {
     delete process.env[`MEMRAIN_${s}`];
-    delete process.env[`MEMEX_${s}`];
+    delete process.env["MEMEX_" + s];
   }
 }
 

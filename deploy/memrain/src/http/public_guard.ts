@@ -21,13 +21,13 @@
  *   1. `/health` GET — open (used by uptime probes).
  *   2. Anything else — requires `Authorization: Bearer <token>`.
  *      Token comes from `MEMRAIN_PUBLIC_BEARER` env (populated by
- *      fetch-secrets.sh from the `<secrets_prefix>/memex-public-bearer`
+ *      fetch-secrets.sh from the `<secrets_prefix>/memrain-public-bearer`
  *      Secrets Manager entry).
  *   3. **Mutating routes are rejected by default** even with a valid
  *      bearer (POST /index, POST /friction, MCP tools/call
  *      name=index|log_friction). Set env `MEMRAIN_PUBLIC_WRITE=1`
  *      to opt the public route into write access — pair this with
- *      daily bearer rotation (`scripts/rotate-memex-public-bearer.sh`)
+ *      daily bearer rotation (`scripts/rotate-memrain-public-bearer.sh`)
  *      so a leaked token gets invalidated within 24h.
  *
  * If the env has no bearer token AND the request is public → 503.
@@ -288,7 +288,7 @@ function isPublicRequest(req: Request): boolean {
  * reaches the whole read surface — and every write tool — with no auth
  * at all. The shared secret is loaded from `MEMRAIN_INTERNAL_TOKEN` env
  * (populated by fetch-secrets.sh from
- * `<secrets_prefix>/memex-internal-token`).
+ * `<secrets_prefix>/memrain-internal-token`).
  *
  * Fail-closed: when the token is configured but a request lacks the
  * matching `Authorization: Bearer <internal-token>` header, the

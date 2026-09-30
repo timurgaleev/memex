@@ -1,9 +1,11 @@
-# TODO — memex-stack
+# TODO — Memrain
 
 Forward-looking work that is intentionally deferred. Items already
 shipped live in [`CHANGELOG.md`](./CHANGELOG.md); items rejected as
 out-of-scope live under "NOT in scope" in the design doc that
 introduces them.
+
+Versions `v1.x` in items written before the rename mean `memex-v1.x`.
 
 ---
 

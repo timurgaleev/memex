@@ -4,7 +4,7 @@
 # A function that runs as a trigger or event trigger executes under the calling
 # session's `search_path`. If its body references an object unqualified, a writer
 # who prepends their own schema can shadow what the body meant to call. Every
-# trigger / event-trigger function memex defines must therefore carry an explicit
+# trigger / event-trigger function memrain defines must therefore carry an explicit
 # `SET search_path` in its definition.
 #
 # This scans deploy/memrain/src/core/migrations/*.sql and the down files in

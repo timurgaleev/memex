@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the memex bun suite in fixed-size shards, each a FRESH `bun test`
+# Run the memrain bun suite in fixed-size shards, each a FRESH `bun test`
 # process.
 #
 # Why sharding is mandatory, not an optimisation: every PGLite (WASM
@@ -169,7 +169,7 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/memex-shards.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/memrain-shards.XXXXXX")"
 trap 'rm -rf "${WORK}"' EXIT
 
 if [ "${TEST_TEMPLATE}" != "0" ]; then
@@ -178,7 +178,7 @@ if [ "${TEST_TEMPLATE}" != "0" ]; then
   # migration or an engine upgrade builds a fresh template.
   mig_hash="$( { ls src/core/migrations; cat src/core/migrate.ts src/core/migrations/*; cat node_modules/@electric-sql/pglite/package.json 2>/dev/null; } | "${hash_cmd[@]}" | cut -c1-16)"
   template="${TMPDIR:-/tmp}"
-  template="${template%/}/memex-pglite-tpl-${mig_hash}"
+  template="${template%/}/memrain-pglite-tpl-${mig_hash}"
   if ! bun scripts/build-test-template.ts "${template}" >/dev/null; then
     echo "could not build the PGLite test template at ${template}" >&2
     exit 2

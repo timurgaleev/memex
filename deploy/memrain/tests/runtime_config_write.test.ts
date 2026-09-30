@@ -101,13 +101,13 @@ afterAll(() => {
   rmSync(tmp, { recursive: true, force: true });
   for (const s of TOUCHED) {
     delete process.env[`MEMRAIN_${s}`];
-    delete process.env[`MEMEX_${s}`];
+    delete process.env["MEMEX_" + s];
   }
 });
 
 async function rowsFor(suffix: string): Promise<{ key: string; value: string; updated_at: string }[]> {
   return withEngine(async (s) =>
-    (await listRuntimeConfig(s.engine())).filter((r) => r.key === `MEMRAIN_${suffix}` || r.key === `MEMEX_${suffix}`),
+    (await listRuntimeConfig(s.engine())).filter((r) => r.key === `MEMRAIN_${suffix}` || r.key === "MEMEX_" + suffix),
   );
 }
 

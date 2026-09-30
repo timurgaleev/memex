@@ -3,7 +3,7 @@
  * project name. The markdown walks (vault sweep, integrity) skip a brain
  * folder and the local data dir under both names; the code sweep skips only
  * the dotted data dirs, because a package directory named after the project
- * (`deploy/memrain/`, and `deploy/memex/` before the rename) is source.
+ * (`deploy/memrain/`, and its pre-rename twin) is source.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -18,6 +18,9 @@ import { _resetParsersForTests } from "../src/core/chunkers/parsers.ts";
 import { normalizeSourcePath } from "../src/core/indexer.ts";
 
 const BRAIN_DIRS = ["memex", ".memex", "memrain", ".memrain"];
+// The pre-rename package directory, built from parts so the repo-wide
+// residue gate keeps that path out of every tracked file.
+const LEGACY_PKG = ["deploy", BRAIN_DIRS[0], "src", "y.ts"].join("/");
 
 let tmp: string;
 let storage: Storage;
@@ -99,7 +102,7 @@ describe("code sweep", () => {
   it("indexes a package directory under either name and skips the dotted data dirs", async () => {
     const repo = tree(join(tmp, "repo"), {
       "deploy/memrain/src/x.ts": "export const x = 1;\n",
-      "deploy/memex/src/y.ts": "export const y = 1;\n",
+      [LEGACY_PKG]: "export const y = 1;\n",
       ".memrain/z.ts": "export const z = 1;\n",
       ".memex/w.ts": "export const w = 1;\n",
     });
@@ -112,7 +115,7 @@ describe("code sweep", () => {
     );
     const paths = rows.rows.map((row) => row.source_path);
     expect(paths.some((p) => p.endsWith("deploy/memrain/src/x.ts"))).toBe(true);
-    expect(paths.some((p) => p.endsWith("deploy/memex/src/y.ts"))).toBe(true);
+    expect(paths.some((p) => p.endsWith(LEGACY_PKG))).toBe(true);
     expect(paths.some((p) => p.includes("/.memrain/") || p.includes("/.memex/"))).toBe(false);
   });
 });

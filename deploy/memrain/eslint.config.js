@@ -1,4 +1,4 @@
-// Lint config for the memex daemon.
+// Lint config for the memrain daemon.
 //
 // The compiler already gates types (`bun run typecheck`). This layer catches
 // what types cannot: a value bound and never used, a variable shadowing an

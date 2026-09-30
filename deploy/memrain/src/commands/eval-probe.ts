@@ -6,7 +6,7 @@
  * quality trend is queryable by `doctor` without re-running retrieval.
  *
  * Intended to run once/24h from the systemd timer
- * (deploy/systemd/memex-eval-probe.*). Runs against the live brain, so it is
+ * (deploy/systemd/memrain-eval-probe.*). Runs against the live brain, so it is
  * Bedrock-billable for the hybrid arm — keep the eval set small. NEVER promotes
  * the baseline (read-only against the eval set apart from the snapshot append)
  * and NEVER exits non-zero on a quality drop: this is a passive probe, not a CI

@@ -6,7 +6,49 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.163.0] — 2026-09-29
+## [1.0.0] — 2026-09-30
+
+### Added
+- Optional `.env` keys `POSTGRES_URL_SECRET_NAME`, `PUBLIC_BEARER_SECRET_NAME`,
+  `INTERNAL_TOKEN_SECRET_NAME` and `TUNNEL_TOKEN_SECRET_NAME` name the secrets `fetch-secrets.sh`
+  reads, for stacks whose secrets keep other names (see CONFIGURATION.md).
+- Maintenance mode for upgrades: `MEMRAIN_MAINTENANCE=1` (environment only) stops every
+  write the server starts on its own and makes `deploy.sh` hold the ingress;
+  `memrain status --quiescent` confirms nothing is running, and the read-only
+  `deploy/memrain/scripts/sql/data-manifest.sql` proves with a plain `diff` that nothing
+  changed (see CONFIGURATION.md).
+- `MEMRAIN_REQUIRE_POSTGRES=1` refuses to start on anything but Postgres, and `deploy.sh`
+  checks the engine, the page count (`DEPLOY_MIN_PAGES`) and the OAuth state before it starts
+  the ingress. `memrain apply-migrations --down 120 --yes` reverts this release's migration
+  inside the upgrade window, before the service reopens (see UPGRADING.md).
+
+### Changed
+- **Renamed to Memrain.** The CLI (`memrain`), package, container service, `MEMRAIN_*`
+  environment variables, host paths, systemd units, secret names and Terraform defaults use
+  the new name. Versioning restarts at 1.0.0; earlier releases are listed below and tagged
+  `memex-v<version>`. Existing installs keep their data, URL and credentials — see
+  [UPGRADING.md](UPGRADING.md).
+- Terraform now sets `prevent_destroy` on the database, file system, instance, IP address,
+  secrets and buckets; tearing a stack down needs a deliberate local edit (see DEPLOYMENT.md).
+- `fetch-secrets.sh` stops with an error and leaves every existing file in place when a secret
+  cannot be read. Before, an access error left the tunnel token file empty.
+
+### Deprecated
+- The old configuration names keep working in 1.0.x and are removed in 1.1.0: `MEMEX_*`
+  environment variables, `~/.memex` and `memex.yml`, `x-memex-*` ingest headers, the
+  `<prefix>/memex-*` secret names, the `memex` network alias, the `memex`
+  command, `STACK_MEMEX_SUBDOMAIN`/`memex_subdomain` and the old Terraform output names. From
+  1.1.0 a leftover old name stops the service at start instead of being ignored. Upgrade to
+  1.0.x first and follow UPGRADING.md before taking 1.1.0.
+- Data written by earlier versions stays readable permanently: `memex:` fence markers in pages,
+  `memex_` token and client ids, and stored provenance values need no migration.
+
+## Memex (pre-rename)
+
+Releases before the rename. Tags are `memex-v<version>`; `memex-v1.0.0` was never tagged,
+and `memex-v1.55.0` / `memex-v1.79.4` have no entry.
+
+## [memex-v1.163.0] — 2026-09-29
 
 ### Changed
 - **The full test suite runs in under 3 minutes instead of 30-40.** Tests copy
@@ -17,7 +59,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   45 test cases that the strengthened tenant isolation matrix now covers were
   removed and several duplicate files merged, with no assertion lost.
 
-## [1.162.0] — 2026-09-29
+## [memex-v1.162.0] — 2026-09-29
 
 ### Changed
 - **A page miss says which page you probably meant.** `page_get`, `page_append`,
@@ -40,7 +82,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `docs/CONFIGURATION.md` gives the `MEMEX_CHUNK_OVERLAP` default as 300
   characters, on; it said `0`.
 
-## [1.161.0] — 2026-09-29
+## [memex-v1.161.0] — 2026-09-29
 
 ### Fixed
 - **OAuth, secret redaction and write-request edges.** `/authorize` re-checks the
@@ -134,7 +176,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The caller's key names moved out of the error `message`, which the request
   log stores, into `suggestion`; the message now carries only the count.
 
-## [1.160.0] — 2026-09-28
+## [memex-v1.160.0] — 2026-09-28
 
 ### Added
 - **`make test-pg`** runs the Postgres-only tests and applies every migration
@@ -185,7 +227,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ideographic variation selectors, so `東京` typed with or without VS16 lands on one
   slug.
 
-## [1.159.0] — 2026-09-28
+## [memex-v1.159.0] — 2026-09-28
 
 ### Added
 - **Conditional page writes.** `page_put`, `page_revert` and `page_delete`
@@ -229,7 +271,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   while the chunk still holds the text that was embedded, and report the
   skipped rows as `stale`.
 
-## [1.158.0] — 2026-09-28
+## [memex-v1.158.0] — 2026-09-28
 
 ### Security
 - **Every mutating admin API route refuses a cross-origin request.** The panel's
@@ -307,7 +349,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what releases a source the client still names. Code and refresh exchanges
   also refuse a revoked client at the client-row lock.
 
-## [1.157.0] — 2026-09-28
+## [memex-v1.157.0] — 2026-09-28
 
 ### Security
 - **A reused refresh token can revoke its session.** Every access and refresh
@@ -359,7 +401,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scope at all. A self-registered client that names no `grant_types` now gets
   `authorization_code` and `refresh_token`.
 
-## [1.156.0] — 2026-09-28
+## [memex-v1.156.0] — 2026-09-28
 
 ### Security
 - **OAuth tokens are bound to the resource they were approved for (RFC 8707).**
@@ -399,7 +441,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`memex auth doctor` checks both protected-resource paths** and fails when
   either does not answer or they name different resources.
 
-## [1.155.0] — 2026-09-28
+## [memex-v1.155.0] — 2026-09-28
 
 ### Added
 - **`memex auth revoke-grant <id>` revokes one enrolled person on a shared
@@ -452,7 +494,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Both phases now page past refused rows, up to ten scanned rows per unit of
   work, and report them as `rejected`.
 
-## [1.154.0] — 2026-09-20
+## [memex-v1.154.0] — 2026-09-20
 
 ### Fixed
 - **The fact-withdrawal trigger pins its `search_path`.** Migration 112 created
@@ -496,7 +538,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   left a superseded claim live beside its replacement, or moved a date on a row
   the same call had decided not to touch.
 
-## [1.153.0] — 2026-09-19
+## [memex-v1.153.0] — 2026-09-19
 
 ### Added
 - **A read-only agent loop for the operator (off by default).** With
@@ -562,7 +604,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only the mention types it writes. Existing installs rebuild the graph once
   with `memex reindex --source code --all` (graph-only, no Bedrock spend).
 
-## [1.152.0] — 2026-09-19
+## [memex-v1.152.0] — 2026-09-19
 
 ### Fixed
 - **A fact forgotten while `add_fact` waits on its embed/classify call stays
@@ -634,7 +676,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `memex call` of a tool that does not exist, and reports a skill file it
   cannot read instead of silently skipping it.
 
-## [1.151.0] — 2026-09-19
+## [memex-v1.151.0] — 2026-09-19
 
 ### Added
 - **GitHub connector: `memex connectors github sync <owner/repo> --source ID`.**
@@ -733,7 +775,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   engine, and `recall` / `forget_fact` also accept an id written as a plain
   decimal string (`"42"`).
 
-## [1.150.0] — 2026-09-19
+## [memex-v1.150.0] — 2026-09-19
 
 ### Added
 - **`think` says why it failed and still hands back the evidence.** Every
@@ -797,7 +839,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   going, the report names it as `orphanedPhase` (its paid calls are stopped,
   its database writes are not).
 
-## [1.149.0] — 2026-09-19
+## [memex-v1.149.0] — 2026-09-19
 
 ### Added
 - **`memex transcripts ingest <export.json>` imports ChatGPT and Claude.ai
@@ -852,7 +894,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Under `MEMEX_SECRET_SCAN_DISPOSITION=flag`, every unchanged `page_put` of a
   page holding a credential added another `secret-flagged` row.
 
-## [1.148.0] — 2026-09-19
+## [memex-v1.148.0] — 2026-09-19
 
 ### Added
 - **`context_pack`: a budgeted "what matters now" pack.** One read returns
@@ -925,7 +967,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at revision 0 and no token's access changes. Audit rows keep `before` and
   `after` as JSON objects on Postgres, not as quoted strings.
 
-## [1.147.0] — 2026-09-19
+## [memex-v1.147.0] — 2026-09-19
 
 ### Added
 - **Connected agents get the memex contract at `initialize`.** The MCP
@@ -990,7 +1032,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   history scans clean against a narrow, per-commit fixture allowlist
   (`.gitleaks.toml`).
 
-## [1.146.0] — 2026-09-19
+## [memex-v1.146.0] — 2026-09-19
 
 ### Added
 - **Quarantine leaves a trail.** Every content-sanity trip writes a
@@ -1049,7 +1091,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   list is corrected; the vault reindex command now passes `--vault /memory`,
   without which it fails inside the container.
 
-## [1.145.0] — 2026-09-19
+## [memex-v1.145.0] — 2026-09-19
 
 ### Added
 - **A spend report.** `memex spend [--days N]` and
@@ -1086,7 +1128,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page, a take, a trajectory or the calibration record) and write outside it;
   those closing tags are now neutralized like the others.
 
-## [1.144.0] — 2026-09-19
+## [memex-v1.144.0] — 2026-09-19
 
 ### Added
 - **A shared per-run LLM budget now bounds calls running at the same time.**
@@ -1158,7 +1200,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rerank pass still returns its results un-reranked, since the search has
   already found them.
 
-## [1.143.0] — 2026-09-19
+## [memex-v1.143.0] — 2026-09-19
 
 ### Added
 - **A personal access token can be given a daily spend cap.** `auth set-budget`
@@ -1179,7 +1221,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request, so an embedded chunk from an uncapped client costs one ledger insert
   instead of an extra query first.
 
-## [1.142.0] — 2026-09-19
+## [memex-v1.142.0] — 2026-09-19
 
 ### Fixed
 - **A wedged transaction could freeze every write to a page.** Page writes now
@@ -1189,7 +1231,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   idle for 60 s (`idle_in_transaction_session_timeout`), and a connect to a dead
   endpoint fails after 10 s instead of hanging the request.
 
-## [1.141.0] — 2026-09-19
+## [memex-v1.141.0] — 2026-09-19
 
 ### Fixed
 - **Two appends racing each other lost one.** `page_append` read the page
@@ -1219,7 +1261,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   duplicate bookkeeping row. Each migration now takes a cross-process lock and
   re-checks whether it was applied, so the second run skips it.
 
-## [1.140.0] — 2026-09-19
+## [memex-v1.140.0] — 2026-09-19
 
 ### Fixed
 - **A search's query embed can retry inside its own deadline.** The search path
@@ -1228,7 +1270,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   never help. The query embed now caps each attempt at a third of its budget,
   so a stalled attempt ends in time for the retry to answer.
 
-## [1.139.0] — 2026-09-19
+## [memex-v1.139.0] — 2026-09-19
 
 ### Added
 - **The search mirror can move off the write path.** With
@@ -1260,7 +1302,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `page://<source>/<slug>`, so the deleted page kept answering searches until
   the cycle's orphan sweep, up to six hours later. Both mirrors are removed.
 
-## [1.138.0] — 2026-09-19
+## [memex-v1.138.0] — 2026-09-19
 
 ### Fixed
 - **A contextual re-embed could quietly downgrade the brain's best vectors.**
@@ -1281,7 +1323,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Chunks written before this release have no recorded tier and are treated as
   before.
 
-## [1.137.0] — 2026-09-18
+## [memex-v1.137.0] — 2026-09-18
 
 ### Changed
 - **An edit pays only for the text it actually changed.** A re-indexed page
@@ -1297,7 +1339,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is still recomputed raw, so the two regimes never mix. Reuse still never
   crosses documents, and still requires the same model and vector width.
 
-## [1.136.0] — 2026-09-18
+## [memex-v1.136.0] — 2026-09-18
 
 ### Fixed
 - **Two optional search steps could hang a search.** LLM intent classification
@@ -1316,7 +1358,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   attempts. It now adds at most 2, with its longer pause; the row is picked up
   again by the next run either way.
 
-## [1.135.0] — 2026-09-18
+## [memex-v1.135.0] — 2026-09-18
 
 ### Fixed
 - **Bedrock request timeouts are real.** The 30 s `requestTimeout` on the chat
@@ -1341,7 +1383,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `MEMEX_EMBED_TIMEOUT_MS` (Titan, default 10 s), each falling back to
   `MEMEX_LLM_TIMEOUT_MS` — which the compose file never passed through before.
 
-## [1.134.0] — 2026-09-18
+## [memex-v1.134.0] — 2026-09-18
 
 ### Changed
 - **An interactive write embeds its chunks in parallel.** Each chunk of a
@@ -1364,7 +1406,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wait for a write slot; it and `ms_bedrock` are now sums across parallel
   calls, so they can exceed `ms_total`.
 
-## [1.133.0] — 2026-09-18
+## [memex-v1.133.0] — 2026-09-18
 
 ### Added
 - **Each interactive write now says where its time went.** `page_put`,
@@ -1384,7 +1426,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on its own. Anyone totalling `utility-llm` in `mcp_spend_log` will see it drop
   by that share from this release on.
 
-## [1.132.0] — 2026-09-18
+## [memex-v1.132.0] — 2026-09-18
 
 ### Fixed
 - **Locally swept documents belonged to nobody.** A vault or code sweep and
@@ -1465,7 +1507,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `memex auth rescope-client` now appears in `--help`; it has existed since the
   per-grant work but was never listed.
 
-## [1.131.0] — 2026-09-13
+## [memex-v1.131.0] — 2026-09-13
 
 ### Fixed
 - **A scoped caller's code graph was empty.** Code call edges were stored with
@@ -1481,7 +1523,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A code document that is assigned a source after indexing now hands it on to its
   chunks and call edges, instead of leaving them invisible to its own readers.
 
-## [1.130.0] — 2026-09-13
+## [memex-v1.130.0] — 2026-09-13
 
 ### Security
 - **Writes into another source's page left their traces in `default`.** An
@@ -1510,7 +1552,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A personal access token's `last_used_at` is written at most once a minute
   instead of on every request.
 
-## [1.129.0] — 2026-09-13
+## [memex-v1.129.0] — 2026-09-13
 
 ### Security
 - **A caller granted no source could still read through hybrid search.** An
@@ -1602,7 +1644,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   client, plus the `oauth_enrollments` table behind it.
 
 
-## [1.128.0] — 2026-09-11
+## [memex-v1.128.0] — 2026-09-11
 
 ### Fixed
 - **The enrollment flow was unreachable end to end, twice over.** Both defects
@@ -1700,7 +1742,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without an operator approval" no longer holds for enrollment-mode clients —
   by design. The code is the approval.
 
-## [1.127.0] — 2026-09-08
+## [memex-v1.127.0] — 2026-09-08
 
 ### Fixed
 - **An unscoped operator write is no longer treated as the `default` tenant.**
@@ -1748,7 +1790,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   non-match; it is a backward scan and one slice now. `make lint-ts` is back to
   0 on `main`.
 
-## [1.126.2] — 2026-09-08
+## [memex-v1.126.2] — 2026-09-08
 
 ### Fixed
 - **The admin-login resume pointed at `http://`.** With
@@ -1774,7 +1816,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   redirect allow-list.
 
 
-## [1.126.1] — 2026-09-08
+## [memex-v1.126.1] — 2026-09-08
 
 ### Fixed
 - **A spent budget could destroy the write it refused.** `indexer.ts` embeds
@@ -1801,7 +1843,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   claimed every ledger row is written with a NULL client) is corrected too.
 
 
-## [1.126.0] — 2026-09-08
+## [memex-v1.126.0] — 2026-09-08
 
 ### Security
 - **`add_tag` answered "does another tenant hold this slug?"** The page-existence
@@ -1883,7 +1925,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   practice unsettable. `none` clears it, which is also the default.
 
 
-## [1.125.0] — 2026-09-08
+## [memex-v1.125.0] — 2026-09-08
 
 ### Security
 - **`think` returned another tenant's note content.** Of the six evidence
@@ -1939,7 +1981,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   someone to discover it through a permission error.
 
 
-## [1.124.0] — 2026-09-07
+## [memex-v1.124.0] — 2026-09-07
 
 ### Security
 - **A tenant could wipe another tenant's search results through `index`.**
@@ -2056,7 +2098,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Ordering inside the boot itself (EIP association, endpoint reachability) is
   unchanged and still relies on bootstrap's own retries.
 
-## [1.123.0] — 2026-08-24
+## [memex-v1.123.0] — 2026-08-24
 
 ### Changed
 - **`bedrock_model_id` now defaults to what the brain actually runs.** The
@@ -2114,7 +2156,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exact failure message you see before the form is submitted, and the
   `get-foundation-model-availability` check that proves the gate is open.
 
-## [1.122.0] — 2026-08-15
+## [memex-v1.122.0] — 2026-08-15
 
 ### Added
 - **The brain now has numbers for what an agent actually experiences, not just
@@ -2200,7 +2242,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the whole finding: the same widening also cleared five sites that looked
   quadratic in isolation but are unreachable through the real call path.
 
-## [1.121.0] — 2026-08-13
+## [memex-v1.121.0] — 2026-08-13
 
 ### Added
 - **Doctor checks say when they could not run.** The verdict was binary, so a
@@ -2373,7 +2415,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the bug was on the other one. Found by running `tsc` over the codebase for
   the first time.
 
-## [1.120.0] — 2026-08-12
+## [memex-v1.120.0] — 2026-08-12
 
 ### Added
 - **The advisor says when takes are being written faster than they can ever be
@@ -2387,7 +2429,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bar. It fires only when the bar is the sole blocker: a brain with no takes,
   or one where at least one take is already mature, stays silent.
 
-## [1.119.1] — 2026-08-12
+## [memex-v1.119.1] — 2026-08-12
 
 ### Fixed
 - **A retrieval-quality probe that measured nothing reported as one that
@@ -2402,7 +2444,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and matched none did measure — that is a retrieval problem, and a different
   finding from having no eval set at all.
 
-## [1.119.0] — 2026-08-12
+## [memex-v1.119.0] — 2026-08-12
 
 ### Added
 - **A benchmark for what the brain volunteers.** The retrieval eval answers
@@ -2416,7 +2458,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   all-lowercase mention yields nothing, and a sentence-opening "Did Dana ever
   hear back" is read as the candidate "Did Dana".
 
-## [1.118.0] — 2026-08-11
+## [memex-v1.118.0] — 2026-08-11
 
 ### Added
 - **`memex page-retype` corrects the type of many pages at once.** `pages.type`
@@ -2435,7 +2477,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ONE fact by id and names the tools that search — an agent reaching for it
   expecting a search was a routing problem, and descriptions are what route.
 
-## [1.117.0] — 2026-08-11
+## [memex-v1.117.0] — 2026-08-11
 
 ### Added
 - **PGLite says why it would not open.** The engine adapter had no error
@@ -2457,7 +2499,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database, which is the corruption itself — safe on Postgres, never safe on
   PGLite. Production runs Postgres and is unaffected.
 
-## [1.116.0] — 2026-08-11
+## [memex-v1.116.0] — 2026-08-11
 
 ### Added
 - **`entity_recall` takes one token budget for the whole answer.** It returns a
@@ -2477,7 +2519,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   states its own scope — it covers the registered tools, not the whole surface —
   and a conformance test drives each one for real.
 
-## [1.115.0] — 2026-08-11
+## [memex-v1.115.0] — 2026-08-11
 
 ### Added
 - **`stats` reports how the corpus is typed.** `page_put` permits an ad-hoc
@@ -2503,7 +2545,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `MEMEX_ORPHAN_EXCLUDE_EXTRA` appends; setting the first to empty counts
   everything.
 
-## [1.114.0] — 2026-08-11
+## [memex-v1.114.0] — 2026-08-11
 
 ### Added
 - **Every fact now says where it came from.** An unattributed fact cannot be
@@ -2528,7 +2570,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the error. The page write itself still succeeds — it is already committed to
   the canonical store.
 
-## [1.113.1] — 2026-08-11
+## [memex-v1.113.1] — 2026-08-11
 
 ### Fixed
 - **The set-shaped hint no longer points at a door the caller cannot open.** It
@@ -2549,7 +2591,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and state the counted condition in `detail` instead, so nobody is sent
   somewhere that reports success while the condition stands.
 
-## [1.113.0] — 2026-08-11
+## [memex-v1.113.0] — 2026-08-11
 
 ### Added
 - **A set-shaped question now says so.** "All the companies working on X",
@@ -2569,7 +2611,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `memex reconcile-links` and the `find_orphans` tool, and a test checks that
   every command an advisor finding names actually exists.
 
-## [1.112.1] — 2026-08-11
+## [memex-v1.112.1] — 2026-08-11
 
 ### Fixed
 - **`lint --dry-run`, `migrate-engine --dry-run` and `quarantine scan --apply`
@@ -2580,7 +2622,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where it was supposed to be awake. The list is now checked against the command
   switch itself by a test, which fails the moment the two disagree.
 
-## [1.112.0] — 2026-08-11
+## [memex-v1.112.0] — 2026-08-11
 
 ### Changed
 - **The CLI now refuses flags it does not define.** Previously an unknown flag
@@ -2615,7 +2657,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against body text only, while the title ships with every hit — so a budget
   the caller asked for as a hard guarantee was quietly overshot.
 
-## [1.111.1] — 2026-08-11
+## [memex-v1.111.1] — 2026-08-11
 
 ### Fixed
 - **Facts written in the same millisecond no longer come back in an arbitrary
@@ -2639,7 +2681,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   check in 1.109.0 but was never added to the test's hard-coded union, so the
   suite had a standing failure that the broken full-suite run hid.
 
-## [1.111.0] — 2026-08-10
+## [memex-v1.111.0] — 2026-08-10
 
 ### Security
 - **A junk bearer no longer costs two database lookups.** An unverified token
@@ -2678,7 +2720,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model repeat itself. Concepts that miss out keep their deterministic
   narrative, so the run still completes.
 
-## [1.110.0] — 2026-08-10
+## [memex-v1.110.0] — 2026-08-10
 
 ### Fixed
 - **A boolean CLI flag no longer eats the argument after it.** `memex embed
@@ -2724,7 +2766,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   concept-question result to `query` with `expand: true` — as an escalation
   within the existing ladder, not a competing rule.
 
-## [1.109.0] — 2026-08-10
+## [memex-v1.109.0] — 2026-08-10
 
 ### Fixed
 - **Shell scripts are indexable again.** The vendored `bash` and `go` grammar
@@ -2763,7 +2805,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unconditionally, so an omitted title lands as `NULL` and an omitted body as
   `''`. `page_put` is a full replace; the comment now says so.
 
-## [1.108.0] — 2026-08-04
+## [memex-v1.108.0] — 2026-08-04
 
 ### Security
 - **Auth no longer fails open behind a non-Cloudflare ingress.**
@@ -2823,7 +2865,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   semantics and the SSM re-run path; prerequisites carry the
   non-Cloudflare-ingress auth warning.
 
-## [1.107.2] — 2026-08-03
+## [memex-v1.107.2] — 2026-08-03
 
 ### Fixed
 - **Timestamp-tied orderings are deterministic.** PGLite's NOW() has
@@ -2838,7 +2880,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ids, matching the keyword-arm convention), and the watermark test
   separates its timestamps explicitly instead of racing the clock.
 
-## [1.107.1] — 2026-08-03
+## [memex-v1.107.1] — 2026-08-03
 
 ### Changed
 - **The research skill is `perplexity-research` again.** Renamed from
@@ -2847,7 +2889,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a fallback — with brain context, and every cross-reference in the pack
   follows the rename.
 
-## [1.107.0] — 2026-08-02
+## [memex-v1.107.0] — 2026-08-02
 
 ### Added
 - **The brain ships a full 53-skill agent skillpack.** `deploy/skills/` now
@@ -2876,7 +2918,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`MEMEX_SKILLS_DIR=/skills`), and `memex skillpack` bundles the full
   directory tree with a per-file sha256 manifest.
 
-## [1.106.0] — 2026-08-02
+## [memex-v1.106.0] — 2026-08-02
 
 ### Added
 - **Per-client slug-prefix write fence is now enforced.** The
@@ -2962,7 +3004,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (a stranded `cycle_locks` row blocked ticks until TTL with zero
   diagnostic).
 
-## [1.105.0] — 2026-07-27
+## [memex-v1.105.0] — 2026-07-27
 
 ### Fixed
 - **The zero-yield cycle phases stopped re-paying for the same pages.**
@@ -3007,7 +3049,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The opt-in LLM arm of `relational_recall` settles its real cost** against
   the client budget rather than releasing the hold as zero.
 
-## [1.104.0] — 2026-07-27
+## [memex-v1.104.0] — 2026-07-27
 
 ### Changed
 - **The vault source id is now `memory`, renamed from `obsidian-vault`**
@@ -3024,7 +3066,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recipes, or client token requests that reference the old id. Installs without
   that source are unaffected — the migration is a guarded no-op.
 
-## [1.103.0] — 2026-07-27
+## [memex-v1.103.0] — 2026-07-27
 
 ### Fixed
 - **A token client is no longer advertised tools it cannot call.** `tools/list`
@@ -3058,7 +3100,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reservation settles against it — otherwise the hold released as zero-cost and
   the daily cap never accumulated.
 
-## [1.102.0] — 2026-07-20
+## [memex-v1.102.0] — 2026-07-20
 
 ### Changed
 - **Reversible destructive page/graph/fact tools are now reachable by a
@@ -3075,7 +3117,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bare docker-bridge path still requires the internal token. `page_delete`
   remains a soft-delete with the 72h recovery window before purge reaps it.
 
-## [1.101.0] — 2026-07-13
+## [memex-v1.101.0] — 2026-07-13
 
 ### Removed
 - **Single-person brain: the multi-person tenant provisioning surface is
@@ -3097,7 +3139,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `full-stats` no longer counts `source_grants`; the admin dashboard drops
   the tenant-grants metric.
 
-## [1.100.0] — 2026-07-12
+## [memex-v1.100.0] — 2026-07-12
 
 ### Added
 - **Life Chronicle: a temporal spine for the brain.** Meetings and transcripts
@@ -3182,7 +3224,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   listing, pending counts, and contradiction mining all exclude
   `dimension IS NOT NULL` rows — ontology has its own read paths.
 
-## [1.99.1] — 2026-07-10
+## [memex-v1.99.1] — 2026-07-10
 
 ### Fixed
 - **Compiled-truth mirrors now re-chunk on a chunker-version bump.** The
@@ -3192,7 +3234,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mirrors found by a whole-DB audit). Freshness now also requires the
   mirror's `chunker_version` to be current, matching the body-mirror pass.
 
-## [1.99.0] — 2026-07-10
+## [memex-v1.99.0] — 2026-07-10
 
 ### Fixed
 - **Symbol-less code files no longer produce zero-chunk (unretrievable)
@@ -3214,9 +3256,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   flagged — hundreds of unactionable report entries per tick. Now only
   absolute paths whose top-level root exists on this host are probed; a
   missing file under a present root is still flagged (the real signal). Same
-  latent class as the v1.83.0 rechunk-sweep `page://` fix.
+  latent class as the memex-v1.83.0 rechunk-sweep `page://` fix.
 
-## [1.98.0] — 2026-07-09
+## [memex-v1.98.0] — 2026-07-09
 
 ### Added
 - **Migration runner retries a transient statement_timeout / connection reset.**
@@ -3230,7 +3272,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Backoff is collapsible via `MEMEX_MIGRATE_BACKOFF_MS` for tests. The retry
   logic is built into memex's file-based migration runner.
 
-## [1.97.0] — 2026-07-09
+## [memex-v1.97.0] — 2026-07-09
 
 ### Security
 - **`extract_facts` is now `scope:"write"`.** The op declared no scope, so the
@@ -3249,7 +3291,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bodiless 204, matching the MCP handshake contract. Tolerated
   by existing clients, but now spec-conformant.
 
-## [1.96.0] — 2026-07-08
+## [memex-v1.96.0] — 2026-07-08
 
 ### Security
 - **`stats` + `jobs_list`/`jobs_get`/`jobs_logs` forbidden from the public bearer.**
@@ -3267,7 +3309,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and has no file-vault sync path to filter for. Behavior-neutral; adds the
   filter for a future bulk surface.
 
-## [1.95.0] — 2026-07-07
+## [memex-v1.95.0] — 2026-07-07
 
 ### Added
 - **HNSW index lifecycle manager (`core/vector-index.ts`) + `memex hnsw`.** A full
@@ -3290,7 +3332,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed on deployed-and-working code. Re-baselined the snapshot to the current
   81-tool surface; the test now guards future accidental drift again.
 
-## [1.94.0] — 2026-07-07
+## [memex-v1.94.0] — 2026-07-07
 
 ### Added
 - **`invalid-indexes` doctor check.** A failed or interrupted index build (a
@@ -3301,7 +3343,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the index; recover with `REINDEX INDEX CONCURRENTLY <name>` (online, no write
   lock). Read-only; wired into both the MCP and CLI doctor surfaces.
 
-## [1.93.0] — 2026-07-07
+## [memex-v1.93.0] — 2026-07-07
 
 ### Added
 - **`related_to` typed-link inference from `related`/`see_also` frontmatter.** The
@@ -3311,7 +3353,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does not breach the single-origin invariant that keeps `investors`/`key_people`
   out. Default-OFF (`MEMEX_TYPED_LINKS`), so no behavior change until enabled.
 
-## [1.92.0] — 2026-07-07
+## [memex-v1.92.0] — 2026-07-07
 
 ### Added
 - **Typed-claim fields on the LLM turn-extractor.** The conversation fact
@@ -3345,11 +3387,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **`concurrency.ts` doc comment corrected.** Its header claimed the `Semaphore`
-  was "used by the file sweep"; no sweep/indexer path imports it (the v1.90 LLM
+  was "used by the file sweep"; no sweep/indexer path imports it (the memex-v1.90 LLM
   gateway inflight cap covers today's concurrency ceiling). The comment now
   states it is an unwired generic primitive kept for future embed-batch gating.
 
-## [1.91.0] — 2026-07-07
+## [memex-v1.91.0] — 2026-07-07
 
 ### Added
 - **`contradiction-trend` doctor check.** The suspected-contradictions probe
@@ -3358,7 +3400,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   detection rate + 95% CI + cost so an operator sees quality drift without
   re-running the paid probe (informational, never fails the report).
 
-## [1.90.0] — 2026-07-07
+## [memex-v1.90.0] — 2026-07-07
 
 ### Added
 - **Unified model-tier resolver + opt-in deep tier.** `resolveModel(tier)` is now
@@ -3385,7 +3427,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `updated`) via `jsonb_build_object`, bounding each row to a few bytes —
   mirroring the identical fix already applied in `extract.ts`.
 
-## [1.89.0] — 2026-07-07
+## [memex-v1.89.0] — 2026-07-07
 
 ### Added
 - **Admin observability endpoints.** `/admin/api/agents/spend` (per-OAuth-client
@@ -3406,7 +3448,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Migration 094 adds `oauth_clients.deleted_at` (a soft-delete
   column the admin reads filter on; memex probed for it defensively before).
 
-## [1.88.0] — 2026-07-07
+## [memex-v1.88.0] — 2026-07-07
 
 ### Added
 - **Fenced-code extraction.** A ```lang code fence in a markdown page whose tag
@@ -3419,7 +3461,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `chunks.chunk_source`. Existing pages gain fenced chunks on their next edit /
   reindex (no forced corpus re-embed).
 
-## [1.87.0] — 2026-07-06
+## [memex-v1.87.0] — 2026-07-06
 
 ### Added
 - **`memex version` / `--version`** — prints the build stamp (a `git describe`
@@ -3445,7 +3487,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Statement/lock timeouts are excluded (a retry would just re-wait).
   `MEMEX_BULK_MAX_RETRIES=0` disables retries.
 
-## [1.86.0] — 2026-07-06
+## [memex-v1.86.0] — 2026-07-06
 
 ### Added
 - **Four ops-facing `memex doctor` probes.** `stale-locks` (cycle locks past
@@ -3458,7 +3500,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tool. Read-only, no LLM — the substrate (cycle_locks, jobs, migrations,
   embeddings) already existed; only the surfacing was missing.
 
-## [1.85.0] — 2026-07-06
+## [memex-v1.85.0] — 2026-07-06
 
 ### Added
 - **Reranker candidate window (`MEMEX_RERANK_WINDOW`, default 30).** The opt-in
@@ -3473,7 +3515,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   isn't killed at the short interactive `statement_timeout`. Previously the
   factory hard-coded both even though the engine already accepted overrides.
 
-## [1.84.0] — 2026-07-06
+## [memex-v1.84.0] — 2026-07-06
 
 ### Changed
 - **MCP `search` default `k` 5 → 20.** A client that passes no `k` now gets the
@@ -3481,7 +3523,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   autocut/adaptive-return still trims to the confident cluster when it runs), so
   callers relying on the default no longer silently get a quarter of the results.
 
-## [1.83.0] — 2026-07-06
+## [memex-v1.83.0] — 2026-07-06
 
 ### Fixed
 - **DB-canonical pages now re-chunk on a chunker-version change.** The vault
@@ -3493,11 +3535,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **Markdown chunker version → 2.** The indexer strips the `## Takes` fence
-  before chunking (v1.82.0); bumping the version re-chunks the existing corpus
+  before chunking (memex-v1.82.0); bumping the version re-chunks the existing corpus
   so already-embedded pages purge any fenced-takes content from search. Vault
   docs drain via the rechunk-sweep; DB pages via the page-mirror backstop.
 
-## [1.82.0] — 2026-07-06
+## [memex-v1.82.0] — 2026-07-06
 
 ### Fixed
 - **Operator takes no longer leak into search.** The indexer stripped the
@@ -3517,11 +3559,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the remote/public `page_put`/`page_append` search mirror strip those three
   keys before the gate runs, so only the gate and trusted local CLIs own them.
 - **`memex merge` is reachable again.** The entity-merge command shipped in the
-  v1.81 wave but was never wired into the CLI dispatch, so `memex merge
+  memex-v1.81 wave but was never wired into the CLI dispatch, so `memex merge
   <from> <to>` printed `unknown command`. The case is connected; the CLI now
   folds a duplicate/stub page onto its canonical.
 
-## [1.81.0] — 2026-07-06
+## [memex-v1.81.0] — 2026-07-06
 
 The overnight gap-closing wave: a 10-subsystem review produced 77 ranked gaps;
 the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
@@ -3588,7 +3630,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
 - `log_ingest` / `get_ingest_log` exposed over MCP (tenant-scoped), and
   `POST /ingest` writes an audit row per accepted event.
 
-## [1.80.1] — 2026-07-05
+## [memex-v1.80.1] — 2026-07-05
 
 ### Fixed
 - **PAT permissions were written double-encoded**: `auth create` and `auth
@@ -3600,7 +3642,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
   `jsonb_typeof(permissions) = 'object'` so a regression cannot hide behind
   a lenient string-parse.
 
-## [1.80.0] — 2026-07-05
+## [memex-v1.80.0] — 2026-07-05
 
 ### Added
 - **Personal access tokens — `auth create` / `auth list` / `auth revoke` /
@@ -3627,7 +3669,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
   shipped — `/usr/bin/docker exec …` ExecStart and implicit-root (no `User=`)
   are now accepted.
 
-## [1.79.5] — 2026-07-05
+## [memex-v1.79.5] — 2026-07-05
 
 ### Reverted
 - **`auth rescope-client` (added in 1.79.4) is removed** to keep the `auth`
@@ -3636,7 +3678,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
   re-register the client or edit the row.
   No data change — any client already rescoped stays as-is.
 
-## [1.79.3] — 2026-07-04
+## [memex-v1.79.3] — 2026-07-04
 
 ### Fixed
 - **Backfill un-tagged content so it stops being invisible (migration 071).**
@@ -3647,7 +3689,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
   (`/vault`,`/memory` → `obsidian-vault`; `/repo-source` → `repo-source-code`;
   else `default`), rejoining the source they belong to. Idempotent.
 
-## [1.79.2] — 2026-07-04
+## [memex-v1.79.2] — 2026-07-04
 
 ### Fixed
 - **`list_concepts` is operator-only.** Its table (`synth_concepts`) has no source
@@ -3658,7 +3700,7 @@ the 57 core/useful ones ship here (migrations 073-091). Highlights by area:
   caller may only append a timeline event to a page its own source owns (regression
   test updated to the owned-page model).
 
-## [1.79.1] — 2026-07-04
+## [memex-v1.79.1] — 2026-07-04
 
 ### Fixed — cross-tenant + public-exposure divergences
 An exhaustive function-by-function audit found seven behaviour/default/guard
@@ -3699,7 +3741,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `read`/`write` (not rejected), so a real client that copies the full advertised
   scope list still registers — but never as an elevated client.
 
-## [1.79.0] — 2026-07-04
+## [memex-v1.79.0] — 2026-07-04
 
 ### Added — wave 3
 - **Full OAuth 2.1 for standard MCP clients.** memex now serves the whole
@@ -3733,7 +3775,7 @@ divergences of the same class as the OAuth default; all are now closed:
   in-memory load, so a very large backfill can't spike memory and resumes from
   where it left off.
 
-## [1.78.0] — 2026-07-04
+## [memex-v1.78.0] — 2026-07-04
 
 ### Added — wave 2
 - **Deeper calibration.** The calibration profile now reports a **Brier score**
@@ -3763,7 +3805,7 @@ divergences of the same class as the OAuth default; all are now closed:
   as jobs on memex's own durable queue — dry-run by default, budget-capped. The
   fast read-only probe stays the default.
 
-## [1.77.0] — 2026-07-04
+## [memex-v1.77.0] — 2026-07-04
 
 ### Added — wave 1
 - **OAuth discovery endpoint.** `GET /.well-known/oauth-authorization-server`
@@ -3788,7 +3830,7 @@ divergences of the same class as the OAuth default; all are now closed:
 - **Admin: per-agent usage.** The Agents page now shows `requests_today`,
   `total_requests`, and `last_used_at` per provisioned subject.
 
-## [1.76.0] — 2026-07-04
+## [memex-v1.76.0] — 2026-07-04
 
 ### Fixed
 - **Take grading fed the judge `[object Object]`.** Both grade paths interpolated
@@ -3818,7 +3860,7 @@ divergences of the same class as the OAuth default; all are now closed:
   retry; never fires for filtered, structural, or `noExpansion` (LLM-free) queries.
 - **`reflections` cycle phase — reflection writer.** One budget-capped Sonnet pass
   over recent un-reflected transcripts writes `reflections/<topic-slug>` pages
-  (cited, `source_id`-pinned), giving the `patterns` phase (v1.75) a source to
+  (cited, `source_id`-pinned), giving the `patterns` phase (memex-v1.75) a source to
   mine. Paid, default-OFF (`MEMEX_REFLECTIONS`). Runs before `patterns` so a fresh
   brain populates then mines in the same tick.
 - **`takes_search` MCP tool.** Keyword/trigram search over take claim texts
@@ -3849,7 +3891,7 @@ divergences of the same class as the OAuth default; all are now closed:
   excluded from the paid conversation-facts backfill selector, so synthesis output
   can't feed paid re-extraction of itself.
 
-## [1.75.0] — 2026-07-03
+## [memex-v1.75.0] — 2026-07-03
 
 ### Added — the last two Tier-2 items (operator-approved)
 - **`think` auto-anchor.** When you ask a temporal question ("when did X change,
@@ -3867,7 +3909,7 @@ divergences of the same class as the OAuth default; all are now closed:
   reads and writes are pinned to a single `source_id` so one tenant's reflections
   are never mined into another's pattern page.
 
-## [1.74.0] — 2026-07-03
+## [memex-v1.74.0] — 2026-07-03
 
 ### Fixed
 - **Whole-brain `get_chunks` now returns a tenant page's chunks.** A page's
@@ -3910,7 +3952,7 @@ divergences of the same class as the OAuth default; all are now closed:
   decay-weighted top facts on MCP responses. A **nightly eval quality probe**
   (`memex eval-probe` + systemd timer, mig 068 `eval_snapshots`) that doctor can read.
 
-## [1.73.0] — 2026-07-03
+## [memex-v1.73.0] — 2026-07-03
 
 ### Added — brain-only
 - **Content-sanity ingest gate.** memex had the full quarantine/`content_flag`/
@@ -3952,7 +3994,7 @@ divergences of the same class as the OAuth default; all are now closed:
   now per-source; `getCalibrationProfile` honors the caller's read-source set;
   the single-tenant `default` path is unchanged (additive/idempotent backfill).
 
-## [1.72.0] — 2026-07-03
+## [memex-v1.72.0] — 2026-07-03
 
 ### Security
 - **Closed four latent multi-tenant read-scope holes** (found by an adversarial
@@ -4005,7 +4047,7 @@ divergences of the same class as the OAuth default; all are now closed:
   test failed (`Expected "L", Received undefined`). Anchor the enqueue `runAt` to a
   fixed past date so the case is time-independent. Production claim logic unchanged.
 
-## [1.71.0] — 2026-07-02
+## [memex-v1.71.0] — 2026-07-02
 
 ### Added
 - **Documented quality/cost tiers + the cheap `MEMEX_RERANK` alternative in the
@@ -4017,7 +4059,7 @@ divergences of the same class as the OAuth default; all are now closed:
   ranking quality at a fraction of the price. All runtime defaults stay OFF (a
   clone never surprises you with a bill); a tier is an explicit opt-in.
 
-## [1.70.0] — 2026-07-02
+## [memex-v1.70.0] — 2026-07-02
 
 ### Added
 - **Paid per-chunk contextual-retrieval LLM tier (`MEMEX_CONTEXTUAL_LLM`).** The
@@ -4033,7 +4075,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (Bedrock prompt-caching left as a ~10x cost-saver follow-up). Covers `page://` docs
   (mail/calendar) the same as the deterministic tier.
 
-## [1.69.0] — 2026-07-02
+## [memex-v1.69.0] — 2026-07-02
 
 ### Added
 - **`memex reindex --contextual` — whole-corpus contextual-retrieval re-embed.**
@@ -4051,7 +4093,7 @@ divergences of the same class as the OAuth default; all are now closed:
   call — so a full re-embed costs only Titan embeddings. Run once after enabling
   the flag: `reindex --contextual`.
 
-## [1.68.0] — 2026-07-02
+## [memex-v1.68.0] — 2026-07-02
 
 ### Added
 - **Complete configuration reference (`docs/CONFIGURATION.md`) and a self-host
@@ -4075,7 +4117,7 @@ divergences of the same class as the OAuth default; all are now closed:
   graph-rerank, relational-llm, take-ensemble, conversation-facts, and the base
   `callSonnet`) through it. Verified live: `memex think` now synthesizes.
 
-## [1.67.0] — 2026-07-02
+## [memex-v1.67.0] — 2026-07-02
 
 ### Changed
 - **Write-time tenant isolation: cross-tenant resolution, edge/tag tamper, and
@@ -4105,7 +4147,7 @@ divergences of the same class as the OAuth default; all are now closed:
     present, so a tenant's auto-linking only sees its own entities; the cycle's
     corpus-wide sweep stays whole-brain.
 
-## [1.66.0] — 2026-07-02
+## [memex-v1.66.0] — 2026-07-02
 
 ### Changed
 - **Destructive write tools now scope by the caller's write source (multi-tenant
@@ -4117,12 +4159,12 @@ divergences of the same class as the OAuth default; all are now closed:
   `purgeDeletedPages` now thread the caller's single write source
   (`effectiveWriteSourceId`) and add `AND source_id = ...` to the mutation — a
   destructive op on a row outside the caller's write source matches zero rows (a
-  clean no-op, never a cross-tenant delete). Symmetric to the v1.58 read
+  clean no-op, never a cross-tenant delete). Symmetric to the memex-v1.58 read
   leak-close and additive: an unscoped (local CLI / internal) caller behaves
   exactly as before. Write scope is the caller's SINGLE write source, never the
   federated read set (a tenant may read a union but only delete within its own).
 
-## [1.65.0] — 2026-07-01
+## [memex-v1.65.0] — 2026-07-01
 
 ### Added
 - **`eval-replay run` CI regression gate.** The captured-query replay now exits
@@ -4134,7 +4176,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `isReplayRegression` / `evalRegressionEps` for testing; the fixture-eval hard
   gate (`eval`) is unchanged, this catches what real captured queries surface.
 
-## [1.64.0] — 2026-07-01
+## [memex-v1.64.0] — 2026-07-01
 
 ### Added
 - **Per-source (per-tenant) health breakdown.** In a multi-tenant deploy one
@@ -4150,7 +4192,7 @@ divergences of the same class as the OAuth default; all are now closed:
   chunks but zero embeddings (a tenant whose embedding is broken). The existing
   whole-brain `BrainHealthMetrics` and the default doctor run are unchanged.
 
-## [1.63.0] — 2026-07-01
+## [memex-v1.63.0] — 2026-07-01
 
 ### Changed
 - **Source-aware page mirror identity (composite-PK precursor, additive).** The
@@ -4169,7 +4211,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the deliberately deferred, operator-gated final step before two tenants can hold
   the same slug as separate rows.
 
-## [1.62.0] — 2026-07-01
+## [memex-v1.62.0] — 2026-07-01
 
 ### Added
 - **Fail-closed unprovisioned-tenant read policy (opt-in, default OFF).** With
@@ -4193,7 +4235,7 @@ divergences of the same class as the OAuth default; all are now closed:
   cap. Default OFF; the code-root sweep is intentionally not wired (its `--paths`
   can be a subset).
 
-## [1.61.0] — 2026-07-01
+## [memex-v1.61.0] — 2026-07-01
 
 ### Added
 - **Contract-level multi-tenant isolation test harness.** A systematic sweep
@@ -4209,7 +4251,7 @@ divergences of the same class as the OAuth default; all are now closed:
   global aggregate (no `source_id` on `synth_concepts`), and `pages.slug` is a
   global primary key (two tenants can't yet literally share a slug).
 
-## [1.60.0] — 2026-07-01
+## [memex-v1.60.0] — 2026-07-01
 
 ### Added
 - **`chunks.source_id` mirror (migration 058, Item 2 batch).** A nullable
@@ -4221,7 +4263,7 @@ divergences of the same class as the OAuth default; all are now closed:
   — retrieval still scopes transitively through the documents join today; the
   per-chunk mirror is for future per-chunk tenant scoping and targeted re-embed.
 
-## [1.59.0] — 2026-07-01
+## [memex-v1.59.0] — 2026-07-01
 
 ### Changed
 - **Utility LLM tier swapped from Amazon Nova Lite to Bedrock Claude Haiku.**
@@ -4236,7 +4278,7 @@ divergences of the same class as the OAuth default; all are now closed:
   pricier per token than Nova Lite and intent runs per query, so utility spend
   rises; the synthesis chain stays count-capped, not USD-capped.
 
-## [1.58.0] — 2026-07-01
+## [memex-v1.58.0] — 2026-07-01
 
 ### Changed
 - **Multi-tenancy read-surface scoping (behavior-neutral, Item 2 batch).** Every
@@ -4251,7 +4293,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `tenant_isolation` (query tool, get_tags, page_versions, hydrate, a poisoned
   cross-source cache row, graph-signals adjacency).
 
-## [1.57.0] — 2026-07-01
+## [memex-v1.57.0] — 2026-07-01
 
 ### Added
 - **Paid opt-in Sonnet slices S2–S6 (default OFF, budget-capped).** Five
@@ -4291,7 +4333,7 @@ divergences of the same class as the OAuth default; all are now closed:
     `chunks.contextual_embedded` tracks re-embed targeting. The bulk
     `reindex --contextual` re-embed stays operator-gated (not shipped active).
 
-## [1.56.0] — 2026-07-01
+## [memex-v1.56.0] — 2026-07-01
 
 ### Added
 - **Multi-judge Sonnet ensemble for take grading (opt-in, default OFF).** With
@@ -4326,10 +4368,10 @@ divergences of the same class as the OAuth default; all are now closed:
 
 ### Fixed
 - **`tool_defs` contract snapshot refreshed** to the current tool set (the
-  v1.53 code-intel tools + `whoami` + the new structural-search params), so the
+  memex-v1.53 code-intel tools + `whoami` + the new structural-search params), so the
   generated-vs-frozen equality test reflects the live MCP contract again.
 
-## [1.54.1] — 2026-06-30
+## [memex-v1.54.1] — 2026-06-30
 
 ### Fixed
 - **Conversation→facts model id.** `MEMEX_FACTS_MODEL` default corrected to the
@@ -4340,7 +4382,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the live container can run the extractor once `MEMEX_FACTS_EXTRACTION=1` is
   set. Sonnet stays region-locked via the existing off-region deny.
 
-## [1.54.0] — 2026-06-30
+## [memex-v1.54.0] — 2026-06-30
 
 ### Added
 - **Conversation→facts extraction (opt-in, paid).** A new
@@ -4357,7 +4399,7 @@ divergences of the same class as the OAuth default; all are now closed:
   never leave AWS. Requires Bedrock model access for Claude Sonnet + an
   `iam.tf` invoke-permission widening before it can run live.
 
-## [1.53.0] — 2026-06-30
+## [memex-v1.53.0] — 2026-06-30
 
 ### Added
 - **Code-intelligence tools (`code_def`, `code_refs`, `code_blast`,
@@ -4415,7 +4457,7 @@ divergences of the same class as the OAuth default; all are now closed:
   every `typeof === "string"` reader. It now yields `""`, and is promoted to an
   array only when list items actually follow.
 
-## [1.52.0] — 2026-06-29
+## [memex-v1.52.0] — 2026-06-29
 
 ### Added
 - **Opt-in auto-think (background synthesis).** A new `MEMEX_DREAM_SYNTHESIS=1`
@@ -4427,7 +4469,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (`MEMEX_DREAM_SYNTHESIS_MAX_*`), Nova Lite, idempotent (re-runs on an unchanged
   corpus are no-ops).
 
-## [1.51.0] — 2026-06-29
+## [memex-v1.51.0] — 2026-06-29
 
 ### Added
 - **Self-issued OAuth 2.1 (`client_credentials`).** memex is now its own
@@ -4451,7 +4493,7 @@ divergences of the same class as the OAuth default; all are now closed:
   multi-megabyte JSON scalar, wasting space and reading back as empty metadata.
   Ingest now coerces any non-object frontmatter to `{}` at the write boundary.
 
-## [1.50.0] — 2026-06-29
+## [memex-v1.50.0] — 2026-06-29
 
 ### Changed
 - **Cycle entity-extraction is now INCREMENTAL.** The extractor re-processes
@@ -4470,7 +4512,7 @@ divergences of the same class as the OAuth default; all are now closed:
   forever. First run after the migration is one final full walk (NULL
   grandfathers every doc), then steady-state incremental.
 
-## [1.49.0] — 2026-06-29
+## [memex-v1.49.0] — 2026-06-29
 
 ### Changed
 - **Frontmatter inference moved to ingest; the recurring cycle phase removed.**
@@ -4490,7 +4532,7 @@ divergences of the same class as the OAuth default; all are now closed:
   already-stored headerless docs is `reindex --all` (re-ingest re-infers), not a
   timer.
 
-## [1.48.0] — 2026-06-29
+## [memex-v1.48.0] — 2026-06-29
 
 ### Fixed
 - **Ingest content-size cap on the in-memory path (the 30 MB-frontmatter root
@@ -4515,11 +4557,11 @@ divergences of the same class as the OAuth default; all are now closed:
   the full interval. A crashed cross-host holder's row now TTL-expires within
   5 min and the next tick's host-agnostic `tryAcquireDbLock` upsert reclaims it.
 
-## [1.47.0] — 2026-06-29
+## [memex-v1.47.0] — 2026-06-29
 
 ### Fixed
 - **`frontmatter-inference` cycle phase — keyset-paginated to stop the OOM
-  SIGKILL (the real fix behind the v1.46.0 skip).** Frontmatter inference belongs
+  SIGKILL (the real fix behind the memex-v1.46.0 skip).** Frontmatter inference belongs
   at import, ONE file at a time (`inferFrontmatter(path, content)`) — not as a
   cycle phase; memex had added it as a DB phase that materialised EVERY doc + its
   chunk-0 content in a single query, which spiked anon memory enough to OOM-kill
@@ -4529,7 +4571,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (`LEFT()`), so peak memory is O(batch) not O(corpus). Re-enables the phase
   without the `MEMEX_CYCLE_SKIP_PHASES` workaround.
 
-## [1.46.0] — 2026-06-29
+## [memex-v1.46.0] — 2026-06-29
 
 ### Added
 - **`MEMEX_CYCLE_SKIP_PHASES` — operator escape hatch to drop a defective cycle
@@ -4537,19 +4579,19 @@ divergences of the same class as the OAuth default; all are now closed:
   `parseSkipPhases`), so a phase with a live defect can be isolated WITHOUT
   losing the rest of the maintenance cycle while the defect is root-caused. Used
   on the live brain to skip `frontmatter-inference` — the phase whose start
-  consistently SIGKILLs the tick (a hard OOM the GC + 3000m cap of v1.45.0
+  consistently SIGKILLs the tick (a hard OOM the GC + 3000m cap of memex-v1.45.0
   reduced but did not eliminate; needs a local heap-profile to root-cause). With
   it skipped the cycle runs end-to-end (lint → … → snapshot) and writes a fresh
   `cycle_snapshots` row again, so re-embed / link-reconcile / salience / the
   `cycle-freshness` signal all resume; the optional frontmatter back-fill is the
   only deferred phase. Wired through the compose env.
 
-## [1.45.0] — 2026-06-28
+## [memex-v1.45.0] — 2026-06-28
 
 ### Fixed
 - **Cycle GC between phases + raise the memory cap — the cycle was being
   SIGKILLed mid-tick by its own container limit.** The per-phase RSS telemetry
-  (v1.44.0) + the container logs nailed it: the serve PID 1 dies silently (NO JS
+  (memex-v1.44.0) + the container logs nailed it: the serve PID 1 dies silently (NO JS
   exception — a SIGKILL signature) right as `frontmatter-inference` starts, then
   the boot sequence reappears (Docker restarts it). The cycle's cumulative
   working set (un-GC'd phase garbage + page cache) climbs across phases —
@@ -4560,9 +4602,9 @@ divergences of the same class as the OAuth default; all are now closed:
   starts, lowering the cumulative peak; (2) the `mem_limit` default rises 2600m →
   3000m (the kernel had tolerated ~3.48 GB before the cap; 3000m gives the cycle
   room while still leaving headroom for cloudflared + the system on the ~3.7 GB
-  host). The standing `cycle-freshness` doctor check (v1.41.0) verifies recovery.
+  host). The standing `cycle-freshness` doctor check (memex-v1.41.0) verifies recovery.
 
-## [1.44.0] — 2026-06-28
+## [memex-v1.44.0] — 2026-06-28
 
 ### Fixed
 - **Contain the cycle OOM + add per-phase memory telemetry.** Diagnosed the live
@@ -4580,11 +4622,11 @@ divergences of the same class as the OAuth default; all are now closed:
   chunk-0 rows) means the 3.48 GB is not a simple materialisation, and the
   per-phase RSS pins down the real allocator for a targeted follow-up fix.
 
-## [1.43.0] — 2026-06-28
+## [memex-v1.43.0] — 2026-06-28
 
 ### Fixed
 - **Per-phase cycle timeout — a hung maintenance phase can no longer wedge the
-  whole tick.** Found live after the v1.42.0 first-tick fix made the cycle run
+  whole tick.** Found live after the memex-v1.42.0 first-tick fix made the cycle run
   again: a phase (the live tick stalled around `frontmatter-inference`) hung in
   an `await` that never resolved — the phase loop never advanced, `runCycleOnce`
   never returned, and the cycle loop's `finally` never released the db-lock, so
@@ -4598,12 +4640,12 @@ divergences of the same class as the OAuth default; all are now closed:
   no client timeout) is a follow-up; this bounds the blast radius so one phase
   never stalls the cycle again.
 
-## [1.42.0] — 2026-06-28
+## [memex-v1.42.0] — 2026-06-28
 
 ### Fixed
 - **Maintenance cycle starved on a frequently-redeployed brain — first tick now
   fires 60s after boot, not a full interval later.** Root-caused from the
-  v1.41.0 `cycle-freshness` check flagging the live cycle 53h stale: the loop
+  memex-v1.41.0 `cycle-freshness` check flagging the live cycle 53h stale: the loop
   scheduled its FIRST tick a full `intervalMs` after boot (the prod default is
   6h), and every container recreation (deploy / OOM restart) reset that timer —
   so a brain redeployed more often than its interval never completed a tick, and
@@ -4616,7 +4658,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `tryAcquireDbLock` reclaims the stranded TTL-expired lock and writes a fresh
   snapshot.
 
-## [1.41.0] — 2026-06-28
+## [memex-v1.41.0] — 2026-06-28
 
 ### Added
 - **`cycle-freshness` doctor check — maintenance-cycle liveness probe.** The
@@ -4636,7 +4678,7 @@ divergences of the same class as the OAuth default; all are now closed:
   stream. The timestamp is projected via `to_char` ISO, not the DateStyle-fragile
   `::text`. Surfaced by the gap-review workflow sweep.
 
-## [1.40.0] — 2026-06-28
+## [memex-v1.40.0] — 2026-06-28
 
 ### Fixed
 - **`pages.last_retrieved_at` write-back — the missing producer for the
@@ -4656,12 +4698,12 @@ divergences of the same class as the OAuth default; all are now closed:
   the only call site — search hits are chunk/document-
   level and carry no page slug, so they don't feed the page-level signal.
 
-## [1.39.0] — 2026-06-28
+## [memex-v1.39.0] — 2026-06-28
 
 ### Added
 - **`memex reindex --rechunk-stale` — targeted chunker-version remediation.**
   Completes the chunker half of the shared version-watermark follow-up (the link
-  half shipped in v1.38.0). A `chunker_version` bump (migration 052) was
+  half shipped in memex-v1.38.0). A `chunker_version` bump (migration 052) was
   DETECT-ONLY: the doctor `chunker-version-lag` count rose but only a natural
   reindex cleared it, and `reindex --all` re-embeds the WHOLE corpus.
   `--rechunk-stale` re-indexes ONLY the documents whose stamped
@@ -4676,7 +4718,7 @@ divergences of the same class as the OAuth default; all are now closed:
   triggered (no surprise Bedrock cost); markdown/vault only (the code corpus is
   a follow-up). Inert until a chunker constant is bumped (both are 1 today).
 
-## [1.38.0] — 2026-06-28
+## [memex-v1.38.0] — 2026-06-28
 
 ### Added
 - **`memex extract --stale` — incremental link re-extraction sweep.** Bumping
@@ -4700,7 +4742,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (`MEMEX_EXTRACT_TIME_BUDGET_MS`, `--catch-up` to ignore). Closes the
   link half of the shared version-watermark auto-remediation follow-up.
 
-## [1.37.0] — 2026-06-28
+## [memex-v1.37.0] — 2026-06-28
 
 ### Added
 - **Admin Calibration page — the SPA's sixth page; admin surface complete.**
@@ -4714,7 +4756,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the core. The admin dashboard now carries its full six-page nav (Dashboard ·
   Agents · Request Log · Jobs Watch · Calibration, behind Login).
 
-## [1.36.0] — 2026-06-28
+## [memex-v1.36.0] — 2026-06-28
 
 ### Added
 - **Admin SSE live-activity feed (`/admin/events`) + Dashboard live tail.**
@@ -4730,7 +4772,7 @@ divergences of the same class as the OAuth default; all are now closed:
   codex + security-engineer: no CRITICAL/HIGH — hot-path-safe, redacted,
   auth-gated, DoS-capped; the `agent` field is React-escaped on render.
 
-## [1.35.0] — 2026-06-28
+## [memex-v1.35.0] — 2026-06-28
 
 ### Added
 - **Opt-in DB request-log sink (`MEMEX_REQUEST_LOG_DB`).** Populates the
@@ -4747,7 +4789,7 @@ divergences of the same class as the OAuth default; all are now closed:
   and the entity-salience example fixtures (neutral sample names) to keep the
   public repo free of any non-public project/person names.
 
-## [1.34.0] — 2026-06-28
+## [memex-v1.34.0] — 2026-06-28
 
 ### Added
 - **Admin surface — increment B3: Request Log + Jobs Watch (feed pages).** Two
@@ -4764,7 +4806,7 @@ divergences of the same class as the OAuth default; all are now closed:
   need an event bus and a calibration backend that memex does not have; the
   Jobs Watch poll + the Dashboard 30s refresh cover the live-status need.
 
-## [1.33.0] — 2026-06-28
+## [memex-v1.33.0] — 2026-06-28
 
 ### Added
 - **Admin surface — increment B2: the Agents provisioning page.** A new
@@ -4777,7 +4819,7 @@ divergences of the same class as the OAuth default; all are now closed:
   auto-escapes server data; a duplicate React-key LOW was fixed). Built into the
   served SPA. The live feed pages (B3) are next.
 
-## [1.32.0] — 2026-06-28
+## [memex-v1.32.0] — 2026-06-28
 
 ### Added
 - **Admin surface — the dashboard is live at `/admin` (increments B1 + C).** The
@@ -4795,7 +4837,7 @@ divergences of the same class as the OAuth default; all are now closed:
   The Agents provisioning page (B2) and the live feed pages (B3) extend the SPA
   next. codex reviewed the static serve + Dockerfile.
 
-## [1.31.0] — 2026-06-28
+## [memex-v1.31.0] — 2026-06-28
 
 ### Added
 - **Admin surface — increment A2: data + provisioning endpoints.** The
@@ -4813,7 +4855,7 @@ divergences of the same class as the OAuth default; all are now closed:
   SQL error text, strict `read[]` validation, auth-before-engine) were fixed.
   Increment B (the SPA) and C (embed + serve) follow.
 
-## [1.30.0] — 2026-06-28
+## [memex-v1.30.0] — 2026-06-28
 
 ### Added
 - **Admin surface — increment A1: cookie + magic-link auth.** First slice of the
@@ -4832,11 +4874,11 @@ divergences of the same class as the OAuth default; all are now closed:
   rate key, malformed-nonce 401-not-500) were fixed. Increments A2 (data +
   provisioning endpoints), B (the SPA), and C (embed + serve) follow.
 
-## [1.29.0] — 2026-06-28
+## [memex-v1.29.0] — 2026-06-28
 
 ### Added
 - **Verb-context inference wired into the edge writer (`syncVerbLinksForPage`).**
-  Completes the v1.28.0 inference core: with `MEMEX_LINK_VERB_INFER=1` (default
+  Completes the memex-v1.28.0 inference core: with `MEMEX_LINK_VERB_INFER=1` (default
   OFF), a page write derives typed edges (`works_at` / `invested_in` / `founded`
   / `advises`) from the prose around each `[[wikilink]]` and persists them.
   Migration 053 widens the `links.link_kind` CHECK to add a distinct `verb_ner`
@@ -4851,7 +4893,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (not a valid explicit `addLink` input). This closes the bare-wikilink +
   verb-context backlog item — the full link-extraction surface.
 
-## [1.28.0] — 2026-06-28
+## [memex-v1.28.0] — 2026-06-28
 
 ### Added
 - **Verb-context link-type inference core (`inferLinkType`).** A deterministic
@@ -4875,7 +4917,7 @@ divergences of the same class as the OAuth default; all are now closed:
   basename stages. memex's 5-stage confidence cascade already handles this
   (arguably richer); nothing to add.
 
-## [1.27.0] — 2026-06-28
+## [memex-v1.27.0] — 2026-06-28
 
 ### Added
 - **Per-document chunker version (`chunker_version`).** Re-chunk-on-bump
@@ -4894,7 +4936,7 @@ divergences of the same class as the OAuth default; all are now closed:
   cost-prompt (memex is Bedrock). Distinct from the inert
   source-level `sources.chunker_version` stub (migration 024), left untouched.
 
-## [1.26.0] — 2026-06-27
+## [memex-v1.26.0] — 2026-06-27
 
 ### Added
 - **Link-extraction freshness watermark (`LINK_EXTRACTOR_VERSION`).** A
@@ -4920,7 +4962,7 @@ divergences of the same class as the OAuth default; all are now closed:
   auto-remediate untouched pages until a stale-sweep command lands (tracked in
   TODO). The NULL and edited-since arms are fully remediated by the inline stamp.
 
-## [1.25.0] — 2026-06-27
+## [memex-v1.25.0] — 2026-06-27
 
 ### Added
 - **db-lock full lifecycle: active auto-takeover, cleanup-registration, and an
@@ -4944,7 +4986,7 @@ divergences of the same class as the OAuth default; all are now closed:
   second pool); `cycle_locks` table, `memex-cycle` namespace. No migration (the
   columns already exist).
 
-## [1.24.1] — 2026-06-27
+## [memex-v1.24.1] — 2026-06-27
 
 ### Fixed
 - **alias-hop returns every claimant of an exact alias (fidelity re-audit).**
@@ -4956,7 +4998,7 @@ divergences of the same class as the OAuth default; all are now closed:
   resolve); the injected set is still bounded downstream by
   `MAX_ALIAS_INJECT`. An exact-alias match has few claimants in practice.
 
-## [1.24.0] — 2026-06-27
+## [memex-v1.24.0] — 2026-06-27
 
 ### Added
 - **`content_flag` WARN marker surfaced on search hits.** A
@@ -4972,7 +5014,7 @@ divergences of the same class as the OAuth default; all are now closed:
   breaks retrieval. Implementation notes: doc-keyed over `documents.frontmatter`
   (memex search is chunk→document keyed), TEXT ids, `engine.query`.
 
-## [1.23.0] — 2026-06-27
+## [memex-v1.23.0] — 2026-06-27
 
 ### Added
 - **`embed_skip` frontmatter marker.** An embed-skip predicate, sibling to the
@@ -4990,7 +5032,7 @@ divergences of the same class as the OAuth default; all are now closed:
   oversized-page auto-writer is a separate
   deferred content-sanity increment; this ships the operator-declared path.
 
-## [1.22.0] — 2026-06-27
+## [memex-v1.22.0] — 2026-06-27
 
 ### Added
 - **Advisor surfaces graph-hygiene gaps (orphan pages + dead links).** The
@@ -5006,7 +5048,7 @@ divergences of the same class as the OAuth default; all are now closed:
   live page at both ends — a link to/from a soft-deleted page counts as a
   non-edge. Empty brain → no findings.
 
-## [1.21.0] — 2026-06-27
+## [memex-v1.21.0] — 2026-06-27
 
 ### Added
 - **Bounded query-embed deadline → keyword-only fallback.**
@@ -5030,7 +5072,7 @@ divergences of the same class as the OAuth default; all are now closed:
   header.
 
 ### Fixed
-- **Alias-hop reworked for full-fidelity resolution (corrects v1.20.0).**
+- **Alias-hop reworked for full-fidelity resolution (corrects memex-v1.20.0).**
   The first cut resolved a single candidate, boosted an injected page by ×1.10,
   and skipped the final sort on the absent path. It now resolves ALL claimants
   (`resolveAliasCandidates`), orders them by `(source_id, slug)` and caps at
@@ -5038,7 +5080,7 @@ divergences of the same class as the OAuth default; all are now closed:
   an absent page at top-of-organic + ε (a small bump, never an absolute or
   boosted score — aliases are not a ranking sledgehammer), and always re-sorts.
 
-## [1.20.0] — 2026-06-26
+## [memex-v1.20.0] — 2026-06-26
 
 ### Added
 - **Alias-hop — search resolves a query that is exactly a page's declared
@@ -5055,7 +5097,7 @@ divergences of the same class as the OAuth default; all are now closed:
   gate keeps the blast radius tiny — a normal query is a no-op); `MEMEX_ALIAS_HOP=0`
   disables it. Folded into the query-cache ranking signature (version `5`).
 
-## [1.19.0] — 2026-06-26
+## [memex-v1.19.0] — 2026-06-26
 
 ### Security
 - **Defensive Row-Level Security enable (migration 049).** Flips
@@ -5085,10 +5127,10 @@ divergences of the same class as the OAuth default; all are now closed:
   ranking signature (bumped to version `4`) so a floor change can't serve a
   stale ordering. Env parse is fail-loud on a malformed/out-of-range value.
 
-## [1.18.1] — 2026-06-26
+## [memex-v1.18.1] — 2026-06-26
 
 ### Added
-- **`tenant` provisioning CLI — onboard multi-tenant users.** Makes the v1.18.0
+- **`tenant` provisioning CLI — onboard multi-tenant users.** Makes the memex-v1.18.0
   tenancy operable by populating the `source_grants` table:
   `tenant add <id> [--name]` registers a tenant source, `tenant grant <sub>
   --source <id> [--read a,b]` grants a JWT subject a write source + federated
@@ -5098,7 +5140,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (single `default` tenant), so this is the switch that turns isolation on
   per user.
 
-## [1.18.0] — 2026-06-26
+## [memex-v1.18.0] — 2026-06-26
 
 ### Added
 - **Multi-tenancy foundation (auth tables + scope model).** First slice of the
@@ -5157,7 +5199,7 @@ divergences of the same class as the OAuth default; all are now closed:
   *redacted* read; consider fail-closed). No live deploy without an explicit
   decision.
 
-## [1.17.0] — 2026-06-25
+## [memex-v1.17.0] — 2026-06-25
 
 ### Added
 - **Public-ingress constructive writes (opt-in, default OFF).** The
@@ -5174,7 +5216,7 @@ divergences of the same class as the OAuth default; all are now closed:
   now surgical. Bearer/OAuth auth is still enforced before any write. Wired into
   compose as `MEMEX_PUBLIC_WRITE=${MEMEX_PUBLIC_WRITE:-0}`.
 
-## [1.16.2] — 2026-06-23
+## [memex-v1.16.2] — 2026-06-23
 
 ### Fixed
 - **`global.amazon.nova-2-lite-v1:0` now invokes — un-degrades intent
@@ -5187,7 +5229,7 @@ divergences of the same class as the OAuth default; all are now closed:
   models stay region-locked. `var.bedrock_allowed_regions` now governs Claude
   alone.
 
-## [1.16.1] — 2026-06-23
+## [memex-v1.16.1] — 2026-06-23
 
 ### Fixed
 - **`memex cycle --phases` now accepts the synthesis phases.** The opt-in
@@ -5205,7 +5247,7 @@ divergences of the same class as the OAuth default; all are now closed:
 - **`memex.yml.example`** documents the `auth.oauth` block (default-OFF, rides
   the existing /mcp ingress, lock to your own `sub` for a private test).
 
-## [1.16.0] — 2026-06-23
+## [memex-v1.16.0] — 2026-06-23
 
 ### Added
 - **OAuth/JWT bearer auth — app-layer** (Wave 6).
@@ -5225,7 +5267,7 @@ divergences of the same class as the OAuth default; all are now closed:
   no per-user data model — every token currently maps to the one shared brain);
   (c) pick an IdP + fill `auth.oauth`. Until then it stays off.
 
-## [1.15.0] — 2026-06-23
+## [memex-v1.15.0] — 2026-06-23
 
 ### Added
 - **LLM synthesis** (Wave 5) — the brain now derives
@@ -5250,7 +5292,7 @@ divergences of the same class as the OAuth default; all are now closed:
   concepts into `pages`; Nova for the LLM calls; voice-gate / ensemble-judge /
   auto-apply machinery dropped — grades stay advisory.
 
-## [1.14.0] — 2026-06-23
+## [memex-v1.14.0] — 2026-06-23
 
 ### Added
 - **`advisor` + `list_brain_skillpack` MCP tools** (Wave 4) —
@@ -5270,7 +5312,7 @@ divergences of the same class as the OAuth default; all are now closed:
   workspace/skill-install nagging; no `--apply` exec path — findings are
   human-runnable command strings.
 
-## [1.13.0] — 2026-06-23
+## [memex-v1.13.0] — 2026-06-23
 
 ### Added
 - **Push-based context** (Wave 3) — deterministic, zero-LLM.
@@ -5292,7 +5334,7 @@ divergences of the same class as the OAuth default; all are now closed:
   50 MCP tools. Design notes: single-source flat vault (no source_id
   federation); the PGLite-IPC reflex orchestrator is out of scope.
 
-## [1.12.0] — 2026-06-23
+## [memex-v1.12.0] — 2026-06-23
 
 ### Added
 - **Code-graph activation** (Wave 2). memex already shipped
@@ -5311,7 +5353,7 @@ divergences of the same class as the OAuth default; all are now closed:
     New `core/code-graph.ts`; deterministic, internal-only (they surface source
     paths + symbols). 49 MCP tools total.
 
-## [1.11.0] — 2026-06-22
+## [memex-v1.11.0] — 2026-06-22
 
 ### Added
 - **13 new deterministic MCP tools** (47 tools total) — read +
@@ -5343,7 +5385,7 @@ divergences of the same class as the OAuth default; all are now closed:
   ordering, security-review CLEAN + code-review (one MEDIUM fixed: explicit
   `ESCAPE '\'`). First wave of the full tool-buildout program.
 
-## [1.10.0] — 2026-06-22
+## [memex-v1.10.0] — 2026-06-22
 
 ### Added
 - **`graph-signals` — deterministic graph-aware retrieval stage** (opt-in,
@@ -5371,7 +5413,7 @@ divergences of the same class as the OAuth default; all are now closed:
   omitted. Not an MCP tool, no migration. Found by an exhaustive re-comparison —
   a genuine retrieval-ranking gap earlier passes had missed.
 
-## [1.9.0] — 2026-06-22
+## [memex-v1.9.0] — 2026-06-22
 
 ### Added
 - **Six new MCP tools closing the remaining read-tool gaps** (drafted in
@@ -5391,7 +5433,7 @@ divergences of the same class as the OAuth default; all are now closed:
     `core/search/relational-recall.ts`.
   Completes the deterministic read-tool gap list (#4–#7). 34 MCP tools total.
 
-## [1.8.0] — 2026-06-22
+## [memex-v1.8.0] — 2026-06-22
 
 ### Added
 - **`traverse_graph` — recursive N-hop graph walk.** memex's `graph_neighbors`
@@ -5404,7 +5446,7 @@ divergences of the same class as the OAuth default; all are now closed:
   optional `type` edge filter, `limit` 1..1000. Deterministic; recursive CTE
   without LATERAL for PGLite/Postgres portability.
 
-## [1.7.0] — 2026-06-22
+## [memex-v1.7.0] — 2026-06-22
 
 ### Added
 - **`page_restore` + `page_revert` — page recovery (closes a data-loss
@@ -5421,7 +5463,7 @@ divergences of the same class as the OAuth default; all are now closed:
     to a delete/restore event version or a missing version.
   Both are in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` (internal/stdio only).
 
-## [1.6.1] — 2026-06-22
+## [memex-v1.6.1] — 2026-06-22
 
 ### Added
 - **`memex status` now surfaces the job worker's heartbeat (durable-jobs part 2).**
@@ -5430,7 +5472,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the holder crashed or wedged). `null` when no worker has acquired the lock.
   Makes the wedge signal introduced in 1.6.0 observable at a glance; read-only.
 
-## [1.6.0] — 2026-06-22
+## [memex-v1.6.0] — 2026-06-22
 
 ### Added
 - **Single-active-worker guard + heartbeat (durable-jobs hardening, part 1).**
@@ -5448,7 +5490,7 @@ divergences of the same class as the OAuth default; all are now closed:
   parts: PID-liveness probing, DAG fan-in, budget/rate-lease, inbox, status/
   doctor surfacing of the heartbeat.)
 
-## [1.5.0] — 2026-06-22
+## [memex-v1.5.0] — 2026-06-22
 
 ### Added
 - **Resolved code call-graph (`resolve-symbol-edges` cycle phase).** Code call
@@ -5467,7 +5509,7 @@ divergences of the same class as the OAuth default; all are now closed:
   resolution — is a future enhancement; current resolution disambiguates within
   a document by defining-symbol name.)
 
-## [1.4.1] — 2026-06-22
+## [memex-v1.4.1] — 2026-06-22
 
 ### Added
 - **`lint` is now a maintenance-cycle phase, not just a CLI command.** The
@@ -5479,7 +5521,7 @@ divergences of the same class as the OAuth default; all are now closed:
   frontmatter-inference phase is what fixes it. Brings memex's cycle to
   12 phases.
 
-## [1.4.0] — 2026-06-22
+## [memex-v1.4.0] — 2026-06-22
 
 ### Added
 - **Document soft-delete, archive, and quarantine with a search visibility
@@ -5499,7 +5541,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (cascading to chunks/embeddings via FK). Quarantine helpers live in
   `core/quarantine.ts` (hide-from-search vs warn-but-show markers).
 
-## [1.3.55] — 2026-06-22
+## [memex-v1.3.55] — 2026-06-22
 
 ### Fixed
 - **Page-mirror cycle phase no longer burns Bedrock during quiet hours.** The
@@ -5513,7 +5555,7 @@ divergences of the same class as the OAuth default; all are now closed:
   stamps `page_title`, and the reconcile query re-mirrors when either the body
   hash or the title drifts.
 
-## [1.3.54] — 2026-06-21
+## [memex-v1.3.54] — 2026-06-21
 
 ### Added
 - **Pages written via `page_put`/`page_append` are now searchable.** Until now
@@ -5534,7 +5576,7 @@ divergences of the same class as the OAuth default; all are now closed:
   is internal-only); internal callers still receive them. Per-prefix recency
   decay now strips the `page://` scheme so a page decays like its slug twin.
 
-## [1.3.53] — 2026-06-14
+## [memex-v1.3.53] — 2026-06-14
 
 ### Fixed
 - **Wall-of-text notes were silently dropped from the index (oversized-chunk
@@ -5568,7 +5610,7 @@ divergences of the same class as the OAuth default; all are now closed:
   and topics were also corrected (the old description still advertised a removed
   Telegram bridge). No code or behavior change.
 
-## [1.3.52] — 2026-06-13
+## [memex-v1.3.52] — 2026-06-13
 
 ### Added
 - **Per-job hard wall-clock timeout / dead-letter (migration 039).** A handler
@@ -5589,7 +5631,7 @@ divergences of the same class as the OAuth default; all are now closed:
   code-reviewer, bug-hunter, and codex (codex caught the unwired submit path, the
   lock-vs-timeout race, and an unhandled-rejection path across two rounds).
 
-## [1.3.51] — 2026-06-13
+## [memex-v1.3.51] — 2026-06-13
 
 ### Added
 - **Sliding-window chunk overlap (opt-in, `MEMEX_CHUNK_OVERLAP`, default 0 =
@@ -5607,7 +5649,7 @@ divergences of the same class as the OAuth default; all are now closed:
   and codex (codex caught that applying overlap before mergeShort would have
   shifted the chunk count).
 
-## [1.3.50] — 2026-06-13
+## [memex-v1.3.50] — 2026-06-13
 
 ### Added
 - **Fact confidence decay — the consumer that makes the migration-037 columns
@@ -5628,7 +5670,7 @@ divergences of the same class as the OAuth default; all are now closed:
   Otherwise a caller could diff the decayed order against `order:"recency"`
   (which disables decay) to infer which hidden fact expired or was demoted by
   `valid_until`/`kind` metadata they cannot see — the same content-oracle class
-  as the v1.3.48 semantic-`query` gate. Reviewed by ai-engineer, code-reviewer,
+  as the memex-v1.3.48 semantic-`query` gate. Reviewed by ai-engineer, code-reviewer,
   and codex (codex caught the public-ingress oracle).
 
 ### Changed
@@ -5644,7 +5686,7 @@ divergences of the same class as the OAuth default; all are now closed:
   ecosystem failed every run with `dependency_file_not_found`. Removed; the
   `github-actions` ecosystem stays.
 
-## [1.3.49] — 2026-06-13
+## [memex-v1.3.49] — 2026-06-13
 
 ### Added
 - **`memex cycle [--phases a,b,c] [--stale-days N]` — run one maintenance cycle
@@ -5659,7 +5701,7 @@ divergences of the same class as the OAuth default; all are now closed:
   phases without the Bedrock-heavy `embed-stale`. Phases are idempotent and use
   atomic writes, so an on-demand run is safe alongside the periodic loop.
 
-## [1.3.48] — 2026-06-13
+## [memex-v1.3.48] — 2026-06-13
 
 ### Added
 - **Fact-text embedding + semantic `entity_recall` (migration 038).** Facts can
@@ -5682,7 +5724,7 @@ divergences of the same class as the OAuth default; all are now closed:
   never returned; facts text stays redacted as before). Reviewed by
   security-engineer, ai-engineer, and codex.
 
-## [1.3.47] — 2026-06-13
+## [memex-v1.3.47] — 2026-06-13
 
 ### Added
 - **Timeline extraction from meetings (opt-in, `MEMEX_MEETING_TIMELINE=1`).** A
@@ -5705,7 +5747,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the operator enables it after confirming attendee resolution behaves on their
   vault. The phase no-ops when storage isn't threaded into the cycle.
 
-## [1.3.46] — 2026-06-13
+## [memex-v1.3.46] — 2026-06-13
 
 ### Added
 - **Typed-link inference from frontmatter (opt-in, `MEMEX_TYPED_LINKS=1`).** A
@@ -5733,7 +5775,7 @@ divergences of the same class as the OAuth default; all are now closed:
   HIGH → fixed), code-reviewer (field-key + resolve-cap), and codex
   (dual-origin HIGH → single-origin invariant).
 
-## [1.3.45] — 2026-06-13
+## [memex-v1.3.45] — 2026-06-13
 
 ### Added
 - **Fact metadata on the `## Facts` fence + `entity_facts` (migration 037).**
@@ -5758,7 +5800,7 @@ divergences of the same class as the OAuth default; all are now closed:
   code-reviewer (caught + fixed a claim-named-"claim" header-absorption bug) +
   security-engineer (clean) + codex.
 
-## [1.3.44] — 2026-06-13
+## [memex-v1.3.44] — 2026-06-13
 
 ### Added
 - **Deterministic page salience + `recompute-salience` cycle phase + `memex
@@ -5786,7 +5828,7 @@ divergences of the same class as the OAuth default; all are now closed:
   code-reviewer + codex reviewed (float4-exactness, batched UPDATE, bare-flag
   rejection, tag-trim, dangling-target gate — all applied).
 
-## [1.3.43] — 2026-06-12
+## [memex-v1.3.43] — 2026-06-12
 
 ### Added
 - **Slug-based page-type inference.** `page_put`'s `type` is now OPTIONAL: when
@@ -5795,7 +5837,7 @@ divergences of the same class as the OAuth default; all are now closed:
   → meeting, etc.), defaulting to `note` for an unrecognized prefix. An
   explicit type always wins — fully backward-compatible. The vault's folder
   convention now drives typing, which feeds the gazetteer's `person`/`company`
-  entity filter (v1.3.41) without the caller having to spell the type out.
+  entity filter (memex-v1.3.41) without the caller having to spell the type out.
   Inference applies only when CREATING a page with no explicit type — an
   omitted-type re-put PRESERVES the page's existing type (it is resolved
   inside the write transaction after the current row is read), so a typed page
@@ -5803,11 +5845,11 @@ divergences of the same class as the OAuth default; all are now closed:
   which caught the re-type-on-update bug (now preserved) and the blank-type
   case (treated as omitted); both handled.
 
-## [1.3.42] — 2026-06-12
+## [memex-v1.3.42] — 2026-06-12
 
 ### Added
 - **Facts-fence reconciliation — the `## Facts` fence becomes the system of
-  record (migration 035).** The `## Facts` markdown fence (v1.3.32) was inert.
+  record (migration 035).** The `## Facts` markdown fence (memex-v1.3.32) was inert.
   Now, on every page write, the page's fence is parsed and projected into the
   `entity_facts` index: the page's fence-owned fact rows are wiped and the
   active (non-struck) rows re-inserted, keyed by two new NULLABLE columns
@@ -5831,7 +5873,7 @@ divergences of the same class as the OAuth default; all are now closed:
   purge, malformed-fence destruction, INTEGER row_num overflow, an unbounded
   insert loop, and the un-stripped fence in the chunk path; all fixed.
 
-## [1.3.41] — 2026-06-12
+## [memex-v1.3.41] — 2026-06-12
 
 ### Added
 - **Gazetteer auto-linking (opt-in, default OFF).** Beyond the explicit
@@ -5856,7 +5898,7 @@ divergences of the same class as the OAuth default; all are now closed:
   ai-engineer (drove the proper-noun heuristic + unicode boundaries + the
   maximal-munch test), and codex.
 
-## [1.3.40] — 2026-06-12
+## [memex-v1.3.40] — 2026-06-12
 
 ### Added
 - **Warn-state envelope for cycle phases.** A maintenance-cycle phase result was
@@ -5877,7 +5919,7 @@ divergences of the same class as the OAuth default; all are now closed:
   refactor was intentionally NOT adopted (it would be churn) — only the
   observability kernel landed.
 
-## [1.3.39] — 2026-06-12
+## [memex-v1.3.39] — 2026-06-12
 
 ### Added
 - **Wall-clock budget on a single tree-sitter parse.** The code chunker already
@@ -5902,7 +5944,7 @@ divergences of the same class as the OAuth default; all are now closed:
   parser ops, so a trivially-short parse or a pure-lexer hang isn't interrupted)
   — documented in the helper.
 
-## [1.3.38] — 2026-06-12
+## [memex-v1.3.38] — 2026-06-12
 
 ### Added
 - **Declared page aliases (migration 034).** A page can now name its
@@ -5931,7 +5973,7 @@ divergences of the same class as the OAuth default; all are now closed:
   same well-formed value as the jsonb payload), and a missing `slug` index for
   the per-page replace; all fixed.
 
-## [1.3.37] — 2026-06-12
+## [memex-v1.3.37] — 2026-06-12
 
 ### Added
 - **Entity-slug canonicalization for wikilinks (migration 033).** A
@@ -5966,7 +6008,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the unnamespaced-prefix sprawl (tail/prefix restricted to namespaced slugs);
   both fixed.
 
-## [1.3.36] — 2026-06-12
+## [memex-v1.3.36] — 2026-06-12
 
 ### Added
 - **Code doc-comment extraction + weighted FTS (migration 032).** The code
@@ -5988,7 +6030,7 @@ divergences of the same class as the OAuth default; all are now closed:
   forward note left in migration 030 ("when doc_comment lands, fold it into the
   'A' segment"). Reviewed by ai-engineer + code-reviewer + codex.
 
-## [1.3.35] — 2026-06-12
+## [memex-v1.3.35] — 2026-06-12
 
 ### Added
 - **Two-layer query-cache invalidation (migration 031).** The exact-match query
@@ -6021,7 +6063,7 @@ divergences of the same class as the OAuth default; all are now closed:
   code-reviewer + codex (codex caught the mid-search race and the two
   non-indexer writers; ai-engineer independently flagged the same writers).
 
-## [1.3.34] — 2026-06-12
+## [memex-v1.3.34] — 2026-06-12
 
 ### Fixed
 - **Well-form lone UTF-16 surrogates + NUL before a `::jsonb` cast.** A document
@@ -6036,7 +6078,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the page `compiled_truth` jsonb write, generalized to cover the NUL case.
   Reviewed by code-reviewer.
 
-## [1.3.33] — 2026-06-12
+## [memex-v1.3.33] — 2026-06-12
 
 ### Added
 - **`memex search modes` — read-only ranking-config view.** A new diagnostic
@@ -6049,7 +6091,7 @@ divergences of the same class as the OAuth default; all are now closed:
   doubles as a config validator — a malformed `MEMEX_*` value fails loudly here
   before it can break a real search. `commands/search-modes.ts`.
 
-## [1.3.32] — 2026-06-12
+## [memex-v1.3.32] — 2026-06-12
 
 ### Added
 - **`## Facts` fence parser/renderer (LLM-free).** A new pure markdown
@@ -6068,7 +6110,7 @@ divergences of the same class as the OAuth default; all are now closed:
   inverse. Reviewed by code-reviewer (escape-inverse hardened for trailing
   backslashes).
 
-## [1.3.31] — 2026-06-12
+## [memex-v1.3.31] — 2026-06-12
 
 ### Changed
 - **Contract-derived param validation at the MCP boundary.** Every tool call is
@@ -6088,7 +6130,7 @@ divergences of the same class as the OAuth default; all are now closed:
   — no new oracle, no injection, no DoS) + code-reviewer. `validateParams` in
   `mcp/operations.ts`.
 
-## [1.3.30] — 2026-06-11
+## [memex-v1.3.30] — 2026-06-11
 
 ### Added
 - **Per-family retrieval eval gate (test-only).** A new hermetic gate groups
@@ -6103,7 +6145,7 @@ divergences of the same class as the OAuth default; all are now closed:
   arm fails the gate. Complements the aggregate hybrid gate; no production code
   changes. `tests/retrieval_quality_families.test.ts`.
 
-## [1.3.29] — 2026-06-11
+## [memex-v1.3.29] — 2026-06-11
 
 ### Added
 - **Structured `OperationError` envelope for known MCP failures.** A known,
@@ -6121,7 +6163,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `OperationError`, with memex's public message-redaction contract
   added. New `core/operation-error.ts`.
 
-## [1.3.28] — 2026-06-11
+## [memex-v1.3.28] — 2026-06-11
 
 ### Changed
 - **Rate limiter: LRU eviction + TTL instead of fail-closed at capacity.** The
@@ -6136,7 +6178,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (fully-refilled) sweep. Reviewed by security-engineer (ship, net improvement
   over fail-closed) + code-reviewer.
 
-## [1.3.27] — 2026-06-11
+## [memex-v1.3.27] — 2026-06-11
 
 ### Added
 - **`memex embed [--limit N] [--dry-run]` — embedding backfill.** Re-embeds
@@ -6158,7 +6200,7 @@ divergences of the same class as the OAuth default; all are now closed:
   constant `embedText` defaults to, so a backfilled row never drifts from the
   embedder that produced it.
 
-## [1.3.26] — 2026-06-11
+## [memex-v1.3.26] — 2026-06-11
 
 ### Added
 - **Weighted chunk FTS (`search_vector`).** The keyword search arm now ranks
@@ -6181,7 +6223,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `symbol_name_qualified` weight-`A` inputs do not exist in memex yet and fold
   in when those columns land.
 
-## [1.3.25] — 2026-06-11
+## [memex-v1.3.25] — 2026-06-11
 
 ### Added
 - **Near-duplicate dedup (Jaccard text similarity).** After the existing
@@ -6199,7 +6241,7 @@ divergences of the same class as the OAuth default; all are now closed:
   changing it re-keys the cache. New `dedupByTextSimilarity` in
   `core/search/dedup.ts`.
 
-## [1.3.24] — 2026-06-11
+## [memex-v1.3.24] — 2026-06-11
 
 ### Fixed
 - **Deterministic tie-break in the keyword search arm.** `keywordSearch` ordered
@@ -6215,7 +6257,7 @@ divergences of the same class as the OAuth default; all are now closed:
   can defeat the HNSW index, and exact cosine ties on real embeddings are
   vanishingly rare.
 
-## [1.3.23] — 2026-06-11
+## [memex-v1.3.23] — 2026-06-11
 
 ### Added
 - **Hermetic retrieval-quality gate over the full hybrid path.** The CI
@@ -6229,7 +6271,7 @@ divergences of the same class as the OAuth default; all are now closed:
   suite red. The `embedQuery` option defaults to the real Titan embedder, so it
   is a test-only injection with zero production behavior change.
 
-## [1.3.22] — 2026-06-11
+## [memex-v1.3.22] — 2026-06-11
 
 ### Added
 - **Adaptive return-sizing (opt-in, default OFF).** A new per-call
@@ -6247,7 +6289,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the eval window. Default OFF → identical results for every existing caller.
   New `core/search/return-policy.ts`.
 
-## [1.3.21] — 2026-06-11
+## [memex-v1.3.21] — 2026-06-11
 
 ### Security
 - **Query-expansion prompt-injection guards.** The query-expansion step asks
@@ -6264,7 +6306,7 @@ divergences of the same class as the OAuth default; all are now closed:
   boundary without changing results for a normal query. New exports in
   `core/search/expansion.ts`.
 
-## [1.3.20] — 2026-06-10
+## [memex-v1.3.20] — 2026-06-10
 
 ### Added
 - **Title-phrase boost.** When the query is a contiguous phrase in a page's
@@ -6303,7 +6345,7 @@ divergences of the same class as the OAuth default; all are now closed:
   cache lifetime remains by design — the cache is gated on the document
   generation clock, so any write refreshes it.)
 
-## [1.3.19] — 2026-06-10
+## [memex-v1.3.19] — 2026-06-10
 
 ### Added
 - **Search hits carry `evidence` + `create_safety`.** Every search result is
@@ -6323,7 +6365,7 @@ divergences of the same class as the OAuth default; all are now closed:
   contract is always present and never a false `exists`. New
   `core/search/evidence.ts`.
 
-## [1.3.18] — 2026-06-10
+## [memex-v1.3.18] — 2026-06-10
 
 ### Changed
 - **MCP tool schemas are now generated from one contract.** The 25 inline
@@ -6336,7 +6378,7 @@ divergences of the same class as the OAuth default; all are now closed:
   this is a proven zero-behavior refactor. It removes the drift risk and gives
   a typed surface to build derived param validation on next.
 
-## [1.3.17] — 2026-06-10
+## [memex-v1.3.17] — 2026-06-10
 
 ### Added
 - **Opt-in JSONL audit trail for MCP tool calls.** When `MEMEX_AUDIT_DIR` is
@@ -6349,7 +6391,7 @@ divergences of the same class as the OAuth default; all are now closed:
   audit trail can never break the request it records. New
   `core/audit-week-file.ts`.
 
-## [1.3.16] — 2026-06-10
+## [memex-v1.3.16] — 2026-06-10
 
 ### Added
 - **`memex status` — one-shot operational snapshot.** Bundles the three signals
@@ -6360,7 +6402,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `doctor` it sets no exit code; it just reports the numbers, reusing the same
   primitives `doctor` and `cache` use. New `commands/status.ts`.
 
-## [1.3.15] — 2026-06-10
+## [memex-v1.3.15] — 2026-06-10
 
 ### Fixed
 - **CLI commands that signal failure via `process.exitCode` now actually exit
@@ -6373,7 +6415,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `resolveExitCode` honours an explicit non-zero return first, then falls
   through to `process.exitCode` — repairing every affected command at once.
 
-## [1.3.14] — 2026-06-10
+## [memex-v1.3.14] — 2026-06-10
 
 ### Added
 - **`memex call <tool> [--args '<json>']` — invoke any MCP tool from the
@@ -6385,7 +6427,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the exit code is 1 when the tool returns an error result, so it composes in
   scripts. New `commands/call.ts`.
 
-## [1.3.13] — 2026-06-10
+## [memex-v1.3.13] — 2026-06-10
 
 ### Added
 - **Redacted MCP request logging (opt-in).** `summarizeMcpParams` turns a tool
@@ -6399,7 +6441,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `MEMEX_LOG_REQUESTS=1`** — off by default, so there is no behavior change
   until an operator opts in. New `mcp/param-redaction.ts`.
 
-## [1.3.12] — 2026-06-10
+## [memex-v1.3.12] — 2026-06-10
 
 ### Added
 - **`memex cache` CLI — operator surface for the query cache.** `cache stats`
@@ -6412,7 +6454,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `cacheStats` / `pruneCache` / `clearCache` + `commands/cache.ts`. Read-only
   for `stats`; no migration.
 
-## [1.3.11] — 2026-06-10
+## [memex-v1.3.11] — 2026-06-10
 
 ### Added
 - **Brain-level health metrics surfaced by `memex doctor`.** A new
@@ -6426,7 +6468,7 @@ divergences of the same class as the OAuth default; all are now closed:
   pending backfill). New `core/source-health.ts` (`brainHealthMetrics`),
   categorized `brain`. Read-only aggregation, no Bedrock, no migration.
 
-## [1.3.10] — 2026-06-10
+## [memex-v1.3.10] — 2026-06-10
 
 ### Added
 - **`memex doctor` categorizes checks + ranks failures root-cause-first.**
@@ -6442,7 +6484,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the existing `checks` array. New `core/doctor-categories.ts` +
   `core/doctor-cause-rank.ts`.
 
-## [1.3.9] — 2026-06-10
+## [memex-v1.3.9] — 2026-06-10
 
 ### Changed
 - **Link-provenance columns on `links` made usable (migration 029).**
@@ -6466,12 +6508,12 @@ divergences of the same class as the OAuth default; all are now closed:
   contract is unchanged. Every migration step is guarded (idempotent).
   Unblocks link reconciliation + NER.
 
-## [1.3.8] — 2026-06-10
+## [memex-v1.3.8] — 2026-06-10
 
 ### Changed
 - **`chunks.parent_symbol_path` widened scalar TEXT → `TEXT[]` — nested code
   symbols keep their full ancestor chain.** The code chunker (migration 027,
-  v1.3.4) recorded only the innermost enclosing symbol, so a method inside
+  memex-v1.3.4) recorded only the innermost enclosing symbol, so a method inside
   `outer() { class Inner { … } }` stored `"Inner"` and lost `"outer"`. The
   chunker now emits the whole scope chain outermost-first
   (`["outer","Inner"]`); the indexer persists it as a `TEXT[]`, and
@@ -6499,7 +6541,7 @@ divergences of the same class as the OAuth default; all are now closed:
   Env-driven (`MEMEX_MCP_URL`, optional `AWS_PROFILE`/`AWS_REGION`/
   `MEMEX_SECRETS_PREFIX`); runs on the operator's machine, not the host.
 
-## [1.3.7] — 2026-06-09
+## [memex-v1.3.7] — 2026-06-09
 
 ### Added
 - **eval-replay now reports run-to-run retrieval stability.** Each replayed
@@ -6511,7 +6553,7 @@ divergences of the same class as the OAuth default; all are now closed:
   substrate for the forthcoming retrieval-quality harness + CI correctness
   gate. No change to the live search path.
 
-## [1.3.6] — 2026-06-09
+## [memex-v1.3.6] — 2026-06-09
 
 ### Changed
 - **Recency decay is now per-prefix instead of one global half-life.** The
@@ -6524,7 +6566,7 @@ divergences of the same class as the OAuth default; all are now closed:
   Override the map with `MEMEX_RECENCY_DECAY=prefix:halfLifeDays:floor,...`
   (parsed fail-loud so a typo surfaces at startup).
 
-## [1.3.5] — 2026-06-09
+## [memex-v1.3.5] — 2026-06-09
 
 ### Security
 - **Graph reads now redact relationship provenance on public ingress.**
@@ -6539,7 +6581,7 @@ divergences of the same class as the OAuth default; all are now closed:
   cross-model audit (independent reviewers + a structural diff of the read
   surface).
 
-## [1.3.4] — 2026-06-09
+## [memex-v1.3.4] — 2026-06-09
 
 ### Added
 - **Code chunks now carry symbol metadata.** Indexing a source file records
@@ -6551,7 +6593,7 @@ divergences of the same class as the OAuth default; all are now closed:
   covering symbol straight from the chunk row and is the substrate for
   symbol-aware retrieval. No change to public search output.
 
-## [1.3.3] — 2026-06-09
+## [memex-v1.3.3] — 2026-06-09
 
 ### Security
 - **Raw exception text no longer crosses the public boundary.** The MCP
@@ -6563,7 +6605,7 @@ divergences of the same class as the OAuth default; all are now closed:
   public ingress (and always for `/health`); the internal path keeps the
   full detail for debugging. Found by an adversarial security audit.
 
-## [1.3.2] — 2026-06-09
+## [memex-v1.3.2] — 2026-06-09
 
 ### Changed
 - **Migrations now fail fast instead of hanging a deploy.** Each migration
@@ -6576,7 +6618,7 @@ divergences of the same class as the OAuth default; all are now closed:
   value fails the deploy loudly. No effect on local PGLite
   (single-connection, no lock contention).
 
-## [1.3.1] — 2026-06-08
+## [memex-v1.3.1] — 2026-06-08
 
 ### Removed
 - **The Obsidian / markdown auto-watch recipe.** `serve` no longer spins up
@@ -6588,7 +6630,7 @@ divergences of the same class as the OAuth default; all are now closed:
   dotfile ignore globs (`.obsidian`, `.git`, …) and the `index`/`reindex`
   path-guard are unchanged.
 
-## [1.3.0] — 2026-06-08
+## [memex-v1.3.0] — 2026-06-08
 
 ### Changed
 - **Hybrid search now honours a document's declared importance.** A
@@ -6641,7 +6683,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the generation bump is applied at the application layer inside the
   existing page-write transaction (memex uses no DB triggers).
 
-## [1.2.13] — 2026-06-07
+## [memex-v1.2.13] — 2026-06-07
 
 ### Security
 - **EC2 security group SSH inbound now actually closes when disabled.**
@@ -6673,7 +6715,7 @@ divergences of the same class as the OAuth default; all are now closed:
   instead of a `VERSION` file, operator-only commits with no Claude
   co-author, SSM deploy, local tests as the gate).
 
-## [1.2.12] — 2026-06-06
+## [memex-v1.2.12] — 2026-06-06
 
 ### Fixed
 - **Daily public-bearer rotation never reached the live container.**
@@ -6688,7 +6730,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (SM == on-disk env, but the container's `MEMEX_PUBLIC_BEARER` was
   stale). Added `MEMEX_ROTATE_SERVICE` knob (default `memex`).
 
-## [1.2.11] — 2026-06-05
+## [memex-v1.2.11] — 2026-06-05
 
 ### Security
 - **`entity_recall` public page now passes the full field allowlist.** A
@@ -6704,7 +6746,7 @@ divergences of the same class as the OAuth default; all are now closed:
   page through `redactBody` on public ingress; regression test asserts
   every returned page key is allowlisted. Internal ingress unchanged.
 
-## [1.2.10] — 2026-06-05
+## [memex-v1.2.10] — 2026-06-05
 
 ### Security
 - **Supply-chain: SHA-pin `oven-sh/setup-bun`.** The CI workflow pinned
@@ -6734,7 +6776,7 @@ divergences of the same class as the OAuth default; all are now closed:
   set guards against accidental re-introduction). No runtime behavior
   change.
 
-## [1.2.9] — 2026-06-05
+## [memex-v1.2.9] — 2026-06-05
 
 ### Security
 - **Public-ingress redaction now covers entity facts + timeline.** A
@@ -6774,7 +6816,7 @@ divergences of the same class as the OAuth default; all are now closed:
   the primary `jobs_*` public-read residual previously tracked in
   `TODO.md`.
 
-## [1.2.8] — 2026-05-31
+## [memex-v1.2.8] — 2026-05-31
 
 ### Removed
 - **Telegram bridge removed — memex is now reached over MCP only.** The
@@ -6807,12 +6849,12 @@ divergences of the same class as the OAuth default; all are now closed:
   the init/bootstrap/compose/dockerfile/fetch-secrets/rotate test
   suites accordingly.
 
-## [1.2.7] — 2026-05-31
+## [memex-v1.2.7] — 2026-05-31
 
 ### Removed
 - **Terraform: dropped the `home_assistant_token` and `google_calendar`
   Secrets Manager resources** (and their `secret_arns` outputs) — the
-  follow-up to the v1.2.6 life-integration teardown. The IAM read policy
+  follow-up to the memex-v1.2.6 life-integration teardown. The IAM read policy
   is prefix-scoped (`<secrets_prefix>/*`), so no IAM change was needed.
   The corresponding live secrets (`<prefix>/home-assistant-token`,
   `<prefix>/google-calendar`, plus the manually-created
@@ -6820,7 +6862,7 @@ divergences of the same class as the OAuth default; all are now closed:
   `terraform apply` from an existing state should let the apply reconcile
   the two managed resources (or `terraform state rm` them).
 
-## [1.2.6] — 2026-05-31
+## [memex-v1.2.6] — 2026-05-31
 
 ### Removed
 - **All external "life" integrations stripped — memex is now a pure
@@ -6848,7 +6890,7 @@ divergences of the same class as the OAuth default; all are now closed:
   Terraform secret/IAM teardown and live AWS secret deletion follow
   separately (plan-gated).
 
-## [1.2.5] — 2026-05-31
+## [memex-v1.2.5] — 2026-05-31
 
 ### Changed
 - **telegram-bridge hot-reloads the memex bearer.** The bridge used to
@@ -6866,7 +6908,7 @@ divergences of the same class as the OAuth default; all are now closed:
   reader now always sees a complete old-or-new file, never a truncated
   one mid-rotation.
 
-## [1.2.4] — 2026-05-31
+## [memex-v1.2.4] — 2026-05-31
 
 ### Removed
 - **Legacy REST routes deleted (MCP cleanup, Phase A.7).** The daemon's
@@ -6879,7 +6921,7 @@ divergences of the same class as the OAuth default; all are now closed:
   tool); the telegram-bridge already used `/mcp`. Docs (`API.md`,
   `ARCHITECTURE.md`, `README.md`) updated to the two-route contract.
 
-## [1.2.3] — 2026-05-31
+## [memex-v1.2.3] — 2026-05-31
 
 ### Security
 - **`MEMEX_INTERNAL_TOKEN` now gates MCP write tools too.** The HTTP
@@ -6893,7 +6935,7 @@ divergences of the same class as the OAuth default; all are now closed:
   (legacy fallthrough, matching the HTTP gate). **Takes effect on the
   next EC2 deploy.**
 
-## [1.2.2] — 2026-05-31
+## [memex-v1.2.2] — 2026-05-31
 
 ### Security
 - **Pin `hashicorp/setup-terraform` to a commit SHA** (`dfe3c3f`, v4)
@@ -6902,10 +6944,10 @@ divergences of the same class as the OAuth default; all are now closed:
   actions (`actions/checkout`, `actions/setup-python`, `oven-sh/setup-bun`)
   remain on major tags — lower risk, owner-canonical publishers.
 
-## [1.2.1] — 2026-05-31
+## [memex-v1.2.1] — 2026-05-31
 
 ### Tests
-- **MCP-ingress redaction regression test** locks the v1.2.0 vault-exfil
+- **MCP-ingress redaction regression test** locks the memex-v1.2.0 vault-exfil
   fix. `tests/mcp_redaction.test.ts` calls `dispatchTool` directly and
   asserts that public ingress (`isPublic: true`) strips `markdown_body`
   / `body_snapshot` from `page_get` / `page_list` / `page_versions` /
@@ -6926,7 +6968,7 @@ divergences of the same class as the OAuth default; all are now closed:
   producing false failures. The timeout is now arch-specific via the
   matrix.
 
-## [1.2.0] — 2026-05-30
+## [memex-v1.2.0] — 2026-05-30
 
 ### Security
 - **Public MCP ingress no longer leaks note bodies (vault-exfil fix).**
@@ -7334,7 +7376,7 @@ divergences of the same class as the OAuth default; all are now closed:
   four-container topology (`memex` + chat agent + `telegram-bridge`
   + `cloudflared`).
 
-## [1.1.0] — 2026-05-17
+## [memex-v1.1.0] — 2026-05-17
 
 ### Added
 - **`telegram-bridge` container — always-on two-way Telegram surface.**
@@ -7487,10 +7529,10 @@ divergences of the same class as the OAuth default; all are now closed:
   AWS config mode, EFS bridge dir seeding).
 - `+1` compose hardening parametrize entry for `telegram-bridge`.
 - `+1` Dockerfile structural class for the bridge image.
-- Full suite at v1.1.0: **244 pytest + 434 bun green, audit + scrub
+- Full suite at memex-v1.1.0: **244 pytest + 434 bun green, audit + scrub
   clean, terraform fmt + validate clean.**
 
-## [1.0.0] — 2026-05-11
+## [memex-v1.0.0] — 2026-05-11
 
 ### Added
 - Initial public release as `memex`.

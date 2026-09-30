@@ -154,7 +154,7 @@ export interface ServerOptions {
   unattributedAuthAttemptRateLimiter?: RateLimiter;
   /**
    * Bearer token required on the public Cloudflare ingress. Wire from
-   * the `MEMRAIN_PUBLIC_BEARER` env / `<secrets_prefix>/memex-public-bearer`
+   * the `MEMRAIN_PUBLIC_BEARER` env / `<secrets_prefix>/memrain-public-bearer`
    * secret. When unset, internal requests still flow but every public
    * request returns 503 — fail-closed.
    */
@@ -164,7 +164,7 @@ export interface ServerOptions {
    * `log_friction`, `page_*`, `link`/`unlink`, `add_*`, `jobs_*`) on the
    * internal `/mcp` path. Defends the docker-bridge surface from a
    * compromised sibling container. Wire from `MEMRAIN_INTERNAL_TOKEN` env /
-   * `<secrets_prefix>/memex-internal-token`. When unset, internal write
+   * `<secrets_prefix>/memrain-internal-token`. When unset, internal write
    * tools stay open (legacy single-node behaviour) — a single startup
    * warning is logged; operators should configure the secret.
    */

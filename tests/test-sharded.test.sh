@@ -214,7 +214,7 @@ rc=$?
 built=$(wc -l < "$T10/template-calls" | tr -d ' ')
 tpl=$(head -1 "$T10/template-calls")
 seen=$(sort -u "$T10/template-seen")
-case "$tpl" in "$T10"/memex-pglite-tpl-*) under_tmp=yes ;; *) under_tmp=no ;; esac
+case "$tpl" in "$T10"/memrain-pglite-tpl-*) under_tmp=yes ;; *) under_tmp=no ;; esac
 if [ "$rc" -eq 0 ] && [ "$built" = "1" ] && [ "$under_tmp" = "yes" ] && [ "$seen" = "$tpl" ]; then
   pass "T10 template built once under TMPDIR and exported to both shards"
 else

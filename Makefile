@@ -1,4 +1,4 @@
-# Makefile — orchestration for memex
+# Makefile — orchestration for memrain
 #
 # Designed to be the OSS entry point: clone → make init → make plan →
 # make deploy. Internal targets (audit, test) are dependencies of the
