@@ -29,6 +29,7 @@ command -v jq >/dev/null 2>&1 || { echo "deploy.test.sh: jq not installed — sk
 #   pre_running      the app container runs before the deploy
 #   legacy_running   a deploy-memex-1 container runs
 #   config_fails     `compose config -q` fails
+#   build_fails      `compose build` fails
 #   health.json      /health body after the build (version is filled in)
 #   status.json      `status` output (pre and post deploy alike unless
 #                    pre_status.json exists)
@@ -80,7 +81,8 @@ case "$1" in
           exit 0
         fi
         if [ "${2:-}" = "--services" ]; then cat "$S/services"; exit 0; fi ;;
-      up) case "$*" in *--no-build*) touch "$S/ingress_up" ;; *--build*) touch "$S/up_done" ;; esac; exit 0 ;;
+      build) [ -e "$S/build_fails" ] && { echo "build failed" >&2; exit 17; }; exit 0 ;;
+      up) case "$*" in *--no-deps*) touch "$S/up_done" ;; *) touch "$S/ingress_up" ;; esac; exit 0 ;;
       stop)
         shift
         if [ ! -e "$S/stop_ignored" ]; then for svc in "$@"; do touch "$S/stopped_$svc"; done; fi
@@ -142,14 +144,14 @@ run_deploy() {
 
 calls() { cat "$S/calls.log" 2>/dev/null; }
 no_up() { ! calls | grep -q 'compose.* up '; }
-no_ingress() { ! calls | grep -q 'compose.* up -d --no-build'; }
+no_ingress() { ! calls | grep -q 'compose.* up -d --no-build$'; }
 stopped() { calls | grep -q 'compose.* stop memrain$'; }
 # ingress_down SVC -> SVC was stopped before the app started, no other stop
 # named anything but SVC or the app, and the ingress was never started again.
 ingress_down() {
   local stop_at up_at
   stop_at="$(calls | grep -nE -- "compose.* stop $1\$" | head -n 1 | cut -d: -f1)"
-  up_at="$(calls | grep -nE -- 'compose.* up -d --build' | head -n 1 | cut -d: -f1)"
+  up_at="$(calls | grep -nE -- 'compose.* up -d --no-build --no-deps' | head -n 1 | cut -d: -f1)"
   [ -n "$stop_at" ] && [ -n "$up_at" ] && [ "$stop_at" -lt "$up_at" ] \
     && ! calls | grep 'compose.* stop ' | grep -vqE -- "stop ($1|memrain)\$"
 }
@@ -326,25 +328,26 @@ printf 'memrain\ncaddy\nbackup\n' > "$S/services"; printf 'memrain\ncaddy\nbacku
 if run_deploy; then
   # First occurrence of each step, in the order the steps must run.
   in_order=1 prev=0
-  for pat in 'compose.* config -q' '^docker ps ' '^git describe' 'compose.* stop caddy$' \
-             'compose.* ps --status running' 'compose.* up -d --build' \
-             'State.Health' 'exec deploy-memrain-1 wget' 'cli.ts status' 'compose.* up -d --no-build'; do
+  for pat in 'compose.* config -q' '^docker ps ' '^git describe' 'compose.* build memrain$' \
+             'compose.* stop caddy$' 'compose.* ps --status running' 'compose.* up -d --no-build --no-deps' \
+             'State.Health' 'exec deploy-memrain-1 wget' 'cli.ts status' 'compose.* up -d --no-build$'; do
     at="$(calls | grep -nE -- "$pat" | head -n 1 | cut -d: -f1)"
     if [ -z "$at" ] || [ "$at" -le "$prev" ]; then in_order=0; echo "    out of order or missing: $pat"; fi
     prev="${at:-$prev}"
   done
-  up_app="$(calls | grep 'compose.* up -d --build')"
-  up_all="$(calls | grep 'compose.* up -d --no-build')"
+  up_app="$(calls | grep 'compose.* up -d --no-build --no-deps')"
+  up_all="$(calls | grep 'compose.* up -d --no-build$')"
   if [ "$in_order" -eq 1 ] \
      && printf '%s' "$up_app" | grep -q -- '-f deploy/docker-compose.yml -f /etc/memrain/compose.caddy.yml' \
-     && printf '%s' "$up_app" | grep -q -- 'up -d --build --no-deps memrain$' \
+     && printf '%s' "$up_app" | grep -q -- 'up -d --no-build --no-deps memrain$' \
+     && ! calls | grep -q -- 'up .*--build' \
      && printf '%s' "$up_all" | grep -q -- 'up -d --no-build$' \
      && calls | grep -q 'compose.* stop caddy$' && ! calls | grep -qE 'stop .*(cloudflared|backup|memrain)' \
      && ! calls | grep -q -- '--remove-orphans' \
      && ! calls | grep -qE 'up .*cloudflared' \
      && calls | grep -qx "git describe --tags --match v\[0-9\]\* --always --dirty" \
      && grep -qx 'OK: deploy-memrain-1 healthy, serving v1.0.0, db=postgres, pages=100, ingress up' "$WS/out.log"; then
-    pass "happy path: preflights → caddy stopped → app alone → gates → ingress; two -f; no orphans flag; no named ingress"
+    pass "happy path: preflights → build → caddy stopped → app alone → gates → ingress; two -f; no orphans flag; no named ingress"
   else
     die "happy path shape"; calls; cat "$WS/out.log"
   fi
@@ -402,4 +405,15 @@ if run_deploy && ! calls | grep -q 'compose.* stop '; then
   pass "no ingress service: no stop call, deploy passes"
 else
   die "no ingress service"; cat "$WS/out.log"; calls
+fi
+
+# 17. A failed build: the ingress is never stopped and the running app is
+# never touched.
+ws_new; touch "$S/pre_running" "$S/build_fails"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -ne 0 ] && calls | grep -q 'compose.* build memrain$' \
+   && ! calls | grep -qE 'compose.* (stop|up|ps) '; then
+  pass "build fails: exit $ec, ingress never stopped, app untouched"
+else
+  die "build failure (exit $ec)"; cat "$WS/out.log"; calls
 fi

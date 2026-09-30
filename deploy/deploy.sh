@@ -4,9 +4,10 @@
 # container proved it serves the real brain.
 #
 # Order: preflights (compose parses, no pre-rename container, the secrets are
-# staged under the new name, the Postgres URL is staged when required) → stop
-# the ingress → build and start the app alone → healthy + stamp gate → data
-# gates (db=postgres, pages ≥ the floor, OAuth state consistent) → ingress. A
+# staged under the new name, the Postgres URL is staged when required) → build
+# the image → stop the ingress → start the app alone → healthy + stamp gate →
+# data gates (db=postgres, pages ≥ the floor, OAuth state consistent) →
+# ingress. A failed build changes nothing that runs. A
 # failed gate leaves the ingress stopped and the app unreachable from outside.
 # With MEMRAIN_MAINTENANCE=1 the ingress is held back.
 #
@@ -162,6 +163,10 @@ MEMEX_VERSION="$MEMRAIN_VERSION"
 export MEMRAIN_VERSION MEMEX_VERSION
 echo "==> building ${SERVICE} stamped ${MEMRAIN_VERSION}"
 
+# Build before anything is stopped: a failed build must leave the running app
+# and its ingress exactly as they were.
+compose build "$SERVICE"
+
 # The ingress goes down before the new app starts. Left running, it reaches the
 # new container through the pre-rename network alias as soon as it joins, before
 # the gates below have run and even in maintenance. It comes back only in the
@@ -184,7 +189,7 @@ if [ "${#INGRESS[@]}" -gt 0 ]; then
   done
 fi
 
-compose up -d --build --no-deps "$SERVICE"
+compose up -d --no-build --no-deps "$SERVICE"
 
 echo "==> waiting for ${CONTAINER} to report healthy (max ${HEALTH_TIMEOUT_S}s)"
 deadline=$((SECONDS + HEALTH_TIMEOUT_S))
