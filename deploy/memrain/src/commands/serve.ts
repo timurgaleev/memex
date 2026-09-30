@@ -267,7 +267,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
   if (adminBootstrap && adminBootstrap.length > 0 && !/^[\w-]{32,}$/.test(adminBootstrap)) {
     throw new Error(
       "MEMRAIN_ADMIN_BOOTSTRAP is too weak: use 32+ chars from [A-Za-z0-9_-] " +
-        "(e.g. `openssl rand -base64 32 | tr '+/' '-_'`), or unset it for an ephemeral per-run token.",
+        "(e.g. `openssl rand -hex 32`), or unset it for an ephemeral per-run token.",
     );
   }
   const adminToken = adminBootstrap && adminBootstrap.length > 0 ? adminBootstrap : randomBytes(24).toString("hex");
@@ -280,7 +280,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
       "[memrain] admin bootstrap token generated but withheld: stderr is not a TTY, so the " +
         "value would persist in the log sink. The admin surface is unreachable this run. " +
         "To use it headlessly, generate a token yourself and pass it in: " +
-        "MEMRAIN_ADMIN_BOOTSTRAP=$(openssl rand -base64 32 | tr '+/' '-_') — never have the " +
+        "MEMRAIN_ADMIN_BOOTSTRAP=$(openssl rand -hex 32) — never have the " +
         "server print a generated one into the logs.",
     );
   }

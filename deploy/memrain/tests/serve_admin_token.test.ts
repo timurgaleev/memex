@@ -41,3 +41,20 @@ describe("shouldPrintAdminToken", () => {
     expect(src).not.toMatch(/MEMRAIN_PRINT_ADMIN_TOKEN/);
   });
 });
+
+describe("admin bootstrap token hint", () => {
+  // The boot validator accepts only [\w-]{32,}. A suggested command whose
+  // output it rejects stops the server on the very install that followed it.
+  const VALID = /^[\w-]{32,}$/;
+
+  it("suggests only commands whose output the validator accepts", () => {
+    const src = readFileSync(SERVE_SRC, "utf8");
+    const hints = [...src.matchAll(/openssl rand -(hex|base64) (\d+)([^`')]*)/g)];
+    expect(hints.length).toBeGreaterThan(0);
+    for (const [cmd, enc, bytes] of hints) {
+      const raw = require("node:crypto").randomBytes(Number(bytes));
+      const out = enc === "hex" ? raw.toString("hex") : raw.toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+      expect({ cmd, ok: VALID.test(out) }).toEqual({ cmd, ok: true });
+    }
+  });
+});
