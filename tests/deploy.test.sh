@@ -31,6 +31,7 @@ command -v jq >/dev/null 2>&1 || { echo "deploy.test.sh: jq not installed — sk
 #   config_fails     `compose config -q` fails
 #   build_fails      `compose build` fails
 #   health.json      /health body after the build (version is filled in)
+#   pre_build_status.json   `status` before the ingress is stopped
 #   status.json      `status` output (pre and post deploy alike unless
 #                    pre_status.json exists)
 #   services         services `config --services` prints
@@ -61,7 +62,8 @@ case "$1" in
       *"cli.ts status"*)
         # serve holds the PGLite data-dir lock; a second process cannot open it.
         if grep -q '"db":"pglite"' "$S/health.json"; then echo "PgliteLockedError: open in another process" >&2; exit 1; fi
-        if [ ! -e "$S/up_done" ] && [ -e "$S/pre_status.json" ]; then cat "$S/pre_status.json"; else cat "$S/status.json"; fi ;;
+        if [ ! -e "$S/up_done" ] && [ -e "$S/pre_build_status.json" ] && ! ls "$S"/stopped_* >/dev/null 2>&1; then cat "$S/pre_build_status.json"
+        elif [ ! -e "$S/up_done" ] && [ -e "$S/pre_status.json" ]; then cat "$S/pre_status.json"; else cat "$S/status.json"; fi ;;
       *"/health"*) sed "s/@VERSION@/$(cat "$S/version")/" "$S/health.json" ;;
     esac
     exit 0 ;;
@@ -416,4 +418,33 @@ if [ "$ec" -ne 0 ] && calls | grep -q 'compose.* build memrain$' \
   pass "build fails: exit $ec, ingress never stopped, app untouched"
 else
   die "build failure (exit $ec)"; cat "$WS/out.log"; calls
+fi
+
+# 18. The page floor is read after the ingress is down: writes that land
+# while the image builds count, and the snapshot sits between the ingress
+# stop and the app start.
+ws_new; touch "$S/pre_running"
+status_json 50 true 0 pre_build_status.json; status_json 100 true 0 pre_status.json; status_json 99 true 0
+ec=0; run_deploy || ec=$?
+stop_at="$(calls | grep -nE 'compose.* stop cloudflared$' | head -n 1 | cut -d: -f1)"
+snap_at="$(calls | grep -n 'cli.ts status' | head -n 1 | cut -d: -f1)"
+up_at="$(calls | grep -nE 'compose.* up -d --no-build --no-deps' | head -n 1 | cut -d: -f1)"
+build_at="$(calls | grep -nE 'compose.* build memrain$' | head -n 1 | cut -d: -f1)"
+if [ "$ec" -eq 1 ] && stopped && no_ingress && grep -q 'fewer than the 100' "$WS/out.log" \
+   && [ -n "$build_at" ] && [ -n "$stop_at" ] && [ -n "$snap_at" ] && [ -n "$up_at" ] \
+   && [ "$build_at" -lt "$stop_at" ] && [ "$stop_at" -lt "$snap_at" ] && [ "$snap_at" -lt "$up_at" ]; then
+  pass "page floor taken after the ingress stop (100, not the pre-build 50): build → stop → snapshot → app up"
+else
+  die "floor after ingress stop (exit $ec)"; cat "$WS/out.log"; calls
+fi
+
+# 19. The old app's page count cannot be read: the old app was never touched,
+# so the ingress is started again and the new app is not.
+ws_new; touch "$S/pre_running"; printf '{"ok":true}\n' > "$S/pre_status.json"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && calls | grep -q 'compose.* start cloudflared$' \
+   && ! calls | grep -q 'compose.* up ' && grep -q 'page count cannot be read' "$WS/out.log"; then
+  pass "unreadable floor after the ingress stop: exit 1, ingress started again, app not started"
+else
+  die "unreadable floor (exit $ec)"; cat "$WS/out.log"; calls
 fi

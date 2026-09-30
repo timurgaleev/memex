@@ -5,10 +5,11 @@
 #
 # Order: preflights (compose parses, no pre-rename container, the secrets are
 # staged under the new name, the Postgres URL is staged when required) → build
-# the image → stop the ingress → start the app alone → healthy + stamp gate →
-# data gates (db=postgres, pages ≥ the floor, OAuth state consistent) →
-# ingress. A failed build changes nothing that runs. A
-# failed gate leaves the ingress stopped and the app unreachable from outside.
+# the image → stop the ingress → read the page floor from the old app → start
+# the app alone → healthy + stamp gate → data gates (db=postgres, pages ≥ the
+# floor, OAuth state consistent) → ingress. A failed build changes nothing
+# that runs. A failed gate leaves the ingress stopped and the app unreachable
+# from outside.
 # With MEMRAIN_MAINTENANCE=1 the ingress is held back.
 #
 # Why the stamp exists: the build arg, the Dockerfile ENV, `version.ts` and the
@@ -134,25 +135,6 @@ if [ -e "${SCRIPT_DIR}/.secrets/memex.env" ] && [ ! -e "$APP_SECRETS" ]; then
   exit 1
 fi
 
-# The page floor: what the running container serves now, and DEPLOY_MIN_PAGES
-# when no container runs (the upgrade path, where an EFS or bind mistake would
-# present an empty corpus). The larger one wins. A PGLite data dir is locked by
-# the running server, so `status` cannot open it next to serve: no pre-read.
-PRE_PAGES=""
-if [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null || true)" = "true" ] \
-   && [ "$(app_db || true)" != "pglite" ]; then
-  if ! PRE_PAGES="$(app_status | jq -er '.stats.pages')" \
-     || ! [[ "$PRE_PAGES" =~ ^[0-9]+$ ]]; then
-    echo "FAIL: ${CONTAINER} is running but its page count cannot be read" >&2
-    echo "      stop it and re-run with DEPLOY_MIN_PAGES=<last known page count>" >&2
-    exit 1
-  fi
-fi
-FLOOR="$PRE_PAGES"
-if [ -n "$MIN_PAGES" ] && { [ -z "$FLOOR" ] || [ "$MIN_PAGES" -gt "$FLOOR" ]; }; then
-  FLOOR="$MIN_PAGES"
-fi
-
 # ---- Build and start the app alone -----------------------------------------
 
 # The stamp: an exact release tag when HEAD is one, else <tag>-<n>-g<sha>, else
@@ -187,6 +169,30 @@ if [ "${#INGRESS[@]}" -gt 0 ]; then
       exit 1
     fi
   done
+fi
+
+# The page floor: what the running container serves now, and DEPLOY_MIN_PAGES
+# when no container runs (the upgrade path, where an EFS or bind mistake would
+# present an empty corpus). The larger one wins. Read only once the ingress is
+# down, so no write from outside can land after it. A PGLite data dir is locked
+# by the running server, so `status` cannot open it next to serve: no pre-read.
+PRE_PAGES=""
+if [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null || true)" = "true" ] \
+   && [ "$(app_db || true)" != "pglite" ]; then
+  if ! PRE_PAGES="$(app_status | jq -er '.stats.pages')" \
+     || ! [[ "$PRE_PAGES" =~ ^[0-9]+$ ]]; then
+    echo "FAIL: ${CONTAINER} is running but its page count cannot be read" >&2
+    echo "      stop it and re-run with DEPLOY_MIN_PAGES=<last known page count>" >&2
+    # The old app was not touched, so its ingress comes back.
+    if [ "${#INGRESS[@]}" -gt 0 ]; then
+      compose start "${INGRESS[@]}" || echo "FAIL: could not restart the ingress (${INGRESS[*]})" >&2
+    fi
+    exit 1
+  fi
+fi
+FLOOR="$PRE_PAGES"
+if [ -n "$MIN_PAGES" ] && { [ -z "$FLOOR" ] || [ "$MIN_PAGES" -gt "$FLOOR" ]; }; then
+  FLOOR="$MIN_PAGES"
 fi
 
 compose up -d --no-build --no-deps "$SERVICE"
