@@ -40,21 +40,16 @@ def test_deploy_target_exists() -> None:
     assert re.search(r'^deploy:', text, re.MULTILINE)
 
 
-def test_deploy_uses_env_file() -> None:
+def test_deploy_delegates_to_deploy_sh() -> None:
+    # deploy.sh stamps the image with `git describe`, resolves the compose
+    # file set from .env (COMPOSE_FILE) and fails on a stale container. A
+    # bare `docker compose up` here would stamp `dev` and, with `-f`, drop
+    # the ingress overlay.
     recipe = _deploy_recipe(_read())
-    assert "docker compose" in recipe
-    assert re.search(r'--env-file\s+\.env\b', recipe), (
-        "deploy recipe must pass `--env-file .env` to docker compose "
-        "(regression: dropping --env-file silently un-sets AWS_REGION, "
-        "SECRETS_PREFIX, PUBLIC_HOST and breaks the stack)"
-    )
+    assert "deploy/deploy.sh" in recipe
+    assert "docker compose" not in recipe
 
 
 def test_deploy_guards_on_env_file_present() -> None:
     recipe = _deploy_recipe(_read())
     assert "test -f .env" in recipe or '[ -f .env ]' in recipe
-
-
-def test_deploy_uses_pinned_compose_file() -> None:
-    recipe = _deploy_recipe(_read())
-    assert "deploy/docker-compose.yml" in recipe
