@@ -186,6 +186,16 @@ else
   die "T6c rotate legacy"; cat "$WS/stub/calls.log"; cat "$WS/out.log"
 fi
 ws_new; write_docker_stub
+stub_secret stack/memex-public-bearer "bearer-default"
+ec=0; run_rotate || ec=$?
+if [ "$ec" -ne 0 ] && ! grep -q 'put-secret-value' "$WS/stub/calls.log" \
+   && grep -q 'stack/memex-public-bearer also holds the bearer' "$WS/out.log" \
+   && ! grep -q bearer-default "$WS/out.log"; then
+  pass "T6e rotate with the bearer under both names: refused before the PUT"
+else
+  die "T6e rotate both names (exit $ec)"; cat "$WS/stub/calls.log"; cat "$WS/out.log"
+fi
+ws_new; write_docker_stub
 ec=0; run_rotate 'PUBLIC_BEARER_SECRET_NAME=legacy/a b' || ec=$?
 if [ "$ec" -ne 0 ] && [ ! -s "$WS/stub/calls.log" ]; then
   pass "T6d rotate with a bad override: fails before any AWS call"

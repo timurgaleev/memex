@@ -418,13 +418,36 @@ def test_no_postgres_secret_no_require_flag_and_no_admin(tmp_path):
     assert "WARN" in out.stdout
 
 
-def test_new_secret_name_wins_over_legacy(tmp_path):
+def test_new_secret_name_is_read_when_both_names_agree(tmp_path):
+    out, env = _run_env(
+        tmp_path,
+        secrets={"memex/memrain-admin-bootstrap": "same-adm", "memex/memex-admin-bootstrap": "same-adm"},
+    )
+    assert out.returncode == 0, out.stderr
+    assert "MEMRAIN_ADMIN_BOOTSTRAP=same-adm" in env.splitlines()
+    assert "admin bootstrap token fetched from memex/memrain-admin-bootstrap" in out.stdout
+
+
+def test_empty_new_secret_name_falls_back_to_legacy(tmp_path):
+    out, env = _run_env(
+        tmp_path,
+        secrets={"memex/memrain-admin-bootstrap": "", "memex/memex-admin-bootstrap": "old-adm"},
+    )
+    assert out.returncode == 0, out.stderr
+    assert "MEMRAIN_ADMIN_BOOTSTRAP=old-adm" in env.splitlines()
+
+
+def test_conflicting_secret_names_are_fatal(tmp_path):
     out, env = _run_env(
         tmp_path,
         secrets={"memex/memrain-admin-bootstrap": "new-adm", "memex/memex-admin-bootstrap": "old-adm"},
     )
-    assert out.returncode == 0, out.stderr
-    assert "MEMRAIN_ADMIN_BOOTSTRAP=new-adm" in env.splitlines()
+    assert out.returncode != 0
+    assert "FATAL" in out.stdout
+    assert "both hold a value" in out.stderr
+    assert "new-adm" not in out.stdout + out.stderr
+    assert "old-adm" not in out.stdout + out.stderr
+    assert "MEMRAIN_ADMIN_BOOTSTRAP" not in (env or "")
 
 
 @pytest.mark.parametrize("mode", ["deny", "denyget"])

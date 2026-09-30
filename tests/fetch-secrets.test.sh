@@ -112,18 +112,77 @@ else
   die "T2 old names only"; cat "$WS/out.log"
 fi
 
-# T3. both: the new name wins.
+# T3. both names with equal values: fine, the new id is read.
+ws_new; export STUB_DIR="$WS/stub"
+printf 'SECRETS_PREFIX=stack\n' >> "$WS/.env"
+seed_all stack memex same
+seed_all stack memrain same
+if run_fetch "$WS" \
+   && grep -qx 'MEMRAIN_POSTGRES_URL=postgres://u:p@db/same' "$APP" \
+   && grep -qx 'MEMRAIN_PUBLIC_BEARER=bearer-same' "$APP" \
+   && grep -qx 'MEMRAIN_INTERNAL_TOKEN=internal-same' "$APP" \
+   && grep -q 'public-bearer: stack/memrain-public-bearer' "$WS/out.log"; then
+  pass "T3 both names, equal values: new id used"
+else
+  die "T3 both names equal"; cat "$WS/out.log"
+fi
+
+# T3b. both names, different non-empty values: exit 1, the conflicting ids
+# are named, no value is printed, and the previous files stay intact.
+for leaf in postgres-url public-bearer internal-token; do
+  ws_new; export STUB_DIR="$WS/stub"
+  printf 'SECRETS_PREFIX=stack\n' >> "$WS/.env"
+  seed_all stack memex old
+  seed_all stack memrain old
+  stub_secret "stack/memrain-$leaf" "$(cat "$WS/stub/secrets/$(stub_key "stack/memex-$leaf")")-new"
+  seed_previous
+  ec=0; run_fetch "$WS" || ec=$?
+  if [ "$ec" -eq 1 ] && unchanged && no_tmp_left && no_values_in_output \
+     && grep -q "stack/memrain-$leaf and stack/memex-$leaf both hold a value" "$WS/out.log" \
+     && ! grep -q -- '-new' "$WS/out.log"; then
+    pass "T3b $leaf differs under both names: exit 1, files unchanged"
+  else
+    die "T3b $leaf conflict (exit $ec)"; cat "$WS/out.log"
+  fi
+done
+
+# T3c. the new name exists but is empty (or has no version yet): the legacy
+# value is used, so a half-done rename never drops the bearer or token.
+for how in empty noversion; do
+  ws_new; export STUB_DIR="$WS/stub"
+  printf 'SECRETS_PREFIX=stack\n' >> "$WS/.env"
+  seed_all stack memex old
+  if [ "$how" = empty ]; then
+    stub_secret stack/memrain-public-bearer ""
+    stub_secret stack/memrain-internal-token ""
+  else
+    stub_noversion stack/memrain-public-bearer
+    stub_noversion stack/memrain-internal-token
+  fi
+  seed_previous
+  if run_fetch "$WS" \
+     && grep -qx 'MEMRAIN_PUBLIC_BEARER=bearer-old' "$APP" \
+     && grep -qx 'MEMRAIN_INTERNAL_TOKEN=internal-old' "$APP" \
+     && grep -q 'public-bearer: stack/memex-public-bearer' "$WS/out.log" \
+     && no_values_in_output; then
+    pass "T3c new name $how + old set: old value used"
+  else
+    die "T3c new name $how"; cat "$WS/out.log"
+  fi
+done
+
+# T3d. the new name is missing for one secret: that one comes from the old name.
 ws_new; export STUB_DIR="$WS/stub"
 printf 'SECRETS_PREFIX=stack\n' >> "$WS/.env"
 seed_all stack memex old
-seed_all stack memrain new
+stub_secret stack/memrain-postgres-url "postgres://u:p@db/old"
 if run_fetch "$WS" \
-   && grep -qx 'MEMRAIN_POSTGRES_URL=postgres://u:p@db/new' "$APP" \
-   && grep -qx 'MEMRAIN_PUBLIC_BEARER=bearer-new' "$APP" \
-   && grep -qx 'MEMRAIN_INTERNAL_TOKEN=internal-new' "$APP"; then
-  pass "T3 both names: new wins"
+   && grep -qx 'MEMRAIN_PUBLIC_BEARER=bearer-old' "$APP" \
+   && grep -qx 'MEMRAIN_INTERNAL_TOKEN=internal-old' "$APP" \
+   && grep -qx 'MEMRAIN_POSTGRES_URL=postgres://u:p@db/old' "$APP"; then
+  pass "T3d new name missing: old value used"
 else
-  die "T3 both names"; cat "$WS/out.log"
+  die "T3d new name missing"; cat "$WS/out.log"
 fi
 
 # T4. unset prefix means the legacy `memex` prefix: memex/<new>, then

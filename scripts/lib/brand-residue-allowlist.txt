@@ -490,7 +490,7 @@ docs/CONFIGURATION.md|COMPAT-DOC|16|Legacy names section and the deprecated meme
 scripts/bootstrap.sh|COMPAT|5|legacy stack-env, admin secret and MEMEX_ fallbacks
 scripts/init.sh|COMPAT|2|MEMEX_ fallback and the public repository's current name
 scripts/mcp-refresh.sh|COMPAT|11|MEMEX_ fallbacks, legacy secret and an old MCP registration notice
-scripts/rotate-memrain-public-bearer.sh|COMPAT|5|legacy secret name and MEMEX_ROTATE_ fallbacks
+scripts/rotate-memrain-public-bearer.sh|COMPAT|7|legacy secret name and MEMEX_ROTATE_ fallbacks
 scripts/test-pg.sh|COMPAT|3|accepts the caller's legacy test URL
 terraform/moved.tf|INFRA-MOVED|24|moved blocks from the pre-rename resource addresses
 terraform/names.tf|COMPAT|4|the deprecated memex_subdomain variable
@@ -500,11 +500,11 @@ terraform/user_data.sh.tftpl|COMPAT|1|STACK_MEMEX_SUBDOMAIN for bootstraps from 
 terraform/variables.tf|COMPAT|1|the deprecated memex_subdomain variable
 tests/deploy.test.sh|COMPAT-TEST|12|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 tests/entrypoint.test.sh|COMPAT-TEST|5|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
-tests/fetch-secrets-overrides.test.sh|COMPAT-TEST|25|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
-tests/fetch-secrets.test.sh|COMPAT-TEST|29|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
+tests/fetch-secrets-overrides.test.sh|COMPAT-TEST|27|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
+tests/fetch-secrets.test.sh|COMPAT-TEST|35|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 tests/init.test.sh|COMPAT-TEST|8|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 tests/legacy-guard.test.sh|COMPAT-TEST|16|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
-tests/test_bootstrap_sh.py|COMPAT-TEST|24|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
+tests/test_bootstrap_sh.py|COMPAT-TEST|27|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 tests/test_brand_residue.py|COMPAT-TEST|1|incidental: pre-rename name in comments, test data or temp-dir prefixes; no legacy behaviour under test
 tests/test_changelog.py|COMPAT-TEST|14|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 tests/test_compose_yml.py|COMPAT-TEST|19|covers legacy names or legacy data (may also carry incidental pre-rename test strings)

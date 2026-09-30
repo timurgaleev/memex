@@ -39,6 +39,22 @@ BEARER_SECRET_ID="$(secret_id_for public-bearer)" || {
   echo "[rotate] ERROR: cannot resolve the public bearer secret id; nothing rotated" >&2
   exit 1
 }
+# The PUT changes one name only. If the other name holds the same bearer, the
+# two would then differ and fetch-secrets.sh refuses to pick either, so the
+# new token would never reach the server.
+if [ -z "${PUBLIC_BEARER_SECRET_NAME:-}" ]; then
+  for _leaf in memrain-public-bearer memex-public-bearer; do
+    _other="${SECRETS_PREFIX:-memex}/${_leaf}"
+    [ "$_other" = "$BEARER_SECRET_ID" ] && continue
+    _rc=0
+    _value="$(secret_value "$_other")" || _rc=$?
+    if [ "$_rc" -eq 1 ] || { [ "$_rc" -eq 0 ] && [ -n "$_value" ]; }; then
+      echo "[rotate] ERROR: ${_other} also holds the bearer (or cannot be read); empty it so only ${BEARER_SECRET_ID} does; nothing rotated" >&2
+      exit 1
+    fi
+  done
+  unset _leaf _other _rc _value
+fi
 COMPOSE_DIR="${MEMRAIN_ROTATE_COMPOSE_DIR:-${MEMEX_ROTATE_COMPOSE_DIR:-${REPO_DIR}/deploy}}"
 APP_CONTAINER="${MEMRAIN_ROTATE_CONTAINER:-${MEMEX_ROTATE_CONTAINER:-deploy-memrain-1}}"
 APP_SERVICE="${MEMRAIN_ROTATE_SERVICE:-${MEMEX_ROTATE_SERVICE:-memrain}}"

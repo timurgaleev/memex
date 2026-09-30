@@ -61,11 +61,17 @@ _secret_exists() {
   return 1
 }
 
-# resolve_secret_id NEW OLD -> prints the first existing id among
-# <prefix>/NEW, <prefix>/OLD. Only one prefix is ever searched: probing a
-# second one could pick up a different stack's secret.
+# resolve_secret_id NEW OLD -> prints the id to read among <prefix>/NEW,
+# <prefix>/OLD. A name counts only when its value is non-empty: a new-name
+# secret that exists but is empty (or has no version yet) falls back to the
+# legacy one, so a half-done rename never blanks a working value. Both
+# non-empty and different is fatal: either pick could lock a client out, so
+# the operator decides. With no non-empty value the first existing id is
+# printed and the caller decides what empty means. Only one prefix is ever
+# searched: probing a second one could pick up a different stack's secret.
 resolve_secret_id() {
   local new="$1" old="$2" prefix="${SECRETS_PREFIX:-memex}" name id rc tried=""
+  local value first="" chosen="" chosen_value=""
   for name in "$new" "$old"; do
     id="${prefix}/${name}"
     case " $tried " in *" $id "*) continue ;; esac
@@ -73,11 +79,36 @@ resolve_secret_id() {
     rc=0
     _secret_exists "$id" || rc=$?
     case "$rc" in
-      0) printf '%s\n' "$id"; return 0 ;;
-      2) ;;
+      0) ;;
+      2) continue ;;
       *) return 1 ;;
     esac
+    [ -n "$first" ] || first="$id"
+    rc=0
+    value="$(secret_value "$id")" || rc=$?
+    case "$rc" in
+      0) ;;
+      2) continue ;;
+      *) return 1 ;;
+    esac
+    [ -n "$value" ] || continue
+    if [ -z "$chosen" ]; then
+      chosen="$id"
+      chosen_value="$value"
+    elif [ "$value" != "$chosen_value" ]; then
+      secrets_log "ERROR: ${chosen} and ${id} both hold a value and the values differ; make them equal or empty one of them"
+      return 1
+    fi
   done
+  if [ -n "$chosen" ]; then
+    [ "$chosen" = "$first" ] || secrets_log "${first} has no value; using ${chosen}"
+    printf '%s\n' "$chosen"
+    return 0
+  fi
+  if [ -n "$first" ]; then
+    printf '%s\n' "$first"
+    return 0
+  fi
   secrets_log "not found: ${tried}"
   return 2
 }

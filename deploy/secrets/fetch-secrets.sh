@@ -7,8 +7,9 @@
 #   SECRETS_PREFIX   namespace under Secrets Manager; matches terraform
 #                    var.secrets_prefix. Each secret is looked up as
 #                    `<SECRETS_PREFIX>/memrain-<name>`, then
-#                    `<SECRETS_PREFIX>/memex-<name>`. Unset or empty means
-#                    `memex` (deploy/secrets/lib.sh).
+#                    `<SECRETS_PREFIX>/memex-<name>`. A name with an empty
+#                    value is skipped; both non-empty and different exits 1.
+#                    Unset or empty means `memex` (deploy/secrets/lib.sh).
 #   POSTGRES_URL_SECRET_NAME, PUBLIC_BEARER_SECRET_NAME,
 #   INTERNAL_TOKEN_SECRET_NAME, TUNNEL_TOKEN_SECRET_NAME
 #                    optional full secret ids that replace the lookup above.
