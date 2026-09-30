@@ -2,8 +2,8 @@
 # `scripts/init.sh` generates terraform.tfvars automatically — this file
 # documents the schema for editors / reviewers / CI.
 #
-# The tfstate bucket goes in backend.hcl (see backend.hcl.example); no tfvars
-# value is strictly required.
+# The tfstate bucket goes in backend.hcl (see backend.hcl.example). `repo_url`
+# must be set: first boot clones it (init.sh writes it for you).
 # Optional values pick up sensible defaults from variables.tf if omitted.
 
 # ---------------------------------------------------------------------------

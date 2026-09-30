@@ -279,13 +279,13 @@ rejects the destroy; run `aws secretsmanager restore-secret --secret-id
 ### Admin surface and OAuth consent
 
 Create `<prefix>/memrain-admin-bootstrap` with a 32+ character value from
-`[A-Za-z0-9_-]` (`openssl rand -base64 32 | tr '+/' '-_'`). Terraform does not
+`[A-Za-z0-9_-]` (`openssl rand -hex 32`). Terraform does not
 create this secret; do it by hand, ideally **before** `terraform apply`:
 
 ```bash
 aws secretsmanager create-secret \
   --name <prefix>/memrain-admin-bootstrap \
-  --secret-string "$(openssl rand -base64 32 | tr '+/' '-_')" \
+  --secret-string "$(openssl rand -hex 32)" \
   --profile <your-profile> --region <your-region>
 ```
 

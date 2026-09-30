@@ -17,7 +17,7 @@ aws ssm start-session --target <your-instance-id> \
 export GIT_SSH_COMMAND="ssh -i /root/.ssh/<project>_deploy_key \
   -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 # (ssm-user is not in the docker group and the checkout is root-owned: sudo)
-cd /opt/<project> && sudo git pull --ff-only
+cd /opt/<project> && sudo --preserve-env=GIT_SSH_COMMAND git pull --ff-only
 sudo bash deploy/deploy.sh   # stamps the image, builds, waits for healthy
 sudo docker compose --env-file .env ps memrain
 sudo docker compose --env-file .env logs --tail 25 memrain
