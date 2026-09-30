@@ -30,6 +30,8 @@ command -v jq >/dev/null 2>&1 || { echo "deploy.test.sh: jq not installed — sk
 #   legacy_running   a deploy-memex-1 container runs
 #   config_fails     `compose config -q` fails
 #   build_fails      `compose build` fails
+#   status_hangs     `status` on the old app never returns
+#   start_ignored    `compose start` leaves the ingress stopped
 #   health.json      /health body after the build (version is filled in)
 #   pre_build_status.json   `status` before the ingress is stopped
 #   status.json      `status` output (pre and post deploy alike unless
@@ -60,6 +62,7 @@ case "$1" in
   exec)
     case "$*" in
       *"cli.ts status"*)
+        if [ -e "$S/status_hangs" ] && [ ! -e "$S/up_done" ]; then exec /bin/sleep 30; fi
         # serve holds the PGLite data-dir lock; a second process cannot open it.
         if grep -q '"db":"pglite"' "$S/health.json"; then echo "PgliteLockedError: open in another process" >&2; exit 1; fi
         if [ ! -e "$S/up_done" ] && [ -e "$S/pre_build_status.json" ] && ! ls "$S"/stopped_* >/dev/null 2>&1; then cat "$S/pre_build_status.json"
@@ -88,6 +91,10 @@ case "$1" in
       stop)
         shift
         if [ ! -e "$S/stop_ignored" ]; then for svc in "$@"; do touch "$S/stopped_$svc"; done; fi
+        exit 0 ;;
+      start)
+        shift
+        if [ ! -e "$S/start_ignored" ]; then for svc in "$@"; do rm -f "$S/stopped_$svc"; done; fi
         exit 0 ;;
       ps)
         if [ -e "$S/ingress_up" ]; then cat "$S/running_after" 2>/dev/null; exit 0; fi
@@ -443,8 +450,59 @@ fi
 ws_new; touch "$S/pre_running"; printf '{"ok":true}\n' > "$S/pre_status.json"
 ec=0; run_deploy || ec=$?
 if [ "$ec" -eq 1 ] && calls | grep -q 'compose.* start cloudflared$' \
-   && ! calls | grep -q 'compose.* up ' && grep -q 'page count cannot be read' "$WS/out.log"; then
+   && ! calls | grep -q 'compose.* up ' && grep -q 'page count cannot be read' "$WS/out.log" \
+   && grep -q 'ingress restarted (cloudflared)' "$WS/out.log"; then
   pass "unreadable floor after the ingress stop: exit 1, ingress started again, app not started"
 else
   die "unreadable floor (exit $ec)"; cat "$WS/out.log"; calls
+fi
+
+# 20. The old app's status read hangs: it is cut off after
+# DEPLOY_STATUS_TIMEOUT, the ingress is started again and confirmed running,
+# and the new app is never started.
+ws_new; touch "$S/pre_running" "$S/status_hangs"
+t0=$SECONDS
+ec=0; run_deploy DEPLOY_STATUS_TIMEOUT=1 || ec=$?
+took=$((SECONDS - t0))
+start_at="$(calls | grep -nE 'compose.* start cloudflared$' | head -n 1 | cut -d: -f1)"
+ps_after="$(calls | sed -n "${start_at:-1},\$p" | grep -c 'compose.* ps --status running')"
+if [ "$ec" -eq 1 ] && [ "$took" -lt 20 ] && [ -n "$start_at" ] && [ "$ps_after" -ge 1 ] \
+   && [ ! -e "$S/stopped_cloudflared" ] && ! calls | grep -q 'compose.* up ' \
+   && grep -q 'ingress restarted (cloudflared)' "$WS/out.log"; then
+  pass "status read hangs: cut off after 1s, ingress restarted and verified, app not started"
+else
+  die "hanging status (exit $ec, ${took}s)"; cat "$WS/out.log"; calls
+fi
+
+# 21. The restart does not bring the ingress back: that is reported.
+ws_new; touch "$S/pre_running" "$S/start_ignored"; printf '{"ok":true}\n' > "$S/pre_status.json"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && grep -q 'cloudflared is not running after the restart' "$WS/out.log"; then
+  pass "ingress restart not confirmed: exit 1, reported"
+else
+  die "restart verification (exit $ec)"; cat "$WS/out.log"
+fi
+
+# 22. A bad DEPLOY_STATUS_TIMEOUT fails before any docker call.
+for bad in 0 abc -5 1.5; do
+  ws_new
+  ec=0; run_deploy "DEPLOY_STATUS_TIMEOUT=$bad" || ec=$?
+  if [ "$ec" -eq 1 ] && [ ! -s "$S/calls.log" ] && grep -q 'DEPLOY_STATUS_TIMEOUT must be a positive integer' "$WS/out.log"; then
+    pass "DEPLOY_STATUS_TIMEOUT='$bad': exit 1 before any docker call"
+  else
+    die "DEPLOY_STATUS_TIMEOUT='$bad' (exit $ec)"; cat "$WS/out.log"
+  fi
+done
+
+# 23. No `timeout` on the host: fail before any docker call.
+ws_new; mkdir -p "$S/tools"
+for tool in bash env jq sed tail grep cat dirname printf; do
+  p="$(command -v "$tool" 2>/dev/null)" && [ -x "$p" ] && ln -sf "$p" "$S/tools/$tool"
+done
+ec=0
+(cd "$WS" && env -i PATH="$S/bin:$S/tools" HOME="$WS" STUB_DIR="$S" bash deploy/deploy.sh) > "$WS/out.log" 2>&1 || ec=$?
+if [ "$ec" -eq 1 ] && [ ! -s "$S/calls.log" ] && grep -q 'timeout is required' "$WS/out.log"; then
+  pass "no timeout binary: exit 1 before any docker call"
+else
+  die "missing timeout (exit $ec)"; cat "$WS/out.log"
 fi

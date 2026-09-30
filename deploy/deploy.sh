@@ -28,6 +28,8 @@
 #   DEPLOY_ALLOW_EMPTY=1    accept an empty brain (a fresh install).
 #   DEPLOY_ALLOW_INGRESS_IN_MAINTENANCE=1   start the ingress even in
 #                      maintenance (a rehearsal only).
+#   DEPLOY_STATUS_TIMEOUT   seconds any one read of the app's status or
+#                      /health may take (a positive integer, default 60).
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-.env}"
@@ -80,22 +82,44 @@ env_value() {
 # first line that opens with `{`; a stray log line before it cannot break jq.
 app_status() {
   local out
-  out="$(docker exec "$CONTAINER" bun run src/cli.ts status)" || return 1
+  out="$(timeout "$STATUS_TIMEOUT" docker exec "$CONTAINER" bun run src/cli.ts status)" || return 1
   printf '%s\n' "$out" | sed -n '/^{/,$p'
 }
 
 # app_db -> the engine the running app reports on /health (postgres, pglite).
 app_db() {
-  docker exec "$CONTAINER" wget -qO- http://localhost:18790/health 2>/dev/null | jq -r '.db // empty'
+  timeout "$STATUS_TIMEOUT" docker exec "$CONTAINER" wget -qO- http://localhost:18790/health 2>/dev/null | jq -r '.db // empty'
+}
+
+# restore_ingress -> start the ingress services stopped below again and
+# confirm they run. For failures where the old app was never replaced.
+restore_ingress() {
+  local running svc
+  [ "${#INGRESS[@]}" -gt 0 ] || return 0
+  compose start "${INGRESS[@]}" || { echo "FAIL: could not restart the ingress (${INGRESS[*]})" >&2; return 1; }
+  running="$(compose ps --status running --services)" || { echo "FAIL: cannot confirm the ingress restarted" >&2; return 1; }
+  for svc in "${INGRESS[@]}"; do
+    if ! printf '%s\n' "$running" | grep -qx "$svc"; then
+      echo "FAIL: ${svc} is not running after the restart" >&2
+      return 1
+    fi
+  done
+  echo "==> ingress restarted (${INGRESS[*]}); ${SERVICE} was not replaced" >&2
 }
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required (dnf install -y jq)" >&2; exit 1; }
+command -v timeout >/dev/null 2>&1 || { echo "FAIL: timeout is required (dnf install -y coreutils)" >&2; exit 1; }
 
 # ---- Preflights: nothing is touched until all of them pass -----------------
 
 MIN_PAGES="${DEPLOY_MIN_PAGES:-}"
 if [ -n "$MIN_PAGES" ] && ! [[ "$MIN_PAGES" =~ ^[0-9]+$ ]]; then
   echo "FAIL: DEPLOY_MIN_PAGES must be a non-negative integer, got '${MIN_PAGES}'" >&2
+  exit 1
+fi
+STATUS_TIMEOUT="${DEPLOY_STATUS_TIMEOUT:-60}"
+if ! [[ "$STATUS_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "FAIL: DEPLOY_STATUS_TIMEOUT must be a positive integer, got '${STATUS_TIMEOUT}'" >&2
   exit 1
 fi
 
@@ -181,12 +205,10 @@ if [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null ||
    && [ "$(app_db || true)" != "pglite" ]; then
   if ! PRE_PAGES="$(app_status | jq -er '.stats.pages')" \
      || ! [[ "$PRE_PAGES" =~ ^[0-9]+$ ]]; then
-    echo "FAIL: ${CONTAINER} is running but its page count cannot be read" >&2
+    echo "FAIL: ${CONTAINER} is running but its page count cannot be read (or the read took over ${STATUS_TIMEOUT}s)" >&2
     echo "      stop it and re-run with DEPLOY_MIN_PAGES=<last known page count>" >&2
     # The old app was not touched, so its ingress comes back.
-    if [ "${#INGRESS[@]}" -gt 0 ]; then
-      compose start "${INGRESS[@]}" || echo "FAIL: could not restart the ingress (${INGRESS[*]})" >&2
-    fi
+    restore_ingress || true
     exit 1
   fi
 fi
@@ -213,7 +235,7 @@ done
 # The stamp gate. A container that came up healthy but is serving the previous
 # image reports the previous stamp — which is exactly the failure a deploy check
 # is for, and exactly the one a hardcoded version string cannot catch.
-HEALTH="$(docker exec "$CONTAINER" wget -qO- http://localhost:18790/health)"
+HEALTH="$(timeout "$STATUS_TIMEOUT" docker exec "$CONTAINER" wget -qO- http://localhost:18790/health)"
 running="$(printf '%s' "$HEALTH" | jq -r '.version // empty')"
 if [ "$running" != "$MEMRAIN_VERSION" ]; then
   echo "FAIL: built ${MEMRAIN_VERSION} but the container serves '${running}'" >&2
