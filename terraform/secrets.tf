@@ -2,6 +2,9 @@
 # Fill them in AWS Console or CLI after deployment — never in Terraform state.
 # Naming pattern: ${var.secrets_prefix}/<name>. Override secrets_prefix in
 # terraform.tfvars to namespace per-environment (e.g. "stack-staging").
+#
+# recovery_window_in_days = 0 deletes a secret at once, so every secret is
+# prevent_destroy: a rename that would replace one fails at plan instead.
 
 # Only the Cloudflare Tunnel ingress needs a tunnel token. An
 # ingress_mode="caddy" install has no tunnel, and a placeholder secret that
@@ -10,15 +13,24 @@
 #
 # Upgrade note: the `moved` block below re-addresses the existing (un-counted)
 # resource so a cloudflare install plans a no-op state move, not a
-# destroy+create of a live token. A caddy install plans a DESTROY of the
-# placeholder — expected, but if that secret is already in scheduled-deletion
-# limbo, run `aws secretsmanager restore-secret` first or AWS rejects the call.
+# destroy+create of a live token. The secret is prevent_destroy, so a caddy
+# install that still holds the placeholder in state (or any install switching
+# ingress_mode away from cloudflare) fails at plan instead of deleting it.
+# To retire it, drop it from state first — the secret itself stays in AWS:
+#   terraform state rm 'aws_secretsmanager_secret.cloudflared_tunnel_token[0]'
+# then delete it by hand only if nothing reads it. The same applies to the
+# deploy-key secret below when use_ssh_deploy_key goes back to false.
 resource "aws_secretsmanager_secret" "cloudflared_tunnel_token" {
   count = var.ingress_mode == "cloudflare" ? 1 : 0
 
-  name                    = "${var.secrets_prefix}/cloudflared-tunnel-token"
+  name                    = local.tunnel_token_secret_name
   description             = "Cloudflare Tunnel token for the MCP brain subdomain (brain.<domain>/mcp)"
   recovery_window_in_days = 0
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [description]
+  }
 }
 
 moved {
@@ -32,9 +44,14 @@ moved {
 resource "aws_secretsmanager_secret" "github_deploy_key" {
   count = var.use_ssh_deploy_key ? 1 : 0
 
-  name                    = "${var.secrets_prefix}/github-deploy-key"
+  name                    = local.deploy_key_secret_name
   description             = "SSH private key (passphrase-less) the EC2 uses to git clone a private repo"
   recovery_window_in_days = 0
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [description]
+  }
 }
 
 # Bearer token for the public Cloudflare Tunnel ingress to memex
@@ -47,7 +64,7 @@ resource "random_password" "memrain_public_bearer" {
   special = false # URL-safe; carried in Authorization header
 
   lifecycle {
-    # Daily rotation is owned by scripts/rotate-memex-public-bearer.sh
+    # Daily rotation is owned by scripts/rotate-memrain-public-bearer.sh
     # via put-secret-value. Terraform must NOT regenerate-on-apply or it
     # clobbers whatever the rotation timer last wrote.
     ignore_changes = [length, special]
@@ -55,9 +72,14 @@ resource "random_password" "memrain_public_bearer" {
 }
 
 resource "aws_secretsmanager_secret" "memrain_public_bearer" {
-  name                    = "${var.secrets_prefix}/memex-public-bearer"
+  name                    = local.public_bearer_secret_name
   description             = "Bearer token for the public Cloudflare Tunnel ingress to memex (read-only routes)"
   recovery_window_in_days = 0
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [description]
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "memrain_public_bearer" {
@@ -66,8 +88,9 @@ resource "aws_secretsmanager_secret_version" "memrain_public_bearer" {
 
   lifecycle {
     # Daily rotation owns secret_string after first apply; never let
-    # terraform drag the value back to the random_password seed.
-    ignore_changes = [secret_string]
+    # terraform drag the value back to the random_password seed or move
+    # AWSCURRENT.
+    ignore_changes = [secret_string, version_stages]
   }
 }
 
@@ -76,7 +99,7 @@ resource "aws_secretsmanager_secret_version" "memrain_public_bearer" {
 # Without it, a compromised sibling container could write to the index
 # with no auth — the gate keys on `Cf-Connecting-Ip` presence only,
 # which is exactly the header those peers never send. See
-# `deploy/memex/src/http/public_guard.ts:evaluateInternalAuth`.
+# `deploy/memrain/src/http/public_guard.ts:evaluateInternalAuth`.
 resource "random_password" "memrain_internal_token" {
   length  = 48
   special = false
@@ -87,9 +110,14 @@ resource "random_password" "memrain_internal_token" {
 }
 
 resource "aws_secretsmanager_secret" "memrain_internal_token" {
-  name                    = "${var.secrets_prefix}/memex-internal-token"
+  name                    = local.internal_token_secret_name
   description             = "Shared bearer authenticating peer containers to memex's internal mutating routes"
   recovery_window_in_days = 0
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [description]
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "memrain_internal_token" {
@@ -97,6 +125,6 @@ resource "aws_secretsmanager_secret_version" "memrain_internal_token" {
   secret_string = random_password.memrain_internal_token.result
 
   lifecycle {
-    ignore_changes = [secret_string]
+    ignore_changes = [secret_string, version_stages]
   }
 }

@@ -22,10 +22,16 @@ variable "domain" {
   default     = ""
 }
 
-variable "memex_subdomain" {
-  description = "Subdomain serving the memex public MCP (e.g. 'brain' for brain.example.com)."
+variable "subdomain" {
+  description = "Subdomain serving the public MCP (e.g. 'brain' for brain.example.com)."
   type        = string
   default     = "brain"
+}
+
+variable "memex_subdomain" {
+  description = "DEPRECATED: use `subdomain`. When set, it still wins over `subdomain`."
+  type        = string
+  default     = null
 }
 
 variable "github_owner" {
@@ -59,6 +65,10 @@ variable "use_ssh_deploy_key" {
 
     For new public-template installs, leave at the default (false). Bootstrap
     falls back to HTTPS clone, which works without auth for public repos.
+
+    The deploy-key secret is prevent_destroy: flipping this back to false
+    fails at plan until the secret is dropped from state with
+    `terraform state rm 'aws_secretsmanager_secret.github_deploy_key[0]'`.
   EOT
   type        = bool
   default     = false
@@ -209,9 +219,9 @@ variable "ingress_mode" {
 
     caddy — Caddy terminates TLS on the instance (Let's Encrypt), no
       Cloudflare dependency. Opens inbound 80/443 (tcp+udp) on the SG,
-      points <memex_subdomain>.<domain> at the instance EIP via Route53
+      points <subdomain>.<domain> at the instance EIP via Route53
       (see caddy_manage_dns), and bootstrap runs Caddy as a compose
-      override with MEMEX_ASSUME_PUBLIC=1 so bearer auth is enforced for
+      override with MEMRAIN_ASSUME_PUBLIC=1 so bearer auth is enforced for
       every request. Use this when the domain's DNS cannot move to
       Cloudflare (e.g. it carries production email on Route53).
   EOT
@@ -226,7 +236,7 @@ variable "ingress_mode" {
 
 variable "caddy_manage_dns" {
   description = <<-EOT
-    caddy ingress only: create the <memex_subdomain>.<domain> A record in
+    caddy ingress only: create the <subdomain>.<domain> A record in
     the domain's Route53 public hosted zone (which must already exist in
     this account). Set false if DNS lives elsewhere — then create the A
     record to the instance EIP yourself before first boot, or the ACME
@@ -267,7 +277,7 @@ variable "enable_vpc_endpoints" {
 }
 
 variable "enable_cloudtrail" {
-  description = "Enable CloudTrail for API call auditing. Logs stored in S3 for 90 days."
+  description = "Enable CloudTrail for API call auditing. Logs stored in S3 for 90 days. The log bucket is prevent_destroy: turning this off on an existing install fails at plan until the bucket is dropped from state (terraform state rm 'aws_s3_bucket.cloudtrail[0]')."
   type        = bool
   default     = true
 }
@@ -288,4 +298,178 @@ variable "repo_url" {
     condition     = var.repo_url == "" || can(regex("^(https://github\\.com/|git@github\\.com:)", var.repo_url))
     error_message = "repo_url must be empty (no clone), an https://github.com/... URL, or a git@github.com:... URL."
   }
+}
+
+variable "app_slug" {
+  description = "Application slug in the RDS names (<project_name>-<app_slug>). Pin it on an existing stack before changing it: the RDS identifier, subnet group and parameter group derive from it."
+  type        = string
+  default     = "memex"
+}
+
+variable "db_name" {
+  description = "Name of the Postgres database created with the RDS instance. ForceNew in the provider, so terraform ignores changes to it once the instance exists; rename an existing database in SQL."
+  type        = string
+  default     = "memex"
+}
+
+variable "db_username" {
+  description = "RDS master user name. AWS cannot rename a master user, so terraform ignores changes to it once the instance exists."
+  type        = string
+  default     = "memex"
+}
+
+variable "rds_apply_immediately" {
+  description = "Apply RDS modifications immediately instead of in the next maintenance window. Set true only for the apply that needs it."
+  type        = bool
+  default     = false
+}
+
+variable "efs_creation_token" {
+  description = "EFS creation token. null derives <project_name>-data. Immutable on an existing file system: pin the current value before changing project_name."
+  type        = string
+  default     = null
+}
+
+variable "secrets_read_prefixes" {
+  description = "Secrets Manager prefixes the instance role may read (<prefix>/*). Empty means [secrets_prefix]."
+  type        = list(string)
+  default     = []
+}
+
+# ---------------------------------------------------------------------------
+# Resource name overrides. null derives the name from project_name, app_slug
+# or secrets_prefix (see names.tf). Pin every name of an existing stack before
+# changing project_name: most of these names are ForceNew.
+# ---------------------------------------------------------------------------
+
+variable "rds_identifier" {
+  description = "RDS instance identifier. null derives <project_name>-<app_slug>."
+  type        = string
+  default     = null
+}
+
+variable "db_subnet_group_name" {
+  description = "RDS subnet group name. null derives <project_name>-<app_slug>."
+  type        = string
+  default     = null
+}
+
+variable "db_parameter_group_name" {
+  description = "RDS parameter group name. null derives <project_name>-<app_slug>-pg16."
+  type        = string
+  default     = null
+}
+
+variable "ec2_sg_name" {
+  description = "EC2 security group name. null derives <project_name>-sg."
+  type        = string
+  default     = null
+}
+
+variable "rds_sg_name" {
+  description = "RDS security group name. null derives <project_name>-rds."
+  type        = string
+  default     = null
+}
+
+variable "efs_sg_name" {
+  description = "EFS security group name. null derives <project_name>-efs-sg."
+  type        = string
+  default     = null
+}
+
+variable "vpc_endpoints_sg_name" {
+  description = "VPC interface endpoints security group name. null derives <project_name>-vpc-endpoints-sg."
+  type        = string
+  default     = null
+}
+
+variable "iam_role_name" {
+  description = "EC2 instance IAM role name. null derives <project_name>-role."
+  type        = string
+  default     = null
+}
+
+variable "instance_profile_name" {
+  description = "EC2 instance profile name. null derives <project_name>-instance-profile."
+  type        = string
+  default     = null
+}
+
+variable "custom_policy_name" {
+  description = "Inline role policy name (Bedrock, secrets, S3, logs). null derives <project_name>-custom-policy."
+  type        = string
+  default     = null
+}
+
+variable "efs_client_policy_name" {
+  description = "Inline role policy name for EFS client access. null derives <project_name>-efs-client."
+  type        = string
+  default     = null
+}
+
+variable "log_group_name" {
+  description = "CloudWatch log group name. null derives /<project_name>/app."
+  type        = string
+  default     = null
+}
+
+variable "sns_topic_name" {
+  description = "SNS alarm topic name. null derives <project_name>-alarms."
+  type        = string
+  default     = null
+}
+
+variable "scripts_bucket_name" {
+  description = "S3 scripts bucket name. null derives <project_name>-scripts-<account_id>."
+  type        = string
+  default     = null
+}
+
+variable "cloudtrail_bucket_name" {
+  description = "S3 CloudTrail bucket name. null derives <project_name>-cloudtrail-<account_id>."
+  type        = string
+  default     = null
+}
+
+variable "cloudtrail_name" {
+  description = "CloudTrail trail name. null derives <project_name>-trail."
+  type        = string
+  default     = null
+}
+
+variable "key_pair_name" {
+  description = "EC2 key pair name (only with ssh_public_key). null derives <project_name>-key."
+  type        = string
+  default     = null
+}
+
+variable "postgres_url_secret_name" {
+  description = "Full Secrets Manager name of the Postgres URL secret. null derives <secrets_prefix>/memex-postgres-url."
+  type        = string
+  default     = null
+}
+
+variable "public_bearer_secret_name" {
+  description = "Full Secrets Manager name of the public bearer secret. null derives <secrets_prefix>/memex-public-bearer."
+  type        = string
+  default     = null
+}
+
+variable "internal_token_secret_name" {
+  description = "Full Secrets Manager name of the internal token secret. null derives <secrets_prefix>/memex-internal-token."
+  type        = string
+  default     = null
+}
+
+variable "tunnel_token_secret_name" {
+  description = "Full Secrets Manager name of the Cloudflare Tunnel token secret. null derives <secrets_prefix>/cloudflared-tunnel-token."
+  type        = string
+  default     = null
+}
+
+variable "deploy_key_secret_name" {
+  description = "Full Secrets Manager name of the GitHub deploy key secret. null derives <secrets_prefix>/github-deploy-key."
+  type        = string
+  default     = null
 }

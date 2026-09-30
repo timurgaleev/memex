@@ -1,7 +1,7 @@
 resource "aws_key_pair" "memrain" {
   count = var.ssh_public_key != "" ? 1 : 0
 
-  key_name   = "${var.project_name}-key"
+  key_name   = local.key_pair_name
   public_key = var.ssh_public_key
 
   tags = {
@@ -10,7 +10,7 @@ resource "aws_key_pair" "memrain" {
 }
 
 resource "aws_security_group" "memrain" {
-  name = "${var.project_name}-sg"
+  name = local.ec2_sg_name
   # ASCII only: the EC2 API rejects non-ASCII GroupDescription characters,
   # so an em-dash here fails every fresh apply.
   description = "Stack EC2 - controlled inbound, HTTPS/email/tunnel outbound"
@@ -148,7 +148,9 @@ resource "aws_security_group" "memrain" {
     # replacement of the SG, which detaches it from the live EC2 +
     # resets every in-flight TCP connection (cloudflared tunnel, RDS
     # pool). Descriptions are documentation; pin them.
-    ignore_changes = [description]
+    # A name change still replaces it: create the new SG first.
+    create_before_destroy = true
+    ignore_changes        = [description]
   }
 }
 
@@ -156,10 +158,14 @@ resource "aws_security_group" "memrain" {
 # tfstate bucket). Bucket name pattern: <project>-scripts-<account_id>; the
 # account-ID component avoids global-namespace collisions across forks.
 resource "aws_s3_bucket" "scripts" {
-  bucket = "${var.project_name}-scripts-${data.aws_caller_identity.current.account_id}"
+  bucket = local.scripts_bucket_name
 
   tags = {
     Name = "${var.project_name}-scripts"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

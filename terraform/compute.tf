@@ -38,7 +38,7 @@ resource "aws_instance" "memrain" {
     secrets_prefix       = var.secrets_prefix
     aws_region           = var.aws_region
     domain               = var.domain
-    memex_subdomain      = var.memex_subdomain
+    subdomain            = local.subdomain
     ingress_mode         = var.ingress_mode
   })
 
@@ -70,6 +70,7 @@ resource "aws_instance" "memrain" {
   }
 
   lifecycle {
+    prevent_destroy = true
     # instance_type stays out of ignore_changes — terraform should surface
     # drift if the live size diverges from intent.
     ignore_changes = [ami, user_data]
@@ -82,6 +83,11 @@ resource "aws_eip" "memrain" {
 
   tags = {
     Name = "${var.project_name}-eip"
+  }
+
+  lifecycle {
+    # A caddy install's DNS points at this address.
+    prevent_destroy = true
   }
 }
 

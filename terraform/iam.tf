@@ -9,7 +9,7 @@ data "aws_iam_policy_document" "ec2_assume_role" {
 }
 
 resource "aws_iam_role" "memrain" {
-  name               = "${var.project_name}-role"
+  name               = local.iam_role_name
   assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 }
 
@@ -122,7 +122,8 @@ data "aws_iam_policy_document" "memrain_custom" {
       "secretsmanager:DescribeSecret",
     ]
     resources = [
-      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.secrets_prefix}/*",
+      for p in local.secrets_read_prefixes :
+      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${p}/*"
     ]
   }
 
@@ -136,7 +137,7 @@ data "aws_iam_policy_document" "memrain_custom" {
       "secretsmanager:PutSecretValue",
     ]
     resources = [
-      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.secrets_prefix}/memex-public-bearer-*",
+      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.public_bearer_secret_name}-*",
     ]
   }
 
@@ -168,12 +169,12 @@ data "aws_iam_policy_document" "memrain_custom" {
 }
 
 resource "aws_iam_role_policy" "memrain_custom" {
-  name   = "${var.project_name}-custom-policy"
+  name   = local.custom_policy_name
   role   = aws_iam_role.memrain.id
   policy = data.aws_iam_policy_document.memrain_custom.json
 }
 
 resource "aws_iam_instance_profile" "memrain" {
-  name = "${var.project_name}-instance-profile"
+  name = local.instance_profile_name
   role = aws_iam_role.memrain.name
 }

@@ -2,7 +2,7 @@
 # Mount targets exist in every AZ used by the stack subnets.
 
 resource "aws_security_group" "efs" {
-  name        = "${var.project_name}-efs-sg"
+  name        = local.efs_sg_name
   description = "Allow NFS (2049) inbound from stack instances"
   vpc_id      = aws_vpc.main.id
 
@@ -25,7 +25,9 @@ resource "aws_security_group" "efs" {
     # AWS treats SG `description` as immutable — every cosmetic edit
     # would otherwise force replacement of the SG and detach live
     # mount targets. Description is documentation; pin it.
-    ignore_changes = [description]
+    # A name change still replaces it: create the new SG first.
+    create_before_destroy = true
+    ignore_changes        = [description]
   }
 }
 
@@ -42,7 +44,7 @@ resource "aws_efs_backup_policy" "memrain" {
 }
 
 resource "aws_efs_file_system" "memrain" {
-  creation_token   = "${var.project_name}-data"
+  creation_token   = coalesce(var.efs_creation_token, "${var.project_name}-data")
   encrypted        = true
   performance_mode = "generalPurpose"
   throughput_mode  = "bursting"
@@ -60,6 +62,13 @@ resource "aws_efs_file_system" "memrain" {
 
   tags = {
     Name = "${var.project_name}-data"
+  }
+
+  lifecycle {
+    # creation_token is ForceNew: a changed token would replace the file
+    # system and everything on it.
+    prevent_destroy = true
+    ignore_changes  = [creation_token]
   }
 }
 
@@ -95,7 +104,7 @@ data "aws_iam_policy_document" "efs_client" {
 }
 
 resource "aws_iam_role_policy" "efs_client" {
-  name   = "${var.project_name}-efs-client"
+  name   = local.efs_client_policy_name
   role   = aws_iam_role.memrain.id
   policy = data.aws_iam_policy_document.efs_client.json
 }

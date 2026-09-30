@@ -1,5 +1,5 @@
 resource "aws_cloudwatch_log_group" "memrain" {
-  name              = "/${var.project_name}/app"
+  name              = local.log_group_name
   retention_in_days = 14
 
   tags = {
@@ -13,7 +13,7 @@ resource "aws_cloudwatch_log_group" "memrain" {
 
 resource "aws_sns_topic" "alarms" {
   count = var.alarm_email != "" ? 1 : 0
-  name  = "${var.project_name}-alarms"
+  name  = local.sns_topic_name
 
   tags = {
     Name = "${var.project_name}-alarms"

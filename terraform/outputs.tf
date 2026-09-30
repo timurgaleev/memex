@@ -48,8 +48,11 @@ output "secret_arns" {
   value = {
     cloudflared         = one(aws_secretsmanager_secret.cloudflared_tunnel_token[*].arn)
     github_deploy_key   = var.use_ssh_deploy_key ? aws_secretsmanager_secret.github_deploy_key[0].arn : null
+    postgres_url        = aws_secretsmanager_secret.memrain_postgres_url.arn
+    public_bearer       = aws_secretsmanager_secret.memrain_public_bearer.arn
     memex_postgres_url  = aws_secretsmanager_secret.memrain_postgres_url.arn
     memex_public_bearer = aws_secretsmanager_secret.memrain_public_bearer.arn
+    # memex_* are deprecated aliases of postgres_url / public_bearer.
   }
 }
 

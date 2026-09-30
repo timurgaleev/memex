@@ -74,7 +74,7 @@ resource "aws_route_table_association" "multi_az" {
 # Security group for interface endpoints — allows HTTPS inbound from within the VPC only
 resource "aws_security_group" "vpc_endpoints" {
   count       = var.enable_vpc_endpoints ? 1 : 0
-  name        = "${var.project_name}-vpc-endpoints-sg"
+  name        = local.vpc_endpoints_sg_name
   description = "Allow HTTPS from VPC CIDR to interface endpoints"
   vpc_id      = aws_vpc.main.id
 
@@ -95,6 +95,13 @@ resource "aws_security_group" "vpc_endpoints" {
 
   tags = {
     Name = "${var.project_name}-vpc-endpoints-sg"
+  }
+
+  lifecycle {
+    # The description is immutable; a name change replaces the SG, so
+    # create the new one first.
+    create_before_destroy = true
+    ignore_changes        = [description]
   }
 }
 

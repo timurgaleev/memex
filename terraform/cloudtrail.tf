@@ -1,7 +1,3 @@
-locals {
-  cloudtrail_bucket_name = "${var.project_name}-cloudtrail-${data.aws_caller_identity.current.account_id}"
-}
-
 # S3 bucket for CloudTrail logs — 90-day retention, encrypted, no public access
 resource "aws_s3_bucket" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
@@ -9,6 +5,10 @@ resource "aws_s3_bucket" "cloudtrail" {
 
   tags = {
     Name = "${var.project_name}-cloudtrail"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -102,7 +102,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 # CloudTrail — records all management API calls in the configured region.
 resource "aws_cloudtrail" "memrain" {
   count                         = var.enable_cloudtrail ? 1 : 0
-  name                          = "${var.project_name}-trail"
+  name                          = local.cloudtrail_name
   s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id
   include_global_service_events = true
   is_multi_region_trail         = true
@@ -113,4 +113,9 @@ resource "aws_cloudtrail" "memrain" {
   }
 
   depends_on = [aws_s3_bucket_policy.cloudtrail]
+
+  lifecycle {
+    # A name change replaces the trail; keep logging until the new one runs.
+    create_before_destroy = true
+  }
 }

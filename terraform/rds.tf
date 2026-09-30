@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "rds" {
-  name        = "${var.project_name}-rds"
+  name        = local.rds_sg_name
   description = "RDS Postgres for memex - only the EC2 SG can reach 5432"
   vpc_id      = aws_vpc.main.id
 
@@ -32,17 +32,30 @@ resource "aws_security_group" "rds" {
   tags = {
     Name = "${var.project_name}-rds"
   }
+
+  lifecycle {
+    # A name change replaces the SG; create the new one first so RDS is
+    # re-pointed before the old one goes. The description is immutable.
+    create_before_destroy = true
+    ignore_changes        = [description]
+  }
 }
 
 resource "aws_db_subnet_group" "memrain" {
-  name = "${var.project_name}-memex"
+  name = local.db_subnet_group_name
   subnet_ids = concat(
     [aws_subnet.public.id],
     [for s in aws_subnet.multi_az : s.id],
   )
 
   tags = {
-    Name = "${var.project_name}-memex"
+    Name = "${var.project_name}-${var.app_slug}"
+  }
+
+  lifecycle {
+    # AWS cannot move a DB instance to another subnet group in the same VPC,
+    # so a replaced group could never be attached. Keep the name pinned.
+    prevent_destroy = true
   }
 }
 
@@ -50,7 +63,7 @@ resource "aws_db_subnet_group" "memrain" {
 # without superuser. shared_preload_libraries doesn't include pgvector
 # (it's a CREATE EXTENSION-time module); we list it for clarity.
 resource "aws_db_parameter_group" "memrain_pg16" {
-  name        = "${var.project_name}-memex-pg16"
+  name        = local.db_parameter_group_name
   family      = "postgres16"
   description = "Postgres 16 params for memex - pgvector + pg_trgm preloaded as needed"
 
@@ -70,6 +83,13 @@ resource "aws_db_parameter_group" "memrain_pg16" {
     value        = "1"
     apply_method = "pending-reboot"
   }
+
+  lifecycle {
+    # The description is ForceNew; a name change replaces the group, and the
+    # new one must exist before the instance is switched to it.
+    create_before_destroy = true
+    ignore_changes        = [description]
+  }
 }
 
 resource "random_password" "memrain_db" {
@@ -84,15 +104,15 @@ resource "random_password" "memrain_db" {
 }
 
 resource "aws_db_instance" "memrain" {
-  identifier                 = "${var.project_name}-memex"
+  identifier                 = local.rds_identifier
   engine                     = "postgres"
   engine_version             = "16.13"
   instance_class             = "db.t4g.micro"
   allocated_storage          = 20
   storage_type               = "gp3"
   storage_encrypted          = true
-  db_name                    = "memex"
-  username                   = "memex"
+  db_name                    = var.db_name
+  username                   = var.db_username
   password                   = random_password.memrain_db.result
   parameter_group_name       = aws_db_parameter_group.memrain_pg16.name
   db_subnet_group_name       = aws_db_subnet_group.memrain.name
@@ -103,28 +123,40 @@ resource "aws_db_instance" "memrain" {
   maintenance_window         = "sun:04:30-sun:05:30"
   deletion_protection        = true
   skip_final_snapshot        = false
-  final_snapshot_identifier  = "${var.project_name}-memex-final-${formatdate("YYYY-MM-DD", timestamp())}"
-  apply_immediately          = false
+  final_snapshot_identifier  = "${local.rds_identifier}-final-${formatdate("YYYY-MM-DD", timestamp())}"
+  apply_immediately          = var.rds_apply_immediately
   auto_minor_version_upgrade = true
   copy_tags_to_snapshot      = true
 
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       # `final_snapshot_identifier` includes timestamp() → would always be
       # in drift; ignore so plan is clean once the resource exists.
       final_snapshot_identifier,
+      # db_name is ForceNew (a new, empty database) and the master user
+      # cannot be renamed; the password is owned by the Postgres URL secret.
+      db_name,
+      username,
+      password,
     ]
   }
 
   tags = {
-    Name = "${var.project_name}-memex"
+    Name = "${var.project_name}-${var.app_slug}"
   }
 }
 
 resource "aws_secretsmanager_secret" "memrain_postgres_url" {
-  name                    = "${var.secrets_prefix}/memex-postgres-url"
+  name                    = local.postgres_url_secret_name
   description             = "Postgres connection URL for the memex RDS — fetched at container start by fetch-secrets.sh into MEMEX_POSTGRES_URL env"
   recovery_window_in_days = 0
+
+  lifecycle {
+    # recovery_window_in_days = 0 deletes at once; never let a rename do it.
+    prevent_destroy = true
+    ignore_changes  = [description]
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "memrain_postgres_url" {
@@ -137,14 +169,30 @@ resource "aws_secretsmanager_secret_version" "memrain_postgres_url" {
     aws_db_instance.memrain.port,
     aws_db_instance.memrain.db_name,
   )
+
+  lifecycle {
+    # Once the operator owns the value, terraform never writes a new one or
+    # moves AWSCURRENT.
+    ignore_changes = [secret_string, version_stages]
+  }
+}
+
+output "memrain_rds_endpoint" {
+  description = "RDS Postgres endpoint (DNS name + port)."
+  value       = "${aws_db_instance.memrain.address}:${aws_db_instance.memrain.port}"
+}
+
+output "memrain_rds_secret_arn" {
+  description = "ARN of the secret holding the Postgres URL."
+  value       = aws_secretsmanager_secret.memrain_postgres_url.arn
 }
 
 output "memex_rds_endpoint" {
-  description = "RDS Postgres endpoint for memex (DNS name + port)."
+  description = "DEPRECATED alias of memrain_rds_endpoint."
   value       = "${aws_db_instance.memrain.address}:${aws_db_instance.memrain.port}"
 }
 
 output "memex_rds_secret_arn" {
-  description = "ARN of the secret holding the memex Postgres URL."
+  description = "DEPRECATED alias of memrain_rds_secret_arn."
   value       = aws_secretsmanager_secret.memrain_postgres_url.arn
 }
